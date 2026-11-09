@@ -53,6 +53,8 @@ export function resolveSkillProgressionAward(
   if (!isSkillProgressionTarget(event.target.targetType)) return null
   if (event.appliedDamage <= 0) return null
 
+  if (event.method === 'melee' && event.weaponId === 'unarmed' && event.attackSource !== 'xongkoro') return { skill: 'unarmed', xp: event.appliedDamage * 2 }
+
   const skill = event.method === 'melee' && event.attackSource === 'xongkoro'
     ? 'mountedImpact' : resolveCombatSkill(event.method, meleeWeapon, hasShield)
   if (!skill) return null
@@ -79,7 +81,9 @@ export function resolveSkillAdjustedMaxHp(
 }
 
 export function skillStatesEqual(a: SkillState, b: SkillState): boolean {
-  return a.oneHanded.level === b.oneHanded.level
+  return a.unarmed.level === b.unarmed.level
+    && a.unarmed.xp === b.unarmed.xp
+    && a.oneHanded.level === b.oneHanded.level
     && a.oneHanded.xp === b.oneHanded.xp
     && a.twoHanded.level === b.twoHanded.level
     && a.twoHanded.xp === b.twoHanded.xp

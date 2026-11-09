@@ -39,6 +39,7 @@ export interface PlayerSaveData {
   stamina: number
   arrows: number
   skills: {
+    unarmed?: SkillDetail
     oneHanded: SkillDetail
     twoHanded?: SkillDetail
     ranged?: SkillDetail
@@ -72,6 +73,7 @@ export const DEFAULT_SAVE: PlayerSaveData = {
   stamina: 100,
   arrows: 30,
   skills: {
+    unarmed: { level: 1, xp: 0 },
     oneHanded: { level: 1, xp: 0 },
     twoHanded: { level: 1, xp: 0 },
     ranged: { level: 1, xp: 0 },
@@ -152,6 +154,7 @@ export class SaveManager {
         falling: parseFallingRiderSnapshot(parsed.falling),
         position: { ...DEFAULT_SAVE.position, ...parsed.position },
         skills: {
+          unarmed: { ...DEFAULT_SAVE.skills.unarmed!, ...parsed.skills?.unarmed },
           oneHanded: { ...DEFAULT_SAVE.skills.oneHanded, ...parsed.skills?.oneHanded },
           twoHanded: { ...DEFAULT_SAVE.skills.twoHanded!, ...parsed.skills?.twoHanded },
           ranged: { ...DEFAULT_SAVE.skills.ranged!, ...(parsed.skills?.ranged ?? parsed.skills?.archery) },

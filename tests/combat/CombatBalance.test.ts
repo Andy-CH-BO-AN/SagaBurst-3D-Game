@@ -4,9 +4,34 @@ import { applyHeroIncomingDamage, applyHeroMeleeDamage, applyHeroOutgoingDamage,
 import { calculatePlayerMeleeDamage } from '../../src/combat/PlayerMeleeDamage'
 import { NPC } from '../../src/world/NPC'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
+import { punchEventsBetween, punchExtension, unarmedDamage } from '../../src/combat/UnarmedCombat'
 
 
 describe('Combat damage eligibility', () => {
+  it('拳擊跨越多個接觸點時每拳只發出一次，左右拳動作與事件同步', () => {
+    const first = punchEventsBetween(0, 1, false)
+    expect(first.map(event => event.hand)).toEqual(['right', 'left', 'right'])
+    const last = punchEventsBetween(1, 2, false)
+    expect(last.map(event => event.index)).toEqual([3])
+    expect(punchEventsBetween(.18, .18, false)).toEqual([])
+    for (const event of [...first, ...last]) expect(punchExtension(event.time, event.hand, false)).toBeCloseTo(1)
+  })
+  it('持盾拳擊僅動右拳，徒手傷害沿用技能與角色倍率', () => {
+    const events = punchEventsBetween(0, 2, true)
+    expect(events.map(event => event.hand)).toEqual(['right', 'right', 'right', 'right'])
+    for (const event of events) expect(punchExtension(event.time, 'left', true)).toBe(0)
+    expect(unarmedDamage(1)).toBe(5)
+    expect(unarmedDamage(2, 'byzantine-cataphract-t5')).toBe(30)
+  })
+  it('拜占庭軍旗槍以既有衝鋒門檻計算九百四十五傷害，普通指揮官不變', () => {
+    const weapon = WEAPONS.byzantine_standard_lance_t5
+    const input = { baseDamage: weapon.damageMax, combatKind: weapon.combatKind, isLance: true,
+      isMounted: true, mountSpeed: 12, oneHandedMultiplier: 1, faction: 'roman' as const, hasShield: true }
+    expect(calculatePlayerMeleeDamage({ ...input, heroAssetId: 'byzantine-cataphract-t5' })).toEqual({ damage: 945, isCharge: true })
+    expect(applyHeroIncomingDamage(100, 'byzantine-cataphract')).toBe(40)
+    expect(getHeroCombatModifiers('roman-commander')!.maxHp).toBe(850)
+    expect(getHeroCombatModifiers('viking-commander')!.maxHp).toBe(900)
+  })
   it('doubles ground bow engagement only, retaining ranger and javelin rules', () => {
     expect(getNpcRangedAttackRange('bow', false)).toBe(100)
     expect(getNpcRangedAttackRange('bow', true)).toBe(60)

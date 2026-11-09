@@ -1,0 +1,61 @@
+[
+  {
+    "id": "byzantine_standard_lance_t5",
+    "sourceFile": "Meshy_AI_Byzantine_Standard_Sp_1107021416_texture.glb",
+    "sourceSha256": "e46c068d6d36b6afe680ca962611ce37c9970d8e9381d304edb03e7f335e3900",
+    "sourceProvider": "Meshy; user-supplied GLB",
+    "publishedPath": "models/weapons/byzantine/standard-lance.glb",
+    "rightsEvidence": "User supplied Meshy GLB for SagaBurst; same Meshy-equipment redistribution basis as faction-shields/sources.json (confirmed 2026-11-02).",
+    "build": "python3 tools/build-byzantine-equipment.py SOURCE_DIRECTORY",
+    "geometryPolicy": "All source accessor, index, UV, normal, material and image bytes retained; uniform node transform only.",
+    "triangles": 2815,
+    "uniformScale": 3.46940408263733,
+    "sourceToAttachmentMatrix": [
+      3.46940408263733,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      3.46940408263733,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      3.46940408263733,
+      0.0,
+      -0.12112557142972946,
+      1.149153470993042,
+      -0.0,
+      1.0
+    ],
+    "boundsMin": [
+      -0.28968309686929217,
+      -0.5000000235073401,
+      -0.03472873597147214
+    ],
+    "boundsMax": [
+      0.0525146317270786,
+      2.7999999764926597,
+      0.03303219657353438
+    ],
+    "gripCenterLocal": [
+      0,
+      0.15,
+      0
+    ],
+    "longAxis": "+Y",
+    "visibleLengthMeters": 3.3,
+    "tipLocal": [
+      0,
+      2.8,
+      0
+    ],
+    "supportPointLocal": [
+      0,
+      0.33,
+      0
+    ],
+    "gameplayHitRangeMeters": 3.9,
+    "finalSha256": "b9c75e7b8cfc6eb0664e9f5835681b23b9334bdbf3afb7a0af9f91c1244bd8c6"
+  }
+]

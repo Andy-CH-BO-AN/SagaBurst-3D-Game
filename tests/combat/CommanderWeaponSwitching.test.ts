@@ -44,7 +44,7 @@ function combatAnimator(getMeleeTiming?: HumanoidAnimationController['getMeleeTi
     action: 'idle', ownership: 'procedural', elapsed: 0, actionTimeScale: 1,
     shieldGuardEnabled: false, shieldRaised: false, lanceEquipped: false,
     locomotion: 'idle', mountKind: 'HORSE', locomotionTimeScale: 1,
-    events: { hitActiveStarted: false, projectileRelease: false, actionCompleted: false },
+    events: { hitActiveStarted: false, projectileRelease: false, actionCompleted: false, fists: [] },
   }) as CharacterCombatAnimator
   return { animator, animation, state, attachment, meleePivot }
 }
@@ -164,13 +164,13 @@ describe('Combat animator imported melee clock', () => {
     expect(animator.meleeHitActive).toBe(true)
     expect(animator.busy).toBe(true)
     expect(animator.update(.1525, 100)).toEqual({
-      hitActiveStarted: true, projectileRelease: false, actionCompleted: true,
+      hitActiveStarted: true, projectileRelease: false, actionCompleted: true, fists: [],
     })
     expect(animation.update).toHaveBeenCalledWith(.1525, 0)
     expect(animator.busy).toBe(false)
     expect(animator.meleeHitActive).toBe(false)
     expect(animator.update(1, 100)).toEqual({
-      hitActiveStarted: false, projectileRelease: false, actionCompleted: false,
+      hitActiveStarted: false, projectileRelease: false, actionCompleted: false, fists: [],
     })
   })
 
@@ -190,7 +190,7 @@ describe('Combat animator imported melee clock', () => {
     expect(state).toMatchObject({ action: 'idle', elapsed: 0, mounted: true })
     expect(animation.play).toHaveBeenLastCalledWith('mounted', expect.objectContaining({ loop: true, timeScale: 1 }))
     expect(animator.update(1, 100)).toEqual({
-      hitActiveStarted: false, projectileRelease: false, actionCompleted: false,
+      hitActiveStarted: false, projectileRelease: false, actionCompleted: false, fists: [],
     })
     expect(animator.meleeHitActive).toBe(false)
   })
@@ -210,7 +210,7 @@ describe('Combat animator imported melee clock', () => {
     expect(state.elapsed).toBeCloseTo(.45)
     animator.setLocomotion(4, true)
     animator.poseIdle()
-    expect(animator.update(0, 100)).toEqual({ hitActiveStarted: false, projectileRelease: false, actionCompleted: false })
+    expect(animator.update(0, 100)).toEqual({ hitActiveStarted: false, projectileRelease: false, actionCompleted: false, fists: [] })
     expect(state.elapsed).toBeCloseTo(.45)
     expect(animator.update(.014, 100).actionCompleted).toBe(false)
     expect(state.elapsed).toBeCloseTo(.478)
@@ -226,7 +226,7 @@ describe('Combat animator imported melee clock', () => {
     expect(holdsTail.call(animator)).toBe(false)
     attachment.meleeAnimationKind = 'axe'
     expect(holdsTail.call(animator)).toBe(true)
-    expect(animator.update(1, 100)).toEqual({ hitActiveStarted: false, projectileRelease: false, actionCompleted: false })
+    expect(animator.update(1, 100)).toEqual({ hitActiveStarted: false, projectileRelease: false, actionCompleted: false, fists: [] })
     expect(state).toMatchObject({ action: 'idle', elapsed: 0, continuousAxeAction: false })
   })
 })
@@ -362,7 +362,7 @@ describe('Combat animator bow-to-lance recovery', () => {
     expect(animator.currentAction).toBe('idle')
     expect(state).toMatchObject({ action: 'idle', mounted: false, lance: true, elapsed: 0 })
     expect(animation.play).toHaveBeenLastCalledWith('walk', expect.objectContaining({ loop: true, timeScale: 1 }))
-    expect(animator.update(.5)).toEqual({ hitActiveStarted: false, projectileRelease: false, actionCompleted: false })
+    expect(animator.update(.5)).toEqual({ hitActiveStarted: false, projectileRelease: false, actionCompleted: false, fists: [] })
   })
 })
 

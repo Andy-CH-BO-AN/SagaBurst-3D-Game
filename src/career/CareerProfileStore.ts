@@ -470,14 +470,18 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     deadCivilianActorIds: uniqueStrings(raw.deadCivilianActorIds).filter(id => uniqueStrings(raw.civilianActorIds).includes(id)),
     playerDead: raw.playerDead === true,
     ...(duel ? {
+      duelMode: raw.duelMode === 'unarmed' ? 'unarmed' : 'armed',
+      ...(raw.duelMode === 'unarmed' && raw.duelFailureReason === 'illegal_attack' ? { duelFailureReason: 'illegal_attack' as const } : {}),
+      ...(raw.duelMode === 'unarmed' ? { duelPlayerWasMounted: raw.duelPlayerWasMounted === true,
+        ...(typeof raw.duelPlayerHomeMountActorId === 'string' ? { duelPlayerHomeMountActorId: raw.duelPlayerHomeMountActorId } : {}) } : {}),
       duelTier: raw.duelTier as CareerDuelTier,
       ...(typeof raw.duelTutorialCareerId === 'string' ? { duelTutorialCareerId: raw.duelTutorialCareerId } : {}),
-      ...(raw.duelTier === 5 || raw.duelTutorialCareerId ? { duelCommanderHome: parseCareerDuelCommanderHome(raw.duelCommanderHome),
+      ...(raw.duelMode === 'unarmed' || raw.duelTier === 5 || raw.duelTutorialCareerId ? { duelCommanderHome: parseCareerDuelCommanderHome(raw.duelCommanderHome),
         duelTravel: parseCareerDuelTravelCheckpoint(raw.duelTravel, [...new Set([duelOpponentActorId, duelCaptainActorId, ...(raw.duelTutorialCareerId ? [duelRefereeActorId] : [])])]) } : {}),
       duelPresetId: raw.duelPresetId as UnitPresetId,
       duelOpponentActorId, duelCaptainActorId, duelRefereeActorId,
       duelCountdownElapsed: Math.min(DUEL_COUNTDOWN_SECONDS, nonNegativeNumber(raw.duelCountdownElapsed)),
-      duelCombatElapsed: Math.min(DUEL_COMBAT_SECONDS, nonNegativeNumber(raw.duelCombatElapsed)),
+      duelCombatElapsed: Math.min(raw.duelMode === 'unarmed' ? 90 : DUEL_COMBAT_SECONDS, nonNegativeNumber(raw.duelCombatElapsed)),
       duelOpponentDead: raw.duelOpponentDead === true || uniqueStrings(raw.deadTargetActorIds).includes(duelOpponentActorId),
       ...(typeof raw.duelOpponentMaxHp === 'number' && Number.isFinite(raw.duelOpponentMaxHp) && raw.duelOpponentMaxHp > 0 ? { duelOpponentMaxHp: raw.duelOpponentMaxHp } : {}),
       ...(typeof raw.duelOpponentHp === 'number' && Number.isFinite(raw.duelOpponentHp) && raw.duelOpponentHp >= 0 ? { duelOpponentHp: raw.duelOpponentHp } : {}),
@@ -700,6 +704,8 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const eligible = resolveCareerRank(totalMerit - enlistmentMeritBase)
   const requested = CAREER_RANKS.indexOf(raw.rank as CareerProfile['rank'])
   const rank = CAREER_RANKS[Math.max(0, Math.min(requested, CAREER_RANKS.indexOf(eligible)))]
+  if (raw.eliteClass !== undefined && raw.eliteClass !== null && (raw.eliteClass !== 'byzantine-cataphract'
+    || raw.faction !== 'roman' || rank !== 'commander' || totalMerit - enlistmentMeritBase < 30000)) return null
   const tutorial = raw.tutorial === undefined ? createCareerTutorialState(rank, false) : parseCareerTutorialState(raw.tutorial)
   if (!tutorial) return null
   const tutorialDuel = (raw.activeMission as Partial<ActiveCareerMission> | undefined)?.duelTutorialCareerId
@@ -744,6 +750,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     totalMerit,
     availableMerit,
     rank,
+    eliteClass: raw.eliteClass === 'byzantine-cataphract' ? 'byzantine-cataphract' : null,
     ...(raw.meleeSelectionOrigin === 'starter' || raw.meleeSelectionOrigin === 'custom'
       ? { meleeSelectionOrigin: raw.meleeSelectionOrigin } : {}),
     ...(raw.commanderMeleeGranted === true ? { commanderMeleeGranted: true } : {}),
@@ -847,11 +854,18 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
         ...((raw.careerMissionCompletionsByTier as Record<string, unknown>)[4] !== undefined ? { 4: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[4]) } : {}),
         ...((raw.careerMissionCompletionsByTier as Record<string, unknown>)[5] !== undefined ? { 5: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[5]) } : {}),
       } } : {}),
+    ...(raw.townDuelResidentRecovery && typeof raw.townDuelResidentRecovery === 'object'
+      && (raw.townDuelResidentRecovery as Record<string, unknown>).faction === raw.faction
+      && typeof (raw.townDuelResidentRecovery as Record<string, unknown>).actorId === 'string'
+      && parseCareerDuelCommanderHome(raw.townDuelResidentRecovery)
+      ? { townDuelResidentRecovery: { ...parseCareerDuelCommanderHome(raw.townDuelResidentRecovery)!, faction: raw.faction as CareerProfile['faction'],
+        actorId: (raw.townDuelResidentRecovery as Record<string, unknown>).actorId as string } } : {}),
     ...(raw.townCommanderRecovery && typeof raw.townCommanderRecovery === 'object'
       && ['roman', 'viking'].includes((raw.townCommanderRecovery as Record<string, unknown>).faction as string)
       && parseCareerDuelCommanderHome(raw.townCommanderRecovery)
       ? { townCommanderRecovery: { ...parseCareerDuelCommanderHome(raw.townCommanderRecovery)!,
         faction: (raw.townCommanderRecovery as Record<string, unknown>).faction as CareerProfile['faction'] } } : {}),
+    ...(isCareerDuelTier(raw.unarmedDuelHighestDefeatedTier) ? { unarmedDuelHighestDefeatedTier: raw.unarmedDuelHighestDefeatedTier } : {}),
     ...(raw.duelHighestDefeatedTierByPreset && typeof raw.duelHighestDefeatedTierByPreset === 'object'
       ? { duelHighestDefeatedTierByPreset: Object.fromEntries(Object.entries(raw.duelHighestDefeatedTierByPreset)
         .filter(([presetId, tier]) => isCareerDuelPresetId(presetId) && isCareerDuelTier(tier))) as Partial<Record<UnitPresetId, CareerDuelTier>> } : {}),
@@ -946,6 +960,8 @@ export class CareerProfileStore {
           && profile.rank === 'recruit' && profile.totalMerit === 0 && !profile.careerRetirement)) return false
       const parsed = parseCareerProfile(profile)
       if (!parsed) return false
+      if (existing?.eliteClass === 'byzantine-cataphract' && parsed.tutorial?.careerId === existing.tutorial?.careerId
+        && parsed.enlistmentMeritBase === existing.enlistmentMeritBase && parsed.eliteClass !== existing.eliteClass) return false
       if (profile.tutorial && !parsed.tutorial || profile.activeMission?.duelTutorialCareerId && parsed.activeMission?.duelTutorialCareerId !== profile.activeMission.duelTutorialCareerId) return false
       if (profile.activeMission?.outpostSiege && !parsed.activeMission?.outpostSiege
         || profile.activeMission?.battle?.outpostSiege && !parsed.activeMission?.battle?.outpostSiege

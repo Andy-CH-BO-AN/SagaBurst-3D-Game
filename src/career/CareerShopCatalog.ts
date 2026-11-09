@@ -4,6 +4,7 @@ import { ARMORS } from '../rpg/ArmorDatabase'
 
 export interface CareerShopProduct { id: string; category: 'weapon' | 'armor' | 'mount'; name: string; tier: 1 | 2 | 3 | 4 | 5; price: number }
 export const XONGKORO_PRODUCT: Readonly<CareerShopProduct> = { id: 'xongkoro', category: 'mount', name: 'xongkoro · 巨鷹英雄坐騎', tier: 4, price: 10000 }
+const PRICE_OVERRIDES: Readonly<Record<string, number>> = { byzantine_standard_lance_t5: 3100, byzantine_eagle_shield_t5: 2800 }
 /** Canonical prices and quality tiers; the eagle trainer remains a separate rank-gated service. */
 export const CAREER_SHOP_PRODUCTS: readonly Readonly<CareerShopProduct>[] = Object.freeze([
   ...Object.values(WEAPONS).map(w => ({ id: w.id, category: 'weapon' as const, name: w.name, tier: w.tier, price: w.tier * w.tier * 100 })),
@@ -18,7 +19,7 @@ export const CAREER_SHOP_PRODUCTS: readonly Readonly<CareerShopProduct>[] = Obje
   { id: 'caracal', category: 'mount' as const, name: '獰貓英雄坐騎', tier: 5 as const, price: 6000 },
   { id: 'snow-leopard', category: 'mount' as const, name: '重甲雪豹', tier: 5 as const, price: 9000 },
   XONGKORO_PRODUCT,
-].map(item => Object.freeze(item)))
+].map(item => Object.freeze({ ...item, price: PRICE_OVERRIDES[item.id] ?? item.price })))
 const PRODUCTS_BY_ID = new Map(CAREER_SHOP_PRODUCTS.map(item => [item.id, item]))
 export function careerShopProduct(id: string): Readonly<CareerShopProduct> | undefined { return PRODUCTS_BY_ID.get(id) }
 /** Normal shop equipment and ground mounts can be used at any rank; eagle training keeps its qualification. */

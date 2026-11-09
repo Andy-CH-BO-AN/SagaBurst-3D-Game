@@ -77,7 +77,7 @@ export type PlayerMeleeWeaponId =
   | 'gladius_rusty' | 'gladius_standard' | 'centurion_blade'
   | 'hunting_spear' | 'steel_lance' | 'heavy_lance' | 'spear_t4'
   | 'paladin_sword_t4' | 'paladin_mace_t4'
-  | 'sword_t5' | 'axe_t5' | 'spear_t5'
+  | 'sword_t5' | 'axe_t5' | 'spear_t5' | 'byzantine_standard_lance_t5'
 export type PlayerRangedWeaponId =
   | 'wooden_shortbow' | 'recurve_longbow' | 'elven_runebow'
   | typeof T4_RANGER_BOW_RANGED_ID | 'bow_t5'
@@ -86,7 +86,7 @@ export type PlayerShieldId =
   | 'round_shield_t1' | 'round_shield_t2' | 'round_shield_t3'
   | 'scutum_t1' | 'scutum_t2' | 'scutum_t3'
   | 'paladin_shield_t4' | 'commander_shield_t5'
-  | 'roman_officer_shield_t4' | 'viking_berserker_shield_t5'
+  | 'roman_officer_shield_t4' | 'viking_berserker_shield_t5' | 'byzantine_eagle_shield_t5'
 export const PLAYER_MOUNT_IDS = ['horse', 'armored-horse', 'black-cat', 'white-cat', 'orange-cat', 'serval', 'caracal', 'corgi', 'snow-leopard', 'xongkoro'] as const
 export type PlayerMountId = typeof PLAYER_MOUNT_IDS[number]
 
@@ -112,7 +112,7 @@ export const PLAYER_MELEE_WEAPON_IDS: readonly PlayerMeleeWeaponId[] = [
   'gladius_rusty', 'gladius_standard', 'centurion_blade',
   'hunting_spear', 'steel_lance', 'heavy_lance', 'spear_t4',
   'paladin_sword_t4', 'paladin_mace_t4',
-  'sword_t5', 'axe_t5', 'spear_t5',
+  'sword_t5', 'axe_t5', 'spear_t5', 'byzantine_standard_lance_t5',
 ]
 /** Current setup UI choices; legacy Viking sword IDs remain accepted for saved loadouts. */
 export const PLAYER_MELEE_SELECTION_IDS: readonly PlayerMeleeWeaponId[] = [
@@ -120,7 +120,7 @@ export const PLAYER_MELEE_SELECTION_IDS: readonly PlayerMeleeWeaponId[] = [
   'gladius_rusty', 'gladius_standard', 'centurion_blade',
   'hunting_spear', 'steel_lance', 'heavy_lance', 'spear_t4',
   'paladin_sword_t4', 'paladin_mace_t4',
-  'sword_t5', 'axe_t5', 'spear_t5',
+  'sword_t5', 'axe_t5', 'spear_t5', 'byzantine_standard_lance_t5',
 ]
 export const PLAYER_RANGED_WEAPON_IDS: readonly PlayerRangedWeaponId[] = [
   'wooden_shortbow', 'recurve_longbow', 'elven_runebow', T4_RANGER_BOW_RANGED_ID, 'bow_t5',
@@ -130,7 +130,7 @@ export const PLAYER_SHIELD_IDS: readonly PlayerShieldId[] = [
   'round_shield_t1', 'round_shield_t2', 'round_shield_t3',
   'scutum_t1', 'scutum_t2', 'scutum_t3',
   'paladin_shield_t4', 'commander_shield_t5',
-  'roman_officer_shield_t4', 'viking_berserker_shield_t5',
+  'roman_officer_shield_t4', 'viking_berserker_shield_t5', 'byzantine_eagle_shield_t5',
 ]
 
 export interface BattleConfig {

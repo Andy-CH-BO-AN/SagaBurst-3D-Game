@@ -5,6 +5,7 @@
 import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS, WeaponData } from './WeaponDatabase'
 import { ARMORS, ArmorData } from './ArmorDatabase'
 import { type PlayerHeroId } from '../world/HeroAssetCatalog'
+import { isEquipmentUsable, resolveEquipmentSlot, retryEquipmentNow } from '../world/HighTierEquipment'
 
 export interface InventoryStack {
   id: string
@@ -25,13 +26,23 @@ const LEGACY_LOADOUT: InitialPlayerLoadout = {
 }
 
 export class InventoryManager {
-  rangedEnabled = true
-  meleeEnabled = true
-  shieldEnabled = true
+  protected get combatRestricted(): boolean { return false }
+  private drawnRanged = true
+  private drawnMelee = true
+  private drawnShield = true
+  get rangedEnabled(): boolean { return !this.combatRestricted && this.drawnRanged }
+  set rangedEnabled(value: boolean) { this.drawnRanged = value }
+  get meleeEnabled(): boolean { return !this.combatRestricted && this.drawnMelee }
+  set meleeEnabled(value: boolean) { this.drawnMelee = value }
+  get shieldEnabled(): boolean { return !this.combatRestricted && this.drawnShield }
+  set shieldEnabled(value: boolean) { this.drawnShield = value }
   private items: InventoryStack[]
   private equippedMeleeId: string
   private equippedRangedId: string
   private equippedShieldId: string | null
+  /** What the hands really hold. A selected item waiting for its model stays selected and saved, with no combat effect. */
+  private heldMeleeId: string | null = null
+  private heldShieldId: string | null = null
 
   constructor(initialLoadout?: InitialPlayerLoadout, heroId?: PlayerHeroId | null,
     faction: 'viking' | 'roman' = 'viking') {
@@ -41,10 +52,11 @@ export class InventoryManager {
     this.equippedMeleeId = loadout.meleeWeaponId
     this.equippedRangedId = loadout.rangedWeaponId
     this.equippedShieldId = loadout.shieldId
+    this.meleeEnabled = Boolean(loadout.meleeWeaponId)
     this.rangedEnabled = Boolean(loadout.rangedWeaponId) && !loadout.shieldId
     this.items = initialLoadout || heroId === 'maki-archer-t4'
       ? [
-          { id: loadout.meleeWeaponId, quantity: 1 },
+          ...(loadout.meleeWeaponId ? [{ id: loadout.meleeWeaponId, quantity: 1 }] : []),
           ...(loadout.rangedWeaponId ? [{ id: loadout.rangedWeaponId, quantity: 1 }] : []),
           ...(loadout.shieldId ? [{ id: loadout.shieldId, quantity: 1 }] : []),
         ]
@@ -65,8 +77,14 @@ export class InventoryManager {
       .filter((entry): entry is { item: WeaponData | ArmorData; quantity: number } => entry.item !== undefined)
   }
 
-  get equippedMelee(): WeaponData {
-    return WEAPONS[this.equippedMeleeId] || WEAPONS['steel_lance']
+  get equippedMelee(): WeaponData | undefined {
+    this.heldMeleeId = resolveEquipmentSlot(this.equippedMeleeId, this.heldMeleeId)
+    return this.heldMeleeId ? WEAPONS[this.heldMeleeId] : undefined
+  }
+
+  /** Authoritative drawn melee slot; ownership alone never selects an attack. */
+  get activeMelee(): WeaponData | undefined {
+    return this.meleeEnabled ? this.equippedMelee : undefined
   }
 
   get equippedRanged(): WeaponData {
@@ -74,7 +92,8 @@ export class InventoryManager {
   }
 
   get equippedShield(): ArmorData | null {
-    return this.equippedShieldId ? ARMORS[this.equippedShieldId] : null
+    this.heldShieldId = resolveEquipmentSlot(this.equippedShieldId, this.heldShieldId)
+    return this.heldShieldId ? ARMORS[this.heldShieldId] : null
   }
 
   get saveState() {
@@ -87,8 +106,10 @@ export class InventoryManager {
     }
   }
 
+  /** A loaded save is a fresh selection: nothing held before it may stand in for an item still loading. */
   loadSaveState(state: { items?: InventoryStack[]; ownedWeaponIds?: string[]; equippedMeleeId?: string; equippedRangedId?: string; equippedShieldId?: string | null; rangedEnabled?: boolean }): void {
-    if (state.items && state.items.length > 0) {
+    this.heldMeleeId = this.heldShieldId = null
+    if (state.items) {
       this.items = state.items.map(i => ({ id: i.id, quantity: i.quantity || 1 }))
     } else if (state.ownedWeaponIds && state.ownedWeaponIds.length > 0) {
       this.items = state.ownedWeaponIds.map(id => ({ id, quantity: 1 }))
@@ -101,7 +122,9 @@ export class InventoryManager {
     this.items = [...merged].map(([id, quantity]) => ({ id, quantity }))
 
     this.items = this.items.filter(item => WEAPONS[item.id] || ARMORS[item.id])
-    if (state.equippedMeleeId && WEAPONS[state.equippedMeleeId]?.type === 'melee' && this.canEquipWeapon(state.equippedMeleeId)) {
+    if (state.equippedMeleeId === '') {
+      this.equippedMeleeId = ''
+    } else if (state.equippedMeleeId && WEAPONS[state.equippedMeleeId]?.type === 'melee' && this.canEquipWeapon(state.equippedMeleeId)) {
       this.equippedMeleeId = state.equippedMeleeId
     } else if (!this.canEquipWeapon(this.equippedMeleeId)) {
       this.equippedMeleeId = this.items.find(item => WEAPONS[item.id]?.type === 'melee')?.id ?? ''
@@ -144,6 +167,8 @@ export class InventoryManager {
 
   protected removeOwnedItem(id: string): void {
     this.items = this.items.filter(item => item.id !== id)
+    if (this.heldMeleeId === id) this.heldMeleeId = null
+    if (this.heldShieldId === id) this.heldShieldId = null
     if (this.equippedMeleeId === id) { this.equippedMeleeId = ''; this.meleeEnabled = false }
     if (this.equippedRangedId === id) { this.equippedRangedId = ''; this.rangedEnabled = false }
     if (this.equippedShieldId === id) { this.equippedShieldId = null; this.shieldEnabled = false }
@@ -151,6 +176,7 @@ export class InventoryManager {
 
   equipWeapon(id: string): boolean {
     if (!this.canEquipWeapon(id)) return false
+    retryEquipmentNow(id)
     const weapon = WEAPONS[id], armor = ARMORS[id]
 
     if (weapon) {
@@ -176,10 +202,10 @@ export class InventoryManager {
   }
 
   unequipWeapon(_id: string): boolean { return false }
-  itemAvailability(_id: string): string { return '' }
+  itemAvailability(id: string): string { return isEquipmentUsable(id) ? '' : '模型載入中，暫時無法使用' }
   isAllocated(id: string): boolean { return this.isEquipped(id) }
   get supportsWeaponRelease(): boolean { return false }
-  unequipShield(): void { this.equippedShieldId = null }
+  unequipShield(): void { this.equippedShieldId = this.heldShieldId = null }
 
   isEquipped(id: string): boolean {
     return (this.meleeEnabled && this.equippedMeleeId === id)

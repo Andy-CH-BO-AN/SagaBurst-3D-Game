@@ -189,7 +189,8 @@ export class TownMissionSettlement {
           this.town.beginPatrolMissionReturn(resident.spec.id)
         } else {
           this.restoreResident(resident)
-          if (active.kind === 'duel' && active.duelTier === 5 && resident.spec.id === 'commander' && active.duelCommanderHome) {
+          if (active.kind === 'duel' && active.duelCommanderHome
+            && (active.duelMode === 'unarmed' ? resident.npc.combatantId === active.duelOpponentActorId : active.duelTier === 5 && resident.spec.id === 'commander')) {
             restoreCareerDuelCommander(resident.npc, active.duelCommanderHome, resident.homeMount)
           }
         }

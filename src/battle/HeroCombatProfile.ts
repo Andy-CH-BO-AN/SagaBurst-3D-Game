@@ -1,7 +1,7 @@
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 
 export type T4CombatProfileId = 'varangian' | 'praetorian' | 'ranger'
-export type HeroCombatProfileId = T4CombatProfileId | 'roman-commander' | 'viking-commander'
+export type HeroCombatProfileId = T4CombatProfileId | 'roman-commander' | 'viking-commander' | 'byzantine-cataphract'
 
 /** Shared by Player and NPC; player skill progression is applied by its existing owner. */
 export interface HeroCombatProfile {
@@ -16,6 +16,7 @@ export interface HeroCombatProfile {
 }
 
 export const HERO_COMBAT_PROFILES: Record<HeroCombatProfileId, HeroCombatProfile> = {
+  'byzantine-cataphract': { maxHp: 1000, damageMultiplier: 3, damageTakenMultiplier: .4, attackSpeedMultiplier: 1.3, meleeAttackSpeedMultiplier: 1.3, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 },
   varangian: { maxHp: 500, damageMultiplier: 2, damageTakenMultiplier: 1, attackSpeedMultiplier: 1.5, moveSpeedMultiplier: 1.2, rangedAttackRangeMultiplier: 1 },
   praetorian: { maxHp: 500, damageMultiplier: 2, damageTakenMultiplier: .7, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 },
   ranger: { maxHp: 300, damageMultiplier: 1.3, damageTakenMultiplier: 1, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1.3, rangedAttackRangeMultiplier: 2 },
@@ -24,6 +25,7 @@ export const HERO_COMBAT_PROFILES: Record<HeroCombatProfileId, HeroCombatProfile
 }
 
 export const HERO_COMBAT_PROFILE_BY_ASSET: Record<HeroAssetId, HeroCombatProfileId> = {
+  'byzantine-cataphract-t5': 'byzantine-cataphract',
   'viking-hero-t4': 'varangian',
   'roman-hero-t4': 'praetorian',
   'maki-archer-t4': 'ranger',

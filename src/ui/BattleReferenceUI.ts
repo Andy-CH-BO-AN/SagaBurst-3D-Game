@@ -5,7 +5,7 @@ import { ARMORS } from '../rpg/ArmorDatabase'
 import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
 import { HERO_ASSETS } from '../world/HeroAssetCatalog'
 import {
-  getUnitPresetsForFaction,
+  getCustomBattlePresetsForFaction,
   getTraitDescription,
   type BaseUnitTier as UnitTier,
 } from '../battle/UnitPresetCatalog'
@@ -80,8 +80,8 @@ export class BattleReferenceUI {
   }
 
   private _renderReferencePanel(): string {
-    const vikingPresets = getUnitPresetsForFaction('viking')
-    const romanPresets = getUnitPresetsForFaction('roman')
+    const vikingPresets = getCustomBattlePresetsForFaction('viking')
+    const romanPresets = getCustomBattlePresetsForFaction('roman')
 
     const renderPresetList = (presets: typeof vikingPresets) => `
         <div class="reference-preset-grid">

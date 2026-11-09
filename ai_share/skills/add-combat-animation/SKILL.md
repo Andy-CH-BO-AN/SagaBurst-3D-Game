@@ -24,6 +24,13 @@ description: 匯入或重定向 SagaBurst 戰鬥動畫，串接裝備選擇與�
 - mixer 後套 pose correction、下次 sample 前還原；每項關節修正只有一個 owner。已烘焙握點以 `bakedEquipmentActions` 排除相同 runtime solve，不移除其他裝備姿勢。
 - 持盾保留左手盾姿；雙手動作檢查副手實際握持。騎乘以正式骨盆 seat 校準，從側面／正面檢查整把武器、盾、騎士與坐騎；劈砍接觸前後的世界軌跡須穿過預期目標區。
 
+## 徒手與出拳
+
+- 命中點取拳心，不取手腕：手腕位置會讓直拳差一截而打空。每個 clip 記錄實際接觸時間與左右手；大步長要拆成細小子步，同一接觸只命中一次。
+- 出拳距離必須大於身體碰撞距離。觸發距離小於碰撞距離時，NPC 會貼著目標卻永遠不出拳；這種錯誤單元 fixture 看不出來，要在實際場景量距離。
+- 程序直拳由軀幹轉動帶動，手部方向對齊實際前臂，手腕才不會歪。手指方向從骨骼量測，不信任預設 frame。
+- 預覽要走正式 animator。固定時間取樣的工作室會把拳擊 clip 當成待機，看起來像沒有套用動畫。
+
 ## 驗證
 
 - 依 [combat-browser-validation](../combat-browser-validation/SKILL.md) 直接用 Playwright CLI：先正式 controller 的工作室，後相關戰鬥流程；檢查起手、接觸、收招、換裝、上下馬與必要 LOD。

@@ -10,7 +10,7 @@ import { resolveCharacterIdentity } from '../combat/CharacterIdentity'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
 import { HERO_ASSETS } from '../world/HeroAssetCatalog'
 import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
-import { preloadHighTierEquipment } from '../world/HighTierEquipment'
+import { prepareByzantineEquipment, preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import type { UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { CombatEventSink } from '../combat/CombatAttribution'
@@ -57,6 +57,7 @@ export function personalMemberLoadout(member: CareerPersonalSquadMember, faction
 export async function preloadPersonalSquadMember(member: CareerPersonalSquadMember, faction: CareerProfile['faction']): Promise<void> {
   const spec = personalMemberLoadout(member, faction)
   await Promise.all([HumanoidAssetRegistry.preload(), preloadHighTierEquipment(), preloadPaladinEquipment(),
+    prepareByzantineEquipment([spec.loadout.meleeWeaponId, spec.loadout.shieldId]),
     ...(spec.hero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[spec.hero.visualAssetId].descriptor)] : []),
     ...(spec.loadout.rangedWeaponId === T4_RANGER_BOW_RANGED_ID ? [preloadMakiRangerBow()] : [])])
 }

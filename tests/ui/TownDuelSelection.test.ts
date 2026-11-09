@@ -65,10 +65,10 @@ describe('Career Duel selection pages', () => {
     const profile: CareerProfile = { ...createCareerProfile('roman'), duelHighestDefeatedTierByPreset: { roman_heavy_infantry: 3 } }
     const before = JSON.stringify(profile), h = selection(profile)
     const presets = getUnitPresetsForFaction('roman')
-    expect(h.buttons().map(button => button.textContent)).toEqual(presets.map(preset => `${preset.nameEn} · ${preset.nameZh}`))
+    expect(h.buttons().map(button => button.textContent)).toEqual(['🥊 空手對戰 · Unarmed Duel', ...presets.map(preset => `${preset.nameEn} · ${preset.nameZh}`)])
     expect(h.rows()[0].children[1].textContent).toBe('T1 已解鎖 · T2 已解鎖 · T3 已解鎖 · T4 已解鎖 · T5 Locked')
     h.root.scrollTop = 500; h.content.scrollTop = 300
-    h.buttons()[0].click()
+    h.buttons()[1].click()
     expect(h.root.scrollTop).toBe(0); expect(h.content.scrollTop).toBe(0)
     expect(focused).toBe(h.content.querySelector('h3'))
     expect(h.buttons()[0].textContent).toBe('← 返回兵種列表')
@@ -80,7 +80,7 @@ describe('Career Duel selection pages', () => {
     h.rows()[3].children[2].click(); expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 4)
     h.root.scrollTop = 400; h.buttons()[0].click()
     expect(h.root.scrollTop).toBe(0); expect(h.rows()).toHaveLength(presets.length)
-    h.buttons()[1].click()
+    h.buttons()[2].click()
     expect(h.content.querySelector('h3')!.textContent).toContain(presets[1].nameZh)
     expect(h.rows().map(row => row.children[2].disabled)).toEqual([false, true, true, true, true])
     expect(JSON.stringify(profile)).toBe(before)
@@ -102,14 +102,28 @@ describe('Career Duel selection pages', () => {
     }
     key(2, 'ArrowRight')
     expect(h.rows()).toHaveLength(presets.length)
-    expect(h.buttons().map(button => button.textContent)).toEqual(presets.map(preset => `${preset.nameEn} · ${preset.nameZh}`))
+    expect(h.buttons().map(button => button.textContent)).toEqual(['🥊 空手對戰 · Unarmed Duel', ...presets.map(preset => `${preset.nameEn} · ${preset.nameZh}`)])
     expect(h.tabs.map(tab => [tab.attributes['aria-selected'], tab.tabIndex])).toEqual([['true', 0], ['false', -1], ['false', -1]])
     expect(h.content.attributes['aria-labelledby']).toBe(h.tabs[0].id)
     expect(focused).toBe(h.tabs[0])
     key(0, 'End'); expect(focused).toBe(h.tabs[2])
     key(2, 'ArrowLeft'); expect(focused).toBe(h.tabs[1])
     key(1, 'Home'); expect(focused).toBe(h.tabs[0])
-    expect(h.buttons()).toHaveLength(presets.length)
+    expect(h.buttons()).toHaveLength(presets.length + 1)
     expect(h.accept).not.toHaveBeenCalled()
   })
+})
+
+
+it('空手頁面立即切到自己的 T1–T5，與武裝進度分開並送出明確模式', () => {
+  const h = selection({ ...createCareerProfile('roman'), unarmedDuelHighestDefeatedTier: 1,
+    duelHighestDefeatedTierByPreset: { roman_heavy_infantry: 4 } })
+  h.buttons()[0].click()
+  expect(h.content.querySelector('h3')!.textContent).toContain('空手對戰')
+  expect(h.rows()).toHaveLength(5)
+  expect(h.rows().map(row => row.children[2].disabled)).toEqual([false, false, true, true, true])
+  expect(h.rows()[1].children[1].textContent).toContain('90 秒')
+  h.rows()[2].children[2].click(); expect(h.accept).not.toHaveBeenCalled()
+  h.rows()[1].children[2].click()
+  expect(h.accept).toHaveBeenCalledExactlyOnceWith(undefined, 2, 'unarmed')
 })

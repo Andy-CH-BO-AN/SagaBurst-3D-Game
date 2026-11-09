@@ -27,6 +27,8 @@ const VARANGIAN_FOOT: T4UnitProfile = { visualAssetId: 'viking-hero-t4', combatP
 const VARANGIAN_MOUNTED: T4UnitProfile = { ...VARANGIAN_FOOT, mountOverride: 'black-cat' }
 const PRAETORIAN_FOOT: T4UnitProfile = { visualAssetId: 'roman-hero-t4', combatProfileId: 'praetorian', baseLoadoutTier: 3, mountOverride: null }
 const PRAETORIAN_MOUNTED: T4UnitProfile = { ...PRAETORIAN_FOOT, mountOverride: 'corgi' }
+const VARANGIAN_HEAVY_CAVALRY: T4UnitProfile = { ...VARANGIAN_FOOT, mountOverride: 'snow-leopard' }
+const PRAETORIAN_HEAVY_CAVALRY: T4UnitProfile = { ...PRAETORIAN_FOOT, mountOverride: 'armored-horse' }
 const RANGER: T4UnitProfile = { visualAssetId: 'maki-archer-t4', combatProfileId: 'ranger', baseLoadoutTier: 3, mountOverride: null, specialCombatProfile: 'maki-ranger' }
 
 export const T4_UNIT_PROFILES: Record<UnitPresetId, T4UnitProfile> = {
@@ -36,6 +38,7 @@ export const T4_UNIT_PROFILES: Record<UnitPresetId, T4UnitProfile> = {
   viking_sword_cavalry: VARANGIAN_MOUNTED,
   viking_lancer: VARANGIAN_MOUNTED,
   viking_horse_archer: VARANGIAN_MOUNTED,
+  viking_heavy_cavalry: VARANGIAN_HEAVY_CAVALRY,
   roman_heavy_infantry: PRAETORIAN_FOOT,
   roman_spearman: PRAETORIAN_FOOT,
   roman_archer: RANGER,
@@ -43,6 +46,7 @@ export const T4_UNIT_PROFILES: Record<UnitPresetId, T4UnitProfile> = {
   roman_sword_cavalry: PRAETORIAN_MOUNTED,
   roman_lancer: PRAETORIAN_MOUNTED,
   roman_horse_archer: PRAETORIAN_MOUNTED,
+  roman_heavy_cavalry: PRAETORIAN_HEAVY_CAVALRY,
 }
 
 /** Canonical hero equipment. Explicit runtime weapon swaps are never upgraded by character tier. */

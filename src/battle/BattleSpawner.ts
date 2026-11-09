@@ -12,7 +12,7 @@ import {
   normalizeArmyConfig,
 } from './BattleConfig'
 import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from './T4HeroCatalog'
-import { getT5ProfileForFaction, resolveT5UnitLoadout } from './T5HeroCatalog'
+import { getT5ProfileForPreset, resolveT5UnitLoadout } from './T5HeroCatalog'
 import type { HeroCombatProfileId } from './HeroCombatProfile'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
@@ -405,7 +405,7 @@ export class BattleSpawner {
       for (const tier of CUSTOM_BATTLE_UNIT_TIERS) {
         const count = tierCounts[tier] || 0
         const profile = tier === 4 ? T4_UNIT_PROFILES[presetId] : null
-        const t5Profile = tier === 5 ? getT5ProfileForFaction(faction) : null
+        const t5Profile = tier === 5 ? getT5ProfileForPreset(presetId, faction) : null
         const baseLoadout = resolveUnitLoadout(presetId, (tier >= 4 ? 3 : tier) as BaseUnitTier)
         const loadout = profile ? resolveT4UnitLoadout(presetId) : t5Profile ? resolveT5UnitLoadout(presetId) : baseLoadout
         const hasRanged = Boolean(loadout.rangedWeaponId)

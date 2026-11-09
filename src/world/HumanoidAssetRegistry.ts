@@ -12,7 +12,7 @@ import { civilianHumanoidAssetId } from './CivilianAppearance'
 import { BANDIT_ASSET } from './BanditAsset'
 import { CharacterEquipmentPose, type SwordCarryGripProfile, createEquipmentPoseState, type EquipmentPoseState } from './CharacterEquipmentPose'
 import { InertialPoseTransition } from './InertialPoseTransition'
-import { calibrateEquipmentFrames, calibrateLanceIdleAttachment, type EquipmentGripFrames } from './EquipmentAttachmentContract'
+import { calibrateEquipmentFrames, calibrateLanceIdleAttachment, LANCE_RADIUS, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { prepareEquipmentHandShape } from './EquipmentHandShape'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -25,6 +25,7 @@ import { normalizeBowHandClips, prepareBowGripShape } from './CanonicalBowGripPo
 import type { HandGripFrame } from './BowAttachmentContract'
 import { prepareBladeGrip } from './HumanoidBladeGrip'
 import { prepareSwordHandShape } from './SwordHandShape'
+import { MITTEN_MORPHS, prepareMittenHandShape } from './MittenHandShape'
 import {
   AUDITED_ROMAN_LOD2_SHA256,
   cullRomanLod2TinyDetails,
@@ -45,6 +46,7 @@ import type {
   HumanoidAnimationPlayOptions,
   HumanoidAnimationState,
   HumanoidMeleeTiming,
+  HumanoidPunchTiming,
   LegRig,
 } from './CharacterVisuals'
 
@@ -62,6 +64,8 @@ export interface HumanoidAnimationBinding {
   /** Explicit opt-in for fixed-offset entry/exit blends on this 2H axe take. */
   attackTransition?: 'inertial'
   events?: Record<string, number>
+  /** Clip-driven fists: which hand lands each `punchN` contact event. */
+  punchHands?: ('left' | 'right')[]
 }
 
 export const HUMANOID_LOD_DISTANCES = CHARACTER_LOD_DISTANCES
@@ -608,6 +612,7 @@ export class MixerController implements HumanoidAnimationController {
   private readonly relaxedHandActions: THREE.AnimationAction[][] = []
   private readonly durations = new Map<HumanoidAnimationState, number>()
   private readonly meleeTimings = new Map<HumanoidAnimationState, HumanoidMeleeTiming>()
+  private readonly punchTimings = new Map<HumanoidAnimationState, HumanoidPunchTiming>()
   private current: HumanoidAnimationState | null = null
   private farAccumulator = 0
   private readonly bowMeshes: THREE.SkinnedMesh[] = []
@@ -636,6 +641,8 @@ export class MixerController implements HumanoidAnimationController {
       return new InertialPoseTransition([...nodes])
     }) : []
     for (const binding of bindings) {
+      const punch = parsePunchTiming(binding)
+      if (punch) this.punchTimings.set(binding.clip, punch)
       if (binding.meleeCycleSeconds === undefined) continue
       const { activeStart, hit, activeEnd } = binding.events ?? {}
       if (!(binding.meleeCycleSeconds > 0 && activeStart >= 0 && hit > activeStart && activeEnd > hit && binding.duration > activeEnd)) throw new Error(`Invalid melee timeline: ${binding.clip}`)
@@ -725,6 +732,10 @@ export class MixerController implements HumanoidAnimationController {
 
   getMeleeTiming(state: HumanoidAnimationState): HumanoidMeleeTiming | undefined {
     return this.meleeTimings.get(state)
+  }
+
+  getPunchTiming(state: HumanoidAnimationState): HumanoidPunchTiming | undefined {
+    return this.punchTimings.get(state)
   }
 
   play(state: HumanoidAnimationState, options: HumanoidAnimationPlayOptions = {}): boolean {
@@ -857,6 +868,33 @@ export class MixerController implements HumanoidAnimationController {
   }
 }
 
+/** Fingerless source rig: both hands close through morphs, sized from the same grip frames the weapons use. */
+function prepareMittenLevel(manifest: HumanoidAssetManifest, scene: THREE.Object3D, level: number, restHollow: boolean): void {
+  const right = manifest.swordGripFrames?.[`lod${level}` as 'lod0'], left = manifest.handGripFrames?.left
+  if (!right || !left) throw new Error(`${manifest.id}: mitten hands require grip frames`)
+  const leftCenter = new THREE.Vector3(...left.palmContactCenter).addScaledVector(new THREE.Vector3(...left.palmNormal), LANCE_RADIUS).toArray()
+  if (restHollow) scene.userData.mittenHands = true
+  scene.updateMatrixWorld(true)
+  scene.traverse(object => {
+    if (!(object instanceof THREE.SkinnedMesh)) return
+    prepareMittenHandShape(object, [
+      { bone: scene.getObjectByName('hand_r')!, grip: MITTEN_MORPHS.gripRight, hollow: restHollow ? MITTEN_MORPHS.hollowRight : undefined,
+        frame: { finger: right.fingerDirection, thumb: right.gripAxisLocal, palm: right.palmNormalLocal, center: right.gripCenterLocal } },
+      { bone: scene.getObjectByName('hand_l')!, grip: MITTEN_MORPHS.gripLeft, hollow: restHollow ? MITTEN_MORPHS.hollowLeft : undefined,
+        frame: { finger: left.fingerDirection, thumb: left.thumbDirection, palm: left.palmNormal, center: leftCenter } },
+    ])
+  })
+}
+
+/** Contact events `punch0..N` plus `punchHands`; every contact must lie inside the clip and strictly ascend. */
+export function parsePunchTiming(binding: HumanoidAnimationBinding): HumanoidPunchTiming | undefined {
+  if (!binding.punchHands) return undefined
+  const contacts = binding.punchHands.map((hand, index) => ({ time: binding.events?.[`punch${index}`] as number, hand }))
+  if (contacts.length === 0 || contacts.some((c, i) => !Number.isFinite(c.time) || c.time <= 0 || c.time >= binding.duration || (i > 0 && c.time <= contacts[i - 1].time))
+    || contacts.some(c => c.hand !== 'left' && c.hand !== 'right')) throw new Error(`Invalid punch timeline: ${binding.clip}`)
+  return { duration: binding.duration, contacts }
+}
+
 function armRig(root: THREE.Object3D, side: 'L' | 'R'): ArmRig {
   const suffix = side === 'L' ? 'L' : 'R'
   const shoulder = findBone(root, REQUIRED_BONES[`upperArm${suffix}` as RequiredBoneKey])
@@ -910,6 +948,7 @@ export function createHumanoidRigAdapter(root: THREE.Object3D, animation: Humano
     rightFootSocket: findSocket(root, ['socket_foot_r', 'sole_r'], rightFoot, 'socket_foot_r'),
     animation,
     equipmentGripFrames: root.userData.equipmentGripFrames,
+    mittenHands: root.userData.mittenHands === true,
     upperChest: root.getObjectByName('upper_chest'),
     clavicleLeft: root.getObjectByName('clavicle_l'),
     clavicleRight: root.getObjectByName('clavicle_r'),
@@ -1073,6 +1112,8 @@ export class HumanoidAssetRegistry {
         }
       })
     }
+    // Fingerless bodies: Byzantine's flat hands rest open-gripped; the ordinary Viking's sculpted hands only close to punch.
+    if (manifest.selectedSource?.rig === 'mixamo24' || manifest.selectedSource?.rig === 'ordinary22') levels.forEach((level, index) => prepareMittenLevel(manifest, level.scene, index, manifest.selectedSource?.rig === 'mixamo24'))
     validateEmbeddedAnimations(faction, manifest, levels)
     const frame = readHandFrame(manifest)
     const animationClips = manifest.selectedSource || manifest.sharedLodPose

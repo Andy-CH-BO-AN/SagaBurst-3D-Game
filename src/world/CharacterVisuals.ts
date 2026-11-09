@@ -33,6 +33,8 @@ export interface LegRig {
 }
 
 export type HumanoidAnimationState =
+  | 'punchCombo'
+  | 'punchRight'
   | 'idle'
   | 'walk'
   | 'run'
@@ -62,6 +64,8 @@ export interface HumanoidAnimationPlayOptions {
 
 export interface HumanoidAnimationController {
   getMeleeTiming?(state: HumanoidAnimationState): HumanoidMeleeTiming | undefined
+  /** Authored fist contact times for an imported punch clip; undefined means the procedural fallback owns it. */
+  getPunchTiming?(state: HumanoidAnimationState): HumanoidPunchTiming | undefined
   playHitReaction?(): void
   setEquipmentState?(state: Partial<import('./CharacterEquipmentPose').EquipmentPoseState>): void
   setSwordHandShape?(enabled: boolean): void
@@ -76,6 +80,12 @@ export interface HumanoidAnimationController {
   stop(): void
 }
 
+/** Contacts are in clip seconds (== action seconds at timeScale 1); one damage event per entry. */
+export interface HumanoidPunchTiming {
+  duration: number
+  contacts: ReadonlyArray<{ time: number; hand: 'left' | 'right' }>
+}
+
 /** Source seconds remain on the clip; this describes its gameplay clock. */
 export interface HumanoidMeleeTiming {
   duration: number
@@ -88,6 +98,8 @@ export interface HumanoidMeleeTiming {
 }
 
 export interface CharacterRig {
+  /** Fingerless hands close through morphs rather than finger bones. */
+  mittenHands?: boolean
   equipmentGripFrames?: import('./EquipmentAttachmentContract').EquipmentGripFrames
   upperChest?: THREE.Object3D
   clavicleLeft?: THREE.Object3D

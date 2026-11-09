@@ -4,12 +4,10 @@ import { needsPlayerHpConfirmation, resolveOrdinaryPlayerBaseHp, resolveOrdinary
  * Lightweight, dependency-free DOM interface for Custom Battle configuration.
  * Immediate rendering without waiting for 3D GLB assets.
  */
+import { applyLoadoutCard, BATTLE_SETUP_MELEE_GROUPS, BATTLE_SETUP_SHIELD_GROUPS } from './BattleSetupLoadoutCards'
 import './battle-setup.css'
 import {
   BattleConfig,
-  PlayerMeleeWeaponId,
-  PlayerRangedWeaponId,
-  PlayerShieldId,
   PlayerMountId,
   UnitTier,
   UnitTierCounts,
@@ -36,7 +34,7 @@ import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import {
-  getUnitPresetsForFaction,
+  getCustomBattlePresetsForFaction,
   BASE_UNIT_TIERS,
   type BaseUnitTier,
   type UnitPresetId,
@@ -59,12 +57,14 @@ function getUnitRoleLabel(presetId: UnitPresetId, isAerial: boolean): { tag: str
     case 'viking_sword_cavalry': return { tag: '突擊斧騎', icon: '🐎' }
     case 'viking_lancer': return { tag: '重裝騎槍', icon: '🐎' }
     case 'viking_horse_archer': return { tag: '游擊騎射', icon: '🐎' }
+    case 'viking_heavy_cavalry': return { tag: '槍盾重騎', icon: '🐎' }
     case 'roman_heavy_infantry': return { tag: '軍團步兵', icon: '🛡️' }
     case 'roman_spearman': return { tag: '軍團槍兵', icon: '🔱' }
     case 'roman_archer': return { tag: '軍團弓手', icon: '🏹' }
     case 'roman_javelin_infantry': return { tag: '破陣標槍', icon: '🎯' }
     case 'roman_sword_cavalry': return { tag: '輔助劍騎', icon: '🐎' }
     case 'roman_lancer': return { tag: '重裝槍騎', icon: '🐎' }
+    case 'roman_heavy_cavalry': return { tag: '槍盾重騎', icon: '🐎' }
     case 'roman_horse_archer': return { tag: '輔助騎射', icon: '🐎' }
     default: return { tag: '戰鬥單位', icon: '⚔️' }
   }
@@ -258,7 +258,7 @@ export class BattleSetupUI {
     const rMax = this._getMaxArmyForFaction('roman')
 
     const renderTable = (faction: 'viking' | 'roman') => {
-      const allPresets = getUnitPresetsForFaction(faction)
+      const allPresets = getCustomBattlePresetsForFaction(faction)
       const presets = isAerial
         ? allPresets.filter(p => p.id === `${faction}_archer`)
         : allPresets
@@ -482,7 +482,7 @@ export class BattleSetupUI {
                 <select id="battle-player-hero" class="summary-hero-select">
                   <option value="">一般士兵 Standard</option>
                   ${BASE_UNIT_TIERS.map(tier => `<option value="${tier}">一般士兵 T${tier} · Standard</option>`).join('')}
-                  ${SETUP_PLAYER_HERO_IDS.map(id => `<option value="${id}">${HERO_ASSETS[id].nameZh} ${id.endsWith('t5') ? 'T5' : 'T4'} · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
+                  ${SETUP_PLAYER_HERO_IDS.map(id => `<option value="${id}">${HERO_ASSETS[id].nameZh} ${id === 'byzantine-cataphract-t5' ? 'T5+' : id.endsWith('t5') ? 'T5' : 'T4'} · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
                 </select>
               </label>
             </div>
@@ -590,27 +590,7 @@ export class BattleSetupUI {
 
             <!-- Category 1: Melee -->
             <div class="loadout-category-section ${this.activeLoadoutCategory === 'melee' ? 'active' : ''}" id="loadout-section-melee">
-              ${renderEquipmentGroup('長槍與騎戰長矛', 'LANCE & SPEARS', [
-                { id: 'hunting_spear' },
-                { id: 'steel_lance' },
-                { id: 'heavy_lance' },
-                { id: 'spear_t4' },
-                { id: 'spear_t5' },
-              ], 'melee')}
-              ${renderEquipmentGroup('羅馬佩劍與長劍', 'ROMAN & KNIGHT SWORDS', [
-                { id: 'gladius_rusty' },
-                { id: 'gladius_standard' },
-                { id: 'centurion_blade' },
-                { id: 'paladin_sword_t4' },
-                { id: 'sword_t5' },
-              ], 'melee')}
-              ${renderEquipmentGroup('維京戰斧系列', 'VIKING BATTLE AXES', [
-                { id: 'viking_axe_t1' },
-                { id: 'viking_axe_t2' },
-                { id: 'viking_axe_t3' },
-                { id: 'paladin_mace_t4' },
-                { id: 'axe_t5' },
-              ], 'melee')}
+              ${BATTLE_SETUP_MELEE_GROUPS.map(group => renderEquipmentGroup(group.title, group.subtitle, [...group.cards], 'melee')).join('')}
             </div>
 
             <!-- Category 2: Ranged -->
@@ -631,23 +611,7 @@ export class BattleSetupUI {
 
             <!-- Category 3: Shield -->
             <div class="loadout-category-section ${this.activeLoadoutCategory === 'shield' ? 'active' : ''}" id="loadout-section-shield">
-              ${renderEquipmentGroup('通用與特殊盾牌', 'GENERAL & HERO SHIELDS', [
-                { id: null, zh: '不攜帶盾牌', en: 'NO SHIELD' },
-                { id: 'paladin_shield_t4' },
-                { id: 'commander_shield_t5' },
-                { id: 'roman_officer_shield_t4' },
-                { id: 'viking_berserker_shield_t5' },
-              ], 'shield')}
-              ${renderEquipmentGroup('維京圓盾', 'VIKING ROUND SHIELDS', [
-                { id: 'round_shield_t1' },
-                { id: 'round_shield_t2' },
-                { id: 'round_shield_t3' },
-              ], 'shield')}
-              ${renderEquipmentGroup('羅馬方盾', 'ROMAN SCUTA', [
-                { id: 'scutum_t1' },
-                { id: 'scutum_t2' },
-                { id: 'scutum_t3' },
-              ], 'shield')}
+              ${BATTLE_SETUP_SHIELD_GROUPS.map(group => renderEquipmentGroup(group.title, group.subtitle, [...group.cards], 'shield')).join('')}
             </div>
 
             <!-- Category 4: Mount & Deployment -->
@@ -995,6 +959,10 @@ export class BattleSetupUI {
       if (heroId !== '' && !soldier && !isSetupPlayerHeroId(heroId)) return
       this.config.playerHeroId = isSetupPlayerHeroId(heroId) ? heroId : null
       this.config.playerVisualTier = soldier ? tier : undefined
+      if (heroId === 'byzantine-cataphract-t5') {
+        this.config.playerFaction = 'roman'
+        this.config.playerLoadout = { ...(this.config.playerLoadout ?? createDefaultPlayerLoadout()), mountId: 'armored-horse' }
+      }
       this._refreshView()
     })
     this.container.querySelectorAll('.step-input').forEach(el => {
@@ -1183,14 +1151,12 @@ export class BattleSetupUI {
         }
         const id = target.dataset.loadoutId || null
         switch (target.dataset.loadoutKind) {
-          case 'melee': this.config.playerLoadout!.meleeWeaponId = id as PlayerMeleeWeaponId; break
-          case 'ranged': this.config.playerLoadout!.rangedWeaponId = id as PlayerRangedWeaponId; break
-          case 'shield': this.config.playerLoadout!.shieldId = id as PlayerShieldId | null; break
           case 'mount': {
             this.config.playerLoadout!.mountId = id as PlayerMountId
             this._savedGroundMountId = id as PlayerMountId
             break
           }
+          default: applyLoadoutCard(this.config.playerLoadout!, target.dataset.loadoutKind, id)
         }
         this._refreshView()
       })
@@ -1326,7 +1292,7 @@ export class BattleSetupUI {
     const playerFaction = this.config.playerFaction ?? 'viking'
     const army = this.config[playerFaction] as Record<string, UnitTierCounts | undefined>
     const presets = new Map(
-      getUnitPresetsForFaction(playerFaction).map(preset => [preset.id, preset]),
+      getCustomBattlePresetsForFaction(playerFaction).map(preset => [preset.id, preset]),
     )
     const rows: Array<{ presetId: UnitPresetId; tier: UnitTier; count: number; nameZh: string; nameEn: string }> = []
     for (const [presetKey, counts] of Object.entries(army)) {
@@ -1629,7 +1595,7 @@ export class BattleSetupUI {
     // 1. Update unit inputs, row subtotals, and stepper buttons
     for (const faction of ['viking', 'roman'] as const) {
       const army = this.config[faction] as Record<string, UnitTierCounts | undefined>
-      const allPresets = getUnitPresetsForFaction(faction)
+      const allPresets = getCustomBattlePresetsForFaction(faction)
       const presets = isAerial ? allPresets.filter(p => p.id === `${faction}_archer`) : allPresets
       for (const p of presets) {
         let unitRowTotal = 0

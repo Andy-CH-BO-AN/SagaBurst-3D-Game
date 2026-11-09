@@ -95,7 +95,7 @@ export function combatUnitDisplayName(info: CombatUnitDisplayInfo): string {
   if (info.bandit) return '盜匪'
   if (info.civilian) return `${prefix}平民`
   const profile = info.combatProfileId
-  const hero = profile === 'roman-commander' || profile === 'viking-commander' ? '指揮官'
+  const hero = profile === 'roman-commander' || profile === 'viking-commander' || profile === 'byzantine-cataphract' ? '指揮官'
     : profile === 'ranger' ? '遊俠' : profile ? '隊長' : undefined
   const preset = info.presetId ? UNIT_PRESETS[info.presetId] : undefined
   const name = hero ? `${info.faction ? FACTIONS[info.faction] : ''}${hero}`

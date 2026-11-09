@@ -144,7 +144,7 @@ export class ArmyCommandController {
     this.groupingMode = groupingMode
     this.initialOrder = initialOrder
     this.allOrder = initialOrder
-    this.selectedWeaponId = inventory?.equippedMelee.id ?? null
+    this.selectedWeaponId = inventory?.equippedMelee?.id ?? null
     for (const shortcut of this.shortcuts) {
       if (shortcut.target !== 'all') this.orders.set(shortcut.target, initialOrder)
     }
@@ -176,7 +176,7 @@ export class ArmyCommandController {
   setInventory(inventory: InventoryManager): void {
     this.close()
     this.inventory = inventory
-    this.selectedWeaponId = inventory.equippedMelee.id
+    this.selectedWeaponId = inventory.equippedMelee?.id ?? null
     this._renderUi()
   }
 
@@ -586,7 +586,7 @@ export class ArmyCommandController {
       quantity > 0 && this.inventory?.isEquipped(item.id),
     ) ?? []
     const selectedWeapon = ownedWeapons.find(({ item }) => item.id === this.selectedWeaponId)?.item
-      ?? ownedWeapons.find(({ item }) => item.id === this.inventory?.equippedMelee.id)?.item
+      ?? ownedWeapons.find(({ item }) => item.id === this.inventory?.equippedMelee?.id)?.item
       ?? ownedWeapons[0]?.item
     this.ui.render(
       this._hudEntries(),

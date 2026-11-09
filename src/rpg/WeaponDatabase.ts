@@ -47,6 +47,12 @@ const T4_POLEARM: Omit<WeaponData, 'id' | 'name'> = {
 }
 
 export const WEAPONS: Record<string, WeaponData> = {
+  byzantine_standard_lance_t5: {
+    id: 'byzantine_standard_lance_t5', name: '拜占庭帝國軍旗槍', type: 'melee', tier: 5,
+    combatKind: 'lance', animationKind: 'lance', damageMin: 105, damageMax: 105,
+    speedOrCharge: .42, meleeCycleSeconds: .42, range: 3.9, isLance: true,
+    description: '高速騎乘衝鋒 ×3。帝國軍旗長槍；外觀長 3.3m，實際判定距離 3.9m。',
+  },
   sword_t5: {
     id: 'sword_t5', name: '帝國終誓 Imperial Oathblade', type: 'melee', tier: 5,
     combatKind: 'sword', animationKind: 'sword', damageMin: 80, damageMax: 80,

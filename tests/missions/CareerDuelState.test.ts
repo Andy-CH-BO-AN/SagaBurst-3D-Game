@@ -10,7 +10,7 @@ import type { TownWorld } from '../../src/town/TownWorld'
 import { townSitePoint, type TownActorSpec } from '../../src/town/TownRules'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
-import { careerDuelOpponentHealth, createCareerTutorialDuelMission, CAREER_DUEL_TEMPLATE_ID, createCareerDuelMission, isCareerDuelUnlocked, type CareerDuelTier } from '../../src/career/CareerDuelState'
+import { duelCombatSeconds, resolveCareerDuelOutcome, isUnarmedDuelUnlocked, isIllegalUnarmedDuelDamage, careerDuelOpponentHealth, createCareerTutorialDuelMission, CAREER_DUEL_TEMPLATE_ID, createCareerDuelMission, isCareerDuelUnlocked, type CareerDuelTier } from '../../src/career/CareerDuelState'
 import { acceptsCareerMissionStat } from '../../src/career/CareerMissionState'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
@@ -38,6 +38,7 @@ function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING'
     const position = new Vector3(x, getTerrainHeight(x, z), z)
     const body = { combatantId: id, combatPosition: position, group: { position, rotation: { y: 0 } },
       dead: false, hp: 100, maxHp: 200, characterFaction: 'roman', characterTier: 3, combatAmmo: 30, loadout: {}, target: undefined as Vector3 | undefined,
+      duelUnarmed: false, setUnarmedDuel: vi.fn((enabled: boolean) => { body.duelUnarmed = enabled }),
       setDuelHostility: vi.fn(), restoreCombatLoadout: vi.fn(), restoreOrdinaryTier: vi.fn(),
       restoreForTown: vi.fn(), restoreCombatAmmo: vi.fn(),
       applyTemporaryOrdinaryTier: vi.fn(), restoreCombatHealth: vi.fn(), setTacticalOrder: vi.fn(),
@@ -53,7 +54,8 @@ function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING'
     { spec: makeSpec(opponent, 'archer_infantry', 'training'), npc: opponent as unknown as NPC }]
   const position = new Vector3(-90, getTerrainHeight(-90, 10) + .9, 10)
   const player = { group: { position, rotation: { y: 0 } }, combatPosition: position, dead: false,
-    hp: 100, staminaValue: 100, faceDirection: vi.fn(),
+    hp: 100, staminaValue: 100, faceDirection: vi.fn(), currentMount: null as Mount | null, unarmedDuelOnly: false,
+    clearTownAction: vi.fn(), dismountFromMount: vi.fn(() => { player.currentMount = null }), mountVehicle: vi.fn((mount: Mount) => { player.currentMount = mount }),
     setHp: vi.fn((hp: number) => { player.hp = hp }), setStamina: vi.fn((stamina: number) => { player.staminaValue = stamina }) }
   let profile = duel(createCareerProfile('roman'), 'roman_archer', 1, 'travel-duel')
   if (phase === 'RESULT' || phase === 'RETURNING') profile = claimCareerMission(profile, 'travel-duel', 'victory', stats).profile
@@ -375,5 +377,124 @@ describe('Career Duel outcome and combat attribution', () => {
     const incoming = { ...event, source: { ...event.source, actorId: 'soldier-1', actorType: 'npc' as const }, target: { targetId: 'player', targetType: 'player' as const, name: 'Player' } }
     expect(acceptsCareerMissionStat(mission, incoming)).toBe(true)
     expect(acceptsCareerMissionStat(mission, { ...incoming, source: { ...incoming.source, actorId: 'captain' } })).toBe(false)
+  })
+})
+
+
+function duelDamage(method: 'melee' | 'projectile' | 'mount-impact' = 'melee', weaponId = 'unarmed'): CombatEvent {
+  return { type: 'damage_applied', source: { actorId: 'player', actorType: 'player', allegiance: Faction.PLAYER, characterFaction: 'roman' },
+    target: { targetId: 'soldier-1', targetType: 'npc', name: 'opponent' }, method, weaponId,
+    attackSource: weaponId === 'unarmed' && method === 'melee' ? 'unarmed' : undefined,
+    contactKind: 'body', requestedDamage: 5, appliedDamage: 5 }
+}
+
+describe('Unarmed Duel authority and persistence', () => {
+  it('空手勝利只解鎖自己的下一 Tier，舊存檔預設武裝模式且不取得空手進度', () => {
+    const profile = createCareerProfile('roman')
+    expect(isUnarmedDuelUnlocked(profile, 2)).toBe(false)
+    expect(createCareerDuelMission(profile, 'roman_archer', 2, 'soldier-1', 'captain', 'locked', 'captain', 'unarmed')).toBeNull()
+    profile.activeMission = createCareerDuelMission(profile, 'roman_archer', 1, 'soldier-1', 'captain', 'boxing', 'captain', 'unarmed')!
+    profile.activeMission.phase = 'ENGAGING'
+    const claimed = claimCareerMission(profile, 'boxing', 'victory', stats)
+    expect(claimed.profile.unarmedDuelHighestDefeatedTier).toBe(1)
+    expect(claimed.profile.duelHighestDefeatedTierByPreset).toBeUndefined()
+    expect(isUnarmedDuelUnlocked(claimed.profile, 2)).toBe(true)
+    expect(isCareerDuelUnlocked(claimed.profile, 'roman_archer', 2)).toBe(false)
+    expect(claimCareerMission(claimed.profile, 'boxing', 'victory', stats).alreadyClaimed).toBe(true)
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(claimed.profile)))!.unarmedDuelHighestDefeatedTier).toBe(1)
+    const legacy = duel(createCareerProfile('roman'), 'roman_archer', 1)
+    delete legacy.activeMission!.duelMode
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(legacy)))!.activeMission!.duelMode).toBe('armed')
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(legacy)))!.unarmedDuelHighestDefeatedTier).toBeUndefined()
+  })
+  it('空手 90 秒、武裝 30 秒且倒數仍 5 秒；空手剩餘時間可存檔恢復', () => {
+    const h = travelingDuel('MARCHING')
+    Object.assign(h.read().activeMission!, { duelMode: 'unarmed', phase: 'PREPARING', duelCombatElapsed: 45 })
+    expect(h.controller.startActiveMission()).toBe(true)
+    expect(h.controller.countdownRemaining).toBe(5)
+    h.controller.update(4.9)
+    expect(h.controller.phase).toBe('PREPARING')
+    h.controller.update(.1)
+    expect(h.controller.phase).toBe('ENGAGING')
+    expect(h.controller.combatRemaining).toBe(45)
+    h.controller.persistRuntimeProgress(true)
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(h.read())))!.activeMission!.duelCombatElapsed).toBe(45)
+    expect(duelCombatSeconds('unarmed')).toBe(90)
+    expect(duelCombatSeconds()).toBe(30)
+    expect(resolveCareerDuelOutcome(false, false, 89.99, 'unarmed')).toBeNull()
+    expect(resolveCareerDuelOutcome(false, false, 90, 'unarmed')).toBe('failure')
+    expect(resolveCareerDuelOutcome(false, false, 30)).toBe('failure')
+  })
+  it('空手借用裝備與坐騎後還原原始資源，玩家存檔偏好不被清空', () => {
+    const h = travelingDuel('MARCHING')
+    const mount = { dead: false } as Mount
+    h.player.currentMount = mount
+    Object.assign(h.read().activeMission!, { duelMode: 'unarmed', duelPlayerWasMounted: true,
+      duelCommanderHome: { hp: 123, ammo: 17 } })
+    const equipment = JSON.stringify(h.read().equipment)
+    expect(h.controller.startActiveMission()).toBe(true)
+    expect(h.player.currentMount).toBeNull()
+    expect(h.player.unarmedDuelOnly).toBe(true)
+    expect(h.opponent.setUnarmedDuel).toHaveBeenCalledWith(true)
+    expect(h.opponent.applyTemporaryCombatLoadout.mock.calls[0][0]).toEqual({ meleeWeaponId: null, rangedWeaponId: null, shieldId: null })
+    h.controller.cleanupMission()
+    expect(h.opponent.setUnarmedDuel).toHaveBeenLastCalledWith(false)
+    expect(h.opponent.restoreCombatHealth).toHaveBeenLastCalledWith(123)
+    expect(h.opponent.restoreCombatAmmo).toHaveBeenLastCalledWith(17)
+    expect(h.player.unarmedDuelOnly).toBe(false)
+    expect(h.player.currentMount).toBe(mount)
+    expect(JSON.stringify(h.read().equipment)).toBe(equipment)
+    const returned = clearCareerMission(h.read(), h.read().activeMission!.id)
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(returned)))!.townDuelResidentRecovery).toEqual({ hp: 123, ammo: 17, faction: 'roman', actorId: 'soldier-1' })
+  })
+  it.each([
+    ['劍', 'melee', 'steel_sword', false], ['箭', 'projectile', 'bow_t1', false],
+    ['騎乘衝撞', 'mount-impact', 'unarmed', false], ['私兵', 'melee', 'unarmed', true],
+  ] as const)('%s 對對手造成有效傷害立即判負，致命違規優先於勝利且不能重複結算', (_label, method, weaponId, owned) => {
+    const h = travelingDuel('MARCHING')
+    Object.assign(h.read().activeMission!, { duelMode: 'unarmed', phase: 'ENGAGING' })
+    expect(h.controller.startActiveMission()).toBe(true)
+    const event = duelDamage(method, weaponId)
+    if (owned) event.source = { ...event.source, actorType: 'npc', actorId: 'private-1', ownership: 'player-personal' }
+    h.opponent.dead = true
+    h.controller.recordCombatEvent(event)
+    expect(h.read().activeMission!.duelFailureReason).toBe('illegal_attack')
+    expect(h.controller.combatEnabled).toBe(false)
+    expect(h.controller.evaluate()).toBe('failure')
+    const loaded = parseCareerProfile(JSON.parse(JSON.stringify(h.read())))!
+    expect(loaded.activeMission!.duelFailureReason).toBe('illegal_attack')
+    const claim = claimCareerMission(loaded, loaded.activeMission!.id, 'victory', stats)
+    expect(claim.profile.activeMission!.result!.outcome).toBe('failure')
+    expect(claim.profile.unarmedDuelHighestDefeatedTier).toBeUndefined()
+    expect(claimCareerMission(claim.profile, loaded.activeMission!.id, 'victory', stats).alreadyClaimed).toBe(true)
+  })
+  it('存檔失敗時鎖定違規結算，重試保存前不能用致命傷害結算勝利', () => {
+    const h = travelingDuel('MARCHING')
+    Object.assign(h.read().activeMission!, { duelMode: 'unarmed', phase: 'ENGAGING' })
+    h.controller.startActiveMission()
+    h.allowSave(false); h.opponent.dead = true
+    h.controller.recordCombatEvent(duelDamage('melee', 'steel_sword'))
+    expect(h.controller.combatEnabled).toBe(false)
+    expect(h.controller.evaluate()).toBeNull()
+    expect(h.read().activeMission!.duelFailureReason).toBeUndefined()
+    h.allowSave(true)
+    expect(h.controller.evaluate()).toBe('failure')
+    expect(h.read().activeMission!.duelFailureReason).toBe('illegal_attack')
+  })
+  it('合法拳擊可勝利；空揮、零傷格擋與 NPC 打玩家不觸發違規', () => {
+    const h = travelingDuel('MARCHING')
+    Object.assign(h.read().activeMission!, { duelMode: 'unarmed', phase: 'ENGAGING' })
+    h.controller.startActiveMission()
+    const legal = duelDamage()
+    expect(isIllegalUnarmedDuelDamage(h.read().activeMission!, legal)).toBe(false)
+    const zero = duelDamage('projectile', 'bow_t1')
+    if (zero.type === 'damage_applied') zero.appliedDamage = 0
+    h.controller.recordCombatEvent(zero)
+    h.controller.recordCombatEvent({ ...legal, source: { ...legal.source, actorType: 'npc', actorId: 'soldier-1', allegiance: Faction.TOWN },
+      target: { targetId: 'player', targetType: 'player', name: 'player' } })
+    h.controller.recordCombatEvent(legal)
+    h.opponent.dead = true
+    expect(h.controller.evaluate()).toBe('victory')
+    expect(h.read().activeMission!.duelFailureReason).toBeUndefined()
   })
 })

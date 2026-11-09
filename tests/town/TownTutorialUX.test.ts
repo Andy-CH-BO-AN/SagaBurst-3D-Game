@@ -186,6 +186,24 @@ describe('TownTutorialUX', () => {
     vi.unstubAllGlobals()
   })
 
+  it('可延後買武器直接開任務服務，日後實際購買仍只領一次獎勵', () => {
+    const harness = createHostHarness(), ctrl = new TownTutorialController(harness.host)
+    try {
+      const panel = new MockElement('div')
+      panel.append(new MockElement('h2'), new MockElement('p'))
+      ctrl.renderDialogue(panel as unknown as HTMLElement, 'deployment')
+      panel.querySelectorAll('button').find(button => button.textContent === '先空手接任務，稍後買武器')!.onclick!()
+      expect(harness.getProfile().tutorial?.town.status).toBe('deferred')
+      expect(harness.getServicesOpened()).toEqual(['deployment'])
+      expect(ctrl.hasDialogue('deployment')).toBe(false)
+      const before = harness.getProfile().availableMerit
+      recordCareerTutorialPurchase(harness.getProfile(), 'weapon', 'gladius_rusty')
+      ctrl.update(); ctrl.update()
+      expect(harness.getProfile().availableMerit).toBe(before + 20)
+      expect(harness.getProfile().tutorial?.town.status).toBe('deferred')
+    } finally { ctrl.dispose() }
+  })
+
   it('first talk to deployment presents recruit dialogue, accepting closes panel and guides to merchant', () => {
     const harness = createHostHarness()
     const ctrl = new TownTutorialController(harness.host)
@@ -202,10 +220,10 @@ describe('TownTutorialUX', () => {
     expect(p.textContent).toContain('新兵，歡迎加入軍團！')
 
     const buttons = (panel as unknown as MockElement).querySelectorAll('button')
-    expect(buttons.map(b => b.textContent)).toEqual(['好，我這就去', '我晚點再去', '查看任務與其他服務'])
+    expect(buttons.map(b => b.textContent)).toEqual(['好，我這就去', '我晚點再去', '先空手接任務，稍後買武器', '查看任務與其他服務'])
 
     // Escape hatch reaches the original Sergeant panel without advancing the tutorial
-    buttons[2].onclick!()
+    buttons[3].onclick!()
     expect(harness.getServicesOpened()).toEqual(['deployment'])
     expect(harness.getProfile().tutorial?.town.step).toBe('report')
 

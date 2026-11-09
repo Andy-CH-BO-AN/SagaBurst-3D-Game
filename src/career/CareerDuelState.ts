@@ -4,12 +4,32 @@ import {
   type UnitPreset, type UnitPresetId, type UnitTier,
 } from '../battle/UnitPresetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
+import type { CombatEvent } from '../combat/CombatAttribution'
 import type { CareerProfile } from './CareerProfile'
 import { createCareerMissionId, type ActiveCareerMission, type CareerMissionOutcome } from './CareerMissionState'
 
 export const CAREER_DUEL_TEMPLATE_ID = 'career-duel'
 export const DUEL_COUNTDOWN_SECONDS = 5
+/** The FIGHT banner covers only the first moment of live combat, for any duel duration. */
+export const DUEL_FIGHT_BANNER_SECONDS = 1
+export const duelFightBannerVisible = (combatElapsedSeconds: number): boolean => combatElapsedSeconds < DUEL_FIGHT_BANNER_SECONDS
 export const DUEL_COMBAT_SECONDS = 30
+export type CareerDuelMode = 'armed' | 'unarmed'
+export function duelCombatSeconds(mode?: CareerDuelMode): number { return mode === 'unarmed' ? 90 : DUEL_COMBAT_SECONDS }
+export function isUnarmedDuelUnlocked(profile: Pick<CareerProfile, 'unarmedDuelHighestDefeatedTier'>, tier: CareerDuelTier): boolean {
+  return isCareerDuelTier(tier) && (tier === 1 || (profile.unarmedDuelHighestDefeatedTier ?? 0) >= tier - 1)
+}
+/** Only actual player fist contacts are legal; allied units can never punch on the player's behalf. */
+export function isIllegalUnarmedDuelDamage(mission: ActiveCareerMission, event: CombatEvent): boolean {
+  if (mission.duelMode !== 'unarmed' || mission.phase !== 'ENGAGING' || mission.result
+    || event.type !== 'damage_applied' || event.appliedDamage <= 0
+    || event.target.targetId !== mission.duelOpponentActorId) return false
+  const player = event.source.actorType === 'player'
+  const commanded = event.source.allegiance === 'PLAYER' || Boolean(event.source.ownership)
+  if (!player && !commanded) return false
+  return !(player && event.method === 'melee' && event.weaponId === 'unarmed'
+    && event.attackSource === 'unarmed' && event.contactKind === 'body')
+}
 export const CAREER_DUEL_TIERS = [1, 2, 3, 4, 5] as const
 export type CareerDuelTier = UnitTier | 5
 
@@ -90,15 +110,16 @@ export function createCareerDuelMission(
   captainActorId: string,
   id = createCareerMissionId(CAREER_DUEL_TEMPLATE_ID),
   refereeActorId = captainActorId,
+  mode: CareerDuelMode = 'armed',
 ): ActiveCareerMission | null {
-  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission || tier === 5 && profile.townEvent?.state === 'hostile' || !isCareerDuelUnlocked(profile, presetId, tier)
+  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission || tier === 5 && profile.townEvent?.state === 'hostile' || !(mode === 'unarmed' ? isUnarmedDuelUnlocked(profile, tier) && isCareerDuelPresetId(presetId) && UNIT_PRESETS[presetId].faction === profile.faction : isCareerDuelUnlocked(profile, presetId, tier))
     || !opponentActorId.trim() || !captainActorId.trim() || !refereeActorId.trim() || !id.trim()) return null
   const opponent = opponentActorId.trim(), captain = captainActorId.trim(), referee = refereeActorId.trim()
   if (tier === 5 && (opponent !== 'commander' || captain !== 'captain' || referee !== captain)) return null
   return {
     id: id.trim(), templateId: CAREER_DUEL_TEMPLATE_ID, kind: 'duel', targetCampId: -1,
     phase: 'ASSEMBLING', targetActorIds: [opponent], friendlyActorIds: opponent === referee ? [] : [referee],
-    duelTier: tier, duelPresetId: presetId, duelOpponentActorId: opponent, duelCaptainActorId: captain,
+    duelMode: mode, duelTier: tier, duelPresetId: presetId, duelOpponentActorId: opponent, duelCaptainActorId: captain,
     duelRefereeActorId: referee,
     duelCountdownElapsed: 0, duelCombatElapsed: 0, duelOpponentDead: false,
     acceptedAt: Date.now(),
@@ -128,8 +149,9 @@ export function resolveCareerDuelOutcome(
   playerDead: boolean,
   opponentDead: boolean,
   combatElapsed: number,
+  mode: CareerDuelMode = 'armed',
 ): CareerMissionOutcome | null {
   if (playerDead) return 'failure'
   if (opponentDead) return 'victory'
-  return combatElapsed >= DUEL_COMBAT_SECONDS ? 'failure' : null
+  return combatElapsed >= duelCombatSeconds(mode) ? 'failure' : null
 }

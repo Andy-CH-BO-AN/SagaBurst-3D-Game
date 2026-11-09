@@ -4,6 +4,7 @@ import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import type { SkillState } from '../../src/rpg/SkillManager'
 import { DEFAULT_SAVE,SaveManager,type PlayerSaveData } from '../../src/save/SaveManager'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { resolveSkillAdjustedMaxHp } from '../../src/rpg/CombatSkillProgression'
 
 interface SkillStorageAdapter {
   save(skills: SkillState): boolean
@@ -17,9 +18,10 @@ const implementations: Array<{
   create(storage: MemoryStorage): SkillStorageAdapter
 }> = [
   {
-    name: 'persists all five skills through Career save/reload',
+    name: 'persists all six skills through Career save/reload',
     key: 'sagaburst_career_v1',
     skills: {
+      unarmed: { level: 16, xp: 123 },
       blocking: { level: 12, xp: 42 },
       oneHanded: { level: 7, xp: 12 },
       twoHanded: { level: 8, xp: 23 },
@@ -39,9 +41,10 @@ const implementations: Array<{
     },
   },
   {
-    name: 'persists all five skills through regular save/reload',
+    name: 'persists all six skills through regular save/reload',
     key: 'wdyh_save_v1',
     skills: {
+      unarmed: { level: 19, xp: 321 },
       blocking: { level: 11, xp: 21 },
       oneHanded: { level: 3, xp: 10 },
       twoHanded: { level: 4, xp: 20 },
@@ -72,6 +75,17 @@ describe('Skill storage round-trip', () => {
       expect(raw).not.toBeNull()
       expect(JSON.parse(raw!).skills).toEqual(skills)
       expect(create(storage).load()).toEqual(skills)
+    })
+    it(`${name}：合法舊存檔缺少徒手技能時補 Lv.1／零 XP，不改原進度與 HP`, () => {
+      const storage = new MemoryStorage(), adapter = create(storage)
+      expect(adapter.save(skills)).toBe(true)
+      const raw = JSON.parse(storage.getItem(key)!)
+      delete raw.skills.unarmed
+      const oldSkills = { ...raw.skills }
+      storage.setItem(key, JSON.stringify(raw))
+      const loaded = adapter.load()!
+      expect(loaded).toEqual({ ...oldSkills, unarmed: { level: 1, xp: 0 } })
+      expect(resolveSkillAdjustedMaxHp(200, loaded)).toBe(key === 'sagaburst_career_v1' ? 242 : 225)
     })
   }
 })

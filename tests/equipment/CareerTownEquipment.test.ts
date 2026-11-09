@@ -1,3 +1,5 @@
+import { TownEquipment } from '../../src/town/TownEquipment'
+import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { describe, expect, it } from 'vitest'
 import { addCareerItem, availableCareerItem, careerItemAllocated, careerItemTotal, normalizeCareerInventory } from '../../src/career/CareerInventory'
 import { cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -472,4 +474,30 @@ describe('Resident native equipment and military horse ownership', () => {
     expect(h.read().townEquipment!.roman!.soldNativeIds).toEqual([id])
     expect(h.sell(['roman/merchant/melee']).sold).toBe(false)
   })
+})
+
+
+it('空手 Duel 暫時隱藏雙手裝備、拒絕轉盤換裝，重載及結束後保留原持有與偏好', () => {
+  let profile = createCareerProfile('roman')
+  profile.ownedWeapons = ['steel_lance']; profile.equipment = { melee: 'steel_lance' }
+  const commit = (next: CareerProfile) => { profile = next; return true }
+  const equipment = new TownEquipment(() => profile, commit)
+  equipment.prepareForCombat()
+  expect(equipment.activeMelee?.id).toBe('steel_lance')
+  const before = JSON.stringify(profile.equipment)
+  profile.activeMission = createCareerDuelMission(profile, 'roman_archer', 1, 'soldier', 'captain', 'boxing', 'captain', 'unarmed')!
+  expect(equipment.activeMelee).toBeUndefined()
+  expect(equipment.meleeEnabled || equipment.rangedEnabled || equipment.shieldEnabled).toBe(false)
+  expect(equipment.equipWeapon('steel_lance')).toBe(false)
+  expect(equipment.unequipWeapon('steel_lance')).toBe(false)
+  expect(JSON.stringify(profile.equipment)).toBe(before)
+  profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
+  const reloaded = new TownEquipment(() => profile, commit)
+  reloaded.prepareForCombat()
+  expect(reloaded.activeMelee).toBeUndefined()
+  delete profile.activeMission
+  equipment.prepareForCombat(); reloaded.prepareForCombat()
+  expect(equipment.activeMelee?.id).toBe('steel_lance')
+  expect(reloaded.activeMelee?.id).toBe('steel_lance')
+  expect(profile.ownedWeapons).toContain('steel_lance')
 })

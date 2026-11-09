@@ -1,15 +1,20 @@
 import type { HumanoidAssetDescriptor } from './HumanoidAssetRegistry'
 
 /** Assets available to runtime and DEV previews; not a public mode selection list. */
-export const HERO_ASSET_IDS = ['viking-hero-t4', 'roman-hero-t4', 'maki-archer-t4', 'roman-hero-t5', 'viking-hero-t5'] as const
+export const HERO_ASSET_IDS = ['viking-hero-t4', 'roman-hero-t4', 'maki-archer-t4', 'roman-hero-t5', 'viking-hero-t5', 'byzantine-cataphract-t5'] as const
 export type HeroAssetId = typeof HERO_ASSET_IDS[number]
 export type PlayerHeroId = HeroAssetId
 
 /** Player-only choices for Custom Battle and Campaign; NPC tiers and Career unlocks are independent. */
-export const SETUP_PLAYER_HERO_IDS = ['viking-hero-t4', 'roman-hero-t4', 'maki-archer-t4', 'viking-hero-t5', 'roman-hero-t5'] as const satisfies readonly HeroAssetId[]
+export const SETUP_PLAYER_HERO_IDS = ['viking-hero-t4', 'roman-hero-t4', 'maki-archer-t4', 'viking-hero-t5', 'roman-hero-t5', 'byzantine-cataphract-t5'] as const satisfies readonly HeroAssetId[]
 export type SetupPlayerHeroId = typeof SETUP_PLAYER_HERO_IDS[number]
 
 export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; descriptor: HumanoidAssetDescriptor }> = {
+  // Owner-supplied Mixamo-rigged Meshy model (tools/build-byzantine-cataphract.mjs); metrics are the manifest's measurements.
+  'byzantine-cataphract-t5': {
+    nameZh: '拜占庭鐵甲重騎兵', nameEn: 'Byzantine Cataphract',
+    descriptor: { assetId: 'byzantine-cataphract-t5', faction: 'roman', heightM: 1.9410765866341708, maxShoulderWidthM: 0.5659912515567136, neckLengthM: 0.07769488623523091 },
+  },
   'viking-hero-t4': {
     nameZh: '瓦良格隊長', nameEn: 'Varangian Captain',
     descriptor: { assetId: 'viking-hero-t4', faction: 'viking', heightM: 2, maxShoulderWidthM: .78, neckLengthM: .11 },

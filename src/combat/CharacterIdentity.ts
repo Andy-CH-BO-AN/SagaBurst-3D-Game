@@ -19,6 +19,7 @@ export interface CharacterIdentityInput extends Partial<Omit<CharacterIdentity, 
   tier?: CharacterTier
 }
 const ARCHETYPE_BY_PROFILE: Record<HeroCombatProfileId, HeroArchetype> = {
+  'byzantine-cataphract': 'commander',
   varangian: 'captain', praetorian: 'captain', ranger: 'ranger',
   'roman-commander': 'commander', 'viking-commander': 'commander',
 }
@@ -44,7 +45,7 @@ export function resolveCharacterIdentity(input: CharacterIdentityInput): Charact
     || (legacyArchetype && legacyArchetype !== heroArchetype)
     || input.specialCombatProfile === 'maki-ranger' && heroArchetype !== 'ranger') throw new Error('Conflicting character tier and hero archetype')
   if (!heroArchetype) return { characterFaction, characterTier }
-  const visualAssetId: HeroAssetId = heroArchetype === 'ranger' ? 'maki-archer-t4'
+  const visualAssetId: HeroAssetId = legacyProfile === 'byzantine-cataphract' && characterFaction === 'roman' ? 'byzantine-cataphract-t5' : heroArchetype === 'ranger' ? 'maki-archer-t4'
     : heroArchetype === 'commander' ? characterFaction === 'roman' ? 'roman-hero-t5' : 'viking-hero-t5'
       : characterFaction === 'roman' ? 'roman-hero-t4' : 'viking-hero-t4'
   const combatProfileId = HERO_COMBAT_PROFILE_BY_ASSET[visualAssetId]

@@ -1,7 +1,7 @@
 /**
  * SkillManager.ts
  * Manages persistent combat skill progression for one-handed, two-handed,
- * ranged, and mounted-impact combat.
+ * ranged, mounted-impact, blocking, and unarmed combat.
  */
 
 import type { SoundManager } from '../audio/SoundManager'
@@ -9,7 +9,7 @@ import type { WeaponData } from './WeaponDatabase'
 
 export const MAX_SKILL_LEVEL = 50
 
-export type SkillId = 'oneHanded' | 'twoHanded' | 'ranged' | 'mountedImpact' | 'blocking'
+export type SkillId = 'oneHanded' | 'twoHanded' | 'ranged' | 'mountedImpact' | 'blocking' | 'unarmed'
 export type LegacySkillId = SkillId | 'archery'
 
 export interface SkillData {
@@ -18,6 +18,7 @@ export interface SkillData {
 }
 
 export interface SkillState {
+  unarmed: SkillData
   blocking: SkillData
   oneHanded: SkillData
   twoHanded: SkillData
@@ -26,6 +27,7 @@ export interface SkillState {
 }
 
 export interface SkillStateInput {
+  unarmed?: Partial<SkillData>
   blocking?: Partial<SkillData>
   oneHanded?: Partial<SkillData>
   twoHanded?: Partial<SkillData>
@@ -36,6 +38,7 @@ export interface SkillStateInput {
 }
 
 const SKILL_LABELS: Record<SkillId, string> = {
+  unarmed: '🥊 徒手格鬥',
   blocking: '🛡️ 格擋',
   oneHanded: '⚔️ 單手武器',
   twoHanded: '🪓 雙手武器',
@@ -45,6 +48,7 @@ const SKILL_LABELS: Record<SkillId, string> = {
 
 export function createDefaultSkillState(): SkillState {
   return {
+    unarmed: { level: 1, xp: 0 },
     blocking: { level: 1, xp: 0 },
     oneHanded: { level: 1, xp: 0 },
     twoHanded: { level: 1, xp: 0 },
@@ -72,6 +76,7 @@ function normalizeSkillData(value?: Partial<SkillData>): SkillData {
 export function normalizeSkillState(state?: SkillStateInput | null): SkillState {
   const ranged = state?.ranged ?? state?.archery
   return {
+    unarmed: normalizeSkillData(state?.unarmed),
     blocking: normalizeSkillData(state?.blocking),
     oneHanded: normalizeSkillData(state?.oneHanded),
     twoHanded: normalizeSkillData(state?.twoHanded),
@@ -86,12 +91,19 @@ export function skillDamageMultiplier(level: number): number {
   return 1 + ((clamped - 1) / (MAX_SKILL_LEVEL - 1)) * 2
 }
 
-/** Four offensive skills grant HP above Lv.1; Blocking grants its full level. */
+/** Unarmed alone reaches ×5; existing weapon skills retain their ×3 curve. */
+export function unarmedSkillDamageMultiplier(level: number): number {
+  const clamped = Math.max(1, Math.min(MAX_SKILL_LEVEL, finiteInteger(level, 1)))
+  return 1 + ((clamped - 1) / (MAX_SKILL_LEVEL - 1)) * 4
+}
+
+/** Offensive skills grant HP above Lv.1; Blocking grants its full level. */
 export function skillHpBonus(state: SkillState): number {
   return (state.oneHanded.level - 1)
     + (state.twoHanded.level - 1)
     + (state.ranged.level - 1)
     + (state.mountedImpact.level - 1)
+    + (state.unarmed.level - 1)
     + state.blocking.level
 }
 
@@ -122,6 +134,7 @@ export class SkillManager {
 
   get skillState(): SkillState {
     return {
+      unarmed: { ...this.state.unarmed },
       blocking: { ...this.state.blocking },
       oneHanded: { ...this.state.oneHanded },
       twoHanded: { ...this.state.twoHanded },
@@ -140,6 +153,7 @@ export class SkillManager {
   }
 
   getMultiplier(skill: SkillId): number {
+    if (skill === 'unarmed') return unarmedSkillDamageMultiplier(this.state.unarmed.level)
     return skillDamageMultiplier(this.state[skill].level)
   }
 

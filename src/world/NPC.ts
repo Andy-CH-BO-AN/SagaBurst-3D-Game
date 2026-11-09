@@ -1,3 +1,4 @@
+import { traceFistStrike, UNARMED_ATTACK_DISTANCE, UNARMED_DAMAGE, UNARMED_RANGE, UNARMED_STOP_DISTANCE } from '../combat/UnarmedCombat'
 import { resolveOrdinaryNpcHp } from '../combat/OrdinarySoldierProfile'
 import { resolveCharacterIdentity, type CharacterIdentity, type CharacterTier, type HeroArchetype } from '../combat/CharacterIdentity'
 import { FriendlyMovementBypass } from '../navigation/FriendlyMovementBypass'
@@ -39,6 +40,7 @@ import type { CharacterRig, MountedPoseKind, CharacterFaction } from './Characte
 import { HumanoidAssetRegistry, disposeHumanoidInstanceSkeletons } from './HumanoidAssetRegistry'
 import type { HeroAssetId } from './HeroAssetCatalog'
 import { resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import { isEquipmentUsable, resolveEquipmentSlot } from './HighTierEquipment'
 import { applyHeroIncomingDamage, applyHeroOutgoingDamage, applyHeroMeleeDamage, heroMeleeAttackSpeed, getHeroCombatModifiers, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 
@@ -339,6 +341,7 @@ export class NPC {
 
   private _meleeDamageOverride: number | undefined
   get meleeDamage(): number {
+    if (this.duelUnarmed) return UNARMED_DAMAGE
     return this._meleeDamageOverride ?? WEAPONS[this.meleeWeaponId ?? '']?.damageMax ?? 20
   }
   set meleeDamage(value: number) { this._meleeDamageOverride = value }
@@ -349,7 +352,14 @@ export class NPC {
   public mount: Mount | null = null
   public meleeAttackRadius = 1.8
   public isUsingLance = false
-  public meleeWeaponId: string | null = 'steel_sword'
+  /** What this actor has selected, and what it really holds. They differ only while a selected item's model is loading. */
+  private selectedMeleeWeaponId: string | null = 'steel_sword'
+  private heldMeleeWeaponId: string | null = 'steel_sword'
+  get meleeWeaponId(): string | null { return this.heldMeleeWeaponId }
+  set meleeWeaponId(id: string | null) {
+    this.selectedMeleeWeaponId = id
+    this.heldMeleeWeaponId = resolveEquipmentSlot(id, this.heldMeleeWeaponId)
+  }
   public rangedWeaponId?: string
   public loadout?: UnitLoadout
   private originalCombatEquipment: CombatEquipmentSnapshot | null = null
@@ -528,7 +538,13 @@ export class NPC {
   bodyHitNodes: THREE.Object3D[] = []
   private readonly sweepGrip = new THREE.Vector3()
   private rangedTargetHeightOffset = 0
-  public shieldId: string | null = null
+  private selectedShieldId: string | null = null
+  private heldShieldId: string | null = null
+  get shieldId(): string | null { return this.heldShieldId }
+  set shieldId(id: string | null) {
+    this.selectedShieldId = id
+    this.heldShieldId = resolveEquipmentSlot(id, this.heldShieldId)
+  }
   readonly equipmentVisualLOD = new EquipmentVisualLODController()
   private builtShieldId: string | null | undefined = undefined
 
@@ -884,6 +900,7 @@ export class NPC {
     this._initialStaggerPhase = computeDeterministicPhase(spawnX, spawnZ, name)
 
     if (loadout) {
+      this.heldMeleeWeaponId = null // A newly spawned actor holds nothing until its own selected item is usable.
       this.meleeWeaponId = loadout.meleeWeaponId ?? null
       this.rangedWeaponId = loadout.rangedWeaponId ?? undefined
       this.shieldId = loadout.shieldId ?? null
@@ -1023,6 +1040,66 @@ export class NPC {
   private banditHammerGrip?: THREE.Object3D
   private townHostile = false
   private duelHostile = false
+  duelUnarmed = false
+  unarmedContact?: import('../combat/ShieldBlocking').CombatContact
+  setUnarmedDuel(enabled: boolean): void {
+    this._cancelEquipmentCombatState()
+    this.duelUnarmed = enabled
+    this.unarmedContact = undefined
+    if (enabled) {
+      this.dismountFromMount()
+      this.meleeAttackRadius = UNARMED_RANGE
+      this.animator.setEquipment(false, false)
+    } else this._syncActiveMeleeEquipment()
+  }
+
+  /** Player-only Duel opponent; the shared animator and physical palms own all punch events. */
+  private updateUnarmedDuel(dt: number, player: Player, obstacles: ObstacleData[], cameraDistance: number,
+    hit: (damage: number, isPlayer: boolean) => void, navigationWorld: NavigationWorld | null = null): void {
+    const previous = this.group.position.clone()
+    const delta = player.combatPosition.clone().sub(this.combatPosition).setY(0)
+    const canAttack = !player.dead && player.targetable && this.combatTargetAllowed?.(player) !== false
+    if (!canAttack) {
+      this.animator.cancel()
+      this._clearNavigationPath(); this._clearObstacleDetour()
+    } else {
+      const distance = delta.length()
+      if (distance > .001) this._faceDirection(delta.clone().normalize())
+      if (distance > UNARMED_ATTACK_DISTANCE && !this.animator.busy) {
+        this.state = AIState.CHASE
+        // Same ground A*/path-follow/detour services as ordinary melee chase; only the fist reach differs.
+        const moveDir = this._tmpMoveDir.set(0, 0, 0)
+        const route = this._resolveNavigationMoveTarget(player.combatPosition, obstacles, navigationWorld)
+        if (route === 'path') moveDir.copy(this._tmpNavigationTarget).sub(this.combatPosition).setY(0).normalize()
+        else if (route === 'direct') moveDir.copy(delta).normalize()
+        else if (route === 'unreachable') {
+          this._applyPersistentObstacleDetour(moveDir, player.combatPosition, dt, obstacles)
+          if (!this._detourActive) moveDir.set(0, 0, 0)
+        }
+        if (route === 'path' || route === 'direct') this._clearObstacleDetour()
+        if (moveDir.lengthSq() > .0001) {
+          this._faceDirection(moveDir.clone())
+          // Stop inside the punch trigger: stopping exactly on it would leave float error above it forever.
+          this._moveByDirection(moveDir, CHASE_SPEED, dt, false, route === 'direct' ? distance - UNARMED_STOP_DISTANCE : Infinity)
+        }
+      } else if (!this.animator.busy) {
+        this._clearNavigationPath(); this._clearObstacleDetour()
+        this.state = AIState.ATTACK
+        this.animator.start('punchCombo', 1)
+      }
+    }
+    this._updateFootPhysics(previous, dt, obstacles)
+    this.visualMovementSpeed = dt > 0 ? Math.hypot(this.group.position.x - previous.x, this.group.position.z - previous.z) / dt : 0
+    this.animator.setLocomotion(this.visualMovementSpeed, false)
+    const events = this.animator.update(dt, cameraDistance)
+    if (!canAttack) return
+    for (const strike of events.fists) {
+      const contact = traceFistStrike(strike, this.combatPosition, [player], obstacles)
+      if (!contact) continue
+      this.unarmedContact = contact
+      try { hit(UNARMED_DAMAGE, true) } finally { this.unarmedContact = undefined }
+    }
+  }
   armTownCivilian(weaponId: string): void {
     if (this.townCategory !== 'civilian' || this.dead) return
     if (!this.townArmed) {
@@ -1341,13 +1418,34 @@ export class NPC {
 
   private _setActiveMeleeWeapon(weaponId: string | null): void {
     if (this.meleeWeaponId === weaponId) {
+      this.selectedMeleeWeaponId = weaponId
       this._syncActiveMeleeEquipment()
       return
     }
+    const held = this.meleeWeaponId
     this.meleeWeaponId = weaponId
+    if (this.meleeWeaponId === held) {
+      this._syncActiveMeleeEquipment()
+      return
+    }
     this._meleeDamageOverride = undefined
     this._syncActiveMeleeEquipment()
     this._rebuildActiveMeleeVisual()
+  }
+
+  /** Combat effect and model arrive together: both slots switch only once the selected item is usable. */
+  private _adoptLoadedEquipment(): void {
+    if (this.selectedMeleeWeaponId && this.selectedMeleeWeaponId !== this.heldMeleeWeaponId && isEquipmentUsable(this.selectedMeleeWeaponId)) {
+      this._cancelEquipmentCombatState()
+      this._setActiveMeleeWeapon(this.selectedMeleeWeaponId)
+      this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
+    }
+    if (this.selectedShieldId && this.selectedShieldId !== this.heldShieldId && isEquipmentUsable(this.selectedShieldId)) {
+      this._cancelEquipmentCombatState()
+      this.heldShieldId = this.selectedShieldId
+      this.rebuildShield()
+      this.animator.setEquipment(this.isUsingLance, this.hasActiveShield, this.mount?.type as MountedPoseKind)
+    }
   }
 
   private _rebuildActiveRangedVisual(): void {
@@ -1506,11 +1604,11 @@ export class NPC {
         tier: this.tier,
         squadId: this.squadId,
         presetId: this.presetId,
-        meleeWeaponId: this.meleeWeaponId,
+        meleeWeaponId: this.selectedMeleeWeaponId,
         meleeDamageOverride: this._meleeDamageOverride,
         rangedWeaponId: this.rangedWeaponId,
         rangedDamage: this.rangedDamage,
-        shieldId: this.shieldId,
+        shieldId: this.selectedShieldId,
         ammo: this.arrows,
         rangedActive: this.rangedActive,
       }
@@ -2684,6 +2782,13 @@ export class NPC {
       if (import.meta.env.DEV && _collector) { _collector.endPhase('deadUpdate', _tDead!) }
       return
     }
+
+    if (this.duelUnarmed && this.duelHostile) {
+      this.updateUnarmedDuel(dt, player, obstacles, cameraDistance, onHitEntity, navigationWorld)
+      return
+    }
+
+    if (this.selectedMeleeWeaponId !== this.heldMeleeWeaponId || this.selectedShieldId !== this.heldShieldId) this._adoptLoadedEquipment()
 
     if (this.siegeTransport) {
       this.animator.setLocomotion(this.siegeTransportSpeed, false)

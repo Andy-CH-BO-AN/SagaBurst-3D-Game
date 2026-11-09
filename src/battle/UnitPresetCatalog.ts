@@ -20,6 +20,7 @@ export type VikingPresetId =
   | 'viking_sword_cavalry'
   | 'viking_lancer'
   | 'viking_horse_archer'
+  | 'viking_heavy_cavalry'
 
 export type RomanPresetId =
   | 'roman_heavy_infantry'
@@ -29,6 +30,7 @@ export type RomanPresetId =
   | 'roman_sword_cavalry'
   | 'roman_lancer'
   | 'roman_horse_archer'
+  | 'roman_heavy_cavalry'
 
 export type UnitPresetId = VikingPresetId | RomanPresetId
 
@@ -39,6 +41,7 @@ export const VIKING_PRESET_IDS: readonly VikingPresetId[] = [
   'viking_sword_cavalry',
   'viking_lancer',
   'viking_horse_archer',
+  'viking_heavy_cavalry',
 ]
 
 export const ROMAN_PRESET_IDS: readonly RomanPresetId[] = [
@@ -49,6 +52,7 @@ export const ROMAN_PRESET_IDS: readonly RomanPresetId[] = [
   'roman_sword_cavalry',
   'roman_lancer',
   'roman_horse_archer',
+  'roman_heavy_cavalry',
 ]
 
 export type UnitPresetTrait =
@@ -75,6 +79,8 @@ export interface UnitPreset {
   nameZh: string
   nameEn: string
   description: string
+  /** Offered only by Custom Battle; Campaign and Career rosters are unaffected. */
+  customBattleOnly?: boolean
   traits: readonly UnitPresetTrait[]
   tierLoadouts: Record<BaseUnitTier, UnitLoadout>
 }
@@ -252,6 +258,44 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
       3: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: 'horse' },
     },
   },
+  roman_heavy_cavalry: {
+    id: 'roman_heavy_cavalry',
+    faction: 'roman',
+    nameZh: '重騎兵',
+    nameEn: 'Heavy Cavalry',
+    description: '騎乘鎧甲戰馬的羅馬重騎兵，槍盾並用，衝鋒破陣。',
+    customBattleOnly: true,
+    traits: ['lance_charge', 'shield_defense'],
+    tierLoadouts: {
+      1: { meleeWeaponId: 'hunting_spear', rangedWeaponId: null, shieldId: 'scutum_t1', mountId: 'armored-horse' },
+      2: { meleeWeaponId: 'steel_lance', rangedWeaponId: null, shieldId: 'scutum_t2', mountId: 'armored-horse' },
+      3: { meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: 'scutum_t3', mountId: 'armored-horse' },
+    },
+  },
+  viking_heavy_cavalry: {
+    id: 'viking_heavy_cavalry',
+    faction: 'viking',
+    nameZh: '重騎兵',
+    nameEn: 'Heavy Cavalry',
+    description: '騎乘雪豹的維京重騎兵，槍盾並用，衝鋒破陣。',
+    customBattleOnly: true,
+    traits: ['lance_charge', 'shield_defense'],
+    tierLoadouts: {
+      1: { meleeWeaponId: 'hunting_spear', rangedWeaponId: null, shieldId: 'round_shield_t1', mountId: 'snow-leopard' },
+      2: { meleeWeaponId: 'steel_lance', rangedWeaponId: null, shieldId: 'round_shield_t2', mountId: 'snow-leopard' },
+      3: { meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: 'round_shield_t3', mountId: 'snow-leopard' },
+    },
+  },
+}
+
+/** These presets always ride this mount: no tier or random draw replaces it. */
+export const FIXED_UNIT_MOUNTS: Partial<Record<UnitPresetId, string>> = {
+  roman_heavy_cavalry: 'armored-horse',
+  viking_heavy_cavalry: 'snow-leopard',
+}
+
+export function fixedUnitMount(presetId: UnitPresetId): string | undefined {
+  return FIXED_UNIT_MOUNTS[presetId]
 }
 
 export function getUnitPreset(id: UnitPresetId): UnitPreset {
@@ -260,9 +304,14 @@ export function getUnitPreset(id: UnitPresetId): UnitPreset {
   return preset
 }
 
+/** Every preset Custom Battle offers. */
+export function getCustomBattlePresetsForFaction(faction: CharacterFaction): UnitPreset[] {
+  return (faction === 'viking' ? VIKING_PRESET_IDS : ROMAN_PRESET_IDS).map(id => UNIT_PRESETS[id])
+}
+
+/** Presets shared by every mode. */
 export function getUnitPresetsForFaction(faction: CharacterFaction): UnitPreset[] {
-  const ids = faction === 'viking' ? VIKING_PRESET_IDS : ROMAN_PRESET_IDS
-  return ids.map(id => UNIT_PRESETS[id])
+  return getCustomBattlePresetsForFaction(faction).filter(preset => !preset.customBattleOnly)
 }
 
 export function resolveUnitLoadout(presetId: UnitPresetId, tier: BaseUnitTier): UnitLoadout {

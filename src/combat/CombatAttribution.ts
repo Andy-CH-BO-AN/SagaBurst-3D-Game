@@ -10,7 +10,7 @@ import type { CombatOwnership } from './CombatFaction'
 export type CombatActorType = 'player' | 'npc'
 export type CombatTargetType = CombatActorType | 'mount' | 'structure' | 'training'
 export type CombatDamageMethod = 'melee' | 'projectile' | 'mount-impact' | 'siege' | 'fall'
-export type CombatAttackSource = 'xongkoro'
+export type CombatAttackSource = 'xongkoro' | 'unarmed'
 
 export interface CombatActorRef {
   actorId: string

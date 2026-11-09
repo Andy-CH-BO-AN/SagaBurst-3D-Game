@@ -1,10 +1,12 @@
+import { playAppliedPunchHit } from './audio/SoundManager'
+import { traceFistStrike, unarmedDamage } from './combat/UnarmedCombat'
 import { getOrdinarySoldierHp, resolveOrdinaryPlayerBaseHp, resolveOrdinarySoldierTier } from './combat/OrdinarySoldierProfile'
 import { CareerCommandHudTypes } from './career/CareerCommandHudTypes'
 import { officialCommandHudLabel } from './career/CommanderTownSquadLabels'
 import { stageMissionReturnRebuild } from './career/CareerMissionReturnRecovery'
 import { townRoster } from './town/TownRules'
 import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, dispatchFelineVanguardCharge, felineInitialTacticalOrder, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
-import { preloadHighTierEquipment } from './world/HighTierEquipment'
+import { prepareByzantineEquipment, preloadHighTierEquipment } from './world/HighTierEquipment'
 import { outpostCheckpointHeight } from './campaign/OutpostRampartGarrison'
 import { CampaignSiegeAssault } from './campaign/CampaignSiegeAssault'
 import { getSiegeApproachClearances, isMobileSiegeRampEnabled, isSiegeRampCrewCandidate } from './campaign/MobileSiegeRampPolicy'
@@ -151,6 +153,8 @@ import { T4_UNIT_PROFILES, HERO_COMBAT_PROFILE_BY_ASSET, getT4HeroCombatModifier
 import { preloadMakiRangerBow } from './world/MakiRangerEquipment'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from './rpg/WeaponDatabase'
 import { normalizeArmyConfig } from './battle/BattleConfig'
+import { getT5ProfileForPreset, t5EquipmentIdsForArmy } from './battle/T5HeroCatalog'
+import type { UnitPresetId } from './battle/UnitPresetCatalog'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
 import { EntityCollisionBroadPhase } from './world/EntityCollisionBroadPhase'
@@ -477,7 +481,7 @@ export class Game {
         game.clock.start(); requestAnimationFrame(game._loop)
         return game
       }
-      await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
+      await Promise.all([prepareByzantineEquipment([...(battleConfig && !campaignConfig ? (['viking', 'roman'] as const).flatMap(faction => t5EquipmentIdsForArmy(normalizeArmyConfig(battleConfig[faction], faction))) : []), battleConfig?.playerLoadout?.meleeWeaponId, battleConfig?.playerLoadout?.shieldId, personalProfile?.equipment?.melee, personalProfile?.equipment?.shield, ...personalMembers.flatMap(member => { const { loadout } = personalMemberLoadout(member, personalProfile!.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
       const heroAssets = new Set<HeroAssetId>()
       if (trainingGround) heroAssets.add('maki-archer-t4')
       const validationHero = import.meta.env.DEV && trainingGround ? commanderValidationHero(query) : undefined
@@ -524,7 +528,7 @@ export class Game {
         for (const faction of ['viking', 'roman'] as const) {
           for (const [presetId, counts] of Object.entries(normalizeArmyConfig(config[faction], faction))) {
             if ((counts[4] ?? 0) > 0) heroAssets.add(T4_UNIT_PROFILES[presetId as keyof typeof T4_UNIT_PROFILES].visualAssetId)
-            if ((counts[5] ?? 0) > 0) heroAssets.add(faction === 'roman' ? 'roman-hero-t5' : 'viking-hero-t5')
+            if ((counts[5] ?? 0) > 0) heroAssets.add(getT5ProfileForPreset(presetId as UnitPresetId, faction).visualAssetId)
           }
         }
       }
@@ -1804,7 +1808,7 @@ export class Game {
     if (!tutorial) return
     const paused = Boolean(this.trainingUI?.paused)
     const horse = this.trainingGround?.mounts.find(mount => mount.type === MountType.HORSE)
-    if (!paused) tutorial.equipmentClosed(this.inventoryManager.meleeEnabled && this.inventoryManager.equippedMelee.type === 'melee' && !this.equipmentUI.visible)
+    if (!paused) tutorial.equipmentClosed(this.inventoryManager.meleeEnabled && this.inventoryManager.equippedMelee?.type === 'melee' && !this.equipmentUI.visible)
     tutorial.update({ position: this.player.combatPosition, cameraYaw: this.thirdPersonCamera.cameraYaw,
       cameraPitch: this.thirdPersonCamera.cameraPitch, inputLocked: this.input.isLocked,
       hidden: this.equipmentUI.visible, paused, dead: this.player.dead, onFoot: !this.player.isMounted,
@@ -4313,11 +4317,11 @@ export class Game {
     this.input.clear()
     this.player.clearTownAction()
     this.armyCommandController.close()
-    if (!this.equipmentUI.visible) this.tutorialEquipmentMeleeId = this.inventoryManager.equippedMelee.id
+    if (!this.equipmentUI.visible) this.tutorialEquipmentMeleeId = this.inventoryManager.equippedMelee?.id
     this.equipmentUI.toggle(this.skillManager, this.inventoryManager, () => {
-      this._showNotify(`⚔️ 已裝備：${this.inventoryManager.equippedMelee.name}`)
-      if (this.inventoryManager.meleeEnabled && this.inventoryManager.equippedMelee.id !== this.tutorialEquipmentMeleeId) this.tutorialScene?.equipmentSelected()
-      this.tutorialEquipmentMeleeId = this.inventoryManager.equippedMelee.id
+      this._showNotify(`⚔️ 已裝備：${this.inventoryManager.equippedMelee?.name ?? '徒手'}`)
+      if (this.inventoryManager.meleeEnabled && this.inventoryManager.equippedMelee?.id !== this.tutorialEquipmentMeleeId) this.tutorialScene?.equipmentSelected()
+      this.tutorialEquipmentMeleeId = this.inventoryManager.equippedMelee?.id
     })
     if (this.equipmentUI.visible) {
       if (document.pointerLockElement) document.exitPointerLock()
@@ -4457,6 +4461,7 @@ export class Game {
       stamina: this.player.staminaValue,
       arrows: this.player.arrowCount,
       skills: {
+        unarmed: skills.unarmed,
         oneHanded: skills.oneHanded,
         twoHanded: skills.twoHanded,
         ranged: skills.ranged,
@@ -4716,7 +4721,7 @@ export class Game {
       const result = damageObstacle(damageable, damage, {
         source: createPlayerCombatActorRef(this.player),
         method: 'melee',
-        weaponId: this.inventoryManager.equippedMelee.id,
+        weaponId: this.inventoryManager.equippedMelee?.id,
         emit: this.combatEvents.emit,
       })
       if (result.appliedDamage <= 0) continue
@@ -4755,7 +4760,29 @@ export class Game {
       return
     }
     if (this.player.dead || this.controlMode === 'spectator' || this.player.spectatorOnly) return
-    const equippedMelee = this.inventoryManager.equippedMelee
+    const equippedMelee = this.inventoryManager.activeMelee
+    if (!equippedMelee) {
+      const strikes = this.player.consumeFistStrikes()
+      const targets = [...this.npcGrid.getNearbyInto(this.player.combatPosition, 4, this._nearbyNpcBuffer)
+        .filter(npc => !npc.dead && npc.faction === Faction.ENEMY), ...this.trainingGround?.dummies ?? [],
+        ...this.combatMountGrid.getNearbyInto(this.player.combatPosition, 4, this.meleeMountCandidates).filter(mount => !mount.dead && mount !== this.player.currentMount)]
+      for (const strike of strikes) {
+        const contact = traceFistStrike(strike, this.player.position, targets, this.obstacles)
+        if (!contact) continue
+        const target = contact.target as NPC | Mount | import('./combat/DamageReceiver').DamageReceiver
+        const context = { contact, source: createPlayerCombatActorRef(this.player), method: 'melee' as const, attackSource: 'unarmed' as const, weaponId: 'unarmed', emit: (event: CombatEvent) => { this.combatEvents.emit(event); playAppliedPunchHit(event, this.soundManager) } }
+        const amount = unarmedDamage(this.skillManager.getMultiplier('unarmed'), this.player.heroAssetId)
+        const result = contact.kind === 'mount' && contact.mount ? damageMount(contact.mount, amount, context)
+          : isDamageReceiver(target) ? damageReceiver(target, amount, context) : damageNpc(target as NPC, amount, context)
+        if (result.hitSuccess) {
+          if (result.appliedDamage > 0) {
+            this.damageNumbers.spawn(result.appliedDamage, target.combatPosition)
+          }
+          this._showEnemyHud(result.targetName, result.hpRatio)
+        }
+      }
+      return
+    }
     if (!this.player.isHitFrame(equippedMelee)) {
       if (this.player.isLanceThrustActive) {
         this.player.updatePrevLanceTip()

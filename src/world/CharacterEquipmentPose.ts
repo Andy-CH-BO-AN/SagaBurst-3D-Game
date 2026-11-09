@@ -1,4 +1,7 @@
 import { minimumReachableShoulderSwing } from './AuthoredCarryGrip'
+import { punchExtension, UNARMED_DURATION } from '../combat/UnarmedCombat'
+import { MOUNT_BARREL, MOUNT_SADDLE_FLAP, solveSeatedLeg } from './MountedLegFit'
+import { MITTEN_MORPHS } from './MittenHandShape'
 import { fingerContactOwnership, type ArticulatedFingerPoses } from './FingerContactPolicy'
 import { FittedHumanoidCloth, type FittedHumanoidClothRig } from './FittedHumanoidCloth'
 import * as THREE from 'three'
@@ -41,6 +44,11 @@ export interface EquipmentPoseState {
   elapsed: number
   /** Only measured, trimmed 2H actions opt into continuous pose corrections. */
   continuousAxeAction?: boolean
+  /** Which hand holds something; fingerless hands wrap it, otherwise they rest in an empty grip. */
+  rightGrip?: boolean
+  leftGrip?: boolean
+  /** An imported punch clip owns the fist arms; the procedural solve is skipped (shield arm still solves). */
+  punchClip?: boolean
   alive: boolean
 }
 export interface SwordCarryGripProfile {
@@ -67,6 +75,126 @@ interface ArmBendContinuity {
 }
 
 /** 只旋轉骨骼的兩節 IK；明確肘平面避免手臂翻面。 */
+const PUNCH_TORSO_YAW = .32
+const PUNCH_SHIELD_TORSO_YAW = .18
+interface PunchPose { local: THREE.Quaternion; inward: 1 | -1; gripAlong: number }
+
+const punchFinger = new THREE.Vector3()
+const punchThumb = new THREE.Vector3()
+const punchThird = new THREE.Vector3()
+const punchBasisMatrix = new THREE.Matrix4()
+/** Writes the rotation whose X/Y columns are the given finger and (orthogonalised) thumb directions. */
+function punchBasis(finger: THREE.Vector3, thumb: THREE.Vector3, out: THREE.Quaternion): THREE.Quaternion {
+  punchFinger.copy(finger).normalize()
+  punchThumb.copy(thumb).addScaledVector(punchFinger, -thumb.dot(punchFinger)).normalize()
+  return out.setFromRotationMatrix(punchBasisMatrix.makeBasis(punchFinger, punchThumb, punchThird.crossVectors(punchFinger, punchThumb)))
+}
+
+interface HandAnatomy { finger: THREE.Vector3; thumb: THREE.Vector3; palm: THREE.Vector3 }
+
+/** Hand-local axes measured from the finger bones (some manifests carry default grip directions that don't match
+ * the fingers), falling back to the grip frame on fingerless rigs. `inward` is +1 for the right hand's +X. */
+function measureHandAnatomy(wrist: THREE.Object3D, frame: EquipmentGripFrame, inward: 1 | -1): HandAnatomy {
+  const base = (pattern: RegExp) => wrist.children.find(child => child instanceof THREE.Bone && pattern.test(child.name))?.position
+  const index = base(/index/i), pinky = base(/pinky|little/i), middle = base(/middle/i) ?? index
+  const finger = middle ? middle.clone().normalize() : new THREE.Vector3(...frame.fingerDirection).normalize()
+  const thumb = index && pinky ? index.clone().sub(pinky) : new THREE.Vector3(...frame.gripAxisLocal)
+  thumb.addScaledVector(finger, -thumb.dot(finger)).normalize()
+  // Right hand: fingers x thumb points out of the back of the hand; left hand: out of the palm.
+  const palm = new THREE.Vector3().crossVectors(finger, thumb).multiplyScalar(-inward).normalize()
+  return { finger, thumb, palm }
+}
+
+function createPunchPose(wrist: THREE.Object3D, frame: EquipmentGripFrame, inward: 1 | -1): PunchPose {
+  const { finger, thumb } = measureHandAnatomy(wrist, frame, inward)
+  return { local: punchBasis(finger, thumb, new THREE.Quaternion()).invert(), inward,
+    gripAlong: new THREE.Vector3(...frame.gripCenterLocal).dot(finger) }
+}
+
+interface SeatJoint { node: THREE.Object3D; position: THREE.Vector3; rotation: THREE.Quaternion }
+interface SeatLegBind { hip: SeatJoint; knee: SeatJoint; ankle: SeatJoint; toe: THREE.Vector3; side: 1 | -1 }
+interface SeatBind { pelvis: THREE.Vector3; pelvisRotation: THREE.Quaternion; legs: SeatLegBind[] }
+
+/** Bind pose in world metres relative to the rider root (bones may carry the asset's uniform scale). */
+function captureSeatBind(root: THREE.Object3D, rig: CharacterRig): SeatBind {
+  root.updateWorldMatrix(true, true)
+  const rootPosition = root.getWorldPosition(new THREE.Vector3()), rootInverse = root.getWorldQuaternion(new THREE.Quaternion()).invert()
+  const position = (node: THREE.Object3D) => node.getWorldPosition(new THREE.Vector3()).sub(rootPosition).applyQuaternion(rootInverse)
+  const rotation = (node: THREE.Object3D) => node.getWorldQuaternion(new THREE.Quaternion()).premultiply(rootInverse)
+  const joint = (node: THREE.Object3D): SeatJoint => ({ node, position: position(node), rotation: rotation(node) })
+  const pelvisBone = rig.leftLeg.hip.parent!
+  return { pelvis: position(pelvisBone), pelvisRotation: rotation(pelvisBone), legs: [rig.leftLeg, rig.rightLeg].map(leg => {
+    const hip = joint(leg.hip)
+    return { hip, knee: joint(leg.knee), ankle: joint(leg.ankle), toe: position(leg.foot), side: (hip.position.x >= 0 ? 1 : -1) as 1 | -1 }
+  }) }
+}
+
+function solveSeatBind(bind: SeatBind, barrel: readonly number[], saddleFlap?: number): Array<{ node: THREE.Object3D, q: THREE.Quaternion }> {
+  const result: Array<{ node: THREE.Object3D, q: THREE.Quaternion }> = []
+  const up = new THREE.Vector3(0, 1, 0)
+  const hingeFrame = (direction: THREE.Vector3, hinge: THREE.Vector3) => new THREE.Quaternion().setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(direction, hinge, new THREE.Vector3().crossVectors(direction, hinge)))
+  for (const leg of bind.legs) {
+    const thighRest = leg.knee.position.clone().sub(leg.hip.position), calfRest = leg.ankle.position.clone().sub(leg.knee.position), footRest = leg.toe.clone().sub(leg.ankle.position)
+    const solved = solveSeatedLeg(leg.hip.position.clone().sub(bind.pelvis), thighRest.length(), calfRest.length(), leg.side, barrel, saddleFlap)
+    thighRest.normalize(); calfRest.normalize()
+    // Carry the bind's knee hinge onto the solved plane, so the knee bends one way and neither bone rolls.
+    const hingeRest = new THREE.Vector3().crossVectors(thighRest, calfRest).normalize()
+    const hinge = new THREE.Vector3().crossVectors(solved.thigh, solved.calf).normalize()
+    const pose = (from: THREE.Vector3, to: THREE.Vector3, rest: THREE.Quaternion) => {
+      const restHinge = hingeRest.clone().addScaledVector(from, -hingeRest.dot(from)).normalize()
+      const toHinge = hinge.clone().addScaledVector(to, -hinge.dot(to)).normalize()
+      return hingeFrame(to, toHinge).multiply(hingeFrame(from, restHinge).invert()).multiply(rest)
+    }
+    const hipWorld = pose(thighRest, solved.thigh, leg.hip.rotation), kneeWorld = pose(calfRest, solved.calf, leg.knee.rotation)
+    // The foot stays level and points forward, toes slightly out.
+    const ankleWorld = new THREE.Quaternion().setFromAxisAngle(up, leg.side * .15)
+      .multiply(new THREE.Quaternion().setFromUnitVectors(footRest.normalize(), new THREE.Vector3(0, footRest.y, Math.hypot(footRest.x, footRest.z)).normalize())).multiply(leg.ankle.rotation)
+    // The saddle masks the pelvis to its bind, so bind rotations are the parents here.
+    result.push({ node: leg.hip.node, q: bind.pelvisRotation.clone().invert().multiply(hipWorld) },
+      { node: leg.knee.node, q: hipWorld.clone().invert().multiply(kneeWorld) },
+      { node: leg.ankle.node, q: kneeWorld.clone().invert().multiply(ankleWorld) })
+  }
+  return result
+}
+
+interface FistFinger { node: THREE.Object3D; fist: THREE.Quaternion }
+const FIST_FINGER_CURL = [1.25, 1.35, 1, .3]
+const FIST_THUMB_CURL = [0, .35, .3, .1]
+
+/** Absolute closed-fist rotations. Fingers bend toward the palm about one axis across the hand; the thumb swings
+ * across their front. Expressed in each joint's bind frame so per-frame writes cannot accumulate. */
+function createFistFingers(wrist: THREE.Object3D, frame: EquipmentGripFrame, inward: 1 | -1): FistFinger[] {
+  const { finger, thumb, palm } = measureHandAnatomy(wrist, frame, inward)
+  const fingerAxis = new THREE.Vector3().crossVectors(finger, palm).normalize()
+  // The thumb lies across the front of the curled fingers, whatever direction its bind pose points.
+  const across = finger.clone().multiplyScalar(.55).addScaledVector(thumb, -.75).addScaledVector(palm, .35).normalize()
+  const thumbAxis = new THREE.Vector3().crossVectors(across, palm).normalize()
+  const result: FistFinger[] = []
+  const bones = (node: THREE.Object3D) => node.children.filter(child => child instanceof THREE.Bone && !/socket|sole|contact|grip/i.test(child.name))
+  const visit = (node: THREE.Object3D, depth: number, chain: THREE.Quaternion, chainFist: THREE.Quaternion, isThumb: boolean) => {
+    for (const child of bones(node)) {
+      const thumbChain = isThumb || /thumb/i.test(child.name)
+      const toNode = chain.clone().multiply(child.quaternion)
+      let fist: THREE.Quaternion
+      const next = bones(child)[0]
+      if (thumbChain && depth === 0 && next) {
+        // Aim this joint's bone along `across`, expressed in the hand frame.
+        const bone = next.position.clone().applyQuaternion(toNode).normalize()
+        fist = new THREE.Quaternion().setFromUnitVectors(bone, across).multiply(toNode)
+      } else {
+        const axis = thumbChain ? thumbAxis : fingerAxis
+        const angle = (thumbChain ? FIST_THUMB_CURL : FIST_FINGER_CURL)[Math.min(depth, 3)]
+        fist = chainFist.clone().multiply(child.quaternion).multiply(new THREE.Quaternion().setFromAxisAngle(axis.clone().applyQuaternion(toNode.clone().invert()), angle))
+      }
+      result.push({ node: child, fist: chainFist.clone().invert().multiply(fist) })
+      visit(child, depth + 1, toNode, fist, thumbChain)
+    }
+  }
+  visit(wrist, 0, new THREE.Quaternion(), new THREE.Quaternion(), false)
+  return result
+}
+
 class ArmSolver {
   private readonly neutralShoulder = new THREE.Quaternion()
   private readonly neutralElbow = new THREE.Quaternion()
@@ -307,6 +435,14 @@ export class CharacterEquipmentPose {
   private readonly carrySaved = [new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion()]
   private readonly carryBones: THREE.Object3D[]
   private readonly shieldL: THREE.Quaternion
+  private readonly punchPoses: Record<'right' | 'left', PunchPose>
+  private readonly punchRootInverse = new THREE.Quaternion()
+  private readonly punchThumbGoal = new THREE.Vector3()
+  private readonly punchForearm = new THREE.Vector3()
+  private readonly punchElbow = new THREE.Vector3()
+  private readonly punchFingers: Record<'right' | 'left', FistFinger[]>
+  private readonly seatBind: SeatBind
+  private readonly seatLegCache = new Map<MountedPoseKind, Array<{ node: THREE.Object3D, q: THREE.Quaternion }>>()
   private readonly shieldBody: THREE.Object3D
   private readonly shieldBindInverse = new THREE.Matrix4()
   private readonly shieldBodyDelta = new THREE.Matrix4()
@@ -385,7 +521,7 @@ export class CharacterEquipmentPose {
     return this.hasSwordEquipmentCorrection ? this.swordEquipmentCorrection : undefined
   }
 
-  private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined }> = []
+  private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined, mitten?: { gripR: number, gripL: number, hollowR?: number, hollowL?: number } }> = []
   private readonly articulatedFingers: Array<{ node: THREE.Object3D, left: boolean, relaxed: THREE.Quaternion, grip: THREE.Quaternion, sword?: THREE.Quaternion, mountedSword?: THREE.Quaternion, axe?: THREE.Quaternion, shield?: THREE.Quaternion }> = []
   private readonly articulatedAxeNeutralWrist: THREE.Quaternion
   private readonly articulatedAxeProfile?: string
@@ -446,6 +582,7 @@ export class CharacterEquipmentPose {
       : swordHandMatrix(frames.lanceRight).multiply(new THREE.Matrix4().makeRotationX(.45))
     this.axeCarry = forwardCarry.clone().multiply(new THREE.Quaternion().setFromRotationMatrix(axeHand).invert())
     this.carryBones = [rig.right.shoulder, rig.right.elbow, rig.right.wrist]
+    this.punchPoses = { right: createPunchPose(rig.right.wrist, frames.lanceRight, 1), left: createPunchPose(rig.left.wrist, frames.lanceLeft, -1) }
     this.axe1Carry = this.axeCarry
     this.shieldL = new THREE.Quaternion().setFromRotationMatrix(equipmentWeaponFrame('shield')).multiply(hand(frames.shieldLeft))
     // The existing axe visual tilts 0.45 radians about its grip. Attacks use
@@ -497,8 +634,11 @@ export class CharacterEquipmentPose {
     nodes.push(...this.orbitTorso.filter(node => !nodes.includes(node)))
     if (this.orbitNeck && !nodes.includes(this.orbitNeck)) nodes.push(this.orbitNeck)
     if (this.bowFullBodyStance && this.bowSpine && this.bowSpine !== this.seatedSpine) nodes.push(this.bowSpine)
+    this.seatBind = captureSeatBind(root, rig)
+    this.punchFingers = { right: createFistFingers(rig.right.wrist, frames.lanceRight, 1), left: createFistFingers(rig.left.wrist, frames.lanceLeft, -1) }
+    nodes.push(...this.punchFingers.right.map(f => f.node), ...this.punchFingers.left.map(f => f.node))
     for (const node of nodes) this.saved.push({ node, q: node.quaternion.clone() })
-    root.traverse(o => { if (o instanceof THREE.SkinnedMesh) this.morphs.push({ mesh: o, right: o.morphTargetDictionary?.lanceRight, left: o.morphTargetDictionary?.lanceLeft, shield: o.morphTargetDictionary?.shieldLeft }) })
+    root.traverse(o => { if (o instanceof THREE.SkinnedMesh) this.morphs.push({ mesh: o, right: o.morphTargetDictionary?.lanceRight, left: o.morphTargetDictionary?.lanceLeft, shield: o.morphTargetDictionary?.shieldLeft, mitten: o.morphTargetDictionary?.[MITTEN_MORPHS.gripRight] === undefined ? undefined : { gripR: o.morphTargetDictionary![MITTEN_MORPHS.gripRight], gripL: o.morphTargetDictionary![MITTEN_MORPHS.gripLeft], hollowR: o.morphTargetDictionary![MITTEN_MORPHS.hollowRight], hollowL: o.morphTargetDictionary![MITTEN_MORPHS.hollowLeft] } }) })
   }
 
   private solveHandContact(solver: ArmSolver, arm: ArmRig, frame: EquipmentGripFrame): void {
@@ -546,6 +686,16 @@ export class CharacterEquipmentPose {
 
   private blendContinuousLocal(saved: THREE.Quaternion, target: THREE.Quaternion, weight: number, prevDelta?: THREE.Quaternion): void {
     blendContinuousLocalQuaternion(saved, target, weight, prevDelta, this.boneWorld, this.attackAxis)
+  }
+
+  /** Seated legs for this rig and mount, solved once from its bind pose and the mount's measured width. */
+  private fittedSeatLegs(kind: MountedPoseKind): Array<{ node: THREE.Object3D, q: THREE.Quaternion }> | undefined {
+    // Only the Byzantine bind has bent legs that the shared per-mount angles don't fit; other riders keep them.
+    const barrel = this.selectedSource?.rig === 'mixamo24' ? MOUNT_BARREL[kind] : undefined
+    if (!barrel) return undefined
+    let cached = this.seatLegCache.get(kind)
+    if (!cached) { cached = solveSeatBind(this.seatBind, barrel, MOUNT_SADDLE_FLAP[kind]); this.seatLegCache.set(kind, cached) }
+    return cached
   }
 
   private rotateArm(node: THREE.Object3D, angle: number, updateSubtree = true): void {
@@ -654,7 +804,11 @@ export class CharacterEquipmentPose {
         for (const joint of this.seatedTorso) this.rotateArm(joint, turn / this.seatedTorso.length)
       }
     }
-    if (live && state.mounted) applyCharacterMountedPose(this.rig, true, state.mountKind)
+    if (live && state.mounted) {
+      const fitted = this.fittedSeatLegs(state.mountKind)
+      if (fitted) for (const entry of fitted) entry.node.quaternion.copy(entry.q)
+      else applyCharacterMountedPose(this.rig, true, state.mountKind)
+    }
     if (live && state.mounted) this.mountedSkirt?.apply()
     if (live && state.mounted && state.mountKind === 'xongkoro' && this.seatedSpine && state.flightLean) {
       // Flight still leans the lower torso, but must not tilt a selected bow's
@@ -1177,6 +1331,14 @@ export class CharacterEquipmentPose {
       if (morph.right !== undefined) values[morph.right] = 0
       if (morph.left !== undefined) values[morph.left] = twoHandedAxe ? smooth(state.elapsed / .08) * (1 - smooth((state.elapsed - .42) / .06)) : 0
       if (morph.shield !== undefined) values[morph.shield] = Number(live && state.shield)
+      if (morph.mitten) {
+        const punching = state.action === 'punchCombo' || state.action === 'punchRight'
+        const hollowRest = morph.mitten.hollowR !== undefined
+        const right = live && (punching || hollowRest && !!state.rightGrip), left = live && (state.action === 'punchCombo' || hollowRest && (state.shield || twoHandedAxe || !!state.leftGrip))
+        values[morph.mitten.gripR] = Number(right); values[morph.mitten.gripL] = Number(left)
+        if (morph.mitten.hollowR !== undefined) values[morph.mitten.hollowR] = Number(!right)
+        if (morph.mitten.hollowL !== undefined) values[morph.mitten.hollowL] = Number(!left)
+      }
     }
     const fingerContact = contact
     if (fingerContact) for (const entry of this.articulatedFingers) {
@@ -1244,6 +1406,49 @@ export class CharacterEquipmentPose {
       }
     }
     if (live && state.mounted) this.fittedCloth?.applyMounted()
+    if (live && !state.punchClip && (state.action === 'punchCombo' || state.action === 'punchRight')) {
+      // A straight punch: shoulders turn into it, the fist drives from the guard toward the centre line and the
+      // wrist stays in line with the forearm. A shield retains its existing left-arm solve.
+      const shield = state.action === 'punchRight'
+      const right = punchExtension(state.elapsed, 'right', shield), leftHand = shield ? 0 : punchExtension(state.elapsed, 'left', false)
+      const torso = this.seatedTorso.length ? this.seatedTorso : this.seatedSpine ? [this.seatedSpine] : []
+      this.root.getWorldQuaternion(this.rootWorld)
+      this.attackAxis.set(0, 1, 0).applyQuaternion(this.rootWorld)
+      for (const joint of torso) this.rotateArm(joint, (right - leftHand) * (shield ? PUNCH_SHIELD_TORSO_YAW : PUNCH_TORSO_YAW) / torso.length)
+      // Ease in from and out to the sampled locomotion pose rather than snapping to the guard.
+      const blend = smooth(state.elapsed / .1) * (1 - smooth((state.elapsed - (UNARMED_DURATION - .1)) / .1))
+      for (const hand of ['right', 'left'] as const) {
+        if (shield && hand === 'left') continue
+        const arm = this.rig[hand], solver = hand === 'right' ? this.axeRight : this.left, pose = this.punchPoses[hand]
+        const frame = hand === 'right' ? this.frames.lanceRight : this.frames.lanceLeft
+        const extension = hand === 'right' ? right : leftHand
+        arm.shoulder.getWorldPosition(this.axeReach); this.root.worldToLocal(this.axeReach)
+        const x = this.axeReach.x, y = this.axeReach.y, z = this.axeReach.z
+        const reach = (solver.maxReach + pose.gripAlong) * .97, dx = x * .7, dy = .04
+        const strikeZ = z + Math.sqrt(Math.max(.04, reach * reach - dx * dx - dy * dy))
+        this.target.set(x * .8 + (x * .3 - x * .8) * extension, y - .03 - .01 * extension, z + .25 + (strikeZ - z - .25) * extension)
+        if (blend < 1) {
+          arm.wrist.localToWorld(this.axeReach.fromArray(frame.gripCenterLocal)); this.root.worldToLocal(this.axeReach)
+          this.target.lerpVectors(this.axeReach, this.target, blend)
+        }
+        // Guard: thumb up, palm inward. Strike: thumb inward, palm down. The hand's back always follows the real
+        // forearm, measured from the previous solve, so the wrist stays straight in every frame.
+        this.punchThumbGoal.set(pose.inward * extension, 1 - extension, 0)
+        this.punchForearm.set(pose.inward * .25 * (1 - extension), .35 * (1 - extension), 1)
+        for (let pass = 0; pass < 2; pass++) {
+          punchBasis(this.punchForearm, this.punchThumbGoal, this.handWorld).multiply(pose.local)
+          if (blend < 1) {
+            arm.wrist.getWorldQuaternion(this.parentInverse).premultiply(this.punchRootInverse.copy(this.rootWorld).invert())
+            this.handWorld.copy(this.parentInverse.slerp(this.handWorld, blend))
+          }
+          solver.solve(this.target, this.handWorld, frame, undefined, false, true)
+          arm.elbow.getWorldPosition(this.punchElbow); arm.wrist.getWorldPosition(this.punchForearm)
+          this.root.worldToLocal(this.punchElbow); this.root.worldToLocal(this.punchForearm)
+          this.punchForearm.sub(this.punchElbow)
+        }
+        for (const finger of this.punchFingers[hand]) finger.node.quaternion.copy(finger.fist)
+      }
+    }
     this.root.updateWorldMatrix(true, true)
   }
 }

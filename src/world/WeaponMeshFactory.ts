@@ -7,7 +7,7 @@ import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODContr
 import { LANCE_RADIUS } from './EquipmentAttachmentContract'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { createPaladinEquipment } from './PaladinEquipment'
-import { createT4Polearm, createT5BowBody, createT5Melee, createT5Shield, createFactionShield } from './HighTierEquipment'
+import { createByzantineEquipment, createT4Polearm, createT5BowBody, createT5Melee, createT5Shield, createFactionShield, requestByzantineEquipment, type ByzantineEquipmentId } from './HighTierEquipment'
 
 function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
   const positions: number[] = []
@@ -160,6 +160,43 @@ export interface NpcRangedMeshParts {
 let paladinGripGeometry: THREE.CapsuleGeometry | undefined
 let paladinGripMountGeometry: THREE.BoxGeometry | undefined
 
+const bannerWorld = new THREE.Quaternion()
+const bannerDown = new THREE.Vector3()
+
+/** Banner flies toward model -X. Spin the whole (round) lance about its shaft so the cloth hangs toward the ground.
+ * Runs at render time on the final pose: visual only, with no effect on grip, tip or hit traces. */
+export function bannerRollAngle(shaftWorld: THREE.Quaternion, down: THREE.Vector3 = bannerDown): number | undefined {
+  down.set(0, -1, 0).applyQuaternion(shaftWorld.clone().invert())
+  // Too close to vertical for a meaningful "down" around the shaft: keep the last roll.
+  if (Math.hypot(down.x, down.z) < .2) return undefined
+  return Math.atan2(down.z, -down.x)
+}
+
+function hangBannerByGravity(roll: THREE.Group, model: THREE.Object3D): void {
+  let angle: number | undefined
+  const update = () => {
+    if (!roll.parent) return
+    const target = bannerRollAngle(roll.parent.getWorldQuaternion(bannerWorld))
+    if (target === undefined) return
+    angle = angle === undefined ? target : angle + Math.atan2(Math.sin(target - angle), Math.cos(target - angle)) * .35
+    roll.rotation.set(0, angle, 0)
+    roll.updateMatrixWorld(true)
+  }
+  model.traverse(object => { if (object instanceof THREE.Mesh) object.onBeforeRender = update })
+}
+
+/** Gameplay frames exist at once; the real model joins this holder when loaded, unless the pivot was rebuilt meanwhile.
+ * A failure leaves the holder empty, never another model. Actors only reach this once the item is usable. */
+function attachByzantineEquipment(id: ByzantineEquipmentId, pivot: THREE.Group, onModel?: (holder: THREE.Group, model: THREE.Group) => void): void {
+  const holder = new THREE.Group()
+  holder.name = `${id}-holder`
+  pivot.add(holder)
+  const place = (model: THREE.Group) => { holder.add(model); onModel?.(holder, model) }
+  const loaded = createByzantineEquipment(id)
+  if (loaded) { place(loaded); return }
+  requestByzantineEquipment(id).then(model => { if (holder.parent) place(model) }, () => {})
+}
+
 export class WeaponMeshFactory {
   /**
    * 建構近戰武器的 3D mesh group，附加到指定 pivot
@@ -177,6 +214,16 @@ export class WeaponMeshFactory {
       pivot.userData.tipLocal = [0, 2.6, 0]
       pivot.add(weaponId === 'spear_t5' ? createT5Melee(weaponId) : createT4Polearm())
       return { tipLocal: new THREE.Vector3(0, 2.6, 0) }
+    }
+
+    if (weaponId === 'byzantine_standard_lance_t5') {
+      // Visible shaft is 3.3 m (Y -0.5..2.8) with the same main/support grips as every lance.
+      // Gameplay reach is WeaponData.range (3.9 m), not this model length.
+      pivot.userData.supportPointLocal = [0, .33, 0]
+      pivot.userData.forwardAxisLocal = [0, 1, 0]
+      pivot.userData.tipLocal = [0, 2.8, 0]
+      attachByzantineEquipment(weaponId, pivot, hangBannerByGravity)
+      return { tipLocal: new THREE.Vector3(0, 2.8, 0) }
     }
 
     if (weaponId === 'sword_t5') {
@@ -676,9 +723,11 @@ export class WeaponMeshFactory {
     const leather = proceduralMaterial({ kind: 'leather', color: 0x3d281d, roughness: 0.86 })
 
     const factionShield = shieldId === 'roman_officer_shield_t4' || shieldId === 'viking_berserker_shield_t5'
-    if (shieldId === 'paladin_shield_t4' || shieldId === 'commander_shield_t5' || factionShield) {
+    const eagleShield = shieldId === 'byzantine_eagle_shield_t5'
+    if (shieldId === 'paladin_shield_t4' || shieldId === 'commander_shield_t5' || factionShield || eagleShield) {
       const commander = shieldId === 'commander_shield_t5'
-      pivot.add(factionShield ? createFactionShield(shieldId) : commander ? createT5Shield() : createPaladinEquipment('paladin_shield_t4'))
+      if (eagleShield) attachByzantineEquipment(shieldId, pivot)
+      else pivot.add(factionShield ? createFactionShield(shieldId) : commander ? createT5Shield() : createPaladinEquipment('paladin_shield_t4'))
       // Laurelguard's front is +Z, but its central rear is near Z=0 rather than
       // Paladin's +.13. Keep the original GLB axes and move only its rear grip.
       const gripZ = commander ? -.085 : .085
@@ -696,6 +745,12 @@ export class WeaponMeshFactory {
           // Measured rear surface at Y=-.10 / +.10 is -.0187 / +.0077.
           // The mounts seat ~1cm into that lining, never through the front.
           const rearSeatZ = y < 0 ? -.008 : .018
+          mount.position.z = (gripZ + rearSeatZ) / 2
+          mount.scale.z = (rearSeatZ - gripZ) / .17
+        }
+        if (shieldId === 'byzantine_eagle_shield_t5') {
+          // Measured rear surface behind the boss is z=.155; seat the mounts there rather than through the painted face.
+          const rearSeatZ = .165
           mount.position.z = (gripZ + rearSeatZ) / 2
           mount.scale.z = (rearSeatZ - gripZ) / .17
         }

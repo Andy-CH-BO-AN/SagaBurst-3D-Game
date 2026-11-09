@@ -123,7 +123,7 @@ export class EquipmentUI {
   }
 
   updateModal(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter, squad?: EquipmentSquadAdapter, town?: EquipmentTownAdapter): void {
-    const { oneHanded, twoHanded, ranged, mountedImpact, blocking } = skillManager.skillState
+    const { oneHanded, twoHanded, ranged, mountedImpact, blocking, unarmed } = skillManager.skillState
 
     const renderSkill = (levelEl: HTMLElement, fillEl: HTMLElement, data: { level: number; xp: number }): void => {
       const needed = skillManager.getXpNeeded(data.level)
@@ -136,6 +136,13 @@ export class EquipmentUI {
     renderSkill(this.mountLvlEl, this.mountFillEl, mountedImpact)
     const blockLevel = document.getElementById('skill-block-lvl'), blockFill = document.getElementById('skill-block-fill')
     if (blockLevel && blockFill) renderSkill(blockLevel, blockFill, blocking)
+    const fistLevel = document.getElementById('skill-unarmed-lvl'), fistFill = document.getElementById('skill-unarmed-fill')
+    if (fistLevel && fistFill) {
+      renderSkill(fistLevel, fistFill, unarmed)
+      fistLevel.textContent = ` Lv.${unarmed.level}/50`
+      const detail = document.getElementById('skill-unarmed-detail'), needed = skillManager.getXpNeeded(unarmed.level)
+      if (detail) detail.textContent = `${needed ? `XP ${Math.floor(unarmed.xp)} / ${needed}` : 'MAX'} · 傷害 ×${skillManager.getMultiplier('unarmed').toFixed(2)}`
+    }
 
     // Render Inventory Cards
     this.inventoryListEl.innerHTML = ''

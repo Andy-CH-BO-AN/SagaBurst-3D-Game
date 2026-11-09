@@ -48,6 +48,8 @@ rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.
 - **騎乘**：骨盆座面、膝踝與裝備不穿模；測本次影響的坐騎、LOD、動作與上下馬恢復。新匯出的坐騎 GLB 先依 [mount-from-reference](../mount-from-reference/SKILL.md)／資產流程做 Blender round-trip 檢查，再進瀏覽器。
 - **接地**：側面比較 Player/NPC 鞋底與相同地形，不能只看 physics root 高度。
 
+測試命令要看結束碼與每個 shard：runner 可能在第一個失敗的 shard 就停止，此時的失敗數不是總數。
+
 程式檢查沿用專案 AGENTS，不在瀏覽器流程重複強制整套測試。使用者要求不開瀏覽器時遵守，並明確標記視覺未驗證。
 
 ## 動畫資產與播放缺陷
@@ -58,6 +60,12 @@ rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.
 - 「移動但腳停住」記錄一段連續時間內的移速、active clip、action time、effective weight/timeScale、腿骨姿勢，以及 land／hit 等觸發次數。只看 mixer.time 前進不代表腿有動；只看截圖不同也不能排除反覆重啟。
 - 腳本直接呼叫跳躍等有接地前提的操作時，讓前提檢查與呼叫在同一次 page task 執行；鍵鼠觸發則記錄輸入與動作是否實際被接受。若 trace 沒有 jump，先區分觸發失敗與落地恢復失敗，不繞過 runtime guard 製造通過。
 - 動作修復依實際支援驗證 Player／NPC 的移動、一次性動作恢復與死亡保持；資產／實例改動另查 LOD、獨立 skeleton/mixer 和騎士接點。藝術形變的完整週期與多視角判讀見 [坐騎動畫診斷](../mount-from-reference/references/animation-deformation.md)。
+
+## 資產失敗與近距離檢查
+
+- **失敗注入：** 先到主選單，再包裝 `window.fetch`，讓目標 URL 永遠不回應，接著才開始戰鬥。確認場景仍會開啟、受影響的角色沒有武器效果、其他角色不受影響；解除封鎖後確認有新的網路請求，且模型與戰鬥狀態一起恢復。自訂戰鬥重新整理會由 `sessionStorage` 直接恢復，來不及包裝，需先清除 `sagaburst_battle_config`。
+- **近距離檢查：** 可暫時停用第三人稱相機更新，並在 render 前把相機放到目標旁邊。遠景不能證明握持；手部與騎姿要看近照和多個角度。臨時掛在 `window` 的 handle 不要提交。
+- **視窗要可見：** 隱藏的預覽窗格會讓 `requestAnimationFrame` 與載入變慢，時間數據不可信。
 
 ## 軌跡與錯誤判讀
 

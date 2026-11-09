@@ -194,7 +194,7 @@ export interface PhysicalCombatTarget {
   currentMount?: Mount | null
   mountCollider?: LocalBoxCollider
 }
-export interface CombatContact { kind: 'shield' | 'body' | 'mount'; time: number; mount?: Mount; target?: PhysicalCombatTarget; attackSource?: 'xongkoro' }
+export interface CombatContact { kind: 'shield' | 'body' | 'mount'; time: number; mount?: Mount; target?: PhysicalCombatTarget; attackSource?: 'xongkoro' | 'unarmed' }
 const bodyBox = new THREE.Box3()
 const bodyInverse = new THREE.Matrix4()
 const bodyFrom = new THREE.Vector3()
