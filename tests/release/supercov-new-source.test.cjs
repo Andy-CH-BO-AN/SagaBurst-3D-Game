@@ -41,6 +41,28 @@ test('type-only imports, including ones without the keyword, do not load the mod
   }
   assert.deepEqual(loaders({ 'tests/t.test.ts': "import { created } from '../src/new'\ncreated()" }), ['tests/t.test.ts'])
 })
+test('an import shadowed by a local name or parameter does not load the module', () => {
+  const imported = "import { created } from '../src/new'\n"
+  for (const body of ["it('dummy', () => { const created = 1; expect(created).toBe(1) })",
+    'export const use = (created: number) => created']) {
+    assert.deepEqual(loaders({ 'tests/t.test.ts': imported + body }), [], body)
+  }
+  for (const body of ['export const use = () => created()', 'export { created }', 'export const held = { created }']) {
+    assert.deepEqual(loaders({ 'tests/t.test.ts': imported + body }), ['tests/t.test.ts'], body)
+  }
+})
+test('a test dynamic import counts only when running the test certainly reaches it', () => {
+  const load = "await import('../src/new')"
+  for (const body of ['if (false) { ' + load + ' }', 'const never = async () => { ' + load + ' }\nexport { never }',
+    "for (const name of []) { void name; " + load + " }", 'flag && ' + load, 'flag ? ' + load + ' : null',
+    "it('dummy', async () => { if (flag) { " + load + " } })", "vi.mock('../src/other', async () => " + load + ')']) {
+    assert.deepEqual(loaders({ 'tests/t.test.ts': body }), [], body)
+  }
+  for (const body of [load, "it('dummy', async () => { " + load + " })", "beforeEach(async () => { " + load + " })",
+    "it.each([1])('dummy %i', async () => { try { " + load + " } finally { done() } })"]) {
+    assert.deepEqual(loaders({ 'tests/t.test.ts': body }), ['tests/t.test.ts'], body)
+  }
+})
 test('a module that declares only types needs no test; one with code does', () => {
   const types = { [NEW]: "import type { A } from './a'\nexport interface B extends A {}\nexport type C = B\ndeclare const d: C\nexport { type d }" }
   const analysis = analyzeNewSources([NEW], repository({ ...types, 'src/a.ts': 'export interface A {}' }))

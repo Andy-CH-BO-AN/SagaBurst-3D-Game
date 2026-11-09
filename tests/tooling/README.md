@@ -168,18 +168,20 @@ So that flag still fails closed, and an added `src/**` module is admitted only b
 2. No production module has a computed `import()`/`require()`, `import.meta.glob`,
    computed `new URL(…, import.meta.url)` or unresolved specifier. Any of those could
    reach the module or means the graph is incomplete.
-3. Unless it declares only types, a test file must load it: through the test's own
-   imports, then static imports beneath them (barrels and tsconfig `paths` included).
-   Type-only imports and imports whose bindings are only used as types do not count,
-   because the bundler drops them. A production `import()` may never run, and a module
-   under `vi.mock` does not run, so neither is a path.
+3. Unless it emits no JavaScript, a test file must load it: through the test's static
+   imports and the `import()` calls it reaches unconditionally, then static imports
+   beneath them (barrels and tsconfig `paths` included). Which imports exist is read from
+   TypeScript's own emit, so type-only imports and imports nothing uses as a value, shadowed
+   names included, do not count. A guarded or uncalled `import()`, a production `import()`
+   and a module under `vi.mock` may never run, so none of them is a path.
 4. Once selected, **every** test file that loads it must be in the selection. Adding the
    import changes the importer's top level, so Supercov should already select them; a
    difference is reported rather than patched over.
 5. Each existing importer must have real test evidence: non-zero `totalTests` from
    `runs <id> file <path> --json` at the base, or an added/modified test loading it.
 
-Failures name the file and the missing relation. Limitations: this proves a test
+Failures name the file and the missing relation. Limitations: "unconditionally" is read
+from syntax, so an `import()` after an early `return` still counts, and this proves a test
 *loads* the module, not that it asserts its behavior, and it is no substitute for coverage;
 that stays a review question. No coverage evidence is produced or implied for the module.
 

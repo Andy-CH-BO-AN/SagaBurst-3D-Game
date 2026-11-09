@@ -10,7 +10,8 @@ const ts = require('typescript')
 
 const CODE = /\.[cm]?[jt]sx?$/
 const isTestFile = file => /^tests\/.*\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file) && !/\.cjs$/.test(file)
-const TYPE_ONLY_STATEMENTS = new Set([ts.SyntaxKind.InterfaceDeclaration, ts.SyntaxKind.TypeAliasDeclaration])
+// Calls whose callback the test runner itself invokes.
+const RUNS_CALLBACK = new Set(['it', 'test', 'describe', 'suite', 'beforeAll', 'beforeEach', 'afterAll', 'afterEach'])
 
 function diskHost(root) {
   const walk = dir => readdirSync(resolve(root, dir), { withFileTypes: true }).flatMap(item =>
@@ -27,89 +28,65 @@ function diskHost(root) {
   }
 }
 
-// Mentions of a module in the types only leave no JavaScript behind, so they
-// are not execution dependencies. An import whose bindings merely happen to be
-// used as types stays a runtime edge: that errs towards more dependants.
-function typeOnlyImport(node) {
-  const clause = node.importClause
-  if (!clause) return false
-  if (clause.isTypeOnly) return true
-  const named = clause.namedBindings
-  return !clause.name && Boolean(named) && ts.isNamedImports(named) &&
-    named.elements.length > 0 && named.elements.every(item => item.isTypeOnly)
-}
-function typeOnlyExport(node) {
-  if (node.isTypeOnly) return true
-  const named = node.exportClause
-  return Boolean(named) && ts.isNamedExports(named) &&
-    named.elements.length > 0 && named.elements.every(item => item.isTypeOnly)
-}
 function literal(node) {
   return node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : null
 }
-function declaresOnlyTypes(source) {
-  return source.statements.every(statement =>
-    TYPE_ONLY_STATEMENTS.has(statement.kind) ||
-    (ts.isImportDeclaration(statement) && typeOnlyImport(statement)) ||
-    (ts.isExportDeclaration(statement) && (typeOnlyExport(statement) ||
-      (!statement.moduleSpecifier && ts.isNamedExports(statement.exportClause) && !statement.exportClause.elements.length))) ||
-    (ts.canHaveModifiers(statement) && ts.getModifiers(statement)?.some(item => item.kind === ts.SyntaxKind.DeclareKeyword)))
+// TypeScript's own emit decides which imports survive. Types, and imports nothing
+// uses as a value (shadowed names included), are gone from it, as they are at run time.
+function emittedSource(file, text) {
+  if (/\.d\.[cm]?ts$/.test(file)) return ts.createSourceFile(file, '', ts.ScriptTarget.Latest, true)
+  const { outputText } = ts.transpileModule(text, { fileName: file, compilerOptions: {
+    target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext, isolatedModules: true, jsx: ts.JsxEmit.Preserve } })
+  return ts.createSourceFile(file, outputText, ts.ScriptTarget.Latest, true)
 }
-// Names used as values. Bundlers drop an import none of whose bindings is one, so
-// such an import does not load its module even without the `type` keyword.
-function valueIdentifiers(source) {
-  const names = new Set()
-  const visit = node => {
-    if (ts.isImportDeclaration(node) || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) return
-    if (ts.isHeritageClause(node)) {
-      if (node.token === ts.SyntaxKind.ExtendsKeyword) node.types.forEach(type => visit(type.expression))
-      return
-    }
-    if (ts.isTypeNode(node)) return
-    if (ts.isIdentifier(node)) names.add(node.text)
-    if (ts.isPropertyAccessExpression(node)) return visit(node.expression)
-    if (ts.isPropertyAssignment(node)) return visit(node.initializer)
-    ts.forEachChild(node, visit)
+function emitsNothing(source) {
+  return source.statements.every(statement => ts.isExportDeclaration(statement) && !statement.moduleSpecifier &&
+    statement.exportClause && ts.isNamedExports(statement.exportClause) && !statement.exportClause.elements.length)
+}
+function calleeRoot(node) {
+  while (ts.isPropertyAccessExpression(node) || ts.isCallExpression(node)) node = node.expression
+  return ts.isIdentifier(node) ? node.text : null
+}
+// Whether running the file certainly reaches this node: no branch or loop may guard
+// it, and every enclosing function must be a callback the test runner invokes. Unused
+// helpers, skipped branches and vi.mock factories therefore prove nothing. This reads
+// syntax only, so a statement after an early return can still pass.
+function runsUnconditionally(node) {
+  for (let parent = node.parent, child = node; parent; child = parent, parent = parent.parent) {
+    if (ts.isIfStatement(parent) || ts.isConditionalExpression(parent) || ts.isIterationStatement(parent, false) ||
+        ts.isSwitchStatement(parent) || ts.isCatchClause(parent)) return false
+    if (ts.isBinaryExpression(parent) && parent.right === child && [ts.SyntaxKind.AmpersandAmpersandToken,
+      ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(parent.operatorToken.kind)) return false
+    if (ts.isFunctionLike(parent) && !(ts.isCallExpression(parent.parent) && parent.parent.arguments.includes(parent) &&
+        RUNS_CALLBACK.has(calleeRoot(parent.parent.expression)))) return false
   }
-  visit(source)
-  return names
-}
-function importIsElided(node, values) {
-  const clause = node.importClause
-  if (!clause) return false
-  const named = clause.namedBindings
-  const bindings = [
-    ...(clause.name ? [clause.name.text] : []),
-    ...(named && ts.isNamespaceImport(named) ? [named.name.text] : []),
-    ...(named && ts.isNamedImports(named) ? named.elements.filter(item => !item.isTypeOnly).map(item => item.name.text) : []),
-  ]
-  return bindings.length > 0 && !bindings.some(name => values.has(name))
+  return true
 }
 
 function scanModule(file, text) {
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true)
-  const found = { imports: [], dynamicImports: [], mocks: [], opaque: [], typeOnly: declaresOnlyTypes(source) }
-  const values = valueIdentifiers(source)
-  const where = node => file + ':' + (source.getLineAndCharacterOfPosition(node.getStart()).line + 1)
-  const opaque = (node, why) => found.opaque.push(where(node) + ' ' + why)
+  const source = emittedSource(file, text)
+  const found = { imports: [], dynamicImports: [], certainImports: [], mocks: [], opaque: [], typeOnly: emitsNothing(source) }
+  const opaque = (node, why) => found.opaque.push(file + ': ' + why + ': ' + node.getText())
+  const dynamic = (node, specifier) => {
+    found.dynamicImports.push(specifier)
+    if (runsUnconditionally(node)) found.certainImports.push(specifier)
+  }
   const visit = node => {
     if (ts.isImportDeclaration(node)) {
-      if (!typeOnlyImport(node) && !importIsElided(node, values)) found.imports.push(literal(node.moduleSpecifier))
+      found.imports.push(literal(node.moduleSpecifier))
     } else if (ts.isExportDeclaration(node)) {
-      if (node.moduleSpecifier && !typeOnlyExport(node)) found.imports.push(literal(node.moduleSpecifier))
+      if (node.moduleSpecifier) found.imports.push(literal(node.moduleSpecifier))
     } else if (ts.isImportEqualsDeclaration(node)) {
-      if (!node.isTypeOnly && ts.isExternalModuleReference(node.moduleReference)) {
-        found.imports.push(literal(node.moduleReference.expression))
-      }
+      if (ts.isExternalModuleReference(node.moduleReference)) found.imports.push(literal(node.moduleReference.expression))
     } else if (ts.isCallExpression(node)) {
       const callee = node.expression
       const first = literal(node.arguments[0])
       if (callee.kind === ts.SyntaxKind.ImportKeyword) {
         if (first === null) opaque(node, 'dynamic import with a computed path')
-        else found.dynamicImports.push(first)
+        else dynamic(node, first)
       } else if (ts.isIdentifier(callee) && callee.text === 'require' && node.arguments.length) {
         if (first === null) opaque(node, 'require with a computed path')
-        else found.dynamicImports.push(first)
+        else dynamic(node, first)
       } else if (ts.isPropertyAccessExpression(callee)) {
         const method = callee.name.text
         if (ts.isMetaProperty(callee.expression) && (method === 'glob' || method === 'globEager')) {
@@ -125,7 +102,7 @@ function scanModule(file, text) {
       if (base && ts.isPropertyAccessExpression(base) && ts.isMetaProperty(base.expression)) {
         const target = literal(node.arguments[0])
         if (target === null) opaque(node, 'new URL with a computed path')
-        else if (CODE.test(target)) found.dynamicImports.push(target)
+        else if (CODE.test(target)) dynamic(node, target)
       }
     }
     ts.forEachChild(node, visit)
@@ -153,12 +130,12 @@ function buildGraph(host) {
   const graph = new Map()
   for (const file of host.files()) {
     const scan = scanModule(file, host.readFile(file))
-    const node = { edges: new Set(), dynamicEdges: new Set(), mocks: new Set(), opaqueMock: false,
+    const node = { edges: new Set(), dynamicEdges: new Set(), certainEdges: new Set(), mocks: new Set(), opaqueMock: false,
       opaque: scan.opaque, unresolved: [], typeOnly: scan.typeOnly }
-    for (const [specifiers, edges] of [[scan.imports, node.edges], [scan.dynamicImports, node.dynamicEdges]]) {
+    for (const [specifiers, edges] of [[scan.imports, node.edges], [scan.dynamicImports, node.dynamicEdges], [scan.certainImports, node.certainEdges]]) {
       for (const specifier of specifiers) {
         const target = resolver(specifier, file)
-        if (target.unresolved) node.unresolved.push(file + ' -> ' + specifier)
+        if (target.unresolved && edges !== node.certainEdges) node.unresolved.push(file + ' -> ' + specifier)
         else if (target.file) edges.add(target.file)
       }
     }
@@ -172,14 +149,14 @@ function buildGraph(host) {
   return graph
 }
 
-// What a test file certainly executes when it loads: its own imports, static or
-// dynamic, and every static import beneath them. A dynamic import inside production
-// code may never run, and a module the test replaces with vi.mock does not run, so
-// neither they nor anything reachable only through them counts.
+// What a test file certainly executes: its static imports, the dynamic imports it
+// reaches unconditionally, and every static import beneath them. A dynamic import
+// inside production code may never run, and a module the test replaces with vi.mock
+// does not run, so neither they nor anything reachable only through them counts.
 function loadedBy(graph, testFile) {
   const start = graph.get(testFile)
   const seen = new Set([testFile])
-  const queue = [...start.edges, ...start.dynamicEdges]
+  const queue = [...start.edges, ...start.certainEdges]
   while (queue.length) {
     const next = queue.pop()
     if (seen.has(next) || start.mocks.has(next) || !graph.has(next)) continue
