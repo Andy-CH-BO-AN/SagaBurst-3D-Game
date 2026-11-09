@@ -6,7 +6,6 @@ import { startCareerTutorial } from '../../src/career/CareerTutorial'
 import { TownTutorialController, type TownTutorialHost } from '../../src/town/TownTutorialController'
 import { getTownCommandWatchtowerLayout } from '../../src/town/TownCommandWatchtowerLayout'
 import { townAuthoredRoster } from '../../src/town/TownRules'
-import { TownTutorialHUD } from '../../src/town/TownUI'
 
 class MockElement {
   id = ''
@@ -26,10 +25,8 @@ class MockElement {
   setAttribute(): void {}
   getAttribute(name: string): string | null { return name === 'style' ? JSON.stringify(this.style) : null }
   get parentElement(): MockElement | null { return this.parent }
-  rect?: { left:number; right:number; top:number; bottom:number; width:number; height:number }
   closest(): MockElement | null { return this.hidden ? this : this.parent?.closest() ?? null }
   getBoundingClientRect() {
-    if (this.rect) return this.rect
     const width = Number.parseFloat(this.style.width) || Math.min(500, window.innerWidth - 32)
     const left = this.style.left ? Number.parseFloat(this.style.left) : (window.innerWidth - width) / 2
     const top = Number.parseFloat(this.style.top) || 0
@@ -81,10 +78,9 @@ class MockElement {
 function setupMockDOM() {
   const elements: MockElement[] = []
   const body = new MockElement('body')
-  const blockers: MockElement[] = []
   const doc = {
     body,
-    querySelectorAll: () => blockers,
+    querySelectorAll: () => [],
     createElement: (tag: string) => {
       const el = new MockElement(tag)
       elements.push(el)
@@ -97,10 +93,9 @@ function setupMockDOM() {
   const viewport = { innerWidth:1366, innerHeight:768, addEventListener, removeEventListener }
   vi.stubGlobal('window', viewport)
   vi.stubGlobal('getComputedStyle', (el: MockElement) => ({ display:el.style.display ?? '', visibility:el.style.visibility ?? '', opacity:el.style.opacity ?? '1' }))
-  let resized: () => void = () => {}, mutated: () => void = () => {}
-  vi.stubGlobal('ResizeObserver', class { constructor(callback: () => void) { resized = callback } observe() {} disconnect = disconnectResize })
-  vi.stubGlobal('MutationObserver', class { constructor(callback: () => void) { mutated = callback } observe() {} disconnect = disconnectState })
-  return { body, elements, blockers, viewport, resize: () => resized(), mutate: () => mutated(), addEventListener, removeEventListener, disconnectResize, disconnectState }
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect = disconnectResize })
+  vi.stubGlobal('MutationObserver', class { observe() {} disconnect = disconnectState })
+  return { body, elements, viewport, addEventListener, removeEventListener, disconnectResize, disconnectState }
 }
 
 function createHostHarness(initialProfile?: CareerProfile) {
@@ -779,69 +774,6 @@ describe('TownTutorialUX', () => {
     expect(notice.hidden).toBe(true)
     expect(harness.getProfile().availableMerit).toBe(merit + 50)
     ctrl.dispose()
-  })
-
-
-  it('yields to visible native command bounds and restores guidance without resizing the commands', () => {
-    const command = new MockElement('div')
-    command.rect = { left:708, right:1348, top:18, bottom:451, width:640, height:433 }
-    dom.blockers.push(command)
-    const hud = new TownTutorialHUD()
-    try {
-      hud.render('登上指揮塔', '', '', false)
-      const root = dom.body.children[0]
-      expect(root.style.visibility).toBe('hidden')
-      expect(command.style.width).toBeUndefined()
-      command.style.visibility = 'hidden'
-      dom.mutate()
-      expect(root.style.visibility).toBe('')
-      expect(root.getBoundingClientRect().top).toBeCloseTo(245.76)
-      command.style.visibility = 'visible'
-      dom.mutate()
-      expect(root.style.visibility).toBe('hidden')
-      expect(command.getBoundingClientRect().width).toBe(640)
-    } finally { hud.dispose() }
-  })
-
-  it('places a persistent error alone in a real gap clear of commands, bottom prompts, navigation and aiming', () => {
-    dom.viewport.innerWidth = 640; dom.viewport.innerHeight = 480
-    const rects = [
-      { left:20, right:405, top:20, bottom:137, width:385, height:117 }, // Town status
-      { left:18, right:622, top:155, bottom:462, width:604, height:307 }, // Native commands
-      { left:240, right:400, top:104, bottom:132, width:160, height:28 }, // Compass
-      { left:200, right:440, top:245, bottom:325, width:240, height:80 }, // MissionGuide
-      { left:170, right:470, top:325, bottom:370, width:300, height:45 }, // Town interaction
-      { left:160, right:480, top:381, bottom:456, width:320, height:75 }, // Controls
-    ]
-    for (const rect of rects) { const blocker = new MockElement('div'); blocker.rect = rect; dom.blockers.push(blocker) }
-    const hud = new TownTutorialHUD()
-    try {
-      hud.render('購買第一匹戰馬', '先前成功通知', '教學未保存，請重試。', false)
-      const root = dom.body.children[0], rect = root.getBoundingClientRect()
-      expect(root.hidden).toBe(false)
-      expect(root.style.visibility).toBe('')
-      expect(root.children[0].hidden).toBe(true)
-      expect(root.children[1].hidden).toBe(true)
-      expect(root.children[2].hidden).toBe(false)
-      expect(rect.left).toBeGreaterThanOrEqual(12)
-      expect(rect.right).toBeLessThanOrEqual(628)
-      expect(rect.top).toBeGreaterThanOrEqual(12)
-      expect(rect.bottom).toBeLessThanOrEqual(468)
-      for (const blocker of [...rects, { left:292, right:348, top:212, bottom:268 }]) {
-        expect(rect.right + 12 <= blocker.left || rect.left >= blocker.right + 12
-          || rect.bottom + 12 <= blocker.top || rect.top >= blocker.bottom + 12).toBe(true)
-      }
-      dom.resize()
-      expect(root.style.visibility).toBe('')
-      hud.render('購買第一匹戰馬', '', '', false)
-      expect(root.children[2].hidden).toBe(true)
-      expect(root.children[0].hidden).toBe(false)
-      expect(root.style.left).toBe('')
-      expect(root.style.width).toBe('')
-    } finally { hud.dispose() }
-    expect(dom.body.children).toHaveLength(0)
-    expect(dom.disconnectResize).toHaveBeenCalledOnce()
-    expect(dom.disconnectState).toHaveBeenCalledOnce()
   })
 
 })

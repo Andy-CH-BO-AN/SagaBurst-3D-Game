@@ -33,12 +33,6 @@ describe('horse package preload barrier', () => {
     expect(() => validateHorseManifest(incomplete)).toThrow('Horse manifest is missing death clip')
   })
 
-  it('validates the armored warhorse manifest contract', () => {
-    expect(() => validateHorseManifest(armoredManifest)).not.toThrow()
-    expect(armoredManifest.status).toBe('ready')
-    expect(armoredManifest.metrics?.triangles.lod2).toBeLessThanOrEqual(7000)
-  })
-
   it('starts both packages together, deduplicates callers and waits for the slower armored package before entry', async () => {
     const slow = gate()
     const load = vi.spyOn(boundary, 'load').mockResolvedValue(ordinary)

@@ -23,6 +23,7 @@ test('Supercov Related plan resolves exact full names and is aggregate limited',
   assert.equal(plan.shards[0].expectedCount, 3)
   assert.match(selectionSummary(plan), /Supercov native tests affected/)
   assert.match(selectionSummary(plan), /Total suite: 4 leaves; Selected: 3 leaves/)
+  assert.match(selectionSummary(plan), /Related health: Excellent/)
 })
 test('Related 500 aggregate must not become multiple shards or Full fallback', () => {
   const many = [item('tests/a.test.ts', 300), item('tests/b.test.ts', 201)]
@@ -40,6 +41,8 @@ test('Full remains separate and can split across multiple shards', () => {
     changedFiles: [], headSha: sha, checkoutSha: sha, shards: shardFiles(files) }
   assert.equal(validateManifest(manifest).shards.length, 2)
   assert.equal(verifiedFullSha(manifest), sha)
+  // The 500 cap is per Full shard, so 600 aggregate leaves must not be reported as a Related health failure.
+  assert.match(selectionSummary(manifest), /Related health: N\/A/)
 })
 test('docs-only and CSS-only empty plans require explicit safe classification', () => {
   const empty = { mode: 'related', docsOnly: true, inventory: [], selected: [],
