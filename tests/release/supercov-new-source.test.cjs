@@ -132,13 +132,13 @@ test('new runtime and new test select their union with a reconciling breakdown',
   assert.deepEqual(selection.selectedCases['tests/a.test.ts'], [0])
   assert.deepEqual(selection.selectedCases['tests/new.test.ts'], [0, 1])
   assert.deepEqual(selection.breakdown, { nativeAffected: 1, nativeUndetermined: 0, directTests: 2,
-    nodeContracts: 1, duplicatesRemoved: 0, total: 4 })
+    nodeContracts: 0, duplicatesRemoved: 0, total: 3 })
   assert.match(selection.newSources[0].verdict, /loaded by 2 selected test files \(1 added\/modified\)/)
 })
 test('a new source and test alone may have zero native attribution, a modified source may not', () => {
   const changes = added.filter(change => change.status === 'A')
   const baseline = { newSourceAnalysis: analysisFor({ testFiles: ['tests/new.test.ts'] }) }
-  assert.equal(decodeAffected(native([]), inventory, changes, run, baseline).breakdown.total, 3)
+  assert.equal(decodeAffected(native([]), inventory, changes, run, baseline).breakdown.total, 2)
   assert.throws(() => decodeAffected(native([]), inventory, added, run, baseline), /returned zero.*src\/user\.ts/)
 })
 test('an added runtime source without a verified analysis or test relation fails closed', () => {

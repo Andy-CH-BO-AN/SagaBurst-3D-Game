@@ -1,7 +1,7 @@
 'use strict'
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { validateManifest, selectedNames, selectionSummary, requireRelatedBudget } = require('../tooling/ci-plan.cjs')
+const { finishRelatedPlan, validateManifest, selectedNames, selectionSummary, requireRelatedBudget } = require('../tooling/ci-plan.cjs')
 const { aggregate, partialBatches, verifiedFullSha } = require('../tooling/ci-run.cjs')
 const item = (file, count, runner = 'vitest') => ({
   file, runner, names: Array.from({ length: count }, (_, i) => 'suite > case ' + i),
@@ -49,6 +49,15 @@ test('Related accepts exactly 500 unique cases and rejects 501 without fallback'
   assert.throws(() => validateManifest(plan(501)), /500-case limit: 501 unique cases\. Split the feature PR/)
   assert.doesNotThrow(() => requireRelatedBudget(500))
   assert.throws(() => requireRelatedBudget(501), /no Full fallback/)
+})
+test('an over-limit selection still reports its breakdown before failing', () => {
+  const big = item('tests/big.test.ts', 501)
+  const plan = { ...related(), inventory: [big], selected: [big.file],
+    selectedCases: { [big.file]: big.names.map((_, i) => i) }, expectedCount: 501 }
+  const published = []
+  assert.throws(() => finishRelatedPlan(plan, summary => published.push(selectionSummary(summary))), /501 unique cases/)
+  assert.match(published[0], /Native affected runnable cases: 2/)
+  assert.deepEqual(finishRelatedPlan(related(), () => assert.fail('within the limit')).expectedCount, 3)
 })
 test('no plan can be divided into shards to escape the Related limit', () => {
   assert.throws(() => validateManifest({ ...related(), shards: [] }), /cannot be sharded/)

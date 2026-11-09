@@ -1,7 +1,7 @@
 'use strict'
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { decodeAffected, affectedFilters, expandIdentities, preflightChanges, isCss } = require('../tooling/supercov-related.cjs')
+const { decodeAffected, affectedFilters, expandIdentities, preflightChanges, requireLowerBoundWithinLimit, isCss } = require('../tooling/supercov-related.cjs')
 const { noSeedPolicy, safeNewAgentLink } = require('../tooling/ci-plan.cjs')
 const { diagnose } = require('../tooling/supercov-affected-expand.cjs')
 const { readFileSync } = require('node:fs')
@@ -30,10 +30,19 @@ const source = [{ status: 'M', file: 'src/example.ts' }]
 test('native exact individual identities select only affected and undetermined siblings', () => {
   const selected = decodeAffected(answer(), inventory, source, run)
   assert.deepEqual(selected.selectedCases['tests/example.test.ts'], [0, 1])
-  assert.deepEqual(selected.selectedCases['tests/release/gate.test.cjs'], [0])
   assert.equal(selected.source, 'Supercov native tests affected')
   assert.equal(selected.fallback, null)
   assert.equal(selected.native.total, 3)
+})
+test('Node contracts run, all together, only for inputs that can change their result', () => {
+  const nodeCases = file => decodeAffected(answer(), inventory, [{ status: 'M', file }], run).breakdown.nodeContracts
+  for (const file of ['src/example.ts', 'src/ui/battle-setup.css', 'tests/example.test.ts', 'tests/helpers/fixture.ts', 'docs/guide.md']) {
+    assert.equal(nodeCases(file), 0, file)
+  }
+  for (const file of ['tests/tooling/ci-plan.cjs', 'tests/release/gate.test.cjs', '.github/workflows/ci.yml', 'package.json', 'docs/releases/v1.md']) {
+    assert.equal(nodeCases(file), 1, file)
+  }
+  assert.equal(decodeAffected(answer(), inventory, [{ status: 'M', file: 'src/example.ts' }, { status: 'M', file: 'package.json' }], run).breakdown.nodeContracts, 1)
 })
 test('new test files absent from exact-base history are selected without unsupported historic CLI lookup', () => {
   const next = { runner: 'vitest', file: 'tests/added.test.ts',
@@ -381,9 +390,8 @@ test('real merged Supercov public JSON counts setup records and truncates only u
   assert.equal(clean.counts.tests, 873)
   assert.equal(clean.truncatedUnaffected, true)
   assert.equal(clean.affected.length, 0)
-  const selected = decodeAffected(pristine, inventory, [], sourceRun,
+  const selected = decodeAffected(pristine, inventory, [{ status: 'M', file: 'tests/example.test.ts' }], sourceRun,
     { tests: 763, setups: 110 })
-  assert.deepEqual(selected.selectedCases['tests/release/gate.test.cjs'], [0])
   assert.equal(selected.native.total, 873)
   // Never mistake 873 historical records for 873 runnable Vitest leaves.
   assert.throws(() => validateAffectedQuery(pristine, sourceRun,
@@ -439,12 +447,26 @@ test('other setup lifecycle records widen to all leaves of their own file, not a
   })
   const selection = decodeAffected(result, inventory, source, run)
   assert.deepEqual(selection.selectedCases['tests/example.test.ts'], [0, 1, 2])
-  assert.deepEqual(selection.selectedCases['tests/release/gate.test.cjs'], [0])
   assert.match(selection.reasons['tests/example.test.ts'].join(' '), /setup\/non-leaf/)
   const unknown = answer({ affected: [
     { file: 'tests/foreign-setup.ts', name: 'setup' },
   ] })
   assert.throws(() => decodeAffected(unknown, inventory, source, run), /unsafe/)
+})
+
+test('an early over-limit failure reports a labelled lower bound, not a final breakdown', () => {
+  const published = []
+  const counts = { affected: 1040, undetermined: 2 }
+  assert.throws(() => requireLowerBoundWithinLimit(counts, { setups: 118 }, message => published.push(message)),
+    /limit exceeded: at least 924 runnable/)
+  assert.equal(published.length, 1)
+  for (const line of [/incomplete, lower bound only/, /Native affected records: 1040/, /Native undetermined records: 2/,
+    /Baseline setup records: 118/, /Runnable case lower bound: 924 \/ 500/, /Identity expansion skipped/]) {
+    assert.match(published[0], line)
+  }
+  assert.doesNotMatch(published[0], /Final unique|Fixed Node contracts:|Added\/modified test cases:/)
+  requireLowerBoundWithinLimit({ affected: 618, undetermined: 0 }, { setups: 118 }, () => assert.fail('within the limit'))
+  assert.throws(() => requireLowerBoundWithinLimit({ affected: 619, undetermined: 0 }, { setups: 118 }, () => {}), /at least 501/)
 })
 
 test('real 873 affected records cannot bypass the strict 500 runnable-leaf gate', () => {
