@@ -603,7 +603,7 @@ export class TownScene {
         world: this.world, navigation: this.navigation, inventory: this.inventory,
         get player() { return town.player },
         clearCombatShots: () => this.clearMissionCombatShots(),
-        restPlayer: () => this.restPlayerInTown(),
+        restPlayer: options => this.restPlayerInTown(options),
         returnPersonalSquad: direct => this.personalSquad?.endMission(direct),
         restart: p => { this.missionResultOpen = false; const reason = this.player.dead ? 'death-return' : undefined; this.dispose(); this.onRestart(p, reason) },
       },
@@ -2889,9 +2889,9 @@ export class TownScene {
     for (const shot of this.shots ?? []) shot.arrow.destroy()
     this.shots = []
   }
-  private restPlayerInTown(): void {
+  private restPlayerInTown(options?: { persistMount?: boolean }): void {
     this.temporaryMounts.cleanup()
-    this.careerMounts.restInTown()
+    this.careerMounts.restInTown({ persist: options?.persistMount ?? false })
     this.inventory.sheathAll()
     this.player.restoreForTown()
     if (this.townRefitOnReturn) {

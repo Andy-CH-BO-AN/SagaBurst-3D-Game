@@ -83,6 +83,7 @@ export function stageMissionReturnRebuild(current: CareerProfile,
   // Reconstruct native riders at their pads; their existing patrol owner starts the next cycle.
   if (next.townEagleGarrisons) delete next.townEagleGarrisons[next.faction]
   delete next.playerAerialState
+  delete next.mountArmor
   // Return the whole owned roster, including reserves or members absent from this mission.
   const roster = snapshotPersonalMission(next)
   if (roster) for (const id of roster.memberIds) {

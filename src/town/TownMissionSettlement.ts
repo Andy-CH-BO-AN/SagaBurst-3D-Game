@@ -56,7 +56,7 @@ interface TownReturnScene {
   inventory: Pick<TownEquipment, 'sheathAll'>
   readonly player: Pick<Player, 'group'>
   clearCombatShots(): void
-  restPlayer(): void
+  restPlayer(options?: { persistMount?: boolean }): void
   returnPersonalSquad?(direct: boolean): void
   preservesResident?(npc: NPC): boolean
   applyResidentReturn?(): void
@@ -138,6 +138,7 @@ export class TownMissionSettlement {
     const borrowed = (inPlace || enemyTerritoryScout) && !defense ? new Set(active.kind === 'duel' ? this.missions.duel.actors : captainPatrol ? this.missions.patrol?.actors ?? [] : this.missions.field.friendlies) : null
     const completed = Boolean(active.result || profile.claimedBattleIds.includes(active.id))
     let next = clearCareerMission(profile, active.id)
+    if (completed) delete next.mountArmor
     const garrison = next.townEagleGarrisons?.[profile.faction]
     if (inPlace && garrison) for (const pair of garrison.pairs) {
       if (defense || pair.hp <= 0 || pair.mount.hp <= 0) pair.refitAllowed = true
@@ -159,6 +160,7 @@ export class TownMissionSettlement {
         }
       }
       this.town.inventory.sheathAll()
+      if (completed) this.town.restPlayer({ persistMount: false })
       this.town.restart(this.profiles.read())
       return { status: 'restarted' }
     }
@@ -198,7 +200,7 @@ export class TownMissionSettlement {
     }
     if (completed) this.town.applyResidentReturn?.()
     const entry = townPlayerEntryPoint(), entryY = getTerrainHeight(entry.x, entry.z) + .9
-    this.town.restPlayer()
+    this.town.restPlayer({ persistMount: false })
     if ((active.kind === 'cavalry-sweep' || veteranField) && (intent === 'direct' || active.phase !== 'RETURNING')) {
       this.town.player.group.position.set(entry.x, entryY, entry.z)
       this.town.player.group.rotation.y = entry.yaw
