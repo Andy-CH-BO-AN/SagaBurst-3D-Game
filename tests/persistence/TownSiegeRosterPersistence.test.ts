@@ -234,6 +234,9 @@ describe('siege checkpoint ownership', () => {
     })!
     expect(restored.cavalryEscort).toEqual(escort)
     expect(restored.infantryEscort).toEqual(guards)
+    const lost = JSON.parse(JSON.stringify(state)); delete lost.infantryEscort
+    expect(parseCommanderFourGateDefenseState(lost, { missionId: mission.id, faction: profile.faction, phase: mission.phase, targetActorIds: mission.targetActorIds,
+      friendlyActorIds: mission.friendlyActorIds, civilianActorIds: mission.civilianActorIds ?? [], deadTargetActorIds: mission.deadTargetActorIds })).toBeUndefined()
     expect(isCommanderInfantryEscorting(restored.infantryEscort, 'four-gate-save:north:left:escort:infantry:1')).toBe(false)
     expect(isCommanderInfantryEscorting(restored.infantryEscort, 'four-gate-save:north:right:escort:infantry:1')).toBe(true)
     expect(isCommanderCavalryEscorting(restored.cavalryEscort, released[0].actorId)).toBe(false)

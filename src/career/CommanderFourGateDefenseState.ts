@@ -229,6 +229,8 @@ export function parseCommanderFourGateDefenseState(value: unknown,
   }
   const infantryEscort = raw.infantryEscort === undefined ? undefined : parseCommanderInfantryEscort(raw.infantryEscort, context.missionId)
   if (raw.infantryEscort !== undefined && (!infantryEscort || enemyVersion !== 2)) return undefined
+  // A started/deployed 280-man battle without its receipt is corrupt, never "every guard released".
+  if (enemyVersion === 2 && (raw.attackStarted || raw.deploymentComplete) && !infantryEscort) return undefined
   if (infantryEscort) {
     if (!raw.attackStarted && (Object.values(infantryEscort.actors).some(actor => actor.mode !== 'escort')
       || Object.values(infantryEscort.groups).some(group => group.lastProgressDistance !== 0 || group.stallSeconds !== 0))) return undefined

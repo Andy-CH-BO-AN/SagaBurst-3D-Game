@@ -1,6 +1,7 @@
 import { commanderGateDefenseSlots } from '../../src/career/CommanderTownRoster'
 import { acceptCommanderMission } from '../../src/career/CommanderMissionCatalog'
 import { COMMANDER_FOUR_GATE_DEFENSE_ID, commanderFourGateDefenseActorIds, createCommanderFourGateDefenseRoster } from '../../src/career/CommanderFourGateDefenseRoster'
+import { createCommanderInfantryEscort } from '../../src/career/CommanderInfantryEscort'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
 import type { TownFourGateSiegeCheckpoint } from '../../src/career/TownFourGateSiegeCheckpoint'
@@ -57,6 +58,7 @@ export function createFourGateDefenseProfile(phase: 'PREPARING' | 'SPAWNING' | '
   mission.phase = phase; mission.commanderMission!.deploymentComplete = true
   Object.assign(state, { phase, preparationRemainingSeconds: phase === 'PREPARING' ? 180 : 0,
     deploymentComplete: true, attackStarted: phase === 'ATTACKING', registeredTargetActorIds: [...mission.targetActorIds], siege,
+    ...(options.enemyRosterVersion === 1 ? {} : { infantryEscort: createCommanderInfantryEscort(mission.id) }),
     player: { hp: 85, stamina: 70, dead: false, position: { x: 12, y: 10, z: 18, yaw: .5 }, ammo: 7, shieldImpact: 2 } })
   return profile
 }
