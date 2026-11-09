@@ -3,7 +3,7 @@ const { execFileSync } = require('node:child_process')
 const { readdirSync, writeFileSync, mkdirSync, appendFileSync } = require('node:fs')
 const { resolve, relative, dirname } = require('node:path')
 const { randomUUID } = require('node:crypto')
-const { MAX_CASES_PER_SHARD } = require('./budget.cjs')
+const { MAX_RELATED_CASES } = require('./budget.cjs')
 const root = resolve(__dirname, '../..')
 const slash = file => file.replaceAll('\\', '/')
 const local = file => slash(relative(root, resolve(root, file)))
@@ -136,44 +136,31 @@ function selectedNames(plan, file) {
   return plan.mode === 'related' && plan.selectedCases?.[file]
     ? plan.selectedCases[file].map(index => item.names[index]) : item.names
 }
-function shardFiles(files) {
-  const result = []
-  for (const file of [...files].sort((a, b) => a.file.localeCompare(b.file, 'en'))) {
-    if (!file.names?.length || file.names.length > MAX_CASES_PER_SHARD) {
-      throw new Error('File exceeds 500 leaves or is empty: ' + file.file)
-    }
-    let shard = result.at(-1)
-    if (!shard || shard.expectedCount + file.names.length > MAX_CASES_PER_SHARD) {
-      shard = { id: 'logic-' + (result.length + 1), vitestFiles: [], nodeFiles: [], expectedCount: 0 }
-      result.push(shard)
-    }
-    shard[file.runner === 'node' ? 'nodeFiles' : 'vitestFiles'].push(file.file)
-    shard.expectedCount += file.names.length
-  }
-  return result
+function selectedCount(plan) {
+  return plan.selected.reduce((sum, file) => sum + selectedNames(plan, file).length, 0)
 }
-function planShards(files, mode) {
-  if (mode === 'full') return shardFiles(files)
-  const sorted = [...files].sort((a, b) => a.file.localeCompare(b.file, 'en'))
-  const total = sorted.reduce((sum, item) => sum + item.names.length, 0)
-  // Aggregate limit is checked before any shard is created.
-  if (total > MAX_CASES_PER_SHARD) {
-    throw new Error('Related selection exceeds the 500-leaf limit: ' + total +
-      ' affected leaves. Split/refactor the PR; no Full fallback or shard bypass.')
+function requireRelatedBudget(count) {
+  if (count > MAX_RELATED_CASES) {
+    throw new Error('Related selection exceeds the ' + MAX_RELATED_CASES + '-case limit: ' + count +
+      ' unique cases. Split the feature PR; no Full fallback or second run bypass.')
   }
-  if (!sorted.length) return []
-  if (sorted.some(item => !item.names?.length)) throw new Error('Empty selected test file')
-  return [{ id: 'logic-related',
-    vitestFiles: sorted.filter(item => item.runner === 'vitest').map(item => item.file),
-    nodeFiles: sorted.filter(item => item.runner === 'node').map(item => item.file),
-    expectedCount: total }]
 }
 function validateManifest(plan) {
   if (!['related', 'full'].includes(plan.mode) || !Array.isArray(plan.inventory) ||
-    !Array.isArray(plan.selected) || !Array.isArray(plan.shards)) throw new Error('Invalid plan')
+    !Array.isArray(plan.selected)) throw new Error('Invalid plan')
+  // A manifest has exactly one execution. Splitting one is how a limit gets dodged.
+  if (Object.hasOwn(plan, 'shards')) throw new Error('Logic plans cannot be sharded')
   if (plan.mode === 'full' && plan.selectedCases) throw new Error('Full cannot filter individual tests')
   const files = plan.inventory.map(item => item.file)
   if (new Set(files).size !== files.length) throw new Error('Duplicate inventory files')
+  if (plan.inventory.some(item => !item.names?.length)) throw new Error('Empty test file in inventory')
+  if (new Set(plan.selected).size !== plan.selected.length ||
+      plan.selected.some(file => !files.includes(file))) {
+    throw new Error('Missing/duplicate/unexpected test file selection')
+  }
+  if (plan.mode === 'full' && plan.selected.length !== files.length) {
+    throw new Error('Missing/duplicate/unexpected test file selection')
+  }
   if (plan.selectedCases) {
     if (Object.keys(plan.selectedCases).sort().join('|') !== [...plan.selected].sort().join('|')) {
       throw new Error('Missing or unexpected exact selection')
@@ -190,36 +177,29 @@ function validateManifest(plan) {
       }
     }
   }
-  const expected = plan.mode === 'full' ? files : plan.selected
-  const assigned = plan.shards.flatMap(shard => [...shard.vitestFiles, ...shard.nodeFiles])
-  if (new Set(plan.shards.map(s => s.id)).size !== plan.shards.length ||
-      new Set(assigned).size !== assigned.length ||
-      expected.slice().sort().join('|') !== assigned.slice().sort().join('|')) {
-    throw new Error('Missing/duplicate/unexpected test file assignment')
-  }
-  const count = plan.shards.reduce((sum, shard) => {
-    const filesInShard = [...shard.vitestFiles, ...shard.nodeFiles]
-    const leaves = filesInShard.reduce((subtotal, file) => subtotal + selectedNames(plan, file).length, 0)
-    if (!leaves || leaves > MAX_CASES_PER_SHARD || leaves !== shard.expectedCount) {
-      throw new Error('Invalid shard leaf budget')
-    }
-    for (const file of shard.vitestFiles) {
-      if (plan.inventory.find(item => item.file === file)?.runner !== 'vitest') throw new Error('Wrong Vitest runner assignment')
-    }
-    for (const file of shard.nodeFiles) {
-      if (plan.inventory.find(item => item.file === file)?.runner !== 'node') throw new Error('Wrong Node runner assignment')
-    }
-    return sum + leaves
-  }, 0)
-  if (plan.mode === 'related' && (plan.shards.length > 1 || count > MAX_CASES_PER_SHARD)) {
-    throw new Error('Related aggregate exceeds 500')
-  }
-  if (!assigned.length && !(plan.mode === 'related' && (plan.docsOnly || plan.cssOnly))) throw new Error('Empty code selection')
+  const count = selectedCount(plan)
+  if (count !== plan.expectedCount) throw new Error('Plan expected case count disagrees with its selection')
+  if (plan.mode === 'related') requireRelatedBudget(count)
+  if (!count && !(plan.mode === 'related' && (plan.docsOnly || plan.cssOnly))) throw new Error('Empty code selection')
   return plan
+}
+function relatedSelectionLines(plan) {
+  const b = plan.breakdown
+  if (!b) return []
+  return [
+    'Related selection:',
+    '  Native affected runnable cases: ' + b.nativeAffected,
+    '  Native undetermined runnable cases: ' + b.nativeUndetermined,
+    '  Added/modified test cases: ' + b.directTests,
+    '  Fixed Node contracts: ' + b.nodeContracts,
+    '  Duplicates removed: ' + b.duplicatesRemoved,
+    '  Final unique selected cases: ' + b.total + ' / ' + MAX_RELATED_CASES,
+    ...(plan.newSources ?? []).map(item => 'New runtime source ' + item.file + ': ' + item.verdict),
+  ]
 }
 function selectionSummary(plan) {
   const total = plan.inventory.reduce((sum, item) => sum + item.names.length, 0)
-  const count = plan.selected.reduce((sum, file) => sum + selectedNames(plan, file).length, 0)
+  const count = selectedCount(plan)
   const pct = total ? (100 * count / total).toFixed(1) : '0.0'
   return [
     'Mode: ' + (plan.mode === 'full' ? 'Full' : 'Related'),
@@ -227,10 +207,10 @@ function selectionSummary(plan) {
     'Base SHA: ' + (plan.baseSha || '-') + '; Head SHA: ' + (plan.headSha || '-'),
     'Total suite: ' + total + ' leaves; Selected: ' + count + ' leaves (' + pct + '%); Files: ' + plan.selected.length,
     'Related health: ' + (plan.mode !== 'related' ? 'N/A' : count > 500 ? 'FAIL' : count > 300 ? 'Very broad' : count > 200 ? 'Broad' : count > 100 ? 'Normal' : 'Excellent'),
-    'Aggregate cap: ' + (plan.mode === 'related' ? '500 hard limit' : 'Full per-shard 500'),
+    'Case limit: ' + (plan.mode === 'related' ? MAX_RELATED_CASES + ' hard limit' : 'none (Full runs everything)'),
     ...(plan.native ? ['Supercov ' + plan.supercovRun + ': affected ' + plan.native.affected +
       ', undetermined ' + plan.native.undetermined + ', run-wide: ' + (plan.native.runWide.join(', ') || 'none')] : []),
-    'Shards: ' + plan.shards.length,
+    ...relatedSelectionLines(plan),
     'Fallback: none',
   ].join('\n')
 }
@@ -242,8 +222,8 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
     return validateManifest({
       version: 1, planId: randomUUID(), requestedMode: mode, mode, event,
       baseSha: base, headSha: head, checkoutSha, changedFiles: [], changes: [], inventory,
-      selected: inventory.map(item => item.file), reasons: {},
-      shards: planShards(inventory, 'full'), fallback: null,
+      selected: inventory.map(item => item.file), reasons: {}, fallback: null,
+      expectedCount: inventory.reduce((sum, item) => sum + item.names.length, 0),
     })
   }
   let changed
@@ -257,17 +237,15 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
       version: 1, planId: randomUUID(), requestedMode: mode, mode, event,
       baseSha: base, headSha: head, checkoutSha, changedFiles, changes: changed,
       docsOnly: noSeed === 'docs-only', cssOnly: noSeed === 'css-only',
-      inventory: [], selected: [], reasons: {}, fallback: null, shards: [],
+      inventory: [], selected: [], reasons: {}, fallback: null, expectedCount: 0,
     })
   }
   const inventory = await discover()
   const selection = require('./supercov-related.cjs').nativeSelection(inventory, changed, { base, event })
-  const selectedInventory = inventory.filter(item => selection.selected.includes(item.file))
-    .map(item => ({ ...item, names: selection.selectedCases[item.file].map(i => item.names[i]) }))
+  const expectedCount = selection.selected.reduce((sum, file) => sum + selection.selectedCases[file].length, 0)
   return validateManifest({
     version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
-    checkoutSha, changedFiles, changes: changed, inventory, ...selection,
-    shards: planShards(selectedInventory, 'related'),
+    checkoutSha, changedFiles, changes: changed, inventory, ...selection, expectedCount,
   })
 }
 function options(args) {
@@ -296,9 +274,8 @@ if (require.main === module) (async () => {
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
     '\n### Logic test selection\n\n\`\`\`text\n' + message + '\`\`\`\n')
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
-    'matrix=' + JSON.stringify({ include: plan.shards.map(shard => ({ shard: shard.id })) }) +
-    '\nhas-tests=' + (plan.shards.length > 0) + '\n')
+    'has-tests=' + (plan.expectedCount > 0) + '\n')
 })().catch(error => { console.error(error); process.exitCode = 1 })
 module.exports = { createPlan, discover, discoverNode, docsOnly, changes, options,
-  shardFiles, planShards, selectedNames, selectionSummary, validateManifest,
+  requireRelatedBudget, selectedNames, selectionSummary, validateManifest,
   regularTrackedFile, safeGitignore, safeNewAgentLink, noSeedPolicy, probeSeed }

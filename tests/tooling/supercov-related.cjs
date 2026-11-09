@@ -4,9 +4,10 @@ const { existsSync, readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
 const { requireExactBaseSeed, isGitAncestor } = require('./supercov-evidence-policy.cjs')
 const { validSeedMetadata, validateAffectedQuery,
-  reconcileAffectedFiles } = require('./supercov-measured-evidence.cjs')
+  reconcileAffectedFiles, isPreviewed } = require('./supercov-measured-evidence.cjs')
 const ROOT = resolve(__dirname, '../..')
 const VERSION = '4.24.2'
+const supercovArgs = (...args) => ['--yes', 'supercov@' + VERSION, ...args]
 const fail = message => { throw new Error('Supercov Related selection unsafe: ' + message) }
 const isTest = path => /^tests\/.*\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)
 const isRuntime = path => /^src\/.*\.[cm]?[jt]sx?$/.test(path)
@@ -15,16 +16,22 @@ const isSupported = path => isRuntime(path) || isTest(path) || isCss(path) ||
   /^(tests\/(?:tooling|helpers|release)\/|\.github\/workflows\/)/.test(path) ||
   /^(package(?:-lock)?\.json|tsconfig(?:\.[-\w]+)?\.json|vite\.config\.[cm]?[jt]s|vitest\.config\.[cm]?[jt]s)$/.test(path)
 
-function decodeAffected(response, inventory, changes, expectedRun, baseline = {}) {
-  if (response?.schemaVersion !== 1 || response.ok !== true || response.command !== 'runs.tests.affected') {
-    fail('Missing or failed public CLI JSON contract')
+// Rejects anything the seed cannot speak for. It reads no evidence, so it runs
+// before a single Supercov process has been started.
+function preflightChanges(changes) {
+  if (changes.some(change => !/^(A|M)$/.test(change.status))) fail('Removed/moved source or test has no confirmed native lifecycle policy')
+  if (changes.some(change => !isSupported(change.file) && !/\.md$/.test(change.file))) {
+    fail('Unsupported asset/offline input: ' + changes.filter(change => !isSupported(change.file)).map(x => x.file).join(', '))
   }
+}
+const newRuntimeSources = changes => changes.filter(change => change.status === 'A' && isRuntime(change.file)).map(change => change.file)
+
+function requireLowerBoundWithinLimit(nativeCounts, baseline) {
   // Supercov's JSON is a ranked preview by default. Its summary remains
   // authoritative even when arrays are truncated. A conservative lower
   // bound already above the 500 runnable-leaf cap must fail before trying
   // to expand or select anything: every recorded setup may be affected,
   // so subtract ALL seed setups to avoid overcounting them as cases.
-  const nativeCounts = response?.data?.summary
   if (Number.isSafeInteger(baseline.setups) && baseline.setups >= 0 &&
       Number.isSafeInteger(nativeCounts?.affected) && nativeCounts.affected >= 0 &&
       Number.isSafeInteger(nativeCounts?.undetermined) && nativeCounts.undetermined >= 0) {
@@ -38,30 +45,38 @@ function decodeAffected(response, inventory, changes, expectedRun, baseline = {}
         '); split the change or seek explicit migration review. No Full fallback')
     }
   }
+}
+
+function decodeAffected(response, inventory, changes, expectedRun, baseline = {}) {
+  if (response?.schemaVersion !== 1 || response.ok !== true || response.command !== 'runs.tests.affected') {
+    fail('Missing or failed public CLI JSON contract')
+  }
+  requireLowerBoundWithinLimit(response?.data?.summary, baseline)
   const { counts: summary, workingTree, affected, undetermined } =
     validateAffectedQuery(response, expectedRun, baseline)
   // Only the affected and undetermined identities matter. Supercov's public
-  // contract omits all 873 unaffected identities at pristine dev, and counts
-  // lifecycle setup records as historical identities (763 leaves + 110 setup).
+  // contract omits unaffected identities, and counts lifecycle setup records
+  // as historical identities alongside runnable leaves.
   const total = summary.tests
-  if (changes.some(change => !/^(A|M)$/.test(change.status))) fail('Removed/moved source or test has no confirmed native lifecycle policy')
-  if (changes.some(change => !isSupported(change.file) && !/\.md$/.test(change.file))) {
-    fail('Unsupported asset/offline input: ' + changes.filter(change => !isSupported(change.file)).map(x => x.file).join(', '))
-  }
+  preflightChanges(changes)
+  // Added sources do not raise this flag in 4.24.2; they are invisible to it and
+  // are handled below. So when it is raised, the measured scope itself moved.
   if (workingTree.sourceSetChanged) fail('Native query detected a new/unmeasured source scope')
-  if (changes.some(change => change.status === 'A' && isRuntime(change.file))) {
-    fail('New runtime source has no baseline attribution')
-  }
   const current = new Map(inventory.map(item => [item.file, item]))
-  const modifiedTestFiles = new Set(changes.filter(change => isTest(change.file)).map(change => change.file))
+  const directTests = changes.filter(change => isTest(change.file)).map(change => change.file)
+  const contributed = { nativeAffected: [], nativeUndetermined: [], directTests: [], nodeContracts: [] }
   const seen = new Set()
+  const moduleSetups = []
   const selectedCases = {}
   const reasons = {}
-  const add = (item, index, why) => {
-    ;(selectedCases[item.file] ??= []).push(index)
-    ;(reasons[item.file] ??= []).push(why)
+  const add = (item, indices, why, category) => {
+    ;(selectedCases[item.file] ??= []).push(...indices)
+    const fileReasons = (reasons[item.file] ??= [])
+    if (!fileReasons.includes(why)) fileReasons.push(why)
+    contributed[category].push(...indices.map(index => JSON.stringify([item.file, index])))
   }
-  for (const [bucket, identities] of [['affected', affected], ['undetermined', undetermined]]) {
+  const everyCase = item => item.names.map((_, index) => index)
+  for (const [bucket, category, identities] of [['affected', 'nativeAffected', affected], ['undetermined', 'nativeUndetermined', undetermined]]) {
     for (const t of identities) {
       if (typeof t?.file !== 'string' || typeof t?.name !== 'string' || !t.file || !t.name) {
         fail('Missing test file or full name')
@@ -71,66 +86,127 @@ function decodeAffected(response, inventory, changes, expectedRun, baseline = {}
       seen.add(id)
       const item = current.get(t.file)
       if (!item || item.runner !== 'vitest') {
-        if (modifiedTestFiles.has(t.file) && !item) fail('Changed test disappeared from Vitest discovery: ' + t.file)
+        if (directTests.includes(t.file) && !item) fail('Changed test disappeared from Vitest discovery: ' + t.file)
         fail('Historical test file is absent from Vitest discovery: ' + t.file)
       }
       const indices = item.names.flatMap((name, index) => name === t.name ? [index] : [])
-      if (indices.length !== 1) {
-        if (indices.length > 1) fail('Ambiguous duplicate current Vitest leaf: ' + id)
-        // Supercov also reports setup lifecycle records that don't correspond
-        // to runnable Vitest leaves. If the source file is recognized, run
-        // every leaf in that file, including any module-init affected cases.
-        // An unknown file is already rejected above (no unsafe global guess).
-        selectedCases[item.file] = item.names.map((_, index) => index)
-        reasons[item.file] = ['Supercov ' + bucket + ' setup/non-leaf identity']
-        continue
-      }
-      add(item, indices[0], 'Supercov native ' + bucket)
+      if (indices.length > 1) fail('Ambiguous duplicate current Vitest leaf: ' + id)
+      // Supercov also reports setup lifecycle records that are not runnable
+      // leaves, and an unknown file is already rejected above. A module setup
+      // record is the loading of the test file: resolved below, once the leaves
+      // that load it anyway are known. Any other record (a suite hook, a name a
+      // changed test no longer has) can shape every leaf, so all of them run.
+      if (indices.length === 1) add(item, indices, 'Supercov native ' + bucket, category)
+      else if (t.name === t.file + ' > module setup') moduleSetups.push([item, bucket, category])
+      else add(item, everyCase(item), 'Supercov ' + bucket + ' setup/non-leaf identity', category)
     }
   }
-  // If a test file changed, run every case, including new or renamed registrations.
-  for (const file of modifiedTestFiles) {
+  // Loading the file is what re-executes a module setup record, and any one of its
+  // leaves does that. A leaf that ran code in a changed file is already affected in
+  // its own right: Supercov reports top-level changes against those leaves too.
+  for (const [item, bucket, category] of moduleSetups) {
+    if (!selectedCases[item.file]) add(item, [0], 'Supercov ' + bucket + ' module setup: loads the file', category)
+  }
+  // An added or modified test file runs every case it now registers, wherever
+  // the seed stands on it: new files are unknown to it and renames look deleted.
+  for (const file of directTests) {
     const item = current.get(file)
-    if (!item) fail('Changed test missing from Vitest discovery: ' + file)
-    selectedCases[file] = item.names.map((_, index) => index)
-    reasons[file] = ['Directly changed test']
+    if (!item) fail('Changed test missing from discovery: ' + file)
+    add(item, everyCase(item), 'Directly changed test', 'directTests')
   }
   // A small fixed set of Node tooling/release contracts, not a second source-to-test selector.
   for (const item of inventory.filter(item => item.runner === 'node')) {
-    selectedCases[item.file] = item.names.map((_, index) => index)
-    reasons[item.file] = ['Fixed Node tooling/release contracts']
+    add(item, everyCase(item), 'Fixed Node tooling/release contracts', 'nodeContracts')
+  }
+  for (const file of Object.keys(selectedCases)) selectedCases[file] = [...new Set(selectedCases[file])].sort((a, b) => a - b)
+  const added = newRuntimeSources(changes)
+  let newSources = []
+  if (added.length) {
+    if (!baseline.newSourceAnalysis) fail('New runtime source has no verified module analysis: ' + added.join(', '))
+    const { requireNewSourceProof } = require('./supercov-new-source.cjs')
+    const proof = requireNewSourceProof(baseline.newSourceAnalysis, { selectedFiles: Object.keys(selectedCases),
+      directTests, baselineTests: baseline.baselineTests })
+    if (proof.problems.length) fail('New runtime source has no reliable test association:\n  ' + proof.problems.join('\n  '))
+    newSources = proof.sources
   }
   // A zero native result is not proof of no impact for any executable input:
   // shared helpers, setupFiles, CI/runtime tooling, config and dependency
   // inputs can fan out far beyond src/**. Node's fixed contract suite must
   // never disguise the absence of trustworthy Vitest native attribution.
-  // Directly changed test files are explicitly re-run above and are the only
-  // allowed non-doc input with a zero historical affected count.
-  const unproven = changes.filter(change => isSupported(change.file) && !isTest(change.file))
+  // Directly changed test files and added sources with a verified module proof
+  // are the only allowed non-doc inputs with a zero historical affected count.
+  const unproven = changes.filter(change => isSupported(change.file) && !isTest(change.file) && !added.includes(change.file))
   if (!affected.length && !undetermined.length && unproven.length) {
     fail('Native query returned zero for executable/test-impact input: ' +
       unproven.map(change => change.file).join(', '))
   }
   const selected = Object.keys(selectedCases).sort()
   if (!selected.length) fail('Unexpected empty code selection')
-  for (const file of selected) selectedCases[file] = [...new Set(selectedCases[file])].sort((a, b) => a - b)
+  const unique = selected.reduce((sum, file) => sum + selectedCases[file].length, 0)
+  const counts = Object.fromEntries(Object.entries(contributed).map(([key, ids]) => [key, ids.length]))
+  const contributedTotal = Object.values(counts).reduce((sum, count) => sum + count, 0)
   return { mode: 'related', source: 'Supercov native tests affected',
     supercovRun: expectedRun, selected, selectedCases, reasons, details: {}, fallback: null,
+    breakdown: { ...counts, duplicatesRemoved: contributedTotal - unique, total: unique },
+    newSources,
     native: { affected: summary.affected, undetermined: summary.undetermined,
       unaffected: summary.unaffected, total, runWide: workingTree.runWide } }
 }
-// The Full seed belongs to the exact base commit. Its tracked test files, not
-// the PR's current discovery, determine which --test-file queries are valid.
-// The global Supercov summary must still reconcile across EVERY historic row.
-function historicalVitestFiles(inventory, trackedAtBase, changes) {
-  if (changes.some(change => /^(D|R|C)/.test(change.status) && isTest(change.file))) {
-    fail('Deleted/renamed test files require an explicit historical lifecycle policy')
+// Directory filters answer for many files in one process. A directory with test
+// files in subdirectories would overlap them, so those stay on per-file filters.
+function affectedFilters(listed, inventory) {
+  const vitest = inventory.filter(item => item.runner === 'vitest').map(item => item.file)
+  const absent = listed.filter(file => !vitest.includes(file))
+  if (absent.length) fail('Historical test file is absent from Vitest discovery: ' + absent.join(', '))
+  const dirOf = file => file.slice(0, file.lastIndexOf('/'))
+  const groups = Map.groupBy(listed, dirOf)
+  return [...groups].flatMap(([dir, files]) => files.length > 1 &&
+      !vitest.some(file => file.startsWith(dir + '/') && dirOf(file) !== dir) ? [dir] : files).sort()
+}
+function queryFilters(runId, filters) {
+  let raw
+  try {
+    raw = execFileSync('node', ['tests/tooling/supercov-affected-expand.cjs'],
+      { cwd: ROOT, input: JSON.stringify({ runId, files: filters }),
+        encoding: 'utf8', maxBuffer: 48 * 1024 * 1024, timeout: 10 * 60_000 })
+  } catch (error) {
+    fail('Native filtered identity expansion failed: ' +
+      (error.stderr?.toString() || error.message))
   }
-  const current = new Set(inventory.filter(item => item.runner === 'vitest').map(item => item.file))
-  const historic = new Set(trackedAtBase.filter(isTest))
-  const files = [...current].filter(file => historic.has(file)).sort()
-  if (!files.length) fail('No historic Vitest file overlap for exact-base expansion')
-  return files
+  try { return JSON.parse(raw) }
+  catch { fail('Native filtered expansion returned invalid JSON') }
+}
+function expandIdentities(global, runId, baseline, listed, inventory, query = queryFilters) {
+  let filters = affectedFilters(listed, inventory)
+  let parts = query(runId, filters)
+  const previewed = filters.filter((filter, index) => !isTest(filter) && isPreviewed(parts[index]))
+  if (previewed.length) {
+    const narrower = listed.filter(file => previewed.some(dir => file.startsWith(dir + '/')))
+    const kept = filters.map((filter, index) => [filter, parts[index]]).filter(([filter]) => !previewed.includes(filter))
+    const extra = query(runId, narrower)
+    filters = [...kept.map(([filter]) => filter), ...narrower]
+    parts = [...kept.map(([, part]) => part), ...extra]
+  }
+  console.log('Supercov reconciled affected identities from ' + filters.length +
+    ' verified --test-file filters over ' + listed.length + ' affected test files')
+  return reconcileAffectedFiles(global, parts, filters, runId, baseline)
+}
+function analyzeAddedSources(changed, seedRun) {
+  const added = newRuntimeSources(changed)
+  if (!added.length) return {}
+  // Requires TypeScript, which a PR without added sources need not load.
+  const { analyzeNewSources, diskHost, structuralProblems } = require('./supercov-new-source.cjs')
+  const analysis = analyzeNewSources(added, diskHost(ROOT))
+  const problems = structuralProblems(analysis)
+  if (problems.length) fail('New runtime source has no reliable test association:\n  ' + problems.join('\n  '))
+  const baselineTests = file => {
+    try {
+      const result = JSON.parse(execFileSync('npx', supercovArgs('runs', seedRun, 'file', file, '--json'),
+        { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }))
+      return result.ok === true && Number.isSafeInteger(result.data?.totalTests) ? result.data.totalTests : 0
+    } catch { return 0 }
+  }
+  return { newSourceAnalysis: analysis, baselineTests }
 }
 function nativeSelection(inventory, changed, { base } = {}) {
   const path = resolve(ROOT, process.env.SUPERCOV_SEED_FILE || 'output/supercov-seed.json')
@@ -148,9 +224,14 @@ function nativeSelection(inventory, changed, { base } = {}) {
   if (!isGitAncestor(seed.sha, checkout, ROOT)) {
     fail('Exact PR-base SHA is not in checkout ancestry; refusing unrelated source history')
   }
+  // Everything decidable without Supercov comes first, so an unsafe PR fails in
+  // seconds instead of after the identity queries.
+  preflightChanges(changed)
+  const newSourceEvidence = analyzeAddedSources(changed, seed.runId)
+  const baseline = { tests: seed.tests, setups: seed.setups, ...newSourceEvidence }
   let output
   try {
-    output = execFileSync('npx', ['--yes', 'supercov@' + VERSION, 'runs', seed.runId, 'tests', 'affected', '--json'],
+    output = execFileSync('npx', supercovArgs('runs', seed.runId, 'tests', 'affected', '--json'),
       { cwd: ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
   } catch (error) { fail('Native query failed: ' + (error.stderr?.toString() || error.message)) }
   let data
@@ -160,46 +241,28 @@ function nativeSelection(inventory, changed, { base } = {}) {
   const undetermined = data?.data?.undetermined
   // Do not pay for any identity expansion if the native summary already
   // proves >500 runnable leaves. Never split those cases into shards.
-  const minimumLeaves = Math.max(0,
-    (counts?.affected ?? 0) + (counts?.undetermined ?? 0) - seed.setups)
+  requireLowerBoundWithinLimit(counts, baseline)
   if (Number.isSafeInteger(counts?.affected) &&
-      Number.isSafeInteger(counts?.undetermined) && minimumLeaves <= 500 &&
+      Number.isSafeInteger(counts?.undetermined) &&
       Array.isArray(affected) && Array.isArray(undetermined) &&
       (affected.length < counts.affected ||
        undetermined.length < counts.undetermined)) {
     // Supercov's default JSON output is a ranked preview for large results.
     // The public --names mode cannot combine with --json and lacks file
     // identities. Recover exact (file,name) rows only from its documented
-    // --test-file <path> --json filter; reconcile every historic record.
-    const listTruncated = (data?.data?.truncated || []).some(reason =>
-      reason === 'the lists keep their first, highest-ranked tests; `--names` lists every one')
-    if (!listTruncated) fail('Native affected identity list incomplete without a documented preview marker')
-    let trackedAtBase
+    // --test-file <path> --json filter, over the files --files says are
+    // affected; the affected and undetermined totals must reconcile.
+    if (!isPreviewed(data)) fail('Native affected identity list incomplete without a documented preview marker')
+    let listed
     try {
-      trackedAtBase = execFileSync('git', ['ls-tree', '-r', '-z', '--name-only', seed.sha, '--', 'tests'],
-        { cwd: ROOT, encoding: 'utf8' }).split('\0').filter(Boolean)
-    } catch (error) { fail('Cannot read exact-base test tree: ' + error.message) }
-    const files = historicalVitestFiles(inventory, trackedAtBase, changed)
-    let raw
-    try {
-      raw = execFileSync('node', ['tests/tooling/supercov-affected-expand.cjs'],
-        { cwd: ROOT, input: JSON.stringify({ runId: seed.runId, files }),
-          encoding: 'utf8', maxBuffer: 48 * 1024 * 1024, timeout: 10 * 60_000 })
-    } catch (error) {
-      fail('Native per-file identity expansion failed: ' +
-        (error.stderr?.toString() || error.message))
+      listed = execFileSync('npx', supercovArgs('runs', seed.runId, 'tests', 'affected', '--files'),
+        { cwd: ROOT, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 }).split('\n').filter(Boolean)
+    } catch (error) { fail('Native affected file list failed: ' + (error.stderr?.toString() || error.message)) }
+    if (!listed.length || new Set(listed).size !== listed.length || !listed.every(isTest)) {
+      fail('Native affected file list is empty, duplicated or malformed')
     }
-    let parts
-    try { parts = JSON.parse(raw) }
-    catch { fail('Native per-file expansion returned invalid JSON') }
-    data = reconcileAffectedFiles(data, parts, files, seed.runId,
-      { tests: seed.tests, setups: seed.setups })
-    console.log('Supercov reconstructed ' + data.data.affected.length +
-      ' affected and ' + data.data.undetermined.length +
-      ' undetermined exact identities from ' + files.length +
-      ' verified test-file filters')
+    data = expandIdentities(data, seed.runId, baseline, listed, inventory)
   }
-  return decodeAffected(data, inventory, changed, seed.runId,
-    { tests: seed.tests, setups: seed.setups })
+  return decodeAffected(data, inventory, changed, seed.runId, baseline)
 }
-module.exports = { decodeAffected, nativeSelection, historicalVitestFiles, isCss }
+module.exports = { decodeAffected, nativeSelection, affectedFilters, expandIdentities, preflightChanges, isCss }

@@ -15,8 +15,8 @@
 ## 成本與邏輯範圍
 
 - 每個保留的邏輯 leaf case 最多 100ms，包含該案例的 beforeEach、body、afterEach、onTestFinished 與案例專屬 cleanup。以不受 fake timers 影響的真實單調時鐘量測；timeout 或 slowTestThreshold 不能取代預算驗證。
-- PR → `dev` 的 **Related CI 所有 logic jobs 合計最多 500 個 leaf cases**，不得用第二個 shard繞過，也不得在 Desktop jobs 重複執行同一批 logic cases；Related 應形成單一 aggregate-limited shard。push → `dev`（Full 通過後發佈 SHA-exact Supercov seed）、PR／push → `main`、Pages、Release 與手動 Full 才可執行完整 repository 並分成多個每 shard 最多 500 的 deterministic shards。each、動態生成與多實作 contract 的每一列均計入；單檔超過 500 時須拆分獨立能力 suite，planner fail closed。
-- 單一 leaf 通常應低於 70ms，保留 30ms 執行餘裕；這是**非阻擋的預警目標**，不得靠隱藏案例或刪掉必要回歸達標。Related aggregate／Full shard 的 500 個與每 case 100ms 都是硬門檻，不設 repository 案例配額。
+- PR → `dev` 的 **Related CI 合計最多 500 個 unique leaf cases**，不得分成多次執行繞過，也不得在 Desktop jobs 重複執行同一批 logic cases；超過 500 時應拆分 Feature PR。push → `dev`（Full 通過後發佈 SHA-exact Supercov seed）、PR／push → `main`、Pages、Release 與手動 Full 執行完整 repository，**沒有總數上限**。兩者都在單一 `logic / gate` job 內完成。each、動態生成與多實作 contract 的每一列均計入。
+- 單一 leaf 通常應低於 70ms，保留 30ms 執行餘裕；這是**非阻擋的預警目標**，不得靠隱藏案例或刪掉必要回歸達標。Related 的 500 個與每 case 100ms 都是硬門檻，不設 repository 案例配額。
 - 若任一 case 達 70ms，新增前先盤點該能力 owner 的現有覆蓋，優先採取淨減、去除重複 failure mode、縮小 fixture 與依賴；新案例若不可替代，需在 PR 說明風險與成本，不以硬性淨減要求犧牲關鍵保護。
 - Import／collection、setupFiles、beforeAll／afterAll 與整套 wall time 另外記錄；不得將案例成本藏入共用初始化或 cache。
 - Unit tests 不生成場景或 3D model，不建立 Scene、Group、Object3D 假場景、Mesh、geometry、material、texture、skeleton、rig 或 AnimationMixer。
@@ -61,15 +61,15 @@
 
 - Runner 實際 collection 是數量依據；Node release leaf cases 與 Vitest 合併，避免漏跑或重算。報告缺失、過期、collection error 或空 suite 均不能通過。
 - CI 與 npm test 必須經由相同 planner／manifest 與預算守門；任何超過 100ms 的邏輯 case 輸出檔案、完整名稱、耗時並失敗。不得吞掉 runner 的原始失敗退出碼。
-- PR → dev 使用 Supercov Related Test CI：還原與 PR base SHA 完全相同的 Full seed，依 Supercov native affected／undetermined identities 選測，不另設自訂 dependency graph、AST 或 gameplay source-to-test mapping（詳見 [tooling/README.md](tooling/README.md)）。push → dev 執行 Full，通過後發佈綁定該 commit 的 seed；Related 與 Full 不得互相取代，Related 不得自動退回 Full。
-- Related selection 所有 runner 合計必須 `<=500`，只允許一個 aggregate-limited shard；超過 500、缺少 exact base seed、證據不一致、新增／刪除／搬移的 runtime 來源或無法安全判定時直接 fail closed，要求等待 seed、補證據或拆小 PR，不得自動退回 Full。已刪測試不得執行。
-- PR → main、push → main、正式 tag／release／Pages 發佈前與手動 Full mode 必須跑 Full Test gate。只有 Full 可以分 shard並讓 aggregate 超過 500；aggregate 必須驗證所有 discovered files 及 leaves 恰好執行一次，再允許 publish。
-- main Full gate 只執行一次：`push → main` 由 `ci.yml` 跑 Full，Pages 與 Release 於同一 workflow run 以 `needs` 共用、不再各自重跑；Pages 與 Release 僅接受綁定同一精確 SHA 的 aggregate 驗證（`verified-sha`），失敗、取消、SHA 不符或缺少驗證即自行跑 Full 或失敗（Pages 另在部署前確認 `GITHUB_SHA` 仍為最新 `origin/main`，過期則 skip 以免舊 commit 覆蓋新版網站）。手動 `v*` tag 無同 run 證明，必須 Full。
+- PR → dev 使用 Supercov Related Test CI：還原與 PR base SHA 完全相同的 Full seed，依 Supercov native affected／undetermined identities 選測，不另設 gameplay source-to-test mapping；唯一的靜態分析只用於驗證新增 runtime 模組（詳見 [tooling/README.md](tooling/README.md)）。push → dev 執行 Full，通過後發佈綁定該 commit 的 seed；Related 與 Full 不得互相取代，Related 不得自動退回 Full。
+- Related selection 所有 runner 合計必須 `<=500`；新增與修改的測試檔一律全測。超過 500、缺少 exact base seed、證據不一致、刪除／搬移的 runtime 來源、無法以 TypeScript 模組解析證明測試關聯的新增 runtime 來源或無法安全判定時直接 fail closed，要求等待 seed、補證據或拆小 PR，不得自動退回 Full。已刪測試不得執行。
+- PR → main、push → main、正式 tag／release／Pages 發佈前與手動 Full mode 必須跑 Full Test gate。Full 沒有總數上限，必須驗證所有 discovered files 及 leaves 恰好執行一次，再允許 publish。
+- main Full gate 只執行一次：`push → main` 由 `ci.yml` 跑 Full，Pages 與 Release 於同一 workflow run 以 `needs` 共用、不再各自重跑；Pages 與 Release 僅接受綁定同一精確 SHA 的 Full 驗證（`verified-sha`），失敗、取消、SHA 不符或缺少驗證即自行跑 Full 或失敗（Pages 另在部署前確認 `GITHUB_SHA` 仍為最新 `origin/main`，過期則 skip 以免舊 commit 覆蓋新版網站）。手動 `v*` tag 無同 run 證明，必須 Full。
 - Related manifest 保留完整 discovery，以檔案、完整 runner 名稱及 collection ordinal 精準指定 leaf；each 每列獨立計數。名稱重複、動態 wrapper 或無法安全對應 body 時，保守執行完整 owner file。Runner 僅可省略 manifest 未選 leaf；已選 skip、漏跑、多跑、重複或過期 evidence 均失敗。Full 禁用 Behavior Filter。
 - 固定的小型 Node tooling／release suite 不經第二套 selector；config／dependency 變更可能選取全部 leaf，並因超過 500 而 fail closed。不得透過搬移檔案、dynamic import 或不登記依賴規避 selection。
 - 僅嚴格文件變更允許明確 docs-only empty plan。保留單檔／指定案例開發能力，但 Related／subset 通過不能代表 Full Suite 通過。
 - 開發中可先跑受影響 suite（`rtk npm test -- <file-or-directory>` 或 `-t`，屬局部驗證），再依需要本地跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build` 作快速回饋；**不要求本地完整測試執行三次，也不以本地全量重跑作合併必要條件**。
-- **PR 驗收以對應最新 PR head 的 GitHub Actions CI 為準**（含該 head 對應的 GitHub PR merge ref）；檢查適用的 web、desktop jobs 結果。CI 必須通過 logic plan／runner／aggregate（Related aggregate 或 Full per-shard 預算）、`npm run typecheck:test`、`npm run build` 及適用的 smoke。PR → dev／main 與合併後 push → dev 不安裝 Chromium 或執行 Web smoke，但保留 Typecheck、Build；push → main、Pages、Release 與手動 Full validation 仍執行 Web smoke。PR 中所有 selected logic cases 只在 logic gate 執行一次；Windows／macOS Desktop PR jobs 只在 PR → main 驗證 package／smoke，不重跑 Node logic；PR → dev 與 push → dev 不跑 Desktop。Windows／macOS Node component 驗證保留在正式 Release、完整測試與發佈閘門。不得用舊 commit、先前綠燈或單一 subset 冒充目前 PR 已驗證。
-- 檢視同一次 CI 中的 mode、base/head、selection reasons、每 shard 與 aggregate case count、max leaf 時間及 **Top 10 slow leaf**（完整名稱、檔案、hooks/cleanup 含入）；有 case 達 70ms 為非阻擋預警，應標記優化方向。每個 case >100ms、Related aggregate >500、Full 任一 shard >500 或任一適用 CI job 失敗仍不得宣稱通過；不靠重跑三次、只挑最好的一次或增加 retry 掩蓋不穩定。只有 CI 失敗／平台異常／結果過期或有明確疑慮才重跑或補充診斷。
+- **PR 驗收以對應最新 PR head 的 GitHub Actions CI 為準**（含該 head 對應的 GitHub PR merge ref）；檢查適用的 web、desktop jobs 結果。CI 必須通過 `logic / gate`（plan、執行、完整性驗證與 Related 500 上限）、`npm run typecheck:test`、`npm run build` 及適用的 smoke。PR → dev／main 與合併後 push → dev 不安裝 Chromium 或執行 Web smoke，但保留 Typecheck、Build；push → main、Pages、Release 與手動 Full validation 仍執行 Web smoke。PR 中所有 selected logic cases 只在 logic gate 執行一次；Windows／macOS Desktop PR jobs 只在 PR → main 驗證 package／smoke，不重跑 Node logic；PR → dev 與 push → dev 不跑 Desktop。Windows／macOS Node component 驗證保留在正式 Release、完整測試與發佈閘門。不得用舊 commit、先前綠燈或單一 subset 冒充目前 PR 已驗證。
+- 檢視同一次 CI 中的 mode、base/head、selection reasons、case count、max leaf 時間及 **Top 10 slow leaf**（完整名稱、檔案、hooks/cleanup 含入）；有 case 達 70ms 為非阻擋預警，應標記優化方向。每個 case >100ms、Related >500 或任一適用 CI job 失敗仍不得宣稱通過；不靠重跑三次、只挑最好的一次或增加 retry 掩蓋不穩定。只有 CI 失敗／平台異常／結果過期或有明確疑慮才重跑或補充診斷。
 - 僅在重大核心邏輯變更或新測試難確認有效性時，可對少量關鍵 owner 作受控負向驗證，確認測試真的會失敗再還原；不把 mutation check 當作每 PR 必經步驟，也不引入大型 mutation framework。
 - PR 誠實記錄 CI run URL、驗證 commit、結果、保留／刪除的 failure mode、已知失敗與未驗證範圍；一次性量測放 PR 或 ignored `output/`，不寫入長期規範或提交大型永久審計文件。

@@ -1,6 +1,6 @@
 'use strict'
 // Private subprocess worker for public --test-file --json responses only.
-// One bounded query per discovered Vitest file, with parallel CLI jobs.
+// One bounded query per file or directory filter, with parallel CLI jobs.
 // The caller reconciles every count and identity; this worker selects nothing.
 const { execFile } = require('node:child_process')
 const { readFileSync } = require('node:fs')
@@ -35,7 +35,7 @@ async function main() {
       !Array.isArray(files) || files.length < 1 || files.length > 1000 ||
       new Set(files).size !== files.length ||
       files.some(x => typeof x !== 'string' || x.length > 300 ||
-        !/^tests\/.*\.(test|spec)\.[cm]?[jt]sx?$/.test(x))) {
+        !/^tests(\/[^/]+)+$/.test(x))) {
     throw new Error('Unsafe Supercov filtered-identity worker input')
   }
   const results = new Array(files.length)

@@ -1,13 +1,13 @@
 'use strict'
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { decodeAffected, historicalVitestFiles, isCss } = require('../tooling/supercov-related.cjs')
-const { planShards, noSeedPolicy, safeNewAgentLink } = require('../tooling/ci-plan.cjs')
+const { decodeAffected, affectedFilters, expandIdentities, preflightChanges, isCss } = require('../tooling/supercov-related.cjs')
+const { noSeedPolicy, safeNewAgentLink } = require('../tooling/ci-plan.cjs')
 const { diagnose } = require('../tooling/supercov-affected-expand.cjs')
 const { readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
 const { validateRunSummary, buildSeed, validSeedMetadata, validateAffectedQuery,
-  reconcileAffectedFiles } = require('../tooling/supercov-measured-evidence.cjs')
+  reconcileAffectedFiles, validateRoster, requireVerifiedFullPlan } = require('../tooling/supercov-measured-evidence.cjs')
 const { requireExactBaseSeed, trustedPublication,
   MAX_UNPACKED_BYTES, MAX_ARCHIVE_BYTES } = require('../tooling/supercov-evidence-policy.cjs')
 const run = 'run_abcdef0123'
@@ -40,9 +40,7 @@ test('new test files absent from exact-base history are selected without unsuppo
     names: ['new > 1', 'new > 2'], nativeNames: ['new 1', 'new 2'] }
   const nextInventory = [...inventory, next]
   const changed = [{ status: 'A', file: next.file }]
-  const files = historicalVitestFiles(nextInventory,
-    ['tests/example.test.ts', 'tests/release/gate.test.cjs'], changed)
-  assert.deepEqual(files, ['tests/example.test.ts'])
+  assert.deepEqual(affectedFilters(['tests/example.test.ts'], nextInventory), ['tests/example.test.ts'])
   const selection = decodeAffected(answer(), nextInventory, changed, run)
   assert.deepEqual(selection.selectedCases[next.file], [0, 1])
   assert.deepEqual(selection.selectedCases['tests/example.test.ts'], [0, 1])
@@ -54,9 +52,8 @@ test('new test plus changed runtime retains all new leaves AND native affected/u
   const selection = decodeAffected(answer(), [...inventory, next], changed, run)
   assert.deepEqual(selection.selectedCases[next.file], [0])
   assert.deepEqual(selection.selectedCases['tests/example.test.ts'], [0, 1])
-  assert.throws(() => historicalVitestFiles([...inventory, next],
-    ['tests/example.test.ts'], [{ status: 'D', file: 'tests/example.test.ts' }]),
-    /unsafe/)
+  assert.throws(() => preflightChanges([{ status: 'D', file: 'tests/example.test.ts' }]), /unsafe/)
+  assert.throws(() => affectedFilters(['tests/gone.test.ts'], inventory), /absent from Vitest discovery/)
 })
 test('filtered CLI failures distinguish timeout, maxBuffer, signal, exit and stderr', () => {
   const timeout = diagnose('tests/new.test.ts', run, {
@@ -180,14 +177,6 @@ test('native run identity and workingTree integrity are mandatory', () => {
   assert.throws(() => decodeAffected(answer(), inventory, source, 'run_wrong'), /unsafe/)
   assert.throws(() => decodeAffected(answer({ overrides: { workingTree: null } }), inventory, source, run), /unsafe/)
 })
-test('500 aggregate leaves passes, 501 fails without Full fallback or shard bypass', () => {
-  const files = count => [{ file: 'tests/a.test.ts', runner: 'vitest',
-    names: Array.from({ length: count }, (_, i) => 'leaf ' + i) }]
-  assert.equal(planShards(files(500), 'related')[0].expectedCount, 500)
-  assert.throws(() => planShards(files(501), 'related'), /500-leaf limit: 501/)
-  assert.throws(() => planShards(files(501), 'full'), /File exceeds 500/)
-})
-
 test('production uses fresh immutable SHA-exact Full on every dev push, never old Related strict refresh', () => {
   const ci = readFileSync(resolve(__dirname, '../../.github/workflows/ci.yml'), 'utf8')
   const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/logic-tests.yml'), 'utf8')
@@ -195,26 +184,45 @@ test('production uses fresh immutable SHA-exact Full on every dev push, never ol
   assert.match(ci, /github\.event_name == 'push' && \(github\.ref == 'refs\/heads\/dev' \|\| github\.ref == 'refs\/heads\/main'\)\) && 'full'/)
   assert.match(ci, /github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.sha/)
   assert.match(ci, /github\.sha \|\| github\.ref/)
-  assert.match(workflow, /supercov-full-seed:/)
+  assert.match(workflow, /Record strict Full seed from one complete instrumented run/)
   assert.match(workflow, /github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'/)
   assert.match(workflow, /name: supercov-seed-\$\{\{ github\.sha \}\}/)
   assert.doesNotMatch(workflow, /supercov-dev-refresh:|supercov-refresh\.cjs|supercov-evidence-dev-|actions\/cache\/(?:restore|save)/)
-  assert.match(seed, /aggregate\.result !== 'passed'/)
-  assert.match(seed, /plan\.headSha !== sha/)
+  assert.match(seed, /requireVerifiedFullPlan\(plan, aggregate, sha\)/)
   assert.match(seed, /buildSeed\(\{ sha, \.\.\.measured \}\)/)
   assert.doesNotMatch(seed, /'merge', '--allow-changed'/)
 })
 
-test('Full seed instruments verified manifest shards, never a hidden unsharded 500+ run', () => {
+test('Full seed is one complete instrumented run of the verified inventory, never merged', () => {
   const script = readFileSync(resolve(__dirname, '../tooling/supercov-seed.cjs'), 'utf8')
-  const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/logic-tests.yml'), 'utf8')
-  assert.match(script, /aggregate\.result !== 'passed'/)
-  assert.match(script, /shard\.vitestFiles/)
-  assert.match(script, /LOGIC_TEST_FILES: JSON\.stringify\(shard\.vitestFiles\)/)
-  assert.match(script, /run\(\['merge', \.\.\.runs\]\)/)
-  assert.doesNotMatch(script, /run\(\['merge', '--allow-changed'/)
-  assert.match(workflow, /Record strict Full seed from already-verified Full shards/)
-  assert.match(workflow, /name: logic-aggregate/)
+  assert.match(script, /LOGIC_TEST_FILES: JSON\.stringify\(inventory\.map\(item => item\.file\)\)/)
+  assert.match(script, /validateRoster\(read\(rosterFile\), inventory\)/)
+  assert.doesNotMatch(script, /'merge'|--allow-changed/)
+})
+
+test('seed requires a passing Full plan of the exact commit', () => {
+  const sha = 'a'.repeat(40)
+  const plan = { planId: 'p', mode: 'full', checkoutSha: sha, headSha: sha,
+    inventory: [{ runner: 'vitest', file: 'tests/a.test.ts', names: ['x'] }, { runner: 'node', file: 'tests/n.test.cjs', names: ['y'] }] }
+  const passed = { planId: 'p', mode: 'full', result: 'passed', count: 2 }
+  assert.deepEqual(requireVerifiedFullPlan(plan, passed, sha).map(item => item.file), ['tests/a.test.ts'])
+  assert.throws(() => requireVerifiedFullPlan(plan, passed, 'b'.repeat(40)), /exact-SHA/)
+  assert.throws(() => requireVerifiedFullPlan({ ...plan, mode: 'related' }, passed, sha), /exact-SHA/)
+  for (const change of [{ result: 'failed' }, { planId: 'other' }, { count: 1 }]) {
+    assert.throws(() => requireVerifiedFullPlan(plan, { ...passed, ...change }, sha), /passing/)
+  }
+})
+
+test('instrumented roster must equal the planned Vitest identities, all passed', () => {
+  const planned = [{ runner: 'vitest', file: 'tests/a.test.ts', names: ['s > x', 's > y'], nativeNames: ['s x', 's y'] }]
+  const test = (title, status = 'passed') => ({ ancestorTitles: ['s'], title, status })
+  const roster = tests => ({ success: true, testResults: [{ name: '/tmp/copy/tests/a.test.ts', assertionResults: tests }] })
+  assert.equal(validateRoster(roster([test('x'), test('y')]), planned), 2)
+  assert.throws(() => validateRoster(roster([test('x')]), planned), /identities differ/)
+  assert.throws(() => validateRoster(roster([test('x'), test('y'), test('y')]), planned), /identities differ/)
+  assert.throws(() => validateRoster(roster([test('x'), test('z')]), planned), /identities differ/)
+  assert.throws(() => validateRoster(roster([test('x'), test('y', 'skipped')]), planned), /failed, skipped/)
+  assert.throws(() => validateRoster({ ...roster([test('x'), test('y')]), success: false }, planned), /failed, skipped/)
 })
 
 test('canonical dev/main publisher and artifact-only exact PR-base restore', () => {
@@ -224,7 +232,7 @@ test('canonical dev/main publisher and artifact-only exact PR-base restore', () 
   const adapter = readFileSync(resolve(__dirname, '../tooling/supercov-related.cjs'), 'utf8')
   const plan = readFileSync(resolve(__dirname, '../tooling/ci-plan.cjs'), 'utf8')
   assert.doesNotMatch(ci, /bootstrap-dev-seed:|refs\/heads\/ci\/supercov-per-test-impact-poc/)
-  assert.match(workflow, /supercov-full-seed:/)
+  assert.match(workflow, /Record strict Full seed from one complete instrumented run/)
   assert.match(workflow, /GH_TOKEN:/)
   assert.match(workflow, /SUPERCOV_EVIDENCE_BASE: \$\{\{ inputs\.base \}\}/)
   assert.match(workflow, /supercov-evidence\.cjs restore/)
@@ -408,7 +416,20 @@ test('real merged Supercov public JSON counts setup records and truncates only u
     { tests: 763, setups: 110 }), /unsafe/)
 })
 
-test('affected setup lifecycle record widens to all leaves of its own file, not a skipped pseudo-test', () => {
+test('module setup means loading the file: one leaf when nothing else loads it, never counted as a case', () => {
+  const setup = { file: 'tests/example.test.ts', name: 'tests/example.test.ts > module setup' }
+  const alone = decodeAffected(answer({ affected: [setup], undetermined: [], unaffected: [] }), inventory, source, run)
+  assert.deepEqual(alone.selectedCases['tests/example.test.ts'], [0])
+  assert.match(alone.reasons['tests/example.test.ts'][0], /module setup: loads the file/)
+  const beside = decodeAffected(answer({ affected: [setup, leaf('suite > C')], undetermined: [], unaffected: [] }), inventory, source, run)
+  assert.deepEqual(beside.selectedCases['tests/example.test.ts'], [2])
+  assert.equal(beside.breakdown.nativeAffected, 1)
+  const direct = decodeAffected(answer({ affected: [setup], undetermined: [], unaffected: [] }), inventory,
+    [{ status: 'M', file: 'tests/example.test.ts' }], run)
+  assert.deepEqual(direct.selectedCases['tests/example.test.ts'], [0, 1, 2])
+})
+
+test('other setup lifecycle records widen to all leaves of their own file, not a skipped pseudo-test', () => {
   const result = answer({
     affected: [
       leaf('suite > A'),
@@ -532,15 +553,38 @@ test('public --test-file --json reconstructs a truncated 3-leaf preview with exa
     { tests: 4, setups: 0 }), /unsafe/)
 })
 
-test('fallback only for documented native preview; real per-file source mapping and all counters mandatory', () => {
+test('expansion queries only affected files, by directory, narrowing any previewed directory', () => {
+  const file = (dir, name) => 'tests/' + dir + '/' + name + '.test.ts'
+  const files = [file('a', '1'), file('a', '2'), file('b', '1'), file('c', '1')]
+  const nested = 'tests/c/deep/d.test.ts'
+  const all = [...files, nested, file('unrelated', '1')].map(item => ({ runner: 'vitest', file: item, names: ['n'] }))
+  assert.deepEqual(affectedFilters(files, all), ['tests/a', file('b', '1'), file('c', '1')])
+  const workingTree = { stale: true, reasons: [], runWide: [], sourceSetChanged: false }
+  const rows = names => names.map(item => ({ file: item, name: 'leaf' }))
+  const global = { schemaVersion: 1, ok: true, command: 'runs.tests.affected', data: { run,
+    summary: { tests: 5, affected: 4, undetermined: 0, unaffected: 1 }, affected: rows(files.slice(0, 1)), undetermined: [],
+    unaffected: [], unaffectedCount: 1, truncated: ['unaffected tests are counted, not listed',
+      'the lists keep their first, highest-ranked tests; `--names` lists every one'], workingTree } }
+  const response = (filter, names, truncated = []) => ({ schemaVersion: 1, ok: true, command: 'runs.tests.affected', data: {
+    run, filter: '--test-file ' + filter, affected: truncated.length ? [] : rows(names), undetermined: [], unaffected: [],
+    summary: { tests: names.length, affected: names.length, undetermined: 0, unaffected: 0 }, truncated, workingTree } })
+  const query = (id, filters) => filters.map(filter => filter === 'tests/a'
+    ? response(filter, files.slice(0, 2), ['the lists keep their first, highest-ranked tests; `--names` lists every one'])
+    : response(filter, files.filter(item => item === filter)))
+  const expanded = expandIdentities(global, run, { tests: 5, setups: 0 }, files, all, query)
+  assert.deepEqual(expanded.data.affected.map(row => row.file).sort(), files)
+  // An affected file outside the list surfaces as a count difference, not as less to test.
+  const short = structuredClone(global); short.data.summary = { tests: 6, affected: 5, undetermined: 0, unaffected: 1 }
+  assert.throws(() => expandIdentities(short, run, { tests: 6, setups: 0 }, files, all, query), /does not reconcile/)
+})
+
+test('unsafe changes fail in preflight, before any Supercov process starts', () => {
   const adapter = readFileSync(resolve(__dirname, '../tooling/supercov-related.cjs'), 'utf8')
-  const worker = readFileSync(resolve(__dirname, '../tooling/supercov-affected-expand.cjs'), 'utf8')
-  assert.match(adapter, /reconcileAffectedFiles\(data, parts, files, seed\.runId/)
-  assert.match(adapter, /minimumLeaves <= 500/)
-  assert.match(adapter, /Supercov reconstructed/)
-  assert.match(adapter, /--test-file <path>/)
-  assert.doesNotMatch(adapter, /'--names', '--json'/)
-  assert.match(worker, /'--test-file', file, '--json'/)
-  assert.match(worker, /Math\.min\(6, files\.length\)/)
-  assert.doesNotMatch(worker, /--allow-changed/)
+  const nativeQuery = adapter.indexOf("supercovArgs('runs', seed.runId, 'tests', 'affected', '--json')")
+  assert.ok(adapter.indexOf('preflightChanges(changed)') < nativeQuery)
+  assert.ok(adapter.indexOf('analyzeAddedSources(changed, seed.runId)') < nativeQuery)
+  assert.throws(() => preflightChanges([{ status: 'R100', oldFile: 'src/x.ts', file: 'src/y.ts' }]), /unsafe/)
+  assert.throws(() => preflightChanges([{ status: 'M', file: 'public/weapon.glb' }]), /Unsupported asset/)
+  assert.doesNotThrow(() => preflightChanges([{ status: 'A', file: 'src/new.ts' }, { status: 'M', file: 'README.md' }]))
+  assert.doesNotMatch(adapter, /'--names', '--json'|'--limit'/)
 })

@@ -84,7 +84,22 @@ test('push to main shares one Full gate with Pages and Release, bound to the exa
   assert.equal(ci.jobs.logic.uses, './.github/workflows/logic-tests.yml')
   assert.equal(ci.jobs.logic.with.mode,
     "${{ github.event_name == 'workflow_dispatch' && 'full' || github.base_ref == 'main' && 'full' || (github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')) && 'full' || 'related' }}")
-  assert.equal(logicTests.on.workflow_call.outputs['verified-sha'].value, '${{ jobs.aggregate.outputs.verified-sha }}')
+  assert.equal(logicTests.on.workflow_call.outputs['verified-sha'].value, '${{ jobs.gate.outputs.verified-sha }}')
+  // Related and Full share one job: no matrix, no cross-runner reports to reassemble.
+  assert.deepEqual(Object.keys(logicTests.jobs), ['gate'])
+  assert.equal(logicTests.jobs.gate.strategy, undefined)
+  const gateSteps = logicTests.jobs.gate.steps
+  const stepAt = text => gateSteps.findIndex(step => step.run?.includes(text))
+  assert.ok(stepAt('ci-plan.cjs --mode') < stepAt('ci-run.cjs --manifest'))
+  assert.ok(stepAt('ci-run.cjs --manifest') < stepAt('supercov-seed.cjs'))
+  // A failed test stops the job: nothing that publishes a seed may run regardless.
+  const publishing = gateSteps.filter(step => step.run?.includes('supercov') || step.with?.name?.startsWith('supercov-seed-'))
+    .filter(step => !step.run?.includes('supercov-evidence.cjs restore'))
+  assert.equal(publishing.length, 3)
+  for (const step of publishing) {
+    assert.doesNotMatch(step.if, /always\(\)/)
+    assert.match(step.if, /inputs\.mode == 'full' && \(github\.ref == 'refs\/heads\/dev' \|\| github\.ref == 'refs\/heads\/main'\)/)
+  }
 
   for (const id of ['pages', 'release']) {
     const job = ci.jobs[id]
@@ -120,13 +135,12 @@ test('push to main shares one Full gate with Pages and Release, bound to the exa
 
   const sha = 'a'.repeat(40)
   const item = { file: 'tests/a.test.ts', runner: 'vitest', names: ['leaf'] }
-  const full = { mode: 'full', inventory: [item], selected: [item.file], changedFiles: [], headSha: sha, checkoutSha: sha,
-    shards: [{ id: 'logic-1', vitestFiles: [item.file], nodeFiles: [], expectedCount: 1 }] }
+  const full = { mode: 'full', inventory: [item], selected: [item.file], changedFiles: [], headSha: sha, checkoutSha: sha, expectedCount: 1 }
   assert.equal(verifiedFullSha(full), sha)
   assert.equal(verifiedFullSha({ ...full, checkoutSha: 'b'.repeat(40) }), '')
   assert.equal(verifiedFullSha({ ...full, headSha: '', checkoutSha: '' }), '')
   assert.equal(verifiedFullSha({ ...full, headSha: 'main', checkoutSha: 'main' }), '')
-  assert.throws(() => verifiedFullSha({ ...full, shards: [] }), /Missing|Invalid|Empty/)
+  assert.throws(() => verifiedFullSha({ ...full, selected: [] }), /Missing|Invalid|Empty/)
 })
 
 // Every Bash gate scenario executes in a real test body, not at module load.

@@ -10,7 +10,7 @@ if (process.argv.includes('--manifest')) {
   const result = spawnSync(process.execPath, ['tests/tooling/ci-run.cjs', ...process.argv.slice(2)], { cwd: root, stdio: 'inherit' })
   process.exit(result.status ?? 1)
 }
-// Full local runs use the same planner/shards/completeness gate as CI.
+// Full local runs use the same planner and completeness gate as CI.
 if (process.argv.length === 2 || (process.argv.length === 3 && process.argv[2] === '--release')) {
   const result = spawnSync(process.execPath, ['tests/tooling/ci-run.cjs', '--local', process.argv[2] === '--release' ? 'release' : 'full'], { cwd: root, stdio: 'inherit' })
   process.exit(result.status ?? 1)
@@ -59,7 +59,7 @@ try {
   const result = validateReports(reports, { runId, runners })
   const summary = { ...result, runId, full: !releaseOnly && !targeted, runners: Object.fromEntries(reports.map(report => [report.runner, report.cases.length])), wallMs: Number(hrtime.bigint() - started) / 1e6 }
   writeFileSync(join(dir, 'summary.json'), JSON.stringify(summary, null, 2))
-  console.log(`${summary.full ? 'Full Vitest + Node budget' : 'Development subset budget'}: ${result.count}/500 cases, max ${result.maxMs.toFixed(3)}ms, wall ${(summary.wallMs / 1000).toFixed(2)}s`)
+  console.log(`${summary.full ? 'Full Vitest + Node budget' : 'Development subset budget'}: ${result.count} cases, max ${result.maxMs.toFixed(3)}ms, wall ${(summary.wallMs / 1000).toFixed(2)}s`)
 } catch (error) {
   console.error(error.message)
   failed = true
