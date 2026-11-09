@@ -128,6 +128,8 @@ export interface HeavyFieldState {
   version: 1
   /** Soldier: the captain has halted the column and ordered Formation. */
   formationIssued: boolean
+  /** Soldier: the enemy holds its ground until our line is formed, then switches to Attack. */
+  enemyReleased: boolean
   /** Soldier / Veteran: first effective hit on a mission enemy has released their Charge. */
   enemyChargeTriggered: boolean
   /** 20m counter-charge, for whichever side the mission names. Fires once. */
@@ -135,16 +137,16 @@ export interface HeavyFieldState {
 }
 
 export function createHeavyFieldState(missionId: HeavyFieldMissionId): HeavyFieldState {
-  return { version: 1, formationIssued: !HEAVY_FIELD_SPECS[missionId].startsMarching, enemyChargeTriggered: false, counterChargeTriggered: false }
+  return { version: 1, formationIssued: !HEAVY_FIELD_SPECS[missionId].startsMarching, enemyReleased: !HEAVY_FIELD_SPECS[missionId].startsMarching, enemyChargeTriggered: false, counterChargeTriggered: false }
 }
 
 export function parseHeavyFieldState(raw: unknown, missionId: HeavyFieldMissionId): HeavyFieldState | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const value = raw as Record<string, unknown>
-  if (value.version !== 1 || typeof value.formationIssued !== 'boolean' || typeof value.enemyChargeTriggered !== 'boolean'
+  if (value.version !== 1 || typeof value.formationIssued !== 'boolean' || typeof value.enemyReleased !== 'boolean' || typeof value.enemyChargeTriggered !== 'boolean'
     || typeof value.counterChargeTriggered !== 'boolean') return undefined
   if (!HEAVY_FIELD_SPECS[missionId].startsMarching && !value.formationIssued) return undefined
-  return { version: 1, formationIssued: value.formationIssued, enemyChargeTriggered: value.enemyChargeTriggered, counterChargeTriggered: value.counterChargeTriggered }
+  return { version: 1, formationIssued: value.formationIssued, enemyReleased: value.enemyReleased, enemyChargeTriggered: value.enemyChargeTriggered, counterChargeTriggered: value.counterChargeTriggered }
 }
 
 /** What a side should be doing right now; also used to restore orders after Reload. */
@@ -156,7 +158,7 @@ export function heavyTacticalOrder(missionId: HeavyFieldMissionId, side: HeavySi
     return spec.startsMarching ? 'formation' : spec.friendlyOrder
   }
   if (state.enemyChargeTriggered || spec.counterCharge === 'enemy' && state.counterChargeTriggered) return 'charge'
-  return spec.enemyOrder
+  return spec.startsMarching && !state.enemyReleased ? 'defend' : spec.enemyOrder
 }
 
 /** Effective damage on a mission enemy's rider or mount. Blocks, misses and zero-damage hits never count. */
@@ -388,4 +390,14 @@ export function heavyCommandPlan(missionId: HeavyFieldMissionId, side: HeavySide
   if (order === 'charge') return { order, kind: 'charge' }
   if (side === 'friendly' && HEAVY_FIELD_SPECS[missionId].startsMarching && !state.formationIssued) return { order, kind: 'march' }
   return { order, kind: order === 'defend' || order === 'formation' ? 'hold' : 'plain' }
+}
+
+/** Soldier: our line counts as formed once most actors stand on their slots, or after a hard time limit. */
+export const HEAVY_FORMATION_ARRIVAL_METERS = 3
+export const HEAVY_FORMATION_READY_FRACTION = .85
+export const HEAVY_FORMATION_TIMEOUT_SECONDS = 25
+export function isHeavyFormationComplete(distancesToSlots: readonly number[], secondsSinceIssued: number): boolean {
+  if (secondsSinceIssued >= HEAVY_FORMATION_TIMEOUT_SECONDS) return true
+  return distancesToSlots.length > 0
+    && distancesToSlots.filter(d => d <= HEAVY_FORMATION_ARRIVAL_METERS).length / distancesToSlots.length >= HEAVY_FORMATION_READY_FRACTION
 }

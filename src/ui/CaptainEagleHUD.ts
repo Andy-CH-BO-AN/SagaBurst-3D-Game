@@ -7,7 +7,7 @@ export class CaptainEagleHUD {
   private readonly root = document.createElement('div')
   private result?: HTMLElement
 
-  constructor(private readonly variant: 'eagle' | 'bridgehead' | 'feline' = 'eagle') {
+  constructor(private readonly variant: 'eagle' | 'bridgehead' | 'feline' = 'eagle', private readonly feline: { title: string; force: string } = { title: 'COMMANDER VI · 六貓騎兵團', force: '正式六貓騎兵' }) {
     this.root.id = variant === 'bridgehead' ? 'bridgehead-battle-hud' : variant === 'feline' ? 'feline-cavalry-hud' : 'captain-eagle-hud'
     if (variant !== 'bridgehead') this.root.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);padding:10px 20px;background:rgba(14,12,10,.85);border:1px solid #8e7b65;color:#e5d8c3;z-index:100;pointer-events:none;text-align:center'
     document.body.append(this.root)
@@ -22,7 +22,7 @@ export class CaptainEagleHUD {
       ? `${counts.personal.alive}/${counts.personal.total}${counts.personal.pending ? `（待生成 ${counts.personal.pending}）` : ''}`
       : String(privateAlive)
     this.root.textContent = this.variant === 'feline'
-      ? `COMMANDER VI · 六貓騎兵團｜${ready ? '交戰中' : `部署中 ${pending} 人`}｜正式六貓騎兵 ${official} · HR 私兵 ${personal}｜敵軍 ${enemyAlive}`
+      ? `${this.feline.title}｜${ready ? '交戰中' : `部署中 ${pending} 人`}｜${this.feline.force} ${official} · HR 私兵 ${personal}｜敵軍 ${enemyAlive}`
       : `Eagle Battle · 巨鷹空戰｜${ready ? '交戰中' : `部署中 ${pending} 人`}｜正式隊 ${official} · 私兵 ${personal}｜敵軍 ${enemyAlive}`
   }
 

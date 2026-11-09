@@ -10,7 +10,7 @@ import type { CombatEvent } from '../../src/combat/CombatAttribution'
 import {
   CAPTAIN_STEEL_AVALANCHE_ID, COMMANDER_IRON_LEGION_ID, SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID,
   HEAVY_FIELD_SPECS, caltropRouteExists, createHeavyFieldState, heavyActorIds, heavyEnemyActorIds, heavyFriendlyActorIds,
-  heavyCommandPlan, heavyFrontlineDistance, heavyGroupsTotal, heavyNpcGroups, heavyTacticalOrder, ironLegionEnemyActorIds, IRON_LEGION_ENEMY_GROUPS,
+  heavyCommandPlan, heavyFrontlineDistance, isHeavyFormationComplete, heavyGroupsTotal, heavyNpcGroups, heavyTacticalOrder, ironLegionEnemyActorIds, IRON_LEGION_ENEMY_GROUPS,
   parseHeavyFieldState, planVeteranCaltropDefense, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge,
   shouldTriggerHeavyEnemyCharge, validateCaltropLayout, veteranCaltropWorldRects,
 } from '../../src/career/HeavyCavalryMissions'
@@ -92,9 +92,20 @@ describe('heavy cavalry tactical triggers', () => {
     expect(heavyTacticalOrder(CAPTAIN_STEEL_AVALANCHE_ID, 'friendly', state)).toBe('defend')
   })
 
+  it('Soldier 敵軍在我方列陣完成前原地待命，完成（或逾時）後才 Attack', () => {
+    const state = createHeavyFieldState(SOLDIER_IRON_ENCOUNTER_ID)
+    expect(heavyCommandPlan(SOLDIER_IRON_ENCOUNTER_ID, 'enemy', state).kind).toBe('hold')
+    expect(isHeavyFormationComplete([1, 2, 50, 60], 5)).toBe(false)
+    expect(isHeavyFormationComplete([1, 2, 2.5, 1, 1, 1, 1, 50], 5)).toBe(true)
+    expect(isHeavyFormationComplete([50, 60], 25)).toBe(true)
+    state.enemyReleased = true
+    expect(heavyCommandPlan(SOLDIER_IRON_ENCOUNTER_ID, 'enemy', state).kind).toBe('plain')
+  })
+
   it('Soldier / Veteran 敵軍在受傷前為真正的 Attack（不使用會強制 Defend 的 Formation 守位）', () => {
     for (const id of [SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID] as const) {
       const state = createHeavyFieldState(id)
+      state.enemyReleased = true
       expect(heavyCommandPlan(id, 'enemy', state)).toEqual({ order: 'attack', kind: 'plain' })
       state.enemyChargeTriggered = true
       expect(heavyCommandPlan(id, 'enemy', state)).toEqual({ order: 'charge', kind: 'charge' })

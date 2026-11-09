@@ -26,9 +26,10 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { CorgiVisual } from './world/CorgiVisual'
 import { careerHeavyPreloadPlan } from './career/HeavyCavalrySpawn'
-import { createHeavyFieldDeployment, isCareerHeavyFieldBattle, type HeavyFieldDeployment } from './career/HeavyFieldMission'
+import { COMMANDER_IRON_LEGION_ID } from './career/HeavyCavalryMissions'
+import { createHeavyFieldDeployment, getHeavyFieldMissionDefinition, isCareerHeavyFieldBattle, type HeavyFieldDeployment } from './career/HeavyFieldMission'
 import { createCaltropBarrier } from './world/CaltropBarrier'
-import { HEAVY_FIELD_SPECS, VETERAN_IRON_TIDE_ID, heavyCommandPlan, heavyFrontlineDistance, planVeteranCaltropDefense, veteranCaltropWorldRects, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, type HeavyPoint } from './career/HeavyCavalryMissions'
+import { HEAVY_FIELD_SPECS, VETERAN_IRON_TIDE_ID, heavyCommandPlan, isHeavyFormationComplete, heavyFrontlineDistance, planVeteranCaltropDefense, veteranCaltropWorldRects, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, type HeavyPoint } from './career/HeavyCavalryMissions'
 import { BlackCatVisual, FELINE_MOUNT_VARIANTS, type FelineMountVariant } from './world/BlackCatVisual'
 import { SnowLeopardVisual } from './world/SnowLeopardVisual'
 import { XongkoroVisual } from './world/XongkoroVisual'
@@ -665,6 +666,7 @@ export class Game {
   /** Heavy-cavalry field battles (Soldier / Veteran / Captain): deployment plan and throttled trigger clock. */
   private heavyDeployment?: HeavyFieldDeployment
   private heavyCheckClock = 0
+  private heavyFormationElapsed = 0
   /** Soldier and Veteran field battles give the player no command authority at all. */
   private get heavyNoCommand(): boolean {
     const mission = this.careerProfile?.activeMission
@@ -1415,7 +1417,10 @@ export class Game {
     } else if (this.bridgeLaunch && battlePlan) {
       this.captainEagleHud = new CaptainEagleHUD('bridgehead')
     } else if (this.felineMissionId && battlePlan) {
-      this.captainEagleHud = new CaptainEagleHUD('feline')
+      const fieldMission = this.careerProfile?.activeMission
+      this.captainEagleHud = new CaptainEagleHUD('feline', fieldMission?.templateId === COMMANDER_IRON_LEGION_ID
+        ? { title: 'COMMANDER VII · 鐵甲軍團決戰', force: '正式六貓騎兵' }
+        : isCareerHeavyFieldBattle(fieldMission) ? { title: getHeavyFieldMissionDefinition(fieldMission.templateId)?.name ?? '重騎兵戰場', force: '正式友軍' } : undefined)
       this._declareCaptainEagleRoster(battlePlan)
     } else if (this.captainEagleMissionId && battlePlan) {
       this.captainEagleHud = new CaptainEagleHUD()
@@ -2725,6 +2730,17 @@ export class Game {
         this._persistHeavyState('隊形已完成；狀態將隨下次戰場存檔重試。')
       }
       return
+    }
+    if (spec.startsMarching && !state.enemyReleased) {
+      this.heavyFormationElapsed += .25
+      const slots = this.heavyDeployment?.formationSlots ?? {}
+      const distances = this.npcs.filter(npc => !npc.dead && friendlyIds.has(npc.combatantId) && slots[npc.combatantId])
+        .map(npc => Math.hypot(npc.combatPosition.x - slots[npc.combatantId].x, npc.combatPosition.z - slots[npc.combatantId].z))
+      if (isHeavyFormationComplete(distances, this.heavyFormationElapsed)) {
+        state.enemyReleased = true
+        for (const npc of this.npcs) if (!npc.dead && enemyIds.has(npc.combatantId)) this._applyHeavyFieldOrder(npc, mission)
+        this._persistHeavyState('敵軍已進攻；狀態將隨下次戰場存檔重試。')
+      }
     }
     if (state.counterChargeTriggered) return
     const friendly: HeavyPoint[] = [], enemy: HeavyPoint[] = []
