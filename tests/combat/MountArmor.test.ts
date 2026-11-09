@@ -32,7 +32,10 @@ describe('Mount armor', () => {
     expect(new MountArmor('HORSE').absorbWeapon(80, context('axe_t5'))).toEqual({ damage: 80, blockedImpact: 0 })
   })
   it('preserves depleted armor on restore and refills only on explicit service reset', () => {
+    expect(new MountArmor('HORSE').max).toBe(0)
+    expect(new MountArmor('ARMORED_HORSE').max).toBe(50)
     const armor = new MountArmor('SNOW_LEOPARD')
+    expect(armor.max).toBe(50)
     armor.restore(0); expect(armor.remaining).toBe(0)
     expect(armor.absorbWeapon(20, context('axe_t5'))).toEqual({ damage: 20, blockedImpact: 0 })
     armor.reset(); expect(armor.remaining).toBe(50)

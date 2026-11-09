@@ -116,6 +116,16 @@ function executeShard(plan, id, out) {
   } catch (error) {
     summary.result = 'failed'
     summary.error = error.message
+    const failed = summary.reports.flatMap(report => (report.cases ?? [])
+      .filter(item => item.state !== 'passed')
+      .map(item => ({ runner: report.runner, file: item.file, name: item.name, state: item.state })))
+    const label = (plan.mode === 'full' ? 'Full' : 'Related') + ' shard ' + id
+    console.error(label + ' FAILED; identified failing leaves: ' + failed.length)
+    for (const item of failed) console.error('  ' + item.file + ' > ' + item.name + ' [' + item.state + ']')
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+      '\n### ' + label + ' FAILED\n\n' +
+      failed.map(item => '- `' + item.file + ' > ' + item.name + '` (' + item.state + ')').join('\n') +
+      '\n\n' + error.message + '\n')
     throw error
   } finally {
     mkdirSync(resolve(out, '..'), { recursive: true })

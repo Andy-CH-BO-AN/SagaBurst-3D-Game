@@ -50,7 +50,8 @@ function presentation() {
   let attached = true
   const port: PresentationPort = {
     state: MountState.DEAD, type: MountType.XONGKORO, disposed: false, deathTimer: 3,
-    currentHp: 0, maxHp: 200, armor: new MountArmor(MountType.XONGKORO), riderNpc: null, riderPlayer: null, riderFaction: null, onDeathCallbacks: [],
+    currentHp: 0, maxHp: 200, armor: new MountArmor(MountType.XONGKORO),
+    riderNpc: null, riderPlayer: null, riderFaction: null, onDeathCallbacks: [],
     get dead() { return read('dead').call(this) },
     get deathPresentationComplete() { return read('deathPresentationComplete').call(this) },
     get isAirborne() { return read('isAirborne').call(this) },
@@ -116,6 +117,7 @@ describe('mount death presentation lifetime', () => {
     const armorReset = vi.spyOn(h.port.armor, 'reset')
     h.port.flight.phase = 'grounded'
     Mount.prototype.update.call(h.mount, 3, [])
+    expect(armorReset).not.toHaveBeenCalled()
     const resource = h.port.eagleVisual.root
     h.events.length = 0
 
@@ -135,5 +137,6 @@ describe('mount death presentation lifetime', () => {
     Mount.prototype.update.call(h.mount, 3, [])
     expect(h.port.deathPresentationComplete).toBe(true)
     expect(h.attached()).toBe(false)
+    expect(armorReset).toHaveBeenCalledOnce()
   })
 })

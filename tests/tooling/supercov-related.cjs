@@ -10,7 +10,8 @@ const VERSION = '4.24.2'
 const fail = message => { throw new Error('Supercov Related selection unsafe: ' + message) }
 const isTest = path => /^tests\/.*\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)
 const isRuntime = path => /^src\/.*\.[cm]?[jt]sx?$/.test(path)
-const isSupported = path => isRuntime(path) || isTest(path) ||
+const isCss = path => /^src\/ui\/[\w/-]+\.css$/.test(path)
+const isSupported = path => isRuntime(path) || isTest(path) || isCss(path) ||
   /^(tests\/(?:tooling|helpers|release)\/|\.github\/workflows\/)/.test(path) ||
   /^(package(?:-lock)?\.json|tsconfig(?:\.[-\w]+)?\.json|vite\.config\.[cm]?[jt]s|vitest\.config\.[cm]?[jt]s)$/.test(path)
 
@@ -118,6 +119,19 @@ function decodeAffected(response, inventory, changes, expectedRun, baseline = {}
     native: { affected: summary.affected, undetermined: summary.undetermined,
       unaffected: summary.unaffected, total, runWide: workingTree.runWide } }
 }
+// The Full seed belongs to the exact base commit. Its tracked test files, not
+// the PR's current discovery, determine which --test-file queries are valid.
+// The global Supercov summary must still reconcile across EVERY historic row.
+function historicalVitestFiles(inventory, trackedAtBase, changes) {
+  if (changes.some(change => /^(D|R|C)/.test(change.status) && isTest(change.file))) {
+    fail('Deleted/renamed test files require an explicit historical lifecycle policy')
+  }
+  const current = new Set(inventory.filter(item => item.runner === 'vitest').map(item => item.file))
+  const historic = new Set(trackedAtBase.filter(isTest))
+  const files = [...current].filter(file => historic.has(file)).sort()
+  if (!files.length) fail('No historic Vitest file overlap for exact-base expansion')
+  return files
+}
 function nativeSelection(inventory, changed, { base } = {}) {
   const path = resolve(ROOT, process.env.SUPERCOV_SEED_FILE || 'output/supercov-seed.json')
   if (!existsSync(path)) fail('exact dev baseline seed pending: no Full seed for PR base SHA')
@@ -160,8 +174,12 @@ function nativeSelection(inventory, changed, { base } = {}) {
     const listTruncated = (data?.data?.truncated || []).some(reason =>
       reason === 'the lists keep their first, highest-ranked tests; `--names` lists every one')
     if (!listTruncated) fail('Native affected identity list incomplete without a documented preview marker')
-    const files = inventory.filter(item => item.runner === 'vitest')
-      .map(item => item.file).sort()
+    let trackedAtBase
+    try {
+      trackedAtBase = execFileSync('git', ['ls-tree', '-r', '-z', '--name-only', seed.sha, '--', 'tests'],
+        { cwd: ROOT, encoding: 'utf8' }).split('\0').filter(Boolean)
+    } catch (error) { fail('Cannot read exact-base test tree: ' + error.message) }
+    const files = historicalVitestFiles(inventory, trackedAtBase, changed)
     let raw
     try {
       raw = execFileSync('node', ['tests/tooling/supercov-affected-expand.cjs'],
@@ -184,4 +202,4 @@ function nativeSelection(inventory, changed, { base } = {}) {
   return decodeAffected(data, inventory, changed, seed.runId,
     { tests: seed.tests, setups: seed.setups })
 }
-module.exports = { decodeAffected, nativeSelection }
+module.exports = { decodeAffected, nativeSelection, historicalVitestFiles, isCss }

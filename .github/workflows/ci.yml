@@ -35,10 +35,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Require successful logic gate
-        env:
-          LOGIC_RESULT: ${{ needs.logic.result }}
-        run: test "$LOGIC_RESULT" = success
+      # Always collect actionable Web build diagnostics, even if Related cannot
+      # restore its exact-base seed. The final logic check still fails closed.
       - uses: actions/checkout@v4
       - name: Lint GitHub Actions workflows
         run: |
@@ -57,6 +55,11 @@ jobs:
         if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
       - run: npm run smoke:web
         if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      - name: Require successful logic gate
+        if: always()
+        env:
+          LOGIC_RESULT: ${{ needs.logic.result }}
+        run: test "$LOGIC_RESULT" = success
   desktop:
     needs: logic
     # Skip desktop packaging/smoke for PRs into dev and all pushes. PRs into main

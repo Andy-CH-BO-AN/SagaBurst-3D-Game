@@ -38,10 +38,20 @@ jobs:
       - run: npm ci
       - name: Verify native selector contracts without gameplay
         run: node --test tests/release/ci-plan.test.cjs tests/release/supercov-related.test.cjs
+      # Run the same strict path/mode policy used by the planner before seed restore.
+      # Safe documentation and CSS-only PRs still pass the Web typecheck/build gate.
+      - name: Probe whether Related requires a Full seed
+        id: seed-policy
+        if: inputs.mode == 'related'
+        env:
+          TEST_BASE: ${{ inputs.base }}
+          TEST_HEAD: ${{ inputs.head }}
+          TEST_EVENT: ${{ inputs.event }}
+        run: node tests/tooling/ci-plan.cjs --probe seed --mode related --base "$TEST_BASE" --head "$TEST_HEAD" --event "$TEST_EVENT"
       # No unverified branch-scoped cache: restore a canonical publisher's
       # repository-scoped exact-base artifact, then verify the seed SHA.
       - name: Restore exact PR-base Full evidence from cross-run artifact
-        if: inputs.mode == 'related'
+        if: inputs.mode == 'related' && steps.seed-policy.outputs.requires-seed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           SUPERCOV_EVIDENCE_BASE: ${{ inputs.base }}
