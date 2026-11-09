@@ -40,6 +40,7 @@ import type { CharacterRig, MountedPoseKind, CharacterFaction } from './Characte
 import { HumanoidAssetRegistry, disposeHumanoidInstanceSkeletons } from './HumanoidAssetRegistry'
 import type { HeroAssetId } from './HeroAssetCatalog'
 import { resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import { isEquipmentUsable, resolveEquipmentSlot } from './HighTierEquipment'
 import { applyHeroIncomingDamage, applyHeroOutgoingDamage, applyHeroMeleeDamage, heroMeleeAttackSpeed, getHeroCombatModifiers, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 
@@ -351,7 +352,14 @@ export class NPC {
   public mount: Mount | null = null
   public meleeAttackRadius = 1.8
   public isUsingLance = false
-  public meleeWeaponId: string | null = 'steel_sword'
+  /** What this actor has selected, and what it really holds. They differ only while a selected item's model is loading. */
+  private selectedMeleeWeaponId: string | null = 'steel_sword'
+  private heldMeleeWeaponId: string | null = 'steel_sword'
+  get meleeWeaponId(): string | null { return this.heldMeleeWeaponId }
+  set meleeWeaponId(id: string | null) {
+    this.selectedMeleeWeaponId = id
+    this.heldMeleeWeaponId = resolveEquipmentSlot(id, this.heldMeleeWeaponId)
+  }
   public rangedWeaponId?: string
   public loadout?: UnitLoadout
   private originalCombatEquipment: CombatEquipmentSnapshot | null = null
@@ -530,7 +538,13 @@ export class NPC {
   bodyHitNodes: THREE.Object3D[] = []
   private readonly sweepGrip = new THREE.Vector3()
   private rangedTargetHeightOffset = 0
-  public shieldId: string | null = null
+  private selectedShieldId: string | null = null
+  private heldShieldId: string | null = null
+  get shieldId(): string | null { return this.heldShieldId }
+  set shieldId(id: string | null) {
+    this.selectedShieldId = id
+    this.heldShieldId = resolveEquipmentSlot(id, this.heldShieldId)
+  }
   readonly equipmentVisualLOD = new EquipmentVisualLODController()
   private builtShieldId: string | null | undefined = undefined
 
@@ -886,6 +900,7 @@ export class NPC {
     this._initialStaggerPhase = computeDeterministicPhase(spawnX, spawnZ, name)
 
     if (loadout) {
+      this.heldMeleeWeaponId = null // A newly spawned actor holds nothing until its own selected item is usable.
       this.meleeWeaponId = loadout.meleeWeaponId ?? null
       this.rangedWeaponId = loadout.rangedWeaponId ?? undefined
       this.shieldId = loadout.shieldId ?? null
@@ -1403,13 +1418,34 @@ export class NPC {
 
   private _setActiveMeleeWeapon(weaponId: string | null): void {
     if (this.meleeWeaponId === weaponId) {
+      this.selectedMeleeWeaponId = weaponId
       this._syncActiveMeleeEquipment()
       return
     }
+    const held = this.meleeWeaponId
     this.meleeWeaponId = weaponId
+    if (this.meleeWeaponId === held) {
+      this._syncActiveMeleeEquipment()
+      return
+    }
     this._meleeDamageOverride = undefined
     this._syncActiveMeleeEquipment()
     this._rebuildActiveMeleeVisual()
+  }
+
+  /** Combat effect and model arrive together: both slots switch only once the selected item is usable. */
+  private _adoptLoadedEquipment(): void {
+    if (this.selectedMeleeWeaponId && this.selectedMeleeWeaponId !== this.heldMeleeWeaponId && isEquipmentUsable(this.selectedMeleeWeaponId)) {
+      this._cancelEquipmentCombatState()
+      this._setActiveMeleeWeapon(this.selectedMeleeWeaponId)
+      this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
+    }
+    if (this.selectedShieldId && this.selectedShieldId !== this.heldShieldId && isEquipmentUsable(this.selectedShieldId)) {
+      this._cancelEquipmentCombatState()
+      this.heldShieldId = this.selectedShieldId
+      this.rebuildShield()
+      this.animator.setEquipment(this.isUsingLance, this.hasActiveShield, this.mount?.type as MountedPoseKind)
+    }
   }
 
   private _rebuildActiveRangedVisual(): void {
@@ -1568,11 +1604,11 @@ export class NPC {
         tier: this.tier,
         squadId: this.squadId,
         presetId: this.presetId,
-        meleeWeaponId: this.meleeWeaponId,
+        meleeWeaponId: this.selectedMeleeWeaponId,
         meleeDamageOverride: this._meleeDamageOverride,
         rangedWeaponId: this.rangedWeaponId,
         rangedDamage: this.rangedDamage,
-        shieldId: this.shieldId,
+        shieldId: this.selectedShieldId,
         ammo: this.arrows,
         rangedActive: this.rangedActive,
       }
@@ -2751,6 +2787,8 @@ export class NPC {
       this.updateUnarmedDuel(dt, player, obstacles, cameraDistance, onHitEntity, navigationWorld)
       return
     }
+
+    if (this.selectedMeleeWeaponId !== this.heldMeleeWeaponId || this.selectedShieldId !== this.heldShieldId) this._adoptLoadedEquipment()
 
     if (this.siegeTransport) {
       this.animator.setLocomotion(this.siegeTransportSpeed, false)

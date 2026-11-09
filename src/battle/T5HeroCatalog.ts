@@ -4,7 +4,7 @@
  */
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { HeroCombatProfileId } from './HeroCombatProfile'
-import { getUnitPreset, resolveUnitLoadout, type UnitPresetId, type UnitLoadout } from './UnitPresetCatalog'
+import { fixedUnitMount, getUnitPreset, resolveUnitLoadout, type UnitPresetId, type UnitLoadout } from './UnitPresetCatalog'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 
@@ -26,6 +26,22 @@ export function getT5ProfileForFaction(faction: CharacterFaction): T5UnitProfile
     combatProfileId: faction === 'roman' ? 'roman-commander' : 'viking-commander',
     baseLoadoutTier: 3,
   }
+}
+
+/** Tier 5 appearance and combat profile of one preset; Roman Heavy Cavalry are the Byzantine cataphracts. */
+export function getT5ProfileForPreset(presetId: UnitPresetId, faction: CharacterFaction): T5UnitProfile {
+  return presetId === 'roman_heavy_cavalry'
+    ? { visualAssetId: 'byzantine-cataphract-t5', combatProfileId: 'byzantine-cataphract', baseLoadoutTier: 3 }
+    : getT5ProfileForFaction(faction)
+}
+
+/** Equipment that loads on demand only because this army fields these Tier 5 units. */
+export function t5EquipmentIdsForArmy(counts: Record<string, { 5?: number }>): string[] {
+  return Object.entries(counts).flatMap(([presetId, tiers]) => {
+    if (!(tiers[5] ?? 0)) return []
+    const loadout = resolveT5UnitLoadout(presetId as UnitPresetId)
+    return [loadout.meleeWeaponId, loadout.shieldId].filter((id): id is string => Boolean(id))
+  })
 }
 
 export function resolveT5UnitLoadout(presetId: UnitPresetId, mountOverride?: string | null): UnitLoadout {
@@ -53,10 +69,15 @@ export function resolveT5UnitLoadout(presetId: UnitPresetId, mountOverride?: str
     base.rangedWeaponId = 'bow_t5'
   }
 
+  if (presetId === 'roman_heavy_cavalry') {
+    base.meleeWeaponId = 'byzantine_standard_lance_t5'
+    base.shieldId = 'byzantine_eagle_shield_t5'
+  }
+
   const isMounted = Boolean(base.mountId)
   return {
     ...base,
-    mountId: isMounted ? (mountOverride ?? (isRoman ? 'caracal' : 'serval')) : null,
+    mountId: isMounted ? (fixedUnitMount(presetId) ?? mountOverride ?? (isRoman ? 'caracal' : 'serval')) : null,
     reversibleRangedSwitch: Boolean(base.rangedWeaponId),
   }
 }

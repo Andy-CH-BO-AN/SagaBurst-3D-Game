@@ -26,13 +26,14 @@ import {
   UnitTier,
 } from './BattleConfig'
 import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from './T4HeroCatalog'
-import { getT5ProfileForFaction, resolveT5UnitLoadout, getCustomBattleMount } from './T5HeroCatalog'
+import { getT5ProfileForPreset, resolveT5UnitLoadout, getCustomBattleMount } from './T5HeroCatalog'
 import type { HeroCombatProfileId } from './HeroCombatProfile'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { CharacterTier, HeroArchetype } from '../combat/CharacterIdentity'
 import {
   UNIT_PRESETS,
+  fixedUnitMount,
   resolveUnitLoadout,
   type BaseUnitTier,
   type UnitLoadout,
@@ -347,13 +348,13 @@ export class SquadFormationPlanner {
         const isT4 = tier === 4
         const isT5 = tier === 5
         const profile = isT4 ? T4_UNIT_PROFILES[presetId] : null
-        const t5Profile = isT5 ? getT5ProfileForFaction(faction) : null
+        const t5Profile = isT5 ? getT5ProfileForPreset(presetId, faction) : null
         const baseLoadout = resolveUnitLoadout(presetId, (tier >= 4 ? 3 : tier) as BaseUnitTier)
         const isCavalry = Boolean(baseLoadout.mountId)
 
         // Generate loadout per individual NPC to ensure proper random mount draw
         for (let i = 0; i < count; i++) {
-          const mount = isCavalry ? getCustomBattleMount(tier, prng) : null
+          const mount = isCavalry ? fixedUnitMount(presetId) ?? getCustomBattleMount(tier, prng) : null
           const loadout = isT4
             ? resolveT4UnitLoadout(presetId, mount)
             : isT5

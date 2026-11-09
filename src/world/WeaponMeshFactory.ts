@@ -6,10 +6,8 @@ import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
 import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODController'
 import { LANCE_RADIUS } from './EquipmentAttachmentContract'
 import { WEAPONS } from '../rpg/WeaponDatabase'
-import { ARMORS } from '../rpg/ArmorDatabase'
 import { createPaladinEquipment } from './PaladinEquipment'
 import { createByzantineEquipment, createT4Polearm, createT5BowBody, createT5Melee, createT5Shield, createFactionShield, requestByzantineEquipment, type ByzantineEquipmentId } from './HighTierEquipment'
-import { showEquipmentLoadNotice } from '../ui/EquipmentLoadNotice'
 
 function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
   const positions: number[] = []
@@ -188,7 +186,7 @@ function hangBannerByGravity(roll: THREE.Group, model: THREE.Object3D): void {
 }
 
 /** Gameplay frames exist at once; the real model joins this holder when loaded, unless the pivot was rebuilt meanwhile.
- * A failure shows a notice and leaves the holder empty: never another model. Re-equipping requests it again. */
+ * A failure leaves the holder empty, never another model. Actors only reach this once the item is usable. */
 function attachByzantineEquipment(id: ByzantineEquipmentId, pivot: THREE.Group, onModel?: (holder: THREE.Group, model: THREE.Group) => void): void {
   const holder = new THREE.Group()
   holder.name = `${id}-holder`
@@ -196,8 +194,7 @@ function attachByzantineEquipment(id: ByzantineEquipmentId, pivot: THREE.Group, 
   const place = (model: THREE.Group) => { holder.add(model); onModel?.(holder, model) }
   const loaded = createByzantineEquipment(id)
   if (loaded) { place(loaded); return }
-  requestByzantineEquipment(id).then(model => { if (holder.parent) place(model) },
-    () => showEquipmentLoadNotice(WEAPONS[id]?.name ?? ARMORS[id]?.name ?? id))
+  requestByzantineEquipment(id).then(model => { if (holder.parent) place(model) }, () => {})
 }
 
 export class WeaponMeshFactory {

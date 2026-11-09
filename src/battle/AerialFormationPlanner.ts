@@ -20,7 +20,7 @@ import {
   UnitTier,
 } from './BattleConfig'
 import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from './T4HeroCatalog'
-import { getT5ProfileForFaction, resolveT5UnitLoadout } from './T5HeroCatalog'
+import { getT5ProfileForPreset, resolveT5UnitLoadout } from './T5HeroCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { CharacterTier } from '../combat/CharacterIdentity'
 import {
@@ -218,7 +218,7 @@ export class AerialFormationPlanner {
         const isT4 = tier === 4
         const isT5 = tier === 5
         const profile = isT4 ? T4_UNIT_PROFILES[presetId] : null
-        const t5Profile = isT5 ? getT5ProfileForFaction(faction) : null
+        const t5Profile = isT5 ? getT5ProfileForPreset(presetId, faction) : null
         const baseLoadout = resolveUnitLoadout(presetId, (tier >= 4 ? 3 : tier) as BaseUnitTier)
 
         // Aerial units always ride xongkoro

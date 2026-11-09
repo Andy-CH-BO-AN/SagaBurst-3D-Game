@@ -25,6 +25,18 @@ import { SquadFormationPlanner } from '../../src/battle/SquadFormationPlanner'
 import { AerialFormationPlanner } from '../../src/battle/AerialFormationPlanner'
 import { BattleController } from '../../src/battle/BattleController'
 import { BattleSetupUI } from '../../src/ui/BattleSetupUI'
+import { applyLoadoutCard, BATTLE_SETUP_MELEE_GROUPS, BATTLE_SETUP_SHIELD_GROUPS } from '../../src/ui/BattleSetupLoadoutCards'
+import { getCustomBattlePresetsForFaction, getUnitPresetsForFaction } from '../../src/battle/UnitPresetCatalog'
+import { t5EquipmentIdsForArmy } from '../../src/battle/T5HeroCatalog'
+import { mountTypeFromId, MountType } from '../../src/world/Mount'
+import {
+  createDefaultPlayerLoadout,
+  normalizeArmyConfig,
+  PLAYER_MELEE_SELECTION_IDS,
+  PLAYER_SHIELD_IDS,
+} from '../../src/battle/BattleConfig'
+import { WEAPONS } from '../../src/rpg/WeaponDatabase'
+import { ARMORS } from '../../src/rpg/ArmorDatabase'
 import {
   squadShortcutKey,
   MAX_CUSTOM_BATTLE_COMMAND_SQUADS,
@@ -709,5 +721,96 @@ describe('Custom Battle 2.0: Battle Type Map Selection Persistence (P2)', () => 
     ui.switchBattleType('ground')
     expect(ui.getConfig().battleType).toBe('ground')
     expect(ui.getConfig().mapId).toBe('snow')
+  })
+})
+
+describe('Custom Battle player equipment menu', () => {
+  const cardIds = (groups: typeof BATTLE_SETUP_MELEE_GROUPS) => groups.flatMap(group => group.cards.map(card => card.id))
+
+  it('offers every selectable melee weapon and shield, including the Byzantine pair', () => {
+    expect(cardIds(BATTLE_SETUP_MELEE_GROUPS).filter(Boolean).sort()).toEqual([...PLAYER_MELEE_SELECTION_IDS].sort())
+    expect(cardIds(BATTLE_SETUP_SHIELD_GROUPS).filter(Boolean).sort()).toEqual([...PLAYER_SHIELD_IDS].sort())
+    expect(WEAPONS.byzantine_standard_lance_t5).toMatchObject({ damageMax: 105, range: 3.9 })
+    expect(ARMORS.byzantine_eagle_shield_t5.shieldImpactMax).toBe(128)
+  })
+
+  it('keeps a clicked Byzantine card through the hero change, validation and refresh of the config', () => {
+    const config = makeGroundConfig(1, 1)
+    config.playerLoadout = createDefaultPlayerLoadout()
+    applyLoadoutCard(config.playerLoadout, 'melee', 'byzantine_standard_lance_t5')
+    applyLoadoutCard(config.playerLoadout, 'shield', 'byzantine_eagle_shield_t5')
+    config.playerHeroId = 'byzantine-cataphract-t5'
+    config.playerFaction = 'roman'
+    expect(validateBattleConfig(config).valid).toBe(true)
+    expect(new BattleSetupUI(config).getConfig().playerLoadout).toMatchObject({
+      meleeWeaponId: 'byzantine_standard_lance_t5', shieldId: 'byzantine_eagle_shield_t5',
+    })
+  })
+})
+
+describe('Custom Battle Heavy Cavalry', () => {
+  const LANCES = ['hunting_spear', 'steel_lance', 'heavy_lance', 'spear_t4']
+  const expected = {
+    roman: {
+      presetId: 'roman_heavy_cavalry', mountId: 'armored-horse', mountType: MountType.ARMORED_HORSE,
+      shields: ['scutum_t1', 'scutum_t2', 'scutum_t3', 'roman_officer_shield_t4', 'byzantine_eagle_shield_t5'],
+      t5: { weapon: 'byzantine_standard_lance_t5', visual: 'byzantine-cataphract-t5', combat: 'byzantine-cataphract' },
+      t4: { visual: 'roman-hero-t4', combat: 'praetorian' },
+    },
+    viking: {
+      presetId: 'viking_heavy_cavalry', mountId: 'snow-leopard', mountType: MountType.SNOW_LEOPARD,
+      shields: ['round_shield_t1', 'round_shield_t2', 'round_shield_t3', 'paladin_shield_t4', 'viking_berserker_shield_t5'],
+      t5: { weapon: 'spear_t5', visual: 'viking-hero-t5', combat: 'viking-commander' },
+      t4: { visual: 'viking-hero-t4', combat: 'varangian' },
+    },
+  } as const
+
+  function heavyConfig(mode: 'formation' | 'scattered' = 'formation'): BattleConfig {
+    const config = makeGroundConfig(0, 0)
+    config.mode = mode
+    config.roman = { ...config.roman, roman_heavy_cavalry: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 } }
+    config.viking = { ...config.viking, viking_heavy_cavalry: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 } }
+    return config
+  }
+
+  it('spawns the exact loadout, mount, look and combat profile for every faction and tier', () => {
+    const config = heavyConfig()
+    expect(validateBattleConfig(config).valid).toBe(true)
+    const plan = BattleSpawner.createSpawnPlan(config)
+    for (const faction of ['roman', 'viking'] as const) {
+      const want = expected[faction]
+      for (const tier of [1, 2, 3, 4, 5] as const) {
+        const specs = plan.npcSpecs.filter(spec => spec.presetId === want.presetId && spec.tier === tier)
+        expect(specs.length).toBe(1)
+        const [spec] = specs
+        const hero = tier === 5 ? want.t5 : tier === 4 ? want.t4 : undefined
+        expect(spec).toMatchObject({ characterFaction: faction, cavalry: true, visualAssetId: hero?.visual, combatProfileId: hero?.combat })
+        expect(spec.loadout).toMatchObject({
+          meleeWeaponId: tier === 5 ? want.t5.weapon : LANCES[tier - 1],
+          shieldId: want.shields[tier - 1], rangedWeaponId: null, mountId: want.mountId,
+        })
+        expect(mountTypeFromId(spec.loadout?.mountId)).toBe(want.mountType)
+      }
+    }
+  })
+
+  it('counts toward squads in both plans and only asks for Byzantine gear when Roman T5 is fielded', () => {
+    expect(BattleSpawner.createSpawnPlan(heavyConfig('scattered')).npcSpecs.filter(spec => spec.presetId?.endsWith('heavy_cavalry')).length).toBe(10)
+    const ids = (army: BattleConfig['roman'], faction: 'roman' | 'viking') => t5EquipmentIdsForArmy(normalizeArmyConfig(army, faction))
+    expect(ids(heavyConfig().roman, 'roman')).toEqual(['byzantine_standard_lance_t5', 'byzantine_eagle_shield_t5'])
+    expect(ids(heavyConfig().viking, 'viking').some(id => id.startsWith('byzantine'))).toBe(false)
+    expect(ids({ ...heavyConfig().roman, roman_heavy_cavalry: { 1: 3, 2: 0, 3: 0, 4: 2, 5: 0 } }, 'roman')).toEqual([])
+    const oldConfig = makeGroundConfig(2, 2)
+    expect(ids(oldConfig.roman, 'roman').some(id => id.startsWith('byzantine'))).toBe(false)
+    expect(validateBattleConfig(oldConfig).valid).toBe(true)
+  })
+
+  it('appears only in the Custom Battle roster, beside the lancers it does not replace', () => {
+    for (const faction of ['roman', 'viking'] as const) {
+      const custom = getCustomBattlePresetsForFaction(faction).map(preset => preset.id)
+      expect(custom).toContain(`${faction}_heavy_cavalry`)
+      expect(custom).toContain(`${faction}_lancer`)
+      expect(getUnitPresetsForFaction(faction).map(preset => preset.id)).not.toContain(`${faction}_heavy_cavalry`)
+    }
   })
 })

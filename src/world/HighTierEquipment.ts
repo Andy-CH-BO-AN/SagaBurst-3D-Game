@@ -2,7 +2,10 @@ import * as THREE from 'three'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
-import { OnDemandAssets, settleWithin } from '../assets/OnDemandAssets'
+import { AssetLoadTimeout, OnDemandAssets, type OnDemandAssetStatus } from '../assets/OnDemandAssets'
+import { ARMORS } from '../rpg/ArmorDatabase'
+import { WEAPONS } from '../rpg/WeaponDatabase'
+import { showEquipmentLoadNotice } from '../ui/EquipmentLoadNotice'
 import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
 
 export const HIGH_TIER_WEAPON_ASSETS = {
@@ -22,26 +25,55 @@ export const BYZANTINE_EQUIPMENT_ASSETS = {
 } as const
 export type ByzantineEquipmentId = keyof typeof BYZANTINE_EQUIPMENT_ASSETS
 export const isByzantineEquipmentId = (id: unknown): id is ByzantineEquipmentId => typeof id === 'string' && id in BYZANTINE_EQUIPMENT_ASSETS
-/** Longest a scene waits for equipment it needs before opening without that model. */
+/** Longest one load may stay pending before it counts as failed and the next attempt starts a new request. */
 export const BYZANTINE_EQUIPMENT_WAIT_MS = 20000
+/** Gap between automatic retries while an actor still has one of these items selected. */
+export const BYZANTINE_EQUIPMENT_RETRY_MS = 15000
 
-const byzantineEquipment = new OnDemandAssets<ByzantineEquipmentId, GLTF>(async id => {
-  const gltf = await new GLTFLoader().loadAsync(publicAssetUrl(BYZANTINE_EQUIPMENT_ASSETS[id]))
+const byzantineEquipment = new OnDemandAssets<ByzantineEquipmentId, GLTF>(async (id, signal) => {
+  // Fetched here, not by GLTFLoader: its FileLoader queues a repeat URL behind a hung request, so a retry would hang too.
+  const url = publicAssetUrl(BYZANTINE_EQUIPMENT_ASSETS[id])
+  const response = await fetch(url, { signal })
+  if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`)
+  const gltf = await new GLTFLoader().parseAsync(await response.arrayBuffer(), THREE.LoaderUtils.extractUrlBase(url))
   gltf.scene.traverse(object => {
     if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true }
   })
   return gltf
+}, {
+  timeoutMs: BYZANTINE_EQUIPMENT_WAIT_MS,
+  retryDelayMs: BYZANTINE_EQUIPMENT_RETRY_MS,
+  onFailure: id => showEquipmentLoadNotice(WEAPONS[id]?.name ?? ARMORS[id]?.name ?? id),
 })
 
 /** Instances own transforms only. Undefined until loaded: callers must not substitute another model. */
 export const createByzantineEquipment = (id: ByzantineEquipmentId): THREE.Group | undefined => byzantineEquipment.get(id)?.scene.clone(true)
 export const requestByzantineEquipment = (id: ByzantineEquipmentId): Promise<THREE.Group> => byzantineEquipment.load(id).then(gltf => gltf.scene.clone(true))
+export const byzantineEquipmentStatus = (id: ByzantineEquipmentId): OnDemandAssetStatus => byzantineEquipment.status(id)
+
+/** An item whose model is not loaded has no combat effect yet; asking keeps a paced load going. */
+export function isEquipmentUsable(id: string): boolean {
+  return !isByzantineEquipmentId(id) || byzantineEquipment.get(id) !== undefined || byzantineEquipment.poll(id) !== undefined
+}
+
+/** What a slot really holds: the selection once usable, otherwise whatever it already held. Never an invented fallback. */
+export function resolveEquipmentSlot<T extends string>(selected: T | null | undefined, held: T | null): T | null {
+  if (!selected) return null
+  return isEquipmentUsable(selected) ? selected : held
+}
+
+/** An explicit re-equip retries at once rather than waiting for the paced retry. */
+export function retryEquipmentNow(id: string): void {
+  if (isByzantineEquipmentId(id)) void byzantineEquipment.load(id).catch(() => {})
+}
 
 /** For a scene that knows it will use these items: waits before actors are built, but always lets the scene open. */
-export async function prepareByzantineEquipment(ids: Iterable<unknown>, timeoutMs = BYZANTINE_EQUIPMENT_WAIT_MS): Promise<'ready' | 'failed' | 'timed-out'> {
+export async function prepareByzantineEquipment(ids: Iterable<unknown>): Promise<'ready' | 'failed' | 'timed-out'> {
   const needed = [...new Set(ids)].filter(isByzantineEquipmentId)
-  if (!needed.length) return 'ready'
-  return settleWithin(Promise.all(needed.map(id => byzantineEquipment.load(id))), timeoutMs)
+  const results = await Promise.allSettled(needed.map(id => byzantineEquipment.load(id)))
+  const failures = results.flatMap(result => result.status === 'rejected' ? [result.reason] : [])
+  if (!failures.length) return 'ready'
+  return failures.some(reason => reason instanceof AssetLoadTimeout) ? 'timed-out' : 'failed'
 }
 
 const templates = new Map<string, GLTF>()

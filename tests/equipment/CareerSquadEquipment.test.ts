@@ -1,6 +1,7 @@
 import { canUseCareerMount, ownedCareerMountIds } from '../../src/career/CareerMountController'
 import { addCareerItem } from '../../src/career/CareerInventory'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { prepareByzantineEquipment } from '../../src/world/HighTierEquipment'
 import { availableCareerItem, careerItemAllocated, careerItemTotal, careerItemTotals, type PersonalEquipmentSlot } from '../../src/career/CareerInventory'
 import { changePersonalEquipment, personalMemberRefund, recruitPersonalSquadMember, sellPersonalSquadMember, sellPersonalSquadMembers, type PersonalSquadAuthority, type PersonalSquadMemberType } from '../../src/career/CareerPersonalSquad'
 import { cloneCareerProfile, createCareerProfile, purchaseCareerContent, type CareerPurchaseRequest, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
@@ -32,8 +33,15 @@ function balanced(profile: CareerProfile) {
     expect(careerItemAllocated(profile, id)).toBeLessThanOrEqual(count)
   }
 }
+vi.mock('three/examples/jsm/loaders/GLTFLoader.js', () => ({
+  GLTFLoader: class { async parseAsync() { return { scene: { traverse() {} } } } },
+}))
+
 describe('Shared Career quantity inventory and personal equipment', () => {
-  it('新兵可依專屬售價買軍旗槍與鷹盾，保存後可裝備並按原政策賣出', () => {
+  it('新兵可依專屬售價買軍旗槍與鷹盾，保存後可裝備並按原政策賣出', async () => {
+    vi.stubGlobal('fetch', async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(0) }))
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    await prepareByzantineEquipment(['byzantine_standard_lance_t5', 'byzantine_eagle_shield_t5'])
     const h = harness('recruit')
     const lance = purchaseTownEquipment(h.read(), 'byzantine_standard_lance_t5')
     expect(lance).toMatchObject({ purchased: true, spentMerit: 3100 })

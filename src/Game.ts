@@ -153,6 +153,8 @@ import { T4_UNIT_PROFILES, HERO_COMBAT_PROFILE_BY_ASSET, getT4HeroCombatModifier
 import { preloadMakiRangerBow } from './world/MakiRangerEquipment'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from './rpg/WeaponDatabase'
 import { normalizeArmyConfig } from './battle/BattleConfig'
+import { getT5ProfileForPreset, t5EquipmentIdsForArmy } from './battle/T5HeroCatalog'
+import type { UnitPresetId } from './battle/UnitPresetCatalog'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
 import { EntityCollisionBroadPhase } from './world/EntityCollisionBroadPhase'
@@ -479,7 +481,7 @@ export class Game {
         game.clock.start(); requestAnimationFrame(game._loop)
         return game
       }
-      await Promise.all([prepareByzantineEquipment([battleConfig?.playerLoadout?.meleeWeaponId, battleConfig?.playerLoadout?.shieldId, personalProfile?.equipment?.melee, personalProfile?.equipment?.shield, ...personalMembers.flatMap(member => { const { loadout } = personalMemberLoadout(member, personalProfile!.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
+      await Promise.all([prepareByzantineEquipment([...(battleConfig && !campaignConfig ? (['viking', 'roman'] as const).flatMap(faction => t5EquipmentIdsForArmy(normalizeArmyConfig(battleConfig[faction], faction))) : []), battleConfig?.playerLoadout?.meleeWeaponId, battleConfig?.playerLoadout?.shieldId, personalProfile?.equipment?.melee, personalProfile?.equipment?.shield, ...personalMembers.flatMap(member => { const { loadout } = personalMemberLoadout(member, personalProfile!.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
       const heroAssets = new Set<HeroAssetId>()
       if (trainingGround) heroAssets.add('maki-archer-t4')
       const validationHero = import.meta.env.DEV && trainingGround ? commanderValidationHero(query) : undefined
@@ -526,7 +528,7 @@ export class Game {
         for (const faction of ['viking', 'roman'] as const) {
           for (const [presetId, counts] of Object.entries(normalizeArmyConfig(config[faction], faction))) {
             if ((counts[4] ?? 0) > 0) heroAssets.add(T4_UNIT_PROFILES[presetId as keyof typeof T4_UNIT_PROFILES].visualAssetId)
-            if ((counts[5] ?? 0) > 0) heroAssets.add(faction === 'roman' ? 'roman-hero-t5' : 'viking-hero-t5')
+            if ((counts[5] ?? 0) > 0) heroAssets.add(getT5ProfileForPreset(presetId as UnitPresetId, faction).visualAssetId)
           }
         }
       }
