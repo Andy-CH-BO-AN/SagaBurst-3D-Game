@@ -136,8 +136,8 @@ import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type Horse
 import { updateEagleWingbeatAudio } from '../audio/EagleWingbeatAudio'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { canAppointCareerRank, type CareerAppointingRole } from '../career/CareerPromotionAuthority'
-import { appointByzantine, canAppointByzantine } from '../career/CareerElitePromotion'
-import { appendCareerPromotionCards, ROMAN_PROMOTION_WARNING } from '../ui/CareerPromotionUI'
+import { applyCareerClass, careerClassOffer, type CareerClassId } from '../career/CareerElitePromotion'
+import { appendCareerPromotionCards, careerClassConfirmation } from '../ui/CareerPromotionUI'
 import { MAX_BULK_PURCHASE_QUANTITY, CAREER_RANKS, CAREER_RANK_THRESHOLDS, careerMissionCompletionsForTier, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile, type CareerMountId } from '../career/CareerProfile'
 import { availableRecruitMissions, availableCareerMissionsForPage, careerMissionTemplatesForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
 import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission, createVeteranRoster, veteranTownCavalryReserveSlots } from '../career/VeteranMission'
@@ -1303,7 +1303,7 @@ export class TownScene {
         panel.querySelector('p')!.textContent = '選擇職業，查看能力與解鎖進度。'
         detail.textContent = '帝國軍階任命 · Career Promotion · 本次入伍累積軍功，不扣除餘額'
         panel.style.width = 'min(94vw, 800px)'
-        this.promotionPreviewCleanup = appendCareerPromotionCards(panel, () => this.profile, elite => this.confirmCareerRoad(elite))
+        this.promotionPreviewCleanup = appendCareerPromotionCards(panel, () => this.profile, target => this.confirmCareerRoad(target))
       }
       if (eligible && !romanRoads) {
         const accept = this.button(panel, next === 'captain' ? '接受隊長任命' : '接受任命', async () => {
@@ -2710,49 +2710,55 @@ export class TownScene {
       || !refitTownCommand && this.townCommand && !this.townCommand.isReserveAvailable(spec.id))
       .map(({ npc }) => npc.combatantId))
   }
-  private confirmCareerRoad(elite: boolean): void {
-    const panel = this.openPanel(elite ? '接受帝國精英任命？' : '確定晉升為羅馬指揮官？', elite
-      ? '角色轉職後套用 T5+ 強化能力。\n保留 Commander 指揮權與任務資格。\n保留已購買裝備與坐騎，不扣除軍功。\n軍旗槍及鷹盾仍需自行購買，並非轉職免費贈送。\n專屬外觀待加入，目前沿用羅馬 T5 外觀。'
-      : ROMAN_PROMOTION_WARNING)
+  private confirmCareerRoad(target: CareerClassId): void {
+    const copy = careerClassConfirmation(target, careerClassOffer(this.profile, target))
+    if (!copy) return
+    const elite = target === 'byzantine-cataphract'
+    const panel = this.openPanel(copy.title, copy.body)
     panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true')
-    this.button(panel, elite ? '取消' : '返回考慮', () => this.talk('commander'))
-    const accept = this.button(panel, elite ? '確認轉職' : '確認晉升羅馬指揮官', async () => {
+    this.button(panel, '取消', () => this.talk('commander'))
+    const accept = this.button(panel, copy.accept, async () => {
       if (this.promotionAttempt) return
       accept.disabled = true
-      const success = await this.acceptCareerPromotion('commander', elite)
+      const success = await this.acceptCareerPromotion('commander', target)
       if (this.disposed || this.panel !== panel) return
       if (success) {
-        const result = this.openPanel(elite ? '🦅 帝國精英任命'  : '羅馬指揮官任命', elite
-          ? 'BYZANTINE CATAPHRACT\n拜占庭鐵甲重騎兵\nT5+ ELITE CLASS\n\n轉職已成功保存，Commander 權限與任務資格保留。\n專屬外觀待加入，目前沿用羅馬 T5 外觀。' : 'Commander 任命已保存。')
+        const result = this.openPanel(elite ? '🦅 拜占庭鐵甲重騎兵' : '羅馬指揮官', elite
+          ? 'BYZANTINE CATAPHRACT\n拜占庭鐵甲重騎兵 · T5+\n\n職業已保存並永久解鎖，可再找 Commander 免費切換。'
+          : 'ROMAN COMMANDER\n羅馬指揮官 · T5\n\n職業已保存；已解鎖的職業可再找 Commander 免費切換。')
         this.button(result, '返回遊戲', () => this.closePanel())
       } else {
-        const error = document.createElement('p'); error.textContent = this.notice || '目前不符合任命條件，或任命準備失敗；原職業已保留。'; panel.append(error)
+        const error = document.createElement('p'); error.textContent = this.notice || '目前不符合條件、餘額不足，或準備失敗；原職業與軍功已保留。'; panel.append(error)
         accept.disabled = false
       }
     })
   }
 
-  private async acceptCareerPromotion(npcRole: CareerAppointingRole, elite = false): Promise<boolean> {
-    const authorized = () => (elite ? canAppointByzantine(this.profile) && npcRole === 'commander' : canAppointCareerRank(this.profile, npcRole))
+  private async acceptCareerPromotion(npcRole: CareerAppointingRole, target?: CareerClassId): Promise<boolean> {
+    // Live authority is re-read each time: after the async model load nothing from the first snapshot is trusted.
+    const authorized = () => (target ? npcRole === 'commander' && applyCareerClass(this.profile, target) !== null : canAppointCareerRank(this.profile, npcRole))
       && this.residents.some(resident => resident.spec.id === npcRole && resident.spec.role === npcRole && !resident.npc.dead)
       && this.serviceAvailable(npcRole)
       && !this.player.dead && !this.player.isFalling && !this.player.currentMount?.isAirborne && !this.event.hostile
+    const stage = () => target ? applyCareerClass(this.profile, target) : promoteCareer(this.profile)
     if (this.promotionAttempt || this.disposed || !authorized()) return false
-    const next = elite ? appointByzantine(this.profile) : promoteCareer(this.profile)
+    const next = stage()
     if (!next) return false
     const attempt = {}; this.promotionAttempt = attempt
     const panel = this.panel, rank = this.profile.rank, faction = this.profile.faction
+    const stamp = () => JSON.stringify([this.profile.availableMerit, this.profile.eliteClass, this.profile.unlockedCareerClasses])
+    const before = stamp()
     const stillCurrent = () => this.promotionAttempt === attempt && !this.disposed && this.panel === panel
-      && this.profile.rank === rank && this.profile.faction === faction && authorized()
+      && this.profile.rank === rank && this.profile.faction === faction && stamp() === before && authorized()
     try {
       const hero = resolveCareerHeroAsset(next)
       if (hero && hero !== this.player.heroAssetId) await HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[hero].descriptor)
       if (!stillCurrent()) return false
       // Re-read live progress after loading rather than overwriting changes with the initial snapshot.
-      const fresh = elite ? appointByzantine(this.profile) : promoteCareer(this.profile)
+      const fresh = stage()
       return fresh ? this.applyCareerPlayerIdentity(fresh) : false
     } catch (error) {
-      if (stillCurrent()) this.notice = `任命尚未完成，原有角色與軍階已保留。請重試。${error instanceof Error ? `（${error.message}）` : ''}`
+      if (stillCurrent()) this.notice = `任命尚未完成，原有角色、軍階與軍功已保留。請重試。${error instanceof Error ? `（${error.message}）` : ''}`
       return false
     } finally {
       if (this.promotionAttempt === attempt) this.promotionAttempt = null
