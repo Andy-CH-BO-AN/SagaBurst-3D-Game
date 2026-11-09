@@ -107,6 +107,7 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
       spec: resident.spec, ...(isMissionReturnResident(resident.spec)
         ? { checkpoint: refitCommandCheckpoint(resident.npc, resident.homeMount) } : {}),
     })))
+    delete next.mountArmor
   } else if (rebuildTown) {
     next = stageMissionReturnRebuild(next, townRoster().map(spec => ({ spec })), outgoingReturn?.personalSquad)
   }

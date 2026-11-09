@@ -7,6 +7,7 @@ import { MountArmor } from '../../src/combat/MountArmor'
 import { Vector3 } from 'three'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { HorseAssetRegistry, type HorseAppearanceVariant } from '../../src/world/HorseAssetRegistry'
+import { sellTownProduct } from '../../src/town/TownRules'
 
 // Exercise the transaction owner without a scene, Player or Mount constructor.
 interface AppearanceEntry { setAppearanceVariant(variant: HorseAppearanceVariant): boolean }
@@ -101,5 +102,24 @@ describe('Career horse appearance transactions', () => {
     expect(preloadSpy).not.toHaveBeenCalled()
     expect(controller.statusText).toContain('重甲戰馬資源載入失敗')
     preloadSpy.mockRestore()
+  })
+
+  it('purges unowned mount armor on resale and syncOwnership so re-purchasing starts with full 50 armor', () => {
+    const current = profile(); addCareerItem(current, 'armored-horse', 1)
+    current.mountArmor = { 'armored-horse': 0 }
+    const sold = sellTownProduct(current, 'armored-horse')
+    expect(sold.sold).toBe(true)
+    expect(sold.profile.mountArmor).toBeUndefined()
+    const controller = Object.create(CareerMountController.prototype) as CareerMountController
+    const armorImpact = new Map([['armored-horse', 0]])
+    Object.assign(controller as unknown as object, {
+      readProfile: () => sold.profile, sceneKey: () => 'town-home', options: {},
+      hp: new Map(), unavailable: new Set(), armorImpact, active: null, cancelPending: vi.fn(),
+    })
+    controller.syncOwnership()
+    expect(armorImpact.has('armored-horse')).toBe(false)
+    const fresh = new MountArmor('ARMORED_HORSE')
+    fresh.restore(armorImpact.get('armored-horse'))
+    expect(fresh.remaining).toBe(50)
   })
 })

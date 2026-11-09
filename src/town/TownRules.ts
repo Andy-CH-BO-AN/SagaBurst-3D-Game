@@ -6,7 +6,7 @@ import { assignTownGarrison, type TownGarrisonStation } from './TownGarrison'
 import { townWatchtowerGuardRoster } from './TownWatchtowerGuardPolicy'
 import { townEagleRoster } from './TownEagleGarrison'
 import { addCareerItem, availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from '../career/CareerInventory'
-import { canonicalCareerMountId, cloneCareerProfile, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile, type CareerRank } from '../career/CareerProfile'
+import { canonicalCareerMountId, cloneCareerProfile, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile, type CareerRank, type CareerMountId } from '../career/CareerProfile'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
@@ -370,10 +370,19 @@ export function sellTownProduct(current: CareerProfile, productId: string, quant
   normalizeCareerInventory(profile)
   addCareerItem(profile, productId, -quantity)
   if (item.category === 'mount' && careerItemTotal(profile, productId) === 0) {
+    const canonical = canonicalCareerMountId(productId as CareerMountId)
+    if (profile.mountArmor?.[canonical] !== undefined) {
+      delete profile.mountArmor[canonical]
+      if (!Object.keys(profile.mountArmor).length) delete profile.mountArmor
+    }
     const state = profile.activeMission?.mountState
     if (state) {
       for (const id of Object.keys(state.hp) as (keyof typeof state.hp)[]) {
         if (canonicalCareerMountId(id) === productId) delete state.hp[id]
+      }
+      if (state.armorImpact?.[canonical] !== undefined) {
+        delete state.armorImpact[canonical]
+        if (!Object.keys(state.armorImpact).length) delete state.armorImpact
       }
       state.unavailable = state.unavailable.filter(id => canonicalCareerMountId(id) !== productId)
     }

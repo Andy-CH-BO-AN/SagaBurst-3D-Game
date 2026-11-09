@@ -1,3 +1,4 @@
+import { MountArmor } from '../../src/combat/MountArmor'
 import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
 import { createDefaultSkillState } from '../../src/rpg/SkillManager'
 import type { TownActorSpec } from '../../src/town/TownRules'
@@ -375,6 +376,7 @@ describe('Town mission settlement transactions', () => {
       actorIds: ['town-eagle-rider:1'], commandedActorIds: ['town-eagle-rider:1'],
       members: { 'town-eagle-rider:1': { status: 'deployed', order: 'charge', position: { x: 500, z: 500, yaw: 1 } } } }
     profile.townEagleGarrisons = { roman: { version: 1, sceneKey: 'town:roman', pairs: [] } }
+    profile.mountArmor = { 'armored-horse': 0, 'snow-leopard': 0 }
     h.town.preservesResident.mockReturnValue(true)
     h.storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
     const beforeReturn = h.storage.getItem(CAREER_STORAGE_KEY)
@@ -382,14 +384,21 @@ describe('Town mission settlement transactions', () => {
     expect(h.settlement.returnToTown('direct').status).toBe('save-failed')
     expect(h.events).toEqual(['save'])
     expect(h.town.restart).not.toHaveBeenCalled()
+    expect(h.town.restPlayer).not.toHaveBeenCalled()
+    expect(h.read().mountArmor).toEqual({ 'armored-horse': 0, 'snow-leopard': 0 })
     expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(beforeReturn)
     h.storage.writable = true; h.events.length = 0
     expect(h.settlement.returnToTown('direct').status).toBe('restarted')
     expect(h.events).toEqual(['save', 'defense-cleanup'])
     expect(h.town.restart).toHaveBeenCalledExactlyOnceWith(h.read())
+    expect(h.town.restPlayer).toHaveBeenCalledOnce()
     h.reload()
     const saved = h.read()
     expect(saved.activeMission).toBeUndefined()
+    expect(saved.mountArmor).toBeUndefined()
+    const warhorse = new MountArmor('ARMORED_HORSE')
+    warhorse.restore(saved.mountArmor?.['armored-horse'])
+    expect(warhorse.remaining).toBe(50)
     expect(saved.racePlayerState).toEqual({ ...previousRace, hp: 851, dead: false }) // 850 commander + 1 earned skill HP
     expect(saved.civilianCommandSquad?.actorIds).toHaveLength(21)
     expect(new Set(Object.values(saved.civilianCommandSquad!.owners))).toEqual(new Set(['daily']))
@@ -540,6 +549,7 @@ describe('Town mission settlement transactions', () => {
 
   it('keeps private wounds and casualties on same-scene arrival without awarding merit again', () => {
     const h = fixture('bandit', true), profile = h.read()
+    profile.mountArmor = { 'armored-horse': 0 }
     profile.personalSquad = { members: [{ id: 'personal:wounded', type: 'soldier' }, { id: 'personal:dead', type: 'soldier' }] }
     profile.activeMission!.personalSquad = snapshotPersonalMission(profile)!
     profile.activeMission!.personalSquad!.state = 'ACTIVE'
@@ -548,6 +558,8 @@ describe('Town mission settlement transactions', () => {
     const merit = profile.totalMerit, position = h.player.group.position.clone()
     expect(h.settlement.returnToTown('arrived')).toEqual({ status: 'returned', kind: 'party' })
     expect(h.read().activeMission).toBeUndefined()
+    expect(h.read().mountArmor).toBeUndefined()
+    expect(h.town.restPlayer).toHaveBeenCalledOnce()
     expect(h.read().personalSquadRuntime?.members['personal:wounded']).toMatchObject({ hp: 9, ammo: 0, shieldImpact: 1 })
     expect(h.read().personalSquadRuntime?.members['personal:dead']).toEqual({ status: 'dead', hp: 0 })
     expect(h.read().personalSquadRuntime?.returnToHR).toBeUndefined()
@@ -583,12 +595,15 @@ describe('Town mission settlement transactions', () => {
 
   it('cannot abandon an unfinished Veteran battle through direct return', () => {
     const h = fixture('veteran-field')
+    h.read().mountArmor = { 'armored-horse': 0 }
     h.player.hp = 37
     expect(h.settlement.returnToTown('direct')).toEqual({ status: 'ignored' })
     expect(h.player.hp).toBe(37)
     expect(h.player.setHp).not.toHaveBeenCalled()
     expect(h.player.resetForScene).not.toHaveBeenCalled()
+    expect(h.town.restPlayer).not.toHaveBeenCalled()
     expect(h.read().activeMission).toBeDefined()
+    expect(h.read().mountArmor).toEqual({ 'armored-horse': 0 })
     expect(h.commit).not.toHaveBeenCalled()
     expect(h.field.cleanupMission).not.toHaveBeenCalled()
   })

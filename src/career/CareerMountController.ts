@@ -246,7 +246,8 @@ export class CareerMountController implements EquipmentMountAdapter {
     this.hp.set(id, mount.currentHp)
     const next = cloneCareerProfile(profile)
     normalizeCareerInventory(next)
-    next.mountArmor = Object.fromEntries(this.armorImpact)
+    if (this.armorImpact.size) next.mountArmor = Object.fromEntries(this.armorImpact)
+    else delete next.mountArmor
     next.selectedMountId = id
     delete next.racePlayerState
     if (next.activeMission) next.activeMission.mountState = this.outingState(id)
@@ -395,6 +396,7 @@ export class CareerMountController implements EquipmentMountAdapter {
       this.statusText = '坐騎已賣出。'
     }
     for (const id of this.hp.keys()) if (!owned.has(id)) this.hp.delete(id)
+    for (const id of this.armorImpact.keys()) if (!owned.has(id)) this.armorImpact.delete(id)
     for (const id of this.unavailable) if (!owned.has(id)) this.unavailable.delete(id)
   }
 
@@ -446,7 +448,8 @@ export class CareerMountController implements EquipmentMountAdapter {
   private persistOutingState(activeMountId: CareerMountId | undefined): boolean {
     const profile = this.readProfile()
     const next = cloneCareerProfile(profile)
-    next.mountArmor = Object.fromEntries(this.armorImpact)
+    if (this.armorImpact.size) next.mountArmor = Object.fromEntries(this.armorImpact)
+    else delete next.mountArmor
     if (next.activeMission) next.activeMission.mountState = this.outingState(activeMountId)
     else if (next.retirementRuntime) next.retirementRuntime.mountState = this.outingState(activeMountId)
     return this.commit(next)

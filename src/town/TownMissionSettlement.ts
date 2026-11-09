@@ -138,6 +138,7 @@ export class TownMissionSettlement {
     const borrowed = (inPlace || enemyTerritoryScout) && !defense ? new Set(active.kind === 'duel' ? this.missions.duel.actors : captainPatrol ? this.missions.patrol?.actors ?? [] : this.missions.field.friendlies) : null
     const completed = Boolean(active.result || profile.claimedBattleIds.includes(active.id))
     let next = clearCareerMission(profile, active.id)
+    if (completed) delete next.mountArmor
     const garrison = next.townEagleGarrisons?.[profile.faction]
     if (inPlace && garrison) for (const pair of garrison.pairs) {
       if (defense || pair.hp <= 0 || pair.mount.hp <= 0) pair.refitAllowed = true
@@ -159,6 +160,7 @@ export class TownMissionSettlement {
         }
       }
       this.town.inventory.sheathAll()
+      if (completed) this.town.restPlayer()
       this.town.restart(this.profiles.read())
       return { status: 'restarted' }
     }
