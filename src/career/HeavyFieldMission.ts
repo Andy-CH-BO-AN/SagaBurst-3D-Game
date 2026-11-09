@@ -180,12 +180,12 @@ export function createHeavyFieldDeployment(profile: CareerProfile): HeavyFieldDe
   const friendlyCount = mission.friendlyActorIds.length
 
   if (templateId === SOLDIER_IRON_ENCOUNTER_ID) {
-    const column = heavyBlockPositions(friendlyCount + 1, { columns: 6, gapX: 2.4, gapZ: 2.6, frontAbsZ: SOLDIER_COLUMN_FRONT_ABS_Z, zSign: friendlySign })
+    const column = heavyBlockPositions(friendlyCount + 1, { columns: 10, gapX: 2.4, gapZ: 2.6, frontAbsZ: SOLDIER_COLUMN_FRONT_ABS_Z, zSign: friendlySign })
     const playerIndex = 15
     playerSpawn = column[playerIndex]
     friendlyPositions = column.filter((_, index) => index !== playerIndex)
     // Captain (the only T4) leads from the front: he is placed first in the queue below.
-    const line = heavyBlockPositions(friendlyCount + 1, { columns: 25, gapX: 2.2, gapZ: 2.4, frontAbsZ: SOLDIER_AMBUSH_ABS_Z, zSign: friendlySign })
+    const line = heavyBlockPositions(friendlyCount + 1, { columns: 19, gapX: 2.2, gapZ: 2.4, frontAbsZ: SOLDIER_AMBUSH_ABS_Z, zSign: friendlySign })
     formationSlots = line.filter((_, index) => index !== playerIndex)
     enemyPositions = heavyBlockPositions(60, { columns: 10, gapX: 3.6, gapZ: 3.8, frontAbsZ: HEAVY_ENEMY_FRONT_ABS_Z, zSign: enemySign })
   } else if (templateId === VETERAN_IRON_TIDE_ID) {

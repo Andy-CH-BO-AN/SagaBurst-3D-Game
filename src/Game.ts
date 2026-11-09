@@ -3199,7 +3199,8 @@ export class Game {
       if (result) this._showCaptainEagleResult(result)
       return
     }
-    const officialIds = new Set(mission.officialSquad?.actorIds)
+    // Heavy-cavalry battles are decided by the whole friendly force, never by the player alone.
+    const officialIds = new Set(isCareerHeavyFieldBattle(mission) ? mission.friendlyActorIds : mission.officialSquad?.actorIds)
     const enemyIds = new Set(mission.targetActorIds)
     const officialAlive = this.npcs.filter(npc => !npc.dead && officialIds.has(npc.combatantId)).length
     const enemyAlive = this.npcs.filter(npc => !npc.dead && enemyIds.has(npc.combatantId)).length

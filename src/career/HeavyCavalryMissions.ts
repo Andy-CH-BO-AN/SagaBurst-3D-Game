@@ -189,7 +189,7 @@ export function shouldTriggerHeavyCounterCharge(state: HeavyFieldState, frontlin
 }
 
 /** Soldier: the captain halts and forms up once the column reaches the ambush point. */
-export const HEAVY_FORMATION_TRIGGER_METERS = 6
+export const HEAVY_FORMATION_TRIGGER_METERS = 12
 export function shouldIssueHeavyFormation(state: HeavyFieldState, captain: HeavyPoint, ambush: HeavyPoint): boolean {
   return !state.formationIssued && Math.hypot(captain.x - ambush.x, captain.z - ambush.z) <= HEAVY_FORMATION_TRIGGER_METERS
 }
@@ -372,8 +372,8 @@ export function heavyBlockPositions(count: number, options: { columns: number; g
 }
 
 /** Soldier: the column starts here, marches to the ambush point, then forms a line at AMBUSH_ABS_Z. */
-export const SOLDIER_COLUMN_FRONT_ABS_Z = 155
-export const SOLDIER_AMBUSH_ABS_Z = 120
+export const SOLDIER_COLUMN_FRONT_ABS_Z = 150
+export const SOLDIER_AMBUSH_ABS_Z = 135
 export const HEAVY_ENEMY_FRONT_ABS_Z = 125
 
 /**
