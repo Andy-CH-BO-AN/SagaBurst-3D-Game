@@ -118,9 +118,9 @@ export const COMMANDER_MISSION_CATALOG: readonly CommanderMissionDefinition[] = 
     '防守所屬城鎮；守方部署完成後有180秒準備，之後敵軍才抵達。指揮原生八隊守軍與HR私兵，迎擊從四門同時攻城的280名敵軍：每門兩台攻城車，每車10名原有Crew與額外10名T3近戰步兵（羅馬攻方為刀盾步兵，維京攻方為斧盾步兵）跟隨，另有60名長槍騎兵與60名弓兵。正式攻擊後守住15分鐘且守方仍有人存活即可獲勝，也可提前殲滅全部280名敵軍。',
     commanderGateDefenseSlots().flatMap(squad => squad.actorIds).length + TOWN_AUTONOMOUS_GUARD_IDS.length + 1, COMMANDER_FOUR_GATE_DEFENSE_ENEMIES),
   entry(COMMANDER_FELINE_CAVALRY_ID, 'commander-six-feline-cavalry', 'Commander VI · Six Feline Cavalry · 六貓騎兵團',
-    `率領${FELINE_FRIENDLY_TOTAL}名六貓騎兵迎戰${FELINE_ENEMY_TOTAL}名傳統戰馬騎兵。敵方T5長槍先鋒一旦受到有效傷害，全軍將立刻發起衝鋒。`, FELINE_FRIENDLY_TOTAL, FELINE_ENEMY_TOTAL),
+    `率領${FELINE_FRIENDLY_TOTAL}名騎乘六種貓的T4遊俠（全員配備T5弓），迎戰${FELINE_ENEMY_TOTAL}名傳統戰馬騎兵。敵方T5長槍先鋒一旦受到有效傷害，全軍將立刻發起衝鋒。`, FELINE_FRIENDLY_TOTAL, FELINE_ENEMY_TOTAL),
   entry(COMMANDER_IRON_LEGION_ID, COMMANDER_IRON_LEGION_KIND, 'Commander VII · Iron Legion · 鐵甲軍團決戰',
-    `率領完整六貓軍團（${FELINE_FRIENDLY_TOTAL}名，全員配備弓箭）迎戰${IRON_LEGION_ENEMY_TOTAL}名重騎兵（T4 210 + T5 90）。敵方T5先鋒一旦受到有效傷害，全軍將立刻發起衝鋒。`, FELINE_FRIENDLY_TOTAL, IRON_LEGION_ENEMY_TOTAL),
+    `率領完整六貓軍團（${FELINE_FRIENDLY_TOTAL}名，全員為T4遊俠並配備T5弓）迎戰${IRON_LEGION_ENEMY_TOTAL}名重騎兵（T4 210 + T5 90）。敵方T5先鋒一旦受到有效傷害，全軍將立刻發起衝鋒。`, FELINE_FRIENDLY_TOTAL, IRON_LEGION_ENEMY_TOTAL),
 ]
 
 export function getCommanderMissionDefinition(id: string): CommanderMissionDefinition | null {
