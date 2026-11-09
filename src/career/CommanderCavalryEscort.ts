@@ -5,7 +5,10 @@ import { commanderFourGateDefenseSlots } from './CommanderFourGateDefenseRoster'
 
 /** Mission-only ground escort geometry; mounted movement/collision remains with the actor. */
 export const COMMANDER_CAVALRY_ESCORT = {
-  releaseDistance: 50,
+  /** Distance to the owning gate at which the lancers leave the vehicle and charge. */
+  releaseDistance: 100,
+  /** Missions accepted with the 230-man army keep their original release radius and geometry. */
+  legacyReleaseDistance: 50,
   stallSeconds: 20,
   progressDistance: .5,
   columnSpacing: 4,
@@ -57,6 +60,9 @@ export interface CommanderCavalryEscortRampFrame {
   alivePushers: number
 }
 
+export const commanderCavalryReleaseDistance = (enemyVersion: 1 | 2): number =>
+  enemyVersion === 1 ? COMMANDER_CAVALRY_ESCORT.legacyReleaseDistance : COMMANDER_CAVALRY_ESCORT.releaseDistance
+
 const rampId = (gateId: TownGateId, side: -1 | 1): TownSiegeRampId => `town-siege-ramp:${gateId}:${side < 0 ? 'left' : 'right'}`
 
 /** Authored lancer identities are independent of NPC array order and restored casualties. */
@@ -93,7 +99,8 @@ export function commanderCavalryEscortTarget(slot: number, rear: { x: number; z:
  * All fallback clocks consume active-play dt and survive reload. Forward progress of
  * at least 0.5m resets the 20s clock; reversing or jitter cannot keep an escort stuck. */
 export function advanceCommanderCavalryEscort(checkpoint: CommanderCavalryEscortCheckpoint, dt: number,
-  actors: ReadonlyMap<string, CommanderCavalryEscortActorFrame>, ramps: ReadonlyMap<TownSiegeRampId, CommanderCavalryEscortRampFrame>): {
+  actors: ReadonlyMap<string, CommanderCavalryEscortActorFrame>, ramps: ReadonlyMap<TownSiegeRampId, CommanderCavalryEscortRampFrame>,
+  releaseDistance: number = COMMANDER_CAVALRY_ESCORT.releaseDistance): {
     checkpoint: CommanderCavalryEscortCheckpoint; releasedActorIds: string[]
   } {
   if (!Number.isFinite(dt) || dt < 0) return { checkpoint, releasedActorIds: [] }
@@ -107,9 +114,9 @@ export function advanceCommanderCavalryEscort(checkpoint: CommanderCavalryEscort
     const gatePoint = townGatePoint(gate, 0, 0), ramp = ramps.get(id)
     let reason: CommanderCavalryEscortReleaseReason | undefined
     if (living.length > 0 && (ramp && Math.hypot(ramp.position.x - gatePoint.x, ramp.position.z - gatePoint.z)
-      <= COMMANDER_CAVALRY_ESCORT.releaseDistance || living.some(([actorId]) => {
+      <= releaseDistance || living.some(([actorId]) => {
       const position = actors.get(actorId)!.position
-      return Math.hypot(position.x - gatePoint.x, position.z - gatePoint.z) <= COMMANDER_CAVALRY_ESCORT.releaseDistance
+      return Math.hypot(position.x - gatePoint.x, position.z - gatePoint.z) <= releaseDistance
     }))) reason = 'gate-range'
     else if (members.every(([actorId]) => actors.get(actorId)?.dead === true)) reason = 'group-dead'
     else if (ramp?.state === 'DESTROYED') reason = 'ramp-destroyed'

@@ -68,7 +68,7 @@ describe('Town defense target accounting', () => {
 
   it('waits for the last registered rider, including after its mount dies, before awarding victory', () => {
     const profile = createFourGateDefenseProfile('ATTACKING'), mission = profile.activeMission!, state = mission.fourGateDefense!
-    const lastId = mission.targetActorIds.find(id => id.endsWith(':air:ranger:30'))!
+    const lastId = mission.targetActorIds.find(id => id.endsWith(':lancer:t4:leader'))!
     expect(lastId).toBeDefined()
     mission.deadTargetActorIds = mission.targetActorIds.filter(id => id !== lastId)
     state.registeredTargetActorIds = [...mission.deadTargetActorIds]

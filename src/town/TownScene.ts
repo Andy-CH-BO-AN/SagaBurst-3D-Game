@@ -3878,7 +3878,7 @@ export class TownScene {
       }
       return `${gateNames[id]}門 ${gate ? gateStatus[gate.state] : '部署'} · 車 ${state('left')}/${state('right')}`
     })
-    return `\nCOMMANDER V · FOUR-GATE DEFENSE\n${phase} · 敵軍 ${defense.remainingEnemies}/230\n${sectors.slice(0, 2).join('　')}\n${sectors.slice(2).join('　')}\n巨鷹騎手 ${defense.remainingAirborneEnemies}/30 · 平民死亡 ${defense.civilianDeaths}`
+    return `\nCOMMANDER V · FOUR-GATE DEFENSE\n${phase} · 敵軍 ${defense.remainingEnemies}/${defense.enemyTotal}\n${sectors.slice(0, 2).join('　')}\n${sectors.slice(2).join('　')}\n${defense.enemyRosterVersion === 1 ? `巨鷹騎手 ${defense.remainingAirborneEnemies}/30 · ` : ''}平民死亡 ${defense.civilianDeaths}`
   }
 
   private veteranMissionHud(): string {

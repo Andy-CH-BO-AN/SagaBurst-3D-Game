@@ -7,8 +7,9 @@ import { parseCommandActorCheckpoint } from './CareerCommandAuthority'
 import type { PersonalActorCheckpoint, PersonalActorPosition } from './CareerPersonalSquadMission'
 import type { CareerMissionOutcome, CareerMissionPhase } from './CareerMissionState'
 import { parseTownFourGateSiegeCheckpoint, type TownFourGateSiegeCheckpoint } from './TownFourGateSiegeCheckpoint'
-import { COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS, commanderFourGateDefenseSlots } from './CommanderFourGateDefenseRoster'
+import { COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS, commanderFourGateDefenseSlots, type CommanderEnemyRosterVersion } from './CommanderFourGateDefenseRoster'
 import { parseCommanderCavalryEscort, type CommanderCavalryEscortCheckpoint } from './CommanderCavalryEscort'
+import { parseCommanderInfantryEscort, type CommanderInfantryEscortCheckpoint } from './CommanderInfantryEscort'
 import { townRoster } from '../town/TownRules'
 import { TOWN_HR_OFFICER_ID } from '../town/TownHRLayout'
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
@@ -22,6 +23,8 @@ export interface CommanderFourGateDefenseState {
   version: 1
   /** Absent means the accepted 210-person army; never infer from current rank/count. */
   rosterVersion?: CommanderTownRosterVersion
+  /** Enemy army, independent of the defender roster. Absent means the legacy 230 (eagle rangers, no infantry escort). */
+  enemyRosterVersion?: 2
   /** Accepted native defenders outside official command; casualties live in actors. */
   autonomousActorIds?: string[]
   nativeCombatStats?: NativeTownGuardCombatStats
@@ -38,6 +41,8 @@ export interface CommanderFourGateDefenseState {
   siege?: TownFourGateSiegeCheckpoint
   /** Absent legacy ATTACKING saves retain their already released attack orders. */
   cavalryEscort?: CommanderCavalryEscortCheckpoint
+  /** Only enemyRosterVersion 2. Absent after an attack began means every escort was already released. */
+  infantryEscort?: CommanderInfantryEscortCheckpoint
   /** Independent actor and mount HP/flight state; a dead mount does not kill its rider. */
   actors: Record<string, PersonalActorCheckpoint>
   player?: CaptainEagleCheckpoint['player']
@@ -58,7 +63,7 @@ export function recordNativeTownGuardCombat(stats: NativeTownGuardCombatStats, e
 }
 
 export function createCommanderFourGateDefenseState(): CommanderFourGateDefenseState {
-  return { version: 1, rosterVersion: COMMANDER_TOWN_ROSTER_VERSION, autonomousActorIds: [...TOWN_AUTONOMOUS_GUARD_IDS], phase: 'DEPLOYING', combatElapsedSeconds: 0, preparationRemainingSeconds: COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS,
+  return { version: 1, rosterVersion: COMMANDER_TOWN_ROSTER_VERSION, enemyRosterVersion: 2, autonomousActorIds: [...TOWN_AUTONOMOUS_GUARD_IDS], phase: 'DEPLOYING', combatElapsedSeconds: 0, preparationRemainingSeconds: COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS,
     deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [], actors: {} }
 }
 
@@ -159,7 +164,9 @@ export function parseCommanderFourGateDefenseState(value: unknown,
     || !Number.isSafeInteger(nativeCombatStats.kills) || nativeCombatStats.kills < 0
     || nativeCombatStats.kills > context.targetActorIds.length)) return undefined
   const combatElapsedSeconds = raw.combatElapsedSeconds === undefined ? 0 : raw.combatElapsedSeconds
-  const slots = commanderFourGateDefenseSlots(context.missionId), targets = new Set(slots.map(slot => slot.actorId))
+  const enemyVersion: CommanderEnemyRosterVersion = raw.enemyRosterVersion === undefined ? 1 : raw.enemyRosterVersion
+  if (enemyVersion !== 1 && enemyVersion !== 2) return undefined
+  const slots = commanderFourGateDefenseSlots(context.missionId, enemyVersion), targets = new Set(slots.map(slot => slot.actorId))
   if (context.targetActorIds.length !== targets.size || new Set(context.targetActorIds).size !== targets.size
     || context.targetActorIds.some(id => !targets.has(id))
     || raw.version !== 1 || !['DEPLOYING', 'PREPARING', 'SPAWNING', 'ATTACKING', 'RESULT'].includes(raw.phase)
@@ -202,7 +209,8 @@ export function parseCommanderFourGateDefenseState(value: unknown,
     if (registered && !actor || actor && !registered || dead.has(target.actorId) && !actor
       || actor && !['deployed', 'dead'].includes(actor.status) || actor && (actor.status === 'dead') !== dead.has(target.actorId)
       || actor && target.role === 'ranger' && !actor.mount
-      || actor && target.role === 'lancer' && !actor.mount) return undefined
+      || actor && target.role === 'lancer' && !actor.mount
+      || actor && target.role === 'infantry' && actor.mount) return undefined
   }
   const nativeReady = raw.phase !== 'DEPLOYING'
   if (nativeReady && [...context.friendlyActorIds, ...autonomousActorIds, ...context.civilianActorIds].some(id => !actors[id])) return undefined
@@ -216,6 +224,17 @@ export function parseCommanderFourGateDefenseState(value: unknown,
     if (siege && siege.ramps.some(ramp => cavalryEscort.groups[ramp.assignment.id].lastProgressDistance > ramp.distance)) return undefined
     for (const [id, group] of Object.entries(cavalryEscort.groups)) {
       if (group.releaseReason === 'group-dead' && Object.entries(cavalryEscort.actors).some(([actorId, actor]) =>
+        `town-siege-ramp:${actor.gateId}:${actor.side < 0 ? 'left' : 'right'}` === id && actors[actorId]?.status !== 'dead')) return undefined
+    }
+  }
+  const infantryEscort = raw.infantryEscort === undefined ? undefined : parseCommanderInfantryEscort(raw.infantryEscort, context.missionId)
+  if (raw.infantryEscort !== undefined && (!infantryEscort || enemyVersion !== 2)) return undefined
+  if (infantryEscort) {
+    if (!raw.attackStarted && (Object.values(infantryEscort.actors).some(actor => actor.mode !== 'escort')
+      || Object.values(infantryEscort.groups).some(group => group.lastProgressDistance !== 0 || group.stallSeconds !== 0))) return undefined
+    if (siege && siege.ramps.some(ramp => infantryEscort.groups[ramp.assignment.id].lastProgressDistance > ramp.distance)) return undefined
+    for (const [id, group] of Object.entries(infantryEscort.groups)) {
+      if (group.releaseReason === 'group-dead' && Object.entries(infantryEscort.actors).some(([actorId, actor]) =>
         `town-siege-ramp:${actor.gateId}:${actor.side < 0 ? 'left' : 'right'}` === id && actors[actorId]?.status !== 'dead')) return undefined
     }
   }
@@ -253,10 +272,10 @@ export function parseCommanderFourGateDefenseState(value: unknown,
     if (raw.victoryReason === 'elimination' ? enemiesRemaining !== 0
       : enemiesRemaining === 0 || !legacySurvivalResult && combatElapsedSeconds < COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS || !allySurvives) return undefined
   }
-  return { version: 1, rosterVersion, ...(rosterVersion === 2 ? { autonomousActorIds: [...autonomousActorIds] } : {}), phase: raw.phase, preparationRemainingSeconds: raw.preparationRemainingSeconds,
+  return { version: 1, rosterVersion, ...(enemyVersion === 2 ? { enemyRosterVersion: 2 as const } : {}), ...(rosterVersion === 2 ? { autonomousActorIds: [...autonomousActorIds] } : {}), phase: raw.phase, preparationRemainingSeconds: raw.preparationRemainingSeconds,
     ...(nativeCombatStats ? { nativeCombatStats: { ...nativeCombatStats } } : {}),
     combatElapsedSeconds, ...(raw.victoryReason ? { victoryReason: raw.victoryReason } : {}),
     deploymentComplete: raw.deploymentComplete, attackStarted: raw.attackStarted,
     registeredTargetActorIds: [...raw.registeredTargetActorIds], actors, ...(siege ? { siege } : {}),
-    ...(cavalryEscort ? { cavalryEscort } : {}), ...(player ? { player } : {}) }
+    ...(cavalryEscort ? { cavalryEscort } : {}), ...(infantryEscort ? { infantryEscort } : {}), ...(player ? { player } : {}) }
 }

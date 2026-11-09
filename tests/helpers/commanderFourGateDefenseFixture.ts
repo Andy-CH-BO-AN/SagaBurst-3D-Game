@@ -1,6 +1,6 @@
 import { commanderGateDefenseSlots } from '../../src/career/CommanderTownRoster'
 import { acceptCommanderMission } from '../../src/career/CommanderMissionCatalog'
-import { COMMANDER_FOUR_GATE_DEFENSE_ID, createCommanderFourGateDefenseRoster } from '../../src/career/CommanderFourGateDefenseRoster'
+import { COMMANDER_FOUR_GATE_DEFENSE_ID, commanderFourGateDefenseActorIds, createCommanderFourGateDefenseRoster } from '../../src/career/CommanderFourGateDefenseRoster'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
 import type { TownFourGateSiegeCheckpoint } from '../../src/career/TownFourGateSiegeCheckpoint'
@@ -9,7 +9,7 @@ import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
 
 /** Saved data at a stated boundary, never a simulated deployment or a scene/actor constructor. */
 export function createFourGateDefenseProfile(phase: 'PREPARING' | 'SPAWNING' | 'ATTACKING' = 'PREPARING',
-  options: { legacyPrepared?: boolean; rosterVersion?: 1 | 2 } = {}): CareerProfile {
+  options: { legacyPrepared?: boolean; rosterVersion?: 1 | 2; enemyRosterVersion?: 1 | 2 } = {}): CareerProfile {
   const base = createCareerProfile('roman')
   base.rank = 'commander'; base.totalMerit = 20_000; base.availableMerit = 20_000
   const profile = acceptCommanderMission(base, COMMANDER_FOUR_GATE_DEFENSE_ID, 'four-gate-save')!
@@ -19,6 +19,11 @@ export function createFourGateDefenseProfile(phase: 'PREPARING' | 'SPAWNING' | '
     mission.officialSquad!.squads = commanderGateDefenseSlots(undefined, 1)
     mission.friendlyActorIds = mission.officialSquad!.squads.flatMap(squad => squad.actorIds)
     mission.officialSquad!.actorIds = [...mission.friendlyActorIds]
+  }
+  // Accepted before the infantry escort: 230 enemies incl. 30 eagle rangers, no enemyRosterVersion field.
+  if (options.enemyRosterVersion === 1) {
+    delete state.enemyRosterVersion
+    mission.targetActorIds = commanderFourGateDefenseActorIds(mission.id, 1)
   }
   const actor = (mounted: boolean): PersonalActorCheckpoint => ({
     status: 'deployed', hp: 100, position: { x: 20, y: 10, z: 30, yaw: .3 },
@@ -31,7 +36,7 @@ export function createFourGateDefenseProfile(phase: 'PREPARING' | 'SPAWNING' | '
   Object.assign(state, { phase, preparationRemainingSeconds: phase === 'PREPARING' ? 180 : 0,
     player: { hp: 85, stamina: 70, dead: false, position: { x: 12, y: 10, z: 18, yaw: .5 }, ammo: 7, shieldImpact: 2 } })
   if (phase !== 'ATTACKING' && !options.legacyPrepared) return profile
-  const roster = createCommanderFourGateDefenseRoster(mission.id, 'viking')
+  const roster = createCommanderFourGateDefenseRoster(mission.id, 'viking', options.enemyRosterVersion === 1 ? 1 : 2)
   for (const spec of roster.all) state.actors[spec.actorId!] = actor(Boolean(spec.loadout?.mountId))
   // The bounded parser requires all crew; other ground records are present only when
   // a case exercises their route/command mirror. Full actor identity capacity stays real.
