@@ -575,7 +575,7 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(friendly).toHaveLength(FELINE_FRIENDLY_TOTAL)
     expect(enemy).toHaveLength(FELINE_ENEMY_TOTAL)
     expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':melee:'))).toHaveLength(60)
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':lancer:'))).toHaveLength(60)
+    expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':t4:lancer:'))).toHaveLength(60)
     expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':horse_archer:'))).toHaveLength(60)
     expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':t5:lancer:'))).toHaveLength(20)
     expect(enemy.filter(spec => spec.characterTier === 4)).toHaveLength(210)
