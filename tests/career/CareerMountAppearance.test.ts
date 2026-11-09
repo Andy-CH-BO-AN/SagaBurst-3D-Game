@@ -122,4 +122,84 @@ describe('Career horse appearance transactions', () => {
     fresh.restore(armorImpact.get('armored-horse'))
     expect(fresh.remaining).toBe(50)
   })
+
+  it('persists mount armor during town hostile combat without activeMission and retains 10/50 across reload', () => {
+    const memory = new MemoryStorage()
+    const store = new CareerProfileStore(memory)
+    let current = profile()
+    addCareerItem(current, 'armored-horse', 1)
+    current.selectedMountId = 'armored-horse'
+    current.activeMission = undefined
+    current.townEvent = { id: 'town-hostile-1', state: 'hostile' }
+    current.mountArmor = { 'armored-horse': 50 }
+    expect(store.save(cloneCareerProfile(current))).toBe(true)
+
+    const mountMock = {
+      currentHp: 600,
+      maxHp: 600,
+      armorImpactMax: 50,
+      armorImpactRemaining: 10,
+      dead: false,
+      isFlyingMount: false,
+      group: { position: new Vector3() },
+      setCameraDistance: vi.fn(),
+      update: vi.fn(),
+      dispose: vi.fn(),
+    }
+
+    const controller = Object.create(CareerMountController.prototype) as CareerMountController
+    Object.assign(controller as unknown as object, {
+      player: () => ({ position: new Vector3() }),
+      readProfile: () => current,
+      commit: vi.fn((next: CareerProfile) => {
+        if (!store.save(next)) return false
+        current = cloneCareerProfile(next)
+        return true
+      }),
+      obstacles: () => [],
+      hp: new Map([['armored-horse', 600]]),
+      armorImpact: new Map([['armored-horse', 50]]),
+      unavailable: new Set(),
+      active: { id: 'armored-horse', mount: mountMock },
+      resourcesDirty: false,
+      statusText: '',
+    })
+
+    controller.update(0.016)
+
+    expect(current.mountArmor).toEqual({ 'armored-horse': 10 })
+    const saved = store.load()!
+    expect(saved.mountArmor).toEqual({ 'armored-horse': 10 })
+
+    // Reload with saved profile: retains 10/50
+    const reloadedArmorMap = new Map<string, number>()
+    if (saved.mountArmor) {
+      for (const [id, value] of Object.entries(saved.mountArmor)) {
+        if (typeof value === 'number') reloadedArmorMap.set(id, value)
+      }
+    }
+    expect(reloadedArmorMap.get('armored-horse')).toBe(10)
+    const reloadedArmor = new MountArmor('ARMORED_HORSE')
+    reloadedArmor.restore(reloadedArmorMap.get('armored-horse'))
+    expect(reloadedArmor.remaining).toBe(10)
+
+    // Save failure must return false and mark resourcesDirty, not pretend persistence succeeded
+    memory.writable = false
+    const failingMountMock = { ...mountMock, armorImpactRemaining: 5 }
+    const failingController = Object.create(CareerMountController.prototype) as CareerMountController
+    Object.assign(failingController as unknown as object, {
+      player: () => ({ position: new Vector3() }),
+      readProfile: () => current,
+      commit: vi.fn((next: CareerProfile) => store.save(next)),
+      obstacles: () => [],
+      hp: new Map([['armored-horse', 600]]),
+      armorImpact: new Map([['armored-horse', 10]]),
+      unavailable: new Set(),
+      active: { id: 'armored-horse', mount: failingMountMock },
+      resourcesDirty: false,
+      statusText: '',
+    })
+    failingController.update(0.016)
+    expect((failingController as any).resourcesDirty).toBe(true)
+  })
 })

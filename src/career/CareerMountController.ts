@@ -370,16 +370,21 @@ export class CareerMountController implements EquipmentMountAdapter {
     }
   }
 
-  restInTown(): void {
+  restInTown(options?: { persist?: boolean }): boolean {
     this.cancelPending()
-    if (['final-stand', 'completed'].includes(this.readProfile().careerRetirement?.phase ?? '')) return
+    if (['final-stand', 'completed'].includes(this.readProfile().careerRetirement?.phase ?? '')) return true
     if (this.active) this.removeMountVisual(this.active)
     this.active = null
     this.unavailable.clear()
     this.hp.clear()
     this.armorImpact.clear()
-    this.persistOutingState(undefined)
-    this.statusText = '坐騎已在馬廄完成休整。'
+    if (options?.persist === false) {
+      this.statusText = '坐騎已在馬廄完成休整。'
+      return true
+    }
+    const saved = this.persistOutingState(undefined)
+    if (saved) this.statusText = '坐騎已在馬廄完成休整。'
+    return saved
   }
 
   get activeMount(): Mount | null { return this.active?.mount ?? null }
@@ -447,7 +452,6 @@ export class CareerMountController implements EquipmentMountAdapter {
 
   private persistOutingState(activeMountId: CareerMountId | undefined): boolean {
     const profile = this.readProfile()
-    if (!profile.activeMission && profile.careerRetirement?.phase !== 'final-stand') return true
     const next = cloneCareerProfile(profile)
     if (this.armorImpact.size) next.mountArmor = Object.fromEntries(this.armorImpact)
     else delete next.mountArmor

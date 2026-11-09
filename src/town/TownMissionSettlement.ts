@@ -56,7 +56,7 @@ interface TownReturnScene {
   inventory: Pick<TownEquipment, 'sheathAll'>
   readonly player: Pick<Player, 'group'>
   clearCombatShots(): void
-  restPlayer(): void
+  restPlayer(options?: { persistMount?: boolean }): void
   returnPersonalSquad?(direct: boolean): void
   preservesResident?(npc: NPC): boolean
   applyResidentReturn?(): void
@@ -160,7 +160,7 @@ export class TownMissionSettlement {
         }
       }
       this.town.inventory.sheathAll()
-      if (completed) this.town.restPlayer()
+      if (completed) this.town.restPlayer({ persistMount: false })
       this.town.restart(this.profiles.read())
       return { status: 'restarted' }
     }
@@ -200,7 +200,7 @@ export class TownMissionSettlement {
     }
     if (completed) this.town.applyResidentReturn?.()
     const entry = townPlayerEntryPoint(), entryY = getTerrainHeight(entry.x, entry.z) + .9
-    this.town.restPlayer()
+    this.town.restPlayer({ persistMount: false })
     if ((active.kind === 'cavalry-sweep' || veteranField) && (intent === 'direct' || active.phase !== 'RETURNING')) {
       this.town.player.group.position.set(entry.x, entryY, entry.z)
       this.town.player.group.rotation.y = entry.yaw

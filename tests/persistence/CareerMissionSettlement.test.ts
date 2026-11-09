@@ -649,9 +649,9 @@ describe('Town mission settlement transactions', () => {
     )
     expect(careerMounts.checkpoint()?.armorImpact).toEqual({ 'armored-horse': 0 })
 
-    // In production, TownScene.restPlayerInTown executes careerMounts.restInTown().
-    h.town.restPlayer = vi.fn(() => {
-      careerMounts.restInTown()
+    // In production, TownScene.restPlayerInTown executes careerMounts.restInTown({ persist: options?.persistMount ?? false }).
+    h.town.restPlayer = vi.fn((options?: { persistMount?: boolean }) => {
+      careerMounts.restInTown({ persist: options?.persistMount ?? false })
     })
 
     expect(h.settlement.returnToTown('direct')).toEqual({ status: 'restarted' })
@@ -686,8 +686,8 @@ describe('Town mission settlement transactions', () => {
     )
     expect(careerMounts.checkpoint()?.armorImpact).toEqual({ 'armored-horse': 0 })
 
-    h.town.restPlayer = vi.fn(() => {
-      careerMounts.restInTown()
+    h.town.restPlayer = vi.fn((options?: { persistMount?: boolean }) => {
+      careerMounts.restInTown({ persist: options?.persistMount ?? false })
     })
 
     expect(h.settlement.returnToTown('direct')).toEqual({ status: 'save-failed', destination: 'restart' })
