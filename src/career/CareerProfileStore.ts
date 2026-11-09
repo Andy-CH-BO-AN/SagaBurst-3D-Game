@@ -1,3 +1,4 @@
+import { unlockedCareerClasses } from './CareerElitePromotion'
 import { createCareerTutorialState, parseCareerTutorialState } from './CareerTutorialState'
 import { migrateCareerHealth } from './CareerHealthMigration'
 import { legacySiegeCharacterTier, parseBorrowedCharacterIdentities } from './CareerBorrowedIdentity'
@@ -729,7 +730,20 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const requested = CAREER_RANKS.indexOf(raw.rank as CareerProfile['rank'])
   const rank = CAREER_RANKS[Math.max(0, Math.min(requested, CAREER_RANKS.indexOf(eligible)))]
   if (raw.eliteClass !== undefined && raw.eliteClass !== null && (raw.eliteClass !== 'byzantine-cataphract'
-    || raw.faction !== 'roman' || rank !== 'commander' || totalMerit - enlistmentMeritBase < 30000)) return null
+    || raw.faction !== 'roman' || rank !== 'commander')) return null
+  // Unlocked classes are explicit saved state. Legacy saves had none: derive only the class in use, never a guessed second one.
+  const romanCommander = raw.faction === 'roman' && rank === 'commander'
+  const rawUnlocked = raw.unlockedCareerClasses as unknown
+  if (rawUnlocked !== undefined && !(romanCommander && Array.isArray(rawUnlocked) && rawUnlocked.length >= 1 && new Set(rawUnlocked).size === rawUnlocked.length
+    && rawUnlocked.every(id => id === 'roman-commander' || id === 'byzantine-cataphract'))) return null
+  const usedClass = raw.eliteClass === 'byzantine-cataphract' ? 'byzantine-cataphract' as const : 'roman-commander' as const
+  // A Byzantine-only record is a first appointment (30,000). Only a purchased second class (Commander first) may sit below it.
+  const firstUnlock = rawUnlocked as string[] | undefined
+  if (romanCommander && usedClass === 'byzantine-cataphract' && (firstUnlock === undefined || firstUnlock.length === 1)
+    && totalMerit - enlistmentMeritBase < 30000) return null
+  // The record is saved only once an explicit unlock exists; legacy saves stay byte-identical and derive via unlockedCareerClasses().
+  const unlockedCareerClasses = rawUnlocked as CareerProfile['unlockedCareerClasses'] | undefined
+  if (unlockedCareerClasses && !unlockedCareerClasses.includes(usedClass)) return null
   const tutorial = raw.tutorial === undefined ? createCareerTutorialState(rank, false) : parseCareerTutorialState(raw.tutorial)
   if (!tutorial) return null
   const tutorialDuel = (raw.activeMission as Partial<ActiveCareerMission> | undefined)?.duelTutorialCareerId
@@ -775,6 +789,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     availableMerit,
     rank,
     eliteClass: raw.eliteClass === 'byzantine-cataphract' ? 'byzantine-cataphract' : null,
+    ...(unlockedCareerClasses ? { unlockedCareerClasses: [...unlockedCareerClasses] } : {}),
     ...(raw.meleeSelectionOrigin === 'starter' || raw.meleeSelectionOrigin === 'custom'
       ? { meleeSelectionOrigin: raw.meleeSelectionOrigin } : {}),
     ...(raw.commanderMeleeGranted === true ? { commanderMeleeGranted: true } : {}),
@@ -984,8 +999,10 @@ export class CareerProfileStore {
           && profile.rank === 'recruit' && profile.totalMerit === 0 && !profile.careerRetirement)) return false
       const parsed = parseCareerProfile(profile)
       if (!parsed) return false
-      if (existing?.eliteClass === 'byzantine-cataphract' && parsed.tutorial?.careerId === existing.tutorial?.careerId
-        && parsed.enlistmentMeritBase === existing.enlistmentMeritBase && parsed.eliteClass !== existing.eliteClass) return false
+      // Unlocks are permanent within an enlistment: a stale scene may not drop one (switching the class in use is allowed).
+      const stored = existing ? parseCareerProfile(existing) : null
+      if (stored && parsed.tutorial?.careerId === stored.tutorial?.careerId && parsed.enlistmentMeritBase === stored.enlistmentMeritBase
+        && unlockedCareerClasses(stored).some(id => !unlockedCareerClasses(parsed).includes(id))) return false
       if (profile.tutorial && !parsed.tutorial || profile.activeMission?.duelTutorialCareerId && parsed.activeMission?.duelTutorialCareerId !== profile.activeMission.duelTutorialCareerId) return false
       if (profile.activeMission?.outpostSiege && !parsed.activeMission?.outpostSiege
         || profile.activeMission?.battle?.outpostSiege && !parsed.activeMission?.battle?.outpostSiege

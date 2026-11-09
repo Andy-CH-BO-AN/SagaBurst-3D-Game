@@ -7,8 +7,8 @@ import { grantStarter } from '../../src/town/TownRules'
 import { TownEquipment } from '../../src/town/TownEquipment'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { describe,expect,it } from 'vitest'
-import { appointByzantine, canAppointByzantine } from '../../src/career/CareerElitePromotion'
-import { resolveCareerHeroAsset, resolveCareerPlayerMaxHp } from '../../src/career/CareerPlayerProfile'
+import { applyCareerClass, careerClassOffer, unlockedCareerClasses } from '../../src/career/CareerElitePromotion'
+import { resolveCareerHeroAsset } from '../../src/career/CareerPlayerProfile'
 import { addCareerItem, careerItemAllocated, careerItemTotal } from '../../src/career/CareerInventory'
 import {
 claimCareerBattle,
@@ -43,62 +43,59 @@ function stats(overrides: Partial<BattleStatsSnapshot['player']> = {}): BattleSt
 }
 
 
-describe('拜占庭精英任命', () => {
-  it('本次入伍不足三萬時拒絕轉職，不能使用餘額或前次服役軍功繞過', () => {
-    const p = createCareerProfile('roman'); p.rank = 'captain'
-    p.enlistmentMeritBase = 50000; p.totalMerit = 79999; p.availableMerit = 100000
-    expect(canAppointByzantine(p)).toBe(false)
-    expect(appointByzantine(p)).toBeNull()
-    p.totalMerit = 80000; p.availableMerit = 0
-    expect(canAppointByzantine(p)).toBe(true)
-  })
-  it('三萬軍功隊長可直接任命，存檔載入保留職業與指揮官權限', () => {
-    const p = createCareerProfile('roman'); p.rank = 'captain'; p.totalMerit = 30000
-    const next = appointByzantine(p)!
-    expect(next.rank).toBe('commander'); expect(next.eliteClass).toBe('byzantine-cataphract')
-    expect(next.availableMerit).toBe(p.availableMerit)
-    expect(next.ownedWeapons).not.toContain('byzantine_standard_lance_t5')
-    expect(next.ownedArmors).not.toContain('byzantine_eagle_shield_t5')
-    const saved = parseCareerProfile(next)!
-    expect(resolveCareerHeroAsset(saved)).toBe('byzantine-cataphract-t5')
-    expect(resolveCareerPlayerMaxHp(saved)).toBe(1001) // Existing Lv.1 Blocking contributes +1 HP.
-    expect(saved.tutorial?.commander.status).toBe('available')
-    expect(appointByzantine(saved)).toBeNull()
+describe('T5 雙職業任命', () => {
+  const captain = (total: number) => { const p = createCareerProfile('roman'); p.rank = 'captain'; p.totalMerit = total; p.availableMerit = 777; return p }
+  it('首次任命免費且依本次入伍軍功：二萬僅 Commander，三萬才可直選拜占庭，Viking 不適用', () => {
+    expect(careerClassOffer(captain(20000), 'byzantine-cataphract')).toMatchObject({ kind: 'merit-locked', shortfall: 10000 })
+    const commander = applyCareerClass(captain(20000), 'roman-commander')!
+    expect(commander).toMatchObject({ rank: 'commander', eliteClass: null, availableMerit: 777, unlockedCareerClasses: ['roman-commander'] })
+    const stale = captain(80000); stale.enlistmentMeritBase = 51000; stale.availableMerit = 100000
+    expect(applyCareerClass(stale, 'byzantine-cataphract')).toBeNull()
+    const p = captain(30000), next = applyCareerClass(p, 'byzantine-cataphract')!
+    expect(next).toMatchObject({ rank: 'commander', eliteClass: 'byzantine-cataphract', availableMerit: 777, totalMerit: 30000, unlockedCareerClasses: ['byzantine-cataphract'] })
+    expect(next.ownedWeapons).not.toContain('byzantine_standard_lance_t5'); expect(next.ownedArmors).not.toContain('byzantine_eagle_shield_t5')
+    expect(resolveCareerHeroAsset(parseCareerProfile(next)!)).toBe('byzantine-cataphract-t5')
     expect(p.rank).toBe('captain')
+    const viking = createCareerProfile('viking'); viking.rank = 'captain'; viking.totalMerit = 30000
+    expect(careerClassOffer(viking, 'byzantine-cataphract').kind).toBe('unavailable')
   })
-  it('先升一般指揮官後補至三萬可改轉，不重複發獎且保留裝備與坐騎', () => {
-    const p = createCareerProfile('roman'); p.rank = 'captain'; p.totalMerit = 20000
-    const commander = promoteCareer(p)!
-    expect(canAppointByzantine(commander)).toBe(false)
-    commander.totalMerit += 10000
-    const next = appointByzantine(commander)!
-    expect(next.equipment).toEqual(commander.equipment)
-    expect(next.inventory).toEqual(commander.inventory)
-    expect(next.ownedMounts).toEqual(commander.ownedMounts)
-    expect(next.tutorial).toEqual(commander.tutorial)
-    expect(next.commanderMeleeGranted).toBe(true)
-  })
-  it('維京及未正式取得隊長身分不可轉職，非法精英存檔不得靜默降級', () => {
-    const p = createCareerProfile('viking'); p.rank = 'commander'; p.totalMerit = 30000
-    expect(appointByzantine(p)).toBeNull()
-    p.eliteClass = 'byzantine-cataphract'
-    expect(parseCareerProfile(p)).toBeNull()
-    p.faction = 'roman'; p.rank = 'veteran'
-    expect(appointByzantine(p)).toBeNull()
-    expect(parseCareerProfile(p)).toBeNull()
-  })
-  it('保存失敗保留原職業，成功後舊畫面不得覆寫已取得的精英身分', () => {
-    const p = createCareerProfile('roman'); p.rank = 'captain'; p.totalMerit = 30000
+  it('第二職業只扣可用軍功並永久解鎖；之後免費切換不重複扣款、發裝備或被舊畫面回收', () => {
+    const first = applyCareerClass(captain(20000), 'roman-commander')!
+    first.availableMerit = 29999
+    expect(careerClassOffer(first, 'byzantine-cataphract')).toMatchObject({ kind: 'insufficient-merit', shortfall: 1 })
+    expect(applyCareerClass(first, 'byzantine-cataphract')).toBeNull()
+    first.availableMerit = 30500
+    const bought = applyCareerClass(first, 'byzantine-cataphract')!
+    expect(bought).toMatchObject({ eliteClass: 'byzantine-cataphract', availableMerit: 500, totalMerit: first.totalMerit, enlistmentMeritBase: first.enlistmentMeritBase })
+    expect(bought.unlockedCareerClasses).toEqual(['roman-commander', 'byzantine-cataphract'])
+    expect(applyCareerClass(bought, 'byzantine-cataphract')).toBeNull() // no repeat purchase
+    const back = applyCareerClass(bought, 'roman-commander')!
+    expect(back).toMatchObject({ eliteClass: null, availableMerit: 500 })
+    expect(back.inventory).toEqual(first.inventory); expect(back.equipment).toEqual(first.equipment); expect(back.commanderMeleeGranted).toBe(true)
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
-    expect(store.save(p)).toBe(true)
-    const next = appointByzantine(p)!
+    expect(store.save(first)).toBe(true)
     storage.failWrites = true
-    expect(store.save(next)).toBe(false)
-    expect(store.load()!.eliteClass).toBeNull()
+    expect(store.save(bought)).toBe(false); expect(store.load()).toMatchObject({ availableMerit: 30500, eliteClass: null })
     storage.failWrites = false
-    expect(store.save(next)).toBe(true)
-    expect(store.save(p)).toBe(false)
-    expect(store.load()!.eliteClass).toBe('byzantine-cataphract')
+    expect(store.save(bought)).toBe(true); expect(store.save(back)).toBe(true)
+    expect(store.load()).toMatchObject({ eliteClass: null, availableMerit: 500, unlockedCareerClasses: ['roman-commander', 'byzantine-cataphract'] })
+    expect(store.save(first)).toBe(false) // a stale scene cannot drop the purchased unlock
+  })
+  it('舊存檔只推導目前職業，不猜測第二職業；非法職業組合不得被靜默修正', () => {
+    const legacy = applyCareerClass(captain(30000), 'roman-commander')!
+    delete legacy.unlockedCareerClasses
+    legacy.availableMerit = 30000
+    expect(unlockedCareerClasses(parseCareerProfile(legacy)!)).toEqual(['roman-commander'])
+    expect(careerClassOffer(parseCareerProfile(legacy)!, 'byzantine-cataphract').kind).toBe('purchase')
+    legacy.eliteClass = 'byzantine-cataphract'
+    expect(unlockedCareerClasses(parseCareerProfile(legacy)!)).toEqual(['byzantine-cataphract'])
+    legacy.totalMerit = 29999; expect(parseCareerProfile(legacy)).toBeNull()
+    const bad = applyCareerClass(captain(30000), 'byzantine-cataphract')!
+    expect(parseCareerProfile({ ...bad, unlockedCareerClasses: ['roman-commander'] })).toBeNull()
+    expect(parseCareerProfile({ ...bad, totalMerit: 29999 })).toBeNull() // Byzantine-only record below the first-appointment minimum
+    expect(parseCareerProfile({ ...bad, totalMerit: 29999, unlockedCareerClasses: ['roman-commander', 'byzantine-cataphract'] })).not.toBeNull()
+    expect(parseCareerProfile({ ...bad, faction: 'viking' })).toBeNull()
+    expect(parseCareerProfile({ ...bad, rank: 'captain' })).toBeNull()
   })
 })
 

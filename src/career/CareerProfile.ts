@@ -93,6 +93,8 @@ export interface CareerProfile {
   rank: CareerRank
   /** T5 elite identity, independent of rank and spendable currency. Missing legacy value means ordinary. */
   eliteClass?: 'byzantine-cataphract' | null
+  /** Permanently unlocked Roman Commander classes for this enlistment; eliteClass is only the one in use. Missing legacy value = the class in use. */
+  unlockedCareerClasses?: ('roman-commander' | 'byzantine-cataphract')[]
   /** Optional ending lifecycle; retirement never changes the appointed rank. */
   careerRetirement?: CareerRetirementState
   /** Grounded player and owned-mount resources throughout the retirement sequence. */
@@ -547,6 +549,7 @@ export function purchaseCareerContent(
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
+    ...(profile.unlockedCareerClasses ? { unlockedCareerClasses: [...profile.unlockedCareerClasses] } : {}),
     ...(profile.tutorial ? { tutorial: structuredClone(profile.tutorial) } : {}),
     ...(profile.retirementTowerGuards ? { retirementTowerGuards: structuredClone(profile.retirementTowerGuards) } : {}),
     ...(profile.retirementRuntime ? { retirementRuntime: structuredClone(profile.retirementRuntime) } : {}),
