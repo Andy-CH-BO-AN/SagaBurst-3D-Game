@@ -210,6 +210,22 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     expect(equipment.unequipWeapon('axe_t5')).toBe(true); expect(h.change(c, 'melee', 'axe_t5').changed).toBe(true)
     expect(equipment.equipWeapon('axe_t5')).toBe(false); balanced(h.read())
   })
+  it('hires a Roman-only Byzantine Cataphract for 3,000 with ordinary T5 gear and keeps its identity after reload', () => {
+    const h = harness('commander'), choice = { characterTier: 5 as const, heroArchetype: 'commander' as const, recruitmentRole: 'spearman' as const }
+    expect(recruitPersonalSquadMember(h.read(), { ...choice, visualAssetId: 'byzantine-cataphract-t5' }, h.save).recruited).toBe(true)
+    expect(recruitPersonalSquadMember(h.read(), choice, h.save).recruited).toBe(true)
+    expect(h.read().availableMerit).toBe(60000 - 3000 - 2000)
+    const [byzantine, ordinary] = h.store.load()!.personalSquad!.members
+    expect(byzantine).toMatchObject({ type: 'commander', heroArchetype: 'commander', visualAssetId: 'byzantine-cataphract-t5', originalHirePrice: 3000,
+      equipment: { melee: 'steel_lance', ranged: null, shield: null, mount: 'horse' } })
+    expect(personalMemberRefund(h.read(), byzantine)).toBe(2700)
+    expect(personalMemberLoadout(byzantine, 'roman').hero).toMatchObject({ visualAssetId: 'byzantine-cataphract-t5', combatProfileId: 'byzantine-cataphract' })
+    expect(ordinary.visualAssetId).toBeUndefined(); expect(ordinary.originalHirePrice).toBe(2000)
+    expect(personalMemberLoadout(ordinary, 'roman').hero).toMatchObject({ visualAssetId: 'roman-hero-t5', combatProfileId: 'roman-commander' })
+    const viking = harness('commander', 'viking')
+    expect(recruitPersonalSquadMember(viking.read(), { ...choice, visualAssetId: 'byzantine-cataphract-t5' }, viking.save)).toMatchObject({ recruited: false, reason: 'invalid-product' })
+    expect(parseCareerProfile({ ...viking.read(), personalSquad: { members: [{ ...byzantine }] } })).toBeNull()
+  })
   it('equips Ranger weapons normally and never restores a deliberately removed default on reload', () => {
     const h = harness(), id = h.hire('ranger')
     expect(h.read().availableMerit).toBe(59500)

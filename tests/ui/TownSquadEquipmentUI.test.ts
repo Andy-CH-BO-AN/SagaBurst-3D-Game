@@ -247,7 +247,7 @@ it('updates recruitment choices and summary immediately and blocks a stale purch
     choice, onChoice: next => { choice = next }, recruit })
   const nodes = root.descendants(), controls = nodes.filter(node => node.tag === 'select')
   const summary = nodes.find(node => node.attributes['aria-live'] === 'polite')!, button = nodes.find(node => node.tag === 'button')!
-  expect(controls.map(node => node.children.length)).toEqual([5, 2, 5])
+  expect(controls.map(node => node.children.length)).toEqual([5, 2, 2, 5])
   expect(controls[1].disabled).toBe(true)
   expect(summary.textContent).toContain('人物 T3'); expect(summary.textContent).toContain('Max HP 200')
   expect(summary.textContent).toContain('T1'); expect(summary.textContent).toContain('無坐騎')
