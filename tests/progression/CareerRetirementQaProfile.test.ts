@@ -2,6 +2,7 @@ import { expect, it } from 'vitest'
 import { careerItemAllocated, careerItemTotal } from '../../src/career/CareerInventory'
 import { careerMissionCompletionsForTier } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { COMMANDER_MISSION_CATALOG } from '../../src/career/CommanderMissionCatalog'
 import { commanderRetirementEligibility } from '../../src/career/CareerRetirement'
 import { createCommanderRetirementQaProfile } from '../../src/career/CareerRetirementQaProfile'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -17,11 +18,7 @@ it('builds a legal ready Commander preset whose exact ten Tier 5 wins and spenda
   expect(profile.totalMerit).toBeGreaterThanOrEqual(100_000)
   expect(profile.enlistmentMeritBase).toBe(0)
   expect(careerMissionCompletionsForTier(profile, 5)).toBe(10)
-  expect(profile.completedCareerMissionTemplateIds).toEqual([
-    'commander-sky-raid', 'commander-operation-decapitation', 'commander-outpost-last-stand',
-    'commander-bridgehead-battle', 'commander-four-gate-defense',
-    'commander-six-feline-cavalry',
-  ])
+  expect(profile.completedCareerMissionTemplateIds).toEqual(COMMANDER_MISSION_CATALOG.map(mission => mission.id))
   expect(commanderRetirementEligibility(profile).eligible).toBe(true)
   expect(profile.personalSquad?.members).toHaveLength(30)
   expect(new Set(profile.personalSquad!.members.map(member => member.id)).size).toBe(30)
