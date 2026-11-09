@@ -71,7 +71,7 @@ describe('Commander mission board policy', () => {
     expect(claimCareerMission(first.profile, missionId, 'victory', { ...stats, damageDealt: 999 }).alreadyClaimed).toBe(true)
 
     const returned = clearCareerMission(first.profile, missionId)
-    expect(availableCommanderMissions(returned)).toHaveLength(6)
+    expect(availableCommanderMissions(returned)).toHaveLength(7)
   })
 
   it('holds the full preparation time until native deployment is ready and records spawn intent once before creating enemies', () => {

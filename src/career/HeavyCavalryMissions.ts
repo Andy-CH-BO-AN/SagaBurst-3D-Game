@@ -266,7 +266,7 @@ export function planVeteranCaltropDefense(): CaltropLayout {
   while (counts.melee > 0) {
     const perRow = 41, row = Math.floor(meleeIndex / perRow), col = meleeIndex % perRow
     const slot = push('melee', (col - (perRow - 1) / 2) * 2.4, meleeStart + row * 2.6, 'melee')
-    if (slot && meleeIndex === 0) slots[slots.length - 1].playerSlot = true
+    if (slot && meleeIndex === officers.melee) slots[slots.length - 1].playerSlot = true
     meleeIndex++
   }
   const rearStart = meleeStart + 3 * 2.6 + 2
@@ -352,3 +352,26 @@ export function veteranSlotWorldPosition(slot: Pick<CaltropSlot, 'x' | 'depth'>,
   const zSign = faction === 'viking' ? 1 : -1, xSign = faction === 'viking' ? -1 : 1
   return { x: Math.round(slot.x * xSign * 100) / 100, z: Math.round(zSign * (CALTROP_LINE_ABS_Z + slot.depth) * 100) / 100 }
 }
+
+// ---------------------------------------------------------------------------
+// Deterministic deployment blocks (all missions)
+// ---------------------------------------------------------------------------
+
+/** Friendly stands on -Z for Roman, +Z for Viking; the enemy takes the opposite side. */
+export function heavyFriendlyZSign(faction: CharacterFaction): 1 | -1 { return faction === 'viking' ? 1 : -1 }
+
+/** Rows grow toward the rear (|z| increases). Returns `count` positions row by row, centred on `centerX`. */
+export function heavyBlockPositions(count: number, options: { columns: number; gapX: number; gapZ: number; frontAbsZ: number; zSign: 1 | -1; centerX?: number }): HeavyPoint[] {
+  const out: HeavyPoint[] = []
+  for (let i = 0; i < count; i++) {
+    const row = Math.floor(i / options.columns), inRow = Math.min(options.columns, count - row * options.columns), col = i % options.columns
+    out.push({ x: Math.round(((options.centerX ?? 0) + (col - (inRow - 1) / 2) * options.gapX) * 100) / 100,
+      z: Math.round(options.zSign * (options.frontAbsZ + row * options.gapZ) * 100) / 100 })
+  }
+  return out
+}
+
+/** Soldier: the column starts here, marches to the ambush point, then forms a line at AMBUSH_ABS_Z. */
+export const SOLDIER_COLUMN_FRONT_ABS_Z = 155
+export const SOLDIER_AMBUSH_ABS_Z = 120
+export const HEAVY_ENEMY_FRONT_ABS_Z = 125

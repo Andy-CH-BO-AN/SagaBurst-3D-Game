@@ -26,7 +26,9 @@ export interface BridgeBattleDeployment {
 }
 export interface CommanderMissionState {
   version: 1
-  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle' | 'commander-four-gate-defense' | 'commander-six-feline-cavalry' | 'commander-iron-legion'>
+  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle' | 'commander-four-gate-defense' | 'commander-six-feline-cavalry' | 'commander-iron-legion' | 'heavy-cavalry-field'>
+  /** Heavy-cavalry field missions (Soldier / Veteran / Captain) reuse this field-battle state; their triggers live here. */
+  heavyField?: import('./HeavyCavalryMissions').HeavyFieldState
   /** Stable identity for the one T5 lancer whose first effective hit releases the enemy charge. */
   felineVanguardActorId?: string
   felineChargeTriggered?: boolean

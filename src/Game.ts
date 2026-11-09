@@ -5,7 +5,7 @@ import { CareerCommandHudTypes } from './career/CareerCommandHudTypes'
 import { officialCommandHudLabel } from './career/CommanderTownSquadLabels'
 import { stageMissionReturnRebuild } from './career/CareerMissionReturnRecovery'
 import { townRoster } from './town/TownRules'
-import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, dispatchFelineVanguardCharge, felineInitialTacticalOrder, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
+import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, careerFieldTacticalOrder, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, dispatchFelineVanguardCharge, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { prepareByzantineEquipment, preloadHighTierEquipment } from './world/HighTierEquipment'
 import { outpostCheckpointHeight } from './campaign/OutpostRampartGarrison'
 import { CampaignSiegeAssault } from './campaign/CampaignSiegeAssault'
@@ -26,6 +26,8 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { CorgiVisual } from './world/CorgiVisual'
 import { careerHeavyPreloadPlan } from './career/HeavyCavalrySpawn'
+import { createHeavyFieldDeployment, isCareerHeavyFieldBattle, type HeavyFieldDeployment } from './career/HeavyFieldMission'
+import { HEAVY_FIELD_SPECS, heavyFrontlineDistance, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, type HeavyPoint } from './career/HeavyCavalryMissions'
 import { BlackCatVisual, FELINE_MOUNT_VARIANTS, type FelineMountVariant } from './world/BlackCatVisual'
 import { SnowLeopardVisual } from './world/SnowLeopardVisual'
 import { XongkoroVisual } from './world/XongkoroVisual'
@@ -659,6 +661,10 @@ export class Game {
   private readonly captainEagleMissionId: string | null
   private readonly felineMissionId: string | null
   private felineChargeUnsubscribe?: () => void
+  /** Heavy-cavalry field battles (Soldier / Veteran / Captain): deployment plan and throttled trigger clock. */
+  private heavyDeployment?: HeavyFieldDeployment
+  private heavyCheckClock = 0
+  private heavyGuide: MissionGuide | null = null
   private captainEagleSpawnBatch?: NpcSpawnBatch
   private captainEagleHud?: CaptainEagleHUD
   private captainResultPending?: 'victory' | 'failure'
@@ -827,11 +833,14 @@ export class Game {
       if (this.fieldMissionId || campaignConfig?.careerMissionKind === 'captain-outpost-defense') {
         const mission = this.careerProfile?.activeMission
         const expectedId = this.fieldMissionId ?? campaignConfig?.careerMissionId
-        if (!mission || mission.id !== expectedId || mission.officialSquad?.type !== 'mission-official'
-          || mission.officialSquad.missionId !== mission.id || (this.bridgeLaunch
+        const heavyField = isCareerHeavyFieldBattle(mission)
+        if (!mission || mission.id !== expectedId
+          || !heavyField && (mission.officialSquad?.type !== 'mission-official' || mission.officialSquad.missionId !== mission.id)
+          || heavyField && mission.officialSquad && (mission.officialSquad.type !== 'mission-official' || mission.officialSquad.missionId !== mission.id)
+          || (this.bridgeLaunch
           ? !isCareerBridgeBattle(mission) || this.careerProfile?.rank !== 'commander'
           : this.felineMissionId
-          ? !isCareerFelineBattle(mission) || this.careerProfile?.rank !== 'commander'
+          ? !isCareerFelineBattle(mission) || !heavyField && this.careerProfile?.rank !== 'commander'
           : this.captainEagleMissionId
           ? mission.templateId !== CAPTAIN_EAGLE_BATTLE_ID || mission.kind !== 'captain-eagle-battle'
           : mission.templateId !== CAPTAIN_FRONTLINE_COMMAND_ID || mission.kind !== 'captain-outpost-defense' || campaignConfig?.stageId !== 9)) {
@@ -1123,7 +1132,10 @@ export class Game {
     } else if (this.bridgeLaunch && this.careerProfile) {
       battlePlan = createCareerBridgeSpawnPlan(this.careerProfile)
     } else if (this.felineMissionId && this.careerProfile) {
-      battlePlan = createCareerFelineSpawnPlan(this.careerProfile)
+      if (isCareerHeavyFieldBattle(this.careerProfile.activeMission)) {
+        this.heavyDeployment = createHeavyFieldDeployment(this.careerProfile)
+        battlePlan = this.heavyDeployment.plan
+      } else battlePlan = createCareerFelineSpawnPlan(this.careerProfile)
     } else if (this.captainEagleMissionId && this.careerProfile) {
       battlePlan = createCaptainEagleSpawnPlan(this.careerProfile)
     } else if (heroBenchmark) {
@@ -1477,7 +1489,9 @@ export class Game {
       this.controlsHint.textContent = 'WASD 移動 ｜ Shift 衝刺 ｜ 左鍵攻擊 ｜ 右鍵舉盾／瞄準 ｜ Tab 裝備 ｜ 滾輪切換武器'
     }
     this.combatEvents.subscribe(event => this._awardPlayerSkillXpFromEvent(event))
-    if (this.felineMissionId && this.careerProfile?.activeMission?.commanderMission?.felineChargeTriggered !== true) {
+    if (this.felineMissionId && isCareerHeavyFieldBattle(this.careerProfile?.activeMission)) {
+      this.felineChargeUnsubscribe = this.combatEvents.subscribe(event => this._handleHeavyEnemyDamage(event))
+    } else if (this.felineMissionId && this.careerProfile?.activeMission?.commanderMission?.felineChargeTriggered !== true) {
       this.felineChargeUnsubscribe = this.combatEvents.subscribe(event => this._handleFelineVanguardDamage(event))
     }
     await this._restorePersonalOutpostBattle(progress)
@@ -2634,6 +2648,92 @@ export class Game {
     return spawned
   }
 
+  /** The mission-wide order of one heavy-cavalry actor; formation holds use real formation targets. */
+  private _applyHeavyFieldOrder(npc: NPC, mission: ActiveCareerMission): void {
+    const state = mission.commanderMission?.heavyField
+    if (!state || !isCareerHeavyFieldBattle(mission)) return
+    const side = npc.faction === Faction.PLAYER ? 'friendly' : 'enemy'
+    const order = careerFieldTacticalOrder(mission, npc.faction)
+    const spec = HEAVY_FIELD_SPECS[mission.templateId]
+    const facing = new THREE.Vector3(0, 0, npc.faction === Faction.PLAYER === (this.careerProfile?.faction === 'viking') ? -1 : 1)
+    if (order === 'charge') { npc.setTacticalOrder('charge'); return }
+    if (side === 'friendly' && spec.startsMarching && !state.formationIssued) {
+      const captainId = this.heavyDeployment?.captainActorId
+      const captain = captainId ? this.npcs.find(candidate => candidate.combatantId === captainId && !candidate.dead) : undefined
+      const ambush = this.heavyDeployment?.ambushPoint
+      if (captain && ambush && npc === captain) npc.assignFormationTarget(-3, new THREE.Vector3(ambush.x, getTerrainHeight(ambush.x, ambush.z), ambush.z), facing, 3.2)
+      else if (captain) npc.assignFollowTarget(captain, this.npcs.indexOf(npc) % 74)
+      return
+    }
+    // Soldier after Formation, Veteran from the start: hold the planned slot; Captain enemies hold where they stand.
+    const slot: HeavyPoint | undefined = this.heavyDeployment?.formationSlots[npc.combatantId] ?? (side === 'enemy' ? { x: npc.combatPosition.x, z: npc.combatPosition.z } : undefined)
+    if (side === 'friendly' && spec.friendlySquadSizes.length > 0) { npc.setTacticalOrder('defend'); return }
+    if (slot) npc.assignFormationTarget(-3, new THREE.Vector3(slot.x, getTerrainHeight(slot.x, slot.z), slot.z), facing, undefined, 'defend', side === 'enemy' || !spec.startsMarching)
+    else npc.setTacticalOrder(order)
+  }
+
+  private _persistHeavyState(notify: string): void {
+    if (!this._persistCaptainMission(true)) this._showNotify(notify, 1800)
+  }
+
+  private _handleHeavyEnemyDamage(event: CombatEvent): void {
+    const mission = this.careerProfile?.activeMission
+    const state = mission?.commanderMission?.heavyField
+    if (!mission || !state || !isCareerHeavyFieldBattle(mission) || mission.id !== this.felineMissionId) return
+    if (!shouldTriggerHeavyEnemyCharge(mission.templateId, state, event, new Set(mission.targetActorIds))) return
+    state.enemyChargeTriggered = true
+    this.felineChargeUnsubscribe?.(); this.felineChargeUnsubscribe = undefined
+    const targets = new Set(mission.targetActorIds)
+    for (const npc of this.npcs) if (!npc.dead && targets.has(npc.combatantId)) npc.setTacticalOrder('charge')
+    this.soundManager.playCommanderCommand(this.careerProfile!.faction === 'roman' ? 'viking' : 'roman', 'charge')
+    this._persistHeavyState('敵軍已衝鋒；狀態將隨下次戰場存檔重試。')
+  }
+
+  /** Throttled march / formation / 20m counter-charge checks (4 Hz). */
+  private _updateHeavyField(dt: number, mission: ActiveCareerMission): void {
+    const state = mission.commanderMission?.heavyField
+    if (!state || !isCareerHeavyFieldBattle(mission) || mission.commanderMission?.deploymentComplete !== true) return
+    this.heavyCheckClock += dt
+    if (this.heavyCheckClock < .25) return
+    this.heavyCheckClock = 0
+    const spec = HEAVY_FIELD_SPECS[mission.templateId]
+    const friendlyIds = new Set(mission.friendlyActorIds), enemyIds = new Set(mission.targetActorIds)
+    if (spec.startsMarching && !state.formationIssued) {
+      const captainId = this.heavyDeployment?.captainActorId
+      const captain = captainId ? this.npcs.find(npc => npc.combatantId === captainId && !npc.dead) : undefined
+      const ambush = this.heavyDeployment?.ambushPoint
+      if (ambush && this.player && !this.player.dead) {
+        this.heavyGuide ??= new MissionGuide('heavy-march-guide')
+        const target = new THREE.Vector3(captain?.combatPosition.x ?? ambush.x, 0, captain?.combatPosition.z ?? ambush.z)
+        this.heavyGuide.updateRace(this.player.position, this.thirdPersonCamera.cameraYaw, target, '跟隨隊長')
+      }
+      if (!captain || ambush && shouldIssueHeavyFormation(state, captain.combatPosition, ambush)) {
+        state.formationIssued = true
+        this.heavyGuide?.dispose(); this.heavyGuide = null
+        for (const npc of this.npcs) if (!npc.dead && friendlyIds.has(npc.combatantId)) this._applyHeavyFieldOrder(npc, mission)
+        this.soundManager.playCommanderCommand(this.careerProfile!.faction, 'formation')
+        this._persistHeavyState('隊形已完成；狀態將隨下次戰場存檔重試。')
+      }
+      return
+    }
+    if (state.counterChargeTriggered) return
+    const friendly: HeavyPoint[] = [], enemy: HeavyPoint[] = []
+    for (const npc of this.npcs) {
+      if (npc.dead) continue
+      const point = { x: npc.combatPosition.x, z: npc.combatPosition.z }
+      if (enemyIds.has(npc.combatantId)) enemy.push(point)
+      else if (friendlyIds.has(npc.combatantId) || npc.combatOwnership === 'player-personal') friendly.push(point)
+    }
+    if (spec.counterCharge === 'enemy' && !this.player.dead) friendly.push({ x: this.player.position.x, z: this.player.position.z })
+    if (!friendly.length || !enemy.length || !shouldTriggerHeavyCounterCharge(state, heavyFrontlineDistance(friendly, enemy))) return
+    state.counterChargeTriggered = true
+    const chargers = spec.counterCharge === 'friendly' ? friendlyIds : enemyIds
+    for (const npc of this.npcs) if (!npc.dead && chargers.has(npc.combatantId)) npc.setTacticalOrder('charge')
+    const side = spec.counterCharge === 'friendly' ? this.careerProfile!.faction : this.careerProfile!.faction === 'roman' ? 'viking' : 'roman'
+    this.soundManager.playCommanderCommand(side, 'charge')
+    this._persistHeavyState('反衝鋒已觸發；狀態將隨下次戰場存檔重試。')
+  }
+
   private _handleFelineVanguardDamage(event: CombatEvent): void {
     const liveMission = this.careerProfile?.activeMission
     if (!this.felineMissionId || !liveMission || liveMission.id !== this.felineMissionId
@@ -2818,8 +2918,9 @@ export class Game {
         const npc = this._spawnNpc(spec)
         npc.group.rotation.y = this.bridgeLaunch ? spec.faction === Faction.PLAYER ? 0 : Math.PI : spec.characterFaction === 'roman' ? 0 : Math.PI
         if (npc.mount) npc.mount.group.rotation.y = npc.group.rotation.y
-        npc.setTacticalOrder(this.felineMissionId
-          ? felineInitialTacticalOrder(npc.faction, mission.commanderMission?.felineChargeTriggered === true)
+        if (this.felineMissionId && isCareerHeavyFieldBattle(mission)) this._applyHeavyFieldOrder(npc, mission)
+        else npc.setTacticalOrder(this.felineMissionId
+          ? careerFieldTacticalOrder(mission, npc.faction)
           : npc.faction === Faction.PLAYER ? 'defend' : this.bridgeLaunch ? 'charge' : 'attack')
         const controlled = officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)
         const restoreOrder = !mission.officialSquad?.actorIds.includes(npc.combatantId) || controlled
@@ -2829,6 +2930,7 @@ export class Game {
         if (this.felineMissionId && npc.faction === Faction.ENEMY && mission.commanderMission?.felineChargeTriggered) {
           npc.setTacticalOrder('charge')
         }
+        if (this.felineMissionId && isCareerHeavyFieldBattle(mission) && !controlled) this._applyHeavyFieldOrder(npc, mission)
         if (controlled && actor?.order === 'follow' && !this.player.dead) {
           const index = mission.officialSquad?.actorIds.indexOf(npc.combatantId) ?? -1
           if (index >= 0) npc.assignFollowTarget(this.player, index, officialFollowLocalOffset(index, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length)))
@@ -3054,6 +3156,7 @@ export class Game {
       }
     }
     if (!this.fieldMissionId) return
+    if (this.felineMissionId && isCareerHeavyFieldBattle(mission) && !this.captainResultPending && !mission.result) this._updateHeavyField(dt, mission)
     if (this.bridgeRuntime) {
       const runtime = this.bridgeRuntime
       runtime.observe(mission, this.npcs)
@@ -3108,8 +3211,9 @@ export class Game {
     if (mission.phase !== 'ENGAGING') {
       if (!this._persistCaptainMission(true)) return
       for (const npc of this.npcs) if (!npc.dead && npc.combatOwnership !== 'player-personal' && !officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) {
-        npc.setTacticalOrder(this.felineMissionId
-          ? felineInitialTacticalOrder(npc.faction, mission.commanderMission?.felineChargeTriggered === true)
+        if (this.felineMissionId && isCareerHeavyFieldBattle(mission)) this._applyHeavyFieldOrder(npc, mission)
+        else npc.setTacticalOrder(this.felineMissionId
+          ? careerFieldTacticalOrder(mission, npc.faction)
           : 'attack')
       }
     }
@@ -3961,6 +4065,7 @@ export class Game {
     this.veteranOutpostMarch = null
     this.veteranReinforcementMarch = null
     this.careerOutpostDefenseGuide?.dispose()
+    this.heavyGuide?.dispose(); this.heavyGuide = null
     this.careerOutpostDefenseGuide = null
     this.careerVeteranActorMounts.clear()
     this.defenseCampaignHud?.destroy()

@@ -17,6 +17,7 @@ import { MOUNTED_RACES, raceDefinitionForSchedule, raceStageOpponentLabel, type 
 import { RACE_LINES } from '../career/CareerRaceRoute'
 import { CareerCommandHudTypes } from '../career/CareerCommandHudTypes'
 import { createCareerBridgeBattleLaunch, createCareerFelineBattleLaunch } from '../career/CareerBridgeBattle'
+import { HEAVY_FIELD_MISSION_CATALOG, acceptHeavyFieldMission, createCareerHeavyBattleLaunch, getHeavyFieldMissionAvailability, getHeavyFieldMissionDefinition } from '../career/HeavyFieldMission'
 import { COMMANDER_BRIDGEHEAD_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_IRON_LEGION_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { ARMORS } from '../rpg/ArmorDatabase'
@@ -1974,6 +1975,7 @@ export class TownScene {
       accept.onclick = () => this.acceptVeteranCareerMission(definition.id)
       row.append(title, details, accept); panel.append(row)
     }
+    this.appendHeavyFieldRows(panel, 'veteran')
     const homeDefenseTemplate = careerMissionTemplatesForPage(this.profile, 'veteran')
       .find(template => template.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)
     if (!homeDefenseTemplate || homeDefenseTemplate.kind !== 'town-defense') return
@@ -2014,6 +2016,7 @@ export class TownScene {
       accept.onclick = () => this.acceptCaptainMission(definition.id)
       row.append(title, details, accept); panel.append(row)
     }
+    this.appendHeavyFieldRows(panel, 'captain')
   }
   private openCommanderMissionPage(panel: HTMLElement): void {
     for (const definition of COMMANDER_MISSION_CATALOG) {
@@ -2060,6 +2063,32 @@ export class TownScene {
       this.dispose(true); this.onCampaign(launch); return
     }
     this.dispose(); this.onRestart(this.profile)
+  }
+  /** Soldier / Veteran / Captain heavy-cavalry battles launch straight into the shared open-field runtime. */
+  private acceptHeavyFieldCareerMission(templateId: string): void {
+    if (this.player.dead || !this.serviceAvailable('deployment')) return
+    const fresh = this.store.loadChecked().profile
+    if (!fresh || !getHeavyFieldMissionDefinition(templateId) || this.event.hostile) return
+    const availability = getHeavyFieldMissionAvailability(fresh, templateId)
+    if (!availability.unlocked) { this.openPanel('無法接受任務', availability.reason ?? '目前無法接受。'); return }
+    const next = acceptHeavyFieldMission(fresh, templateId)
+    if (!next || !this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始，請重試。'); return }
+    const launch = createCareerHeavyBattleLaunch(this.profile)
+    this.dispose(true); this.onCampaign(launch)
+  }
+  private appendHeavyFieldRows(panel: HTMLElement, minRank: 'soldier' | 'veteran' | 'captain'): void {
+    for (const definition of HEAVY_FIELD_MISSION_CATALOG.filter(entry => entry.minRank === minRank)) {
+      const availability = getHeavyFieldMissionAvailability(this.profile, definition.id)
+      const row = document.createElement('article'); row.className = 'town-product'
+      const title = document.createElement('strong'); title.textContent = definition.name
+      const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
+      details.textContent = `${definition.briefing}\n友軍 ${definition.friendlyCombatants} 人（含玩家） · 敵軍 ${definition.enemyCombatants} 人 · ${minRank === 'captain' ? '可額外攜帶私兵' : '玩家無指揮權'} · 風險 ${definition.risk}`
+      const accept = document.createElement('button'); accept.className = 'town-button'
+      accept.textContent = availability.unlocked ? '接受任務' : availability.reason ?? '尚未解鎖'
+      accept.disabled = !availability.unlocked
+      accept.onclick = () => this.acceptHeavyFieldCareerMission(definition.id)
+      row.append(title, details, accept); panel.append(row)
+    }
   }
   private acceptCaptainMission(templateId: string): void {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
@@ -2618,6 +2647,7 @@ export class TownScene {
   }
   private acceptMission(templateId: string): void {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
+    if (getHeavyFieldMissionDefinition(templateId)) { this.acceptHeavyFieldCareerMission(templateId); return }
     if (getCaptainMissionDefinition(templateId)) { this.acceptCaptainMission(templateId); return }
     if (getVeteranMissionDefinition(templateId)) { this.acceptVeteranCareerMission(templateId); return }
     const fresh = this.store.load()
