@@ -203,11 +203,12 @@ export class CommanderFourGateDefenseController {
       sectors, acceptsOrders: npc => !this.playerIssuedCommands.has(npc.combatantId) && !this.civilianCommandOwns(npc),
       attackerRole: npc => airIds.has(npc.combatantId) ? 'air' : cavalryIds.has(npc.combatantId) ? 'gate-cavalry'
         : rangedIds.has(npc.combatantId) ? 'ranged' : 'siege-infantry', allowMountedRamps: false, approach: 'world-edge', historicalSectorReceipts: true,
-      // 280-man army: the infantry guard stays with its vehicle to the wall, so reserve the whole sweep
-      // (no release-radius clip) behind the cavalry rows. Legacy saves keep their exact original geometry.
+      // 280-man army: extra rear room for the infantry rows. The swept corridor keeps the proven legacy
+      // 50m clip near the wall (a full sweep proved illegal against real Town obstacles at west:left).
       ...(v2 ? { escortClearance: {
         rear: COMMANDER_INFANTRY_ESCORT.requiredRearClearance, halfWidth: COMMANDER_CAVALRY_ESCORT.halfWidth,
-        bodyRadius: COMMANDER_CAVALRY_ESCORT.bodyRadius, lateralOffset: COMMANDER_CAVALRY_ESCORT.lateralOffset,
+        releaseDistance: commanderCavalryReleaseDistance(1), bodyRadius: COMMANDER_CAVALRY_ESCORT.bodyRadius,
+        lateralOffset: COMMANDER_CAVALRY_ESCORT.lateralOffset,
       } } : this.state.cavalryEscort ? { escortClearance: {
         rear: COMMANDER_CAVALRY_ESCORT.requiredRearClearance, halfWidth: COMMANDER_CAVALRY_ESCORT.halfWidth,
         releaseDistance: commanderCavalryReleaseDistance(1), bodyRadius: COMMANDER_CAVALRY_ESCORT.bodyRadius,

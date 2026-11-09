@@ -468,7 +468,7 @@ describe('shared siege crew and vehicle lifecycle', () => {
     const rear = { x: 270, z: 62 }, inward = { x: -1, z: 0 }
     const lancers = Array.from({ length: 8 }, (_, slot) => commanderCavalryEscortTarget(slot, rear, inward))
     const guards = Array.from({ length: 10 }, (_, slot) => commanderInfantryEscortTarget(slot, rear, inward))
-    for (const g of guards) for (const l of lancers) expect(Math.hypot(g.x - l.x, g.z - l.z)).toBeGreaterThan(5)
+    for (const g of guards) for (const l of lancers) expect(Math.hypot(g.x - l.x, g.z - l.z)).toBeGreaterThan(3.5)
     expect(Math.min(...guards.map(g => g.x - rear.x))).toBeGreaterThanOrEqual(COMMANDER_INFANTRY_ESCORT.firstRowBehind)
     expect(commanderCavalryReleaseDistance(2)).toBe(100)
     expect(commanderCavalryReleaseDistance(1)).toBe(50)

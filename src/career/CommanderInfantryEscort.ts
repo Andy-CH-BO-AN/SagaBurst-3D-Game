@@ -9,10 +9,10 @@ export const COMMANDER_INFANTRY_ESCORT = {
   columns: 2,
   columnSpacing: 3,
   lateralOffset: COMMANDER_CAVALRY_ESCORT.lateralOffset,
-  rowSpacing: 3,
-  firstRowBehind: 24,
-  /** Complete reserved rear envelope: last row (36m) plus body radius and margin. */
-  requiredRearClearance: 40,
+  rowSpacing: 2.5,
+  firstRowBehind: 22,
+  /** Complete reserved rear envelope: last row (32m) plus body radius and margin. */
+  requiredRearClearance: 36,
   halfWidth: 4,
   bodyRadius: 1,
   /** Target must move this far before the navigation path is rebuilt. */
