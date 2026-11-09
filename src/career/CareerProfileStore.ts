@@ -737,7 +737,10 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (rawUnlocked !== undefined && !(romanCommander && Array.isArray(rawUnlocked) && rawUnlocked.length >= 1 && new Set(rawUnlocked).size === rawUnlocked.length
     && rawUnlocked.every(id => id === 'roman-commander' || id === 'byzantine-cataphract'))) return null
   const usedClass = raw.eliteClass === 'byzantine-cataphract' ? 'byzantine-cataphract' as const : 'roman-commander' as const
-  if (romanCommander && rawUnlocked === undefined && usedClass === 'byzantine-cataphract' && totalMerit - enlistmentMeritBase < 30000) return null
+  // A Byzantine-only record is a first appointment (30,000). Only a purchased second class (Commander first) may sit below it.
+  const firstUnlock = rawUnlocked as string[] | undefined
+  if (romanCommander && usedClass === 'byzantine-cataphract' && (firstUnlock === undefined || firstUnlock.length === 1)
+    && totalMerit - enlistmentMeritBase < 30000) return null
   // The record is saved only once an explicit unlock exists; legacy saves stay byte-identical and derive via unlockedCareerClasses().
   const unlockedCareerClasses = rawUnlocked as CareerProfile['unlockedCareerClasses'] | undefined
   if (unlockedCareerClasses && !unlockedCareerClasses.includes(usedClass)) return null

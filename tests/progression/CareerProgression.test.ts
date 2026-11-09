@@ -92,6 +92,8 @@ describe('T5 雙職業任命', () => {
     legacy.totalMerit = 29999; expect(parseCareerProfile(legacy)).toBeNull()
     const bad = applyCareerClass(captain(30000), 'byzantine-cataphract')!
     expect(parseCareerProfile({ ...bad, unlockedCareerClasses: ['roman-commander'] })).toBeNull()
+    expect(parseCareerProfile({ ...bad, totalMerit: 29999 })).toBeNull() // Byzantine-only record below the first-appointment minimum
+    expect(parseCareerProfile({ ...bad, totalMerit: 29999, unlockedCareerClasses: ['roman-commander', 'byzantine-cataphract'] })).not.toBeNull()
     expect(parseCareerProfile({ ...bad, faction: 'viking' })).toBeNull()
     expect(parseCareerProfile({ ...bad, rank: 'captain' })).toBeNull()
   })

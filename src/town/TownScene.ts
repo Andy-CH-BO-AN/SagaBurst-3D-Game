@@ -1301,7 +1301,7 @@ export class TownScene {
       if (romanRoads) {
         panel.querySelector('h2')!.textContent = '選擇你的晉升道路'
         panel.querySelector('p')!.textContent = '選擇職業，查看能力與解鎖進度。'
-        detail.textContent = '帝國軍階任命 · Career Promotion · 本次入伍累積軍功，不扣除餘額'
+        detail.textContent = '首次任命依本次入伍累積軍功，免費；第二職業需消耗可用軍功永久解鎖，解鎖後切換免費。'
         panel.style.width = 'min(94vw, 800px)'
         this.promotionPreviewCleanup = appendCareerPromotionCards(panel, () => this.profile, target => this.confirmCareerRoad(target))
       }
