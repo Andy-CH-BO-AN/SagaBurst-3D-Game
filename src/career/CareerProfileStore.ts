@@ -49,7 +49,9 @@ import {
   type LegacyRaceProgress,
 } from './CareerProfile'
 import { getCareerMissionTemplate } from './CareerMissionCatalog'
-import { COMMANDER_FELINE_CAVALRY_KIND, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_FRIENDLY_TOTAL, felineCavalryActorIds, felineVanguardActorId } from './CommanderMissionCatalog'
+import { COMMANDER_FELINE_CAVALRY_KIND, COMMANDER_IRON_LEGION_KIND, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_FRIENDLY_TOTAL, felineCavalryActorIds, felineVanguardActorId } from './CommanderMissionCatalog'
+import { HEAVY_FIELD_KIND, heavyActorIds, heavyNpcGroups, ironLegionEnemyActorIds, ironLegionVanguardActorId, isHeavyFieldMissionId, parseHeavyFieldState } from './HeavyCavalryMissions'
+import { careerHeavyFieldMissionRankOk } from './HeavyFieldMission'
 import { BRIDGEHEAD_PREPARATION_SECONDS, type ActiveCareerMission, type CareerMissionPhase, type CommanderMissionState, type VeteranOutpostBattleState } from './CareerMissionState'
 import { CAREER_DUEL_TEMPLATE_ID, DUEL_COUNTDOWN_SECONDS, DUEL_COMBAT_SECONDS, isCareerDuelPresetId, isCareerDuelTier, parseCareerDuelCommanderHome, parseCareerDuelTravelCheckpoint } from './CareerDuelState'
 
@@ -252,20 +254,26 @@ function parseVeteranOutpostBattleState(value: unknown): VeteranOutpostBattleSta
   }
 }
 
-function parseCommanderMissionState(value: unknown, expectedKind: ActiveCareerMission['kind']): CommanderMissionState | undefined {
+function parseCommanderMissionState(value: unknown, expectedKind: ActiveCareerMission['kind'], templateId?: string): CommanderMissionState | undefined {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Record<string, unknown>
+  if (expectedKind === HEAVY_FIELD_KIND) {
+    const heavyField = templateId && isHeavyFieldMissionId(templateId) ? parseHeavyFieldState(raw.heavyField, templateId) : undefined
+    const position = raw.playerPosition as Record<string, unknown> | undefined
+    return raw.version === 1 && raw.kind === HEAVY_FIELD_KIND && heavyField ? { version: 1, kind: HEAVY_FIELD_KIND, deploymentComplete: raw.deploymentComplete === true, heavyField,
+      ...(position && [position.x, position.z, position.yaw].every(n => typeof n === 'number' && Number.isFinite(n)) ? { playerPosition: { x: position.x as number, z: position.z as number, yaw: position.yaw as number } } : {}) } : undefined
+  }
   if (raw.version !== 1 || raw.kind !== expectedKind
     || expectedKind === 'commander-four-gate-defense' && typeof raw.deploymentComplete !== 'boolean'
-    || !['commander-sky-raid', 'commander-decapitation', 'commander-outpost-last-stand', 'commander-bridgehead-battle', 'commander-four-gate-defense', COMMANDER_FELINE_CAVALRY_KIND].includes(raw.kind as string)
-    || raw.kind === COMMANDER_FELINE_CAVALRY_KIND && (typeof raw.felineVanguardActorId !== 'string' || !raw.felineVanguardActorId)) return undefined
+    || !['commander-sky-raid', 'commander-decapitation', 'commander-outpost-last-stand', 'commander-bridgehead-battle', 'commander-four-gate-defense', COMMANDER_FELINE_CAVALRY_KIND, COMMANDER_IRON_LEGION_KIND].includes(raw.kind as string)
+    || (raw.kind === COMMANDER_FELINE_CAVALRY_KIND || raw.kind === COMMANDER_IRON_LEGION_KIND) && (typeof raw.felineVanguardActorId !== 'string' || !raw.felineVanguardActorId)) return undefined
   const position = raw.playerPosition as Record<string, unknown> | undefined
   const playerPosition = position && typeof position.x === 'number' && Number.isFinite(position.x)
     && typeof position.z === 'number' && Number.isFinite(position.z)
     && typeof position.yaw === 'number' && Number.isFinite(position.yaw)
     ? { x: position.x, z: position.z, yaw: position.yaw } : undefined
   return { version: 1, kind: raw.kind as CommanderMissionState['kind'], deploymentComplete: raw.deploymentComplete === true,
-    ...(raw.kind === COMMANDER_FELINE_CAVALRY_KIND ? { felineVanguardActorId: raw.felineVanguardActorId as string,
+    ...(raw.kind === COMMANDER_FELINE_CAVALRY_KIND || raw.kind === COMMANDER_IRON_LEGION_KIND ? { felineVanguardActorId: raw.felineVanguardActorId as string,
       felineChargeTriggered: raw.felineChargeTriggered === true } : {}),
     ...(playerPosition ? { playerPosition } : {}) }
 }
@@ -322,10 +330,11 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
   const outpostMission = template?.kind === 'veteran-outpost-defense' || template?.kind === 'veteran-outpost-assault' || template?.kind === 'captain-outpost-defense'
   const captainStandalone = template?.kind === 'captain-patrol-command' || template?.kind === 'captain-eagle-battle'
   const commanderMission = Boolean(template?.id.startsWith('commander-'))
+  const heavyMission = template?.kind === HEAVY_FIELD_KIND
   if (
     typeof raw.id !== 'string' || !raw.id
     || (!template && !duel)
-    || !Number.isInteger(raw.targetCampId) || ((duel || template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault' || outpostMission || captainStandalone || commanderMission)
+    || !Number.isInteger(raw.targetCampId) || ((duel || template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault' || outpostMission || captainStandalone || commanderMission || heavyMission)
       ? raw.targetCampId !== -1
       : (raw.targetCampId as number) < 0 || (raw.targetCampId as number) > 4)
     || !MISSION_PHASES.includes(raw.phase as CareerMissionPhase) || raw.phase === 'SPAWNING' && !fourGateMission
@@ -347,8 +356,9 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
   const outpostBattleState = parseVeteranOutpostBattleState(raw.outpostBattleState)
   const outpostSiege = parseCampaignSiegeCheckpoint(raw.outpostSiege)
   if (raw.outpostSiege !== undefined && !outpostSiege) return undefined
-  const commanderState = parseCommanderMissionState(raw.commanderMission, template?.kind)
+  const commanderState = parseCommanderMissionState(raw.commanderMission, template?.kind, template?.id)
   if (commanderMission && (!commanderState || rank !== 'commander')) return undefined
+  if (heavyMission && (!commanderState || !careerHeavyFieldMissionRankOk({ rank }, template!.id))) return undefined
   const officialSquad = parseOfficialCommandAuthority(raw.officialSquad)
   const acceptedOfficialSquad = officialSquad?.type === 'mission-official' && officialSquad.missionId === raw.id
     && officialSquad.townFaction === faction
@@ -361,13 +371,13 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     const nativeActorIds = nativeSquads.flatMap(squad => squad.actorIds)
     const expectedFriendly = fourGateMission ? nativeActorIds.length : template?.kind === 'commander-sky-raid' ? 50
       : template?.kind === 'commander-decapitation' ? 30 : template?.kind === 'commander-bridgehead-battle' ? BRIDGEHEAD_FRIENDLIES
-      : template?.kind === COMMANDER_FELINE_CAVALRY_KIND ? FELINE_FRIENDLY_TOTAL : 120
+      : template?.kind === COMMANDER_FELINE_CAVALRY_KIND || template?.kind === COMMANDER_IRON_LEGION_KIND ? FELINE_FRIENDLY_TOTAL : 120
     const exactTargets = fourGateMission ? new Set(commanderFourGateDefenseActorIds(raw.id)) : undefined
     const validTargets = exactTargets ? targetActorIds.length === exactTargets.size && targetActorIds.every(id => exactTargets.has(id))
       : template?.kind === 'commander-sky-raid' ? targetActorIds.length >= 100
       : template?.kind === 'commander-decapitation' ? targetActorIds.length === 1 && targetActorIds[0] === 'commander'
       : template?.kind === 'commander-bridgehead-battle' ? isBridgeheadEnemyCount(targetActorIds.length)
-      : template?.kind === COMMANDER_FELINE_CAVALRY_KIND ? targetActorIds.length === FELINE_ENEMY_TOTAL : targetActorIds.length === 100
+      : template?.kind === COMMANDER_FELINE_CAVALRY_KIND || template?.kind === COMMANDER_IRON_LEGION_KIND ? targetActorIds.length === FELINE_ENEMY_TOTAL : targetActorIds.length === 100
     if (!acceptedOfficialSquad || acceptedOfficialSquad.commandRank !== 'commander'
       || friendlyActorIds.length !== expectedFriendly || acceptedOfficialSquad.actorIds.length !== expectedFriendly
       || !friendlyActorIds.every(id => acceptedOfficialSquad.actorIds.includes(id)) || !validTargets) return undefined
@@ -414,12 +424,12 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
         && bridgeBattle.actors[bridgeBattle.player.mountActorId]?.mount
         || personalSquad?.memberIds.includes(bridgeBattle.player.mountActorId)
           && personalSquad.members[bridgeBattle.player.mountActorId]?.mount)))) return undefined
-  const expectedFelineFriendly = template?.kind === COMMANDER_FELINE_CAVALRY_KIND
-    ? felineCavalryActorIds(raw.id as string, 'friendly') : []
-  const expectedFelineEnemies = template?.kind === COMMANDER_FELINE_CAVALRY_KIND
-    ? felineCavalryActorIds(raw.id as string, 'enemy') : []
-  if (template?.kind === COMMANDER_FELINE_CAVALRY_KIND && (
-    commanderState?.felineVanguardActorId !== felineVanguardActorId(raw.id as string)
+  const felineFamily = template?.kind === COMMANDER_FELINE_CAVALRY_KIND || template?.kind === COMMANDER_IRON_LEGION_KIND
+  const ironLegion = template?.kind === COMMANDER_IRON_LEGION_KIND
+  const expectedFelineFriendly = felineFamily ? felineCavalryActorIds(raw.id as string, 'friendly') : []
+  const expectedFelineEnemies = !felineFamily ? [] : ironLegion ? ironLegionEnemyActorIds(raw.id as string) : felineCavalryActorIds(raw.id as string, 'enemy')
+  if (felineFamily && (
+    commanderState?.felineVanguardActorId !== (ironLegion ? ironLegionVanguardActorId(raw.id as string) : felineVanguardActorId(raw.id as string))
     || !targetActorIds.includes(commanderState?.felineVanguardActorId ?? '')
     || friendlyActorIds.some((id, index) => id !== expectedFelineFriendly[index])
     || targetActorIds.some((id, index) => id !== expectedFelineEnemies[index])
@@ -436,6 +446,20 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
         && felineBattle.actors[felineBattle.player.mountActorId]?.mount
         || personalSquad?.memberIds.includes(felineBattle.player.mountActorId)
           && personalSquad.members[felineBattle.player.mountActorId]?.mount)))) return undefined
+  if (heavyMission) {
+    const templateId = template!.id as Parameters<typeof heavyNpcGroups>[0]
+    const expectedFriendly = heavyActorIds(raw.id as string, 'friendly', heavyNpcGroups(templateId, 'friendly'))
+    const expectedEnemies = heavyActorIds(raw.id as string, 'enemy', heavyNpcGroups(templateId, 'enemy'))
+    const commandsSquad = rank === 'captain' || rank === 'commander'
+    if (friendlyActorIds.length !== expectedFriendly.length || targetActorIds.length !== expectedEnemies.length
+      || friendlyActorIds.some((id, index) => id !== expectedFriendly[index]) || targetActorIds.some((id, index) => id !== expectedEnemies[index])
+      || commandsSquad !== Boolean(acceptedOfficialSquad)
+      || raw.personalSquad !== undefined && !personalSquad
+      || personalSquad?.memberIds.some(id => knownActorIds.has(id))
+      || raw.felineBattle !== undefined && !felineBattle
+      || felineBattle && (Object.keys(felineBattle.actors).length !== friendlyActorIds.length + targetActorIds.length
+        || Object.keys(felineBattle.actors).some(id => !knownActorIds.has(id)))) return undefined
+  }
   const marchPosition = raw.mountedMarchPosition as { x?: unknown; z?: unknown } | undefined
   const mountedMarchPosition = marchPosition && typeof marchPosition.x === 'number' && Number.isFinite(marchPosition.x)
     && typeof marchPosition.z === 'number' && Number.isFinite(marchPosition.z) ? { x: marchPosition.x, z: marchPosition.z } : undefined
@@ -456,7 +480,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     } : {}),
     ...(battle && template?.kind === 'captain-outpost-defense' ? { battle } : {}),
     ...(bridgeBattle && template?.kind === 'commander-bridgehead-battle' ? { bridgeBattle } : {}),
-    ...(felineBattle && template?.kind === COMMANDER_FELINE_CAVALRY_KIND ? { felineBattle } : {}),
+    ...(felineBattle && (felineFamily || heavyMission) ? { felineBattle } : {}),
     ...(bridgeDeployment && template?.kind === 'commander-bridgehead-battle' ? { bridgeDeployment } : {}),
     ...(eagleBattle && template?.kind === 'captain-eagle-battle' ? { eagleBattle } : {}),
     templateId: duel ? CAREER_DUEL_TEMPLATE_ID : template!.id,

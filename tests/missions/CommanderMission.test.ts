@@ -4,7 +4,7 @@ import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { officialActorSquadId, officialCommandAcceptsActor } from '../../src/career/CareerCommandAuthority'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
-import { acceptCommanderMission, availableCommanderMissions, COMMANDER_DECAPITATION_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_FORMER_COMMANDER_SLOT, COMMANDER_LAST_STAND_ID, COMMANDER_SKY_RAID_ID, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_T4_MOUNTS, FELINE_T5_MOUNTS, FELINE_VANGUARD_ADVANCE_METERS, recordCommanderObjectiveDeath } from '../../src/career/CommanderMissionCatalog'
+import { acceptCommanderMission, availableCommanderMissions, COMMANDER_MISSION_CATALOG, COMMANDER_DECAPITATION_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_IRON_LEGION_ID, COMMANDER_FORMER_COMMANDER_SLOT, COMMANDER_LAST_STAND_ID, COMMANDER_SKY_RAID_ID, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_T4_MOUNTS, FELINE_T5_MOUNTS, FELINE_VANGUARD_ADVANCE_METERS, recordCommanderObjectiveDeath } from '../../src/career/CommanderMissionCatalog'
 import { remainingCommanderAttackers } from '../../src/career/CommanderOutpost'
 import { CombatEventStream, type CombatActorRef, type CombatEvent } from '../../src/combat/CombatAttribution'
 import { CommanderTownMissionController } from '../../src/career/CommanderTownMissionController'
@@ -71,7 +71,7 @@ describe('Commander mission board policy', () => {
     expect(claimCareerMission(first.profile, missionId, 'victory', { ...stats, damageDealt: 999 }).alreadyClaimed).toBe(true)
 
     const returned = clearCareerMission(first.profile, missionId)
-    expect(availableCommanderMissions(returned)).toHaveLength(6)
+    expect(availableCommanderMissions(returned)).toHaveLength(COMMANDER_MISSION_CATALOG.length)
   })
 
   it('holds the full preparation time until native deployment is ready and records spawn intent once before creating enemies', () => {
@@ -947,5 +947,34 @@ describe('Bridgehead reload routing', () => {
     expect(returned.totalMerit).toBe(claimed.totalMerit)
     expect(returned.careerMissionCompletionsByTier?.[5]).toBe(1)
     expect(returned.claimedBattleIds.filter(battleId => battleId === id)).toHaveLength(1)
+  })
+})
+
+
+describe('Commander VII Iron Legion', () => {
+  it.each([['roman', 'viking'], ['viking', 'roman']] as const)('%s 玩家面對 300 名 %s 重騎兵，六貓軍團全員保留弓箭且 Commander VI 不變', (faction, enemyFaction) => {
+    const mission = accepted(COMMANDER_IRON_LEGION_ID, faction).activeMission!
+    const plan = createCareerFelineSpawnPlan(accepted(COMMANDER_IRON_LEGION_ID, faction))
+    const enemy = plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY), friendly = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
+    expect(mission.kind).toBe('commander-iron-legion')
+    expect(enemy).toHaveLength(300)
+    expect(enemy.every(spec => spec.presetId === `${enemyFaction}_heavy_cavalry` && spec.cavalry && spec.loadout?.mountId === (enemyFaction === 'roman' ? 'armored-horse' : 'snow-leopard'))).toBe(true)
+    expect(enemy.filter(spec => spec.characterTier === 4)).toHaveLength(210)
+    expect(enemy.filter(spec => spec.characterTier === 5)).toHaveLength(90)
+    expect(friendly).toHaveLength(FELINE_FRIENDLY_TOTAL)
+    expect(friendly.every(spec => Boolean(spec.loadout?.rangedWeaponId))).toBe(true)
+    expect(mission.officialSquad?.squads?.map(squad => squad.actorIds.length)).toEqual([...FELINE_FRIENDLY_SQUAD_SIZES])
+    expect(plan.npcSpecs.find(spec => spec.actorId === mission.commanderMission?.felineVanguardActorId)?.characterTier).toBe(5)
+    const six = createCareerFelineSpawnPlan(accepted(COMMANDER_FELINE_CAVALRY_ID, faction)).npcSpecs.filter(spec => spec.faction === Faction.ENEMY)
+    expect(six.every(spec => !spec.presetId?.endsWith('_heavy_cavalry'))).toBe(true)
+  })
+
+  it('存檔往返保留 Commander VII 身分、先鋒與已觸發的 Charge', () => {
+    const profile = accepted(COMMANDER_IRON_LEGION_ID)
+    profile.activeMission!.commanderMission!.felineChargeTriggered = true
+    const restored = parseCareerProfile(JSON.parse(JSON.stringify(profile)))
+    expect(restored?.activeMission?.templateId).toBe(COMMANDER_IRON_LEGION_ID)
+    expect(restored?.activeMission?.commanderMission?.felineChargeTriggered).toBe(true)
+    expect(restored?.activeMission?.targetActorIds).toHaveLength(300)
   })
 })

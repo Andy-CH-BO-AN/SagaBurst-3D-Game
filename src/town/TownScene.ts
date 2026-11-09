@@ -17,7 +17,8 @@ import { MOUNTED_RACES, raceDefinitionForSchedule, raceStageOpponentLabel, type 
 import { RACE_LINES } from '../career/CareerRaceRoute'
 import { CareerCommandHudTypes } from '../career/CareerCommandHudTypes'
 import { createCareerBridgeBattleLaunch, createCareerFelineBattleLaunch } from '../career/CareerBridgeBattle'
-import { COMMANDER_BRIDGEHEAD_ID, COMMANDER_FELINE_CAVALRY_ID } from '../career/CommanderMissionCatalog'
+import { HEAVY_FIELD_MISSION_CATALOG, acceptHeavyFieldMission, createCareerHeavyBattleLaunch, getHeavyFieldMissionAvailability, getHeavyFieldMissionDefinition } from '../career/HeavyFieldMission'
+import { COMMANDER_BRIDGEHEAD_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_IRON_LEGION_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { prepareByzantineEquipment, preloadHighTierEquipment } from '../world/HighTierEquipment'
@@ -1974,6 +1975,7 @@ export class TownScene {
       accept.onclick = () => this.acceptVeteranCareerMission(definition.id)
       row.append(title, details, accept); panel.append(row)
     }
+    this.appendHeavyFieldRows(panel, 'veteran')
     const homeDefenseTemplate = careerMissionTemplatesForPage(this.profile, 'veteran')
       .find(template => template.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)
     if (!homeDefenseTemplate || homeDefenseTemplate.kind !== 'town-defense') return
@@ -2014,6 +2016,7 @@ export class TownScene {
       accept.onclick = () => this.acceptCaptainMission(definition.id)
       row.append(title, details, accept); panel.append(row)
     }
+    this.appendHeavyFieldRows(panel, 'captain')
   }
   private openCommanderMissionPage(panel: HTMLElement): void {
     for (const definition of COMMANDER_MISSION_CATALOG) {
@@ -2027,6 +2030,7 @@ export class TownScene {
           ? '正式兵力：玩家 1 人 + 前任 T5 Commander + 10 T4 Lancer + 10 T4 Sword/Axe Cavalry + 9 T4 Horse Archer（全員騎乘）；敵方：敵城全體，斬首目標為 T5 Commander 1 人。'
           : definition.id === 'commander-four-gate-defense' ? '守衛所屬城鎮：原生八隊城防部隊與最多30名 HR 私兵。敵軍230人、八台攻城車、30隻巨鷹；守方準備180秒後，敵軍才從邊境抵達，四門同時進攻。'
           : definition.id === COMMANDER_BRIDGEHEAD_ID ? '正式兵力：玩家1人 + 八隊各25名步兵；敵方八隊各25名騎兵。雙方各192 T3 + 8 T4。現有 HR 私兵最多額外30人，沿用原裝備與坐騎。'
+          : definition.id === COMMANDER_IRON_LEGION_ID ? '正式兵力：玩家1人 + 200名六貓騎兵（T4 180 + T5 20，全員配備弓箭）；敵軍300名重騎兵（T4 210 + T5 90，槍盾具裝戰馬／雪豹）。可額外攜帶最多30名HR私兵。'
           : definition.id === COMMANDER_FELINE_CAVALRY_ID ? '正式兵力：玩家1人 + 200名六貓騎兵（T4 180 + T5 20）；敵軍300名戰馬騎兵（T4 210 + T5 90）。可額外攜帶最多30名HR私兵，保留自有裝備與坐騎。'
           : '正式兵力：玩家 1 人 + 4 支 30 人步兵隊；敵軍：48 T3 + 2 T4 Lancer、24 T3 + 1 T4 Sword/Axe Cavalry、24 T3 + 1 T4 Horse Archer。60 秒部署。'
       const survival = '玩家戰死後可觀戰；官方部隊或已部署私兵存活時戰鬥繼續。'
@@ -2050,7 +2054,7 @@ export class TownScene {
       const launch = createCareerBridgeBattleLaunch(this.profile)
       this.dispose(true); this.onCampaign(launch); return
     }
-    if (templateId === COMMANDER_FELINE_CAVALRY_ID) {
+    if (templateId === COMMANDER_FELINE_CAVALRY_ID || templateId === COMMANDER_IRON_LEGION_ID) {
       const launch = createCareerFelineBattleLaunch(this.profile)
       this.dispose(true); this.onCampaign(launch); return
     }
@@ -2059,6 +2063,32 @@ export class TownScene {
       this.dispose(true); this.onCampaign(launch); return
     }
     this.dispose(); this.onRestart(this.profile)
+  }
+  /** Soldier / Veteran / Captain heavy-cavalry battles launch straight into the shared open-field runtime. */
+  private acceptHeavyFieldCareerMission(templateId: string): void {
+    if (this.player.dead || !this.serviceAvailable('deployment')) return
+    const fresh = this.store.loadChecked().profile
+    if (!fresh || !getHeavyFieldMissionDefinition(templateId) || this.event.hostile) return
+    const availability = getHeavyFieldMissionAvailability(fresh, templateId)
+    if (!availability.unlocked) { this.openPanel('無法接受任務', availability.reason ?? '目前無法接受。'); return }
+    const next = acceptHeavyFieldMission(fresh, templateId)
+    if (!next || !this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始，請重試。'); return }
+    const launch = createCareerHeavyBattleLaunch(this.profile)
+    this.dispose(true); this.onCampaign(launch)
+  }
+  private appendHeavyFieldRows(panel: HTMLElement, minRank: 'soldier' | 'veteran' | 'captain'): void {
+    for (const definition of HEAVY_FIELD_MISSION_CATALOG.filter(entry => entry.minRank === minRank)) {
+      const availability = getHeavyFieldMissionAvailability(this.profile, definition.id)
+      const row = document.createElement('article'); row.className = 'town-product'
+      const title = document.createElement('strong'); title.textContent = definition.name
+      const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
+      details.textContent = `${definition.briefing}\n友軍 ${definition.friendlyCombatants} 人（含玩家） · 敵軍 ${definition.enemyCombatants} 人 · ${CAREER_RANKS.indexOf(this.profile.rank) >= CAREER_RANKS.indexOf('captain') ? '可帶私兵並下令' : '老兵／士兵無指揮權'} · 風險 ${definition.risk}`
+      const accept = document.createElement('button'); accept.className = 'town-button'
+      accept.textContent = availability.unlocked ? '接受任務' : availability.reason ?? '尚未解鎖'
+      accept.disabled = !availability.unlocked
+      accept.onclick = () => this.acceptHeavyFieldCareerMission(definition.id)
+      row.append(title, details, accept); panel.append(row)
+    }
   }
   private acceptCaptainMission(templateId: string): void {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
@@ -2617,6 +2647,7 @@ export class TownScene {
   }
   private acceptMission(templateId: string): void {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
+    if (getHeavyFieldMissionDefinition(templateId)) { this.acceptHeavyFieldCareerMission(templateId); return }
     if (getCaptainMissionDefinition(templateId)) { this.acceptCaptainMission(templateId); return }
     if (getVeteranMissionDefinition(templateId)) { this.acceptVeteranCareerMission(templateId); return }
     const fresh = this.store.load()

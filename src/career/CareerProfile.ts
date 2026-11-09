@@ -355,7 +355,7 @@ export function claimCareerMission(
 
   const contribution = { ...meritStats, damageTaken: stats.damageTaken, survived: stats.survived }
   const offense = active.kind === 'enemy-town-assault' || active.kind === 'cavalry-sweep' || active.kind === 'veteran-outpost-assault' || active.kind === 'captain-eagle-battle'
-    || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation' || active.kind === 'commander-six-feline-cavalry'
+    || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation' || active.kind === 'commander-six-feline-cavalry' || active.kind === 'commander-iron-legion' || active.kind === 'heavy-cavalry-field'
     ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense', 'mission') : null
   const defense = active.kind === 'captain-outpost-defense' || active.kind === 'commander-outpost-last-stand' || active.kind === 'commander-bridgehead-battle'
     || active.kind === 'commander-four-gate-defense'

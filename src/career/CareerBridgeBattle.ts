@@ -6,6 +6,8 @@ import {
   COMMANDER_BRIDGEHEAD_ID,
   COMMANDER_FELINE_CAVALRY_ID,
   COMMANDER_FELINE_CAVALRY_KIND,
+  COMMANDER_IRON_LEGION_ID,
+  COMMANDER_IRON_LEGION_KIND,
   FELINE_ENEMY_GROUPS,
   FELINE_ENEMY_TOTAL,
   FELINE_FRIENDLY_GROUPS,
@@ -15,6 +17,10 @@ import {
   createBridgeheadRoster,
   type FelineCavalryRole,
 } from './CommanderMissionCatalog'
+import { IRON_LEGION_ENEMY_GROUPS } from './HeavyCavalryMissions'
+import { heavyUnitSpec } from './HeavyCavalrySpawn'
+import { createCareerHeavyBattleLaunch, createCareerHeavySpawnPlan, isCareerHeavyFieldBattle } from './HeavyFieldMission'
+import { heavyTacticalOrder } from './HeavyCavalryMissions'
 import { careerCombatPlayerLoadout } from './CaptainBattleLaunch'
 import { resolveCareerHeroAsset } from './CareerPlayerProfile'
 import { claimCareerMission, clearCareerMission, type CareerProfile } from './CareerProfile'
@@ -510,15 +516,36 @@ function positionFelineSquadBlocks(specs: NpcSpawnSpec[], squadSizes: readonly n
   }
 }
 
-export function isCareerFelineBattle(mission: ActiveCareerMission | undefined): mission is ActiveCareerMission & {
-  templateId: typeof COMMANDER_FELINE_CAVALRY_ID
-  kind: typeof COMMANDER_FELINE_CAVALRY_KIND
-} {
+/**
+ * The open-field battle runtime: Commander VI / VII (six-cat army, vanguard charge) and the
+ * Soldier / Veteran / Captain heavy-cavalry battles (state-machine triggers) share it.
+ */
+export function isCareerFelineBattle(mission: ActiveCareerMission | undefined): mission is ActiveCareerMission & { readonly openFieldBattle?: true } {
   return careerFieldMissionMatches(mission, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_FELINE_CAVALRY_KIND)
+    || careerFieldMissionMatches(mission, COMMANDER_IRON_LEGION_ID, COMMANDER_IRON_LEGION_KIND)
+    || isCareerHeavyFieldBattle(mission)
+}
+
+/** Initial / restored order of one NPC of a field battle; the Reload path uses the same rule. */
+export function careerFieldTacticalOrder(mission: ActiveCareerMission, faction: Faction): TacticalOrder {
+  const heavy = mission.commanderMission?.heavyField
+  if (isCareerHeavyFieldBattle(mission) && heavy) return heavyTacticalOrder(mission.templateId, faction === Faction.PLAYER ? 'friendly' : 'enemy', heavy)
+  return felineInitialTacticalOrder(faction, mission.commanderMission?.felineChargeTriggered === true)
+}
+
+/** Commander VII: the enemy army is 300 formal heavy cavalry (T4 210 + T5 90). */
+function expandIronLegionEnemy(mission: ActiveCareerMission, faction: CareerProfile['faction']): NpcSpawnSpec[] {
+  let offset = 0
+  return IRON_LEGION_ENEMY_GROUPS.flatMap(group => Array.from({ length: group.count }, () => {
+    const actorId = mission.targetActorIds[offset++]
+    if (!actorId) throw new Error('Iron Legion roster identity mismatch')
+    return heavyUnitSpec(actorId, faction, Faction.ENEMY, group.role, group.tier)
+  }))
 }
 
 export function createCareerFelineBattleLaunch(profile: CareerProfile): CareerFelineBattleLaunch {
   const mission = profile.activeMission
+  if (isCareerHeavyFieldBattle(mission)) return createCareerHeavyBattleLaunch(profile)
   if (!isCareerFelineBattle(mission) || profile.rank !== 'commander'
     || mission.friendlyActorIds.length !== FELINE_FRIENDLY_TOTAL || mission.targetActorIds.length !== FELINE_ENEMY_TOTAL
     || mission.officialSquad?.commandRank !== 'commander' || mission.officialSquad.missionId !== mission.id) {
@@ -535,17 +562,19 @@ export function createCareerFelineBattleLaunch(profile: CareerProfile): CareerFe
 export function createCareerFelineSpawnPlan(profile: CareerProfile): BattleSpawnPlan {
   createCareerFelineBattleLaunch(profile)
   const mission = profile.activeMission!
+  if (isCareerHeavyFieldBattle(mission)) return createCareerHeavySpawnPlan(profile)
   const enemyFaction = profile.faction === 'roman' ? 'viking' : 'roman'
   const template = createFelineFormationPlan(profile.faction)
   const friendly = expandFelineSide(mission, template, profile.faction, true)
-  const enemy = expandFelineSide(mission, template, enemyFaction, false)
+  const enemy = mission.templateId === COMMANDER_IRON_LEGION_ID
+    ? expandIronLegionEnemy(mission, enemyFaction) : expandFelineSide(mission, template, enemyFaction, false)
   // Friendly units deploy in tactical order; enemy units retain existing blocks and vanguard.
   positionFelineFriendlyTacticalFormation(friendly, profile.faction)
   const enemySquadSizes = Array.from({ length: Math.ceil(enemy.length / MAX_COMMAND_SQUAD_SIZE) },
     (_, index) => Math.min(MAX_COMMAND_SQUAD_SIZE, enemy.length - index * MAX_COMMAND_SQUAD_SIZE))
   positionFelineSquadBlocks(enemy, enemySquadSizes, enemyFaction)
   const vanguard = enemy.find(spec => spec.actorId === mission.commanderMission?.felineVanguardActorId)
-  if (!vanguard || vanguard.characterTier !== 5 || !vanguard.presetId?.endsWith('_lancer')) {
+  if (!vanguard || vanguard.characterTier !== 5 || !(vanguard.presetId?.endsWith('_lancer') || vanguard.presetId?.endsWith('_heavy_cavalry'))) {
     throw new Error('Six Feline Cavalry vanguard identity is invalid')
   }
   const mainEnemy = enemy.filter(spec => spec !== vanguard)

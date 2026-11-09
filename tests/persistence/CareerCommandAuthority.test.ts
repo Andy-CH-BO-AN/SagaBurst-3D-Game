@@ -268,10 +268,10 @@ describe('Commander saved command grant', () => {
     expect(officialCommandIsPlayerControlled(staged.activeMission!.officialSquad!, 'south')).toBe(true)
   })
 
-  it('accepts eight 30-member data groups and rejects a 31st member in one group', () => {
-    const squads = Array.from({ length: 8 }, (_, i) => ({ squadId: i + 1, actorIds: Array.from({ length: 30 }, (_, j) => `${i}:${j}`) }))
+  it('accepts ten 50-member data groups (custom-battle limit) and rejects a 51st member in one group', () => {
+    const squads = Array.from({ length: 10 }, (_, i) => ({ squadId: i + 1, actorIds: Array.from({ length: 50 }, (_, j) => `${i}:${j}`) }))
     const raw = { ...commanderAuthority(), squads, actorIds: squads.flatMap(squad => squad.actorIds) }
-    expect(parseOfficialCommandAuthority(raw)?.actorIds).toHaveLength(240)
+    expect(parseOfficialCommandAuthority(raw)?.actorIds).toHaveLength(500)
     squads[0].actorIds.push(squads[1].actorIds.pop()!)
     expect(parseOfficialCommandAuthority(raw)).toBeUndefined()
   })

@@ -5,5 +5,5 @@ export function careerMissionTierForTemplateId(templateId: string): CareerMissio
   if (templateId.startsWith('commander-')) return 5
   if (templateId.startsWith('captain-')) return 4
   if (templateId.startsWith('veteran-')) return 3
-  return templateId === 'career-enemy-town-assault' ? 2 : 1
+  return templateId === 'career-enemy-town-assault' || templateId.startsWith('soldier-') ? 2 : 1
 }

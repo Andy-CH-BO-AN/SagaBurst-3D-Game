@@ -3,6 +3,8 @@ import { BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_FRIENDLY_SQUADS, 
 import { commanderGateDefenseSlots } from './CommanderTownRoster'
 import { COMMANDER_FOUR_GATE_DEFENSE_ID, COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, commanderFourGateDefenseActorIds } from './CommanderFourGateDefenseRoster'
 import { createCommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
+import { COMMANDER_IRON_LEGION_ID, COMMANDER_IRON_LEGION_KIND, ironLegionEnemyActorIds, ironLegionVanguardActorId } from './HeavyCavalryMissions'
+export { COMMANDER_IRON_LEGION_ID, COMMANDER_IRON_LEGION_KIND } from './HeavyCavalryMissions'
 export { COMMANDER_FOUR_GATE_DEFENSE_ID } from './CommanderFourGateDefenseRoster'
 import { planNorthBankInfantryDeployment, planSouthBankCavalryStaging } from '../world/RiverCrossingBattlefield'
 import { careerCommanderLoadout } from './CareerCommanderEquipment'
@@ -49,6 +51,7 @@ export const FELINE_ENEMY_GROUPS: readonly FelineCavalryGroup[] = [
   { role: 'horse_archer', tier: 4, count: 70 },
   { role: 'horse_archer', tier: 5, count: 30 },
 ]
+export const IRON_LEGION_ENEMY_TOTAL = 300
 export const FELINE_FRIENDLY_TOTAL = FELINE_FRIENDLY_GROUPS.reduce((sum, group) => sum + group.count, 0)
 export const FELINE_ENEMY_TOTAL = FELINE_ENEMY_GROUPS.reduce((sum, group) => sum + group.count, 0)
 export const FELINE_FRIENDLY_SQUAD_SIZES = [30, 30, 30, 30, 30, 30, 20] as const
@@ -77,8 +80,8 @@ export const COMMANDER_LAST_STAND_ENEMIES = 100
 export const COMMANDER_FORMER_COMMANDER_SLOT = 'former-commander'
 
 export interface CommanderMissionDefinition {
-  id: typeof COMMANDER_SKY_RAID_ID | typeof COMMANDER_DECAPITATION_ID | typeof COMMANDER_LAST_STAND_ID | typeof COMMANDER_BRIDGEHEAD_ID | typeof COMMANDER_FOUR_GATE_DEFENSE_ID | typeof COMMANDER_FELINE_CAVALRY_ID
-  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle' | 'commander-four-gate-defense' | 'commander-six-feline-cavalry'>
+  id: typeof COMMANDER_SKY_RAID_ID | typeof COMMANDER_DECAPITATION_ID | typeof COMMANDER_LAST_STAND_ID | typeof COMMANDER_BRIDGEHEAD_ID | typeof COMMANDER_FOUR_GATE_DEFENSE_ID | typeof COMMANDER_FELINE_CAVALRY_ID | typeof COMMANDER_IRON_LEGION_ID
+  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle' | 'commander-four-gate-defense' | 'commander-six-feline-cavalry' | 'commander-iron-legion'>
   name: string
   briefing: string
   friendlyCombatants: number
@@ -116,6 +119,8 @@ export const COMMANDER_MISSION_CATALOG: readonly CommanderMissionDefinition[] = 
     commanderGateDefenseSlots().flatMap(squad => squad.actorIds).length + TOWN_AUTONOMOUS_GUARD_IDS.length + 1, COMMANDER_FOUR_GATE_DEFENSE_ENEMIES),
   entry(COMMANDER_FELINE_CAVALRY_ID, 'commander-six-feline-cavalry', 'Commander VI · Six Feline Cavalry · 六貓騎兵團',
     `率領${FELINE_FRIENDLY_TOTAL}名六貓騎兵迎戰${FELINE_ENEMY_TOTAL}名傳統戰馬騎兵。敵方T5長槍先鋒一旦受到有效傷害，全軍將立刻發起衝鋒。`, FELINE_FRIENDLY_TOTAL, FELINE_ENEMY_TOTAL),
+  entry(COMMANDER_IRON_LEGION_ID, COMMANDER_IRON_LEGION_KIND, 'Commander VII · Iron Legion · 鐵甲軍團決戰',
+    `率領完整六貓軍團（${FELINE_FRIENDLY_TOTAL}名，全員配備弓箭）迎戰${IRON_LEGION_ENEMY_TOTAL}名重騎兵（T4 210 + T5 90）。敵方T5先鋒一旦受到有效傷害，全軍將立刻發起衝鋒。`, FELINE_FRIENDLY_TOTAL, IRON_LEGION_ENEMY_TOTAL),
 ]
 
 export function getCommanderMissionDefinition(id: string): CommanderMissionDefinition | null {
@@ -211,9 +216,9 @@ export function createCommanderMission(profile: CareerProfile, templateId: strin
     friendlyActorIds = officialIds(id, BRIDGEHEAD_FRIENDLIES, 'infantry')
     targetActorIds = officialIds(id, BRIDGEHEAD_ENEMIES, 'cavalry')
     squads = commandSquads(friendlyActorIds, Array(BRIDGEHEAD_FRIENDLY_SQUADS).fill(BRIDGEHEAD_SQUAD_SIZE))
-  } else if (templateId === COMMANDER_FELINE_CAVALRY_ID) {
+  } else if (templateId === COMMANDER_FELINE_CAVALRY_ID || templateId === COMMANDER_IRON_LEGION_ID) {
     friendlyActorIds = felineCavalryActorIds(id, 'friendly')
-    targetActorIds = felineCavalryActorIds(id, 'enemy')
+    targetActorIds = templateId === COMMANDER_IRON_LEGION_ID ? ironLegionEnemyActorIds(id) : felineCavalryActorIds(id, 'enemy')
     squads = commandSquads(friendlyActorIds, FELINE_FRIENDLY_SQUAD_SIZES)
   } else {
     friendlyActorIds = officialIds(id, COMMANDER_LAST_STAND_FRIENDLIES, 'defender')
@@ -224,7 +229,8 @@ export function createCommanderMission(profile: CareerProfile, templateId: strin
     id, templateId, kind: definition.kind, targetCampId: -1, phase: templateId === COMMANDER_FOUR_GATE_DEFENSE_ID ? 'DEPLOYING' : 'PREPARING',
     targetActorIds, friendlyActorIds, acceptedAt: Date.now(),
     commanderMission: { version: 1, kind: definition.kind, deploymentComplete: false,
-      ...(templateId === COMMANDER_FELINE_CAVALRY_ID ? { felineVanguardActorId: felineVanguardActorId(id), felineChargeTriggered: false } : {}) },
+      ...(templateId === COMMANDER_FELINE_CAVALRY_ID ? { felineVanguardActorId: felineVanguardActorId(id), felineChargeTriggered: false } : {}),
+      ...(templateId === COMMANDER_IRON_LEGION_ID ? { felineVanguardActorId: ironLegionVanguardActorId(id), felineChargeTriggered: false } : {}) },
     ...(templateId === COMMANDER_FOUR_GATE_DEFENSE_ID ? {
       fourGateDefense: createCommanderFourGateDefenseState(),
       civilianActorIds: townRoster().filter(actor => actor.role === 'civilian').map(actor => actor.id),
@@ -242,7 +248,7 @@ export function acceptCommanderMission(profile: CareerProfile, templateId: strin
   const mission = createCommanderMission(profile, templateId, id)
   if (!mission) return null
   const next = cloneCareerProfile(profile)
-  if (mission.kind === 'commander-bridgehead-battle' || mission.kind === 'commander-six-feline-cavalry') mission.officialSquad!.commandedSquadIds = mission.officialSquad!.squads!.map(squad => squad.squadId)
+  if (mission.kind === 'commander-bridgehead-battle' || mission.kind === 'commander-six-feline-cavalry' || mission.kind === 'commander-iron-legion') mission.officialSquad!.commandedSquadIds = mission.officialSquad!.squads!.map(squad => squad.squadId)
   next.activeMission = mission
   return next
 }
