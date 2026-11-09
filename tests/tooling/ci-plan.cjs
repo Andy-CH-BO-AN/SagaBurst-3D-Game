@@ -243,10 +243,21 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   const inventory = await discover()
   const selection = require('./supercov-related.cjs').nativeSelection(inventory, changed, { base, event })
   const expectedCount = selection.selected.reduce((sum, file) => sum + selection.selectedCases[file].length, 0)
-  return validateManifest({
+  return finishRelatedPlan({
     version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
     checkoutSha, changedFiles, changes: changed, inventory, ...selection, expectedCount,
   })
+}
+function publishSummary(plan) {
+  const message = selectionSummary(plan) + '\n'
+  console.log(message)
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+    '\n### Logic test selection\n\n\`\`\`text\n' + message + '\`\`\`\n')
+}
+// An over-limit selection fails, and its breakdown is what tells the author what to split.
+function finishRelatedPlan(plan, publish = publishSummary) {
+  if (plan.expectedCount > MAX_RELATED_CASES) publish(plan)
+  return validateManifest(plan)
 }
 function options(args) {
   const result = {}
@@ -269,13 +280,10 @@ if (require.main === module) (async () => {
   const out = args.out ?? 'output/test-plan.json'
   mkdirSync(dirname(resolve(root, out)), { recursive: true })
   writeFileSync(out, JSON.stringify(plan, null, 2))
-  const message = selectionSummary(plan) + '\n'
-  console.log(message)
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-    '\n### Logic test selection\n\n\`\`\`text\n' + message + '\`\`\`\n')
+  publishSummary(plan)
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
     'has-tests=' + (plan.expectedCount > 0) + '\n')
 })().catch(error => { console.error(error); process.exitCode = 1 })
 module.exports = { createPlan, discover, discoverNode, docsOnly, changes, options,
-  requireRelatedBudget, selectedNames, selectionSummary, validateManifest,
+  finishRelatedPlan, requireRelatedBudget, selectedNames, selectionSummary, validateManifest,
   regularTrackedFile, safeGitignore, safeNewAgentLink, noSeedPolicy, probeSeed }

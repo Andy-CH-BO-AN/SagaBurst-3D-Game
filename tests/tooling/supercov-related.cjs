@@ -12,6 +12,12 @@ const fail = message => { throw new Error('Supercov Related selection unsafe: ' 
 const isTest = path => /^tests\/.*\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)
 const isRuntime = path => /^src\/.*\.[cm]?[jt]sx?$/.test(path)
 const isCss = path => /^src\/ui\/[\w/-]+\.css$/.test(path)
+// The Node contracts exercise CI tooling, release scripts, workflows and Electron
+// helpers, and none of them reads game code. These paths cannot change their result;
+// release notes can, since release tooling reads them.
+const cannotAffectNodeContracts = path => isRuntime(path) || isCss(path) ||
+  (isTest(path) && !path.endsWith('.cjs')) || path.startsWith('tests/helpers/') ||
+  (path.endsWith('.md') && !path.startsWith('docs/releases/'))
 const isSupported = path => isRuntime(path) || isTest(path) || isCss(path) ||
   /^(tests\/(?:tooling|helpers|release)\/|\.github\/workflows\/)/.test(path) ||
   /^(package(?:-lock)?\.json|tsconfig(?:\.[-\w]+)?\.json|vite\.config\.[cm]?[jt]s|vitest\.config\.[cm]?[jt]s)$/.test(path)
@@ -114,9 +120,12 @@ function decodeAffected(response, inventory, changes, expectedRun, baseline = {}
     if (!item) fail('Changed test missing from discovery: ' + file)
     add(item, everyCase(item), 'Directly changed test', 'directTests')
   }
-  // A small fixed set of Node tooling/release contracts, not a second source-to-test selector.
-  for (const item of inventory.filter(item => item.runner === 'node')) {
-    add(item, everyCase(item), 'Fixed Node tooling/release contracts', 'nodeContracts')
+  // A small fixed set of Node tooling/release contracts, all or none: not a second
+  // source-to-test selector. Full always runs them.
+  if (!changes.every(change => cannotAffectNodeContracts(change.file))) {
+    for (const item of inventory.filter(item => item.runner === 'node')) {
+      add(item, everyCase(item), 'Fixed Node tooling/release contracts', 'nodeContracts')
+    }
   }
   for (const file of Object.keys(selectedCases)) selectedCases[file] = [...new Set(selectedCases[file])].sort((a, b) => a - b)
   const added = newRuntimeSources(changes)

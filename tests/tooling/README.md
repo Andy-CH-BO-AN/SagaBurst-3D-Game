@@ -136,13 +136,18 @@ closed.
 
 **Added and modified test files run every case they register now**, directly from
 the PR's discovery. New files are never looked up in the seed.
-A small fixed Node tooling/release suite runs without a second selector.
+A small fixed Node tooling/release suite runs all or none, without a second selector.
+It exercises CI tooling, release scripts, workflows and Electron helpers and reads no
+game code, so a PR changing only `src/**`, non-Node tests, `tests/helpers` and documents
+skips it (release notes under `docs/releases/` do not count as documents here). Every
+other input runs it, and Full always does.
 
     Related = native affected ∪ native undetermined ∪ all cases of added/modified
-              test files ∪ fixed Node contracts
+              test files ∪ fixed Node contracts when their inputs changed
 
 The summary reports each category's runnable cases, the duplicates removed and the
-final unique total; the first four minus duplicates equals the total.
+final unique total; the first four minus duplicates equals the total. A selection over
+the limit prints this too before failing, so it shows what to split.
 
 Related counts are validated in the manifest:
 - 0–100: Excellent
