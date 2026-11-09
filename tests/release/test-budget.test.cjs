@@ -1,6 +1,6 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { validateReports, readReport } = require('../tooling/budget.cjs')
+const { MAX_RELATED_CASES, validateReports, readReport } = require('../tooling/budget.cjs')
 const nodeReporter = require('../tooling/node-budget-reporter.cjs')
 
 const report = (runner, count, ms = 100) => ({ runner, runId: 'current', complete: true, errors: [],
@@ -25,9 +25,11 @@ async function captureReporter(events) {
   }
 }
 
-test('combined leaf budget accepts 500 and rejects 501', () => {
-  assert.equal(validateReports([report('vitest', 480), report('node', 20)]).count, 500)
-  assert.throws(() => validateReports([report('vitest', 481), report('node', 20)]), /501/)
+test('only a caller-supplied limit caps the combined case count', () => {
+  const related = { maxCases: MAX_RELATED_CASES }
+  assert.equal(validateReports([report('vitest', 480), report('node', 20)], related).count, 500)
+  assert.throws(() => validateReports([report('vitest', 481), report('node', 20)], related), /501/)
+  assert.equal(validateReports([report('vitest', 903), report('node', 200)]).count, 1103)
 })
 
 test('inclusive case budget accepts 100ms and rejects any excess with case identity', () => {

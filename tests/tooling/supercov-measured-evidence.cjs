@@ -51,6 +51,40 @@ function validateRunSummary(result, expectedTests) {
     coverageComplete: d.coverage.coverageComplete }
 }
 
+// A seed may only follow a verified normal Full run of this exact commit.
+function requireVerifiedFullPlan(plan, aggregate, sha) {
+  const inventory = plan.inventory.filter(item => item.runner === 'vitest')
+  const fullCount = plan.inventory.reduce((count, item) => count + item.names.length, 0)
+  if (plan.mode !== 'full' || plan.checkoutSha !== sha || plan.headSha !== sha) {
+    fail('Only an exact-SHA verified Full plan can bootstrap evidence')
+  }
+  if (aggregate?.planId !== plan.planId || aggregate.mode !== 'full' ||
+      aggregate.result !== 'passed' || aggregate.count !== fullCount || !inventory.length) {
+    fail('A complete, passing, normal-Vitest Full aggregate must exist before instrumentation')
+  }
+  return inventory
+}
+
+// Vitest's own JSON roster of the instrumented run must list exactly the planned
+// (file, test) identities, every one passed. Supercov only exposes their counts.
+function validateRoster(report, inventory) {
+  const local = file => file.slice(file.lastIndexOf('/tests/') + 1)
+  const measured = (report?.testResults ?? []).flatMap(result =>
+    (result.assertionResults ?? []).map(test => ({ id: JSON.stringify([local(result.name),
+      [...test.ancestorTitles, test.title].join(' ')]), status: test.status })))
+  const planned = inventory.flatMap(item => (item.nativeNames ?? item.names).map(name =>
+    JSON.stringify([item.file, name])))
+  if (report?.success !== true || !measured.length ||
+      measured.some(test => test.status !== 'passed')) {
+    fail('Instrumented roster has failed, skipped or missing tests')
+  }
+  const sorted = list => JSON.stringify([...list].sort())
+  if (sorted(measured.map(test => test.id)) !== sorted(planned)) {
+    fail('Instrumented test identities differ from the Vitest inventory')
+  }
+  return measured.length
+}
+
 function buildSeed({ sha, runId, tests, setups, coverageComplete }) {
   if (!SHA.test(sha || '') || !RUN.test(runId || '') ||
       !Number.isSafeInteger(tests) || tests < 1 ||
@@ -162,11 +196,13 @@ function validateAffectedQuery(result, runId, { tests, setups, pristine = false 
 
 /**
  * Rebuild complete structured identities using Supercov's own documented
- * --test-file <path> --json API. Never infer a file from a test title.
- * Every historical test and setup record must reconcile with the global
- * unfiltered counts. On disagreement we fail rather than under-select.
+ * --test-file <file-or-directory> --json API. Never infer a file from a test
+ * title. The filters only need to span the files with affected tests, so their
+ * affected and undetermined totals must equal the global unfiltered counts: any
+ * identity outside them shows up as a difference and fails rather than
+ * under-selecting.
  */
-function reconcileAffectedFiles(global, fileResults, expectedFiles, runId, baseline = {}) {
+function reconcileAffectedFiles(global, fileResults, filters, runId, baseline = {}) {
   const d = global?.data
   const counts = d?.summary
   if (global?.schemaVersion !== 1 || global.ok !== true ||
@@ -176,22 +212,22 @@ function reconcileAffectedFiles(global, fileResults, expectedFiles, runId, basel
       counts.tests !== counts.affected + counts.undetermined + counts.unaffected) {
     fail('Cannot expand unsafe global native affected summary')
   }
-  if (!Array.isArray(expectedFiles) || !expectedFiles.length ||
-      !Array.isArray(fileResults) || fileResults.length !== expectedFiles.length ||
-      new Set(expectedFiles).size !== expectedFiles.length ||
-      expectedFiles.some(file => !/^tests\/.*\.(test|spec)\.[cm]?[jt]sx?$/.test(file))) {
-    fail('Missing or duplicate Vitest files for exact Supercov expansion')
+  if (!Array.isArray(filters) || !filters.length ||
+      !Array.isArray(fileResults) || fileResults.length !== filters.length ||
+      new Set(filters).size !== filters.length ||
+      filters.some(filter => typeof filter !== 'string' || !/^tests(\/[^/]+)+$/.test(filter))) {
+    fail('Missing or duplicate Vitest filters for exact Supercov expansion')
   }
   const added = { tests: 0, affected: 0, undetermined: 0, unaffected: 0 }
   const affected = [], undetermined = [], seen = new Set()
-  for (let index = 0; index < expectedFiles.length; index++) {
-    const file = expectedFiles[index]
+  for (let index = 0; index < filters.length; index++) {
+    const filter = filters[index]
     const part = fileResults[index]
     const p = part?.data
     const c = p?.summary
     if (part?.schemaVersion !== 1 || part.ok !== true ||
         part.command !== 'runs.tests.affected' || p?.run !== runId ||
-        p.filter !== '--test-file ' + file ||
+        p.filter !== '--test-file ' + filter ||
         !c || !['tests', 'affected', 'undetermined', 'unaffected']
           .every(k => Number.isSafeInteger(c[k]) && c[k] >= 0) ||
         c.tests !== c.affected + c.undetermined + c.unaffected ||
@@ -206,24 +242,24 @@ function reconcileAffectedFiles(global, fileResults, expectedFiles, runId, basel
         p.workingTree?.sourceSetChanged !== d.workingTree?.sourceSetChanged ||
         p.workingTree?.stale !== d.workingTree?.stale ||
         JSON.stringify(p.workingTree?.runWide) !== JSON.stringify(d.workingTree?.runWide)) {
-      fail('Filtered Supercov identities incomplete, truncated or foreign: ' + file)
+      fail('Filtered Supercov identities incomplete, truncated or foreign: ' + filter)
     }
     if (p.affectedCount !== undefined && p.affectedCount !== c.affected ||
         p.undeterminedCount !== undefined && p.undeterminedCount !== c.undetermined) {
-      fail('Filtered Supercov affected counts disagree: ' + file)
+      fail('Filtered Supercov affected counts disagree: ' + filter)
     }
     const unaffectedTruncated = (p.truncated ?? []).includes(UNAFFECTED_TRUNCATION)
     if (unaffectedTruncated
       ? p.unaffected.length !== 0 || p.unaffectedCount !== c.unaffected
       : p.unaffected.length !== c.unaffected ||
         p.unaffectedCount !== undefined && p.unaffectedCount !== c.unaffected) {
-      fail('Filtered unaffected denominator missing: ' + file)
+      fail('Filtered unaffected denominator missing: ' + filter)
     }
     for (const bucket of ['affected','undetermined','unaffected']) {
       for (const row of p[bucket]) {
-        if (!row || row.file !== file ||
+        if (!row || (row.file !== filter && !row.file?.startsWith(filter + '/')) ||
             typeof row.name !== 'string' || !row.name) {
-          fail('Filtered identity attributed to unknown test file: ' + file)
+          fail('Filtered identity attributed to unknown test file: ' + filter)
         }
         const id = JSON.stringify([row.file, row.name])
         if (seen.has(id)) fail('Duplicate Supercov identity across file filters: ' + id)
@@ -234,11 +270,14 @@ function reconcileAffectedFiles(global, fileResults, expectedFiles, runId, basel
     }
     for (const key of Object.keys(added)) added[key] += c[key]
   }
-  for (const key of Object.keys(added)) {
+  for (const key of ['affected', 'undetermined']) {
     if (added[key] !== counts[key]) {
       fail('Filtered Supercov ' + key + ' does not reconcile with global count: ' +
         added[key] + ' vs ' + counts[key])
     }
+  }
+  if (added.tests > counts.tests || added.unaffected > counts.unaffected) {
+    fail('Filtered Supercov totals exceed the global inventory')
   }
   const expanded = { ...global, data: { ...d, affected, undetermined } }
   // Reuse the exact same fail-closed full-inventory validation as the
@@ -247,5 +286,13 @@ function reconcileAffectedFiles(global, fileResults, expectedFiles, runId, basel
   return expanded
 }
 
+// Supercov keeps a ranked preview for large answers; such a part needs narrower filters.
+function isPreviewed(part) {
+  const p = part?.data
+  return (p?.truncated ?? []).includes(LISTS_TRUNCATION) &&
+    (p.affected?.length < p.summary?.affected || p.undetermined?.length < p.summary?.undetermined)
+}
+
 module.exports = { validateRunSummary, buildSeed, validSeedMetadata,
-  validateAffectedQuery, reconcileAffectedFiles }
+  validateAffectedQuery, reconcileAffectedFiles, isPreviewed,
+  validateRoster, requireVerifiedFullPlan }

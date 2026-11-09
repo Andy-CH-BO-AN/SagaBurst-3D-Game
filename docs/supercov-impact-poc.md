@@ -10,8 +10,8 @@ seed makes PR CI fail closed until the exact artifact is published.
 The earlier plan to strict-merge changed-source Related runs into an older
 Full seed was rejected by real CLI evidence (`differing domains: source,
 recorded files`, isolated Actions #42260462775). It is **not** used
-in the final production design. Source-snapshot strict merge remains
-only among the compatible Full shards of the same commit. This supersedes
+in the final production design. The seed now comes from one complete
+instrumented Full run, with no merge at all. This supersedes
 any earlier architecture or rollout description in this PoC.
 
 

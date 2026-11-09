@@ -48,7 +48,7 @@ rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.
 - **騎乘**：骨盆座面、膝踝與裝備不穿模；測本次影響的坐騎、LOD、動作與上下馬恢復。新匯出的坐騎 GLB 先依 [mount-from-reference](../mount-from-reference/SKILL.md)／資產流程做 Blender round-trip 檢查，再進瀏覽器。
 - **接地**：側面比較 Player/NPC 鞋底與相同地形，不能只看 physics root 高度。
 
-測試命令要看結束碼與每個 shard：runner 可能在第一個失敗的 shard 就停止，此時的失敗數不是總數。
+測試命令要看結束碼與每個 runner：Vitest 與 Node 分開回報，單一 runner 的失敗數不是總數。
 
 程式檢查沿用專案 AGENTS，不在瀏覽器流程重複強制整套測試。使用者要求不開瀏覽器時遵守，並明確標記視覺未驗證。
 
