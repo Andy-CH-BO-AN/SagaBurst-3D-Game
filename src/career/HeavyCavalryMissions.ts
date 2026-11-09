@@ -375,3 +375,17 @@ export function heavyBlockPositions(count: number, options: { columns: number; g
 export const SOLDIER_COLUMN_FRONT_ABS_Z = 155
 export const SOLDIER_AMBUSH_ABS_Z = 120
 export const HEAVY_ENEMY_FRONT_ABS_Z = 125
+
+/**
+ * What an actor must actually be told. `hold` is the ONLY case that may use a Formation target
+ * (which forces Defend): a Soldier / Veteran enemy that is still on Attack is `plain`, so it
+ * really advances from >200m instead of idling at its spawn.
+ */
+export interface HeavyCommandPlan { order: TacticalOrder; kind: 'charge' | 'march' | 'hold' | 'plain' }
+
+export function heavyCommandPlan(missionId: HeavyFieldMissionId, side: HeavySide, state: HeavyFieldState): HeavyCommandPlan {
+  const order = heavyTacticalOrder(missionId, side, state)
+  if (order === 'charge') return { order, kind: 'charge' }
+  if (side === 'friendly' && HEAVY_FIELD_SPECS[missionId].startsMarching && !state.formationIssued) return { order, kind: 'march' }
+  return { order, kind: order === 'defend' || order === 'formation' ? 'hold' : 'plain' }
+}

@@ -10,7 +10,7 @@ import type { CombatEvent } from '../../src/combat/CombatAttribution'
 import {
   CAPTAIN_STEEL_AVALANCHE_ID, COMMANDER_IRON_LEGION_ID, SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID,
   HEAVY_FIELD_SPECS, caltropRouteExists, createHeavyFieldState, heavyActorIds, heavyEnemyActorIds, heavyFriendlyActorIds,
-  heavyFrontlineDistance, heavyGroupsTotal, heavyNpcGroups, heavyTacticalOrder, ironLegionEnemyActorIds, IRON_LEGION_ENEMY_GROUPS,
+  heavyCommandPlan, heavyFrontlineDistance, heavyGroupsTotal, heavyNpcGroups, heavyTacticalOrder, ironLegionEnemyActorIds, IRON_LEGION_ENEMY_GROUPS,
   parseHeavyFieldState, planVeteranCaltropDefense, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge,
   shouldTriggerHeavyEnemyCharge, validateCaltropLayout, veteranCaltropWorldRects,
 } from '../../src/career/HeavyCavalryMissions'
@@ -90,6 +90,18 @@ describe('heavy cavalry tactical triggers', () => {
     state.counterChargeTriggered = true
     expect(heavyTacticalOrder(CAPTAIN_STEEL_AVALANCHE_ID, 'enemy', state)).toBe('charge')
     expect(heavyTacticalOrder(CAPTAIN_STEEL_AVALANCHE_ID, 'friendly', state)).toBe('defend')
+  })
+
+  it('Soldier / Veteran 敵軍在受傷前為真正的 Attack（不使用會強制 Defend 的 Formation 守位）', () => {
+    for (const id of [SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID] as const) {
+      const state = createHeavyFieldState(id)
+      expect(heavyCommandPlan(id, 'enemy', state)).toEqual({ order: 'attack', kind: 'plain' })
+      state.enemyChargeTriggered = true
+      expect(heavyCommandPlan(id, 'enemy', state)).toEqual({ order: 'charge', kind: 'charge' })
+    }
+    expect(heavyCommandPlan(VETERAN_IRON_TIDE_ID, 'friendly', createHeavyFieldState(VETERAN_IRON_TIDE_ID)).kind).toBe('hold')
+    expect(heavyCommandPlan(SOLDIER_IRON_ENCOUNTER_ID, 'friendly', createHeavyFieldState(SOLDIER_IRON_ENCOUNTER_ID)).kind).toBe('march')
+    expect(heavyCommandPlan(CAPTAIN_STEEL_AVALANCHE_ID, 'enemy', createHeavyFieldState(CAPTAIN_STEEL_AVALANCHE_ID)).kind).toBe('hold')
   })
 
   it('前線距離取兩軍最近的單位而非中心點', () => {

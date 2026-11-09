@@ -28,7 +28,7 @@ import { CorgiVisual } from './world/CorgiVisual'
 import { careerHeavyPreloadPlan } from './career/HeavyCavalrySpawn'
 import { createHeavyFieldDeployment, isCareerHeavyFieldBattle, type HeavyFieldDeployment } from './career/HeavyFieldMission'
 import { createCaltropBarrier } from './world/CaltropBarrier'
-import { HEAVY_FIELD_SPECS, VETERAN_IRON_TIDE_ID, heavyFrontlineDistance, planVeteranCaltropDefense, veteranCaltropWorldRects, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, type HeavyPoint } from './career/HeavyCavalryMissions'
+import { HEAVY_FIELD_SPECS, VETERAN_IRON_TIDE_ID, heavyCommandPlan, heavyFrontlineDistance, planVeteranCaltropDefense, veteranCaltropWorldRects, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, type HeavyPoint } from './career/HeavyCavalryMissions'
 import { BlackCatVisual, FELINE_MOUNT_VARIANTS, type FelineMountVariant } from './world/BlackCatVisual'
 import { SnowLeopardVisual } from './world/SnowLeopardVisual'
 import { XongkoroVisual } from './world/XongkoroVisual'
@@ -2664,11 +2664,10 @@ export class Game {
     const state = mission.commanderMission?.heavyField
     if (!state || !isCareerHeavyFieldBattle(mission)) return
     const side = npc.faction === Faction.PLAYER ? 'friendly' : 'enemy'
-    const order = careerFieldTacticalOrder(mission, npc.faction)
-    const spec = HEAVY_FIELD_SPECS[mission.templateId]
+    const plan = heavyCommandPlan(mission.templateId, side, state)
     const facing = new THREE.Vector3(0, 0, npc.faction === Faction.PLAYER === (this.careerProfile?.faction === 'viking') ? -1 : 1)
-    if (order === 'charge') { npc.setTacticalOrder('charge'); return }
-    if (side === 'friendly' && spec.startsMarching && !state.formationIssued) {
+    if (plan.kind === 'charge' || plan.kind === 'plain') { npc.setTacticalOrder(plan.order); return }
+    if (plan.kind === 'march') {
       const captainId = this.heavyDeployment?.captainActorId
       const captain = captainId ? this.npcs.find(candidate => candidate.combatantId === captainId && !candidate.dead) : undefined
       const ambush = this.heavyDeployment?.ambushPoint
@@ -2676,11 +2675,11 @@ export class Game {
       else if (captain) npc.assignFollowTarget(captain, this.npcs.indexOf(npc) % 74)
       return
     }
-    // Soldier after Formation, Veteran from the start: hold the planned slot; Captain enemies hold where they stand.
-    const slot: HeavyPoint | undefined = this.heavyDeployment?.formationSlots[npc.combatantId] ?? (side === 'enemy' ? { x: npc.combatPosition.x, z: npc.combatPosition.z } : undefined)
+    // Hold: friendly formation slots (Soldier after Formation, Veteran) and Captain enemies where they stand.
     if (side === 'friendly' && officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) { npc.setTacticalOrder('defend'); return }
-    if (slot) npc.assignFormationTarget(-3, new THREE.Vector3(slot.x, getTerrainHeight(slot.x, slot.z), slot.z), facing, undefined, 'defend', side === 'enemy' || !spec.startsMarching)
-    else npc.setTacticalOrder(order)
+    const slot: HeavyPoint | undefined = this.heavyDeployment?.formationSlots[npc.combatantId] ?? (side === 'enemy' ? { x: npc.combatPosition.x, z: npc.combatPosition.z } : undefined)
+    if (slot) npc.assignFormationTarget(-3, new THREE.Vector3(slot.x, getTerrainHeight(slot.x, slot.z), slot.z), facing, undefined, 'defend', side === 'enemy' || !HEAVY_FIELD_SPECS[mission.templateId].startsMarching)
+    else npc.setTacticalOrder(plan.order)
   }
 
   private _persistHeavyState(notify: string): void {
