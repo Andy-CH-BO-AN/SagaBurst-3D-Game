@@ -25,6 +25,7 @@ import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { CorgiVisual } from './world/CorgiVisual'
+import { careerHeavyPreloadPlan } from './career/HeavyCavalrySpawn'
 import { BlackCatVisual, FELINE_MOUNT_VARIANTS, type FelineMountVariant } from './world/BlackCatVisual'
 import { SnowLeopardVisual } from './world/SnowLeopardVisual'
 import { XongkoroVisual } from './world/XongkoroVisual'
@@ -428,6 +429,8 @@ export class Game {
 
     const legacyQa = !trainingGround && import.meta.env.DEV && new URLSearchParams(window.location.search).has('legacyhumanoids')
     const personalProfile = bridgeLaunch || campaignConfig?.careerMissionId || battleConfig?.careerEagleMissionId || battleConfig?.careerFelineMissionId ? new CareerProfileStore().loadChecked().profile : undefined
+    const heavyMission = personalProfile?.activeMission
+    const heavyPreload = heavyMission ? careerHeavyPreloadPlan(heavyMission.templateId, personalProfile!.faction) : { heroAssets: [], equipmentIds: [] }
     const personalIds = new Set((personalProfile?.activeMission ?? personalProfile?.activeOutpostMission)?.personalSquad?.memberIds ?? [])
     const personalMembers = personalProfile?.personalSquad?.members.filter(member => personalIds.has(member.id)) ?? []
     let game: Game | undefined
@@ -481,7 +484,7 @@ export class Game {
         game.clock.start(); requestAnimationFrame(game._loop)
         return game
       }
-      await Promise.all([prepareByzantineEquipment([...(battleConfig && !campaignConfig ? (['viking', 'roman'] as const).flatMap(faction => t5EquipmentIdsForArmy(normalizeArmyConfig(battleConfig[faction], faction))) : []), battleConfig?.playerLoadout?.meleeWeaponId, battleConfig?.playerLoadout?.shieldId, personalProfile?.equipment?.melee, personalProfile?.equipment?.shield, ...personalMembers.flatMap(member => { const { loadout } = personalMemberLoadout(member, personalProfile!.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
+      await Promise.all([prepareByzantineEquipment([...heavyPreload.equipmentIds, ...(battleConfig && !campaignConfig ? (['viking', 'roman'] as const).flatMap(faction => t5EquipmentIdsForArmy(normalizeArmyConfig(battleConfig[faction], faction))) : []), battleConfig?.playerLoadout?.meleeWeaponId, battleConfig?.playerLoadout?.shieldId, personalProfile?.equipment?.melee, personalProfile?.equipment?.shield, ...personalMembers.flatMap(member => { const { loadout } = personalMemberLoadout(member, personalProfile!.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
       const heroAssets = new Set<HeroAssetId>()
       if (trainingGround) heroAssets.add('maki-archer-t4')
       const validationHero = import.meta.env.DEV && trainingGround ? commanderValidationHero(query) : undefined
@@ -519,6 +522,7 @@ export class Game {
       if (battleConfig?.careerFelineMissionId && personalProfile) {
         for (const assetId of careerFelineHeroAssetIds(personalProfile)) heroAssets.add(assetId)
       }
+      for (const assetId of heavyPreload.heroAssets) heroAssets.add(assetId)
       const playerHeroId = campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId
       if (playerHeroId) heroAssets.add(playerHeroId)
       const heroBattleConfigs = campaignConfig && !campaignConfig.careerVeteranOutpost && !campaignConfig.careerCommanderOutpost
