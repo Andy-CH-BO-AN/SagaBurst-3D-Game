@@ -35,7 +35,7 @@ export function personalMemberLoadout(member: CareerPersonalSquadMember, faction
   const characterFaction = member.characterFaction ?? faction
   const characterTier = member.characterTier ?? (member.type === 'soldier' ? 2 : member.type === 'commander' ? 5 : 4)
   const identity = resolveCharacterIdentity({ characterFaction, characterTier,
-    heroArchetype: member.heroArchetype ?? (member.type === 'soldier' ? undefined : member.type) })
+    heroArchetype: member.heroArchetype ?? (member.type === 'soldier' ? undefined : member.type), visualAssetId: member.visualAssetId })
   if (member.type === 'ranger' && !member.equipment) throw new Error('Ranger equipment must be migrated and saved before deployment')
   const equipment = member.equipment ?? legacyPersonalEquipment(member.type, characterFaction)
   const primaryWeapon = WEAPONS[equipment.ranged ?? equipment.melee ?? '']

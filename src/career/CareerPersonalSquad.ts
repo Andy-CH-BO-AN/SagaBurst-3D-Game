@@ -1,7 +1,7 @@
 import { isCareerShopItemUseUnlocked } from './CareerShopCatalog'
 import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
 import { addCareerItem, normalizeCareerInventory, availableCareerItem, validPersonalEquipment, type PersonalEquipment, type PersonalEquipmentSlot } from './CareerInventory'
-import { defaultPersonalRecruitmentChoice, inferLegacyPersonalRecruitmentRole, resolvePersonalRecruitment, type PersonalRecruitmentChoice, type PersonalRecruitmentRole } from './CareerRecruitmentCatalog'
+import { defaultPersonalRecruitmentChoice, inferLegacyPersonalRecruitmentRole, resolvePersonalRecruitment, type PersonalHeroVariantAssetId, type PersonalRecruitmentChoice, type PersonalRecruitmentRole } from './CareerRecruitmentCatalog'
 import type { CharacterIdentity, CharacterTier, HeroArchetype } from '../combat/CharacterIdentity'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
@@ -15,6 +15,8 @@ export interface CareerPersonalSquadMember {
   characterTier?: CharacterTier
   heroArchetype?: HeroArchetype
   recruitmentRole?: PersonalRecruitmentRole
+  /** Durable Byzantine Cataphract identity (Roman Commander only); absent for ordinary members. */
+  visualAssetId?: PersonalHeroVariantAssetId
   /** New recruitment grant receipt; a saved null slot is never a missing legacy grant. */
   initialEquipmentVersion?: 1
   /** Durable migration receipt: removed/sold weapons are never granted again. */
@@ -53,7 +55,7 @@ export function recruitPersonalSquadMember(current: CareerProfile, choice: Perso
   for (const id of Object.values(equipment)) if (id) addCareerItem(next, id, 1)
   next.availableMerit -= product.price
   next.personalSquad = { members: [...(next.personalSquad?.members ?? []), { id, type, characterFaction: product.characterFaction, characterTier: product.characterTier,
-    ...(product.heroArchetype ? { heroArchetype: product.heroArchetype } : {}), recruitmentRole: product.recruitmentRole,
+    ...(product.heroArchetype ? { heroArchetype: product.heroArchetype } : {}), ...(product.visualAssetId ? { visualAssetId: product.visualAssetId } : {}), recruitmentRole: product.recruitmentRole,
     initialEquipmentVersion: 1, originalHirePrice: product.price, equipment, ...(type === 'ranger' ? { rangerEquipmentVersion: 1 as const } : {}) }] }
   const key = `${next.faction}:hr-recruit-${type}`
   next.townDialogueSeen = [...new Set([...(next.townDialogueSeen ?? []), key])]
@@ -83,13 +85,15 @@ export function parsePersonalSquad(value: unknown, faction: CareerProfile['facti
     const characterTier = member.characterTier === undefined ? defaults.characterTier : member.characterTier
     const heroArchetype = member.characterTier === undefined ? defaults.heroArchetype : member.heroArchetype
     const recruitmentRole = member.recruitmentRole === undefined ? inferLegacyPersonalRecruitmentRole(equipment, member.type, characterFaction) : member.recruitmentRole
-    const resolved = resolvePersonalRecruitment(characterFaction, { characterTier, heroArchetype, recruitmentRole })
+    const visualAssetId = member.visualAssetId
+    if (visualAssetId !== undefined && (member.characterTier === undefined || member.type !== 'commander')) throw new Error('Invalid member hero variant')
+    const resolved = resolvePersonalRecruitment(characterFaction, { characterTier, heroArchetype, recruitmentRole, ...(visualAssetId ? { visualAssetId } : {}) })
     if (!resolved || resolved.type !== member.type || member.characterTier === undefined && member.heroArchetype !== undefined && member.heroArchetype !== defaults.heroArchetype
       || member.initialEquipmentVersion === 1 && (!equipment || member.characterTier === undefined || member.recruitmentRole === undefined)) throw new Error('Invalid member identity')
     const originalHirePrice = member.originalHirePrice === undefined
       ? member.initialEquipmentVersion === 1 ? resolved.price : product.price : member.originalHirePrice
     if (!Number.isSafeInteger(originalHirePrice) || originalHirePrice < 0) throw new Error('Invalid hire price')
-    return { id: member.id, type: member.type, originalHirePrice, characterFaction, characterTier, ...(heroArchetype ? { heroArchetype } : {}), recruitmentRole,
+    return { id: member.id, type: member.type, originalHirePrice, characterFaction, characterTier, ...(heroArchetype ? { heroArchetype } : {}), ...(visualAssetId ? { visualAssetId } : {}), recruitmentRole,
       ...(member.initialEquipmentVersion === 1 ? { initialEquipmentVersion: 1 as const } : {}),
       ...(member.rangerEquipmentVersion === 1 ? { rangerEquipmentVersion: 1 as const } : {}), ...(equipment ? { equipment: {
       melee: equipment.melee ?? null, ranged: equipment.ranged ?? null, shield: equipment.shield ?? null,

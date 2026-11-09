@@ -5,9 +5,13 @@ import type { PersonalSquadMemberType } from './CareerPersonalSquad'
 
 export const PERSONAL_RECRUITMENT_ROLES = ['archer', 'swordsman', 'javelin', 'axeman', 'spearman'] as const
 export type PersonalRecruitmentRole = typeof PERSONAL_RECRUITMENT_ROLES[number]
+/** Explicit serialized hero variant under the Commander archetype; ordinary Commanders omit it. */
+export type PersonalHeroVariantAssetId = 'byzantine-cataphract-t5'
 export interface PersonalRecruitmentChoice {
   characterTier: CharacterTier
   heroArchetype?: HeroArchetype
+  /** Roman T5 Commander only. Identity is never inferred from equipment. */
+  visualAssetId?: PersonalHeroVariantAssetId
   recruitmentRole: PersonalRecruitmentRole
 }
 export interface PersonalRecruitmentProduct extends PersonalRecruitmentChoice {
@@ -21,12 +25,14 @@ export const PERSONAL_ROLE_NAMES: Record<PersonalRecruitmentRole, string> = {
   archer: '弓兵', swordsman: '劍兵', javelin: '標槍兵', axeman: '斧兵', spearman: '槍兵',
 }
 const PRICES: Record<CharacterTier, number> = { 1: 100, 2: 200, 3: 300, 4: 500, 5: 2000 }
+export const BYZANTINE_RECRUIT_PRICE = 3000
 
 /** Only recruitment owns these grants. Mission loadouts and saved equipment never use this table. */
 export function resolvePersonalRecruitment(faction: CharacterIdentity['characterFaction'], choice: PersonalRecruitmentChoice): PersonalRecruitmentProduct | undefined {
   if (faction !== 'roman' && faction !== 'viking' || !choice || ![1, 2, 3, 4, 5].includes(choice.characterTier)
     || !(PERSONAL_RECRUITMENT_ROLES as readonly string[]).includes(choice.recruitmentRole)) return undefined
-  const { characterTier, heroArchetype, recruitmentRole } = choice
+  const { characterTier, heroArchetype, recruitmentRole, visualAssetId } = choice
+  if (visualAssetId !== undefined && (visualAssetId !== 'byzantine-cataphract-t5' || faction !== 'roman' || characterTier !== 5)) return undefined
   if (characterTier <= 3 ? heroArchetype !== undefined : characterTier === 4
     ? heroArchetype !== 'captain' && heroArchetype !== 'ranger' : heroArchetype !== 'commander') return undefined
   const weaponTier = characterTier <= 3 ? 1 : 2
@@ -41,8 +47,9 @@ export function resolvePersonalRecruitment(faction: CharacterIdentity['character
   }
   if (recruitmentRole === 'swordsman' || recruitmentRole === 'axeman') equipment.shield = `${faction === 'roman' ? 'scutum' : 'round_shield'}_t${weaponTier}`
   const type = heroArchetype ?? 'soldier'
-  const maxHp = characterIdentityMaxHp(resolveCharacterIdentity({ characterFaction: faction, characterTier, heroArchetype }))
-  return { characterFaction: faction, characterTier, ...(heroArchetype ? { heroArchetype } : {}), recruitmentRole, type, price: PRICES[characterTier], maxHp, equipment }
+  const maxHp = characterIdentityMaxHp(resolveCharacterIdentity({ characterFaction: faction, characterTier, heroArchetype, visualAssetId }))
+  return { characterFaction: faction, characterTier, ...(heroArchetype ? { heroArchetype } : {}), ...(visualAssetId ? { visualAssetId } : {}), recruitmentRole, type,
+    price: visualAssetId ? BYZANTINE_RECRUIT_PRICE : PRICES[characterTier], maxHp, equipment }
 }
 
 /** Compatibility for callers of the old four-product API; all new hires still use the catalog. */

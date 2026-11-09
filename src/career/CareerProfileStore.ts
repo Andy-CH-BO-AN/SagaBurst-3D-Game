@@ -949,7 +949,7 @@ export class CareerProfileStore {
         && previous.personalSquad?.members.find(saved => saved.id === member.id)?.rangerEquipmentVersion !== 1)
       const personalIdentityMigration = profile && profile.personalSquad?.members.some(member => {
         const saved = previous.personalSquad?.members.find(value => value.id === member.id)
-        return !saved || saved.characterFaction !== member.characterFaction || saved.characterTier !== member.characterTier || saved.heroArchetype !== member.heroArchetype
+        return !saved || saved.characterFaction !== member.characterFaction || saved.characterTier !== member.characterTier || saved.heroArchetype !== member.heroArchetype || saved.visualAssetId !== member.visualAssetId
           || saved.recruitmentRole !== member.recruitmentRole || saved.originalHirePrice !== member.originalHirePrice
       })
       const borrowedIdentityMigration = profile && profile.activeMission?.borrowedActorIdentities !== undefined

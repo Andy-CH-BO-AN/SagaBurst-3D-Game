@@ -16,7 +16,7 @@ export function personalRecruitmentPresentation(profile: CareerProfile, choice: 
     const data = id ? WEAPONS[id] ?? ARMORS[id] : undefined
     return data ? `${data.name} · T${data.tier}` : '無'
   }
-  const hero = product.heroArchetype === 'captain' ? '隊長 Captain' : product.heroArchetype === 'ranger' ? '遊俠 Ranger'
+  const hero = product.visualAssetId ? '拜占庭鐵甲重騎兵 Byzantine Cataphract · T5+' : product.heroArchetype === 'captain' ? '隊長 Captain' : product.heroArchetype === 'ranger' ? '遊俠 Ranger'
     : product.heroArchetype === 'commander' ? '指揮官 Commander' : '普通士兵'
   return { product, reason, summary: [
     `${profile.faction === 'roman' ? '羅馬 Roman' : '維京 Viking'} · 人物 T${product.characterTier} · ${hero} · ${PERSONAL_ROLE_NAMES[product.recruitmentRole]}`,
@@ -46,23 +46,29 @@ export function appendPersonalRecruitmentConfigurator(parent: HTMLElement, optio
   }
   const tier = select('人物 Tier', [1, 2, 3, 4, 5].map(value => [String(value), `T${value}`]))
   const hero = select('T4 英雄類型', [['captain', '隊長 Captain'], ['ranger', '遊俠 Ranger']])
+  const variant = select('T5 英雄', [['commander', 'Roman Commander T5'], ['byzantine-cataphract-t5', 'Byzantine Cataphract T5+']])
   const role = select('招募兵種', PERSONAL_RECRUITMENT_ROLES.map(value => [value, PERSONAL_ROLE_NAMES[value]]))
   tier.input.value = String(options.choice.characterTier)
   hero.input.value = options.choice.heroArchetype === 'ranger' ? 'ranger' : 'captain'
   role.input.value = options.choice.recruitmentRole
+  variant.input.value = options.choice.visualAssetId ?? 'commander'
   const summary = document.createElement('p'); summary.className = 'town-summary'; summary.style.whiteSpace = 'pre-line'; summary.setAttribute('aria-live', 'polite')
   const button = document.createElement('button'); button.className = 'town-button'; button.textContent = 'Recruit · 招募'
   let choice = options.choice
   const refresh = () => {
     const characterTier = Number(tier.input.value) as PersonalRecruitmentChoice['characterTier']
     hero.label.hidden = characterTier !== 4; hero.input.disabled = characterTier !== 4
+    // Byzantine is a Roman-only T5 variant; other factions never see it.
+    const byzantine = characterTier === 5 && options.readProfile().faction === 'roman' && variant.input.value === 'byzantine-cataphract-t5'
+    variant.label.hidden = characterTier !== 5 || options.readProfile().faction !== 'roman'; variant.input.disabled = variant.label.hidden
     choice = { characterTier, recruitmentRole: role.input.value as PersonalRecruitmentChoice['recruitmentRole'],
-      ...(characterTier === 4 ? { heroArchetype: hero.input.value as 'captain' | 'ranger' } : characterTier === 5 ? { heroArchetype: 'commander' as const } : {}) }
+      ...(characterTier === 4 ? { heroArchetype: hero.input.value as 'captain' | 'ranger' } : characterTier === 5 ? { heroArchetype: 'commander' as const } : {}),
+      ...(byzantine ? { visualAssetId: 'byzantine-cataphract-t5' as const } : {}) }
     options.onChoice(choice)
     const view = personalRecruitmentPresentation(options.readProfile(), choice, options.serviceAvailable())
     summary.textContent = view.summary; button.disabled = Boolean(view.reason); button.title = view.reason ?? ''
   }
-  for (const control of [tier.input, hero.input, role.input]) control.onchange = refresh
+  for (const control of [tier.input, hero.input, variant.input, role.input]) control.onchange = refresh
   button.onclick = () => {
     refresh()
     if (!button.disabled) options.recruit(choice)

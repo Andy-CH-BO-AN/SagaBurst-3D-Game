@@ -70,9 +70,9 @@ export function personalUnitDisplayName(member: CareerPersonalSquadMember, facti
   faction = member.characterFaction ?? faction
   const legacy = defaultPersonalRecruitmentChoice(member.type, faction)
   const identity = resolveCharacterIdentity({ characterFaction: faction, characterTier: member.characterTier ?? legacy.characterTier,
-    heroArchetype: member.heroArchetype ?? legacy.heroArchetype })
+    heroArchetype: member.heroArchetype ?? legacy.heroArchetype, visualAssetId: member.visualAssetId })
   const hero = identity.heroArchetype === 'captain' ? '隊長・' : identity.heroArchetype === 'ranger' ? '遊俠・'
-    : identity.heroArchetype === 'commander' ? '指揮官・' : ''
+    : identity.combatProfileId === 'byzantine-cataphract' ? '拜占庭鐵甲重騎兵・' : identity.heroArchetype === 'commander' ? '指揮官・' : ''
   return `私兵・${FACTIONS[faction]}${hero}${PERSONAL_ROLE_NAMES[member.recruitmentRole ?? legacy.recruitmentRole]}${index === undefined ? '' : ` ${number(index + 1)}`}${tierSuffix(identity.characterTier)}`
 }
 
