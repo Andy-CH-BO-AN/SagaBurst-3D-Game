@@ -447,6 +447,7 @@ export class CareerMountController implements EquipmentMountAdapter {
 
   private persistOutingState(activeMountId: CareerMountId | undefined): boolean {
     const profile = this.readProfile()
+    if (!profile.activeMission && profile.careerRetirement?.phase !== 'final-stand') return true
     const next = cloneCareerProfile(profile)
     if (this.armorImpact.size) next.mountArmor = Object.fromEntries(this.armorImpact)
     else delete next.mountArmor
