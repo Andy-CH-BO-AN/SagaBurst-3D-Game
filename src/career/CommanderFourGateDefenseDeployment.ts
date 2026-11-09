@@ -4,7 +4,7 @@ import { siegeDefensePlans } from './TownDefenseRoster'
 import type { OfficialCommandSquad } from './CareerCommandAuthority'
 import type { TownSiegeSectorRoster } from './TownFourGateSiege'
 import { TOWN_CITY, TOWN_GATES, TOWN_GARRISON_EAGLE_SITES, TOWN_PRIVATE_EAGLE_SITES, townGatePoint, type TownGateId } from '../town/TownLayout'
-import { townRampartHeight, type TownRampartLayout } from '../town/TownRamparts'
+import { surfaceBox, townRampartHeight, type TownRampartLayout } from '../town/TownRamparts'
 import type { TownActorSpec } from '../town/TownRules'
 import { eagleLandingFootprint } from '../world/EagleLanding'
 import { EAGLE_APPROACH, eagleApproachDistance } from '../world/EagleApproach'
@@ -62,16 +62,21 @@ function wallStations(gateId: TownGateId, role: 'melee' | 'spear' | 'ranged', la
   // A horse needs clearance from the rail, even when its native rider is infantry.
   const lateral = mounted ? role === 'spear' ? -2.8 : role === 'ranged' ? 2.9 : 0
     : role === 'spear' ? -2.2 : role === 'ranged' ? 3.8 : 2.9
-  const supportHeight = (x: number, z: number): number | null => {
-    if (!mounted) return townRampartHeight(layout, x, z)
-    for (const deck of layout.decks) if (deck.surface.mounted) {
-      const height = getWalkRampHeight(deck.surface, x, z)
-      if (height !== null) return height
-    }
-    return null
-  }
   const stations: Station[] = []
   for (const { surface } of layout.wallSpans.filter(span => span.gateId === gateId)) {
+    // Every sample of this span stays inside this band, so farther decks can never
+    // answer. Retaining deck order keeps the first matching surface unchanged.
+    const band = surfaceBox(surface).expandByScalar(Math.abs(lateral) + radius)
+    band.min.y = -Infinity; band.max.y = Infinity
+    const decks = layout.decks.filter(deck => band.intersectsBox(deck.box))
+    const supportHeight = (x: number, z: number): number | null => {
+      if (!mounted) return townRampartHeight({ decks }, x, z)
+      for (const deck of decks) if (deck.surface.mounted) {
+        const height = getWalkRampHeight(deck.surface, x, z)
+        if (height !== null) return height
+      }
+      return null
+    }
     // These points fall between the authored crenels, independently of deck subdivision.
     for (const along of [.4, 2.55, 4.65]) {
       if (along > surface.length - .25) continue

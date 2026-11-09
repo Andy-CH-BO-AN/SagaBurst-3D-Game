@@ -40,23 +40,25 @@ describe('Retirement ground muster capacity without actor materialization', () =
     const destinations = retirementGroundStaging(formations, mounted, obstacles, { areConnected: () => true })
     expect(destinations?.size).toBe(232)
     expect(new Set(destinations!.keys())).toEqual(new Set(groundIds))
-    const points = [...destinations!].map(([id, point]) => ({ ...point, radius: mounted.has(id) ? 1.8 : .7 }))
-    let overlap = false, blockedRoad = false
+    const points = [...destinations!].map(([id, point]) => ({ ...point, id, radius: mounted.has(id) ? 1.8 : .7 }))
+    const roads = [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS.slice(1)]
+    // Collected, not per-element matchers: 232 actors would otherwise run 1160 expects.
+    const invalid: string[] = []
     for (const [index, point] of points.entries()) {
-      expect(point.x).toBeGreaterThanOrEqual(-15 + point.radius)
-      expect(point.x).toBeLessThanOrEqual(90 - point.radius)
-      expect(point.z).toBeGreaterThanOrEqual(-105 + point.radius)
-      expect(point.z).toBeLessThanOrEqual(28 - point.radius)
-      expect(point.y).toBe(getTerrainHeight(point.x, point.z))
-      for (const other of points.slice(0, index)) if (Math.hypot(point.x - other.x, point.z - other.z) < point.radius + other.radius - .0001) overlap = true
-      for (const road of [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS.slice(1)]) {
+      if (!(point.x >= -15 + point.radius && point.x <= 90 - point.radius
+        && point.z >= -105 + point.radius && point.z <= 28 - point.radius)) invalid.push(`${point.id}:outside staging`)
+      if (point.y !== getTerrainHeight(point.x, point.z)) invalid.push(`${point.id}:off terrain`)
+      for (let otherIndex = 0; otherIndex < index; otherIndex++) {
+        const other = points[otherIndex]
+        if (Math.hypot(point.x - other.x, point.z - other.z) < point.radius + other.radius - .0001) invalid.push(`${point.id}:overlaps ${other.id}`)
+      }
+      for (const road of roads) {
         const dx = road.bx - road.ax, dz = road.bz - road.az
         const t = Math.max(0, Math.min(1, ((point.x - road.ax) * dx + (point.z - road.az) * dz) / (dx * dx + dz * dz)))
-        if (Math.hypot(point.x - road.ax - dx * t, point.z - road.az - dz * t) < road.width / 2 + point.radius + .5999) blockedRoad = true
+        if (Math.hypot(point.x - road.ax - dx * t, point.z - road.az - dz * t) < road.width / 2 + point.radius + .5999) invalid.push(`${point.id}:blocks road`)
       }
     }
-    expect(overlap).toBe(false)
-    expect(blockedRoad).toBe(false)
+    expect(invalid).toEqual([])
     expect(points.some(point => point.z < -70)).toBe(true)
     expect(points.some(point => point.z > 0)).toBe(true)
   })

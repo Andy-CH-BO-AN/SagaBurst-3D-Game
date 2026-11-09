@@ -100,7 +100,7 @@ export function getTownRampartLayout(): TownRampartLayout {
   }
   return layout
 }
-export function townRampartHeight(layout: TownRampartLayout, x: number, z: number): number | null {
+export function townRampartHeight(layout: Pick<TownRampartLayout, 'decks'>, x: number, z: number): number | null {
   for (const deck of layout.decks) { const y = getWalkRampHeight(deck.surface, x, z); if (y !== null) return y }
   return null
 }
