@@ -6,7 +6,7 @@ import { clonePersonalMission, type PersonalActorCheckpoint, type PersonalActorP
 import { parseFallingRiderSnapshot } from '../movement/FallingRider'
 import { parseEagleFlightSnapshot } from '../movement/EagleFlightController'
 import type { TacticalOrder } from '../battle/TacticalOrder'
-import { MAX_COMMAND_SQUADS, MAX_COMMAND_SQUAD_SIZE, type SquadId } from '../battle/CommandTarget'
+import { MAX_CUSTOM_BATTLE_COMMAND_SQUADS as MAX_COMMAND_SQUADS, MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE as MAX_COMMAND_SQUAD_SIZE, type SquadId } from '../battle/CommandTarget'
 import { Faction, type CombatOwnership } from '../combat/CombatFaction'
 import type { CareerRank } from './CareerProfile'
 

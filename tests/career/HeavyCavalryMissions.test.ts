@@ -173,11 +173,11 @@ describe('heavy cavalry field missions in Career', () => {
   it('指揮權依玩家軍階而非任務：Captain 與 Commander 在任何一關可指揮並帶私兵，Veteran 不行', () => {
     const withSquad = (rank: 'veteran' | 'captain' | 'commander') => { const p = profileFor(rank); p.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }; return p }
     const captain = acceptHeavyFieldMission(withSquad('captain'), SOLDIER_IRON_ENCOUNTER_ID, 'a')!.activeMission!
-    expect(captain.officialSquad?.actorIds).toHaveLength(29)
+    expect(captain.officialSquad?.actorIds).toHaveLength(50)
     expect(captain.personalSquad?.memberIds).toEqual(['personal:hr-1'])
     const commander = acceptHeavyFieldMission(withSquad('commander'), VETERAN_IRON_TIDE_ID, 'b')!.activeMission!
-    expect(commander.officialSquad?.squads?.map(squad => squad.actorIds.length)).toEqual(Array(8).fill(30))
-    expect(commander.officialSquad?.commandedSquadIds).toHaveLength(8)
+    expect(commander.officialSquad?.squads?.map(squad => squad.actorIds.length)).toEqual([50, 50, 50, 50, 50, 49])
+    expect(commander.officialSquad?.commandedSquadIds).toHaveLength(6)
     expect(commander.personalSquad).toBeDefined()
     const veteran = acceptHeavyFieldMission(withSquad('veteran'), SOLDIER_IRON_ENCOUNTER_ID, 'c')!.activeMission!
     expect([veteran.officialSquad, veteran.personalSquad]).toEqual([undefined, undefined])

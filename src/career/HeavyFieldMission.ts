@@ -3,7 +3,7 @@ import type { BattleSpawnPlan, NpcSpawnSpec } from '../battle/BattleSpawner'
 import { Faction } from '../world/NPC'
 import { careerCombatPlayerLoadout } from './CaptainBattleLaunch'
 import { resolveCareerReliefMount } from './CareerOutpostMission'
-import { MAX_COMMAND_SQUADS, MAX_COMMAND_SQUAD_SIZE } from '../battle/CommandTarget'
+import { MAX_CUSTOM_BATTLE_COMMAND_SQUADS as MAX_COMMAND_SQUADS, MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE as MAX_COMMAND_SQUAD_SIZE } from '../battle/CommandTarget'
 import { createMissionCommandAuthority, type OfficialCommandSquad } from './CareerCommandAuthority'
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
 import { snapshotPersonalMission } from './CareerPersonalSquadMission'
@@ -86,11 +86,11 @@ export function createHeavyFieldMission(profile: CareerProfile, templateId: stri
 /** Command follows the player's rank, not the mission: Soldier / Veteran command nobody. */
 export function heavyRankCommands(rank: CareerRank): boolean { return rank === 'captain' || rank === 'commander' }
 
-/** Captain commands one 29-man squad of the mission force; Commander commands up to eight 30-man squads of it. */
+/** Same squad limits as custom battles (50 per squad, 10 squads): Captain commands one squad, Commander commands the whole force. */
 function heavyOfficialAuthority(profile: CareerProfile, missionId: string, friendlyActorIds: readonly string[]) {
   if (!heavyRankCommands(profile.rank)) return undefined
   const squads: OfficialCommandSquad[] = []
-  const size = profile.rank === 'commander' ? MAX_COMMAND_SQUAD_SIZE : 29
+  const size = MAX_COMMAND_SQUAD_SIZE
   const count = profile.rank === 'commander' ? MAX_COMMAND_SQUADS : 1
   for (let index = 0; index < count && index * size < friendlyActorIds.length; index++) {
     squads.push({ squadId: index + 1 as OfficialCommandSquad['squadId'], actorIds: friendlyActorIds.slice(index * size, (index + 1) * size) })
