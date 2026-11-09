@@ -1,7 +1,7 @@
 'use strict'
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { decodeAffected, affectedFilters, expandIdentities, preflightChanges, isCss } = require('../tooling/supercov-related.cjs')
+const { decodeAffected, affectedFilters, expandIdentities, preflightChanges, requireLowerBoundWithinLimit, isCss } = require('../tooling/supercov-related.cjs')
 const { noSeedPolicy, safeNewAgentLink } = require('../tooling/ci-plan.cjs')
 const { diagnose } = require('../tooling/supercov-affected-expand.cjs')
 const { readFileSync } = require('node:fs')
@@ -452,6 +452,21 @@ test('other setup lifecycle records widen to all leaves of their own file, not a
     { file: 'tests/foreign-setup.ts', name: 'setup' },
   ] })
   assert.throws(() => decodeAffected(unknown, inventory, source, run), /unsafe/)
+})
+
+test('an early over-limit failure reports a labelled lower bound, not a final breakdown', () => {
+  const published = []
+  const counts = { affected: 1040, undetermined: 2 }
+  assert.throws(() => requireLowerBoundWithinLimit(counts, { setups: 118 }, message => published.push(message)),
+    /limit exceeded: at least 924 runnable/)
+  assert.equal(published.length, 1)
+  for (const line of [/incomplete, lower bound only/, /Native affected records: 1040/, /Native undetermined records: 2/,
+    /Baseline setup records: 118/, /Runnable case lower bound: 924 \/ 500/, /Identity expansion skipped/]) {
+    assert.match(published[0], line)
+  }
+  assert.doesNotMatch(published[0], /Final unique|Fixed Node contracts:|Added\/modified test cases:/)
+  requireLowerBoundWithinLimit({ affected: 618, undetermined: 0 }, { setups: 118 }, () => assert.fail('within the limit'))
+  assert.throws(() => requireLowerBoundWithinLimit({ affected: 619, undetermined: 0 }, { setups: 118 }, () => {}), /at least 501/)
 })
 
 test('real 873 affected records cannot bypass the strict 500 runnable-leaf gate', () => {

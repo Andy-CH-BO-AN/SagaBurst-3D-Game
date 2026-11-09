@@ -147,7 +147,9 @@ other input runs it, and Full always does.
 
 The summary reports each category's runnable cases, the duplicates removed and the
 final unique total; the first four minus duplicates equals the total. A selection over
-the limit prints this too before failing, so it shows what to split.
+the limit prints this too before failing, so it shows what to split. When the native
+summary alone already proves more than 500, identity expansion is skipped and only a
+section labelled as an incomplete lower bound is printed.
 
 Related counts are validated in the manifest:
 - 0–100: Excellent

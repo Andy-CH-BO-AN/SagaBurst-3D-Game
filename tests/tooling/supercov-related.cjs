@@ -1,6 +1,6 @@
 'use strict'
 const { execFileSync } = require('node:child_process')
-const { existsSync, readFileSync } = require('node:fs')
+const { appendFileSync, existsSync, readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
 const { requireExactBaseSeed, isGitAncestor } = require('./supercov-evidence-policy.cjs')
 const { validSeedMetadata, validateAffectedQuery,
@@ -32,7 +32,12 @@ function preflightChanges(changes) {
 }
 const newRuntimeSources = changes => changes.filter(change => change.status === 'A' && isRuntime(change.file)).map(change => change.file)
 
-function requireLowerBoundWithinLimit(nativeCounts, baseline) {
+function publishPreflight(message) {
+  console.log(message)
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+    '\n### Logic test selection\n\n```text\n' + message + '\n```\n')
+}
+function requireLowerBoundWithinLimit(nativeCounts, baseline, publish = publishPreflight) {
   // Supercov's JSON is a ranked preview by default. Its summary remains
   // authoritative even when arrays are truncated. A conservative lower
   // bound already above the 500 runnable-leaf cap must fail before trying
@@ -44,6 +49,15 @@ function requireLowerBoundWithinLimit(nativeCounts, baseline) {
     const lowerBound = Math.max(0,
       nativeCounts.affected + nativeCounts.undetermined - baseline.setups)
     if (lowerBound > 500) {
+      publish([
+        'Related selection (incomplete, lower bound only):',
+        '  Native affected records: ' + nativeCounts.affected,
+        '  Native undetermined records: ' + nativeCounts.undetermined,
+        '  Baseline setup records: ' + baseline.setups,
+        '  Runnable case lower bound: ' + lowerBound + ' / 500',
+        '  Identity expansion skipped: the lower bound alone exceeds the limit',
+        '  Not counted: added/modified test files and Node contracts',
+      ].join('\n'))
       fail('Native Related aggregate 500-leaf limit exceeded: at least ' +
         lowerBound + ' runnable Vitest leaves affected (native affected=' +
         nativeCounts.affected + ', undetermined=' + nativeCounts.undetermined +
@@ -274,4 +288,4 @@ function nativeSelection(inventory, changed, { base } = {}) {
   }
   return decodeAffected(data, inventory, changed, seed.runId, baseline)
 }
-module.exports = { decodeAffected, nativeSelection, affectedFilters, expandIdentities, preflightChanges, isCss }
+module.exports = { decodeAffected, nativeSelection, affectedFilters, expandIdentities, preflightChanges, requireLowerBoundWithinLimit, isCss }
