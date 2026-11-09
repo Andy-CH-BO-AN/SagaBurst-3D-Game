@@ -592,7 +592,7 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(friendly.filter(spec => spec.characterTier === 4 && spec.loadout?.mountId === 'black-cat')).toHaveLength(20)
     expect(friendly.filter(spec => spec.characterTier === 4 && spec.loadout?.mountId === 'white-cat')).toHaveLength(20)
     expect(friendly.filter(spec => spec.characterTier === 4 && spec.loadout?.mountId === 'orange-cat')).toHaveLength(20)
-    expect(friendly.filter(spec => spec.characterTier === 5 && spec.loadout?.mountId === 'snow-leopard')).toHaveLength(20)
+    expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':t5:lancer:') && spec.loadout?.mountId === 'snow-leopard')).toHaveLength(20)
     expect(enemy.every(spec => spec.loadout?.mountId === 'horse')).toBe(true)
 
     // Legacy tier/role actor IDs remain stable; all 200 friendlies use T4 Ranger bodies and T5 bows.
