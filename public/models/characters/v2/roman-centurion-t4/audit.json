@@ -1,0 +1,243 @@
+{
+  "builder": "tools/build-meshy-faction-heroes.mjs",
+  "sourceSha256": "9bcb0c2f7dcfe7706ec0aee526e6eafc0b112e42cd79fb1c8be6adb8e8f4e920",
+  "sourceTriangles": 9994,
+  "waistSkinRepairs": [
+    {
+      "method": "Smoothly transfer misplaced thigh/calf influences to the existing pelvis above the proximal hip region.",
+      "sourceHipHeightM": 1.0953714847564697,
+      "blendHeightM": [
+        0.9453714847564697,
+        1.0753714847564697
+      ],
+      "changedVertices": 2320,
+      "maximumTransferredWeight": 0.7826560213808874,
+      "unchanged": [
+        "positions",
+        "indices",
+        "normals",
+        "UVs",
+        "inverse binds",
+        "non-leg influences",
+        "lower garment skin"
+      ]
+    }
+  ],
+  "constantTrackAudit": {
+    "collapsedTracks": 325,
+    "removedExactConstantSamples": 28292,
+    "beforeAnimationStreamBytes": 1127180,
+    "afterConstantTrackStreamBytes": 563268
+  },
+  "fingerPoseFit": [
+    {
+      "side": "l",
+      "digit": "thumb",
+      "flexionRadians": [
+        0,
+        0,
+        1.25,
+        0.1
+      ],
+      "tipToTargetM": 0.03315832833025688
+    },
+    {
+      "side": "l",
+      "digit": "index",
+      "flexionRadians": [
+        1.0999999999999994,
+        0.7000000000000002,
+        0.8750000000000001
+      ],
+      "tipToTargetM": 0.003655789955195145
+    },
+    {
+      "side": "l",
+      "digit": "middle",
+      "flexionRadians": [
+        0.85,
+        1.1,
+        0.9750000000000001
+      ],
+      "tipToTargetM": 0.00794315182723857
+    },
+    {
+      "side": "l",
+      "digit": "ring",
+      "flexionRadians": [
+        1.3749999999999998,
+        0.675,
+        0.44999999999999996
+      ],
+      "tipToTargetM": 0.0017737708857718606
+    },
+    {
+      "side": "l",
+      "digit": "pinky",
+      "flexionRadians": [
+        1.1249999999999996,
+        0.725,
+        0.8
+      ],
+      "tipToTargetM": 0.009885128897126469
+    },
+    {
+      "side": "r",
+      "digit": "thumb",
+      "flexionRadians": [
+        0,
+        0.22499999999999998,
+        1.1999999999999993,
+        0
+      ],
+      "tipToTargetM": 0.03299819603410305
+    },
+    {
+      "side": "r",
+      "digit": "index",
+      "flexionRadians": [
+        0.9999999999999999,
+        1.2500000000000002,
+        0
+      ],
+      "tipToTargetM": 0.004024968174717909
+    },
+    {
+      "side": "r",
+      "digit": "middle",
+      "flexionRadians": [
+        0.7,
+        1.225,
+        0.9000000000000001
+      ],
+      "tipToTargetM": 0.007605347370696036
+    },
+    {
+      "side": "r",
+      "digit": "ring",
+      "flexionRadians": [
+        1.3749999999999996,
+        0.7250000000000001,
+        0.7000000000000001
+      ],
+      "tipToTargetM": 0.01050878849019813
+    },
+    {
+      "side": "r",
+      "digit": "pinky",
+      "flexionRadians": [
+        1.4499999999999997,
+        0.55,
+        0.6500000000000001
+      ],
+      "tipToTargetM": 0.002069834895168083
+    }
+  ],
+  "lod0Policy": "Original vertex, index, normal and UV accessor bytes preserved. Waist leg influences transferred to the existing pelvis; source inverse binds retained. No decimation, remeshing, added/degenerate or hidden triangles.",
+  "lods": [
+    {
+      "level": 0,
+      "triangles": 9994,
+      "textureMax": 2048,
+      "sha256": "fcb47223c02380a62610748b83710322a1fcede62eaf050b634bc3211365cf56",
+      "bytes": 4854736,
+      "maxSkinWeightNormalizationError": 0,
+      "sourceAccessorBytesPreserved": {
+        "POSITION": true,
+        "NORMAL": true,
+        "TEXCOORD_0": true,
+        "JOINTS_0": false,
+        "WEIGHTS_0": false,
+        "indices": true
+      },
+      "allBufferViewsByteExact": true,
+      "joints": 66,
+      "animationNames": [
+        "bowHold",
+        "bowLoad",
+        "bowRelease",
+        "idle",
+        "pilumThrow",
+        "run",
+        "swordSlash",
+        "walk",
+        "mounted",
+        "death",
+        "axeAttack1H",
+        "axeAttack2H",
+        "axeMountedIdle",
+        "axeAttack1HFoot"
+      ]
+    },
+    {
+      "level": 1,
+      "triangles": 6000,
+      "textureMax": 1024,
+      "sha256": "8c12726d7883f8e4bb8e49438e5f2bc462f1d739d22c56ca1fdadebf5b39dfdb",
+      "bytes": 2104068,
+      "maxSkinWeightNormalizationError": 1.4901161193847656e-7,
+      "sourceAccessorBytesPreserved": {
+        "POSITION": false,
+        "NORMAL": false,
+        "TEXCOORD_0": false,
+        "JOINTS_0": false,
+        "WEIGHTS_0": false,
+        "indices": false
+      },
+      "allBufferViewsByteExact": true,
+      "joints": 66,
+      "animationNames": [
+        "bowHold",
+        "bowLoad",
+        "bowRelease",
+        "idle",
+        "pilumThrow",
+        "run",
+        "swordSlash",
+        "walk",
+        "mounted",
+        "death",
+        "axeAttack1H",
+        "axeAttack2H",
+        "axeMountedIdle",
+        "axeAttack1HFoot"
+      ]
+    },
+    {
+      "level": 2,
+      "triangles": 2500,
+      "textureMax": 512,
+      "sha256": "6a6b2f0a53556f148ddb5ce3aee030a43a6e82f47b26420701cdd620044decf2",
+      "bytes": 1225104,
+      "maxSkinWeightNormalizationError": 1.6763806343078613e-7,
+      "sourceAccessorBytesPreserved": {
+        "POSITION": false,
+        "NORMAL": false,
+        "TEXCOORD_0": false,
+        "JOINTS_0": false,
+        "WEIGHTS_0": false,
+        "indices": false
+      },
+      "allBufferViewsByteExact": true,
+      "joints": 66,
+      "animationNames": [
+        "bowHold",
+        "bowLoad",
+        "bowRelease",
+        "idle",
+        "pilumThrow",
+        "run",
+        "swordSlash",
+        "walk",
+        "mounted",
+        "death",
+        "axeAttack1H",
+        "axeAttack2H",
+        "axeMountedIdle",
+        "axeAttack1HFoot"
+      ]
+    }
+  ],
+  "animationContractPreserved": true,
+  "fps": "Deferred by user; no measurements or performance claim."
+}

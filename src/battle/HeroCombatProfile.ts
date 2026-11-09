@@ -1,6 +1,6 @@
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 
-export type T4CombatProfileId = 'varangian' | 'praetorian' | 'ranger'
+export type T4CombatProfileId = 'varangian' | 'praetorian' | 'centurion' | 'ranger'
 export type HeroCombatProfileId = T4CombatProfileId | 'roman-commander' | 'viking-commander' | 'byzantine-cataphract'
 
 /** Shared by Player and NPC; player skill progression is applied by its existing owner. */
@@ -19,6 +19,8 @@ export const HERO_COMBAT_PROFILES: Record<HeroCombatProfileId, HeroCombatProfile
   'byzantine-cataphract': { maxHp: 1000, damageMultiplier: 3, damageTakenMultiplier: .4, attackSpeedMultiplier: 1.3, meleeAttackSpeedMultiplier: 1.3, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 },
   varangian: { maxHp: 500, damageMultiplier: 2, damageTakenMultiplier: 1, attackSpeedMultiplier: 1.5, moveSpeedMultiplier: 1.2, rangedAttackRangeMultiplier: 1 },
   praetorian: { maxHp: 500, damageMultiplier: 2, damageTakenMultiplier: .7, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 },
+  // Career-only Roman T4 second class (7,000 merit); NPC Roman T4 rosters keep praetorian.
+  centurion: { maxHp: 700, damageMultiplier: 2.2, damageTakenMultiplier: .6, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 },
   ranger: { maxHp: 300, damageMultiplier: 1.3, damageTakenMultiplier: 1, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1.3, rangedAttackRangeMultiplier: 2 },
   'roman-commander': { maxHp: 850, damageMultiplier: 2.2, damageTakenMultiplier: .5, attackSpeedMultiplier: 1.15, moveSpeedMultiplier: 1.05, rangedAttackRangeMultiplier: 1 },
   'viking-commander': { maxHp: 900, damageMultiplier: 2.2, meleeDamageMultiplier: 2.6, damageTakenMultiplier: .8, attackSpeedMultiplier: 1.55, meleeAttackSpeedMultiplier: 1.7, moveSpeedMultiplier: 1.2, rangedAttackRangeMultiplier: 1 },
@@ -28,6 +30,7 @@ export const HERO_COMBAT_PROFILE_BY_ASSET: Record<HeroAssetId, HeroCombatProfile
   'byzantine-cataphract-t5': 'byzantine-cataphract',
   'viking-hero-t4': 'varangian',
   'roman-hero-t4': 'praetorian',
+  'roman-centurion-t4': 'centurion',
   'maki-archer-t4': 'ranger',
   'roman-hero-t5': 'roman-commander',
   'viking-hero-t5': 'viking-commander',

@@ -18,10 +18,12 @@ export const HIGH_TIER_WEAPON_ASSETS = {
   roman_officer_shield_t4: 'models/weapons/faction-shields/roman-officer.glb',
   viking_berserker_shield_t5: 'models/weapons/faction-shields/viking-berserker.glb',
 } as const
-/** Elite-only equipment: never part of the shared preload, so ordinary scenes neither wait on it nor fail with it. */
+/** Elite-only equipment: never part of the shared preload, so ordinary scenes neither wait on it nor fail with it.
+ * The Centurion Aquila shield shares this on-demand contract (optional, purchased equipment). */
 export const BYZANTINE_EQUIPMENT_ASSETS = {
   byzantine_standard_lance_t5: 'models/weapons/byzantine/standard-lance.glb',
   byzantine_eagle_shield_t5: 'models/weapons/faction-shields/byzantine-eagle.glb',
+  centurion_aquila_shield_t4: 'models/weapons/faction-shields/centurion-aquila.glb',
 } as const
 export type ByzantineEquipmentId = keyof typeof BYZANTINE_EQUIPMENT_ASSETS
 export const isByzantineEquipmentId = (id: unknown): id is ByzantineEquipmentId => typeof id === 'string' && id in BYZANTINE_EQUIPMENT_ASSETS

@@ -12,6 +12,7 @@ export type T4HeroCombatProfile = HeroCombatProfile
 export const T4_COMBAT_PROFILES: Record<T4CombatProfileId, T4HeroCombatProfile> = {
   varangian: HERO_COMBAT_PROFILES.varangian,
   praetorian: HERO_COMBAT_PROFILES.praetorian,
+  centurion: HERO_COMBAT_PROFILES.centurion,
   ranger: HERO_COMBAT_PROFILES.ranger,
 }
 

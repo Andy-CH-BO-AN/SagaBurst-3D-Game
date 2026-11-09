@@ -1,4 +1,5 @@
 import { unlockedCareerClasses } from './CareerElitePromotion'
+import { isT4ClassId, T4_CLASS_FIRST_MERIT, unlockedT4Classes } from './CareerT4Promotion'
 import { createCareerTutorialState, parseCareerTutorialState } from './CareerTutorialState'
 import { migrateCareerHealth } from './CareerHealthMigration'
 import { legacySiegeCharacterTier, parseBorrowedCharacterIdentities } from './CareerBorrowedIdentity'
@@ -746,6 +747,17 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   // The record is saved only once an explicit unlock exists; legacy saves stay byte-identical and derive via unlockedCareerClasses().
   const unlockedCareerClasses = rawUnlocked as CareerProfile['unlockedCareerClasses'] | undefined
   if (unlockedCareerClasses && !unlockedCareerClasses.includes(usedClass)) return null
+  // Roman T4 classes: separate fields, valid only on a Roman Captain/Commander. Legacy Captains derive Paladin only.
+  const romanOfficer = raw.faction === 'roman' && (rank === 'captain' || rank === 'commander')
+  const rawT4 = raw.t4Specialization as unknown, rawT4Unlocked = raw.unlockedT4Classes as unknown
+  if (rawT4 !== undefined && !(romanOfficer && isT4ClassId(rawT4))) return null
+  if (rawT4Unlocked !== undefined && !(romanOfficer && Array.isArray(rawT4Unlocked) && rawT4Unlocked.length >= 1
+    && new Set(rawT4Unlocked).size === rawT4Unlocked.length && rawT4Unlocked.every(isT4ClassId))) return null
+  const t4Unlocked = rawT4Unlocked as CareerProfile['unlockedT4Classes'] | undefined
+  const usedT4 = isT4ClassId(rawT4) ? rawT4 : rank === 'captain' ? 'paladin' as const : undefined
+  if (t4Unlocked && usedT4 && !t4Unlocked.includes(usedT4)) return null
+  // A Centurion-only record is a first appointment (7,000). Only a purchased second class (Paladin first) may sit below it.
+  if (usedT4 === 'centurion' && (!t4Unlocked || t4Unlocked.length === 1) && totalMerit - enlistmentMeritBase < T4_CLASS_FIRST_MERIT.centurion) return null
   const tutorial = raw.tutorial === undefined ? createCareerTutorialState(rank, false) : parseCareerTutorialState(raw.tutorial)
   if (!tutorial) return null
   const tutorialDuel = (raw.activeMission as Partial<ActiveCareerMission> | undefined)?.duelTutorialCareerId
@@ -792,6 +804,8 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     rank,
     eliteClass: raw.eliteClass === 'byzantine-cataphract' ? 'byzantine-cataphract' : null,
     ...(unlockedCareerClasses ? { unlockedCareerClasses: [...unlockedCareerClasses] } : {}),
+    ...(isT4ClassId(rawT4) ? { t4Specialization: rawT4 } : {}),
+    ...(t4Unlocked ? { unlockedT4Classes: [...t4Unlocked] } : {}),
     ...(raw.meleeSelectionOrigin === 'starter' || raw.meleeSelectionOrigin === 'custom'
       ? { meleeSelectionOrigin: raw.meleeSelectionOrigin } : {}),
     ...(raw.commanderMeleeGranted === true ? { commanderMeleeGranted: true } : {}),
@@ -1004,7 +1018,8 @@ export class CareerProfileStore {
       // Unlocks are permanent within an enlistment: a stale scene may not drop one (switching the class in use is allowed).
       const stored = existing ? parseCareerProfile(existing) : null
       if (stored && parsed.tutorial?.careerId === stored.tutorial?.careerId && parsed.enlistmentMeritBase === stored.enlistmentMeritBase
-        && unlockedCareerClasses(stored).some(id => !unlockedCareerClasses(parsed).includes(id))) return false
+        && (unlockedCareerClasses(stored).some(id => !unlockedCareerClasses(parsed).includes(id))
+          || unlockedT4Classes(stored).some(id => !unlockedT4Classes(parsed).includes(id)))) return false
       if (profile.tutorial && !parsed.tutorial || profile.activeMission?.duelTutorialCareerId && parsed.activeMission?.duelTutorialCareerId !== profile.activeMission.duelTutorialCareerId) return false
       if (profile.activeMission?.outpostSiege && !parsed.activeMission?.outpostSiege
         || profile.activeMission?.battle?.outpostSiege && !parsed.activeMission?.battle?.outpostSiege
