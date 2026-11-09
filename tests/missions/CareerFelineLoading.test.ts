@@ -29,6 +29,15 @@ vi.mock('../../src/world/Mount', async importOriginal => {
   return { ...original, Mount: StubMount }
 })
 
+// The refit lifecycle reads Town actors only for identity, squad and default loadout;
+// each resident fixture owns its own spec. townRoster() adds garrison stations and
+// civilian home placement over the same authored actors, and its uncached first call
+// took over half of the 100ms leaf budget. Roster placement has its own owner suites.
+vi.mock('../../src/town/TownRules', async importOriginal => {
+  const original = await importOriginal<typeof import('../../src/town/TownRules')>()
+  return { ...original, townRoster: original.townAuthoredRoster }
+})
+
 const loaded = new Set<FelineMountVariant>()
 const gates = new Map<FelineMountVariant, { resolve(): void; reject(error: Error): void }>()
 let preloadCalls: FelineMountVariant[] = []
