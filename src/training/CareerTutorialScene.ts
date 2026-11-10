@@ -175,29 +175,39 @@ export class CareerTutorialScene {
     else if (this.step === 'melee-hit-1') { target = new THREE.Vector3(100, 0, 40); label = '0m 近戰假人' }
     else if (this.step === 'bow-hit') { target = new THREE.Vector3(100 + Math.sin(-1.05) * 10, 0, 40 - Math.cos(-1.05) * 10); label = '10m 射擊假人' }
     else if (this.step === 'cat-mounted') { target = frame.catPosition ?? null; label = '最近的黑貓 · 靠近按 E 騎乘' }
-    else if (this.step === 'horse-mounted') { target = frame.horsePosition ?? null; label = '指定普通練習馬' }
-    else if (this.step === 'mount-impact') {
-      if (frame.mountedOnPracticeHorse) { target = this.impactPoint; label = '衝撞假人 · W 加速 · Shift 衝刺' }
-      else { target = frame.horsePosition ?? null; label = '普通練習馬 · 靠近按 E 上馬' }
-    } else if (this.step === 'dismounted' && !frame.mountedOnPracticeHorse) { target = frame.horsePosition ?? null; label = '普通練習馬 · 靠近按 E 上馬' }
+    else if (this.step === 'mount-impact' && frame.mountedOnPracticeHorse) { target = this.impactPoint; label = '衝撞假人 · W 加速 · Shift 衝刺' }
+    else if (this.needsHorse(frame)) {
+      // Resuming or resetting puts the player back at spawn: the black cat is the transit again, without undoing progress.
+      if (this.needsCatTransit(frame)) { target = frame.catPosition ?? null; label = '最近的黑貓 · 靠近按 E 騎乘' }
+      else { target = frame.horsePosition ?? null; label = frame.mountedOnPracticeCat ? '指定普通練習馬' : '普通練習馬 · 靠近按 E 上馬' }
+    }
     this.setContextHint(this.mountHint(frame))
     this.guide.updateRace(frame.position, frame.cameraYaw, target, label)
   }
 
+  /** Steps that all end at the practice horse, whether first time or after a resume/reset. */
+  private needsHorse(frame: TutorialSceneFrame): boolean {
+    return ['horse-mounted', 'mount-impact', 'dismounted'].includes(this.step) && !frame.mountedOnPracticeHorse
+  }
+
+  private distanceToHorse(frame: TutorialSceneFrame): number {
+    return frame.horsePosition ? Math.hypot(frame.position.x - frame.horsePosition.x, frame.position.z - frame.horsePosition.z) : 0
+  }
+
+  /** On foot and far from the horse (and not already next to it): ride the nearest black cat there. */
+  private needsCatTransit(frame: TutorialSceneFrame): boolean {
+    return frame.onFoot && !!frame.catPosition && this.distanceToHorse(frame) > 12
+  }
+
   /** Mounting steps depend on what the player is riding right now, so the base hint is refined every frame. */
   private mountHint(frame: TutorialSceneFrame): string {
-    const nearHorse = frame.horsePosition !== undefined
-      && Math.hypot(frame.position.x - frame.horsePosition.x, frame.position.z - frame.horsePosition.z) < 12
     const otherMount = !frame.onFoot && !frame.mountedOnPracticeCat && !frame.mountedOnPracticeHorse
     if (this.step === 'cat-mounted') return otherMount ? '這不是黑貓。按 E 下騎，改騎最近的黑貓。' : ''
-    if (this.step === 'horse-mounted') {
-      if (frame.mountedOnPracticeCat) return nearHorse ? '已到達普通練習馬。按 E 下騎，改騎普通馬。' : '騎乘黑貓前往普通練習馬。'
-      if (otherMount) return '這不是黑貓或普通馬。按 E 下騎，改騎指定的普通練習馬。'
-      return frame.onFoot ? '靠近普通練習馬，按 E 上馬。' : ''
-    }
-    if (this.step === 'mount-impact' && !frame.mountedOnPracticeHorse) return '回到普通練習馬，按 E 上馬後再衝撞假人。'
-    if (this.step === 'dismounted' && !frame.mountedOnPracticeHorse) return '靠近普通練習馬，按 E 上馬後再按 E 下馬。'
-    return ''
+    if (!this.needsHorse(frame)) return ''
+    if (frame.mountedOnPracticeCat) return this.distanceToHorse(frame) < 12 ? '已到達普通練習馬。按 E 下騎，改騎普通馬。' : '騎乘黑貓前往普通練習馬。'
+    if (otherMount) return '這不是黑貓或普通馬。按 E 下騎，改騎指定的普通練習馬。'
+    if (this.needsCatTransit(frame)) return '先騎最近的黑貓（按 E）前往普通練習馬，再改騎普通馬。'
+    return this.step === 'dismounted' ? '靠近普通練習馬，按 E 上馬後再按 E 下馬。' : '靠近普通練習馬，按 E 上馬。'
   }
 
   private setContextHint(hint: string): void {

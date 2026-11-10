@@ -92,7 +92,8 @@ export class TownTutorialController {
   private guidedDeferred(stages: readonly CareerTutorialStageId[] = ['commander', 'captain', 'hr', 'town', 'recruit']): CareerTutorialStageId | null {
     const t = this.host.profile().tutorial
     if (!t) return null
-    return stages.find(id => t[id].status === 'deferred' && (!t.legacy || t[id].operations.length > 0)) ?? null
+    // A voluntary replay paused midway is not an unfinished first run; it resumes from the review entry.
+    return stages.find(id => t[id].status === 'deferred' && !t[id].replay && (!t.legacy || t[id].operations.length > 0)) ?? null
   }
 
   update(): void {
@@ -264,13 +265,7 @@ export class TownTutorialController {
     const h = this.host, t = h.profile().tutorial
     if (!t || !h.peaceful()) return false
     if (serviceId === 'deployment') {
-      // A skipped stage is offered directly; its dialogue keeps a route to the regular missions and services.
-      // Legacy stages the player never started stay in appendPanel's opt-in resume buttons.
-      if (this.guidedDeferred(['commander', 'captain', 'town', 'recruit'])) return true
-      if ((t.town.status === 'available' || t.town.status === 'active') && this.townDialogueReady()) return true
-      if (t.captain.status === 'available') return true
-      if (t.commander.status === 'available') return true
-      return false
+      return this.deploymentStage() !== null
     }
     if (serviceId === 'captain') {
       return t.town.step === 'duel' && ['active', 'available'].includes(t.town.status)
@@ -282,6 +277,17 @@ export class TownTutorialController {
       return t.commander.status === 'available' || t.commander.status === 'deferred'
     }
     return false
+  }
+
+  /** The one stage the Sergeant leads with; the HUD's deferred guidance uses the same priority order. */
+  private deploymentStage(): 'town' | 'captain' | 'commander' | 'recruit' | null {
+    const t = this.host.profile().tutorial
+    if (!t) return null
+    if (t.commander.status === 'available') return 'commander'
+    if (t.captain.status === 'available') return 'captain'
+    if ((t.town.status === 'available' || t.town.status === 'active') && this.townDialogueReady()) return 'town'
+    const deferred = this.guidedDeferred(['commander', 'captain', 'town', 'recruit'])
+    return deferred as 'town' | 'captain' | 'commander' | 'recruit' | null
   }
 
   /** True when the current Town step is one the Sergeant explains in person (and its conditions are met). */
@@ -359,7 +365,8 @@ export class TownTutorialController {
 
     if (serviceId === 'deployment') {
       if (titleEl) titleEl.textContent = '士官長'
-      if ((!only || only === 'town') && t.town.status !== 'locked' && t.town.status !== 'completed') {
+      const lead = only ?? this.deploymentStage()
+      if (lead === 'town' && t.town.status !== 'locked' && t.town.status !== 'completed') {
         const step = t.town.step
         if (step === 'report') {
           if (bodyEl) {
@@ -415,7 +422,7 @@ export class TownTutorialController {
           }
         }
       }
-      if ((!only || only === 'captain') && this.resumable(t.captain.status)) {
+      if (lead === 'captain' && this.resumable(t.captain.status)) {
         if (bodyEl) {
           bodyEl.textContent = t.captain.status === 'deferred'
             ? '「上次的指揮演練還沒結束，進度我替你留著。要繼續嗎？」'
@@ -439,7 +446,7 @@ export class TownTutorialController {
         this.servicesButton(panel, 'deployment')
         return true
       }
-      if ((!only || only === 'commander') && this.resumable(t.commander.status)) {
+      if (lead === 'commander' && this.resumable(t.commander.status)) {
         if (bodyEl) {
           bodyEl.textContent = '「指揮官，全軍現在聽候你的調遣！登上指揮塔頂，你將俯瞰整個城鎮的四門防線，號令所有城防小隊。\n\n準備好登上指揮塔號令全軍了嗎？」'
         }
@@ -456,9 +463,8 @@ export class TownTutorialController {
         this.servicesButton(panel, 'deployment')
         return true
       }
-      const resumeStage = only ?? this.guidedDeferred(['town', 'recruit'])
-      if ((resumeStage === 'town' || resumeStage === 'recruit') && t[resumeStage].status === 'deferred') {
-        this.renderResume(panel, resumeStage)
+      if ((lead === 'town' || lead === 'recruit') && t[lead].status === 'deferred') {
+        this.renderResume(panel, lead)
         return true
       }
     }

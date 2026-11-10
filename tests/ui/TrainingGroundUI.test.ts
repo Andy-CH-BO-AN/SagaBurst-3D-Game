@@ -126,7 +126,7 @@ describe('Training pause, controls and listener ownership', () => {
   })
 
   it('recruit mount lesson needs the black cat, then the practice horse, then a damaging horse impact on the runway dummy', () => {
-    harness()
+    const h = harness()
     const storage = new MemoryStorage()
     vi.stubGlobal('localStorage', storage)
     const profile = createCareerProfile('roman'), session = startCareerTutorial(profile, 'recruit')!
@@ -162,5 +162,18 @@ describe('Training pause, controls and listener ownership', () => {
     expect(step()).toBe('mount-impact')
     tutorial.combat(hit(), true)
     expect(step()).toBe('dismounted')
+
+    // Resuming mid-lesson respawns on foot far from the horse: the cat is the transit again, progress is kept.
+    const saved = store.load()!; saved.tutorial!.recruit.operations.pop(); saved.tutorial!.recruit.step = 'mount-impact'
+    const hint = () => h.rootNodes.some(node => node.textContent.includes('先騎最近的黑貓'))
+    tutorial.dispose()
+    expect(store.save(saved)).toBe(true)
+    const resumed = new CareerTutorialScene({ careerId: session.careerId, sessionId: session.id, stage: 'recruit' }, { returnToTown: vi.fn(), reset: vi.fn(), clearInput: vi.fn() })
+    onTestFinished(() => resumed.dispose())
+    const catPosition = new Vector3(70, 0, 60)
+    resumed.update(frame({ position: new Vector3(105, 0, 47), catPosition }), .016)
+    expect([resumed.step, hint()]).toEqual(['mount-impact', true])
+    resumed.update(frame({ position: new Vector3(70, 0, 205), catPosition }), .016)
+    expect(hint()).toBe(false)
   })
 })

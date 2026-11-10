@@ -573,6 +573,25 @@ describe('TownTutorialUX', () => {
     ctrl.dispose()
   })
 
+  it('does not nag a paused replay, and leads with the same deferred stage as the HUD when several are skipped', () => {
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController(harness.host)
+    const t = harness.getProfile().tutorial!
+    t.town.status = 'locked'
+    t.recruit.status = 'deferred'; t.recruit.replay = true
+    expect(ctrl.hasDialogue('deployment')).toBe(false)
+    ctrl.update()
+    expect(dom.elements.find(el => el.id === 'career-tutorial-hint')!.textContent).toBe('')
+
+    t.recruit.status = 'completed'; t.recruit.replay = false
+    t.town.status = 'deferred'; t.town.operations = []; t.town.step = 'report'
+    t.captain.status = 'deferred'
+    const lead = dialoguePanel()
+    ctrl.renderDialogue(lead.panel, 'deployment')
+    expect(lead.buttons().map(b => b.textContent)).toEqual(['繼續 30 人指揮演練', '稍後再訓練', '查看正式任務與其他服務'])
+    ctrl.dispose()
+  })
+
   it('captain duel dialogue keeps the regular promotion/services entry', () => {
     const harness = createHostHarness()
     const ctrl = new TownTutorialController(harness.host)
