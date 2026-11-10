@@ -31,4 +31,10 @@ describe('Equipment comparison', () => {
     expect(compareEquipment(sword, lance).lines.at(-1)).toContain('未計入')
     expect(compareEquipment(lance, sword).lines.join()).not.toContain('破盾')
   })
+
+  it('uses the combat rule for implicit shield-break: T3 sword ↔ T3 axe differ (1 vs 8) in both directions', () => {
+    const toAxe = compareEquipment(WEAPONS.viking_axe_t3, WEAPONS.runic_greatsword), toSword = compareEquipment(WEAPONS.runic_greatsword, WEAPONS.viking_axe_t3)
+    expect(toAxe.lines).toContain('破盾衝擊較強'); expect(toAxe.relation).toBe('upgrade')
+    expect(toSword.lines).toContain('破盾衝擊較弱'); expect(toSword.relation).toBe('downgrade')
+  })
 })

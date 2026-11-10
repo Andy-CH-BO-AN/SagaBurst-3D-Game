@@ -1,5 +1,6 @@
 import type { ArmorData } from './ArmorDatabase'
 import type { WeaponData } from './WeaponDatabase'
+import { weaponShieldImpact } from '../combat/ShieldImpact'
 
 /** Player-language summaries of equipment; exact numbers are returned separately for a collapsed detail view. */
 export type ComparableEquipment = WeaponData | ArmorData
@@ -33,7 +34,7 @@ export function equipmentDetails(item: ComparableEquipment): string[] {
 
 const pct = (value: number, base: number): number => base > 0 ? Math.round((value - base) / base * 100) : 0
 const SIGNIFICANT = 5
-const SHIELD_IMPACT_MARGIN = 3
+const SHIELD_IMPACT_MARGIN = 2
 
 export interface EquipmentComparison { relation: 'none' | 'same' | 'upgrade' | 'downgrade' | 'mixed'; lines: string[] }
 
@@ -56,9 +57,10 @@ export function compareEquipment(candidate: ComparableEquipment, current: Compar
     note('出手時間', pct(candidate.speedOrCharge, current.speedOrCharge), 'low')
     const range = (candidate.range ?? 0) - (current.range ?? 0)
     if (range >= 0.5) { lines.push('攻擊距離較長'); signs.push(1) } else if (range <= -0.5) { lines.push('攻擊距離較短'); signs.push(-1) }
-    // Fixed shield-break impact is a small integer; compare only when both weapons define it, and never as a percentage (a base of 0–1 would mislead).
-    if (candidate.shieldImpact !== undefined && current.shieldImpact !== undefined) {
-      const impact = candidate.shieldImpact - current.shieldImpact
+    // Effective shield-break impact comes from the combat rule itself (explicit value, axe tier, or default 1), on foot; never a percentage.
+    // A lance's impact depends on being mounted, so lances are left to the disclosed note below.
+    if (!candidate.isLance && !current.isLance) {
+      const impact = weaponShieldImpact(candidate.id) - weaponShieldImpact(current.id)
       if (impact >= SHIELD_IMPACT_MARGIN) { lines.push('破盾衝擊較強'); signs.push(1) } else if (impact <= -SHIELD_IMPACT_MARGIN) { lines.push('破盾衝擊較弱'); signs.push(-1) }
     }
     // A lance's mounted-charge and anti-cavalry role is not in these numbers, so a lance↔non-lance swap is never called better or worse.
