@@ -592,6 +592,40 @@ describe('TownTutorialUX', () => {
     ctrl.dispose()
   })
 
+  it('keeps the Sergeant dialogue on the HUD target when Town is active and Captain is deferred', () => {
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController(harness.host)
+    const t = harness.getProfile().tutorial!
+    t.town.status = 'active'; t.town.operations = ['report']; t.town.step = 'weapon'
+    t.captain.status = 'deferred'
+    ctrl.update()
+    expect(dom.elements.find(el => el.id === 'career-tutorial-hint')!.textContent).toContain('前往武器店')
+    expect(ctrl.hasDialogue('deployment')).toBe(false)
+    const side = dialoguePanel()
+    ctrl.appendPanel(side.panel, 'deployment')
+    expect(side.buttons().map(b => b.textContent)).toContain('繼續 30 人指揮演練')
+    ctrl.dispose()
+  })
+
+  it('resumes a paused replay from the review page with its progress, without re-guiding or re-clearing it', () => {
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController(harness.host)
+    const t = harness.getProfile().tutorial!
+    t.town.status = 'deferred'; t.town.replay = true; t.town.operations = ['report']; t.town.step = 'weapon'
+    t.recruit.status = 'deferred'; t.recruit.replay = true
+    ctrl.update()
+    expect(dom.elements.find(el => el.id === 'career-tutorial-hint')!.textContent).toBe('')
+    expect(ctrl.hasReviewOptions()).toBe(true)
+    const review = dialoguePanel()
+    ctrl.renderReviewContent(review.panel)
+    expect(review.buttons().map(b => b.textContent)).toEqual(['繼續重播操作練習', '繼續重播城鎮訓練'])
+    review.buttons()[0].onclick!()
+    expect(harness.getLaunches()).toEqual([{ stage: 'recruit', replay: true }])
+    review.buttons()[1].onclick!()
+    expect(harness.getProfile().tutorial!.town).toMatchObject({ status: 'active', replay: true, step: 'weapon', operations: ['report'] })
+    ctrl.dispose()
+  })
+
   it('captain duel dialogue keeps the regular promotion/services entry', () => {
     const harness = createHostHarness()
     const ctrl = new TownTutorialController(harness.host)

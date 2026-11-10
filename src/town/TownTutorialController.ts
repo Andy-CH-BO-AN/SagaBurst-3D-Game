@@ -2,7 +2,7 @@ import { Vector3 } from 'three'
 import type { CareerProfile } from '../career/CareerProfile'
 import { cloneCareerProfile } from '../career/CareerProfile'
 import { claimCareerTutorialReward, deferCareerTutorial, hasCareerTutorialHorse, recordCareerTutorialOperation, startCareerTutorial } from '../career/CareerTutorial'
-import type { CareerTutorialStageId } from '../career/CareerTutorialState'
+import { CAREER_TUTORIAL_STAGES, type CareerTutorialStageId } from '../career/CareerTutorialState'
 import { MissionGuide } from '../career/MissionGuide'
 import { careerShopProduct } from '../career/CareerShopCatalog'
 import type { CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
@@ -279,15 +279,15 @@ export class TownTutorialController {
     return false
   }
 
-  /** The one stage the Sergeant leads with; the HUD's deferred guidance uses the same priority order. */
+  /** The stage the HUD points at; the Sergeant's direct dialogue follows it, so the two never disagree. */
   private deploymentStage(): 'town' | 'captain' | 'commander' | 'recruit' | null {
     const t = this.host.profile().tutorial
-    if (!t) return null
-    if (t.commander.status === 'available') return 'commander'
-    if (t.captain.status === 'available') return 'captain'
-    if ((t.town.status === 'available' || t.town.status === 'active') && this.townDialogueReady()) return 'town'
-    const deferred = this.guidedDeferred(['commander', 'captain', 'town', 'recruit'])
-    return deferred as 'town' | 'captain' | 'commander' | 'recruit' | null
+    const lead = t && (this.activeStage() ?? this.guidedDeferred())
+    if (!t || !lead) return null
+    const status = t[lead].status
+    if (lead === 'commander' || lead === 'captain') return status === 'available' || status === 'deferred' ? lead : null
+    if (lead === 'town') return status === 'deferred' || this.townDialogueReady() ? 'town' : null
+    return lead === 'recruit' && status === 'deferred' ? 'recruit' : null
   }
 
   /** True when the current Town step is one the Sergeant explains in person (and its conditions are met). */
@@ -543,14 +543,15 @@ export class TownTutorialController {
     }
   }
 
+  /** A completed lesson can be replayed; a replay paused midway resumes here instead of nagging through the HUD. */
+  private reviewState(stage: CareerTutorialStageId): 'completed' | 'paused' | null {
+    const part = this.host.profile().tutorial?.[stage]
+    if (!part) return null
+    return part.status === 'completed' ? 'completed' : part.status === 'deferred' && part.replay ? 'paused' : null
+  }
+
   hasReviewOptions(): boolean {
-    const t = this.host.profile().tutorial
-    if (!t) return false
-    return t.recruit.status === 'completed'
-      || t.town.status === 'completed'
-      || t.captain.status === 'completed'
-      || t.hr.status === 'completed'
-      || t.commander.status === 'completed'
+    return CAREER_TUTORIAL_STAGES.some(stage => this.reviewState(stage) !== null)
   }
 
   renderReviewContent(panel: HTMLElement): void {
@@ -559,25 +560,23 @@ export class TownTutorialController {
     const desc = document.createElement('p'); desc.className = 'town-summary'
     desc.textContent = (!t || !this.hasReviewOptions())
       ? '目前尚無已完成的訓練課程可供重溫。'
-      : '重溫過去的訓練課程。重播不重複發放軍功獎勵。'
+      : '重溫過去的訓練課程。重播不重複發放軍功獎勵；中途暫停的重播可從這裡繼續。'
     panel.append(desc)
     if (!t || !this.hasReviewOptions()) return
 
-    if (t.recruit.status === 'completed') {
-      this.button(panel, '重播操作練習', () => h.launch('recruit', true))
-    }
-    const replay = (label: string, stage: 'town' | 'hr' | 'commander') => {
-      const b = this.button(panel, label, () => this.saveAndClose(b, panel, p => {
+    // Resuming a paused replay keeps its operations: startCareerTutorial only clears a completed lesson.
+    const label = (stage: CareerTutorialStageId, name: string) => `${this.reviewState(stage) === 'paused' ? '繼續重播' : '重播'}${name}`
+    if (this.reviewState('recruit')) this.button(panel, label('recruit', '操作練習'), () => h.launch('recruit', true))
+    const replay = (stage: 'town' | 'hr' | 'commander', name: string) => {
+      const b = this.button(panel, label(stage, name), () => this.saveAndClose(b, panel, p => {
         startCareerTutorial(p, stage, true)
         return p.tutorial?.[stage].status === 'active'
       }, () => { if (stage === 'commander') this.towerRouteIndex = null }))
     }
-    if (t.town.status === 'completed') replay('重播城鎮訓練', 'town')
-    if (t.captain.status === 'completed') {
-      this.button(panel, '重播隊長指揮演練', () => h.launch('captain', true))
-    }
-    if (t.hr.status === 'completed') replay('重播 HR 私人小隊引導', 'hr')
-    if (t.commander.status === 'completed') replay('重播指揮塔引導', 'commander')
+    if (this.reviewState('town')) replay('town', '城鎮訓練')
+    if (this.reviewState('captain')) this.button(panel, label('captain', '隊長指揮演練'), () => h.launch('captain', true))
+    if (this.reviewState('hr')) replay('hr', ' HR 私人小隊引導')
+    if (this.reviewState('commander')) replay('commander', '指揮塔引導')
   }
 
   openReviewPanel(): void {
