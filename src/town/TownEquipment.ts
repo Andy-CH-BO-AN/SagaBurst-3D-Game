@@ -77,6 +77,8 @@ export class TownEquipment extends InventoryManager {
     if (slot === 'shield') this.shieldEnabled = true
     return true
   }
+  /** Career truth is the saved allocation: selecting a shield clears it even though the hand-state ID lingers. */
+  override get selectedRanged(): typeof WEAPONS[string] | undefined { const id = this.read().equipment?.ranged; return id ? WEAPONS[id] : undefined }
   override get supportsWeaponRelease(): boolean { return true }
   override unequipWeapon(id: string): boolean {
     if (this.combatRestricted) return false
@@ -94,9 +96,11 @@ export class TownEquipment extends InventoryManager {
   override canEquipWeapon(id: string): boolean {
     return !this.combatRestricted && canUseCareerEquipment(this.read(), id) && super.canEquipWeapon(id)
   }
-  override unequipShield(): void {
-    if (this.combatRestricted) return
+  override unequipShield(): boolean {
+    if (this.combatRestricted) return false
     const profile = cloneCareerProfile(this.read()); normalizeCareerInventory(profile); profile.equipment = { ...profile.equipment, shield: null }
-    if (this.commit(profile)) { this.shieldEnabled = false; super.unequipShield() }
+    if (!this.commit(profile)) return false
+    this.shieldEnabled = false
+    return super.unequipShield()
   }
 }

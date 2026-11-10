@@ -28,6 +28,10 @@ export interface EquipmentMountItem {
 
 export interface EquipmentMountAdapter {
   statusText: string
+  /** Set by the UI: fired when a background result (e.g. mount assets finishing) changes statusText. */
+  onChange?: () => void
+  /** The mount currently loading its assets; activate() returned false only because it is not ready yet. */
+  readonly loadingId?: string | null
   list(): EquipmentMountItem[]
   activate(id: string): boolean
   dismiss(): boolean
@@ -58,6 +62,8 @@ export class EquipmentUI {
   private inventoryCategory: EquipmentCategory | 'mount' = 'melee'
   /** Result of the player's latest equip action, shown in the loadout strip. */
   private feedback = ''
+  /** 詳細屬性 sections the player opened, kept across rebuilds. */
+  private readonly openDetails = new Set<string>()
 
   get visible(): boolean { return this.isOpen }
 
@@ -130,7 +136,12 @@ export class EquipmentUI {
 
   /** Rebuilds the modal while keeping each scroll position and the focused control, so one action never sends the player back to the top. */
   updateModal(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter, squad?: EquipmentSquadAdapter, town?: EquipmentTownAdapter): void {
-    const scrollers = [this.modal, ...this.panels, this.inventoryListEl]
+    if (mounts) mounts.onChange = () => {
+      if (!this.isOpen) return
+      this.feedback = mounts.statusText
+      this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad, town)
+    }
+    const scrollers = [this.modal, ...this.panels, this.inventoryListEl, this.squadListEl, ...(this.townListEl ? [this.townListEl] : [])]
     const tops = scrollers.map(element => element.scrollTop)
     const active = document.activeElement instanceof HTMLElement && this.modal.contains(document.activeElement) ? document.activeElement : null
     const focusKey = active?.dataset.focusKey
@@ -138,7 +149,7 @@ export class EquipmentUI {
     scrollers.forEach((element, index) => { element.scrollTop = tops[index] })
     if (focusKey) {
       const next = Array.from(this.modal.querySelectorAll<HTMLElement>('[data-focus-key]')).find(element => element.dataset.focusKey === focusKey)
-      if (next && !(next instanceof HTMLButtonElement && next.disabled)) next.focus({ preventScroll: true })
+      if (next && !(next as HTMLButtonElement | HTMLSelectElement).disabled) next.focus({ preventScroll: true })
     }
   }
 
@@ -197,7 +208,7 @@ export class EquipmentUI {
         const tierColor  = getTierColor(item.tier)
         const tierBadge  = getTierBadge(item.tier)
 
-        const current = item.type === 'shield' ? inventoryManager.equippedShield : item.type === 'ranged' ? inventoryManager.equippedRanged : inventoryManager.equippedMelee
+        const current = item.type === 'shield' ? inventoryManager.equippedShield : item.type === 'ranged' ? inventoryManager.selectedRanged : inventoryManager.equippedMelee
         const comparison = compareEquipment(item as ComparableEquipment, current)
         const traitText = equipmentTraits(item as ComparableEquipment).join(' · ')
         const compareText = comparison.relation === 'none' || comparison.relation === 'same' && isEquipped ? ''
@@ -218,7 +229,7 @@ export class EquipmentUI {
           <div class="inv-item-stats">${traitText}</div>
           ${compareText ? `<div class="inv-item-compare compare-${comparison.relation}">${compareText}</div>` : ''}
           <div class="inv-item-desc">${availability}</div>
-          <details class="inv-item-details"><summary>詳細屬性</summary><div class="inv-item-desc">${detailText}</div><div class="inv-item-desc">${item.description}</div></details>
+          <details class="inv-item-details" data-details-key="item:${item.id}"><summary>詳細屬性</summary><div class="inv-item-desc">${detailText}</div><div class="inv-item-desc">${item.description}</div></details>
           <button class="btn-equip ${isEquipped ? 'is-active' : ''}" data-focus-key="equip:${item.id}">${isEquipped ? item.type === 'shield' ? '卸下盾牌' : '已裝備' : '【裝備】'}</button>
         `
 
@@ -226,7 +237,7 @@ export class EquipmentUI {
         ;(btn as HTMLButtonElement).disabled = !isEquipped && !inventoryManager.canEquipWeapon(item.id)
         if (!isEquipped || item.type === 'shield') {
           btn.addEventListener('click', () => {
-            if (isEquipped && item.type === 'shield') { inventoryManager.unequipShield(); this.feedback = `已卸下盾牌：${item.name}` }
+            if (isEquipped && item.type === 'shield') this.feedback = inventoryManager.unequipShield() ? `已卸下盾牌：${item.name}` : `無法卸下盾牌：${item.name}（保存失敗或目前不可更換）`
             else {
               const replaced = current && current.id !== item.id ? current.name : ''
               this.feedback = inventoryManager.equipWeapon(item.id) ? `已裝備：${item.name}${replaced ? `（取代 ${replaced}）` : ''}` : `無法裝備：${item.name}`
@@ -238,7 +249,7 @@ export class EquipmentUI {
 
         if (inventoryManager.supportsWeaponRelease && inventoryManager.isAllocated(item.id)) {
           const release = document.createElement('button'); release.className = 'btn-equip'; release.textContent = '解除分配'; release.dataset.focusKey = `release:${item.id}`
-          release.onclick = () => { inventoryManager.unequipWeapon(item.id); this.feedback = `已解除分配：${item.name}`; this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad, town); onEquipChanged?.() }
+          release.onclick = () => { const released = inventoryManager.unequipWeapon(item.id); this.feedback = released ? `已解除分配：${item.name}` : `無法解除分配：${item.name}（保存失敗或目前不可更換）`; this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad, town); onEquipChanged?.() }
           card.append(release)
         }
         this.inventoryListEl.appendChild(card)
@@ -260,13 +271,14 @@ export class EquipmentUI {
           <div class="inv-item-stats">${mount.active ? '騎乘中' : mount.allocated ? '已分配給 Player' : mount.available ? '可騎乘' : mount.unavailableReason ?? '本次無法使用'}</div>
           ${mount.traits?.length ? `<div class="inv-item-stats">${mount.traits.join(' · ')}</div>` : ''}
           <div class="inv-item-desc">${mount.quantityText ?? ''}</div>
-          ${mount.detail ? `<details class="inv-item-details"><summary>詳細屬性</summary><div class="inv-item-desc">${mount.detail}</div></details>` : ''}
+          ${mount.detail ? `<details class="inv-item-details" data-details-key="mount:${mount.id}"><summary>詳細屬性</summary><div class="inv-item-desc">${mount.detail}</div></details>` : ''}
           <button class="btn-equip ${mount.active ? 'is-active' : ''}" data-focus-key="mount:${mount.id}" ${mount.available ? '' : 'disabled'}>${mount.active ? '【收起】' : '【騎乘】'}</button>
         `
         const button = card.querySelector('button')!
         button.addEventListener('click', () => {
           if (mount.active) this.feedback = mounts.dismiss() ? `已收起坐騎：${mount.name}` : `無法收起：${mounts.statusText}`
-          else this.feedback = mounts.activate(mount.id) ? `已騎乘：${mount.name}` : `無法騎乘：${mounts.statusText}`
+          else if (mounts.activate(mount.id)) this.feedback = `已騎乘：${mount.name}`
+          else this.feedback = mounts.loadingId === mount.id ? `正在載入${mount.name}資源…完成後會自動騎乘` : `無法騎乘：${mounts.statusText}`
           this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad, town)
         })
         if (mount.appearanceVariant !== undefined && mounts.setAppearanceVariant) {
@@ -298,6 +310,11 @@ export class EquipmentUI {
         this.inventoryListEl.appendChild(status)
       }
     }
+    this.inventoryListEl.querySelectorAll<HTMLDetailsElement>('details[data-details-key]').forEach(details => {
+      const key = details.dataset.detailsKey!
+      details.open = this.openDetails.has(key)
+      details.addEventListener('toggle', () => { if (details.open) this.openDetails.add(key); else this.openDetails.delete(key) })
+    })
     const townTab = this.tabs.find(tab => tab.id === 'equipment-tab-town')
     if (townTab) {
       const access = town?.access() ?? { allowed: false, reason: '升任統帥（Commander）後，才可管理友方城鎮的全城裝備。' }
@@ -328,7 +345,7 @@ export class EquipmentUI {
   private renderLoadout(inventory: InventoryManager, mounts?: EquipmentMountAdapter): void {
     const box = document.createElement('section'); box.className = 'loadout-strip inventory-wide'; box.setAttribute('aria-label', '目前配置')
     const slots: [string, string][] = [
-      ['近戰', inventory.equippedMelee?.name ?? '空手'], ['遠程', inventory.equippedRanged?.name ?? '無'],
+      ['近戰', inventory.equippedMelee?.name ?? '空手'], ['遠程', inventory.selectedRanged?.name ?? '無'],
       ['盾牌', inventory.equippedShield?.name ?? '無'],
       ['坐騎', mounts?.list().find(mount => mount.active)?.name ?? '未騎乘'],
     ]

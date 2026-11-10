@@ -127,6 +127,10 @@ export class CareerMountController implements EquipmentMountAdapter {
   private readonly hp = new Map<CareerMountId, number>()
   private readonly unavailable = new Set<CareerMountId>()
   statusText = ''
+  /** Called when an asynchronous result (mount asset loaded or failed) changes statusText, so an open UI can refresh. */
+  onChange?: () => void
+  /** The mount whose assets are loading; its activation will finish on its own. */
+  get loadingId(): string | null { return this.pending?.id ?? null }
   private requestSeq = 0
   private resourcesDirty = false
   private pending: { id: CareerMountId; token: number } | null = null
@@ -209,10 +213,12 @@ export class CareerMountController implements EquipmentMountAdapter {
         if (this.pending?.token !== token) return
         this.pending = null
         this.activate(rawId)
+        this.onChange?.()
       }).catch(() => {
         if (this.pending?.token !== token) return
         this.pending = null
         this.statusText = '坐騎資源載入失敗，請稍後重試。'
+        this.onChange?.()
       })
       return this.fail('正在載入坐騎資源…')
     }

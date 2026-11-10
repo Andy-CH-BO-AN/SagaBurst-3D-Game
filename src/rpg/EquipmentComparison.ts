@@ -9,7 +9,7 @@ export const equipmentSlotKind = (item: ComparableEquipment): EquipmentSlotKind 
 
 /** Short trait words shown on the main card. */
 export function equipmentTraits(item: ComparableEquipment): string[] {
-  if (item.type === 'shield') return item.shieldImpactMax >= 96 ? ['高防護'] : item.shieldImpactMax <= 48 ? ['輕便'] : ['防護適中']
+  if (item.type === 'shield') return item.shieldImpactMax >= 96 ? ['高防護'] : item.shieldImpactMax <= 48 ? ['防護較低'] : ['防護適中']
   const weapon = item as WeaponData
   if (weapon.type === 'ranged') {
     return [weapon.combatKind === 'javelin' ? '投擲武器' : '弓', weapon.speedOrCharge >= 1.5 ? '蓄力久、威力大' : weapon.speedOrCharge <= 1 ? '速射' : '蓄力適中']

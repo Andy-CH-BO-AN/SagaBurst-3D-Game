@@ -1431,7 +1431,7 @@ export class TownScene {
           const gear = WEAPONS[item.id] ?? ARMORS[item.id]
           if (gear && page === 'buy') {
             // Plain traits and a comparison with what the player holds in that slot; exact figures stay in the title tooltip.
-            const held = ARMORS[item.id] ? this.inventory.equippedShield : gear.type === 'ranged' ? this.inventory.equippedRanged : this.inventory.equippedMelee
+            const held = ARMORS[item.id] ? this.inventory.equippedShield : gear.type === 'ranged' ? this.inventory.selectedRanged : this.inventory.equippedMelee
             const versus = compareEquipment(gear, held)
             meta.textContent += `\n${equipmentTraits(gear).join(' · ')}` + (versus.relation === 'none' ? '' : `\n比目前${held?.name ? `「${held.name}」` : '裝備'}：${versus.lines.join(' · ')}`)
             row.title = equipmentDetails(gear).join(' ｜ ')
