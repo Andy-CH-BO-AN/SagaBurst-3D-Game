@@ -1,8 +1,8 @@
 import { TOWN_AUTONOMOUS_GUARD_IDS } from '../town/TownNativeGuardIdentity'
-import { BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_FRIENDLY_SQUADS, BRIDGEHEAD_SQUAD_SIZE, BRIDGEHEAD_ENEMY_SQUADS_PER_ROLE, bridgeheadEnemySquadsPerRole } from '../battle/BridgeheadRosterConfig'
+import { BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_FRIENDLY_SQUADS, BRIDGEHEAD_SQUAD_SIZE, bridgeheadEnemySquadsPerRole } from '../battle/BridgeheadRosterConfig'
 import { commanderGateDefenseSlots } from './CommanderTownRoster'
-import { COMMANDER_FOUR_GATE_DEFENSE_ID, COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, commanderFourGateDefenseActorIds } from './CommanderFourGateDefenseRoster'
-import { createCommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
+import { COMMANDER_FOUR_GATE_DEFENSE_ID, COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS, commanderFourGateDefenseActorIds } from './CommanderFourGateDefenseRoster'
+import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, createCommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
 import { COMMANDER_IRON_LEGION_ID, COMMANDER_IRON_LEGION_KIND, ironLegionEnemyActorIds, ironLegionVanguardActorId } from './HeavyCavalryMissions'
 export { COMMANDER_IRON_LEGION_ID, COMMANDER_IRON_LEGION_KIND } from './HeavyCavalryMissions'
 export { COMMANDER_FOUR_GATE_DEFENSE_ID } from './CommanderFourGateDefenseRoster'
@@ -19,7 +19,7 @@ import { TOWN_COMMANDER_ID, TOWN_COMMANDER_MOUNT_ID } from '../town/TownCommande
 import { townRoster } from '../town/TownRules'
 import { createMissionCommandAuthority, officialMissionSourcePolicy, type OfficialCommandSquad } from './CareerCommandAuthority'
 import { personalMissionSourcePolicy, snapshotPersonalMission } from './CareerPersonalSquadMission'
-import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { CAREER_RANK_THRESHOLDS, cloneCareerProfile, enlistmentMerit, type CareerProfile } from './CareerProfile'
 import { BRIDGEHEAD_PREPARATION_SECONDS, createCareerMissionId, type ActiveCareerMission, type CareerMissionKind } from './CareerMissionState'
 
 export const COMMANDER_SKY_RAID_ID = 'commander-sky-raid'
@@ -105,22 +105,27 @@ const entry = (
   requiresCompletions: 0, requiresEnlistmentMerit: 0, storyOnce: false,
 })
 
+const felineTierTotal = (groups: readonly FelineCavalryGroup[], tier: 4 | 5) =>
+  groups.filter(group => group.tier === tier).reduce((sum, group) => sum + group.count, 0)
+const FELINE_GROUP_TEXT = `${FELINE_FRIENDLY_TOTAL} 名騎乘貓科坐騎的遊俠（T4 ${felineTierTotal(FELINE_FRIENDLY_GROUPS, 4)}、T5 ${felineTierTotal(FELINE_FRIENDLY_GROUPS, 5)}，全員配備 T5 弓）`
+const CHARGE_TRIGGER_TEXT = '敵方 T5 先鋒一受到有效傷害，敵軍就會全軍衝鋒。'
+
 export const COMMANDER_MISSION_CATALOG: readonly CommanderMissionDefinition[] = [
   entry(COMMANDER_SKY_RAID_ID, 'commander-sky-raid', 'Commander I · Sky Raid · 空襲敵城',
-    `率領 ${COMMANDER_SKY_RAID_RANGERS} 名 T4 Ranger 與 xongkoro 從敵城外空降，擊敗 ${COMMANDER_SKY_RAID_REQUIRED_KILLS} 名不重複的敵城原生人員。`, 51, COMMANDER_SKY_RAID_REQUIRED_KILLS),
+    `目標：率領 ${COMMANDER_SKY_RAID_RANGERS} 名騎乘巨鷹的 T4 遊俠空降敵城，擊倒 ${COMMANDER_SKY_RAID_REQUIRED_KILLS} 名敵城人員（每人只計一次）。`, 51, COMMANDER_SKY_RAID_REQUIRED_KILLS),
   entry(COMMANDER_DECAPITATION_ID, 'commander-decapitation', 'Commander II · Operation Decapitation · 斬首行動',
-    '與前任 T5 Commander 及 29 名 T4 騎兵從合法邊界攻入敵城，擊敗唯一的敵方 T5 Commander。', 31, 1),
+    `目標：與前任指揮官及 ${COMMANDER_DECAPITATION_ESCORTS} 名 T4 騎兵攻入敵城，擊敗敵方 T5 指揮官（全城守軍都會迎戰）。`, 31, 1),
   entry(COMMANDER_LAST_STAND_ID, 'commander-outpost-last-stand', 'Commander III · Outpost Last Stand · 前哨決戰',
-    '指揮 4 支步兵隊守衛 Outpost；60 秒部署後，歼滅同時進攻的 100 名敵方騎兵。', 121, COMMANDER_LAST_STAND_ENEMIES),
+    `目標：用 60 秒部署 4 隊共 ${COMMANDER_LAST_STAND_FRIENDLIES} 名步兵守住前哨，全殲同時進攻的 ${COMMANDER_LAST_STAND_ENEMIES} 名敵方騎兵。`, 121, COMMANDER_LAST_STAND_ENEMIES),
   entry(COMMANDER_BRIDGEHEAD_ID, 'commander-bridgehead-battle', 'Commander IV · Bridgehead Battle · 橋頭決戰',
-    `率領${BRIDGEHEAD_FRIENDLIES}名步兵守衛北岸石橋。進場後有${BRIDGEHEAD_PREPARATION_SECONDS}秒部署時間，倒數結束後${BRIDGEHEAD_ENEMIES}名敵方騎兵（刀／斧騎兵與槍騎兵各${BRIDGEHEAD_ENEMY_SQUADS_PER_ROLE}隊，每隊1名T4隊長與${BRIDGEHEAD_SQUAD_SIZE - 1}名T3士兵）從南岸遠方出現並渡河進攻。我方${BRIDGEHEAD_FRIENDLY_SQUADS}支正式小隊各${BRIDGEHEAD_SQUAD_SIZE}人，包含1名T4隊長與${BRIDGEHEAD_SQUAD_SIZE - 1}名T3士兵。利用橋梁限制騎兵機動，發揮槍兵與遠程部隊的優勢。`, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_ENEMIES),
+    `目標：用 ${BRIDGEHEAD_PREPARATION_SECONDS} 秒在北岸部署 ${BRIDGEHEAD_FRIENDLY_SQUADS} 隊（每隊 ${BRIDGEHEAD_SQUAD_SIZE} 人，共 ${BRIDGEHEAD_FRIENDLIES} 名步兵），守住石橋，擊退渡河進攻的 ${BRIDGEHEAD_ENEMIES} 名敵方騎兵。利用橋面狹窄限制騎兵衝鋒。`, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_ENEMIES),
   entry(COMMANDER_FOUR_GATE_DEFENSE_ID, 'commander-four-gate-defense', 'Commander V · Four-Gate Town Defense · 四門總攻守城戰',
-    '防守所屬城鎮；守方部署完成後有180秒準備，之後敵軍才抵達。指揮原生八隊守軍與HR私兵，迎擊從四門同時攻城的280名敵軍：每門兩台攻城車，每車10名原有Crew與額外10名T3近戰步兵（羅馬攻方為刀盾步兵，維京攻方為斧盾步兵）跟隨，另有60名長槍騎兵與60名弓兵。正式攻擊後守住15分鐘且守方仍有人存活即可獲勝，也可提前殲滅全部280名敵軍。',
+    `目標：守住所屬城鎮。${COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS} 秒準備後，${COMMANDER_FOUR_GATE_DEFENSE_ENEMIES} 名敵軍與八台攻城坡道車會從四門同時進攻。守住 ${COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS / 60} 分鐘（且守方仍有人存活）或提前全殲敵軍即獲勝。你指揮 8 支城防部隊，並可帶最多 30 名私兵。`,
     commanderGateDefenseSlots().flatMap(squad => squad.actorIds).length + TOWN_AUTONOMOUS_GUARD_IDS.length + 1, COMMANDER_FOUR_GATE_DEFENSE_ENEMIES),
   entry(COMMANDER_FELINE_CAVALRY_ID, 'commander-six-feline-cavalry', 'Commander VI · Six Feline Cavalry · 六貓騎兵團',
-    `率領${FELINE_FRIENDLY_TOTAL}名騎乘六種貓的T4遊俠（全員配備T5弓），迎戰${FELINE_ENEMY_TOTAL}名傳統戰馬騎兵。敵方T5長槍先鋒一旦受到有效傷害，全軍將立刻發起衝鋒。`, FELINE_FRIENDLY_TOTAL, FELINE_ENEMY_TOTAL),
+    `目標：率領 ${FELINE_GROUP_TEXT}，迎戰 ${FELINE_ENEMY_TOTAL} 名戰馬騎兵（T4 ${felineTierTotal(FELINE_ENEMY_GROUPS, 4)}、T5 ${felineTierTotal(FELINE_ENEMY_GROUPS, 5)}）。${CHARGE_TRIGGER_TEXT}`, FELINE_FRIENDLY_TOTAL, FELINE_ENEMY_TOTAL),
   entry(COMMANDER_IRON_LEGION_ID, COMMANDER_IRON_LEGION_KIND, 'Commander VII · Iron Legion · 鐵甲軍團決戰',
-    `率領完整六貓軍團（${FELINE_FRIENDLY_TOTAL}名，全員為T4遊俠並配備T5弓）迎戰${IRON_LEGION_ENEMY_TOTAL}名重騎兵（T4 210 + T5 90）。敵方T5先鋒一旦受到有效傷害，全軍將立刻發起衝鋒。`, FELINE_FRIENDLY_TOTAL, IRON_LEGION_ENEMY_TOTAL),
+    `目標：率領與六貓騎兵團相同的 ${FELINE_FRIENDLY_TOTAL} 名貓騎遊俠，迎戰 ${IRON_LEGION_ENEMY_TOTAL} 名鐵甲重騎兵（T4 210、T5 90）。${CHARGE_TRIGGER_TEXT}`, FELINE_FRIENDLY_TOTAL, IRON_LEGION_ENEMY_TOTAL),
 ]
 
 export function getCommanderMissionDefinition(id: string): CommanderMissionDefinition | null {
@@ -163,10 +168,12 @@ export function recordCommanderObjectiveDeath(mission: ActiveCareerMission, even
 
 export function getCommanderMissionAvailability(profile: CareerProfile, templateId: string): { unlocked: boolean; reason?: string } {
   if (!getCommanderMissionDefinition(templateId) || profile.rank !== 'commander') {
-    return { unlocked: false, reason: '需要正式任命為 Commander；單有 20,000 軍功不算完成任命。' }
+    const missing = CAREER_RANK_THRESHOLDS.commander - enlistmentMerit(profile)
+    return { unlocked: false, reason: profile.rank !== 'captain' ? '需要先晉升為隊長，再晉升為指揮官。'
+      : missing > 0 ? `需要晉升為指揮官：還差 ${missing.toLocaleString()} 軍功。` : '軍功已達標！請先找城鎮指揮官接受任命。' }
   }
-  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission) return { unlocked: false, reason: '請先完成目前的正式任務。' }
-  if (profile.townEvent?.state === 'hostile') return { unlocked: false, reason: '城鎮敵對事件中無法接受任務。' }
+  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission) return { unlocked: false, reason: '請先完成目前的任務。' }
+  if (profile.townEvent?.state === 'hostile') return { unlocked: false, reason: '目前仍在交戰，暫時無法接取。' }
   return { unlocked: true }
 }
 

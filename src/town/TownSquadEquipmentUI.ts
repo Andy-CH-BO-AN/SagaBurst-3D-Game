@@ -1,3 +1,4 @@
+import { personalSquadStateLabel } from '../career/CareerMissionPresentation'
 import { careerShopProduct, isCareerShopItemUseUnlocked } from '../career/CareerShopCatalog'
 import type { CareerProfile } from '../career/CareerProfile'
 import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
@@ -18,28 +19,28 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
     const profile = read(), currentState = state()
     if (!canRecruitPersonalSquad(profile)) {
       const locked = document.createElement('p'); locked.className = 'inv-item-desc inventory-wide'
-      locked.textContent = '升任隊長（Captain）後，可到人資中心（HR Center）雇用隊員。'
+      locked.textContent = '晉升為隊長後，可到人力資源中心招募私兵。'
       container.append(locked)
       return
     }
     const heading = document.createElement('div'); heading.className = 'modal-section-title inventory-wide'
-    heading.textContent = `Personal Squad · ${profile.personalSquad?.members.length ?? 0}/30 · ${currentState}`; container.append(heading)
+    heading.textContent = `私兵 · ${profile.personalSquad?.members.length ?? 0}/30 人 · ${personalSquadStateLabel(currentState)}`; container.append(heading)
     const missionActive = Boolean(profile.activeMission || profile.activeOutpostMission)
     const access = management?.()
     const canChange = currentState === 'RESERVE' && !missionActive && access?.allowed !== false
-    heading.textContent += ` · 存活 ${profile.personalSquad?.members.length ?? 0} · 可整補 ${canChange ? profile.personalSquad?.members.length ?? 0 : 0}`
+    heading.textContent += ` · 可換裝 ${canChange ? profile.personalSquad?.members.length ?? 0 : 0} 人`
     const lockNotice = access?.allowed === false ? access.reason : missionActive
       ? profile.activeMission?.kind === 'duel' && profile.activeMission.phase === 'RETURNING'
         ? '單挑尚未結算。請先關閉面板，跟隨裁判回營完成結算後，再替小隊換裝。'
         : '任務尚未結算。請先關閉面板，完成任務並返回小鎮結算後，再替小隊換裝。'
-      : '全隊回到 HR、進入 RESERVE 後才能換裝。'
+      : '私兵必須全員回到人資中心（待命中）才能換裝；請先下令「Dismiss · 收隊」。'
     const notice = document.createElement('p'); notice.className = 'inv-item-desc inventory-wide'
     notice.textContent = canChange ? message || '換裝只使用背包可用份數。裝備遠程會退回盾牌；裝備盾牌會退回遠程武器。' : lockNotice
     container.append(notice)
     appendBulkControls(container, bulk, () => canRecruitPersonalSquad(read()) && management?.().allowed !== false && state() === 'RESERVE' && !read().activeMission && !read().activeOutpostMission, lockNotice, value => { message = value; refresh() })
     if (!profile.personalSquad?.members.length) {
       const empty = document.createElement('p'); empty.className = 'inv-item-desc inventory-wide'
-      empty.textContent = '尚未雇用隊員。前往人資中心（HR Center）雇用隊員後，可在此管理小隊裝備。'
+      empty.textContent = '尚未招募私兵。到人力資源中心招募後，可在此管理私兵裝備。'
       container.append(empty)
     }
     for (const [index, member] of (profile.personalSquad?.members ?? []).entries()) {
@@ -52,7 +53,7 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
         label.textContent = SLOT_LABELS[slot] + (current ? ` · T${item?.tier ?? careerShopProduct(current)?.tier ?? '?'}` : '') + ': '
         const select = document.createElement('select'); select.className = 'town-button'; select.setAttribute('aria-label', `${title.textContent} ${slot}`)
         const canRemove = slot !== 'melee' && slot !== 'ranged' || Boolean(equipment[slot === 'melee' ? 'ranged' : 'melee'])
-        if (canRemove || !equipment[slot]) select.add(new Option('None', ''))
+        if (canRemove || !equipment[slot]) select.add(new Option('無', ''))
         for (const id of Object.keys(careerItemTotals(profile))) {
           const item = WEAPONS[id] ?? ARMORS[id]
           const fits = slot === 'mount' ? (PLAYER_MOUNT_IDS as readonly string[]).includes(id) : item?.type === (slot === 'shield' ? 'shield' : slot)
@@ -60,7 +61,7 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
           const name = item?.name ?? careerShopProduct(id)?.name ?? id
           const tier = item?.tier ?? careerShopProduct(id)!.tier
           const locked = !isCareerShopItemUseUnlocked(profile, id)
-          const option = new Option(`${name} · T${tier} · 可用 ${availableCareerItem(profile, id)} / ${careerItemTotal(profile, id)}` + (locked ? ' · 巨鷹訓練需 Captain / Commander 軍階' : ''), id)
+          const option = new Option(`${name} · T${tier} · 未分配 ${availableCareerItem(profile, id)} / 持有 ${careerItemTotal(profile, id)}` + (locked ? ' · 需要隊長或指揮官軍階' : ''), id)
           option.disabled = locked
           select.add(option)
         }

@@ -7,10 +7,10 @@ import { ARMORS } from '../rpg/ArmorDatabase'
 export function personalRecruitmentPresentation(profile: CareerProfile, choice: PersonalRecruitmentChoice, serviceAvailable: boolean) {
   const product = resolvePersonalRecruitment(profile.faction, choice)
   const count = profile.personalSquad?.members.length ?? 0
-  const reason = !serviceAvailable ? '目前人資服務不可用。' : !product ? '請選擇合法的人物、英雄類型與兵種。'
-    : !canRecruitPersonalSquad(profile, product.type) ? product.type === 'commander' ? '需正式任命為 Commander。' : '需正式任命為 Captain。'
-    : count >= PERSONAL_SQUAD_LIMIT ? '私人部隊已達 30 人上限。'
-    : profile.availableMerit < product.price ? '可用軍功不足。' : undefined
+  const reason = !serviceAvailable ? '人資官目前無法服務。' : !product ? '這個組合無法招募，請重新選擇。'
+    : !canRecruitPersonalSquad(profile, product.type) ? product.type === 'commander' ? '需要正式任命為 Commander（指揮官）。' : '需要正式任命為隊長。'
+    : count >= PERSONAL_SQUAD_LIMIT ? '私兵已達 30 人上限。'
+    : profile.availableMerit < product.price ? `軍功不足，還差 ${(product.price - profile.availableMerit).toLocaleString()} 軍功。` : undefined
   if (!product) return { product, reason, summary: reason! }
   const item = (id: string | null) => {
     const data = id ? WEAPONS[id] ?? ARMORS[id] : undefined
@@ -20,11 +20,11 @@ export function personalRecruitmentPresentation(profile: CareerProfile, choice: 
     : product.heroArchetype === 'commander' ? (profile.faction === 'roman' ? '羅馬軍團統帥 Roman Legate' : '北境戰酋 Norse Warchief') : '普通士兵'
   return { product, reason, summary: [
     `${profile.faction === 'roman' ? '羅馬 Roman' : '維京 Viking'} · 人物 T${product.characterTier} · ${hero} · ${PERSONAL_ROLE_NAMES[product.recruitmentRole]}`,
-    `招募 ${product.price.toLocaleString()} Merit · 基礎 Max HP ${product.maxHp}`,
+    `招募費用：${product.price.toLocaleString()} 軍功 · 基礎生命值：${product.maxHp}`,
     `主武器：${item(product.equipment.ranged ?? product.equipment.melee)}`,
     ...(product.equipment.ranged ? [`備用近戰：${item(product.equipment.melee)}`] : []),
-    `盾牌：${item(product.equipment.shield)} · 坐騎：${product.equipment.mount ? '一般馬' : '無坐騎'}`,
-    `私人部隊 ${count} / ${PERSONAL_SQUAD_LIMIT} · 可用軍功 ${profile.availableMerit.toLocaleString()}`,
+    `盾牌：${item(product.equipment.shield)} · 坐騎：${product.equipment.mount ? '軍用戰馬' : '無坐騎'}`,
+    `目前私兵：${count} / ${PERSONAL_SQUAD_LIMIT} 人 · 可用軍功：${profile.availableMerit.toLocaleString()}`,
     ...(reason ? [reason] : []),
   ].join('\n') }
 }
@@ -44,7 +44,7 @@ export function appendPersonalRecruitmentConfigurator(parent: HTMLElement, optio
     for (const [value, text] of entries) { const option = document.createElement('option'); option.value = value; option.textContent = text; input.append(option) }
     label.append(input); row.append(label); return { label, input }
   }
-  const tier = select('人物 Tier', [1, 2, 3, 4, 5].map(value => [String(value), `T${value}`]))
+  const tier = select('士兵等級', [1, 2, 3, 4, 5].map(value => [String(value), `T${value}`]))
   const hero = select('T4 英雄類型', [['captain', '隊長 Captain'], ['ranger', '遊俠 Ranger']])
   const variant = select('T5 英雄', [['commander', '羅馬軍團統帥 Roman Legate T5'], ['byzantine-cataphract-t5', 'Byzantine Cataphract T5+']])
   const role = select('招募兵種', PERSONAL_RECRUITMENT_ROLES.map(value => [value, PERSONAL_ROLE_NAMES[value]]))
@@ -53,7 +53,7 @@ export function appendPersonalRecruitmentConfigurator(parent: HTMLElement, optio
   role.input.value = options.choice.recruitmentRole
   variant.input.value = options.choice.visualAssetId ?? 'commander'
   const summary = document.createElement('p'); summary.className = 'town-summary'; summary.style.whiteSpace = 'pre-line'; summary.setAttribute('aria-live', 'polite')
-  const button = document.createElement('button'); button.className = 'town-button'; button.textContent = 'Recruit · 招募'
+  const button = document.createElement('button'); button.className = 'town-button'; button.textContent = '招募'
   let choice = options.choice
   const refresh = () => {
     const characterTier = Number(tier.input.value) as PersonalRecruitmentChoice['characterTier']

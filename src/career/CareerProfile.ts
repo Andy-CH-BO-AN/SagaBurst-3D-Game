@@ -47,6 +47,11 @@ export const CAREER_RANK_THRESHOLDS: Readonly<Record<CareerRank, number>> = {
   commander: 20000,
 }
 
+/** Player-facing rank names; internal rank IDs stay unchanged for saves. */
+export const CAREER_RANK_LABELS: Readonly<Record<CareerRank, string>> = {
+  recruit: '新兵', soldier: '士兵', veteran: '老兵', captain: '隊長', commander: '指揮官',
+}
+
 export const CAREER_PURCHASE_TIER_BY_RANK: Readonly<Record<CareerRank, CareerPurchaseTier>> = {
   recruit: 1,
   soldier: 2,

@@ -57,7 +57,7 @@ export class TownEquipment extends InventoryManager {
   override get inventoryStacks() { this.syncOwnership(); return super.inventoryStacks.map(stack => ({ ...stack, quantity: careerItemTotal(this.read(), stack.item.id) })) }
   override isEquipped(id: string): boolean { return this.drawn.has(id) && super.isEquipped(id) }
   override isAllocated(id: string): boolean { return Object.values(this.read().equipment ?? {}).includes(id) }
-  override itemAvailability(id: string): string { return `總持有 ${careerItemTotal(this.read(), id)} · 可用 ${availableCareerItem(this.read(), id)}` }
+  override itemAvailability(id: string): string { return `持有 ${careerItemTotal(this.read(), id)} · 未分配 ${availableCareerItem(this.read(), id)}` }
   override equipWeapon(id: string): boolean { return this.selectWeapon(id, true) }
   private selectWeapon(id: string, explicit: boolean): boolean {
     if (this.combatRestricted || !canUseCareerEquipment(this.read(), id)) return false

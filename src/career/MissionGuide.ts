@@ -41,18 +41,18 @@ export class MissionGuide {
     this.root.hidden = false
     if (context === 'travel-encounter' && target) {
       this.pointAt(playerPosition, cameraYaw, target)
-      this.label.textContent = `途中遭遇敵軍 · 支援隊伍 · 剩餘 ${remainingEnemies}`
+      this.label.textContent = `途中遇敵 · 協助隊伍 · 剩餘 ${remainingEnemies} 人`
       return
     }
     if (context === 'captain-sweep' && target && (phase === 'ASSEMBLING' || phase === 'MARCHING' || phase === 'ENGAGING')) {
       const distance = this.pointAt(playerPosition, cameraYaw, target)
-      this.label.textContent = `前往 Bandits 所在位置 · ${Math.round(distance)}m · 剩餘 ${remainingEnemies}`
+      this.label.textContent = phase === 'ENGAGING' ? `消滅盜匪 · 剩餘 ${remainingEnemies} 人` : `前往盜匪營地 · ${Math.round(distance)} 公尺`
       return
     }
     if (phase === 'ENGAGING') {
       this.arrow.style.opacity = '.18'
       this.arrow.style.transform = 'rotate(-90deg) scale(.7)'
-      this.label.textContent = context === 'mounted-field' ? `FIELD BATTLE · 敵軍剩餘 ${remainingEnemies}` : fieldMissionEngagementLabel(patrol ? 'patrol' : 'bandit', remainingEnemies)
+      this.label.textContent = context === 'mounted-field' ? `消滅敵軍 · 剩餘 ${remainingEnemies} 人` : fieldMissionEngagementLabel(patrol ? 'patrol' : 'bandit', remainingEnemies)
       return
     }
     if (!target || phase === 'RESULT') { this.hide(); return }
@@ -60,9 +60,9 @@ export class MissionGuide {
     const action = phase === 'ASSEMBLING'
       ? '前往集合點'
       : phase === 'RETURNING'
-        ? '返回小鎮'
-        : lagging ? '跟上隊伍' : context === 'mounted-field' ? '跟隨隊伍' : patrol ? '沿路巡邏' : '前往 Bandit Camp'
-    this.label.textContent = `${action} · ${Math.round(distance)}m`
+        ? '返回城鎮'
+        : lagging ? '跟上隊伍' : context === 'mounted-field' ? '跟隨隊伍' : patrol ? '跟隨隊長巡邏' : '跟隨隊長前往盜匪營地'
+    this.label.textContent = `${action} · ${Math.round(distance)} 公尺`
   }
 
   updateDuel(
@@ -76,8 +76,8 @@ export class MissionGuide {
     this.root.hidden = false
     this.arrow.style.opacity = '.58'
     this.arrow.style.transform = `rotate(${missionGuideArrowAngle(dx, dz, cameraYaw)}rad)`
-    const action = phase === 'ASSEMBLING' ? '前往兵營集合點' : phase === 'RETURNING' ? '返回兵營' : '前往訓練場間單挑場地'
-    this.label.textContent = `${action} · ${Math.round(Math.hypot(dx, dz))}m`
+    const action = phase === 'ASSEMBLING' ? '前往兵營集合點' : phase === 'RETURNING' ? '返回兵營' : '前往單挑場地'
+    this.label.textContent = `${action} · ${Math.round(Math.hypot(dx, dz))} 公尺`
   }
 
   updateCaptainPatrol(phase: CareerMissionPhase | null, playerPosition: THREE.Vector3,
@@ -85,8 +85,8 @@ export class MissionGuide {
     if (!phase || !target || phase === 'RESULT') { this.hide(); return }
     this.root.hidden = false
     const distance = this.pointAt(playerPosition, cameraYaw, target)
-    this.label.textContent = phase === 'RETURNING' ? `返回小鎮 · ${Math.round(distance)}m`
-      : distance < 12 ? '已抵達巡邏隊 · 按 Q 指揮' : `前往巡邏隊長 · ${Math.round(distance)}m`
+    this.label.textContent = phase === 'RETURNING' ? `返回城鎮 · ${Math.round(distance)} 公尺`
+      : distance < 12 ? '已抵達巡邏隊 · 按 Q 下達命令' : `前往巡邏隊長 · ${Math.round(distance)} 公尺`
   }
 
   updateTownDefense(
@@ -107,17 +107,17 @@ export class MissionGuide {
       if (distance > 8) {
         this.arrow.style.opacity = '.58'
         this.arrow.style.transform = `rotate(${missionGuideArrowAngle(dx, dz, cameraYaw)}rad)`
-        this.label.textContent = `開戰倒數 ${Math.ceil(preparationRemaining)} 秒 · ${gateLabel ?? '防守位置'} ${Math.round(distance)}m`
+        this.label.textContent = `敵軍來襲倒數 ${Math.ceil(preparationRemaining)} 秒 · 前往${gateLabel ?? '防守位置'} ${Math.round(distance)} 公尺`
       } else {
         this.arrow.style.opacity = '.18'
         this.arrow.style.transform = 'rotate(-90deg) scale(.7)'
-        this.label.textContent = `開戰倒數 ${Math.ceil(preparationRemaining)} 秒 · ${gateLabel ? `${gateLabel} · ` : ''}準備迎戰`
+        this.label.textContent = `敵軍來襲倒數 ${Math.ceil(preparationRemaining)} 秒 · ${gateLabel ? `${gateLabel} · ` : ''}原地準備迎戰`
       }
       return
     }
     this.arrow.style.opacity = '.18'
     this.arrow.style.transform = 'rotate(-90deg) scale(.7)'
-    this.label.textContent = `TOWN DEFENSE${gateLabel ? ` · ${gateLabel}` : ''} · 敵軍剩餘 ${remainingEnemies} · 平民死亡 ${civilianDeaths}/10`
+    this.label.textContent = `守住${gateLabel ?? '城鎮'} · 敵軍剩餘 ${remainingEnemies} 人 · 平民死亡 ${civilianDeaths}/10`
   }
 
   /** Reuses the mission arrow for Career battles at the real Campaign Outpost. */
@@ -131,11 +131,11 @@ export class MissionGuide {
     if (phase === 'RESULT' || phase === 'RESET') { this.hide(); return }
     this.root.hidden = false
     const distance = this.pointAt(playerPosition, cameraYaw, rallyPoint)
-    if (distance > 8) this.label.textContent = `前往防守位置 · ${Math.round(distance)}m`
+    if (distance > 8) this.label.textContent = `前往防守位置 · ${Math.round(distance)} 公尺`
     else {
       this.arrow.style.opacity = '.18'
       this.arrow.style.transform = 'rotate(-90deg) scale(.7)'
-      this.label.textContent = `OUTPOST DEFENSE · 敵軍剩餘 ${remainingEnemies}`
+      this.label.textContent = `守住前哨 · 敵軍剩餘 ${remainingEnemies} 人`
     }
   }
 
@@ -143,7 +143,7 @@ export class MissionGuide {
     if (!target) { this.hide(); return }
     this.root.hidden = false
     const distance = this.pointAt(playerPosition, cameraYaw, target)
-    this.label.textContent = `${label} · ${Math.round(distance)}m`
+    this.label.textContent = `${label} · ${Math.round(distance)} 公尺`
   }
 
   /** Tutorial targets share the mission presentation, with names supplied by the live owner. */
@@ -153,14 +153,14 @@ export class MissionGuide {
     this.root.hidden = false
     const distance = playerPosition.distanceTo(target)
     this.pointAt(playerPosition, cameraYaw, target)
-    this.label.textContent = `${label} · ${Math.round(distance)}m${interact ? ' · 靠近按 E 交談' : ''}`
+    this.label.textContent = `${label} · ${Math.round(distance)} 公尺${interact ? ' · 靠近按 E 交談' : ''}`
   }
 
   updateRetirement(playerPosition: THREE.Vector3, cameraYaw: number, target: THREE.Vector3 | null): void {
     if (!target) { this.hide(); return }
     this.root.hidden = false
     const distance = this.pointAt(playerPosition, cameraYaw, target)
-    this.label.textContent = distance > 0 ? `前往退役集合區 · ${Math.round(distance)}m` : '已抵達退役集合區'
+    this.label.textContent = distance > 0 ? `前往退役集合區 · ${Math.round(distance)} 公尺` : '已抵達退役集合區'
     if (distance === 0) this.arrow.style.opacity = '.18'
   }
 

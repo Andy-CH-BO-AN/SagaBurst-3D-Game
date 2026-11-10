@@ -73,7 +73,7 @@ import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts
 import { WeaponWheel } from '../player/WeaponWheel'
 import { WeaponWheelUI } from '../ui/WeaponWheelUI'
 import * as THREE from 'three'
-import { acceptCavalrySweep, acceptCaptainCavalryCommand, sweepPlayerSpawn, SWEEP_YAW } from '../career/CavalrySweep'
+import { acceptCavalrySweep, acceptCaptainCavalryCommand, sweepPlayerSpawn, SWEEP_YAW, CAVALRY_SWEEP_BANDITS } from '../career/CavalrySweep'
 import { Player, PLAYER_ARROW_CAPACITY, DEFAULT_PLAYER_MAX_HP } from '../player/Player'
 import { PlayerInput } from '../player/PlayerInput'
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
@@ -104,7 +104,8 @@ import { damageMount, damageNpc, damagePlayer, damageObstacle } from '../combat/
 import { registerTownCombatDisplayName } from '../ui/CombatTargetDisplayName'
 import { personalUnitDisplayName } from '../ui/UnitDisplayName'
 import { appendPersonalRecruitmentConfigurator } from './TownRecruitmentPanel'
-import type { PersonalRecruitmentChoice } from '../career/CareerRecruitmentCatalog'
+import { XONGKORO_PRODUCT } from '../career/CareerShopCatalog'
+import { resolvePersonalRecruitment, type PersonalRecruitmentChoice } from '../career/CareerRecruitmentCatalog'
 import { CombatTargetHud } from '../ui/CombatTargetHud'
 import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatDamageMethod, type CombatActorRef, type CombatEvent } from '../combat/CombatAttribution'
 import { SpatialGrid } from '../world/SpatialGrid'
@@ -124,7 +125,7 @@ import { acceptCareerOutpostRelief, isCareerOutpostReliefUnlocked, resolveCareer
 import { createCareerOutpostLaunch } from '../career/CareerOutpostLaunch'
 import { selectTownDialogue, formatTownDialogue, promotionDetails, TownAmbientDialogue, type DialogueContext, type DialogueRole } from '../career/CareerTownDialogue'
 import { installTownStyles } from './TownUI'
-import { isTownProductOwned, purchaseTownMount, purchaseTownEquipment, sellTownProduct, sellTownProducts, townResalePrice, townSaleStatus, TOWN_RESALE_PERCENT } from './TownRules'
+import { isTownProductOwned, purchaseTownMount, purchaseTownEquipment, sellTownProduct, sellTownProducts, townResalePrice, townSaleStatus, townProductUnit, townHoldingText, TOWN_RESALE_PERCENT } from './TownRules'
 import { HpBar } from '../ui/HpBar'
 import { StaminaBar } from '../ui/StaminaBar'
 import { QuiverUI } from '../ui/QuiverUI'
@@ -140,13 +141,13 @@ import { applyCareerClass, careerClassOffer, CAREER_CLASSES_BY_FACTION, CAREER_C
 import { applyT4Class, isT4ClassId, t4ClassOffer, T4_CLASSES_BY_FACTION, T4_CLASS_FIRST_MERIT, type T4ClassId } from '../career/CareerT4Promotion'
 import { CAREER_CLASS_HERO, T4_CLASS_HERO } from '../career/CareerPlayerProfile'
 import { appendCareerPromotionCards, appendT4PromotionCards, careerClassConfirmation } from '../ui/CareerPromotionUI'
-import { MAX_BULK_PURCHASE_QUANTITY, CAREER_RANKS, CAREER_RANK_THRESHOLDS, careerMissionCompletionsForTier, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile, type CareerMountId } from '../career/CareerProfile'
-import { availableRecruitMissions, availableCareerMissionsForPage, careerMissionTemplatesForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
+import { MAX_BULK_PURCHASE_QUANTITY, CAREER_RANKS, CAREER_RANK_LABELS, CAREER_RANK_THRESHOLDS, careerMissionCompletionsForTier, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile, type CareerMountId, type CareerRank } from '../career/CareerProfile'
+import { availableRecruitMissions, availableCareerMissionsForPage, careerMissionTemplatesForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, getRecruitMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
 import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission, createVeteranRoster, veteranTownCavalryReserveSlots } from '../career/VeteranMission'
 import { selectTownCavalryReserve } from './TownCavalryReserve'
 import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
 import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
-import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_DECAPITATION_ID, COMMANDER_LAST_STAND_ID, COMMANDER_MISSION_CATALOG, COMMANDER_SKY_RAID_ID, getCommanderMissionAvailability, getCommanderMissionDefinition, isCommanderTownMission } from '../career/CommanderMissionCatalog'
+import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_LAST_STAND_ID, COMMANDER_MISSION_CATALOG, getCommanderMissionAvailability, getCommanderMissionDefinition, isCommanderTownMission } from '../career/CommanderMissionCatalog'
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
 import { CareerDuelController, restoreCareerDuelCommander } from '../career/CareerDuelController'
 import { MissionGuide } from '../career/MissionGuide'
@@ -155,7 +156,7 @@ import { townRetirementRallyTarget } from './TownBounds'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { CAREER_DUEL_TIERS, type CareerDuelTier, isUnarmedDuelUnlocked, isCareerDuelUnlocked, duelFightBannerVisible } from '../career/CareerDuelState'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
-import { fieldMissionHud } from '../career/CareerMissionPresentation'
+import { fieldMissionHud, missionPhaseLabel, personalSquadStateLabel, townCommandStateLabel } from '../career/CareerMissionPresentation'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
 import { acceptEnemyTownAssault, acceptCaptainSiegeCommand } from '../career/EnemyTownAssault'
 import { careerTownSceneRoster, isCareerEnemyTerritoryFieldMission, resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext'
@@ -1291,7 +1292,7 @@ export class TownScene {
     const classAppointable = id === 'captain' && p.rank === 'veteran' && T4_CLASSES_BY_FACTION[p.faction].some(target => t4ClassOffer(p, target).kind === 'appoint')
       || id === 'commander' && p.rank === 'captain' && CAREER_CLASSES_BY_FACTION[p.faction].some(target => careerClassOffer(p, target).kind === 'appoint')
     const context: DialogueContext = { townFaction: p.faction, npcRole: role, playerRank: p.rank, firstMeet, promotionEligible: canAppointCareerRank(p, id) || classAppointable }
-    const greeting = response ?? (id === 'eagle-trainer' ? 'xongkoro Eagle Training Ground · 老鷹訓練場\nCaptain / Commander 可用 10,000 軍功購買巨鷹英雄坐騎。請在開闊的起降區召喚；W 起飛，滑鼠轉向，S 減速降落。' : selectTownDialogue(context))
+    const greeting = response ?? (id === 'eagle-trainer' ? `巨鷹訓練場\n隊長與指揮官可用 ${XONGKORO_PRODUCT.price.toLocaleString()} 軍功購買 xongkoro 巨鷹（最多持有 ${MAX_PLAYER_OWNED_XONGKORO} 隻）。請在開闊的起降區召喚；按 W 起飛，滑鼠轉向，按 S 減速降落。` : selectTownDialogue(context))
     if (id === 'captain' || id === 'commander') {
       if (!this.tutorialBypass && this.tutorial?.hasDialogue(id)) {
         const panel = this.openPanel(id === 'captain' ? '騎兵隊長' : '指揮官', '')
@@ -1348,7 +1349,7 @@ export class TownScene {
       this.openDeploymentPanel(greeting, context, firstOutpost)
     } else {
       const mount = id !== 'merchant', panel = this.openPanel(NAMES[id], greeting)
-      const summary = document.createElement('p'); summary.className = 'town-summary'; summary.textContent = '可用軍功 ' + p.availableMerit + ' · ' + p.rank + (mount ? ' · 可重複購買；按 Tab 管理坐騎' : ' · 購買後按 Tab 選擇裝備'); panel.append(summary)
+      const summary = document.createElement('p'); summary.className = 'town-summary'; summary.textContent = `可用軍功：${p.availableMerit.toLocaleString()} · 軍階：${CAREER_RANK_LABELS[p.rank]}` + (mount ? ' · 購買後按 Tab → 坐騎' : ' · 購買後按 Tab 開啟背包裝備'); panel.append(summary)
       const tabs = document.createElement('div'); tabs.className = 'town-shop-tabs'; panel.append(tabs)
       this.button(tabs, '購買', () => showProducts('buy'))
       this.button(tabs, '賣出', () => showProducts('sell'))
@@ -1370,7 +1371,7 @@ export class TownScene {
           tab.setAttribute('aria-pressed', String(tab.dataset.category === category))
         }
         for (const tab of Array.from(tabs.children) as HTMLButtonElement[]) tab.disabled = tab.textContent === (page === 'buy' ? '購買' : '賣出')
-        summary.textContent = '可用軍功 ' + this.profile.availableMerit + ' · ' + this.profile.rank + (page === 'sell' ? ` · 回收價為原價的 ${TOWN_RESALE_PERCENT[this.profile.rank]}%` : id === 'eagle-trainer' ? ' · Captain / Commander 解鎖；最多持有 3 隻；按 Tab 騎乘／收起' : mount ? ' · 所有軍階皆可購買與騎乘；戰馬隨軍階至 T4' : ' · 所有軍階皆可購買與裝備；按 Tab 查看背包')
+        summary.textContent = `可用軍功：${this.profile.availableMerit.toLocaleString()} · 軍階：${CAREER_RANK_LABELS[this.profile.rank]}` + (page === 'sell' ? ` · 回收價為原價的 ${TOWN_RESALE_PERCENT[this.profile.rank]}%` : id === 'eagle-trainer' ? ` · 隊長／指揮官限定 · 最多持有 ${MAX_PLAYER_OWNED_XONGKORO} 隻 · 購買後按 Tab → 坐騎` : mount ? ' · 任何軍階都能買 · 購買後按 Tab → 坐騎，召喚並騎乘' : ' · 任何軍階都能買 · 購買後按 Tab 開啟背包裝備')
         panel.querySelector('.town-products')?.remove()
         panel.querySelector('.town-sale')?.remove()
         panel.querySelector('.town-native-sale')?.remove()
@@ -1381,23 +1382,23 @@ export class TownScene {
         const products = !mount && page === 'buy' ? sections.flatMap(section => section.items)
           : catalog.filter(i => page === 'buy' || isTownProductOwned(this.profile, i))
         if (page === 'sell') {
-          summary.textContent += ' · 背包僅出售可用份數，已分配裝備會保留'
+          summary.textContent += ' · 已裝備或分配給士兵的物品不能賣出，請先卸下'
           appendTownSaleDropdown(panel, products.filter(item => availableCareerItem(this.profile, item.id) > 0).map(item => {
             const quantity = availableCareerItem(this.profile, item.id)
             return { id: item.id, name: item.name, quantity, refund: townResalePrice(this.profile, item.id) * quantity }
           }), ids => {
             if (this.player.dead || !this.serviceAvailable(id)) return
             const result = sellTownProducts(this.profile, ids)
-            if (!result.sold) { this.talk(id, '目前沒有可賣出的份數，已分配裝備會保留。', 'sell'); return }
+            if (!result.sold) { this.talk(id, '目前沒有可賣出的物品；已裝備或分配給士兵的物品不能賣出。', 'sell'); return }
             if (!this.commit(result.profile)) { this.talk(id, this.notice, 'sell'); return }
             this.inventory.syncOwnership()
             this.careerMounts.syncOwnership()
             this.player.clearTownAction()
-            this.talk(id, `已賣回 ${result.soldCount} 件物品，收回 ${result.earnedMerit} 可用軍功。`, 'sell')
+            this.talk(id, `已賣出 ${result.soldCount} 件物品，收回 ${result.earnedMerit.toLocaleString()} 軍功。`, 'sell')
           })
         }
         panel.append(list)
-        if (!products.length) { const empty = document.createElement('p'); empty.textContent = page === 'buy' ? '此分類目前沒有商品。' : '沒有可賣出的物品。'; list.append(empty) }
+        if (!products.length) { const empty = document.createElement('p'); empty.textContent = page === 'buy' ? '此分類目前沒有商品。' : '你沒有可賣出的物品。'; list.append(empty) }
         for (const item of products.sort((a, b) => {
           const group = (item: typeof a) => item.category === 'armor' ? 2 : WEAPONS[item.id]?.type === 'ranged' ? 1 : 0
           return mount || page === 'buy' ? 0 : group(a) - group(b)
@@ -1407,25 +1408,28 @@ export class TownScene {
             if (heading !== section) { const h = document.createElement('h3'); h.textContent = heading; list.append(h); section = heading }
           }
           const row = document.createElement('article'); row.className = 'town-product'
-          const title = document.createElement('strong'); title.textContent = item.name
-          const meta = document.createElement('small'); meta.textContent = (item.id === 'horse' ? '隨軍階 T1–T4' : 'T' + item.tier) + ' · ' + item.price + ' 軍功 · ' + productStatus(this.profile, item) + ` · 總持有 ${careerItemTotal(this.profile, item.id)} · 可用 ${availableCareerItem(this.profile, item.id)}`
-          if (ARMORS[item.id]) meta.textContent += ` · ${ARMORS[item.id].shieldImpactMax} 衝擊耐久`
+          const unit = townProductUnit(item)
+          const title = document.createElement('strong'); title.textContent = !mount ? item.name : item.id === 'horse' ? `${item.name} · 隨軍階提升（最高 T4）` : `T${item.tier} ${item.name}`
+          const shortfall = item.price - this.profile.availableMerit
+          const meta = document.createElement('small'); meta.style.whiteSpace = 'pre-line'
+          meta.textContent = `價格：${item.price.toLocaleString()} 軍功${shortfall > 0 ? `（還差 ${shortfall.toLocaleString()}）` : ''}\n${townHoldingText(this.profile, item)}`
+          if (ARMORS[item.id]) meta.textContent += `\n盾牌耐久：${ARMORS[item.id].shieldImpactMax}`
           row.append(title, meta)
           if (page === 'sell') {
             const price = townResalePrice(this.profile, item.id)
-            meta.textContent = (item.id === 'horse' ? '隨軍階 T1–T4' : 'T' + item.tier) + ` · 回收 ${price} 軍功 · 總持有 ${careerItemTotal(this.profile, item.id)} · 可用 ${availableCareerItem(this.profile, item.id)}`
+            meta.textContent = `回收價：${price.toLocaleString()} 軍功\n${townHoldingText(this.profile, item)}`
             const button = document.createElement('button'); button.className = 'town-button'
             button.disabled = townSaleStatus(this.profile, item.id) !== 'sellable'
-            button.textContent = button.disabled ? '已分配，請先換裝／解除分配' : `賣出 · 收回 ${price} 軍功`
+            button.textContent = button.disabled ? '已裝備或分配中，請先卸下' : `賣出 1 ${unit} · 收回 ${price.toLocaleString()} 軍功`
             button.onclick = () => {
               if (this.player.dead || !this.serviceAvailable(id)) return
               const result = sellTownProduct(this.profile, item.id)
-              if (!result.sold) { this.talk(id, result.reason === 'allocated' ? '物品正在使用，請先換裝或解除分配。' : '物品已不存在或無法賣出。', 'sell'); return }
+              if (!result.sold) { this.talk(id, result.reason === 'allocated' ? '這件物品已裝備或分配給士兵，請先卸下才能賣出。' : '這件物品已不存在，無法賣出。', 'sell'); return }
               if (!this.commit(result.profile)) { this.talk(id, this.notice, 'sell'); return }
               this.inventory.syncOwnership()
               this.careerMounts.syncOwnership()
               this.player.clearTownAction()
-              this.talk(id, `賣出成功：${item.name}\n收回 ${result.earnedMerit} 可用軍功。`, 'sell')
+              this.talk(id, `賣出成功：${item.name}\n收回 ${result.earnedMerit.toLocaleString()} 軍功。`, 'sell')
             }
             row.append(button); list.append(row); continue
           }
@@ -1447,8 +1451,8 @@ export class TownScene {
           const updatePurchase = () => {
             const count = Number(quantity.value)
             total.textContent = `總價：${(item.price * count).toLocaleString()} 軍功`
-            button.textContent = eagleRemaining === 0 ? '已達 3 隻持有上限' : status === '軍階未解鎖' ? status
-              : maxQuantity < 1 ? '餘額不足' : `購買 ${count} 件`
+            button.textContent = eagleRemaining === 0 ? `已達 ${MAX_PLAYER_OWNED_XONGKORO} 隻持有上限` : status === '軍階未解鎖' ? '需要隊長或指揮官軍階'
+              : maxQuantity < 1 ? `軍功不足（還差 ${Math.max(0, shortfall).toLocaleString()}）` : `購買 ${count} ${unit}`
             button.disabled = quantity.disabled
           }
           quantity.onchange = () => { quantities.set(item.id, quantity.value); updatePurchase() }
@@ -1459,7 +1463,11 @@ export class TownScene {
             if (mount && (this.player.isFalling || this.player.currentMount?.isAirborne)) { this.talk(id, '請先安全降落，再購買或切換坐騎。', 'buy', category); return }
             const result = mount ? purchaseTownMount(this.profile, item.id, Number(quantity.value)) : purchaseTownEquipment(this.profile, item.id, Number(quantity.value))
             if (!result.purchased) {
-              const message = result.reason === 'ownership-limit' ? '最多同時持有 3 隻 xongkoro' : result.reason === 'tier-locked' ? '軍階未解鎖' : result.reason === 'insufficient-merit' ? '可用軍功不足' : result.reason === 'already-owned' ? '已擁有' : '商品不存在或無法購買'
+              const cost = item.price * Number(quantity.value)
+              const message = result.reason === 'ownership-limit' ? `你已持有 ${careerItemTotal(this.profile, item.id)} 隻巨鷹，達到 ${MAX_PLAYER_OWNED_XONGKORO} 隻持有上限。`
+                : result.reason === 'tier-locked' ? '需要隊長或指揮官軍階才能購買。'
+                : result.reason === 'insufficient-merit' ? `軍功不足，還差 ${Math.max(0, cost - this.profile.availableMerit).toLocaleString()} 軍功。`
+                : result.reason === 'already-owned' ? '你已經擁有這件商品。' : '這項商品目前無法購買。'
               this.talk(id, message, 'buy', category); return
             }
             if (!this.commit(result.profile)) { this.talk(id, this.notice, 'buy', category); return }
@@ -1469,8 +1477,8 @@ export class TownScene {
             }
             this.inventory.syncOwnership()
             this.careerMounts.syncOwnership()
-            const message = `購買成功！\n${item.name} × ${Number(quantity.value)}\n花費：${result.spentMerit.toLocaleString()} 軍功\n剩餘軍功：${this.profile.availableMerit.toLocaleString()}`
-            this.talk(id, message + (mount ? '\n按 Tab → 坐騎 → 騎乘。' : '\n按 Tab 選擇裝備。'), 'buy', category)
+            const message = `購買成功！\n${item.name} × ${Number(quantity.value)} ${unit}\n花費：${result.spentMerit.toLocaleString()} 軍功\n剩餘軍功：${this.profile.availableMerit.toLocaleString()}`
+            this.talk(id, message + (mount ? '\n如何使用：按 Tab → 坐騎，召喚並騎乘。' : '\n如何使用：按 Tab 開啟背包，選擇並裝備。'), 'buy', category)
           }
           row.append(button); list.append(row)
         }
@@ -1490,16 +1498,16 @@ export class TownScene {
     const section = document.createElement('section'); section.className = 'town-native-sale'
     const heading = document.createElement('h3'); heading.textContent = '城鎮舊裝備'; section.append(heading)
     const summary = document.createElement('p'); summary.className = 'town-summary'
-    summary.textContent = `已出售 ${this.profile.townEquipment?.[context.townFaction]?.soldNativeIds?.length ?? 0} 件 · 僅回收已卸下的原生武器與盾牌`
+    summary.textContent = `已賣出 ${this.profile.townEquipment?.[context.townFaction]?.soldNativeIds?.length ?? 0} 件 · 只收購已卸下的城鎮武器與盾牌`
     section.append(summary); panel.append(section)
     const stock = townNativeSaleStock(this.profile, context.townFaction), enabled = !townNativeSaleGate(this.profile, context)
     const sell = (requests: TownNativeSaleRequest[]) => {
       const result = sellTownNativeProducts(() => this.profile, () => this.nativeSaleContext(), requests, next => this.commit(next))
       if (!result.sold) {
-        this.talk('merchant', result.reason === 'save-failed' ? this.notice : '城鎮舊裝備或交易狀態已改變，請重新選擇。', 'sell'); return
+        this.talk('merchant', result.reason === 'save-failed' ? this.notice : '城鎮舊裝備的狀態已改變，請重新選擇。', 'sell'); return
       }
       this.player.clearTownAction()
-      this.talk('merchant', `已賣回 ${result.soldCount} 件城鎮舊裝備，收回 ${result.earnedMerit} 可用軍功。`, 'sell')
+      this.talk('merchant', `已賣出 ${result.soldCount} 件城鎮舊裝備，收回 ${result.earnedMerit.toLocaleString()} 軍功。`, 'sell')
     }
     appendTownSaleDropdown(section, stock.map(entry => ({ id: entry.product.id, name: entry.product.name,
       quantity: entry.nativeIds.length, refund: entry.price * entry.nativeIds.length })), ids => {
@@ -1509,9 +1517,9 @@ export class TownScene {
     for (const entry of stock) {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = entry.product.name
-      const meta = document.createElement('small'); meta.textContent = `T${entry.product.tier} · 數量 ${entry.nativeIds.length} · 單價 ${entry.price} 軍功`
+      const meta = document.createElement('small'); meta.textContent = `T${entry.product.tier} · 可賣 ${entry.nativeIds.length} 件 · 單價 ${entry.price.toLocaleString()} 軍功`
       row.append(title, meta)
-      const button = this.button(row, `賣出 1 件 · 收回 ${entry.price} 軍功`, () => sell([{ itemId: entry.product.id, quantity: 1 }]))
+      const button = this.button(row, `賣出 1 件 · 收回 ${entry.price.toLocaleString()} 軍功`, () => sell([{ itemId: entry.product.id, quantity: 1 }]))
       button.disabled = !enabled; section.append(row)
     }
   }
@@ -1752,7 +1760,7 @@ export class TownScene {
   private openRecruitmentPanel(response?: string): void {
     if (this.player.dead || !this.serviceAvailable('hr-officer')) return
     const greeting = response ?? personalSquadGreeting(this.profile)
-    const panel = this.openPanel('Human Resources Center · 人力資源中心', greeting)
+    const panel = this.openPanel('人力資源中心', greeting)
     if (canRecruitPersonalSquad(this.profile) && !this.profile.townDialogueSeen?.includes(`${this.profile.faction}:hr-unlocked`)) {
       const next = cloneCareerProfile(this.profile)
       next.townDialogueSeen = [...(next.townDialogueSeen ?? []), `${next.faction}:hr-unlocked`]
@@ -1760,17 +1768,22 @@ export class TownScene {
     }
     const members = this.profile.personalSquad?.members ?? []
     const summary = document.createElement('p'); summary.className = 'town-summary'; summary.style.whiteSpace = 'pre-line'
-    summary.textContent = `PERSONAL SQUAD · ${members.length} / 30\nAvailable Merit: ${this.profile.availableMerit.toLocaleString()}`
+    summary.textContent = `私兵：${members.length} / 30 人 · ${personalSquadStateLabel(this.personalSquad?.state ?? 'RESERVE')}\n可用軍功：${this.profile.availableMerit.toLocaleString()}`
       + (members.length === 30 ? '\n你的隊伍已經滿了。三十人，是目前允許你的上限。' : '')
-      + '\nFollow me：從 HR Center 出發 · Dismiss：返回整補'
+      + '\n出隊：按 Q 選擇私兵部隊（快捷鍵 9），下令「Follow me · 跟隨」。\n回營：回到城鎮後下令「Dismiss · 收隊」，才能整補與遣散。'
     panel.append(summary)
-    const refit = this.button(panel, '整補私兵部隊', () => {
+    const refit = this.button(panel, '整補全隊', () => {
       if (this.player.dead || !this.serviceAvailable('hr-officer')) return
       const repaired = this.personalSquad?.refit(next => this.commit(next))
       this.openRecruitmentPanel(repaired ? '私兵全隊已恢復完整戰力：士兵、坐騎、箭矢與盾牌皆已整補。' : this.notice || '目前無法整補私兵。')
     })
     refit.disabled = !this.personalSquad?.canRefit
-    refit.title = refit.disabled ? '僅限和平狀態；請先停止交戰並改用 Follow、Defend 或 Formation。' : ''
+    if (refit.disabled) {
+      const why = document.createElement('p'); why.className = 'town-summary'
+      why.textContent = !members.length ? '還沒有私兵可整補。' : this.profile.activeMission || this.profile.activeOutpostMission ? '任務進行中，結算後才能整補。'
+        : '現在不能整補：私兵必須回到人資中心、脫離戰鬥。請先下令「Dismiss · 收隊」，等待全員返回。'
+      panel.append(why)
+    }
     const list = document.createElement('div'); list.className = 'town-products'; panel.append(list)
     appendPersonalRecruitmentConfigurator(list, {
       readProfile: () => this.profile, serviceAvailable: () => !this.player.dead && this.serviceAvailable('hr-officer'),
@@ -1781,25 +1794,32 @@ export class TownScene {
         const first = !this.profile.townDialogueSeen?.includes(`${this.profile.faction}:hr-recruit-${type}`)
         const result = recruitPersonalSquadMember(this.profile, choice, next => this.commit(next))
         if (result.recruited) { this.inventory.syncOwnership(); this.careerMounts.syncOwnership() }
-        const message = result.recruited ? first ? PERSONAL_RECRUIT_DIALOGUE[type] : '招募成功。'
-          : result.reason === 'rank-locked' ? '需正式任命為 Commander 才能招募。' : result.reason === 'insufficient-merit' ? '軍功不足。' : result.reason === 'squad-full'
+        const price = resolvePersonalRecruitment(this.profile.faction, choice)?.price ?? 0
+        const message = result.recruited ? first ? PERSONAL_RECRUIT_DIALOGUE[type] : `招募成功！目前私兵 ${this.profile.personalSquad?.members.length ?? 0}/30 人。`
+          : result.reason === 'rank-locked' ? choice.characterTier === 5 ? '招募 T5 需要正式任命為指揮官。' : '需要正式任命為隊長才能招募。'
+            : result.reason === 'insufficient-merit' ? `軍功不足，還差 ${Math.max(0, price - this.profile.availableMerit).toLocaleString()} 軍功。` : result.reason === 'squad-full'
             ? '你的隊伍已經滿了。三十人，是目前允許你的上限。' : result.reason === 'save-failed' ? this.notice : '目前無法招募。'
         this.openRecruitmentPanel(message)
       },
     })
-    const heading = document.createElement('h3'); heading.textContent = 'Sell / Release Member · 賣回／解除僱用'; list.append(heading)
+    const heading = document.createElement('h3'); heading.textContent = '遣散隊員'; list.append(heading)
+    const canRelease = this.personalSquad?.state === 'RESERVE' && !this.profile.activeMission && !this.profile.activeOutpostMission
+    if (members.length && !canRelease) {
+      const why = document.createElement('p'); why.className = 'town-summary'
+      why.textContent = '私兵尚未全員回營，暫時不能遣散：請先下令「Dismiss · 收隊」，等全員回到人資中心。'
+      list.append(why)
+    }
     appendTownSaleDropdown(list, members.map((member, index) => ({
       id: member.id, name: personalUnitDisplayName(member, this.profile.faction, index),
       quantity: 1, refund: personalMemberRefund(this.profile, member),
-    })), ids => this.confirmPersonalSales(ids), '人', this.personalSquad?.state === 'RESERVE'
-      && !this.profile.activeMission && !this.profile.activeOutpostMission)
+    })), ids => this.confirmPersonalSales(ids), '人', canRelease, '遣散')
     for (const [index, member] of members.entries()) {
       const row = document.createElement('article'); row.className = 'town-product'
       const name = personalUnitDisplayName(member, this.profile.faction, index)
       const title = document.createElement('strong'); title.textContent = name
-      const detail = document.createElement('small'); detail.textContent = `退款 ${personalMemberRefund(this.profile, member)} 軍功 · ${this.personalSquad?.state ?? 'RESERVE'}`
-      const sell = document.createElement('button'); sell.className = 'town-button'; sell.textContent = '賣回／解除僱用'
-      sell.disabled = this.personalSquad?.state !== 'RESERVE'
+      const detail = document.createElement('small'); detail.textContent = `遣散可退還 ${personalMemberRefund(this.profile, member).toLocaleString()} 軍功 · ${personalSquadStateLabel(this.personalSquad?.state ?? 'RESERVE')}`
+      const sell = document.createElement('button'); sell.className = 'town-button'; sell.textContent = '遣散'
+      sell.disabled = !canRelease
       sell.onclick = () => this.confirmPersonalSales([member.id])
       row.append(title, detail, sell); list.append(row)
     }
@@ -1810,15 +1830,15 @@ export class TownScene {
     const members = ids.map(id => this.profile.personalSquad?.members.find(member => member.id === id))
     if (!ids.length || members.some(member => !member) || this.personalSquad?.state !== 'RESERVE'
       || this.profile.activeMission || this.profile.activeOutpostMission || !canRecruitPersonalSquad(this.profile)) {
-      this.openRecruitmentPanel('全隊回到人資中心、進入 RESERVE 後才能賣回隊員。'); return
+      this.openRecruitmentPanel('私兵必須全員回到人資中心、處於待命中，才能遣散。'); return
     }
     const refund = members.reduce((sum, member) => sum + personalMemberRefund(this.profile, member!), 0)
-    const confirm = this.openPanel(`賣回 ${ids.length} 名隊員？`, `退款：${refund} 軍功\n目前裝備的武器、盾牌與坐騎會隨隊員離開，不會退回背包。\n想保留的裝備請先換下；非 Ranger 隊員至少要帶一把武器離開。\n這會永久解除僱用。`)
-    this.button(confirm, '確認', () => {
+    const confirm = this.openPanel(`確定遣散 ${ids.length} 名隊員？`, `將退還 ${refund.toLocaleString()} 軍功。\n注意：隊員目前攜帶的武器、盾牌與坐騎會隨他們離開，不會回到背包；想保留的裝備，請先卸下。\n（非遊俠隊員至少要帶一把武器離開。）\n此操作無法復原。`)
+    this.button(confirm, '確認遣散', () => {
       if (this.player.dead || !this.serviceAvailable('hr-officer')) return
       const result = sellPersonalSquadMembers(() => this.profile, this.personalSquad!, ids, next => this.commit(next))
       if (result.sold) { this.inventory.syncOwnership(); this.careerMounts.syncOwnership() }
-      this.openRecruitmentPanel(result.sold ? `已解除僱用 ${result.soldCount} 人，退回 ${result.refund} 可用軍功。` : result.reason === 'save-failed' ? this.notice : '目前不能賣回隊員。')
+      this.openRecruitmentPanel(result.sold ? `已遣散 ${result.soldCount} 人，退還 ${result.refund.toLocaleString()} 軍功。` : result.reason === 'save-failed' ? this.notice : result.reason === 'last-weapon' ? '非遊俠隊員至少要帶一把武器離開，請先為他們換上武器。' : '目前無法遣散隊員。')
     })
     this.button(confirm, '取消', () => this.openRecruitmentPanel())
   }
@@ -1828,10 +1848,10 @@ export class TownScene {
     for (const squad of this.townCommand?.refitSquads ?? []) {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong')
-      title.textContent = `Squad ${squad.squadId}：${squad.alive}/${squad.total}`
+      title.textContent = `第 ${squad.squadId} 小隊：${squad.alive}/${squad.total} 人`
       const state = document.createElement('small')
       const allowed = this.townCommand!.canRefitSquad(squad.squadId)
-      state.textContent = squad.pending ? '整補進行中 · 等待原生部隊安全返回／復原' : `${squad.alive === 0 ? '全滅 · ' : ''}${allowed ? '可整補' : '目前無法整補'}`
+      state.textContent = squad.pending ? '整補進行中 · 等待原生部隊安全返回／復原' : `${squad.alive === 0 ? '全滅 · ' : ''}${allowed ? '可整補' : '目前無法整補：請先脫離戰鬥並等待返回'}`
       const button = document.createElement('button'); button.className = 'town-button'; button.textContent = '整補此隊'
       button.disabled = !allowed
       button.onclick = () => {
@@ -1839,16 +1859,16 @@ export class TownScene {
         button.disabled = true
         const repaired = this.townCommand!.refit(squad.squadId)
         const pending = this.townCommand!.refitSquads.find(s => s.squadId === squad.squadId)?.pending
-        this.openSquadRefitPanel(repaired ? pending ? `Squad ${squad.squadId} 整補進行中；巡邏與巨鷹正由原生管理者安全復原。`
-          : `Squad ${squad.squadId} 已恢復完整戰力。` : this.notice || '目前無法整補；請停止交戰，等待冷卻與返回完成。')
+        this.openSquadRefitPanel(repaired ? pending ? `第 ${squad.squadId} 小隊整補進行中；巡邏與巨鷹正在安全復原。`
+          : `第 ${squad.squadId} 小隊已恢復完整戰力。` : this.notice || '目前無法整補；請停止交戰，等待冷卻與返回完成。')
       }
       row.append(title, state, button); panel.append(row)
     }
     if (this.profile.rank === 'commander' && this.civilianCommand) {
       const squad = this.civilianCommand.refitSquad
       const row = document.createElement('article'); row.className = 'town-product'
-      const title = document.createElement('strong'); title.textContent = `Civilian Squad：${squad.alive}/${squad.total}`
-      const state = document.createElement('small'); state.textContent = this.civilianCommand.canRefit() ? '可整補' : '目前無法整補'
+      const title = document.createElement('strong'); title.textContent = `平民小隊：${squad.alive}/${squad.total} 人`
+      const state = document.createElement('small'); state.textContent = this.civilianCommand.canRefit() ? '可整補' : '目前無法整補：請先脫離戰鬥並等待返回'
       const button = document.createElement('button'); button.className = 'town-button'; button.textContent = '整補平民小隊'
       button.disabled = !this.civilianCommand.canRefit()
       button.onclick = () => {
@@ -1891,7 +1911,8 @@ export class TownScene {
     if (active) {
       const template = getCareerMissionTemplate(active.templateId)
       const badge = document.createElement('p'); badge.className = 'town-summary'
-      badge.textContent = `任務進行中：${active.kind === 'duel' ? '1v1 Duel · 單挑' : template?.name ?? active.templateId}\n狀態 ${active.phase}${active.kind === 'duel' ? ` · T${active.duelTier} ${UNIT_PRESETS[active.duelPresetId!].nameEn}` : active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense' ? ' · 守住所屬城鎮' : active.kind === 'patrol' ? ' · 沿指定路線巡邏' : active.kind === 'veteran-field' ? ' · 野戰任務' : ` · 目標 Camp ${active.targetCampId + 1}`}`
+      badge.textContent = `任務進行中：${active.kind === 'duel' ? '1v1 單挑' : template?.name ?? active.templateId}\n目前：${missionPhaseLabel(active.phase)}${active.kind === 'duel' ? ` · T${active.duelTier} ${UNIT_PRESETS[active.duelPresetId!].nameEn}` : active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense' ? ' · 守住所屬城鎮' : active.kind === 'patrol' ? ' · 沿指定路線巡邏' : active.kind === 'veteran-field' ? ' · 野戰任務' : active.kind === 'bandit' ? ' · 目標：盜匪營地' : ''}\n請先完成目前的任務，才能接取新任務。`
+      badge.style.whiteSpace = 'pre-line'
       panel.append(badge)
       return
     }
@@ -1900,11 +1921,11 @@ export class TownScene {
     const selectedPage = requestedPage !== 'duel' && !isCareerMissionPageUnlocked(this.profile, requestedPage) ? defaultPage : requestedPage
     this.deploymentPage = selectedPage
     const tabs = document.createElement('nav'); tabs.className = 'town-mission-tabs'; tabs.setAttribute('aria-label', '任務分類')
-    for (const [page, label] of [['recruit', '菜兵任務'], ['soldier', '士兵任務'], ['veteran', '老兵任務'], ['captain', '隊長任務'], ['commander', '指揮官任務'], ['duel', '1 v 1 · 對決']] as const) {
+    for (const [page, label] of [['recruit', '新兵任務'], ['soldier', '士兵任務'], ['veteran', '老兵任務'], ['captain', '隊長任務'], ['commander', '指揮官任務'], ['duel', '1v1 單挑']] as const) {
       const tab = document.createElement('button'); tab.className = 'town-button'; tab.textContent = label
       tab.setAttribute('aria-pressed', String(page === selectedPage))
       tab.disabled = page !== 'duel' && !isCareerMissionPageUnlocked(this.profile, page)
-      if (tab.disabled) tab.textContent += ' · 升階解鎖'
+      if (tab.disabled) tab.textContent += ` · 需晉升為${CAREER_RANK_LABELS[page as CareerRank]}`
       tab.onclick = () => { this.deploymentPage = page; this.openDeploymentPanel(greeting, context, firstOutpost) }
       tabs.append(tab)
     }
@@ -1920,24 +1941,26 @@ export class TownScene {
         panel.append(outpost)
       }
       if (this.profile.rank !== 'recruit') {
-        const heading = document.createElement('h3'); heading.textContent = 'Outpost Duty'; panel.append(heading)
+        const heading = document.createElement('h3'); heading.textContent = '前哨防守'; panel.append(heading)
         for (const stageId of CAREER_OUTPOST_STAGES) {
           const stage = getDefenseCampaignStage(stageId)
           const unlocked = isCareerOutpostUnlocked(this.profile, stageId)
           const completed = this.profile.completedOutpostStages?.includes(stageId)
           const row = document.createElement('article'); row.className = 'town-product'
-          const title = document.createElement('strong'); title.textContent = 'Outpost ' + ['I', 'II', 'III'][stageId - 1]
-          const details = document.createElement('small'); details.textContent = `防守 ${stage.defenderDeployment.maxUnits} vs ${stage.attackerArmy.totalUnits} · ${completed ? 'Completed' : unlocked ? 'Available' : 'Locked until Outpost ' + ['I', 'II'][stageId - 2] + ' Victory'} · 玩家額外加入駐軍`
+          const title = document.createElement('strong'); title.textContent = '前哨防守 ' + ['I', 'II', 'III'][stageId - 1]
+          const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
+          details.textContent = `守軍最多 ${stage.defenderDeployment.maxUnits} 人（你另外加入）｜敵方 ${stage.attackerArmy.totalUnits} 人\n${completed ? '已完成，可重複挑戰' : unlocked ? '可接取' : `需先完成前哨防守 ${['I', 'II'][stageId - 2]}`}`
           row.append(title, details)
           if (unlocked) this.button(row, '接受防守任務', () => this.acceptOutpost(stageId))
           panel.append(row)
         }
       }
       const relief = document.createElement('article'); relief.className = 'town-product'
-      const reliefTitle = document.createElement('strong'); reliefTitle.textContent = 'Outpost Relief · 騎兵救援'
+      const reliefTitle = document.createElement('strong'); reliefTitle.textContent = '騎兵救援'
       const reliefDetails = document.createElement('small')
       const reliefUnlocked = isCareerOutpostReliefUnlocked(this.profile)
-      reliefDetails.textContent = !reliefUnlocked ? '完成 Outpost I–III 後解鎖' : !resolveCareerReliefMount(this.profile) ? '需要一匹可使用的自有坐騎' : '50 人騎兵救援隊（含玩家） · 殲滅 60 名敵軍 · 玩家戰死後可繼續觀戰'
+      reliefDetails.style.whiteSpace = 'pre-line'
+      reliefDetails.textContent = !reliefUnlocked ? '需先完成前哨防守 I–III' : !resolveCareerReliefMount(this.profile) ? '需要一匹可使用的自有坐騎' : '我方 50 騎（含你）｜敵方 60 人\n目標：殲滅全部敵軍。你戰死後可繼續觀戰。'
       relief.append(reliefTitle, reliefDetails)
       if (reliefUnlocked && resolveCareerReliefMount(this.profile)) this.button(relief, '接受騎兵救援', () => this.acceptOutpostRelief())
       panel.append(relief)
@@ -1946,8 +1969,9 @@ export class TownScene {
     const defenseForce = this.townDefenseBoardForce()
     if (selectedPage === 'recruit' && !resolveCareerReliefMount(this.profile)) {
       const row = document.createElement('article'); row.className = 'town-product'
-      const title = document.createElement('strong'); title.textContent = 'Cavalry Sweep · 騎兵清剿'
-      const details = document.createElement('small'); details.textContent = '60 騎兵 vs 40 Bandits · 適合熟悉騎乘、衝鋒與騎兵撞擊'
+      const title = document.createElement('strong'); title.textContent = '騎兵清剿'
+      const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
+      details.textContent = `${getRecruitMissionTemplate('career-cavalry-sweep')?.briefing ?? ''}\n需要一匹可使用的自有坐騎（可到馬店購買）。`
       row.append(title, details)
       const locked = document.createElement('button'); locked.textContent = '需要坐騎'; locked.disabled = true; row.append(locked)
       panel.append(row)
@@ -1958,15 +1982,16 @@ export class TownScene {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = template.name
       const details = document.createElement('small')
+      const force = (friendly: number, enemy: string) => `我方：${friendly} 人（含你）\n敵方：${enemy}`
       details.textContent = template.kind === 'cavalry-sweep'
-        ? `${template.briefing}\n2 支小隊 · 含玩家 60 人 · 玩家無指揮權`
+        ? `${template.briefing}\n${force(template.friendlyCombatants, `${CAVALRY_SWEEP_BANDITS} 名盜匪`)}\n你只能跟隨騎兵隊行動，無指揮權。`
         : template.kind === 'enemy-town-assault'
-        ? `${template.briefing}\n敵方 ${townName(this.profile.faction === 'roman' ? 'viking' : 'roman')} · 全體參戰守軍 ${townAssaultObjectiveRoster(townRoster()).length} · 平民 ${TOWN_RULES.civilians} · 玩家無指揮權`
+        ? `${template.briefing}\n我方：${template.friendlyCombatants} 人（含你）\n敵方：${townName(this.profile.faction === 'roman' ? 'viking' : 'roman')}全體守軍（${townAssaultObjectiveRoster(townRoster()).length} 人）\n你無指揮權。`
         : template.kind === 'town-defense'
-        ? `${template.briefing}\n所屬 ${townName(this.profile.faction)}\n玩家 1 · AI 守軍 ${defenseForce.friendlySoldiers} · 友軍總數 ${defenseForce.friendlyCombatants}\n敵軍 ${template.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${template.maxCivilianDeaths} · 風險 ${template.risk}`
+        ? `${template.briefing}\n我方：${defenseForce.friendlyCombatants} 人（含你），守衛${townName(this.profile.faction)}\n敵方：${template.enemyCount} 人（T3 騎兵與 4 名 T4 隊長）\n平民死亡超過 ${template.maxCivilianDeaths} 人即失敗 · 風險：${template.risk}`
         : template.kind === 'patrol'
-          ? `${template.briefing}\n路線 ${template.routeId === 'south-road' ? '南路' : '森林線'}\n玩家 1 · Mission Leader 1 · Friendly soldiers ${template.friendlyCombatants - 2} · 友軍總數 ${template.friendlyCombatants}\n任務內容 沿線巡查 · 風險 ${template.risk}`
-          : template.kind === 'bandit' ? `${template.briefing}\n城外 Bandit Camp ${template.preferredCampIndex + 1}\n玩家 1 · Mission Leader 1 · Friendly soldiers ${template.friendlySoldiers} · 友軍總數 ${template.friendlyCombatants}\nBandits ${template.banditCount} · 風險 ${template.risk}` : template.briefing
+          ? `${template.briefing}\n我方：${template.friendlyCombatants} 人（含你與隊長）\n路線：${template.routeId === 'south-road' ? '南路' : '森林線'} · 風險：${template.risk}`
+          : template.kind === 'bandit' ? `${template.briefing}\n${force(template.friendlyCombatants, `${template.banditCount} 名盜匪`)}\n風險：${template.risk}` : template.briefing
       details.style.whiteSpace = 'pre-line'
       row.append(title, details)
       this.button(row, '接受任務', () => this.acceptMission(template.id))
@@ -1974,7 +1999,7 @@ export class TownScene {
     }
     if (selectedPage === 'recruit' && enlistmentMerit(this.profile) < 60) {
       const gate = document.createElement('p'); gate.className = 'town-summary'
-      gate.textContent = '累積本次入伍軍功後，會逐步開放林線巡邏、敵眾我寡與大型守城任務。'
+      gate.textContent = '多完成幾次任務、累積軍功，就會陸續開放林線巡邏、敵眾我寡的剿匪與守城任務。'
       panel.append(gate)
     }
   }
@@ -1987,10 +2012,10 @@ export class TownScene {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = definition.name
       const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
-      details.textContent = `${definition.briefing}\n友軍 ${definition.friendlyCombatants} 人（含玩家） · 玩家無指揮權 · 戰死後可觀戰`
+      details.textContent = `${definition.briefing}\n我方：${definition.friendlyCombatants} 人（含你）\n敵方：${definition.enemyCombatants} 人\n你無指揮權；戰死後可觀戰。`
       const availability = getVeteranMissionAvailability(this.profile, definition.id)
       const accept = document.createElement('button'); accept.className = 'town-button'
-      accept.textContent = availability.unlocked ? '接受任務' : availability.reason ?? '尚未解鎖'
+      accept.textContent = availability.unlocked ? '接受任務' : availability.reason ?? '目前無法接取'
       accept.disabled = !availability.unlocked
       accept.onclick = () => this.acceptVeteranCareerMission(definition.id)
       row.append(title, details, accept); panel.append(row)
@@ -2006,14 +2031,20 @@ export class TownScene {
     const row = document.createElement('article'); row.className = 'town-product'
     const title = document.createElement('strong'); title.textContent = homeDefense.name
     const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
-    details.textContent = `${homeDefense.briefing}\n老兵任務勝利 ${Math.min(veteranWins, homeDefense.requiresCompletions)}/${homeDefense.requiresCompletions} · 守護 ${townName(this.profile.faction)} · 友軍 ${defenseForce.friendlyCombatants} 人（含玩家；AI 守軍 ${defenseForce.friendlySoldiers}） · 敵軍 ${homeDefense.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${homeDefense.maxCivilianDeaths}`
+    details.textContent = `${homeDefense.briefing}\n我方：${defenseForce.friendlyCombatants} 人（含你），守衛${townName(this.profile.faction)}\n敵方：${homeDefense.enemyCount} 人（T3 騎兵與 4 名 T4 隊長）\n平民死亡超過 ${homeDefense.maxCivilianDeaths} 人即失敗`
     const accept = document.createElement('button'); accept.className = 'town-button'
-    accept.textContent = unlocked ? '接受守城任務' : `需 ${homeDefense.requiresCompletions} 次老兵任務勝利 · ${Math.min(veteranWins, homeDefense.requiresCompletions)}/${homeDefense.requiresCompletions}`
+    accept.textContent = unlocked ? '接受守城任務' : `需完成 ${homeDefense.requiresCompletions} 次老兵任務（目前 ${Math.min(veteranWins, homeDefense.requiresCompletions)}/${homeDefense.requiresCompletions}）`
     accept.disabled = !unlocked
     accept.onclick = () => this.acceptMission(homeDefense.id)
     row.append(title, details, accept); panel.append(row)
   }
+  private appendCommandHowTo(panel: HTMLElement): void {
+    const tip = document.createElement('p'); tip.className = 'town-summary'
+    tip.textContent = '指揮方式：戰鬥中按 Q 進入命令模式，滾輪選擇部隊、中鍵確認，再選擇攻擊、防禦等命令。'
+    panel.append(tip)
+  }
   private openCaptainMissionPage(panel: HTMLElement): void {
+    this.appendCommandHowTo(panel)
     const defenseForce = this.townDefenseBoardForce()
     for (const definition of CAPTAIN_MISSION_CATALOG) {
       const availability = getCaptainMissionAvailability(this.profile, definition.id)
@@ -2021,43 +2052,35 @@ export class TownScene {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = definition.name
       const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
-      const state = definition.id === CAPTAIN_PATROL_COMMAND_ID && !patrol ? this.captainPatrol?.unavailableReason ?? '巡邏隊正式編制尚未就緒，請稍後再接受任務。'
-        : definition.id === CAPTAIN_EAGLE_BATTLE_ID ? `本次可參戰私兵 ${this.profile.personalSquad?.members.length ?? 0} 人 · 依原裝備参加空戰或地面作戰`
-        : '正式部隊與私兵分別指揮，有效貢獻共同計算軍功。'
+      const state = definition.id === CAPTAIN_PATROL_COMMAND_ID && !patrol ? this.captainPatrol?.unavailableReason ?? '巡邏隊還沒有集合完畢，請稍後再接取任務。'
+        : definition.id === CAPTAIN_EAGLE_BATTLE_ID ? `你目前有 ${this.profile.personalSquad?.members.length ?? 0} 名私兵會一同參戰（依原本裝備參加空戰或地面作戰）。`
+        : '正式部隊與私兵可分別下令；兩者的有效戰績都會計入軍功。'
       const briefing = definition.id === CAPTAIN_GATE_DEFENSE_ID
         ? captainGateDefenseBriefing(this.residents.map(r => r.spec), this.unavailableTownCavalryActorIds(true))
         : definition.briefing
       const force = definition.kind === 'town-defense'
-        ? `\n玩家 1 · AI 守軍 ${defenseForce.friendlySoldiers} · 友軍總數 ${defenseForce.friendlyCombatants}` : ''
+        ? `\n我方：${defenseForce.friendlyCombatants} 人（含你）\n敵方：${definition.enemyCombatants} 人` : ''
       details.textContent = `${briefing}${force}\n${state}`
       const accept = document.createElement('button'); accept.className = 'town-button'
       accept.disabled = !availability.unlocked || definition.id === CAPTAIN_PATROL_COMMAND_ID && !patrol
-      accept.textContent = availability.unlocked ? accept.disabled ? '巡邏隊暫時不可用' : '接受任務' : availability.reason ?? '尚未解鎖'
+      accept.textContent = availability.unlocked ? accept.disabled ? '巡邏隊暫時不可用' : '接受任務' : availability.reason ?? '目前無法接取'
       accept.onclick = () => this.acceptCaptainMission(definition.id)
       row.append(title, details, accept); panel.append(row)
     }
     this.appendHeavyFieldRows(panel, 'captain')
   }
   private openCommanderMissionPage(panel: HTMLElement): void {
+    this.appendCommandHowTo(panel)
     for (const definition of COMMANDER_MISSION_CATALOG) {
       const availability = getCommanderMissionAvailability(this.profile, definition.id)
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = definition.name
       const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
-      const force = definition.id === COMMANDER_SKY_RAID_ID
-        ? '正式兵力：玩家 1 人 + 2 支 25 人 T4 Ranger·xongkoro 空降隊；敵方：敵城原生人員（擊殺任意 100 人取勝）。私兵最多額外 30 人。'
-        : definition.id === COMMANDER_DECAPITATION_ID
-          ? '正式兵力：玩家 1 人 + 前任 T5 Commander + 10 T4 Lancer + 10 T4 Sword/Axe Cavalry + 9 T4 Horse Archer（全員騎乘）；敵方：敵城全體，斬首目標為 T5 Commander 1 人。'
-          : definition.id === 'commander-four-gate-defense' ? '守衛所屬城鎮：原生八隊城防部隊與最多30名 HR 私兵。敵軍280人、八台攻城車，每台另有10名T3護衛步兵（羅馬攻方為刀盾兵、維京攻方為斧盾兵）；守方準備180秒後，敵軍才從邊境抵達，四門同時進攻。'
-          : definition.id === COMMANDER_BRIDGEHEAD_ID ? '正式兵力：玩家1人 + 八隊各25名步兵；敵方八隊各25名騎兵。雙方各192 T3 + 8 T4。現有 HR 私兵最多額外30人，沿用原裝備與坐騎。'
-          : definition.id === COMMANDER_IRON_LEGION_ID ? '正式兵力：玩家1人 + 200名六貓騎兵（T4 180 + T5 20，全員配備弓箭）；敵軍300名重騎兵（T4 210 + T5 90，槍盾具裝戰馬／雪豹）。可額外攜帶最多30名HR私兵。'
-          : definition.id === COMMANDER_FELINE_CAVALRY_ID ? '正式兵力：玩家1人 + 200名六貓騎兵（T4 180 + T5 20）；敵軍300名戰馬騎兵（T4 210 + T5 90）。可額外攜帶最多30名HR私兵，保留自有裝備與坐騎。'
-          : '正式兵力：玩家 1 人 + 4 支 30 人步兵隊；敵軍：48 T3 + 2 T4 Lancer、24 T3 + 1 T4 Sword/Axe Cavalry、24 T3 + 1 T4 Horse Archer。60 秒部署。'
-      const survival = '玩家戰死後可觀戰；官方部隊或已部署私兵存活時戰鬥繼續。'
-      details.textContent = `${definition.briefing}\n${force}\n${survival}`
+      const survival = '你戰死後可繼續觀戰，只要仍有友軍存活，戰鬥就會繼續。'
+      details.textContent = `${definition.briefing}\n${survival}`
       const accept = document.createElement('button'); accept.className = 'town-button'
       accept.disabled = !availability.unlocked
-      accept.textContent = availability.unlocked ? '接受任務' : availability.reason ?? '尚未解鎖'
+      accept.textContent = availability.unlocked ? '接受任務' : availability.reason ?? '目前無法接取'
       accept.onclick = () => this.acceptCommanderMission(definition.id)
       row.append(title, details, accept); panel.append(row)
     }
@@ -2102,9 +2125,9 @@ export class TownScene {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = definition.name
       const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
-      details.textContent = `${definition.briefing}\n友軍 ${definition.friendlyCombatants} 人（含玩家） · 敵軍 ${definition.enemyCombatants} 人 · ${CAREER_RANKS.indexOf(this.profile.rank) >= CAREER_RANKS.indexOf('captain') ? '可帶私兵並下令' : '老兵／士兵無指揮權'} · 風險 ${definition.risk}`
+      details.textContent = `${definition.briefing}\n我方：${definition.friendlyCombatants} 人（含你）\n敵方：${definition.enemyCombatants} 人\n${CAREER_RANKS.indexOf(this.profile.rank) >= CAREER_RANKS.indexOf('captain') ? '你可以帶私兵並下令。' : '你無指揮權。'}風險：${definition.risk}`
       const accept = document.createElement('button'); accept.className = 'town-button'
-      accept.textContent = availability.unlocked ? '接受任務' : availability.reason ?? '尚未解鎖'
+      accept.textContent = availability.unlocked ? '接受任務' : availability.reason ?? '目前無法接取'
       accept.disabled = !availability.unlocked
       accept.onclick = () => this.acceptHeavyFieldCareerMission(definition.id)
       row.append(title, details, accept); panel.append(row)
@@ -2167,7 +2190,7 @@ export class TownScene {
         this.unavailableTownCavalryActorIds())
       : undefined
     const next = acceptVeteranMission(fresh, definition.id, { townCavalryReserveActorIds })
-    if (!next) { this.openPanel('無法接受任務', getVeteranMissionAvailability(fresh, definition.id).reason ?? '目前已有任務或小鎮處於敵對狀態。'); return }
+    if (!next) { this.openPanel('無法接受任務', getVeteranMissionAvailability(fresh, definition.id).reason ?? '請先完成目前的任務；城鎮正在交戰時也無法接取。'); return }
     if (!this.commit(next)) return
     if (definition.kind !== 'veteran-field') {
       const launch = createCareerVeteranOutpostLaunch(this.profile)
@@ -2257,13 +2280,13 @@ export class TownScene {
       }
     } else for (const tier of CAREER_DUEL_TIERS) {
       const row = document.createElement('article'); row.className = 'town-product'
-      const title = document.createElement('strong'); title.textContent = `T${tier} ${unarmed ? 'Unarmed Duel · 空手對戰' : selected!.nameEn}`
+      const title = document.createElement('strong'); title.textContent = `T${tier} ${unarmed ? '空手對戰' : selected!.nameEn}`
       const details = document.createElement('small')
       const unlocked = unarmed ? isUnarmedDuelUnlocked(this.profile, tier) : isCareerDuelUnlocked(this.profile, selected!.id, tier)
-      details.textContent = !unlocked ? `先擊敗 T${tier - 1} ${unarmed ? '空手對手' : selected!.nameEn}`
+      details.textContent = !unlocked ? `需先擊敗 T${tier - 1} ${unarmed ? '空手對手' : selected!.nameEn}`
         : unarmed ? '5 秒準備 · 90 秒內擊敗對手 · 對手拳擊 Lv.1 · 雙方無武器、盾牌與坐騎；非拳擊有效傷害立即判負'
-        : `5 秒準備 · 30 秒內擊敗對手${tier === 5 ? ' · Commander 出戰，Captain 裁判' : tier === 4 ? selected!.traits.includes('bow_fire') ? ' · Shadow Warden 出戰' : ' · Captain 出戰，Shadow Warden 裁判' : ''}`
-      const accept = document.createElement('button'); accept.className = 'town-button'; accept.textContent = unlocked ? '接受單挑' : 'Locked'; accept.disabled = !unlocked
+        : `5 秒準備 · 30 秒內擊敗對手${tier === 5 ? ' · 指揮官出戰，隊長擔任裁判' : tier === 4 ? selected!.traits.includes('bow_fire') ? ' · Shadow Warden 出戰' : ' · 隊長出戰，Shadow Warden 擔任裁判' : ''}`
+      const accept = document.createElement('button'); accept.className = 'town-button'; accept.textContent = unlocked ? '接受單挑' : '尚未解鎖'; accept.disabled = !unlocked
       accept.onclick = () => unarmed ? this.acceptDuel(undefined, tier, 'unarmed') : this.acceptDuel(selected!.id, tier)
       row.append(title, details, accept); products.append(row)
     }
@@ -2289,7 +2312,7 @@ export class TownScene {
       this.openPanel('無法接受賽馬', this.race?.error || '無法讀取生涯存檔。'); return
     }
     this.closePanel()
-    this.notice = '跟隨 Captain 前往北門。玩家所有賽事皆可使用 Shift 衝刺。'
+    this.notice = '跟隨隊長前往北門。所有賽事你都可以按 Shift 衝刺。'
   }
   private showRaceResult(): void {
     const race = this.race, session = race?.session
@@ -2378,7 +2401,7 @@ export class TownScene {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
     const fresh = this.store.load()
     if (!fresh || this.player.dead || this.event.hostile || !(mode === 'unarmed' ? isUnarmedDuelUnlocked(fresh, tier) : presetId && isCareerDuelUnlocked(fresh, presetId, tier)) || fresh.activeRace || fresh.activeMission || fresh.activeOutpostMission || fresh.townEvent?.state === 'hostile') {
-      this.openPanel('無法接受單挑', '生涯存檔已變更、該兵種 Tier 尚未解鎖，或目前正在交戰。'); return
+      this.openPanel('無法接受單挑', '該兵種的這個等級尚未解鎖、目前正在交戰，或已有進行中的任務。'); return
     }
     const mission = mode === 'unarmed' ? this.duel.createUnarmedMission(tier) : presetId ? this.duel.createMission(presetId, tier) : null
     if (!mission) { this.openPanel('無法接受單挑', '目前沒有可出戰的城鎮士兵。'); return }
@@ -2388,14 +2411,14 @@ export class TownScene {
     this.playMissionVoice('missionAccepted')
     if (!this.duel.startActiveMission()) { this.openPanel('單挑部署失敗', '任務已保存，重新載入可恢復同一場單挑。'); return }
     this.inventory.prepareForCombat()
-    this.notice = '已接受單挑。直接前往單挑場地，Captain 與對手將自行到場。'
+    this.notice = '已接受單挑。直接前往單挑場地，隊長與對手會自行到場。'
     this.closePanel()
   }
   private acceptOutpostRelief(): void {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
     const fresh = this.store.loadChecked().profile
     const next = fresh && acceptCareerOutpostRelief(fresh)
-    if (!next) { this.openPanel('無法接受任務', '需完成 Outpost I–III、擁有合法坐騎且沒有進行中的任務。'); return }
+    if (!next) { this.openPanel('無法接受任務', '需先完成前哨防守 I–III、擁有一匹可使用的自有坐騎，且沒有進行中的任務。'); return }
     if (!this.commit(next)) return
     const launch = createCareerOutpostLaunch(this.profile)
     this.dispose(true)
@@ -2686,7 +2709,7 @@ export class TownScene {
     }
     if (template.kind === 'enemy-town-assault') {
       const next = acceptEnemyTownAssault(fresh)
-      if (!next) { this.openPanel('無法接受任務', '需先完成 Outpost Relief · 騎兵救援 Victory，且沒有其他任務或小鎮敵對事件。'); return }
+      if (!next) { this.openPanel('無法接受任務', '需先完成「騎兵救援」任務，且目前沒有其他任務或城鎮敵對事件。'); return }
       if (!this.commit(next)) return
       this.dispose(); this.onRestart(this.profile)
       return
@@ -2702,13 +2725,13 @@ export class TownScene {
     }
     const preferredCamp = template.kind === 'patrol' ? patrolPreferredCamp(template.routeId) : template.preferredCampIndex
     const campId = this.mission.chooseCamp(preferredCamp)
-    if (campId === null) { this.openPanel('地區暫時無法接取', '附近營地仍在交戰，請先脫離戰鬥或稍後選擇其他任務。'); return }
+    if (campId === null) { this.openPanel('暫時無法接取', '目標營地附近仍在交戰，請稍後再試，或先選擇其他任務。'); return }
     const mission = this.mission.createMission(template, campId, this.unavailableTownCavalryActorIds())
     const next = cloneCareerProfile(fresh); next.activeMission = mission
     if (!this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始。請確認瀏覽器儲存空間後重試。'); return }
     if (!this.mission.startActiveMission()) { this.openPanel('任務建立失敗', '任務已保存，但隊伍無法建立。重新載入後可用同一個 missionId 恢復。'); return }
     this.inventory.prepareForCombat()
-    this.notice = `已接受 ${template.name}。前往兵營外集合。`
+    this.notice = `已接受「${template.name}」。順著畫面下方的箭頭前往集合點，再跟隨隊長出發。`
     this.playMissionVoice('missionAccepted')
     this.closePanel()
   }
@@ -2867,19 +2890,21 @@ export class TownScene {
     }
     const complete = result.outcome === 'victory'
     const merit = result.merit
-    const defenseText = result.defense ? `\n\nCivilians\nSurvived ${result.defense.civilianSurvived}\nDeaths ${result.defense.civilianDeaths}` : ''
-    const combined = result.meritStats ? `\n\n玩家與授權部隊軍功貢獻\nDamage ${Math.round(result.meritStats.damageDealt)}\nKills ${result.meritStats.kills}\nStructure damage ${Math.round(result.meritStats.structureDamage)}\nGate breaches ${result.meritStats.gateBreaches}` : ''
-    const illegalText = this.profile.activeMission?.duelFailureReason === 'illegal_attack' ? '\n\n空手對決違規：使用非拳擊攻擊' : ''
+    const defenseText = result.defense ? `\n\n平民\n存活：${result.defense.civilianSurvived} 人\n死亡：${result.defense.civilianDeaths} 人` : ''
+    const combined = result.meritStats ? `\n\n全隊貢獻（你與受你指揮的部隊）\n擊殺敵人：${result.meritStats.kills}\n造成傷害：${Math.round(result.meritStats.damageDealt)}\n破壞建築傷害：${Math.round(result.meritStats.structureDamage)}\n攻破城門：${result.meritStats.gateBreaches} 次` : ''
+    const illegalText = this.profile.activeMission?.duelFailureReason === 'illegal_attack' ? '\n\n失敗原因：空手對決中使用了拳擊以外的攻擊' : ''
     const zeroMeritReason = merit.total !== 0 ? '' : (result.meritStats ?? result.stats).damageDealt > 0
-      ? `\n\n有效傷害未達 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點軍功門檻；本次軍功為 0。`
-      : '\n\n本次未對任務目標造成有效貢獻。個人軍功：0'
+      ? `\n\n軍功為 0：有效傷害不足 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點，還換不到 1 軍功。`
+      : '\n\n軍功為 0：本次沒有對任務目標造成有效貢獻。'
     if (this.profile.activeMission?.duelTutorialCareerId) {
       const panel = this.openPanel(complete ? '新兵切磋 · 勝利' : '新兵切磋 · 練習結束',
         `本次已保存獎勵 ${merit.total} 軍功。教學獎勵每個角色只領一次。\n之後可找士官長 → 1v1，選擇兵種並依序挑戰 T1–T5。\n接下來向士官長了解目前軍階的正式戰鬥任務。`)
       this.button(panel, `返回 ${townName(this.profile.faction)}`, () => this.returnToTown('direct'))
       return
     }
-    const panel = this.openPanel(result.defense ? `Town Defense · ${complete ? 'SUCCESS' : 'FAILURE'}` : complete ? 'MISSION COMPLETE' : 'MISSION FAILED', `玩家統計 PLAYER\nDamage ${Math.round(result.stats.damageDealt)}\nKills ${result.stats.kills}\nSurvived ${result.stats.survived ? 'Yes' : 'No'}${defenseText}${combined}\n\nMilitary Merit\n每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功\nDamage merit ${merit.damage}\nKill merit ${merit.kills}\nMission contribution merit ${merit.contribution}\nTotal ${merit.total}${zeroMeritReason}${illegalText}`)
+    const failureText = complete ? '' : '\n\n未能達成任務目標。'
+    const panel = this.openPanel(result.defense ? `守城戰 · ${complete ? '成功' : '失敗'}` : complete ? '任務成功' : '任務失敗',
+      `戰鬥表現（你）\n擊殺敵人：${result.stats.kills}\n造成傷害：${Math.round(result.stats.damageDealt)}\n是否存活：${result.stats.survived ? '存活' : '陣亡'}${defenseText}${combined}\n\n軍功獎勵（每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功）\n傷害軍功：${merit.damage}\n擊殺軍功：${merit.kills}\n任務貢獻：${merit.contribution}\n本次總軍功：${merit.total}${zeroMeritReason}${illegalText}${failureText}`)
     this.button(panel, this.profile?.activeMission?.kind === 'captain-patrol-command' ? '直接返回城鎮' : `返回 ${townName(this.profile.faction)}`, () => this.returnToTown('direct'))
     if (this.profile?.activeMission?.kind === 'captain-patrol-command') {
       if (complete && result.stats.survived) this.button(panel, '跟隊伍走回去', () => {
@@ -3906,9 +3931,9 @@ export class TownScene {
           : ramp.controller.state === 'DESTROYED' ? '已毀' : ramp.controller.state === 'ABANDONED' ? '停駛'
             : defense.combatEnabled ? '推進' : '待命'
       }
-      return `${gateNames[id]}門 ${gate ? gateStatus[gate.state] : '部署'} · 車 ${state('left')}/${state('right')}`
+      return `${gateNames[id]}門 ${gate ? gateStatus[gate.state] : '部署'} · 攻城車 ${state('left')}/${state('right')}`
     })
-    return `\nCOMMANDER V · FOUR-GATE DEFENSE\n${phase} · 敵軍 ${defense.remainingEnemies}/${defense.enemyTotal}\n${sectors.slice(0, 2).join('　')}\n${sectors.slice(2).join('　')}\n${defense.enemyRosterVersion === 1 ? `巨鷹騎手 ${defense.remainingAirborneEnemies}/30 · ` : ''}平民死亡 ${defense.civilianDeaths}`
+    return `\n四門總攻守城戰\n${phase} · 敵軍 ${defense.remainingEnemies}/${defense.enemyTotal}\n${sectors.slice(0, 2).join('　')}\n${sectors.slice(2).join('　')}\n${defense.enemyRosterVersion === 1 ? `巨鷹騎手 ${defense.remainingAirborneEnemies}/30 · ` : ''}平民死亡 ${defense.civilianDeaths}`
   }
 
   private veteranMissionHud(): string {
@@ -3916,9 +3941,9 @@ export class TownScene {
     const definition = getVeteranMissionDefinition(active.templateId)!
     if (active.templateId === 'veteran-tragedy-of-the-scouts') {
       const remaining = Math.max(0, Math.ceil(120 - (this.mission?.survivalElapsedSeconds ?? active.survivalElapsed ?? 0)))
-      return `\n${definition.name}\nSURVIVE ${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')}`
+      return `\n${definition.name}\n撐住 ${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')}`
     }
-    const orders = active.phase === 'ASSEMBLING' ? '前往兵營集合' : active.phase === 'MARCHING' ? '跟隨隊長行軍' : active.phase === 'ENGAGING' ? '衝鋒' : active.phase
+    const orders = active.phase === 'ASSEMBLING' ? '前往兵營集合' : active.phase === 'MARCHING' ? '跟隨隊長行軍' : active.phase === 'ENGAGING' ? '衝鋒' : missionPhaseLabel(active.phase)
     return `\n${definition.name} · 剩餘敵軍 ${this.mission.remainingEnemies}\n${orders}`
   }
   private updatePlayerCommands(): void {
@@ -4125,25 +4150,25 @@ export class TownScene {
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.defense.active && this.serviceAvailable(id)
     const missionHud = this.profile.activeMission
       ? this.mission?.travelEncounter?.active
-        ? '\n途中遭遇敵軍 · 全隊支援，解除威脅後繼續路線'
+        ? '\n途中遇敵 · 協助全隊擊退敵人，之後繼續前進'
         : this.profile.activeMission.kind === 'captain-patrol-command'
-        ? `\nPATROL COMMAND · 有效擊殺 ${this.captainPatrol?.killCount ?? this.profile.activeMission.patrolKilledActorIds?.length ?? 0}/30\n正式巡邏隊 ${this.captainPatrol?.aliveCombatants ?? 0}/20 · Q / 反引號 命令`
+        ? `\n指揮巡邏隊 · 有效擊殺 ${this.captainPatrol?.killCount ?? this.profile.activeMission.patrolKilledActorIds?.length ?? 0}/30\n巡邏隊 ${this.captainPatrol?.aliveCombatants ?? 0}/20 人 · 按 Q 下令`
         : this.profile.activeMission.kind === 'duel'
-        ? `\nDUEL · T${this.profile.activeMission.duelTier} ${this.profile.activeMission.duelMode === 'unarmed' ? 'Unarmed Duel · 空手對戰' : UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}\n${this.duel.phase === 'PREPARING' ? 'DUEL STARTS IN ' + Math.ceil(this.duel.countdownRemaining) : this.duel.phase === 'ENGAGING' ? (duelFightBannerVisible(this.duel.combatElapsedSeconds) ? 'FIGHT\n' : '') + 'Time ' + this.duel.combatRemaining.toFixed(1) + '\nOpponent HP ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨隊長返回市政廳服務點' : this.duel.phase === 'ASSEMBLING' || this.duel.phase === 'MARCHING' ? '前往單挑場地 · 等待 Captain 與對手就位' : this.duel.phase}`
+        ? `\n單挑 · T${this.profile.activeMission.duelTier} ${this.profile.activeMission.duelMode === 'unarmed' ? '空手對戰' : UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}\n${this.duel.phase === 'PREPARING' ? '單挑倒數 ' + Math.ceil(this.duel.countdownRemaining) + ' 秒' : this.duel.phase === 'ENGAGING' ? (duelFightBannerVisible(this.duel.combatElapsedSeconds) ? '開打！\n' : '') + '剩餘時間 ' + this.duel.combatRemaining.toFixed(1) + ' 秒\n對手生命值 ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨隊長返回市政廳服務點' : this.duel.phase === 'ASSEMBLING' || this.duel.phase === 'MARCHING' ? '前往單挑場地 · 等待隊長與對手就位' : missionPhaseLabel(this.duel.phase ?? 'RESULT')}`
         : this.profile.activeMission.kind === 'veteran-field'
         ? this.veteranMissionHud()
         : this.profile.activeMission.kind === 'cavalry-sweep'
-        ? `\nCAVALRY SWEEP · 剩餘 Bandits ${this.mission.remainingEnemies}/40\n${this.profile.activeMission.phase === 'RETURNING' ? '跟隨部隊返回軍營' : this.profile.activeMission.templateId === CAPTAIN_CAVALRY_COMMAND_ID ? '率領騎兵前往 Bandits 所在位置 · 接近後下令衝鋒' : this.profile.activeMission.phase === 'ASSEMBLING' ? '前往軍營集合 · 與騎兵一起出城' : this.profile.activeMission.phase === 'MARCHING' ? '跟隨 Captain 出城 · 接近敵軍後一起衝鋒' : '衝鋒 · 穿過敵陣後拉開距離，再次衝鋒'}`
+        ? `\n騎兵清剿 · 剩餘盜匪 ${this.mission.remainingEnemies}/${CAVALRY_SWEEP_BANDITS}\n${this.profile.activeMission.phase === 'RETURNING' ? '跟隨部隊返回軍營' : this.profile.activeMission.templateId === CAPTAIN_CAVALRY_COMMAND_ID ? '率領騎兵前往盜匪所在位置 · 接近後下令衝鋒' : this.profile.activeMission.phase === 'ASSEMBLING' ? '前往軍營集合 · 與騎兵一起出城' : this.profile.activeMission.phase === 'MARCHING' ? '跟隨隊長出城 · 接近敵軍後一起衝鋒' : '衝鋒 · 穿過敵陣後拉開距離，再次衝鋒'}`
         : this.profile.activeMission.kind === 'enemy-town-assault'
-        ? `\nENEMY TOWN ASSAULT${this.defense.phase === 'PREPARING' ? ' · 開戰倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : ''}\n剩餘地面守軍：${this.defense instanceof TownDefenseController ? this.defense.remainingAssaultGroundDefenders : '—'}`
+        ? `\n進攻敵城${this.defense.phase === 'PREPARING' ? ' · 進攻倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : ''}\n剩餘地面守軍：${this.defense instanceof TownDefenseController ? this.defense.remainingAssaultGroundDefenders : '—'}`
         : this.profile.activeMission.kind === 'commander-sky-raid'
-        ? `\nSKY RAID\nEnemy Town Kills: ${this.profile.activeMission.deadTargetActorIds?.length ?? 0} / 100\nFriendly Rangers: ${this.defense.defenders.filter(npc => !npc.dead).length} / 50 · Friendly Eagles: ${this.defense.enemyMounts.filter(mount => !mount.dead).length} / 50`
+        ? `\n空襲敵城\n擊倒敵城人員：${this.profile.activeMission.deadTargetActorIds?.length ?? 0} / 100\n我方遊俠 ${this.defense.defenders.filter(npc => !npc.dead).length} / 50 · 巨鷹 ${this.defense.enemyMounts.filter(mount => !mount.dead).length} / 50`
         : this.profile.activeMission.kind === 'commander-decapitation'
-        ? `\nOPERATION DECAPITATION · ${this.defense.remainingEnemies ? '敵方 Commander 仍存活' : '敵方 Commander 已倒下'}\n行動隊 ${this.defense.defenders.filter(npc => !npc.dead).length}/30`
+        ? `\n斬首行動 · ${this.defense.remainingEnemies ? '敵方指揮官仍存活' : '敵方指揮官已倒下'}\n行動隊 ${this.defense.defenders.filter(npc => !npc.dead).length}/30 人`
         : this.profile.activeMission.kind === 'commander-four-gate-defense'
         ? this.fourGateDefenseHud()
         : this.profile.activeMission.kind === 'town-defense'
-        ? `\nTOWN DEFENSE ${this.defense.phase === 'PREPARING' ? '開戰倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : this.profile.activeMission.phase} · 敵軍剩餘 ${this.defense.remainingEnemies} · 平民死亡 ${this.defense.civilianDeaths}/10`
+        ? `\n守衛城鎮 · ${this.defense.phase === 'PREPARING' ? '敵軍來襲倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : missionPhaseLabel(this.profile.activeMission.phase)} · 敵軍剩餘 ${this.defense.remainingEnemies} 人 · 平民死亡 ${this.defense.civilianDeaths}/10`
         : fieldMissionHud(
           this.profile.activeMission.kind === 'patrol' ? 'patrol' : 'bandit',
           this.profile.activeMission.phase,
@@ -4153,7 +4178,7 @@ export class TownScene {
     const compactDefense = this.profile.activeMission?.kind === 'commander-four-gate-defense'
     this.hud.textContent = compactDefense
       ? `${missionHud.trim()}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
-      : `${this.sceneContext.missionOnlyResidents ? '敵境 · 斥候遭遇戰' : this.sceneContext.worldFaction === 'viking' ? 'økse 村' : 'vinum 村'}\n已任命軍階 ${this.profile.rank}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${this.townCommand?.authorizedActorIds.length ? `\n${this.profile.townCommandSquad?.commandRank === 'commander' ? '全城正式部隊' : '城防指揮隊'} ${this.townCommand.actors.filter(npc => !npc.dead).length}/${this.townCommand.authorizedActorIds.length} · ${this.townCommand.state === 'TRAINING' ? '駐防待命' : this.townCommand.state} · Q / 反引號 命令` : ''}${this.profile.personalSquad?.members.length ? `\nPersonal Squad ${this.profile.personalSquad.members.length}/30 · ${this.personalSquad?.state ?? 'RESERVE'} · Q / 反引號 命令` : ''}${missionHud}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
+      : `${this.sceneContext.missionOnlyResidents ? '敵境 · 斥候遭遇戰' : this.sceneContext.worldFaction === 'viking' ? 'økse 村' : 'vinum 村'}\n軍階：${CAREER_RANK_LABELS[this.profile.rank]}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${this.townCommand?.authorizedActorIds.length ? `\n${this.profile.townCommandSquad?.commandRank === 'commander' ? '全城正式部隊' : '城防指揮隊'} ${this.townCommand.actors.filter(npc => !npc.dead).length}/${this.townCommand.authorizedActorIds.length} · ${townCommandStateLabel(this.townCommand.state)} · 按 Q 下令` : ''}${this.profile.personalSquad?.members.length ? `\n私兵 ${this.profile.personalSquad.members.length}/30 · ${personalSquadStateLabel(this.personalSquad?.state ?? 'RESERVE')} · 按 Q 下令` : ''}${missionHud}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
     if (this.retirementFinale?.active) {
       const seconds = Math.ceil(this.retirementFinale.remainingSeconds)
       const stats = this.retirementFinale.stats
