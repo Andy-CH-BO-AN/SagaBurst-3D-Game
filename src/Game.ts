@@ -4085,6 +4085,8 @@ export class Game {
     resetTerrainScenePolicy()
     this.compass?.dispose()
     this.compass = undefined
+    this.commandSelectionMarker?.dispose()
+    this.commandSelectionMarker = undefined
     this.spawningStopped = true
     this.soundManager?.updateEagleWingbeats([])
     this.felineChargeUnsubscribe?.(); this.felineChargeUnsubscribe = undefined

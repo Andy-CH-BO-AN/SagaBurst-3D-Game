@@ -480,7 +480,13 @@ export class TownScene {
         beforeIssue: (order, target, participants, assignments) => this.preparePlayerCommand(order, target, participants, assignments),
         issue: (order, target) => this.issuePartyOrder(order, target) },
       () => this.commandHudRoster())
-    this.commandSelectionMarker = new ArmyCommandSelectionMarker(this.scene, this.personalCommands)
+    // Service NPCs carry a persistent "?" sprite; lift the command marker above its top edge.
+    this.commandSelectionMarker = new ArmyCommandSelectionMarker(this.scene, this.personalCommands, npc => {
+      for (const sprite of this.serviceMarkers.values()) {
+        if (sprite.parent === npc.group && sprite.visible) return sprite.position.y + sprite.scale.y / 2
+      }
+      return 0
+    })
     this.tutorial = new TownTutorialController({
       profile: () => this.profile, commit: next => this.commit(next),
       peaceful: () => !this.disposed && !this.player.dead && !this.event.hostile
@@ -4198,7 +4204,8 @@ export class TownScene {
     this.compass?.update(this.camera)
     // Same input ownership as updatePlayerCommands(): panels, dialogs, equipment, results and death hide markers.
     this.commandSelectionMarker?.update(!this.panel && !this.equipment.visible && !this.result
-      && !this.spawnErrorShown && !this.deploymentFailed && !this.player.dead && !this.spectator, this.camera, dt)
+      && !this.spawnErrorShown && !this.deploymentFailed && !this.retirementFinale?.frozen
+      && !this.player.dead && !this.spectator, this.camera, dt)
     this.hud.style.whiteSpace = 'pre-line'; this.renderer.render(this.scene, this.camera)
     this.scheduleSiegeOpening()
     this.raf = requestAnimationFrame(t => this.frame(t))

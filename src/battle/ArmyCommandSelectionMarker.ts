@@ -18,13 +18,16 @@ const MEMBERSHIP_REFRESH_SECONDS = 0.2
 /** Visual diamond width in world units at the marker's distance. */
 const MARKER_WORLD_SIZE = 0.5
 /**
- * NPC.group is at the feet when walking and at the pelvis seat on ground mounts, so the
- * head sits ~0.9 m above the group there. Flying riders stand on the eagle socket (feet).
- * The existing alert sprite spans roughly 1.9–2.7 m; the marker sits above that band.
+ * Anchored in NPC.group-local space, the same frame as the existing overhead icons, so one rule
+ * covers walking soldiers, ground mounts and flying riders without per-mount height tables.
+ * NPC.alertSprite ("!", 0.8 m quad at 2.3 m, can stay visible for a whole ALERT state) tops out at
+ * 2.7 m; the diamond's bottom edge starts above it. Town's persistent "?" is cleared via
+ * `overheadIconTop`.
  */
-const STANDING_HEAD_TOP = 1.95
-const GROUND_MOUNT_HEAD_TOP = 0.9
-const HEAD_CLEARANCE = 0.7
+const ALERT_ICON_TOP = 2.7
+/** Gap between a persistent overhead icon's top edge and the marker's bottom edge. */
+const ICON_GAP = 0.05
+const BASE_CENTER_HEIGHT = ALERT_ICON_TOP + ICON_GAP + MARKER_WORLD_SIZE / 2
 
 function createDiamondTexture(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null
@@ -67,7 +70,18 @@ export class ArmyCommandSelectionMarker {
   private shown = false
   private disposed = false
 
-  constructor(private readonly scene: THREE.Scene, private readonly source: CommandPreviewSource) {
+  /** Marker height lifted above a persistent overhead icon, per member; parallel to `members`. */
+  private readonly lifts: number[] = []
+
+  /**
+   * @param overheadIconTop Optional: group-local Y of the top edge of a persistent icon attached to
+   *   the NPC (e.g. Town's "?"), or 0 when none. Read when membership is resolved, not every frame.
+   */
+  constructor(
+    private readonly scene: THREE.Scene,
+    private readonly source: CommandPreviewSource,
+    private readonly overheadIconTop?: (npc: NPC) => number,
+  ) {
     this.texture = createDiamondTexture()
     this.material = new THREE.PointsMaterial({
       map: this.texture ?? undefined,
@@ -109,7 +123,12 @@ export class ArmyCommandSelectionMarker {
       this.membershipTarget = target
       this.membershipAge = 0
       this.members.length = 0
+      this.lifts.length = 0
       this.source.forEachCommandPreviewMember(this.collect)
+      for (const npc of this.members) {
+        const iconTop = this.overheadIconTop?.(npc) ?? 0
+        this.lifts.push(iconTop > 0 ? iconTop + ICON_GAP + MARKER_WORLD_SIZE / 2 : 0)
+      }
     }
 
     const camPos = camera.position
@@ -122,11 +141,9 @@ export class ArmyCommandSelectionMarker {
       const dx = position.x - camPos.x
       const dz = position.z - camPos.z
       if (dx * dx + dz * dz > MAX_DISTANCE_SQ) continue
-      const mount = npc.mount
-      const headTop = mount && !mount.isFlyingMount ? GROUND_MOUNT_HEAD_TOP : STANDING_HEAD_TOP
       const offset = count * 3
       positions[offset] = position.x
-      positions[offset + 1] = position.y + headTop + HEAD_CLEARANCE
+      positions[offset + 1] = position.y + Math.max(BASE_CENTER_HEIGHT, this.lifts[i])
       positions[offset + 2] = position.z
       count++
     }
@@ -145,6 +162,7 @@ export class ArmyCommandSelectionMarker {
     this.membershipTarget = null
     this.membershipAge = 0
     this.members.length = 0
+    this.lifts.length = 0
     if (!this.shown) return
     this.shown = false
     this.points.visible = false
