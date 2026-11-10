@@ -723,7 +723,7 @@ export class WeaponMeshFactory {
     const leather = proceduralMaterial({ kind: 'leather', color: 0x3d281d, roughness: 0.86 })
 
     const factionShield = shieldId === 'roman_officer_shield_t4' || shieldId === 'viking_berserker_shield_t5'
-    const eagleShield = shieldId === 'byzantine_eagle_shield_t5' || shieldId === 'centurion_aquila_shield_t4'
+    const eagleShield = shieldId === 'byzantine_eagle_shield_t5' || shieldId === 'centurion_aquila_shield_t4' || shieldId === 'viking_dragonward_shield_t4'
     if (shieldId === 'paladin_shield_t4' || shieldId === 'commander_shield_t5' || factionShield || eagleShield) {
       const commander = shieldId === 'commander_shield_t5'
       if (eagleShield) attachByzantineEquipment(shieldId, pivot)
@@ -749,9 +749,9 @@ export class WeaponMeshFactory {
           mount.scale.z = (rearSeatZ - gripZ) / .17
         }
         if (eagleShield) {
-          // Measured rear surface behind the boss (builder rearCenterZ): .155 eagle, .255 curved Aquila scutum.
+          // Measured rear surface behind the boss (builder rearCenterZ): .155 eagle, .255 curved Aquila scutum, .2145 dished Dragonward.
           // Seat the mounts 1 cm into it rather than through the painted face.
-          const rearSeatZ = shieldId === 'centurion_aquila_shield_t4' ? .265 : .165
+          const rearSeatZ = shieldId === 'centurion_aquila_shield_t4' ? .265 : shieldId === 'viking_dragonward_shield_t4' ? .2245 : .165
           mount.position.z = (gripZ + rearSeatZ) / 2
           mount.scale.z = (rearSeatZ - gripZ) / .17
         }
