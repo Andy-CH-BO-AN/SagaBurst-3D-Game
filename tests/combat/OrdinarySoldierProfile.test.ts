@@ -53,6 +53,20 @@ describe('Ordinary character health identity', () => {
     expect(characterIdentityMaxHp(identity)).toBe(850)
     expect(() => resolveCharacterIdentity({ ...identity, characterTier: 4 })).toThrow('Conflicting')
   })
+  it('keeps an explicit same-faction hero body (Centurion, Dragon Oathguard, Ironblood Warlord) and still rejects cross-faction or wrong-tier bodies', () => {
+    expect(resolveCharacterIdentity({ characterFaction: 'roman', characterTier: 4, visualAssetId: 'roman-centurion-t4' }))
+      .toMatchObject({ heroArchetype: 'captain', visualAssetId: 'roman-centurion-t4', combatProfileId: 'centurion' })
+    expect(resolveCharacterIdentity({ characterFaction: 'viking', characterTier: 4, combatProfileId: 'dragon-oathguard' }))
+      .toMatchObject({ heroArchetype: 'captain', visualAssetId: 'viking-heavy-hero-t4', combatProfileId: 'dragon-oathguard' })
+    const warlord = resolveCharacterIdentity({ characterFaction: 'viking', visualAssetId: 'viking-heavy-hero-t5', combatProfileId: 'ironblood-warlord' })
+    expect(warlord).toMatchObject({ characterTier: 5, heroArchetype: 'commander', visualAssetId: 'viking-heavy-hero-t5' })
+    expect(characterIdentityMaxHp(warlord)).toBe(1000)
+    expect(resolveCharacterIdentity({ characterFaction: 'viking', characterTier: 4 }).visualAssetId).toBe('viking-hero-t4') // default NPC body unchanged
+    for (const bad of [{ characterFaction: 'roman', visualAssetId: 'viking-heavy-hero-t4' }, { characterFaction: 'viking', visualAssetId: 'roman-centurion-t4' },
+      { characterFaction: 'viking', characterTier: 5, visualAssetId: 'viking-heavy-hero-t4' }, { characterFaction: 'viking', visualAssetId: 'viking-heavy-hero-t4', combatProfileId: 'varangian' }] as const) {
+      expect(() => resolveCharacterIdentity(bad)).toThrow(/Conflicting/)
+    }
+  })
   it.each([
     { type: 'captain', characterTier: 4, heroArchetype: 'captain', recruitmentRole: 'archer', melee: 'gladius_standard', ranged: 'recurve_longbow', profile: 'praetorian', hp: 500 },
     { type: 'ranger', characterTier: 4, heroArchetype: 'ranger', recruitmentRole: 'spearman', melee: 'steel_lance', ranged: null, profile: 'ranger', hp: 300 },
