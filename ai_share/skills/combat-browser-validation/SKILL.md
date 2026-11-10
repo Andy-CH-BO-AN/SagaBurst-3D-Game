@@ -15,6 +15,7 @@ description: 使用 Playwright CLI 驗證 SagaBurst 的瀏覽器戰鬥畫面、�
 | --- | --- |
 | `/?nolock` | 正式主選單與戰鬥流程；有效 Career／session 狀態可能直接恢復 |
 | `/?training=1&nolock` | 獨立訓練場；全部坐騎與目錄裝備、11 個假人、補給／重置／返回，不恢復或修改 Career |
+| `/?training=1&nolock&devplayerhero=<HeroAssetId>` | DEV：訓練場以指定英雄作為 Player（例如 `roman-centurion-t4`），用於逐坐騎驗證新角色 |
 | `/?devmodels=humans&nolock` | 人物 LOD、骨架、握點與 controller／raw clip 比較 |
 | `/?devmodels=mounts&nolock` | Horse 變體、LOD、騎士與動畫 |
 | `/?devmodels=black-cat&nolock`、`/?devmodels=corgi&nolock` | 指定坐騎；可用鍵位以工作室 HUD 為準 |
@@ -66,6 +67,12 @@ rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.
 - **失敗注入：** 先到主選單，再包裝 `window.fetch`，讓目標 URL 永遠不回應，接著才開始戰鬥。確認場景仍會開啟、受影響的角色沒有武器效果、其他角色不受影響；解除封鎖後確認有新的網路請求，且模型與戰鬥狀態一起恢復。自訂戰鬥重新整理會由 `sessionStorage` 直接恢復，來不及包裝，需先清除 `sagaburst_battle_config`。
 - **近距離檢查：** 可暫時停用第三人稱相機更新，並在 render 前把相機放到目標旁邊。遠景不能證明握持；手部與騎姿要看近照和多個角度。臨時掛在 `window` 的 handle 不要提交。
 - **視窗要可見：** 隱藏的預覽窗格會讓 `requestAnimationFrame` 與載入變慢，時間數據不可信。
+
+## 合成輸入的限制
+
+- 以 `window.game.input` 加上 `allowUnlockedInput` 派送鍵鼠事件，可驗證上下坐騎、近戰、換武器、格擋、受傷與死亡。騎乘中的弓蓄力與巨鷹 S 降落需要真實 pointer lock 與滑鼠俯仰，合成輸入不會生效；這些項目記為 BLOCKED 並列人工步驟，不寫成 PASS。
+- 判定新角色缺陷前，用同一腳本跑一次既有英雄（例如 Paladin）。兩者結果相同時是工具或既有行為，不是新資產問題。英雄預覽單獨播放 additive `hit` 會顯示 bind pose，屬既有預覽行為。
+- 驗證期間不要修改 repo 內任何檔案（含 ignored `output/`）：Vite 會整頁重載，進行中的腳本與狀態會遺失。
 
 ## 軌跡與錯誤判讀
 
