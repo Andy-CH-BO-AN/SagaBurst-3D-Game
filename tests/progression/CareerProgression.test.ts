@@ -113,13 +113,13 @@ describe('T4 雙職業任命（聖騎士／百夫長）', () => {
     const centurion = applyT4Class(veteran(7000), 'centurion')!
     expect(centurion).toMatchObject({ rank: 'captain', t4Specialization: 'centurion', unlockedT4Classes: ['centurion'], availableMerit: 333, totalMerit: 7000 })
     expect(resolveCareerHeroAsset(parseCareerProfile(centurion)!)).toBe('roman-centurion-t4')
-    // The generic one-step authority refuses Roman Veteran → Captain, and a Centurion-only save below 7,000 is rejected.
+    // The generic one-step authority refuses Veteran → Captain (both factions), and a Centurion-only save below 7,000 is rejected.
     expect(canAppointCareerRank(veteran(7000), 'captain')).toBe(false)
     expect(parseCareerProfile({ ...centurion, totalMerit: 6999 })).toBeNull()
     expect(promoteCareer(veteran(5000))?.t4Specialization).toBeUndefined() // legacy shape → Paladin, never Centurion
     const viking = veteran(5000, 'viking')
     expect(t4ClassOffer(viking, 'paladin').kind).toBe('unavailable')
-    expect(canAppointCareerRank(viking, 'captain')).toBe(true)
+    expect(canAppointCareerRank(viking, 'captain')).toBe(false)
     expect(resolveCareerHeroAsset(promoteCareer(viking)!)).toBe('viking-hero-t4')
   })
   it('第二職業只扣可用軍功並永久解鎖；免費切換不重複扣款或任命，舊畫面不能回收解鎖', () => {
@@ -162,6 +162,52 @@ describe('T4 雙職業任命（聖騎士／百夫長）', () => {
     expect(resolveCareerHeroAsset(applyCareerClass(centurion, 'byzantine-cataphract')!)).toBe('byzantine-cataphract-t5')
     const reset = settleTown({ ...cloneCareerProfile(centurion), townEvent: { id: 'e', state: 'hostile' } }, 'e', 'town_defeated')
     expect([reset.t4Specialization, reset.unlockedT4Classes]).toEqual([undefined, undefined])
+  })
+})
+
+describe('維京 T4／T5 雙職業（瓦良格隊長／龍誓重衛、維京指揮官／鐵血戰帥）', () => {
+  const at = (rank: CareerProfile['rank'], total: number, available = 333) => { const p = createCareerProfile('viking'); p.rank = rank; p.totalMerit = total; p.availableMerit = available; return p }
+  it('同一套 T4 道路：5,000 瓦良格／7,000 龍誓重衛首次免費任命，購買第二職業後免費切換，陣營不可互買', () => {
+    expect(t4ClassOffer(at('veteran', 6999), 'dragon-oathguard')).toMatchObject({ kind: 'merit-locked', shortfall: 1 })
+    expect(t4ClassOffer(at('veteran', 5000), 'varangian').kind).toBe('appoint')
+    expect(t4ClassOffer(at('veteran', 7000), 'centurion').kind).toBe('unavailable')
+    expect(t4ClassOffer(createCareerProfile('roman'), 'dragon-oathguard').kind).toBe('unavailable')
+    const oathguard = applyT4Class(at('veteran', 7000), 'dragon-oathguard')!
+    expect(oathguard).toMatchObject({ rank: 'captain', t4Specialization: 'dragon-oathguard', unlockedT4Classes: ['dragon-oathguard'], availableMerit: 333 })
+    expect(resolveCareerHeroAsset(parseCareerProfile(oathguard)!)).toBe('viking-heavy-hero-t4')
+    const varangian = applyT4Class(at('veteran', 5000, 7000), 'varangian')!
+    const bought = applyT4Class(varangian, 'dragon-oathguard')!
+    expect(bought).toMatchObject({ t4Specialization: 'dragon-oathguard', availableMerit: 0, unlockedT4Classes: ['varangian', 'dragon-oathguard'] })
+    expect(bought.tutorial).toEqual(varangian.tutorial)
+    expect(applyT4Class(bought, 'varangian')).toMatchObject({ t4Specialization: 'varangian', availableMerit: 0 })
+    expect(applyT4Class(bought, 'paladin')).toBeNull()
+  })
+  it('T5 道路：舊維京 Commander 僅推導維京指揮官；30,000 才可直選鐵血戰帥；T4 紀錄獨立保存且不可混入 T5', () => {
+    const legacy = parseCareerProfile(promoteCareer(promoteCareer(at('veteran', 20000, 30000))!)!)!
+    expect([legacy.rank, resolveCareerHeroAsset(legacy), unlockedCareerClasses(legacy)]).toEqual(['commander', 'viking-hero-t5', ['viking-commander']])
+    expect(careerClassOffer(legacy, 'ironblood-warlord')).toMatchObject({ kind: 'purchase', cost: 30000 })
+    expect(careerClassOffer(at('captain', 29999), 'ironblood-warlord')).toMatchObject({ kind: 'merit-locked', shortfall: 1 })
+    expect(careerClassOffer(at('captain', 30000), 'byzantine-cataphract').kind).toBe('unavailable')
+    const oathguard = applyT4Class(at('veteran', 30000), 'dragon-oathguard')!
+    const warlord = applyCareerClass(oathguard, 'ironblood-warlord')!
+    expect(warlord).toMatchObject({ rank: 'commander', eliteClass: 'ironblood-warlord', unlockedCareerClasses: ['ironblood-warlord'], unlockedT4Classes: ['dragon-oathguard'], availableMerit: 333 })
+    const loaded = parseCareerProfile(warlord)!
+    expect([resolveCareerHeroAsset(loaded), currentT4Class(loaded), t4ClassOffer(loaded, 'varangian').kind]).toEqual(['viking-heavy-hero-t5', null, 'unavailable'])
+    expect(applyCareerClass(loaded, 'viking-commander')).toBeNull() // 333 < 20,000: switching to a locked class is a purchase
+  })
+  it('存檔拒絕跨陣營、混入另一道路、重複或首次門檻不足的維京紀錄，接受合法購買第二職業', () => {
+    const oathguard = applyT4Class(at('veteran', 7000), 'dragon-oathguard')!
+    expect(parseCareerProfile({ ...oathguard, totalMerit: 6999 })).toBeNull()
+    expect(parseCareerProfile({ ...oathguard, totalMerit: 5000, unlockedT4Classes: ['varangian', 'dragon-oathguard'] })).not.toBeNull()
+    expect(unlockedT4Classes(parseCareerProfile(promoteCareer(at('veteran', 9000))!)!)).toEqual(['varangian'])
+    for (const bad of [{ t4Specialization: 'centurion' }, { unlockedT4Classes: ['dragon-oathguard', 'paladin'] }, { unlockedT4Classes: ['dragon-oathguard', 'dragon-oathguard'] },
+      { unlockedT4Classes: ['varangian'] }, { unlockedCareerClasses: ['viking-commander'] }]) expect(parseCareerProfile({ ...oathguard, ...bad })).toBeNull()
+    const warlord = applyCareerClass({ ...cloneCareerProfile(oathguard), rank: 'captain', totalMerit: 30000 }, 'ironblood-warlord')!
+    for (const bad of [{ unlockedCareerClasses: ['dragon-oathguard'] }, { unlockedCareerClasses: ['ironblood-warlord', 'roman-commander'] }, { faction: 'roman' },
+      { totalMerit: 29999 }, { eliteClass: 'byzantine-cataphract' }]) expect(parseCareerProfile({ ...warlord, ...bad })).toBeNull()
+    expect(parseCareerProfile({ ...warlord, totalMerit: 29999, unlockedCareerClasses: ['viking-commander', 'ironblood-warlord'] })).not.toBeNull()
+    const reset = settleTown({ ...cloneCareerProfile(warlord), townEvent: { id: 'e', state: 'hostile' } }, 'e', 'town_defeated')
+    expect([reset.faction, reset.rank, reset.eliteClass, reset.unlockedCareerClasses, reset.t4Specialization, reset.unlockedT4Classes]).toEqual(['roman', 'recruit', null, undefined, undefined, undefined])
   })
 })
 

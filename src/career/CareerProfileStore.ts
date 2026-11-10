@@ -1,5 +1,5 @@
-import { unlockedCareerClasses } from './CareerElitePromotion'
-import { isT4ClassId, T4_CLASS_FIRST_MERIT, unlockedT4Classes } from './CareerT4Promotion'
+import { CAREER_CLASSES_BY_FACTION, isCareerEliteClass, isRoadClass, T5_CLASS_ROAD, unlockedCareerClasses, type CareerClassRoad } from './CareerElitePromotion'
+import { isT4ClassId, T4_CLASS_ROAD, T4_CLASSES_BY_FACTION, unlockedT4Classes } from './CareerT4Promotion'
 import { createCareerTutorialState, parseCareerTutorialState } from './CareerTutorialState'
 import { migrateCareerHealth } from './CareerHealthMigration'
 import { legacySiegeCharacterTier, parseBorrowedCharacterIdentities } from './CareerBorrowedIdentity'
@@ -732,32 +732,30 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const eligible = resolveCareerRank(totalMerit - enlistmentMeritBase)
   const requested = CAREER_RANKS.indexOf(raw.rank as CareerProfile['rank'])
   const rank = CAREER_RANKS[Math.max(0, Math.min(requested, CAREER_RANKS.indexOf(eligible)))]
-  if (raw.eliteClass !== undefined && raw.eliteClass !== null && (raw.eliteClass !== 'byzantine-cataphract'
-    || raw.faction !== 'roman' || rank !== 'commander')) return null
-  // Unlocked classes are explicit saved state. Legacy saves had none: derive only the class in use, never a guessed second one.
-  const romanCommander = raw.faction === 'roman' && rank === 'commander'
-  const rawUnlocked = raw.unlockedCareerClasses as unknown
-  if (rawUnlocked !== undefined && !(romanCommander && Array.isArray(rawUnlocked) && rawUnlocked.length >= 1 && new Set(rawUnlocked).size === rawUnlocked.length
-    && rawUnlocked.every(id => id === 'roman-commander' || id === 'byzantine-cataphract'))) return null
-  const usedClass = raw.eliteClass === 'byzantine-cataphract' ? 'byzantine-cataphract' as const : 'roman-commander' as const
-  // A Byzantine-only record is a first appointment (30,000). Only a purchased second class (Commander first) may sit below it.
-  const firstUnlock = rawUnlocked as string[] | undefined
-  if (romanCommander && usedClass === 'byzantine-cataphract' && (firstUnlock === undefined || firstUnlock.length === 1)
-    && totalMerit - enlistmentMeritBase < 30000) return null
-  // The record is saved only once an explicit unlock exists; legacy saves stay byte-identical and derive via unlockedCareerClasses().
-  const unlockedCareerClasses = rawUnlocked as CareerProfile['unlockedCareerClasses'] | undefined
-  if (unlockedCareerClasses && !unlockedCareerClasses.includes(usedClass)) return null
-  // Roman T4 classes: separate fields, valid only on a Roman Captain/Commander. Legacy Captains derive Paladin only.
-  const romanOfficer = raw.faction === 'roman' && (rank === 'captain' || rank === 'commander')
-  const rawT4 = raw.t4Specialization as unknown, rawT4Unlocked = raw.unlockedT4Classes as unknown
-  if (rawT4 !== undefined && !(romanOfficer && isT4ClassId(rawT4))) return null
-  if (rawT4Unlocked !== undefined && !(romanOfficer && Array.isArray(rawT4Unlocked) && rawT4Unlocked.length >= 1
-    && new Set(rawT4Unlocked).size === rawT4Unlocked.length && rawT4Unlocked.every(isT4ClassId))) return null
-  const t4Unlocked = rawT4Unlocked as CareerProfile['unlockedT4Classes'] | undefined
-  const usedT4 = isT4ClassId(rawT4) ? rawT4 : rank === 'captain' ? 'paladin' as const : undefined
-  if (t4Unlocked && usedT4 && !t4Unlocked.includes(usedT4)) return null
-  // A Centurion-only record is a first appointment (7,000). Only a purchased second class (Paladin first) may sit below it.
-  if (usedT4 === 'centurion' && (!t4Unlocked || t4Unlocked.length === 1) && totalMerit - enlistmentMeritBase < T4_CLASS_FIRST_MERIT.centurion) return null
+  // Class roads (T5 Commander, T4 Captain): unlocks are explicit saved state of this faction. Legacy saves had none: derive only the
+  // class in use (faction default), never a guessed second one. Cross-faction, duplicate or contradictory records are rejected.
+  const faction = raw.faction, merit = totalMerit - enlistmentMeritBase
+  const unlockRecord = <T extends string>(road: CareerClassRoad<T>, value: unknown): T[] | undefined | null => value === undefined ? undefined
+    : Array.isArray(value) && value.length >= 1 && new Set(value).size === value.length && value.every(id => isRoadClass(road, faction, id)) ? [...value] : null
+  // A record whose only class needs more than its rank's threshold (Byzantine 30,000, Centurion/Dragon Oathguard 7,000, ...) is a first
+  // appointment; only a purchased second class may sit below it.
+  const firstAppointmentValid = <T extends string>(road: CareerClassRoad<T>, used: T, unlocked: T[] | undefined) =>
+    unlocked !== undefined && unlocked.length > 1 || merit >= road.firstMerit[used]
+  const rawElite = raw.eliteClass as unknown
+  if (rawElite !== undefined && rawElite !== null && !(rank === 'commander' && isCareerEliteClass(rawElite) && isRoadClass(T5_CLASS_ROAD, faction, rawElite))) return null
+  const unlockedCareerClasses = unlockRecord(T5_CLASS_ROAD, raw.unlockedCareerClasses)
+  if (unlockedCareerClasses === null || unlockedCareerClasses && rank !== 'commander') return null
+  const eliteClass = isCareerEliteClass(rawElite) ? rawElite : null
+  const usedClass = eliteClass ?? CAREER_CLASSES_BY_FACTION[faction][0]
+  if (rank === 'commander' && (unlockedCareerClasses && !unlockedCareerClasses.includes(usedClass) || !firstAppointmentValid(T5_CLASS_ROAD, usedClass, unlockedCareerClasses))) return null
+  const officer = rank === 'captain' || rank === 'commander'
+  const rawT4 = raw.t4Specialization as unknown
+  if (rawT4 !== undefined && !(officer && isRoadClass(T4_CLASS_ROAD, faction, rawT4))) return null
+  const t4Unlocked = unlockRecord(T4_CLASS_ROAD, raw.unlockedT4Classes)
+  if (t4Unlocked === null || t4Unlocked && !officer) return null
+  const t4Specialization = isT4ClassId(rawT4) ? rawT4 : undefined
+  const usedT4 = t4Specialization ?? (rank === 'captain' ? T4_CLASSES_BY_FACTION[faction][0] : undefined)
+  if (usedT4 && (t4Unlocked && !t4Unlocked.includes(usedT4) || !firstAppointmentValid(T4_CLASS_ROAD, usedT4, t4Unlocked))) return null
   const tutorial = raw.tutorial === undefined ? createCareerTutorialState(rank, false) : parseCareerTutorialState(raw.tutorial)
   if (!tutorial) return null
   const tutorialDuel = (raw.activeMission as Partial<ActiveCareerMission> | undefined)?.duelTutorialCareerId
@@ -802,9 +800,9 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     totalMerit,
     availableMerit,
     rank,
-    eliteClass: raw.eliteClass === 'byzantine-cataphract' ? 'byzantine-cataphract' : null,
+    eliteClass,
     ...(unlockedCareerClasses ? { unlockedCareerClasses: [...unlockedCareerClasses] } : {}),
-    ...(isT4ClassId(rawT4) ? { t4Specialization: rawT4 } : {}),
+    ...(t4Specialization ? { t4Specialization } : {}),
     ...(t4Unlocked ? { unlockedT4Classes: [...t4Unlocked] } : {}),
     ...(raw.meleeSelectionOrigin === 'starter' || raw.meleeSelectionOrigin === 'custom'
       ? { meleeSelectionOrigin: raw.meleeSelectionOrigin } : {}),

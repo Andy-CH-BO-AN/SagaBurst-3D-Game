@@ -1,0 +1,33 @@
+{
+  "skeleton": "project-humanoid-v1",
+  "rig": "mixamo24",
+  "sourceToProject": {
+    "mixamorig:Hips": "hips",
+    "mixamorig:Spine": "spine",
+    "mixamorig:Spine1": "chest",
+    "mixamorig:Spine2": "upper_chest",
+    "mixamorig:Neck": "neck",
+    "mixamorig:Head": "head",
+    "mixamorig:HeadTop_End": null,
+    "headfront": null,
+    "mixamorig:LeftShoulder": "clavicle_l",
+    "mixamorig:LeftArm": "upper_arm_l",
+    "mixamorig:LeftForeArm": "lower_arm_l",
+    "mixamorig:LeftHand": "hand_l",
+    "mixamorig:RightShoulder": "clavicle_r",
+    "mixamorig:RightArm": "upper_arm_r",
+    "mixamorig:RightForeArm": "lower_arm_r",
+    "mixamorig:RightHand": "hand_r",
+    "mixamorig:LeftUpLeg": "upper_leg_l",
+    "mixamorig:LeftLeg": "lower_leg_l",
+    "mixamorig:LeftFoot": "foot_l",
+    "mixamorig:LeftToeBase": "toe_l",
+    "mixamorig:RightUpLeg": "upper_leg_r",
+    "mixamorig:RightLeg": "lower_leg_r",
+    "mixamorig:RightFoot": "foot_r",
+    "mixamorig:RightToeBase": "toe_r"
+  },
+  "skinJointCount": 24,
+  "sockets": "Runtime-created by prepareSelectedHumanoidSource (src/world/SelectedHumanoidSource.ts) on the mapped bones.",
+  "fingerBones": "none (mitten hands)"
+}

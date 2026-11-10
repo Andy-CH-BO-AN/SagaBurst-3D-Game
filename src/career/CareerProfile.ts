@@ -92,13 +92,15 @@ export interface CareerProfile {
   availableMerit: number
   rank: CareerRank
   /** T5 elite identity, independent of rank and spendable currency. Missing legacy value means ordinary. */
-  eliteClass?: 'byzantine-cataphract' | null
-  /** Permanently unlocked Roman Commander classes for this enlistment; eliteClass is only the one in use. Missing legacy value = the class in use. */
-  unlockedCareerClasses?: ('roman-commander' | 'byzantine-cataphract')[]
-  /** Roman T4 class in use while Captain. Missing legacy value = Paladin. Kept as data after T5; T5 identity ignores it. */
-  t4Specialization?: 'paladin' | 'centurion'
-  /** Permanently unlocked Roman T4 classes for this enlistment. Missing legacy Captain value = Paladin only. */
-  unlockedT4Classes?: ('paladin' | 'centurion')[]
+  /** Non-default T5 class in use (Roman Byzantine Cataphract / Viking Ironblood Warlord); null = the faction's default Commander. */
+  eliteClass?: 'byzantine-cataphract' | 'ironblood-warlord' | null
+  /** Permanently unlocked Commander classes of this faction for this enlistment; eliteClass is only the one in use. Missing legacy value = the class in use. */
+  unlockedCareerClasses?: ('roman-commander' | 'byzantine-cataphract' | 'viking-commander' | 'ironblood-warlord')[]
+  /** T4 class in use while Captain (Roman Paladin/Centurion, Viking Varangian/Dragon Oathguard). Missing legacy value = the faction default
+   * (Paladin / Varangian). Kept as data after T5; T5 identity ignores it. */
+  t4Specialization?: 'paladin' | 'centurion' | 'varangian' | 'dragon-oathguard'
+  /** Permanently unlocked T4 classes of this faction for this enlistment. Missing legacy Captain value = the default only. */
+  unlockedT4Classes?: ('paladin' | 'centurion' | 'varangian' | 'dragon-oathguard')[]
   /** Optional ending lifecycle; retirement never changes the appointed rank. */
   careerRetirement?: CareerRetirementState
   /** Grounded player and owned-mount resources throughout the retirement sequence. */

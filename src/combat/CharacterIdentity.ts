@@ -1,4 +1,4 @@
-import { HERO_COMBAT_PROFILES, HERO_COMBAT_PROFILE_BY_ASSET, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
+import { HERO_COMBAT_PROFILES, HERO_COMBAT_PROFILE_BY_ASSET, HERO_PROFILE_FACTION, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import { getOrdinarySoldierHp, type SoldierFaction } from './OrdinarySoldierProfile'
 
@@ -20,9 +20,11 @@ export interface CharacterIdentityInput extends Partial<Omit<CharacterIdentity, 
 }
 const ARCHETYPE_BY_PROFILE: Record<HeroCombatProfileId, HeroArchetype> = {
   'byzantine-cataphract': 'commander',
-  varangian: 'captain', praetorian: 'captain', centurion: 'captain', ranger: 'ranger',
-  'roman-commander': 'commander', 'viking-commander': 'commander',
+  varangian: 'captain', praetorian: 'captain', centurion: 'captain', 'dragon-oathguard': 'captain', ranger: 'ranger',
+  'roman-commander': 'commander', 'viking-commander': 'commander', 'ironblood-warlord': 'commander',
 }
+
+const ASSET_BY_PROFILE = Object.fromEntries(Object.entries(HERO_COMBAT_PROFILE_BY_ASSET).map(([asset, profile]) => [profile, asset])) as Record<HeroCombatProfileId, HeroAssetId>
 
 /** Exact registered asset/profile IDs adapt old T5-as-tier-4 records in one place. */
 export function resolveCharacterIdentity(input: CharacterIdentityInput): CharacterIdentity {
@@ -45,9 +47,13 @@ export function resolveCharacterIdentity(input: CharacterIdentityInput): Charact
     || (legacyArchetype && legacyArchetype !== heroArchetype)
     || input.specialCombatProfile === 'maki-ranger' && heroArchetype !== 'ranger') throw new Error('Conflicting character tier and hero archetype')
   if (!heroArchetype) return { characterFaction, characterTier }
-  const visualAssetId: HeroAssetId = legacyProfile === 'byzantine-cataphract' && characterFaction === 'roman' ? 'byzantine-cataphract-t5' : heroArchetype === 'ranger' ? 'maki-archer-t4'
-    : heroArchetype === 'commander' ? characterFaction === 'roman' ? 'roman-hero-t5' : 'viking-hero-t5'
-      : characterFaction === 'roman' ? 'roman-hero-t4' : 'viking-hero-t4'
+  // An explicit registered profile (Centurion, Byzantine Cataphract, Dragon Oathguard, ...) keeps its own body when it belongs to this
+  // faction and tier; otherwise the faction's default hero of the archetype. Cross-faction profiles are still rejected below.
+  const explicitFaction = legacyProfile ? HERO_PROFILE_FACTION[legacyProfile] : undefined
+  const visualAssetId: HeroAssetId = legacyProfile && (explicitFaction === null || explicitFaction === characterFaction) ? ASSET_BY_PROFILE[legacyProfile]
+    : heroArchetype === 'ranger' ? 'maki-archer-t4'
+      : heroArchetype === 'commander' ? characterFaction === 'roman' ? 'roman-hero-t5' : 'viking-hero-t5'
+        : characterFaction === 'roman' ? 'roman-hero-t4' : 'viking-hero-t4'
   const combatProfileId = HERO_COMBAT_PROFILE_BY_ASSET[visualAssetId]
   if (input.visualAssetId && input.visualAssetId !== visualAssetId || legacyProfile && legacyProfile !== combatProfileId) {
     throw new Error('Conflicting character faction and hero profile')

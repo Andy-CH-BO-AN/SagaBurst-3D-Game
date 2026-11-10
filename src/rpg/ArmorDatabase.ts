@@ -41,6 +41,11 @@ export const ARMORS: Record<string, ArmorData> = {
     shieldImpactMax: 48,
     description: '金鷹紋弧形方盾。48 衝擊耐久；依實際盾面輪廓格擋。',
   },
+  viking_dragonward_shield_t4: {
+    id: 'viking_dragonward_shield_t4', name: '雙龍鐵衛盾 Dragonward Shield', type: 'shield', tier: 4,
+    shieldImpactMax: 48,
+    description: '雙龍紋鐵緣圓盾。48 衝擊耐久；依實際圓盾輪廓格擋。',
+  },
   paladin_shield_t4: {
     id: 'paladin_shield_t4', name: '誓約壁壘 Oathguard Shield', type: 'shield', tier: 4,
     shieldImpactMax: 48,

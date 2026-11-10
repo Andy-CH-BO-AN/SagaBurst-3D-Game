@@ -94,7 +94,7 @@ import { BlackCatVisual } from '../world/BlackCatVisual'
 import { careerFelineVariants } from '../career/CareerMountController'
 import { CorgiVisual } from '../world/CorgiVisual'
 import { SnowLeopardVisual } from '../world/SnowLeopardVisual'
-import { HERO_ASSETS } from '../world/HeroAssetCatalog'
+import { HERO_ASSETS, type HeroAssetId } from '../world/HeroAssetCatalog'
 import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
 import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
@@ -136,8 +136,9 @@ import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type Horse
 import { updateEagleWingbeatAudio } from '../audio/EagleWingbeatAudio'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { canAppointCareerRank, type CareerAppointingRole } from '../career/CareerPromotionAuthority'
-import { applyCareerClass, careerClassOffer, type CareerClassId } from '../career/CareerElitePromotion'
-import { applyT4Class, isT4ClassId, t4ClassOffer, type T4ClassId } from '../career/CareerT4Promotion'
+import { applyCareerClass, careerClassOffer, CAREER_CLASSES_BY_FACTION, CAREER_CLASS_FIRST_MERIT, type CareerClassId } from '../career/CareerElitePromotion'
+import { applyT4Class, isT4ClassId, t4ClassOffer, T4_CLASSES_BY_FACTION, T4_CLASS_FIRST_MERIT, type T4ClassId } from '../career/CareerT4Promotion'
+import { CAREER_CLASS_HERO, T4_CLASS_HERO } from '../career/CareerPlayerProfile'
 import { appendCareerPromotionCards, appendT4PromotionCards, careerClassConfirmation } from '../ui/CareerPromotionUI'
 import { MAX_BULK_PURCHASE_QUANTITY, CAREER_RANKS, CAREER_RANK_THRESHOLDS, careerMissionCompletionsForTier, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile, type CareerMountId } from '../career/CareerProfile'
 import { availableRecruitMissions, availableCareerMissionsForPage, careerMissionTemplatesForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
@@ -1286,9 +1287,10 @@ export class TownScene {
       if (!this.commit(next)) { this.openPanel('無法保存交談紀錄', this.notice); return }
     }
     const p = this.profile
-    // Roman Veteran → Captain is a class choice; the generic authority deliberately refuses it.
-    const romanT4Appointable = id === 'captain' && p.rank === 'veteran' && (['paladin', 'centurion'] as const).some(target => t4ClassOffer(p, target).kind === 'appoint')
-    const context: DialogueContext = { townFaction: p.faction, npcRole: role, playerRank: p.rank, firstMeet, promotionEligible: canAppointCareerRank(p, id) || romanT4Appointable }
+    // Veteran → Captain and Captain → Commander are class choices for both factions; the generic authority deliberately refuses them.
+    const classAppointable = id === 'captain' && p.rank === 'veteran' && T4_CLASSES_BY_FACTION[p.faction].some(target => t4ClassOffer(p, target).kind === 'appoint')
+      || id === 'commander' && p.rank === 'captain' && CAREER_CLASSES_BY_FACTION[p.faction].some(target => careerClassOffer(p, target).kind === 'appoint')
+    const context: DialogueContext = { townFaction: p.faction, npcRole: role, playerRank: p.rank, firstMeet, promotionEligible: canAppointCareerRank(p, id) || classAppointable }
     const greeting = response ?? (id === 'eagle-trainer' ? 'xongkoro Eagle Training Ground · 老鷹訓練場\nCaptain / Commander 可用 10,000 軍功購買巨鷹英雄坐騎。請在開闊的起降區召喚；W 起飛，滑鼠轉向，S 減速降落。' : selectTownDialogue(context))
     if (id === 'captain' || id === 'commander') {
       if (!this.tutorialBypass && this.tutorial?.hasDialogue(id)) {
@@ -1297,31 +1299,33 @@ export class TownScene {
         this.tutorial.renderDialogue(panel, id)
         return
       }
-      const next = CAREER_RANKS[CAREER_RANKS.indexOf(p.rank) + 1], eligible = canAppointCareerRank(p, id) || romanT4Appointable
+      const next = CAREER_RANKS[CAREER_RANKS.indexOf(p.rank) + 1], eligible = canAppointCareerRank(p, id) || classAppointable
       const text = formatTownDialogue(selectTownDialogue({ ...context, nextRank: next, promotionEligible: eligible }, 'promotion'), { nextRank: next ?? '', required: next ? CAREER_RANK_THRESHOLDS[next] : 0 })
       const panel = this.openPanel(id === 'commander' ? `${p.faction === 'roman' ? '羅馬' : '維京'}指揮官 · 任命` : '騎兵隊長 · 任命', greeting + (response || greeting === text ? '' : '\n\n' + text))
       const detail = document.createElement('p'); detail.className = 'town-summary'; detail.textContent = promotionDetails(p); panel.append(detail)
-      const romanRoads = id === 'commander' && p.faction === 'roman' && (p.rank === 'captain' || p.rank === 'commander')
-      if (romanRoads) {
+      const firstMerits = <T extends string>(classes: readonly T[], heroes: Readonly<Record<T, HeroAssetId>>, merit: Readonly<Record<T, number>>) =>
+        classes.map(target => `${HERO_ASSETS[heroes[target]].nameZh} ${merit[target].toLocaleString()}`).join('／')
+      const t5Roads = id === 'commander' && (p.rank === 'captain' || p.rank === 'commander')
+      if (t5Roads) {
         panel.querySelector('h2')!.textContent = '選擇你的晉升道路'
         panel.querySelector('p')!.textContent = '選擇職業，查看能力與解鎖進度。'
-        detail.textContent = '首次任命依本次入伍累積軍功，免費；第二職業需消耗可用軍功永久解鎖，解鎖後切換免費。'
+        detail.textContent = `首次任命依本次入伍累積軍功（${firstMerits(CAREER_CLASSES_BY_FACTION[p.faction], CAREER_CLASS_HERO, CAREER_CLASS_FIRST_MERIT)}），免費；第二職業需消耗可用軍功永久解鎖，解鎖後切換免費。`
         panel.style.width = 'min(94vw, 800px)'
         this.promotionPreviewCleanup = appendCareerPromotionCards(panel, () => this.profile, target => this.confirmCareerRoad(target))
       }
-      // Roman T4: Veterans choose a class (no legacy auto-Paladin button); Captains return here to buy or switch.
-      const romanT4Roads = id === 'captain' && p.faction === 'roman' && (p.rank === 'veteran' || p.rank === 'captain')
-      if (romanT4Roads) {
+      // T4: Veterans choose a class (no legacy auto-Paladin/Varangian button); Captains return here to buy or switch.
+      const t4Roads = id === 'captain' && (p.rank === 'veteran' || p.rank === 'captain')
+      if (t4Roads) {
         panel.querySelector('h2')!.textContent = p.rank === 'veteran' ? '選擇你的 T4 職業' : 'T4 職業 · 購買與切換'
         // Short header, as on the T5 road, so both cards stay near the top of the panel.
         panel.querySelector('p')!.textContent = '選擇職業，查看能力與解鎖進度。'
         detail.textContent = p.rank === 'veteran'
-          ? '首次任命依本次入伍累積軍功（聖騎士 5,000／百夫長 7,000），免費；之後可用可用軍功購買另一職業。'
+          ? `首次任命依本次入伍累積軍功（${firstMerits(T4_CLASSES_BY_FACTION[p.faction], T4_CLASS_HERO, T4_CLASS_FIRST_MERIT)}），免費；之後可用可用軍功購買另一職業。`
           : `目前職業與已解鎖職業如下。第二職業需消耗可用軍功永久解鎖（目前可用 ${p.availableMerit.toLocaleString()}），解鎖後切換免費。`
         panel.style.width = 'min(94vw, 800px)'
         this.promotionPreviewCleanup = appendT4PromotionCards(panel, () => this.profile, target => this.confirmCareerRoad(target))
       }
-      if (eligible && !romanRoads && !romanT4Roads) {
+      if (eligible && !t5Roads && !t4Roads) {
         const accept = this.button(panel, next === 'captain' ? '接受隊長任命' : '接受任命', async () => {
           if (this.promotionAttempt) return
           accept.disabled = true; accept.textContent = '正在準備任命…'
@@ -2730,7 +2734,6 @@ export class TownScene {
     const t4 = isT4ClassId(target), role: CareerAppointingRole = t4 ? 'captain' : 'commander'
     const copy = careerClassConfirmation(target, t4 ? t4ClassOffer(this.profile, target) : careerClassOffer(this.profile, target))
     if (!copy) return
-    const elite = target === 'byzantine-cataphract'
     const panel = this.openPanel(copy.title, copy.body)
     panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true')
     this.button(panel, '取消', () => this.talk(role))
@@ -2740,11 +2743,9 @@ export class TownScene {
       const success = await this.acceptCareerPromotion(role, target)
       if (this.disposed || this.panel !== panel) return
       if (success) {
-        const result = t4 ? this.openPanel(target === 'centurion' ? '🦅 百夫長 Centurion' : '聖騎士 Paladin',
-          `${target === 'centurion' ? 'CENTURION\n百夫長' : 'PALADIN\n聖騎士'} · T4 Captain\n\n職業已保存並永久解鎖；已解鎖的職業可再找騎兵隊長免費切換。`)
-          : this.openPanel(elite ? '🦅 拜占庭鐵甲重騎兵' : '羅馬指揮官', elite
-          ? 'BYZANTINE CATAPHRACT\n拜占庭鐵甲重騎兵 · T5+\n\n職業已保存並永久解鎖，可再找 Commander 免費切換。'
-          : 'ROMAN COMMANDER\n羅馬指揮官 · T5\n\n職業已保存；已解鎖的職業可再找 Commander 免費切換。')
+        const hero = HERO_ASSETS[t4 ? T4_CLASS_HERO[target] : CAREER_CLASS_HERO[target]]
+        const result = this.openPanel(`${hero.nameZh} ${hero.nameEn}`,
+          `${hero.nameEn.toUpperCase()}\n${hero.nameZh} · ${t4 ? 'T4 Captain' : target === 'byzantine-cataphract' ? 'T5+' : 'T5 Commander'}\n\n職業已保存並永久解鎖；已解鎖的職業可再找${t4 ? '騎兵隊長' : ' Commander '}免費切換。`)
         this.button(result, '返回遊戲', () => this.closePanel())
       } else {
         const error = document.createElement('p'); error.textContent = this.notice || '目前不符合條件、餘額不足，或準備失敗；原職業與軍功已保留。'; panel.append(error)

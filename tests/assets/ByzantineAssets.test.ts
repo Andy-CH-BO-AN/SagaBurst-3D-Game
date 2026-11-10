@@ -142,3 +142,35 @@ describe('Centurion T4 asset and Aquila shield contracts (manifest/data only; no
     expect(bands).not.toEqual(FACTION_SHIELD_BANDS.roman_officer_shield_t4)
   })
 })
+
+describe('Viking heavy T4/T5 assets and Dragonward shield contracts (manifest/data only; no GLB parsing)', () => {
+  it('T4 and T5 heavy heroes are built from their own supplied sources', () => {
+    const source = (id: string) => (JSON.parse(readFileSync(`public/models/characters/v2/${id}/manifest.json`, 'utf8')) as { source: { sourceFile: string } }).source.sourceFile
+    expect(source('viking-heavy-hero-t4')).toBe('Meshy_AI_Viking_Warrior_Rigged_20261107_animated_mixamo_All_animation.glb')
+    expect(source('viking-heavy-hero-t5')).toBe('Meshy_AI_VikingWarriorRigged_20261107_animated_mixamo_All_animation.glb')
+  })
+  it('both heavy heroes ship their own Mixamo24 three-LOD manifests with the canonical clips; Dragonward is a 48-impact on-demand T4 shop shield', () => {
+    for (const id of ['viking-heavy-hero-t4', 'viking-heavy-hero-t5'] as const) {
+      const base = `public/models/characters/v2/${id}`
+      const heavy = JSON.parse(readFileSync(`${base}/manifest.json`, 'utf8')) as HumanoidAssetManifest
+      expect(heavy).toMatchObject({ id, status: 'ready', skeleton: 'project-humanoid-v1', selectedSource: { rig: 'mixamo24' } })
+      for (const file of [...Object.values(heavy.files!), 'bone-map.json', 'audit.json', 'ATTRIBUTION.md']) expect(existsSync(`${base}/${file}`)).toBe(true)
+      expect(heavy.metrics!.heightM).toBeCloseTo(HERO_ASSETS[id].descriptor.heightM, 2)
+      expect(HERO_ASSETS[id].descriptor.faction).toBe('viking')
+      const clips = heavy.animations!.embedded.map(b => b.clip)
+      for (const clip of ['idle', 'walk', 'run', 'mounted', 'swordSlash', 'axeAttack1H', 'axeAttack2H', 'axeMountedIdle', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow']) expect(clips).toContain(clip)
+      // Foot one-hand axe uses the Bandit attack (the animator selects axeAttack1HFoot when the asset embeds it).
+      expect(heavy.animations!.embedded.find(b => b.clip === 'axeAttack1HFoot')).toMatchObject({ sourceClip: 'Bandit@attack.fbx', retargetedFrom: 'roman-hero-t5' })
+      expect(heavy.animations!.runtimeGenerated).toEqual(expect.arrayContaining(['hit', 'death', 'lanceThrust', 'mountedLance']))
+    }
+    expect(ARMORS.viking_dragonward_shield_t4).toMatchObject({ tier: 4, shieldImpactMax: 48 })
+    expect(ARMORS.viking_berserker_shield_t5.shieldImpactMax).toBe(96) // the T5 Warcat Roarshield is kept
+    expect(careerShopProduct('viking_dragonward_shield_t4')).toMatchObject({ category: 'armor', tier: 4, price: 1440 })
+    const path = BYZANTINE_EQUIPMENT_ASSETS.viking_dragonward_shield_t4
+    expect(existsSync(`public/${path}`)).toBe(true)
+    expect(Object.values(HIGH_TIER_WEAPON_ASSETS)).not.toContain(path)
+    const bands = FACTION_SHIELD_BANDS.viking_dragonward_shield_t4
+    expect(bands.length).toBeGreaterThan(20)
+    expect(bands).not.toEqual(FACTION_SHIELD_BANDS.viking_berserker_shield_t5)
+  })
+})

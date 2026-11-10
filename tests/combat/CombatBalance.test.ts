@@ -47,6 +47,28 @@ describe('Combat damage eligibility', () => {
     expect(applyHeroMeleeDamage(100, 'centurion')).toBeCloseTo(220); expect(applyHeroIncomingDamage(100, 'centurion')).toBeCloseTo(60)
     expect(heroMeleeAttackSpeed('centurion')).toBe(1)
   })
+  it('維京重甲 T4／T5：更耐打、單擊更重、攻速略低但近戰 DPS 略高、移動（含騎乘乘數）較慢；普通版原值不變', () => {
+    expect(HERO_COMBAT_PROFILES['dragon-oathguard']).toEqual({ maxHp: 550, damageMultiplier: 2.3, damageTakenMultiplier: .85, attackSpeedMultiplier: 1.4, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 })
+    expect(HERO_COMBAT_PROFILES['ironblood-warlord']).toEqual({ maxHp: 1000, damageMultiplier: 2.4, meleeDamageMultiplier: 2.9, damageTakenMultiplier: .7, attackSpeedMultiplier: 1.45, meleeAttackSpeedMultiplier: 1.6, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 })
+    expect(HERO_COMBAT_PROFILES.varangian).toEqual({ maxHp: 500, damageMultiplier: 2, damageTakenMultiplier: 1, attackSpeedMultiplier: 1.5, moveSpeedMultiplier: 1.2, rangedAttackRangeMultiplier: 1 })
+    expect(HERO_COMBAT_PROFILES['viking-commander']).toEqual({ maxHp: 900, damageMultiplier: 2.2, meleeDamageMultiplier: 2.6, damageTakenMultiplier: .8, attackSpeedMultiplier: 1.55, meleeAttackSpeedMultiplier: 1.7, moveSpeedMultiplier: 1.2, rangedAttackRangeMultiplier: 1 })
+    for (const [heavy, normal] of [['dragon-oathguard', 'varangian'], ['ironblood-warlord', 'viking-commander']] as const) {
+      const dps = (id: typeof heavy | typeof normal) => applyHeroMeleeDamage(1, id) * heroMeleeAttackSpeed(id)
+      expect(applyHeroMeleeDamage(100, heavy)).toBeGreaterThan(applyHeroMeleeDamage(100, normal))
+      expect(heroMeleeAttackSpeed(heavy)).toBeLessThan(heroMeleeAttackSpeed(normal))
+      expect(dps(heavy)).toBeGreaterThan(dps(normal)); expect(dps(heavy)).toBeLessThan(dps(normal) * 1.1)
+      expect(applyHeroIncomingDamage(100, heavy)).toBeLessThan(applyHeroIncomingDamage(100, normal))
+      // Player/NPC multiply this into both foot and mounted speed; the heavy class is slower in both.
+      expect(getHeroCombatModifiers(heavy)!.moveSpeedMultiplier).toBeLessThan(getHeroCombatModifiers(normal)!.moveSpeedMultiplier)
+    }
+    const viking = { faction: 'viking' as const, eliteClass: null, skills: undefined }
+    expect(resolveCareerCombatProfile({ ...viking, rank: 'captain', t4Specialization: 'dragon-oathguard' })).toBe('dragon-oathguard')
+    expect(resolveCareerCombatProfile({ ...viking, rank: 'captain' })).toBe('varangian')
+    expect(resolveCareerCombatProfile({ ...viking, rank: 'commander', eliteClass: 'ironblood-warlord', t4Specialization: 'dragon-oathguard' })).toBe('ironblood-warlord')
+    expect(resolveCareerPlayerMaxHp({ ...viking, rank: 'commander', eliteClass: 'ironblood-warlord' })).toBe(resolveSkillAdjustedMaxHp(1000, undefined))
+    const axe = { baseDamage: 80, combatKind: WEAPONS.axe_t5.combatKind, isLance: false, isMounted: false, mountSpeed: 0, oneHandedMultiplier: 1, faction: 'viking' as const, hasShield: true }
+    expect(calculatePlayerMeleeDamage({ ...axe, heroAssetId: 'viking-heavy-hero-t5' }).damage).toBe(232)
+  })
   it('doubles ground bow engagement only, retaining ranger and javelin rules', () => {
     expect(getNpcRangedAttackRange('bow', false)).toBe(100)
     expect(getNpcRangedAttackRange('bow', true)).toBe(60)
