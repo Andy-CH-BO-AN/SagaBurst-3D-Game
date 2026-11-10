@@ -77,6 +77,17 @@ export function clampToPlayableWorld(position: THREE.Vector3, bound = PLAYABLE_W
 
 let activeFortifiedCampFaction: CharacterFaction | null = null
 let activeRiverCrossing = false
+/** Enclosed arenas own a level ground plane; null keeps the procedural battlefield. */
+let activeFlatTerrainY: number | null = null
+
+/** Installed by the scene that owns a flat ground plane and cleared when it is disposed. */
+export function setFlatTerrainOverride(y: number | null): void {
+  activeFlatTerrainY = y !== null && Number.isFinite(y) ? y : null
+}
+
+export function getFlatTerrainOverride(): number | null {
+  return activeFlatTerrainY
+}
 const sceneRiverCrossing = new WeakMap<object, boolean>()
 
 export function setRiverCrossingTerrainActive(active: boolean): void {
@@ -100,6 +111,7 @@ export function isSceneRiverCrossing(scene: object): boolean {
 export function resetTerrainScenePolicy(): void {
   activeFortifiedCampFaction = null
   activeRiverCrossing = false
+  activeFlatTerrainY = null
 }
 
 export interface TerrainOptions {
@@ -128,6 +140,7 @@ export function getBaseProceduralTerrainHeight(
  * Calculates terrain Y height at any (x, z) world coordinate using smooth sine/cosine wave superposition.
  */
 export function getTerrainHeight(x: number, z: number): number {
+  if (activeFlatTerrainY !== null) return activeFlatTerrainY
   const baseHeight = getBaseProceduralTerrainHeight(x, z, activeFortifiedCampFaction)
   if (activeRiverCrossing) {
     return getRiverCrossingTerrainHeight(x, z, baseHeight)
@@ -1118,6 +1131,7 @@ export function createTerrain(
   options: TerrainOptions = {},
 ): TerrainResult {
   activeFortifiedCampFaction = options.fortifiedCampFaction ?? null
+  activeFlatTerrainY = null
   setSceneRiverCrossing(scene, Boolean(options.riverCrossing))
   const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, 256, 256)
   geometry.rotateX(-Math.PI / 2)
