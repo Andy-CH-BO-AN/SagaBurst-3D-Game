@@ -39,11 +39,11 @@ export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; 
     descriptor: { assetId: 'maki-archer-t4', faction: 'viking', heightM: 1.90, maxShoulderWidthM: .418, neckLengthM: .090554 },
   },
   'roman-hero-t5': {
-    nameZh: '羅馬指揮官', nameEn: 'Roman Commander',
+    nameZh: '羅馬軍團統帥', nameEn: 'Roman Legate',
     descriptor: { assetId: 'roman-hero-t5', faction: 'roman', heightM: 1.8191270070256114, maxShoulderWidthM: .5211178487681826, neckLengthM: .11045054826976493 },
   },
   'viking-hero-t5': {
-    nameZh: '維京指揮官', nameEn: 'Viking Commander',
+    nameZh: '北境戰酋', nameEn: 'Norse Warchief',
     descriptor: { assetId: 'viking-hero-t5', faction: 'viking', heightM: 2.1193006331863145, maxShoulderWidthM: .6645790819402477, neckLengthM: .0877771550 },
   },
   // Owner-supplied Meshy Mixamo24 model (tools/build-viking-heavy-heroes.mjs); metrics are the manifest's measurements.
