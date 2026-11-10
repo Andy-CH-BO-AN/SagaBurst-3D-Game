@@ -267,3 +267,24 @@ it('assigns the nearest eligible tower threat and retains the first equal-distan
   combat['updateExternalThreatAssignments']()
   expect(selected).toBe(first)
 })
+
+it('never assigns a threat to a resident parked for a temporary Duel body', () => {
+  const tower = new TownWatchtowerNavigation(getTownCommandWatchtowerLayout())
+  const template = townRoster().find(spec => spec.unitKind && !spec.eagle)!
+  const spec = { ...template, garrison: undefined, x: -21, y: tower.layout.groundY, z: -28 }
+  const run = (parked: boolean) => {
+    let selected: NPC | undefined
+    const body = { dead: false, faction: Faction.TOWN, isMounted: false, rangedWeaponId: undefined, combatPosition: new Vector3(spec.x, spec.y, spec.z),
+      setMissionCombatTarget(target: NPC | undefined) { selected = target }, beginExternalThreat() {} }
+    const bandit = { combatPosition: new Vector3(-29, tower.layout.platformY, -41), faction: Faction.BANDIT, dead: false } as NPC
+    type Inputs = ConstructorParameters<typeof TownMissionCombat>
+    const combat = new TownMissionCombat({ field: { ambientBandits: [bandit], missionBandits: [], friendlies: [] },
+      duel: { fieldNpcs: [], isMissionActor: () => false, isParkedResident: () => parked }, defense: {} } as unknown as Inputs[0],
+      { residents: [{ spec, npc: body as unknown as NPC, cycle: 0, walkTime: 0 }], navigation: { townNav: { watchtower: tower } } } as unknown as Inputs[1])
+    combat['updateExternalThreatAssignments']()
+    return { selected, bandit }
+  }
+  const control = run(false)
+  expect(control.selected).toBe(control.bandit)
+  expect(run(true).selected).toBeUndefined()
+})

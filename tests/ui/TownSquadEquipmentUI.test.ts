@@ -247,7 +247,7 @@ it('updates recruitment choices and summary immediately and blocks a stale purch
     choice, onChoice: next => { choice = next }, recruit })
   const nodes = root.descendants(), controls = nodes.filter(node => node.tag === 'select')
   const summary = nodes.find(node => node.attributes['aria-live'] === 'polite')!, button = nodes.find(node => node.tag === 'button')!
-  expect(controls.map(node => node.children.length)).toEqual([5, 2, 2, 5])
+  expect(controls.map(node => node.children.length)).toEqual([5, 3, 2, 5])
   expect(controls[1].disabled).toBe(true)
   expect(summary.textContent).toContain('人物 T3'); expect(summary.textContent).toContain('基礎生命值：200')
   expect(summary.textContent).toContain('T1'); expect(summary.textContent).toContain('無坐騎')
@@ -257,4 +257,24 @@ it('updates recruitment choices and summary immediately and blocks a stale purch
   button.onclick!(); expect(recruit).toHaveBeenCalledWith(choice); recruit.mockClear()
   available = false; button.onclick!(); expect(recruit).not.toHaveBeenCalled(); expect(button.title).toContain('無法服務')
   expect(personalRecruitmentPresentation(profile, { characterTier: 5, heroArchetype: 'commander', recruitmentRole: 'archer' }, true).reason).toContain('Commander')
+})
+
+it.each([
+  ['roman', ['禁衛軍隊長 Praetorian Captain', '百夫長 Centurion', '遊俠 Ranger'], ['羅馬軍團統帥 Roman Legate', '拜占庭鐵甲重騎兵 Byzantine Cataphract'], 'roman-centurion-t4', 'byzantine-cataphract-t5'],
+  ['viking', ['瓦良格隊長 Varangian Captain', '龍誓重衛 Dragon Oathguard', '遊俠 Ranger'], ['北境戰酋 Norse Warchief', '鐵血戰帥 Ironblood Warlord'], 'viking-heavy-hero-t4', 'viking-heavy-hero-t5'],
+] as const)('offers the %s HR officer only its own T4/T5 classes with their price, and submits the chosen elite body', (faction, t4Labels, t5Labels, t4Asset, t5Asset) => {
+  vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
+  const profile: CareerProfile = { ...createCareerProfile(faction), rank: 'commander', availableMerit: 5000 }
+  let choice: PersonalRecruitmentChoice = { characterTier: 3, recruitmentRole: 'swordsman' }
+  const root = new Element('div')
+  appendPersonalRecruitmentConfigurator(root as unknown as HTMLElement, { readProfile: () => profile, serviceAvailable: () => true, choice, onChoice: next => { choice = next }, recruit: vi.fn() })
+  const controls = root.descendants().filter(node => node.tag === 'select'), summary = root.descendants().find(node => node.attributes['aria-live'] === 'polite')!
+  const labels = (select: Element) => select.children.map(option => option.textContent)
+  expect([labels(controls[1]), labels(controls[2])]).toEqual([t4Labels, t5Labels])
+  controls[0].value = '4'; controls[0].onchange!(); controls[1].value = t4Asset; controls[1].onchange!()
+  expect(choice).toEqual({ characterTier: 4, heroArchetype: 'captain', visualAssetId: t4Asset, recruitmentRole: 'swordsman' })
+  expect(summary.textContent).toContain('招募費用：500 軍功'); expect(summary.textContent).not.toContain(t4Asset)
+  controls[0].value = '5'; controls[0].onchange!(); controls[2].value = t5Asset; controls[2].onchange!()
+  expect(choice).toMatchObject({ characterTier: 5, heroArchetype: 'commander', visualAssetId: t5Asset })
+  expect(summary.textContent).toContain('招募費用：3,000 軍功'); expect(summary.textContent).toContain('基礎生命值：1000')
 })

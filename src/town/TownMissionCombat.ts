@@ -36,7 +36,7 @@ export interface TownCombatResident {
 
 interface MissionControllers {
   field: Pick<BanditMissionController, 'active' | 'fieldNpcs' | 'friendlies' | 'ambientBandits' | 'missionBandits' | 'combatPeersFor' | 'updateFlow' | 'updateDepartingCavalry' | 'departingNpcs' | 'cavalryMounts' | 'veteranEnemySquads' | 'markVeteranEnemySquadEngaged' | 'travelEncounter' | 'prepareTravelEncounter' | 'noteTravelHit' | 'engageFormalMission' | 'isMissionTarget' | 'allowsMissionCombatTarget' | 'prepareRetirementEvacuation' | 'isRetirementEvacuating' | 'updateRetirementTravel'>
-  duel: Pick<CareerDuelController, 'active' | 'phase' | 'update' | 'isMissionActor' | 'fieldNpcs' | 'allMounts' | 'opponent' | 'combatEnabled' | 'persistRuntimeProgress' | 'setExternalCombat'>
+  duel: Pick<CareerDuelController, 'active' | 'phase' | 'update' | 'isMissionActor' | 'fieldNpcs' | 'allMounts' | 'opponent' | 'isParkedResident' | 'combatEnabled' | 'persistRuntimeProgress' | 'setExternalCombat'>
   defense: Pick<TownDefenseController, 'active' | 'phase' | 'assault' | 'updateFlow' | 'fieldNpcs' | 'peersFor' | 'updateCivilianOrder' | 'waitingEnemies' | 'enemyMounts'> & {
     readonly combatEnabled?: boolean
     updateSiege?(dt: number, grid: SpatialGrid<NPC>): void
@@ -515,7 +515,7 @@ export class TownMissionCombat {
     air?.synchronizeRank()
     const previousOutskirts = new Set([...(outskirts?.actors ?? []), ...(air?.actors ?? [])])
     const participants = [...new Set([
-      ...this.town.residents.map(resident => resident.npc), ...(this.town.raceActors?.() ?? []),
+      ...this.town.residents.map(resident => resident.npc).filter(npc => !this.missions.duel.isParkedResident?.(npc)), ...(this.town.raceActors?.() ?? []),
       ...this.missions.field.fieldNpcs, ...(outskirts?.actors.length || this.town.airPatrol?.()?.actors.length || this.town.personalSquad?.()?.actors.length || this.missions.defense.active ? this.missions.field.ambientBandits : []),
       ...this.missions.defense.fieldNpcs, ...this.missions.duel.fieldNpcs,
       ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? []), ...(this.town.personalSquad?.()?.actors ?? []),
@@ -694,14 +694,16 @@ export class TownMissionCombat {
     const outskirts = this.prepareOutskirtsFrame(dt)
     this.updateExternalThreatAssignments()
     const duelActors = new Set(duel.fieldNpcs)
-    this.town.preparePeaceResidents?.(new Set([...duelActors, ...this.externalThreatActors]), dt)
+    // A parked resident is frozen out of every update, not merely hidden.
+    const parked = this.town.residents.filter(resident => duel.isParkedResident?.(resident.npc)).map(resident => resident.npc)
+    this.town.preparePeaceResidents?.(new Set([...duelActors, ...parked, ...this.externalThreatActors]), dt)
     this.preparePatrolCombatFrame(dt, outskirts)
     const patrolActors = new Set(this.town.patrol?.().combatActors ?? [])
     const updates = new TownActorUpdates({ kind: 'duel' }, {
       mission: duel.fieldNpcs, field: field.fieldNpcs, ambient: field.ambientBandits,
       outskirts, airPatrol: this.town.airPatrol?.(), external: this.externalThreatActors, patrol: patrolActors,
     })
-    updates.updatePeaceResidents(this.town.residents, resident => this.updatePeaceResident(resident, dt))
+    updates.updatePeaceResidents(this.town.residents.filter(resident => !parked.includes(resident.npc)), resident => this.updatePeaceResident(resident, dt))
     const actors = updates.actors
     for (const actor of actors) {
       if (this.updateOwnedActor(actor, updates.take(actor), dt, outskirts)) continue
@@ -753,6 +755,7 @@ export class TownMissionCombat {
     const missionFriendlies = new Set([...field.friendlies, ...this.missions.duel.fieldNpcs, ...(this.missions.defense.active ? this.missions.defense.fieldNpcs : [])])
     for (const resident of this.town.residents) {
       const { npc, spec } = resident
+      if (this.missions.duel.isParkedResident?.(npc)) { this.externalThreatActors.delete(npc); this.eagleThreatTargets.delete(npc); continue }
       if (spec.eagle && this.town.playerOwnsEagleCommand?.(npc)) {
         this.externalThreatActors.delete(npc); this.eagleThreatTargets.delete(npc)
         continue

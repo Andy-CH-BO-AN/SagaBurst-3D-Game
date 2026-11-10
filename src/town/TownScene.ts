@@ -63,7 +63,7 @@ import { snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
 import { siegeMuster } from '../career/TownSiege'
 import { personalTownDeployment, personalTownEagleDeployment } from '../career/PersonalSquadDeployment'
 import { shouldSpawnTownCommander, townCommanderHeroAsset, resolveTownCommanderPosition, townCommanderSpec } from './TownCommander'
-import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
+import { HERO_COMBAT_PROFILE_BY_ASSET, HERO_COMBAT_PROFILES, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import { townAssaultObjectiveRoster, townRoster, townName, type TownActorSpec } from './TownRules'
 import { townDefenseForceCountsForProfile } from '../career/TownDefenseRoster'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
@@ -149,7 +149,9 @@ import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost
 import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
 import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_LAST_STAND_ID, COMMANDER_MISSION_CATALOG, getCommanderMissionAvailability, getCommanderMissionDefinition, isCommanderTownMission } from '../career/CommanderMissionCatalog'
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
-import { CareerDuelController, restoreCareerDuelCommander } from '../career/CareerDuelController'
+import { CareerDuelController, duelLoadout, restoreCareerDuelCommander, type CareerDuelOpponentRequest } from '../career/CareerDuelController'
+import { careerDuelClassOptions, resolveCareerDuelClass } from '../career/CareerDuelClasses'
+import { heroClassLabel, HERO_CLASS_NAMES } from '../career/CareerHeroClasses'
 import { MissionGuide } from '../career/MissionGuide'
 import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, startCommanderRetirement } from '../career/CareerRetirement'
 import { townRetirementRallyTarget } from './TownBounds'
@@ -514,7 +516,8 @@ export class TownScene {
     this.mission.onBorrowMountedActor = actorId => { this.patrol.relinquish(actorId) }
     this.mission.onMarchStarted = () => this.playMissionVoice('follow')
     this.mission.onSweepCharge = () => sound.playCommanderCommand(this.profile.faction, 'charge')
-    this.duel = new CareerDuelController(this.scene, this.world, this.navigation, this.residents, this.cat, () => this.player, () => this.profile, p => this.commit(p))
+    this.duel = new CareerDuelController(this.scene, this.world, this.navigation, this.residents, this.cat, () => this.player, () => this.profile, p => this.commit(p),
+      undefined, request => this.createDuelOpponent(request))
     this.duel.resolvePlayerHomeMount = () => this.careerMounts?.activeMount ?? null
     this.duel.onMarchStarted = () => this.playMissionVoice('follow')
     this.duel.onReturnStarted = () => this.playMissionVoice('return')
@@ -1913,7 +1916,7 @@ export class TownScene {
     if (active) {
       const template = getCareerMissionTemplate(active.templateId)
       const badge = document.createElement('p'); badge.className = 'town-summary'
-      badge.textContent = `任務進行中：${active.kind === 'duel' ? '1v1 單挑' : template?.name ?? active.templateId}\n目前：${missionPhaseLabel(active.phase)}${active.kind === 'duel' ? ` · T${active.duelTier} ${UNIT_PRESETS[active.duelPresetId!].nameEn}` : active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense' ? ' · 守住所屬城鎮' : active.kind === 'patrol' ? ' · 沿指定路線巡邏' : active.kind === 'veteran-field' ? ' · 野戰任務' : active.kind === 'bandit' ? ' · 目標：盜匪營地' : ''}\n請先完成目前的任務，才能接取新任務。`
+      badge.textContent = `任務進行中：${active.kind === 'duel' ? '1v1 單挑' : template?.name ?? active.templateId}\n目前：${missionPhaseLabel(active.phase)}${active.kind === 'duel' ? ` · T${active.duelTier} ${UNIT_PRESETS[active.duelPresetId!].nameEn}${active.duelClassId ? ` · ${HERO_CLASS_NAMES[active.duelClassId].zh}` : ''}` : active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense' ? ' · 守住所屬城鎮' : active.kind === 'patrol' ? ' · 沿指定路線巡邏' : active.kind === 'veteran-field' ? ' · 野戰任務' : active.kind === 'bandit' ? ' · 目標：盜匪營地' : ''}\n請先完成目前的任務，才能接取新任務。`
       badge.style.whiteSpace = 'pre-line'
       panel.append(badge)
       return
@@ -2211,6 +2214,45 @@ export class TownScene {
     this.playMissionVoice('missionAccepted')
     this.closePanel()
   }
+  /** A chosen Duel class the resident does not wear fights in a temporary body built like its resident; its assets are preloaded before acceptance. */
+  private createDuelOpponent({ resident, hero, presetId, loadout }: CareerDuelOpponentRequest): NPC | null {
+    const native = resident.npc
+    try {
+      const npc = new NPC(this.scene, native.group.position.x, native.group.position.z, native.faction, native.characterFaction,
+        loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, NAMES[resident.spec.role] ?? resident.spec.id, 4, Boolean(loadout.mountId), loadout, presetId,
+        undefined, native.combatantId, undefined, hero.visualAssetId, hero.combatProfileId, undefined, undefined, undefined, undefined, undefined, hero.tier, hero.heroArchetype)
+      if (native.combatTargetAllowed) npc.combatTargetAllowed = target => this.residentCombatTargetAllowed(resident.spec, npc, target)
+      npc.setTownPeaceful(); npc.group.rotation.y = native.group.rotation.y
+      return npc
+    } catch (error) { console.error('Duel opponent could not be created', error); return null }
+  }
+  /** Loads the saved opponent's assets, then builds the saved duel; false leaves the accepted mission untouched. */
+  private async deployActiveDuel(): Promise<boolean> {
+    const active = this.profile.activeMission
+    if (active?.kind !== 'duel') return true
+    if (active.duelPresetId && active.duelTier && !await this.preloadDuelOpponent(active.duelPresetId, active.duelTier, active.duelClassId)) return false
+    return this.duel.startActiveMission()
+  }
+  /** A technical failure has no defeat settlement: the saved duel stays resumable, with retry or a reward-free cancel. */
+  private showDuelDeployFailure(): void {
+    if (this.disposed) return
+    this.openPanel('單挑部署失敗', '本場尚未結算；對手的資源載入或部署失敗。可重試，或取消本次單挑（不計勝負、不扣獎勵）。')
+    this.button(this.panel!, '重試開始單挑', () => void this.deployActiveDuel().then(ok => {
+      if (this.disposed) return
+      if (!ok) { this.showDuelDeployFailure(); return }
+      this.inventory.prepareForCombat(); this.closePanel()
+    }))
+    this.button(this.panel!, '取消本次單挑', () => this.returnToTown('direct'))
+  }
+  private async preloadDuelOpponent(presetId: UnitPresetId, tier: CareerDuelTier, classId?: HeroCombatProfileId): Promise<boolean> {
+    const hero = classId ? resolveCareerDuelClass(this.profile.faction, presetId, tier, classId) : undefined
+    if (!hero) return true
+    const loadout = duelLoadout(presetId, tier, hero)
+    try {
+      await Promise.all([HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[hero.visualAssetId].descriptor), prepareByzantineEquipment([loadout.meleeWeaponId, loadout.shieldId])])
+      return true
+    } catch (error) { console.error('Duel opponent assets could not be loaded', error); return false }
+  }
   private openDuelPage(panel: HTMLElement): void {
     const activities = [['duel', '單挑 Duel'], ['race', '繞城賽馬 Racing'], ['review', '重溫入伍旅程']] as const
     const tabs = document.createElement('nav'); tabs.className = 'town-mission-tabs'; tabs.style.position = 'static'
@@ -2255,21 +2297,34 @@ export class TownScene {
     }
     panel.append(tabs, content); render()
   }
-  private openDuelSelection(panel: HTMLElement, presetId?: UnitPresetId, mode: 'armed' | 'unarmed' = 'armed'): void {
+  /** Unit type → Tier → (T4/T5 only) hero class → accept; each step returns to the previous one without closing the dialogue. */
+  private openDuelSelection(panel: HTMLElement, presetId?: UnitPresetId, mode: 'armed' | 'unarmed' = 'armed', classTier?: CareerDuelTier): void {
     const presets = getUnitPresetsForFaction(this.profile.faction)
     const selected = presets.find(preset => preset.id === presetId)
     const unarmed = mode === 'unarmed'
+    const classes = selected && classTier ? careerDuelClassOptions(this.profile.faction, selected.id, classTier) : []
     panel.replaceChildren()
-    const navigate = (id?: UnitPresetId, nextMode: 'armed' | 'unarmed' = 'armed') => {
-      this.openDuelSelection(panel, id, nextMode)
+    const navigate = (id?: UnitPresetId, nextMode: 'armed' | 'unarmed' = 'armed', nextClassTier?: CareerDuelTier) => {
+      this.openDuelSelection(panel, id, nextMode, nextClassTier)
       panel.querySelector('h3')?.focus({ preventScroll: true })
     }
-    if (selected || unarmed) this.button(panel, '← 返回兵種列表', () => navigate())
+    if (classes.length) this.button(panel, '← 返回等級列表', () => navigate(selected!.id))
+    else if (selected || unarmed) this.button(panel, '← 返回兵種列表', () => navigate())
     const heading = document.createElement('h3'); heading.tabIndex = -1
-    heading.textContent = unarmed ? 'Tier · 🥊 空手對戰 · Unarmed Duel' : selected ? `Tier · ${selected.nameEn} · ${selected.nameZh}` : 'Unit Type · 兵種'
+    heading.textContent = unarmed ? 'Tier · 🥊 空手對戰 · Unarmed Duel' : classes.length ? `職業 · T${classTier} ${selected!.nameEn} · ${selected!.nameZh}`
+      : selected ? `Tier · ${selected.nameEn} · ${selected.nameZh}` : 'Unit Type · 兵種'
     panel.append(heading)
     const products = document.createElement('div'); products.className = 'town-products'; panel.append(products)
-    if (!selected && !unarmed) {
+    if (classes.length) for (const option of classes) {
+      const profile = HERO_COMBAT_PROFILES[option.combatProfileId]
+      const row = document.createElement('article'); row.className = 'town-product'
+      const title = document.createElement('strong'); title.textContent = `${heroClassLabel(option.combatProfileId)} · T${classTier}`
+      const details = document.createElement('small')
+      details.textContent = `生命值 ${profile.maxHp} · 傷害 ×${profile.damageMultiplier} · 承傷 ×${profile.damageTakenMultiplier} · 裝備與坐騎依 ${selected!.nameZh} 配置`
+      const accept = document.createElement('button'); accept.className = 'town-button'; accept.textContent = '接受單挑'
+      accept.onclick = () => void this.acceptDuel(selected!.id, classTier!, 'armed', option.combatProfileId)
+      row.append(title, details, accept); products.append(row)
+    } else if (!selected && !unarmed) {
       this.button(products, '🥊 空手對戰 · Unarmed Duel', () => navigate(undefined, 'unarmed'))
       for (const preset of presets) {
         const row = document.createElement('article'); row.className = 'town-product'
@@ -2288,8 +2343,11 @@ export class TownScene {
       details.textContent = !unlocked ? `需先擊敗 T${tier - 1} ${unarmed ? '空手對手' : selected!.nameEn}`
         : unarmed ? '5 秒準備 · 90 秒內擊敗對手 · 對手拳擊 Lv.1 · 雙方無武器、盾牌與坐騎；非拳擊有效傷害立即判負'
         : `5 秒準備 · 30 秒內擊敗對手${tier === 5 ? ' · 指揮官出戰，隊長擔任裁判' : tier === 4 ? selected!.traits.includes('bow_fire') ? ' · Shadow Warden 出戰' : ' · 隊長出戰，Shadow Warden 擔任裁判' : ''}`
-      const accept = document.createElement('button'); accept.className = 'town-button'; accept.textContent = unlocked ? '接受單挑' : '尚未解鎖'; accept.disabled = !unlocked
-      accept.onclick = () => unarmed ? this.acceptDuel(undefined, tier, 'unarmed') : this.acceptDuel(selected!.id, tier)
+      const classChoice = !unarmed && careerDuelClassOptions(this.profile.faction, selected!.id, tier).length > 0
+      if (unlocked && classChoice) details.textContent += ' · 可選擇職業'
+      const accept = document.createElement('button'); accept.className = 'town-button'
+      accept.textContent = !unlocked ? '尚未解鎖' : classChoice ? '選擇職業' : '接受單挑'; accept.disabled = !unlocked
+      accept.onclick = () => unarmed ? void this.acceptDuel(undefined, tier, 'unarmed') : classChoice ? navigate(selected!.id, 'armed', tier) : void this.acceptDuel(selected!.id, tier)
       row.append(title, details, accept); products.append(row)
     }
     panel.scrollTop = 0
@@ -2399,13 +2457,16 @@ export class TownScene {
     this.notice = '跟隨實際隊長前往單挑場地；新兵切磋使用步戰，30 秒超時判負。'
     this.closePanel()
   }
-  private acceptDuel(presetId: UnitPresetId | undefined, tier: CareerDuelTier, mode: 'armed' | 'unarmed' = 'armed'): void {
+  private async acceptDuel(presetId: UnitPresetId | undefined, tier: CareerDuelTier, mode: 'armed' | 'unarmed' = 'armed', classId?: HeroCombatProfileId): Promise<void> {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
+    // Assets come first: a failed load must never leave a saved mission that cannot be deployed.
+    if (mode === 'armed' && presetId && !await this.preloadDuelOpponent(presetId, tier, classId)) { this.openPanel('單挑部署失敗', '對手的角色資源載入失敗，單挑尚未開始。請稍後再試。'); return }
+    if (this.disposed || this.player.dead || !this.serviceAvailable('deployment')) return
     const fresh = this.store.load()
     if (!fresh || this.player.dead || this.event.hostile || !(mode === 'unarmed' ? isUnarmedDuelUnlocked(fresh, tier) : presetId && isCareerDuelUnlocked(fresh, presetId, tier)) || fresh.activeRace || fresh.activeMission || fresh.activeOutpostMission || fresh.townEvent?.state === 'hostile') {
       this.openPanel('無法接受單挑', '該兵種的這個等級尚未解鎖、目前正在交戰，或已有進行中的任務。'); return
     }
-    const mission = mode === 'unarmed' ? this.duel.createUnarmedMission(tier) : presetId ? this.duel.createMission(presetId, tier) : null
+    const mission = mode === 'unarmed' ? this.duel.createUnarmedMission(tier) : presetId ? this.duel.createMission(presetId, tier, 'armed', classId) : null
     if (!mission) { this.openPanel('無法接受單挑', '目前沒有可出戰的城鎮士兵。'); return }
     if (mode === 'unarmed') mission.mountState = this.careerMounts.checkpoint()
     const next = cloneCareerProfile(fresh); next.activeMission = mission
@@ -2584,7 +2645,7 @@ export class TownScene {
       if (profile.activeMission.kind === 'captain-patrol-command') {
         this.captainPatrol?.resume()
       } else if (profile.activeMission.kind === 'duel') {
-        this.duel.startActiveMission()
+        if (!await this.deployActiveDuel()) this.showDuelDeployFailure()
       } else if (profile.activeMission.kind === 'town-defense' || profile.activeMission.kind === 'commander-four-gate-defense' || profile.activeMission.kind === 'enemy-town-assault'
         || profile.activeMission.kind === 'commander-sky-raid' || profile.activeMission.kind === 'commander-decapitation') {
         if (!profile.activeMission.result || profile.activeMission.phase === 'RETURNING') {
@@ -3111,6 +3172,7 @@ export class TownScene {
   }
 
   private hitBattlefieldMount(mount: Mount, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
+    if (this.duel?.isParkedResident(mount)) return
     if (this.retirementFinale?.frozen || this.fourGateCombatHeld || source && this.isRetirementEvacuating(source)) return
     if (this.defense?.phase === 'PREPARING' && (source?.combatOwnership === 'player-personal' || this.personalSquad?.mounts.includes(mount))) return
     if (mount.dead || mount.disposed || amount <= 0) return
@@ -3176,6 +3238,7 @@ export class TownScene {
       ?? (this.residents ?? []).find(resident => resident.homeMount === target)?.npc
       ?? this.outskirts?.actors.find(actor => actor.combatantId === target.combatOwner?.actorId)
     if (this.duel?.active && owner === this.duel.opponent) return !this.duel.canDamageOpponent(target)
+    if (this.duel?.isParkedResident(target) || owner && this.duel?.isParkedResident(owner)) return true
     if (this.commanderProtectsOwnTown && (target instanceof NPC
       ? (this.residents ?? []).some(resident => resident.npc === target)
       : target === this.cat || (this.stableHorses ?? []).includes(target)
@@ -3203,6 +3266,7 @@ export class TownScene {
   }
   /** Independent mount contacts retain their geometry while respecting their rider's protection. */
   private canHitTownMount(mount: Mount, source?: NPC): boolean {
+    if (this.duel?.isParkedResident(mount)) return false
     if (!source) return mount !== this.player.currentMount && !this.isProtectedTownAlly(mount)
     if (mount.riderPlayer === this.player) return source.hostileToPlayer || Boolean(this.duel?.canDamagePlayer(source))
     const owner = mount.riderNpc ?? (this.residents ?? []).find(resident => resident.homeMount === mount)?.npc
@@ -3285,6 +3349,7 @@ export class TownScene {
   }
   private hitFieldNpc(target: NPC, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
     contact ??= source?.unarmedContact
+    if (this.duel?.isParkedResident(target)) return // Parked residents are untouchable by every source.
     if (this.retirementFinale?.frozen || this.fourGateCombatHeld || source && this.isRetirementEvacuating(source)) return
     if (this.defense?.phase === 'PREPARING' && (source?.combatOwnership === 'player-personal' || target.combatOwnership === 'player-personal')) return
     contact ??= method === 'melee' ? (source ?? this.player).weaponSweep?.contact : undefined
@@ -3614,7 +3679,7 @@ export class TownScene {
     if (this.player.dead || this.player.isFalling || this.player.currentMount?.isFlyingMount) return
     const playerBody = { position: this.player.group.position, radius: .42, height: 1.8, bottomOffset: .9 }
     for (const r of this.residents) {
-      if (this.mission.friendlies.includes(r.npc) || this.duel?.isMissionActor(r.npc)) continue
+      if (this.mission.friendlies.includes(r.npc) || this.duel?.isMissionActor(r.npc) || this.duel?.isParkedResident(r.npc)) continue
       if (r.npc.dead) continue
       const position = r.npc.mount?.group.position ?? r.npc.group.position
       if (Math.hypot(position.x - playerBody.position.x, position.z - playerBody.position.z) > 3) continue
@@ -4156,7 +4221,7 @@ export class TownScene {
         : this.profile.activeMission.kind === 'captain-patrol-command'
         ? `\n指揮巡邏隊 · 有效擊殺 ${this.captainPatrol?.killCount ?? this.profile.activeMission.patrolKilledActorIds?.length ?? 0}/30\n巡邏隊 ${this.captainPatrol?.aliveCombatants ?? 0}/20 人 · 按 Q 下令`
         : this.profile.activeMission.kind === 'duel'
-        ? `\n單挑 · T${this.profile.activeMission.duelTier} ${this.profile.activeMission.duelMode === 'unarmed' ? '空手對戰' : UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}\n${this.duel.phase === 'PREPARING' ? '單挑倒數 ' + Math.ceil(this.duel.countdownRemaining) + ' 秒' : this.duel.phase === 'ENGAGING' ? (duelFightBannerVisible(this.duel.combatElapsedSeconds) ? '開打！\n' : '') + '剩餘時間 ' + this.duel.combatRemaining.toFixed(1) + ' 秒\n對手生命值 ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨隊長返回市政廳服務點' : this.duel.phase === 'ASSEMBLING' || this.duel.phase === 'MARCHING' ? '前往單挑場地 · 等待隊長與對手就位' : missionPhaseLabel(this.duel.phase ?? 'RESULT')}`
+        ? `\n單挑 · T${this.profile.activeMission.duelTier} ${this.profile.activeMission.duelMode === 'unarmed' ? '空手對戰' : UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}${this.profile.activeMission.duelClassId ? ` · ${HERO_CLASS_NAMES[this.profile.activeMission.duelClassId].zh}` : ''}\n${this.duel.phase === 'PREPARING' ? '單挑倒數 ' + Math.ceil(this.duel.countdownRemaining) + ' 秒' : this.duel.phase === 'ENGAGING' ? (duelFightBannerVisible(this.duel.combatElapsedSeconds) ? '開打！\n' : '') + '剩餘時間 ' + this.duel.combatRemaining.toFixed(1) + ' 秒\n對手生命值 ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨隊長返回市政廳服務點' : this.duel.phase === 'ASSEMBLING' || this.duel.phase === 'MARCHING' ? '前往單挑場地 · 等待隊長與對手就位' : missionPhaseLabel(this.duel.phase ?? 'RESULT')}`
         : this.profile.activeMission.kind === 'veteran-field'
         ? this.veteranMissionHud()
         : this.profile.activeMission.kind === 'cavalry-sweep'

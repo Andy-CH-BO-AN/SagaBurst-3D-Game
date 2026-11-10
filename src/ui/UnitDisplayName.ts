@@ -6,7 +6,10 @@ import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import type { CareerPersonalSquadMember } from '../career/CareerPersonalSquad'
 import { PERSONAL_ROLE_NAMES, defaultPersonalRecruitmentChoice } from '../career/CareerRecruitmentCatalog'
 import { resolveCharacterIdentity } from '../combat/CharacterIdentity'
+import { HERO_CLASS_NAMES } from '../career/CareerHeroClasses'
 
+/** Second (heavy) classes are shown by their own name; the default classes keep the generic rank label. */
+const ELITE_CLASS_PROFILES: ReadonlySet<HeroCombatProfileId> = new Set(['centurion', 'dragon-oathguard', 'byzantine-cataphract', 'ironblood-warlord'])
 const FACTIONS = { roman: '羅馬', viking: '維京' } as const
 const GATES = { north: '北門', south: '南門', east: '東門', west: '西門' } as const
 const SERVICES: Partial<Record<TownActorSpec['role'], string>> = {
@@ -71,8 +74,8 @@ export function personalUnitDisplayName(member: CareerPersonalSquadMember, facti
   const legacy = defaultPersonalRecruitmentChoice(member.type, faction)
   const identity = resolveCharacterIdentity({ characterFaction: faction, characterTier: member.characterTier ?? legacy.characterTier,
     heroArchetype: member.heroArchetype ?? legacy.heroArchetype, visualAssetId: member.visualAssetId })
-  const hero = identity.heroArchetype === 'captain' ? '隊長・' : identity.heroArchetype === 'ranger' ? '遊俠・'
-    : identity.combatProfileId === 'byzantine-cataphract' ? '拜占庭鐵甲重騎兵・' : identity.heroArchetype === 'commander' ? '指揮官・' : ''
+  const hero = identity.heroArchetype === 'ranger' ? '遊俠・' : identity.heroArchetype && member.visualAssetId ? `${HERO_CLASS_NAMES[identity.combatProfileId!].zh}・`
+    : identity.heroArchetype === 'captain' ? '隊長・' : identity.heroArchetype === 'commander' ? '指揮官・' : ''
   return `私兵・${FACTIONS[faction]}${hero}${PERSONAL_ROLE_NAMES[member.recruitmentRole ?? legacy.recruitmentRole]}${index === undefined ? '' : ` ${number(index + 1)}`}${tierSuffix(identity.characterTier)}`
 }
 
@@ -95,10 +98,12 @@ export function combatUnitDisplayName(info: CombatUnitDisplayInfo): string {
   if (info.bandit) return '盜匪'
   if (info.civilian) return `${prefix}平民`
   const profile = info.combatProfileId
-  const hero = profile === 'roman-commander' || profile === 'viking-commander' || profile === 'byzantine-cataphract' ? '指揮官'
-    : profile === 'ranger' ? '遊俠' : profile ? '隊長' : undefined
+  const elite = profile && ELITE_CLASS_PROFILES.has(profile) ? HERO_CLASS_NAMES[profile].zh : undefined
+  const hero = elite ?? (profile === 'roman-commander' || profile === 'viking-commander' ? '指揮官'
+    : profile === 'ranger' ? '遊俠' : profile ? '隊長' : undefined)
   const preset = info.presetId ? UNIT_PRESETS[info.presetId] : undefined
-  const name = hero ? `${info.faction ? FACTIONS[info.faction] : ''}${hero}`
+  const name = elite ? elite : hero ? `${info.faction ? FACTIONS[info.faction] : ''}${hero}`
     : info.mountType === 'xongkoro' && preset?.traits.includes('bow_fire') ? '巨鷹弓兵' : preset?.nameZh
-  return `${prefix}${name ?? (info.mounted ? '騎兵' : '士兵')}${tierSuffix(hero === '指揮官' ? 5 : hero ? 4 : info.tier)}`
+  const heroTier = profile === 'byzantine-cataphract' || profile === 'ironblood-warlord' || hero === '指揮官' ? 5 : hero ? 4 : info.tier
+  return `${prefix}${name ?? (info.mounted ? '騎兵' : '士兵')}${tierSuffix(heroTier)}`
 }

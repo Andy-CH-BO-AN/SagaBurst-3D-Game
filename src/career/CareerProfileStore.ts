@@ -23,6 +23,8 @@ import { parseCivilianCommandSquad } from './CivilianCommandAuthority'
 import { parseEnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
 import { outskirtsSquadSpecs } from '../town/TownOutskirtsRules'
 import type { CareerDuelTier } from './CareerDuelState'
+import { careerDuelClassOptions } from './CareerDuelClasses'
+import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import { parseTownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
 import { parseTownPatrolCheckpoint } from '../town/TownPatrolCheckpoint'
 import { parseOfficialCommandAuthority, parseTownCommandSquad } from './CareerCommandAuthority'
@@ -507,6 +509,10 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
       ...(raw.duelMode === 'unarmed' || raw.duelTier === 5 || raw.duelTutorialCareerId ? { duelCommanderHome: parseCareerDuelCommanderHome(raw.duelCommanderHome),
         duelTravel: parseCareerDuelTravelCheckpoint(raw.duelTravel, [...new Set([duelOpponentActorId, duelCaptainActorId, ...(raw.duelTutorialCareerId ? [duelRefereeActorId] : [])])]) } : {}),
       duelPresetId: raw.duelPresetId as UnitPresetId,
+      // An unknown or illegal class is dropped, so the duel simply uses the resident's original class.
+      ...(raw.duelMode !== 'unarmed' && typeof raw.duelClassId === 'string'
+        && careerDuelClassOptions(faction, raw.duelPresetId as UnitPresetId, raw.duelTier as number).some(option => option.combatProfileId === raw.duelClassId)
+        ? { duelClassId: raw.duelClassId as HeroCombatProfileId } : {}),
       duelOpponentActorId, duelCaptainActorId, duelRefereeActorId,
       duelCountdownElapsed: Math.min(DUEL_COUNTDOWN_SECONDS, nonNegativeNumber(raw.duelCountdownElapsed)),
       duelCombatElapsed: Math.min(raw.duelMode === 'unarmed' ? 90 : DUEL_COMBAT_SECONDS, nonNegativeNumber(raw.duelCombatElapsed)),

@@ -1,6 +1,6 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Vector3, type Scene } from 'three'
-import { CareerDuelController, persistsDuelTravel, selectCareerDuelRoster } from '../../src/career/CareerDuelController'
+import { CareerDuelController, persistsDuelTravel, selectCareerDuelRoster, type CareerDuelOpponentRequest } from '../../src/career/CareerDuelController'
 import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import type { Player } from '../../src/player/Player'
@@ -11,6 +11,7 @@ import { townSitePoint, type TownActorSpec } from '../../src/town/TownRules'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
 import { duelCombatSeconds, resolveCareerDuelOutcome, isUnarmedDuelUnlocked, isIllegalUnarmedDuelDamage, careerDuelOpponentHealth, createCareerTutorialDuelMission, CAREER_DUEL_TEMPLATE_ID, createCareerDuelMission, isCareerDuelUnlocked, type CareerDuelTier } from '../../src/career/CareerDuelState'
+import { careerDuelClassOptions } from '../../src/career/CareerDuelClasses'
 import { acceptsCareerMissionStat } from '../../src/career/CareerMissionState'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
@@ -32,20 +33,22 @@ function win(profile: CareerProfile, presetId: UnitPresetId, tier: CareerDuelTie
   return clearCareerMission(claim.profile, current.activeMission!.id)
 }
 
+/** A plain-object NPC port: position, health, equipment and order calls only (no 3D actor). */
+function makeActor(id: string, x: number, z: number) {
+  const position = new Vector3(x, getTerrainHeight(x, z), z)
+  const body = { combatantId: id, combatPosition: position, group: { position, rotation: { y: 0 } },
+    dead: false, hp: 100, maxHp: 200, characterFaction: 'roman', characterTier: 3, combatAmmo: 30, loadout: {}, target: undefined as Vector3 | undefined,
+    duelUnarmed: false, setUnarmedDuel: vi.fn((enabled: boolean) => { body.duelUnarmed = enabled }),
+    setDuelHostility: vi.fn(), restoreCombatLoadout: vi.fn(), restoreOrdinaryTier: vi.fn(),
+    restoreForTown: vi.fn(), restoreCombatAmmo: vi.fn(),
+    applyTemporaryOrdinaryTier: vi.fn(), restoreCombatHealth: vi.fn(), setTacticalOrder: vi.fn(),
+    applyTemporaryCombatLoadout: vi.fn(), dismountFromMount: vi.fn(),
+    assignFollowTarget: vi.fn(), assignFormationTarget: vi.fn((_id: number, point: Vector3) => { body.target = point.clone() }) }
+  return body
+}
+
 /** Real controller/checkpoints and navigation; only position/order ports, no 3D actors. */
-function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING') {
-  const makeActor = (id: string, x: number, z: number) => {
-    const position = new Vector3(x, getTerrainHeight(x, z), z)
-    const body = { combatantId: id, combatPosition: position, group: { position, rotation: { y: 0 } },
-      dead: false, hp: 100, maxHp: 200, characterFaction: 'roman', characterTier: 3, combatAmmo: 30, loadout: {}, target: undefined as Vector3 | undefined,
-      duelUnarmed: false, setUnarmedDuel: vi.fn((enabled: boolean) => { body.duelUnarmed = enabled }),
-      setDuelHostility: vi.fn(), restoreCombatLoadout: vi.fn(), restoreOrdinaryTier: vi.fn(),
-      restoreForTown: vi.fn(), restoreCombatAmmo: vi.fn(),
-      applyTemporaryOrdinaryTier: vi.fn(), restoreCombatHealth: vi.fn(), setTacticalOrder: vi.fn(),
-      applyTemporaryCombatLoadout: vi.fn(), dismountFromMount: vi.fn(),
-      assignFollowTarget: vi.fn(), assignFormationTarget: vi.fn((_id: number, point: Vector3) => { body.target = point.clone() }) }
-    return body
-  }
+function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING', createOpponent?: (request: CareerDuelOpponentRequest) => NPC | null) {
   const captain = makeActor('captain', -30, 20), opponent = makeActor('soldier-1', -60, 0)
   const makeSpec = (actor: typeof captain, role: TownActorSpec['role'], duty: TownActorSpec['duty']): TownActorSpec => ({
     id: actor.combatantId, role, duty, tier: 2, index: 0, mounted: false, training: duty === 'training',
@@ -66,7 +69,7 @@ function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING'
   const query = vi.spyOn(navigation, 'queryPath'); onTestFinished(() => query.mockRestore())
   const controller = new CareerDuelController(null as unknown as Scene, { obstacles: [] } as unknown as TownWorld,
     navigation, residents, null as unknown as Mount, () => player as unknown as Player, () => profile,
-    next => { if (!saveAllowed) return false; profile = next; return true })
+    next => { if (!saveAllowed) return false; profile = next; return true }, undefined, createOpponent)
   onTestFinished(() => controller.dispose())
   return { controller, captain, opponent, player, query, residents, read: () => profile,
     allowSave: (allowed: boolean) => { saveAllowed = allowed } }
@@ -503,5 +506,84 @@ describe('Unarmed Duel authority and persistence', () => {
     h.opponent.dead = true
     expect(h.controller.evaluate()).toBe('victory')
     expect(h.read().activeMission!.duelFailureReason).toBeUndefined()
+  })
+})
+
+describe('Career Duel hero class selection', () => {
+  const classIds = (faction: 'roman' | 'viking', preset: UnitPresetId, tier: number) => careerDuelClassOptions(faction, preset, tier).map(option => option.combatProfileId)
+  const heavyDuel = (extra: Record<string, unknown> = {}, createOpponent: (request: CareerDuelOpponentRequest) => NPC | null = () => null) => {
+    const h = travelingDuel('MARCHING', createOpponent)
+    Object.assign(h.captain, { combatProfileId: 'praetorian', dispose: vi.fn() }); Object.assign(h.captain.group, { visible: true })
+    Object.assign(h.read().activeMission!, { duelTier: 4, duelPresetId: 'roman_heavy_infantry', duelOpponentActorId: 'captain', duelRefereeActorId: 'soldier-1',
+      duelClassId: 'centurion', duelOpponentHp: 700, ...extra })
+    return h
+  }
+
+  it('offers each faction its two T4/T5 classes, leaves the Ranger and ordinary tiers classless, and shares one Tier progress per preset', () => {
+    expect(classIds('roman', 'roman_sword_cavalry', 4)).toEqual(['praetorian', 'centurion'])
+    expect(classIds('roman', 'roman_sword_cavalry', 5)).toEqual(['roman-commander', 'byzantine-cataphract'])
+    expect(classIds('viking', 'viking_berserker', 4)).toEqual(['varangian', 'dragon-oathguard'])
+    expect(classIds('viking', 'viking_berserker', 5)).toEqual(['viking-commander', 'ironblood-warlord'])
+    expect([classIds('roman', 'roman_archer', 4), classIds('roman', 'roman_sword_cavalry', 3), classIds('viking', 'roman_sword_cavalry', 4)]).toEqual([[], [], []])
+    const profile = { ...createCareerProfile('roman'), duelHighestDefeatedTierByPreset: { roman_sword_cavalry: 3 as CareerDuelTier } }
+    const create = (classId?: Parameters<typeof createCareerDuelMission>[8], preset: UnitPresetId = 'roman_sword_cavalry', mode: 'armed' | 'unarmed' = 'armed') =>
+      createCareerDuelMission(profile, preset, 4, 'captain', 'captain', 'class-duel', 'ranger', mode, classId)
+    expect(create()).toMatchObject({ duelClassId: 'praetorian' })
+    const mission = create('centurion')!
+    expect(mission.duelClassId).toBe('centurion')
+    expect([create('ironblood-warlord'), create('centurion', 'roman_archer'), create('centurion', 'roman_sword_cavalry', 'unarmed')]).toEqual([null, null, null])
+    const won = clearCareerMission(claimCareerMission({ ...profile, activeMission: mission }, 'class-duel', 'victory', stats).profile, 'class-duel')
+    expect(won.duelHighestDefeatedTierByPreset).toEqual({ roman_sword_cavalry: 4 })
+    expect(isCareerDuelUnlocked(won, 'roman_sword_cavalry', 5)).toBe(true)
+  })
+
+  it('persists the chosen class through save and reload, and an old or illegal record falls back to the original class', () => {
+    const profile: CareerProfile = { ...createCareerProfile('roman'), duelHighestDefeatedTierByPreset: { roman_sword_cavalry: 3 } }
+    const mission = createCareerDuelMission(profile, 'roman_sword_cavalry', 4, 'captain', 'captain', 'class-duel', 'ranger', 'armed', 'centurion')!
+    const reload = (duelClassId?: string) => {
+      const { duelClassId: _drop, ...rest } = mission
+      return parseCareerProfile(JSON.parse(JSON.stringify({ ...profile, activeMission: { ...rest, ...(duelClassId ? { duelClassId } : {}) } })))!.activeMission!
+    }
+    expect(reload('centurion').duelClassId).toBe('centurion')
+    expect(reload().duelClassId).toBeUndefined()
+    expect(reload('ironblood-warlord').duelClassId).toBeUndefined()
+  })
+
+  it('fights the chosen class in a temporary body while the resident stays parked, unchanged, and returns on cleanup', () => {
+    const dispose = vi.fn(), body = Object.assign(makeActor('captain', -30, 20), { combatProfileId: 'centurion', dispose })
+    const requests: CareerDuelOpponentRequest[] = []
+    const h = heavyDuel({}, request => { requests.push(request); return body as unknown as NPC }), { controller } = h
+    expect(controller.startActiveMission()).toBe(true)
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({ presetId: 'roman_heavy_infantry', hero: { combatProfileId: 'centurion', visualAssetId: 'roman-centurion-t4' } })
+    expect([controller.opponent, controller.captain]).toEqual([body, body])
+    expect(controller.actors).not.toContain(h.captain)
+    expect((h.captain.group as { visible?: boolean }).visible).toBe(false)
+    expect(controller.isParkedResident(h.captain as unknown as NPC)).toBe(true)
+    expect(h.captain.applyTemporaryCombatLoadout).not.toHaveBeenCalled()
+    expect(body.restoreCombatHealth).toHaveBeenCalledWith(700)
+    // The parked resident is never touched; the temporary body is the real, damageable target.
+    expect(h.captain.restoreCombatHealth).not.toHaveBeenCalled()
+    expect(controller.isParkedResident(body as unknown as NPC)).toBe(false)
+    Object.assign(h.read().activeMission!, { phase: 'ENGAGING' })
+    expect(controller.canDamageOpponent(body as unknown as NPC)).toBe(true)
+    expect(controller.canDamageOpponent(h.captain as unknown as NPC)).toBe(false)
+    expect(h.captain.hp).toBe(100)
+    controller.cleanupMission()
+    expect(dispose).toHaveBeenCalledOnce()
+    expect(controller.isParkedResident(h.captain as unknown as NPC)).toBe(false)
+    expect((h.captain.group as { visible?: boolean }).visible).toBe(true)
+    expect(h.captain.restoreForTown).not.toHaveBeenCalled()
+  })
+
+  it('borrows the resident for its own class, and a body that cannot be built starts no duel and hides nothing', () => {
+    const native = heavyDuel({ duelClassId: 'praetorian' })
+    expect(native.controller.startActiveMission()).toBe(true)
+    expect(native.controller.opponent).toBe(native.captain)
+    expect(native.captain.applyTemporaryCombatLoadout).toHaveBeenCalledOnce()
+    const failed = heavyDuel()
+    expect(failed.controller.startActiveMission()).toBe(false)
+    expect((failed.captain.group as { visible?: boolean }).visible).toBe(true)
+    expect(failed.controller.opponent).toBeNull()
   })
 })

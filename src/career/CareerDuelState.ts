@@ -5,7 +5,9 @@ import {
 } from '../battle/UnitPresetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { CombatEvent } from '../combat/CombatAttribution'
+import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import type { CareerProfile } from './CareerProfile'
+import { careerDuelClassOptions } from './CareerDuelClasses'
 import { createCareerMissionId, type ActiveCareerMission, type CareerMissionOutcome } from './CareerMissionState'
 
 export const CAREER_DUEL_TEMPLATE_ID = 'career-duel'
@@ -111,7 +113,11 @@ export function createCareerDuelMission(
   id = createCareerMissionId(CAREER_DUEL_TEMPLATE_ID),
   refereeActorId = captainActorId,
   mode: CareerDuelMode = 'armed',
+  classId?: HeroCombatProfileId,
 ): ActiveCareerMission | null {
+  // A class is only meaningful for an armed T4/T5 duel and must be one the preset legally offers.
+  const classes = mode === 'armed' ? careerDuelClassOptions(profile.faction, presetId, tier) : []
+  if (classId !== undefined && !classes.some(option => option.combatProfileId === classId)) return null
   if (profile.activeRace || profile.activeMission || profile.activeOutpostMission || tier === 5 && profile.townEvent?.state === 'hostile' || !(mode === 'unarmed' ? isUnarmedDuelUnlocked(profile, tier) && isCareerDuelPresetId(presetId) && UNIT_PRESETS[presetId].faction === profile.faction : isCareerDuelUnlocked(profile, presetId, tier))
     || !opponentActorId.trim() || !captainActorId.trim() || !refereeActorId.trim() || !id.trim()) return null
   const opponent = opponentActorId.trim(), captain = captainActorId.trim(), referee = refereeActorId.trim()
@@ -120,7 +126,7 @@ export function createCareerDuelMission(
     id: id.trim(), templateId: CAREER_DUEL_TEMPLATE_ID, kind: 'duel', targetCampId: -1,
     phase: 'ASSEMBLING', targetActorIds: [opponent], friendlyActorIds: opponent === referee ? [] : [referee],
     duelMode: mode, duelTier: tier, duelPresetId: presetId, duelOpponentActorId: opponent, duelCaptainActorId: captain,
-    duelRefereeActorId: referee,
+    duelRefereeActorId: referee, ...(classes.length ? { duelClassId: classId ?? classes[0].combatProfileId } : {}),
     duelCountdownElapsed: 0, duelCombatElapsed: 0, duelOpponentDead: false,
     acceptedAt: Date.now(),
   }

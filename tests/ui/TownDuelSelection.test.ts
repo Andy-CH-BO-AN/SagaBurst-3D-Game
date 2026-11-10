@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import type { CareerDuelTier } from '../../src/career/CareerDuelState'
+import { createCareerDuelMission, type CareerDuelTier } from '../../src/career/CareerDuelState'
 import { getUnitPresetsForFaction, type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
 import { TownScene } from '../../src/town/TownScene'
 
@@ -31,10 +31,10 @@ interface DuelSelectionEntry {
   duelActivity: 'duel' | 'race' | 'review'
   tutorial: { renderReviewContent(panel: HTMLElement): void }
   openDuelPage(panel: HTMLElement): void
-  openDuelSelection(panel: HTMLElement, presetId?: UnitPresetId): void
+  openDuelSelection(panel: HTMLElement, presetId?: UnitPresetId, mode?: 'armed' | 'unarmed', classTier?: CareerDuelTier): void
   openRacePage(panel: HTMLElement): void
   button(parent: HTMLElement, label: string, action: () => void): HTMLButtonElement
-  acceptDuel(presetId: UnitPresetId, tier: CareerDuelTier): void
+  acceptDuel(presetId: UnitPresetId | undefined, tier: CareerDuelTier, mode?: 'armed' | 'unarmed', classId?: string): void
   acceptRace(id: string): void
 }
 
@@ -77,8 +77,15 @@ describe('Career Duel selection pages', () => {
     ])
     expect(h.rows().map(row => row.children[2].disabled)).toEqual([false, false, false, false, true])
     h.rows()[4].children[2].click(); expect(h.accept).not.toHaveBeenCalled()
-    h.rows()[3].children[2].click(); expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 4)
-    h.root.scrollTop = 400; h.buttons()[0].click()
+    h.rows()[2].children[2].click(); expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 3); h.accept.mockClear()
+    // T4 adds a class step: Tier → class → accept, each step reversible without leaving the dialogue.
+    h.rows()[3].children[2].click(); expect(h.accept).not.toHaveBeenCalled()
+    expect(h.buttons()[0].textContent).toBe('← 返回等級列表')
+    expect(h.rows().map(row => row.children[0].textContent)).toEqual(['禁衛軍隊長 Praetorian Captain · T4', '百夫長 Centurion · T4'])
+    h.buttons()[0].click(); expect(h.rows()).toHaveLength(5)
+    h.rows()[3].children[2].click(); h.rows()[1].children[2].click()
+    expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 4, 'armed', 'centurion')
+    h.buttons()[0].click(); h.root.scrollTop = 400; h.buttons()[0].click()
     expect(h.root.scrollTop).toBe(0); expect(h.rows()).toHaveLength(presets.length)
     h.buttons()[2].click()
     expect(h.content.querySelector('h3')!.textContent).toContain(presets[1].nameZh)
@@ -126,4 +133,54 @@ it('空手頁面立即切到自己的 T1–T5，與武裝進度分開並送出�
   h.rows()[2].children[2].click(); expect(h.accept).not.toHaveBeenCalled()
   h.rows()[1].children[2].click()
   expect(h.accept).toHaveBeenCalledExactlyOnceWith(undefined, 2, 'unarmed')
+})
+
+describe('Career Duel resume after a deployment failure', () => {
+  interface ResumeEntry {
+    disposed: boolean; profile: CareerProfile; panel: Element | null
+    preloadDuelOpponent: ReturnType<typeof vi.fn>; duel: { startActiveMission: ReturnType<typeof vi.fn> }
+    inventory: { prepareForCombat: ReturnType<typeof vi.fn> }; closePanel: ReturnType<typeof vi.fn>; returnToTown: ReturnType<typeof vi.fn>
+    openPanel(title: string): void; button(parent: HTMLElement, label: string, action: () => void): void
+    deployActiveDuel(): Promise<boolean>; showDuelDeployFailure(): void
+  }
+  const resume = (preload: boolean, start: boolean) => {
+    vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
+    const profile = createCareerProfile('roman'), proto = TownScene.prototype as unknown as ResumeEntry
+    profile.activeMission = createCareerDuelMission({ ...profile, duelHighestDefeatedTierByPreset: { roman_heavy_infantry: 3 } }, 'roman_heavy_infantry', 4, 'captain', 'captain', 'resume', 'ranger', 'armed', 'centurion')!
+    const entry: ResumeEntry = { disposed: false, profile, panel: null, preloadDuelOpponent: vi.fn(async () => preload), duel: { startActiveMission: vi.fn(() => start) },
+      inventory: { prepareForCombat: vi.fn() }, closePanel: vi.fn(), returnToTown: vi.fn(),
+      openPanel() { entry.panel = new Element('div') }, button: (parent, label, action) => { const b = new Element('button'); b.textContent = label; b.onclick = action; (parent as unknown as Element).append(b) },
+      deployActiveDuel: proto.deployActiveDuel, showDuelDeployFailure: proto.showDuelDeployFailure }
+    return entry
+  }
+  it('reports a failed asset load without starting the duel or touching the saved mission, then retries or cancels without settlement', async () => {
+    const entry = resume(false, true), before = JSON.stringify(entry.profile.activeMission)
+    expect(await entry.deployActiveDuel()).toBe(false)
+    expect(entry.preloadDuelOpponent).toHaveBeenCalledWith('roman_heavy_infantry', 4, 'centurion'); expect(entry.duel.startActiveMission).not.toHaveBeenCalled()
+    entry.showDuelDeployFailure()
+    const [retry, cancel] = entry.panel!.children
+    entry.preloadDuelOpponent.mockResolvedValue(true); retry.click(); await vi.waitFor(() => expect(entry.closePanel).toHaveBeenCalledOnce())
+    expect(entry.duel.startActiveMission).toHaveBeenCalledOnce(); expect(entry.inventory.prepareForCombat).toHaveBeenCalledOnce()
+    cancel.click(); expect(entry.returnToTown).toHaveBeenCalledExactlyOnceWith('direct')
+    expect(JSON.stringify(entry.profile.activeMission)).toBe(before)
+  })
+  it('treats a duel that cannot be built as a failed deployment too', async () => {
+    expect(await resume(true, false).deployActiveDuel()).toBe(false)
+    expect(await resume(true, true).deployActiveDuel()).toBe(true)
+  })
+})
+
+describe('Career Duel parked resident protection', () => {
+  type Hits = { duel: { isParkedResident(target: unknown): boolean }; hitFieldNpc(...args: unknown[]): void; canHitTownMount(mount: unknown, source?: unknown): boolean }
+  it('ignores damage from any source to a parked resident or its mount, while other targets keep normal handling', () => {
+    const proto = TownScene.prototype as unknown as Hits
+    const parkedNpc = { dead: false, takeDamage: vi.fn() }, parkedMount = { dead: false }, other = { dead: false }
+    const self = { duel: { isParkedResident: (target: unknown) => target === parkedNpc || target === parkedMount },
+      get retirementFinale() { throw new Error('reached normal damage handling') } } as unknown as Hits
+    const hostile = { faction: 'enemy', unarmedContact: undefined }
+    expect(() => proto.hitFieldNpc.call(self, parkedNpc, 50, 'melee', hostile)).not.toThrow()
+    expect(parkedNpc.takeDamage).not.toHaveBeenCalled()
+    expect(proto.canHitTownMount.call(self, parkedMount, hostile)).toBe(false)
+    expect(() => proto.hitFieldNpc.call(self, other, 50, 'melee', hostile)).toThrow('normal damage handling')
+  })
 })

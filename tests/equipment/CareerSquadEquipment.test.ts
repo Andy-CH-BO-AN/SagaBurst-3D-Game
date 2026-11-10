@@ -7,6 +7,7 @@ import { changePersonalEquipment, personalMemberRefund, recruitPersonalSquadMemb
 import { cloneCareerProfile, createCareerProfile, purchaseCareerContent, type CareerPurchaseRequest, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
+import { resolvePersonalRecruitment } from '../../src/career/CareerRecruitmentCatalog'
 import { TownEquipment } from '../../src/town/TownEquipment'
 import { personalMemberLoadout } from '../../src/town/TownPersonalSquadController'
 import { purchaseTownEquipment, purchaseTownMount, sellTownProduct } from '../../src/town/TownRules'
@@ -225,6 +226,23 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     const viking = harness('commander', 'viking')
     expect(recruitPersonalSquadMember(viking.read(), { ...choice, visualAssetId: 'byzantine-cataphract-t5' }, viking.save)).toMatchObject({ recruited: false, reason: 'invalid-product' })
     expect(parseCareerProfile({ ...viking.read(), personalSquad: { members: [{ ...byzantine }] } })).toBeNull()
+  })
+  it.each([
+    ['roman', 4, 'captain', 'roman-centurion-t4', 'centurion', 500, 700, 'gladius_standard'],
+    ['viking', 4, 'captain', 'viking-heavy-hero-t4', 'dragon-oathguard', 500, 550, 'steel_sword'],
+    ['viking', 5, 'commander', 'viking-heavy-hero-t5', 'ironblood-warlord', 3000, 1000, 'steel_sword'],
+  ] as const)('hires the %s elite T%i hero at its catalog price with ordinary gear, and its body survives reload', (faction, characterTier, heroArchetype, visualAssetId, combatProfileId, price, maxHp, melee) => {
+    const h = harness('commander', faction), choice = { characterTier, heroArchetype, recruitmentRole: 'swordsman' as const, visualAssetId }
+    const result = recruitPersonalSquadMember(h.read(), choice, h.save)
+    expect(result.recruited).toBe(true); expect(h.read().availableMerit).toBe(60000 - price)
+    const member = h.store.load()!.personalSquad!.members[0]
+    expect(member).toMatchObject({ type: heroArchetype, characterFaction: faction, visualAssetId, originalHirePrice: price, equipment: { melee, mount: 'horse' } })
+    expect(personalMemberLoadout(member, faction).hero).toMatchObject({ visualAssetId, combatProfileId })
+    expect(resolvePersonalRecruitment(faction, choice)!.maxHp).toBe(maxHp)
+    const other = harness('commander', faction === 'roman' ? 'viking' : 'roman')
+    expect(recruitPersonalSquadMember(other.read(), choice, other.save)).toMatchObject({ recruited: false, reason: 'invalid-product' })
+    expect(other.read().availableMerit).toBe(60000)
+    expect(parseCareerProfile({ ...other.read(), personalSquad: { members: [{ ...member }] } })).toBeNull()
   })
   it('equips Ranger weapons normally and never restores a deliberately removed default on reload', () => {
     const h = harness(), id = h.hire('ranger')
