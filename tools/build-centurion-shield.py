@@ -20,6 +20,10 @@ SHIELD_FILE = 'Meshy_AI_Aquila_s_Bulwark_1107160911_texture.glb'
 SHIELD_SHA = 'dc66ccd3021258206de3b1944a0c850c8d8f3c2b120eb37c088fea411d06402c'
 RIGHTS = 'User supplied Meshy GLB for SagaBurst; the repository owner supplied this file and requested its integration on 2026-11-10.'
 HEIGHT = 1.1  # Same visible height as the other Roman T4 faction shield (Starlit Aegis).
+# Rear surface behind the boss. Flat shields sit at ~.13-.16; this scutum's curved edges wrap ~14 cm behind
+# its centre, so the board sits 10 cm further out to keep those edges off the carrier's hip and spine while
+# the face still covers the body (measured in the hero preview against the Centurion idle/walk pose).
+REAR_CENTER_Z = .255
 
 doc, binary, sha = lib.read(SOURCE / SHIELD_FILE)
 if sha != SHIELD_SHA:
@@ -32,10 +36,10 @@ if float(points[:, 2].max()) < -float(points[:, 2].min()) * .5:
 
 scale = HEIGHT / float(np.ptp(points[:, 1]))
 offset = -(points.min(0) + points.max(0)) * scale / 2
-# The scutum is curved: measure the board directly behind the boss, then seat it like the other faction shields.
+# The scutum is curved: measure the board directly behind the boss and seat it at REAR_CENTER_Z.
 core = points[np.hypot(points[:, 0], points[:, 1] * .6) < .06]
 rear_center = float(core[:, 2].min())
-offset[2] = .155 - rear_center * scale
+offset[2] = REAR_CENTER_Z - rear_center * scale
 matrix = np.eye(4); matrix[:3, :3] *= scale; matrix[:3, 3] = offset
 doc['nodes'][0]['matrix'] = matrix.T.flatten().tolist()
 final = points @ matrix[:3, :3].T + matrix[:3, 3]
@@ -68,7 +72,7 @@ shield = {'id': 'centurion_aquila_shield_t4', 'sourceFile': SHIELD_FILE, 'source
     'geometryPolicy': 'All source accessor, index, UV, normal, material and image bytes retained; uniform node transform only.',
     'triangles': len(triangles), 'uniformScale': scale, 'sourceToAttachmentMatrix': matrix.T.flatten().tolist(),
     'boundsMin': final.min(0).tolist(), 'boundsMax': final.max(0).tolist(), 'gripCenterLocal': [0, 0, .085],
-    'rearCenterZ': .155, 'front': '+Z', 'heightMeters': HEIGHT, 'collisionBands': bands,
+    'rearCenterZ': REAR_CENTER_Z, 'front': '+Z', 'heightMeters': HEIGHT, 'collisionBands': bands,
     'collisionPolicy': '32 horizontal silhouette slices, nine samples per slice, 3mm inward margin; no runtime triangle queries.'}
 doc['asset'].setdefault('extras', {})['factionEquipment'] = shield
 folder = ROOT / 'public/models/weapons/faction-shields'

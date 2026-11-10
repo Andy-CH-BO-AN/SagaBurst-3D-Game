@@ -749,8 +749,9 @@ export class WeaponMeshFactory {
           mount.scale.z = (rearSeatZ - gripZ) / .17
         }
         if (eagleShield) {
-          // Measured rear surface behind the boss is z=.155 (both builders); seat the mounts there rather than through the painted face.
-          const rearSeatZ = .165
+          // Measured rear surface behind the boss (builder rearCenterZ): .155 eagle, .255 curved Aquila scutum.
+          // Seat the mounts 1 cm into it rather than through the painted face.
+          const rearSeatZ = shieldId === 'centurion_aquila_shield_t4' ? .265 : .165
           mount.position.z = (gripZ + rearSeatZ) / 2
           mount.scale.z = (rearSeatZ - gripZ) / .17
         }
