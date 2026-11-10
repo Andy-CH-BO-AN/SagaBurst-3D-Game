@@ -29,6 +29,9 @@ const ALERT_ICON_TOP = 2.7
 const ICON_GAP = 0.05
 const BASE_CENTER_HEIGHT = ALERT_ICON_TOP + ICON_GAP + MARKER_WORLD_SIZE / 2
 
+/** Scratch for the per-frame anchor; avoids allocating a Vector3 per marker. */
+const anchor = new THREE.Vector3()
+
 function createDiamondTexture(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null
   const canvas = document.createElement('canvas')
@@ -142,9 +145,14 @@ export class ArmyCommandSelectionMarker {
       const dz = position.z - camPos.z
       if (dx * dx + dz * dz > MAX_DISTANCE_SQ) continue
       const offset = count * 3
-      positions[offset] = position.x
-      positions[offset + 1] = position.y + Math.max(BASE_CENTER_HEIGHT, this.lifts[i])
-      positions[offset + 2] = position.z
+      // The "!" and "?" icons are children of npc.group, so they follow its pitch/bank (eagle
+      // flight, mount ride pitch). Rotate the same local anchor by the group's quaternion instead
+      // of lifting along world Y. The group hangs directly off the scene and its position and
+      // quaternion are current after the NPC update; matrixWorld is only refreshed at render.
+      anchor.set(0, Math.max(BASE_CENTER_HEIGHT, this.lifts[i]), 0).applyQuaternion(npc.group.quaternion)
+      positions[offset] = position.x + anchor.x
+      positions[offset + 1] = position.y + anchor.y
+      positions[offset + 2] = position.z + anchor.z
       count++
     }
 
