@@ -687,6 +687,13 @@
       #character-modal .inv-item-tier { display: block; font-size: 12px; margin-top: 4px; }
       #character-modal .inv-item-stats { font-size: 12px; line-height: 1.5; }
       #character-modal .inv-item-desc { margin: 4px 0; color: #c8bfae; font-size: 12px; line-height: 1.5; }
+      .loadout-strip { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; padding:10px; border:1px solid #95784f; border-radius:6px; background:#3a2d1a55; }
+      .loadout-slot small { display:block; color:#b7a78c; font-size:11px; letter-spacing:.1em; }
+      .loadout-slot strong { font-size:13px; color:#ffe5af; overflow-wrap:anywhere; }
+      .loadout-status { grid-column:1 / -1; margin:0; min-height:1.3em; font-size:12px; color:#a9c98a; }
+      #character-modal .inv-item-compare { font-size:12px; margin:3px 0; }
+      .compare-upgrade { color:#a9c98a; } .compare-downgrade { color:#d98f7a; } .compare-mixed { color:#eac683; } .compare-same { color:#b7a78c; }
+      #character-modal .inv-item-details summary { cursor:pointer; font-size:12px; color:#b7a78c; }
       #character-modal .btn-equip {
         margin: 6px 5px 0 0;
         padding: 4px 8px;

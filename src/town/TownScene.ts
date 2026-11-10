@@ -21,6 +21,7 @@ import { HEAVY_FIELD_MISSION_CATALOG, acceptHeavyFieldMission, createCareerHeavy
 import { COMMANDER_BRIDGEHEAD_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_IRON_LEGION_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { ARMORS } from '../rpg/ArmorDatabase'
+import { compareEquipment, equipmentDetails, equipmentTraits } from '../rpg/EquipmentComparison'
 import { prepareByzantineEquipment, preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { assignTownCivilianHomes, civilianBodyClear, civilianMountsClear, CIVILIAN_MOUNT_CLEARANCE, TownCivilianLife } from './TownCivilianLife'
 import { townDefenseThreatResponse, townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
@@ -1427,7 +1428,14 @@ export class TownScene {
           const shortfall = item.price - this.profile.availableMerit
           const meta = document.createElement('small'); meta.style.whiteSpace = 'pre-line'
           meta.textContent = `價格：${item.price.toLocaleString()} 軍功${shortfall > 0 ? `（還差 ${shortfall.toLocaleString()}）` : ''}\n${townHoldingText(this.profile, item)}`
-          if (ARMORS[item.id]) meta.textContent += `\n盾牌耐久：${ARMORS[item.id].shieldImpactMax}`
+          const gear = WEAPONS[item.id] ?? ARMORS[item.id]
+          if (gear && page === 'buy') {
+            // Plain traits and a comparison with what the player holds in that slot; exact figures stay in the title tooltip.
+            const held = ARMORS[item.id] ? this.inventory.equippedShield : gear.type === 'ranged' ? this.inventory.equippedRanged : this.inventory.equippedMelee
+            const versus = compareEquipment(gear, held)
+            meta.textContent += `\n${equipmentTraits(gear).join(' · ')}` + (versus.relation === 'none' ? '' : `\n比目前${held?.name ? `「${held.name}」` : '裝備'}：${versus.lines.join(' · ')}`)
+            row.title = equipmentDetails(gear).join(' ｜ ')
+          } else if (item.id === 'armored-horse') meta.textContent += '\n高防護 · 機動較慢\n騎乘速度依騎手而定：一般 10.5 m/s，拜占庭鐵甲重騎兵 12 m/s'
           row.append(title, meta)
           if (page === 'sell') {
             const price = townResalePrice(this.profile, item.id)

@@ -161,7 +161,11 @@ export class CareerMountController implements EquipmentMountAdapter {
     const profile = this.readProfile()
     return ownedCareerMountIds(profile).map(id => ({
       ...MOUNTS[canonicalCareerMountId(id)],
-      ...(id === 'armored-horse' && profile.eliteClass === 'byzantine-cataphract' ? { name: '拜占庭重甲戰馬 · 騎乘速度 12m/s' } : {}),
+      ...(id === 'armored-horse' ? {
+        name: '重甲戰馬', traits: ['高防護', '機動較慢'],
+        // Mirrors Mount.setPlayerRider: speed follows the rider's class, never a fixed number for everyone.
+        detail: profile.eliteClass === 'byzantine-cataphract' ? '目前的騎手（拜占庭鐵甲重騎兵）可跑到 12 m/s。' : '一般騎手 10.5 m/s；拜占庭鐵甲重騎兵騎乘時可達 12 m/s。',
+      } : id === 'horse' ? { traits: ['機動均衡'] } : {}),
       tier: careerMountTier(id, profile),
       active: this.active?.id === id && this.player().currentMount === this.active.mount,
       available: canUseCareerMount(profile, id) && !this.unavailable.has(id),

@@ -34,7 +34,7 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
         ? '單挑尚未結算。請先關閉面板，跟隨裁判回營完成結算後，再替小隊換裝。'
         : '任務尚未結算。請先關閉面板，完成任務並返回小鎮結算後，再替小隊換裝。'
       : '私兵必須全員回到人資中心（待命中）才能換裝；請先下令「Dismiss · 收隊」。'
-    const notice = document.createElement('p'); notice.className = 'inv-item-desc inventory-wide'
+    const notice = document.createElement('p'); notice.className = 'inv-item-desc inventory-wide'; notice.setAttribute('role', 'status')
     notice.textContent = canChange ? message || '換裝只使用背包可用份數。裝備遠程會退回盾牌；裝備盾牌會退回遠程武器。' : lockNotice
     container.append(notice)
     appendBulkControls(container, bulk, () => canRecruitPersonalSquad(read()) && management?.().allowed !== false && state() === 'RESERVE' && !read().activeMission && !read().activeOutpostMission, lockNotice, value => { message = value; refresh() })
@@ -79,7 +79,7 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
 }
 
 
-const SLOT_LABELS: Record<PersonalEquipmentSlot, string> = { melee: '近戰 Melee', ranged: '遠程 Ranged', shield: '盾牌 Shield', mount: '坐騎 Mount' }
+const SLOT_LABELS: Record<PersonalEquipmentSlot, string> = { melee: '近戰', ranged: '遠程', shield: '盾牌', mount: '坐騎' }
 const BULK_ACTIONS: readonly { category: BulkEquipmentCategory; label: string }[] = [
   { category: 'bow', label: '一鍵換弓' }, { category: 'sword', label: '一鍵換刀' },
   { category: 'axe', label: '一鍵換斧' }, { category: 'spear', label: '一鍵換槍' }, { category: 'mount', label: '一鍵換馬' },
