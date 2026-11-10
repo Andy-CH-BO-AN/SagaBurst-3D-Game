@@ -143,6 +143,16 @@ function deploymentClassLoadout(faction: CharacterFaction, base: UnitLoadout, re
   }
   return next
 }
+/** Evaluation view of a resolved actor's refs: untouched deployment class-kit slots carry the weapon/shield it actually wields,
+ * so tier and category decisions see T5 lance and shield. It is never persisted or transferable; ownership stays with the tokens. */
+export function effectiveTownRefs(resolved: Pick<ResolvedTownActorEquipment, 'refs' | 'loadout'>): TownEquipmentRefs {
+  const refs = { ...resolved.refs }
+  for (const slot of ['melee', 'shield'] as const) {
+    const ref = refs[slot], itemId = resolved.loadout[slotKeys[slot]]
+    if (ref && itemId && ref.itemId !== itemId) refs[slot] = { itemId, source: 'inventory' }
+  }
+  return refs
+}
 /** One read-only scan of current ownership. Recreate after any state write/parse;
  * returned refs remain independent mutable copies for equipment transactions. */
 export function createTownEquipmentRefsResolver(profile: CareerProfile, faction: CharacterFaction) {

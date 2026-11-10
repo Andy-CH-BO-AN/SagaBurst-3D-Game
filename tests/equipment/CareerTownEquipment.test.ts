@@ -77,6 +77,20 @@ describe('Town equipment domain, canonical ownership and persisted native source
     expect(careerItemTotal(loaded, 'byzantine_standard_lance_t5') + careerItemTotal(loaded, 'armored-horse')).toBe(0)
     expect(h.reload()).toEqual(loaded)
   })
+  it.each([['roman', 'sword', 'paladin_sword_t4'], ['viking', 'axe', 'paladin_mace_t4']] as const)('bulk refit never downgrades or restocks the %s deployment officer\'s untouched T5 lance', (faction, melee, t4Stock) => {
+    const h = harness(faction); h.context.safeActorIds = new Set(['deployment']); h.buy('spear_t4'); h.buy(t4Stock)
+    const lance = resolveTownActorEquipment(h.read(), faction, 'deployment').loadout.meleeWeaponId
+    for (const category of ['spear', melee] as const) expect(h.bulk(1, category)).toMatchObject({ changed: false, changedActorIds: [] })
+    expect(h.read().townEquipment).toBeUndefined()
+    expect([availableCareerItem(h.read(), 'spear_t4'), availableCareerItem(h.read(), t4Stock)]).toEqual([1, 1])
+    expect(resolveTownActorEquipment(h.read(), faction, 'deployment').loadout.meleeWeaponId).toBe(lance)
+  })
+  it('still refits a manually equipped deployment officer by the weapon actually held', () => {
+    const h = harness(); h.context.safeActorIds = new Set(['deployment']); h.buy('spear_t4'); h.buy('spear_t5')
+    expect(h.change('deployment', 'melee', 'spear_t4').changed).toBe(true)
+    expect(h.bulk(1, 'spear')).toMatchObject({ changed: true, changedActorIds: ['deployment'], summary: { upgraded: 1 } })
+    expect(resolveTownActorEquipment(h.read(), 'roman', 'deployment').loadout.meleeWeaponId).toBe('spear_t5')
+  })
   it('keeps a deliberately emptied deployment mount empty once the marker exists', () => {
     const h = harness('viking'), profile = h.read(), deployment = resolveTownActorEquipment(profile, 'viking', 'deployment')
     profile.townEquipment = { viking: { version: 1, residentEquipmentVersion: 1, factionShieldVersion: 1, deploymentMountVersion: 1,
