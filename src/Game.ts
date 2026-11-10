@@ -1506,7 +1506,7 @@ export class Game {
       this.inventoryManager = inventory
       this.player.setMaxHp(resolveCareerPlayerMaxHp(this.careerProfile, this.basePlayerMaxHp))
       this.player.setHp(this.player.maxHp)
-      this.controlsHint.textContent = 'WASD 移動 ｜ Shift 衝刺 ｜ 左鍵攻擊 ｜ 右鍵舉盾／瞄準 ｜ Tab 裝備 ｜ 滾輪切換武器'
+      this.controlsHint.textContent = 'WASD 移動 ｜ Shift 衝刺 ｜ 左鍵攻擊 ｜ 右鍵／F 舉盾瞄準 ｜ Tab 裝備 ｜ 滾輪切換武器'
     }
     this.combatEvents.subscribe(event => this._awardPlayerSkillXpFromEvent(event))
     if (this.felineMissionId && isCareerHeavyFieldBattle(this.careerProfile?.activeMission)) {
@@ -1789,7 +1789,7 @@ export class Game {
     for (const dummy of this.trainingGround.dummies) dummy.group.traverse(node => {
       if (node instanceof THREE.Mesh) this._aimTargetRegistry.addStaticTarget(node)
     })
-    this.controlsHint.textContent = 'WASD 移動 · Shift 加速 · Space 跳躍 · E 上下坐騎 · 左鍵近戰 · 右鍵瞄準／舉盾 · Tab 裝備 · Esc 訓練選單'
+    this.controlsHint.textContent = 'WASD 移動 · Shift 加速 · Space 跳躍 · E 上下坐騎 · 左鍵近戰 · 右鍵／F 瞄準舉盾 · Tab 裝備 · Esc 訓練選單'
     this.trainingUI = new TrainingGroundUI({
       onEquipment: () => this._toggleEquipment(),
       onRefill: () => this._refillTraining(), onReset: () => this._resetTraining(), onExit: () => this._exitTraining(),
@@ -1924,7 +1924,7 @@ export class Game {
     this.player.group.visible = true
     this.thirdPersonCamera = new ThirdPersonCamera(this.camera, this.player)
     this.thirdPersonCamera.setYaw(0)
-    if (this.controlsHint) this.controlsHint.textContent = 'WASD 移動 · 滑鼠轉向 · 左鍵近戰 · 右鍵瞄準＋左鍵射擊 · E 騎乘／下馬 · Tab 裝備 · Esc 訓練選單'
+    if (this.controlsHint) this.controlsHint.textContent = 'WASD 移動 · 滑鼠轉向 · 左鍵近戰 · 右鍵或 F 瞄準＋左鍵射擊 · E 騎乘／下馬 · Tab 裝備 · Esc 訓練選單'
     this.thirdPersonCamera.update(this.input, 0, this.obstacles)
     this.trainingUI?.setDamage(null)
     this.trainingUI?.updateLabels(this.camera)
