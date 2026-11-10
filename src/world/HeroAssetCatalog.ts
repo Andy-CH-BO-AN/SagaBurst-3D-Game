@@ -25,7 +25,7 @@ export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; 
     descriptor: { assetId: 'viking-heavy-hero-t4', faction: 'viking', heightM: 1.999999935896147, maxShoulderWidthM: 0.656265570914091, neckLengthM: 0.08004531860351614 },
   },
   'roman-hero-t4': {
-    nameZh: '聖騎士', nameEn: 'Paladin',
+    nameZh: '禁衛軍隊長', nameEn: 'Praetorian Captain',
     descriptor: { assetId: 'roman-hero-t4', faction: 'roman', heightM: 1.95, maxShoulderWidthM: .50, neckLengthM: .0782356292 },
   },
   // Owner-supplied 10K Meshy Mixamo66 model (tools/build-meshy-faction-heroes.mjs, asset roman-centurion-t4); metrics are the manifest's measurements.
@@ -39,11 +39,11 @@ export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; 
     descriptor: { assetId: 'maki-archer-t4', faction: 'viking', heightM: 1.90, maxShoulderWidthM: .418, neckLengthM: .090554 },
   },
   'roman-hero-t5': {
-    nameZh: '羅馬指揮官', nameEn: 'Roman Commander',
+    nameZh: '羅馬軍團統帥', nameEn: 'Roman Legate',
     descriptor: { assetId: 'roman-hero-t5', faction: 'roman', heightM: 1.8191270070256114, maxShoulderWidthM: .5211178487681826, neckLengthM: .11045054826976493 },
   },
   'viking-hero-t5': {
-    nameZh: '維京指揮官', nameEn: 'Viking Commander',
+    nameZh: '北境戰酋', nameEn: 'Norse Warchief',
     descriptor: { assetId: 'viking-hero-t5', faction: 'viking', heightM: 2.1193006331863145, maxShoulderWidthM: .6645790819402477, neckLengthM: .0877771550 },
   },
   // Owner-supplied Meshy Mixamo24 model (tools/build-viking-heavy-heroes.mjs); metrics are the manifest's measurements.
