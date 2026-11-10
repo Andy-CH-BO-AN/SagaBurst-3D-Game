@@ -1819,7 +1819,7 @@ export class TownScene {
       const title = document.createElement('strong'); title.textContent = name
       const detail = document.createElement('small'); detail.textContent = `遣散可退還 ${personalMemberRefund(this.profile, member).toLocaleString()} 軍功 · ${personalSquadStateLabel(this.personalSquad?.state ?? 'RESERVE')}`
       const sell = document.createElement('button'); sell.className = 'town-button'; sell.textContent = '遣散'
-      sell.disabled = this.personalSquad?.state !== 'RESERVE'
+      sell.disabled = !canRelease
       sell.onclick = () => this.confirmPersonalSales([member.id])
       row.append(title, detail, sell); list.append(row)
     }

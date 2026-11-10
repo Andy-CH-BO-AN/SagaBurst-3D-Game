@@ -187,10 +187,10 @@ Practice freely without spending merit, changing your Career progress, or earnin
 
 Create your own Viking vs Roman battle.
 
-- Set **1–200 AI troops per side**, mixing infantry, archers, javelin troops, cavalry, and mounted archers.
-- Choose **T1 / T2 / T3** regular troops and up to **three T4 heroes per side**. Heroes count toward the configured AI total.
+- In a ground battle, set **1–300 AI troops per side**, mixing infantry, archers, javelin troops, cavalry, and mounted archers. An aerial mode allows up to **50 archers per side**.
+- Configure each unit type from **T1 to T5**; every tier counts toward that side's AI total.
 - Choose **Formation Battle** or **Scattered Battle**, and group your commands by **Preset** (unit type) or **Squad**.
-- Pick your faction, weapons, shield, character, and mount, or enable **Spectator** to watch the AI fight. Player characters include standard T1–T3 soldiers and T4 / T5 heroes; these choices are separate from the AI army's three-hero limit.
+- Pick your faction, weapons, shield, character, and mount, or enable **Spectator** to watch the AI fight. Player characters include standard T1–T3 soldiers and T4 / T5 heroes.
 - In Squad grouping, organize up to **ten squads, with up to 50 troops each**, before starting.
 - The player is an additional fighter outside the AI total. If you die, you can spectate the remaining battle; **REMATCH** replays the same setup.
 

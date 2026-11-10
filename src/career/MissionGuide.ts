@@ -46,7 +46,7 @@ export class MissionGuide {
     }
     if (context === 'captain-sweep' && target && (phase === 'ASSEMBLING' || phase === 'MARCHING' || phase === 'ENGAGING')) {
       const distance = this.pointAt(playerPosition, cameraYaw, target)
-      this.label.textContent = `前往盜匪營地 · ${Math.round(distance)} 公尺`
+      this.label.textContent = phase === 'ENGAGING' ? `消滅盜匪 · 剩餘 ${remainingEnemies} 人` : `前往盜匪營地 · ${Math.round(distance)} 公尺`
       return
     }
     if (phase === 'ENGAGING') {
