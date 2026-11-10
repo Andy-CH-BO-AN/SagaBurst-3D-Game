@@ -1,0 +1,108 @@
+{
+  "builder": "tools/build-viking-heavy-heroes.mjs",
+  "sourceSha256": "55f9357fafbe58f399d582caf730f7338c64660e6fc3ca06f8c9f6d26c0e62a6",
+  "sourceBytes": 14785628,
+  "sourceStructure": {
+    "joints": 24,
+    "animations": [
+      "Running",
+      "Walking"
+    ],
+    "armatureScale": 0.01,
+    "images": [
+      "image/png",
+      "image/png"
+    ],
+    "triangles": 30595
+  },
+  "thighPivotM": 1.0180200954498984,
+  "waistVerticesReweighted": 11837,
+  "measuredPlantedFootSpeed": {
+    "walk": 1.4918571454534137,
+    "run": 3.4823179481066227
+  },
+  "seatBearing": [
+    [
+      0.126,
+      0.947,
+      -0.04
+    ],
+    [
+      -0.125,
+      0.947,
+      -0.04
+    ]
+  ],
+  "lod0Policy": "Original vertex, normal, UV, tangent and index bytes preserved; only JOINTS/WEIGHTS of the waist band changed. No decimation of LOD0.",
+  "lods": [
+    {
+      "level": 0,
+      "triangles": 30595,
+      "textureMax": 2048,
+      "bytes": 8432560,
+      "sha256": "ecb37ff1e683e689e770c3edb22c5a4313a2b99758e1de80516557fb00724ad6",
+      "maxDroppedInfluenceWeight": 0,
+      "joints": 24,
+      "animationNames": [
+        "idle",
+        "mounted",
+        "walk",
+        "run",
+        "swordSlash",
+        "bowLoad",
+        "bowHold",
+        "bowRelease",
+        "pilumThrow",
+        "axeMountedIdle",
+        "axeAttack1H",
+        "axeAttack2H"
+      ]
+    },
+    {
+      "level": 1,
+      "triangles": 15000,
+      "textureMax": 1024,
+      "bytes": 3697448,
+      "sha256": "a468a479a60414b9191550185cf02434bd594805c847bab37d6614cae4dc7d47",
+      "maxDroppedInfluenceWeight": 0.04675432701970883,
+      "joints": 24,
+      "animationNames": [
+        "idle",
+        "mounted",
+        "walk",
+        "run",
+        "swordSlash",
+        "bowLoad",
+        "bowHold",
+        "bowRelease",
+        "pilumThrow",
+        "axeMountedIdle",
+        "axeAttack1H",
+        "axeAttack2H"
+      ]
+    },
+    {
+      "level": 2,
+      "triangles": 6000,
+      "textureMax": 512,
+      "bytes": 2167840,
+      "sha256": "eefc734c6b249e41e2be6a5196a675121734b7b7554d269be0df3af193f2db97",
+      "maxDroppedInfluenceWeight": 0.12127520193424002,
+      "joints": 24,
+      "animationNames": [
+        "idle",
+        "mounted",
+        "walk",
+        "run",
+        "swordSlash",
+        "bowLoad",
+        "bowHold",
+        "bowRelease",
+        "pilumThrow",
+        "axeMountedIdle",
+        "axeAttack1H",
+        "axeAttack2H"
+      ]
+    }
+  ]
+}
