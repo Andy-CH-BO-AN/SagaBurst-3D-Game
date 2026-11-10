@@ -525,7 +525,7 @@ describe('Career Duel hero class selection', () => {
     expect(classIds('viking', 'viking_berserker', 4)).toEqual(['varangian', 'dragon-oathguard'])
     expect(classIds('viking', 'viking_berserker', 5)).toEqual(['viking-commander', 'ironblood-warlord'])
     expect([classIds('roman', 'roman_archer', 4), classIds('roman', 'roman_sword_cavalry', 3), classIds('viking', 'roman_sword_cavalry', 4)]).toEqual([[], [], []])
-    const profile = { ...createCareerProfile('roman'), duelHighestDefeatedTierByPreset: { roman_sword_cavalry: 3 } }
+    const profile = { ...createCareerProfile('roman'), duelHighestDefeatedTierByPreset: { roman_sword_cavalry: 3 as CareerDuelTier } }
     const create = (classId?: Parameters<typeof createCareerDuelMission>[8], preset: UnitPresetId = 'roman_sword_cavalry', mode: 'armed' | 'unarmed' = 'armed') =>
       createCareerDuelMission(profile, preset, 4, 'captain', 'captain', 'class-duel', 'ranger', mode, classId)
     expect(create()).toMatchObject({ duelClassId: 'praetorian' })
@@ -538,7 +538,7 @@ describe('Career Duel hero class selection', () => {
   })
 
   it('persists the chosen class through save and reload, and an old or illegal record falls back to the original class', () => {
-    const profile = { ...createCareerProfile('roman'), duelHighestDefeatedTierByPreset: { roman_sword_cavalry: 3 } }
+    const profile: CareerProfile = { ...createCareerProfile('roman'), duelHighestDefeatedTierByPreset: { roman_sword_cavalry: 3 } }
     const mission = createCareerDuelMission(profile, 'roman_sword_cavalry', 4, 'captain', 'captain', 'class-duel', 'ranger', 'armed', 'centurion')!
     const reload = (duelClassId?: string) => {
       const { duelClassId: _drop, ...rest } = mission
@@ -550,7 +550,7 @@ describe('Career Duel hero class selection', () => {
   })
 
   it('fights the chosen class in a temporary body while the resident stays parked, unchanged, and returns on cleanup', () => {
-    const body = makeActor('captain', -30, 20); Object.assign(body, { combatProfileId: 'centurion', dispose: vi.fn() })
+    const dispose = vi.fn(), body = Object.assign(makeActor('captain', -30, 20), { combatProfileId: 'centurion', dispose })
     const requests: CareerDuelOpponentRequest[] = []
     const h = heavyDuel({}, request => { requests.push(request); return body as unknown as NPC }), { controller } = h
     expect(controller.startActiveMission()).toBe(true)
@@ -562,7 +562,7 @@ describe('Career Duel hero class selection', () => {
     expect(h.captain.applyTemporaryCombatLoadout).not.toHaveBeenCalled()
     expect(body.restoreCombatHealth).toHaveBeenCalledWith(700)
     controller.cleanupMission()
-    expect(body.dispose).toHaveBeenCalledOnce()
+    expect(dispose).toHaveBeenCalledOnce()
     expect((h.captain.group as { visible?: boolean }).visible).toBe(true)
     expect(h.captain.restoreForTown).not.toHaveBeenCalled()
   })
