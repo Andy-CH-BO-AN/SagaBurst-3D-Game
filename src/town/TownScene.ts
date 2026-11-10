@@ -49,6 +49,7 @@ import { personalMemberRefund, sellPersonalSquadMembers } from '../career/Career
 import { appendTownSaleDropdown } from './TownSaleUI'
 import { sellTownNativeProducts, townNativeSaleGate, townNativeSaleStock, type TownNativeSaleContext, type TownNativeSaleRequest } from '../career/CareerTownNativeResale'
 import { ArmyCommandController } from '../battle/ArmyCommandController'
+import { ArmyCommandSelectionMarker } from '../battle/ArmyCommandSelectionMarker'
 import { CivilianCommandSquadController } from './CivilianCommandSquadController'
 import { officialCommandAcceptsActor, officialCommandIsPlayerControlled } from '../career/CareerCommandAuthority'
 import { stageOfficialCommandOrder } from '../career/CareerOfficialCommandOrder'
@@ -290,6 +291,7 @@ export class TownScene {
   private privateEaglePads?: EaglePadReservations
   private personalSquad?: TownPersonalSquadController
   private personalCommands?: ArmyCommandController
+  private commandSelectionMarker?: ArmyCommandSelectionMarker
   private personalSaveElapsed = 0
   private personalCriticalState = ''
   private readonly siegeHitTargets = new Set<DamageableObstacle>()
@@ -480,6 +482,13 @@ export class TownScene {
         beforeIssue: (order, target, participants, assignments) => this.preparePlayerCommand(order, target, participants, assignments),
         issue: (order, target) => this.issuePartyOrder(order, target) },
       () => this.commandHudRoster())
+    // Service NPCs carry a persistent "?" sprite; lift the command marker above its top edge.
+    this.commandSelectionMarker = new ArmyCommandSelectionMarker(this.scene, this.personalCommands, npc => {
+      for (const sprite of this.serviceMarkers.values()) {
+        if (sprite.parent === npc.group && sprite.visible) return sprite.position.y + sprite.scale.y / 2
+      }
+      return 0
+    })
     this.tutorial = new TownTutorialController({
       profile: () => this.profile, commit: next => this.commit(next),
       peaceful: () => !this.disposed && !this.player.dead && !this.event.hostile
@@ -4258,6 +4267,10 @@ export class TownScene {
     document.getElementById('quiver-hud')!.style.display = this.inventory.rangedEnabled ? '' : 'none'
     this.aerialView.update(this.camera, this.scene, usesAerialView(Boolean(this.player.isMounted && this.player.currentMount?.isFlyingMount), Boolean(this.spectator), this.camera.position.y - getTerrainHeight(this.camera.position.x, this.camera.position.z)))
     this.compass?.update(this.camera)
+    // Same input ownership as updatePlayerCommands(): panels, dialogs, equipment, results and death hide markers.
+    this.commandSelectionMarker?.update(!this.panel && !this.equipment.visible && !this.result
+      && !this.spawnErrorShown && !this.deploymentFailed && !this.retirementFinale?.frozen
+      && !this.player.dead && !this.spectator, this.camera, dt)
     this.hud.style.whiteSpace = 'pre-line'; this.renderer.render(this.scene, this.camera)
     this.scheduleSiegeOpening()
     this.raf = requestAnimationFrame(t => this.frame(t))
@@ -4282,6 +4295,8 @@ export class TownScene {
     this.retirementFinale?.dispose()
     this.personalCommands?.close()
     this.personalFormation?.cancelPlacement()
+    this.commandSelectionMarker?.dispose()
+    this.commandSelectionMarker = undefined
     this.personalCommandUI?.dispose()
     this.enemyEaglePatrol?.dispose()
     this.outskirts?.dispose()
