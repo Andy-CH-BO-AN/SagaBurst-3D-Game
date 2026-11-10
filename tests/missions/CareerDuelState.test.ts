@@ -1,6 +1,6 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Vector3, type Scene } from 'three'
-import { CareerDuelController, persistsDuelTravel, selectCareerDuelRoster, type CareerDuelOpponentRequest } from '../../src/career/CareerDuelController'
+import { CareerDuelController, persistsDuelTravel, selectCareerDuelRoster, duelLoadout, type CareerDuelOpponentRequest } from '../../src/career/CareerDuelController'
 import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import type { Player } from '../../src/player/Player'
@@ -11,7 +11,7 @@ import { townSitePoint, type TownActorSpec } from '../../src/town/TownRules'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
 import { duelCombatSeconds, resolveCareerDuelOutcome, isUnarmedDuelUnlocked, isIllegalUnarmedDuelDamage, careerDuelOpponentHealth, createCareerTutorialDuelMission, CAREER_DUEL_TEMPLATE_ID, createCareerDuelMission, isCareerDuelUnlocked, type CareerDuelTier } from '../../src/career/CareerDuelState'
-import { careerDuelClassOptions } from '../../src/career/CareerDuelClasses'
+import { careerDuelClassOptions, resolveCareerDuelClass } from '../../src/career/CareerDuelClasses'
 import { acceptsCareerMissionStat } from '../../src/career/CareerMissionState'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
@@ -537,6 +537,16 @@ describe('Career Duel hero class selection', () => {
     expect(isCareerDuelUnlocked(won, 'roman_sword_cavalry', 5)).toBe(true)
   })
 
+  it('arms each elite class with its own shield and leaves the default classes on the army shield', () => {
+    const shield = (preset: UnitPresetId, tier: 4 | 5, id: Parameters<typeof resolveCareerDuelClass>[3]) =>
+      duelLoadout(preset, tier, resolveCareerDuelClass(preset.startsWith('roman') ? 'roman' : 'viking', preset, tier, id)).shieldId
+    expect([shield('roman_heavy_infantry', 4, 'centurion'), shield('viking_berserker', 4, 'dragon-oathguard'),
+      shield('roman_heavy_infantry', 5, 'byzantine-cataphract'), shield('roman_heavy_cavalry', 5, 'byzantine-cataphract')])
+      .toEqual(['centurion_aquila_shield_t4', 'viking_dragonward_shield_t4', 'byzantine_eagle_shield_t5', 'byzantine_eagle_shield_t5'])
+    expect([shield('roman_heavy_infantry', 4, 'praetorian'), shield('viking_berserker', 4, 'varangian'), shield('viking_berserker', 5, 'ironblood-warlord')])
+      .toEqual(['roman_officer_shield_t4', 'paladin_shield_t4', 'viking_berserker_shield_t5'])
+    expect(shield('roman_spearman', 4, 'centurion')).toBeNull()
+  })
   it('persists the chosen class through save and reload, and an old or illegal record falls back to the original class', () => {
     const profile: CareerProfile = { ...createCareerProfile('roman'), duelHighestDefeatedTierByPreset: { roman_sword_cavalry: 3 } }
     const mission = createCareerDuelMission(profile, 'roman_sword_cavalry', 4, 'captain', 'captain', 'class-duel', 'ranger', 'armed', 'centurion')!

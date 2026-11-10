@@ -2249,8 +2249,8 @@ export class TownScene {
     if (!hero) return true
     const loadout = duelLoadout(presetId, tier, hero)
     try {
-      await Promise.all([HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[hero.visualAssetId].descriptor), prepareByzantineEquipment([loadout.meleeWeaponId, loadout.shieldId])])
-      return true
+      const [, equipment] = await Promise.all([HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[hero.visualAssetId].descriptor), prepareByzantineEquipment([loadout.meleeWeaponId, loadout.shieldId])])
+      return equipment === 'ready'
     } catch (error) { console.error('Duel opponent assets could not be loaded', error); return false }
   }
   private openDuelPage(panel: HTMLElement): void {

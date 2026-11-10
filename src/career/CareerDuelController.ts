@@ -19,7 +19,7 @@ import type { CareerProfile } from './CareerProfile'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import type { ActiveCareerMission, CareerMissionOutcome, CareerMissionPhase } from './CareerMissionState'
 import { resolveCareerDuelClass } from './CareerDuelClasses'
-import { careerHeroClassMaxHp, type CareerHeroClass } from './CareerHeroClasses'
+import { careerHeroClassMaxHp, HERO_CLASS_SHIELD, type CareerHeroClass } from './CareerHeroClasses'
 import { duelCombatSeconds, isUnarmedDuelUnlocked, isIllegalUnarmedDuelDamage, type CareerDuelMode, careerDuelOpponentHealth, createCareerDuelMission, createCareerTutorialDuelMission, DUEL_COUNTDOWN_SECONDS, isCareerDuelPresetId, isCareerDuelTier, resolveCareerDuelOutcome, type CareerDuelTier, type CareerDuelCommanderHome, type CareerDuelTravelCheckpoint } from './CareerDuelState'
 
 export interface CareerDuelResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
@@ -43,7 +43,14 @@ export function persistsDuelTravel(active: Pick<ActiveCareerMission, 'duelMode' 
 
 const isHeavyCavalryPreset = (presetId: UnitPresetId): boolean => presetId === 'roman_heavy_cavalry' || presetId === 'viking_heavy_cavalry'
 
-export function duelLoadout(presetId: UnitPresetId, tier: CareerDuelTier, hero?: Pick<CareerHeroClass, 'elite'>): UnitLoadout {
+export function duelLoadout(presetId: UnitPresetId, tier: CareerDuelTier, hero?: Pick<CareerHeroClass, 'elite' | 'combatProfileId'>): UnitLoadout {
+  const loadout = baseDuelLoadout(presetId, tier, hero)
+  // An elite class fights with its own shield, never the army's shared one; a shieldless kit stays shieldless.
+  const own = hero?.elite ? HERO_CLASS_SHIELD[hero.combatProfileId] : undefined
+  return own && loadout.shieldId ? { ...loadout, shieldId: own } : loadout
+}
+
+function baseDuelLoadout(presetId: UnitPresetId, tier: CareerDuelTier, hero?: Pick<CareerHeroClass, 'elite'>): UnitLoadout {
   if (tier === 5) {
     // The heavy cavalry preset fields its elite T5 hero with the shared catalog kit (Byzantine lance and eagle shield / Ironblood axe).
     if (hero?.elite && isHeavyCavalryPreset(presetId)) return resolveT5UnitLoadout(presetId)
