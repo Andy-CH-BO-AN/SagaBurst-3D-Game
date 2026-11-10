@@ -11,7 +11,7 @@ import { careerCommanderLoadout } from './CareerCommanderEquipment'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { CombatEvent } from '../combat/CombatAttribution'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
-import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import { T4_UNIT_PROFILES, heavyT4Variant, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
 import { UNIT_PRESETS, type UnitPresetId, type UnitLoadout } from '../battle/UnitPresetCatalog'
 import { AIType, Faction } from '../world/NPC'
 import { townCommanderHeroAsset } from '../town/TownCommander'
@@ -271,9 +271,12 @@ function specForTier(
   x = 0,
   z = 0,
   forcedMount?: UnitLoadout['mountId'],
+  heavyHero = false,
 ): NpcSpawnSpec {
   const ranged = UNIT_PRESETS[presetId].traits.includes('bow_fire') || UNIT_PRESETS[presetId].traits.includes('javelin_throw')
-  const hero = tier === 4 ? T4_UNIT_PROFILES[presetId] : undefined
+  const classic = tier === 4 ? T4_UNIT_PROFILES[presetId] : undefined
+  // A Ranger has no second body; heavy cavalry already hold the heavy class in the shared catalog.
+  const hero = classic && heavyHero ? heavyT4Variant(classic, faction) : classic
   const loadout = tier === 4 ? resolveT4UnitLoadout(presetId) : { ...UNIT_PRESETS[presetId].tierLoadouts[3] }
   if (forcedMount !== undefined) loadout.mountId = forcedMount
   return {
@@ -340,6 +343,9 @@ export function createLastStandRoster(mission: ActiveCareerMission, faction: Car
   return { friendly, enemy }
 }
 
+/** Squad leaders alternate classic and heavy T4 by squad number (odd squads classic, even squads heavy); Rangers keep their body. */
+const bridgeheadHeavyLeader = (squadId: number) => squadId % 2 === 0
+
 /** Exact saved identities, shared tier loadouts and deterministic production deployment points. */
 export function createBridgeheadRoster(mission: ActiveCareerMission, faction: CareerProfile['faction']): {
   friendly: NpcSpawnSpec[]; enemy: NpcSpawnSpec[]
@@ -353,13 +359,13 @@ export function createBridgeheadRoster(mission: ActiveCareerMission, faction: Ca
     const presetId: UnitPresetId = role === 'javelin' ? 'roman_javelin_infantry'
       : preset(faction, role === 'spearman' ? 'spear' : role === 'melee_infantry' ? 'melee' : 'archer')
     return specForTier(mission.friendlyActorIds[(squad.squadId - 1) * BRIDGEHEAD_SQUAD_SIZE + index], faction, Faction.PLAYER,
-      presetId, index === 0 ? 4 : 3, squad.squadId as NpcSpawnSpec['squadId'], slot.x, slot.z, null)
+      presetId, index === 0 ? 4 : 3, squad.squadId as NpcSpawnSpec['squadId'], slot.x, slot.z, null, bridgeheadHeavyLeader(squad.squadId))
   }))
   const enemy = planSouthBankCavalryStaging(230, enemySquadsPerRole).flatMap(squad => squad.slots.map((slot, index) =>
     specForTier(mission.targetActorIds[(squad.squadId - 1) * BRIDGEHEAD_SQUAD_SIZE + index], enemyFaction, Faction.ENEMY,
       preset(enemyFaction, squad.role === 'melee_cavalry' ? 'sword' : 'lancer'), index === 0 ? 4 : 3,
       // Enemy deployment groups beyond eight are not player command squads.
       squad.squadId <= 8 ? squad.squadId as NpcSpawnSpec['squadId'] : undefined, slot.x, slot.z,
-      index === 0 ? enemyFaction === 'roman' ? 'corgi' : 'black-cat' : 'horse')))
+      index === 0 ? enemyFaction === 'roman' ? 'corgi' : 'black-cat' : 'horse', bridgeheadHeavyLeader(squad.squadId))))
   return { friendly, enemy }
 }

@@ -55,6 +55,38 @@ describe('Town equipment domain, canonical ownership and persisted native source
     expect(townNativeSaleStock(sold, 'roman').some(item => item.nativeIds.includes(token))).toBe(false)
     expect(resolveTownActorEquipment(sold, 'roman', 'captain').refs.shield).toBeNull()
   })
+  it('hands a legacy explicit deployment configuration its mount token once, keeping custom gear and minting no inventory', () => {
+    const h = harness(), profile = h.read(), mount = 'roman/deployment/mount'
+    const fresh = resolveTownActorEquipment(profile, 'roman', 'deployment')
+    expect(fresh.loadout).toMatchObject({ meleeWeaponId: 'byzantine_standard_lance_t5', shieldId: 'byzantine_eagle_shield_t5', rangedWeaponId: null, mountId: 'armored-horse' })
+    expect(townNativeItems('roman').filter(item => item.actorId === 'deployment').map(item => [item.slot, item.itemId]))
+      .toEqual([['melee', 'paladin_sword_t4'], ['shield', 'roman_officer_shield_t4'], ['mount', 'armored-horse']])
+    h.buy('sword_t5')
+    const inventory = structuredClone(profile.inventory)
+    // Saved before the mount existed: no marker, an empty mount slot and a purchased sword over the native shield.
+    profile.townEquipment = { roman: { version: 1, residentEquipmentVersion: 1, factionShieldVersion: 1, nativeReserve: [],
+      actors: { deployment: { ...fresh.refs, melee: { itemId: 'sword_t5', source: 'inventory' }, mount: null } } } }
+    expect(h.save(profile)).toBe(true)
+    const loaded = h.reload()
+    expect(loaded.townEquipment!.roman!.deploymentMountVersion).toBe(1)
+    expect(loaded.townEquipment!.roman!.actors.deployment.mount).toEqual({ itemId: 'armored-horse', source: 'native', nativeId: mount })
+    expect(loaded.townEquipment!.roman!.nativeReserve).not.toContain(mount)
+    expect(resolveTownActorEquipment(loaded, 'roman', 'deployment').loadout).toMatchObject({ meleeWeaponId: 'sword_t5',
+      shieldId: 'byzantine_eagle_shield_t5', mountId: 'armored-horse' })
+    expect(loaded.inventory).toEqual(inventory)
+    expect(careerItemTotal(loaded, 'byzantine_standard_lance_t5') + careerItemTotal(loaded, 'armored-horse')).toBe(0)
+    expect(h.reload()).toEqual(loaded)
+  })
+  it('keeps a deliberately emptied deployment mount empty once the marker exists', () => {
+    const h = harness('viking'), profile = h.read(), deployment = resolveTownActorEquipment(profile, 'viking', 'deployment')
+    profile.townEquipment = { viking: { version: 1, residentEquipmentVersion: 1, factionShieldVersion: 1, deploymentMountVersion: 1,
+      nativeReserve: ['viking/deployment/mount'], actors: { deployment: { ...deployment.refs, mount: null } } } }
+    expect(h.save(profile)).toBe(true)
+    const loaded = h.reload()
+    expect(loaded.townEquipment!.viking!.actors.deployment.mount).toBeNull()
+    expect(resolveTownActorEquipment(loaded, 'viking', 'deployment').loadout).toMatchObject({ meleeWeaponId: 'spear_t5', mountId: null })
+    expect(h.reload()).toEqual(loaded)
+  })
   it('migrates a transferred Commander native mount without recreating it at its original owner', () => {
     const h = harness(), profile = h.read()
     const commander = resolveTownActorEquipment(profile, 'roman', 'commander')

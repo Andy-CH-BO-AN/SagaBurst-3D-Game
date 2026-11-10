@@ -171,6 +171,12 @@ describe('heavy cavalry field missions in Career', () => {
     if (missionId !== CAPTAIN_STEEL_AVALANCHE_ID) expect(enemy.every(spec => spec.presetId === 'viking_heavy_cavalry' && spec.loadout?.mountId === 'snow-leopard' && spec.loadout.shieldId)).toBe(true)
     else expect(friendly.every(spec => spec.presetId === 'roman_heavy_cavalry' && spec.characterTier === 4 && spec.loadout?.mountId === 'armored-horse')).toBe(true)
     expect(friendly.every(spec => (spec.loadout?.rangedWeaponId ? spec.aiType === AIType.RANGED : spec.aiType === AIType.MELEE))).toBe(true)
+    // Every T4 / T5 heavy cavalryman is the heavy class of its own army, never the classic T4 or the Commander body.
+    const heavyClass = { roman: { 4: 'centurion', 5: 'byzantine-cataphract' }, viking: { 4: 'dragon-oathguard', 5: 'ironblood-warlord' } } as const
+    const elite = plan.npcSpecs.filter(spec => spec.presetId?.endsWith('_heavy_cavalry') && spec.characterTier! >= 4)
+    expect(elite.every(spec => spec.combatProfileId === heavyClass[spec.characterFaction][spec.characterTier as 4 | 5])).toBe(true)
+    const eliteCounts = { [SOLDIER_IRON_ENCOUNTER_ID]: [9, 1], [VETERAN_IRON_TIDE_ID]: [25, 5], [CAPTAIN_STEEL_AVALANCHE_ID]: [29, 0] }[missionId]
+    expect([4, 5].map(tier => elite.filter(spec => spec.characterTier === tier).length)).toEqual(eliteCounts)
     expect(heavyFrontlineDistance(friendly, enemy)).toBeGreaterThan(200)
     expect(accepted.activeMission!.commanderMission?.heavyField?.enemyChargeTriggered).toBe(false)
     const restored = parseCareerProfile(JSON.parse(JSON.stringify(accepted)))

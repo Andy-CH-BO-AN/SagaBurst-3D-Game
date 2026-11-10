@@ -28,11 +28,13 @@ export function getT5ProfileForFaction(faction: CharacterFaction): T5UnitProfile
   }
 }
 
-/** Tier 5 appearance and combat profile of one preset; Roman Heavy Cavalry are the Byzantine cataphracts. */
+/** Tier 5 appearance and combat profile of one preset; Heavy Cavalry are the Byzantine cataphracts (Roman) and Ironblood Warlords (Viking). */
 export function getT5ProfileForPreset(presetId: UnitPresetId, faction: CharacterFaction): T5UnitProfile {
   return presetId === 'roman_heavy_cavalry'
     ? { visualAssetId: 'byzantine-cataphract-t5', combatProfileId: 'byzantine-cataphract', baseLoadoutTier: 3 }
-    : getT5ProfileForFaction(faction)
+    : presetId === 'viking_heavy_cavalry'
+      ? { visualAssetId: 'viking-heavy-hero-t5', combatProfileId: 'ironblood-warlord', baseLoadoutTier: 3 }
+      : getT5ProfileForFaction(faction)
 }
 
 /** Equipment that loads on demand only because this army fields these Tier 5 units. */
