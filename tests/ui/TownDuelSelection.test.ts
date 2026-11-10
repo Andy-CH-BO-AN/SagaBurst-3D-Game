@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { createCareerDuelMission, type CareerDuelTier } from '../../src/career/CareerDuelState'
 import { getUnitPresetsForFaction, type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
+import { careerDuelMissionLabel } from '../../src/career/CareerDuelSelection'
 import { TownScene } from '../../src/town/TownScene'
 
 // Only the DOM boundary is a double; invoke the real UI methods without a TownScene constructor.
@@ -17,6 +18,7 @@ class Element {
   prepend(...children: Element[]) { this.children.unshift(...children) }
   replaceChildren(...children: Element[]) { this.children = children }
   setAttribute(name: string, value: string) { this.attributes[name] = value }
+  title = ''
   focus() { focused = this }
   click() { if (!this.disabled) this.onclick?.() }
   descendants(): Element[] { return this.children.flatMap(child => [child, ...child.descendants()]) }
@@ -31,7 +33,8 @@ interface DuelSelectionEntry {
   duelActivity: 'duel' | 'race' | 'review'
   tutorial: { renderReviewContent(panel: HTMLElement): void }
   openDuelPage(panel: HTMLElement): void
-  openDuelSelection(panel: HTMLElement, presetId?: UnitPresetId, mode?: 'armed' | 'unarmed', classTier?: CareerDuelTier): void
+  openDuelSelection(panel: HTMLElement): void
+  duelSubjectKey: string
   openRacePage(panel: HTMLElement): void
   button(parent: HTMLElement, label: string, action: () => void): HTMLButtonElement
   acceptDuel(presetId: UnitPresetId | undefined, tier: CareerDuelTier, mode?: 'armed' | 'unarmed', classId?: string): void
@@ -44,7 +47,7 @@ function selection(profile: CareerProfile) {
   // One narrow adapter for the private UI entry points; no world, actors, or rendering fixtures.
   const methods = TownScene.prototype as unknown as DuelSelectionEntry
   const entry: DuelSelectionEntry = {
-    profile, panel: dom(root), duelActivity: 'duel', acceptDuel: accept, acceptRace: vi.fn(),
+    profile, panel: dom(root), duelActivity: 'duel', duelSubjectKey: 'unarmed', acceptDuel: accept, acceptRace: vi.fn(),
     tutorial: { renderReviewContent: panel => {
       const heading = document.createElement('h3'); heading.textContent = 'Review'; panel.append(heading)
     } },
@@ -61,46 +64,46 @@ function selection(profile: CareerProfile) {
 afterEach(() => { focused = null; vi.unstubAllGlobals() })
 
 describe('Career Duel selection pages', () => {
-  it('navigates units → tiers → units with independent unlocks and forwards only an enabled acceptance', () => {
-    const profile: CareerProfile = { ...createCareerProfile('roman'), duelHighestDefeatedTierByPreset: { roman_heavy_infantry: 3 } }
+  const find = (h: ReturnType<typeof selection>, label: string) => h.content.descendants().find(n => n.tag === 'button' && n.children[0]?.textContent === label)!
+  const tierRows = (h: ReturnType<typeof selection>) => h.content.descendants().filter(n => n.tag === 'article')
+  const actions = (row: Element) => (row.children[2]?.children ?? []).flatMap(c => c.tag === 'div' ? c.children.filter(n => n.tag === 'button') : [c])
+
+  it('shows boxing and every unit as peers on one page, with independent T1–T5 states and no scroll reset on switch', () => {
+    const profile: CareerProfile = { ...createCareerProfile('roman'), duelHighestDefeatedTierByPreset: { roman_heavy_infantry: 3 }, unarmedDuelHighestDefeatedTier: 1 }
     const before = JSON.stringify(profile), h = selection(profile)
     const presets = getUnitPresetsForFaction('roman')
-    expect(h.buttons().map(button => button.textContent)).toEqual(['🥊 空手對戰 · Unarmed Duel', ...presets.map(preset => `${preset.nameEn} · ${preset.nameZh}`)])
-    expect(h.rows()[0].children[1].textContent).toBe('T1 已解鎖 · T2 已解鎖 · T3 已解鎖 · T4 已解鎖 · T5 Locked')
-    h.root.scrollTop = 500; h.content.scrollTop = 300
-    h.buttons()[1].click()
-    expect(h.root.scrollTop).toBe(0); expect(h.content.scrollTop).toBe(0)
-    expect(focused).toBe(h.content.querySelector('h3'))
-    expect(h.buttons()[0].textContent).toBe('← 返回兵種列表')
-    expect(h.rows().map(row => row.children[0].textContent)).toEqual([
-      'T1 Heavy Infantry', 'T2 Heavy Infantry', 'T3 Heavy Infantry', 'T4 Heavy Infantry', 'T5 Heavy Infantry',
-    ])
-    expect(h.rows().map(row => row.children[2].disabled)).toEqual([false, false, false, false, true])
-    h.rows()[4].children[2].click(); expect(h.accept).not.toHaveBeenCalled()
-    h.rows()[2].children[2].click(); expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 3); h.accept.mockClear()
-    // T4 adds a class step: Tier → class → accept, each step reversible without leaving the dialogue.
-    h.rows()[3].children[2].click(); expect(h.accept).not.toHaveBeenCalled()
-    expect(h.buttons()[0].textContent).toBe('← 返回等級列表')
-    expect(h.rows().map(row => row.children[0].textContent)).toEqual(['禁衛軍隊長 Praetorian Captain · T4', '百夫長 Centurion · T4'])
-    h.buttons()[0].click(); expect(h.rows()).toHaveLength(5)
-    h.rows()[3].children[2].click(); h.rows()[1].children[2].click()
-    expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 4, 'armed', 'centurion')
-    h.buttons()[0].click(); h.root.scrollTop = 400; h.buttons()[0].click()
-    expect(h.root.scrollTop).toBe(0); expect(h.rows()).toHaveLength(presets.length)
-    h.buttons()[2].click()
-    expect(h.content.querySelector('h3')!.textContent).toContain(presets[1].nameZh)
-    expect(h.rows().map(row => row.children[2].disabled)).toEqual([false, true, true, true, true])
+    expect(h.content.descendants().filter(n => n.tag === 'button' && n.className.includes('duel-subject')).map(b => b.children[0].textContent))
+      .toEqual(['🥊 空手對戰', ...presets.map(p => p.nameZh)])
+    expect(tierRows(h).map(r => r.className.split(' ')[1])).toEqual(['duel-tier-completed', 'duel-tier-available', 'duel-tier-locked', 'duel-tier-locked', 'duel-tier-locked'])
+    expect(tierRows(h)[2].children[1].textContent).toBe('需先擊敗 T2 空手對手')
+    expect(h.content.descendants().find(n => n.className === 'duel-rules')!.textContent).toContain('90 秒')
+    h.root.scrollTop = 500
+    find(h, presets[0].nameZh).click()
+    expect(h.root.scrollTop).toBe(500)
+    expect(tierRows(h).map(r => r.className.split(' ')[1])).toEqual(['duel-tier-completed', 'duel-tier-completed', 'duel-tier-completed', 'duel-tier-available', 'duel-tier-locked'])
+    expect(h.content.descendants().find(n => n.className === 'duel-rules')!.textContent).toContain('30 秒')
+    expect(tierRows(h)[4].children[1].textContent).toBe('需先擊敗 T4 ' + presets[0].nameZh)
     expect(JSON.stringify(profile)).toBe(before)
   })
 
-  it('clears Viking tier content across Racing/Review tabs and preserves arrow/Home/End keyboard navigation', () => {
+  it('forwards only enabled acceptances and offers each T4/T5 class directly on the tier row', () => {
+    const h = selection({ ...createCareerProfile('roman'), duelHighestDefeatedTierByPreset: { roman_heavy_infantry: 3 }, unarmedDuelHighestDefeatedTier: 1 })
+    actions(tierRows(h)[1])[0].click(); expect(h.accept).toHaveBeenCalledExactlyOnceWith(undefined, 2, 'unarmed'); h.accept.mockClear()
+    expect(actions(tierRows(h)[2])).toHaveLength(0)
+    find(h, getUnitPresetsForFaction('roman')[0].nameZh).click()
+    actions(tierRows(h)[2])[0].click(); expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 3, 'armed'); h.accept.mockClear()
+    expect(actions(tierRows(h)[3]).map(b => b.textContent)).toEqual(['挑戰 禁衛軍隊長', '挑戰 百夫長'])
+    actions(tierRows(h)[3])[1].click()
+    expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 4, 'armed', 'centurion')
+    expect(actions(tierRows(h)[4])).toHaveLength(0)
+  })
+
+  it('keeps the chosen subject across Racing/Review tabs and preserves arrow/Home/End keyboard navigation', () => {
     const h = selection(createCareerProfile('viking')), presets = getUnitPresetsForFaction('viking')
-    h.buttons().at(-1)!.click()
-    expect(h.rows()).toHaveLength(5)
+    find(h, presets[1].nameZh).click()
     h.root.scrollTop = 400; h.tabs[1].click()
     expect(h.root.scrollTop).toBe(0)
     expect(h.content.querySelector('h3')!.textContent).toContain('Racing')
-    expect(h.buttons().every(button => button.textContent === '接受賽馬')).toBe(true)
     h.tabs[2].click(); expect(h.content.children.map(node => node.textContent)).toEqual(['Review'])
     const key = (index: number, value: string) => {
       const preventDefault = vi.fn()
@@ -108,31 +111,22 @@ describe('Career Duel selection pages', () => {
       expect(preventDefault).toHaveBeenCalledOnce()
     }
     key(2, 'ArrowRight')
-    expect(h.rows()).toHaveLength(presets.length)
-    expect(h.buttons().map(button => button.textContent)).toEqual(['🥊 空手對戰 · Unarmed Duel', ...presets.map(preset => `${preset.nameEn} · ${preset.nameZh}`)])
+    expect(h.content.querySelector('h3')!.textContent).toContain(presets[1].nameZh)
     expect(h.tabs.map(tab => [tab.attributes['aria-selected'], tab.tabIndex])).toEqual([['true', 0], ['false', -1], ['false', -1]])
-    expect(h.content.attributes['aria-labelledby']).toBe(h.tabs[0].id)
     expect(focused).toBe(h.tabs[0])
     key(0, 'End'); expect(focused).toBe(h.tabs[2])
     key(2, 'ArrowLeft'); expect(focused).toBe(h.tabs[1])
     key(1, 'Home'); expect(focused).toBe(h.tabs[0])
-    expect(h.buttons()).toHaveLength(presets.length + 1)
     expect(h.accept).not.toHaveBeenCalled()
   })
 })
 
-
-it('空手頁面立即切到自己的 T1–T5，與武裝進度分開並送出明確模式', () => {
-  const h = selection({ ...createCareerProfile('roman'), unarmedDuelHighestDefeatedTier: 1,
-    duelHighestDefeatedTierByPreset: { roman_heavy_infantry: 4 } })
-  h.buttons()[0].click()
-  expect(h.content.querySelector('h3')!.textContent).toContain('空手對戰')
-  expect(h.rows()).toHaveLength(5)
-  expect(h.rows().map(row => row.children[2].disabled)).toEqual([false, false, true, true, true])
-  expect(h.rows()[1].children[1].textContent).toContain('90 秒')
-  h.rows()[2].children[2].click(); expect(h.accept).not.toHaveBeenCalled()
-  h.rows()[1].children[2].click()
-  expect(h.accept).toHaveBeenCalledExactlyOnceWith(undefined, 2, 'unarmed')
+describe('Career Duel mission label', () => {
+  it('names an unarmed Duel by its rule, never by the unit it borrows internally', () => {
+    const name = (id: string) => `兵種:${id}`
+    expect(careerDuelMissionLabel({ duelMode: 'unarmed', duelTier: 3, duelPresetId: 'roman_spearman' }, name)).toBe('T3 空手對戰')
+    expect(careerDuelMissionLabel({ duelMode: 'armed', duelTier: 2, duelPresetId: 'roman_spearman' }, name)).toBe('T2 兵種:roman_spearman')
+  })
 })
 
 describe('Career Duel resume after a deployment failure', () => {
