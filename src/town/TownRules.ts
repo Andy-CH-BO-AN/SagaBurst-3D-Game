@@ -12,10 +12,13 @@ import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { NPC } from '../world/NPC'
 import type { Mount } from '../world/Mount'
-import { resolveT4UnitLoadout, T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { heavyT4Variant, resolveT4UnitLoadout, T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { getT5ProfileForPreset, resolveT5UnitLoadout } from '../battle/T5HeroCatalog'
+import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
+import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import { followLocalOffset } from '../battle/FollowOrder'
 import { TOWN_CENTER, TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
-import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
+import { UNIT_PRESETS, type UnitLoadout, type UnitPresetId } from '../battle/UnitPresetCatalog'
 export const townName = (faction: CharacterFaction): string => faction === 'roman' ? 'vinum 村' : 'økse 村'
 export const TOWN_RULES = { garrisonTier: 2, deathPenalty: 100, civilians: 20, stableHorses: 5 } as const
 export const CIVILIAN_PROFILE = { category: 'civilian', name: '平民 Civilian', hp: 50, retaliationWeapon: 'gladius_rusty' } as const
@@ -58,14 +61,22 @@ export function townMilitaryEquipment(faction: CharacterFaction, actor: TownRole
   const unitKind = role === 'hr-officer' || role === 'commander' ? 'sword_cavalry' : typeof actor === 'string' ? kinds[role] : actor.unitKind
   const kind = unitKind === 'melee' || !unitKind ? faction === 'roman' ? 'heavy_infantry' : 'berserker'
     : unitKind === 'ranged' ? faction === 'roman' ? 'javelin_infantry' : 'archer' : unitKind
-  const presetId = `${faction}_${kind}` as UnitPresetId
+  // The deployment officer is a T5 heavy cavalry commander; its resident record stays an infantry-squad member.
+  const presetId = (role === 'deployment' ? `${faction}_heavy_cavalry` : `${faction}_${kind}`) as UnitPresetId
   const patrolCaptain = typeof actor !== 'string' && actor.duty === 'patrol' && actor.patrolLeader
   const tier = typeof actor !== 'string' && (actor.duty === 'eagle_garrison' || actor.duty === 'watchtower_guard') ? 3 : role === 'captain' || role === 'commander' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 3 : TOWN_RULES.garrisonTier
   const level: 1 | 2 | 3 | 4 = role === 'captain' || role === 'commander' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 4 : tier
   const base = UNIT_PRESETS[presetId].tierLoadouts[tier]
   // Town owns mount placement; only standard hero equipment comes from the T4 catalog.
-  return { presetId, tier, level, loadout: level === 4
+  return { presetId, tier, level, loadout: role === 'deployment' ? resolveT5UnitLoadout(presetId) : level === 4
     ? { ...(role === 'commander' ? careerCommanderLoadout(faction) : resolveT4UnitLoadout(presetId)), mountId: base.mountId } : { ...base } }
+}
+/** Native-token baseline of the deployment officer: the T4 officer weapon and shield its saved tokens were issued as, plus its
+ * class mount. Weapon and shield tokens never change identity, so old and new saves share one catalogue; the T5 class kit is
+ * applied over untouched default weapon/shield slots at resolution. */
+export function townDeploymentTokenLoadout(faction: CharacterFaction): UnitLoadout {
+  return { ...resolveT4UnitLoadout(faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker'),
+    mountId: resolveT5UnitLoadout(`${faction}_heavy_cavalry`).mountId }
 }
 export const TOWN_SITES = {
   /** Civic hall faces the open plaza, clear of the four main roads. */
@@ -418,10 +429,33 @@ export function sellTownProducts(current: CareerProfile, productIds: readonly st
   return { profile, sold: true, soldCount, earnedMerit, reason: undefined }
 }
 
-/** Town officers use the faction's canonical T4 profile for their mounted or foot role. */
-export function townActorHeroProfile(faction: CharacterFaction, spec: TownActorSpec) {
-  if (spec.role === 'deployment') return T4_UNIT_PROFILES[faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker']
-  if (spec.role === 'captain' || spec.role === 'commander' || spec.role === 'hr-officer') return townCaptainProfile(faction)
-  if (spec.duty === 'patrol' && spec.patrolLeader) return townCaptainProfile(faction)
+export interface TownHeroProfile {
+  visualAssetId: HeroAssetId
+  combatProfileId: HeroCombatProfileId
+  mountOverride: UnitLoadout['mountId']
+  /** Display and identity tier; the resident's legacy NPC tier stays 4 for every hero. */
+  characterTier: 4 | 5
+}
+function townDeploymentHeroProfile(faction: CharacterFaction): TownHeroProfile {
+  const presetId: UnitPresetId = `${faction}_heavy_cavalry`, { visualAssetId, combatProfileId } = getT5ProfileForPreset(presetId, faction)
+  return { visualAssetId, combatProfileId, mountOverride: resolveT5UnitLoadout(presetId).mountId, characterTier: 5 }
+}
+/** Both Patrol leaders are the faction's heavy T4 class, riding the Captain's original mount. */
+function townPatrolCaptainProfile(faction: CharacterFaction): TownHeroProfile {
+  return { ...heavyT4Variant(townCaptainProfile(faction), faction), characterTier: 4 }
+}
+/** Town officers: the deployment officer is a T5 heavy cavalry commander, the Captain keeps the classic T4, and both Patrol
+ * leaders are the heavy T4 class. Identity is explicit, never inferred from gear. */
+export function townActorHeroProfile(faction: CharacterFaction, spec: TownActorSpec): TownHeroProfile | undefined {
+  if (spec.role === 'deployment') return townDeploymentHeroProfile(faction)
+  if (spec.role === 'captain' || spec.role === 'commander' || spec.role === 'hr-officer') return { ...townCaptainProfile(faction), characterTier: 4 }
+  if (spec.duty === 'patrol' && spec.patrolLeader) return townPatrolCaptainProfile(faction)
   return undefined
 }
+/** Hero bodies and on-demand gear a Town must load before it spawns this faction's officers. */
+export function townOfficerPreload(faction: CharacterFaction): { heroAssets: HeroAssetId[]; equipmentIds: string[] } {
+  const { meleeWeaponId, shieldId } = resolveT5UnitLoadout(`${faction}_heavy_cavalry`)
+  return { heroAssets: [townDeploymentHeroProfile(faction).visualAssetId, townPatrolCaptainProfile(faction).visualAssetId],
+    equipmentIds: [meleeWeaponId, shieldId].filter((id): id is string => Boolean(id)) }
+}
+

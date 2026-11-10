@@ -11,7 +11,7 @@ import { ARMORS } from '../rpg/ArmorDatabase'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { planBulkEquipment, naturalActorCompare, type BulkEquipmentCategory, type BulkEquipmentCandidate, type BulkEquipmentActor } from './BulkEquipmentPlanner'
 import { resolveTownActorEquipment, townNativeItems, townEquipmentRefTier, townEquipmentWeaponTier, TOWN_EQUIPMENT_SLOTS,
-  createTownEquipmentRefsResolver, townEquipmentActorSpecs, townEquipmentSquadForActor,
+  createTownEquipmentRefsResolver, townEquipmentActorSpecs, townEquipmentSquadForActor, effectiveTownRefs,
   type TownEquipmentRef, type TownEquipmentRefs } from './CareerTownEquipmentState'
 export { resolveTownActorEquipment, townEquipmentRefTier, townNativeItems } from './CareerTownEquipmentState'
 export type { TownEquipmentRef, TownEquipmentRefs, ResolvedTownActorEquipment } from './CareerTownEquipmentState'
@@ -68,6 +68,10 @@ function memberRefs(profile: CareerProfile, context: TownEquipmentContext, targe
   const equipment = profile.personalSquad!.members.find(member => member.id === actorId)!.equipment!
   return Object.fromEntries(TOWN_EQUIPMENT_SLOTS.map(slot => [slot, equipment[slot] ? { itemId: equipment[slot], source: 'inventory' } : null])) as TownEquipmentRefs
 }
+/** Refs as evaluated for tiers and categories: a deployment officer's untouched class kit counts as the T5 gear it wields. */
+function memberEffectiveRefs(profile: CareerProfile, context: TownEquipmentContext, target: TownEquipmentSquadId, actorId: string): TownEquipmentRefs {
+  return target === 'personal' ? memberRefs(profile, context, target, actorId) : effectiveTownRefs(resolveTownActorEquipment(profile, context.townFaction, actorId))
+}
 function memberFixed(profile: CareerProfile, context: TownEquipmentContext, target: TownEquipmentSquadId, actorId: string, slot: PersonalEquipmentSlot): boolean {
   if (target === 'personal') return false
   const member = resolveTownActorEquipment(profile, context.townFaction, actorId)
@@ -83,7 +87,7 @@ function writeRefs(profile: CareerProfile, context: TownEquipmentContext, target
   }
   profile.townEquipment ??= {}
   const state = profile.townEquipment[context.townFaction] ??= { version: 1, actors: {}, nativeReserve: [], residentEquipmentVersion: 1,
-    factionShieldVersion: 1, commanderShieldItemId: context.townFaction === 'viking' ? 'viking_berserker_shield_t5' : 'commander_shield_t5' }
+    factionShieldVersion: 1, deploymentMountVersion: 1, commanderShieldItemId: context.townFaction === 'viking' ? 'viking_berserker_shield_t5' : 'commander_shield_t5' }
   state.actors[actorId] = refs
 }
 /** Persist every native token either at one holder or in the same authored Squad's reserve. */
@@ -138,7 +142,7 @@ export function changeTownEquipment(read: () => CareerProfile, context: TownEqui
   writeRefs(next, context, target, actorId, refs)
   try { validateStaged(next, context) } catch { return fail(current, 'invalid-item') }
   return finish(current, next, [actorId], { ...emptySummary(), equipped: 1,
-    upgraded: townEquipmentRefTier(current, ref, context.townFaction) > townEquipmentRefTier(current, previous, context.townFaction) ? 1 : 0 }, save)
+    upgraded: townEquipmentRefTier(current, ref, context.townFaction) > townEquipmentRefTier(current, memberEffectiveRefs(current, context, target, actorId)[slot], context.townFaction) ? 1 : 0 }, save)
 }
 export function bulkCareerEquipment(read: () => CareerProfile, context: TownEquipmentContext, target: TownEquipmentSquadId,
   category: BulkEquipmentCategory, save: (profile: CareerProfile) => boolean): TownEquipmentResult {
@@ -154,13 +158,21 @@ export function bulkCareerEquipment(read: () => CareerProfile, context: TownEqui
   const summary = { ...emptySummary(), ineligible: squad.actorIds.length - actorIds.length }
   if (!actorIds.length) return fail(current, 'not-safe', summary)
   const before = new Map(actorIds.map(id => [id, memberRefs(next, context, target, id)]))
+  // Tiers and categories see what an actor really wields; `before` keeps the real tokens that are written back.
+  const seen = new Map(actorIds.map(id => [id, memberEffectiveRefs(next, context, target, id)]))
+  const lockedKeys = new Set<string>()
   const refsByKey = new Map<string, TownEquipmentRef | null>(), candidates: BulkEquipmentCandidate[] = []
-  const add = (key: string, ref: TownEquipmentRef | null, holderId?: string) => {
+  const add = (key: string, ref: TownEquipmentRef | null, holderId?: string, evaluated: TownEquipmentRef | null = ref) => {
     refsByKey.set(key, ref)
-    candidates.push({ key, itemId: ref?.itemId ?? null, tier: townEquipmentRefTier(next, ref, context.townFaction), holderId,
-      requested: Boolean(ref && careerEquipmentCategory(ref.itemId) === category) })
+    // An untouched class-kit item is not an owned token: only its own holder may keep it.
+    if (!refEqual(evaluated, ref)) lockedKeys.add(key)
+    candidates.push({ key, itemId: evaluated?.itemId ?? null, tier: townEquipmentRefTier(next, evaluated, context.townFaction), holderId,
+      requested: Boolean(evaluated && careerEquipmentCategory(evaluated.itemId) === category) })
   }
-  for (const actorId of actorIds) add(`current/${actorId}`, before.get(actorId)![slot], actorId)
+  // Refs the planner scores: unchanged slots keep the evaluated view, reassigned ones are the real new ref.
+  const scored = (actorId: string, refs: TownEquipmentRefs): TownEquipmentRefs => Object.fromEntries(TOWN_EQUIPMENT_SLOTS.map(key =>
+    [key, refEqual(refs[key], before.get(actorId)![key]) ? seen.get(actorId)![key] : refs[key]])) as TownEquipmentRefs
+  for (const actorId of actorIds) add(`current/${actorId}`, before.get(actorId)![slot], actorId, seen.get(actorId)![slot])
   for (const itemId of Object.keys(careerItemTotals(next)).sort(naturalActorCompare)) {
     if (careerEquipmentCategory(itemId) !== category) continue
     for (let copy = 0; copy < Math.min(actorIds.length, availableCareerItem(next, itemId)); copy++) add(`stock/${itemId}/${copy}`, { itemId, source: 'inventory' })
@@ -175,18 +187,21 @@ export function bulkCareerEquipment(read: () => CareerProfile, context: TownEqui
     const refs = { ...before.get(actorId)!, [slot]: refsByKey.get(candidate.key)! }
     return refs
   }
-  const effectiveTier = (refs: TownEquipmentRefs) => slot === 'mount'
-    ? townEquipmentRefTier(next, refs.mount, context.townFaction) : townEquipmentWeaponTier(next, refs, context.townFaction)
-  const actors = actorIds.map(actorId => ({ actorId, tier: effectiveTier(before.get(actorId)!), currentKey: `current/${actorId}`,
-    currentRequested: Boolean(before.get(actorId)![slot] && careerEquipmentCategory(before.get(actorId)![slot]!.itemId) === category) }))
+  const effectiveTier = (actorId: string, refs: TownEquipmentRefs) => {
+    const view = scored(actorId, refs)
+    return slot === 'mount' ? townEquipmentRefTier(next, view.mount, context.townFaction) : townEquipmentWeaponTier(next, view, context.townFaction)
+  }
+  const actors = actorIds.map(actorId => ({ actorId, tier: effectiveTier(actorId, before.get(actorId)!), currentKey: `current/${actorId}`,
+    currentRequested: Boolean(seen.get(actorId)![slot] && careerEquipmentCategory(seen.get(actorId)![slot]!.itemId) === category) }))
   const actorsById = new Map(actors.map(actor => [actor.actorId, actor]))
-  const resultTier = (actor: BulkEquipmentActor, candidate: BulkEquipmentCandidate) => effectiveTier(finalRefs(actor.actorId, candidate))
+  const resultTier = (actor: BulkEquipmentActor, candidate: BulkEquipmentCandidate) => effectiveTier(actor.actorId, finalRefs(actor.actorId, candidate))
   if (!candidates.some(candidate => candidate.requested)) { summary.insufficient = actorIds.length; return fail(current, 'no-available-item', summary) }
   const accepts = (actor: BulkEquipmentActor, candidate: BulkEquipmentCandidate) => {
+    if (lockedKeys.has(candidate.key)) return candidate.holderId === actor.actorId
     if (candidate.holderId === actor.actorId) return true
     if (!candidate.requested || actor.actorId === 'merchant' && candidate.itemId !== 'horse') return false
     // Both the changed slot and the resulting active weapon must retain their previous tiers.
-    return candidate.tier >= townEquipmentRefTier(next, before.get(actor.actorId)![slot], context.townFaction)
+    return candidate.tier >= townEquipmentRefTier(next, seen.get(actor.actorId)![slot], context.townFaction)
       && Boolean(candidate.itemId && isCareerShopItemUseUnlocked(current, candidate.itemId))
   }
   const plan = planBulkEquipment(actors, candidates, accepts, resultTier)

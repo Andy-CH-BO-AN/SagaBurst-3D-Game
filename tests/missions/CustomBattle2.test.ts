@@ -740,13 +740,13 @@ describe('Custom Battle Heavy Cavalry', () => {
       presetId: 'roman_heavy_cavalry', mountId: 'armored-horse', mountType: MountType.ARMORED_HORSE,
       shields: ['scutum_t1', 'scutum_t2', 'scutum_t3', 'roman_officer_shield_t4', 'byzantine_eagle_shield_t5'],
       t5: { weapon: 'byzantine_standard_lance_t5', visual: 'byzantine-cataphract-t5', combat: 'byzantine-cataphract' },
-      t4: { visual: 'roman-hero-t4', combat: 'praetorian' },
+      t4: { visual: 'roman-centurion-t4', combat: 'centurion' },
     },
     viking: {
       presetId: 'viking_heavy_cavalry', mountId: 'snow-leopard', mountType: MountType.SNOW_LEOPARD,
       shields: ['round_shield_t1', 'round_shield_t2', 'round_shield_t3', 'paladin_shield_t4', 'viking_berserker_shield_t5'],
-      t5: { weapon: 'spear_t5', visual: 'viking-hero-t5', combat: 'viking-commander' },
-      t4: { visual: 'viking-hero-t4', combat: 'varangian' },
+      t5: { weapon: 'spear_t5', visual: 'viking-heavy-hero-t5', combat: 'ironblood-warlord' },
+      t4: { visual: 'viking-heavy-hero-t4', combat: 'dragon-oathguard' },
     },
   } as const
 

@@ -18,8 +18,8 @@ const tierSuffix = (tier?: number) => tier && Number.isFinite(tier) ? ` · T${ti
 
 /** Display rank, not equipment tier or the legacy NPC tier-4 storage used by T5 heroes. */
 export function townUnitDisplayTier(spec: TownActorSpec, _faction: CharacterFaction, ordinaryTier: number = spec.tier): number {
-  if (spec.role === 'commander') return 5
-  if (['captain', 'deployment', 'hr-officer', 'ranger', 'eagle-trainer'].includes(spec.role) || spec.patrolLeader) return 4
+  if (spec.role === 'commander' || spec.role === 'deployment') return 5
+  if (['captain', 'hr-officer', 'ranger', 'eagle-trainer'].includes(spec.role) || spec.patrolLeader) return 4
   return ordinaryTier
 }
 

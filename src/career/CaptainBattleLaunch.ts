@@ -1,6 +1,8 @@
-import { BattleSpawner, type BattleSpawnPlan } from '../battle/BattleSpawner'
+import { BattleSpawner, type BattleSpawnPlan, type NpcSpawnSpec } from '../battle/BattleSpawner'
+import { HEAVY_T4_HERO, heavyT4Variant, T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import { createEmptyRomanArmyConfig, createEmptyVikingArmyConfig, type BattleConfig, type PlayerLoadoutConfig } from '../battle/BattleConfig'
-import { resolveCampaignRolePreset } from '../campaign/CampaignConfig'
+import { opposingCampaignFaction, resolveCampaignRolePreset } from '../campaign/CampaignConfig'
 import { createDefenseCampaignWaveConfig, positionDefenseCampaignDefenders, type DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
 import { canUseCareerMount } from './CareerMountController'
 import { careerItemTotal } from './CareerInventory'
@@ -29,6 +31,21 @@ export function careerCombatPlayerLoadout(profile: CareerProfile, eagle = false)
     startMounted: Boolean(mount && canUseCareerMount(profile, mount)),
     mountId: mount === 'armored-horse' || mount === 'black-cat' || mount === 'white-cat' || mount === 'orange-cat' || mount === 'serval' || mount === 'caracal' || mount === 'corgi' || mount === 'snow-leopard' || mount === 'xongkoro' ? mount : 'horse',
   } as PlayerLoadoutConfig
+}
+
+/** Captain IV attackers field two T4 heroes: the frontline captain and a Ranger. The captain is the faction's heavy T4 class
+ * (Centurion / Dragon Oathguard) while the Ranger, which has no second body, stays as it is. Counts, loadouts and IDs are untouched. */
+export function applyCaptainFrontlineEnemyHeroes(specs: readonly NpcSpawnSpec[]): void {
+  for (const spec of specs) {
+    if (spec.characterTier !== 4 || !spec.presetId) continue
+    const { visualAssetId, combatProfileId } = heavyT4Variant(T4_UNIT_PROFILES[spec.presetId], spec.characterFaction)
+    spec.visualAssetId = visualAssetId
+    spec.combatProfileId = combatProfileId
+  }
+}
+/** Hero body the Captain IV attackers need before their wave spawns. */
+export function captainFrontlineEnemyHeroAsset(defenderFaction: DefenseCampaignLaunchConfig['defenderFaction']): HeroAssetId {
+  return HEAVY_T4_HERO[opposingCampaignFaction(defenderFaction)].visualAssetId
 }
 
 /** Career owns the mission; Stage IX remains the source of map, enemy, reinforcement and timing rules. */

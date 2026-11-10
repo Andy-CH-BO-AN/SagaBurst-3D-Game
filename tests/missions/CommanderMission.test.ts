@@ -321,6 +321,10 @@ describe('Bridgehead official field battle', () => {
       viking: ['viking_spearman', 'viking_spearman', 'viking_berserker', 'viking_berserker',
         'viking_archer', 'viking_archer', 'viking_archer', 'viking_archer'],
     }
+    const leaders = {
+      roman: ['praetorian', 'centurion', 'praetorian', 'centurion', 'praetorian', 'centurion', 'ranger', 'ranger'],
+      viking: ['varangian', 'dragon-oathguard', 'varangian', 'dragon-oathguard', 'ranger', 'ranger', 'ranger', 'ranger'],
+    } as const
     for (const faction of ['roman', 'viking'] as const) {
       const profile = accepted(COMMANDER_BRIDGEHEAD_ID, faction, true), mission = profile.activeMission!
       const roster = createBridgeheadRoster(mission, faction), authority = mission.officialSquad!
@@ -335,6 +339,8 @@ describe('Bridgehead official field battle', () => {
         expect(friendly).toHaveLength(25)
         expect(friendly.filter(spec => spec.tier === 4)).toHaveLength(1)
         expect(friendly.filter(spec => spec.tier === 3)).toHaveLength(24)
+        // Leaders alternate classic / heavy T4 by squad; an archer squad's leader is the Ranger, which has no second body.
+        expect(friendly.find(spec => spec.tier === 4)!.combatProfileId).toBe(leaders[faction][squad.squadId - 1])
         expect(friendly.every(spec => !spec.cavalry && !spec.loadout?.mountId && spec.presetId === presets[faction][squad.squadId - 1])).toBe(true)
         expect(friendly.every(spec => spec.z < -22)).toBe(true)
       }
@@ -344,6 +350,7 @@ describe('Bridgehead official field battle', () => {
         expect(enemy).toHaveLength(25)
         expect(enemy.filter(spec => spec.tier === 4)).toHaveLength(1)
         expect(enemy.filter(spec => spec.tier === 3)).toHaveLength(24)
+        expect(enemy.find(spec => spec.tier === 4)!.combatProfileId).toBe(squad % 2 ? { roman: 'centurion', viking: 'dragon-oathguard' }[enemyFaction] : { roman: 'praetorian', viking: 'varangian' }[enemyFaction])
         expect(enemy.every(spec => spec.faction === Faction.ENEMY && spec.characterFaction === enemyFaction
           && spec.cavalry && spec.presetId === `${enemyFaction}_${squad < 6 ? 'sword_cavalry' : 'lancer'}`
           && spec.loadout?.mountId === (spec.tier === 4 ? enemyFaction === 'roman' ? 'corgi' : 'black-cat' : 'horse'))).toBe(true)
@@ -964,6 +971,8 @@ describe('Commander VII Iron Legion', () => {
     expect(enemy.every(spec => spec.presetId === `${enemyFaction}_heavy_cavalry` && spec.cavalry && spec.loadout?.mountId === (enemyFaction === 'roman' ? 'armored-horse' : 'snow-leopard'))).toBe(true)
     expect(enemy.filter(spec => spec.characterTier === 4)).toHaveLength(210)
     expect(enemy.filter(spec => spec.characterTier === 5)).toHaveLength(90)
+    const heavy = { roman: ['centurion', 'byzantine-cataphract'], viking: ['dragon-oathguard', 'ironblood-warlord'] }[enemyFaction]
+    expect(enemy.every(spec => spec.combatProfileId === heavy[spec.characterTier === 5 ? 1 : 0])).toBe(true)
     expect(friendly).toHaveLength(FELINE_FRIENDLY_TOTAL)
     expect(friendly.every(spec => spec.characterTier === 4 && spec.heroArchetype === 'ranger'
       && spec.visualAssetId === 'maki-archer-t4' && spec.loadout?.rangedWeaponId === 'bow_t5')).toBe(true)

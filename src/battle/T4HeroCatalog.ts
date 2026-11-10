@@ -1,6 +1,7 @@
 import { getUnitPreset, resolveUnitLoadout, type UnitPresetId, type UnitLoadout } from './UnitPresetCatalog'
 import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
+import type { CharacterFaction } from '../world/CharacterVisuals'
 import { HERO_COMBAT_PROFILES, type HeroCombatProfile, type T4CombatProfileId } from './HeroCombatProfile'
 
 // Keep existing callers compatible while all tiers share the same combat pipeline.
@@ -29,8 +30,14 @@ const VARANGIAN_FOOT: T4UnitProfile = { visualAssetId: 'viking-hero-t4', combatP
 const VARANGIAN_MOUNTED: T4UnitProfile = { ...VARANGIAN_FOOT, mountOverride: 'black-cat' }
 const PRAETORIAN_FOOT: T4UnitProfile = { visualAssetId: 'roman-hero-t4', combatProfileId: 'praetorian', baseLoadoutTier: 3, mountOverride: null }
 const PRAETORIAN_MOUNTED: T4UnitProfile = { ...PRAETORIAN_FOOT, mountOverride: 'corgi' }
-const VARANGIAN_HEAVY_CAVALRY: T4UnitProfile = { ...VARANGIAN_FOOT, mountOverride: 'snow-leopard' }
-const PRAETORIAN_HEAVY_CAVALRY: T4UnitProfile = { ...PRAETORIAN_FOOT, mountOverride: 'armored-horse' }
+/** The faction's second (heavy) T4 class: its body and combat profile, independent of weapons and mount. */
+export const HEAVY_T4_HERO: Readonly<Record<CharacterFaction, Pick<T4UnitProfile, 'visualAssetId' | 'combatProfileId'>>> = {
+  roman: { visualAssetId: 'roman-centurion-t4', combatProfileId: 'centurion' },
+  viking: { visualAssetId: 'viking-heavy-hero-t4', combatProfileId: 'dragon-oathguard' },
+}
+/** All T4 heavy cavalry, in every mode, is the heavy class; only Heavy Cavalry changes class, so the other presets keep their profiles. */
+const DRAGON_OATHGUARD_HEAVY_CAVALRY: T4UnitProfile = { ...VARANGIAN_FOOT, ...HEAVY_T4_HERO.viking, mountOverride: 'snow-leopard' }
+const CENTURION_HEAVY_CAVALRY: T4UnitProfile = { ...PRAETORIAN_FOOT, ...HEAVY_T4_HERO.roman, mountOverride: 'armored-horse' }
 const RANGER: T4UnitProfile = { visualAssetId: 'maki-archer-t4', combatProfileId: 'ranger', baseLoadoutTier: 3, mountOverride: null, specialCombatProfile: 'maki-ranger' }
 
 export const T4_UNIT_PROFILES: Record<UnitPresetId, T4UnitProfile> = {
@@ -40,7 +47,7 @@ export const T4_UNIT_PROFILES: Record<UnitPresetId, T4UnitProfile> = {
   viking_sword_cavalry: VARANGIAN_MOUNTED,
   viking_lancer: VARANGIAN_MOUNTED,
   viking_horse_archer: VARANGIAN_MOUNTED,
-  viking_heavy_cavalry: VARANGIAN_HEAVY_CAVALRY,
+  viking_heavy_cavalry: DRAGON_OATHGUARD_HEAVY_CAVALRY,
   roman_heavy_infantry: PRAETORIAN_FOOT,
   roman_spearman: PRAETORIAN_FOOT,
   roman_archer: RANGER,
@@ -48,7 +55,12 @@ export const T4_UNIT_PROFILES: Record<UnitPresetId, T4UnitProfile> = {
   roman_sword_cavalry: PRAETORIAN_MOUNTED,
   roman_lancer: PRAETORIAN_MOUNTED,
   roman_horse_archer: PRAETORIAN_MOUNTED,
-  roman_heavy_cavalry: PRAETORIAN_HEAVY_CAVALRY,
+  roman_heavy_cavalry: CENTURION_HEAVY_CAVALRY,
+}
+
+/** The faction's heavy T4 class for a captain profile; Rangers have no second body and keep theirs. Weapons and mounts stay the caller's. */
+export function heavyT4Variant(profile: T4UnitProfile, faction: CharacterFaction): T4UnitProfile {
+  return profile.combatProfileId === 'ranger' ? profile : { ...profile, ...HEAVY_T4_HERO[faction] }
 }
 
 /** Canonical hero equipment. Explicit runtime weapon swaps are never upgraded by character tier. */
@@ -63,7 +75,8 @@ export function resolveT4UnitLoadout(presetId: UnitPresetId, mountOverride?: str
         base[slot] = weapon.animationKind === 'axe' ? 'paladin_mace_t4' : 'paladin_sword_t4'
       }
     }
-    if (base.shieldId) base.shieldId = profile.visualAssetId === 'roman-hero-t4' ? 'roman_officer_shield_t4' : 'paladin_shield_t4'
+    // Shield follows the army, not the body, so heavy cavalry keep their original Roman officer / paladin shield.
+    if (base.shieldId) base.shieldId = getUnitPreset(presetId).faction === 'roman' ? 'roman_officer_shield_t4' : 'paladin_shield_t4'
   }
   return { ...base, mountId: profile.mountOverride ? (mountOverride ?? profile.mountOverride) : null,
     ...(profile.specialCombatProfile === 'maki-ranger'

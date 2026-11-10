@@ -218,7 +218,7 @@ import { claimCareerMission, clearCareerMission, cloneCareerProfile, type Career
 import { CareerMissionCheckpoint, type CareerMissionCheckpointReason } from './career/CareerMissionCheckpoint'
 import type { ActiveCareerMission, BridgeBattleDeployment } from './career/CareerMissionState'
 import { createBridgeheadRoster } from './career/CommanderMissionCatalog'
-import { createCaptainFrontlineSpawnPlan, createCaptainEagleSpawnPlan } from './career/CaptainBattleLaunch'
+import { createCaptainFrontlineSpawnPlan, createCaptainEagleSpawnPlan, applyCaptainFrontlineEnemyHeroes, captainFrontlineEnemyHeroAsset } from './career/CaptainBattleLaunch'
 import { CAPTAIN_FRONTLINE_COMMAND_ID, CAPTAIN_EAGLE_BATTLE_ID } from './career/CaptainMissionCatalog'
 import { snapshotCommandActor, restoreCommandActor } from './career/CareerCommandActorCheckpoint'
 import type { CaptainEagleCheckpoint } from './career/CaptainEagleCheckpoint'
@@ -527,6 +527,7 @@ export class Game {
         for (const assetId of careerFelineHeroAssetIds(personalProfile)) heroAssets.add(assetId)
       }
       for (const assetId of heavyPreload.heroAssets) heroAssets.add(assetId)
+      if (campaignConfig?.careerMissionKind === 'captain-outpost-defense') heroAssets.add(captainFrontlineEnemyHeroAsset(campaignConfig.defenderFaction))
       const playerHeroId = campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId
       if (playerHeroId) heroAssets.add(playerHeroId)
       const heroBattleConfigs = campaignConfig && !campaignConfig.careerVeteranOutpost && !campaignConfig.careerCommanderOutpost
@@ -3903,7 +3904,10 @@ export class Game {
       const config = createDefenseCampaignWaveConfig(campaign, wave)
       plan = BattleSpawner.createSpawnPlan(config)
       if (wave === 'reinforcement') positionDefenseCampaignReinforcements(plan.npcSpecs, campaign.defenderFaction)
-      else if (wave === 'attackers') positionDefenseCampaignAttackers(plan.npcSpecs, campaign.defenderFaction)
+      else if (wave === 'attackers') {
+        positionDefenseCampaignAttackers(plan.npcSpecs, campaign.defenderFaction)
+        if (campaign.careerMissionKind === 'captain-outpost-defense') applyCaptainFrontlineEnemyHeroes(plan.npcSpecs)
+      }
       this._identifyPersonalOutpostWave(plan, wave)
     }
 

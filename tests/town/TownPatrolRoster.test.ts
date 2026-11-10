@@ -7,7 +7,9 @@ import { BanditMissionController, selectMissionCavalryActorIds } from '../../src
 import type { ActiveCareerMission } from '../../src/career/CareerMissionState'
 import { MissionTravelEncounter } from '../../src/career/MissionTravelEncounter'
 import type { Player } from '../../src/player/Player'
-import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
+import { townActorHeroProfile, townMilitaryEquipment, townOfficerPreload, townRoster, type TownActorSpec } from '../../src/town/TownRules'
+import { townCommanderHeroAsset } from '../../src/town/TownCommander'
+import { townUnitDisplayTier } from '../../src/ui/UnitDisplayName'
 import { TownScene } from '../../src/town/TownScene'
 import { NPC, AIState } from '../../src/world/NPC'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
@@ -170,6 +172,34 @@ describe('Town patrol roster contracts', () => {
     expect(townDefenseThreatResponse(spec, npc, npc.combatPosition.clone().add(new Vector3(1, 0, 0)), 20)).toBe('defend')
     expect(townDefenseThreatResponse(spec, npc, npc.combatPosition.clone().add(new Vector3(9, 0, 0)), 20)).toBe('ignore')
   })
+  it('fields a T5 heavy deployment officer, the classic Captain, heavy Patrol leaders and the legacy Commander per faction', () => {
+    const roster = townRoster(), spec = (id: string) => roster.find(actor => actor.id === id)!
+    const identity = (faction: 'roman' | 'viking', id: string) => {
+      const hero = townActorHeroProfile(faction, spec(id))
+      return hero && [hero.visualAssetId, hero.combatProfileId, hero.characterTier, hero.mountOverride]
+    }
+    const expected = {
+      roman: { deployment: ['byzantine-cataphract-t5', 'byzantine-cataphract', 5, 'armored-horse'], captain: ['roman-hero-t4', 'praetorian', 4, 'corgi'],
+        patrol: ['roman-centurion-t4', 'centurion', 4, 'corgi'], kit: ['byzantine_standard_lance_t5', 'byzantine_eagle_shield_t5'], commander: 'roman-hero-t5' },
+      viking: { deployment: ['viking-heavy-hero-t5', 'ironblood-warlord', 5, 'snow-leopard'], captain: ['viking-hero-t4', 'varangian', 4, 'black-cat'],
+        patrol: ['viking-heavy-hero-t4', 'dragon-oathguard', 4, 'black-cat'], kit: ['spear_t5', 'viking_berserker_shield_t5'], commander: 'viking-hero-t5' },
+    } as const
+    for (const faction of ['roman', 'viking'] as const) {
+      const want = expected[faction]
+      expect(identity(faction, 'deployment')).toEqual(want.deployment)
+      expect(identity(faction, 'captain')).toEqual(want.captain)
+      for (const id of ['town-patrol:a:captain', 'town-patrol:b:captain']) expect(identity(faction, id)).toEqual(want.patrol)
+      expect(identity(faction, 'town-patrol:a:0')).toBeUndefined()
+      expect(townMilitaryEquipment(faction, spec('deployment')).loadout).toEqual({ meleeWeaponId: want.kit[0], rangedWeaponId: null,
+        shieldId: want.kit[1], mountId: want.deployment[3], reversibleRangedSwitch: false })
+      expect(townOfficerPreload(faction)).toEqual({ heroAssets: [want.deployment[0], want.patrol[0]], equipmentIds: [...want.kit] })
+      expect(townCommanderHeroAsset(faction)).toBe(want.commander)
+    }
+    // The deployment officer stays a T4-record infantry-squad resident, so Town squads and siege plans keep their membership.
+    expect(spec('deployment')).toMatchObject({ mounted: false, tier: 4, role: 'deployment' })
+    expect(townUnitDisplayTier(spec('deployment'), 'roman')).toBe(5)
+  })
+
   it('keeps two twenty-rider patrols distinct from the service Captain, training and gate guards', () => {
     const roster = townRoster(), patrol = roster.filter(s => s.duty === 'patrol')
     expect(roster).toHaveLength(235); expect(patrol).toHaveLength(40)
