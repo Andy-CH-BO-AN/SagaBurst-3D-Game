@@ -175,6 +175,7 @@ import { resolveActivePlayerSkillProgressionAward, resolveCombatSkill, resolveSk
 import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { WeaponWheelUI } from './ui/WeaponWheelUI'
 import { ArmyCommandController, type ArmyCommandAuthority } from './battle/ArmyCommandController'
+import { ArmyCommandSelectionMarker } from './battle/ArmyCommandSelectionMarker'
 import { matchesArmyCommandTarget } from './battle/CommandTarget'
 import type { TacticalOrder } from './battle/TacticalOrder'
 import { officialActorSquadId, officialCommandAcceptsActor, type OfficialCommandAuthority } from './career/CareerCommandAuthority'
@@ -392,6 +393,8 @@ export class Game {
   abortCareerDeployment(): void {
     this.compass?.dispose()
     this.compass = undefined
+    this.commandSelectionMarker?.dispose()
+    this.commandSelectionMarker = undefined
     this.spawningStopped = true
     for (const batch of this.spawnBatches) batch.cancel()
     this.personalSquad?.cancelPendingSpawns()
@@ -709,6 +712,7 @@ export class Game {
   private armyCommandUI!: ArmyCommandUI
   private weaponWheelUI = new WeaponWheelUI()
   private armyCommandController!: ArmyCommandController
+  private commandSelectionMarker?: ArmyCommandSelectionMarker
   private equipmentUI!: EquipmentUI
   private trainingGround: TrainingGround | null = null
   private trainingUI: TrainingGroundUI | null = null
@@ -1571,6 +1575,7 @@ export class Game {
         }
       },
     )
+    this.commandSelectionMarker = new ArmyCommandSelectionMarker(this.scene, this.armyCommandController)
 
 
     // ── Save Manager ──
@@ -4468,9 +4473,21 @@ export class Game {
     } else if (!window.location.search.includes('nolock') && !this.trainingUI?.paused) this.input.requestPointerLock()
   }
 
-  private _updatePlayerInputOwnership(): void {
-    const careerEnded = Boolean(this.captainResultPending || this.careerProfile?.activeMission?.result
+  private _isCareerCommandFinished(): boolean {
+    return Boolean(this.captainResultPending || this.careerProfile?.activeMission?.result
       || this.defenseCampaignConfig?.careerMissionId && this.defenseCampaignRuntime?.getSnapshot().battleFinished)
+  }
+
+  /** Overhead command markers follow the same input ownership as ArmyCommandController.update(). */
+  private _updateCommandSelectionMarker(dt: number): void {
+    this.commandSelectionMarker?.update(
+      !this.isModelStudio && !this.player.dead && this.controlMode === 'player'
+        && !this._isCareerCommandFinished() && !this.equipmentUI.visible && !this.trainingUI?.paused,
+      this.camera, dt)
+  }
+
+  private _updatePlayerInputOwnership(): void {
+    const careerEnded = this._isCareerCommandFinished()
     if (this.player.dead || this.controlMode !== 'player' || careerEnded) this.armyCommandUI?.setEnabled(false)
     if (this.equipmentUI.visible) {
       this.input.clear()
@@ -5220,6 +5237,7 @@ export class Game {
       this.soundManager.updateEagleWingbeats([])
       this.input.clear()
       this.player.clearTownAction()
+      this.commandSelectionMarker?.hide()
       this.renderer.render(this.scene, this.camera)
       return
     }
@@ -5600,6 +5618,8 @@ export class Game {
       this.player.fitMountedSeat()
       for (const npc of this.npcs) npc.fitMountedSeat()
     }
+
+    this._updateCommandSelectionMarker(dt)
 
     // 7. Renderer Submit (measures synchronous CPU-side render submission, not GPU time)
     if (profile) t0 = performance.now()

@@ -184,6 +184,56 @@ describe('Army command roster, dispatch and submenu', () => {
     expect(h.controller.isSubmenuOpen).toBe(false)
   })
 
+  it('previews the highlighted or opened target through wheel, submenu and Q-back without issuing orders', () => {
+    const record = (id: string, squadId: SquadIdentity, faction = Faction.TOWN) =>
+      ({ combatantId: id, squadId, faction, dead: false, setTacticalOrder: vi.fn() })
+    const actors = [record('a1', 1), record('a2', 1), record('b1', 2), record('lost', 1), record('foe', 1, Faction.ENEMY)]
+    const h = controllerHarness(actors, null, null, null, 'roman', 'squad', true, undefined,
+      { accepts: npc => npc.combatantId !== 'lost' && npc.faction === Faction.TOWN, enabled: () => true })
+    const preview = () => {
+      const ids: string[] = []
+      h.controller.forEachCommandPreviewMember(npc => ids.push(npc.combatantId))
+      return { target: h.controller.commandPreviewTarget, ids }
+    }
+
+    expect(preview()).toEqual({ target: null, ids: [] }) // Weapon mode shows nothing.
+    h.input.pressKey('KeyQ'); h.controller.update()
+    expect(preview()).toEqual({ target: 'squad:1', ids: ['a1', 'a2'] })
+    h.input.wheel(1); h.controller.update()
+    expect(preview()).toEqual({ target: 'squad:2', ids: ['b1'] })
+    h.input.clickMiddle(); h.controller.update()
+    expect(h.controller.isSubmenuOpen).toBe(true)
+    h.input.wheel(1); h.controller.update() // Submenu wheel moves the command, not the previewed squad.
+    expect(preview()).toEqual({ target: 'squad:2', ids: ['b1'] })
+    h.input.pressKey('KeyQ'); h.controller.update()
+    expect(h.controller.isSubmenuOpen).toBe(false)
+    expect(preview().target).toBe('squad:2')
+    h.input.pressKey('KeyQ'); h.controller.update()
+    expect(preview()).toEqual({ target: null, ids: [] })
+    for (const actor of actors) expect(actor.setTacticalOrder).not.toHaveBeenCalled()
+  })
+
+  it('does not preview deployed-roster exclusions or any member once command authority is revoked', () => {
+    const actors = [{ combatantId: 'field', squadId: 1, faction: Faction.TOWN, dead: false },
+      { combatantId: 'reserve', squadId: 1, faction: Faction.TOWN, dead: false }]
+    let enabled = true
+    const roster = () => ({ contextId: 'm1', members: [
+      { id: 'field', squadId: 1 as const, state: 'deployed' as const },
+      { id: 'reserve', squadId: 1 as const, state: 'reserve' as const },
+    ] })
+    const h = controllerHarness(actors, null, null, null, 'roman', 'squad', true, undefined,
+      { accepts: () => true, enabled: () => enabled }, roster)
+    h.input.pressKey('KeyQ'); h.controller.update()
+    const ids: string[] = []
+    h.controller.forEachCommandPreviewMember(npc => ids.push(npc.combatantId))
+    expect(ids).toEqual(['field'])
+    enabled = false
+    expect(h.controller.commandPreviewTarget).toBeNull()
+    ids.length = 0
+    h.controller.forEachCommandPreviewMember(npc => ids.push(npc.combatantId))
+    expect(ids).toEqual([])
+  })
+
   it('drops the old 3/29 and command selection when a new mission authorizes 20 different IDs', () => {
     const actors: CommandRecipientFixture[] = Array.from({ length: 3 }, (_, index) => ({
       combatantId: `a:${index}`, faction: Faction.TOWN, squadId: 1, dead: false, setTacticalOrder: vi.fn(),

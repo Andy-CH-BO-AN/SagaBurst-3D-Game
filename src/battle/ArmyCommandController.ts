@@ -115,6 +115,8 @@ export class ArmyCommandController {
   private rosterSignature = ''
   private hudContextId = ''
   private hudRosterSnapshot?: ArmyHudRoster
+  /** Deployed HUD members of the latest roster sync; null when no roster snapshot constrains membership. */
+  private hudVisibleIds: ReadonlySet<string> | null = null
   private allOrder: TacticalOrder | 'mixed' = 'attack'
   private wheelInputMode: WheelInputMode = 'weapon'
   private selectedWeaponId: string | null = null
@@ -172,6 +174,35 @@ export class ArmyCommandController {
   get isFormationPlacementMode(): boolean { return this.formation?.isPlacementMode ?? false }
   get wheelMode(): WheelInputMode { return this.wheelInputMode }
   get grouping(): CommandGroupingMode { return this.groupingMode }
+
+  /**
+   * Read-only target currently shown to the player: the HUD highlight in command mode,
+   * or the open submenu / formation-placement target. Null when commands cannot be used
+   * or the wheel is in weapon mode. It never changes selectedTarget or highlightedTarget.
+   */
+  get commandPreviewTarget(): ArmyCommandTarget | null {
+    if (!this.commandsEnabled) return null
+    if (this.commandAuthority ? !this.commandAuthority.enabled()
+      : this.personalCommands && !this.personalCommands.enabled()) return null
+    if (this.submenuOpen || this.formation?.isPlacementMode) return this.selectedTarget
+    return this.wheelInputMode === 'command' ? this.highlightedTarget : null
+  }
+
+  /**
+   * Visits NPCs that currently belong to the preview target under the same authority and
+   * roster rules used for HUD counts and orders. Dead actors are included so callers can
+   * react to death/respawn without re-resolving membership; they receive no orders.
+   */
+  forEachCommandPreviewMember(visit: (npc: NPC) => void): void {
+    const target = this.commandPreviewTarget
+    if (!target) return
+    const visibleIds = this.hudVisibleIds
+    for (const npc of this.npcs) {
+      if (!this._acceptsNpc(npc) || !matchesArmyCommandTarget(npc, target)) continue
+      if (visibleIds && !visibleIds.has(npc.combatantId)) continue
+      visit(npc)
+    }
+  }
 
   setInventory(inventory: InventoryManager): void {
     this.close()
@@ -659,6 +690,7 @@ export class ArmyCommandController {
     }
     const visibleIds = snapshot ? new Set(snapshot.members
       .filter(member => member.state !== 'reserve' && member.state !== 'exited').map(member => member.id)) : null
+    this.hudVisibleIds = visibleIds
     for (const npc of this.npcs) {
       if (!this._acceptsNpc(npc) || visibleIds && !visibleIds.has(npc.combatantId)) continue
       if (npc.presetId) {
