@@ -123,7 +123,7 @@ describe('siege checkpoint ownership', () => {
     expect(persisted.fourGateDefense!.actors[id]).toEqual(state.actors[id])
   })
 
-  it('keeps an in-flight legacy 210-person snapshot and native casualties while new acceptance saves 206 plus ten autonomous defenders', () => {
+  it('keeps an in-flight legacy 210-person snapshot and native casualties across reload', () => {
     const profile = createFourGateDefenseProfile('ATTACKING', { rosterVersion: 1 })
     const mission = profile.activeMission!, state = mission.fourGateDefense!
     mission.deadFriendlyActorIds = ['gate:west:0']
@@ -137,8 +137,10 @@ describe('siege checkpoint ownership', () => {
     expect(restored.officialSquad!.squads).toEqual(originalSquads)
     expect(restored.fourGateDefense).toMatchObject({ rosterVersion: 1, combatElapsedSeconds: 143.5,
       actors: { 'gate:west:0': { status: 'dead', hp: 0 } } })
+  })
+  it('new acceptance saves 206 plus ten autonomous defenders and keeps the native casualty', () => {
     const next = createFourGateDefenseProfile('PREPARING'), current = next.activeMission!
-    next.tutorial = structuredClone(profile.tutorial) // same Career, not an unrelated ID
+    const store = new CareerProfileStore(new MemoryStorage())
     const archerId = 'watchtower-archer:3'
     Object.assign(current.fourGateDefense!.actors[archerId], { status: 'dead', hp: 0 })
     const nativeStats = current.fourGateDefense!.nativeCombatStats = { damageDealt: 0, damageTaken: 0, kills: 0 }
