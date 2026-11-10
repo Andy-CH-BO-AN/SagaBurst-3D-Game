@@ -133,7 +133,8 @@ export function changeTownEquipment(read: () => CareerProfile, context: TownEqui
   const next = cloneCareerProfile(current)
   try { normalizeCareerInventory(next) } catch { return fail(current, 'invalid-item') }
   const refs = memberRefs(next, context, target, actorId), previous = refs[slot]
-  if ((previous?.itemId ?? null) === itemId) return fail(current, 'no-op')
+  // A no-op needs both the saved token and the weapon actually wielded to be this item: an untouched class kit wields another item than its native token records.
+  if ((previous?.itemId ?? null) === itemId && (memberEffectiveRefs(next, context, target, actorId)[slot]?.itemId ?? null) === itemId) return fail(current, 'no-op')
   if (itemId && availableCareerItem(next, itemId) < 1) return fail(current, 'no-available-item')
   const ref: TownEquipmentRef | null = itemId ? { itemId, source: 'inventory' } : null
   if (ref && !isCareerShopItemUseUnlocked(current, ref.itemId)) return fail(current, 'rank-locked')
