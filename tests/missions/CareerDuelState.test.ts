@@ -562,6 +562,13 @@ describe('Career Duel hero class selection', () => {
     expect(controller.isParkedResident(h.captain as unknown as NPC)).toBe(true)
     expect(h.captain.applyTemporaryCombatLoadout).not.toHaveBeenCalled()
     expect(body.restoreCombatHealth).toHaveBeenCalledWith(700)
+    // The parked resident is never touched; the temporary body is the real, damageable target.
+    expect(h.captain.restoreCombatHealth).not.toHaveBeenCalled()
+    expect(controller.isParkedResident(body as unknown as NPC)).toBe(false)
+    Object.assign(h.read().activeMission!, { phase: 'ENGAGING' })
+    expect(controller.canDamageOpponent(body as unknown as NPC)).toBe(true)
+    expect(controller.canDamageOpponent(h.captain as unknown as NPC)).toBe(false)
+    expect(h.captain.hp).toBe(100)
     controller.cleanupMission()
     expect(dispose).toHaveBeenCalledOnce()
     expect(controller.isParkedResident(h.captain as unknown as NPC)).toBe(false)

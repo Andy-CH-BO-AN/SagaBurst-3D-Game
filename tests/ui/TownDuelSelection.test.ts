@@ -169,3 +169,18 @@ describe('Career Duel resume after a deployment failure', () => {
     expect(await resume(true, true).deployActiveDuel()).toBe(true)
   })
 })
+
+describe('Career Duel parked resident protection', () => {
+  type Hits = { duel: { isParkedResident(target: unknown): boolean }; hitFieldNpc(...args: unknown[]): void; canHitTownMount(mount: unknown, source?: unknown): boolean }
+  it('ignores damage from any source to a parked resident or its mount, while other targets keep normal handling', () => {
+    const proto = TownScene.prototype as unknown as Hits
+    const parkedNpc = { dead: false, takeDamage: vi.fn() }, parkedMount = { dead: false }, other = { dead: false }
+    const self = { duel: { isParkedResident: (target: unknown) => target === parkedNpc || target === parkedMount },
+      get retirementFinale() { throw new Error('reached normal damage handling') } } as unknown as Hits
+    const hostile = { faction: 'enemy', unarmedContact: undefined }
+    expect(() => proto.hitFieldNpc.call(self, parkedNpc, 50, 'melee', hostile)).not.toThrow()
+    expect(parkedNpc.takeDamage).not.toHaveBeenCalled()
+    expect(proto.canHitTownMount.call(self, parkedMount, hostile)).toBe(false)
+    expect(() => proto.hitFieldNpc.call(self, other, 50, 'melee', hostile)).toThrow('normal damage handling')
+  })
+})

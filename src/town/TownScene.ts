@@ -3172,6 +3172,7 @@ export class TownScene {
   }
 
   private hitBattlefieldMount(mount: Mount, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
+    if (this.duel?.isParkedResident(mount)) return
     if (this.retirementFinale?.frozen || this.fourGateCombatHeld || source && this.isRetirementEvacuating(source)) return
     if (this.defense?.phase === 'PREPARING' && (source?.combatOwnership === 'player-personal' || this.personalSquad?.mounts.includes(mount))) return
     if (mount.dead || mount.disposed || amount <= 0) return
@@ -3265,6 +3266,7 @@ export class TownScene {
   }
   /** Independent mount contacts retain their geometry while respecting their rider's protection. */
   private canHitTownMount(mount: Mount, source?: NPC): boolean {
+    if (this.duel?.isParkedResident(mount)) return false
     if (!source) return mount !== this.player.currentMount && !this.isProtectedTownAlly(mount)
     if (mount.riderPlayer === this.player) return source.hostileToPlayer || Boolean(this.duel?.canDamagePlayer(source))
     const owner = mount.riderNpc ?? (this.residents ?? []).find(resident => resident.homeMount === mount)?.npc
@@ -3347,6 +3349,7 @@ export class TownScene {
   }
   private hitFieldNpc(target: NPC, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
     contact ??= source?.unarmedContact
+    if (this.duel?.isParkedResident(target)) return // Parked residents are untouchable by every source.
     if (this.retirementFinale?.frozen || this.fourGateCombatHeld || source && this.isRetirementEvacuating(source)) return
     if (this.defense?.phase === 'PREPARING' && (source?.combatOwnership === 'player-personal' || target.combatOwnership === 'player-personal')) return
     contact ??= method === 'melee' ? (source ?? this.player).weaponSweep?.contact : undefined
