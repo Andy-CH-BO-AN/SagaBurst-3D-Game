@@ -113,6 +113,8 @@ export interface ActiveCareerMission {
   duelPlayerHomeMountActorId?: string
   duelTier?: CareerDuelTier
   duelPresetId?: UnitPresetId
+  /** Hero class of a T4/T5 armed duel opponent; absent in older saves = the resident's original class. */
+  duelClassId?: import('../battle/HeroCombatProfile').HeroCombatProfileId
   duelOpponentActorId?: string
   duelCaptainActorId?: string
   duelRefereeActorId?: string

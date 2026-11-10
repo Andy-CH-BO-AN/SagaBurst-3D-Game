@@ -31,10 +31,10 @@ interface DuelSelectionEntry {
   duelActivity: 'duel' | 'race' | 'review'
   tutorial: { renderReviewContent(panel: HTMLElement): void }
   openDuelPage(panel: HTMLElement): void
-  openDuelSelection(panel: HTMLElement, presetId?: UnitPresetId): void
+  openDuelSelection(panel: HTMLElement, presetId?: UnitPresetId, mode?: 'armed' | 'unarmed', classTier?: CareerDuelTier): void
   openRacePage(panel: HTMLElement): void
   button(parent: HTMLElement, label: string, action: () => void): HTMLButtonElement
-  acceptDuel(presetId: UnitPresetId, tier: CareerDuelTier): void
+  acceptDuel(presetId: UnitPresetId | undefined, tier: CareerDuelTier, mode?: 'armed' | 'unarmed', classId?: string): void
   acceptRace(id: string): void
 }
 
@@ -77,8 +77,15 @@ describe('Career Duel selection pages', () => {
     ])
     expect(h.rows().map(row => row.children[2].disabled)).toEqual([false, false, false, false, true])
     h.rows()[4].children[2].click(); expect(h.accept).not.toHaveBeenCalled()
-    h.rows()[3].children[2].click(); expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 4)
-    h.root.scrollTop = 400; h.buttons()[0].click()
+    h.rows()[2].children[2].click(); expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 3); h.accept.mockClear()
+    // T4 adds a class step: Tier → class → accept, each step reversible without leaving the dialogue.
+    h.rows()[3].children[2].click(); expect(h.accept).not.toHaveBeenCalled()
+    expect(h.buttons()[0].textContent).toBe('← 返回等級列表')
+    expect(h.rows().map(row => row.children[0].textContent)).toEqual(['禁衛軍隊長 Praetorian Captain · T4', '百夫長 Centurion · T4'])
+    h.buttons()[0].click(); expect(h.rows()).toHaveLength(5)
+    h.rows()[3].children[2].click(); h.rows()[1].children[2].click()
+    expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 4, 'armed', 'centurion')
+    h.buttons()[0].click(); h.root.scrollTop = 400; h.buttons()[0].click()
     expect(h.root.scrollTop).toBe(0); expect(h.rows()).toHaveLength(presets.length)
     h.buttons()[2].click()
     expect(h.content.querySelector('h3')!.textContent).toContain(presets[1].nameZh)
