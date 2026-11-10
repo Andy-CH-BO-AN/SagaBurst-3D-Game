@@ -1804,7 +1804,7 @@ export class Game {
     this.trainingDamageUnsubscribe = this.combatEvents.subscribe(event => {
       const text = trainingDamageText(event, this.player.currentMount?.displayName)
       if (text) this.trainingUI?.setDamage(text)
-      this.tutorialScene?.combat(event)
+      this.tutorialScene?.combat(event, this._ridingPracticeHorse())
     })
     this._resetTraining()
     if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('mount') === 'snow-leopard') {
@@ -1825,7 +1825,6 @@ export class Game {
     })
     if (this.trainingGround) {
       this.trainingGround.addTutorialMarker(this.tutorialScene.movementPoint.x, this.tutorialScene.movementPoint.z)
-      for (const point of this.tutorialScene.ridePoints) this.trainingGround.addTutorialMarker(point.x, point.z)
       for (const element of document.querySelectorAll<HTMLElement>('[data-training="exit"], [data-training="pause-exit"]')) element.textContent = '稍後繼續 · 返回城鎮'
       const title = document.querySelector('#training-ground-ui .training-title small')
       if (title) title.textContent = '本次 Career 操作訓練 · 免費借用資源 · 不累積戰鬥 XP'
@@ -1843,16 +1842,25 @@ export class Game {
     }
   }
 
+  /** The tutorial's designated ordinary horse is the training ground's HORSE, never a cat or armored horse. */
+  private _ridingPracticeHorse(): boolean {
+    const horse = this.trainingGround?.mounts.find(mount => mount.type === MountType.HORSE)
+    return Boolean(horse && !horse.dead && this.player.currentMount === horse && this.player.isMounted)
+  }
+
   private _updateCareerTutorial(dt: number): void {
     const tutorial = this.tutorialScene
     if (!tutorial) return
     const paused = Boolean(this.trainingUI?.paused)
     const horse = this.trainingGround?.mounts.find(mount => mount.type === MountType.HORSE)
+    const cat = this.trainingGround?.mounts.find(mount => mount.type === MountType.BLACK_CAT)
     if (!paused) tutorial.equipmentClosed(this.inventoryManager.meleeEnabled && this.inventoryManager.equippedMelee?.type === 'melee' && !this.equipmentUI.visible)
     tutorial.update({ position: this.player.combatPosition, cameraYaw: this.thirdPersonCamera.cameraYaw,
       cameraPitch: this.thirdPersonCamera.cameraPitch, inputLocked: this.input.isLocked,
       hidden: this.equipmentUI.visible, paused, dead: this.player.dead, onFoot: !this.player.isMounted,
-      mountedOnPracticeHorse: Boolean(horse && !horse.dead && this.player.currentMount === horse && this.player.isMounted),
+      mountedOnPracticeHorse: this._ridingPracticeHorse(),
+      mountedOnPracticeCat: Boolean(cat && !cat.dead && this.player.currentMount === cat && this.player.isMounted),
+      catPosition: cat?.group.position,
       shieldRaised: this.player.hasShield && this.player.shield.shieldRaised,
       horsePosition: horse?.group.position, friendlyCount: this.npcs.filter(npc => !npc.dead && npc.faction === Faction.PLAYER).length,
     }, dt)

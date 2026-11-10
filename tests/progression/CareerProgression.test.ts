@@ -740,4 +740,29 @@ describe('Career tutorial durable transactions', () => {
     expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(JSON.stringify(replacement))
     expect(store.load()!.tutorial?.careerId).toBe(replacement.tutorial!.careerId)
   })
+  it('migrates saved ride-marker Recruit progress to the cat/impact chain without resetting or paying twice', () => {
+    const base = createCareerProfile('roman'), session = startCareerTutorial(base, 'recruit')!
+    const early = ['look', 'movement', 'equipment', 'melee-hit-1', 'melee-hit-2', 'shield', 'bow-hit']
+    const load = (profile: CareerProfile) => new CareerProfileStore(new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify(profile)]] })).load()!
+    const inProgress = structuredClone(base)
+    inProgress.tutorial!.recruit.operations = [...early, 'horse-mounted', 'ride1']
+    inProgress.tutorial!.recruit.step = 'ride2'
+    expect(load(inProgress).tutorial).toMatchObject({ session: { id: session.id }, recruit: { status: 'active', step: 'mount-impact',
+      operations: [...early, 'horse-mounted', 'cat-mounted'] } })
+    const beforeHorse = structuredClone(base)
+    beforeHorse.tutorial!.recruit.operations = early
+    beforeHorse.tutorial!.recruit.step = 'horse-mounted'
+    expect(load(beforeHorse).tutorial?.recruit).toMatchObject({ status: 'active', step: 'cat-mounted', operations: early })
+
+    const completed = structuredClone(base)
+    completed.totalMerit = completed.availableMerit = 100
+    Object.assign(completed.tutorial!, { rewards: { recruit: 100 } })
+    Object.assign(completed.tutorial!.recruit, { status: 'completed', step: 'complete',
+      operations: [...early, 'horse-mounted', 'ride1', 'ride2', 'ride3', 'dismounted'] })
+    delete completed.tutorial!.session
+    const migrated = load(completed)
+    expect(migrated.tutorial?.recruit).toMatchObject({ status: 'completed', step: 'complete' })
+    expect(claimCareerTutorialReward(migrated, 'recruit')).toBe(0)
+    expect([migrated.totalMerit, migrated.availableMerit]).toEqual([100, 100])
+  })
 })
