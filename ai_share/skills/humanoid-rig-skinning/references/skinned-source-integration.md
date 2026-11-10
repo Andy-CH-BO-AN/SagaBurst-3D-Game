@@ -1,6 +1,12 @@
 # 已蒙皮來源角色與選用裝備 GLB 整合
 
-來源已附骨架與動畫（例如 Mixamo 綁定的 Meshy 模型），要接進正式人物管線，或新增只有部分場景才需要的裝備 GLB 時使用。沒有骨架的靜態模型改看 [posed-source characters](posed-source-characters.md)。範例實作：`tools/build-byzantine-cataphract.mjs`、`tools/lib/byzantine-bake.mjs`、`tools/lib/mixamo-direction-retarget.mjs`、`tools/build-byzantine-equipment.py`。
+來源已附骨架與動畫（例如 Mixamo 綁定的 Meshy 模型），要接進正式人物管線，或新增只有部分場景才需要的裝備 GLB 時使用。沒有骨架的靜態模型改看 [posed-source characters](posed-source-characters.md)。範例實作：`tools/build-byzantine-cataphract.mjs`、`tools/lib/byzantine-bake.mjs`、`tools/lib/mixamo-direction-retarget.mjs`、`tools/build-byzantine-equipment.py`、`tools/build-centurion-shield.py`。
+
+## 先判斷是哪一種 Mixamo 來源
+
+- **Mixamo24、無手指（Armature 0.01）：** 走 Byzantine 路線（下節烘焙縮放、`MittenHandShape`）。
+- **Mixamo66、有手指、骨架已是公尺：** 走 `tools/build-meshy-faction-heroes.mjs`（Paladin／Viking T5／Centurion 的同一管線）。新增 definition 即可：`donorId` 重用凍結 revision 的既有 donor clip、`lodTriangles` 指定 LOD1／LOD2、`jpegTextures` 以 `sips` 輸出 JPEG（不需 PIL），第二個參數只建單一 asset（`node tools/build-meshy-faction-heroes.mjs DIR <assetId>`）。不要另寫 retarget 或覆蓋既有 asset 目錄。
+- 先用 `audit_glb.py` 確認 joint 數、手指骨權重、Armature 縮放與 +Z 朝向，再選路線。
 
 ## 先烘掉 Armature 縮放
 
@@ -27,6 +33,10 @@
 
 需要跟隨重力的布料（如軍旗）可在 render 前依世界方向計算 roll（`onBeforeRender`），不要烘死在握持姿勢裡。
 
+## 新角色的註冊點
+
+只加 `HERO_ASSETS` 不夠。新 hero 依用途逐一確認：`HERO_ASSET_IDS`、`HERO_COMBAT_PROFILE_BY_ASSET`、對應 Combat Profile 與 `T4_COMBAT_PROFILES`／`ARCHETYPE_BY_PROFILE` 等 `Record` 型別、`SETUP_PLAYER_HERO_IDS`（自訂戰鬥／Campaign 玩家選單；不開放時在 PR 寫明）、`main.ts` 的 `?devhero=` 預覽。新盾牌或武器要同時進 `PLAYER_SHIELD_IDS`／選取清單與 `BattleSetupLoadoutCards`，契約測試要求兩邊一致。
+
 ## 選用裝備 GLB
 
 只有部分場景需要的裝備不放進共用預載，並遵守以下契約（`src/assets/OnDemandAssets.ts`、`src/world/HighTierEquipment.ts`）：
@@ -37,5 +47,6 @@
 - **不要用 `GLTFLoader.loadAsync` 載入可重試的資產。** three.js 的 `FileLoader` 會把相同 URL 排在進行中的請求後面，舊請求卡住時新請求也跟著卡住，而且不會出現新的網路請求。改用 `fetch(url, { signal })` 加 `parseAsync`。
 - **場景要先備妥實際會生成的裝備。** 由真正的 spawn spec 或軍隊設定算出需求；用不到的場景不發任何請求。
 - **選單與清單要有契約測試。** 手寫的選單卡片會漏掉新項目；測試選單內容與 selection ID 清單完全相符，刻意隱藏的項目明確列為例外。
+- **彎曲盾牌依最後方輪廓定位。** 平盾可用「boss 後方表面」定深度；彎曲方盾的邊緣會往後包十幾公分，照抄平盾數值會插進持盾者的髖部與脊椎。量整個盾面的最小 z，與既有平盾（Starlit Aegis 背面約 .13）比較，只移動該盾自身的 +Z 位置並重算 collision bands 與握把支架；不要改共用持盾姿勢，盾面仍須遮住身體。以 idle／walk／run 計數盾牌 bands 內的身體頂點（排除左臂與手），並與既有英雄＋既有盾牌比較。
 
 失敗路徑要實機驗證：單元測試用假 loader 抓不到上面的 `FileLoader` 問題。做法見 [combat-browser-validation](../../combat-browser-validation/SKILL.md)。
