@@ -22,7 +22,7 @@ export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; 
   // Owner-supplied Meshy Mixamo24 model (tools/build-viking-heavy-heroes.mjs); metrics are the manifest's measurements.
   'viking-heavy-hero-t4': {
     nameZh: '龍誓重衛', nameEn: 'Dragon Oathguard',
-    descriptor: { assetId: 'viking-heavy-hero-t4', faction: 'viking', heightM: 2.0000002962848056, maxShoulderWidthM: 0.7301477678582136, neckLengthM: 0.08016418457032731 },
+    descriptor: { assetId: 'viking-heavy-hero-t4', faction: 'viking', heightM: 1.999999935896147, maxShoulderWidthM: 0.656265570914091, neckLengthM: 0.08004531860351614 },
   },
   'roman-hero-t4': {
     nameZh: '聖騎士', nameEn: 'Paladin',
@@ -49,7 +49,7 @@ export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; 
   // Owner-supplied Meshy Mixamo24 model (tools/build-viking-heavy-heroes.mjs); metrics are the manifest's measurements.
   'viking-heavy-hero-t5': {
     nameZh: '鐵血戰帥', nameEn: 'Ironblood Warlord',
-    descriptor: { assetId: 'viking-heavy-hero-t5', faction: 'viking', heightM: 1.999999935896147, maxShoulderWidthM: 0.656265570914091, neckLengthM: 0.08004531860351614 },
+    descriptor: { assetId: 'viking-heavy-hero-t5', faction: 'viking', heightM: 2.0000002962848056, maxShoulderWidthM: 0.7301477678582136, neckLengthM: 0.08016418457032731 },
   },
 }
 

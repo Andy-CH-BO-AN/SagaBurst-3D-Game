@@ -6,7 +6,8 @@
  * - LOD1/LOD2 are Blender collapse-decimated copies of that same skinned surface (tools/simplify-replacement-humanoids.py),
  *   limited to four influences per vertex so the stock skinning shader is kept.
  * - Clips: Walking/Running are native; idle (Paladin stance) and every combat clip are direction-retargeted
- *   (lib/mixamo-direction-retarget) from roman-hero-t4 / roman-hero-t5 with their event metadata.
+ *   (lib/mixamo-direction-retarget) from roman-hero-t4 / roman-hero-t5 with their event metadata; the foot one-hand axe
+ *   attack (axeAttack1HFoot) is the donor's Bandit@attack clip.
  *   Hit and death stay runtime-generated, as on the Byzantine Mixamo24 asset. */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -22,11 +23,11 @@ import { createRetargeter, PROJECT_NAMES } from './lib/mixamo-direction-retarget
 
 const DEFINITIONS = [
   { id: 'viking-heavy-hero-t4', title: 'Viking Warrior Rigged (Dragon Oathguard)', nameEn: 'Dragon Oathguard',
-    file: 'Meshy_AI_VikingWarriorRigged_20261107_animated_mixamo_All_animation.glb',
-    sha: '55f9357fafbe58f399d582caf730f7338c64660e6fc3ca06f8c9f6d26c0e62a6', lodTriangles: [15000, 6000] },
-  { id: 'viking-heavy-hero-t5', title: 'Viking Warrior Rigged (Ironblood Warlord)', nameEn: 'Ironblood Warlord',
     file: 'Meshy_AI_Viking_Warrior_Rigged_20261107_animated_mixamo_All_animation.glb',
     sha: '1c0773c314f64203dee2290bf2a95864aed1f531c863b2691a670fb5d595638b', lodTriangles: [15000, 6000] },
+  { id: 'viking-heavy-hero-t5', title: 'Viking Warrior Rigged (Ironblood Warlord)', nameEn: 'Ironblood Warlord',
+    file: 'Meshy_AI_VikingWarriorRigged_20261107_animated_mixamo_All_animation.glb',
+    sha: '55f9357fafbe58f399d582caf730f7338c64660e6fc3ca06f8c9f6d26c0e62a6', lodTriangles: [15000, 6000] },
 ]
 const RIGHTS = 'Owner-supplied Meshy asset; the repository owner supplied this file and requested its integration into SagaBurst on 2026-11-10'
 const [root, only] = process.argv.slice(2)
@@ -198,7 +199,8 @@ async function build(def) {
   add('walk', walk, { source: 'Meshy', sourceClip: 'Walking', loop: true, nominalSpeed: 0 })
   add('run', run, { source: 'Meshy', sourceClip: 'Running', loop: true, nominalSpeed: 0 })
   const donorBinding = clip => donorManifest.animations.embedded.find(b => b.clip === clip)
-  for (const name of ['swordSlash', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow', 'axeMountedIdle', 'axeAttack1H', 'axeAttack2H']) {
+  // axeAttack1HFoot is the donor's Bandit-sourced foot one-hand axe attack; the animator picks it for 1H axes on foot.
+  for (const name of ['swordSlash', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow', 'axeMountedIdle', 'axeAttack1H', 'axeAttack1HFoot', 'axeAttack2H']) {
     const data = retarget(name)
     if (name !== 'axeMountedIdle') applyGround(data, name)
     const { clip: _clip, duration: _duration, ...rest } = donorBinding(name)
@@ -316,7 +318,7 @@ async function build(def) {
   const manifest = {
     schemaVersion: 1, id: def.id, status: 'ready', skeleton: 'project-humanoid-v1',
     source: { title: def.title, sourceFile: def.file, sourceSha256: def.sha, license: RIGHTS, licenseEvidence: 'attribution-evidence.json' },
-    attribution: `${def.title}: owner-supplied Meshy model, textures and Walking / Running. Idle, sword, bow, pilum and axe clips are direction-retargeted from roman-hero-t4 / roman-hero-t5 (project-licensed Kevin Iglesias and Quaternius sources; see those assets).`,
+    attribution: `${def.title}: owner-supplied Meshy model, textures and Walking / Running. Idle, sword, bow, pilum and axe clips are direction-retargeted from roman-hero-t4 / roman-hero-t5 (project-licensed Kevin Iglesias and Quaternius sources; the foot one-hand axe attack is tokeshi's Bandit@attack via roman-hero-t5; see those assets).`,
     selectedSource: { rig: 'mixamo24', uniformScale: scale, seatBearing },
     handShapeMode: 'authored', preserveLodHandTopology: true,
     files: { lod0: 'lod0.glb', lod1: 'lod1.glb', lod2: 'lod2.glb' }, fileSha256, boneMap: 'bone-map.json', audit: 'audit.json', metrics,
@@ -326,7 +328,7 @@ async function build(def) {
     bakedSource: { armatureScaleBaked: baked.scale, note: 'Joint translations, inverse binds and position tracks multiplied by the Armature scale; LOD0 positions and UVs unchanged. Thigh skin weight above the hip pivot moved to the pelvis (waist collapse when seated).' },
     animationRetarget: { revision, method: 'tools/lib/mixamo-direction-retarget.mjs (bone direction + donor twist, anatomical palm frames)', idleDonor: `${STANCE_DONOR}/lod0.glb`, combatDonor: `${COMBAT_DONOR}/lod0.glb`, idleDonorSha256: sha(fs.readFileSync(`${STANCE_DONOR}/lod0.glb`)), combatDonorSha256: sha(fs.readFileSync(`${COMBAT_DONOR}/lod0.glb`)) },
     visualAcceptance: 'Requires live game review; structural audit alone does not establish visual acceptance.',
-    knownLimitations: ['Source rig has no finger bones: runtime morphs (MittenHandShape) curl the mitten hands.', 'Idle / sword / bow / pilum / axe clips are direction-retargeted from roman-hero-t4 / roman-hero-t5.', 'No dynamic cloth: tassets and fur follow the thigh/pelvis skin.'],
+    knownLimitations: ['Source rig has no finger bones: runtime morphs (MittenHandShape) curl the mitten hands.', 'Idle / sword / bow / pilum / axe clips are direction-retargeted from roman-hero-t4 / roman-hero-t5; the foot one-hand axe attack is the Bandit clip carried by roman-hero-t5.', 'No dynamic cloth: tassets and fur follow the thigh/pelvis skin.'],
   }
   fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
   const mapping = Object.fromEntries(skin.joints.map(node => baked.document.nodes[node].name).map(name => [name, PROJECT_NAMES[name.replace(/^mixamorig:/, '')] ?? null]))
@@ -341,7 +343,7 @@ async function build(def) {
   fs.writeFileSync(path.join(out, 'ATTRIBUTION.md'), `# ${def.nameEn} (${def.id})\n\nOwner-supplied Meshy model \`${def.file}\` (SHA-256 in manifest.json). ${RIGHTS}.\n`
     + 'LOD0 mesh and UVs are unchanged; thigh skin weight above the hip pivot moves to the pelvis so the waist holds when seated; the 0.01 Armature scale is baked into the joints; '
     + 'LOD1/LOD2 are collapse-decimated copies; textures are resampled per LOD (2048/1024/512 JPEG).\n'
-    + 'Walking and Running are the model\'s own clips. Idle is retargeted from `roman-hero-t4`; sword, bow, pilum and axe clips from `roman-hero-t5` (project-licensed Kevin Iglesias / Quaternius sources, see those assets).\n'
+    + 'Walking and Running are the model\'s own clips. Idle is retargeted from `roman-hero-t4`; sword, bow, pilum and axe clips from `roman-hero-t5` (project-licensed Kevin Iglesias / Quaternius sources; the foot one-hand axe attack is tokeshi\'s Fantasy Bandit `Bandit@attack`, see those assets).\n'
     + `Rebuild: \`node tools/build-viking-heavy-heroes.mjs <downloads-dir> ${def.id}\`.\n`)
   console.log(def.id, 'metrics', JSON.stringify({ height: metrics.heightM, shoulder: metrics.shoulderWidthM, neck: metrics.neckLengthM, scale, seatBearing, walk: bindings.find(b => b.clip === 'walk').nominalSpeed, run: bindings.find(b => b.clip === 'run').nominalSpeed }))
   fs.rmSync(scratch, { recursive: true, force: true })

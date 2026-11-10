@@ -144,6 +144,11 @@ describe('Centurion T4 asset and Aquila shield contracts (manifest/data only; no
 })
 
 describe('Viking heavy T4/T5 assets and Dragonward shield contracts (manifest/data only; no GLB parsing)', () => {
+  it('T4 and T5 heavy heroes are built from their own supplied sources', () => {
+    const source = (id: string) => (JSON.parse(readFileSync(`public/models/characters/v2/${id}/manifest.json`, 'utf8')) as { source: { sourceFile: string } }).source.sourceFile
+    expect(source('viking-heavy-hero-t4')).toBe('Meshy_AI_Viking_Warrior_Rigged_20261107_animated_mixamo_All_animation.glb')
+    expect(source('viking-heavy-hero-t5')).toBe('Meshy_AI_VikingWarriorRigged_20261107_animated_mixamo_All_animation.glb')
+  })
   it('both heavy heroes ship their own Mixamo24 three-LOD manifests with the canonical clips; Dragonward is a 48-impact on-demand T4 shop shield', () => {
     for (const id of ['viking-heavy-hero-t4', 'viking-heavy-hero-t5'] as const) {
       const base = `public/models/characters/v2/${id}`
@@ -154,6 +159,8 @@ describe('Viking heavy T4/T5 assets and Dragonward shield contracts (manifest/da
       expect(HERO_ASSETS[id].descriptor.faction).toBe('viking')
       const clips = heavy.animations!.embedded.map(b => b.clip)
       for (const clip of ['idle', 'walk', 'run', 'mounted', 'swordSlash', 'axeAttack1H', 'axeAttack2H', 'axeMountedIdle', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow']) expect(clips).toContain(clip)
+      // Foot one-hand axe uses the Bandit attack (the animator selects axeAttack1HFoot when the asset embeds it).
+      expect(heavy.animations!.embedded.find(b => b.clip === 'axeAttack1HFoot')).toMatchObject({ sourceClip: 'Bandit@attack.fbx', retargetedFrom: 'roman-hero-t5' })
       expect(heavy.animations!.runtimeGenerated).toEqual(expect.arrayContaining(['hit', 'death', 'lanceThrust', 'mountedLance']))
     }
     expect(ARMORS.viking_dragonward_shield_t4).toMatchObject({ tier: 4, shieldImpactMax: 48 })

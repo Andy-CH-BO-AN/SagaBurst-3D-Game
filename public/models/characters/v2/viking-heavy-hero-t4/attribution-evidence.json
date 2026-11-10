@@ -1,14 +1,14 @@
 {
   "source": {
     "title": "Viking Warrior Rigged (Dragon Oathguard)",
-    "sourceFile": "Meshy_AI_VikingWarriorRigged_20261107_animated_mixamo_All_animation.glb",
-    "sourceSha256": "55f9357fafbe58f399d582caf730f7338c64660e6fc3ca06f8c9f6d26c0e62a6",
+    "sourceFile": "Meshy_AI_Viking_Warrior_Rigged_20261107_animated_mixamo_All_animation.glb",
+    "sourceSha256": "1c0773c314f64203dee2290bf2a95864aed1f531c863b2691a670fb5d595638b",
     "license": "Owner-supplied Meshy asset; the repository owner supplied this file and requested its integration into SagaBurst on 2026-11-10",
     "licenseEvidence": "attribution-evidence.json"
   },
   "rightsEvidence": "Owner-supplied Meshy asset; the repository owner supplied this file and requested its integration into SagaBurst on 2026-11-10",
   "animationDonor": {
-    "revision": "d455e301ea08b5aa8c135882db882d97cf626825",
+    "revision": "de898d9ece31818fd0c10f4aad2356c24da0f48e",
     "method": "tools/lib/mixamo-direction-retarget.mjs (bone direction + donor twist, anatomical palm frames)",
     "idleDonor": "public/models/characters/v2/roman-hero-t4/lod0.glb",
     "combatDonor": "public/models/characters/v2/roman-hero-t5/lod0.glb",
