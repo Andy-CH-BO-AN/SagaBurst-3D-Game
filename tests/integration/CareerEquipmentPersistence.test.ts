@@ -57,6 +57,11 @@ describe('Career equipment persistence wiring', () => {
     canSave = false
     expect(inv.equipWeapon('pilum_basic')).toBe(false)
     expect(inv.isEquipped('scutum_t1')).toBe(true)
+    // A failed save must be reported as a failure so the UI never announces a shield or allocation change that did not happen.
+    expect(inv.unequipShield()).toBe(false); expect(inv.unequipWeapon('scutum_t1')).toBe(false)
+    expect(inv.equippedShield?.id).toBe('scutum_t1'); expect(profile.equipment?.shield).toBe('scutum_t1')
+    // An empty ranged slot is empty, not the default bow the legacy getter falls back to.
+    expect(inv.selectedRanged).toBeUndefined()
     canSave = true
     expect(inv.equipWeapon('pilum_basic')).toBe(true)
     expect(profile.equipment?.shield).toBeNull()

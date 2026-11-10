@@ -1,22 +1,9 @@
 import * as THREE from 'three'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { WEAPONS } from '../rpg/WeaponDatabase'
 import { FACTION_SHIELD_BANDS } from './FactionShieldGeometry'
 import type { Mount } from '../world/Mount'
 
-export const SHIELD_CONFIG = {
-  axeImpactByTier: { 1: 2, 2: 4, 3: 8 },
-  mountedLanceImpactByTier: { 1: 10, 2: 20, 3: 40, 4: 60, 5: 80 },
-  xpPerBlockedImpact: 20,
-} as const
-export function weaponShieldImpact(id?: string, isMounted = false): number {
-  const weapon = WEAPONS[id ?? '']
-  if (weapon?.shieldImpact !== undefined) return weapon.shieldImpact
-  if (!weapon) return 1
-  if (weapon.animationKind === 'axe') return (SHIELD_CONFIG.axeImpactByTier as Readonly<Partial<Record<number, number>>>)[weapon.tier] ?? 1
-  if (isMounted && weapon.combatKind === 'lance') return (SHIELD_CONFIG.mountedLanceImpactByTier as Readonly<Partial<Record<number, number>>>)[weapon.tier] ?? 1
-  return 1
-}
+export { SHIELD_CONFIG, weaponShieldImpact } from './ShieldImpact'
 export function blockingReduction(level: number): number {
   return Math.min(.5, Math.max(0, Number.isFinite(level) ? Math.floor(level) : 0) * .01)
 }

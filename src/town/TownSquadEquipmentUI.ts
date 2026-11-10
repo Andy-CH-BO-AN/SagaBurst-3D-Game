@@ -34,7 +34,7 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
         ? '單挑尚未結算。請先關閉面板，跟隨裁判回營完成結算後，再替小隊換裝。'
         : '任務尚未結算。請先關閉面板，完成任務並返回小鎮結算後，再替小隊換裝。'
       : '私兵必須全員回到人資中心（待命中）才能換裝；請先下令「Dismiss · 收隊」。'
-    const notice = document.createElement('p'); notice.className = 'inv-item-desc inventory-wide'
+    const notice = document.createElement('p'); notice.className = 'inv-item-desc inventory-wide'; notice.setAttribute('role', 'status')
     notice.textContent = canChange ? message || '換裝只使用背包可用份數。裝備遠程會退回盾牌；裝備盾牌會退回遠程武器。' : lockNotice
     container.append(notice)
     appendBulkControls(container, bulk, () => canRecruitPersonalSquad(read()) && management?.().allowed !== false && state() === 'RESERVE' && !read().activeMission && !read().activeOutpostMission, lockNotice, value => { message = value; refresh() })
@@ -51,7 +51,7 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
         const label = document.createElement('label'); label.className = 'inv-item-desc squad-equipment-slot'; label.style.display = 'block'
         const current = equipment[slot], item = current ? WEAPONS[current] ?? ARMORS[current] : undefined
         label.textContent = SLOT_LABELS[slot] + (current ? ` · T${item?.tier ?? careerShopProduct(current)?.tier ?? '?'}` : '') + ': '
-        const select = document.createElement('select'); select.className = 'town-button'; select.setAttribute('aria-label', `${title.textContent} ${slot}`)
+        const select = document.createElement('select'); select.className = 'town-button'; select.setAttribute('aria-label', `${title.textContent} ${slot}`); select.dataset.focusKey = `personal:${member.id}:${slot}`
         const canRemove = slot !== 'melee' && slot !== 'ranged' || Boolean(equipment[slot === 'melee' ? 'ranged' : 'melee'])
         if (canRemove || !equipment[slot]) select.add(new Option('無', ''))
         for (const id of Object.keys(careerItemTotals(profile))) {
@@ -79,7 +79,7 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
 }
 
 
-const SLOT_LABELS: Record<PersonalEquipmentSlot, string> = { melee: '近戰 Melee', ranged: '遠程 Ranged', shield: '盾牌 Shield', mount: '坐騎 Mount' }
+const SLOT_LABELS: Record<PersonalEquipmentSlot, string> = { melee: '近戰', ranged: '遠程', shield: '盾牌', mount: '坐騎' }
 const BULK_ACTIONS: readonly { category: BulkEquipmentCategory; label: string }[] = [
   { category: 'bow', label: '一鍵換弓' }, { category: 'sword', label: '一鍵換刀' },
   { category: 'axe', label: '一鍵換斧' }, { category: 'spear', label: '一鍵換槍' }, { category: 'mount', label: '一鍵換馬' },
@@ -98,7 +98,7 @@ function appendBulkControls(container: HTMLElement, bulk: EquipmentBulkAdapter |
     const availability = bulk?.availability?.(action.category)
     const reason = !initiallyAllowed ? lockReason : !bulk ? '目前無法批量換裝。' : availability?.enabled === false ? availability.reason ?? '沒有適用裝備。' : ''
     const button = document.createElement('button'); button.className = 'btn-equip'; button.type = 'button'
-    button.textContent = action.label; button.dataset.bulkCategory = action.category
+    button.textContent = action.label; button.dataset.bulkCategory = action.category; button.dataset.focusKey = `bulk:${action.category}`
     button.disabled = Boolean(reason); button.title = reason
     button.onclick = () => {
       if (!canChange()) { onMessage(lockReason); return }
@@ -158,7 +158,7 @@ export function townEquipmentUI(bindings: TownEquipmentUIBindings): EquipmentTow
       tabs.setAttribute('aria-label', '全城裝備小隊')
       view.squads.forEach((squad, index) => {
         const tab = document.createElement('button'); tab.type = 'button'; tab.className = 'equipment-tab'
-        tab.textContent = squad.name; tab.dataset.squadId = String(squad.id); tab.id = `town-equipment-squad-${squad.id}`
+        tab.textContent = squad.name; tab.dataset.squadId = String(squad.id); tab.dataset.focusKey = `town-squad-tab:${squad.id}`; tab.id = `town-equipment-squad-${squad.id}`
         tab.setAttribute('role', 'tab'); tab.setAttribute('aria-controls', 'town-equipment-current')
         tab.setAttribute('aria-selected', String(squad.id === selected)); tab.tabIndex = squad.id === selected ? 0 : -1
         tab.onclick = () => { selected = squad.id; message = ''; refresh() }
@@ -218,7 +218,7 @@ export function townEquipmentUI(bindings: TownEquipmentUIBindings): EquipmentTow
             const fixed = document.createElement('span'); fixed.textContent = `${equipped.label} · 固定`; label.append(fixed)
           } else {
             const select = document.createElement('select'); select.className = 'town-button'
-            select.setAttribute('aria-label', `${member.name} ${slot}`)
+            select.setAttribute('aria-label', `${member.name} ${slot}`); select.dataset.focusKey = `town:${squad.id}:${member.id}:${slot}`
             const options = bindings.options(squad.id, member.id, slot)
             for (const option of options) select.add(new Option(option.label, option.id ?? ''))
             if (!options.some(option => option.id === equipped.id)) select.add(new Option(equipped.label, equipped.id ?? ''))

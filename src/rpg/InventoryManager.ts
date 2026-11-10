@@ -91,6 +91,9 @@ export class InventoryManager {
     return WEAPONS[this.equippedRangedId] || WEAPONS['elven_runebow']
   }
 
+  /** The ranged weapon actually selected; unlike equippedRanged it never falls back to a default bow. */
+  get selectedRanged(): WeaponData | undefined { return WEAPONS[this.equippedRangedId] }
+
   get equippedShield(): ArmorData | null {
     this.heldShieldId = resolveEquipmentSlot(this.equippedShieldId, this.heldShieldId)
     return this.heldShieldId ? ARMORS[this.heldShieldId] : null
@@ -205,7 +208,8 @@ export class InventoryManager {
   itemAvailability(id: string): string { return isEquipmentUsable(id) ? '' : '模型載入中，暫時無法使用' }
   isAllocated(id: string): boolean { return this.isEquipped(id) }
   get supportsWeaponRelease(): boolean { return false }
-  unequipShield(): void { this.equippedShieldId = this.heldShieldId = null }
+  /** True when the shield really came off. */
+  unequipShield(): boolean { this.equippedShieldId = this.heldShieldId = null; return true }
 
   isEquipped(id: string): boolean {
     return (this.meleeEnabled && this.equippedMeleeId === id)
