@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { calculateLanceChargeDamage, getAntiCavalryMultiplier, getBerserkerModifiers, getNpcRangedAttackRange } from '../../src/combat/CombatBalance'
-import { applyHeroIncomingDamage, applyHeroMeleeDamage, applyHeroOutgoingDamage, getHeroCombatModifiers, heroMeleeAttackSpeed } from '../../src/battle/HeroCombatProfile'
+import { applyHeroIncomingDamage, applyHeroMeleeDamage, applyHeroOutgoingDamage, getHeroCombatModifiers, heroMeleeAttackSpeed, HERO_COMBAT_PROFILE_BY_ASSET, HERO_COMBAT_PROFILES } from '../../src/battle/HeroCombatProfile'
+import { resolveSkillAdjustedMaxHp } from '../../src/rpg/CombatSkillProgression'
+import { resolveCareerCombatProfile, resolveCareerPlayerMaxHp } from '../../src/career/CareerPlayerProfile'
 import { calculatePlayerMeleeDamage } from '../../src/combat/PlayerMeleeDamage'
 import { NPC } from '../../src/world/NPC'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
@@ -31,6 +33,19 @@ describe('Combat damage eligibility', () => {
     expect(applyHeroIncomingDamage(100, 'byzantine-cataphract')).toBe(40)
     expect(getHeroCombatModifiers('roman-commander')!.maxHp).toBe(850)
     expect(getHeroCombatModifiers('viking-commander')!.maxHp).toBe(900)
+  })
+  it('百夫長是獨立的 Career T4 職業數值；聖騎士、維京 T4、遊俠與 T5 原值不變', () => {
+    expect(HERO_COMBAT_PROFILES.centurion).toEqual({ maxHp: 700, damageMultiplier: 2.2, damageTakenMultiplier: .6, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 })
+    expect(HERO_COMBAT_PROFILES.praetorian).toEqual({ maxHp: 500, damageMultiplier: 2, damageTakenMultiplier: .7, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 })
+    expect([HERO_COMBAT_PROFILES.varangian.maxHp, HERO_COMBAT_PROFILES.ranger.maxHp, HERO_COMBAT_PROFILES['roman-commander'].maxHp, HERO_COMBAT_PROFILES['byzantine-cataphract'].maxHp]).toEqual([500, 300, 850, 1000])
+    expect([HERO_COMBAT_PROFILE_BY_ASSET['roman-centurion-t4'], HERO_COMBAT_PROFILE_BY_ASSET['roman-hero-t4']]).toEqual(['centurion', 'praetorian'])
+    const captain = { faction: 'roman' as const, rank: 'captain' as const, eliteClass: null, skills: undefined }
+    expect(resolveCareerCombatProfile({ ...captain, t4Specialization: 'centurion' })).toBe('centurion')
+    // Skill progression is applied by its existing owner on top of the profile base.
+    expect(resolveCareerPlayerMaxHp({ ...captain, t4Specialization: 'centurion' })).toBe(resolveSkillAdjustedMaxHp(700, undefined))
+    expect(resolveCareerPlayerMaxHp(captain)).toBe(resolveSkillAdjustedMaxHp(500, undefined))
+    expect(applyHeroMeleeDamage(100, 'centurion')).toBeCloseTo(220); expect(applyHeroIncomingDamage(100, 'centurion')).toBeCloseTo(60)
+    expect(heroMeleeAttackSpeed('centurion')).toBe(1)
   })
   it('doubles ground bow engagement only, retaining ranger and javelin rules', () => {
     expect(getNpcRangedAttackRange('bow', false)).toBe(100)

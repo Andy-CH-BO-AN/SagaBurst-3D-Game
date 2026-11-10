@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { AssetLoadTimeout, OnDemandAssets } from '../../src/assets/OnDemandAssets'
 import { parsePunchTiming, type HumanoidAssetManifest } from '../../src/world/HumanoidAssetRegistry'
 import { BYZANTINE_EQUIPMENT_ASSETS, HIGH_TIER_WEAPON_ASSETS, prepareByzantineEquipment } from '../../src/world/HighTierEquipment'
+import { existsSync } from 'node:fs'
+import { ARMORS } from '../../src/rpg/ArmorDatabase'
+import { careerShopProduct } from '../../src/career/CareerShopCatalog'
+import { FACTION_SHIELD_BANDS } from '../../src/combat/FactionShieldGeometry'
+import { HERO_ASSETS } from '../../src/world/HeroAssetCatalog'
 
 const dir = 'public/models/characters/v2/byzantine-cataphract-t5'
 const manifest = JSON.parse(readFileSync(`${dir}/manifest.json`, 'utf8')) as HumanoidAssetManifest & { fileSha256: Record<string, string> }
@@ -113,5 +118,27 @@ describe('Optional Byzantine equipment loading', () => {
       await vi.advanceTimersByTimeAsync(0)
       expect(assets.poll('a')).toBe('model')
     } finally { vi.useRealTimers() }
+  })
+})
+
+describe('Centurion T4 asset and Aquila shield contracts (manifest/data only; no GLB parsing)', () => {
+  it('Centurion has its own Mixamo66 manifest with three LODs and the canonical clip set; the Aquila shield is a 48-impact on-demand T4 shop item', () => {
+    const base = 'public/models/characters/v2/roman-centurion-t4'
+    const centurion = JSON.parse(readFileSync(`${base}/manifest.json`, 'utf8')) as HumanoidAssetManifest
+    expect(centurion).toMatchObject({ id: 'roman-centurion-t4', status: 'ready', skeleton: 'project-humanoid-v1', selectedSource: { rig: 'mixamo66' }, sharedLodPose: true })
+    for (const file of Object.values(centurion.files!)) expect(existsSync(`${base}/${file}`)).toBe(true)
+    expect(centurion.metrics!.heightM).toBeCloseTo(HERO_ASSETS['roman-centurion-t4'].descriptor.heightM, 2)
+    const clips = centurion.animations!.embedded.map(b => b.clip)
+    for (const clip of ['idle', 'walk', 'run', 'mounted', 'death', 'swordSlash', 'axeAttack1H', 'axeAttack2H', 'axeMountedIdle', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow']) expect(clips).toContain(clip)
+    expect(JSON.parse(readFileSync('public/models/characters/v2/roman-hero-t4/manifest.json', 'utf8')).id).toBe('roman-hero-t4') // Paladin left in place
+    expect(ARMORS.centurion_aquila_shield_t4).toMatchObject({ tier: 4, shieldImpactMax: 48 })
+    expect([ARMORS.roman_officer_shield_t4.shieldImpactMax, ARMORS.paladin_shield_t4.shieldImpactMax]).toEqual([48, 48])
+    expect(careerShopProduct('centurion_aquila_shield_t4')).toMatchObject({ category: 'armor', tier: 4, price: 1440 })
+    const path = BYZANTINE_EQUIPMENT_ASSETS.centurion_aquila_shield_t4
+    expect(existsSync(`public/${path}`)).toBe(true)
+    expect(Object.values(HIGH_TIER_WEAPON_ASSETS)).not.toContain(path)
+    const bands = FACTION_SHIELD_BANDS.centurion_aquila_shield_t4
+    expect(bands.length).toBeGreaterThan(20)
+    expect(bands).not.toEqual(FACTION_SHIELD_BANDS.roman_officer_shield_t4)
   })
 })

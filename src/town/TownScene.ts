@@ -137,7 +137,8 @@ import { updateEagleWingbeatAudio } from '../audio/EagleWingbeatAudio'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { canAppointCareerRank, type CareerAppointingRole } from '../career/CareerPromotionAuthority'
 import { applyCareerClass, careerClassOffer, type CareerClassId } from '../career/CareerElitePromotion'
-import { appendCareerPromotionCards, careerClassConfirmation } from '../ui/CareerPromotionUI'
+import { applyT4Class, isT4ClassId, t4ClassOffer, type T4ClassId } from '../career/CareerT4Promotion'
+import { appendCareerPromotionCards, appendT4PromotionCards, careerClassConfirmation } from '../ui/CareerPromotionUI'
 import { MAX_BULK_PURCHASE_QUANTITY, CAREER_RANKS, CAREER_RANK_THRESHOLDS, careerMissionCompletionsForTier, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile, type CareerMountId } from '../career/CareerProfile'
 import { availableRecruitMissions, availableCareerMissionsForPage, careerMissionTemplatesForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
 import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission, createVeteranRoster, veteranTownCavalryReserveSlots } from '../career/VeteranMission'
@@ -1284,7 +1285,10 @@ export class TownScene {
       next.townDialogueSeen = [...(next.townDialogueSeen ?? []), ...(firstMeet ? [key] : []), ...(firstOutpost ? [outpostKey] : [])]
       if (!this.commit(next)) { this.openPanel('無法保存交談紀錄', this.notice); return }
     }
-    const p = this.profile, context: DialogueContext = { townFaction: p.faction, npcRole: role, playerRank: p.rank, firstMeet, promotionEligible: canAppointCareerRank(p, id) }
+    const p = this.profile
+    // Roman Veteran → Captain is a class choice; the generic authority deliberately refuses it.
+    const romanT4Appointable = id === 'captain' && p.rank === 'veteran' && (['paladin', 'centurion'] as const).some(target => t4ClassOffer(p, target).kind === 'appoint')
+    const context: DialogueContext = { townFaction: p.faction, npcRole: role, playerRank: p.rank, firstMeet, promotionEligible: canAppointCareerRank(p, id) || romanT4Appointable }
     const greeting = response ?? (id === 'eagle-trainer' ? 'xongkoro Eagle Training Ground · 老鷹訓練場\nCaptain / Commander 可用 10,000 軍功購買巨鷹英雄坐騎。請在開闊的起降區召喚；W 起飛，滑鼠轉向，S 減速降落。' : selectTownDialogue(context))
     if (id === 'captain' || id === 'commander') {
       if (!this.tutorialBypass && this.tutorial?.hasDialogue(id)) {
@@ -1293,7 +1297,7 @@ export class TownScene {
         this.tutorial.renderDialogue(panel, id)
         return
       }
-      const next = CAREER_RANKS[CAREER_RANKS.indexOf(p.rank) + 1], eligible = canAppointCareerRank(p, id)
+      const next = CAREER_RANKS[CAREER_RANKS.indexOf(p.rank) + 1], eligible = canAppointCareerRank(p, id) || romanT4Appointable
       const text = formatTownDialogue(selectTownDialogue({ ...context, nextRank: next, promotionEligible: eligible }, 'promotion'), { nextRank: next ?? '', required: next ? CAREER_RANK_THRESHOLDS[next] : 0 })
       const panel = this.openPanel(id === 'commander' ? `${p.faction === 'roman' ? '羅馬' : '維京'}指揮官 · 任命` : '騎兵隊長 · 任命', greeting + (response || greeting === text ? '' : '\n\n' + text))
       const detail = document.createElement('p'); detail.className = 'town-summary'; detail.textContent = promotionDetails(p); panel.append(detail)
@@ -1305,7 +1309,19 @@ export class TownScene {
         panel.style.width = 'min(94vw, 800px)'
         this.promotionPreviewCleanup = appendCareerPromotionCards(panel, () => this.profile, target => this.confirmCareerRoad(target))
       }
-      if (eligible && !romanRoads) {
+      // Roman T4: Veterans choose a class (no legacy auto-Paladin button); Captains return here to buy or switch.
+      const romanT4Roads = id === 'captain' && p.faction === 'roman' && (p.rank === 'veteran' || p.rank === 'captain')
+      if (romanT4Roads) {
+        panel.querySelector('h2')!.textContent = p.rank === 'veteran' ? '選擇你的 T4 職業' : 'T4 職業 · 購買與切換'
+        // Short header, as on the T5 road, so both cards stay near the top of the panel.
+        panel.querySelector('p')!.textContent = '選擇職業，查看能力與解鎖進度。'
+        detail.textContent = p.rank === 'veteran'
+          ? '首次任命依本次入伍累積軍功（聖騎士 5,000／百夫長 7,000），免費；之後可用可用軍功購買另一職業。'
+          : `目前職業與已解鎖職業如下。第二職業需消耗可用軍功永久解鎖（目前可用 ${p.availableMerit.toLocaleString()}），解鎖後切換免費。`
+        panel.style.width = 'min(94vw, 800px)'
+        this.promotionPreviewCleanup = appendT4PromotionCards(panel, () => this.profile, target => this.confirmCareerRoad(target))
+      }
+      if (eligible && !romanRoads && !romanT4Roads) {
         const accept = this.button(panel, next === 'captain' ? '接受隊長任命' : '接受任命', async () => {
           if (this.promotionAttempt) return
           accept.disabled = true; accept.textContent = '正在準備任命…'
@@ -2710,20 +2726,23 @@ export class TownScene {
       || !refitTownCommand && this.townCommand && !this.townCommand.isReserveAvailable(spec.id))
       .map(({ npc }) => npc.combatantId))
   }
-  private confirmCareerRoad(target: CareerClassId): void {
-    const copy = careerClassConfirmation(target, careerClassOffer(this.profile, target))
+  private confirmCareerRoad(target: CareerClassId | T4ClassId): void {
+    const t4 = isT4ClassId(target), role: CareerAppointingRole = t4 ? 'captain' : 'commander'
+    const copy = careerClassConfirmation(target, t4 ? t4ClassOffer(this.profile, target) : careerClassOffer(this.profile, target))
     if (!copy) return
     const elite = target === 'byzantine-cataphract'
     const panel = this.openPanel(copy.title, copy.body)
     panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true')
-    this.button(panel, '取消', () => this.talk('commander'))
+    this.button(panel, '取消', () => this.talk(role))
     const accept = this.button(panel, copy.accept, async () => {
       if (this.promotionAttempt) return
       accept.disabled = true
-      const success = await this.acceptCareerPromotion('commander', target)
+      const success = await this.acceptCareerPromotion(role, target)
       if (this.disposed || this.panel !== panel) return
       if (success) {
-        const result = this.openPanel(elite ? '🦅 拜占庭鐵甲重騎兵' : '羅馬指揮官', elite
+        const result = t4 ? this.openPanel(target === 'centurion' ? '🦅 百夫長 Centurion' : '聖騎士 Paladin',
+          `${target === 'centurion' ? 'CENTURION\n百夫長' : 'PALADIN\n聖騎士'} · T4 Captain\n\n職業已保存並永久解鎖；已解鎖的職業可再找騎兵隊長免費切換。`)
+          : this.openPanel(elite ? '🦅 拜占庭鐵甲重騎兵' : '羅馬指揮官', elite
           ? 'BYZANTINE CATAPHRACT\n拜占庭鐵甲重騎兵 · T5+\n\n職業已保存並永久解鎖，可再找 Commander 免費切換。'
           : 'ROMAN COMMANDER\n羅馬指揮官 · T5\n\n職業已保存；已解鎖的職業可再找 Commander 免費切換。')
         this.button(result, '返回遊戲', () => this.closePanel())
@@ -2734,19 +2753,23 @@ export class TownScene {
     })
   }
 
-  private async acceptCareerPromotion(npcRole: CareerAppointingRole, target?: CareerClassId): Promise<boolean> {
+  private async acceptCareerPromotion(npcRole: CareerAppointingRole, target?: CareerClassId | T4ClassId): Promise<boolean> {
     // Live authority is re-read each time: after the async model load nothing from the first snapshot is trusted.
-    const authorized = () => (target ? npcRole === 'commander' && applyCareerClass(this.profile, target) !== null : canAppointCareerRank(this.profile, npcRole))
+    // T4 classes belong to the Captain NPC, T5 classes to the Commander NPC; the generic path never appoints a Roman Captain.
+    const stage = () => target === undefined ? promoteCareer(this.profile)
+      : isT4ClassId(target) ? (npcRole === 'captain' ? applyT4Class(this.profile, target) : null)
+      : npcRole === 'commander' ? applyCareerClass(this.profile, target) : null
+    const authorized = () => (target !== undefined ? stage() !== null : canAppointCareerRank(this.profile, npcRole))
       && this.residents.some(resident => resident.spec.id === npcRole && resident.spec.role === npcRole && !resident.npc.dead)
       && this.serviceAvailable(npcRole)
       && !this.player.dead && !this.player.isFalling && !this.player.currentMount?.isAirborne && !this.event.hostile
-    const stage = () => target ? applyCareerClass(this.profile, target) : promoteCareer(this.profile)
     if (this.promotionAttempt || this.disposed || !authorized()) return false
     const next = stage()
     if (!next) return false
     const attempt = {}; this.promotionAttempt = attempt
     const panel = this.panel, rank = this.profile.rank, faction = this.profile.faction
-    const stamp = () => JSON.stringify([this.profile.availableMerit, this.profile.eliteClass, this.profile.unlockedCareerClasses])
+    const stamp = () => JSON.stringify([this.profile.availableMerit, this.profile.eliteClass, this.profile.unlockedCareerClasses,
+      this.profile.t4Specialization, this.profile.unlockedT4Classes])
     const before = stamp()
     const stillCurrent = () => this.promotionAttempt === attempt && !this.disposed && this.panel === panel
       && this.profile.rank === rank && this.profile.faction === faction && stamp() === before && authorized()

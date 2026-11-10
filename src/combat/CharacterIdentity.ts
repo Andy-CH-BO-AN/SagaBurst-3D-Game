@@ -20,7 +20,7 @@ export interface CharacterIdentityInput extends Partial<Omit<CharacterIdentity, 
 }
 const ARCHETYPE_BY_PROFILE: Record<HeroCombatProfileId, HeroArchetype> = {
   'byzantine-cataphract': 'commander',
-  varangian: 'captain', praetorian: 'captain', ranger: 'ranger',
+  varangian: 'captain', praetorian: 'captain', centurion: 'captain', ranger: 'ranger',
   'roman-commander': 'commander', 'viking-commander': 'commander',
 }
 

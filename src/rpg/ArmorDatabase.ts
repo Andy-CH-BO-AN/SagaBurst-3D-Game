@@ -36,6 +36,11 @@ export const ARMORS: Record<string, ArmorData> = {
     shieldImpactMax: 96,
     description: '羅馬與維京 T5 共用實體盾牌。96 衝擊耐久；僅實際命中盾面才格擋。',
   },
+  centurion_aquila_shield_t4: {
+    id: 'centurion_aquila_shield_t4', name: "百夫長鷹盾 Centurion's Aquila Shield", type: 'shield', tier: 4,
+    shieldImpactMax: 48,
+    description: '金鷹紋弧形方盾。48 衝擊耐久；依實際盾面輪廓格擋。',
+  },
   paladin_shield_t4: {
     id: 'paladin_shield_t4', name: '誓約壁壘 Oathguard Shield', type: 'shield', tier: 4,
     shieldImpactMax: 48,

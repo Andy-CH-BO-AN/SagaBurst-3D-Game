@@ -1,21 +1,45 @@
 import * as THREE from 'three'
 import { enlistmentMerit, type CareerProfile } from '../career/CareerProfile'
 import { careerClassOffer, CAREER_CLASS_FIRST_MERIT, currentCareerClass, type CareerClassId, type CareerClassOffer } from '../career/CareerElitePromotion'
+import { currentT4Class, t4ClassOffer, T4_CLASS_FIRST_MERIT, type T4ClassId } from '../career/CareerT4Promotion'
 import { HERO_ASSETS, type HeroAssetId } from '../world/HeroAssetCatalog'
 import { HumanoidAssetRegistry, disposeHumanoidInstanceSkeletons } from '../world/HumanoidAssetRegistry'
 
-const CLASS_NAMES: Record<CareerClassId, string> = { 'roman-commander': 'Roman Commander · T5', 'byzantine-cataphract': '拜占庭鐵甲重騎兵 · T5+' }
+export type CareerRoadId = CareerClassId | T4ClassId
+const CLASS_NAMES: Record<CareerRoadId, string> = { 'roman-commander': 'Roman Commander · T5', 'byzantine-cataphract': '拜占庭鐵甲重騎兵 · T5+',
+  paladin: '聖騎士 Paladin · T4', centurion: '百夫長 Centurion · T4' }
+const isT4Road = (target: CareerRoadId): target is T4ClassId => target === 'paladin' || target === 'centurion'
+
+/** One road per promotion stage: same cards and confirmation, separate offer owners. */
+interface RoadSpec<T extends CareerRoadId> {
+  targets: readonly T[]; rank: string
+  offer(p: CareerProfile, target: T): CareerClassOffer
+  current(p: CareerProfile): T | null; fallback: T
+  firstMerit: Readonly<Record<T, number>>; hero: Readonly<Record<T, HeroAssetId>>; stats: Readonly<Record<T, string>>
+}
+const T5_ROAD: RoadSpec<CareerClassId> = {
+  targets: ['roman-commander', 'byzantine-cataphract'], rank: 'Commander', offer: careerClassOffer, current: currentCareerClass, fallback: 'roman-commander',
+  firstMerit: CAREER_CLASS_FIRST_MERIT, hero: { 'roman-commander': 'roman-hero-t5', 'byzantine-cataphract': 'byzantine-cataphract-t5' },
+  stats: { 'roman-commander': 'HP 850 · Damage ×2.2\nDamage Taken ×0.50\nAttack Speed ×1.15',
+    'byzantine-cataphract': 'HP 1000 · Damage ×3.0\nDamage Taken ×0.40\nAttack Speed ×1.30 · Move Speed ×1.00\n軍旗槍與鷹盾另行購買。' },
+}
+const T4_ROAD: RoadSpec<T4ClassId> = {
+  targets: ['paladin', 'centurion'], rank: 'Captain', offer: t4ClassOffer, current: currentT4Class, fallback: 'paladin',
+  firstMerit: T4_CLASS_FIRST_MERIT, hero: { paladin: 'roman-hero-t4', centurion: 'roman-centurion-t4' },
+  stats: { paladin: 'HP 500 · Damage ×2.0\nDamage Taken ×0.70\nAttack Speed ×1.0 · Move Speed ×1.0',
+    centurion: 'HP 700 · Damage ×2.2\nDamage Taken ×0.60\nAttack Speed ×1.0 · Move Speed ×1.0\n百夫長鷹盾可於商店另行購買。' },
+}
 
 /** Confirmation copy for the live offer; the price always comes from the offer, never from the card. */
-export function careerClassConfirmation(target: CareerClassId, offer: CareerClassOffer): { title: string; body: string; accept: string } | null {
-  const name = CLASS_NAMES[target]
+export function careerClassConfirmation(target: CareerRoadId, offer: CareerClassOffer): { title: string; body: string; accept: string } | null {
+  const name = CLASS_NAMES[target], rank = isT4Road(target) ? T4_ROAD.rank : T5_ROAD.rank
   switch (offer.kind) {
     case 'appoint': return { title: `接受${name}任命？`, accept: '確認免費任命',
-      body: `首次任命免費，不扣除軍功。\n將成為正式 Commander，保留指揮權與任務資格。\n之後可再購買另一職業。` }
+      body: `首次任命免費，不扣除軍功。\n將成為正式 ${rank}，保留指揮權與任務資格。\n之後可再購買另一職業。` }
     case 'purchase': return { title: `購買${name}？`, accept: `確認購買 · ${offer.cost.toLocaleString()}`,
-      body: `本次扣除 ${offer.cost.toLocaleString()} 可用軍功（不影響累計軍功）。\n購買後永久解鎖，之後可免費切換兩種職業。\n保留現有裝備、坐騎、軍功與 Commander 權限；不會贈送額外裝備。` }
+      body: `本次扣除 ${offer.cost.toLocaleString()} 可用軍功（不影響累計軍功）。\n購買後永久解鎖，之後可免費切換兩種職業。\n保留現有裝備、坐騎、軍功與 ${rank} 權限；不會贈送額外裝備。` }
     case 'switch': return { title: `切換為${name}？`, accept: '確認切換',
-      body: '此職業已永久解鎖，切換免費。\n保留現有裝備、坐騎、軍功與 Commander 權限。' }
+      body: `此職業已永久解鎖，切換免費。\n保留現有裝備、坐騎、軍功與 ${rank} 權限。` }
     default: return null
   }
 }
@@ -91,8 +115,8 @@ function portrait(parent: HTMLElement): { select(heroId: HeroAssetId): void; dis
   }
 }
 
-function offerView(p: CareerProfile, target: CareerClassId, offer: CareerClassOffer): { status: string; label: string; enabled: boolean } {
-  const merit = enlistmentMerit(p), first = CAREER_CLASS_FIRST_MERIT[target]
+function offerView(p: CareerProfile, first: number, offer: CareerClassOffer): { status: string; label: string; enabled: boolean } {
+  const merit = enlistmentMerit(p)
   switch (offer.kind) {
     case 'current': return { status: '目前使用中', label: '目前職業', enabled: false }
     case 'switch': return { status: '已永久解鎖 · 切換免費', label: '切換職業', enabled: true }
@@ -104,41 +128,49 @@ function offerView(p: CareerProfile, target: CareerClassId, offer: CareerClassOf
   }
 }
 
-export function appendCareerPromotionCards(parent: HTMLElement, read: () => CareerProfile, choose: (target: CareerClassId) => void): () => void {
+function appendRoadCards<T extends CareerRoadId>(road: RoadSpec<T>, parent: HTMLElement, read: () => CareerProfile, choose: (target: T) => void): () => void {
   const p = read(), merit = enlistmentMerit(p)
   const previewPanel = document.createElement('section'); previewPanel.setAttribute('aria-label', '目前選取職業的模型預覽'); parent.append(previewPanel)
   const preview = portrait(previewPanel)
-  const heroOf = (target: CareerClassId): HeroAssetId => target === 'byzantine-cataphract' ? 'byzantine-cataphract-t5' : 'roman-hero-t5'
-  const current = currentCareerClass(p)
-  preview.select(heroOf(current ?? 'roman-commander'))
+  const current = road.current(p) ?? road.fallback
+  preview.select(road.hero[current])
   const previewButtons: HTMLButtonElement[] = []
   const container = document.createElement('div')
   container.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:16px;max-width:760px'
   parent.append(container)
-  for (const target of ['roman-commander', 'byzantine-cataphract'] as const) {
-    const elite = target === 'byzantine-cataphract', offer = careerClassOffer(p, target), view = offerView(p, target, offer)
+  for (const target of road.targets) {
+    const offer = road.offer(p, target), view = offerView(p, road.firstMerit[target], offer)
     const card = document.createElement('article'); card.style.cssText = 'border:1px solid #b69557;border-radius:12px;padding:14px;min-width:0;background:#171d28'
+    card.dataset.careerClass = target
     container.append(card)
     const title = document.createElement('h3'); title.textContent = CLASS_NAMES[target]; card.append(title)
     const show = document.createElement('button'); show.className = 'town-button'; show.textContent = '預覽此職業'
-    show.setAttribute('aria-pressed', String((current ?? 'roman-commander') === target))
+    show.setAttribute('aria-pressed', String(current === target))
     show.onclick = () => {
       for (const button of previewButtons) button.setAttribute('aria-pressed', String(button === show))
-      preview.select(heroOf(target))
+      preview.select(road.hero[target])
     }
     previewButtons.push(show); card.append(show)
     if (offer.kind === 'appoint' || offer.kind === 'merit-locked') {
-      const required = CAREER_CLASS_FIRST_MERIT[target]
+      const required = road.firstMerit[target]
       const progress = document.createElement('progress'); progress.max = required; progress.value = Math.min(merit, required); progress.style.width = '100%'; card.append(progress)
     }
     const text = document.createElement('p'); text.style.whiteSpace = 'pre-line'
-    text.textContent = `${view.status}\n` + (elite
-      ? 'HP 1000 · Damage ×3.0\nDamage Taken ×0.40\nAttack Speed ×1.30 · Move Speed ×1.00\n軍旗槍與鷹盾另行購買。'
-      : 'HP 850 · Damage ×2.2\nDamage Taken ×0.50\nAttack Speed ×1.15')
+    text.textContent = `${view.status}\n${road.stats[target]}`
     card.append(text)
     const button = document.createElement('button'); button.className = 'town-button'
     button.textContent = view.label; button.disabled = !view.enabled
     button.onclick = () => choose(target); card.append(button)
   }
   return () => preview.dispose()
+}
+
+/** T5 road (Commander NPC): Roman Commander / Byzantine Cataphract. */
+export function appendCareerPromotionCards(parent: HTMLElement, read: () => CareerProfile, choose: (target: CareerClassId) => void): () => void {
+  return appendRoadCards(T5_ROAD, parent, read, choose)
+}
+
+/** T4 road (Captain NPC): Paladin / Centurion. */
+export function appendT4PromotionCards(parent: HTMLElement, read: () => CareerProfile, choose: (target: T4ClassId) => void): () => void {
+  return appendRoadCards(T4_ROAD, parent, read, choose)
 }

@@ -36,6 +36,8 @@ import {
   PLAYER_SHIELD_IDS,
 } from '../../src/battle/BattleConfig'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
+import { SETUP_PLAYER_HERO_IDS } from '../../src/world/HeroAssetCatalog'
+import { HERO_COMBAT_PROFILE_BY_ASSET, HERO_COMBAT_PROFILES } from '../../src/battle/HeroCombatProfile'
 import { ARMORS } from '../../src/rpg/ArmorDatabase'
 import {
   squadShortcutKey,
@@ -717,6 +719,17 @@ describe('Custom Battle player equipment menu', () => {
     expect(new BattleSetupUI(config).getConfig().playerLoadout).toMatchObject({
       meleeWeaponId: 'byzantine_standard_lance_t5', shieldId: 'byzantine_eagle_shield_t5',
     })
+  })
+
+  it('offers the Centurion T4 as a player hero with its own combat profile, keeping the existing options', () => {
+    expect(SETUP_PLAYER_HERO_IDS).toEqual(['viking-hero-t4', 'roman-hero-t4', 'roman-centurion-t4', 'maki-archer-t4', 'viking-hero-t5', 'roman-hero-t5', 'byzantine-cataphract-t5'])
+    const config = makeGroundConfig(1, 1)
+    config.playerLoadout = createDefaultPlayerLoadout()
+    applyLoadoutCard(config.playerLoadout, 'shield', 'centurion_aquila_shield_t4')
+    config.playerHeroId = 'roman-centurion-t4'
+    expect(validateBattleConfig(config).valid).toBe(true)
+    expect(HERO_COMBAT_PROFILES[HERO_COMBAT_PROFILE_BY_ASSET[config.playerHeroId]]).toMatchObject({ maxHp: 700, damageMultiplier: 2.2, damageTakenMultiplier: .6, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1 })
+    expect(new BattleSetupUI(config).getConfig()).toMatchObject({ playerHeroId: 'roman-centurion-t4', playerLoadout: { shieldId: 'centurion_aquila_shield_t4' } })
   })
 })
 

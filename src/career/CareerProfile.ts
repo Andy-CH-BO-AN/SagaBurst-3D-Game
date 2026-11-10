@@ -95,6 +95,10 @@ export interface CareerProfile {
   eliteClass?: 'byzantine-cataphract' | null
   /** Permanently unlocked Roman Commander classes for this enlistment; eliteClass is only the one in use. Missing legacy value = the class in use. */
   unlockedCareerClasses?: ('roman-commander' | 'byzantine-cataphract')[]
+  /** Roman T4 class in use while Captain. Missing legacy value = Paladin. Kept as data after T5; T5 identity ignores it. */
+  t4Specialization?: 'paladin' | 'centurion'
+  /** Permanently unlocked Roman T4 classes for this enlistment. Missing legacy Captain value = Paladin only. */
+  unlockedT4Classes?: ('paladin' | 'centurion')[]
   /** Optional ending lifecycle; retirement never changes the appointed rank. */
   careerRetirement?: CareerRetirementState
   /** Grounded player and owned-mount resources throughout the retirement sequence. */
@@ -550,6 +554,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
     ...(profile.unlockedCareerClasses ? { unlockedCareerClasses: [...profile.unlockedCareerClasses] } : {}),
+    ...(profile.unlockedT4Classes ? { unlockedT4Classes: [...profile.unlockedT4Classes] } : {}),
     ...(profile.tutorial ? { tutorial: structuredClone(profile.tutorial) } : {}),
     ...(profile.retirementTowerGuards ? { retirementTowerGuards: structuredClone(profile.retirementTowerGuards) } : {}),
     ...(profile.retirementRuntime ? { retirementRuntime: structuredClone(profile.retirementRuntime) } : {}),

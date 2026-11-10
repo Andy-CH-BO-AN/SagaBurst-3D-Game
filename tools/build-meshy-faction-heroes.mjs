@@ -1,5 +1,5 @@
 /** Rebuild the two supplied 30K heroes. Run from repository root:
- * node tools/build-meshy-faction-heroes.mjs /path/to/source-glbs
+ * node tools/build-meshy-faction-heroes.mjs /path/to/source-glbs [assetId]
  * LOD0 geometry/index accessor bytes are never edited or simplified. Waist skin is corrected explicitly; inverse binds remain unchanged.
  * Donor clips/contracts are frozen to the pre-replacement dev revision.
  */
@@ -18,12 +18,17 @@ import { bakeFactionClips, collapseConstantTracks } from './lib/faction-humanoid
 const root = process.argv[2]
 if (!root) throw Error('Provide source GLB directory')
 const python=process.env.MESHY_PYTHON??'python3'
-execFileSync(python,['-c','from PIL import Image'])
 const revision = '7cb61c07f9daf41cccd35287a6cc842955c3f137'
 const definitions = [
   { id: 'roman-hero-t4', title: 'Gondor Knight', file: 'Meshy_AI_Gondor_Knight_30k_All_Animations.glb', sha: 'a59206334da45915e443cd6880c42c8e11cea319a49a459244ba62da62a1062d', triangles: 31105, height: 1.95 },
   { id: 'viking-hero-t5', title: 'Viking Warrior', file: 'Meshy_AI_viking_warrior_30k_All_Animations.glb', sha: '364e19160ba66ae344be73e3d4c8c5e5437b3caab7d339a979aabefd60cb46e2', triangles: 31256, height: 2.1193006331863145 },
+  // Roman T4 second class: same frozen Paladin donor, own output directory; JPEG keeps the 10K asset's texture payload proportional.
+  { id: 'roman-centurion-t4', donorId: 'roman-hero-t4', title: 'Textured Roman Soldier', file: 'Meshy_AI_Textured_Roman_Soldier_10k_20261107_animated_mixamo_All_animation.glb', sha: '9bcb0c2f7dcfe7706ec0aee526e6eafc0b112e42cd79fb1c8be6adb8e8f4e920', triangles: 9994, height: 1.95, lodTriangles: [6000, 2500], jpegTextures: true, seatBearing: [[-.09, .912, -.06], [.09, .912, -.06]], rights: 'Owner-supplied Meshy asset; the repository owner supplied this file and requested its integration into SagaBurst on 2026-11-10' },
 ]
+const only = process.argv[3]
+if (only && !definitions.some(def => def.id === only)) throw Error(`Unknown asset ${only}`)
+const selected = definitions.filter(def => !only || def.id === only)
+if (selected.some(def => !def.jpegTextures)) execFileSync(python,['-c','from PIL import Image'])
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
 const aliases = { Hips:'hips', Spine:'spine', Spine1:'chest', Spine2:'upper_chest', Neck:'neck', Head:'head' }
 for (const [side, suffix] of [['Left','l'],['Right','r']]) {
@@ -47,6 +52,11 @@ function appender(doc, initial) {
   return {bytes,array,binary:()=>{doc.buffers=[{byteLength:length}];return Buffer.concat(chunks)}}
 }
 const position = o => o.getWorldPosition(new T.Vector3())
+function sipsJpeg(bytes,size,stem) {
+  fs.writeFileSync(`${stem}.source.jpg`,bytes)
+  execFileSync('sips',['-Z',String(size),'-s','format','jpeg','-s','formatOptions','88',`${stem}.source.jpg`,'--out',`${stem}.jpg`],{stdio:'ignore'})
+  return fs.readFileSync(`${stem}.jpg`)
+}
 function handFrame(scene, side) {
   const hand=scene.getObjectByName(`hand_${side}`),local=n=>hand.worldToLocal(position(scene.getObjectByName(n)))
   const index=local(`index_01_${side}`),pinky=local(`pinky_01_${side}`),middle=local(`middle_01_${side}`),thumbBase=local(`thumb_01_${side}`)
@@ -57,17 +67,17 @@ function handFrame(scene, side) {
   const base=index.clone().add(pinky).multiplyScalar(.5),surface=base.clone().multiplyScalar(.78).addScaledVector(normal,.012)
   return {gripCenterLocal:surface.clone().addScaledVector(normal,.019).toArray(),gripAxisLocal:across.toArray(),palmNormalLocal:normal.toArray(),fingerDirection:finger.toArray(),wristCenter:[0,0,0],thumbBaseCenter:thumbBase.toArray(),fingerBase:base.dot(finger),gripRadius:.019,palmContactCenter:surface.toArray()}
 }
-for(const def of definitions) {
-  const directory=`public/models/characters/v2/${def.id}`,work=`output/meshy-faction-heroes/${def.id}`
+for(const def of selected) {
+  const directory=`public/models/characters/v2/${def.id}`,donorDirectory=`public/models/characters/v2/${def.donorId??def.id}`,work=`output/meshy-faction-heroes/${def.id}`
   fs.mkdirSync(work,{recursive:true});fs.mkdirSync(directory,{recursive:true})
-  const donorPath=`${work}/donor.glb`,donorBytes=execFileSync('git',['show',`${revision}:${directory}/lod0.glb`],{maxBuffer:100*1024*1024})
+  const donorPath=`${work}/donor.glb`,donorBytes=execFileSync('git',['show',`${revision}:${donorDirectory}/lod0.glb`],{maxBuffer:100*1024*1024})
   fs.writeFileSync(donorPath,donorBytes)
-  const old=JSON.parse(execFileSync('git',['show',`${revision}:${directory}/manifest.json`],{encoding:'utf8'}))
+  const old=JSON.parse(execFileSync('git',['show',`${revision}:${donorDirectory}/manifest.json`],{encoding:'utf8'}))
   const donorAsset=await decodeMeshoptGlb(readGlb(donorPath)),donor=await loadRig(donorAsset)
   const bindings=structuredClone(old.animations.embedded)
   for(const supplemental of old.animations.supplemental??[]) {
     const file=`${work}/${supplemental.file}`
-    fs.writeFileSync(file,execFileSync('git',['show',`${revision}:${directory}/${supplemental.file}`],{maxBuffer:50*1024*1024}))
+    fs.writeFileSync(file,execFileSync('git',['show',`${revision}:${donorDirectory}/${supplemental.file}`],{maxBuffer:50*1024*1024}))
     const asset=await loadRig(readGlb(file)),clip=asset.animations.find(c=>c.name===supplemental.lodClips[0])
     if(!clip)throw Error('Missing supplemental donor')
     donor.animations.push(new T.AnimationClip(supplemental.clip,supplemental.duration,clip.tracks))
@@ -77,7 +87,7 @@ for(const def of definitions) {
   if(hash(raw)!==def.sha)throw Error(`Unexpected ${def.file}`)
   const source=readGlb(file),doc=structuredClone(source.document),mapping={}
   const reducedPath=`${work}/surface-lods.json`
-  execFileSync(process.env.BLENDER??(process.platform==='darwin'?'/Applications/Blender.app/Contents/MacOS/Blender':'blender'),['-b','--python-exit-code','1','--python','tools/simplify-replacement-humanoids.py','--',file,reducedPath,String(10000/def.triangles),String(3000/def.triangles)],{stdio:'ignore'})
+  execFileSync(process.env.BLENDER??(process.platform==='darwin'?'/Applications/Blender.app/Contents/MacOS/Blender':'blender'),['-b','--python-exit-code','1','--python','tools/simplify-replacement-humanoids.py','--',file,reducedPath,String((def.lodTriangles?.[0]??10000)/def.triangles),String((def.lodTriangles?.[1]??3000)/def.triangles)],{stdio:'ignore'})
   const surfaces=JSON.parse(fs.readFileSync(reducedPath))
   doc.nodes.forEach(n=>{const alias=aliases[n.name?.replace(/^mixamorig:?/,'')];if(alias){mapping[n.name]=alias;n.name=alias}})
   doc.animations=[]
@@ -196,6 +206,7 @@ for(const def of definitions) {
     const size=[2048,1024,512][level],textures=[]
     for(const image of d.images) {
       const v=source.document.bufferViews[image.bufferView],bytes=source.binary.subarray(v.byteOffset??0,(v.byteOffset??0)+v.byteLength)
+      if(def.jpegTextures){image.bufferView=append.bytes(sipsJpeg(bytes,size,`${work}/texture-${level}-${textures.length}`));image.mimeType='image/jpeg';textures.push(size);continue}
       const resized=execFileSync(python,['-c','from PIL import Image\nimport io,sys\nim=Image.open(io.BytesIO(sys.stdin.buffer.read()));s=int(sys.argv[1]);im.thumbnail((s,s),Image.Resampling.LANCZOS);o=io.BytesIO();im.save(o,format="PNG");sys.stdout.buffer.write(o.getvalue())',String(size)],{input:bytes,maxBuffer:50*1024*1024})
       image.bufferView=append.bytes(resized);image.mimeType='image/png';textures.push(size)
     }
@@ -211,13 +222,13 @@ for(const def of definitions) {
     lods.push({level,triangles:count,textureMax:size,sha256:hash(bytes),bytes:bytes.length,maxSkinWeightNormalizationError:error,sourceAccessorBytesPreserved:preserved,allBufferViewsByteExact:packed.report.allBufferViewsByteExact,joints:66,animationNames:clips.map(c=>c.name)})
   }
   const left=frames.l,right={...frames.r};delete right.palmContactCenter
-  const manifest={schemaVersion:1,id:def.id,status:'ready',skeleton:'project-humanoid-v1',bufferCompression:'EXT_meshopt_compression',source:{title:def.title,sourceFile:def.file,sourceSha256:def.sha,license:'User-supplied Meshy asset; user confirmed use and GitHub redistribution rights, 2026-11-02',licenseEvidence:'attribution-evidence.json'},attribution:`${def.title}: user-supplied Meshy model/textures. Existing SagaBurst animation-source terms retained in animation-donor-manifest.json.`,
-    selectedSource:{rig:'mixamo66',uniformScale:1},sharedLodPose:true,handShapeMode:'authored',preserveLodHandTopology:true,
+  const manifest={schemaVersion:1,id:def.id,status:'ready',skeleton:'project-humanoid-v1',bufferCompression:'EXT_meshopt_compression',source:{title:def.title,sourceFile:def.file,sourceSha256:def.sha,license:def.rights??'User-supplied Meshy asset; user confirmed use and GitHub redistribution rights, 2026-11-02',licenseEvidence:'attribution-evidence.json'},attribution:`${def.title}: user-supplied Meshy model/textures. Existing SagaBurst animation-source terms retained in animation-donor-manifest.json.`,
+    selectedSource:{rig:'mixamo66',uniformScale:1,...(def.seatBearing?{seatBearing:def.seatBearing}:{})},sharedLodPose:true,handShapeMode:'authored',preserveLodHandTopology:true,
     files:{lod0:'lod0.glb',lod1:'lod1.glb',lod2:'lod2.glb'},fileSha256:files,boneMap:'bone-map.json',audit:'audit.json',
     metrics:{heightM:def.height,overallHeightM:def.height,shoulderWidthM:position(target.scene.getObjectByName('upper_arm_l')).distanceTo(position(target.scene.getObjectByName('upper_arm_r')))*scale,neckLengthM:position(target.scene.getObjectByName('neck')).distanceTo(position(target.scene.getObjectByName('head')))*scale,triangles,textures:{lod0:2048,lod1:1024,lod2:512},uniformScaleAppliedOffline:scale,runtimeScale:[1,1,1]},
     articulatedFingerPoses:{relaxed:fingerPoses.relaxed,grip:fingerPoses.grip},handGripFrames:{left:{palmContactCenter:left.palmContactCenter,palmNormal:left.palmNormalLocal,thumbDir:1,thumbDirection:left.gripAxisLocal,fingerDirection:left.fingerDirection,wristCenter:left.wristCenter,fingerBase:left.fingerBase,thumbBaseCenter:left.thumbBaseCenter}},swordGripFrames:{lod0:right,lod1:right,lod2:right},
     animations:{embedded:bindings,runtimeGenerated:old.animations.runtimeGenerated.filter(name=>!bindings.some(b=>b.clip===name))},animationSources:old.animationSources,
-    animationRetarget:{revision,...(deathDonor?{deathDonor}:{}),donor:`${directory}/lod0.glb`,sha256:hash(donorBytes),method:'Existing bakeFactionClips physical-axis pipeline at 30Hz; target-bind absolute finger poses, in-place sole contact; original event metadata and action durations retained.'},
+    animationRetarget:{revision,...(deathDonor?{deathDonor}:{}),donor:`${donorDirectory}/lod0.glb`,sha256:hash(donorBytes),method:'Existing bakeFactionClips physical-axis pipeline at 30Hz; target-bind absolute finger poses, in-place sole contact; original event metadata and action durations retained.'},
     visualAcceptance:'Requires live game review; structural audit alone does not establish visual acceptance.',knownLimitations:['No dynamic cloth collision. Thirty target-bind finger tracks keep natural and equipment contact poses separate; extreme hand/armour and mounted cloth contact requires visual review.','FPS A/B deliberately deferred by user, 2026-11-02.']}
   if(def.id==='viking-hero-t5') manifest.source.filenameEvidence={
     specificationFilename:'Meshy_AI_viking_warrior_30k_All_Animations(1).glb',
@@ -229,7 +240,7 @@ for(const def of definitions) {
   fs.writeFileSync(`${directory}/animation-donor-manifest.json`,JSON.stringify(old,null,2)+'\n')
   fs.writeFileSync(`${directory}/bone-map.json`,JSON.stringify({skeleton:'project-humanoid-v1',sourceToProject:mapping,skinJointCount:66,sockets,normalization:{scale,ground},sourceInverseBindSha256:hash(payload(source,source.document.skins[0].inverseBindMatrices))},null,2)+'\n')
   fs.writeFileSync(`${directory}/audit.json`,JSON.stringify({builder:'tools/build-meshy-faction-heroes.mjs',sourceSha256:def.sha,sourceTriangles:def.triangles,waistSkinRepairs:skinRepairs,constantTrackAudit,fingerPoseFit: fingerPoses.diagnostics,lod0Policy:'Original vertex, index, normal and UV accessor bytes preserved. Waist leg influences transferred to the existing pelvis; source inverse binds retained. No decimation, remeshing, added/degenerate or hidden triangles.',lods,animationContractPreserved:old.animations.embedded.every(b=>JSON.stringify(manifest.animations.embedded.find(a=>a.clip===b.clip))===JSON.stringify(b)),fps:'Deferred by user; no measurements or performance claim.'},null,2)+'\n')
-  fs.writeFileSync(`${directory}/attribution-evidence.json`,JSON.stringify({source:manifest.source,rightsEvidence:'User explicitly confirmed generation/use and GitHub publication rights in this Codex conversation on 2026-11-02.',animationDonor:{revision,manifest:'animation-donor-manifest.json'},sourceDistribution:'Original supplied downloads remain outside the shipped runtime bundle; normalized derivative GLBs only.'},null,2)+'\n')
-  fs.writeFileSync(`${directory}/ATTRIBUTION.md`,`# ${def.title}\n\n${manifest.attribution}\n\nUser confirmed use and GitHub redistribution rights on 2026-11-02. This records supplied permission and does not assert CC0 or grant unrelated rights. See attribution-evidence.json, animation-donor-manifest.json and audit.json. Rebuild from the exact user source using tools/build-meshy-faction-heroes.mjs; donor revision ${revision}.\n`)
+  fs.writeFileSync(`${directory}/attribution-evidence.json`,JSON.stringify({source:manifest.source,rightsEvidence:def.rights??'User explicitly confirmed generation/use and GitHub publication rights in this Codex conversation on 2026-11-02.',animationDonor:{revision,manifest:'animation-donor-manifest.json'},sourceDistribution:'Original supplied downloads remain outside the shipped runtime bundle; normalized derivative GLBs only.'},null,2)+'\n')
+  fs.writeFileSync(`${directory}/ATTRIBUTION.md`,`# ${def.title}\n\n${manifest.attribution}\n\n${def.rights??'User confirmed use and GitHub redistribution rights on 2026-11-02'}. This records supplied permission and does not assert CC0 or grant unrelated rights. See attribution-evidence.json, animation-donor-manifest.json and audit.json. Rebuild from the exact user source using tools/build-meshy-faction-heroes.mjs${def.donorId?` (asset argument ${def.id})`:''}; donor revision ${revision}.\n`)
   console.log(def.id,JSON.stringify({metrics:manifest.metrics,lods:lods.map(({sourceAccessorBytesPreserved,...r})=>r)}))
 }

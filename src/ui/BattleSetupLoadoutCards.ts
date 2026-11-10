@@ -19,7 +19,7 @@ export const BATTLE_SETUP_MELEE_GROUPS: readonly LoadoutCardGroup[] = [
 export const BATTLE_SETUP_SHIELD_GROUPS: readonly LoadoutCardGroup[] = [
   { title: '通用與特殊盾牌', subtitle: 'GENERAL & HERO SHIELDS', cards: [
     { id: null, zh: '不攜帶盾牌', en: 'NO SHIELD' },
-    { id: 'paladin_shield_t4' }, { id: 'commander_shield_t5' }, { id: 'roman_officer_shield_t4' }, { id: 'viking_berserker_shield_t5' }, { id: 'byzantine_eagle_shield_t5' },
+    { id: 'paladin_shield_t4' }, { id: 'commander_shield_t5' }, { id: 'roman_officer_shield_t4' }, { id: 'viking_berserker_shield_t5' }, { id: 'byzantine_eagle_shield_t5' }, { id: 'centurion_aquila_shield_t4' },
   ] },
   { title: '維京圓盾', subtitle: 'VIKING ROUND SHIELDS', cards: [{ id: 'round_shield_t1' }, { id: 'round_shield_t2' }, { id: 'round_shield_t3' }] },
   { title: '羅馬方盾', subtitle: 'ROMAN SCUTA', cards: [{ id: 'scutum_t1' }, { id: 'scutum_t2' }, { id: 'scutum_t3' }] },

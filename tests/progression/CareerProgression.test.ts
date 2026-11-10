@@ -3,12 +3,14 @@ import { CAREER_TUTORIAL_OPERATIONS } from '../../src/career/CareerTutorialState
 import { careerShopProduct } from '../../src/career/CareerShopCatalog'
 import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, validateOrdinaryRetirementCommit } from '../../src/career/CareerRetirement'
 import { parseCareerRetirementState } from '../../src/career/CareerRetirementState'
-import { grantStarter } from '../../src/town/TownRules'
+import { grantStarter, settleTown } from '../../src/town/TownRules'
 import { TownEquipment } from '../../src/town/TownEquipment'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { describe,expect,it } from 'vitest'
 import { applyCareerClass, careerClassOffer, unlockedCareerClasses } from '../../src/career/CareerElitePromotion'
 import { resolveCareerHeroAsset } from '../../src/career/CareerPlayerProfile'
+import { applyT4Class, currentT4Class, t4ClassOffer, unlockedT4Classes } from '../../src/career/CareerT4Promotion'
+import { canAppointCareerRank } from '../../src/career/CareerPromotionAuthority'
 import { addCareerItem, careerItemAllocated, careerItemTotal } from '../../src/career/CareerInventory'
 import {
 claimCareerBattle,
@@ -96,6 +98,70 @@ describe('T5 雙職業任命', () => {
     expect(parseCareerProfile({ ...bad, totalMerit: 29999, unlockedCareerClasses: ['roman-commander', 'byzantine-cataphract'] })).not.toBeNull()
     expect(parseCareerProfile({ ...bad, faction: 'viking' })).toBeNull()
     expect(parseCareerProfile({ ...bad, rank: 'captain' })).toBeNull()
+  })
+})
+
+describe('T4 雙職業任命（聖騎士／百夫長）', () => {
+  const veteran = (total: number, faction: 'roman' | 'viking' = 'roman') => { const p = createCareerProfile(faction); p.rank = 'veteran'; p.totalMerit = total; p.availableMerit = 333; return p }
+  it('首次任命依本次入伍軍功：5,000 僅聖騎士、7,000 可直選百夫長，免費且只解鎖所選；通用升階不可繞過', () => {
+    expect(['paladin', 'centurion'].map(id => t4ClassOffer(veteran(4999), id as 'paladin').kind)).toEqual(['merit-locked', 'merit-locked'])
+    expect(t4ClassOffer(veteran(5000), 'paladin').kind).toBe('appoint')
+    expect(t4ClassOffer(veteran(6999), 'centurion')).toMatchObject({ kind: 'merit-locked', shortfall: 1 })
+    expect(applyT4Class(veteran(6999), 'centurion')).toBeNull()
+    const stale = veteran(20000); stale.enlistmentMeritBase = 13001 // earlier enlistments never count
+    expect(t4ClassOffer(stale, 'centurion').kind).toBe('merit-locked')
+    const centurion = applyT4Class(veteran(7000), 'centurion')!
+    expect(centurion).toMatchObject({ rank: 'captain', t4Specialization: 'centurion', unlockedT4Classes: ['centurion'], availableMerit: 333, totalMerit: 7000 })
+    expect(resolveCareerHeroAsset(parseCareerProfile(centurion)!)).toBe('roman-centurion-t4')
+    // The generic one-step authority refuses Roman Veteran → Captain, and a Centurion-only save below 7,000 is rejected.
+    expect(canAppointCareerRank(veteran(7000), 'captain')).toBe(false)
+    expect(parseCareerProfile({ ...centurion, totalMerit: 6999 })).toBeNull()
+    expect(promoteCareer(veteran(5000))?.t4Specialization).toBeUndefined() // legacy shape → Paladin, never Centurion
+    const viking = veteran(5000, 'viking')
+    expect(t4ClassOffer(viking, 'paladin').kind).toBe('unavailable')
+    expect(canAppointCareerRank(viking, 'captain')).toBe(true)
+    expect(resolveCareerHeroAsset(promoteCareer(viking)!)).toBe('viking-hero-t4')
+  })
+  it('第二職業只扣可用軍功並永久解鎖；免費切換不重複扣款或任命，舊畫面不能回收解鎖', () => {
+    const paladin = applyT4Class(veteran(5000), 'paladin')!
+    paladin.availableMerit = 6999
+    expect(t4ClassOffer(paladin, 'centurion')).toMatchObject({ kind: 'insufficient-merit', shortfall: 1 })
+    paladin.availableMerit = 7500
+    const bought = applyT4Class(paladin, 'centurion')!
+    expect(bought).toMatchObject({ rank: 'captain', t4Specialization: 'centurion', availableMerit: 500, totalMerit: 5000, unlockedT4Classes: ['paladin', 'centurion'] })
+    expect(bought.tutorial).toEqual(paladin.tutorial) // no second appointment receipt
+    expect(applyT4Class(bought, 'centurion')).toBeNull()
+    const back = applyT4Class(bought, 'paladin')!
+    expect(back).toMatchObject({ t4Specialization: 'paladin', availableMerit: 500 })
+    expect(back.equipment).toEqual(paladin.equipment); expect(back.inventory).toEqual(paladin.inventory)
+    expect(applyT4Class(applyT4Class(veteran(7000), 'centurion')!, 'paladin')).toBeNull() // 333 < 5,000
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    expect(store.save(paladin)).toBe(true)
+    storage.failWrites = true
+    expect(store.save(bought)).toBe(false); expect(store.load()).toMatchObject({ t4Specialization: 'paladin', availableMerit: 7500 })
+    storage.failWrites = false
+    expect(store.save(bought)).toBe(true); expect(store.save(back)).toBe(true)
+    expect(store.load()).toMatchObject({ t4Specialization: 'paladin', availableMerit: 500, unlockedT4Classes: ['paladin', 'centurion'] })
+    expect(store.save(paladin)).toBe(false) // stale scene: would drop the unlock and restore the spent merit
+  })
+  it('舊 Captain 僅推導聖騎士；非法 ID／重複／矛盾被拒；T4 升 T5 依 PR #453，T4 面板不服務 Commander', () => {
+    const legacy = promoteCareer(veteran(5000))!
+    const parsed = parseCareerProfile(legacy)!
+    expect([currentT4Class(parsed), unlockedT4Classes(parsed)]).toEqual(['paladin', ['paladin']])
+    expect(resolveCareerHeroAsset(parsed)).toBe('roman-hero-t4')
+    const centurion = applyT4Class(veteran(7000), 'centurion')!
+    for (const bad of [{ t4Specialization: 'legate' }, { unlockedT4Classes: ['centurion', 'centurion'] }, { unlockedT4Classes: ['paladin'] },
+      { unlockedT4Classes: [] }, { faction: 'viking' }, { rank: 'veteran' }]) expect(parseCareerProfile({ ...centurion, ...bad })).toBeNull()
+    centurion.totalMerit = 20000
+    const commander = applyCareerClass(centurion, 'roman-commander')!
+    expect(commander).toMatchObject({ rank: 'commander', eliteClass: null, unlockedCareerClasses: ['roman-commander'], unlockedT4Classes: ['centurion'] })
+    const loaded = parseCareerProfile(commander)!
+    expect(resolveCareerHeroAsset(loaded)).toBe('roman-hero-t5')
+    expect(currentT4Class(loaded)).toBeNull(); expect(t4ClassOffer(loaded, 'paladin').kind).toBe('unavailable')
+    centurion.totalMerit = 30000
+    expect(resolveCareerHeroAsset(applyCareerClass(centurion, 'byzantine-cataphract')!)).toBe('byzantine-cataphract-t5')
+    const reset = settleTown({ ...cloneCareerProfile(centurion), townEvent: { id: 'e', state: 'hostile' } }, 'e', 'town_defeated')
+    expect([reset.t4Specialization, reset.unlockedT4Classes]).toEqual([undefined, undefined])
   })
 })
 

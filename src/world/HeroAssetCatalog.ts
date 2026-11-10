@@ -1,12 +1,12 @@
 import type { HumanoidAssetDescriptor } from './HumanoidAssetRegistry'
 
 /** Assets available to runtime and DEV previews; not a public mode selection list. */
-export const HERO_ASSET_IDS = ['viking-hero-t4', 'roman-hero-t4', 'maki-archer-t4', 'roman-hero-t5', 'viking-hero-t5', 'byzantine-cataphract-t5'] as const
+export const HERO_ASSET_IDS = ['viking-hero-t4', 'roman-hero-t4', 'roman-centurion-t4', 'maki-archer-t4', 'roman-hero-t5', 'viking-hero-t5', 'byzantine-cataphract-t5'] as const
 export type HeroAssetId = typeof HERO_ASSET_IDS[number]
 export type PlayerHeroId = HeroAssetId
 
 /** Player-only choices for Custom Battle and Campaign; NPC tiers and Career unlocks are independent. */
-export const SETUP_PLAYER_HERO_IDS = ['viking-hero-t4', 'roman-hero-t4', 'maki-archer-t4', 'viking-hero-t5', 'roman-hero-t5', 'byzantine-cataphract-t5'] as const satisfies readonly HeroAssetId[]
+export const SETUP_PLAYER_HERO_IDS = ['viking-hero-t4', 'roman-hero-t4', 'roman-centurion-t4', 'maki-archer-t4', 'viking-hero-t5', 'roman-hero-t5', 'byzantine-cataphract-t5'] as const satisfies readonly HeroAssetId[]
 export type SetupPlayerHeroId = typeof SETUP_PLAYER_HERO_IDS[number]
 
 export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; descriptor: HumanoidAssetDescriptor }> = {
@@ -22,6 +22,11 @@ export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; 
   'roman-hero-t4': {
     nameZh: '聖騎士', nameEn: 'Paladin',
     descriptor: { assetId: 'roman-hero-t4', faction: 'roman', heightM: 1.95, maxShoulderWidthM: .50, neckLengthM: .0782356292 },
+  },
+  // Owner-supplied 10K Meshy Mixamo66 model (tools/build-meshy-faction-heroes.mjs, asset roman-centurion-t4); metrics are the manifest's measurements.
+  'roman-centurion-t4': {
+    nameZh: '百夫長', nameEn: 'Centurion',
+    descriptor: { assetId: 'roman-centurion-t4', faction: 'roman', heightM: 1.95, maxShoulderWidthM: .50, neckLengthM: .08084886782419044 },
   },
   'maki-archer-t4': {
     nameZh: '遊俠', nameEn: 'Ranger',
