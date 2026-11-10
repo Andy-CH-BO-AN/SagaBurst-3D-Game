@@ -25,7 +25,7 @@ export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; 
     descriptor: { assetId: 'viking-heavy-hero-t4', faction: 'viking', heightM: 1.999999935896147, maxShoulderWidthM: 0.656265570914091, neckLengthM: 0.08004531860351614 },
   },
   'roman-hero-t4': {
-    nameZh: '聖騎士', nameEn: 'Paladin',
+    nameZh: '禁衛軍隊長', nameEn: 'Praetorian Captain',
     descriptor: { assetId: 'roman-hero-t4', faction: 'roman', heightM: 1.95, maxShoulderWidthM: .50, neckLengthM: .0782356292 },
   },
   // Owner-supplied 10K Meshy Mixamo66 model (tools/build-meshy-faction-heroes.mjs, asset roman-centurion-t4); metrics are the manifest's measurements.

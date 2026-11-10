@@ -69,8 +69,8 @@ export interface CareerProfile {
   eliteClass?: 'byzantine-cataphract' | 'ironblood-warlord' | null
   /** Permanently unlocked Commander classes of this faction for this enlistment; eliteClass is only the one in use. Missing legacy value = the class in use. */
   unlockedCareerClasses?: ('roman-commander' | 'byzantine-cataphract' | 'viking-commander' | 'ironblood-warlord')[]
-  /** T4 class in use while Captain (Roman Paladin/Centurion, Viking Varangian/Dragon Oathguard). Missing legacy value = the faction default
-   * (Paladin / Varangian). Kept as data after T5; T5 identity ignores it. */
+  /** T4 class in use while Captain (Roman Praetorian Captain/Centurion, Viking Varangian/Dragon Oathguard). Missing legacy value = the faction default
+   * (legacy `paladin` / `varangian` IDs). Kept as data after T5; T5 identity ignores it. */
   t4Specialization?: 'paladin' | 'centurion' | 'varangian' | 'dragon-oathguard'
   /** Permanently unlocked T4 classes of this faction for this enlistment. Missing legacy Captain value = the default only. */
   unlockedT4Classes?: ('paladin' | 'centurion' | 'varangian' | 'dragon-oathguard')[]

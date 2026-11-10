@@ -10,7 +10,7 @@ import { HumanoidAssetRegistry, disposeHumanoidInstanceSkeletons } from '../worl
 export type CareerRoadId = CareerClassId | T4ClassId
 const CLASS_NAMES: Record<CareerRoadId, string> = { 'roman-commander': '羅馬軍團統帥 Roman Legate · T5', 'byzantine-cataphract': '拜占庭鐵甲重騎兵 · T5+',
   'viking-commander': '北境戰酋 Norse Warchief · T5', 'ironblood-warlord': '鐵血戰帥 Ironblood Warlord · T5',
-  paladin: '聖騎士 Paladin · T4', centurion: '百夫長 Centurion · T4',
+  paladin: '禁衛軍隊長 Praetorian Captain · T4', centurion: '百夫長 Centurion · T4',
   varangian: '瓦良格隊長 Varangian Captain · T4', 'dragon-oathguard': '龍誓重衛 Dragon Oathguard · T4' }
 /** Card-only notes; every number on a card comes from the class's real combat profile. */
 const CLASS_NOTES: Partial<Record<CareerRoadId, string>> = {
@@ -173,7 +173,7 @@ export function appendCareerPromotionCards(parent: HTMLElement, read: () => Care
   return appendRoadCards(T5_ROAD, parent, read, choose)
 }
 
-/** T4 road (Captain NPC): Paladin / Centurion, Varangian Captain / Dragon Oathguard. */
+/** T4 road (Captain NPC): Praetorian Captain / Centurion, Varangian Captain / Dragon Oathguard. */
 export function appendT4PromotionCards(parent: HTMLElement, read: () => CareerProfile, choose: (target: T4ClassId) => void): () => void {
   return appendRoadCards(T4_ROAD, parent, read, choose)
 }
