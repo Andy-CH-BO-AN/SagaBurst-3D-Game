@@ -43,6 +43,8 @@ export function installTownStyles(): void {
     .duel-tier-head strong { font-size:15px; color:#ffe5af } .duel-tier-state { font-size:12px; color:#c4b69e }
     .duel-tier-completed .duel-tier-state { color:#a9c98a } .duel-tier-available .duel-tier-state { color:#eac683 }
     .duel-tier small { display:block; margin-top:4px; color:#b7a78c; white-space:pre-line; line-height:1.5 }
+    .duel-rules { margin:0 0 10px; padding:8px 12px; background:#0b101344; border-left:3px solid #b3945e; color:#c4b69e; font-size:13px; line-height:1.5; white-space:pre-line }
+    .duel-class small { display:block; margin:0 0 6px; color:#b7a78c; font-size:11px; text-align:center }
     .duel-tier-actions { display:flex; flex-direction:column; grid-row:1 / span 2; grid-column:2; gap:0 } .duel-tier-actions .town-button { margin:0 0 4px; white-space:nowrap } .duel-tier-actions .town-button:last-child { margin-bottom:0 } .duel-tier-head { justify-content:flex-start; gap:10px }
     .town-purchase-products { grid-template-columns:repeat(auto-fit,minmax(min(235px,100%),1fr)) }
     .town-purchase-quantity { margin-top:8px; max-width:100%; font-size:13px; color:#c4b69e }

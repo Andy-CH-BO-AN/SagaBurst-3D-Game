@@ -13,8 +13,6 @@ export interface CareerDuelTierEntry {
   status: CareerDuelTierStatus
   /** Only for a locked tier: the challenge that must be won first. */
   requirement?: string
-  /** Time limit and special rules, in player language. */
-  rules: string
   /** Who stands across the ring. */
   opponent: string
   /** T4/T5 with a choice: the player picks the opponent's class on the tier row itself. */
@@ -40,12 +38,16 @@ export function careerDuelTierEntries(profile: CareerProfile, subject: CareerDue
     const ranger = subject.kind === 'unit' && tier === 4 && subject.preset.traits.includes('bow_fire')
     const opponent = subject.kind === 'unarmed' ? '同樣空手的對手'
       : tier === 5 ? '指揮官（隊長擔任裁判）' : tier === 4 ? ranger ? '遊俠' : '隊長（遊俠擔任裁判）' : `${subject.preset.nameZh}`
-    const rules = subject.kind === 'unarmed'
-      ? `${duelCombatSeconds('unarmed')} 秒內擊敗對手 · 雙方無武器、盾牌與坐騎 · 只准拳擊，使用其他傷害即判負`
-      : `${duelCombatSeconds('armed')} 秒內擊敗對手`
-    return { tier, status, rules: `${DUEL_COUNTDOWN_SECONDS} 秒準備 · ${rules}`, opponent, classes,
+    return { tier, status, opponent, classes,
       ...(status === 'locked' ? { requirement: `需先擊敗 T${tier - 1} ${name}` } : {}) }
   })
+}
+
+/** The rules every tier of a subject shares, stated once above the ladder. */
+export function careerDuelSubjectRules(subject: CareerDuelSubject): string {
+  const mode = subject.kind === 'unarmed' ? 'unarmed' : 'armed'
+  return `${DUEL_COUNTDOWN_SECONDS} 秒準備 · ${duelCombatSeconds(mode)} 秒內擊敗對手`
+    + (subject.kind === 'unarmed' ? '\n雙方空手、無盾牌與坐騎；只准拳擊，使用其他傷害即判負' : '')
 }
 
 /** "已完成 2/5": a single glanceable progress figure per subject. */

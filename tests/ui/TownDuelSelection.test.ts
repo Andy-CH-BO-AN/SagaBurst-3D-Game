@@ -66,7 +66,7 @@ afterEach(() => { focused = null; vi.unstubAllGlobals() })
 describe('Career Duel selection pages', () => {
   const find = (h: ReturnType<typeof selection>, label: string) => h.content.descendants().find(n => n.tag === 'button' && n.children[0]?.textContent === label)!
   const tierRows = (h: ReturnType<typeof selection>) => h.content.descendants().filter(n => n.tag === 'article')
-  const actions = (row: Element) => row.children[2]?.children ?? []
+  const actions = (row: Element) => (row.children[2]?.children ?? []).flatMap(c => c.tag === 'div' ? c.children.filter(n => n.tag === 'button') : [c])
 
   it('shows boxing and every unit as peers on one page, with independent T1–T5 states and no scroll reset on switch', () => {
     const profile: CareerProfile = { ...createCareerProfile('roman'), duelHighestDefeatedTierByPreset: { roman_heavy_infantry: 3 }, unarmedDuelHighestDefeatedTier: 1 }
@@ -76,12 +76,12 @@ describe('Career Duel selection pages', () => {
       .toEqual(['🥊 空手對戰', ...presets.map(p => p.nameZh)])
     expect(tierRows(h).map(r => r.className.split(' ')[1])).toEqual(['duel-tier-completed', 'duel-tier-available', 'duel-tier-locked', 'duel-tier-locked', 'duel-tier-locked'])
     expect(tierRows(h)[2].children[1].textContent).toBe('需先擊敗 T2 空手對手')
-    expect(tierRows(h)[1].children[1].textContent).toContain('90 秒')
+    expect(h.content.descendants().find(n => n.className === 'duel-rules')!.textContent).toContain('90 秒')
     h.root.scrollTop = 500
     find(h, presets[0].nameZh).click()
     expect(h.root.scrollTop).toBe(500)
     expect(tierRows(h).map(r => r.className.split(' ')[1])).toEqual(['duel-tier-completed', 'duel-tier-completed', 'duel-tier-completed', 'duel-tier-available', 'duel-tier-locked'])
-    expect(tierRows(h)[0].children[1].textContent).toContain('30 秒')
+    expect(h.content.descendants().find(n => n.className === 'duel-rules')!.textContent).toContain('30 秒')
     expect(tierRows(h)[4].children[1].textContent).toBe('需先擊敗 T4 ' + presets[0].nameZh)
     expect(JSON.stringify(profile)).toBe(before)
   })

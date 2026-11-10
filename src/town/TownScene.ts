@@ -157,7 +157,7 @@ import { MissionGuide } from '../career/MissionGuide'
 import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, startCommanderRetirement } from '../career/CareerRetirement'
 import { townRetirementRallyTarget } from './TownBounds'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
-import { careerDuelMissionLabel, careerDuelProgressLabel, careerDuelTierEntries, type CareerDuelSubject } from '../career/CareerDuelSelection'
+import { careerDuelSubjectRules, careerDuelMissionLabel, careerDuelProgressLabel, careerDuelTierEntries, type CareerDuelSubject } from '../career/CareerDuelSelection'
 import { type CareerDuelTier, isUnarmedDuelUnlocked, isCareerDuelUnlocked, duelFightBannerVisible } from '../career/CareerDuelState'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { fieldMissionHud, missionPhaseLabel, personalSquadStateLabel, townCommandStateLabel } from '../career/CareerMissionPresentation'
@@ -528,6 +528,7 @@ export class TownScene {
     this.mission.onBorrowMountedActor = actorId => { this.patrol.relinquish(actorId) }
     this.mission.onMarchStarted = () => this.playMissionVoice('follow')
     this.mission.onSweepCharge = () => sound.playCommanderCommand(this.profile.faction, 'charge')
+
     this.duel = new CareerDuelController(this.scene, this.world, this.navigation, this.residents, this.cat, () => this.player, () => this.profile, p => this.commit(p),
       undefined, request => this.createDuelOpponent(request))
     this.duel.resolvePlayerHomeMount = () => this.careerMounts?.activeMount ?? null
@@ -2330,7 +2331,8 @@ export class TownScene {
       const subject = subjectOf(this.duelSubjectKey), unarmed = subject.kind === 'unarmed'
       ladder.replaceChildren()
       const heading = document.createElement('h3'); heading.textContent = unarmed ? '🥊 空手對戰' : `${subject.preset.nameZh} · 單挑等級`
-      ladder.append(heading)
+      const rules = document.createElement('p'); rules.className = 'duel-rules'; rules.textContent = careerDuelSubjectRules(subject)
+      ladder.append(heading, rules)
       for (const entry of careerDuelTierEntries(this.profile, subject)) {
         const row = document.createElement('article'); row.className = `duel-tier duel-tier-${entry.status}`
         const head = document.createElement('div'); head.className = 'duel-tier-head'
@@ -2339,14 +2341,16 @@ export class TownScene {
         state.textContent = entry.status === 'completed' ? '✓ 已完成' : entry.status === 'available' ? '可挑戰' : '🔒 未解鎖'
         head.append(title, state)
         const details = document.createElement('small')
-        details.textContent = entry.status === 'locked' ? entry.requirement! : `對手：${entry.opponent}\n${entry.rules}`
+        details.textContent = entry.status === 'locked' ? entry.requirement! : `對手：${entry.opponent}`
         row.append(head, details)
         if (entry.status !== 'locked') {
           const actions = document.createElement('div'); actions.className = 'duel-tier-actions'
           if (entry.classes.length) for (const option of entry.classes) {
             const profile = HERO_COMBAT_PROFILES[option.combatProfileId]
-            const go = this.button(actions, `挑戰 ${HERO_CLASS_NAMES[option.combatProfileId].zh}`, () => void this.acceptDuel(subject.kind === 'unit' ? subject.preset.id : undefined, entry.tier, 'armed', option.combatProfileId))
-            go.title = `生命值 ${profile.maxHp} · 傷害 ×${profile.damageMultiplier} · 承傷 ×${profile.damageTakenMultiplier}`
+            const choice = document.createElement('div'); choice.className = 'duel-class'
+            this.button(choice, `挑戰 ${HERO_CLASS_NAMES[option.combatProfileId].zh}`, () => void this.acceptDuel(subject.kind === 'unit' ? subject.preset.id : undefined, entry.tier, 'armed', option.combatProfileId))
+            const stats = document.createElement('small'); stats.textContent = `生命 ${profile.maxHp} · 傷害 ×${profile.damageMultiplier} · 承傷 ×${profile.damageTakenMultiplier}`
+            choice.append(stats); actions.append(choice)
           } else this.button(actions, entry.status === 'completed' ? '再次挑戰' : '接受單挑', () => void this.acceptDuel(unarmed ? undefined : subject.preset.id, entry.tier, unarmed ? 'unarmed' : 'armed'))
           row.append(actions)
         }
