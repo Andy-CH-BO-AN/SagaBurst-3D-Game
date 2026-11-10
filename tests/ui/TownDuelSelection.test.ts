@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import type { CareerDuelTier } from '../../src/career/CareerDuelState'
+import { createCareerDuelMission, type CareerDuelTier } from '../../src/career/CareerDuelState'
 import { getUnitPresetsForFaction, type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
 import { TownScene } from '../../src/town/TownScene'
 
@@ -133,4 +133,39 @@ it('空手頁面立即切到自己的 T1–T5，與武裝進度分開並送出�
   h.rows()[2].children[2].click(); expect(h.accept).not.toHaveBeenCalled()
   h.rows()[1].children[2].click()
   expect(h.accept).toHaveBeenCalledExactlyOnceWith(undefined, 2, 'unarmed')
+})
+
+describe('Career Duel resume after a deployment failure', () => {
+  interface ResumeEntry {
+    disposed: boolean; profile: CareerProfile; panel: Element | null
+    preloadDuelOpponent: ReturnType<typeof vi.fn>; duel: { startActiveMission: ReturnType<typeof vi.fn> }
+    inventory: { prepareForCombat: ReturnType<typeof vi.fn> }; closePanel: ReturnType<typeof vi.fn>; returnToTown: ReturnType<typeof vi.fn>
+    openPanel(title: string): void; button(parent: HTMLElement, label: string, action: () => void): void
+    deployActiveDuel(): Promise<boolean>; showDuelDeployFailure(): void
+  }
+  const resume = (preload: boolean, start: boolean) => {
+    vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
+    const profile = createCareerProfile('roman'), proto = TownScene.prototype as unknown as ResumeEntry
+    profile.activeMission = createCareerDuelMission({ ...profile, duelHighestDefeatedTierByPreset: { roman_heavy_infantry: 3 } }, 'roman_heavy_infantry', 4, 'captain', 'captain', 'resume', 'ranger', 'armed', 'centurion')!
+    const entry: ResumeEntry = { disposed: false, profile, panel: null, preloadDuelOpponent: vi.fn(async () => preload), duel: { startActiveMission: vi.fn(() => start) },
+      inventory: { prepareForCombat: vi.fn() }, closePanel: vi.fn(), returnToTown: vi.fn(),
+      openPanel() { entry.panel = new Element('div') }, button: (parent, label, action) => { const b = new Element('button'); b.textContent = label; b.onclick = action; (parent as unknown as Element).append(b) },
+      deployActiveDuel: proto.deployActiveDuel, showDuelDeployFailure: proto.showDuelDeployFailure }
+    return entry
+  }
+  it('reports a failed asset load without starting the duel or touching the saved mission, then retries or cancels without settlement', async () => {
+    const entry = resume(false, true), before = JSON.stringify(entry.profile.activeMission)
+    expect(await entry.deployActiveDuel()).toBe(false)
+    expect(entry.preloadDuelOpponent).toHaveBeenCalledWith('roman_heavy_infantry', 4, 'centurion'); expect(entry.duel.startActiveMission).not.toHaveBeenCalled()
+    entry.showDuelDeployFailure()
+    const [retry, cancel] = entry.panel!.children
+    entry.preloadDuelOpponent.mockResolvedValue(true); retry.click(); await vi.waitFor(() => expect(entry.closePanel).toHaveBeenCalledOnce())
+    expect(entry.duel.startActiveMission).toHaveBeenCalledOnce(); expect(entry.inventory.prepareForCombat).toHaveBeenCalledOnce()
+    cancel.click(); expect(entry.returnToTown).toHaveBeenCalledExactlyOnceWith('direct')
+    expect(JSON.stringify(entry.profile.activeMission)).toBe(before)
+  })
+  it('treats a duel that cannot be built as a failed deployment too', async () => {
+    expect(await resume(true, false).deployActiveDuel()).toBe(false)
+    expect(await resume(true, true).deployActiveDuel()).toBe(true)
+  })
 })

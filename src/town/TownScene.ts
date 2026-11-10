@@ -2226,6 +2226,24 @@ export class TownScene {
       return npc
     } catch (error) { console.error('Duel opponent could not be created', error); return null }
   }
+  /** Loads the saved opponent's assets, then builds the saved duel; false leaves the accepted mission untouched. */
+  private async deployActiveDuel(): Promise<boolean> {
+    const active = this.profile.activeMission
+    if (active?.kind !== 'duel') return true
+    if (active.duelPresetId && active.duelTier && !await this.preloadDuelOpponent(active.duelPresetId, active.duelTier, active.duelClassId)) return false
+    return this.duel.startActiveMission()
+  }
+  /** A technical failure has no defeat settlement: the saved duel stays resumable, with retry or a reward-free cancel. */
+  private showDuelDeployFailure(): void {
+    if (this.disposed) return
+    this.openPanel('單挑部署失敗', '本場尚未結算；對手的資源載入或部署失敗。可重試，或取消本次單挑（不計勝負、不扣獎勵）。')
+    this.button(this.panel!, '重試開始單挑', () => void this.deployActiveDuel().then(ok => {
+      if (this.disposed) return
+      if (!ok) { this.showDuelDeployFailure(); return }
+      this.inventory.prepareForCombat(); this.closePanel()
+    }))
+    this.button(this.panel!, '取消本次單挑', () => this.returnToTown('direct'))
+  }
   private async preloadDuelOpponent(presetId: UnitPresetId, tier: CareerDuelTier, classId?: HeroCombatProfileId): Promise<boolean> {
     const hero = classId ? resolveCareerDuelClass(this.profile.faction, presetId, tier, classId) : undefined
     if (!hero) return true
@@ -2627,9 +2645,7 @@ export class TownScene {
       if (profile.activeMission.kind === 'captain-patrol-command') {
         this.captainPatrol?.resume()
       } else if (profile.activeMission.kind === 'duel') {
-        const duel = profile.activeMission
-        if (duel.duelPresetId && duel.duelTier) await this.preloadDuelOpponent(duel.duelPresetId, duel.duelTier, duel.duelClassId)
-        this.duel.startActiveMission()
+        if (!await this.deployActiveDuel()) this.showDuelDeployFailure()
       } else if (profile.activeMission.kind === 'town-defense' || profile.activeMission.kind === 'commander-four-gate-defense' || profile.activeMission.kind === 'enemy-town-assault'
         || profile.activeMission.kind === 'commander-sky-raid' || profile.activeMission.kind === 'commander-decapitation') {
         if (!profile.activeMission.result || profile.activeMission.phase === 'RETURNING') {
@@ -3221,6 +3237,7 @@ export class TownScene {
       ?? (this.residents ?? []).find(resident => resident.homeMount === target)?.npc
       ?? this.outskirts?.actors.find(actor => actor.combatantId === target.combatOwner?.actorId)
     if (this.duel?.active && owner === this.duel.opponent) return !this.duel.canDamageOpponent(target)
+    if (this.duel?.isParkedResident(target) || owner && this.duel?.isParkedResident(owner)) return true
     if (this.commanderProtectsOwnTown && (target instanceof NPC
       ? (this.residents ?? []).some(resident => resident.npc === target)
       : target === this.cat || (this.stableHorses ?? []).includes(target)
@@ -3659,7 +3676,7 @@ export class TownScene {
     if (this.player.dead || this.player.isFalling || this.player.currentMount?.isFlyingMount) return
     const playerBody = { position: this.player.group.position, radius: .42, height: 1.8, bottomOffset: .9 }
     for (const r of this.residents) {
-      if (this.mission.friendlies.includes(r.npc) || this.duel?.isMissionActor(r.npc)) continue
+      if (this.mission.friendlies.includes(r.npc) || this.duel?.isMissionActor(r.npc) || this.duel?.isParkedResident(r.npc)) continue
       if (r.npc.dead) continue
       const position = r.npc.mount?.group.position ?? r.npc.group.position
       if (Math.hypot(position.x - playerBody.position.x, position.z - playerBody.position.z) > 3) continue

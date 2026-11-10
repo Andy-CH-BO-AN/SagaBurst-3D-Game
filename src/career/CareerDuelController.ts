@@ -413,6 +413,8 @@ export class CareerDuelController {
     return active.phase === 'ENGAGING' ? resolveCareerDuelOutcome(false, this.opponent.dead, this.combatElapsed, active.duelMode) : null
   }
 
+  /** The resident (and its home mount) parked while its double fights: unseen, so neither solid nor a target. */
+  isParkedResident(target: NPC | Mount): boolean { return Boolean(this.parked && (target === this.parked.npc || target === this.parked.mount)) }
   isMissionActor(actor: NPC): boolean { return this.actors.includes(actor) }
   isMissionMount(mount: Mount): boolean { return this.allMounts.includes(mount) }
   isMissionTarget(actor: NPC): boolean { return actor === this.opponent }
