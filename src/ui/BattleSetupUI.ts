@@ -963,6 +963,10 @@ export class BattleSetupUI {
         this.config.playerFaction = 'roman'
         this.config.playerLoadout = { ...(this.config.playerLoadout ?? createDefaultPlayerLoadout()), mountId: 'armored-horse' }
       }
+      // Dragon Oathguard's default kit carries its own T4 round shield; every card stays selectable afterwards.
+      if (heroId === 'viking-heavy-hero-t4') {
+        this.config.playerLoadout = { ...(this.config.playerLoadout ?? createDefaultPlayerLoadout()), shieldId: 'viking_dragonward_shield_t4' }
+      }
       this._refreshView()
     })
     this.container.querySelectorAll('.step-input').forEach(el => {

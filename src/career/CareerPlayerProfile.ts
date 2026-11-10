@@ -3,16 +3,26 @@ import { HERO_COMBAT_PROFILE_BY_ASSET, HERO_COMBAT_PROFILES, type HeroCombatProf
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import { resolveSkillAdjustedMaxHp } from '../rpg/CombatSkillProgression'
 import type { CareerProfile } from './CareerProfile'
+import { currentCareerClass, type CareerClassId } from './CareerElitePromotion'
+import { currentT4Class, type T4ClassId } from './CareerT4Promotion'
+
+/** Body of each class road; the class itself (CareerElitePromotion / CareerT4Promotion) decides which one is in use. */
+export const CAREER_CLASS_HERO: Readonly<Record<CareerClassId, HeroAssetId>> = {
+  'roman-commander': 'roman-hero-t5', 'byzantine-cataphract': 'byzantine-cataphract-t5',
+  'viking-commander': 'viking-hero-t5', 'ironblood-warlord': 'viking-heavy-hero-t5',
+}
+export const T4_CLASS_HERO: Readonly<Record<T4ClassId, HeroAssetId>> = {
+  paladin: 'roman-hero-t4', centurion: 'roman-centurion-t4', varangian: 'viking-hero-t4', 'dragon-oathguard': 'viking-heavy-hero-t4',
+}
 
 export function resolveCareerHeroAsset(
   profile: Pick<CareerProfile, 'faction' | 'rank' | 'eliteClass' | 't4Specialization'>,
 ): HeroAssetId | null {
-  if (profile.rank !== 'captain' && profile.rank !== 'commander') return null
-  if (profile.rank === 'commander' && profile.faction === 'roman' && profile.eliteClass === 'byzantine-cataphract') return 'byzantine-cataphract-t5'
-  if (profile.rank === 'commander') return profile.faction === 'roman' ? 'roman-hero-t5' : 'viking-hero-t5'
-  // Captain only: T4 class selects the body. T5 above never reads t4Specialization.
-  if (profile.faction === 'roman') return profile.t4Specialization === 'centurion' ? 'roman-centurion-t4' : 'roman-hero-t4'
-  return 'viking-hero-t4'
+  // Commander: the T5 class alone selects the body (t4Specialization is kept as data only). Captain: the T4 class.
+  const commander = currentCareerClass(profile)
+  if (commander) return CAREER_CLASS_HERO[commander]
+  const captain = currentT4Class(profile)
+  return captain ? T4_CLASS_HERO[captain] : null
 }
 
 export function resolveCareerCombatProfile(
