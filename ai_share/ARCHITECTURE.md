@@ -21,7 +21,7 @@
 | 生涯 | `src/career/`：軍功、任命軍階、任務狀態、保存及恢復 |
 | 呈現 | `src/ui/`、`src/audio/SoundManager.ts`、`src/debug/`：DOM UI、音效與 DEV 工作室／診斷 |
 
-Career 教學由 `CareerTutorialState` 擁有角色識別、步驟、交易／正式任務收據與固定一次性獎勵；`CareerTutorial` 載入最新同角色存檔並在保存成功後發布。舊檔缺少教學欄位時保存非強制的遷移狀態，不當作新角色。`CareerTownEntry`／`main` 只以持久化 session 啟動 `CareerTutorialLaunch`，自由訓練與一般自訂戰鬥不取得此能力。`CareerTutorialScene` 接收 Game 的實際操作／有效命中及 `ArmyCommandController.onAccepted`；新兵完成與 100 軍功保存後自動沿同角色交易返回 Town，拒絕寫入時保留現場供重試。提示跟隨既有指北針下緣，暫停時保留可操作的教學按鈕並停止判定。演練只保留教學進度，隔離正式任務、技能與部隊資源。`TownTutorialController` 重用 MissionGuide、現有商店、HR 與指揮授權；新兵切磋沿用 Duel 並以角色識別標記走獨立獎勵結算，不改正式逐階解鎖。Captain／Commander 教學隨正式任命交易保存，不以軍功門檻自行啟動。
+Career 教學由 `CareerTutorialState` 擁有角色識別、步驟、交易／正式任務收據與固定一次性獎勵；`CareerTutorial` 載入最新同角色存檔並在保存成功後發布。舊檔缺少教學欄位時保存非強制的遷移狀態，不當作新角色。`CareerTownEntry`／`main` 只以持久化 session 啟動 `CareerTutorialLaunch`，自由訓練與一般自訂戰鬥不取得此能力。`CareerTutorialScene` 接收 Game 的實際操作／有效命中及 `ArmyCommandController.onAccepted`；新兵與隊長演練完成並保存後自動沿同角色交易返回 Town，拒絕寫入時保留現場供重試；新兵坐騎段須先實際騎上訓練場黑貓、再騎上指定普通馬，並以騎該馬對 0m 假人的 `mount-impact` 有效傷害事件完成（舊 ride 標記存檔於解析時遷移，不重發軍功）。提示跟隨既有指北針下緣，暫停時保留可操作的教學按鈕並停止判定。演練只保留教學進度，隔離正式任務、技能與部隊資源。`TownTutorialController` 重用 MissionGuide、現有商店、HR 與指揮授權；已開始而延後的階段在 HUD 指回士官長（或 HR），士官長直接提供「繼續上次教學」並保留「查看正式任務與其他服務」，從未開始的舊檔延後階段維持自選；新兵切磋沿用 Duel 並以角色識別標記走獨立獎勵結算，不改正式逐階解鎖。Captain／Commander 教學隨正式任命交易保存，不以軍功門檻自行啟動。
 
 ## 角色資產與動畫
 

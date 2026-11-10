@@ -13,11 +13,10 @@ const RECRUIT_HINTS: Record<string, string> = {
   'melee-hit-1': '走到 0m 近戰假人前，左鍵揮擊。實際有效命中兩次即可，不需要擊殺。',
   shield: '按 Tab 裝備盾牌並關閉介面，按住右鍵舉盾。HP 是生命；體力不足時先休息再移動／攻擊。',
   'bow-hit': '按 Tab 換弓並卸下盾牌：遠程武器與盾牌不能同時使用。按住右鍵瞄準 → 按住左鍵拉弓 → 放開左鍵射擊。命中 10m 假人一次。箭不足可點「補給」。',
-  'horse-mounted': '靠近指定的普通練習馬，按 E 上馬。借用裝備與坐騎只在本場練習使用。',
-  ride1: 'WASD 控制普通馬前進／轉向，騎過第一個黃色標記。Shift 可衝刺。',
-  ride2: '騎過第二個黃色標記。這匹普通馬在地面移動，以 WASD 轉向。',
-  ride3: '騎過第三個黃色標記。可放開前進鍵減速，E 可下馬。',
-  dismounted: '按 E 完成一次下馬。練習馬失效或位置不合理時可按「重置」，免費安全回到起點。',
+  'cat-mounted': '前往最近的黑貓，按 E 騎乘。黑貓只是代步，用來快速前往普通練習馬；借用坐騎只在本場練習使用。',
+  'horse-mounted': '騎黑貓前往普通練習馬，到達後按 E 下騎，再靠近普通馬按 E 改騎普通馬。',
+  'mount-impact': '騎普通馬沿跑道衝向 0m 假人：W 加速、Shift 衝刺，實際撞中一次即可。',
+  dismounted: '撞擊成功！按 E 下馬即可完成訓練。練習馬失效或位置不合理時可按「重置」，免費安全回到起點。',
 }
 const CAPTAIN_HINTS: Record<string, string> = {
   hud: '你現在可以指揮部隊。指揮 HUD 顯示一支小隊，共 30 名 AI；玩家另外計算。這些是演練副本，傷亡不影響城防或私兵。',
@@ -39,6 +38,9 @@ export interface TutorialSceneFrame {
   dead: boolean
   onFoot: boolean
   mountedOnPracticeHorse: boolean
+  /** The training ground's black cat; the transit mount before the practice horse. */
+  mountedOnPracticeCat: boolean
+  catPosition?: THREE.Vector3
   shieldRaised: boolean
   horsePosition?: THREE.Vector3
   friendlyCount: number
@@ -63,9 +65,11 @@ export class CareerTutorialScene {
   private looked = 0
   private hudVisibleSeconds = 0
   private disposed = false
-  private recruitReturnQueued = false
+  private returnQueued = false
+  private contextHint = ''
   readonly movementPoint = new THREE.Vector3(109, 0, 43)
-  readonly ridePoints = [new THREE.Vector3(70, 0, 77), new THREE.Vector3(85, 0, 82), new THREE.Vector3(95, 0, 65)]
+  /** The 0m dummy at the end of the 125m runway; the existing dummy takes repeated mount impacts. */
+  readonly impactPoint = new THREE.Vector3(100, 0, 40)
 
   constructor(readonly launch: CareerTutorialLaunch, private readonly actions: { returnToTown(): void; reset(): void; clearInput(): void }) {
     const loaded = this.store.loadChecked()
@@ -101,7 +105,7 @@ export class CareerTutorialScene {
     if (this.disposed || this.pending || this.complete) return
     const result = commitCareerTutorial(this.store, this.launch.careerId,
       next => recordCareerTutorialOperation(next, this.launch.stage, event), this.launch.sessionId)
-    if (result.ok) { this.profile = result.profile; this.status.textContent = '進度已保存'; this.render(); return }
+    if (result.ok) { this.profile = result.profile; this.contextHint = ''; this.status.textContent = event === 'mount-impact' ? '衝撞成功！進度已保存' : '進度已保存'; this.render(); return }
     if (result.reason === 'rejected') return
     this.status.textContent = '尚未保存；完成與獎勵尚未提交，請重試。'
     this.pending = () => this.operation(event); this.retry.hidden = false
@@ -114,18 +118,21 @@ export class CareerTutorialScene {
     }
   }
 
-  combat(event: CombatEvent): void {
+  /** `ridingPracticeHorse` is read by Game at the moment of the hit; the event itself carries no mount identity. */
+  combat(event: CombatEvent, ridingPracticeHorse = false): void {
     if (this.launch.stage !== 'recruit' || event.type !== 'damage_applied' || event.appliedDamage <= 0
       || event.source.actorType !== 'player' || event.source.actorId !== 'player' || event.target.targetType !== 'training') return
     if (this.step === 'melee-hit-1' && event.method === 'melee' && event.target.targetId === 'training:0') this.operation('melee-hit')
+    if (this.step === 'mount-impact' && event.method === 'mount-impact' && ridingPracticeHorse
+      && event.target.targetId === 'training:0') this.operation('mount-impact')
     if (this.step === 'bow-hit' && event.method === 'projectile' && event.target.targetId === 'training:10'
       && event.weaponId && WEAPONS[event.weaponId]?.combatKind === 'bow') this.operation('bow-hit')
   }
 
   update(frame: TutorialSceneFrame, dt: number): void {
     if (this.disposed) return
-    if (this.launch.stage === 'recruit' && this.complete && !this.recruitReturnQueued) {
-      this.recruitReturnQueued = true
+    if (this.complete && !this.returnQueued) {
+      this.returnQueued = true
       // Finish the current Game frame before disposing its actors and renderer.
       queueMicrotask(() => { if (!this.disposed) this.returnToTown() })
     }
@@ -161,16 +168,52 @@ export class CareerTutorialScene {
         && !this.profile.tutorial!.recruit.operations.includes('movement')) this.operation('movement')
     }
     if (this.step === 'shield' && frame.shieldRaised) this.operation('shield')
+    if (this.step === 'cat-mounted' && frame.mountedOnPracticeCat) this.operation('cat-mounted')
     if (this.step === 'horse-mounted' && frame.mountedOnPracticeHorse) this.operation('horse-mounted')
-    const rideIndex = ['ride1', 'ride2', 'ride3'].indexOf(this.step)
-    if (rideIndex >= 0 && frame.mountedOnPracticeHorse && Math.hypot(frame.position.x - this.ridePoints[rideIndex].x, frame.position.z - this.ridePoints[rideIndex].z) < 3.2) this.operation(`ride${rideIndex + 1}`)
     let target: THREE.Vector3 | null = null, label = ''
     if (this.step === 'look') { target = this.movementPoint; label = '移動練習標記' }
     else if (this.step === 'melee-hit-1') { target = new THREE.Vector3(100, 0, 40); label = '0m 近戰假人' }
     else if (this.step === 'bow-hit') { target = new THREE.Vector3(100 + Math.sin(-1.05) * 10, 0, 40 - Math.cos(-1.05) * 10); label = '10m 射擊假人' }
-    else if (this.step === 'horse-mounted') { target = frame.horsePosition ?? null; label = '指定普通練習馬 · 靠近按 E' }
-    else if (rideIndex >= 0) { target = this.ridePoints[rideIndex]; label = `騎乘標記 ${rideIndex + 1}/3` }
+    else if (this.step === 'cat-mounted') { target = frame.catPosition ?? null; label = '最近的黑貓 · 靠近按 E 騎乘' }
+    else if (this.step === 'mount-impact' && frame.mountedOnPracticeHorse) { target = this.impactPoint; label = '衝撞假人 · W 加速 · Shift 衝刺' }
+    else if (this.needsHorse(frame)) {
+      // Resuming or resetting puts the player back at spawn: the black cat is the transit again, without undoing progress.
+      if (this.needsCatTransit(frame)) { target = frame.catPosition ?? null; label = '最近的黑貓 · 靠近按 E 騎乘' }
+      else { target = frame.horsePosition ?? null; label = frame.mountedOnPracticeCat ? '指定普通練習馬' : '普通練習馬 · 靠近按 E 上馬' }
+    }
+    this.setContextHint(this.mountHint(frame))
     this.guide.updateRace(frame.position, frame.cameraYaw, target, label)
+  }
+
+  /** Steps that all end at the practice horse, whether first time or after a resume/reset. */
+  private needsHorse(frame: TutorialSceneFrame): boolean {
+    return ['horse-mounted', 'mount-impact', 'dismounted'].includes(this.step) && !frame.mountedOnPracticeHorse
+  }
+
+  private distanceToHorse(frame: TutorialSceneFrame): number {
+    return frame.horsePosition ? Math.hypot(frame.position.x - frame.horsePosition.x, frame.position.z - frame.horsePosition.z) : 0
+  }
+
+  /** On foot and far from the horse (and not already next to it): ride the nearest black cat there. */
+  private needsCatTransit(frame: TutorialSceneFrame): boolean {
+    return frame.onFoot && !!frame.catPosition && this.distanceToHorse(frame) > 12
+  }
+
+  /** Mounting steps depend on what the player is riding right now, so the base hint is refined every frame. */
+  private mountHint(frame: TutorialSceneFrame): string {
+    const otherMount = !frame.onFoot && !frame.mountedOnPracticeCat && !frame.mountedOnPracticeHorse
+    if (this.step === 'cat-mounted') return otherMount ? '這不是黑貓。按 E 下騎，改騎最近的黑貓。' : ''
+    if (!this.needsHorse(frame)) return ''
+    if (frame.mountedOnPracticeCat) return this.distanceToHorse(frame) < 12 ? '已到達普通練習馬。按 E 下騎，改騎普通馬。' : '騎乘黑貓前往普通練習馬。'
+    if (otherMount) return '這不是黑貓或普通馬。按 E 下騎，改騎指定的普通練習馬。'
+    if (this.needsCatTransit(frame)) return '先騎最近的黑貓（按 E）前往普通練習馬，再改騎普通馬。'
+    return this.step === 'dismounted' ? '靠近普通練習馬，按 E 上馬後再按 E 下馬。' : '靠近普通練習馬，按 E 上馬。'
+  }
+
+  private setContextHint(hint: string): void {
+    if (hint === this.contextHint) return
+    this.contextHint = hint
+    this.render()
   }
 
   /** The existing scene update follows the live compass and wrapping HUD without another listener/RAF. */
@@ -209,10 +252,10 @@ export class CareerTutorialScene {
   private render(): void {
     const state = this.profile.tutorial![this.launch.stage]
     this.text.textContent = this.complete
-      ? state.replay ? this.launch.stage === 'recruit' ? '重播完成，正在返回城鎮。不重複發放軍功，也不增加正式任務紀錄。' : '重播完成。不重複發放軍功，也不增加正式任務紀錄。'
+      ? state.replay ? '重播完成，正在返回城鎮。不重複發放軍功，也不增加正式任務紀錄。'
         : this.launch.stage === 'recruit' ? '訓練完成！100 軍功已入帳，正在返回城鎮。下一步：到城鎮武器店購買第一把武器；累積軍功達標後，還需找對應 NPC 接受任命才會晉升。'
-          : '指揮訓練完成！回到城鎮後，可到人力資源中心招募私兵；本次演練不計入正式任務、擊殺或技能經驗。'
-      : (this.launch.stage === 'recruit' ? RECRUIT_HINTS : CAPTAIN_HINTS)[this.step] ?? '依目前標記完成操作。'
+          : '指揮訓練完成，正在返回城鎮。回到城鎮後，可到人力資源中心招募私兵；本次演練不計入正式任務、擊殺或技能經驗。'
+      : this.contextHint || ((this.launch.stage === 'recruit' ? RECRUIT_HINTS : CAPTAIN_HINTS)[this.step] ?? '依目前標記完成操作。')
     if (this.launch.stage === 'recruit' && this.step === 'melee-hit-1') this.text.textContent += ` 已命中 ${state.operations.includes('melee-hit-1') ? 1 : 0}/2。`
     this.leave.textContent = this.complete ? '前往城鎮' : '稍後繼續 · 返回城鎮'
     if (state.replay && !this.complete) this.status.textContent = '重播：不重複領獎'

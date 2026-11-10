@@ -190,7 +190,7 @@ describe('TownTutorialUX', () => {
       panel.querySelectorAll('button').find(button => button.textContent === '先空手接任務，稍後買武器')!.onclick!()
       expect(harness.getProfile().tutorial?.town.status).toBe('deferred')
       expect(harness.getServicesOpened()).toEqual(['deployment'])
-      expect(ctrl.hasDialogue('deployment')).toBe(false)
+      expect(ctrl.hasDialogue('deployment')).toBe(true)
       const before = harness.getProfile().availableMerit
       recordCareerTutorialPurchase(harness.getProfile(), 'weapon', 'gladius_rusty')
       ctrl.update(); ctrl.update()
@@ -215,7 +215,7 @@ describe('TownTutorialUX', () => {
     expect(p.textContent).toContain('新兵，歡迎加入軍團！')
 
     const buttons = (panel as unknown as MockElement).querySelectorAll('button')
-    expect(buttons.map(b => b.textContent)).toEqual(['好，我這就去', '我晚點再去', '先空手接任務，稍後買武器', '查看任務與其他服務'])
+    expect(buttons.map(b => b.textContent)).toEqual(['好，我這就去', '我晚點再去', '先空手接任務，稍後買武器', '查看正式任務與其他服務'])
 
     // Escape hatch reaches the original Sergeant panel without advancing the tutorial
     buttons[3].onclick!()
@@ -519,18 +519,41 @@ describe('TownTutorialUX', () => {
     return { panel: panel as unknown as HTMLElement, buttons: () => panel.querySelectorAll('button') }
   }
 
-  it('deferred or legacy tutorials never intercept the Sergeant and can be resumed explicitly', () => {
+  it('never-started legacy stages stay opt-in, while skipped stages are guided and resume directly from the Sergeant', () => {
     const harness = createHostHarness()
     const ctrl = new TownTutorialController(harness.host)
     const t = harness.getProfile().tutorial!
+    t.legacy = true
+    t.recruit.status = 'completed'
     t.town.status = 'deferred'
     t.captain.status = 'deferred'
     t.commander.status = 'deferred'
 
     expect(ctrl.hasDialogue('deployment')).toBe(false)
+    ctrl.update()
+    expect(dom.elements.find(el => el.id === 'career-tutorial-hint')!.textContent).toBe('')
     const side = dialoguePanel()
     ctrl.appendPanel(side.panel, 'deployment')
     expect(side.buttons().map(b => b.textContent)).toEqual(['繼續新兵訓練', '繼續 30 人指揮演練', '繼續指揮塔訓練'])
+
+    // A real skip keeps progress: the HUD points back to the Sergeant and the dialogue keeps the regular menu reachable.
+    t.legacy = false
+    t.captain.status = 'locked'; t.commander.status = 'locked'
+    t.town.operations = ['report']; t.town.step = 'weapon'
+    ctrl.update()
+    expect(dom.elements.find(el => el.id === 'career-tutorial-hint')!.textContent).toContain('新手教學尚未完成返回士官長，繼續上次教學')
+    expect(ctrl.hasDialogue('deployment')).toBe(true)
+    const resume = dialoguePanel()
+    ctrl.renderDialogue(resume.panel, 'deployment')
+    expect(resume.buttons().map(b => b.textContent)).toEqual(['繼續上次教學', '稍後再說', '查看正式任務與其他服務'])
+    resume.buttons()[2].onclick!()
+    expect(harness.getServicesOpened()).toEqual(['deployment'])
+    expect(harness.getProfile().tutorial!.town).toMatchObject({ status: 'deferred', step: 'weapon', operations: ['report'] })
+    resume.buttons()[0].onclick!()
+    expect(harness.getProfile().tutorial!.town).toMatchObject({ status: 'active', step: 'weapon', operations: ['report'] })
+    const later = harness.getProfile().tutorial!
+    later.town.status = 'completed'; later.town.step = 'complete'
+    later.captain.status = 'deferred'; later.commander.status = 'deferred'
 
     // Captain/commander resume: tutorial NPC dialogue offers acceptance for deferred as well.
     const commander = dialoguePanel()
@@ -547,6 +570,59 @@ describe('TownTutorialUX', () => {
     hr.buttons()[0].onclick!()
     expect(harness.getProfile().tutorial?.hr.status).toBe('deferred')
 
+    ctrl.dispose()
+  })
+
+  it('does not nag a paused replay, and leads with the same deferred stage as the HUD when several are skipped', () => {
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController(harness.host)
+    const t = harness.getProfile().tutorial!
+    t.town.status = 'locked'
+    t.recruit.status = 'deferred'; t.recruit.replay = true
+    expect(ctrl.hasDialogue('deployment')).toBe(false)
+    ctrl.update()
+    expect(dom.elements.find(el => el.id === 'career-tutorial-hint')!.textContent).toBe('')
+
+    t.recruit.status = 'completed'; t.recruit.replay = false
+    t.town.status = 'deferred'; t.town.operations = []; t.town.step = 'report'
+    t.captain.status = 'deferred'
+    const lead = dialoguePanel()
+    ctrl.renderDialogue(lead.panel, 'deployment')
+    expect(lead.buttons().map(b => b.textContent)).toEqual(['繼續 30 人指揮演練', '稍後再訓練', '查看正式任務與其他服務'])
+    ctrl.dispose()
+  })
+
+  it('keeps the Sergeant dialogue on the HUD target when Town is active and Captain is deferred', () => {
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController(harness.host)
+    const t = harness.getProfile().tutorial!
+    t.town.status = 'active'; t.town.operations = ['report']; t.town.step = 'weapon'
+    t.captain.status = 'deferred'
+    ctrl.update()
+    expect(dom.elements.find(el => el.id === 'career-tutorial-hint')!.textContent).toContain('前往武器店')
+    expect(ctrl.hasDialogue('deployment')).toBe(false)
+    const side = dialoguePanel()
+    ctrl.appendPanel(side.panel, 'deployment')
+    expect(side.buttons().map(b => b.textContent)).toContain('繼續 30 人指揮演練')
+    ctrl.dispose()
+  })
+
+  it('resumes a paused replay from the review page with its progress, without re-guiding or re-clearing it', () => {
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController(harness.host)
+    const t = harness.getProfile().tutorial!
+    t.town.status = 'deferred'; t.town.replay = true; t.town.operations = ['report']; t.town.step = 'weapon'
+    t.recruit.status = 'deferred'; t.recruit.replay = true
+    ctrl.update()
+    expect(dom.elements.find(el => el.id === 'career-tutorial-hint')!.textContent).toBe('')
+    expect(ctrl.hasReviewOptions()).toBe(true)
+    const review = dialoguePanel()
+    ctrl.renderReviewContent(review.panel)
+    expect(review.buttons().map(b => b.textContent)).toEqual(['繼續重播操作練習', '繼續重播城鎮訓練'])
+    review.buttons()[0].onclick!()
+    expect(harness.getLaunches()).toEqual([{ stage: 'recruit', replay: true }])
+    review.buttons()[1].onclick!()
+    expect(harness.getProfile().tutorial!.town).toMatchObject({ status: 'active', replay: true, step: 'weapon', operations: ['report'] })
     ctrl.dispose()
   })
 
@@ -624,7 +700,7 @@ describe('TownTutorialUX', () => {
 
     const side = dialoguePanel()
     ctrl.appendPanel(side.panel, 'deployment')
-    expect(side.buttons().map(b => b.textContent)).toEqual(['繼續新兵訓練'])
+    expect(side.buttons().map(b => b.textContent)).toEqual(['繼續上次教學', '稍後再說', '查看正式任務與其他服務'])
     side.buttons()[0].onclick!()
     const resumed = harness.getProfile().tutorial!.town
     expect(harness.getClosedCount()).toBe(1)

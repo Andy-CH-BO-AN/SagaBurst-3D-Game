@@ -39,7 +39,7 @@ export interface CareerTutorialState {
 
 /** Each group represents one actual operation. The opening look/movement group may complete in either order. */
 export const CAREER_TUTORIAL_OPERATIONS: Readonly<Record<CareerTutorialStageId, readonly (readonly string[])[]>> = {
-  recruit: [['look', 'movement'], ['equipment'], ['melee-hit-1', 'melee-hit-2'], ['shield'], ['bow-hit'], ['horse-mounted'], ['ride1'], ['ride2'], ['ride3'], ['dismounted']],
+  recruit: [['look', 'movement'], ['equipment'], ['melee-hit-1', 'melee-hit-2'], ['shield'], ['bow-hit'], ['cat-mounted'], ['horse-mounted'], ['mount-impact'], ['dismounted']],
   town: [['report'], ['weapon'], ['duel-intro'], ['duel'], ['missions'], ['horse-intro'], ['horse'], ['horse-use']],
   captain: [['hud'], ['selected'], ['formation'], ['defend'], ['attack'], ['charge'], ['back']],
   hr: [['recruited'], ['follow']],
@@ -62,6 +62,23 @@ export function createCareerTutorialState(rank: CareerRank = 'recruit', newCaree
     rewards: {}, purchases: { weaponIds: [], horse: false }, settledMissionIds: [],
   }
 }
+/** Pre-impact-lesson saves recorded horse mounting, then three ride markers; there was no cat or impact proof. */
+const LEGACY_RECRUIT_RIDE_OPERATIONS = ['ride1', 'ride2', 'ride3']
+const RECRUIT_MOUNT_CHAIN = ['cat-mounted', 'horse-mounted', 'mount-impact', 'dismounted']
+/**
+ * Drops the retired ride markers and back-fills the ordered proofs the old flow already implied, so a save that
+ * had reached the horse resumes at the impact lesson and a completed save stays completed (no second reward).
+ */
+function migrateLegacyRecruitOperations(operations: string[], step: unknown): { operations: string[]; legacy: boolean } {
+  const rode = operations.some(op => LEGACY_RECRUIT_RIDE_OPERATIONS.includes(op)) || LEGACY_RECRUIT_RIDE_OPERATIONS.includes(step as string)
+  const mountedHorse = rode || operations.includes('horse-mounted')
+  const legacy = !operations.includes('cat-mounted') && !operations.includes('mount-impact') && (mountedHorse || step === 'horse-mounted')
+  if (!legacy) return { operations, legacy }
+  const kept = operations.filter(op => !LEGACY_RECRUIT_RIDE_OPERATIONS.includes(op))
+  const furthest = RECRUIT_MOUNT_CHAIN.reduce((last, op, index) => kept.includes(op) ? index : last, -1)
+  const reached = mountedHorse ? Math.max(furthest, 1) : furthest
+  return { operations: [...kept, ...RECRUIT_MOUNT_CHAIN.slice(0, reached + 1).filter(op => !kept.includes(op))], legacy }
+}
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(s => typeof s === 'string' && s.length > 0 && s.length <= 256)
 export function parseCareerTutorialState(value: unknown): CareerTutorialState | null {
   if (!value || typeof value !== 'object') return null
@@ -78,10 +95,11 @@ export function parseCareerTutorialState(value: unknown): CareerTutorialState | 
     if (!part || !['locked', 'available', 'active', 'deferred', 'completed'].includes(part.status as string)
       || typeof part.replay !== 'boolean' || !strings(part.operations)) return null
     const allowed = CAREER_TUTORIAL_OPERATIONS[id].flat()
-    if (part.operations.some(op => !allowed.includes(op))) return null
-    const operations = [...new Set(part.operations)]
+    const { operations: savedOperations, legacy } = id === 'recruit' ? migrateLegacyRecruitOperations(part.operations, part.step) : { operations: part.operations, legacy: false }
+    if (savedOperations.some(op => !allowed.includes(op))) return null
+    const operations = [...new Set(savedOperations)]
     const step = careerTutorialStep(id, operations)
-    if (part.step !== step || part.status === 'completed' && step !== 'complete') return null
+    if (!legacy && part.step !== step || part.status === 'completed' && step !== 'complete') return null
     stages[id] = { status: part.status as CareerTutorialStatus, replay: part.replay, operations, step }
   }
   const rewards: CareerTutorialState['rewards'] = {}

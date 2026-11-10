@@ -2,6 +2,8 @@ import { afterEach,describe,expect,it,onTestFinished,vi } from 'vitest';
 import { TrainingGroundUI } from '../../src/ui/TrainingGroundUI';
 import { Vector3 } from 'three'
 import { CareerTutorialScene, type TutorialSceneFrame } from '../../src/training/CareerTutorialScene'
+import type { CombatEvent } from '../../src/combat/CombatAttribution'
+import { Faction } from '../../src/world/NPC'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { startCareerTutorial } from '../../src/career/CareerTutorial'
@@ -78,7 +80,7 @@ describe('Training pause, controls and listener ownership', () => {
     onTestFinished(() => tutorial.dispose())
     const frame: TutorialSceneFrame = { position: new Vector3(), cameraYaw: 0, cameraPitch: 0,
       inputLocked: false, hidden: false, paused: true, dead: false, onFoot: true,
-      mountedOnPracticeHorse: false, shieldRaised: false, friendlyCount: 0 }
+      mountedOnPracticeHorse: false, mountedOnPracticeCat: false, shieldRaised: false, friendlyCount: 0 }
     storage.failWrites = true
     tutorial.update(frame, .016)
     await Promise.resolve()
@@ -97,5 +99,81 @@ describe('Training pause, controls and listener ownership', () => {
     tutorial.update(frame, .016)
     await Promise.resolve()
     expect(returned).toHaveBeenCalledOnce()
+  })
+  it('automatically returns a completed Captain tutorial once and unlocks HR', async () => {
+    harness()
+    const storage = new MemoryStorage()
+    vi.stubGlobal('localStorage', storage)
+    const profile = createCareerProfile('roman')
+    profile.tutorial!.captain.status = 'available'
+    const session = startCareerTutorial(profile, 'captain')!
+    for (const operation of CAREER_TUTORIAL_OPERATIONS.captain.flat()) recordCareerTutorialOperation(profile, 'captain', operation)
+    const store = new CareerProfileStore(storage)
+    expect(store.save(profile)).toBe(true)
+    const returned = vi.fn()
+    const tutorial = new CareerTutorialScene({ careerId: session.careerId, sessionId: session.id, stage: 'captain' }, {
+      returnToTown: returned, reset: vi.fn(), clearInput: vi.fn(),
+    })
+    onTestFinished(() => tutorial.dispose())
+    const frame: TutorialSceneFrame = { position: new Vector3(), cameraYaw: 0, cameraPitch: 0,
+      inputLocked: true, hidden: false, paused: false, dead: false, onFoot: true,
+      mountedOnPracticeHorse: false, mountedOnPracticeCat: false, shieldRaised: false, friendlyCount: 30 }
+    tutorial.update(frame, .016); tutorial.update(frame, .016)
+    await Promise.resolve()
+    expect(returned).toHaveBeenCalledOnce()
+    expect(store.load()!.tutorial).toMatchObject({ hr: { status: 'available' }, captain: { status: 'completed' } })
+    expect(store.load()!.tutorial!.session).toBeUndefined()
+  })
+
+  it('recruit mount lesson needs the black cat, then the practice horse, then a damaging horse impact on the runway dummy', () => {
+    const h = harness()
+    const storage = new MemoryStorage()
+    vi.stubGlobal('localStorage', storage)
+    const profile = createCareerProfile('roman'), session = startCareerTutorial(profile, 'recruit')!
+    for (const operation of ['look', 'movement', 'equipment', 'melee-hit-1', 'melee-hit-2', 'shield', 'bow-hit']) recordCareerTutorialOperation(profile, 'recruit', operation)
+    const store = new CareerProfileStore(storage)
+    expect(store.save(profile)).toBe(true)
+    const tutorial = new CareerTutorialScene({ careerId: session.careerId, sessionId: session.id, stage: 'recruit' }, {
+      returnToTown: vi.fn(), reset: vi.fn(), clearInput: vi.fn(),
+    })
+    onTestFinished(() => tutorial.dispose())
+    const frame = (patch: Partial<TutorialSceneFrame>): TutorialSceneFrame => ({ position: new Vector3(), cameraYaw: 0, cameraPitch: 0,
+      inputLocked: true, hidden: false, paused: false, dead: false, onFoot: true,
+      mountedOnPracticeHorse: false, mountedOnPracticeCat: false, shieldRaised: false, friendlyCount: 0, horsePosition: new Vector3(70, 0, 216), ...patch })
+    const step = () => store.load()!.tutorial!.recruit.step
+    tutorial.update(frame({ onFoot: false, mountedOnPracticeHorse: true }), .016)
+    expect(step()).toBe('cat-mounted')
+    tutorial.update(frame({ onFoot: false, mountedOnPracticeCat: true }), .016)
+    expect(step()).toBe('horse-mounted')
+    tutorial.update(frame({ onFoot: false, mountedOnPracticeCat: true }), .016)
+    expect(step()).toBe('horse-mounted')
+    tutorial.update(frame({ onFoot: false, mountedOnPracticeHorse: true }), .016)
+    expect(step()).toBe('mount-impact')
+
+    const hit = (patch: Partial<Extract<CombatEvent, { type: 'damage_applied' }>> = {}): CombatEvent => ({
+      type: 'damage_applied', method: 'mount-impact', requestedDamage: 20, appliedDamage: 20,
+      source: { actorId: 'player', actorType: 'player', allegiance: Faction.PLAYER, characterFaction: 'roman' },
+      target: { targetId: 'training:0', targetType: 'training', name: '0m Dummy' }, ...patch })
+    tutorial.combat(hit(), false)
+    tutorial.combat(hit({ appliedDamage: 0 }), true)
+    tutorial.combat(hit({ method: 'melee' }), true)
+    tutorial.combat(hit({ method: 'projectile', weaponId: 'wooden_shortbow' }), true)
+    tutorial.combat(hit({ target: { targetId: 'training:10', targetType: 'training', name: '10m Dummy' } }), true)
+    expect(step()).toBe('mount-impact')
+    tutorial.combat(hit(), true)
+    expect(step()).toBe('dismounted')
+
+    // Resuming mid-lesson respawns on foot far from the horse: the cat is the transit again, progress is kept.
+    const saved = store.load()!; saved.tutorial!.recruit.operations.pop(); saved.tutorial!.recruit.step = 'mount-impact'
+    const hint = () => h.rootNodes.some(node => node.textContent.includes('先騎最近的黑貓'))
+    tutorial.dispose()
+    expect(store.save(saved)).toBe(true)
+    const resumed = new CareerTutorialScene({ careerId: session.careerId, sessionId: session.id, stage: 'recruit' }, { returnToTown: vi.fn(), reset: vi.fn(), clearInput: vi.fn() })
+    onTestFinished(() => resumed.dispose())
+    const catPosition = new Vector3(70, 0, 60)
+    resumed.update(frame({ position: new Vector3(105, 0, 47), catPosition }), .016)
+    expect([resumed.step, hint()]).toEqual(['mount-impact', true])
+    resumed.update(frame({ position: new Vector3(70, 0, 205), catPosition }), .016)
+    expect(hint()).toBe(false)
   })
 })
