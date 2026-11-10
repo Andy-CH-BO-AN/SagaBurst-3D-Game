@@ -354,7 +354,7 @@ describe('Town mission settlement transactions', () => {
     expect(h.read().activeMission).toBeUndefined()
   })
 
-  it('atomically rebuilds Commander V at home without replaying four-gate checkpoints or rewards', () => {
+  function commanderVHomeReturnFixture() {
     const h = fixture('commander-four-gate-defense', true), profile = h.read()
     profile.rank = 'commander'; profile.totalMerit = 20000
     profile.racePlayerState = raceHealth(23)
@@ -380,6 +380,11 @@ describe('Town mission settlement transactions', () => {
     profile.mountArmor = { 'armored-horse': 0, 'snow-leopard': 0 }
     h.town.preservesResident.mockReturnValue(true)
     h.storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
+    return { h, previousRace }
+  }
+
+  it('leaves Commander V storage and runtime untouched when the home return save fails', () => {
+    const { h } = commanderVHomeReturnFixture()
     const beforeReturn = h.storage.getItem(CAREER_STORAGE_KEY)
     h.storage.writable = false
     expect(h.settlement.returnToTown('direct').status).toBe('save-failed')
@@ -388,7 +393,10 @@ describe('Town mission settlement transactions', () => {
     expect(h.town.restPlayer).not.toHaveBeenCalled()
     expect(h.read().mountArmor).toEqual({ 'armored-horse': 0, 'snow-leopard': 0 })
     expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(beforeReturn)
-    h.storage.writable = true; h.events.length = 0
+  })
+
+  it('atomically rebuilds Commander V at home without replaying four-gate checkpoints or rewards', () => {
+    const { h, previousRace } = commanderVHomeReturnFixture()
     expect(h.settlement.returnToTown('direct').status).toBe('restarted')
     expect(h.events).toEqual(['save', 'defense-cleanup'])
     expect(h.town.restart).toHaveBeenCalledExactlyOnceWith(h.read())
