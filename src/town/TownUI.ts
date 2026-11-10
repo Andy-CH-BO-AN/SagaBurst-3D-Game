@@ -30,6 +30,20 @@ export function installTownStyles(): void {
     .town-products { display:grid; grid-template-columns:repeat(auto-fit,minmax(235px,1fr)); gap:10px; margin-top:16px }
     .town-product { border:1px solid #77654866; border-radius:5px; padding:12px; background:#0002; display:flex; flex-direction:column; align-items:flex-start }
     .town-product strong { font-size:14px; color:#ead7b2 } .town-product small { color:#b7a78c; margin-top:4px }
+    .duel-picker { display:grid; grid-template-columns:190px 1fr; gap:16px; align-items:start }
+    .duel-picker-list { display:flex; flex-direction:column; gap:6px; position:sticky; top:56px }
+    .duel-subject { display:flex; justify-content:space-between; align-items:center; margin:0; text-align:left; width:100% }
+    .duel-subject small { color:#b7a78c; font-weight:500; font-variant-numeric:tabular-nums }
+    .duel-subject[aria-pressed="true"] { background:#765c35; border-color:#f0cc86; color:#fff0c9 }
+    .duel-subject[aria-pressed="true"] small { color:#fff0c9 }
+    .duel-picker-ladder > h3 { margin:0 0 10px; color:#ffe5af; font-size:17px }
+    .duel-tier { border:1px solid #77654866; border-left:3px solid #947448; border-radius:5px; padding:8px 12px; margin-bottom:6px; background:#0002; display:grid; grid-template-columns:1fr auto; column-gap:12px; align-items:center }
+    .duel-tier-completed { border-left-color:#8fb06a } .duel-tier-available { border-left-color:#eac683; background:#3a2d1a55 } .duel-tier-locked { opacity:.65 }
+    .duel-tier-head { display:flex; justify-content:space-between; align-items:baseline }
+    .duel-tier-head strong { font-size:15px; color:#ffe5af } .duel-tier-state { font-size:12px; color:#c4b69e }
+    .duel-tier-completed .duel-tier-state { color:#a9c98a } .duel-tier-available .duel-tier-state { color:#eac683 }
+    .duel-tier small { display:block; margin-top:4px; color:#b7a78c; white-space:pre-line; line-height:1.5 }
+    .duel-tier-actions { display:flex; flex-direction:column; grid-row:1 / span 2; grid-column:2; gap:0 } .duel-tier-actions .town-button { margin:0 0 4px; white-space:nowrap } .duel-tier-actions .town-button:last-child { margin-bottom:0 } .duel-tier-head { justify-content:flex-start; gap:10px }
     .town-purchase-products { grid-template-columns:repeat(auto-fit,minmax(min(235px,100%),1fr)) }
     .town-purchase-quantity { margin-top:8px; max-width:100%; font-size:13px; color:#c4b69e }
     .town-purchase-select { box-sizing:border-box; max-width:100%; padding:5px 10px; color:#ead8b8; background:#332d24; border:1px solid #92754e; border-radius:4px; font:inherit }

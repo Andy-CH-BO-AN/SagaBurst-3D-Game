@@ -151,13 +151,14 @@ import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
 import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_LAST_STAND_ID, COMMANDER_MISSION_CATALOG, getCommanderMissionAvailability, getCommanderMissionDefinition, isCommanderTownMission } from '../career/CommanderMissionCatalog'
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
 import { CareerDuelController, duelLoadout, restoreCareerDuelCommander, type CareerDuelOpponentRequest } from '../career/CareerDuelController'
-import { careerDuelClassOptions, resolveCareerDuelClass } from '../career/CareerDuelClasses'
-import { heroClassLabel, HERO_CLASS_NAMES } from '../career/CareerHeroClasses'
+import { resolveCareerDuelClass } from '../career/CareerDuelClasses'
+import { HERO_CLASS_NAMES } from '../career/CareerHeroClasses'
 import { MissionGuide } from '../career/MissionGuide'
 import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, startCommanderRetirement } from '../career/CareerRetirement'
 import { townRetirementRallyTarget } from './TownBounds'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
-import { CAREER_DUEL_TIERS, type CareerDuelTier, isUnarmedDuelUnlocked, isCareerDuelUnlocked, duelFightBannerVisible } from '../career/CareerDuelState'
+import { careerDuelMissionLabel, careerDuelProgressLabel, careerDuelTierEntries, type CareerDuelSubject } from '../career/CareerDuelSelection'
+import { type CareerDuelTier, isUnarmedDuelUnlocked, isCareerDuelUnlocked, duelFightBannerVisible } from '../career/CareerDuelState'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { fieldMissionHud, missionPhaseLabel, personalSquadStateLabel, townCommandStateLabel } from '../career/CareerMissionPresentation'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
@@ -306,6 +307,8 @@ export class TownScene {
   private missionResultOpen = false
   private deploymentPage?: CareerMissionPage | 'duel'
   private duelActivity: 'duel' | 'race' | 'review' = 'duel'
+  /** The Duel list entry kept across re-renders and returns: 'unarmed' or a unit preset ID. */
+  private duelSubjectKey = 'unarmed'
   private careerCommandCue: AudioCommand | null = null
   private ambientDefeatShown = false
   private townRefitOnReturn = false
@@ -1925,7 +1928,7 @@ export class TownScene {
     if (active) {
       const template = getCareerMissionTemplate(active.templateId)
       const badge = document.createElement('p'); badge.className = 'town-summary'
-      badge.textContent = `任務進行中：${active.kind === 'duel' ? '1v1 單挑' : template?.name ?? active.templateId}\n目前：${missionPhaseLabel(active.phase)}${active.kind === 'duel' ? ` · T${active.duelTier} ${UNIT_PRESETS[active.duelPresetId!].nameEn}${active.duelClassId ? ` · ${HERO_CLASS_NAMES[active.duelClassId].zh}` : ''}` : active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense' ? ' · 守住所屬城鎮' : active.kind === 'patrol' ? ' · 沿指定路線巡邏' : active.kind === 'veteran-field' ? ' · 野戰任務' : active.kind === 'bandit' ? ' · 目標：盜匪營地' : ''}\n請先完成目前的任務，才能接取新任務。`
+      badge.textContent = `任務進行中：${active.kind === 'duel' ? '1v1 單挑' : template?.name ?? active.templateId}\n目前：${missionPhaseLabel(active.phase)}${active.kind === 'duel' ? ` · ${careerDuelMissionLabel(active, id => UNIT_PRESETS[id as UnitPresetId].nameZh)}${active.duelClassId ? ` · ${HERO_CLASS_NAMES[active.duelClassId].zh}` : ''}` : active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense' ? ' · 守住所屬城鎮' : active.kind === 'patrol' ? ' · 沿指定路線巡邏' : active.kind === 'veteran-field' ? ' · 野戰任務' : active.kind === 'bandit' ? ' · 目標：盜匪營地' : ''}\n請先完成目前的任務，才能接取新任務。`
       badge.style.whiteSpace = 'pre-line'
       panel.append(badge)
       return
@@ -2306,61 +2309,66 @@ export class TownScene {
     }
     panel.append(tabs, content); render()
   }
-  /** Unit type → Tier → (T4/T5 only) hero class → accept; each step returns to the previous one without closing the dialogue. */
-  private openDuelSelection(panel: HTMLElement, presetId?: UnitPresetId, mode: 'armed' | 'unarmed' = 'armed', classTier?: CareerDuelTier): void {
+  /**
+   * One page, two columns: the left list picks WHAT to fight as (bare fists or a unit type) and the right ladder shows its
+   * T1–T5 state. A T4/T5 class is chosen on the tier row itself, so every Duel is at most three clicks and no step replaces the page.
+   */
+  private openDuelSelection(panel: HTMLElement, selectedKey = this.duelSubjectKey): void {
+    this.duelSubjectKey = selectedKey
     const presets = getUnitPresetsForFaction(this.profile.faction)
-    const selected = presets.find(preset => preset.id === presetId)
-    const unarmed = mode === 'unarmed'
-    const classes = selected && classTier ? careerDuelClassOptions(this.profile.faction, selected.id, classTier) : []
-    panel.replaceChildren()
-    const navigate = (id?: UnitPresetId, nextMode: 'armed' | 'unarmed' = 'armed', nextClassTier?: CareerDuelTier) => {
-      this.openDuelSelection(panel, id, nextMode, nextClassTier)
-      panel.querySelector('h3')?.focus({ preventScroll: true })
+    const subjectOf = (key: string): CareerDuelSubject => {
+      const preset = key === 'unarmed' ? undefined : presets.find(p => p.id === key)
+      return preset ? { kind: 'unit', preset } : { kind: 'unarmed' }
     }
-    if (classes.length) this.button(panel, '← 返回等級列表', () => navigate(selected!.id))
-    else if (selected || unarmed) this.button(panel, '← 返回兵種列表', () => navigate())
-    const heading = document.createElement('h3'); heading.tabIndex = -1
-    heading.textContent = unarmed ? 'Tier · 🥊 空手對戰 · Unarmed Duel' : classes.length ? `職業 · T${classTier} ${selected!.nameEn} · ${selected!.nameZh}`
-      : selected ? `Tier · ${selected.nameEn} · ${selected.nameZh}` : 'Unit Type · 兵種'
-    panel.append(heading)
-    const products = document.createElement('div'); products.className = 'town-products'; panel.append(products)
-    if (classes.length) for (const option of classes) {
-      const profile = HERO_COMBAT_PROFILES[option.combatProfileId]
-      const row = document.createElement('article'); row.className = 'town-product'
-      const title = document.createElement('strong'); title.textContent = `${heroClassLabel(option.combatProfileId)} · T${classTier}`
-      const details = document.createElement('small')
-      details.textContent = `生命值 ${profile.maxHp} · 傷害 ×${profile.damageMultiplier} · 承傷 ×${profile.damageTakenMultiplier} · 裝備與坐騎依 ${selected!.nameZh} 配置`
-      const accept = document.createElement('button'); accept.className = 'town-button'; accept.textContent = '接受單挑'
-      accept.onclick = () => void this.acceptDuel(selected!.id, classTier!, 'armed', option.combatProfileId)
-      row.append(title, details, accept); products.append(row)
-    } else if (!selected && !unarmed) {
-      this.button(products, '🥊 空手對戰 · Unarmed Duel', () => navigate(undefined, 'unarmed'))
-      for (const preset of presets) {
-        const row = document.createElement('article'); row.className = 'town-product'
-        const button = document.createElement('button'); button.className = 'town-button'
-        button.textContent = `${preset.nameEn} · ${preset.nameZh}`
-        const progress = document.createElement('small')
-        progress.textContent = CAREER_DUEL_TIERS.map(tier => `T${tier} ${isCareerDuelUnlocked(this.profile, preset.id, tier) ? '已解鎖' : 'Locked'}`).join(' · ')
-        button.onclick = () => navigate(preset.id)
-        row.append(button, progress); products.append(row)
+    const subjects: [string, CareerDuelSubject][] = [['unarmed', { kind: 'unarmed' }], ...presets.map(preset => [preset.id, { kind: 'unit', preset }] as [string, CareerDuelSubject])]
+    if (!subjects.some(([key]) => key === selectedKey)) selectedKey = this.duelSubjectKey = 'unarmed'
+    const root = document.createElement('div'); root.className = 'duel-picker'
+    const list = document.createElement('div'); list.className = 'duel-picker-list'; list.setAttribute('role', 'group'); list.setAttribute('aria-label', '對手種類')
+    const ladder = document.createElement('section'); ladder.className = 'duel-picker-ladder'
+    const rows = new Map<string, HTMLButtonElement>()
+    const renderLadder = () => {
+      const subject = subjectOf(this.duelSubjectKey), unarmed = subject.kind === 'unarmed'
+      ladder.replaceChildren()
+      const heading = document.createElement('h3'); heading.textContent = unarmed ? '🥊 空手對戰' : `${subject.preset.nameZh} · 單挑等級`
+      ladder.append(heading)
+      for (const entry of careerDuelTierEntries(this.profile, subject)) {
+        const row = document.createElement('article'); row.className = `duel-tier duel-tier-${entry.status}`
+        const head = document.createElement('div'); head.className = 'duel-tier-head'
+        const title = document.createElement('strong'); title.textContent = `T${entry.tier}`
+        const state = document.createElement('span'); state.className = 'duel-tier-state'
+        state.textContent = entry.status === 'completed' ? '✓ 已完成' : entry.status === 'available' ? '可挑戰' : '🔒 未解鎖'
+        head.append(title, state)
+        const details = document.createElement('small')
+        details.textContent = entry.status === 'locked' ? entry.requirement! : `對手：${entry.opponent}\n${entry.rules}`
+        row.append(head, details)
+        if (entry.status !== 'locked') {
+          const actions = document.createElement('div'); actions.className = 'duel-tier-actions'
+          if (entry.classes.length) for (const option of entry.classes) {
+            const profile = HERO_COMBAT_PROFILES[option.combatProfileId]
+            const go = this.button(actions, `挑戰 ${HERO_CLASS_NAMES[option.combatProfileId].zh}`, () => void this.acceptDuel(subject.kind === 'unit' ? subject.preset.id : undefined, entry.tier, 'armed', option.combatProfileId))
+            go.title = `生命值 ${profile.maxHp} · 傷害 ×${profile.damageMultiplier} · 承傷 ×${profile.damageTakenMultiplier}`
+          } else this.button(actions, entry.status === 'completed' ? '再次挑戰' : '接受單挑', () => void this.acceptDuel(unarmed ? undefined : subject.preset.id, entry.tier, unarmed ? 'unarmed' : 'armed'))
+          row.append(actions)
+        }
+        ladder.append(row)
       }
-    } else for (const tier of CAREER_DUEL_TIERS) {
-      const row = document.createElement('article'); row.className = 'town-product'
-      const title = document.createElement('strong'); title.textContent = `T${tier} ${unarmed ? '空手對戰' : selected!.nameEn}`
-      const details = document.createElement('small')
-      const unlocked = unarmed ? isUnarmedDuelUnlocked(this.profile, tier) : isCareerDuelUnlocked(this.profile, selected!.id, tier)
-      details.textContent = !unlocked ? `需先擊敗 T${tier - 1} ${unarmed ? '空手對手' : selected!.nameEn}`
-        : unarmed ? '5 秒準備 · 90 秒內擊敗對手 · 對手拳擊 Lv.1 · 雙方無武器、盾牌與坐騎；非拳擊有效傷害立即判負'
-        : `5 秒準備 · 30 秒內擊敗對手${tier === 5 ? ' · 指揮官出戰，隊長擔任裁判' : tier === 4 ? selected!.traits.includes('bow_fire') ? ' · Shadow Warden 出戰' : ' · 隊長出戰，Shadow Warden 擔任裁判' : ''}`
-      const classChoice = !unarmed && careerDuelClassOptions(this.profile.faction, selected!.id, tier).length > 0
-      if (unlocked && classChoice) details.textContent += ' · 可選擇職業'
-      const accept = document.createElement('button'); accept.className = 'town-button'
-      accept.textContent = !unlocked ? '尚未解鎖' : classChoice ? '選擇職業' : '接受單挑'; accept.disabled = !unlocked
-      accept.onclick = () => unarmed ? void this.acceptDuel(undefined, tier, 'unarmed') : classChoice ? navigate(selected!.id, 'armed', tier) : void this.acceptDuel(selected!.id, tier)
-      row.append(title, details, accept); products.append(row)
     }
-    panel.scrollTop = 0
-    if (this.panel) this.panel.scrollTop = 0
+    for (const [key, subject] of subjects) {
+      const unarmed = subject.kind === 'unarmed'
+      const button = document.createElement('button'); button.className = 'town-button duel-subject'
+      const name = document.createElement('span'); name.textContent = unarmed ? '🥊 空手對戰' : subject.preset.nameZh
+      const progress = document.createElement('small'); progress.textContent = `${careerDuelProgressLabel(this.profile, subject)}`
+      button.append(name, progress)
+      button.onclick = () => {
+        this.duelSubjectKey = key
+        rows.forEach((b, k) => b.setAttribute('aria-pressed', String(k === key)))
+        renderLadder()
+      }
+      button.setAttribute('aria-pressed', String(key === this.duelSubjectKey)); rows.set(key, button); list.append(button)
+    }
+    renderLadder()
+    root.append(list, ladder)
+    panel.replaceChildren(root)
   }
   private openRacePage(panel: HTMLElement): void {
     const racing = document.createElement('h3'); racing.textContent = 'Mounted Circuit Racing · 繞城賽馬'; panel.append(racing)
@@ -4230,7 +4238,7 @@ export class TownScene {
         : this.profile.activeMission.kind === 'captain-patrol-command'
         ? `\n指揮巡邏隊 · 有效擊殺 ${this.captainPatrol?.killCount ?? this.profile.activeMission.patrolKilledActorIds?.length ?? 0}/30\n巡邏隊 ${this.captainPatrol?.aliveCombatants ?? 0}/20 人 · 按 Q 下令`
         : this.profile.activeMission.kind === 'duel'
-        ? `\n單挑 · T${this.profile.activeMission.duelTier} ${this.profile.activeMission.duelMode === 'unarmed' ? '空手對戰' : UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}${this.profile.activeMission.duelClassId ? ` · ${HERO_CLASS_NAMES[this.profile.activeMission.duelClassId].zh}` : ''}\n${this.duel.phase === 'PREPARING' ? '單挑倒數 ' + Math.ceil(this.duel.countdownRemaining) + ' 秒' : this.duel.phase === 'ENGAGING' ? (duelFightBannerVisible(this.duel.combatElapsedSeconds) ? '開打！\n' : '') + '剩餘時間 ' + this.duel.combatRemaining.toFixed(1) + ' 秒\n對手生命值 ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨隊長返回市政廳服務點' : this.duel.phase === 'ASSEMBLING' || this.duel.phase === 'MARCHING' ? '前往單挑場地 · 等待隊長與對手就位' : missionPhaseLabel(this.duel.phase ?? 'RESULT')}`
+        ? `\n單挑 · ${careerDuelMissionLabel(this.profile.activeMission, id => UNIT_PRESETS[id as UnitPresetId].nameZh)}${this.profile.activeMission.duelClassId ? ` · ${HERO_CLASS_NAMES[this.profile.activeMission.duelClassId].zh}` : ''}\n${this.duel.phase === 'PREPARING' ? '單挑倒數 ' + Math.ceil(this.duel.countdownRemaining) + ' 秒' : this.duel.phase === 'ENGAGING' ? (duelFightBannerVisible(this.duel.combatElapsedSeconds) ? '開打！\n' : '') + '剩餘時間 ' + this.duel.combatRemaining.toFixed(1) + ' 秒\n對手生命值 ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨隊長返回市政廳服務點' : this.duel.phase === 'ASSEMBLING' || this.duel.phase === 'MARCHING' ? '前往單挑場地 · 等待隊長與對手就位' : missionPhaseLabel(this.duel.phase ?? 'RESULT')}`
         : this.profile.activeMission.kind === 'veteran-field'
         ? this.veteranMissionHud()
         : this.profile.activeMission.kind === 'cavalry-sweep'
