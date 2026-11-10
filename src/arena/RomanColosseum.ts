@@ -699,20 +699,10 @@ function eagleStandardGeometries(x: number, z: number): { gold: THREE.BufferGeom
   return { gold, banner, wood }
 }
 
-function cityGeometries(): { walls: THREE.BufferGeometry[]; roofs: THREE.BufferGeometry[]; trees: THREE.BufferGeometry[]; aqueduct: THREE.BufferGeometry[] } {
+/** Cypress trees scattered beyond the playable ground; no buildings around the arena. */
+function cypressGeometries(): THREE.BufferGeometry[] {
   const random = arenaRandom(2024)
-  const walls: THREE.BufferGeometry[] = [], roofs: THREE.BufferGeometry[] = [], trees: THREE.BufferGeometry[] = [], aqueduct: THREE.BufferGeometry[] = []
-  const wallColors = [0xe7dcc6, 0xdcc9a6, 0xd9b98f, 0xece4d2, 0xcfae84]
-  for (let i = 0; i < 85; i++) {
-    const a = random() * Math.PI * 2
-    const r = 128 + random() * 120
-    const x = Math.cos(a) * r * 1.08, z = Math.sin(a) * r
-    const w = 6 + random() * 9, d = 6 + random() * 8, h = 4 + random() * 7
-    const yaw = a + (random() - 0.5) * 0.4
-    walls.push(tint(new THREE.BoxGeometry(w, h, d).translate(0, h / 2, 0).rotateY(yaw).translate(x, 0, z), wallColors[i % wallColors.length]))
-    const roof = new THREE.CylinderGeometry(0.01, 1, 1, 4, 1).rotateY(Math.PI / 4).scale(w * 0.78, 2 + random() * 1.4, d * 0.78)
-    roofs.push(roof.translate(0, h + 0.8, 0).rotateY(yaw).translate(x, 0, z))
-  }
+  const trees: THREE.BufferGeometry[] = []
   for (let i = 0; i < 50; i++) {
     const a = random() * Math.PI * 2
     const r = 92 + random() * 150
@@ -722,19 +712,7 @@ function cityGeometries(): { walls: THREE.BufferGeometry[]; roofs: THREE.BufferG
     trees.push(tint(new THREE.ConeGeometry(1.1 + random() * 0.5, h, 5).translate(x, h / 2 + 0.6, z), random() > 0.5 ? 0x2f4a2a : 0x3a5531))
     trees.push(tint(new THREE.CylinderGeometry(0.18, 0.22, 1.2, 5).translate(x, 0.6, z), 0x5a4330))
   }
-  // Aqueduct on the far north-east ridge.
-  for (let i = 0; i < 14; i++) {
-    const x = 140 + i * 9, z = -170 + i * 4.5
-    aqueduct.push(boxBetween(x - 1.3, 0, z - 1.2, x + 1.3, 18, z + 1.2).rotateY(0))
-    aqueduct.push(boxBetween(x, 18, z - 1.3, x + 9, 21, z + 1.3))
-  }
-  // Temple to the west.
-  for (let i = 0; i < 8; i++) {
-    for (const zz of [-6, 6]) aqueduct.push(new THREE.CylinderGeometry(0.7, 0.8, 12, 10).translate(-185 + i * 3.4, 13, 40 + zz))
-  }
-  aqueduct.push(boxBetween(-189, 0, 30, -158, 7, 50))
-  aqueduct.push(boxBetween(-189, 19, 31, -158, 21, 49))
-  return { walls, roofs, trees, aqueduct }
+  return trees
 }
 
 // ── Assembly ─────────────────────────────────────────────────────────────────
@@ -768,7 +746,6 @@ export function buildColosseumVisuals(resources: ArenaResources): ColosseumVisua
   const woodMaterial = material({ color: 0x6b4a2f, roughness: 0.9 }, 'colosseum-wood')
   const roofMaterial = material({ map: textures.roof, roughness: 0.9, vertexColors: false, side: THREE.DoubleSide }, 'colosseum-roof')
   const pedimentMaterial = material({ map: textures.pediment, roughness: 0.7 }, 'colosseum-pediment')
-  const cityWallMaterial = material({ vertexColors: true, roughness: 0.95 }, 'colosseum-city')
   const foliageMaterial = material({ vertexColors: true, roughness: 1 }, 'colosseum-foliage')
   const flameTime = { value: 0 }
   const flameMaterial = createFlameMaterial(resources, flameTime)
@@ -842,10 +819,8 @@ export function buildColosseumVisuals(resources: ArenaResources): ColosseumVisua
   root.add(mergedMesh(resources, woodParts, woodMaterial, { name: 'colosseum-masts' }))
   root.add(mergedMesh(resources, [...pulvinar.pediment, ...portico.pediment], pedimentMaterial, { castShadow: false, name: 'colosseum-pediment' }))
 
-  const city = cityGeometries()
-  root.add(mergedMesh(resources, [...city.walls, ...city.aqueduct.map(part => tint(part, 0xd7c6a3))], cityWallMaterial, { castShadow: false, name: 'colosseum-city' }))
-  root.add(mergedMesh(resources, [...city.roofs, ...pulvinar.roof], roofMaterial, { castShadow: false, name: 'colosseum-roofs' }))
-  root.add(mergedMesh(resources, city.trees, foliageMaterial, { castShadow: false, name: 'colosseum-cypress' }))
+  root.add(mergedMesh(resources, pulvinar.roof, roofMaterial, { castShadow: false, name: 'colosseum-roofs' }))
+  root.add(mergedMesh(resources, cypressGeometries(), foliageMaterial, { castShadow: false, name: 'colosseum-cypress' }))
 
   // Lighting: warm afternoon sun with one shadow map, cool sky fill.
   const sun = new THREE.DirectionalLight(0xffe2b0, 2.35)
