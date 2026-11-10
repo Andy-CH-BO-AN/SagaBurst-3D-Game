@@ -15,7 +15,7 @@ export interface CareerPersonalSquadMember {
   characterTier?: CharacterTier
   heroArchetype?: HeroArchetype
   recruitmentRole?: PersonalRecruitmentRole
-  /** Durable Byzantine Cataphract identity (Roman Commander only); absent for ordinary members. */
+  /** Durable elite body (Centurion / Dragon Oathguard / Byzantine Cataphract / Ironblood Warlord); absent for the default classes. */
   visualAssetId?: PersonalHeroVariantAssetId
   /** New recruitment grant receipt; a saved null slot is never a missing legacy grant. */
   initialEquipmentVersion?: 1
@@ -86,7 +86,7 @@ export function parsePersonalSquad(value: unknown, faction: CareerProfile['facti
     const heroArchetype = member.characterTier === undefined ? defaults.heroArchetype : member.heroArchetype
     const recruitmentRole = member.recruitmentRole === undefined ? inferLegacyPersonalRecruitmentRole(equipment, member.type, characterFaction) : member.recruitmentRole
     const visualAssetId = member.visualAssetId
-    if (visualAssetId !== undefined && (member.characterTier === undefined || member.type !== 'commander')) throw new Error('Invalid member hero variant')
+    if (visualAssetId !== undefined && (member.characterTier === undefined || member.type !== 'commander' && member.type !== 'captain')) throw new Error('Invalid member hero variant')
     const resolved = resolvePersonalRecruitment(characterFaction, { characterTier, heroArchetype, recruitmentRole, ...(visualAssetId ? { visualAssetId } : {}) })
     if (!resolved || resolved.type !== member.type || member.characterTier === undefined && member.heroArchetype !== undefined && member.heroArchetype !== defaults.heroArchetype
       || member.initialEquipmentVersion === 1 && (!equipment || member.characterTier === undefined || member.recruitmentRole === undefined)) throw new Error('Invalid member identity')
