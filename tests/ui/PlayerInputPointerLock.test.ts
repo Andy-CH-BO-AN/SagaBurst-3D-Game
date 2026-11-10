@@ -10,8 +10,9 @@ function harness(search = '') {
   onTestFinished(() => input.dispose())
   const mouse = (type: string, button: number) => win.dispatchEvent(Object.assign(new Event(type), { button }))
   const key = (code: string) => win.dispatchEvent(Object.assign(new Event('keydown'), { code }))
+  const keyUp = (code: string) => win.dispatchEvent(Object.assign(new Event('keyup'), { code }))
   const lock = (locked: boolean) => { doc.pointerLockElement = locked ? {} : null; doc.dispatchEvent(new Event('pointerlockchange')) }
-  return { win, doc, input, mouse, key, lock }
+  return { win, doc, input, mouse, key, keyUp, lock }
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -37,6 +38,19 @@ describe('PlayerInput ownership', () => {
     h.mouse('mouseup', 2)
     expect(h.input.isRightMouseDown).toBe(false)
     h.mouse('mousedown', 2); h.win.dispatchEvent(new Event('blur'))
+    expect(h.input.isRightMouseDown).toBe(false)
+  })
+
+  it('holds aim with F while a left click draws, without cancelling a physically held right button', () => {
+    const h = harness(); h.lock(true)
+    h.key('KeyF'); h.mouse('mousedown', 0)
+    expect(h.input.isRightMouseDown).toBe(true)
+    expect(h.input.consumeLeftClick()).toBe(true)
+    h.keyUp('KeyF')
+    expect(h.input.isRightMouseDown).toBe(false)
+    h.mouse('mousedown', 2); h.key('KeyF'); h.keyUp('KeyF')
+    expect(h.input.isRightMouseDown).toBe(true)
+    h.key('KeyF'); h.win.dispatchEvent(new Event('blur'))
     expect(h.input.isRightMouseDown).toBe(false)
   })
 

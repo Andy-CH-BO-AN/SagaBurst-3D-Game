@@ -8,7 +8,7 @@ export class PlayerInput {
   dispose(): void { this.listeners.abort(); this.clear() }
   clear(): void {
     for (const key of Object.keys(this.keys)) delete this.keys[key]
-    this.isLeftMouseDown = this.isRightMouseDown = false
+    this.isLeftMouseDown = this._rightButtonDown = this._aimKeyDown = false
     this._leftClickTriggered = this._leftClickReleased = this._middleClickTriggered = this._keyETriggered = false
     this._wheelSteps = this._dx = this._dy = 0
     this._keyPresses.clear()
@@ -20,7 +20,11 @@ export class PlayerInput {
 
   // Mouse buttons
   isLeftMouseDown = false
-  isRightMouseDown = false
+  private _rightButtonDown = false
+  private _aimKeyDown = false
+  /** Aim/shield: the right button or the held F key, so a trackpad can aim with F and draw with a left click. */
+  get isRightMouseDown(): boolean { return this._rightButtonDown || this._aimKeyDown }
+  set isRightMouseDown(value: boolean) { this._rightButtonDown = value; if (!value) this._aimKeyDown = false }
   private _leftClickTriggered = false
   private _leftClickReleased = false
   private _middleClickTriggered = false
@@ -54,9 +58,11 @@ export class PlayerInput {
       if (e.code === 'KeyE') {
         this._keyETriggered = true
       }
+      if (e.code === 'KeyF') this._aimKeyDown = true
     }, { signal: this.listeners.signal })
     window.addEventListener('keyup', (e) => {
       this.keys[e.code] = false
+      if (e.code === 'KeyF') this._aimKeyDown = false
     }, { signal: this.listeners.signal })
 
     window.addEventListener('mousedown', (e) => {
@@ -73,7 +79,7 @@ export class PlayerInput {
         }
       }
       if (e.button === 2) {
-        this.isRightMouseDown = true
+        this._rightButtonDown = true
       }
     }, { signal: this.listeners.signal })
 
@@ -84,7 +90,7 @@ export class PlayerInput {
         if (this.isLocked && wasDown) this._leftClickReleased = true
       }
       if (e.button === 2) {
-        this.isRightMouseDown = false
+        this._rightButtonDown = false
       }
     }, { signal: this.listeners.signal })
 
