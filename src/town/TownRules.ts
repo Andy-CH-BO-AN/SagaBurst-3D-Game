@@ -288,6 +288,15 @@ export function townShopProducts(serviceId: string): TownProduct[] {
   if (serviceId === 'eagle-trainer') return TOWN_PRODUCTS.filter(item => item.id === 'xongkoro')
   return TOWN_PRODUCTS.filter(item => item.id !== 'xongkoro' && (item.category === 'mount') === (serviceId !== 'merchant'))
 }
+/** Counting word for a shop product, used only for display. */
+export function townProductUnit(item: Pick<TownProduct, 'id' | 'category'>): string {
+  return item.category === 'mount' ? item.id === 'horse' || item.id === 'armored-horse' ? '匹' : '隻' : item.category === 'armor' ? '面' : '件'
+}
+/** "持有 / 未分配" line shared by the shop and the town equipment lists. */
+export function townHoldingText(profile: CareerProfile, item: Pick<TownProduct, 'id' | 'category'>): string {
+  const unit = townProductUnit(item)
+  return `持有：${careerItemTotal(profile, item.id)} ${unit}｜未分配：${availableCareerItem(profile, item.id)} ${unit}`
+}
 export function productStatus(profile: CareerProfile, item: TownProduct): string {
   if (!isCareerShopItemUseUnlocked(profile, item.id)) return '軍階未解鎖'
   return profile.availableMerit < item.price ? '餘額不足・可使用' : '可購買・可使用'

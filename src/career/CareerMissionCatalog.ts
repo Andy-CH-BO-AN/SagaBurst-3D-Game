@@ -74,8 +74,8 @@ const mission = (
   kind: 'bandit',
   name,
   briefing: friendlyCombatants > banditCount
-    ? '跟隨隊長清除營地；保持隊形並確認所有目標。'
-    : '敵眾我寡。跟緊隊伍，只對任務指定目標作戰。',
+    ? '目標：跟隨隊長進攻盜匪營地，消滅全部敵人。'
+    : '目標：敵眾我寡，跟緊隊長進攻盜匪營地，消滅全部敵人。',
   friendlyCombatants,
   friendlySoldiers: Math.max(0, friendlyCombatants - 2),
   banditCount,
@@ -115,7 +115,7 @@ export const VETERAN_TOWN_DEFENSE_TEMPLATE: RecruitTownDefenseMissionTemplate = 
   id: VETERAN_TOWN_DEFENSE_TEMPLATE_ID,
   kind: 'town-defense',
   name: '守衛家園 · 老兵守城',
-  briefing: '敵方騎兵正在逼近城鎮。加入守軍守住防線，並保護居民。',
+  briefing: '目標：守住城鎮、擊退來襲的敵方騎兵，並保護居民。',
   targetArea: 'career-town',
   ...townDefenseForceCounts(),
   enemyCount: townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran'),
@@ -134,15 +134,15 @@ export const VETERAN_TOWN_DEFENSE_TEMPLATE: RecruitTownDefenseMissionTemplate = 
  * the number of templates is not a promotion requirement.
  */
 export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
-  { id: 'career-cavalry-sweep', kind: 'cavalry-sweep', name: 'Cavalry Sweep · 騎兵清剿', briefing: '軍營集結，跟隨騎兵出城清剿 · 60 騎兵 vs 40 Bandits', friendlyCombatants: 60, risk: '低', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'recruit' },
-  { id: 'career-enemy-town-assault', kind: 'enemy-town-assault', name: 'Enemy Town Assault · 進攻敵方家園', briefing: '120 人攻城軍 · 四門進攻 · 擊潰全部地面守軍，迫使殘存空軍撤離。', friendlyCombatants: 120, risk: '極高', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'soldier' },
+  { id: 'career-cavalry-sweep', kind: 'cavalry-sweep', name: 'Cavalry Sweep · 騎兵清剿', briefing: '目標：在軍營集合後跟隨騎兵出城，消滅全部盜匪。', friendlyCombatants: 60, risk: '低', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'recruit' },
+  { id: 'career-enemy-town-assault', kind: 'enemy-town-assault', name: 'Enemy Town Assault · 進攻敵方家園', briefing: '目標：率軍從四門進攻敵城，擊潰全部地面守軍並迫使空軍撤離。', friendlyCombatants: 120, risk: '極高', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'soldier' },
   mission('recruit-bandits-01', '營火邊的三名盜匪', 5, 3, '低', 0),
   mission('recruit-bandits-02', '大隊剿匪', 20, 12, '中', 2, 0, 1),
 
   patrol(
     'recruit-patrol-01',
     '南路巡邏',
-    '跟隨隊長巡查城鎮外圍道路。保持隊伍，不要落隊，依序完成沿線巡查。',
+    '目標：跟隨隊長沿城外道路巡邏，不要落隊；遇到伏兵時協助擊退。',
     'south-road',
     6,
     4,
@@ -151,7 +151,7 @@ export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
   patrol(
     'recruit-patrol-02',
     '林線巡邏',
-    '沿森林邊緣完成例行巡邏。地形複雜，跟緊隊長並保持警戒。',
+    '目標：跟隨隊長沿森林邊緣巡邏；地形複雜，請跟緊隊長。',
     'forest-line',
     8,
     7,

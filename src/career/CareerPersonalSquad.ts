@@ -105,18 +105,18 @@ export function personalSquadGreeting(profile: CareerProfile): string {
   switch (profile.rank) {
     case 'recruit': return '新兵？去兵營報到。\n這裡處理的是軍官自己的部隊，不是替你找同伴的地方。'
     case 'soldier': return '先學會跟著命令走，再來談帶人。\n等你真的有資格指揮自己的部隊，我們再談。'
-    case 'veteran': return '你很能打，Veteran。\n但能打，和能讓三十個人跟著你，是兩回事。\n等你升任 Captain，再來找我。'
+    case 'veteran': return '你很能打，老兵。\n但能打，和能讓三十個人跟著你，是兩回事。\n等你晉升為隊長，再來找我。'
     case 'commander': return 'Commander，需要補充你的人嗎？'
     case 'captain': return profile.townDialogueSeen?.includes(`${profile.faction}:hr-unlocked`)
-      ? 'Captain，需要補充你的隊伍嗎？'
-      : 'Captain。現在你有資格建立自己的隨行隊伍了。\n最多三十人。他們不屬於巡邏隊，也不屬於城防軍，只聽你的命令。\nT1／T2／T3 士兵為 100／200／300 軍功，T4 隊長與遊俠各 500 軍功。\n需要他們時，下令 Follow me；不要用了，就讓他們 Dismiss 回來。'
+      ? '隊長，需要補充你的隊伍嗎？'
+      : '隊長。現在你有資格建立自己的隨行隊伍了。\n最多三十人。他們不屬於巡邏隊，也不屬於城防軍，只聽你的命令。\nT1／T2／T3 士兵為 100／200／300 軍功，T4 隊長與遊俠各 500 軍功。\n需要他們時，按 Q 下令「Follow me · 跟隨」；不用了，就下令「Dismiss · 收隊」讓他們回來整補。'
   }
 }
 export const PERSONAL_RECRUIT_DIALOGUE: Record<PersonalSquadMemberType, string> = {
-  soldier: '人已經登記到你的隊伍。\n需要他們時，下令 Follow me。',
+  soldier: '人已經登記到你的隊伍。\n需要他們時，按 Q 下令「Follow me · 跟隨」。',
   captain: '這不是普通士兵。\n他能獨立帶人，但現在，他聽你的命令。',
-  ranger: '遊俠已經登記，並領取你選擇的兵種裝備。\n需要他們時，下令 Follow me。',
-  commander: 'Commander 已經登記到你的隊伍。\n他有統率全軍的能力，現在由你下令。',
+  ranger: '遊俠已經登記，並領取你選擇的兵種裝備。\n需要他們時，按 Q 下令「Follow me · 跟隨」。',
+  commander: '指揮官已經登記到你的隊伍。\n他有統率全軍的能力，現在由你下令。',
 }
 
 export interface PersonalSquadAuthority { readonly state: 'RESERVE' | 'DEPLOYING' | 'ACTIVE' | 'RETURNING' }

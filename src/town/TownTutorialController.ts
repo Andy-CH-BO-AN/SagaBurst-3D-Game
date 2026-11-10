@@ -136,7 +136,7 @@ export class TownTutorialController {
 
       if (step === 'weapon') {
         npc('merchant', '武器店主')
-        text = '可選：前往武器店購買武器\n也可先找士官長空手接任務。'
+        text = '前往武器店購買第一把武器\n買好後按 Tab 開啟背包裝備；也可先找士官長空手接任務。'
       } else if (step === 'duel') {
         npc('captain', '騎兵隊長')
         text = '挑戰騎兵隊長\n靠近隊長按 E 開始切磋。'
@@ -166,10 +166,10 @@ export class TownTutorialController {
         text = '向士官長報到\n按 E 與士官長交談'
       } else if (step === 'duel-intro') {
         npc('deployment', '士官長')
-        text = '返回士官長\n武器購買已完成，回士官長回報'
+        text = '返回士官長\n按 E 向士官長回報，了解下一步'
       } else if (step === 'missions') {
         npc('deployment', '士官長')
-        text = '返回士官長\n切磋已結束，向士官長回報'
+        text = '返回士官長\n切磋已結束，按 E 向士官長回報，接取第一個任務'
       } else {
         npc('deployment', '士官長')
         text = '向士官長報到'

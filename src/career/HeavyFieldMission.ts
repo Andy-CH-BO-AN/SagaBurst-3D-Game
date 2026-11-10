@@ -8,7 +8,7 @@ import { createMissionCommandAuthority, type OfficialCommandSquad } from './Care
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
 import { snapshotPersonalMission } from './CareerPersonalSquadMission'
 import { resolveCareerHeroAsset } from './CareerPlayerProfile'
-import { CAREER_RANKS, cloneCareerProfile, type CareerProfile, type CareerRank } from './CareerProfile'
+import { CAREER_RANKS, CAREER_RANK_LABELS, cloneCareerProfile, type CareerProfile, type CareerRank } from './CareerProfile'
 import {
   CAPTAIN_STEEL_AVALANCHE_ID, HEAVY_ENEMY_FRONT_ABS_Z, HEAVY_FIELD_KIND, HEAVY_FIELD_MISSION_IDS, HEAVY_PLAYER_SLOT,
   SOLDIER_AMBUSH_ABS_Z, SOLDIER_COLUMN_FRONT_ABS_Z, SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID,
@@ -39,11 +39,11 @@ const definition = (id: HeavyFieldMissionId, name: string, briefing: string, fri
 
 export const HEAVY_FIELD_MISSION_CATALOG: readonly HeavyFieldMissionDefinition[] = [
   definition(SOLDIER_IRON_ENCOUNTER_ID, 'Iron Encounter · 遭遇鐵騎',
-    '75 名步兵（含玩家；T2 65、T3 9、T4 隊長 1）跟隨隊長行軍，在預定位置列陣，迎戰 60 名重騎兵（T3 50、T4 9、T5 指揮官 1）。任一敵軍騎士或坐騎受傷後敵軍全軍衝鋒；敵軍前鋒距離 20m 時隊長下令全軍反衝鋒。', 75, 60, 'soldier'),
+    '目標：跟隨隊長行軍並在預定位置列陣，擊退 60 名重騎兵。敵軍一有人受傷就會全軍衝鋒；敵軍逼近 20 公尺時，隊長會下令反衝鋒。', 75, 60, 'soldier'),
   definition(VETERAN_IRON_TIDE_ID, 'Iron Tide · 鐵騎破陣',
-    '300 名步兵（含玩家；長槍、刀斧、弓兵各 100）已在零散拒馬後列陣，迎戰 100 名重騎兵（T3 70、T4 25、T5 5）。任一敵軍受傷後敵軍全軍衝鋒；前鋒距離 20m 時我方全軍反衝鋒。', 300, 100, 'veteran'),
+    '目標：在拒馬後列陣（長槍、刀斧、弓兵各 100 人），擊退 100 名重騎兵。敵軍一有人受傷就會全軍衝鋒；前鋒逼近 20 公尺時我方全軍反衝鋒。', 300, 100, 'veteran'),
   definition(CAPTAIN_STEEL_AVALANCHE_ID, 'Steel Avalanche · 鋼鐵雪崩',
-    '指揮 29 名 T4 重騎兵（含玩家共 30 人），可額外攜帶私兵，進攻已列陣防守的 200 名步兵（刀斧 100、弓兵 100）。何時進攻由你決定；我方前鋒進入 20m 後敵軍全軍反衝鋒。', 30, 200, 'captain'),
+    '目標：率領 29 名 T4 重騎兵（含你共 30 人，可另帶私兵），進攻已列陣的 200 名步兵（刀斧 100、弓兵 100）。何時進攻由你決定；我方前鋒進入 20 公尺後，敵軍會反衝鋒。', 30, 200, 'captain'),
 ]
 
 export function getHeavyFieldMissionDefinition(id: string): HeavyFieldMissionDefinition | null {
@@ -57,10 +57,10 @@ export function heavyFieldMissionsForRank(profile: Pick<CareerProfile, 'rank'>, 
 
 export function getHeavyFieldMissionAvailability(profile: CareerProfile, templateId: string): { unlocked: boolean; reason?: string } {
   const entry = getHeavyFieldMissionDefinition(templateId)
-  if (!entry || CAREER_RANKS.indexOf(profile.rank) < CAREER_RANKS.indexOf(entry.minRank)) return { unlocked: false, reason: `需要 ${entry?.minRank ?? '更高'} 軍階。` }
-  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission) return { unlocked: false, reason: '請先完成目前的正式任務。' }
-  if (profile.townEvent?.state === 'hostile') return { unlocked: false, reason: '城鎮敵對事件中無法接受任務。' }
-  if (templateId === CAPTAIN_STEEL_AVALANCHE_ID && !resolveCareerReliefMount(profile)) return { unlocked: false, reason: '需要可使用的已購買坐騎。' }
+  if (!entry || CAREER_RANKS.indexOf(profile.rank) < CAREER_RANKS.indexOf(entry.minRank)) return { unlocked: false, reason: `需要晉升為${entry ? CAREER_RANK_LABELS[entry.minRank] : '更高軍階'}。` }
+  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission) return { unlocked: false, reason: '請先完成目前的任務。' }
+  if (profile.townEvent?.state === 'hostile') return { unlocked: false, reason: '目前仍在交戰，暫時無法接取。' }
+  if (templateId === CAPTAIN_STEEL_AVALANCHE_ID && !resolveCareerReliefMount(profile)) return { unlocked: false, reason: '需要一匹可使用的自有坐騎。' }
   return { unlocked: true }
 }
 

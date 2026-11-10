@@ -210,8 +210,8 @@ export class CareerTutorialScene {
     const state = this.profile.tutorial![this.launch.stage]
     this.text.textContent = this.complete
       ? state.replay ? this.launch.stage === 'recruit' ? '重播完成，正在返回城鎮。不重複發放軍功，也不增加正式任務紀錄。' : '重播完成。不重複發放軍功，也不增加正式任務紀錄。'
-        : this.launch.stage === 'recruit' ? '全部操作已完成並保存，100 軍功已入帳，正在返回城鎮。累積軍功決定任命資格，可用軍功用於消費；達門檻後仍須找 NPC 正式接受任命。'
-          : '指揮訓練已完成並保存。返回同一生涯角色後可前往 HR 建立私人小隊；本次不增加正式任務、擊殺或技能 XP。'
+        : this.launch.stage === 'recruit' ? '訓練完成！100 軍功已入帳，正在返回城鎮。下一步：到城鎮武器店購買第一把武器；累積軍功達標後，還需找對應 NPC 接受任命才會晉升。'
+          : '指揮訓練完成！回到城鎮後，可到人力資源中心招募私兵；本次演練不計入正式任務、擊殺或技能經驗。'
       : (this.launch.stage === 'recruit' ? RECRUIT_HINTS : CAPTAIN_HINTS)[this.step] ?? '依目前標記完成操作。'
     if (this.launch.stage === 'recruit' && this.step === 'melee-hit-1') this.text.textContent += ` 已命中 ${state.operations.includes('melee-hit-1') ? 1 : 0}/2。`
     this.leave.textContent = this.complete ? '前往城鎮' : '稍後繼續 · 返回城鎮'

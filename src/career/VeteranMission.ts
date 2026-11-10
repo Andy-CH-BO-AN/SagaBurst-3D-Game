@@ -63,7 +63,7 @@ export interface VeteranMissionRoster {
 
 export interface VeteranMissionAvailability {
   unlocked: boolean
-  reason?: '軍階未達Veteran' | '前置任務未完成' | '需要坐騎'
+  reason?: string
 }
 
 export interface AcceptVeteranMissionOptions {
@@ -167,12 +167,12 @@ const definition = (
 ): VeteranMissionDefinition => ({ id, kind, name, briefing, friendlyCombatants, enemyCombatants, reinforcementCombatants, squadSizes, requiresMount, objective, minRank: 'veteran' })
 
 export const VETERAN_MISSION_CATALOG: readonly VeteranMissionDefinition[] = [
-  definition(VETERAN_MISSION_IDS[0], 'veteran-outpost-defense', 'Dread Outpost · 恐怖前哨防禦', '守住 Campaign Outpost，擊退 50 名敵方 T4 騎兵；第 90 秒後援軍從敵軍後方趕到。', 100, 50, 50, [25, 25, 25, 25], false),
-  definition(VETERAN_MISSION_IDS[1], 'veteran-field', 'Scout Hunters · 獵殺斥候', '跟隨四隊騎兵出擊，殲滅敵方斥候。', 100, 40, 0, [25, 25, 25, 25], true),
-  definition(VETERAN_MISSION_IDS[2], 'veteran-field', 'Village Intercept · 村外截擊', '與兩隊騎兵在村外截住敵軍，保護村莊。', 50, 100, 0, [25, 25], true),
-  definition(VETERAN_MISSION_IDS[3], 'veteran-outpost-assault', 'Outpost Assault · 強攻前哨', '從敵方 Outpost 外發起攻勢，攻破城門並殲滅守軍。', 100, 100, 0, [25, 25, 25, 25], true),
-  definition(VETERAN_MISSION_IDS[4], 'veteran-field', 'Spear Line Hunt · 槍林清剿', '率領兩隊弓騎兵清剿敵方槍兵主力。', 50, 100, 0, [25, 25], true),
-  definition(VETERAN_MISSION_IDS[5], 'veteran-field', 'Tragedy of the Scouts · 斥候的悲劇', '深入敵境時，敵方城鎮的騎兵出城迎擊。你與 9 名 T4 隊長、10 名 T4 弓騎斥候共 20 人，必須存活 02:00。', 20, 100, 0, [10, 10], true, { kind: 'survive', seconds: 120 }),
+  definition(VETERAN_MISSION_IDS[0], 'veteran-outpost-defense', 'Dread Outpost · 恐怖前哨防禦', '目標：守住前哨營地，擊退 50 名敵方 T4 騎兵；第 90 秒後會有 50 名友軍援軍趕到。', 100, 50, 50, [25, 25, 25, 25], false),
+  definition(VETERAN_MISSION_IDS[1], 'veteran-field', 'Scout Hunters · 獵殺斥候', '目標：跟隨四隊騎兵出擊，殲滅敵方斥候。', 100, 40, 0, [25, 25, 25, 25], true),
+  definition(VETERAN_MISSION_IDS[2], 'veteran-field', 'Village Intercept · 村外截擊', '目標：與兩隊騎兵在村外截住敵軍，保護村莊。', 50, 100, 0, [25, 25], true),
+  definition(VETERAN_MISSION_IDS[3], 'veteran-outpost-assault', 'Outpost Assault · 強攻前哨', '目標：從敵方前哨外發起攻勢，攻破城門並殲滅守軍。', 100, 100, 0, [25, 25, 25, 25], true),
+  definition(VETERAN_MISSION_IDS[4], 'veteran-field', 'Spear Line Hunt · 槍林清剿', '目標：率領兩隊弓騎兵，清剿敵方槍兵主力。', 50, 100, 0, [25, 25], true),
+  definition(VETERAN_MISSION_IDS[5], 'veteran-field', 'Tragedy of the Scouts · 斥候的悲劇', '目標：深入敵境時遭敵城騎兵出城圍攻，你與 19 名 T4 隊友（9 名隊長、10 名弓騎斥候）必須撐過 2 分鐘。', 20, 100, 0, [10, 10], true, { kind: 'survive', seconds: 120 }),
 ]
 
 export function getVeteranMissionDefinition(templateId: string): VeteranMissionDefinition | null {
@@ -181,14 +181,14 @@ export function getVeteranMissionDefinition(templateId: string): VeteranMissionD
 
 export function getVeteranMissionAvailability(profile: CareerProfile, templateId: string): VeteranMissionAvailability {
   const index = VETERAN_MISSION_IDS.indexOf(templateId as VeteranMissionTemplateId)
-  if (index < 0) return { unlocked: false, reason: '前置任務未完成' }
-  if (CAREER_RANKS.indexOf(profile.rank) < CAREER_RANKS.indexOf('veteran')) return { unlocked: false, reason: '軍階未達Veteran' }
+  if (index < 0) return { unlocked: false, reason: '請先完成上一個老兵任務' }
+  if (CAREER_RANKS.indexOf(profile.rank) < CAREER_RANKS.indexOf('veteran')) return { unlocked: false, reason: '需要晉升為老兵' }
   const mission = VETERAN_MISSION_CATALOG[index]
-  if (mission.requiresMount && !resolveCareerReliefMount(profile)) return { unlocked: false, reason: '需要坐騎' }
+  if (mission.requiresMount && !resolveCareerReliefMount(profile)) return { unlocked: false, reason: '需要一匹可使用的自有坐騎' }
   const completed = profile.completedCareerMissionTemplateIds ?? []
   const previouslyCompleted = completed.includes(mission.id)
   if (index > 0 && !previouslyCompleted && !completed.includes(VETERAN_MISSION_IDS[index - 1])) {
-    return { unlocked: false, reason: '前置任務未完成' }
+    return { unlocked: false, reason: '請先完成上一個老兵任務' }
   }
   return { unlocked: true }
 }

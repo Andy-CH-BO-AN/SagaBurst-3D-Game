@@ -18,6 +18,7 @@ import { createCareerMissionId, type ActiveCareerMission } from './CareerMission
 import { snapshotPersonalMission } from './CareerPersonalSquadMission'
 
 export const CAVALRY_SWEEP_ID = 'career-cavalry-sweep'
+export const CAVALRY_SWEEP_BANDITS = 40
 export const SWEEP_CHARGE_DISTANCE = 60
 export const SWEEP_DETECTION_RANGE = 80
 // Existing Town terrain: cavalry entrance forecourt, then march south.
@@ -45,7 +46,7 @@ export function acceptCavalrySweep(current: CareerProfile, id = createCareerMiss
 export function createCavalrySweepMission(id = createCareerMissionId(CAVALRY_SWEEP_ID), garrisonActorIds: SweepGarrisonActorIds = []): ActiveCareerMission {
   return {
     id, templateId: CAVALRY_SWEEP_ID, kind: 'cavalry-sweep', targetCampId: 0, phase: 'ASSEMBLING',
-    targetActorIds: Array.from({ length: 40 }, (_, index) => `${id}:bandit:${index}`),
+    targetActorIds: Array.from({ length: CAVALRY_SWEEP_BANDITS }, (_, index) => `${id}:bandit:${index}`),
     friendlyActorIds: Array.from({ length: 59 }, (_, index) => garrisonActorIds[index] ?? `${id}:cavalry:${index}`), acceptedAt: Date.now(),
     borrowedActorIds: garrisonActorIds.slice(0, 59).filter((id): id is string => id !== undefined),
   }
