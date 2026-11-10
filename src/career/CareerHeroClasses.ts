@@ -45,3 +45,10 @@ export function careerHeroClasses(faction: Faction, tier: 4 | 5): readonly [Care
 
 /** Combat numbers shown beside a class are always the real profile's. */
 export const careerHeroClassMaxHp = (hero: Pick<CareerHeroClass, 'combatProfileId'>): number => HERO_COMBAT_PROFILES[hero.combatProfileId].maxHp
+
+/** A class's exclusive shield (optional elite equipment); a Duel opponent of that class carries it instead of the army's shared shield. */
+export const HERO_CLASS_SHIELD: Readonly<Partial<Record<HeroCombatProfileId, string>>> = {
+  centurion: 'centurion_aquila_shield_t4',
+  'dragon-oathguard': 'viking_dragonward_shield_t4',
+  'byzantine-cataphract': 'byzantine_eagle_shield_t5',
+}
