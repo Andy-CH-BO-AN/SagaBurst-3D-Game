@@ -142,6 +142,10 @@ describe('duel arena layout collision', () => {
       rider.mountGroundFall.observe(horse.group.position.y, false) // Ridden off the parapet, still high.
     }
     ride()
+    // A repeated mountVehicle() for the mount already ridden keeps the fall in progress.
+    methods.mountVehicle.call(rider, horse)
+    expect(rider.mountGroundFall.observe(0, true)).toBeCloseTo(21.2)
+    ride()
     // E pressed mid-fall: the rider keeps falling at the mount's speed from the gallery apex.
     methods.dismountFromMount.call(rider)
     expect([rider.currentMount, rider.onGround, rider.velY]).toEqual([null, false, -9])
