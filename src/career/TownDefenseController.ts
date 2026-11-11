@@ -723,6 +723,7 @@ export class TownDefenseController {
       if (saved) this.plannedArmyPositions.push(new THREE.Vector3(saved.x, 0, saved.z))
       const materialize = () => {
         const npc = reused ?? trackNpcSpawn(new NPC(this.scene, point.x, point.z, spec.faction, identity.characterFaction, spec.aiType, spec.name, spec.tier, spec.cavalry, spec.loadout, spec.presetId, spec.squadId, id, this.events.emit, identity.visualAssetId, identity.combatProfileId, identity.specialCombatProfile, undefined, undefined, undefined, undefined, identity.characterTier, identity.heroArchetype))
+        npc.enableBattlefieldEngagement()
         npc.respawnEnabled = false; npc.missionAerialDefense = true; npc.clearEncounter()
         const commandSquad = active.officialSquad && officialActorSquadId(active.officialSquad, id)
         if (commandSquad !== undefined) { npc.setCommandSquad(commandSquad); npc.combatOwnership = 'mission-official' }

@@ -70,6 +70,7 @@ export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPerson
     member.type === 'soldier' ? 'Personal Soldier' : member.type === 'captain' ? 'Personal Captain' : member.type === 'commander' ? 'Personal Commander' : 'Personal Shadow Warden',
     spec.tier, spec.mounted, spec.loadout, spec.presetId, PERSONAL_SQUAD_ID, member.id, emit,
     spec.hero?.visualAssetId, spec.hero?.combatProfileId, spec.hero?.specialCombatProfile, undefined, undefined, undefined, undefined, spec.characterTier, spec.identity.heroArchetype))
+  npc.enableBattlefieldEngagement()
   registerPersonalCombatDisplayName(npc, member, spec.identity.characterFaction)
   npc.combatOwnership = 'player-personal'
   npc.respawnEnabled = false

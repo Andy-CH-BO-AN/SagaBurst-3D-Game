@@ -332,6 +332,7 @@ export class CommanderFourGateDefenseController {
       spec.name, spec.tier, spec.cavalry, spec.loadout, spec.presetId, spec.squadId, id, this.events.emit,
       spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile, undefined, undefined, undefined,
       spec.spawnY === undefined ? undefined : { y: spec.spawnY }, spec.characterTier, spec.heroArchetype))
+    npc.enableBattlefieldEngagement()
     npc.respawnEnabled = false
     const mount = this.materializeMount(spec)
     if (mount) npc.mountVehicle(mount)

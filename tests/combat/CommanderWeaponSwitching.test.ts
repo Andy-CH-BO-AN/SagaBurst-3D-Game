@@ -675,6 +675,7 @@ describe('Reversible NPC weapon choice', () => {
     const actor = Object.assign(h.actor, {
       _aiType: AIType.RANGED, mount: null, townRampartGarrison: false, outpostRampartGarrison: false,
       targetsPlayer: false, missionCombatTarget: undefined, _cachedTargetIsPlayer: false,
+      _pursuitTargetAllowed: NPC.prototype['_pursuitTargetAllowed'],
       _cachedTargetNpc: below, _rangedTargetCandidates: [] as NPC[],
       _clearObstacleDetour() {}, _clearNavigationPath() {}, _clearSiegeFallback() {},
     })

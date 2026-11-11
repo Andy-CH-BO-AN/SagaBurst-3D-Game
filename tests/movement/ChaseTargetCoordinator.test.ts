@@ -46,6 +46,7 @@ it('acquires an authorized distant attack target and uses the horizontal map dia
     isTownRampartGarrisonActive: false, holdsRampartPosition: false, alertRange: 300,
     hasActiveRangedWeapon: false, mount: null, encounterOrigin: null,
     targetsPlayer: false, missionCombatTarget: undefined,
+    _pursuitTargetAllowed: NPC.prototype['_pursuitTargetAllowed'],
     combatTargetAllowed: (target: NPC) => target.combatantId === 'permitted',
   }
   const actor = body as unknown as NPC
@@ -80,4 +81,64 @@ it('acquires an authorized distant attack target and uses the horizontal map dia
   // Explicit garrisons keep their original pursuit/hold policy.
   target.combatPosition.set(200, 80, 200)
   expect(inRange(true)).toBe(false)
+})
+
+/** Data-only adapter for the real sensor/cache owner, without actor construction. */
+function pursuitActor(order: NPC['tacticalOrder']) {
+  const methods = NPC.prototype
+  const body = {
+    combatPosition: new THREE.Vector3(260, 0, 240), faction: Faction.PLAYER,
+    tacticalOrder: order, playableWorldBound: 350, battlefieldEngagementRangeSq: null,
+    isTownRampartGarrisonActive: false, holdsRampartPosition: false, alertRange: 300,
+    hasActiveRangedWeapon: true, isMounted: true, mount: { isFlyingMount: false }, encounterOrigin: null,
+    targetsPlayer: false, missionCombatTarget: undefined, playerHitFocus: 0, cavalryPassthroughTimer: 0,
+    hasSiegeObstacle: false, _cachedTargetIsPlayer: false, _cachedTargetNpc: null,
+    _targetAcquisitionInitialized: false, _initialStaggerPhase: 0, _rangedVisibleTargetHoldFrames: 0,
+    _targetReacquireFramesRemaining: 0, _targetReacquireIntervalFrames: 1,
+    _liveTargetInfo: {}, _tmpTargetPosition: new THREE.Vector3(), pursuitBlockedTargets: new Map(),
+    _activeNavigationWorld: { revision: 1, townNav: { siegeEntrances: { revision: 1 } } },
+    _clearObstacleDetour: vi.fn(), _clearNavigationPath: vi.fn(), _clearSiegeFallback: vi.fn(),
+    _pursuitTargetAllowed: methods['_pursuitTargetAllowed'], _findTarget: methods['_findTarget'],
+    _acquireTarget: methods['_acquireTarget'], _isCachedTargetValid: methods['_isCachedTargetValid'],
+    _getCachedTargetDistance: methods['_getCachedTargetDistance'], _scheduleTargetReacquire: methods['_scheduleTargetReacquire'],
+    _staggeredTargetReacquireDelay: methods['_staggeredTargetReacquireDelay'],
+    _getPlayerPosition: methods['_getPlayerPosition'],
+  }
+  return { body, actor: body as unknown as NPC }
+}
+
+it.each(['attack', 'charge'] as const)('%s 在城外目標死亡後重新取得遠方守軍，弓騎兵可通過開始及持續追擊閘門', order => {
+  const { body, actor } = pursuitActor(order), grid = new SpatialGrid<NPC>(20)
+  const bandit = npc(262, 240, Faction.BANDIT), guard = npc(-100, -110, Faction.ENEMY)
+  grid.insert(bandit); grid.insert(guard)
+  const player = { dead: true, targetable: false } as Player
+  NPC.prototype.enableBattlefieldEngagement.call(actor)
+  const sense = () => NPC.prototype['_getTarget'].call(actor, 1 / 60, player, [bandit, guard], grid)
+  expect(sense()?.npc).toBe(bandit)
+  Object.assign(bandit, { dead: true })
+  expect(sense()?.npc).toBe(guard)
+  expect(NPC.prototype['_isTargetWithinEngagementRange'].call(actor, guard.combatPosition, false)).toBe(true)
+  expect(NPC.prototype['_isTargetWithinEngagementRange'].call(actor, guard.combatPosition, true)).toBe(true)
+  body.tacticalOrder = 'follow'
+  expect(NPC.prototype['_isTargetWithinEngagementRange'].call(actor, guard.combatPosition, true)).toBe(false)
+})
+
+it('保留接敵中的有效目標及路徑，無法抵達時改取其他敵人並於入口改變後重新允許原目標', () => {
+  const { body, actor } = pursuitActor('attack'), grid = new SpatialGrid<NPC>(20)
+  const current = npc(270, 240, Faction.ENEMY), alternate = npc(275, 240, Faction.ENEMY)
+  grid.insert(current); grid.insert(alternate)
+  const player = { dead: true, targetable: false } as Player
+  const sense = () => NPC.prototype['_getTarget'].call(actor, 1 / 60, player, [current, alternate], grid)
+  expect(sense()?.npc).toBe(current)
+  alternate.combatPosition.x = 268
+  body._targetReacquireFramesRemaining = 0
+  expect(sense()?.npc).toBe(current)
+  expect(body._clearNavigationPath).toHaveBeenCalledOnce()
+  NPC.prototype['_deferUnreachableTarget'].call(actor, current)
+  expect(sense()?.npc).toBe(alternate)
+  Object.assign(alternate, { dead: true })
+  expect(sense()).toBeNull()
+  body._activeNavigationWorld.townNav.siegeEntrances.revision++
+  body._targetReacquireFramesRemaining = 0
+  expect(sense()?.npc).toBe(current)
 })

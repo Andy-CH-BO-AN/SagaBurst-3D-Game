@@ -820,6 +820,7 @@ export class TownScene {
         const loadout = careerEquipment?.loadout ?? (spec.role === 'merchant' ? townMerchantLoadout() : civilian || spec.role === 'commander' ? townDefaultActorLoadout(residentArmyFaction, spec) : ranger ? { meleeWeaponId: defaultRangerMeleeWeaponId(residentArmyFaction), rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null, reversibleRangedSwitch: true } : military!.loadout)
         spec = townStationSpec(spec, Boolean(loadout.mountId), Boolean(loadout.rangedWeaponId))
         const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, borrowedIdentity?.characterFaction ?? characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, borrowedIdentity?.visualAssetId ?? (ranger ? 'maki-archer-t4' : heroAsset), borrowedIdentity?.combatProfileId ?? (ranger ? 'ranger' : combatProfile), borrowedIdentity?.specialCombatProfile ?? (ranger ? 'maki-ranger' : undefined), civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined, undefined, borrowedIdentity?.characterTier ?? (civilian ? TOWN_RULES.garrisonTier : spec.role === 'commander' ? 5 : hero ? hero.characterTier : ranger ? 4 : military!.level), borrowedIdentity?.heroArchetype))
+        npc.enableBattlefieldEngagement()
         if (!spec.eagle && spec.duty !== 'patrol') npc.combatTargetAllowed = target => this.residentCombatTargetAllowed(spec, npc, target)
         if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery)
         const duelRecovery = this.profile.townDuelResidentRecovery
@@ -2260,6 +2261,7 @@ export class TownScene {
       const npc = new NPC(this.scene, native.group.position.x, native.group.position.z, native.faction, native.characterFaction,
         loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, NAMES[resident.spec.role] ?? resident.spec.id, 4, Boolean(loadout.mountId), loadout, presetId,
         undefined, native.combatantId, undefined, hero.visualAssetId, hero.combatProfileId, undefined, undefined, undefined, undefined, undefined, hero.tier, hero.heroArchetype)
+      npc.enableBattlefieldEngagement()
       if (native.combatTargetAllowed) npc.combatTargetAllowed = target => this.residentCombatTargetAllowed(resident.spec, npc, target)
       npc.setTownPeaceful(); npc.group.rotation.y = native.group.rotation.y
       return npc

@@ -118,22 +118,47 @@ export class TownLayeredNavigation {
     const entry = entranceId ? this.siegeEntrances.entries.get(entranceId) : undefined
     return Boolean(this.siegeActive && entry && hasClearedGateBreach(entry, current, mounted))
   }
+  private onSiegeSurface(entry: BreachEntrance, p: THREE.Vector3): boolean {
+    return [entry.surface, entry.bridgeSurface].some(s => {
+      const height = s && getWalkRampHeight(s, p.x, p.z)
+      return height !== undefined && height !== null && Math.abs(p.y - height) < 1.1
+    })
+  }
+  private siegeEntranceUsable(entry: BreachEntrance, mounted: boolean, sectorId?: TownGateId | null): boolean {
+    return entry.walkable && (!mounted || entry.mounted
+      && (!entry.surface || entry.surface.halfWidth >= 1.6)
+      && (!entry.bridgeSurface || entry.bridgeSurface.halfWidth >= 1.6))
+      && (!sectorId || entry.gateId === sectorId)
+  }
   private resolveSiegeTarget(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3,
     entranceId: string | null | undefined, mounted: boolean, sectorId?: TownGateId | null, actorId?: string): { ground: boolean; blocked?: boolean; tower?: boolean } | null {
     if (!this.siegeActive || this.rampAt(current)) return null
     const outside = current.x <= TOWN_CITY.minX || current.x >= TOWN_CITY.maxX || current.z <= TOWN_CITY.minZ || current.z >= TOWN_CITY.maxZ
     const goalInside = goal.x > TOWN_CITY.minX && goal.x < TOWN_CITY.maxX && goal.z > TOWN_CITY.minZ && goal.z < TOWN_CITY.maxZ
-    const onSurface = (entry: BreachEntrance, p: THREE.Vector3): boolean => [entry.surface, entry.bridgeSurface].some(s => {
-      const height = s && getWalkRampHeight(s, p.x, p.z)
-      return height !== undefined && height !== null && Math.abs(p.y - height) < 1.1
-    })
-    const eligible = (entry: BreachEntrance) => entry.walkable && (!mounted || entry.mounted) && (!sectorId || entry.gateId === sectorId)
+    const eligible = (entry: BreachEntrance) => this.siegeEntranceUsable(entry, mounted, sectorId)
     let goalCarrier: BreachEntrance | undefined
-    for (const candidate of this.siegeEntrances.entries.values()) if (eligible(candidate) && onSurface(candidate, goal)) { goalCarrier = candidate; break }
+    for (const candidate of this.siegeEntrances.entries.values()) if (eligible(candidate) && this.onSiegeSurface(candidate, goal)) { goalCarrier = candidate; break }
+    // Interior goals use the native stairs. Exterior ground goals may leave by
+    // any live same-sector carrier whose rear approach connects to the goal.
+    const descending = !this.isElevated(goal) && !this.rampAt(goal) && !goalInside
     if (this.isElevated(current)) {
-      if (!goalCarrier) return null
-      if (current.distanceTo(goalCarrier.exit) > .8) this.alongRing(current, goalCarrier.exit, out)
-      else out.copy(goalCarrier.position)
+      let carrier = goalCarrier
+      if (!carrier && descending) {
+        const preferred = entranceId ? this.siegeEntrances.entries.get(entranceId) : undefined
+        const valid = (e: BreachEntrance) => eligible(e) && Boolean(e.surface) && this.connected(e.approach, goal)
+        if (preferred && valid(preferred)) carrier = preferred
+        else {
+          let cost = Infinity
+          for (const candidate of this.siegeEntrances.entries.values()) {
+            if (!valid(candidate)) continue
+            const distance = current.distanceTo(candidate.exit) + candidate.approach.distanceTo(goal)
+            if (distance < cost) { carrier = candidate; cost = distance }
+          }
+        }
+      }
+      if (!carrier) return null
+      if (current.distanceTo(carrier.exit) > .8) this.alongRing(current, carrier.exit, out)
+      else out.copy(carrier.position)
       return { ground: false }
     }
     // A live surface may extend beyond the perimeter, including its full rear slope.
@@ -146,6 +171,8 @@ export class TownLayeredNavigation {
       }
       if (aboard) break
     }
+    // A preferred assault entrance does not own unrelated exterior pursuit.
+    if (!aboard && outside && descending && !goalCarrier) return null
     const preferred = entranceId ? this.siegeEntrances.entries.get(entranceId)
       : sectorId && actorId && (goalInside || this.isElevated(goal))
         ? crossingGateBreach(this.siegeEntrances.entries.values(), current, mounted, sectorId) : undefined
@@ -185,6 +212,14 @@ export class TownLayeredNavigation {
       out.copy(entry.approach); return { ground: true }
     }
     if (aboard && goalCarrier === entry) { out.copy(goal); return { ground: false } }
+    if (aboard && descending) {
+      // Align on the flat deck/bridge before committing to the slope centreline.
+      const lateralOffset = (current.x - s.startX) * -s.dirZ + (current.z - s.startZ) * s.dirX
+      if (along > s.length && Math.abs(lateralOffset) > .25) {
+        out.set(s.startX + s.dirX * along, s.topY, s.startZ + s.dirZ * along)
+      } else out.copy(entry.approach)
+      return { ground: false }
+    }
     if (aboard && along >= s.length + s.landing - .6) out.copy(entry.exit)
     else {
       const targetAlong = aboard ? s.length + s.landing - .3 : 1

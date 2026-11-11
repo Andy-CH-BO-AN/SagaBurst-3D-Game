@@ -1,3 +1,5 @@
+import { SpatialGrid } from '../../src/world/SpatialGrid'
+import type { Player } from '../../src/player/Player'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { gateBreachLane } from '../../src/navigation/GateBreachPortal'
@@ -5,7 +7,7 @@ import { describe, expect, it, onTestFinished } from 'vitest'
 import { siegeDefensePlans, siegeActorCharacterTier } from '../../src/career/TownSiege'
 import { TownFourGateSiege, type TownSiegeAttackerRole } from '../../src/career/TownFourGateSiege'
 import { planCommanderFourGateDefenseDeployment } from '../../src/career/CommanderFourGateDefenseDeployment'
-import { AIType, NPC } from '../../src/world/NPC'
+import { AIType, NPC, Faction } from '../../src/world/NPC'
 import { parseCommandActorCheckpoint } from '../../src/career/CareerCommandAuthority'
 import { Box3, Vector3 } from 'three'
 import { AvailableBreachEntrances } from '../../src/navigation/AvailableBreachEntrances'
@@ -14,7 +16,7 @@ import { townSiegeSectorReceiptsMatch } from '../../src/career/TownFourGateSiege
 import { townAuthoredRoster, type TownActorSpec } from '../../src/town/TownRules'
 import { getTownRampartLayout, townRampartHeight } from '../../src/town/TownRamparts'
 import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
-import type { ObstacleData } from '../../src/world/Terrain'
+import { getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
 import { SiegeConvoy } from '../../src/campaign/SiegeConvoy'
 
 // Exercise the full authored identity/capacity contract without allocating normal-Town
@@ -392,4 +394,57 @@ it('keeps borrowed outskirts soldiers at their formal tier across siege reconstr
   expect(siegeActorCharacterTier('outskirts:cavalry:a:0', 4)).toBe(4)
   expect(siegeActorCharacterTier('outskirts:bandit:a:0', 3)).toBe(3)
   expect(siegeActorCharacterTier('outskirts:cavalry:a:10', 3)).toBe(3)
+})
+
+it('四門騎兵先攔截本區城外敵人，清除後恢復攻門，突破後才追擊牆上及其他區域', () => {
+  const entries = new AvailableBreachEntrances(), town = new TownLayeredNavigation(getTownRampartLayout(), () => true)
+  const eastGate = { state: 'closed', siegeObstacle: { damageable: { destroyed: false, isDamageableBy: () => true } } }
+  const actor = {
+    combatantId: 'east:rider', dead: false, siegeTransport: null, tacticalOrder: 'charge', hasFormationTarget: false,
+    campaignBreachCompleted: false, campaignEntranceId: null as string | null, characterFaction: 'viking',
+    aiType: AIType.MELEE, combatPosition: new Vector3(180, 0, 62), isMounted: true, mount: { isFlyingMount: false },
+    combatTargetPriority: undefined as NPC['combatTargetPriority'], assignedSiegeObstacle: null as unknown,
+    faction: Faction.ENEMY, targetsPlayer: false, missionCombatTarget: undefined,
+    isTownRampartGarrisonActive: false, holdsRampartPosition: false, hasActiveRangedWeapon: false,
+    hasSiegeObstacle: true, _pursuitTargetAllowed: NPC.prototype['_pursuitTargetAllowed'],
+    priorityCombatTarget: null as unknown, get hasTacticalCombatPriority() {
+      return Object.getOwnPropertyDescriptor(NPC.prototype, 'hasTacticalCombatPriority')!.get!.call(this)
+    }, _isAttackableObstacle: NPC.prototype['_isAttackableObstacle'],
+    assignSiegeObstacle(target: unknown) { this.assignedSiegeObstacle = target }, setTacticalOrder() {},
+  }
+  const owner = Object.assign(Object.create(TownFourGateSiege.prototype) as { route(value: typeof actor): void }, {
+    attackerIds: new Set([actor.combatantId]), actorSectors: new Map([[actor.combatantId, 'east']]),
+    playerCommands: new Set(), departedActors: new Map(),
+    options: { acceptsOrders: () => true, attackerRole: () => 'gate-cavalry',
+      world: { gates: new Map([['east', eastGate]]) }, navigation: { townNav: town, areConnected: () => true } },
+  })
+  const target = (x: number, y: number, z: number) => ({ combatPosition: new Vector3(x, y, z), dead: false, faction: Faction.PLAYER }) as NPC
+  const ground = target(186, getTerrainHeight(186, 62), 62), wall = target(148, townRampartHeight(town.layout, 148, 62)!, 62), remote = target(-180, 0, 30)
+  // A docked same-gate ramp must not replace the closed-gate task.
+  entries.set({ id: 'east:ramp', gateId: 'east', type: 'siege-ramp', position: wall.combatPosition,
+    approach: ground.combatPosition, exit: wall.combatPosition, walkable: true, mounted: true, faction: null, connectionId: 'east' })
+  town.siegeEntrances.set(entries.entries.get('east:ramp')!)
+  owner.route(actor)
+  expect(actor.campaignEntranceId).toBeNull()
+  expect(actor.assignedSiegeObstacle).toBe(eastGate.siegeObstacle)
+  expect(actor.combatTargetPriority!(ground)).toBe(0)
+  expect(actor.combatTargetPriority!(wall)).toBeNull()
+  expect(actor.combatTargetPriority!(remote)).toBeNull()
+  const hasObstacle = () => Object.getOwnPropertyDescriptor(NPC.prototype, 'hasSiegeObstacle')!.get!.call(actor)
+  actor.priorityCombatTarget = ground
+  expect(hasObstacle()).toBe(false)
+  const grid = new SpatialGrid<NPC>(20)
+  grid.insert(wall); grid.insert(remote); grid.insert(ground)
+  const acquire = () => NPC.prototype['_findTarget'].call(actor as unknown as NPC, { dead: true, targetable: false } as Player, [], grid)
+  expect(acquire()?.npc).toBe(ground)
+  Object.assign(ground, { dead: true })
+  expect(acquire()).toBeNull()
+  expect(hasObstacle()).toBe(true)
+  eastGate.state = 'destroyed'
+  owner.route(actor)
+  expect(actor.combatTargetPriority!(wall)).toBe(1)
+  expect(actor.combatTargetPriority!(remote)).toBe(2)
+  expect(acquire()?.npc).toBe(wall)
+  actor.combatPosition.copy(wall.combatPosition)
+  expect(actor.combatTargetPriority!(wall)).toBe(0)
 })
