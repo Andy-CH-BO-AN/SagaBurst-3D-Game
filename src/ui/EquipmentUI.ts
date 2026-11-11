@@ -8,6 +8,7 @@ import { resolveMeleeSkillId, type SkillManager } from '../rpg/SkillManager'
 import type { InventoryManager } from '../rpg/InventoryManager'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { getTierBadge, getTierColor } from '../rpg/WeaponDatabase'
+import { mountComparisonText, type MountComparison } from '../rpg/MountComparison'
 import { compareEquipment, equipmentDetails, equipmentTraits, type ComparableEquipment } from '../rpg/EquipmentComparison'
 
 export interface EquipmentMountItem {
@@ -24,6 +25,8 @@ export interface EquipmentMountItem {
   /** Plain-language traits and, optionally, a precise note shown under 詳細屬性. */
   traits?: string[]
   detail?: string
+  /** Difference against the mount being ridden or allocated; absent when the adapter offers none. */
+  comparison?: MountComparison
 }
 
 export interface EquipmentMountAdapter {
@@ -270,6 +273,7 @@ export class EquipmentUI {
           <div class="inv-item-header"><span class="inv-item-name">${mount.name} T${mount.tier}</span></div>
           <div class="inv-item-stats">${mount.active ? '騎乘中' : mount.allocated ? '已分配給 Player' : mount.available ? '可騎乘' : mount.unavailableReason ?? '本次無法使用'}</div>
           ${mount.traits?.length ? `<div class="inv-item-stats">${mount.traits.join(' · ')}</div>` : ''}
+          ${mount.comparison ? `<div class="inv-item-compare compare-${mount.comparison.relation}">${mountComparisonText(mount.comparison)}</div>` : ''}
           <div class="inv-item-desc">${mount.quantityText ?? ''}</div>
           ${mount.detail ? `<details class="inv-item-details" data-details-key="mount:${mount.id}"><summary>詳細屬性</summary><div class="inv-item-desc">${mount.detail}</div></details>` : ''}
           <button class="btn-equip ${mount.active ? 'is-active' : ''}" data-focus-key="mount:${mount.id}" ${mount.available ? '' : 'disabled'}>${mount.active ? '【收起】' : '【騎乘】'}</button>
