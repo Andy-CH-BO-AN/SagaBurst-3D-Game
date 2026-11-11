@@ -1,6 +1,6 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Vector3, type Scene } from 'three'
-import { CareerDuelController, persistsDuelTravel, selectCareerDuelRoster, duelLoadout, type CareerDuelOpponentRequest } from '../../src/career/CareerDuelController'
+import { CareerDuelController, persistsDuelTravel, selectCareerDuelRoster, duelLoadout, type CareerDuelOpponentRequest, type CareerDuelVenue } from '../../src/career/CareerDuelController'
 import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import type { Player } from '../../src/player/Player'
@@ -10,7 +10,7 @@ import type { TownWorld } from '../../src/town/TownWorld'
 import { townSitePoint, type TownActorSpec } from '../../src/town/TownRules'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
-import { duelCombatSeconds, resolveCareerDuelOutcome, isUnarmedDuelUnlocked, isIllegalUnarmedDuelDamage, careerDuelOpponentHealth, createCareerTutorialDuelMission, CAREER_DUEL_TEMPLATE_ID, createCareerDuelMission, isCareerDuelUnlocked, type CareerDuelTier } from '../../src/career/CareerDuelState'
+import { careerDuelArena, duelCombatSeconds, resolveCareerDuelOutcome, isUnarmedDuelUnlocked, isIllegalUnarmedDuelDamage, careerDuelOpponentHealth, createCareerTutorialDuelMission, CAREER_DUEL_TEMPLATE_ID, createCareerDuelMission, isCareerDuelUnlocked, type CareerDuelTier } from '../../src/career/CareerDuelState'
 import { careerDuelClassOptions, resolveCareerDuelClass } from '../../src/career/CareerDuelClasses'
 import { acceptsCareerMissionStat } from '../../src/career/CareerMissionState'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -18,6 +18,7 @@ import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../.
 import type { CombatEvent } from '../../src/combat/CombatAttribution'
 import { Faction } from '../../src/world/NPC'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { CareerDuelArenaScene } from '../../src/arena/CareerDuelArenaScene'
 
 const stats = { damageDealt: 160, damageTaken: 20, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
 
@@ -48,7 +49,7 @@ function makeActor(id: string, x: number, z: number) {
 }
 
 /** Real controller/checkpoints and navigation; only position/order ports, no 3D actors. */
-function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING', createOpponent?: (request: CareerDuelOpponentRequest) => NPC | null) {
+function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING', createOpponent?: (request: CareerDuelOpponentRequest) => NPC | null, venue?: CareerDuelVenue) {
   const captain = makeActor('captain', -30, 20), opponent = makeActor('soldier-1', -60, 0)
   const makeSpec = (actor: typeof captain, role: TownActorSpec['role'], duty: TownActorSpec['duty']): TownActorSpec => ({
     id: actor.combatantId, role, duty, tier: 2, index: 0, mounted: false, training: duty === 'training',
@@ -69,7 +70,7 @@ function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING'
   const query = vi.spyOn(navigation, 'queryPath'); onTestFinished(() => query.mockRestore())
   const controller = new CareerDuelController(null as unknown as Scene, { obstacles: [] } as unknown as TownWorld,
     navigation, residents, null as unknown as Mount, () => player as unknown as Player, () => profile,
-    next => { if (!saveAllowed) return false; profile = next; return true }, undefined, createOpponent)
+    next => { if (!saveAllowed) return false; profile = next; return true }, undefined, createOpponent, venue)
   onTestFinished(() => controller.dispose())
   return { controller, captain, opponent, player, query, residents, read: () => profile,
     allowSave: (allowed: boolean) => { saveAllowed = allowed } }
@@ -231,6 +232,96 @@ describe('Career Duel physical travel and preparation', () => {
     expect(h.player.combatPosition).toEqual(playerStart)
     expect(h.captain.target).not.toEqual(h.controller.guideTarget) // Start at the newly computed route, not stale stage 999.
     expect(h.controller.returnComplete).toBe(false)
+  })
+})
+
+describe('Career Duel independent arena', () => {
+  it('saves the chosen arena through storage, keeps legacy and tutorial duels in Town, and refuses or drops unknown arenas', () => {
+    const profile = { ...createCareerProfile('viking'), tutorial: undefined }
+    const mission = createCareerDuelMission(profile, 'viking_berserker', 1, 'soldier-1', 'captain', 'arena-duel', 'captain', 'armed', undefined, 'roman-colosseum')!
+    expect(careerDuelArena(mission)).toBe('roman-colosseum')
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    expect(store.save({ ...profile, activeMission: mission })).toBe(true)
+    expect(careerDuelArena(store.load()!.activeMission)).toBe('roman-colosseum')
+    // A pre-arena save resumes in the Town forecourt; a corrupted ID falls back the same way.
+    const legacy = createCareerDuelMission(profile, 'viking_berserker', 1, 'soldier-1', 'captain', 'legacy-duel')!
+    expect(careerDuelArena(legacy)).toBeNull()
+    const raw = JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!)
+    raw.activeMission.duelArenaId = 'forum'
+    expect(careerDuelArena(parseCareerProfile(raw)!.activeMission)).toBeNull()
+    expect(createCareerDuelMission(profile, 'viking_berserker', 1, 'soldier-1', 'captain', 'bad', 'captain', 'armed', undefined, 'forum' as never)).toBeNull()
+    expect(careerDuelArena({ ...mission, duelTutorialCareerId: 'career-1' })).toBeNull()
+  })
+
+  it('places an accepted arena duel on its fixed slots and saves PREPARING without a march, or starts nothing when that save fails', () => {
+    const venue: CareerDuelVenue = { area: new Vector3(), player: { x: 0, y: 0, z: -9, yaw: 0 },
+      opponent: { x: 0, y: 0, z: 9, yaw: Math.PI }, referee: { x: 16, y: 0, z: 0, yaw: -Math.PI / 2 } }
+    const refused = travelingDuel('ASSEMBLING', undefined, venue)
+    refused.allowSave(false)
+    expect(refused.controller.startActiveMission()).toBe(false)
+    expect(refused.read().activeMission!.phase).toBe('ASSEMBLING')
+    const { controller, captain, opponent, player, query, read } = travelingDuel('ASSEMBLING', undefined, venue)
+    expect(controller.startActiveMission()).toBe(true)
+    expect(read().activeMission!.phase).toBe('PREPARING')
+    expect(query).not.toHaveBeenCalled()
+    expect(controller.guideTarget).toBeNull()
+    expect([opponent.target!.x, opponent.target!.z]).toEqual([0, 9])
+    expect([captain.target!.x, captain.target!.z]).toEqual([16, 0])
+    expect(player.group.position.toArray()).toEqual([0, 0.9, -9])
+    controller.update(5)
+    expect(controller.phase).toBe('ENGAGING')
+    expect(controller.beginReturn()).toBe(false)
+  })
+
+  it('freezes combat on the decided result after a failed settlement save and retries that same settlement once', () => {
+    const exitPointerLock = vi.fn()
+    vi.stubGlobal('document', { exitPointerLock })
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    // The real arena update/settlement methods on a plain host: no renderer, scene, actor or DOM is built.
+    const scene = CareerDuelArenaScene.prototype as unknown as {
+      settleFrame(this: object, outcome: 'victory' | null): void
+      update(this: object, dt: number): void
+    }
+    const panels: string[] = []
+    let retry: (() => void) | null = null, failSave = true
+    const live = { player: { ...stats }, squads: [] }
+    const player = { hp: 150, clearTownAction: vi.fn(), update: () => { throw new Error('player combat ran while frozen') } }
+    const base = { ...createCareerProfile('roman'), tutorial: undefined }
+    const host = Object.assign(Object.create(CareerDuelArenaScene.prototype) as object, {
+      profile: duel(base, 'roman_heavy_infantry', 1, 'arena-settle'),
+      store: { save: () => !failSave },
+      disposed: false, settled: false, pendingSettlement: null, skillsDirty: false, elapsed: 0,
+      duel: { snapshot: () => live, update: () => { throw new Error('duel clock ran while frozen') } },
+      // An arrow still in flight: it would hit the player if shots advanced.
+      shots: [{ arrow: { update() { player.hp -= 60 } } }],
+      arena: { update: vi.fn() }, damageNumbers: { update: vi.fn() }, camera: {},
+      input: { clear: vi.fn() }, player,
+      openPanel(title: string) { panels.push(title) }, closePanel() {},
+      button(_label: string, action: () => void) { retry = action },
+      openResult(result: { outcome: string }) { panels.push(`result:${result.outcome}`) },
+    }) as { profile: CareerProfile; input: { clear: () => void }; arena: { update: () => void } }
+    const merit = host.profile.totalMerit
+    const expected = claimCareerMission(cloneCareerProfile(host.profile), 'arena-settle', 'victory', { ...stats }).meritAwarded
+    scene.settleFrame.call(host, 'victory')
+    // The failed save releases the pointer and held input and opens one stable panel.
+    expect([panels, exitPointerLock.mock.calls.length, vi.mocked(host.input.clear).mock.calls.length]).toEqual([['單挑結算尚未保存'], 1, 1])
+    live.player.survived = false // A later hit would change the live stats; the frozen claim must not.
+    for (let frame = 0; frame < 30; frame++) {
+      scene.update.call(host, 1 / 60)
+      scene.settleFrame.call(host, 'victory')
+    }
+    expect(player.hp).toBe(150) // No shot, AI or player combat advanced.
+    expect(vi.mocked(host.arena.update).mock.calls.length).toBe(30) // Presentation still moves.
+    expect(panels).toEqual(['單挑結算尚未保存'])
+    expect([host.profile.totalMerit, host.profile.activeMission!.result, host.profile.claimedBattleIds]).toEqual([merit, undefined, []])
+    failSave = false
+    retry!()
+    for (let frame = 0; frame < 30; frame++) scene.settleFrame.call(host, 'victory')
+    expect(panels).toEqual(['單挑結算尚未保存', 'result:victory'])
+    expect(host.profile.claimedBattleIds).toEqual(['arena-settle'])
+    expect(host.profile.activeMission!.result!.stats.survived).toBe(true) // The decided snapshot, not the later one.
+    expect(host.profile.totalMerit - merit).toBe(expected)
+    expect(expected).toBeGreaterThan(0)
   })
 })
 

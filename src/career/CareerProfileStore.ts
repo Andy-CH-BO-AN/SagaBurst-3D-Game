@@ -1,4 +1,5 @@
 import { CAREER_CLASSES_BY_FACTION, isCareerEliteClass, isRoadClass, T5_CLASS_ROAD, unlockedCareerClasses, type CareerClassRoad } from './CareerElitePromotion'
+import { parseDuelArenaId } from '../arena/DuelArenaCatalog'
 import { isT4ClassId, T4_CLASS_ROAD, T4_CLASSES_BY_FACTION, unlockedT4Classes } from './CareerT4Promotion'
 import { createCareerTutorialState, parseCareerTutorialState } from './CareerTutorialState'
 import { migrateCareerHealth } from './CareerHealthMigration'
@@ -509,6 +510,8 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
       ...(raw.duelMode === 'unarmed' || raw.duelTier === 5 || raw.duelTutorialCareerId ? { duelCommanderHome: parseCareerDuelCommanderHome(raw.duelCommanderHome),
         duelTravel: parseCareerDuelTravelCheckpoint(raw.duelTravel, [...new Set([duelOpponentActorId, duelCaptainActorId, ...(raw.duelTutorialCareerId ? [duelRefereeActorId] : [])])]) } : {}),
       duelPresetId: raw.duelPresetId as UnitPresetId,
+      // An unknown arena ID is dropped; the duel then resumes in the legacy Town forecourt.
+      ...(!raw.duelTutorialCareerId && parseDuelArenaId(raw.duelArenaId) ? { duelArenaId: parseDuelArenaId(raw.duelArenaId)! } : {}),
       // An unknown or illegal class is dropped, so the duel simply uses the resident's original class.
       ...(raw.duelMode !== 'unarmed' && typeof raw.duelClassId === 'string'
         && careerDuelClassOptions(faction, raw.duelPresetId as UnitPresetId, raw.duelTier as number).some(option => option.combatProfileId === raw.duelClassId)

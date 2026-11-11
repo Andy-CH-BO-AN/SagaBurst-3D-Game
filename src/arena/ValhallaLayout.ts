@@ -120,7 +120,7 @@ export function createValhallaObstacles(): ObstacleData[] {
   obstacles.push({ box: box(-stair.halfWidth, g, stair.landingZ, stair.halfWidth, dais.topY, v.backZ), isBarricade: false })
   obstacles.push({
     box: box(-stair.halfWidth, g, stair.lowZ, stair.halfWidth, dais.topY, stair.landingZ), isBarricade: false,
-    walkSurface: valhallaStairSurface(), solidBelow: g,
+    walkSurface: valhallaStairSurface(), solidBelow: g, navigationPassable: true,
   })
   const throne = v.throne
   obstacles.push({ box: box(-throne.halfWidth, dais.topY, throne.minZ, throne.halfWidth, dais.topY + throne.height, throne.maxZ), isBarricade: false })
