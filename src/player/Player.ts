@@ -568,8 +568,8 @@ export class Player {
     if (this.currentMount && this.currentMount !== mount) return
     this.isMounted = true
     this.currentMount = mount
-    this.footGroundFall?.reset()
-    this.mountGroundFall?.reset()
+    // A rider who catches a mount mid-fall still lands from the original height.
+    this.footGroundFall?.handOffTo(this.mountGroundFall, mount.group.position.y)
     this.flightSteering = null
     this.flightRiderAimYaw = null
     this.flightRiderYaw = 0
@@ -636,11 +636,18 @@ export class Player {
     }
     const mountPosition = groundedEagleDismount ? this.fallFeet.clone().addScaledVector(THREE.Object3D.DEFAULT_UP, PLAYER_HALF_HEIGHT)
       : preserveWorldPosition ? null : this.currentMount.group.position.clone().addScaledVector(THREE.Object3D.DEFAULT_UP, PLAYER_HALF_HEIGHT)
+    // Leaving a jumping or falling ground mount continues that fall on foot:
+    // its apex and vertical speed carry over until the rider really lands.
+    const airborneGroundMount = !mount.isFlyingMount && !mount.onGround
+    const carriedVelocityY = airborneGroundMount ? mount.velY : 0
     this.currentMount.releaseRider()
     this.currentMount = null
     this.isMounted = false
-    this.footGroundFall?.reset()
-    this.mountGroundFall?.reset()
+    if (airborneGroundMount) this.mountGroundFall?.handOffTo(this.footGroundFall, mount.group.position.y)
+    else {
+      this.footGroundFall?.reset()
+      this.mountGroundFall?.reset()
+    }
     if (!this.rig.equipmentGripFrames) applyCharacterMountedPose(this.rig, false)
     this.rig.animation?.setEquipmentState?.({ mounted: false })
     this.animator.setLocomotion(0, false)
@@ -649,13 +656,13 @@ export class Player {
     // When a mount dies, start falling from the rider's seat height rather than
     // placing the player's collision body inside the surface beneath the mount.
     if (mountPosition) this.group.position.copy(mountPosition)
-    else this.onGround = false
+    if (!mountPosition || airborneGroundMount) this.onGround = false
     this.group.rotation.x = 0
     this.group.rotation.z = 0
     this.flightSteering = null
     this.flightRiderAimYaw = null
     this.flightRiderYaw = 0
-    this.velY = 0
+    this.velY = carriedVelocityY
   }
 
   /**

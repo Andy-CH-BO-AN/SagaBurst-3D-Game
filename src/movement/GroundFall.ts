@@ -53,6 +53,16 @@ export class GroundFallTracker {
     return height
   }
 
-  /** Teleports, mounting and scene resets must not turn into a landing. */
+  /** Teleports and scene resets must not turn into a landing. */
   reset(): void { this.apexY = null }
+
+  /**
+   * Mounting or dismounting in mid-air keeps the fall that is already under way:
+   * the other body's tracker continues from this apex and this one is cleared.
+   * With no fall in progress the target is simply reset.
+   */
+  handOffTo(target: GroundFallTracker, feetY: number): void {
+    target.apexY = this.apexY === null ? null : Math.max(this.apexY, feetY)
+    this.apexY = null
+  }
 }

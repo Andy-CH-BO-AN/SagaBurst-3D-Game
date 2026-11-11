@@ -10,7 +10,7 @@ import { buildColosseumVisuals } from './RomanColosseum'
 import { buildValhallaVisuals } from './VikingValhalla'
 import { ARENA_GROUND_FALL_POLICY, setSceneGroundFallPolicy } from '../movement/GroundFall'
 import {
-  getFlatTerrainOverride, setFlatTerrainOverride, setObstaclePathQuerySource, setScenePlayableWorldBound, type ObstacleData,
+  claimFlatTerrainOverride, releaseFlatTerrainOverride, setObstaclePathQuerySource, setScenePlayableWorldBound, type ObstacleData,
 } from '../world/Terrain'
 
 export { DUEL_ARENA_IDS, DUEL_ARENA_LABELS, parseDuelArenaId, parseDuelArenaPreviewQuery, type DuelArenaId } from './DuelArenaCatalog'
@@ -53,7 +53,8 @@ export function createDuelArena(id: DuelArenaId, scene: THREE.Scene): DuelArenaE
   const resources = new ArenaResources()
   const previous: ArenaScenePolicy = { background: scene.background as THREE.Color | THREE.Texture | null, fog: scene.fog }
   const groundY = id === 'roman-colosseum' ? COLOSSEUM.groundY : VALHALLA.groundY
-  let installedGround = false
+  /** Identity of this arena's claim on the shared flat-ground policy. */
+  const groundOwner = {}
   let disposed = false
   let root: THREE.Group | undefined
   let obstacles: ObstacleData[] = []
@@ -63,14 +64,13 @@ export function createDuelArena(id: DuelArenaId, scene: THREE.Scene): DuelArenaE
     root?.removeFromParent()
     setObstaclePathQuerySource(obstacles, false)
     resources.dispose()
-    if (installedGround && getFlatTerrainOverride() === groundY) setFlatTerrainOverride(null)
+    releaseFlatTerrainOverride(groundOwner)
     setSceneGroundFallPolicy(scene, null)
     scene.background = previous.background
     scene.fog = previous.fog
   }
   try {
-    setFlatTerrainOverride(groundY)
-    installedGround = true
+    claimFlatTerrainOverride(groundOwner, groundY)
     let update: (dt: number) => void
     let constrain: (position: THREE.Vector3) => boolean
     let spawns: DuelArenaEnvironment['spawns']

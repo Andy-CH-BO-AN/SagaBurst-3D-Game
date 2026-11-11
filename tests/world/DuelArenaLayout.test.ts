@@ -11,7 +11,11 @@ import { ARENA_DUEL_REFEREE_SLOTS } from '../../src/arena/DuelArenaVenue'
 import { arenaDuelPartyPlan } from '../../src/arena/CareerDuelArenaScene'
 import { FallingRider } from '../../src/movement/FallingRider'
 import { ARENA_GROUND_FALL_POLICY, groundFallDamage, GroundFallTracker } from '../../src/movement/GroundFall'
-import { findBlockingObstacleAlongPath, getWalkRampHeight, resolveObstacleCollision } from '../../src/world/Terrain'
+import { Player } from '../../src/player/Player'
+import {
+  claimFlatTerrainOverride, findBlockingObstacleAlongPath, getFlatTerrainOverride, getTerrainHeight, getWalkRampHeight,
+  releaseFlatTerrainOverride, resetTerrainScenePolicy, resolveObstacleCollision,
+} from '../../src/world/Terrain'
 
 // Numeric layout data only: no scene, mesh, material or arena visuals are built.
 const PLAYER = { radius: 0.38, height: 1.9 }
@@ -107,6 +111,72 @@ describe('duel arena layout collision', () => {
     expect(resolveDuelArenaPreviewSetup(new URLSearchParams('duelarena=valhalla&faction=roman'))).toEqual({ arena: 'viking-valhalla', faction: 'roman' })
     // Unknown arenas fall through to the normal entry flow.
     expect(resolveDuelArenaPreviewSetup(new URLSearchParams('duelarena=forum'))).toBeNull()
+  })
+
+  it('hands an airborne ground-mount fall to the dismounted rider and keeps grounded dismounts harmless', () => {
+    // Narrow ports drive the real Player mount/dismount methods; no Player, Mount or scene is constructed.
+    const methods = Player.prototype as unknown as {
+      mountVehicle(this: object, mount: object, heading?: number): void
+      dismountFromMount(this: object, options?: { preserveWorldPosition?: boolean }): void
+      setMountedHeading(this: object, heading: number): void
+    }
+    const horse = {
+      group: { position: new THREE.Vector3(0, 21.2, 0), rotation: new THREE.Euler() },
+      isFlyingMount: false, isAirborne: false, dead: false, disposed: false, riderNpc: null, riderPlayer: null as object | null,
+      onGround: false, velY: -9,
+      setPlayerRider(player: object) { this.riderPlayer = player },
+      releaseRider() { this.riderPlayer = null },
+    }
+    const rider = {
+      unarmedDuelOnly: false, isDead: false, isFalling: false, spectatorOnly: false, isMounted: false, onGround: true,
+      currentMount: null as typeof horse | null, facingYaw: 0, velY: 0,
+      group: { position: new THREE.Vector3(), rotation: new THREE.Euler() }, fallFeet: new THREE.Vector3(),
+      rig: { equipmentGripFrames: {} }, animator: { setLocomotion() {} },
+      footGroundFall: new GroundFallTracker(), mountGroundFall: new GroundFallTracker(),
+      setMountedHeading: methods.setMountedHeading,
+      _characterYaw: (heading: number) => heading, _alignExternalVisualToMount() {},
+    }
+    const ride = () => {
+      methods.mountVehicle.call(rider, horse)
+      rider.mountGroundFall.observe(19.2, true) // Grounded on the gallery: nothing in progress.
+      rider.mountGroundFall.observe(horse.group.position.y, false) // Ridden off the parapet, still high.
+    }
+    ride()
+    // E pressed mid-fall: the rider keeps falling at the mount's speed from the gallery apex.
+    methods.dismountFromMount.call(rider)
+    expect([rider.currentMount, rider.onGround, rider.velY]).toEqual([null, false, -9])
+    expect(rider.group.position.y).toBeCloseTo(21.2 + 0.95, 5) // At the mount's feet plus half height, never teleported.
+    const landing = rider.footGroundFall.observe(0, true)!
+    expect(landing).toBeCloseTo(21.2)
+    expect(groundFallDamage(150, landing, ARENA_GROUND_FALL_POLICY)).toBe(150)
+    // Catching the mount again mid-air does not erase the fall either.
+    rider.footGroundFall.observe(18, false)
+    rider.onGround = false
+    horse.onGround = false
+    methods.mountVehicle.call(rider, horse)
+    expect(rider.mountGroundFall.observe(0, true)).toBeCloseTo(21.2)
+    // A dismount on solid ground clears both trackers and the vertical speed.
+    methods.dismountFromMount.call(rider)
+    horse.onGround = true
+    ride()
+    horse.velY = 0
+    methods.dismountFromMount.call(rider)
+    expect([rider.velY, rider.footGroundFall.observe(0, true), rider.mountGroundFall.observe(0, true)]).toEqual([0, null, null])
+  })
+
+  it('lets only the arena that owns the flat-ground policy release it, so a late dispose keeps the newer arena', () => {
+    resetTerrainScenePolicy()
+    const procedural = getTerrainHeight(140, 90)
+    expect(Math.abs(procedural)).toBeGreaterThan(0.01)
+    const colosseum = {}, valhalla = {}
+    claimFlatTerrainOverride(colosseum, 0)
+    claimFlatTerrainOverride(valhalla, 0) // A → B: the second arena replaces the first.
+    releaseFlatTerrainOverride(colosseum) // The replaced arena disposes late.
+    expect([getFlatTerrainOverride(), getTerrainHeight(140, 90)]).toEqual([0, 0])
+    releaseFlatTerrainOverride(valhalla) // Leaving the last arena restores the battlefield.
+    expect([getFlatTerrainOverride(), getTerrainHeight(140, 90)]).toEqual([null, procedural])
+    releaseFlatTerrainOverride(valhalla)
+    expect(getFlatTerrainOverride()).toBeNull()
   })
 
   it('routes a pursuer between the sand and the raised stands through a stair axis, mouth and landing', () => {
