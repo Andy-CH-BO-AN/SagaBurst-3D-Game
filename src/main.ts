@@ -226,6 +226,14 @@ async function bootstrap(): Promise<void> {
       return
     }
   }
+  if (import.meta.env.DEV && query.has('townarchitecture')) {
+    const { launchTownArchitectureShowcase, resolveTownArchitectureShowcase } = await import('./debug/TownArchitectureShowcase')
+    const faction = resolveTownArchitectureShowcase(query)
+    if (faction) {
+      await launchTownArchitectureShowcase(container!, faction)
+      return
+    }
+  }
   if (import.meta.env.DEV && query.get('fourgatepreview') === '1') {
     const { launchTownFourGateSiegePreview } = await import('./debug/TownFourGateSiegePreview')
     await launchTownFourGateSiegePreview(container!)
