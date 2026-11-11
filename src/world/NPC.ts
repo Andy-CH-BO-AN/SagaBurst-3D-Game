@@ -1065,7 +1065,9 @@ export class NPC {
     } else {
       const distance = delta.length()
       if (distance > .001) this._faceDirection(delta.clone().normalize())
-      if (distance > UNARMED_ATTACK_DISTANCE && !this.animator.busy) {
+      // Pursuit never waits for a punch combo: the clip keeps playing (locomotion yields to busy actions)
+      // while the body closes the distance, and a new combo only starts once the previous one is done.
+      if (distance > UNARMED_ATTACK_DISTANCE) {
         this.state = AIState.CHASE
         // Same ground A*/path-follow/detour services as ordinary melee chase; only the fist reach differs.
         const moveDir = this._tmpMoveDir.set(0, 0, 0)
