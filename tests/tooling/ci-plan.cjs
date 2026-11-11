@@ -1,9 +1,12 @@
 'use strict'
 const { execFileSync } = require('node:child_process')
-const { readdirSync, writeFileSync, mkdirSync, appendFileSync } = require('node:fs')
+const { readdirSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } = require('node:fs')
 const { resolve, relative, dirname } = require('node:path')
 const { randomUUID } = require('node:crypto')
 const { MAX_RELATED_CASES } = require('./budget.cjs')
+const { gitEvidence } = require('./ci-git-evidence.cjs')
+const { classifyInputs } = require('./ci-inputs.cjs')
+const { hash } = require('./ci-assets.cjs')
 const root = resolve(__dirname, '../..')
 const slash = file => file.replaceAll('\\', '/')
 const local = file => slash(relative(root, resolve(root, file)))
@@ -88,7 +91,51 @@ function noSeedPolicy(changed, base, head, {
 }
 function probeSeed({mode, base, head, event}) {
   if (mode !== 'related') return true
-  return !noSeedPolicy(changes(base, head, event), base, head)
+  return prepareInputs({mode, base, head, event}).requiresSeed
+}
+
+function prepareInputs({ mode, base, head, event }, cwd = root) {
+  // Reusable Full callers (tags) have no before SHA; use the checked-out parent
+  // only to identify changed assets, never as a Related seed substitute.
+  if (mode === 'full' && (!base || /^0+$/.test(base))) base = execFileSync('git', ['rev-parse', 'HEAD^'], { cwd, encoding: 'utf8' }).trim()
+  const evidence = gitEvidence({ base, head, event }, cwd)
+  const readGit = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
+  const regular = (side, file) => /^100644 blob [0-9a-f]{40}\t/.test(readGit('ls-tree', side === 'base' ? base : evidence.checkoutSha, '--', file))
+  const inputs = classifyInputs(evidence.changes, { regular,
+    read: (side, file) => execFileSync('git', ['show', (side === 'base' ? base : evidence.checkoutSha) + ':' + file], { cwd, encoding: 'utf8' }), docsOnly,
+    safeSpecial: change => cwd === root && (
+      (change.status === 'A' && safeNewAgentLink(base, evidence.checkoutSha, change.file)) ||
+      (change.file === '.gitignore' && regular('head', change.file) && safeGitignore(base, evidence.checkoutSha))),
+  })
+  const unknown = inputs.filter(i => i.kind === 'unknown')
+  // Full still checks assets, but has no need to classify all executable inputs.
+  const unsafe = mode === 'related' ? unknown : unknown.filter(i => i.file.startsWith('public/models/') || /^tools\/build-/.test(i.file))
+  const requiresSeed = inputs.some(i => i.kind === 'runtime')
+  const policy = inputs.some(i => ['asset', 'builder'].includes(i.kind)) ? 'asset-only'
+    : inputs.some(i => ['css', 'html-style'].includes(i.kind)) ? 'css-only' : inputs.length ? 'docs-only' : 'empty-diff'
+  return { evidence, inputs, requiresSeed, policy, unsafe }
+}
+function inputSummary(prepared) {
+  const { evidence, inputs, requiresSeed, policy } = prepared
+  return ['Event evidence: ' + evidence.baseSha + ' -> ' + evidence.headSha,
+    'Checkout SHA: ' + evidence.checkoutSha, 'Merge-base SHA: ' + evidence.mergeBaseSha,
+    'Effective diff: ' + evidence.diffBaseSha + ' -> ' + evidence.diffHeadSha,
+    'Exact seed required: ' + requiresSeed + '; non-runtime policy: ' + policy,
+    ...['runtime', 'asset', 'html-style', 'builder', 'css', 'docs', 'unknown'].map(kind => kind + ' inputs: ' + inputs.filter(i => i.kind === kind).length),
+    ...inputs.map(i => i.kind + ': ' + i.file + ' — ' + i.reason)].join('\n')
+}
+function assetProof(prepared) {
+  if (!prepared.inputs.some(i => ['asset', 'builder'].includes(i.kind))) return null
+  let proof
+  try { proof = JSON.parse(readFileSync(resolve(root, 'output/asset-validation.json'), 'utf8')) }
+  catch { throw Error('Missing independent asset validation; run ci-asset-run.cjs first') }
+  if (proof.result !== 'passed' || proof.checkoutSha !== prepared.evidence.checkoutSha ||
+      proof.baseSha !== prepared.evidence.baseSha || proof.headSha !== prepared.evidence.headSha ||
+      proof.inputsHash !== hash(Buffer.from(JSON.stringify(prepared.inputs)))) throw Error('Failed or stale asset validation')
+  for (const [file, digest] of Object.entries(proof.hashes ?? {})) {
+    if (hash(readFileSync(resolve(root, file))) !== digest) throw Error('Asset changed after validation: ' + file)
+  }
+  return proof
 }
 
 function discoverNode() {
@@ -180,7 +227,9 @@ function validateManifest(plan) {
   const count = selectedCount(plan)
   if (count !== plan.expectedCount) throw new Error('Plan expected case count disagrees with its selection')
   if (plan.mode === 'related') requireRelatedBudget(count)
-  if (!count && !(plan.mode === 'related' && (plan.docsOnly || plan.cssOnly))) throw new Error('Empty code selection')
+  if (plan.assetOnly && (plan.assetValidation?.result !== 'passed' || !plan.assetValidation.files?.length)) throw new Error('Asset-only requires independent passed validation')
+  if (!count && !(plan.mode === 'related' && (plan.docsOnly || plan.cssOnly || plan.assetOnly ||
+      (plan.emptyDiff && plan.gitEvidence?.changes?.length === 0 && plan.gitEvidence.checkoutSha === plan.checkoutSha)))) throw new Error('Empty code selection')
   return plan
 }
 function relatedSelectionLines(plan) {
@@ -205,6 +254,10 @@ function selectionSummary(plan) {
     'Mode: ' + (plan.mode === 'full' ? 'Full' : 'Related'),
     'Selection source: ' + (plan.source || (plan.docsOnly ? 'Safe documents / agent config' : plan.cssOnly ? 'CSS-only: Web build and static validation' : 'Explicit Full')),
     'Base SHA: ' + (plan.baseSha || '-') + '; Head SHA: ' + (plan.headSha || '-'),
+    'Checkout SHA: ' + (plan.checkoutSha || '-') + '; Merge-base SHA: ' + (plan.gitEvidence?.mergeBaseSha || '-'),
+    'Seed SHA: ' + (plan.seedSha || 'not required') + '; Asset validation: ' + (plan.assetValidation?.result || 'not-needed'),
+    ...(plan.inputClassification ? [inputSummary({ evidence: plan.gitEvidence, inputs: plan.inputClassification, requiresSeed: plan.requiresSeed, policy: plan.nonRuntimePolicy })] : []),
+    ...(plan.zeroSelectionReason ? ['Zero-selection reason: ' + plan.zeroSelectionReason] : []),
     'Total suite: ' + total + ' leaves; Selected: ' + count + ' leaves (' + pct + '%); Files: ' + plan.selected.length,
     'Related health: ' + (plan.mode !== 'related' ? 'N/A' : count > 500 ? 'FAIL' : count > 300 ? 'Very broad' : count > 200 ? 'Broad' : count > 100 ? 'Normal' : 'Excellent'),
     'Case limit: ' + (plan.mode === 'related' ? MAX_RELATED_CASES + ' hard limit' : 'none (Full runs everything)'),
@@ -218,25 +271,33 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   if (!['related', 'full'].includes(mode)) throw new Error('Unknown test mode')
   const checkoutSha = git('rev-parse', 'HEAD')
   if (mode === 'full') {
+    // Local npm test has no requested commit; CI callers always do.
+    const prepared = head ? prepareInputs({ mode, base, head, event }) : null
+    if (prepared?.unsafe.length) throw Error('Unknown asset input: ' + prepared.unsafe.map(i => i.file).join(', '))
+    const assetValidation = prepared ? assetProof(prepared) : null
     const inventory = await discover()
     return validateManifest({
       version: 1, planId: randomUUID(), requestedMode: mode, mode, event,
       baseSha: base, headSha: head, checkoutSha, changedFiles: [], changes: [], inventory,
       selected: inventory.map(item => item.file), reasons: {}, fallback: null,
+      assetValidation, ...(prepared ? { gitEvidence: prepared.evidence, inputClassification: prepared.inputs, requiresSeed: false, nonRuntimePolicy: prepared.policy } : {}),
       expectedCount: inventory.reduce((sum, item) => sum + item.names.length, 0),
     })
   }
-  let changed
-  try { changed = changes(base, head, event) }
-  catch (error) { throw new Error('Related Git history unavailable: ' + error.message) }
-  if (!changed.length) throw new Error('Related change evidence empty; refusing unknown selection')
-  const changedFiles = [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort()
-  const noSeed = noSeedPolicy(changed, base, head)
-  if (noSeed) {
+  const prepared = prepareInputs({ mode, base, head, event })
+  if (prepared.unsafe.length) throw Error('Related input classification unsafe: ' + prepared.unsafe.map(i => i.file + ': ' + i.reason).join(', '))
+  const { evidence, inputs, requiresSeed, policy } = prepared
+  const allChanges = evidence.changes
+  const common = { gitEvidence: evidence, inputClassification: inputs, requiresSeed,
+    nonRuntimePolicy: policy, assetValidation: assetProof(prepared) }
+  const changed = inputs.filter(i => i.kind === 'runtime').map(({ status, file }) => ({ status, file }))
+  const changedFiles = allChanges.map(i => i.file).sort()
+  if (!requiresSeed) {
     return validateManifest({
       version: 1, planId: randomUUID(), requestedMode: mode, mode, event,
-      baseSha: base, headSha: head, checkoutSha, changedFiles, changes: changed,
-      docsOnly: noSeed === 'docs-only', cssOnly: noSeed === 'css-only',
+      ...common, baseSha: base, headSha: head, checkoutSha, changedFiles, changes: allChanges,
+      docsOnly: policy === 'docs-only', cssOnly: policy === 'css-only', assetOnly: policy === 'asset-only', emptyDiff: policy === 'empty-diff',
+      source: policy, zeroSelectionReason: 'Verified ' + policy + '; Web typecheck/build remain required',
       inventory: [], selected: [], reasons: {}, fallback: null, expectedCount: 0,
     })
   }
@@ -245,7 +306,7 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   const expectedCount = selection.selected.reduce((sum, file) => sum + selection.selectedCases[file].length, 0)
   return finishRelatedPlan({
     version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
-    checkoutSha, changedFiles, changes: changed, inventory, ...selection, expectedCount,
+    ...common, seedSha: base, checkoutSha, changedFiles, changes: allChanges, inventory, ...selection, expectedCount,
   })
 }
 function publishSummary(plan) {
@@ -270,7 +331,14 @@ function options(args) {
 if (require.main === module) (async () => {
   const args = options(process.argv.slice(2))
   if (args.probe === 'seed') {
-    const required = probeSeed(args)
+    const prepared = prepareInputs(args)
+    mkdirSync(resolve(root, 'output'), { recursive: true })
+    writeFileSync(resolve(root, 'output/ci-inputs.json'), JSON.stringify(prepared, null, 2))
+    const diagnostic = inputSummary(prepared)
+    console.log(diagnostic)
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\n### Git and input evidence\n\n```text\n' + diagnostic + '\n```\n')
+    if (prepared.unsafe.length) throw Error('Input classification unsafe: ' + prepared.unsafe.map(i => i.file).join(', '))
+    const required = args.mode === 'related' && prepared.requiresSeed
     const message = 'requires-seed=' + required + '\n'
     process.stdout.write(message)
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, message)
@@ -286,4 +354,4 @@ if (require.main === module) (async () => {
 })().catch(error => { console.error(error); process.exitCode = 1 })
 module.exports = { createPlan, discover, discoverNode, docsOnly, changes, options,
   finishRelatedPlan, requireRelatedBudget, selectedNames, selectionSummary, validateManifest,
-  regularTrackedFile, safeGitignore, safeNewAgentLink, noSeedPolicy, probeSeed }
+  regularTrackedFile, safeGitignore, safeNewAgentLink, noSeedPolicy, probeSeed, prepareInputs, inputSummary }

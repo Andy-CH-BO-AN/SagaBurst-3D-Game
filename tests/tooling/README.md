@@ -223,7 +223,8 @@ strictly pinned to 4.24.2; the migration does not upgrade Vitest/Vite/Node.
 ## Unsupported inputs and rollout acceptance
 
 Deleted, renamed or moved runtime sources, added sources without the proof above,
-assets, unknown global inputs and corrupted evidence fail Related. Config/dependency
+unknown asset families, unknown global inputs and corrupted evidence fail Related.
+Known asset families use the independent validation policy below. Config/dependency
 changes may select all leaves and therefore correctly fail the 500 Related limit.
 
 ### Post-merge confirmation
@@ -245,3 +246,50 @@ The main push gate emits a verified Full SHA for the same checkout, shared
 with Pages/Release. Failed, stale or missing SHA cannot publish. Manual
 release tags without matching evidence run Full. Dev PRs skip Desktop and
 browser smoke, while regular build/typecheck remain.
+
+## Non-runtime inputs and Git/job integrity
+
+`ci-inputs.cjs` classifies every effective input before seed restore. Only
+regular tracked additions/modifications are admitted. Unknown inputs, symlinks,
+renames and deletions fail closed. A narrow `index.html` proof permits changes
+only inside its existing head style block, with byte-identical DOM/scripts and
+resource references. HTML semantic changes still fail closed.
+
+Known character-v2 families and registered equipment use an independent
+`ci-asset-run.cjs` step, before the native query. This checks GLB chunks, embedded
+buffers, views/accessors, compression, manifest/LOD hashes, audit, bone mappings,
+licenses and the actual pure loader contract. Equipment additionally checks its
+registered path and generated shield collision metadata. Reviewed offline
+builders get syntax/consumer checks and validate their associated output families;
+they are never executed. Unknown producers/families remain unsupported. External
+glTF resources and sparse accessors require an explicit future policy.
+
+Asset-only plans may select zero logic cases without a seed, but require a
+passed asset report tied to base/head/checkout and file digests. Mixed runtime
+changes retain exact seed/native selection and whole changed-test-file execution.
+Existing manifest animation timing/event changes are not static exemptions and
+fail closed pending an explicit runtime evidence policy. Static validation does
+not establish visual, animation, riding or GPU quality.
+
+`ci-git-evidence.cjs` keeps merge-base diagnostics and binds the actual checkout
+to the requested PR base/head and event payload. Native Supercov sees the checkout,
+so the effective diff is exact base → validated checkout, including merge
+resolutions. A local head must already include base. A truly empty diff gets an
+explicit empty-diff plan; absent history and SHA mismatches cannot use this policy.
+Full/Related trigger rules, the exact seed, 500/100ms caps and discovery stay intact.
+
+Web reports the logic result with run/head/ref details and still rejects skipped
+or failed logic. A GitHub failure before job creation cannot be fixed by an
+in-workflow guard. Inspect the current PR externally with:
+
+    node tests/tooling/ci-check-jobs.cjs OWNER/REPO PR_NUMBER RUN_ID output/jobs.json
+
+This read-only command checks the latest PR head/merge revision and the run's
+current attempt, paginates jobs, and rejects missing, skipped, cancelled, failed,
+stale or duplicate required jobs. It does not change branch protection. Configure
+required checks `logic / gate` and `web` in Settings → Rules → Rulesets → dev;
+require up-to-date checks as appropriate. Rulesets alone treat some skipped checks
+as acceptable, so preserve the Web job's explicit successful-logic requirement.
+An externally reported workflow failure/missing job remains unverified even if no
+summary was produced. Do not substitute an old attempt, force push or empty commit
+for a permanent fix.

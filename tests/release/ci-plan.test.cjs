@@ -124,3 +124,20 @@ test('partial files share a process unless a selected name would run an unselect
   const plan = { inventory: [a, b, c], selectedCases: { [a.file]: [0], [b.file]: [0], [c.file]: [1] } }
   assert.deepEqual(partialBatches(plan, [a.file, b.file, c.file]), [[a.file, b.file], [c.file]])
 })
+
+const { assessJobs } = require('../tooling/ci-check-jobs.cjs')
+test('必要 Job 缺少、跳過或舊 Attempt 不得冒充成功', () => {
+  const run = { head_sha: sha, run_attempt: 2, status: 'completed', conclusion: 'success' }
+  const jobs = ['logic / gate', 'web'].map(name => ({ name, head_sha: sha, run_attempt: 2, status: 'completed', conclusion: 'success' }))
+  assert.equal(assessJobs(run, jobs, sha).result, 'passed')
+  assert.equal(assessJobs(run, [], sha).required['logic / gate'], 'missing')
+  assert.equal(assessJobs(run, [{ ...jobs[0], conclusion: 'skipped' }, jobs[1]], sha).result, 'unverified')
+  assert.equal(assessJobs(run, [{ ...jobs[0], run_attempt: 1 }, jobs[1]], sha).required['logic / gate'], 'stale-attempt')
+  assert.equal(assessJobs(run, jobs, 'b'.repeat(40)).result, 'unverified')
+})
+test('純資產空選測必須有獨立驗證成功的證據', () => {
+  const plan = { mode: 'related', assetOnly: true, inventory: [], selected: [], expectedCount: 0 }
+  assert.throws(() => validateManifest(plan), /independent passed validation/)
+  assert.equal(validateManifest({ ...plan, assetValidation: { result: 'passed', files: ['model.glb'] } }).expectedCount, 0)
+  assert.throws(() => validateManifest({ ...plan, assetValidation: { result: 'failed', files: ['model.glb'] } }), /independent passed validation/)
+})
