@@ -566,10 +566,12 @@ export class Player {
     if (this.isDead || this.isFalling || this.currentMount?.isAirborne || mount.isAirborne || this.spectatorOnly || mount.dead || mount.disposed || mount.riderNpc || mount.riderPlayer && mount.riderPlayer !== this) return
     if (this.currentMount && this.currentMount !== mount) this.dismountFromMount()
     if (this.currentMount && this.currentMount !== mount) return
+    // Re-entry for the mount already ridden keeps that mount's fall history.
+    const alreadyRiding = this.currentMount === mount
     this.isMounted = true
     this.currentMount = mount
     // A rider who catches a mount mid-fall still lands from the original height.
-    this.footGroundFall?.handOffTo(this.mountGroundFall, mount.group.position.y)
+    if (!alreadyRiding) this.footGroundFall?.handOffTo(this.mountGroundFall, mount.group.position.y)
     this.flightSteering = null
     this.flightRiderAimYaw = null
     this.flightRiderYaw = 0
