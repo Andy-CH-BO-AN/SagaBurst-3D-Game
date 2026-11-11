@@ -156,7 +156,8 @@ export async function launchDuelArenaPreview(container: HTMLElement, setup: Duel
         camera.lookAt(cameraOverride.target)
       } else orbit.update(keys, dt, arena!.obstacles)
       if (keys.consumeKeyE()) {
-        if (p.isMounted) { p.dismountFromMount(); mount.visualHold = true }
+        // A horse left mid-jump keeps falling; it is parked only once it has landed.
+        if (p.isMounted) { p.dismountFromMount(); mount.visualHold = mount.onGround }
         else if (!p.dead && mount.group.position.distanceTo(p.position) < 3.2) { mount.visualHold = false; p.mountVehicle(mount) }
       }
       if (!p.dead) {
@@ -169,7 +170,10 @@ export async function launchDuelArenaPreview(container: HTMLElement, setup: Duel
       } else {
         p.update(dt, keys, orbit.cameraYaw, orbit.getAimPoint(aimPoint), arena!.obstacles, stamina, quiver, sound, inventory, 1, false)
       }
-      if (!p.isMounted) mount.update(dt, arena!.obstacles)
+      if (!p.isMounted) {
+        mount.update(dt, arena!.obstacles)
+        if (mount.onGround && !mount.dead) mount.visualHold = true
+      }
       p.fitMountedSeat()
       arena!.update(dt)
       const feetY = p.position.y - PLAYER_HALF_HEIGHT

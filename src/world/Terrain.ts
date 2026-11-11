@@ -79,10 +79,21 @@ let activeFortifiedCampFaction: CharacterFaction | null = null
 let activeRiverCrossing = false
 /** Enclosed arenas own a level ground plane; null keeps the procedural battlefield. */
 let activeFlatTerrainY: number | null = null
+/** Only one scene owns the flat ground at a time; the latest claim replaces an older one. */
+let flatTerrainOwner: object | null = null
 
-/** Installed by the scene that owns a flat ground plane and cleared when it is disposed. */
-export function setFlatTerrainOverride(y: number | null): void {
-  activeFlatTerrainY = y !== null && Number.isFinite(y) ? y : null
+/** Installs a flat ground plane owned by `owner` until that same owner releases it. */
+export function claimFlatTerrainOverride(owner: object, y: number): void {
+  if (!Number.isFinite(y)) throw new Error(`Flat terrain height must be finite: ${y}`)
+  flatTerrainOwner = owner
+  activeFlatTerrainY = y
+}
+
+/** A late dispose of a replaced owner leaves the newer owner's ground untouched. */
+export function releaseFlatTerrainOverride(owner: object): void {
+  if (flatTerrainOwner !== owner) return
+  flatTerrainOwner = null
+  activeFlatTerrainY = null
 }
 
 export function getFlatTerrainOverride(): number | null {
@@ -112,6 +123,7 @@ export function resetTerrainScenePolicy(): void {
   activeFortifiedCampFaction = null
   activeRiverCrossing = false
   activeFlatTerrainY = null
+  flatTerrainOwner = null
 }
 
 export interface TerrainOptions {
@@ -1132,6 +1144,7 @@ export function createTerrain(
 ): TerrainResult {
   activeFortifiedCampFaction = options.fortifiedCampFaction ?? null
   activeFlatTerrainY = null
+  flatTerrainOwner = null
   setSceneRiverCrossing(scene, Boolean(options.riverCrossing))
   const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, 256, 256)
   geometry.rotateX(-Math.PI / 2)
