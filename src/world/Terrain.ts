@@ -77,6 +77,28 @@ export function clampToPlayableWorld(position: THREE.Vector3, bound = PLAYABLE_W
 
 let activeFortifiedCampFaction: CharacterFaction | null = null
 let activeRiverCrossing = false
+/** Enclosed arenas own a level ground plane; null keeps the procedural battlefield. */
+let activeFlatTerrainY: number | null = null
+/** Only one scene owns the flat ground at a time; the latest claim replaces an older one. */
+let flatTerrainOwner: object | null = null
+
+/** Installs a flat ground plane owned by `owner` until that same owner releases it. */
+export function claimFlatTerrainOverride(owner: object, y: number): void {
+  if (!Number.isFinite(y)) throw new Error(`Flat terrain height must be finite: ${y}`)
+  flatTerrainOwner = owner
+  activeFlatTerrainY = y
+}
+
+/** A late dispose of a replaced owner leaves the newer owner's ground untouched. */
+export function releaseFlatTerrainOverride(owner: object): void {
+  if (flatTerrainOwner !== owner) return
+  flatTerrainOwner = null
+  activeFlatTerrainY = null
+}
+
+export function getFlatTerrainOverride(): number | null {
+  return activeFlatTerrainY
+}
 const sceneRiverCrossing = new WeakMap<object, boolean>()
 
 export function setRiverCrossingTerrainActive(active: boolean): void {
@@ -100,6 +122,8 @@ export function isSceneRiverCrossing(scene: object): boolean {
 export function resetTerrainScenePolicy(): void {
   activeFortifiedCampFaction = null
   activeRiverCrossing = false
+  activeFlatTerrainY = null
+  flatTerrainOwner = null
 }
 
 export interface TerrainOptions {
@@ -128,6 +152,7 @@ export function getBaseProceduralTerrainHeight(
  * Calculates terrain Y height at any (x, z) world coordinate using smooth sine/cosine wave superposition.
  */
 export function getTerrainHeight(x: number, z: number): number {
+  if (activeFlatTerrainY !== null) return activeFlatTerrainY
   const baseHeight = getBaseProceduralTerrainHeight(x, z, activeFortifiedCampFaction)
   if (activeRiverCrossing) {
     return getRiverCrossingTerrainHeight(x, z, baseHeight)
@@ -1118,6 +1143,8 @@ export function createTerrain(
   options: TerrainOptions = {},
 ): TerrainResult {
   activeFortifiedCampFaction = options.fortifiedCampFaction ?? null
+  activeFlatTerrainY = null
+  flatTerrainOwner = null
   setSceneRiverCrossing(scene, Boolean(options.riverCrossing))
   const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, 256, 256)
   geometry.rotateX(-Math.PI / 2)

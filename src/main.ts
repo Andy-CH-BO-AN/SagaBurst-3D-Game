@@ -217,6 +217,15 @@ async function bootstrap(): Promise<void> {
     const { installCareerRetirementQa } = await import('./debug/CareerRetirementQA')
     installCareerRetirementQa()
   }
+  if (import.meta.env.DEV && query.has('duelarena')) {
+    // DEV-only walk-through; never reads or writes Career/session launch state.
+    const { launchDuelArenaPreview, resolveDuelArenaPreviewSetup } = await import('./debug/DuelArenaPreview')
+    const setup = resolveDuelArenaPreviewSetup(query)
+    if (setup) {
+      await launchDuelArenaPreview(container!, setup)
+      return
+    }
+  }
   if (import.meta.env.DEV && query.get('fourgatepreview') === '1') {
     const { launchTownFourGateSiegePreview } = await import('./debug/TownFourGateSiegePreview')
     await launchTownFourGateSiegePreview(container!)

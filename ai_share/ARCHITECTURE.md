@@ -16,12 +16,21 @@
 | 城鎮場景 | `src/town/CareerTownEntry.ts`、`TownScene.ts`：生涯入口、獨立場景、任務與居民生命週期 |
 | 角色 | `src/player/Player.ts`、`PlayerInput.ts`、`src/world/NPC.ts`：玩家輸入與 NPC 行為 |
 | 地形／導航 | `src/world/Terrain.ts`、`SpatialGrid.ts`、`src/navigation/`：高度、障礙、鄰近搜尋與路徑 |
+| 單挑競技場 | `src/arena/`：羅馬競技場／維京英靈殿的程序化場景、碰撞資料與生命週期；DEV 預覽 `src/debug/DuelArenaPreview.ts` |
 | 裝備／成長 | `src/rpg/`、`src/save/SaveManager.ts`：裝備資料、庫存、技能與 RPG 存檔 |
 | 戰役／編隊 | `src/campaign/`、`src/battle/`：部署、戰役流程、編隊與指令 |
 | 生涯 | `src/career/`：軍功、任命軍階、任務狀態、保存及恢復 |
 | 呈現 | `src/ui/`、`src/audio/SoundManager.ts`、`src/debug/`：DOM UI、音效與 DEV 工作室／診斷 |
 
 Career 教學由 `CareerTutorialState` 擁有角色識別、步驟、交易／正式任務收據與固定一次性獎勵；`CareerTutorial` 載入最新同角色存檔並在保存成功後發布。舊檔缺少教學欄位時保存非強制的遷移狀態，不當作新角色。`CareerTownEntry`／`main` 只以持久化 session 啟動 `CareerTutorialLaunch`，自由訓練與一般自訂戰鬥不取得此能力。`CareerTutorialScene` 接收 Game 的實際操作／有效命中及 `ArmyCommandController.onAccepted`；新兵與隊長演練完成並保存後自動沿同角色交易返回 Town，拒絕寫入時保留現場供重試；新兵坐騎段須先實際騎上訓練場黑貓、再騎上指定普通馬，並以騎該馬對 0m 假人的 `mount-impact` 有效傷害事件完成（舊 ride 標記存檔於解析時遷移，不重發軍功）。提示跟隨既有指北針下緣，暫停時保留可操作的教學按鈕並停止判定。演練只保留教學進度，隔離正式任務、技能與部隊資源。`TownTutorialController` 重用 MissionGuide、現有商店、HR 與指揮授權；已開始而延後的階段在 HUD 指回士官長（或 HR），士官長直接提供「繼續上次教學」並保留「查看正式任務與其他服務」，從未開始的舊檔延後階段維持自選；新兵切磋沿用 Duel 並以角色識別標記走獨立獎勵結算，不改正式逐階解鎖。Captain／Commander 教學隨正式任命交易保存，不以軍功門檻自行啟動。
+
+## 單挑競技場
+
+- `createDuelArena(id, scene)`（`DuelArena.ts`）是唯一入口，ID 為 `roman-colosseum`／`viking-valhalla`。建立時安裝場景政策：`claimFlatTerrainOverride`（平地 `getTerrainHeight`；以每座 arena 的 owner token 持有，最新 claim 取代舊的，只有擁有者 `releaseFlatTerrainOverride` 能清除，舊場景晚 dispose 不影響新場景）、`setScenePlayableWorldBound`（空中安全邊界）與 `setSceneGroundFallPolicy`；必須在同場景的 Player／NPC／Mount 建構前呼叫，因為角色在建構時讀取這些政策。`dispose()` 冪等，只釋放 arena 自己建立的 geometry／material／texture／shadow map，還原背景／霧並釋放自己的平地 claim；共享的 procedural／人物／坐騎資源不釋放。
+- 碰撞資料與外觀分開：`ColosseumLayout`／`ValhallaLayout` 是純數值 owner（無 mesh），視覺 `RomanColosseum`／`VikingValhalla` 從同一組常數建模。羅馬看台以 64 個扇區、每扇區 4 段沿橢圓法線方向的 `WalkRampSurface`（`mounted: true`）組成多層可行走面，階梯式 `projectileBoxes`＋`projectileWorldToLocal` 提供箭矢與鏡頭的實體段；看台下方不是實心 AABB，避免旋轉扇區的外接盒變成隱形牆。曲面牆（競技場矮牆＋欄杆、外牆＋頂層矮牆）以 0.5／0.75m 的短 AABB 鏈逼近；場內四座階梯沿軸向對齊，為 solid ramp。英靈殿全部構件軸向對齊，屋頂以 `navigationPassable` 的體積阻擋箭與鏡頭。
+- 羅馬場的地面邊界是外牆外 10m（`constrainToColosseumApron`），只約束「存活且有支撐」的身體；跳出外牆的空中身體不被 clamp，必定完成墜落，空中安全邊界遠在可跳距離之外。頂層走道 17.9m、矮牆頂 19m。
+- `GroundFall`：場景 opt-in 的一般墜落規則（目前只由兩座競技場安裝）。`GroundFallTracker` 記錄失去支撐到落地的最高腳底，`groundFallDamage` 在 safe 6m 以下為 0、6–15m 線性、≥15m 必死（與巨鷹墜落同一致死高度）。Player 徒步與「Player 騎乘中的地面坐騎」各自追蹤；空中上／下地面坐騎以 `handOffTo` 交接最高點並延續坐騎垂直速度，不能靠半空下馬規避摔傷，地面上下馬、Teleport 與 Scene reset 才重設；致死的騎乘落地先在地面下馬再結算。未安裝政策的場景跳躍規則不變。
+- DEV 預覽 `/?duelarena=roman&nolock`、`/?duelarena=valhalla&nolock`（可加 `faction=roman|viking`）使用正式 Player 控制、相機與碰撞，不讀寫 Career／session，也不建立 Duel 任務；production build 不包含該路由。
 
 ## 角色資產與動畫
 

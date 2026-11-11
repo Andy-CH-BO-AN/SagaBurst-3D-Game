@@ -28,6 +28,7 @@ import { getScenePlayableWorldBound, clampToPlayableWorld, getTerrainHeight, Obs
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
+import { getSceneGroundFallPolicy, groundFallDamage, GroundFallTracker, type GroundFallPolicy } from '../movement/GroundFall'
 import { damagePlayer } from '../combat/DamageRouter'
 import { projectileAmmoAfterLaunch, type ProjectileLaunchResult } from '../combat/ProjectileAdmission'
 import type { CombatDamageContext } from '../combat/CombatAttribution'
@@ -133,6 +134,10 @@ export class Player {
   private onGround = false
   private readonly fallingRider = new FallingRider()
   private fallContext?: CombatDamageContext
+  /** Opt-in scene rule for walking/riding off ledges; null keeps ordinary jump rules. */
+  private readonly groundFallPolicy: GroundFallPolicy | null
+  private readonly footGroundFall = new GroundFallTracker()
+  private readonly mountGroundFall = new GroundFallTracker()
   private readonly fallFeet = new THREE.Vector3()
   private readonly seatUp = new THREE.Vector3()
   private flightSteering: EagleAimHeading | null = null
@@ -242,6 +247,8 @@ export class Player {
   get rangedVisualKind(): 'bow' | 'pilum' { return WEAPONS[this.currentRangedId]?.animationKind === 'pilum' ? 'pilum' : 'bow' }
   get arrowCount(): number      { return this.arrows }
   get dead(): boolean           { return this.isDead }
+  /** On-foot support contact from the last movement step (mounted: the mount's). */
+  get isGrounded(): boolean      { return this.currentMount ? this.currentMount.onGround : this.onGround }
   get targetable(): boolean     { return !this.isDead && !this.spectatorOnly }
   get characterFaction(): 'viking' | 'roman' { return this.visualFaction }
   get hasShield(): boolean      { return Boolean(this.currentShieldId) && !this.shield.shieldBroken }
@@ -305,6 +312,7 @@ export class Player {
   constructor(scene: THREE.Scene, private visualFaction: SoldierFaction = 'viking', readonly heroAssetId?: HeroAssetId | null,
     private visualTier: OrdinarySoldierTier = 2) {
     this.playableWorldBound = getScenePlayableWorldBound(scene)
+    this.groundFallPolicy = getSceneGroundFallPolicy(scene)
     this.group = new THREE.Group()
     this.group.name = 'player'
 
@@ -558,8 +566,12 @@ export class Player {
     if (this.isDead || this.isFalling || this.currentMount?.isAirborne || mount.isAirborne || this.spectatorOnly || mount.dead || mount.disposed || mount.riderNpc || mount.riderPlayer && mount.riderPlayer !== this) return
     if (this.currentMount && this.currentMount !== mount) this.dismountFromMount()
     if (this.currentMount && this.currentMount !== mount) return
+    // Re-entry for the mount already ridden keeps that mount's fall history.
+    const alreadyRiding = this.currentMount === mount
     this.isMounted = true
     this.currentMount = mount
+    // A rider who catches a mount mid-fall still lands from the original height.
+    if (!alreadyRiding) this.footGroundFall?.handOffTo(this.mountGroundFall, mount.group.position.y)
     this.flightSteering = null
     this.flightRiderAimYaw = null
     this.flightRiderYaw = 0
@@ -626,9 +638,18 @@ export class Player {
     }
     const mountPosition = groundedEagleDismount ? this.fallFeet.clone().addScaledVector(THREE.Object3D.DEFAULT_UP, PLAYER_HALF_HEIGHT)
       : preserveWorldPosition ? null : this.currentMount.group.position.clone().addScaledVector(THREE.Object3D.DEFAULT_UP, PLAYER_HALF_HEIGHT)
+    // Leaving a jumping or falling ground mount continues that fall on foot:
+    // its apex and vertical speed carry over until the rider really lands.
+    const airborneGroundMount = !mount.isFlyingMount && !mount.onGround
+    const carriedVelocityY = airborneGroundMount ? mount.velY : 0
     this.currentMount.releaseRider()
     this.currentMount = null
     this.isMounted = false
+    if (airborneGroundMount) this.mountGroundFall?.handOffTo(this.footGroundFall, mount.group.position.y)
+    else {
+      this.footGroundFall?.reset()
+      this.mountGroundFall?.reset()
+    }
     if (!this.rig.equipmentGripFrames) applyCharacterMountedPose(this.rig, false)
     this.rig.animation?.setEquipmentState?.({ mounted: false })
     this.animator.setLocomotion(0, false)
@@ -637,13 +658,13 @@ export class Player {
     // When a mount dies, start falling from the rider's seat height rather than
     // placing the player's collision body inside the surface beneath the mount.
     if (mountPosition) this.group.position.copy(mountPosition)
-    else this.onGround = false
+    if (!mountPosition || airborneGroundMount) this.onGround = false
     this.group.rotation.x = 0
     this.group.rotation.z = 0
     this.flightSteering = null
     this.flightRiderAimYaw = null
     this.flightRiderYaw = 0
-    this.velY = 0
+    this.velY = carriedVelocityY
   }
 
   /**
@@ -818,6 +839,8 @@ export class Player {
     this.group.rotation.x = this.group.rotation.z = 0
     this.velY = 0
     this.onGround = true
+    this.footGroundFall?.reset()
+    this.mountGroundFall?.reset()
     this.spawnX = x; this.spawnZ = z
   }
 
@@ -1152,6 +1175,7 @@ export class Player {
       }
 
       this.currentMount.finishControlledFrame(dt, obstacles)
+      if (this.groundFallPolicy) this._settleMountedGroundFall(this.currentMount)
 
       // Rotation: resolve final heading before syncing mount transform
       if (isMoving) {
@@ -1223,7 +1247,28 @@ export class Player {
 
       // Re-apply after collision resolution in case the push-out moved us past the edge.
       clampToPlayableWorld(this.group.position, this.playableWorldBound)
+      if (this.groundFallPolicy) {
+        const height = this.footGroundFall.observe(this.group.position.y - PLAYER_HALF_HEIGHT, this.onGround)
+        if (height !== null) this._applyGroundFall(groundFallDamage(this.maxHp, height, this.groundFallPolicy))
+      }
     }
+  }
+
+  /** A ridden ground mount that lands from a scene-lethal height injures both bodies by the same ratio. */
+  private _settleMountedGroundFall(mount: Mount): void {
+    const height = this.mountGroundFall.observe(mount.group.position.y, mount.onGround)
+    if (height === null || !this.groundFallPolicy) return
+    const ratio = groundFallDamage(1, height, this.groundFallPolicy)
+    if (ratio <= 0) return
+    // A fatal landing leaves the rider beside the mount on the ground, not at saddle height.
+    if (ratio >= 1 || mount.currentHp <= mount.maxHp * ratio || this.currentHp <= this.maxHp * ratio) this.dismountFromMount()
+    mount.takeDamage(mount.maxHp * ratio)
+    this._applyGroundFall(this.maxHp * ratio)
+  }
+
+  private _applyGroundFall(amount: number): void {
+    if (amount <= 0 || this.isDead) return
+    this.takeFallDamage(amount, this.damageHud ?? { setFill() {} })
   }
 
   /** Run after the mount animation, before render; keeps the contact on this frame's seat. */

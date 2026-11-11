@@ -16,6 +16,7 @@ description: 使用 Playwright CLI 驗證 SagaBurst 的瀏覽器戰鬥畫面、�
 | `/?nolock` | 正式主選單與戰鬥流程；有效 Career／session 狀態可能直接恢復 |
 | `/?training=1&nolock` | 獨立訓練場；全部坐騎與目錄裝備、11 個假人、補給／重置／返回，不恢復或修改 Career |
 | `/?training=1&nolock&devplayerhero=<HeroAssetId>` | DEV：訓練場以指定英雄作為 Player（例如 `roman-centurion-t4`），用於逐坐騎驗證新角色 |
+| `/?duelarena=roman&nolock`、`/?duelarena=valhalla&nolock` | DEV：單挑競技場走查（正式 Player 移動／相機／碰撞、看台、墜落死亡）；`window.__duelArenaPreview.advance(seconds, keys)` 以固定 60Hz 推進同一路徑，`teleport`／`setCamera` 供 QA；不讀寫 Career |
 | `/?devmodels=humans&nolock` | 人物 LOD、骨架、握點與 controller／raw clip 比較 |
 | `/?devmodels=mounts&nolock` | Horse 變體、LOD、騎士與動畫 |
 | `/?devmodels=black-cat&nolock`、`/?devmodels=corgi&nolock` | 指定坐騎；可用鍵位以工作室 HUD 為準 |
