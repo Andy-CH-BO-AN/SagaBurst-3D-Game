@@ -611,6 +611,10 @@ describe('Custom Battle 2.0: Clearance and Collision Avoidance (P1)', () => {
 
     for (let i = 0; i < plan.npcSpecs.length; i++) {
       const unit = plan.npcSpecs[i]
+      if (!Number.isFinite(unit.x) || !Number.isFinite(unit.z)) {
+        invalid.push(`non-finite coordinate at ${i}: x=${unit.x}, z=${unit.z}`)
+        continue
+      }
       const radius = unit.cavalry ? 2.1 : 1.1
       const cx = Math.floor(unit.x / cellSize)
       const cz = Math.floor(unit.z / cellSize)
@@ -635,6 +639,7 @@ describe('Custom Battle 2.0: Clearance and Collision Avoidance (P1)', () => {
     // Spatial hash neighbor queries for all 600 units
     for (let i = 0; i < plan.npcSpecs.length; i++) {
       const u1 = plan.npcSpecs[i]
+      if (!Number.isFinite(u1.x) || !Number.isFinite(u1.z)) continue
       const r1 = u1.cavalry ? 2.1 : 1.1
       const cx = Math.floor(u1.x / cellSize)
       const cz = Math.floor(u1.z / cellSize)
