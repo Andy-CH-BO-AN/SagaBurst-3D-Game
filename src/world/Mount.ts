@@ -17,6 +17,7 @@ import type { QuadrupedVisual } from './QuadrupedVisual'
 import { CorgiVisual } from './CorgiVisual'
 import { isQuadrupedAnimationState, type MountAnimationState } from './QuadrupedMountAnimation'
 import { MountArmor, mountImpactMultiplier } from '../combat/MountArmor'
+import { MOUNT_RIDER_SPEED_EXCEPTIONS, mountGroundSpeed, mountStats, type GroundMountKind } from '../combat/MountStats'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { LocalBoxCollider } from '../combat/ShieldBlocking'
 import { CompoundLocalBoxCollider } from '../combat/CompoundLocalBoxCollider'
@@ -122,6 +123,11 @@ export function mountTypeFromId(value: string | null | undefined): MountType {
   return DEFAULT_MOUNT_TYPE
 }
 
+/** Only a mount with a rider speed exception (the armored horse) changes speed with its rider; see MountStats. */
+function speedWithRider(type: MountType, current: number, riderHeroAssetId: string | null | undefined): number {
+  return type in MOUNT_RIDER_SPEED_EXCEPTIONS ? mountGroundSpeed(type as GroundMountKind, riderHeroAssetId) : current
+}
+
 export class Mount {
   readonly group: THREE.Group
   readonly type: MountType
@@ -202,16 +208,9 @@ export class Mount {
     this.appearanceVariant = type === MountType.HORSE ? horseVariantFromSave(appearanceVariant) : 0
     this.group = new THREE.Group()
     this.group.name = `mount_${type}`
-    this.baseSpeed = (type === MountType.SERVAL || type === MountType.CARACAL)
-      ? 15
-      : (type === MountType.BLACK_CAT || type === MountType.WHITE_CAT)
-        ? 13.2
-        : type === MountType.SNOW_LEOPARD
-          ? 12.8
-          : 12
-    if (type === MountType.ARMORED_HORSE) { this.baseSpeed = 10.5; this.maxHp = this.currentHp = 600 }
-    if (type === MountType.SNOW_LEOPARD) this.maxHp = this.currentHp = 500
-    else if (type === MountType.ORANGE_CAT) this.maxHp = this.currentHp = 150
+    const stats = mountStats(type)
+    this.baseSpeed = stats.kind === 'flying' ? stats.cruiseSpeed : stats.baseSpeed
+    this.maxHp = this.currentHp = stats.maxHp
 
     if (type === MountType.XONGKORO) {
       this.horseVisual = null
@@ -220,8 +219,6 @@ export class Mount {
       this.flight = new EagleFlightController()
       this.eagleAttack = new EagleAttack()
       this.eagleAttackSockets.push(this.eagleVisual.headAttackSocket, this.eagleVisual.leftClawAttackSocket, this.eagleVisual.rightClawAttackSocket)
-      this.maxHp = this.currentHp = XONGKORO.maxHp
-      this.baseSpeed = XONGKORO.cruiseSpeed
       this.ridePitch = 0
     } else if (type === MountType.HORSE || type === MountType.ARMORED_HORSE) {
       if (type === MountType.ARMORED_HORSE ? !HorseAssetRegistry.armoredReady : !HorseAssetRegistry.ready) {
@@ -496,7 +493,7 @@ export class Mount {
   }
 
   setNpcRider(npc: NPC, faction: Faction): void {
-    if (this.type === MountType.ARMORED_HORSE) this.baseSpeed = 10.5
+    this.baseSpeed = speedWithRider(this.type, this.baseSpeed, null)
     if (this.dead) return
     this.riderNpc = npc
     this.riderFaction = faction
@@ -506,7 +503,7 @@ export class Mount {
   }
 
   setPlayerRider(player: Player): void {
-    if (this.type === MountType.ARMORED_HORSE) this.baseSpeed = player.heroAssetId === 'byzantine-cataphract-t5' ? 12 : 10.5
+    this.baseSpeed = speedWithRider(this.type, this.baseSpeed, player.heroAssetId)
     this.riderPlayer = player
     this.combatOwner = createPlayerCombatActorRef(player)
     this.state = MountState.CONTROLLED
@@ -520,7 +517,7 @@ export class Mount {
   }
 
   releaseRider(): void {
-    if (this.type === MountType.ARMORED_HORSE) this.baseSpeed = 10.5
+    this.baseSpeed = speedWithRider(this.type, this.baseSpeed, null)
     this.riderNpc = null
     this.riderFaction = null
     this.riderPlayer = null

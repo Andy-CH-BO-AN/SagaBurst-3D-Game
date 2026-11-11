@@ -22,6 +22,8 @@ import { COMMANDER_BRIDGEHEAD_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_IRON_LE
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { compareEquipment, equipmentDetails, equipmentTraits } from '../rpg/EquipmentComparison'
+import { compareMounts, mountComparisonText, mountDetails, mountTraits } from '../rpg/MountComparison'
+import { mountStats } from '../combat/MountStats'
 import { prepareByzantineEquipment, preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { assignTownCivilianHomes, civilianBodyClear, civilianMountsClear, CIVILIAN_MOUNT_CLEARANCE, TownCivilianLife } from './TownCivilianLife'
 import { townDefenseThreatResponse, townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
@@ -1443,7 +1445,11 @@ export class TownScene {
             const versus = compareEquipment(gear, held)
             meta.textContent += `\n${equipmentTraits(gear).join(' · ')}` + (versus.relation === 'none' ? '' : `\n比目前${held?.name ? `「${held.name}」` : '裝備'}：${versus.lines.join(' · ')}`)
             row.title = equipmentDetails(gear).join(' ｜ ')
-          } else if (item.id === 'armored-horse') meta.textContent += '\n高防護 · 機動較慢\n騎乘速度依騎手而定：一般 10.5 m/s，拜占庭鐵甲重騎兵 12 m/s'
+          } else if (mount && page === 'buy') {
+            // Abilities come from the same stats Mount uses; speed follows the Player's real hero, like the armored horse on the road.
+            const kind = careerMountType(item.id as CareerMountId), rider = this.player.heroAssetId
+            meta.textContent += `\n${mountTraits(mountStats(kind, rider)).join(' · ')}\n${mountComparisonText(compareMounts(item.id, kind, this.careerMounts.comparisonBasis(this.profile), rider))}\n${mountDetails(kind, rider).join(' · ')}`
+          }
           row.append(title, meta)
           if (page === 'sell') {
             const price = townResalePrice(this.profile, item.id)

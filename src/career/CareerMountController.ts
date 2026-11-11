@@ -1,4 +1,6 @@
 import { mountArmorImpactMax } from '../combat/MountArmor'
+import { mountStats } from '../combat/MountStats'
+import { compareMounts, mountDetails, mountTraits, type MountComparisonBasis } from '../rpg/MountComparison'
 import { isCareerShopItemUseUnlocked } from './CareerShopCatalog'
 import type { RaceRider } from './CareerRaceState'
 import { availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from './CareerInventory'
@@ -161,15 +163,24 @@ export class CareerMountController implements EquipmentMountAdapter {
     }
   }
 
+  /** The mount to compare against: the one being ridden, else the one allocated to the Player. */
+  comparisonBasis(profile: CareerProfile = this.readProfile()): MountComparisonBasis | null {
+    const owned = ownedCareerMountIds(profile)
+    const riding = this.active && this.player().currentMount === this.active.mount ? canonicalCareerMountId(this.active.id) : null
+    const allocated = profile.selectedMountId ? canonicalCareerMountId(profile.selectedMountId) : null
+    const [id, source] = riding ? [riding, 'riding' as const] : allocated && owned.includes(allocated) ? [allocated, 'allocated' as const] : [null, null]
+    return id && source ? { id, name: MOUNTS[id].name, source, kind: careerMountType(id) } : null
+  }
+
   list(): EquipmentMountItem[] {
     const profile = this.readProfile()
+    const basis = this.comparisonBasis(profile), rider = this.player().heroAssetId
     return ownedCareerMountIds(profile).map(id => ({
       ...MOUNTS[canonicalCareerMountId(id)],
-      ...(id === 'armored-horse' ? {
-        name: '重甲戰馬', traits: ['高防護', '機動較慢'],
-        // Mirrors Mount.setPlayerRider: speed follows the rider's class, never a fixed number for everyone.
-        detail: profile.eliteClass === 'byzantine-cataphract' ? '目前的騎手（拜占庭鐵甲重騎兵）可跑到 12 m/s。' : '一般騎手 10.5 m/s；拜占庭鐵甲重騎兵騎乘時可達 12 m/s。',
-      } : id === 'horse' ? { traits: ['機動均衡'] } : {}),
+      traits: mountTraits(mountStats(careerMountType(id), rider)),
+      // Speed follows the real rider (see MountStats), so the Byzantine cataphract exception shows what riding would actually give.
+      detail: mountDetails(careerMountType(id), rider).join(' ｜ '),
+      comparison: compareMounts(canonicalCareerMountId(id), careerMountType(id), basis, rider),
       tier: careerMountTier(id, profile),
       active: this.active?.id === id && this.player().currentMount === this.active.mount,
       available: canUseCareerMount(profile, id) && !this.unavailable.has(id),
