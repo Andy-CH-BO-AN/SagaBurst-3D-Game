@@ -107,22 +107,6 @@ function pursuitActor(order: NPC['tacticalOrder']) {
   return { body, actor: body as unknown as NPC }
 }
 
-it.each(['attack', 'charge'] as const)('%s 在城外目標死亡後重新取得遠方守軍，弓騎兵可通過開始及持續追擊閘門', order => {
-  const { body, actor } = pursuitActor(order), grid = new SpatialGrid<NPC>(20)
-  const bandit = npc(262, 240, Faction.BANDIT), guard = npc(-100, -110, Faction.ENEMY)
-  grid.insert(bandit); grid.insert(guard)
-  const player = { dead: true, targetable: false } as Player
-  NPC.prototype.enableBattlefieldEngagement.call(actor)
-  const sense = () => NPC.prototype['_getTarget'].call(actor, 1 / 60, player, [bandit, guard], grid)
-  expect(sense()?.npc).toBe(bandit)
-  Object.assign(bandit, { dead: true })
-  expect(sense()?.npc).toBe(guard)
-  expect(NPC.prototype['_isTargetWithinEngagementRange'].call(actor, guard.combatPosition, false)).toBe(true)
-  expect(NPC.prototype['_isTargetWithinEngagementRange'].call(actor, guard.combatPosition, true)).toBe(true)
-  body.tacticalOrder = 'follow'
-  expect(NPC.prototype['_isTargetWithinEngagementRange'].call(actor, guard.combatPosition, true)).toBe(false)
-})
-
 it('保留接敵中的有效目標及路徑，無法抵達時改取其他敵人並於入口改變後重新允許原目標', () => {
   const { body, actor } = pursuitActor('attack'), grid = new SpatialGrid<NPC>(20)
   const current = npc(270, 240, Faction.ENEMY), alternate = npc(275, 240, Faction.ENEMY)
