@@ -126,8 +126,9 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
     // Same static merge TownWorld applies to its wall root (per material).
     for (const group of [fort.wallRoot, ...fort.wallRoot.children.filter(c => c instanceof THREE.Group)]) batchStatic(group as THREE.Group, owned)
     world.add(dressTownWalls(kit, fort.walls, { x: (TOWN_CITY.minX + TOWN_CITY.maxX) / 2, z: (TOWN_CITY.minZ + TOWN_CITY.maxZ) / 2 }))
+    const gatehouses: THREE.Object3D[] = []
     for (const gate of TOWN_GATES) {
-      const dressing = dressTownGate(kit, gate, { statues }); world.add(dressing.root); obstacles.push(...dressing.obstacles)
+      const dressing = dressTownGate(kit, gate, { statues }); world.add(dressing.root); obstacles.push(...dressing.obstacles); gatehouses.push(dressing.root)
       const leaves = fort.root.getObjectByName(`town-${gate.id}-gate-leaves`)
       if (leaves) dressTownGateLeaves(kit, leaves.children)
     }
@@ -145,7 +146,9 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
     world.add(buildEaglePadMarkings(kit, pads, XONGKORO_LANDING))
     const stations = [buildEagleStation(kit, { x: -40, z: 32.5, yaw: 0 }), buildEagleStation(kit, { x: -36, z: -8, yaw: 0 })]
     for (const station of stations) { world.add(station.root); obstacles.push(...station.obstacles) }
-    const airspace = [...obstacles.filter(o => !o.walkSurface), { box: towerDressing.airspace, isBarricade: false, projectilePassable: true }]
+    // Same airspace TownWorld feeds flight checks: colliders plus each building's and gatehouse's full visual bounds.
+    const airspace = [...obstacles.filter(o => !o.walkSurface), { box: towerDressing.airspace, isBarricade: false, projectilePassable: true },
+      ...entries.map(e => ({ box: e.placed.bounds, isBarricade: false })), ...gatehouses.map(root => ({ box: new THREE.Box3().setFromObject(root), isBarricade: false }))]
     const padChecks = pads.map(pad => ({ id: pad.id, landing: isEagleLandingClear(pad, airspace, pads.filter(o => o !== pad), TOWN_PLAYABLE_WORLD_BOUND),
       approach: isEagleApproachClear(pad, airspace, pads.filter(o => o !== pad), TOWN_PLAYABLE_WORLD_BOUND) }))
     // Real stable horses in their five stalls and one parked xongkoro per eagle field.
