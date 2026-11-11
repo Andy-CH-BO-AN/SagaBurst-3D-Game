@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mountStats } from '../../src/combat/MountStats'
 import { XONGKORO } from '../../src/movement/XongkoroConfig'
-import { compareMounts, mountComparisonText, mountDetails, type MountComparisonBasis } from '../../src/rpg/MountComparison'
+import { compareMounts, mountComparisonBasis, mountComparisonText, mountDetails, type MountComparisonBasis } from '../../src/rpg/MountComparison'
 
 const basis = (id: string, kind: MountComparisonBasis['kind'], source: MountComparisonBasis['source'] = 'riding'): MountComparisonBasis => ({ id, name: id, source, kind })
 const BYZANTINE = 'byzantine-cataphract-t5'
@@ -37,5 +37,19 @@ describe('Mount comparison', () => {
     expect(toEagle.lines).toContain('最大生命 +100%')
     expect(mountStats('xongkoro')).toMatchObject({ kind: 'flying', maxHp: XONGKORO.maxHp, cruiseSpeed: XONGKORO.cruiseSpeed, sprintSpeed: XONGKORO.sprintSpeed, attackDamage: XONGKORO.attackDamage })
     expect(mountComparisonText(toEagle)).toMatch(/^◆ 各有取捨（相較目前騎乘：horse）/)
+  })
+
+  it('compares against what is actually ridden, even a temporary mount, and returns to the allocated mount after dismounting', () => {
+    const allocated = { id: 'horse', name: '軍用戰馬', kind: 'HORSE' as const }
+    const riding = { kind: 'SNOW_LEOPARD' as const, name: '重甲雪豹' }
+    const onTemporary = mountComparisonBasis({ riding, allocated })
+    expect(onTemporary).toMatchObject({ source: 'riding', kind: 'SNOW_LEOPARD', name: '重甲雪豹（臨時）' })
+    // Its identity is not an owned mount's, so an owned snow leopard is compared against it rather than treated as "the same mount".
+    const owned = compareMounts('snow-leopard', 'SNOW_LEOPARD', onTemporary)
+    expect(owned).toMatchObject({ relation: 'same', lines: [] }); expect(owned.self).toBeUndefined()
+    expect(compareMounts('horse', 'HORSE', onTemporary).relation).toBe('downgrade')
+    expect(mountComparisonBasis({ riding: { ...riding, privateId: 'snow-leopard' }, allocated })).toMatchObject({ id: 'snow-leopard', source: 'riding' })
+    expect(mountComparisonBasis({ riding: null, allocated })).toMatchObject({ id: 'horse', source: 'allocated' })
+    expect(mountComparisonBasis({ riding: null, allocated: null })).toBeNull()
   })
 })

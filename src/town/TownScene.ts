@@ -1439,6 +1439,7 @@ export class TownScene {
           const meta = document.createElement('small'); meta.style.whiteSpace = 'pre-line'
           meta.textContent = `價格：${item.price.toLocaleString()} 軍功${shortfall > 0 ? `（還差 ${shortfall.toLocaleString()}）` : ''}\n${townHoldingText(this.profile, item)}`
           const gear = WEAPONS[item.id] ?? ARMORS[item.id]
+          let mountDetailText = ''
           if (gear && page === 'buy') {
             // Plain traits and a comparison with what the player holds in that slot; exact figures stay in the title tooltip.
             const held = ARMORS[item.id] ? this.inventory.equippedShield : gear.type === 'ranged' ? this.inventory.selectedRanged : this.inventory.equippedMelee
@@ -1446,11 +1447,18 @@ export class TownScene {
             meta.textContent += `\n${equipmentTraits(gear).join(' · ')}` + (versus.relation === 'none' ? '' : `\n比目前${held?.name ? `「${held.name}」` : '裝備'}：${versus.lines.join(' · ')}`)
             row.title = equipmentDetails(gear).join(' ｜ ')
           } else if (mount && page === 'buy') {
-            // Abilities come from the same stats Mount uses; speed follows the Player's real hero, like the armored horse on the road.
+            // Short traits and the difference first; exact figures sit under 詳細屬性, like the bag. Speed follows the Player's real hero.
             const kind = careerMountType(item.id as CareerMountId), rider = this.player.heroAssetId
-            meta.textContent += `\n${mountTraits(mountStats(kind, rider)).join(' · ')}\n${mountComparisonText(compareMounts(item.id, kind, this.careerMounts.comparisonBasis(this.profile), rider))}\n${mountDetails(kind, rider).join(' · ')}`
+            meta.textContent += `\n${mountTraits(mountStats(kind, rider)).join(' · ')}\n${mountComparisonText(compareMounts(item.id, kind, this.careerMounts.comparisonBasis(this.profile), rider))}`
+            mountDetailText = mountDetails(kind, rider).join(' ｜ ')
           }
           row.append(title, meta)
+          if (mountDetailText) {
+            const details = document.createElement('details'); details.style.cssText = 'font-size:12px;margin:4px 0'
+            const summary = document.createElement('summary'); summary.textContent = '詳細屬性'; summary.style.cursor = 'pointer'
+            const text = document.createElement('div'); text.style.cssText = 'margin-top:4px;line-height:1.5'; text.textContent = mountDetailText
+            details.append(summary, text); row.append(details)
+          }
           if (page === 'sell') {
             const price = townResalePrice(this.profile, item.id)
             meta.textContent = `回收價：${price.toLocaleString()} 軍功\n${townHoldingText(this.profile, item)}`

@@ -1,6 +1,6 @@
 import { mountArmorImpactMax } from '../combat/MountArmor'
 import { mountStats } from '../combat/MountStats'
-import { compareMounts, mountDetails, mountTraits, type MountComparisonBasis } from '../rpg/MountComparison'
+import { compareMounts, mountComparisonBasis, mountDetails, mountTraits, type MountComparisonBasis } from '../rpg/MountComparison'
 import { isCareerShopItemUseUnlocked } from './CareerShopCatalog'
 import type { RaceRider } from './CareerRaceState'
 import { availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from './CareerInventory'
@@ -163,13 +163,16 @@ export class CareerMountController implements EquipmentMountAdapter {
     }
   }
 
-  /** The mount to compare against: the one being ridden, else the one allocated to the Player. */
+  /** The mount to compare against: what the Player is riding (including a temporary mount), else the allocated private mount. */
   comparisonBasis(profile: CareerProfile = this.readProfile()): MountComparisonBasis | null {
+    const current = this.player().currentMount
+    const privateId = current && this.active && current === this.active.mount ? canonicalCareerMountId(this.active.id) : undefined
     const owned = ownedCareerMountIds(profile)
-    const riding = this.active && this.player().currentMount === this.active.mount ? canonicalCareerMountId(this.active.id) : null
     const allocated = profile.selectedMountId ? canonicalCareerMountId(profile.selectedMountId) : null
-    const [id, source] = riding ? [riding, 'riding' as const] : allocated && owned.includes(allocated) ? [allocated, 'allocated' as const] : [null, null]
-    return id && source ? { id, name: MOUNTS[id].name, source, kind: careerMountType(id) } : null
+    return mountComparisonBasis({
+      riding: current ? { kind: current.type, name: privateId ? MOUNTS[privateId].name : current.displayName, privateId } : null,
+      allocated: allocated && owned.includes(allocated) ? { id: allocated, name: MOUNTS[allocated].name, kind: careerMountType(allocated) } : null,
+    })
   }
 
   list(): EquipmentMountItem[] {

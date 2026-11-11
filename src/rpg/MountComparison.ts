@@ -14,6 +14,22 @@ export interface MountComparison {
 /** The mount compared against: the one being ridden, else the one allocated to the player. */
 export interface MountComparisonBasis { id: string; name: string; source: 'riding' | 'allocated'; kind: MountKind }
 
+/**
+ * Pick the mount to compare against. What the Player is actually riding wins; a ridden mount that is not an owned
+ * private one (a battlefield or town temporary mount) gets its own identity, so it is never mistaken for an owned
+ * mount of the same type. With nothing ridden, the allocated, still-owned private mount is used.
+ */
+export function mountComparisonBasis(input: {
+  riding: { kind: MountKind; name: string; /** Set only when the ridden mount is the Player's own private mount. */ privateId?: string } | null
+  allocated: { id: string; name: string; kind: MountKind } | null
+}): MountComparisonBasis | null {
+  const { riding, allocated } = input
+  if (riding) return riding.privateId !== undefined
+    ? { id: riding.privateId, name: riding.name, source: 'riding', kind: riding.kind }
+    : { id: `temporary:${riding.kind}`, name: `${riding.name}（臨時）`, source: 'riding', kind: riding.kind }
+  return allocated ? { ...allocated, source: 'allocated' } : null
+}
+
 const SOURCE_LABEL = { riding: '目前騎乘', allocated: '目前分配' } as const
 const RELATION_LABEL: Record<Exclude<MountComparisonRelation, 'none'>, string> = { upgrade: '▲ 能力提升', downgrade: '▼ 能力下降', mixed: '◆ 各有取捨', same: '＝ 能力相近' }
 export const MOUNT_FLIGHT_NOTE = '飛行與地面機動能力不可直接比較'
