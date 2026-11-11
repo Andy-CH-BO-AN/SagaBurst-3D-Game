@@ -199,3 +199,35 @@ it('permits mounted melee at valid body spacing when a rail lies behind the defe
   rail.box.translate(new Vector3(0, 0, -1.2))
   expect(nav.hasDirectMeleeConnection(attacker, defender, 2.6, [rail])).toBe(false)
 })
+
+
+it('城外弓騎追擊側牆外目標時保留地面路徑，不被 Dock 或舊破口偏好拉回城內', () => {
+  const world = new NavigationWorld({ minX: -24, maxX: 24, minZ: -24, maxZ: 32, cellSize: 2 })
+  const layout = outpostLayout()
+  layout.perimeter = { minX: -12, maxX: 12, minZ: 0, maxZ: 24 }
+  for (const stair of layout.stairs) stair.ramp.mounted = true
+  world.setOutpostWalkways(layout)
+  const nav = world.outpostNav!, ramp = { startX: -8, startZ: -20, startY: 0, topY: 10,
+    dirX: 0, dirZ: 1, length: 20, landing: 0, halfWidth: 2, mounted: true }
+  nav.entrances.set({ id: 'dock', type: 'siege-ramp-left', position: new Vector3(-8, 0, -20),
+    approach: new Vector3(-8, 0, -22), exit: new Vector3(-8, 10, 0), surface: ramp, side: -1,
+    mounted: true, walkable: true, faction: null, connectionId: 'dock' })
+  nav.entrances.set({ id: 'front-gap', type: 'palisade', position: new Vector3(-8, 0, 0),
+    approach: new Vector3(-8, 0, -3), exit: new Vector3(-8, 0, 3),
+    mounted: true, walkable: true, faction: null, connectionId: 'front-gap' })
+  const obstacles: ObstacleData[] = [{ box: box(-12, -1, -10, 1), isBarricade: true },
+    { box: box(-6, -1, 12, 1), isBarricade: true }, { box: box(11, 0, 13, 24), isBarricade: true }]
+  world.rebuild(obstacles); world.beginFrame()
+  const position = new Vector3(18, 0, -8), goal = new Vector3(18, 0, 12), out = new Vector3()
+  const input = request(world, position, goal)
+  input.mounted = true; input.outpostMounted = true; input.entranceId = 'front-gap'
+  input.skipGroundNavigation = true
+  const route = new LayeredNavigationRoute(new NavigationPathFollower())
+  const step = route.resolve(input, obstacles, out)
+  expect(step).toEqual({ route: 'direct', confirmedLayeredStep: false, tower: false })
+  expect(out.toArray()).toEqual(goal.toArray())
+  // Side/rear targets are outside the complete enclosure, despite being behind front Z.
+  const deck = new Vector3(-8, 10, 2)
+  expect(nav.resolveMoveTarget(deck, new Vector3(18, 0, 12), true, out).step).toBe('descend_stair')
+  expect(nav.resolveMoveTarget(deck, new Vector3(-8, 0, 30), true, out).step).toBe('descend_stair')
+})

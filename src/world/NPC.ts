@@ -685,7 +685,7 @@ export class NPC {
     if (this.combatTargetPriority?.(target) === null) return false
     const blocked = this.pursuitBlockedTargets?.get(target), world = this._activeNavigationWorld
     if (!blocked || !world) return true
-    if (blocked.revision !== world.revision || blocked.entrances !== (world.townNav?.siegeEntrances.revision ?? -1)
+    if (blocked.revision !== world.revision || blocked.entrances !== (world.townNav?.siegeEntrances.revision ?? world.outpostNav?.entrances?.revision ?? -1)
       || blocked.target.distanceToSquared(target.combatPosition) > 16 || blocked.from.distanceToSquared(this.combatPosition) > 64) {
       this.pursuitBlockedTargets.delete(target)
       return true
@@ -696,7 +696,7 @@ export class NPC {
     const world = this._activeNavigationWorld
     if (!world) return
     this.pursuitBlockedTargets.set(target, { target: target.combatPosition.clone(), from: this.combatPosition.clone(),
-      revision: world.revision, entrances: world.townNav?.siegeEntrances.revision ?? -1 })
+      revision: world.revision, entrances: world.townNav?.siegeEntrances.revision ?? world.outpostNav?.entrances?.revision ?? -1 })
   }
   setMissionCombatTarget(target: NPC | Player | null | undefined): void {
     if (this.missionCombatTarget === target) return
@@ -1096,7 +1096,9 @@ export class NPC {
     } else {
       const distance = delta.length()
       if (distance > .001) this._faceDirection(delta.clone().normalize())
-      if (distance > UNARMED_ATTACK_DISTANCE && !this.animator.busy) {
+      // Pursuit never waits for a punch combo: the clip keeps playing (locomotion yields to busy actions)
+      // while the body closes the distance, and a new combo only starts once the previous one is done.
+      if (distance > UNARMED_ATTACK_DISTANCE) {
         this.state = AIState.CHASE
         // Same ground A*/path-follow/detour services as ordinary melee chase; only the fist reach differs.
         const moveDir = this._tmpMoveDir.set(0, 0, 0)

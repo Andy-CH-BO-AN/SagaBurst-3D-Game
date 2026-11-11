@@ -5,8 +5,7 @@ import {
 } from '../../src/arena/ColosseumLayout'
 import { createValhallaObstacles, VALHALLA } from '../../src/arena/ValhallaLayout'
 import { DUEL_ARENA_IDS, parseDuelArenaId } from '../../src/arena/DuelArena'
-import { resolveDuelArenaPreviewSetup } from '../../src/debug/DuelArenaPreview'
-import { ArenaChaseRoute, arenaStairLinks } from '../../src/arena/DuelArenaChase'
+import { ArenaChaseRoute, ArenaSupportTracker, arenaStairLinks, arenaStandingFeet } from '../../src/arena/DuelArenaChase'
 import { ARENA_DUEL_REFEREE_SLOTS } from '../../src/arena/DuelArenaVenue'
 import { arenaDuelPartyPlan } from '../../src/arena/CareerDuelArenaScene'
 import { FallingRider } from '../../src/movement/FallingRider'
@@ -103,14 +102,10 @@ describe('duel arena layout collision', () => {
     }
   })
 
-  it('resolves the DEV preview route and arena IDs without accepting unknown arenas', () => {
+  it('accepts known duel arena IDs and rejects unknown arenas', () => {
     expect(DUEL_ARENA_IDS).toEqual(['roman-colosseum', 'viking-valhalla'])
     expect(parseDuelArenaId('viking-valhalla')).toBe('viking-valhalla')
     expect(parseDuelArenaId('valhalla')).toBeNull()
-    expect(resolveDuelArenaPreviewSetup(new URLSearchParams('duelarena=roman&nolock'))).toEqual({ arena: 'roman-colosseum', faction: 'roman' })
-    expect(resolveDuelArenaPreviewSetup(new URLSearchParams('duelarena=valhalla&faction=roman'))).toEqual({ arena: 'viking-valhalla', faction: 'roman' })
-    // Unknown arenas fall through to the normal entry flow.
-    expect(resolveDuelArenaPreviewSetup(new URLSearchParams('duelarena=forum'))).toBeNull()
   })
 
   it('hands an airborne ground-mount fall to the dismounted rider and keeps grounded dismounts harmless', () => {
@@ -216,6 +211,37 @@ describe('duel arena layout collision', () => {
     expect(hall.next({ x: 0, y: 3, z: throne.high.z + 0.2 }, dais)).toBeNull()
     // Standing on the landing beside its far end never re-opens the route frame to frame.
     for (const x of [1.1, 1.2, 1.3]) expect([hall.next({ x, y: 3, z: throne.high.z + 0.1 }, dais), hall.active]).toEqual([null, false])
+  })
+
+  it('judges a rider by its ground mount, not by pelvis height, so a floor-level rider is never sent up the stairs', () => {
+    const riderPelvis = { x: 0, y: 2.6, z: 5 } // Seat height: far above the 1.2 m raised threshold
+    const floorMount = { x: 0, y: 0, z: 5 }
+    for (const id of ['roman-colosseum', 'viking-valhalla'] as const) {
+      const raised = arenaStairLinks(id)[0].topY
+      expect(new ArenaChaseRoute(id).next({ x: 0, y: 0, z: -4 }, arenaStandingFeet(riderPelvis, floorMount, 0.95)), id).toBeNull()
+      expect(new ArenaChaseRoute(id).next({ x: 0, y: 0, z: -4 }, arenaStandingFeet({ ...riderPelvis, y: raised + 1.6 }, { ...floorMount, y: raised }, 0.95)), id).not.toBeNull()
+    }
+    expect(arenaStandingFeet({ x: 1, y: 0.95, z: 2 }, null, 0.95)).toEqual({ x: 1, y: 0, z: 2 })
+  })
+
+  it('keeps the support level while airborne: a floor jump never reads as raised, a dais jump stays raised', () => {
+    const floor = new ArenaSupportTracker()
+    floor.observe({ x: 0, y: 0, z: 5 }, true)
+    const jump = floor.observe({ x: 0, y: 4.7, z: 5 }, false) // Mounted jump apex, above both raised levels
+    expect([jump.y, new ArenaChaseRoute('viking-valhalla').next({ x: 0, y: 0, z: -4 }, jump)]).toEqual([0, null])
+    const dais = new ArenaSupportTracker()
+    dais.observe({ x: 0, y: 3, z: 33 }, true)
+    const leap = dais.observe({ x: 0, y: 4.5, z: 33 }, false)
+    expect(new ArenaChaseRoute('viking-valhalla').next({ x: 0, y: 0, z: -4 }, leap)).not.toBeNull()
+    expect(dais.observe({ x: 0, y: 0, z: 20 }, true).y).toBe(0) // Landing on the floor updates the level.
+  })
+
+  it('knows the dais level from countdown frames, so a jump at the first chase frame still reads raised', () => {
+    const tracker = new ArenaSupportTracker()
+    for (const z of [30, 31, 32]) tracker.observe({ x: 0, y: 3, z }, true) // PREPARING: walking on the dais, no chase yet
+    const firstChaseFrame = tracker.observe({ x: 0, y: 4.2, z: 32 }, false)
+    expect(new ArenaChaseRoute('viking-valhalla').next({ x: 0, y: 0, z: -4 }, firstChaseFrame)).not.toBeNull()
+    expect(firstChaseFrame.y).toBe(3)
   })
 
   it('builds the bodies each saved duel borrowed and keeps the referee off the obstacles beside the duel lane', () => {

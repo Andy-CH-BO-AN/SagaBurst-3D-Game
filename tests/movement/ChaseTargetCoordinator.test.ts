@@ -1,3 +1,4 @@
+import { getOutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkways'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { NavigationPathFollower } from '../../src/navigation/NavigationPathFollower'
 import { LayeredNavigationRoute } from '../../src/navigation/LayeredNavigationRoute'
@@ -229,4 +230,82 @@ it('弓騎兵沿攻門 approach 接近，僅在實際射程與彈道 LOS 允許�
   h.body.tacticalOrder = 'defend'
   expect(h.navigate().step?.breach).toBeUndefined()
   expect(h.route.closedGateObstacle).toBeNull()
+})
+
+
+it('Outpost 入口變動會立即釋放弓騎兵的不可達目標快取，不必等待敵人或地面拓樸移動', () => {
+  const { body, actor } = pursuitActor('attack')
+  const world = new NavigationWorld({ minX: -24, maxX: 24, minZ: -24, maxZ: 32 })
+  world.setOutpostWalkways(getOutpostWalkwayLayout({ centerX: 0, halfWidth: 44,
+    frontZ: 0, backZ: 72, gateWidth: 8, stakeLineZ: -7 }))
+  Object.assign(body, { _activeNavigationWorld: world })
+  body.combatPosition.set(0, 0, -4)
+  const target = npc(0, 12, Faction.ENEMY), grid = new SpatialGrid<NPC>(20)
+  grid.insert(target)
+  const sense = () => NPC.prototype['_getTarget'].call(actor, 1 / 60, { dead: true, targetable: false } as Player, [target], grid)
+  expect(sense()?.npc).toBe(target)
+  NPC.prototype['_deferUnreachableTarget'].call(actor, target)
+  expect(sense()).toBeNull()
+  expect(NPC.prototype['_pursuitTargetAllowed'].call(actor, target)).toBe(false)
+  const revision = world.revision
+  world.outpostNav!.entrances.set({ id: 'side-gap', type: 'palisade', position: new THREE.Vector3(44, 0, 12),
+    approach: new THREE.Vector3(47, 0, 12), exit: new THREE.Vector3(41, 0, 12),
+    mounted: true, walkable: true, faction: null, connectionId: 'side-gap' })
+  expect(world.revision).toBe(revision)
+  expect(NPC.prototype['_pursuitTargetAllowed'].call(actor, target)).toBe(true)
+  expect(body.pursuitBlockedTargets.size).toBe(0)
+  expect(sense()?.npc).toBe(target)
+})
+
+
+it.each(['front', 'side', 'rear'] as const)('Outpost %s 木牆破口在城門關閉與錯開更新時仍由共用 A* 出城，不要求重下命令', side => {
+  const { body, actor } = pursuitActor('attack'), world = new NavigationWorld({ minX: -18, maxX: 18, minZ: -6, maxZ: 30, cellSize: 1 }, 2)
+  world.setOutpostWalkways(getOutpostWalkwayLayout({ centerX: 0, halfWidth: 12, frontZ: 0, backZ: 24, gateWidth: 8, stakeLineZ: -7 }))
+  // Only the perimeter is relevant to this ground route; keep elevated surfaces away.
+  const nav = world.outpostNav!, bounds = (x0: number, z0: number, x1: number, z1: number): ObstacleData => ({
+    box: new THREE.Box3(new THREE.Vector3(x0, -100, z0), new THREE.Vector3(x1, 100, z1)), isBarricade: true })
+  const opening = side === 'front' ? bounds(-8, 0, -4, 1) : side === 'side' ? bounds(11, 10, 12, 14) : bounds(-8, 23, -4, 24)
+  const walls = [bounds(-12, 0, -8, 1), bounds(-4, 0, 12, 1), bounds(-8, 23, 12, 24),
+    bounds(-12, 1, -11, 24), bounds(11, 1, 12, 10), bounds(11, 14, 12, 24)]
+  // Seal the two untested gaps and retain a physically closed front gate throughout.
+  if (side !== 'front') walls.push(bounds(-8, 0, -4, 1))
+  if (side !== 'side') walls.push(bounds(11, 10, 12, 14))
+  if (side !== 'rear') walls.push(bounds(-8, 23, -4, 24))
+  // The rear wall starts left of its removable section.
+  walls[2] = bounds(-4, 23, 12, 24); walls.push(bounds(-12, 23, -8, 24))
+  walls.push(opening)
+  world.rebuild(walls)
+  const position = body.combatPosition.set(0, 0, 10), goal = side === 'front' ? new THREE.Vector3(6, 0, -4)
+    : side === 'side' ? new THREE.Vector3(16, 0, 18) : new THREE.Vector3(6, 0, 28)
+  const follower = new NavigationPathFollower(), route = new LayeredNavigationRoute(follower), out = new THREE.Vector3()
+  Object.assign(body, { _activeNavigationWorld: world, _navigationPath: follower, _layeredNavigationRoute: route,
+    _chaseNavigation: { route: 'direct', step: null }, _tmpNavigationTarget: out,
+    _gateDamageAllowed: () => false, _resolveNavigationMoveTarget: NPC.prototype['_resolveNavigationMoveTarget'],
+    _movementObstacleRadius: () => .4, _movementObstacleHeight: () => 2.3 })
+  const request = { position, goal, world, outpost: nav, currentLayer: 'ground' as const, targetLayer: 'ground' as const,
+    differentLayer: false, mounted: side !== 'front', outpostMounted: side !== 'front', flying: false,
+    radius: .4, height: 2.3, entranceId: 'gate', sectorId: null, actorId: 'native-defender', skipGroundNavigation: false }
+  const navigate = () => NPC.prototype['_resolveChaseNavigation'].call(actor, request, walls)
+  world.beginFrame()
+  expect(navigate().route).toBe('unreachable')
+  walls.splice(walls.indexOf(opening), 1)
+  const centre = opening.box.getCenter(new THREE.Vector3()).setY(0), approach = centre.clone(), exit = centre.clone()
+  if (side === 'side') { approach.x += 3; exit.x -= 3 }
+  else { approach.z += side === 'front' ? -3 : 3; exit.z += side === 'front' ? 3 : -3 }
+  nav.entrances.set({ id: side + '-gap', type: 'palisade', position: centre, approach, exit,
+    mounted: true, walkable: true, faction: null, connectionId: side + '-gap' })
+  world.sync(walls); world.beginFrame(); request.skipGroundNavigation = true
+  let result = navigate()
+  expect(result.route).toBe('path')
+  let crossedWall = false
+  for (let frame = 0; frame < 65 && position.distanceTo(goal) > .6; frame++) {
+    const delta = out.clone().sub(position), distance = delta.length()
+    if (distance > .001) position.addScaledVector(delta, Math.min(.8, distance) / distance)
+    expect(world.grid.isBlocked(world.grid.worldToCell(position)!)).toBe(false)
+    crossedWall ||= side === 'side' ? position.x > 12 : side === 'front' ? position.z < 0 : position.z > 24
+    world.beginFrame(); result = navigate()
+  }
+  expect(crossedWall).toBe(true)
+  expect(position.distanceTo(goal)).toBeLessThan(.6)
+  expect(body.tacticalOrder).toBe('attack')
 })

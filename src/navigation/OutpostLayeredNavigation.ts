@@ -49,6 +49,7 @@ export interface OutpostLayeredMoveResult {
   currentLayer: OutpostNavLayer
   targetLayer: OutpostNavLayer
   step: OutpostLayeredRouteStep
+  blocked?: boolean
 }
 
 export function isRampartLayer(layer: OutpostNavLayer): boolean {
@@ -559,23 +560,30 @@ export class OutpostLayeredNavigation {
     out.set(x, getWalkRampHeight(deck.walkSurface, x, z) ?? deck.topY, z)
   }
 
+  private insidePerimeter(point: THREE.Vector3): boolean {
+    const bounds = this.layout.perimeter
+    if (bounds) return point.x >= bounds.minX && point.x <= bounds.maxX
+      && point.z >= bounds.minZ && point.z <= bounds.maxZ
+    const frontZ = this.layout.zSign > 0 ? this.layout.decks[0].slab.min.z : this.layout.decks[0].slab.max.z
+    return (point.z - frontZ) * this.layout.zSign >= 0
+  }
+
   /** Exterior approaches require a docked siege connection, even with interior mounted access. */
   needsSiegeRoute(current: THREE.Vector3, goal: THREE.Vector3): boolean {
-    if (!this.entrances.hasMountedRamp) return false
+    if (!this.entrances.hasWalkable) return false
     const currentLayer = this.getNavLayer(current)
     const goalLayer = this.getNavLayer(goal)
+    if (currentLayer === 'ground' && goalLayer === 'ground') return this.entrances.hasWalkable
+    if (!this.entrances.hasMountedRamp) return false
     if (currentLayer.startsWith('siege_') || goalLayer.startsWith('siege_')) return true
-    const frontZ = this.layout.bridge.walkSurface.startZ - this.layout.zSign * 1.6
-    return this.entrances.hasMountedRamp && ((current.z - frontZ) * this.layout.zSign < 0
-      && ((goal.z - frontZ) * this.layout.zSign >= 0 || isRampartLayer(goalLayer)))
+    return !this.insidePerimeter(current) && (this.insidePerimeter(goal) || isRampartLayer(goalLayer))
   }
 
   private siegeRoute(current: THREE.Vector3, goal: THREE.Vector3, mounted: boolean,
     out: THREE.Vector3, preferred?: string | null): OutpostLayeredMoveResult | null {
     if (!this.entrances.hasMountedRamp) return null
     const currentLayer = this.getNavLayer(current), targetLayer = this.getNavLayer(goal)
-    const frontZ = this.layout.bridge.walkSurface.startZ - this.layout.zSign * 1.6
-    const outside = (point: THREE.Vector3): boolean => (point.z - frontZ) * this.layout.zSign < -.3
+    const outside = (point: THREE.Vector3): boolean => !this.insidePerimeter(point)
     const preferredEntry = preferred ? this.entrances.entries.get(preferred) : undefined
     const chosen = preferredEntry?.walkable ? preferredEntry : undefined
     // Foot attackers can use any valid entrance and then the interior stairs.
@@ -589,10 +597,8 @@ export class OutpostLayeredNavigation {
     if (!entry && chosen?.walkable && chosen.surface) entry = chosen
     if (!entry) entry = ramps.reduce((a, b) => current.distanceToSquared(a.exit) <= current.distanceToSquared(b.exit) ? a : b)
     const result = (step: OutpostLayeredRouteStep): OutpostLayeredMoveResult => ({ target: out, currentLayer, targetLayer, isCrossLayer: true, step })
-    // Siege ramps reach the deck, not the courtyard. Once mounted actors are
-    // back on ground, hand the final ground goal to A* (and its physical gate
-    // collision), even if the actor's preferred assault entrance is a ramp.
-    // Never ascend again merely because that ground goal is inside the wall.
+    // Ground travel belongs to A*. Only clear the low ramp end here before
+    // turning; do not keep driving back to a stale ingress waypoint.
     if (mounted && currentLayer === 'ground' && targetLayer === 'ground') {
       if (outside(current) && !outside(goal)) {
         const groundEntries = [...this.entrances.entries.values()].filter(e => e.walkable && e.mounted && !e.surface)
@@ -614,19 +620,8 @@ export class OutpostLayeredNavigation {
             return result('ground_approach')
           }
         }
-        if (!groundEntry) out.copy(current) // No physical ground breach: wait safely outside.
-        else {
-          const dx = groundEntry.exit.x - groundEntry.approach.x, dz = groundEntry.exit.z - groundEntry.approach.z
-          const length = Math.hypot(dx, dz)
-          const x = current.x - groundEntry.approach.x, z = current.z - groundEntry.approach.z
-          const lateral = length > 0 ? Math.abs(x * dz - z * dx) / length : 0
-          const progress = length > 0 ? (x * dx + z * dz) / length : 0
-          out.copy(lateral > 1 || progress < -1 ? groundEntry.approach : groundEntry.exit)
-        }
-        return result('ground_approach')
       }
-      out.copy(goal)
-      return result('ground_approach')
+      return null
     }
     const ramp = entry.surface!
     const ground = new THREE.Vector3(ramp.startX, ramp.startY, ramp.startZ)
@@ -668,10 +663,37 @@ export class OutpostLayeredNavigation {
     out: THREE.Vector3,
     preferredEntrance?: string | null,
   ): OutpostLayeredMoveResult {
-    const deck = this.layout.decks[0]
-    const frontZ = this.layout.zSign > 0 ? deck.slab.min.z : deck.slab.max.z
-    const currentInside = (currentPos.z - frontZ) * this.layout.zSign >= 0
-    const goalInside = (goalPos.z - frontZ) * this.layout.zSign >= 0
+    const currentLayer = this.getNavLayer(currentPos)
+    let targetLayer = this.getNavLayer(goalPos)
+    // Once both bodies are on ground, the shared A* owns the complete route.
+    // A selected entrance is an ingress preference, not an endlessly renewed
+    // waypoint that pulls a rider back after it has already crossed a wall gap.
+    if (currentLayer === 'ground' && targetLayer === 'ground') {
+      // Preserve the existing whole-body clearance at the ramp's low end.
+      if (isMounted) for (const entry of this.entrances.entries.values()) {
+        const ramp = entry.surface
+        if (!entry.walkable || !entry.mounted || !ramp || Math.abs(currentPos.x - ramp.startX) >= ramp.halfWidth + 1.2) continue
+        const along = (currentPos.z - ramp.startZ) * ramp.dirZ
+        if (along <= -6 || along >= 1) continue
+        const rampExit = this.siegeRoute(currentPos, goalPos, true, out, preferredEntrance)
+        if (rampExit) return rampExit
+        break
+      }
+      const crossing = this.insidePerimeter(currentPos) !== this.insidePerimeter(goalPos)
+      if (crossing && ![...this.entrances.entries.values()].some(entry => entry.walkable && !entry.surface
+        && (!isMounted || entry.mounted))) {
+        // Foot assault may still climb a live tower and descend the interior
+        // stairs. A mounted-only restriction must never become a ground bypass.
+        const siege = this.siegeRoute(currentPos, goalPos, isMounted, out, preferredEntrance)
+        if (siege) return siege
+        out.copy(currentPos)
+        return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'ground_cross', blocked: true }
+      }
+      out.copy(goalPos)
+      return { target: out, isCrossLayer: false, currentLayer, targetLayer, step: 'ground_cross' }
+    }
+    const currentInside = isRampartLayer(currentLayer) || this.insidePerimeter(currentPos)
+    const goalInside = isRampartLayer(targetLayer) || this.insidePerimeter(goalPos)
     const groundExit = isMounted && currentInside && !goalInside
       ? [...this.entrances.entries.values()].filter(entry => entry.walkable && entry.mounted && !entry.surface)
         .reduce<BreachEntrance | undefined>((best, entry) => !best
@@ -681,21 +703,6 @@ export class OutpostLayeredNavigation {
       && currentInside && (goalInside || Boolean(groundExit))
     const siege = interiorMountedRoute ? null : this.siegeRoute(currentPos, goalPos, isMounted, out, preferredEntrance)
     if (siege) return siege
-    let targetLayer = this.getNavLayer(goalPos)
-    const currentLayer = this.getNavLayer(currentPos)
-
-    // Descending via an interior stair does not itself cross the wall. Once on
-    // the ground, approach the live breach from its courtyard side before exiting.
-    if (groundExit && currentLayer === 'ground') {
-      const dx = groundExit.approach.x - groundExit.exit.x
-      const dz = groundExit.approach.z - groundExit.exit.z
-      const length = Math.hypot(dx, dz)
-      const x = currentPos.x - groundExit.exit.x, z = currentPos.z - groundExit.exit.z
-      const lateral = length > 0 ? Math.abs(x * dz - z * dx) / length : Infinity
-      const progress = length > 0 ? (x * dx + z * dz) / length : -Infinity
-      out.copy(lateral > 1 || progress < -1 ? groundExit.exit : groundExit.approach)
-      return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'ground_approach' }
-    }
 
     // Losing a ramp removes descent, not the intact deck/bridge under the rider.
     // siegeRoute already handled any available mounted descent above.

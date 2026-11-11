@@ -76,11 +76,12 @@ export class LayeredNavigationRoute {
       || isStairLayer(request.currentLayer) || outpost.needsSiegeRoute(position, goal))) return null
 
     const layered = outpost.resolveMoveTarget(position, goal, request.outpostMounted, out, request.entranceId)
+    if (layered.blocked) { step.route = 'unreachable'; return step }
     if (layered.step !== 'ground_approach' && layered.step !== 'ground_cross') {
       step.confirmedLayeredStep = true
       return step
     }
-    if (!request.skipGroundNavigation) {
+    if (!request.skipGroundNavigation || layered.step === 'ground_cross') {
       step.route = this.groundRoute(request, obstacles, out)
       // A coarse ground cell can reject a physically clear approach. Only this
       // Outpost handoff may recover direct travel; Town blocked routes stay closed.

@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { createDuelArena, type DuelArenaEnvironment } from './DuelArena'
 import { DUEL_ARENA_LABELS, type DuelArenaId } from './DuelArenaCatalog'
 import { ARENA_DUEL_REFEREE_SLOTS } from './DuelArenaVenue'
-import { ArenaChaseRoute } from './DuelArenaChase'
+import { ArenaChaseRoute, ArenaSupportTracker, arenaStandingFeet } from './DuelArenaChase'
 import { CareerDuelController, duelLoadout, type CareerDuelOpponentRequest, type CareerDuelResident } from '../career/CareerDuelController'
 import { resolveCareerDuelClass } from '../career/CareerDuelClasses'
 import { careerDuelArena, isCareerDuelPresetId, isCareerDuelTier, type CareerDuelTier } from '../career/CareerDuelState'
@@ -227,6 +227,7 @@ export class CareerDuelArenaScene {
     this.player.onFireArrow = event => this.fire(event.origin, event.direction, event.speed, event.damage, 'arrow', undefined, event.visualKind)
     const spawn = this.arena.spawns.player
     this.player.resetForScene(spawn.x, spawn.y + PLAYER_HALF_HEIGHT, spawn.z)
+    this.playerFeet = this.playerSupport.observe(spawn, true) // The spawn is the first known support level.
     this.player.faceDirection(Math.sin(spawn.yaw), Math.cos(spawn.yaw))
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
     this.orbit.setYaw(spawn.yaw + Math.PI)
@@ -369,6 +370,7 @@ export class CareerDuelArenaScene {
       if (mount) { if (this.arena.constrainGroundedBody(mount.group.position)) this.player.syncMountTransform() }
       else this.arena.constrainGroundedBody(this.player.group.position)
     }
+    this.updatePlayerSupport()
     // Actors keep animating after the result (death, idle); only live combat routes damage.
     if (this.duel.actors.length) this.updateActors(dt)
     if (combat) {
@@ -391,7 +393,25 @@ export class CareerDuelArenaScene {
     if (this.skillsDirty && this.elapsed % 5 < dt) this.flushSkills()
   }
 
+  /**
+   * Where the player is supported: a ground mount's own position when riding, else the feet under the
+   * pelvis-origin body. Sampled every frame (countdown included), so the last grounded level is already
+   * known whenever the opponent starts chasing.
+   */
+  private updatePlayerSupport(): void {
+    const mount = this.player.isMounted ? this.player.currentMount : null
+    this.playerFeet = this.playerSupport.observe(
+      arenaStandingFeet(this.player.position, mount && !mount.isFlyingMount ? mount.group.position : null, PLAYER_HALF_HEIGHT),
+      this.player.isGrounded)
+  }
+  private readonly playerSupport = new ArenaSupportTracker()
+  private playerFeet = { x: 0, y: 0, z: 0 }
+
   private updateActors(dt: number): void {
+    // Same per-frame topology sync and path-search budget reset as Town; without it the budget never refills.
+    this.navigation.sync(this.arena.obstacles)
+    this.navigation.beginFrame()
+    this.stairNavigation.beginFrame()
     for (const actor of this.duel.actors) {
       const distance = actor.group.position.distanceTo(this.camera.position)
       if (actor.dead) { actor.update(dt, this.player, [], [], this.arena.obstacles, this.hp, () => {}, () => false, false, distance); continue }
@@ -401,7 +421,7 @@ export class CareerDuelArenaScene {
       if (!chase && actor === this.duel.opponent) this.chaseRoute.reset()
       const waypoint = chase ? this.chaseRoute.next(
         { x: actor.combatPosition.x, y: actor.combatPosition.y, z: actor.combatPosition.z },
-        { x: this.player.position.x, y: this.player.position.y - PLAYER_HALF_HEIGHT, z: this.player.position.z }) : null
+        this.playerFeet) : null
       if (waypoint) {
         if (!this.chaseWaypoint || this.chaseWaypoint.x !== waypoint.x || this.chaseWaypoint.z !== waypoint.z) {
           this.chaseWaypoint = waypoint
