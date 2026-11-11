@@ -34,6 +34,8 @@ interface DuelSelectionEntry {
   tutorial: { renderReviewContent(panel: HTMLElement): void }
   openDuelPage(panel: HTMLElement): void
   openDuelSelection(panel: HTMLElement): void
+  duelArenaSelector(): HTMLElement
+  duelArenaChoice: string | null
   duelSubjectKey: string
   openRacePage(panel: HTMLElement): void
   button(parent: HTMLElement, label: string, action: () => void): HTMLButtonElement
@@ -52,6 +54,7 @@ function selection(profile: CareerProfile) {
       const heading = document.createElement('h3'); heading.textContent = 'Review'; panel.append(heading)
     } },
     openDuelPage: methods.openDuelPage, openDuelSelection: methods.openDuelSelection,
+    duelArenaSelector: methods.duelArenaSelector, duelArenaChoice: null,
     openRacePage: methods.openRacePage, button: methods.button,
   }
   entry.openDuelPage(dom(root))
@@ -84,6 +87,21 @@ describe('Career Duel selection pages', () => {
     expect(h.content.descendants().find(n => n.className === 'duel-rules')!.textContent).toContain('30 秒')
     expect(tierRows(h)[4].children[1].textContent).toBe('需先擊敗 T4 ' + presets[0].nameZh)
     expect(JSON.stringify(profile)).toBe(before)
+  })
+
+  it('offers both arenas to any culture, keeps the choice across unit switches and resets it when the page reopens', () => {
+    const arenas = (h: ReturnType<typeof selection>) => h.content.descendants().filter(n => n.className.includes('duel-arena-option'))
+    const checked = (h: ReturnType<typeof selection>) => arenas(h).find(n => n.attributes['aria-checked'] === 'true')!.textContent
+    const h = selection({ ...createCareerProfile('viking'), duelHighestDefeatedTierByPreset: {} })
+    expect(arenas(h).map(n => n.textContent)).toEqual(['羅馬競技場', '維京英靈殿'])
+    expect(checked(h)).toBe('維京英靈殿')
+    arenas(h)[0].click()
+    expect(checked(h)).toBe('羅馬競技場')
+    find(h, getUnitPresetsForFaction('viking')[0].nameZh).click()
+    expect(checked(h)).toBe('羅馬競技場')
+    expect(h.entry.duelArenaChoice).toBe('roman-colosseum')
+    h.entry.openDuelPage(h.entry.panel)
+    expect(h.entry.duelArenaChoice).toBeNull()
   })
 
   it('forwards only enabled acceptances and offers each T4/T5 class directly on the tier row', () => {

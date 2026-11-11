@@ -20,6 +20,10 @@ import { TownScene } from './TownScene'
 import { HorseAssetLoadError } from '../world/HorseAssetRegistry'
 import { canStartCareerTutorial, commitCareerTutorial, startCareerTutorial } from '../career/CareerTutorial'
 import type { CareerTutorialLaunch } from '../career/CareerTutorialLaunch'
+import { careerDuelArena } from '../career/CareerDuelState'
+import { CareerDuelArenaScene } from '../arena/CareerDuelArenaScene'
+import { DUEL_ARENA_LABELS } from '../arena/DuelArenaCatalog'
+import { DUEL_ARENA_RETURN_KEY } from '../arena/DuelArenaReturn'
 export const TOWN_ENTRY_KEY = 'sagaburst_career_town'
 export function enterCareerTown(container: HTMLElement, launchCampaign: (config: CareerCombatLaunch) => Promise<void>, home: () => void,
   onMissionLaunchError?: (missionId: string, error: unknown) => void,
@@ -77,6 +81,48 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
           if (!selection) { document.body.append(form); button('重試進入新兵教學', () => { void start(profile) }) }
           return false
         }
+      }
+    }
+    // A formal arena duel is its own scene: accepted, mid-fight and settled saves all load the arena.
+    const arenaId = careerDuelArena(profile.activeMission)
+    if (arenaId) {
+      form.remove()
+      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      const overlay = document.createElement('div'); overlay.id = 'career-duel-arena-loading'
+      overlay.style.cssText = 'position:fixed;inset:0;display:grid;place-content:center;gap:12px;color:#eee;background:#171411;z-index:9998;font:16px system-ui;text-align:center'
+      overlay.setAttribute('role', 'status')
+      const text = document.createElement('p'); text.textContent = `正在前往${DUEL_ARENA_LABELS[arenaId]}…`; overlay.append(text)
+      document.body.append(overlay)
+      try {
+        const arena = await CareerDuelArenaScene.create(container, {
+          returnToTown: () => {
+            if (!current()) return
+            sessionStorage.setItem(DUEL_ARENA_RETURN_KEY, '1')
+            void start(store.loadChecked().profile ?? profile)
+          },
+        }, message => { text.textContent = message })
+        if (!current()) { arena.dispose(); overlay.remove(); return false }
+        if (import.meta.env.DEV) (window as unknown as { duelArena: CareerDuelArenaScene }).duelArena = arena
+        overlay.remove()
+        arena.start()
+        return true
+      } catch (error) {
+        if (!current()) { overlay.remove(); return false }
+        console.error('[Career entry] Duel arena load failed', error)
+        // A technical failure is never a defeat: the saved duel stays resumable or can be cancelled without a result.
+        text.textContent = `${DUEL_ARENA_LABELS[arenaId]}載入失敗；本場單挑尚未結算，存檔與獎勵均未變動。`
+        const retry = document.createElement('button'); retry.className = 'town-button'; retry.textContent = '重試載入單挑'
+        retry.onclick = () => { overlay.remove(); void start(store.loadChecked().profile ?? profile) }
+        const cancel = document.createElement('button'); cancel.className = 'town-button'; cancel.textContent = '取消本次單挑（不計勝負）'
+        cancel.onclick = () => {
+          const latest = store.loadChecked().profile ?? profile
+          const mission = latest.activeMission
+          const next = mission ? clearCareerMission(latest, mission.id) : latest
+          if (mission && !store.save(next)) { text.textContent = '取消尚未保存，請重試。'; return }
+          overlay.remove(); void start(next)
+        }
+        overlay.append(retry, cancel)
+        return false
       }
     }
     const active = profile.activeMission

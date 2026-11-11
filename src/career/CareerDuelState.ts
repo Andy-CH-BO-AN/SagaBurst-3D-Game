@@ -9,6 +9,7 @@ import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import type { CareerProfile } from './CareerProfile'
 import { careerDuelClassOptions } from './CareerDuelClasses'
 import { createCareerMissionId, type ActiveCareerMission, type CareerMissionOutcome } from './CareerMissionState'
+import { parseDuelArenaId, type DuelArenaId } from '../arena/DuelArenaCatalog'
 
 export const CAREER_DUEL_TEMPLATE_ID = 'career-duel'
 export const DUEL_COUNTDOWN_SECONDS = 5
@@ -114,7 +115,10 @@ export function createCareerDuelMission(
   refereeActorId = captainActorId,
   mode: CareerDuelMode = 'armed',
   classId?: HeroCombatProfileId,
+  arenaId?: DuelArenaId,
 ): ActiveCareerMission | null {
+  // A requested arena must be a saved, known ID; omitting it keeps the legacy Town forecourt.
+  if (arenaId !== undefined && !parseDuelArenaId(arenaId)) return null
   // A class is only meaningful for an armed T4/T5 duel and must be one the preset legally offers.
   const classes = mode === 'armed' ? careerDuelClassOptions(profile.faction, presetId, tier) : []
   if (classId !== undefined && !classes.some(option => option.combatProfileId === classId)) return null
@@ -127,6 +131,7 @@ export function createCareerDuelMission(
     phase: 'ASSEMBLING', targetActorIds: [opponent], friendlyActorIds: opponent === referee ? [] : [referee],
     duelMode: mode, duelTier: tier, duelPresetId: presetId, duelOpponentActorId: opponent, duelCaptainActorId: captain,
     duelRefereeActorId: referee, ...(classes.length ? { duelClassId: classId ?? classes[0].combatProfileId } : {}),
+    ...(arenaId ? { duelArenaId: arenaId } : {}),
     duelCountdownElapsed: 0, duelCombatElapsed: 0, duelOpponentDead: false,
     acceptedAt: Date.now(),
   }
@@ -148,6 +153,15 @@ export function createCareerTutorialDuelMission(profile: CareerProfile, presetId
     duelRefereeActorId: refereeActorId, duelTutorialCareerId: profile.tutorial.careerId,
     duelCountdownElapsed: 0, duelCombatElapsed: 0, duelOpponentDead: false, acceptedAt: Date.now(),
   }
+}
+
+/**
+ * The independent arena scene owns this duel. Legacy saves without an arena and the
+ * tutorial sparring match keep the original Town forecourt flow.
+ */
+export function careerDuelArena(mission: Pick<ActiveCareerMission, 'kind' | 'duelArenaId' | 'duelTutorialCareerId'> | undefined): DuelArenaId | null {
+  if (mission?.kind !== 'duel' || mission.duelTutorialCareerId) return null
+  return parseDuelArenaId(mission.duelArenaId)
 }
 
 /** Duel has no allied victory after player death; a simultaneous death is a failure. */

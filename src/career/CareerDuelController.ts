@@ -20,7 +20,8 @@ import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import type { ActiveCareerMission, CareerMissionOutcome, CareerMissionPhase } from './CareerMissionState'
 import { resolveCareerDuelClass } from './CareerDuelClasses'
 import { careerHeroClassMaxHp, HERO_CLASS_SHIELD, type CareerHeroClass } from './CareerHeroClasses'
-import { duelCombatSeconds, isUnarmedDuelUnlocked, isIllegalUnarmedDuelDamage, type CareerDuelMode, careerDuelOpponentHealth, createCareerDuelMission, createCareerTutorialDuelMission, DUEL_COUNTDOWN_SECONDS, isCareerDuelPresetId, isCareerDuelTier, resolveCareerDuelOutcome, type CareerDuelTier, type CareerDuelCommanderHome, type CareerDuelTravelCheckpoint } from './CareerDuelState'
+import { duelCombatSeconds, isUnarmedDuelUnlocked, isIllegalUnarmedDuelDamage, type CareerDuelMode, careerDuelOpponentHealth, createCareerDuelMission, createCareerTutorialDuelMission, DUEL_COUNTDOWN_SECONDS, isCareerDuelPresetId, isCareerDuelTier, resolveCareerDuelOutcome, type CareerDuelTier, type CareerDuelCommanderHome, type CareerDuelPosition, type CareerDuelTravelCheckpoint } from './CareerDuelState'
+import type { DuelArenaId } from '../arena/DuelArenaCatalog'
 
 export interface CareerDuelResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
 
@@ -33,6 +34,18 @@ export interface CareerDuelRoster {
   referee: CareerDuelResident
   loadout: UnitLoadout
   mount: Mount | null
+}
+
+/**
+ * Where a duel is fought. The Town forecourt is searched in the live TownWorld and the party
+ * marches there; an independent arena scene supplies fixed slots, so the party is placed
+ * directly and the duel starts at PREPARING. Phase, timer, outcome and checkpoint rules are shared.
+ */
+export interface CareerDuelVenue {
+  readonly area: THREE.Vector3
+  readonly player: CareerDuelPosition
+  readonly opponent: CareerDuelPosition
+  readonly referee: CareerDuelPosition
 }
 
 /** Existing Duel classes retain their weapons/mounts; shield-bearing T5 Commanders use their war shield. */
@@ -149,7 +162,7 @@ export class CareerDuelController {
 
   constructor(
     private readonly scene: THREE.Scene,
-    private readonly world: TownWorld,
+    private readonly world: Pick<TownWorld, 'obstacles'>,
     private readonly navigation: NavigationWorld,
     private readonly residents: readonly CareerDuelResident[],
     private readonly blackCat: Mount,
@@ -160,6 +173,8 @@ export class CareerDuelController {
       = (scene, mountId, x, z) => new Mount(scene, mountTypeFromId(mountId), x, z),
     /** Builds the temporary body of a non-native hero class; its assets are preloaded before the mission is accepted. */
     private readonly createOpponent?: (request: CareerDuelOpponentRequest) => NPC | null,
+    /** Fixed arena slots; absent = the Town forecourt with an outbound and return march. */
+    private readonly venue?: CareerDuelVenue,
   ) {}
 
   get active(): ActiveCareerMission | undefined { const mission = this.readProfile().activeMission; return mission?.kind === 'duel' ? mission : undefined }
@@ -178,23 +193,24 @@ export class CareerDuelController {
   get combatEnabled(): boolean { return this.phase === 'ENGAGING' && !this.active?.result && !this.illegalAttackPending && !this.active?.duelFailureReason && this.combatElapsed < this.combatDuration }
   get remainingEnemies(): number { return this.opponent && !this.opponent.dead ? 1 : 0 }
   get guideTarget(): THREE.Vector3 | null {
+    if (this.venue) return null
     if (this.phase === 'RETURNING') return this.returnPoint()
     if (this.phase === 'ASSEMBLING' || this.phase === 'MARCHING') return this.staging ? townDuelPosition(this.area, DUEL_PLAYER_OFFSET) : this.area.clone()
     return null
   }
   get returnComplete(): boolean {
-    return this.phase === 'RETURNING' && this.player().combatPosition.distanceTo(this.returnPoint()) < RETURN_PLAYER_RADIUS
+    return !this.venue && this.phase === 'RETURNING' && this.player().combatPosition.distanceTo(this.returnPoint()) < RETURN_PLAYER_RADIUS
       && this.actors.filter(actor => !actor.dead).every(actor => actor.combatPosition.distanceTo(this.returnPoint()) < RETURN_PLAYER_RADIUS)
   }
   get isReturned(): boolean { return this.returnComplete }
   get outcome(): CareerMissionOutcome | null { return this.evaluate() }
 
-  createUnarmedMission(tier: CareerDuelTier): ActiveCareerMission | null {
+  createUnarmedMission(tier: CareerDuelTier, arenaId?: DuelArenaId): ActiveCareerMission | null {
     const profile = this.readProfile()
     if (!isUnarmedDuelUnlocked(profile, tier)) return null
     const preset = Object.values(UNIT_PRESETS).find(p => p.faction === profile.faction
       && !p.traits.includes('bow_fire') && !p.tierLoadouts[1].mountId)
-    return preset ? this.createMission(preset.id, tier, 'unarmed') : null
+    return preset ? this.createMission(preset.id, tier, 'unarmed', undefined, arenaId) : null
   }
 
   /** The class the resident does not already wear; undefined when the original class (or no class) is fought. */
@@ -204,11 +220,11 @@ export class CareerDuelController {
     return hero && hero.combatProfileId !== resident.npc.combatProfileId ? hero : undefined
   }
 
-  createMission(presetId: UnitPresetId, tier: CareerDuelTier, mode: CareerDuelMode = 'armed', classId?: HeroCombatProfileId): ActiveCareerMission | null {
+  createMission(presetId: UnitPresetId, tier: CareerDuelTier, mode: CareerDuelMode = 'armed', classId?: HeroCombatProfileId, arenaId?: DuelArenaId): ActiveCareerMission | null {
     const roster = selectCareerDuelRoster(this.residents, this.blackCat, presetId, tier)
     if (!roster) return null
     const mission = createCareerDuelMission(this.readProfile(), presetId, tier, roster.opponent.npc.combatantId,
-      roster.captain.npc.combatantId, undefined, roster.referee.npc.combatantId, mode, classId)
+      roster.captain.npc.combatantId, undefined, roster.referee.npc.combatantId, mode, classId, arenaId)
     if (!mission) return null
     const swapped = this.swapHero(mission, roster.opponent)
     const player = this.player()
@@ -251,7 +267,7 @@ export class CareerDuelController {
       || opponent.npc.combatProfileId || opponent.npc.specialCombatProfile)) return false
     if (active.duelTier === 5 && (opponent.spec.id !== 'commander' || opponent.spec.role !== 'commander'
       || captain.spec.role !== 'captain' || referee !== captain)) return false
-    const area = findTownDuelArena(this.world.obstacles, this.navigation, this.residents.map(resident => resident.spec))
+    const area = this.venue ? this.venue.area.clone() : findTownDuelArena(this.world.obstacles, this.navigation, this.residents.map(resident => resident.spec))
     if (!area) return false
     this.cleanupMission()
     const swapHero = this.swapHero(active, opponent)
@@ -338,6 +354,7 @@ export class CareerDuelController {
     if (active.duelPlayerStamina !== undefined) this.player().setStamina(active.duelPlayerStamina)
     this.area.copy(area)
     this.tracker = new BattleStatsTracker(this.events, false, event => this.acceptCombatEvent(event), active.playerStats)
+    if (this.venue) return this.startAtVenue(active)
     if (active.phase === 'ASSEMBLING') {
       // Persistent T5/tutorial parties may already be away from home: restore their physical
       // checkpoint before deriving the new direct route's starting position.
@@ -370,6 +387,21 @@ export class CareerDuelController {
         }
       }
     }
+    return true
+  }
+
+  /**
+   * An arena duel has no march: a fresh acceptance is placed on its slots and saved as
+   * PREPARING; a reload keeps its phase and restores the arena positions it saved.
+   */
+  private startAtVenue(active: ActiveCareerMission): boolean {
+    this.placeDuelParty()
+    if (active.phase === 'ASSEMBLING' || active.phase === 'MARCHING' || active.phase === 'RETURNING' && !active.result) {
+      if (!this.setPhase('PREPARING', 0)) { this.cleanupMission(); return false }
+      return true
+    }
+    if (persistsDuelTravel(active) && active.duelTravel) this.restoreTravelCheckpoint(active.duelTravel)
+    if (active.phase === 'ENGAGING' && !active.result) this.opponent?.setDuelHostility(true)
     return true
   }
 
@@ -453,6 +485,8 @@ export class CareerDuelController {
 
   beginReturn(): boolean {
     const active = this.active
+    // An arena returns through scene settlement, never by marching back across Town.
+    if (this.venue) return false
     if (active?.phase !== 'RESULT' || active.result?.outcome !== 'victory' || this.player().dead || !this.captain || !this.referee) return false
     const leader = this.selectRouteLeader()
     if (!this.setPhase('RETURNING', 0)) return false
@@ -662,21 +696,32 @@ export class CareerDuelController {
   }
   private placeDuelParty(): void {
     if (!this.opponent || !this.referee) return
-    this.placeActor(this.opponent, this.duelPosition(this.opponent), Math.PI)
-    if (this.referee !== this.opponent) this.placeActor(this.referee, this.duelPosition(this.referee), -Math.PI / 2)
+    this.placeActor(this.opponent, this.duelPosition(this.opponent), this.venue?.opponent.yaw ?? Math.PI)
+    if (this.referee !== this.opponent) this.placeActor(this.referee, this.duelPosition(this.referee), this.venue?.referee.yaw ?? -Math.PI / 2)
     this.placePlayer()
   }
-  private duelPosition(actor: NPC): THREE.Vector3 { return townDuelPosition(this.area, actor === this.opponent ? DUEL_OPPONENT_OFFSET : DUEL_REFEREE_OFFSET) }
+  private duelPosition(actor: NPC): THREE.Vector3 {
+    if (this.venue) {
+      const slot = actor === this.opponent ? this.venue.opponent : this.venue.referee
+      return new THREE.Vector3(slot.x, slot.y, slot.z)
+    }
+    return townDuelPosition(this.area, actor === this.opponent ? DUEL_OPPONENT_OFFSET : DUEL_REFEREE_OFFSET)
+  }
   private assignDuelPositions(): void {
     for (const actor of this.actors) if (!actor.dead && !this.externalCombat.has(actor) && !(actor === this.opponent && this.combatEnabled)) {
-      const yaw = actor === this.opponent ? Math.PI : -Math.PI / 2
+      const yaw = actor === this.opponent ? this.venue?.opponent.yaw ?? Math.PI : this.venue?.referee.yaw ?? -Math.PI / 2
       actor.assignFormationTarget(this.commandId++, this.duelPosition(actor), new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)), MARCH_SPEED)
     }
   }
   private placePlayer(): void {
-    const player = this.player(), playerPoint = townDuelPosition(this.area, DUEL_PLAYER_OFFSET)
-    if (player.currentMount && !player.currentMount.dead) { player.currentMount.group.position.copy(playerPoint); player.syncMountTransform() }
-    else player.group.position.copy(playerPoint).add(new THREE.Vector3(0, .9, 0))
-    player.faceDirection(0, 1)
+    const player = this.player(), slot = this.venue?.player
+    const playerPoint = slot ? new THREE.Vector3(slot.x, slot.y, slot.z) : townDuelPosition(this.area, DUEL_PLAYER_OFFSET)
+    if (player.currentMount && !player.currentMount.dead) {
+      player.currentMount.group.position.copy(playerPoint)
+      if (slot) player.currentMount.group.rotation.y = slot.yaw
+      player.syncMountTransform()
+    } else player.group.position.copy(playerPoint).add(new THREE.Vector3(0, .9, 0))
+    if (slot) player.faceDirection(Math.sin(slot.yaw), Math.cos(slot.yaw))
+    else player.faceDirection(0, 1)
   }
 }

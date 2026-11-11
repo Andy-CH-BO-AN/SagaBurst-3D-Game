@@ -405,7 +405,8 @@ export function createColosseumObstacles(options: ColosseumCollisionOptions = {}
   }
 
   for (const plan of stairs) {
-    obstacles.push({ box: plan.box.clone(), isBarricade: false, walkSurface: plan.surface, solidBelow: COLOSSEUM.groundY })
+    // Ground navigation may route onto a flight; the walk plane and solid base still own physics.
+    obstacles.push({ box: plan.box.clone(), isBarricade: false, walkSurface: plan.surface, solidBelow: COLOSSEUM.groundY, navigationPassable: true })
   }
 
   const pulvinar = COLOSSEUM_PULVINAR

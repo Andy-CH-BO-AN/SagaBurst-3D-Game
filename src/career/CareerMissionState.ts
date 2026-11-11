@@ -112,6 +112,8 @@ export interface ActiveCareerMission {
   duelPlayerWasMounted?: boolean
   duelPlayerHomeMountActorId?: string
   duelTier?: CareerDuelTier
+  /** Formal duels fight in an independent arena scene; absent on legacy/tutorial duels = the Town forecourt. */
+  duelArenaId?: import('../arena/DuelArenaCatalog').DuelArenaId
   duelPresetId?: UnitPresetId
   /** Hero class of a T4/T5 armed duel opponent; absent in older saves = the resident's original class. */
   duelClassId?: import('../battle/HeroCombatProfile').HeroCombatProfileId

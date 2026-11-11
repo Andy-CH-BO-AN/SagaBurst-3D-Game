@@ -160,6 +160,8 @@ import { townRetirementRallyTarget } from './TownBounds'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { careerDuelSubjectRules, careerDuelMissionLabel, careerDuelProgressLabel, careerDuelTierEntries, type CareerDuelSubject } from '../career/CareerDuelSelection'
 import { type CareerDuelTier, isUnarmedDuelUnlocked, isCareerDuelUnlocked, duelFightBannerVisible } from '../career/CareerDuelState'
+import { DUEL_ARENA_IDS, DUEL_ARENA_LABELS, defaultDuelArenaForFaction, type DuelArenaId } from '../arena/DuelArenaCatalog'
+import { DUEL_ARENA_RETURN_KEY } from '../arena/DuelArenaReturn'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { fieldMissionHud, missionPhaseLabel, personalSquadStateLabel, townCommandStateLabel } from '../career/CareerMissionPresentation'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
@@ -310,6 +312,8 @@ export class TownScene {
   private duelActivity: 'duel' | 'race' | 'review' = 'duel'
   /** The Duel list entry kept across re-renders and returns: 'unarmed' or a unit preset ID. */
   private duelSubjectKey = 'unarmed'
+  /** Arena chosen on the Duel page; kept across subject/tier changes and reset when the page is reopened. */
+  private duelArenaChoice: DuelArenaId | null = null
   private careerCommandCue: AudioCommand | null = null
   private ambientDefeatShown = false
   private townRefitOnReturn = false
@@ -432,7 +436,7 @@ export class TownScene {
     this.player = new Player(this.scene, profile.faction, resolveCareerHeroAsset(profile), resolveCareerOrdinaryTier(profile))
     this.bindBlockingProgression()
     this.player.setMaxHp(resolveCareerPlayerMaxHp(profile, DEFAULT_PLAYER_MAX_HP), true)
-    const townEntry = townPlayerEntryPoint()
+    const townEntry = this.consumeDuelArenaReturnPoint() ?? townPlayerEntryPoint()
     this.player.group.position.set(townEntry.x, getTerrainHeight(townEntry.x, townEntry.z) + .9, townEntry.z)
     this.player.group.rotation.y = townEntry.yaw
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
@@ -2274,7 +2278,18 @@ export class TownScene {
       return equipment === 'ready'
     } catch (error) { console.error('Duel opponent assets could not be loaded', error); return false }
   }
+  /** After an arena duel the player comes back in front of the Captain who arranged it. */
+  private consumeDuelArenaReturnPoint(): { x: number; z: number; yaw: number } | null {
+    if (sessionStorage.getItem(DUEL_ARENA_RETURN_KEY) !== '1') return null
+    sessionStorage.removeItem(DUEL_ARENA_RETURN_KEY)
+    if (this.profile.activeMission || this.sceneContext.missionOnlyResidents) return null
+    const captain = this.residents.find(resident => resident.spec.id === 'captain')?.spec
+    if (!captain) return null
+    const yaw = captain.yaw ?? 0
+    return { x: captain.x + Math.sin(yaw) * 3.2, z: captain.z + Math.cos(yaw) * 3.2, yaw: yaw + Math.PI }
+  }
   private openDuelPage(panel: HTMLElement): void {
+    this.duelArenaChoice = null
     const activities = [['duel', '單挑 Duel'], ['race', '繞城賽馬 Racing'], ['review', '重溫入伍旅程']] as const
     const tabs = document.createElement('nav'); tabs.className = 'town-mission-tabs'; tabs.style.position = 'static'
     tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', '1 v 1 對決種類')
@@ -2380,7 +2395,28 @@ export class TownScene {
     }
     renderLadder()
     root.append(list, ladder)
-    panel.replaceChildren(root)
+    panel.replaceChildren(this.duelArenaSelector(), root)
+  }
+  private get selectedDuelArena(): DuelArenaId { return this.duelArenaChoice ?? defaultDuelArenaForFaction(this.profile.faction) }
+  /** Single choice above the ladder; any culture may fight in either arena, which never changes rules or rewards. */
+  private duelArenaSelector(): HTMLElement {
+    const bar = document.createElement('div'); bar.className = 'duel-arena-select'
+    bar.setAttribute('role', 'radiogroup'); bar.setAttribute('aria-label', '單挑場地')
+    const label = document.createElement('strong'); label.textContent = '單挑場地'; bar.append(label)
+    const options = DUEL_ARENA_IDS.map(id => {
+      const option = document.createElement('button')
+      option.className = 'town-button duel-arena-option'
+      option.setAttribute('role', 'radio'); option.textContent = DUEL_ARENA_LABELS[id]
+      option.onclick = () => { this.duelArenaChoice = id; sync() }
+      bar.append(option); return { id, option }
+    })
+    const selected = () => this.duelArenaChoice ?? defaultDuelArenaForFaction(this.profile.faction)
+    const sync = () => options.forEach(({ id, option }) => {
+      const checked = id === selected()
+      option.setAttribute('aria-checked', String(checked)); option.tabIndex = checked ? 0 : -1
+    })
+    sync()
+    return bar
   }
   private openRacePage(panel: HTMLElement): void {
     const racing = document.createElement('h3'); racing.textContent = 'Mounted Circuit Racing · 繞城賽馬'; panel.append(racing)
@@ -2495,16 +2531,17 @@ export class TownScene {
     if (!fresh || this.player.dead || this.event.hostile || !(mode === 'unarmed' ? isUnarmedDuelUnlocked(fresh, tier) : presetId && isCareerDuelUnlocked(fresh, presetId, tier)) || fresh.activeRace || fresh.activeMission || fresh.activeOutpostMission || fresh.townEvent?.state === 'hostile') {
       this.openPanel('無法接受單挑', '該兵種的這個等級尚未解鎖、目前正在交戰，或已有進行中的任務。'); return
     }
-    const mission = mode === 'unarmed' ? this.duel.createUnarmedMission(tier) : presetId ? this.duel.createMission(presetId, tier, 'armed', classId) : null
+    // Every new formal duel names its arena; the arena never changes the opponent, rules or rewards.
+    const arena = this.selectedDuelArena
+    const mission = mode === 'unarmed' ? this.duel.createUnarmedMission(tier, arena) : presetId ? this.duel.createMission(presetId, tier, 'armed', classId, arena) : null
     if (!mission) { this.openPanel('無法接受單挑', '目前沒有可出戰的城鎮士兵。'); return }
-    if (mode === 'unarmed') mission.mountState = this.careerMounts.checkpoint()
+    // The ridden ground mount comes along to an armed duel; an unarmed duel only remembers it.
+    mission.mountState = this.careerMounts.checkpoint()
     const next = cloneCareerProfile(fresh); next.activeMission = mission
     if (!this.commit(next)) { this.openPanel('單挑保存失敗', '單挑尚未開始。請確認瀏覽器儲存空間後重試。'); return }
     this.playMissionVoice('missionAccepted')
-    if (!this.duel.startActiveMission()) { this.openPanel('單挑部署失敗', '任務已保存，重新載入可恢復同一場單挑。'); return }
-    this.inventory.prepareForCombat()
-    this.notice = '已接受單挑。直接前往單挑場地，隊長與對手會自行到場。'
-    this.closePanel()
+    // The saved duel is loaded by its own arena scene; Town is released, not hidden.
+    this.dispose(); this.onRestart(this.profile)
   }
   private acceptOutpostRelief(): void {
     if (this.player.dead || !this.serviceAvailable('deployment')) return

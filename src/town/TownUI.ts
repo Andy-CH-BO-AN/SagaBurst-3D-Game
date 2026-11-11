@@ -30,6 +30,10 @@ export function installTownStyles(): void {
     .town-products { display:grid; grid-template-columns:repeat(auto-fit,minmax(235px,1fr)); gap:10px; margin-top:16px }
     .town-product { border:1px solid #77654866; border-radius:5px; padding:12px; background:#0002; display:flex; flex-direction:column; align-items:flex-start }
     .town-product strong { font-size:14px; color:#ead7b2 } .town-product small { color:#b7a78c; margin-top:4px }
+    .duel-arena-select { display:flex; align-items:center; gap:8px; margin:0 0 12px; padding:8px 10px; border:1px solid #6d5636; border-radius:8px; background:#20180f }
+    .duel-arena-select > strong { color:#ffe5af; margin-right:6px }
+    .duel-arena-option { min-width:120px }
+    .duel-arena-option[aria-checked="true"] { background:#9a6526; border-color:#ffd38a; color:#fff; box-shadow:0 0 0 2px #ffd38a55 inset }
     .duel-picker { display:grid; grid-template-columns:190px 1fr; gap:16px; align-items:start }
     .duel-picker-list { display:flex; flex-direction:column; gap:6px; position:sticky; top:56px }
     .duel-subject { display:flex; justify-content:space-between; align-items:center; margin:0; text-align:left; width:100% }

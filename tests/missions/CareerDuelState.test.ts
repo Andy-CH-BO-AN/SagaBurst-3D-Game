@@ -1,6 +1,6 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Vector3, type Scene } from 'three'
-import { CareerDuelController, persistsDuelTravel, selectCareerDuelRoster, duelLoadout, type CareerDuelOpponentRequest } from '../../src/career/CareerDuelController'
+import { CareerDuelController, persistsDuelTravel, selectCareerDuelRoster, duelLoadout, type CareerDuelOpponentRequest, type CareerDuelVenue } from '../../src/career/CareerDuelController'
 import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import type { Player } from '../../src/player/Player'
@@ -10,7 +10,7 @@ import type { TownWorld } from '../../src/town/TownWorld'
 import { townSitePoint, type TownActorSpec } from '../../src/town/TownRules'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
-import { duelCombatSeconds, resolveCareerDuelOutcome, isUnarmedDuelUnlocked, isIllegalUnarmedDuelDamage, careerDuelOpponentHealth, createCareerTutorialDuelMission, CAREER_DUEL_TEMPLATE_ID, createCareerDuelMission, isCareerDuelUnlocked, type CareerDuelTier } from '../../src/career/CareerDuelState'
+import { careerDuelArena, duelCombatSeconds, resolveCareerDuelOutcome, isUnarmedDuelUnlocked, isIllegalUnarmedDuelDamage, careerDuelOpponentHealth, createCareerTutorialDuelMission, CAREER_DUEL_TEMPLATE_ID, createCareerDuelMission, isCareerDuelUnlocked, type CareerDuelTier } from '../../src/career/CareerDuelState'
 import { careerDuelClassOptions, resolveCareerDuelClass } from '../../src/career/CareerDuelClasses'
 import { acceptsCareerMissionStat } from '../../src/career/CareerMissionState'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -48,7 +48,7 @@ function makeActor(id: string, x: number, z: number) {
 }
 
 /** Real controller/checkpoints and navigation; only position/order ports, no 3D actors. */
-function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING', createOpponent?: (request: CareerDuelOpponentRequest) => NPC | null) {
+function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING', createOpponent?: (request: CareerDuelOpponentRequest) => NPC | null, venue?: CareerDuelVenue) {
   const captain = makeActor('captain', -30, 20), opponent = makeActor('soldier-1', -60, 0)
   const makeSpec = (actor: typeof captain, role: TownActorSpec['role'], duty: TownActorSpec['duty']): TownActorSpec => ({
     id: actor.combatantId, role, duty, tier: 2, index: 0, mounted: false, training: duty === 'training',
@@ -69,7 +69,7 @@ function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING'
   const query = vi.spyOn(navigation, 'queryPath'); onTestFinished(() => query.mockRestore())
   const controller = new CareerDuelController(null as unknown as Scene, { obstacles: [] } as unknown as TownWorld,
     navigation, residents, null as unknown as Mount, () => player as unknown as Player, () => profile,
-    next => { if (!saveAllowed) return false; profile = next; return true }, undefined, createOpponent)
+    next => { if (!saveAllowed) return false; profile = next; return true }, undefined, createOpponent, venue)
   onTestFinished(() => controller.dispose())
   return { controller, captain, opponent, player, query, residents, read: () => profile,
     allowSave: (allowed: boolean) => { saveAllowed = allowed } }
@@ -231,6 +231,45 @@ describe('Career Duel physical travel and preparation', () => {
     expect(h.player.combatPosition).toEqual(playerStart)
     expect(h.captain.target).not.toEqual(h.controller.guideTarget) // Start at the newly computed route, not stale stage 999.
     expect(h.controller.returnComplete).toBe(false)
+  })
+})
+
+describe('Career Duel independent arena', () => {
+  it('saves the chosen arena through storage, keeps legacy and tutorial duels in Town, and refuses or drops unknown arenas', () => {
+    const profile = { ...createCareerProfile('viking'), tutorial: undefined }
+    const mission = createCareerDuelMission(profile, 'viking_berserker', 1, 'soldier-1', 'captain', 'arena-duel', 'captain', 'armed', undefined, 'roman-colosseum')!
+    expect(careerDuelArena(mission)).toBe('roman-colosseum')
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    expect(store.save({ ...profile, activeMission: mission })).toBe(true)
+    expect(careerDuelArena(store.load()!.activeMission)).toBe('roman-colosseum')
+    // A pre-arena save resumes in the Town forecourt; a corrupted ID falls back the same way.
+    const legacy = createCareerDuelMission(profile, 'viking_berserker', 1, 'soldier-1', 'captain', 'legacy-duel')!
+    expect(careerDuelArena(legacy)).toBeNull()
+    const raw = JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!)
+    raw.activeMission.duelArenaId = 'forum'
+    expect(careerDuelArena(parseCareerProfile(raw)!.activeMission)).toBeNull()
+    expect(createCareerDuelMission(profile, 'viking_berserker', 1, 'soldier-1', 'captain', 'bad', 'captain', 'armed', undefined, 'forum' as never)).toBeNull()
+    expect(careerDuelArena({ ...mission, duelTutorialCareerId: 'career-1' })).toBeNull()
+  })
+
+  it('places an accepted arena duel on its fixed slots and saves PREPARING without a march, or starts nothing when that save fails', () => {
+    const venue: CareerDuelVenue = { area: new Vector3(), player: { x: 0, y: 0, z: -9, yaw: 0 },
+      opponent: { x: 0, y: 0, z: 9, yaw: Math.PI }, referee: { x: 16, y: 0, z: 0, yaw: -Math.PI / 2 } }
+    const refused = travelingDuel('ASSEMBLING', undefined, venue)
+    refused.allowSave(false)
+    expect(refused.controller.startActiveMission()).toBe(false)
+    expect(refused.read().activeMission!.phase).toBe('ASSEMBLING')
+    const { controller, captain, opponent, player, query, read } = travelingDuel('ASSEMBLING', undefined, venue)
+    expect(controller.startActiveMission()).toBe(true)
+    expect(read().activeMission!.phase).toBe('PREPARING')
+    expect(query).not.toHaveBeenCalled()
+    expect(controller.guideTarget).toBeNull()
+    expect([opponent.target!.x, opponent.target!.z]).toEqual([0, 9])
+    expect([captain.target!.x, captain.target!.z]).toEqual([16, 0])
+    expect(player.group.position.toArray()).toEqual([0, 0.9, -9])
+    controller.update(5)
+    expect(controller.phase).toBe('ENGAGING')
+    expect(controller.beginReturn()).toBe(false)
   })
 })
 

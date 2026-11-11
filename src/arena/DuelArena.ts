@@ -13,25 +13,8 @@ import {
   getFlatTerrainOverride, setFlatTerrainOverride, setObstaclePathQuerySource, setScenePlayableWorldBound, type ObstacleData,
 } from '../world/Terrain'
 
-export type DuelArenaId = 'roman-colosseum' | 'viking-valhalla'
-
-export const DUEL_ARENA_IDS: readonly DuelArenaId[] = Object.freeze(['roman-colosseum', 'viking-valhalla'])
-
-export const DUEL_ARENA_LABELS: Readonly<Record<DuelArenaId, string>> = Object.freeze({
-  'roman-colosseum': '羅馬競技場',
-  'viking-valhalla': '維京英靈殿',
-})
-
-export function parseDuelArenaId(value: unknown): DuelArenaId | null {
-  return typeof value === 'string' && (DUEL_ARENA_IDS as readonly string[]).includes(value) ? value as DuelArenaId : null
-}
-
-/** DEV preview aliases (`?duelarena=roman|valhalla`) plus the canonical IDs. */
-export function parseDuelArenaPreviewQuery(value: string | null): DuelArenaId | null {
-  if (value === 'roman' || value === 'colosseum') return 'roman-colosseum'
-  if (value === 'valhalla' || value === 'viking' || value === 'valholl') return 'viking-valhalla'
-  return parseDuelArenaId(value)
-}
+export { DUEL_ARENA_IDS, DUEL_ARENA_LABELS, parseDuelArenaId, parseDuelArenaPreviewQuery, type DuelArenaId } from './DuelArenaCatalog'
+import type { DuelArenaId } from './DuelArenaCatalog'
 
 export interface DuelArenaSpawn { readonly x: number; readonly y: number; readonly z: number; readonly yaw: number }
 

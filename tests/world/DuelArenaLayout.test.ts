@@ -6,6 +6,9 @@ import {
 import { createValhallaObstacles, VALHALLA } from '../../src/arena/ValhallaLayout'
 import { DUEL_ARENA_IDS, parseDuelArenaId } from '../../src/arena/DuelArena'
 import { resolveDuelArenaPreviewSetup } from '../../src/debug/DuelArenaPreview'
+import { arenaChaseWaypoint, arenaStairLinks } from '../../src/arena/DuelArenaChase'
+import { ARENA_DUEL_REFEREE_SLOTS } from '../../src/arena/DuelArenaVenue'
+import { arenaDuelPartyPlan } from '../../src/arena/CareerDuelArenaScene'
 import { FallingRider } from '../../src/movement/FallingRider'
 import { ARENA_GROUND_FALL_POLICY, groundFallDamage, GroundFallTracker } from '../../src/movement/GroundFall'
 import { findBlockingObstacleAlongPath, getWalkRampHeight, resolveObstacleCollision } from '../../src/world/Terrain'
@@ -104,5 +107,40 @@ describe('duel arena layout collision', () => {
     expect(resolveDuelArenaPreviewSetup(new URLSearchParams('duelarena=valhalla&faction=roman'))).toEqual({ arena: 'viking-valhalla', faction: 'roman' })
     // Unknown arenas fall through to the normal entry flow.
     expect(resolveDuelArenaPreviewSetup(new URLSearchParams('duelarena=forum'))).toBeNull()
+  })
+
+  it('routes a pursuer between the sand and the raised stands through a stair axis, mouth and landing', () => {
+    expect(arenaChaseWaypoint('roman-colosseum', { x: 0, y: 0, z: 9 }, { x: 3, y: 0, z: -4 })).toBeNull()
+    const player = { x: 9.5, y: 5, z: 26.7 }
+    const link = arenaStairLinks('roman-colosseum').find(candidate => candidate.low.x === 9.5)!
+    const approach = arenaChaseWaypoint('roman-colosseum', { x: 0, y: 0, z: 9 }, player)!
+    expect(approach.x).toBeCloseTo(9.5)
+    expect(approach.z).toBeLessThan(link.low.z) // In front of the flight, never beside its solid sides.
+    const mouth = arenaChaseWaypoint('roman-colosseum', { x: approach.x, y: 0, z: approach.z }, player)!
+    expect(mouth.z).toBeGreaterThan(link.low.z)
+    expect(arenaChaseWaypoint('roman-colosseum', { x: 9.5, y: 1.2, z: mouth.z + 1 }, player)).toEqual(link.high)
+    // Coming down, the landing end is the entry and the sand end the exit.
+    expect(arenaChaseWaypoint('roman-colosseum', { x: 9.5, y: 2.6, z: link.high.z - 0.5 }, { x: 0, y: 0, z: 0 })).toEqual(link.low)
+    expect(arenaChaseWaypoint('viking-valhalla', { x: 0, y: 0, z: 0 }, { x: 0, y: 3, z: 31 })).not.toBeNull()
+  })
+
+  it('builds the bodies each saved duel borrowed and keeps the referee off the obstacles beside the duel lane', () => {
+    const base = { duelCaptainActorId: 'captain', duelMode: 'armed' as const }
+    expect(arenaDuelPartyPlan({ ...base, duelPresetId: 'roman_sword_cavalry', duelTier: 2, duelOpponentActorId: 'cavalry-training:melee_cavalry:0', duelRefereeActorId: 'captain' }))
+      .toEqual({ opponent: 'ordinary', opponentBorrowsMount: true, referee: 'captain', captain: false })
+    expect(arenaDuelPartyPlan({ ...base, duelPresetId: 'roman_horse_archer', duelTier: 4, duelOpponentActorId: 'ranger', duelRefereeActorId: 'captain' }))
+      .toEqual({ opponent: 'ranger', opponentBorrowsMount: false, referee: 'captain', captain: false })
+    expect(arenaDuelPartyPlan({ ...base, duelPresetId: 'viking_berserker', duelTier: 4, duelOpponentActorId: 'captain', duelRefereeActorId: 'ranger' }))
+      .toEqual({ opponent: 'captain', opponentBorrowsMount: true, referee: 'ranger', captain: false })
+    expect(arenaDuelPartyPlan({ ...base, duelPresetId: 'viking_heavy_cavalry', duelTier: 5, duelOpponentActorId: 'commander', duelRefereeActorId: 'captain' }))
+      .toEqual({ opponent: 'commander', opponentBorrowsMount: false, referee: 'captain', captain: false })
+    expect(arenaDuelPartyPlan({ ...base, duelMode: 'unarmed', duelPresetId: 'roman_sword_cavalry', duelTier: 1, duelOpponentActorId: 'soldier', duelRefereeActorId: 'captain' }).opponentBorrowsMount).toBe(false)
+    const shell = { colosseum: createColosseumObstacles(), valhalla: createValhallaObstacles() }
+    for (const [id, obstacles] of [['roman-colosseum', shell.colosseum], ['viking-valhalla', shell.valhalla]] as const) {
+      const slot = ARENA_DUEL_REFEREE_SLOTS[id]
+      const point = new THREE.Vector3(slot.x, slot.y + 0.9, slot.z)
+      expect(obstacles.some(obstacle => !obstacle.walkSurface && obstacle.box.clone().expandByScalar(0.5).containsPoint(point)), id).toBe(false)
+      expect(Math.abs(slot.x)).toBeGreaterThan(5) // Beside, never inside, the player/opponent lane.
+    }
   })
 })
