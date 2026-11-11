@@ -18,6 +18,7 @@ import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../.
 import type { CombatEvent } from '../../src/combat/CombatAttribution'
 import { Faction } from '../../src/world/NPC'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { CareerDuelArenaScene } from '../../src/arena/CareerDuelArenaScene'
 
 const stats = { damageDealt: 160, damageTaken: 20, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
 
@@ -270,6 +271,39 @@ describe('Career Duel independent arena', () => {
     controller.update(5)
     expect(controller.phase).toBe('ENGAGING')
     expect(controller.beginReturn()).toBe(false)
+  })
+
+  it('pauses per-frame settlement after a failed save so the retry panel stays put, then pays the claim once on retry', () => {
+    vi.stubGlobal('document', {})
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    // The real arena settlement methods on a plain host: no renderer, scene, actor or DOM is built.
+    const settle = (CareerDuelArenaScene.prototype as unknown as { settleFrame(this: object, outcome: 'victory' | null): void }).settleFrame
+    const panels: string[] = []
+    let retry: (() => void) | null = null, failSave = true
+    const base = { ...createCareerProfile('roman'), tutorial: undefined }
+    const host = Object.assign(Object.create(CareerDuelArenaScene.prototype) as object, {
+      profile: duel(base, 'roman_heavy_infantry', 1, 'arena-settle'),
+      store: { save: () => !failSave },
+      settled: false, settlementRetryPending: false, skillsDirty: false,
+      duel: { snapshot: () => ({ player: stats, squads: [] }) },
+      input: { clear() {} }, player: { clearTownAction() {} },
+      openPanel(title: string) { panels.push(title) }, closePanel() {},
+      button(_label: string, action: () => void) { retry = action },
+      openResult(result: { outcome: string }) { panels.push(`result:${result.outcome}`) },
+    }) as { profile: CareerProfile }
+    const merit = host.profile.totalMerit
+    for (let frame = 0; frame < 30; frame++) settle.call(host, 'victory')
+    // One failure panel, not one per frame; nothing paid or settled yet.
+    expect(panels).toEqual(['單挑結算尚未保存'])
+    expect([host.profile.totalMerit, host.profile.activeMission!.result, host.profile.claimedBattleIds]).toEqual([merit, undefined, []])
+    failSave = false
+    retry!()
+    for (let frame = 0; frame < 30; frame++) settle.call(host, 'victory')
+    expect(panels).toEqual(['單挑結算尚未保存', 'result:victory'])
+    expect(host.profile.claimedBattleIds).toEqual(['arena-settle'])
+    const paid = host.profile.totalMerit - merit
+    expect(paid).toBeGreaterThan(0)
+    expect(paid).toBe(host.profile.activeMission!.result!.merit.total)
   })
 })
 

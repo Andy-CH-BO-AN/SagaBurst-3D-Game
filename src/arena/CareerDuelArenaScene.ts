@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { createDuelArena, type DuelArenaEnvironment } from './DuelArena'
 import { DUEL_ARENA_LABELS, type DuelArenaId } from './DuelArenaCatalog'
 import { ARENA_DUEL_REFEREE_SLOTS } from './DuelArenaVenue'
-import { arenaChaseWaypoint } from './DuelArenaChase'
+import { ArenaChaseRoute } from './DuelArenaChase'
 import { CareerDuelController, duelLoadout, type CareerDuelOpponentRequest, type CareerDuelResident } from '../career/CareerDuelController'
 import { resolveCareerDuelClass } from '../career/CareerDuelClasses'
 import { careerDuelArena, isCareerDuelPresetId, isCareerDuelTier, type CareerDuelTier } from '../career/CareerDuelState'
@@ -141,11 +141,16 @@ export class CareerDuelArenaScene {
   private disposed = false
   private panel: HTMLElement | null = null
   private settled = false
+  /** A settlement save failed: only the panel's retry button may save again, never the frame loop. */
+  private settlementRetryPending = false
   private skillsDirty = false
   private readonly aimPoint = new THREE.Vector3()
 
   private constructor(private readonly container: HTMLElement, private readonly renderer: THREE.WebGLRenderer,
-    private profile: CareerProfile, private readonly arenaId: DuelArenaId, private readonly callbacks: CareerDuelArenaCallbacks) {}
+    private profile: CareerProfile, private readonly arenaId: DuelArenaId, private readonly callbacks: CareerDuelArenaCallbacks) {
+    // Built here: field initializers run before parameter properties are assigned.
+    this.chaseRoute = new ArenaChaseRoute(arenaId)
+  }
 
   get activeMission(): ActiveCareerMission | undefined { return this.profile.activeMission }
 
@@ -295,6 +300,7 @@ export class CareerDuelArenaScene {
   }
 
   private chaseWaypoint: { x: number; z: number } | null = null
+  private readonly chaseRoute: ArenaChaseRoute
   private chaseCommand = 900_000
   private readonly ownedMounts = new Set<Mount>()
   private trackMount(mount: Mount): Mount { this.ownedMounts.add(mount); return mount }
@@ -358,8 +364,7 @@ export class CareerDuelArenaScene {
     this.arena.update(dt)
     if (combat) {
       this.duel.update(dt)
-      const outcome = this.duel.evaluate(this.player.dead)
-      if (outcome) this.finish(outcome)
+      this.settleFrame(this.duel.evaluate(this.player.dead))
     }
     this.damageNumbers.update(dt, this.camera)
     const phase = this.duel?.active && !this.panel ? this.duel.phase : null
@@ -374,8 +379,10 @@ export class CareerDuelArenaScene {
       const distance = actor.group.position.distanceTo(this.camera.position)
       if (actor.dead) { actor.update(dt, this.player, [], [], this.arena.obstacles, this.hp, () => {}, () => false, false, distance); continue }
       const combatant = actor === this.duel.opponent && this.duel.combatEnabled
-      // Raised stands/dais are reached by their stairs; pursuit resumes once both share a level.
-      const waypoint = combatant && !this.player.dead ? arenaChaseWaypoint(this.arenaId,
+      // Raised stands/dais are reached by their stairs; the route holds its flight until the far end.
+      const chase = combatant && !this.player.dead
+      if (!chase && actor === this.duel.opponent) this.chaseRoute.reset()
+      const waypoint = chase ? this.chaseRoute.next(
         { x: actor.combatPosition.x, y: actor.combatPosition.y, z: actor.combatPosition.z },
         { x: this.player.position.x, y: this.player.position.y - PLAYER_HALF_HEIGHT, z: this.player.position.z }) : null
       if (waypoint) {
@@ -601,6 +608,11 @@ export class CareerDuelArenaScene {
     if (this.duel.active && !this.profile.activeMission?.result) this.duel.persistRuntimeProgress(true)
   }
 
+  /** Per-frame settlement: a decided outcome is claimed once; a failed save waits for the player's retry. */
+  private settleFrame(outcome: CareerMissionOutcome | null): void {
+    if (outcome && !this.settlementRetryPending) this.finish(outcome)
+  }
+
   private finish(outcome: CareerMissionOutcome): void {
     if (this.settled) return
     this.flushSkills()
@@ -609,8 +621,9 @@ export class CareerDuelArenaScene {
     const stats = this.duel.snapshot()
     const claim = claimCareerMission(cloneCareerProfile(this.profile), active.id, outcome, stats.player, stats.meritPlayer)
     if (!this.commit(claim.profile)) {
+      this.settlementRetryPending = true
       this.openPanel('單挑結算尚未保存', '保存失敗；軍功尚未入帳，結果保留在競技場。')
-      this.button('重試保存結算', () => { this.closePanel(); this.finish(outcome) })
+      this.button('重試保存結算', () => { this.settlementRetryPending = false; this.closePanel(); this.finish(outcome) })
       return
     }
     this.settled = true

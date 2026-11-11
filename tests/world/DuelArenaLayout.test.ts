@@ -6,7 +6,7 @@ import {
 import { createValhallaObstacles, VALHALLA } from '../../src/arena/ValhallaLayout'
 import { DUEL_ARENA_IDS, parseDuelArenaId } from '../../src/arena/DuelArena'
 import { resolveDuelArenaPreviewSetup } from '../../src/debug/DuelArenaPreview'
-import { arenaChaseWaypoint, arenaStairLinks } from '../../src/arena/DuelArenaChase'
+import { ArenaChaseRoute, arenaStairLinks } from '../../src/arena/DuelArenaChase'
 import { ARENA_DUEL_REFEREE_SLOTS } from '../../src/arena/DuelArenaVenue'
 import { arenaDuelPartyPlan } from '../../src/arena/CareerDuelArenaScene'
 import { FallingRider } from '../../src/movement/FallingRider'
@@ -183,19 +183,39 @@ describe('duel arena layout collision', () => {
     expect(getFlatTerrainOverride()).toBeNull()
   })
 
-  it('routes a pursuer between the sand and the raised stands through a stair axis, mouth and landing', () => {
-    expect(arenaChaseWaypoint('roman-colosseum', { x: 0, y: 0, z: 9 }, { x: 3, y: 0, z: -4 })).toBeNull()
-    const player = { x: 9.5, y: 5, z: 26.7 }
-    const link = arenaStairLinks('roman-colosseum').find(candidate => candidate.low.x === 9.5)!
-    const approach = arenaChaseWaypoint('roman-colosseum', { x: 0, y: 0, z: 9 }, player)!
+  it('keeps a pursuer on its chosen stair until the far end instead of ending the route mid-flight', () => {
+    const route = new ArenaChaseRoute('roman-colosseum')
+    expect(route.next({ x: 0, y: 0, z: 9 }, { x: 3, y: 0, z: -4 })).toBeNull()
+    const player = { x: 9.5, y: 17.9, z: 36 } // Top gallery above the +Z stair.
+    const link = arenaStairLinks('roman-colosseum').find(candidate => candidate.low.x === 9.5 && candidate.low.z > 0)!
+    const approach = route.next({ x: 0, y: 0, z: 9 }, player)!
     expect(approach.x).toBeCloseTo(9.5)
     expect(approach.z).toBeLessThan(link.low.z) // In front of the flight, never beside its solid sides.
-    const mouth = arenaChaseWaypoint('roman-colosseum', { x: approach.x, y: 0, z: approach.z }, player)!
+    const mouth = route.next({ x: approach.x, y: 0, z: approach.z }, player)!
     expect(mouth.z).toBeGreaterThan(link.low.z)
-    expect(arenaChaseWaypoint('roman-colosseum', { x: 9.5, y: 1.2, z: mouth.z + 1 }, player)).toEqual(link.high)
-    // Coming down, the landing end is the entry and the sand end the exit.
-    expect(arenaChaseWaypoint('roman-colosseum', { x: 9.5, y: 2.6, z: link.high.z - 0.5 }, { x: 0, y: 0, z: 0 })).toEqual(link.low)
-    expect(arenaChaseWaypoint('viking-valhalla', { x: 0, y: 0, z: 0 }, { x: 0, y: 3, z: 31 })).not.toBeNull()
+    // Drifting back past the approach radius does not flip the target back and forth.
+    expect(route.next({ x: 9.5, y: 0, z: approach.z - 1.5 }, player)).toEqual(mouth)
+    // Halfway up (1.3 m, already "raised") the route still climbs to the landing.
+    for (const y of [0.6, 1.3, 2.2]) expect(route.next({ x: 9.5, y, z: (link.low.z + link.high.z) / 2 }, player), `y ${y}`).toEqual(link.high)
+    expect(route.active).toBe(true)
+    // At the landing, ordinary pursuit takes over for the continuous stands.
+    expect(route.next({ x: 9.5, y: 2.6, z: link.high.z + 0.3 }, player)).toBeNull()
+    expect(route.active).toBe(false)
+    // Coming down, the landing end is the entry and the sand end the exit, even below 1.2 m.
+    expect(route.next({ x: 9.5, y: 2.6, z: link.high.z - 0.5 }, { x: 0, y: 0, z: 0 })).toEqual(link.low)
+    expect(route.next({ x: 9.5, y: 0.8, z: (link.low.z + link.high.z) / 2 }, { x: 0, y: 0, z: 0 })).toEqual(link.low)
+    // The target climbing back up re-plans from the flight: the chaser turns to the landing.
+    expect(route.next({ x: 9.5, y: 1.3, z: (link.low.z + link.high.z) / 2 }, player)).toEqual(link.high)
+    route.reset()
+    const hall = new ArenaChaseRoute('viking-valhalla')
+    const dais = { x: 0, y: 3, z: 31 }
+    const [throne] = arenaStairLinks('viking-valhalla')
+    hall.next({ x: 0, y: 0, z: 0 }, dais)
+    expect(hall.next({ x: 0, y: 0, z: throne.low.z - 1 }, dais)!.z).toBeGreaterThan(throne.low.z)
+    expect(hall.next({ x: 0, y: 1.5, z: (throne.low.z + throne.high.z) / 2 }, dais)).toEqual(throne.high)
+    expect(hall.next({ x: 0, y: 3, z: throne.high.z + 0.2 }, dais)).toBeNull()
+    // Standing on the landing beside its far end never re-opens the route frame to frame.
+    for (const x of [1.1, 1.2, 1.3]) expect([hall.next({ x, y: 3, z: throne.high.z + 0.1 }, dais), hall.active]).toEqual([null, false])
   })
 
   it('builds the bodies each saved duel borrowed and keeps the referee off the obstacles beside the duel lane', () => {
