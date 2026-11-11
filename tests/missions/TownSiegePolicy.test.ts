@@ -416,7 +416,7 @@ it('四門騎兵先攔截本區城外敵人，清除後恢復攻門，突破後�
     attackerIds: new Set([actor.combatantId]), actorSectors: new Map([[actor.combatantId, 'east']]),
     playerCommands: new Set(), departedActors: new Map(),
     options: { acceptsOrders: () => true, attackerRole: () => 'gate-cavalry',
-      world: { gates: new Map([['east', eastGate]]) }, navigation: { townNav: town, areConnected: () => true } },
+      world: { gates: new Map([['east', eastGate]]) }, navigation: { townNav: town, areConnected: (): boolean => true } },
   })
   const target = (x: number, y: number, z: number) => ({ combatPosition: new Vector3(x, y, z), dead: false, faction: Faction.PLAYER }) as NPC
   const ground = target(186, getTerrainHeight(186, 62), 62), wall = target(148, townRampartHeight(town.layout, 148, 62)!, 62), remote = target(-180, 0, 30)
