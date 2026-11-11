@@ -241,6 +241,14 @@ describe('duel arena layout collision', () => {
     expect(dais.observe({ x: 0, y: 0, z: 20 }, true).y).toBe(0) // Landing on the floor updates the level.
   })
 
+  it('knows the dais level from countdown frames, so a jump at the first chase frame still reads raised', () => {
+    const tracker = new ArenaSupportTracker()
+    for (const z of [30, 31, 32]) tracker.observe({ x: 0, y: 3, z }, true) // PREPARING: walking on the dais, no chase yet
+    const firstChaseFrame = tracker.observe({ x: 0, y: 4.2, z: 32 }, false)
+    expect(new ArenaChaseRoute('viking-valhalla').next({ x: 0, y: 0, z: -4 }, firstChaseFrame)).not.toBeNull()
+    expect(firstChaseFrame.y).toBe(3)
+  })
+
   it('builds the bodies each saved duel borrowed and keeps the referee off the obstacles beside the duel lane', () => {
     const base = { duelCaptainActorId: 'captain', duelMode: 'armed' as const }
     expect(arenaDuelPartyPlan({ ...base, duelPresetId: 'roman_sword_cavalry', duelTier: 2, duelOpponentActorId: 'cavalry-training:melee_cavalry:0', duelRefereeActorId: 'captain' }))
