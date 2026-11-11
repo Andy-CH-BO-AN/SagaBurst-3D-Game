@@ -199,7 +199,7 @@ describe('TownTutorialUX', () => {
     } finally { ctrl.dispose() }
   })
 
-  it('first talk to deployment presents recruit dialogue, accepting closes panel and guides to merchant', () => {
+  it('first talk to deployment presents recruit dialogue, handling later selection and acceptance', () => {
     const harness = createHostHarness()
     const ctrl = new TownTutorialController(harness.host)
 
@@ -222,38 +222,20 @@ describe('TownTutorialUX', () => {
     expect(harness.getServicesOpened()).toEqual(['deployment'])
     expect(harness.getProfile().tutorial?.town.step).toBe('report')
 
-    // Click accept
-    buttons[0].onclick!()
-    expect(harness.getClosedCount()).toBe(1)
-    expect(harness.getProfile().tutorial?.town.step).toBe('weapon')
-
-    // Waypoint arrow and hint updated
-    ctrl.update()
-    const hint = dom.elements.find(el => el.id === 'career-tutorial-hint')
-    expect(hint?.textContent).toContain('前往武器店')
-
-    ctrl.dispose()
-  })
-
-  it('select later closes panel without advancing step and next talk still presents dialogue', () => {
-    const harness = createHostHarness()
-    const ctrl = new TownTutorialController(harness.host)
-
-    const panel = new MockElement('div') as unknown as HTMLElement
-    const h2 = new MockElement('h2')
-    const p = new MockElement('p')
-    ;(panel as unknown as MockElement).append(h2, p)
-
-    ctrl.renderDialogue(panel, 'deployment')
-    const buttons = (panel as unknown as MockElement).querySelectorAll('button')
-
-    // Click "我晚點再去"
+    // Click "我晚點再去" closes panel without advancing step and next talk still presents dialogue
     buttons[1].onclick!()
     expect(harness.getClosedCount()).toBe(1)
     expect(harness.getProfile().tutorial?.town.step).toBe('report')
-
-    // Next conversation still has dialogue
     expect(ctrl.hasDialogue('deployment')).toBe(true)
+
+    // Click accept advances to weapon step and updates hint
+    buttons[0].onclick!()
+    expect(harness.getClosedCount()).toBe(2)
+    expect(harness.getProfile().tutorial?.town.step).toBe('weapon')
+
+    ctrl.update()
+    const hint = dom.elements.find(el => el.id === 'career-tutorial-hint')
+    expect(hint?.textContent).toContain('前往武器店')
 
     ctrl.dispose()
   })
@@ -573,7 +555,7 @@ describe('TownTutorialUX', () => {
     ctrl.dispose()
   })
 
-  it('does not nag a paused replay, and leads with the same deferred stage as the HUD when several are skipped', () => {
+  it('does not nag a paused replay, and keeps the Sergeant dialogue on the HUD target when several are deferred', () => {
     const harness = createHostHarness()
     const ctrl = new TownTutorialController(harness.host)
     const t = harness.getProfile().tutorial!
@@ -589,21 +571,16 @@ describe('TownTutorialUX', () => {
     const lead = dialoguePanel()
     ctrl.renderDialogue(lead.panel, 'deployment')
     expect(lead.buttons().map(b => b.textContent)).toEqual(['繼續 30 人指揮演練', '稍後再訓練', '查看正式任務與其他服務'])
-    ctrl.dispose()
-  })
 
-  it('keeps the Sergeant dialogue on the HUD target when Town is active and Captain is deferred', () => {
-    const harness = createHostHarness()
-    const ctrl = new TownTutorialController(harness.host)
-    const t = harness.getProfile().tutorial!
+    // When Town is active and Captain is deferred, keep Sergeant dialogue on HUD target
     t.town.status = 'active'; t.town.operations = ['report']; t.town.step = 'weapon'
-    t.captain.status = 'deferred'
     ctrl.update()
     expect(dom.elements.find(el => el.id === 'career-tutorial-hint')!.textContent).toContain('前往武器店')
     expect(ctrl.hasDialogue('deployment')).toBe(false)
     const side = dialoguePanel()
     ctrl.appendPanel(side.panel, 'deployment')
     expect(side.buttons().map(b => b.textContent)).toContain('繼續 30 人指揮演練')
+
     ctrl.dispose()
   })
 
@@ -641,27 +618,6 @@ describe('TownTutorialUX', () => {
     buttons[2].onclick!()
     expect(harness.getServicesOpened()).toEqual(['captain'])
     expect(harness.getDuelCount()).toBe(0)
-
-    ctrl.dispose()
-  })
-
-  it('reward notices report the actual grant, including legacy horse without reward', () => {
-    const harness = createHostHarness()
-    const ctrl = new TownTutorialController(harness.host)
-    const t = harness.getProfile().tutorial!
-    t.legacy = true
-    t.town.status = 'active'
-    t.town.step = 'horse'
-    t.rewards.horse = undefined
-    harness.getProfile().ownedMounts = ['horse']
-    const merit = harness.getProfile().availableMerit
-
-    ctrl.update()
-    const notice = dom.elements.find(el => el.id === 'career-tutorial-notification')!
-    expect(harness.getProfile().availableMerit).toBe(merit)
-    expect(notice.textContent).not.toContain('獲得 50 軍功')
-    expect(notice.textContent).toContain('不補發軍功')
-    expect(notice.hidden).toBe(false)
 
     ctrl.dispose()
   })

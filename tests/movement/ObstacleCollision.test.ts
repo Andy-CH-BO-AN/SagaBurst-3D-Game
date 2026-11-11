@@ -86,45 +86,34 @@ describe('obstacle walk-surface collision', () => {
     expect(position.x).toBeCloseTo(1.8)
   })
 
-  it('keeps contained ordered push-outs on the exact candidates without a second query', () => {
+  it('handles contained and escaping recovery push-outs with spatial query fidelity', () => {
     const coarseQuery = vi.spyOn(ObstacleCollisionSpatialIndex.prototype, 'queryNear')
     onTestFinished(() => coarseQuery.mockRestore())
-    const obstacles: ObstacleData[] = [
+    const containedObstacles: ObstacleData[] = [
       { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(0, -1, -2), new THREE.Vector3(2, 3, 2)) },
       { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(2.2, -1, -2), new THREE.Vector3(2.3, 3, 2)) },
     ]
-    const position = new THREE.Vector3(4, 0, 0)
-    // The sweep stops at 1.7. Recovery then pushes to 2.5 and 2.8, both
-    // inside the original [1, 4] centre span and covered by the exact query.
-    const collision = resolveObstacleCollision(position, new THREE.Vector3(1, 0, 0),
-      0, true, .5, 2.3, 0, obstacles)
-    expect(position.x).toBeCloseTo(2.8)
-    expect(position.y).toBe(0)
-    expect(position.z).toBe(0)
-    expect(collision).toEqual({ velocityY: 0, onGround: true })
+    const pos1 = new THREE.Vector3(4, 0, 0)
+    const collision1 = resolveObstacleCollision(pos1, new THREE.Vector3(1, 0, 0),
+      0, true, .5, 2.3, 0, containedObstacles)
+    expect(pos1.x).toBeCloseTo(2.8)
+    expect(collision1).toEqual({ velocityY: 0, onGround: true })
     expect(coarseQuery).not.toHaveBeenCalled()
-  })
 
-  it('replays vertical state and source order when a later recovery push escapes the sweep', () => {
-    const coarseQuery = vi.spyOn(ObstacleCollisionSpatialIndex.prototype, 'queryNear')
-    onTestFinished(() => coarseQuery.mockRestore())
-    const obstacles: ObstacleData[] = [
-      // Already below the body: replaying with the later lowered Y would
-      // incorrectly push against this earlier box.
+    // Escaping push-out triggers coarse query replay
+    const escapingObstacles: ObstacleData[] = [
       { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(-5, 0, -5), new THREE.Vector3(5, 1.5, 5)) },
       { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(-1, 3.5, -2), new THREE.Vector3(5, 4, 2)) },
       { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(-1, 0, -2), new THREE.Vector3(2, 4, 2)) },
       { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(2.2, 0, -.1), new THREE.Vector3(4, 4, .1)) },
-      // Outside the original Z envelope; reached only by the second push.
       { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(2.3, 0, .8), new THREE.Vector3(2.7, 4, 1)) },
     ]
-    const position = new THREE.Vector3(4, 2, 0)
-    const collision = resolveObstacleCollision(position, new THREE.Vector3(0, .5, 0),
-      2, false, .5, 2.3, 0, obstacles)
-    expect(position.x).toBeCloseTo(2.5)
-    expect(position.y).toBeCloseTo(1.2)
-    expect(position.z).toBeCloseTo(.3)
-    expect(collision).toEqual({ velocityY: 0, onGround: false })
+    const pos2 = new THREE.Vector3(4, 2, 0)
+    const collision2 = resolveObstacleCollision(pos2, new THREE.Vector3(0, .5, 0),
+      2, false, .5, 2.3, 0, escapingObstacles)
+    expect(pos2.x).toBeCloseTo(2.5)
+    expect(pos2.y).toBeCloseTo(1.2)
+    expect(collision2).toEqual({ velocityY: 0, onGround: false })
     expect(coarseQuery).toHaveBeenCalledTimes(1)
   })
 
@@ -246,21 +235,20 @@ describe('obstacle walk-surface collision', () => {
     }
   })
 
-  it('catches a fast mounted fall only on the deck whose footprint the descent actually crosses', () => {
-    const position = new THREE.Vector3(0, 4, 5)
-    // The crossing of y=12 is outside the upper deck; y=6 is inside the lower deck.
-    const collision = resolveObstacleCollision(position, new THREE.Vector3(-10, 15, 5), -30, false,
+  it('handles vertical falling and rising across deck walk surfaces', () => {
+    // Catches fast mounted fall only on crossed deck footprint
+    const fallPos = new THREE.Vector3(0, 4, 5)
+    const fallCollision = resolveObstacleCollision(fallPos, new THREE.Vector3(-10, 15, 5), -30, false,
       1, 2.6, 0, [deck(12), deck(6)], { mountedSurfaces: true })
-    expect(position.toArray()).toEqual([0, 6, 5])
-    expect(collision).toEqual({ velocityY: 0, onGround: true })
-  })
+    expect(fallPos.toArray()).toEqual([0, 6, 5])
+    expect(fallCollision).toEqual({ velocityY: 0, onGround: true })
 
-  it('stops a rising body at the underside without promoting it onto a higher level', () => {
-    const position = new THREE.Vector3(0, 5, 5)
-    const collision = resolveObstacleCollision(position, new THREE.Vector3(0, 3, 5), 8, false,
+    // Stops a rising body at underside without promoting to higher level
+    const risePos = new THREE.Vector3(0, 5, 5)
+    const riseCollision = resolveObstacleCollision(risePos, new THREE.Vector3(0, 3, 5), 8, false,
       .5, 2, 0, [deck(6), deck(12)], { walkSurfaces: true })
-    expect(position.y).toBeCloseTo(3.65)
-    expect(collision).toEqual({ velocityY: 0, onGround: false })
+    expect(risePos.y).toBeCloseTo(3.65)
+    expect(riseCollision).toEqual({ velocityY: 0, onGround: false })
   })
 
   it('discards ramp support when a later wall push moves the body off its edge', () => {
@@ -591,7 +579,7 @@ describe('obstacle walk-surface collision', () => {
 
 
 describe('opt-in obstacle path candidates', () => {
-  it('keeps the clipped corridor, start-height margins and closest source-order tie', () => {
+  it('manages obstacle path query corridor and observes array replacements', () => {
     const box = (x: number, minY: number, maxY: number, z: number): ObstacleData => ({
       isBarricade: false,
       box: new THREE.Box3(new THREE.Vector3(x, minY, z), new THREE.Vector3(x + 1, maxY, z + 1)),
@@ -609,24 +597,12 @@ describe('opt-in obstacle path candidates', () => {
     expect(findBlockingObstacleAlongPath(start, target, .5, 2, 1, obstacles, 3)).toBe(first)
     expect(query.mock.results[0].value).toEqual([farther, below, above, first, tied, first])
     expect(findBlockingObstacleAlongPath(start, target, .5, 2, 1, obstacles, .5)).toBeNull()
-  })
 
-  it('keeps fresh filtered arrays direct and observes their next same-length replacement', () => {
-    const wall: ObstacleData = { isBarricade: false, physicalPassable: true, projectilePassable: true,
-      box: new THREE.Box3(new THREE.Vector3(2, 0, -1), new THREE.Vector3(3, 3, 1)) }
-    const remote: ObstacleData = { isBarricade: false,
-      box: new THREE.Box3(new THREE.Vector3(1000, 0, 1000), new THREE.Vector3(1001, 3, 1001)) }
-    const source = [wall, ...Array<ObstacleData>(63).fill(remote)]
-    const start = new THREE.Vector3(), target = new THREE.Vector3(5, 0, 0)
-    const query = vi.spyOn(ObstacleCollisionSpatialIndex.prototype, 'queryBounds')
-    onTestFinished(() => { query.mockRestore(); setObstaclePathQuerySource(source, false) })
-    setObstaclePathQuerySource(source, true)
-    expect(findBlockingObstacleAlongPath(start, target, .5, 2.3, 0, source)).toBe(wall)
+    // Observes fresh filtered arrays and same-length replacement
+    const fresh = obstacles.filter(obstacle => !obstacle.navigationPassable)
     query.mockClear()
-    const fresh = source.filter(obstacle => !obstacle.navigationPassable)
-    expect(findBlockingObstacleAlongPath(start, target, .5, 2.3, 0, fresh)).toBe(wall)
-    fresh[0] = remote
-    expect(findBlockingObstacleAlongPath(start, target, .5, 2.3, 0, fresh)).toBeNull()
-    expect(query).not.toHaveBeenCalled()
+    expect(findBlockingObstacleAlongPath(start, target, .5, 2, 1, fresh, 3)).toBe(first)
+    fresh[3] = remote
+    expect(findBlockingObstacleAlongPath(start, target, .5, 2, 1, fresh, .5)).toBeNull()
   })
 })

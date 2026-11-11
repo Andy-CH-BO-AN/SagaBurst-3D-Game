@@ -121,7 +121,7 @@ describe('heavy cavalry tactical triggers', () => {
 })
 
 describe('Veteran caltrop defence', () => {
-  it('拒馬為零散段落，缺口與弓兵列缺口皆有槍兵且騎兵有可通行路徑', () => {
+  it('拒馬零散段落具可通行路徑，完全封閉拒馬牆被判定無路徑', () => {
     const layout = planVeteranCaltropDefense()
     expect(validateCaltropLayout(layout)).toEqual({ ok: true, problems: [] })
     expect(layout.gaps.length).toBeGreaterThan(1)
@@ -130,10 +130,7 @@ describe('Veteran caltrop defence', () => {
     expect(route.reachable).toBe(true)
     expect(route.minPassableWidth).toBeGreaterThanOrEqual(2)
     expect(veteranCaltropWorldRects(layout, 'roman')[0].maxZ).toBeLessThan(0)
-  })
 
-  it('完全封閉的拒馬牆會被判定為無路徑', () => {
-    const layout = planVeteranCaltropDefense()
     const wall = { ...layout, caltrops: [{ minX: -80, maxX: 80, minDepth: -0.6, maxDepth: 0.6 }] }
     expect(caltropRouteExists(wall).reachable).toBe(false)
   })
@@ -160,28 +157,30 @@ describe('heavy cavalry field missions in Career', () => {
     expect(getHeavyFieldMissionAvailability(profileFor('captain'), SOLDIER_IRON_ENCOUNTER_ID).unlocked).toBe(true)
   })
 
-  it.each([SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID, CAPTAIN_STEEL_AVALANCHE_ID] as const)('%s 接受後兵力、重騎兵 Preset 與初始距離（>200m）正確', missionId => {
-    const rank = missionId === SOLDIER_IRON_ENCOUNTER_ID ? 'soldier' : missionId === VETERAN_IRON_TIDE_ID ? 'veteran' : 'captain'
-    const accepted = acceptHeavyFieldMission(profileFor(rank), missionId, `test:${missionId}`)!
-    const plan = createCareerHeavySpawnPlan(accepted)
-    const friendly = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER), enemy = plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY)
-    expect(friendly).toHaveLength(accepted.activeMission!.friendlyActorIds.length)
-    expect(enemy).toHaveLength(accepted.activeMission!.targetActorIds.length)
-    expect(new Set(plan.npcSpecs.map(spec => spec.actorId)).size).toBe(plan.npcSpecs.length)
-    if (missionId !== CAPTAIN_STEEL_AVALANCHE_ID) expect(enemy.every(spec => spec.presetId === 'viking_heavy_cavalry' && spec.loadout?.mountId === 'snow-leopard' && spec.loadout.shieldId)).toBe(true)
-    else expect(friendly.every(spec => spec.presetId === 'roman_heavy_cavalry' && spec.characterTier === 4 && spec.loadout?.mountId === 'armored-horse')).toBe(true)
-    expect(friendly.every(spec => (spec.loadout?.rangedWeaponId ? spec.aiType === AIType.RANGED : spec.aiType === AIType.MELEE))).toBe(true)
-    // Every T4 / T5 heavy cavalryman is the heavy class of its own army, never the classic T4 or the Commander body.
-    const heavyClass = { roman: { 4: 'centurion', 5: 'byzantine-cataphract' }, viking: { 4: 'dragon-oathguard', 5: 'ironblood-warlord' } } as const
-    const elite = plan.npcSpecs.filter(spec => spec.presetId?.endsWith('_heavy_cavalry') && spec.characterTier! >= 4)
-    expect(elite.every(spec => spec.combatProfileId === heavyClass[spec.characterFaction][spec.characterTier as 4 | 5])).toBe(true)
-    const eliteCounts = { [SOLDIER_IRON_ENCOUNTER_ID]: [9, 1], [VETERAN_IRON_TIDE_ID]: [25, 5], [CAPTAIN_STEEL_AVALANCHE_ID]: [29, 0] }[missionId]
-    expect([4, 5].map(tier => elite.filter(spec => spec.characterTier === tier).length)).toEqual(eliteCounts)
-    expect(heavyFrontlineDistance(friendly, enemy)).toBeGreaterThan(200)
-    expect(accepted.activeMission!.commanderMission?.heavyField?.enemyChargeTriggered).toBe(false)
-    const restored = parseCareerProfile(JSON.parse(JSON.stringify(accepted)))
-    expect(restored?.activeMission?.templateId).toBe(missionId)
-    expect(restored?.activeMission?.commanderMission?.heavyField).toEqual(accepted.activeMission!.commanderMission!.heavyField)
+  it('接受後兵力、重騎兵 Preset 與初始距離（>200m）在各軍階任務正確', () => {
+    const missionIds = [SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID, CAPTAIN_STEEL_AVALANCHE_ID] as const
+    for (const missionId of missionIds) {
+      const rank = missionId === SOLDIER_IRON_ENCOUNTER_ID ? 'soldier' : missionId === VETERAN_IRON_TIDE_ID ? 'veteran' : 'captain'
+      const accepted = acceptHeavyFieldMission(profileFor(rank), missionId, `test:${missionId}`)!
+      const plan = createCareerHeavySpawnPlan(accepted)
+      const friendly = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER), enemy = plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY)
+      expect(friendly).toHaveLength(accepted.activeMission!.friendlyActorIds.length)
+      expect(enemy).toHaveLength(accepted.activeMission!.targetActorIds.length)
+      expect(new Set(plan.npcSpecs.map(spec => spec.actorId)).size).toBe(plan.npcSpecs.length)
+      if (missionId !== CAPTAIN_STEEL_AVALANCHE_ID) expect(enemy.every(spec => spec.presetId === 'viking_heavy_cavalry' && spec.loadout?.mountId === 'snow-leopard' && spec.loadout.shieldId)).toBe(true)
+      else expect(friendly.every(spec => spec.presetId === 'roman_heavy_cavalry' && spec.characterTier === 4 && spec.loadout?.mountId === 'armored-horse')).toBe(true)
+      expect(friendly.every(spec => (spec.loadout?.rangedWeaponId ? spec.aiType === AIType.RANGED : spec.aiType === AIType.MELEE))).toBe(true)
+      const heavyClass = { roman: { 4: 'centurion', 5: 'byzantine-cataphract' }, viking: { 4: 'dragon-oathguard', 5: 'ironblood-warlord' } } as const
+      const elite = plan.npcSpecs.filter(spec => spec.presetId?.endsWith('_heavy_cavalry') && spec.characterTier! >= 4)
+      expect(elite.every(spec => spec.combatProfileId === heavyClass[spec.characterFaction][spec.characterTier as 4 | 5])).toBe(true)
+      const eliteCounts = { [SOLDIER_IRON_ENCOUNTER_ID]: [9, 1], [VETERAN_IRON_TIDE_ID]: [25, 5], [CAPTAIN_STEEL_AVALANCHE_ID]: [29, 0] }[missionId]
+      expect([4, 5].map(tier => elite.filter(spec => spec.characterTier === tier).length)).toEqual(eliteCounts)
+      expect(heavyFrontlineDistance(friendly, enemy)).toBeGreaterThan(200)
+      expect(accepted.activeMission!.commanderMission?.heavyField?.enemyChargeTriggered).toBe(false)
+      const restored = parseCareerProfile(JSON.parse(JSON.stringify(accepted)))
+      expect(restored?.activeMission?.templateId).toBe(missionId)
+      expect(restored?.activeMission?.commanderMission?.heavyField).toEqual(accepted.activeMission!.commanderMission!.heavyField)
+    }
   })
 
   it('Veteran 單位不與拒馬重疊，Captain 官方軍令編制為 29 人單隊且私兵另列', () => {

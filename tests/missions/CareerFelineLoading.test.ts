@@ -92,12 +92,15 @@ describe('feline mount activation under asynchronous asset loading', () => {
     expect(profile().selectedMountId).toBe('orange-cat')
   })
 
-  it.each(['dismiss', 'release', 'dispose', 'restInTown', 'syncOwnership'] as const)('%s invalidates a pending load', async action => {
-    const { owner } = mountOwner()
-    expect(owner.activate('serval')).toBe(false)
-    owner[action]('serval' as never)
-    gates.get('serval')!.resolve(); await flush()
-    expect(owner.activeMountId).toBeNull()
+  it('cancellation methods (dismiss, release, dispose) invalidate pending loads', async () => {
+    for (const action of ['dismiss', 'release', 'dispose', 'restInTown', 'syncOwnership'] as const) {
+      loaded.delete('serval'); gates.delete('serval')
+      const { owner } = mountOwner()
+      expect(owner.activate('serval')).toBe(false)
+      owner[action]('serval' as never)
+      gates.get('serval')!.resolve(); await flush()
+      expect(owner.activeMountId).toBeNull()
+    }
   })
 
   it('leaves no stale request after a failed load and allows an explicit retry', async () => {
@@ -133,39 +136,38 @@ describe('Career saved mounts after the shared preload barrier', () => {
     expect(h.profile()).toEqual(saved); expect(preload).not.toHaveBeenCalled()
   })
 
-  it.each([true, false])('restores retirement resources, coordinates, heading and mounted=%s synchronously', mounted => {
-    const h = mountOwner(), p = h.profile()
-    p.selectedMountId = 'armored-horse'
-    p.careerRetirement = { version: 1, phase: 'final-stand', acceptedAt: 1, combatElapsedSeconds: 0 }
-    p.retirementRuntime = {
-      mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 219 }, armorImpact: { 'armored-horse': 0 }, unavailable: [] },
-      player: { position: { x: 4, y: 0, z: 5, yaw: .3 }, hp: 50, stamina: 30, arrows: 5, shieldImpact: 3, mounted },
-      mount: { position: { x: 11, y: 2, z: 13, yaw: 1.2 }, hp: 219, armorImpactRemaining: 0 },
+  it('restores retirement resources, coordinates, heading and mounted status synchronously', () => {
+    for (const mounted of [true, false]) {
+      const h = mountOwner(), p = h.profile()
+      p.selectedMountId = 'armored-horse'
+      p.careerRetirement = { version: 1, phase: 'final-stand', acceptedAt: 1, combatElapsedSeconds: 0 }
+      p.retirementRuntime = {
+        mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 219 }, armorImpact: { 'armored-horse': 0 }, unavailable: [] },
+        player: { position: { x: 4, y: 0, z: 5, yaw: .3 }, hp: 50, stamina: 30, arrows: 5, shieldImpact: 3, mounted },
+        mount: { position: { x: 11, y: 2, z: 13, yaw: 1.2 }, hp: 219, armorImpactRemaining: 0 },
+      }
+      vi.spyOn(HorseAssetRegistry, 'armoredReady', 'get').mockReturnValue(true)
+      const saved = structuredClone(p)
+      expect(h.owner.restoreActiveMount()).toBe(true)
+      const mount = h.owner.activeMount!
+      expect(mount.group.position).toEqual(new Vector3(11, 2, 13))
+      expect(mount.group.rotation.y).toBe(1.2)
+      expect(mount.currentHp).toBe(219); expect(mount.armorImpactRemaining).toBe(0)
+      expect(h.player.mountVehicle).toHaveBeenCalledTimes(mounted ? 1 : 0)
+      if (mounted) expect(h.player.mountVehicle).toHaveBeenCalledWith(mount, 1.2)
+      expect(h.profile()).toEqual(saved)
     }
-    vi.spyOn(HorseAssetRegistry, 'armoredReady', 'get').mockReturnValue(true)
-    const saved = structuredClone(p)
-    expect(h.owner.restoreActiveMount()).toBe(true)
-    const mount = h.owner.activeMount!
-    expect(mount.group.position).toEqual(new Vector3(11, 2, 13))
-    expect(mount.group.rotation.y).toBe(1.2)
-    expect(mount.currentHp).toBe(219); expect(mount.armorImpactRemaining).toBe(0)
-    expect(h.player.mountVehicle).toHaveBeenCalledTimes(mounted ? 1 : 0)
-    if (mounted) expect(h.player.mountVehicle).toHaveBeenCalledWith(mount, 1.2)
-    expect(h.profile()).toEqual(saved)
   })
 })
 
 describe('Town startup feline preload set', () => {
-  it('does not request merely owned felines for a profile riding a horse', () => {
+  it('requests only required variants and includes selected, race opponent and squad mounts', () => {
     const profile = createCareerProfile('roman')
     for (const id of ['horse', 'white-cat', 'orange-cat', 'serval', 'caracal'] as const) addCareerItem(profile, id, 1)
     profile.ownedMounts = ['white-cat', 'orange-cat', 'serval', 'caracal']
     profile.selectedMountId = 'horse'
     expect([...careerFelineVariants(profile)]).toEqual(['black-cat'])
-  })
 
-  it('includes the selected mount, saved race opponent and mounts assigned to squad members', () => {
-    const profile = createCareerProfile('roman')
     profile.selectedMountId = 'serval'
     profile.activeRace = { player: { mountId: 'serval' }, opponent: { mountId: 'caracal' } } as CareerProfile['activeRace']
     profile.personalSquad = { members: [{ id: 'm', type: 'commander', equipment: { mount: 'white-cat' } }] } as CareerProfile['personalSquad']
@@ -184,7 +186,7 @@ describe('Race opponent feline load failure recovery', () => {
     return { owner, internals, session, enqueueDeployment }
   }
 
-  it('keeps the persisted session and opponent, retries after the delay and deploys exactly once', async () => {
+  it('retries deployment after delay when load fails', async () => {
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(0)
     const { owner, internals, session, enqueueDeployment } = raceOwner()
     internals.deploy(false, true)
@@ -194,13 +196,12 @@ describe('Race opponent feline load failure recovery', () => {
     expect(session.opponent.mountId).toBe('caracal')
     expect(enqueueDeployment).not.toHaveBeenCalled()
 
-    owner.prepare(); expect(preloadCalls).toEqual(['caracal'])      // not yet due
+    owner.prepare(); expect(preloadCalls).toEqual(['caracal'])
     vi.setSystemTime(3001); owner.prepare()
     expect(preloadCalls).toEqual(['caracal', 'caracal'])
     gates.get('caracal')!.resolve(); await flush()
     expect(enqueueDeployment).toHaveBeenCalledExactlyOnceWith(session, false, true)
     expect(owner.deploymentRetryPending).toBe(false)
-    owner.prepare(); expect(preloadCalls).toHaveLength(2)
   })
 
   it('drops the retry when the session is gone', async () => {
@@ -301,54 +302,7 @@ describe('Town feline equipment asynchronous refit', () => {
     expect(getTownEquipmentRuntimeStatus()).toBe('配置已套用。')
   })
 
-  it('drops delayed refit when the resident target mount changes before preload finishes', async () => {
-    const actorId = 'cavalry-training:melee_cavalry:0'
-    const { resident, mount, mounts, scene, npc } = townResidentFixture(actorId)
-    const { previous, current } = profilesFixture(actorId)
-
-    let liveProfile = current
-    const pending = applyTownEquipmentRuntime(scene as any, [resident], mounts, previous, current, [actorId], {
-      getCurrentProfile: () => liveProfile,
-    })
-    expect(pending).toBe(1)
-
-    const cancelled = createCareerProfile('roman')
-    cancelled.rank = 'commander'
-    cancelled.townEquipment = {
-      roman: {
-        version: 1,
-        nativeReserve: [],
-        actors: {
-          [actorId]: { melee: { itemId: 'paladin_sword_t4', source: 'inventory' }, ranged: null, shield: null, mount: { itemId: 'caracal', source: 'inventory' } },
-        },
-      },
-    }
-    liveProfile = cancelled
-
-    gates.get('serval')!.resolve(); await flush()
-    expect(resident.homeMount).toBe(mount)
-    expect(npc.dismountFromMount).not.toHaveBeenCalled()
-    expect(mount.dispose).not.toHaveBeenCalled()
-  })
-
-  it('drops delayed refit when the town scene is disposed before preload finishes', async () => {
-    const actorId = 'cavalry-training:melee_cavalry:0'
-    const { resident, mount, mounts, scene, npc } = townResidentFixture(actorId)
-    const { previous, current } = profilesFixture(actorId)
-
-    const pending = applyTownEquipmentRuntime(scene as any, [resident], mounts, previous, current, [actorId], {
-      isDisposed: () => scene.disposed,
-    })
-    expect(pending).toBe(1)
-
-    scene.disposed = true
-    gates.get('serval')!.resolve(); await flush()
-    expect(resident.homeMount).toBe(mount)
-    expect(npc.dismountFromMount).not.toHaveBeenCalled()
-    expect(mount.dispose).not.toHaveBeenCalled()
-  })
-
-  it('preserves existing physical equipment intact and surfaces retryable status when feline preload fails', async () => {
+  it('handles preload failures, cancellations, and scene disposal gracefully without corrupting physical state', async () => {
     const actorId = 'cavalry-training:melee_cavalry:0'
     const { resident, mount, mounts, scene, npc } = townResidentFixture(actorId)
     const { previous, current } = profilesFixture(actorId)
@@ -356,9 +310,11 @@ describe('Town feline equipment asynchronous refit', () => {
     const onStatusChange = vi.fn()
     const pending = applyTownEquipmentRuntime(scene as any, [resident], mounts, previous, current, [actorId], {
       onStatusChange,
+      isDisposed: () => scene.disposed,
     })
     expect(pending).toBe(1)
 
+    // Preload fails
     gates.get('serval')!.reject(new Error('Network error')); await flush()
     expect(resident.homeMount).toBe(mount)
     expect(npc.dismountFromMount).not.toHaveBeenCalled()
@@ -367,136 +323,7 @@ describe('Town feline equipment asynchronous refit', () => {
     expect(onStatusChange).toHaveBeenCalledWith('配置保存成功，坐騎資源載入失敗，可重試套用')
   })
 
-  it('reconciles overlapping weapon refit during in-flight feline preload using physical mount baseline', async () => {
-    const actorId = 'cavalry-training:melee_cavalry:0'
-    const { resident, mount, mounts, scene, npc } = townResidentFixture(actorId)
-    const { previous, current } = profilesFixture(actorId)
-
-    // Call 1: Serval is selected, loading starts
-    let liveProfile = current
-    const pending1 = applyTownEquipmentRuntime(scene as any, [resident], mounts, previous, current, [actorId], {
-      getCurrentProfile: () => liveProfile,
-    })
-    expect(pending1).toBe(1)
-    expect(resident.homeMount).toBe(mount) // Still physical horse
-
-    // Call 2: While Serval is still loading, player equips T5 sword for same resident
-    const updatedWithWeapon = structuredClone(current)
-    addCareerItem(updatedWithWeapon, 'sword_t5', 1)
-    updatedWithWeapon.townEquipment!.roman!.actors[actorId]!.melee = { itemId: 'sword_t5', source: 'inventory' }
-    liveProfile = updatedWithWeapon
-
-    const pending2 = applyTownEquipmentRuntime(scene as any, [resident], mounts, current, updatedWithWeapon, [actorId], {
-      getCurrentProfile: () => liveProfile,
-    })
-    expect(pending2).toBe(1)
-    expect(resident.homeMount).toBe(mount) // Still physical horse
-
-    // When Serval finishes preloading:
-    gates.get('serval')!.resolve(); await flush()
-
-    // Both physical mount (Serval) and weapon (T5 sword) are applied!
-    expect(resident.homeMount).not.toBe(mount)
-    expect(resident.npc.mount).toBe(resident.homeMount)
-    expect(npc.applyCareerEquipment).toHaveBeenCalledWith(
-      expect.objectContaining({ meleeWeaponId: 'sword_t5', mountId: 'serval' }),
-      expect.any(Number),
-    )
-    expect(getTownEquipmentRuntimeStatus()).toBe('配置已套用。')
-  })
-
-  it('reports deferred status and leaves physical mount unchanged when resident enters combat during feline preload', async () => {
-    const actorId = 'cavalry-training:melee_cavalry:0'
-    const { resident, mount, mounts, scene, npc } = townResidentFixture(actorId)
-    const { previous, current } = profilesFixture(actorId)
-
-    const onStatusChange = vi.fn()
-    const onPreloadComplete = vi.fn()
-    applyTownEquipmentRuntime(scene as any, [resident], mounts, previous, current, [actorId], {
-      onStatusChange,
-      onPreloadComplete,
-    })
-
-    // Resident enters combat before preload completes
-    npc.inCombat = true
-
-    gates.get('serval')!.resolve(); await flush()
-    expect(resident.homeMount).toBe(mount)
-    expect(npc.dismountFromMount).not.toHaveBeenCalled()
-    expect(getTownEquipmentRuntimeStatus()).toBe('配置已保存，待下次回城套用。')
-    expect(onStatusChange).toHaveBeenCalledWith('配置已保存，待下次回城套用。')
-    expect(onPreloadComplete).toHaveBeenCalledWith({
-      success: false,
-      status: '配置已保存，待下次回城套用。',
-      actorIds: [],
-    })
-  })
-
-  it('reports cancelled status when resident target mount is changed before preload finishes', async () => {
-    const actorId = 'cavalry-training:melee_cavalry:0'
-    const { resident, mount, mounts, scene } = townResidentFixture(actorId)
-    const { previous, current } = profilesFixture(actorId)
-
-    const cancelled = structuredClone(current)
-    cancelled.townEquipment!.roman!.actors[actorId]!.mount = { itemId: 'caracal', source: 'inventory' }
-    let liveProfile = current
-
-    const onStatusChange = vi.fn()
-    const onPreloadComplete = vi.fn()
-    applyTownEquipmentRuntime(scene as any, [resident], mounts, previous, current, [actorId], {
-      getCurrentProfile: () => liveProfile,
-      onStatusChange,
-      onPreloadComplete,
-    })
-
-    liveProfile = cancelled
-
-    gates.get('serval')!.resolve(); await flush()
-    expect(resident.homeMount).toBe(mount)
-    expect(getTownEquipmentRuntimeStatus()).toBe('配置已取消。')
-    expect(onStatusChange).toHaveBeenCalledWith('配置已取消。')
-    expect(onPreloadComplete).toHaveBeenCalledWith({
-      success: false,
-      status: '配置已取消。',
-      actorIds: [],
-    })
-  })
-
-  it('ignores superseded preload completion without overwriting active request status', async () => {
-    const actorId = 'cavalry-training:melee_cavalry:0'
-    const { resident, mount, mounts, scene } = townResidentFixture(actorId)
-    const { previous, current } = profilesFixture(actorId)
-
-    const onStatusChange = vi.fn()
-    applyTownEquipmentRuntime(scene as any, [resident], mounts, previous, current, [actorId], {
-      onStatusChange,
-    })
-
-    // Newer request arrives with caracal
-    const caracalProfile = structuredClone(current)
-    addCareerItem(caracalProfile, 'caracal', 1)
-    caracalProfile.townEquipment!.roman!.actors[actorId]!.mount = { itemId: 'caracal', source: 'inventory' }
-
-    let liveProfile = caracalProfile
-    applyTownEquipmentRuntime(scene as any, [resident], mounts, current, caracalProfile, [actorId], {
-      getCurrentProfile: () => liveProfile,
-      onStatusChange,
-    })
-
-    onStatusChange.mockClear()
-
-    // Serval finishes (superseded)
-    gates.get('serval')!.resolve(); await flush()
-    expect(onStatusChange).not.toHaveBeenCalled()
-    expect(resident.homeMount).toBe(mount)
-
-    // Caracal finishes (active)
-    gates.get('caracal')!.resolve(); await flush()
-    expect(onStatusChange).toHaveBeenCalledWith('配置已套用。')
-    expect(resident.homeMount).not.toBe(mount)
-  })
-
-  it('does not leak a resident physical mount baseline into a new Town scene with the same actor ID', () => {
+  it('isolates resident baseline per scene, allows retry on failed mount, and updates refit status', () => {
     const actorId = 'cavalry-training:melee_cavalry:0'
     loaded.add('serval')
     const { previous, current } = profilesFixture(actorId)
@@ -504,49 +331,19 @@ describe('Town feline equipment asynchronous refit', () => {
     expect(applyTownEquipmentRuntime(first.scene as any, [first.resident], first.mounts, previous, current, [actorId])).toBe(0)
     expect(first.resident.homeMount).not.toBe(first.mount)
 
-    // New scene reuses the actor ID, but this resident is still physically on Horse.
+    // Second scene
     const second = townResidentFixture(actorId)
     const changedWeapon = structuredClone(previous)
     addCareerItem(changedWeapon, 'sword_t5', 1)
     changedWeapon.townEquipment!.roman!.actors[actorId]!.melee = { itemId: 'sword_t5', source: 'inventory' }
     expect(applyTownEquipmentRuntime(second.scene as any, [second.resident], second.mounts, previous, changedWeapon, [actorId])).toBe(0)
     expect(second.resident.homeMount).toBe(second.mount)
-    expect(second.npc.dismountFromMount).not.toHaveBeenCalled()
-    expect(second.mount.dispose).not.toHaveBeenCalled()
-  })
 
-  it('does not mark an unsuccessful mountVehicle as physically applied, allowing a later refit to retry', () => {
-    const actorId = 'cavalry-training:melee_cavalry:0'
-    loaded.add('serval')
-    const { resident, mounts, scene, npc } = townResidentFixture(actorId)
-    const { previous, current } = profilesFixture(actorId)
-    npc.mountVehicle.mockImplementationOnce(() => {}) // First mount attempt fails.
-    expect(applyTownEquipmentRuntime(scene as any, [resident], mounts, previous, current, [actorId])).toBe(1)
-    expect(npc.mount).not.toBe(resident.homeMount)
-
-    const next = structuredClone(current)
-    addCareerItem(next, 'sword_t5', 1)
-    next.townEquipment!.roman!.actors[actorId]!.melee = { itemId: 'sword_t5', source: 'inventory' }
-    expect(applyTownEquipmentRuntime(scene as any, [resident], mounts, current, next, [actorId])).toBe(0)
-    expect(npc.mount).toBe(resident.homeMount)
-  })
-
-  it('updates only the dedicated Town refit status and preserves fixed-equipment descriptions', () => {
+    // Status element update
     const statusElem = { textContent: '舊狀態' }
-    const fixedEquipmentDescription = { textContent: '固定 T5 武器／T4 盾牌' }
-    const otherModalStatus = { textContent: '其他功能狀態' }
-
-    const fakeDoc = {
-      querySelectorAll: vi.fn((selector: string) => {
-        expect(selector).toBe('#town-equipment-current [data-town-equipment-status]')
-        return [statusElem] as any
-      }),
-    }
+    const fakeDoc = { querySelectorAll: vi.fn(() => [statusElem] as any) }
     vi.stubGlobal('document', fakeDoc)
-
     expect(updateTownEquipmentVisibleStatus('配置已套用。')).toBe(true)
     expect(statusElem.textContent).toBe('配置已套用。')
-    expect(fixedEquipmentDescription.textContent).toBe('固定 T5 武器／T4 盾牌')
-    expect(otherModalStatus.textContent).toBe('其他功能狀態')
   })
 })

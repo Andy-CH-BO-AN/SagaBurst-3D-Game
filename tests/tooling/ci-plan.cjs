@@ -3,7 +3,7 @@ const { execFileSync } = require('node:child_process')
 const { readdirSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } = require('node:fs')
 const { resolve, relative, dirname } = require('node:path')
 const { randomUUID } = require('node:crypto')
-const { MAX_RELATED_CASES } = require('./budget.cjs')
+const { MAX_LOGIC_CASES } = require('./budget.cjs')
 const { gitEvidence } = require('./ci-git-evidence.cjs')
 const { classifyInputs } = require('./ci-inputs.cjs')
 const { hash } = require('./ci-assets.cjs')
@@ -186,11 +186,14 @@ function selectedNames(plan, file) {
 function selectedCount(plan) {
   return plan.selected.reduce((sum, file) => sum + selectedNames(plan, file).length, 0)
 }
-function requireRelatedBudget(count) {
-  if (count > MAX_RELATED_CASES) {
-    throw new Error('Related selection exceeds the ' + MAX_RELATED_CASES + '-case limit: ' + count +
-      ' unique cases. Split the feature PR; no Full fallback or second run bypass.')
+function requireLogicBudget(count) {
+  if (count > MAX_LOGIC_CASES) {
+    throw new Error('Logic suite exceeds the ' + MAX_LOGIC_CASES + '-case limit: ' + count +
+      ' unique cases. Hard CI ceiling is ' + MAX_LOGIC_CASES + ' cases.')
   }
+}
+function requireRelatedBudget(count) {
+  return requireLogicBudget(count)
 }
 function validateManifest(plan) {
   if (!['related', 'full'].includes(plan.mode) || !Array.isArray(plan.inventory) ||
@@ -226,7 +229,7 @@ function validateManifest(plan) {
   }
   const count = selectedCount(plan)
   if (count !== plan.expectedCount) throw new Error('Plan expected case count disagrees with its selection')
-  if (plan.mode === 'related') requireRelatedBudget(count)
+  requireLogicBudget(count)
   if (plan.assetOnly && (plan.assetValidation?.result !== 'passed' || !plan.assetValidation.files?.length)) throw new Error('Asset-only requires independent passed validation')
   if (!count && !(plan.mode === 'related' && (plan.docsOnly || plan.cssOnly || plan.assetOnly ||
       (plan.emptyDiff && plan.gitEvidence?.changes?.length === 0 && plan.gitEvidence.checkoutSha === plan.checkoutSha)))) throw new Error('Empty code selection')
@@ -242,7 +245,7 @@ function relatedSelectionLines(plan) {
     '  Added/modified test cases: ' + b.directTests,
     '  Fixed Node contracts: ' + b.nodeContracts,
     '  Duplicates removed: ' + b.duplicatesRemoved,
-    '  Final unique selected cases: ' + b.total + ' / ' + MAX_RELATED_CASES,
+    '  Final unique selected cases: ' + b.total + ' / ' + MAX_LOGIC_CASES,
     ...(plan.newSources ?? []).map(item => 'New runtime source ' + item.file + ': ' + item.verdict),
   ]
 }
@@ -260,53 +263,26 @@ function selectionSummary(plan) {
     ...(plan.zeroSelectionReason ? ['Zero-selection reason: ' + plan.zeroSelectionReason] : []),
     'Total suite: ' + total + ' leaves; Selected: ' + count + ' leaves (' + pct + '%); Files: ' + plan.selected.length,
     'Related health: ' + (plan.mode !== 'related' ? 'N/A' : count > 500 ? 'FAIL' : count > 300 ? 'Very broad' : count > 200 ? 'Broad' : count > 100 ? 'Normal' : 'Excellent'),
-    'Case limit: ' + (plan.mode === 'related' ? MAX_RELATED_CASES + ' hard limit' : 'none (Full runs everything)'),
-    ...(plan.native ? ['Supercov ' + plan.supercovRun + ': affected ' + plan.native.affected +
-      ', undetermined ' + plan.native.undetermined + ', run-wide: ' + (plan.native.runWide.join(', ') || 'none')] : []),
+    'Case limit: ' + MAX_LOGIC_CASES + ' hard limit',
     ...relatedSelectionLines(plan),
     'Fallback: none',
   ].join('\n')
 }
 async function createPlan({ mode = 'full', base = '', head = '', event = 'local' } = {}) {
-  if (!['related', 'full'].includes(mode)) throw new Error('Unknown test mode')
   const checkoutSha = git('rev-parse', 'HEAD')
-  if (mode === 'full') {
-    // Local npm test has no requested commit; CI callers always do.
-    const prepared = head ? prepareInputs({ mode, base, head, event }) : null
-    if (prepared?.unsafe.length) throw Error('Unknown asset input: ' + prepared.unsafe.map(i => i.file).join(', '))
-    const assetValidation = prepared ? assetProof(prepared) : null
-    const inventory = await discover()
-    return validateManifest({
-      version: 1, planId: randomUUID(), requestedMode: mode, mode, event,
-      baseSha: base, headSha: head, checkoutSha, changedFiles: [], changes: [], inventory,
-      selected: inventory.map(item => item.file), reasons: {}, fallback: null,
-      assetValidation, ...(prepared ? { gitEvidence: prepared.evidence, inputClassification: prepared.inputs, requiresSeed: false, nonRuntimePolicy: prepared.policy } : {}),
-      expectedCount: inventory.reduce((sum, item) => sum + item.names.length, 0),
-    })
-  }
-  const prepared = prepareInputs({ mode, base, head, event })
-  if (prepared.unsafe.length) throw Error('Related input classification unsafe: ' + prepared.unsafe.map(i => i.file + ': ' + i.reason).join(', '))
-  const { evidence, inputs, requiresSeed, policy } = prepared
-  const allChanges = evidence.changes
-  const common = { gitEvidence: evidence, inputClassification: inputs, requiresSeed,
-    nonRuntimePolicy: policy, assetValidation: assetProof(prepared) }
-  const changed = inputs.filter(i => i.kind === 'runtime').map(({ status, file }) => ({ status, file }))
-  const changedFiles = allChanges.map(i => i.file).sort()
-  if (!requiresSeed) {
-    return validateManifest({
-      version: 1, planId: randomUUID(), requestedMode: mode, mode, event,
-      ...common, baseSha: base, headSha: head, checkoutSha, changedFiles, changes: allChanges,
-      docsOnly: policy === 'docs-only', cssOnly: policy === 'css-only', assetOnly: policy === 'asset-only', emptyDiff: policy === 'empty-diff',
-      source: policy, zeroSelectionReason: 'Verified ' + policy + '; Web typecheck/build remain required',
-      inventory: [], selected: [], reasons: {}, fallback: null, expectedCount: 0,
-    })
-  }
+  // All PRs and pushes run Full mode logic tests
+  const prepared = head ? prepareInputs({ mode: 'full', base, head, event }) : null
+  if (prepared?.unsafe.length) throw Error('Unknown asset input: ' + prepared.unsafe.map(i => i.file).join(', '))
+  const assetValidation = prepared ? assetProof(prepared) : null
   const inventory = await discover()
-  const selection = require('./supercov-related.cjs').nativeSelection(inventory, changed, { base, event })
-  const expectedCount = selection.selected.reduce((sum, file) => sum + selection.selectedCases[file].length, 0)
-  return finishRelatedPlan({
-    version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
-    ...common, seedSha: base, checkoutSha, changedFiles, changes: allChanges, inventory, ...selection, expectedCount,
+  const expectedCount = inventory.reduce((sum, item) => sum + item.names.length, 0)
+  requireLogicBudget(expectedCount)
+  return validateManifest({
+    version: 1, planId: randomUUID(), requestedMode: mode, mode: 'full', event,
+    baseSha: base, headSha: head, checkoutSha, changedFiles: [], changes: [], inventory,
+    selected: inventory.map(item => item.file), reasons: {}, fallback: null,
+    assetValidation, ...(prepared ? { gitEvidence: prepared.evidence, inputClassification: prepared.inputs, requiresSeed: false, nonRuntimePolicy: prepared.policy } : {}),
+    expectedCount,
   })
 }
 function publishSummary(plan) {
@@ -317,7 +293,7 @@ function publishSummary(plan) {
 }
 // An over-limit selection fails, and its breakdown is what tells the author what to split.
 function finishRelatedPlan(plan, publish = publishSummary) {
-  if (plan.expectedCount > MAX_RELATED_CASES) publish(plan)
+  if (plan.expectedCount > MAX_LOGIC_CASES) publish(plan)
   return validateManifest(plan)
 }
 function options(args) {
@@ -338,7 +314,7 @@ if (require.main === module) (async () => {
     console.log(diagnostic)
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\n### Git and input evidence\n\n```text\n' + diagnostic + '\n```\n')
     if (prepared.unsafe.length) throw Error('Input classification unsafe: ' + prepared.unsafe.map(i => i.file).join(', '))
-    const required = args.mode === 'related' && prepared.requiresSeed
+    const required = false
     const message = 'requires-seed=' + required + '\n'
     process.stdout.write(message)
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, message)
@@ -353,5 +329,5 @@ if (require.main === module) (async () => {
     'has-tests=' + (plan.expectedCount > 0) + '\n')
 })().catch(error => { console.error(error); process.exitCode = 1 })
 module.exports = { createPlan, discover, discoverNode, docsOnly, changes, options,
-  finishRelatedPlan, requireRelatedBudget, selectedNames, selectionSummary, validateManifest,
+  finishRelatedPlan, requireLogicBudget, requireRelatedBudget, selectedNames, selectionSummary, validateManifest,
   regularTrackedFile, safeGitignore, safeNewAgentLink, noSeedPolicy, probeSeed, prepareInputs, inputSummary }

@@ -103,30 +103,32 @@ describe('Combat damage eligibility', () => {
       expect(heroMeleeAttackSpeed(id)).toBe(speed)
     }
   })
-  it.each([
-    ['unmounted lance against cavalry', 'lance', false, true, 2],
-    ['mounted lance against cavalry', 'lance', true, true, 1],
-    ['unmounted lance against infantry', 'lance', false, false, 1],
-  ] as const)('%s uses its required anti-cavalry multiplier', (_name, kind, mounted, targetMounted, expected) => {
-    expect(getAntiCavalryMultiplier(kind, mounted, targetMounted)).toBe(expected)
+  it('uses its required anti-cavalry multipliers', () => {
+    const cases = [
+      ['lance', false, true, 2],
+      ['lance', true, true, 1],
+      ['lance', false, false, 1],
+    ] as const
+    for (const [kind, mounted, targetMounted, expected] of cases) {
+      expect(getAntiCavalryMultiplier(kind, mounted, targetMounted)).toBe(expected)
+    }
   })
 
-  it('grants the berserker damage and movement modifiers to unshielded foot swordsmen', () => {
+  it('toggles berserker damage and movement modifiers based on shield presence for foot swordsmen', () => {
     expect(getBerserkerModifiers('viking', false, 'sword', false)).toMatchObject({
       active: true, moveSpeedMultiplier: 1.3, meleeDamageMultiplier: 1.2, meleeAttackRateMultiplier: 1.2,
     })
-  })
-
-  it('disables the berserker modifiers when the swordsman equips a shield', () => {
     expect(getBerserkerModifiers('viking', false, 'sword', true)).toMatchObject({
       active: false, moveSpeedMultiplier: 1, meleeDamageMultiplier: 1, meleeAttackRateMultiplier: 1,
     })
   })
 
-  it.each([[10, false, 45], [10.01, true, 135]] as const)(
-    'mounted lance speed %s has charge=%s and damage=%s', (speed, charge, damage) => {
-      expect(calculateLanceChargeDamage(45, 'lance', true, speed)).toMatchObject({
-        isCharge: charge, skipImpact: charge, damage,
-      })
+  it('calculates mounted lance charge damage at the 10 m/s threshold', () => {
+    expect(calculateLanceChargeDamage(45, 'lance', true, 10)).toMatchObject({
+      isCharge: false, skipImpact: false, damage: 45,
     })
+    expect(calculateLanceChargeDamage(45, 'lance', true, 10.01)).toMatchObject({
+      isCharge: true, skipImpact: true, damage: 135,
+    })
+  })
 })

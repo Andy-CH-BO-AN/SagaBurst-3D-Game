@@ -320,7 +320,7 @@ function eastRamp(id: string, z: number): BreachEntrance {
     faction: null, walkable: true, mounted: true, connectionId: id }
 }
 describe('opt-in Town siege navigation', () => {
-  it('walks a real X-directed slope/deck/bridge in order and waits after the selected entrance is removed', () => {
+  it('walks real X-directed siege entrance in order and manages vehicle revocation/rerouting', () => {
     const nav = new TownLayeredNavigation(emptyTownLayout), entry = eastRamp('town-siege-ramp:east:left', 62), out = new THREE.Vector3(), goal = new THREE.Vector3(140, 10, 62)
     nav.siegeActive = true; nav.siegeEntrances.set(entry)
     expect(nav.resolveMoveTarget(new THREE.Vector3(184.2, 0, 62), goal, out, entry.id)).toEqual({ ground: false })
@@ -333,8 +333,8 @@ describe('opt-in Town siege navigation', () => {
     const outside = new THREE.Vector3(180, 0, 62)
     expect(nav.resolveMoveTarget(outside, goal, out, entry.id)).toEqual({ ground: true, blocked: true })
     expect(out).toEqual(outside)
-  })
-  it('revokes one destroyed vehicle while retaining a reachable same-gate alternative and rejecting unreachable reroutes', () => {
+
+    // Revoking one vehicle retains reachable alternative and rejects unreachable reroutes
     const entries = new AvailableBreachEntrances(), left = eastRamp('town-siege-ramp:east:left', 62), right = eastRamp('town-siege-ramp:east:right', 25)
     entries.set(left); entries.set(right)
     const start = new THREE.Vector3(190, 0, 62)
@@ -407,34 +407,35 @@ describe('opt-in Town siege navigation', () => {
 })
 
 describe('Town watchtower layered travel', () => {
-  it.each(['up', 'down'] as const)('routes a mounted body %s every connected flight without crossing rails', direction => {
-    const layout = getTownCommandWatchtowerLayout()
-    const nav = new TownLayeredNavigation(getTownRampartLayout())
-    nav.setWatchtower(layout)
-    const tower = nav.watchtower!
-    const obstacles: ObstacleData[] = [{ box: layout.core, isBarricade: false }, ...getTownCommandWatchtowerUnderfill(layout),
-      ...layout.platform.map(surface => ({ box: surfaceBox(surface), walkSurface: surface, isBarricade: false })),
-      ...getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)]
-    const top = new THREE.Vector3(-29, layout.platformY, -41)
-    const current = (direction === 'up' ? tower.approach : top).clone()
-    const goal = direction === 'up' ? top : tower.approach
-    const previous = new THREE.Vector3(), out = new THREE.Vector3()
-    // Production steering and support only; no scene, model or actor constructor.
-    for (let frame = 0; frame < 650 && current.distanceTo(goal) > .3; frame++) {
-      if (!nav.resolveMoveTarget(current, goal, out, null, true)) out.copy(goal)
-      previous.copy(current)
-      const distance = Math.hypot(out.x - current.x, out.z - current.z)
-      const fraction = Math.min(.4, distance) / (distance || 1)
-      current.x += (out.x - current.x) * fraction
-      current.z += (out.z - current.z) * fraction
-      current.y = Math.max(getTerrainHeight(current.x, current.z), current.y - .02)
-      resolveObstacleCollision(current, previous, -1, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+  it('routes a mounted body up and down connected flights without crossing rails', () => {
+    for (const direction of ['up', 'down'] as const) {
+      const layout = getTownCommandWatchtowerLayout()
+      const nav = new TownLayeredNavigation(getTownRampartLayout())
+      nav.setWatchtower(layout)
+      const tower = nav.watchtower!
+      const obstacles: ObstacleData[] = [{ box: layout.core, isBarricade: false }, ...getTownCommandWatchtowerUnderfill(layout),
+        ...layout.platform.map(surface => ({ box: surfaceBox(surface), walkSurface: surface, isBarricade: false })),
+        ...getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)]
+      const top = new THREE.Vector3(-29, layout.platformY, -41)
+      const current = (direction === 'up' ? tower.approach : top).clone()
+      const goal = direction === 'up' ? top : tower.approach
+      const previous = new THREE.Vector3(), out = new THREE.Vector3()
+      for (let frame = 0; frame < 650 && current.distanceTo(goal) > .3; frame++) {
+        if (!nav.resolveMoveTarget(current, goal, out, null, true)) out.copy(goal)
+        previous.copy(current)
+        const distance = Math.hypot(out.x - current.x, out.z - current.z)
+        const fraction = Math.min(.4, distance) / (distance || 1)
+        current.x += (out.x - current.x) * fraction
+        current.z += (out.z - current.z) * fraction
+        current.y = Math.max(getTerrainHeight(current.x, current.z), current.y - .02)
+        resolveObstacleCollision(current, previous, -1, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+      }
+      expect(current.distanceTo(goal)).toBeLessThan(.3)
+      const outside = tower.approach.clone().add(new THREE.Vector3(4, 0, 0))
+      expect(nav.resolveMoveTarget(outside, top, out)).toEqual({ ground: true, tower: true })
+      expect(out).toEqual(tower.approach)
+      expect(nav.resolveMoveTarget(outside, outside.clone().add(new THREE.Vector3(3, 0, 0)), out)).toBeNull()
     }
-    expect(current.distanceTo(goal)).toBeLessThan(.3)
-    const outside = tower.approach.clone().add(new THREE.Vector3(4, 0, 0))
-    expect(nav.resolveMoveTarget(outside, top, out)).toEqual({ ground: true, tower: true })
-    expect(out).toEqual(tower.approach)
-    expect(nav.resolveMoveTarget(outside, outside.clone().add(new THREE.Vector3(3, 0, 0)), out)).toBeNull()
   })
 
   it('distinguishes stacked flights for pursuit, contact and follow arrival', () => {

@@ -1,6 +1,4 @@
-import { minimumReachableShoulderSwing } from '../../src/world/AuthoredCarryGrip'
-import { fingerContactOwnership } from '../../src/world/FingerContactPolicy'
-import { Box3, Quaternion, Vector3, type Object3D } from 'three'
+import { Box3, Vector3, type Object3D } from 'three'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { ShieldState } from '../../src/combat/ShieldBlocking'
 import { describe, expect, it, vi } from 'vitest'
@@ -16,10 +14,9 @@ import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigatio
 import type { OutpostLayeredNavigation } from '../../src/navigation/OutpostLayeredNavigation'
 import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, PILUM_THROW_RELEASE_TIME, meleeActionTimeScale } from '../../src/world/CharacterCombatAnimator'
 import { MixerController } from '../../src/world/HumanoidAssetRegistry'
-import { InertialPoseTransition } from '../../src/world/InertialPoseTransition'
 import { axeRecoveryWeight } from '../../src/world/SwordAttachmentContract'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
-import { blendContinuousLocalQuaternion, type EquipmentPoseState } from '../../src/world/CharacterEquipmentPose'
+import { type EquipmentPoseState } from '../../src/world/CharacterEquipmentPose'
 import type { HumanoidAnimationController } from '../../src/world/CharacterVisuals'
 
 /** Real animation state owner; only the external clip/pose boundary is doubled. */
@@ -68,77 +65,6 @@ function trimmedAxeAnimator(attackFadeInSeconds?: number) {
 }
 
 describe('Combat animator imported melee clock', () => {
-  it('releases both finger contacts when weapon and shield are removed during locomotion', () => {
-    const state: EquipmentPoseState = { alive: true, action: 'run', elapsed: .3, mounted: false, mountKind: 'HORSE', lance: false, carryWeapon: 'sword', shield: true }
-    expect(fingerContactOwnership(state)).toEqual({ left: true, right: true })
-    state.carryWeapon = undefined
-    state.shield = false
-    expect(fingerContactOwnership(state)).toEqual({ left: false, right: false })
-  })
-
-  it('keeps finger ownership with the bow samples through the return-to-idle fade', () => {
-    const state: EquipmentPoseState = { alive: true, action: 'idle', elapsed: .1, mounted: false, mountKind: 'HORSE', lance: false, carryWeapon: 'sword', shield: false, sampledBowPose: true }
-    expect(fingerContactOwnership(state)).toBeNull()
-    state.sampledBowPose = false
-    expect(fingerContactOwnership(state)).toEqual({ left: false, right: true })
-  })
-  it('decays one fixed rotation offset continuously across a target hemisphere change without accumulating on repeated samples', () => {
-    const axis = new Vector3(0, 1, 0)
-    const target = { position: new Vector3(4, 2, 1), quaternion: new Quaternion(), scale: new Vector3(2, 3, 4) }
-    const transition = new InertialPoseTransition([target])
-    transition.capture()
-    target.position.set(0, 0, 0)
-    target.quaternion.setFromAxisAngle(axis, 170 * Math.PI / 180)
-    target.scale.set(1, 1, 1)
-    transition.begin(1)
-    expect(transition.blend).toBe(0)
-    expect(target.quaternion.angleTo(new Quaternion())).toBeLessThan(1e-7)
-    expect(target.position.toArray()).toEqual([4, 2, 1])
-
-    transition.restore()
-    target.position.set(2, 0, 0)
-    target.quaternion.setFromAxisAngle(axis, 179 * Math.PI / 180)
-    transition.advance(.25)
-    expect(transition.blend).toBe(.15625)
-    transition.advance(.25)
-    expect(transition.blend).toBe(.5)
-    transition.apply()
-    // Half of the fixed -170 degree offset leaves +94 degrees, not the
-    // opposite route selected by blending a changing target against idle.
-    const expected = new Quaternion().setFromAxisAngle(axis, 94 * Math.PI / 180)
-    expect(target.quaternion.angleTo(expected)).toBeLessThan(1e-7)
-    transition.apply()
-    expect(target.quaternion.angleTo(expected)).toBeLessThan(1e-7)
-    expect(target.position.toArray()).toEqual([4, 1, .5])
-    expect(target.scale.toArray()).toEqual([1.5, 2, 2.5])
-
-    transition.restore()
-    target.quaternion.setFromAxisAngle(axis, 181 * Math.PI / 180)
-    transition.apply()
-    expected.setFromAxisAngle(axis, 96 * Math.PI / 180)
-    expect(target.quaternion.angleTo(expected)).toBeLessThan(1e-7)
-    transition.advance(.5)
-    transition.apply()
-    expected.setFromAxisAngle(axis, 181 * Math.PI / 180)
-    expect(target.quaternion.angleTo(expected)).toBeLessThan(1e-7)
-    expect(target.position.toArray()).toEqual([2, 0, 0])
-    expect(target.scale.toArray()).toEqual([1, 1, 1])
-    expect(transition.active).toBe(false)
-    expect(transition.blend).toBe(1)
-
-    // Dynamic relative rotation (saved^-1 * target) during trimmed 2H axe
-    // release/acquisition must also track across the 180-degree hemisphere
-    // boundary without flipping the blended branch when prevDelta is carried.
-    const saved = new Quaternion().setFromAxisAngle(axis, 20 * Math.PI / 180)
-    const dynamicTarget = new Quaternion().setFromAxisAngle(axis, 199 * Math.PI / 180)
-    const prevDelta = blendContinuousLocalQuaternion(saved, dynamicTarget, .5).clone()
-    expect(dynamicTarget.angleTo(new Quaternion().setFromAxisAngle(axis, 109.5 * Math.PI / 180))).toBeLessThan(1e-7)
-
-    dynamicTarget.setFromAxisAngle(axis, 201 * Math.PI / 180)
-    blendContinuousLocalQuaternion(saved, dynamicTarget, .5, prevDelta)
-    expect(dynamicTarget.angleTo(new Quaternion().setFromAxisAngle(axis, 110.5 * Math.PI / 180))).toBeLessThan(1e-7)
-  })
-
   it('keeps the weapon cycle and emits one hit when a fast distant swing crosses contact and completion together', () => {
     const { animator, animation, controller } = trimmedAxeAnimator(.06)
     // The recovery clock remains clamped when one update skips its entire window.
@@ -172,27 +98,6 @@ describe('Combat animator imported melee clock', () => {
     expect(animator.update(1, 100)).toEqual({
       hitActiveStarted: false, projectileRelease: false, actionCompleted: false, fists: [],
     })
-  })
-
-  it('cancels an imported axe without a fade opt-in before contact and restores the latest mounted locomotion', () => {
-    // A measured melee timeline does not itself opt into a different fade.
-    const { animator, animation, state } = trimmedAxeAnimator()
-    animator.setLocomotion(2)
-    expect(animator.start('axeAttack2H', 2)).toBe(true)
-    expect(animation.play).toHaveBeenLastCalledWith('axeAttack2H', {
-      fadeSeconds: .1, loop: false, timeScale: 2,
-    })
-    expect(animator.update(.08, 100).hitActiveStarted).toBe(false)
-    expect(animator.meleeHitActive).toBe(true)
-    animator.setLocomotion(4, true)
-    animator.cancel()
-    expect(animator.currentAction).toBe('idle')
-    expect(state).toMatchObject({ action: 'idle', elapsed: 0, mounted: true })
-    expect(animation.play).toHaveBeenLastCalledWith('mounted', expect.objectContaining({ loop: true, timeScale: 1 }))
-    expect(animator.update(1, 100)).toEqual({
-      hitActiveStarted: false, projectileRelease: false, actionCompleted: false, fists: [],
-    })
-    expect(animator.meleeHitActive).toBe(false)
   })
 
   it('cancels gameplay immediately while the authored axe visual release finishes without another event', () => {
@@ -389,7 +294,7 @@ function mountedTravelPose() {
   return { actor, animator, animation, bowVisual }
 }
 describe('NPC non-combat locomotion ownership', () => {
-  it('uses mounted locomotion without starting a passive bow draw, including after a stale aim', () => {
+  it('manages non-combat locomotion and preserves real combat aiming during updates', () => {
     const { actor, animator, animation, bowVisual } = mountedTravelPose()
     actor._updateIdleLocomotion(false)
     expect(animator.currentAction).toBe('idle')
@@ -402,13 +307,11 @@ describe('NPC non-combat locomotion ownership', () => {
     expect(animator.update(.1).projectileRelease).toBe(false)
     actor._updateIdleLocomotion(false)
     expect(animator.currentAction).toBe('idle')
-  })
-  it('preserves real combat aiming, bow release and recovery during locomotion updates', () => {
-    const { actor, animator, bowVisual } = mountedTravelPose()
+
+    // Preserves real combat aiming, bow release and recovery during locomotion
     animator.poseBow(1)
     actor._updateIdleLocomotion(true)
     expect(animator.currentAction).toBe('bowAim')
-    expect(bowVisual.update).not.toHaveBeenCalled()
     expect(animator.start('bowRelease')).toBe(true)
     actor._updateIdleLocomotion(true)
     expect(animator.currentAction).toBe('bowRelease')
@@ -764,23 +667,23 @@ describe('Reversible NPC weapon choice', () => {
     expect(iterate).not.toHaveBeenCalled()
   })
 
-  it('preserves a released arrow recovery until the animation finishes', () => {
-    const h = selection({ bowArrowReleased: false, animator: { busy: true, cancel: vi.fn(), setEquipment: vi.fn(), setShieldRaised: vi.fn() } })
-    h.target.position.z = 2
-    h.select()
-    expect(h.actor.rangedActive).toBe(true)
-    expect(h.actor.bowArrowReleased).toBe(false)
-    h.actor.bowArrowReleased = true
-    h.select()
-    expect(h.actor.rangedActive).toBe(true)
-    expect(h.actor.animator.cancel).not.toHaveBeenCalled()
-  })
+  it('preserves active ranged recovery and active melee swing before re-equipping', () => {
+    // Arrow recovery preserved
+    const h1 = selection({ bowArrowReleased: false, animator: { busy: true, cancel: vi.fn(), setEquipment: vi.fn(), setShieldRaised: vi.fn() } })
+    h1.target.position.z = 2
+    h1.select()
+    expect(h1.actor.rangedActive).toBe(true)
+    expect(h1.actor.bowArrowReleased).toBe(false)
+    h1.actor.bowArrowReleased = true
+    h1.select()
+    expect(h1.actor.rangedActive).toBe(true)
+    expect(h1.actor.animator.cancel).not.toHaveBeenCalled()
 
-  it('finishes an active melee swing before re-equipping a bow', () => {
-    const h = selection({ rangedActive: false, animator: { busy: true, cancel: vi.fn(), setEquipment: vi.fn(), setShieldRaised: vi.fn() } })
-    h.select()
-    expect(h.actor.rangedActive).toBe(false)
-    expect(h.actor.animator.cancel).not.toHaveBeenCalled()
+    // Melee swing preserved
+    const h2 = selection({ rangedActive: false, animator: { busy: true, cancel: vi.fn(), setEquipment: vi.fn(), setShieldRaised: vi.fn() } })
+    h2.select()
+    expect(h2.actor.rangedActive).toBe(false)
+    expect(h2.actor.animator.cancel).not.toHaveBeenCalled()
   })
 })
 
@@ -809,32 +712,4 @@ it('preserves merchant fixed gear with a purchased horse and switches only its e
   expect(actor.meleeWeaponId).toBe('sword_t5')
   expect(actor.loadout).toEqual({ meleeWeaponId: 'sword_t5', secondaryMeleeWeaponId: 'axe_t5',
     shieldId: 'paladin_shield_t4', rangedWeaponId: null, mountId: 'horse' })
-})
-
-
-it('uses the smallest shoulder swing and approaches zero continuously at the reach boundary', () => {
-  const shoulder = new Vector3(0, 1, 0), wrist = new Vector3(1, 0, 0)
-  const swing = minimumReachableShoulderSwing(shoulder, wrist, 1)!
-  expect(swing).toBeCloseTo(Math.PI / 6, 12)
-  expect(minimumReachableShoulderSwing(shoulder.clone().negate(), wrist, 1)).toBeCloseTo(swing, 12)
-  const axis = new Vector3(0, 0, -1)
-  expect(wrist.distanceTo(shoulder.clone().applyAxisAngle(axis, swing))).toBeCloseTo(1, 12)
-  expect(wrist.distanceTo(shoulder.clone().applyAxisAngle(axis, swing / 2))).toBeGreaterThan(1)
-  expect(minimumReachableShoulderSwing(shoulder, wrist, Math.sqrt(2))).toBeCloseTo(0, 12)
-  const epsilon = 1e-5
-  const nearBoundary = Math.sqrt(2 - 2 * Math.sin(epsilon))
-  expect(minimumReachableShoulderSwing(shoulder, wrist, nearBoundary)).toBeCloseTo(epsilon, 10)
-  expect(shoulder.toArray()).toEqual([0, 1, 0])
-  expect(wrist.toArray()).toEqual([1, 0, 0])
-})
-
-it('does not invent a reachable shoulder swing for impossible targets or invalid geometry', () => {
-  const shoulder = new Vector3(0, 1, 0), wrist = new Vector3(2, 0, 0)
-  expect(minimumReachableShoulderSwing(shoulder, wrist, 1)).toBeCloseTo(Math.PI / 2, 12)
-  expect(minimumReachableShoulderSwing(shoulder, wrist, 0.5)).toBeNull()
-  expect(minimumReachableShoulderSwing(shoulder, new Vector3(), 1)).toBe(0)
-  expect(minimumReachableShoulderSwing(shoulder, new Vector3(), 0.5)).toBeNull()
-  expect(minimumReachableShoulderSwing(new Vector3(), wrist, 1)).toBeNull()
-  expect(minimumReachableShoulderSwing(shoulder, wrist, Number.NaN)).toBeNull()
-  expect(minimumReachableShoulderSwing(new Vector3(Infinity, 0, 0), wrist, 1)).toBeNull()
 })

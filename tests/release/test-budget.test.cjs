@@ -1,6 +1,6 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_RELATED_CASES, validateReports, readReport } = require('../tooling/budget.cjs')
+const { MAX_LOGIC_CASES, validateReports, readReport } = require('../tooling/budget.cjs')
 const nodeReporter = require('../tooling/node-budget-reporter.cjs')
 
 const report = (runner, count, ms = 100) => ({ runner, runId: 'current', complete: true, errors: [],
@@ -25,11 +25,11 @@ async function captureReporter(events) {
   }
 }
 
-test('only a caller-supplied limit caps the combined case count', () => {
-  const related = { maxCases: MAX_RELATED_CASES }
-  assert.equal(validateReports([report('vitest', 480), report('node', 20)], related).count, 500)
-  assert.throws(() => validateReports([report('vitest', 481), report('node', 20)], related), /501/)
-  assert.equal(validateReports([report('vitest', 903), report('node', 200)]).count, 1103)
+test('full logic case budget enforces the 1,000 cases limit', () => {
+  assert.equal(MAX_LOGIC_CASES, 1000)
+  assert.equal(validateReports([report('vitest', 950), report('node', 50)]).count, 1000)
+  assert.throws(() => validateReports([report('vitest', 951), report('node', 50)]), /Logic case count 1001; required 1–1000/)
+  assert.equal(validateReports([report('vitest', 1050), report('node', 50)], { maxCases: 1200 }).count, 1100)
 })
 
 test('inclusive case budget accepts 100ms and rejects any excess with case identity', () => {

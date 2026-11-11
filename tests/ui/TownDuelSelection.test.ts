@@ -165,7 +165,12 @@ describe('Career Duel resume after a deployment failure', () => {
       deployActiveDuel: proto.deployActiveDuel, showDuelDeployFailure: proto.showDuelDeployFailure }
     return entry
   }
-  it('reports a failed asset load without starting the duel or touching the saved mission, then retries or cancels without settlement', async () => {
+  it('reports failed asset load or build without starting duel, retrying cleanly on success', async () => {
+    // Unbuildable duel
+    expect(await resume(true, false).deployActiveDuel()).toBe(false)
+    expect(await resume(true, true).deployActiveDuel()).toBe(true)
+
+    // Asset load failure with retry
     const entry = resume(false, true), before = JSON.stringify(entry.profile.activeMission)
     expect(await entry.deployActiveDuel()).toBe(false)
     expect(entry.preloadDuelOpponent).toHaveBeenCalledWith('roman_heavy_infantry', 4, 'centurion'); expect(entry.duel.startActiveMission).not.toHaveBeenCalled()
@@ -175,10 +180,6 @@ describe('Career Duel resume after a deployment failure', () => {
     expect(entry.duel.startActiveMission).toHaveBeenCalledOnce(); expect(entry.inventory.prepareForCombat).toHaveBeenCalledOnce()
     cancel.click(); expect(entry.returnToTown).toHaveBeenCalledExactlyOnceWith('direct')
     expect(JSON.stringify(entry.profile.activeMission)).toBe(before)
-  })
-  it('treats a duel that cannot be built as a failed deployment too', async () => {
-    expect(await resume(true, false).deployActiveDuel()).toBe(false)
-    expect(await resume(true, true).deployActiveDuel()).toBe(true)
   })
 })
 

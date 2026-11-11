@@ -43,37 +43,39 @@ describe('Mount armor', () => {
     armor.restore(90); expect(armor.remaining).toBe(50)
     armor.restore(); expect(armor.remaining).toBe(50)
   })
-  it.each(['player-npc', 'npc-player', 'npc-npc'] as const)('resolves %s impact with type multiplier, allegiance, cooldown and lance suppression', route => {
-    const actor = (id: string, faction: Faction) => ({
-      combatantId: id, name: id, faction, characterFaction: 'roman' as const, hp: 200, maxHp: 200,
-      dead: false, isMounted: false, mount: null, currentMount: null, targetable: true, spectatorOnly: false,
-      group: { uuid: id, position: new Vector3() }, combatPosition: new Vector3(), position: new Vector3(),
-      get hpRatio() { return this.hp / this.maxHp },
-      takeDamage(amount: number) { this.hp -= amount; return true },
-    })
-    const player = actor('player', Faction.PLAYER) as unknown as Player
-    const target = actor('target', Faction.ENEMY) as unknown as NPC
-    const ally = actor('ally', route === 'npc-player' ? Faction.ENEMY : Faction.PLAYER) as unknown as NPC
-    const mount = {
-      state: MountState.CONTROLLED, dead: false, isFlyingMount: false, skipImpactThisFrame: false,
-      movementSpeed: 12, isSprinting: false, impactMultiplier: 2.5,
-      group: { position: new Vector3(0, 0, 1) }, previousPosition: new Vector3(0, 0, -1),
-      impactTimes: new Map<object, number>(), canImpact: Mount.prototype.canImpact,
-      riderFaction: route === 'npc-player' ? Faction.ENEMY : Faction.PLAYER,
-      riderNpc: route === 'player-npc' ? null : ally,
-    } as unknown as Mount
-    if (route === 'player-npc') player.currentMount = mount
-    const options: MountImpactOptions = { playerDamageMultiplier: 1.2,
-      onDamagePlayer: (amount, context) => damagePlayer(player, amount, { setFill() {} }, null, context) }
-    const npcs = route === 'npc-player' ? [ally] : [target, ally]
-    resolveMountImpacts([mount], player, npcs, 0, options)
-    expect(route === 'npc-player' ? player.hp : target.hp).toBe(route === 'player-npc' ? 122 : 135)
-    expect(ally.hp).toBe(200)
-    resolveMountImpacts([mount], player, npcs, .1, options)
-    expect(route === 'npc-player' ? player.hp : target.hp).toBe(route === 'player-npc' ? 122 : 135)
-    mount.skipImpactThisFrame = true
-    resolveMountImpacts([mount], player, npcs, 1, options)
-    expect(route === 'npc-player' ? player.hp : target.hp).toBe(route === 'player-npc' ? 122 : 135)
+  it('resolves impact with type multiplier, allegiance, cooldown and lance suppression across routes', () => {
+    for (const route of ['player-npc', 'npc-player', 'npc-npc'] as const) {
+      const actor = (id: string, faction: Faction) => ({
+        combatantId: id, name: id, faction, characterFaction: 'roman' as const, hp: 200, maxHp: 200,
+        dead: false, isMounted: false, mount: null, currentMount: null, targetable: true, spectatorOnly: false,
+        group: { uuid: id, position: new Vector3() }, combatPosition: new Vector3(), position: new Vector3(),
+        get hpRatio() { return this.hp / this.maxHp },
+        takeDamage(amount: number) { this.hp -= amount; return true },
+      })
+      const player = actor('player', Faction.PLAYER) as unknown as Player
+      const target = actor('target', Faction.ENEMY) as unknown as NPC
+      const ally = actor('ally', route === 'npc-player' ? Faction.ENEMY : Faction.PLAYER) as unknown as NPC
+      const mount = {
+        state: MountState.CONTROLLED, dead: false, isFlyingMount: false, skipImpactThisFrame: false,
+        movementSpeed: 12, isSprinting: false, impactMultiplier: 2.5,
+        group: { position: new Vector3(0, 0, 1) }, previousPosition: new Vector3(0, 0, -1),
+        impactTimes: new Map<object, number>(), canImpact: Mount.prototype.canImpact,
+        riderFaction: route === 'npc-player' ? Faction.ENEMY : Faction.PLAYER,
+        riderNpc: route === 'player-npc' ? null : ally,
+      } as unknown as Mount
+      if (route === 'player-npc') player.currentMount = mount
+      const options: MountImpactOptions = { playerDamageMultiplier: 1.2,
+        onDamagePlayer: (amount, context) => damagePlayer(player, amount, { setFill() {} }, null, context) }
+      const npcs = route === 'npc-player' ? [ally] : [target, ally]
+      resolveMountImpacts([mount], player, npcs, 0, options)
+      expect(route === 'npc-player' ? player.hp : target.hp).toBe(route === 'player-npc' ? 122 : 135)
+      expect(ally.hp).toBe(200)
+      resolveMountImpacts([mount], player, npcs, .1, options)
+      expect(route === 'npc-player' ? player.hp : target.hp).toBe(route === 'player-npc' ? 122 : 135)
+      mount.skipImpactThisFrame = true
+      resolveMountImpacts([mount], player, npcs, 1, options)
+      expect(route === 'npc-player' ? player.hp : target.hp).toBe(route === 'player-npc' ? 122 : 135)
+    }
   })
   it('stops infantry impact displacement before the existing swept wall boundary', () => {
     const y = getTerrainHeight(0, 0), position = new Vector3(0, y, 0)

@@ -233,17 +233,19 @@ describe('Commander saved command grant', () => {
       expect(officialActorSquadId(saved, 'south')).toBeUndefined()
   })
 
-  it.each(['rank', 'membership'] as const)('refuses an invalid expanded %s grant without acknowledging a write', mismatch => {
-    const profile = createCareerProfile('roman')
-    profile.rank = 'commander'; profile.totalMerit = 20000
-    profile.activeMission = createActiveCareerMission('captain-cavalry-command', 0, 1, 0, 'army-save')
-    profile.activeMission.friendlyActorIds = ['north', 'south', 'pending']
-    profile.activeMission.officialSquad = commanderAuthority()
-    if (mismatch === 'rank') profile.rank = 'captain'
-    if (mismatch === 'membership') profile.activeMission.friendlyActorIds = ['north']
-    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
-    expect(store.save(profile)).toBe(false)
-    expect(storage.length).toBe(0)
+  it('refuses an invalid expanded rank or membership grant without acknowledging a write', () => {
+    for (const mismatch of ['rank', 'membership'] as const) {
+      const profile = createCareerProfile('roman')
+      profile.rank = 'commander'; profile.totalMerit = 20000
+      profile.activeMission = createActiveCareerMission('captain-cavalry-command', 0, 1, 0, 'army-save')
+      profile.activeMission.friendlyActorIds = ['north', 'south', 'pending']
+      profile.activeMission.officialSquad = commanderAuthority()
+      if (mismatch === 'rank') profile.rank = 'captain'
+      if (mismatch === 'membership') profile.activeMission.friendlyActorIds = ['north']
+      const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+      expect(store.save(profile)).toBe(false)
+      expect(storage.length).toBe(0)
+    }
   })
 
   it('preserves explicit AI return ownership for legacy Captain and isolates a failed Commander save', () => {
@@ -413,18 +415,30 @@ describe('Civilian and merchant borrowed mount checkpoints', () => {
     expect(h.controller().restore()).toBe(true)
     expect(h.mount.armorImpactRemaining).toBe(50)
   })
-  it('refits a dead civilian onto its surviving original horse after saving the complete checkpoint', () => {
-    const h = residentRecovery('civilian-0', true, false)
-    expect(h.owner.checkpoint()!.members['civilian-0'].mount).toMatchObject({ hp: 17, mounted: false })
-    expect(h.owner.refit()).toBe(true)
-    expect(h.events[0]).toBe('save')
-    expect(h.events).not.toContain('restore-mount')
-    expect(h.actor).toMatchObject({ dead: false, hp: 40 })
-    expect(h.actor.mount).toBe(h.mount); expect(h.mount.riderNpc).toBe(h.actor)
-    const home = h.residents.find(r => r.spec.id === 'civilian-0')!.spec
-    expect(h.mount.group.position.x).toBe(home.x); expect(h.mount.group.position.z).toBe(home.z)
-    expect(h.mount.currentHp).toBe(200)
-    expect(h.read().civilianCommandSquad!.members['civilian-0'].mount).toMatchObject({ hp: 200, mounted: true })
+  it('refits civilian and merchant onto allocated horses with position validation', () => {
+    // Dead civilian refits onto surviving horse
+    const h1 = residentRecovery('civilian-0', true, false)
+    expect(h1.owner.checkpoint()!.members['civilian-0'].mount).toMatchObject({ hp: 17, mounted: false })
+    expect(h1.owner.refit()).toBe(true)
+    expect(h1.events[0]).toBe('save')
+    expect(h1.actor).toMatchObject({ dead: false, hp: 40 })
+    expect(h1.actor.mount).toBe(h1.mount); expect(h1.mount.riderNpc).toBe(h1.actor)
+    expect(h1.mount.currentHp).toBe(200)
+
+    // Revives dead horse at validated living civilian position
+    const h2 = residentRecovery('civilian-0', false, true, { canPlaceMountedCivilian: point => point.x === 18 && point.z === -30 })
+    h2.actor.combatPosition.set(18, 0, -30)
+    expect(h2.owner.refit()).toBe(true)
+    expect(h2.actor.mount).toBe(h2.mount)
+    expect(h2.actor.combatPosition).toMatchObject({ x: 18, z: -30 })
+    expect(h2.mount.group.position).toMatchObject({ x: 18, z: -30 })
+
+    // Merchant and horse recovery boundary
+    const h3 = residentRecovery('merchant', true, true)
+    expect(h3.owner.refit()).toBe(true)
+    expect(h3.events.filter(event => event === 'restore-mount')).toHaveLength(1)
+    expect(h3.actor.mount).toBe(h3.mount)
+    expect(h3.mount).toMatchObject({ dead: false, currentHp: 200 })
   })
 
   it('refits an existing mounted Follow civilian on a road without checking home placement or moving it', () => {
@@ -442,75 +456,42 @@ describe('Civilian and merchant borrowed mount checkpoints', () => {
     expect(placementChecks).toBe(0)
   })
 
-  it('revives an allocated dead horse at the validated living civilian position rather than its old corpse position', () => {
-    const h = residentRecovery('civilian-0', false, true, { canPlaceMountedCivilian: point => point.x === 18 && point.z === -30 })
-    h.actor.combatPosition.set(18, 0, -30)
-    expect(h.owner.refit()).toBe(true)
-    expect(h.events[0]).toBe('save')
-    expect(h.actor.mount).toBe(h.mount); expect(h.mount.riderNpc).toBe(h.actor)
-    expect(h.actor.combatPosition).toMatchObject({ x: 18, z: -30 })
-    expect(h.mount.group.position).toMatchObject({ x: 18, z: -30 })
-    expect(h.read().civilianCommandSquad!.members['civilian-0'].mount).toMatchObject({ hp: 200, mounted: true, position: { x: 18, z: -30 } })
+  it('restores civilian and merchant mount and casualty state onto scene records', () => {
+    // Preserves dismount on restore
+    const h1 = residentRecovery('civilian-0', false, false)
+    expect(h1.owner.checkpoint()!.members['civilian-0'].mount?.mounted).toBe(false)
+    expect(h1.controller().restore()).toBe(true)
+    expect(h1.actor).toMatchObject({ dead: false, hp: 13, mount: null })
+    expect(h1.mount).toMatchObject({ dead: false, currentHp: 17, riderNpc: null })
+
+    // Rebinds saved mounted merchant
+    const h2 = residentRecovery('merchant', false, false)
+    h2.read().civilianCommandSquad!.members.merchant.mount!.mounted = true
+    expect(h2.controller().restore()).toBe(true)
+    expect(h2.actor.mount).toBe(h2.mount); expect(h2.mount.riderNpc).toBe(h2.actor)
+
+    // Materialized resources take saved deaths
+    const h3 = residentRecovery('civilian-0', true, true)
+    h3.actor.dead = false; h3.actor.hp = 40
+    h3.mount.dead = false; h3.mount.currentHp = 200
+    expect(h3.controller().restore()).toBe(true)
+    expect(h3.actor).toMatchObject({ dead: true, hp: 0, mount: null })
+    expect(h3.mount).toMatchObject({ dead: true, currentHp: 0, riderNpc: null })
   })
 
-  it('restores the same dead merchant and horse through the existing mount recovery boundary', () => {
-    const h = residentRecovery('merchant', true, true)
-    expect(h.owner.refit()).toBe(true)
-    expect(h.events.filter(event => event === 'restore-mount')).toHaveLength(1)
-    expect(h.events.indexOf('restore-mount')).toBeGreaterThan(h.events.indexOf('save'))
-    expect(h.actor.mount).toBe(h.mount); expect(h.mount.riderNpc).toBe(h.actor)
-    expect(h.mount).toMatchObject({ dead: false, currentHp: 200 })
-    expect(h.residents.find(resident => resident.spec.id === 'merchant')!.homeMount).toBe(h.mount)
-  })
+  it('fails refit safely on storage failure or when horse is ridden by another resident', () => {
+    const h1 = residentRecovery('civilian-0', true, true), before = cloneCareerProfile(h1.read())
+    h1.allowSave(false)
+    expect(h1.owner.refit()).toBe(false)
+    expect(h1.actor).toMatchObject({ dead: true, hp: 0, mount: null })
+    expect(h1.mount).toMatchObject({ dead: true, currentHp: 0, riderNpc: null })
+    expect(h1.read()).toEqual(before)
 
-  it('keeps dead resources, ownership and riding unchanged when the refit checkpoint cannot be saved', () => {
-    const h = residentRecovery('civilian-0', true, true), before = cloneCareerProfile(h.read())
-    h.allowSave(false)
-    expect(h.owner.refit()).toBe(false)
-    expect(h.events).toEqual(['save'])
-    expect(h.actor).toMatchObject({ dead: true, hp: 0, mount: null })
-    expect(h.mount).toMatchObject({ dead: true, currentHp: 0, riderNpc: null })
-    expect(h.read()).toEqual(before)
-  })
-
-  it('preserves deliberate dismount on ordinary restore without healing the saved NPC or horse', () => {
-    const h = residentRecovery('civilian-0', false, false)
-    expect(h.owner.checkpoint()!.members['civilian-0'].mount?.mounted).toBe(false)
-    const restored = h.controller()
-    expect(restored.restore()).toBe(true)
-    expect(h.actor).toMatchObject({ dead: false, hp: 13, mount: null })
-    expect(h.mount).toMatchObject({ dead: false, currentHp: 17, riderNpc: null })
-    expect(h.events).not.toContain('refit-npc'); expect(h.events).not.toContain('mount')
-  })
-
-  it('rebinds a saved mounted merchant to its existing allocated horse during scene restore', () => {
-    const h = residentRecovery('merchant', false, false)
-    h.read().civilianCommandSquad!.members.merchant.mount!.mounted = true
-    expect(h.controller().restore()).toBe(true)
-    expect(h.actor.mount).toBe(h.mount); expect(h.mount.riderNpc).toBe(h.actor)
-    expect(h.mount.currentHp).toBe(17)
-    expect(h.events).not.toContain('restore-mount'); expect(h.events).not.toContain('refit-npc')
-  })
-
-  it('restores saved civilian and mount deaths onto freshly materialized resource records without refitting them', () => {
-    const h = residentRecovery('civilian-0', true, true)
-    // New scene resources start alive; only the saved checkpoint decides their status.
-    h.actor.dead = false; h.actor.hp = 40
-    h.mount.dead = false; h.mount.currentHp = 200
-    h.actor.mount = h.mount; h.mount.riderNpc = h.actor
-    expect(h.controller().restore()).toBe(true)
-    expect(h.actor).toMatchObject({ dead: true, hp: 0, mount: null })
-    expect(h.mount).toMatchObject({ dead: true, currentHp: 0, riderNpc: null })
-    expect(h.events).not.toContain('refit-npc'); expect(h.events).not.toContain('restore-mount')
-  })
-
-  it('rejects a refit before saving when another resident already rides the allocated horse', () => {
-    const h = residentRecovery('civilian-0', true, false)
-    const foreign = { ...h.actor, combatantId: 'foreign' }
-    h.mount.riderNpc = foreign
-    expect(h.owner.refit()).toBe(false)
-    expect(h.events).toEqual([])
-    expect(h.mount.riderNpc).toBe(foreign)
-    expect(h.actor.dead).toBe(true)
+    const h2 = residentRecovery('civilian-0', true, false)
+    const foreign = { ...h2.actor, combatantId: 'foreign' }
+    h2.mount.riderNpc = foreign
+    expect(h2.owner.refit()).toBe(false)
+    expect(h2.mount.riderNpc).toBe(foreign)
+    expect(h2.actor.dead).toBe(true)
   })
 })

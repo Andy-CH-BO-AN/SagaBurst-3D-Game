@@ -6,13 +6,16 @@ import { characterIdentityMaxHp, resolveCharacterIdentity } from '../../src/comb
 import { personalMemberLoadout } from '../../src/career/PersonalSquadRuntime'
 
 describe('Ordinary character health identity', () => {
-  it.each([
-    ['roman', 1, 100], ['roman', 2, 150], ['roman', 3, 200],
-    ['viking', 1, 90], ['viking', 2, 135], ['viking', 3, 180],
-  ] as const)('%s T%s gives players and ordinary NPCs the same %s base HP', (faction, tier, expected) => {
-    expect(getOrdinarySoldierHp(faction, tier)).toBe(expected)
-    expect(resolveOrdinaryPlayerBaseHp(faction, tier, { playerHp: 200, playerHpSource: 'default' })).toBe(expected)
-    expect(resolveOrdinaryNpcHp({ faction, tier }, 200)).toBe(expected)
+  it('gives players and ordinary NPCs the same base HP across factions and tiers', () => {
+    const table = [
+      ['roman', 1, 100], ['roman', 2, 150], ['roman', 3, 200],
+      ['viking', 1, 90], ['viking', 2, 135], ['viking', 3, 180],
+    ] as const
+    for (const [faction, tier, expected] of table) {
+      expect(getOrdinarySoldierHp(faction, tier)).toBe(expected)
+      expect(resolveOrdinaryPlayerBaseHp(faction, tier, { playerHp: 200, playerHpSource: 'default' })).toBe(expected)
+      expect(resolveOrdinaryNpcHp({ faction, tier }, 200)).toBe(expected)
+    }
   })
   it('does not reinterpret civilian or special NPC profiles as ordinary soldiers', () => {
     expect(resolveOrdinaryNpcHp({ faction: 'roman', tier: 1, civilian: true }, 50)).toBe(50)
@@ -67,19 +70,21 @@ describe('Ordinary character health identity', () => {
       expect(() => resolveCharacterIdentity(bad)).toThrow(/Conflicting/)
     }
   })
-  it.each([
-    { type: 'captain', characterTier: 4, heroArchetype: 'captain', recruitmentRole: 'archer', melee: 'gladius_standard', ranged: 'recurve_longbow', profile: 'praetorian', hp: 500 },
-    { type: 'ranger', characterTier: 4, heroArchetype: 'ranger', recruitmentRole: 'spearman', melee: 'steel_lance', ranged: null, profile: 'ranger', hp: 300 },
-  ] as const)('keeps $heroArchetype identity when explicit equipment selects $recruitmentRole combat', ({ type, characterTier, heroArchetype, recruitmentRole, melee, ranged, profile, hp }) => {
-    const member = { id: 'personal-identity', type, characterFaction: 'roman' as const, characterTier, heroArchetype, recruitmentRole,
-      equipment: { melee, ranged, shield: null, mount: null } }
-    const spec = personalMemberLoadout(member, 'roman')
-    expect(spec.identity).toMatchObject({ characterTier: 4, heroArchetype, combatProfileId: profile })
-    expect(characterIdentityMaxHp(spec.identity)).toBe(hp)
-    expect(spec.loadout).toMatchObject({ meleeWeaponId: melee, rangedWeaponId: ranged })
-    const upgraded = personalMemberLoadout({ ...member, equipment: { ...member.equipment, melee: 'sword_t5' } }, 'viking')
-    expect(upgraded.identity).toEqual(spec.identity)
-    expect(upgraded.presetId).toBe(ranged ? 'roman_archer' : 'roman_heavy_infantry')
+  it('keeps hero archetype identity when explicit equipment selects recruitment role combat', () => {
+    const cases = [
+      { type: 'captain', characterTier: 4, heroArchetype: 'captain', recruitmentRole: 'archer', melee: 'gladius_standard', ranged: 'recurve_longbow', profile: 'praetorian', hp: 500 },
+      { type: 'ranger', characterTier: 4, heroArchetype: 'ranger', recruitmentRole: 'spearman', melee: 'steel_lance', ranged: null, profile: 'ranger', hp: 300 },
+    ] as const
+    for (const { type, characterTier, heroArchetype, recruitmentRole, melee, ranged, profile, hp } of cases) {
+      const member = { id: 'personal-identity', type, characterFaction: 'roman' as const, characterTier, heroArchetype, recruitmentRole,
+        equipment: { melee, ranged, shield: null, mount: null } }
+      const spec = personalMemberLoadout(member, 'roman')
+      expect(spec.identity).toMatchObject({ characterTier: 4, heroArchetype, combatProfileId: profile })
+      expect(characterIdentityMaxHp(spec.identity)).toBe(hp)
+      expect(spec.loadout).toMatchObject({ meleeWeaponId: melee, rangedWeaponId: ranged })
+      const upgraded = personalMemberLoadout({ ...member, equipment: { ...member.equipment, melee: 'sword_t5' } }, 'viking')
+      expect(upgraded.identity).toEqual(spec.identity)
+      expect(upgraded.presetId).toBe(ranged ? 'roman_archer' : 'roman_heavy_infantry')
+    }
   })
-
 })

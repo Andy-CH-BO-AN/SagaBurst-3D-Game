@@ -7,8 +7,8 @@ import { PERSONAL_RECRUITMENT_ROLES, resolvePersonalRecruitment, type PersonalRe
 import { careerItemAllocated, careerItemTotal } from '../../src/career/CareerInventory'
 function profile(rank: CareerRank = 'captain') { return { ...createCareerProfile('roman'), rank, totalMerit: 60000, availableMerit: 60000 } }
 describe('Personal Squad recruitment and durable identity', () => {
-  it.each(['captain'] as const)('requires formal Commander rank to hire T5 even with 60,000 merit at %s', rank => {
-    const current = profile(rank), before = cloneCareerProfile(current), save = vi.fn(() => true)
+  it('requires formal Commander rank to hire T5 even with 60,000 merit', () => {
+    const current = profile('captain'), before = cloneCareerProfile(current), save = vi.fn(() => true)
     expect(canRecruitPersonalSquad(current, 'commander')).toBe(false)
     expect(recruitPersonalSquadMember(current, 'commander', save)).toMatchObject({ recruited: false, reason: 'rank-locked' })
     expect(current).toEqual(before); expect(save).not.toHaveBeenCalled()
@@ -23,7 +23,8 @@ describe('Personal Squad recruitment and durable identity', () => {
     expect(recruitPersonalSquadMember(current, 'commander', save)).toMatchObject({ recruited: false, reason: 'squad-full' })
     expect(current).toEqual(old); expect(save).not.toHaveBeenCalled()
   })
-  it.each([['commander', 58000]] as const)('stages %s roster, inventory and deduction atomically and preserves all on storage failure', (type, merit) => {
+  it('stages commander roster, inventory and deduction atomically and preserves all on storage failure', () => {
+    const type = 'commander', merit = 58000
     const current = profile('commander'), before = cloneCareerProfile(current), snapshots: unknown[] = []
     class FailedStorage extends MemoryStorage {
       override setItem(_key: string, value: string): void { snapshots.push(JSON.parse(value)); throw new Error('quota') }
@@ -37,43 +38,48 @@ describe('Personal Squad recruitment and durable identity', () => {
     expect(recruitPersonalSquadMember(current, type, () => { throw Error('quota') }).recruited).toBe(false)
     expect(current).toEqual(before)
   })
-  it.each(['roman', 'viking'] as const)('resolves the thirty legal %s catalog products with authoritative prices, HP and initial allocations', faction => {
-    const identities = [
-      { characterTier: 1, price: 100, hp: faction === 'roman' ? 100 : 90 },
-      { characterTier: 2, price: 200, hp: faction === 'roman' ? 150 : 135 },
-      { characterTier: 3, price: 300, hp: faction === 'roman' ? 200 : 180 },
-      { characterTier: 4, heroArchetype: 'captain', price: 500, hp: 500 },
-      { characterTier: 4, heroArchetype: 'ranger', price: 500, hp: 300 },
-      { characterTier: 5, heroArchetype: 'commander', price: 2000, hp: faction === 'roman' ? 850 : 900 },
-    ] as const
-    const swordIds = faction === 'roman' ? ['gladius_rusty', 'gladius_standard'] : ['rusty_dagger', 'steel_sword']
-    const products = identities.flatMap(identity => PERSONAL_RECRUITMENT_ROLES.map(recruitmentRole => {
-      const choice = { characterTier: identity.characterTier, ...('heroArchetype' in identity ? { heroArchetype: identity.heroArchetype } : {}), recruitmentRole }
-      return { choice, identity, product: resolvePersonalRecruitment(faction, choice)! }
-    }))
-    expect(products).toHaveLength(30)
-    for (const { choice, identity, product } of products) {
-      const low = identity.characterTier <= 3, sword = swordIds[low ? 0 : 1]
-      const expectedEquipment = {
-        archer: { melee: sword, ranged: low ? 'wooden_shortbow' : 'recurve_longbow', shield: null },
-        swordsman: { melee: sword, ranged: null, shield: `${faction === 'roman' ? 'scutum' : 'round_shield'}_t${low ? 1 : 2}` },
-        javelin: { melee: sword, ranged: low ? 'pilum_basic' : 'pilum_standard', shield: null },
-        axeman: { melee: low ? 'viking_axe_t1' : 'viking_axe_t2', ranged: null, shield: `${faction === 'roman' ? 'scutum' : 'round_shield'}_t${low ? 1 : 2}` },
-        spearman: { melee: low ? 'hunting_spear' : 'steel_lance', ranged: null, shield: null },
-      }[choice.recruitmentRole]
-      expect(product).toMatchObject({ ...choice, price: identity.price, maxHp: identity.hp,
-        equipment: { ...expectedEquipment, mount: low ? null : 'horse' } })
+  it('resolves legal catalog products with authoritative prices, HP and initial allocations across factions', () => {
+    for (const faction of ['roman', 'viking'] as const) {
+      const identities = [
+        { characterTier: 1, price: 100, hp: faction === 'roman' ? 100 : 90 },
+        { characterTier: 2, price: 200, hp: faction === 'roman' ? 150 : 135 },
+        { characterTier: 3, price: 300, hp: faction === 'roman' ? 200 : 180 },
+        { characterTier: 4, heroArchetype: 'captain', price: 500, hp: 500 },
+        { characterTier: 4, heroArchetype: 'ranger', price: 500, hp: 300 },
+        { characterTier: 5, heroArchetype: 'commander', price: 2000, hp: faction === 'roman' ? 850 : 900 },
+      ] as const
+      const swordIds = faction === 'roman' ? ['gladius_rusty', 'gladius_standard'] : ['rusty_dagger', 'steel_sword']
+      const products = identities.flatMap(identity => PERSONAL_RECRUITMENT_ROLES.map(recruitmentRole => {
+        const choice = { characterTier: identity.characterTier, ...('heroArchetype' in identity ? { heroArchetype: identity.heroArchetype } : {}), recruitmentRole }
+        return { choice, identity, product: resolvePersonalRecruitment(faction, choice)! }
+      }))
+      expect(products).toHaveLength(30)
+      for (const { choice, identity, product } of products) {
+        const low = identity.characterTier <= 3, sword = swordIds[low ? 0 : 1]
+        const expectedEquipment = {
+          archer: { melee: sword, ranged: low ? 'wooden_shortbow' : 'recurve_longbow', shield: null },
+          swordsman: { melee: sword, ranged: null, shield: `${faction === 'roman' ? 'scutum' : 'round_shield'}_t${low ? 1 : 2}` },
+          javelin: { melee: sword, ranged: low ? 'pilum_basic' : 'pilum_standard', shield: null },
+          axeman: { melee: low ? 'viking_axe_t1' : 'viking_axe_t2', ranged: null, shield: `${faction === 'roman' ? 'scutum' : 'round_shield'}_t${low ? 1 : 2}` },
+          spearman: { melee: low ? 'hunting_spear' : 'steel_lance', ranged: null, shield: null },
+        }[choice.recruitmentRole]
+        expect(product).toMatchObject({ ...choice, price: identity.price, maxHp: identity.hp,
+          equipment: { ...expectedEquipment, mount: low ? null : 'horse' } })
+      }
     }
   })
-  it.each([
-    { characterTier: 3, heroArchetype: 'ranger', recruitmentRole: 'archer' },
-    { characterTier: 5, heroArchetype: 'captain', recruitmentRole: 'swordsman' },
-    { characterTier: 4, recruitmentRole: 'spearman' },
-    { characterTier: 2, recruitmentRole: 'lancer' },
-  ])('rejects malformed recruitment $characterTier/$heroArchetype/$recruitmentRole before staging or saving', input => {
-    const current = profile('commander'), before = cloneCareerProfile(current), save = vi.fn(() => true), createId = vi.fn(() => 'personal:bad')
-    expect(recruitPersonalSquadMember(current, input as PersonalRecruitmentChoice, save, createId)).toMatchObject({ recruited: false, reason: 'invalid-product' })
-    expect(current).toEqual(before); expect(save).not.toHaveBeenCalled(); expect(createId).not.toHaveBeenCalled()
+  it('rejects malformed recruitment before staging or saving', () => {
+    const invalidInputs = [
+      { characterTier: 3, heroArchetype: 'ranger', recruitmentRole: 'archer' },
+      { characterTier: 5, heroArchetype: 'captain', recruitmentRole: 'swordsman' },
+      { characterTier: 4, recruitmentRole: 'spearman' },
+      { characterTier: 2, recruitmentRole: 'lancer' },
+    ]
+    for (const input of invalidInputs) {
+      const current = profile('commander'), before = cloneCareerProfile(current), save = vi.fn(() => true), createId = vi.fn(() => 'personal:bad')
+      expect(recruitPersonalSquadMember(current, input as PersonalRecruitmentChoice, save, createId)).toMatchObject({ recruited: false, reason: 'invalid-product' })
+      expect(current).toEqual(before); expect(save).not.toHaveBeenCalled(); expect(createId).not.toHaveBeenCalled()
+    }
   })
   it('preserves merit and allocations when the chosen higher-tier recruit is unaffordable', () => {
     const current = { ...profile(), availableMerit: 299 }, before = cloneCareerProfile(current), save = vi.fn(() => true)

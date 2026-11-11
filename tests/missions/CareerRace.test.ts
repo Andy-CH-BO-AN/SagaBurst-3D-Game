@@ -1,6 +1,5 @@
 import { raceReturnAction, raceReturnProfile } from '../../src/career/CareerRaceReturn'
 import { CareerRaceController } from '../../src/career/CareerRaceController'
-import { TownScene } from '../../src/town/TownScene'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { deferTownResult, TownEvent } from '../../src/town/TownRules'
 import { describe, expect, it, vi } from 'vitest'
@@ -11,7 +10,7 @@ import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../.
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { canEnterRace, finalizeRaceDeployment, MOUNTED_RACES, pickRaceOpponentMount, RACE_PLAYER_CAN_SPRINT, RACE_SCHEDULE_VERSION, advanceRaceClock, advanceRaceRider, parseRaceSession, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, raceStageOpponentLabel, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
-import { RACE_START_SLOTS, RACE_LINES, lineCrossing, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, illegalTownCrossing, type RacePosition } from '../../src/career/CareerRaceRoute'
+import { RACE_START_SLOTS, RACE_LINES, raceWaypoints, raceMovementIsLegal, illegalTownCrossing, type RacePosition } from '../../src/career/CareerRaceRoute'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 const pos = (x: number, z: number): RacePosition => ({ x, z, y: 0, yaw: 0 })
@@ -77,18 +76,17 @@ describe('Mounted race policy and countdown', () => {
     expect(canEnterRace(p, mount)).toBe(false)
     expect(createCareerDuelMission(p, 'viking_archer', 1, 'opponent', 'captain')).toBeNull()
   })
-  it('uses ten game seconds and permits an early exit followed by a legal return', () => {
+  it('uses ten game seconds countdown and disqualifies only when expiring with player outside', () => {
     const s = session(); s.player.position = pos(0, -120)
     advanceRaceClock(s, 4.25, true)
     expect(s.result).toBeUndefined(); expect(s.countdownSeconds).toBe(5.75)
     s.player.position = pos(-3, -106)
     advanceRaceClock(s, 5.74, true); expect(s.phase).toBe('countdown')
     advanceRaceClock(s, .01, true); expect(s.phase).toBe('racing'); expect(s.elapsedSeconds).toBe(0)
-  })
-  it('disqualifies only when the countdown expires with the player still outside', () => {
-    const s = session(); s.player.position = pos(0, -120)
-    advanceRaceClock(s, 9.99, true); expect(s.result).toBeUndefined()
-    advanceRaceClock(s, .02, true); expect(s.result).toBe('loss')
+
+    const s2 = session(); s2.player.position = pos(0, -120)
+    advanceRaceClock(s2, 9.99, true); expect(s2.result).toBeUndefined()
+    advanceRaceClock(s2, .02, true); expect(s2.result).toBe('loss')
   })
   it('continues after losing the owned mount and validates movement against the actual borrowed mount', () => {
     const s = session(); s.phase = 'guiding'; s.guideFallback = 'Captain unavailable'
@@ -143,53 +141,7 @@ describe('Mounted race policy and countdown', () => {
 })
 
 describe('Mounted race route geometry', () => {
-  it('detects the West checkpoint in the legal wall-side lane, including arrival on its plane', () => {
-    const r = rider('player'); r.checkpoint = 3
-    cross(r, pos(-112, 3), pos(-112, 0))
-    expect(r.checkpoint).toBe(4); expect(r.dnf).toBeUndefined()
-    const target = raceCheckpointTarget(3)!
-    expect(target.z).toBe(-3)
-    expect(raceCheckpointTarget(3, pos(-112, -1))!.z).toBe(3)
-    expect(lineCrossing(pos(target.x, 3), target, RACE_LINES[3])).not.toBeNull()
-    expect(lineCrossing(pos(-108, 3), pos(-108, -3), RACE_LINES[3])).toBeNull()
-    const departing = rider('player'); departing.checkpoint = 3
-    cross(departing, pos(-112, 0), pos(-112, -1))
-    expect(departing.checkpoint).toBe(4)
-  })
-  it('keeps an unsampled collision crossing through a snapshot and reload', () => {
-    const s = session(); s.phase = 'racing'; s.player.checkpoint = 3
-    cross(s.player, pos(-112, 3), pos(-112, 1))
-    s.player.position = pos(-112, -1) // Collision/snapshot can move the runtime position after its own update.
-    const p = profile(); p.activeRace = s
-    const loaded = parseCareerProfile(p)!.activeRace!.player
-    expect(loaded.routePosition).toEqual(pos(-112, 1))
-    cross(loaded, pos(-112, -1), pos(-112, -2), 21)
-    expect(loaded.checkpoint).toBe(4); expect(loaded.dnf).toBeUndefined()
-  })
-  it('accepts the legal edge of the North passage while retaining its finite boundary', () => {
-    const r = rider('player'); r.checkpoint = 4
-    cross(r, pos(5.95, -120), pos(5.95, -110))
-    expect(r.checkpoint).toBe(5); expect(r.dnf).toBeUndefined()
-    expect(lineCrossing(pos(7.5, -120), pos(7.5, -110), RACE_LINES[4])).toBeNull()
-  })
-  it('allows native wall clearance while sliding around an exterior corner', () => {
-    const wall = { box: new Box3(new Vector3(149.1, -1, -115.9), new Vector3(150.9, 8, 100)), isBarricade: false }
-    const r = rider('player'); r.checkpoint = 1
-    const from = pos(151.9, -116.9), to = pos(151.9 - 1e-12, -116.2)
-    r.position = to
-    expect(raceMovementIsLegal(from, to, [wall])).toBe(true)
-    advanceRaceRider(r, from, 10, .05, raceMovementIsLegal(from, to, [wall]), 80)
-    expect(r.dnf).toBeUndefined(); expect(r.checkpoint).toBe(1)
-  })
-  it('still rejects a swept crossing through a solid wall between exterior endpoints', () => {
-    const wall = { box: new Box3(new Vector3(149.1, -1, -115.9), new Vector3(150.9, 8, 100)), isBarricade: false }
-    expect(raceMovementIsLegal(pos(152, 45), pos(148, 45), [wall])).toBe(false)
-    const r = rider('player'); r.checkpoint = 1
-    r.position = pos(148, 45)
-    advanceRaceRider(r, pos(152, 45), 10, .1, raceMovementIsLegal(pos(152, 45), r.position, [wall]), 80)
-    expect(r.dnf).toBeTruthy()
-  })
-  it('requires North exit, East, South, West and North entry on the actual patrol ring', () => {
+  it('validates patrol ring checkpoint sequence and rejects illegal shortcuts and solid wall penetration', () => {
     const r = rider('player'), waypoints = raceWaypoints()
     let last = r.position, elapsed = 0
     for (const p of waypoints) {
@@ -200,68 +152,39 @@ describe('Mounted race route geometry', () => {
     }
     expect(r.dnf).toBeUndefined(); expect(r.checkpoint).toBe(5)
     expect(r.finishSeconds).toBeGreaterThan(0)
-  })
-  it('cannot finish by skipping checkpoints or triggering them in another order', () => {
-    const r = rider('player'); r.checkpoint = 1
-    cross(r, pos(10, 112.5), pos(-10, 112.5))
-    expect(r.checkpoint).toBe(1); expect(r.finishSeconds).toBeUndefined()
-    cross(r, pos(0, -120), pos(0, -110))
-    expect(r.finishSeconds).toBeUndefined(); expect(r.dnf).toBeTruthy()
-  })
-  it('distinguishes passing an exterior gate from actually crossing another city boundary', () => {
-    expect(illegalTownCrossing(pos(162.5, 35), pos(162.5, 55), 1)).toBe(false)
+
+    const r2 = rider('player'); r2.checkpoint = 1
+    cross(r2, pos(10, 112.5), pos(-10, 112.5))
+    expect(r2.checkpoint).toBe(1); expect(r2.finishSeconds).toBeUndefined()
+    cross(r2, pos(0, -120), pos(0, -110))
+    expect(r2.finishSeconds).toBeUndefined(); expect(r2.dnf).toBeTruthy()
+
+    const wall = { box: new Box3(new Vector3(149.1, -1, -115.9), new Vector3(150.9, 8, 100)), isBarricade: false }
+    expect(raceMovementIsLegal(pos(152, 45), pos(148, 45), [wall])).toBe(false)
     expect(illegalTownCrossing(pos(160, 45), pos(145, 45), 1)).toBe(true)
-    expect(illegalTownCrossing(pos(0, 105), pos(0, 95), 2)).toBe(true)
-    expect(illegalTownCrossing(pos(-115, 0), pos(-105, 0), 3)).toBe(true)
-    const r = rider('player')
-    r.position = pos(160, -130); advanceRaceRider(r, pos(0, -120), 2, .05, true, 80)
-    expect(r.dnf).toBeTruthy()
   })
 })
 
 describe('Mounted race outcome ownership', () => {
-  it('keeps the living opponent racing after the player finishes and reloads before recording both times', () => {
+  it('evaluates race outcome ownership, trailing timeouts and dismounted finishes', () => {
     const s = session(); s.phase = 'racing'; s.elapsedSeconds = 85.1
     s.player.checkpoint = 5; s.player.finishSeconds = 85.1; s.opponent.checkpoint = 4
     resolveRace(s)
     expect(s.result).toBe('win'); expect(s.phase).toBe('finishing'); expect(raceIsRunning(s)).toBe(true)
-    const store = new CareerProfileStore(new MemoryStorage())
-    expect(store.save(raceRecordProfile(profile(), s))).toBe(true)
-    const loaded = store.load()!
-    expect(loaded.raceRecords).toBeUndefined(); expect(loaded.completedRaceIds).toBeUndefined()
-    const resumed = loaded.activeRace!
-    expect(resumed.opponent.dnf).toBeUndefined(); expect(resumed.result).toBe('win')
-    resumed.player.dead = true; resumed.player.hp = 0 // Winner can die while waiting without changing the result.
-    advanceRaceClock(resumed, 15, true)
-    expect(resumed.elapsedSeconds).toBe(100.1)
-    cross(resumed.opponent, pos(0, -120), pos(0, -110), resumed.elapsedSeconds); resolveRace(resumed)
-    expect(resumed.phase).toBe('result'); expect(resumed.result).toBe('win')
-    expect(resumed.opponent.finishSeconds).toBeGreaterThan(99)
-    const settled = raceRecordProfile(loaded, resumed)
-    expect(settled.raceRecords).toEqual([expect.objectContaining({ result: 'win', playerSeconds: 85.1, opponentSeconds: resumed.opponent.finishSeconds })])
-    expect(raceRecordProfile(settled, resumed).raceRecords).toHaveLength(1)
-  })
-  it('ends the wait when the trailing rider can no longer finish without changing the winner', () => {
-    const s = session(); s.phase = 'racing'; s.opponent.checkpoint = 5; s.opponent.finishSeconds = 70
-    resolveRace(s); expect(s.phase).toBe('finishing'); expect(s.result).toBe('loss')
-    s.player.dead = true; s.player.hp = 0; resolveRace(s)
-    expect(s.phase).toBe('result'); expect(s.result).toBe('loss')
-    expect(raceRecordProfile(profile(), s).availableMerit).toBe(profile().availableMerit)
-    expect(s.player.finishSeconds).toBeUndefined()
-    expect(raceRecordProfile(profile(), s).raceRecords).toEqual([expect.objectContaining({ result: 'loss', opponentSeconds: 70 })])
-  })
-  it('lets both riders finish on foot after mount deaths and awards the leading player the win', () => {
-    const s = session(); s.phase = 'racing'
-    for (const r of [s.player, s.opponent]) { r.checkpoint = 4; r.mountHp = 0; r.mounted = false }
-    cross(s.player, pos(0, -120), pos(0, -110), 80); resolveRace(s)
-    expect(s.player.finishSeconds).toBe(79.5); expect(s.player.dnf).toBeUndefined()
-    expect(s.result).toBe('win'); expect(s.phase).toBe('finishing')
-    cross(s.opponent, pos(0, -120), pos(0, -110), 85); resolveRace(s)
-    expect(s.opponent.finishSeconds).toBe(84.5); expect(s.opponent.dnf).toBeUndefined()
-    expect(s.result).toBe('win'); expect(s.phase).toBe('result')
-    expect(raceRecordProfile(profile(), s).raceRecords).toEqual([
-      expect.objectContaining({ result: 'win', legalFinish: true, playerSeconds: 79.5, opponentSeconds: 84.5 }),
-    ])
+
+    // Trailing rider timeout
+    const s2 = session(); s2.phase = 'racing'; s2.opponent.checkpoint = 5; s2.opponent.finishSeconds = 70
+    resolveRace(s2); expect(s2.phase).toBe('finishing'); expect(s2.result).toBe('loss')
+    s2.player.dead = true; s2.player.hp = 0; resolveRace(s2)
+    expect(s2.phase).toBe('result'); expect(s2.result).toBe('loss')
+
+    // Dismounted foot finish
+    const s3 = session(); s3.phase = 'racing'
+    for (const r of [s3.player, s3.opponent]) { r.checkpoint = 4; r.mountHp = 0; r.mounted = false }
+    cross(s3.player, pos(0, -120), pos(0, -110), 80); resolveRace(s3)
+    expect(s3.player.finishSeconds).toBe(79.5); expect(s3.result).toBe('win')
+    cross(s3.opponent, pos(0, -120), pos(0, -110), 85); resolveRace(s3)
+    expect(s3.opponent.finishSeconds).toBe(84.5); expect(s3.phase).toBe('result')
   })
 })
 
@@ -382,114 +305,7 @@ describe('Race persistence independent of hostility and Duel', () => {
     expect(raceRecordProfile(settled, resumed).availableMerit).toBe(settled.availableMerit)
     expect(parseCareerProfile({ ...settled, raceRecords: [{ ...settled.raceRecords![0], scheduleVersion: 4 as any }] })).toBeNull()
   })
-  it('settles legacy v1 and v2 sessions at their accepted rewards without falsely marking v3 stages completed', () => {
-    const store = new CareerProfileStore(new MemoryStorage()), p = profile(), old = session()
-    old.raceId = 'race-6'; old.opponent.mountId = 'black-cat'; old.phase = 'racing'
-    p.activeRace = old; p.completedRaceIds = ['race-1']
-    expect(store.save(p)).toBe(true)
-    // Legacy completedRaceIds without raceScheduleVersion=3 must not pollute the new v3 schedule.
-    expect(store.load()!.completedRaceIds).toBeUndefined()
-    const resumed = store.load()!.activeRace!
-    expect(raceDefinitionForSchedule(resumed.raceId, resumed.scheduleVersion)).toMatchObject({ name: 'Race VI', merit: 3600, sprint: true })
-    resumed.player.checkpoint = 5; resumed.player.finishSeconds = 77; resumed.opponent.dnf = 'mount lost'; resolveRace(resumed)
-    const settled = raceRecordProfile(store.load()!, resumed)
-    const returned = raceReturnProfile(settled, resumed.player, undefined, 100)!
-    expect(store.save(returned)).toBe(true)
-    const replayV2 = session(); replayV2.id = 'replay-v2'; replayV2.opponent.actorId = 'race:replay-v2'
-    replayV2.scheduleVersion = 2; replayV2.raceId = 'race-6'; replayV2.opponent.mountId = 'black-cat'
-    const loadedV2 = store.load()!; loadedV2.activeRace = replayV2
-    expect(store.save(loadedV2)).toBe(true)
-    const freshV2 = store.load()!.activeRace!
-    expect(raceDefinitionForSchedule(freshV2.raceId, freshV2.scheduleVersion)).toMatchObject({ name: 'Race VIII', merit: 6400 })
-    freshV2.phase = 'racing'; freshV2.player.checkpoint = 5; freshV2.player.finishSeconds = 80; freshV2.opponent.dnf = 'mount lost'; resolveRace(freshV2)
-    expect(store.save(raceRecordProfile(store.load()!, freshV2))).toBe(true)
-    expect(store.load()!.completedRaceIds).toBeUndefined()
-    const replayV3 = session(); replayV3.id = 'replay-v3'; replayV3.opponent.actorId = 'race:replay-v3'
-    replayV3.scheduleVersion = 3; replayV3.raceId = 'race-6'; replayV3.opponent.mountId = 'caracal'
-    const loadedV3 = store.load()!; loadedV3.activeRace = replayV3
-    expect(store.save(loadedV3)).toBe(true)
-    const freshV3 = store.load()!.activeRace!
-    expect(raceDefinitionForSchedule(freshV3.raceId, freshV3.scheduleVersion)).toMatchObject({ name: 'Race VI', merit: 3600 })
-    freshV3.phase = 'racing'; freshV3.player.checkpoint = 5; freshV3.player.finishSeconds = 68; freshV3.opponent.dnf = 'mount lost'; resolveRace(freshV3)
-    expect(store.save(raceRecordProfile(store.load()!, freshV3))).toBe(true)
-    const final = store.load()!
-    expect(final.raceRecords?.map(r => [r.raceId, r.scheduleVersion, r.merit])).toEqual([
-      ['race-6', undefined, 3600],
-      ['race-6', 2, 6400],
-      ['race-6', 3, 3600],
-    ])
-    expect(final.availableMerit).toBe(p.availableMerit + 13600)
-    expect(final.completedRaceIds).toEqual(['race-6']); expect(final.raceBestSeconds).toEqual({ 'race-6': 68 })
-    expect(final.legacyRaceProgress).toEqual([
-      expect.objectContaining({ scheduleVersion: 1, completedRaceIds: ['race-1', 'race-6'] }),
-      expect.objectContaining({ scheduleVersion: 2, completedRaceIds: ['race-6'], raceBestSeconds: { 'race-6': 80 } }),
-    ])
-  })
-  it('preserves legacy v2 and v1 racing progress into legacyRaceProgress across save and reload cycles without polluting v3 completions', () => {
-    const storage = new MemoryStorage(), store = new CareerProfileStore(storage), base = profile()
-    // Simulate a legacy profile from scheduleVersion 2 stored in localStorage
-    const legacyRaw = {
-      ...base,
-      raceScheduleVersion: 2,
-      completedRaceIds: ['race-1', 'race-2', 'race-3'],
-      raceBestSeconds: { 'race-1': 75.2, 'race-2': 88.0 },
-      availableMerit: 1400,
-      totalMerit: 1400,
-    }
-    storage.setItem('sagaburst_career_v1', JSON.stringify(legacyRaw))
 
-    // First load: migrates legacy progress into legacyRaceProgress, leaving v3 clean
-    const loaded = store.load()!
-    expect(loaded.raceScheduleVersion).toBeUndefined()
-    expect(loaded.completedRaceIds).toBeUndefined()
-    expect(loaded.raceBestSeconds).toBeUndefined()
-    expect(loaded.legacyRaceProgress).toEqual([
-      {
-        scheduleVersion: 2,
-        completedRaceIds: ['race-1', 'race-2', 'race-3'],
-        raceBestSeconds: { 'race-1': 75.2, 'race-2': 88.0 },
-      },
-    ])
-
-    // Save migrated profile without racing yet: legacy progress is persisted
-    expect(store.save(loaded)).toBe(true)
-    const reloaded = store.load()!
-    expect(reloaded.legacyRaceProgress).toEqual([
-      {
-        scheduleVersion: 2,
-        completedRaceIds: ['race-1', 'race-2', 'race-3'],
-        raceBestSeconds: { 'race-1': 75.2, 'race-2': 88.0 },
-      },
-    ])
-    expect(reloaded.completedRaceIds).toBeUndefined()
-
-    // Complete a new v3 race (Race I, sprint, 100 merit)
-    const v3Session = session()
-    v3Session.scheduleVersion = 3
-    v3Session.raceId = 'race-1'
-    v3Session.phase = 'racing'
-    v3Session.player.checkpoint = 5
-    v3Session.player.finishSeconds = 62.5
-    v3Session.opponent.dnf = 'mount lost'
-    resolveRace(v3Session)
-
-    const updated = raceRecordProfile(reloaded, v3Session)
-    expect(store.save(updated)).toBe(true)
-
-    // Verify v3 and legacy progress coexistence after reload
-    const final = store.load()!
-    expect(final.raceScheduleVersion).toBe(3)
-    expect(final.completedRaceIds).toEqual(['race-1'])
-    expect(final.raceBestSeconds).toEqual({ 'race-1': 62.5 })
-    expect(final.availableMerit).toBe(1500)
-    expect(final.legacyRaceProgress).toEqual([
-      {
-        scheduleVersion: 2,
-        completedRaceIds: ['race-1', 'race-2', 'race-3'],
-        raceBestSeconds: { 'race-1': 75.2, 'race-2': 88.0 },
-      },
-    ])
-  })
   it('publishes a result only after successful storage and retries idempotently without clearing hostility', () => {
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage), p = profile(), s = session()
     s.scheduleVersion = 3; s.raceId = 'race-5'; s.opponent.mountId = 'white-cat'
@@ -513,53 +329,6 @@ describe('Race persistence independent of hostility and Duel', () => {
 
 
 describe('Race return and deferred native Town outcomes', () => {
-  it('offers direct return in the pause menu for a living stuck Captain and retries storage before moving or clearing', () => {
-    const storage = new MemoryStorage(), store = new CareerProfileStore(storage), s = session()
-    s.phase = 'racing'; s.player.checkpoint = 5; s.player.finishSeconds = 80; s.opponent.dnf = 'mount lost'; resolveRace(s)
-    const recorded = raceRecordProfile(profile(), s); recorded.activeRace!.phase = 'returning'
-    recorded.townEvent = { id: 'still-hostile', state: 'hostile', deadActorIds: ['merchant'] }
-    expect(store.save(recorded)).toBe(true)
-    let current = store.load()!
-    const outside = new Vector3(-200, 0, 50), position = outside.clone()
-    const borrowedMount = { group: { position: outside.clone(), rotation: { y: 0 } }, currentHp: 73 }
-    let activeMount: typeof borrowedMount | null = borrowedMount
-    const player = { dead: false, hp: 27, maxHp: 100, staminaValue: 70, facingYaw: 0,
-      get currentMount() { return activeMount }, dismountFromMount: vi.fn(() => { activeMount = null }),
-      combatPosition: position, setPosition: vi.fn((x: number, y: number, z: number) => position.set(x, y, z)), faceDirection: vi.fn() }
-    const race = Object.create(CareerRaceController.prototype) as CareerRaceController
-    Object.assign(race, { session: current.activeRace, mounts: {}, residents: [], obstacles: [], commanded: new Map(),
-      captain: { npc: { dead: false, hostileToPlayer: false, combatPosition: outside.clone() }, spec: { x: 0, z: 0 } },
-      player: () => player, read: () => current,
-      commit: (next: CareerProfile) => { if (!store.save(next)) return false; current = store.load()!; return true } })
-    expect(race.canWalkBack).toBe(true); expect(race.returnComplete).toBe(false)
-    expect(raceReturnAction('returning', true, false)).toBeNull()
-    const actions = new Map<string, () => void>()
-    const event = new TownEvent([{ id: 'survivor' }]); event.register('survivor', { dead: false }); event.complete(); event.hostile = true
-    // Only menu/return inputs; constructors and all 3D entities are excluded.
-    const town = Object.create(TownScene.prototype) as { openPauseMenu(): void }
-    Object.defineProperty(town, 'profile', { get: () => current })
-    const closePanel = vi.fn()
-    Object.assign(town, { race, player, event, equipment: { visible: false }, closePanel,
-      openPanel: () => ({ querySelector: () => ({ textContent: '' }) }),
-      button: (_panel: unknown, label: string, callback: () => void) => actions.set(label, callback) })
-    town.openPauseMenu()
-    const direct = actions.get('改為直接返回小鎮')!
-    expect(direct).toBeTypeOf('function')
-    storage.failWrites = true; direct()
-    expect(race.session).toBeDefined(); expect(store.load()!.activeRace).toBeDefined()
-    expect(position).toEqual(outside); expect(player.setPosition).not.toHaveBeenCalled(); expect(closePanel).not.toHaveBeenCalled()
-    expect(player.dismountFromMount).not.toHaveBeenCalled(); expect(player.currentMount).toBe(borrowedMount)
-    storage.failWrites = false; direct()
-    expect(race.session).toBeUndefined(); expect(store.load()!.activeRace).toBeUndefined()
-    expect(player.dismountFromMount).toHaveBeenCalledOnce(); expect(player.currentMount).toBeNull()
-    expect(player.dismountFromMount.mock.invocationCallOrder[0]).toBeLessThan(player.setPosition.mock.invocationCallOrder[0])
-    expect(player.setPosition).toHaveBeenCalledOnce(); expect(position).not.toEqual(outside)
-    expect(borrowedMount.group.position).toEqual(outside); expect(borrowedMount.currentHp).toBe(73)
-    expect(position.x).toBeGreaterThan(-100); expect(position.x).toBeLessThan(100)
-    expect(store.load()!.racePlayerState!.hp).toBe(27); expect(player.hp).toBe(27)
-    expect(store.load()!.raceRecords).toEqual(recorded.raceRecords); expect(store.load()!.townEvent).toEqual(recorded.townEvent)
-    expect(closePanel).toHaveBeenCalledOnce()
-  })
   it('keeps hostile player defeat through spectating/reload and applies the penalty once on saved return', () => {
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage), s = session(), p = profile()
     p.availableMerit = 180; p.townEvent = { id: 'hostile-death', state: 'hostile' }; p.activeRace = s

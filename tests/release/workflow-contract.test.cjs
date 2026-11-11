@@ -82,24 +82,15 @@ test('push to main shares one Full gate with Pages and Release, bound to the exa
 
   // ci.yml orchestrates the single Full gate and passes verified-sha to both Pages and Release.
   assert.equal(ci.jobs.logic.uses, './.github/workflows/logic-tests.yml')
-  assert.equal(ci.jobs.logic.with.mode,
-    "${{ github.event_name == 'workflow_dispatch' && 'full' || github.base_ref == 'main' && 'full' || (github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')) && 'full' || 'related' }}")
+  assert.equal(ci.jobs.logic.with.mode, 'full')
   assert.equal(logicTests.on.workflow_call.outputs['verified-sha'].value, '${{ jobs.gate.outputs.verified-sha }}')
-  // Related and Full share one job: no matrix, no cross-runner reports to reassemble.
+  // Full execution shares one job: no matrix, no cross-runner reports to reassemble.
   assert.deepEqual(Object.keys(logicTests.jobs), ['gate'])
   assert.equal(logicTests.jobs.gate.strategy, undefined)
   const gateSteps = logicTests.jobs.gate.steps
   const stepAt = text => gateSteps.findIndex(step => step.run?.includes(text))
   assert.ok(stepAt('ci-plan.cjs --mode') < stepAt('ci-run.cjs --manifest'))
-  assert.ok(stepAt('ci-run.cjs --manifest') < stepAt('supercov-seed.cjs'))
-  // A failed test stops the job: nothing that publishes a seed may run regardless.
-  const publishing = gateSteps.filter(step => step.run?.includes('supercov') || step.with?.name?.startsWith('supercov-seed-'))
-    .filter(step => !step.run?.includes('supercov-evidence.cjs restore'))
-  assert.equal(publishing.length, 3)
-  for (const step of publishing) {
-    assert.doesNotMatch(step.if, /always\(\)/)
-    assert.match(step.if, /inputs\.mode == 'full' && \(github\.ref == 'refs\/heads\/dev' \|\| github\.ref == 'refs\/heads\/main'\)/)
-  }
+  assert.ok(stepAt('ci-run.cjs --manifest') < stepAt('--verified-sha'))
 
   for (const id of ['pages', 'release']) {
     const job = ci.jobs[id]

@@ -2,7 +2,7 @@ const { spawnSync, execFileSync } = require('node:child_process')
 const { readFileSync, writeFileSync, mkdirSync, appendFileSync, rmSync } = require('node:fs')
 const { resolve, join, relative, dirname } = require('node:path')
 const { randomUUID } = require('node:crypto')
-const { validateReports, MAX_CASE_MS, MAX_RELATED_CASES } = require('./budget.cjs')
+const { validateReports, MAX_CASE_MS, MAX_LOGIC_CASES } = require('./budget.cjs')
 const { validateManifest, options, createPlan, discoverNode, selectedNames } = require('./ci-plan.cjs')
 const root = resolve(__dirname, '../..')
 const normalize = file => relative(root, resolve(root, file)).replaceAll('\\', '/')
@@ -15,7 +15,7 @@ function verifyExecution(plan, summary) {
   if (!summary?.runId || summary.planId !== plan.planId || summary.result !== 'passed') throw new Error('Missing, stale or failed logic run')
   const runners = ['vitest', 'node'].filter(runner => filesFor(plan, runner).length)
   const result = validateReports(summary.reports, { runId: summary.runId, runners,
-    ...(plan.mode === 'related' ? { maxCases: MAX_RELATED_CASES } : {}) })
+    maxCases: MAX_LOGIC_CASES })
   for (const report of summary.reports) {
     const files = (report.files ?? []).map(item => normalize(item.file))
     exact(files, filesFor(plan, report.runner), `${report.runner} files`)
@@ -122,7 +122,7 @@ function execute(plan, out) {
     if (runnerErrors.length) throw new Error(runnerErrors.join('\n'))
     summary.result = 'passed'
     const result = verifyExecution(plan, summary)
-    console.log(`${plan.mode === 'full' ? 'Full' : 'Related'} budget: ${result.count}${plan.mode === 'related' ? '/' + MAX_RELATED_CASES : ''} cases; max ${result.maxMs.toFixed(3)}ms`)
+    console.log(`Full budget: ${result.count}/${MAX_LOGIC_CASES} cases; max ${result.maxMs.toFixed(3)}ms`)
   } catch (error) {
     summary.result = 'failed'
     summary.error = error.message

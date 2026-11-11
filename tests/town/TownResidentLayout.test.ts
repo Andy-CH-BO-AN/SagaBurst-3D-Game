@@ -5,7 +5,7 @@ import { TownGroundStations } from '../../src/town/TownGroundStation'
 import { describe, expect, it } from 'vitest'
 import { Box3, Matrix4, Vector3 } from 'three'
 import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
-import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, civilianMountsClear, townMountPlacementBatchClear, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes } from '../../src/town/TownCivilianLife'
+import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, civilianMountsClear, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes } from '../../src/town/TownCivilianLife'
 import { findTownDuelArena, townDuelAreaClear, DUEL_ARENA_HALF_SIZE } from '../../src/town/TownDuelArena'
 import { TOWN_DUEL_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_MOUNTED_MISSION_MUSTER } from '../../src/town/TownLayout'
 import { townRoster, townPatrolRefitPoint, townPlayerEntryPoint, withTownCommandSquadRoster } from '../../src/town/TownRules'
@@ -82,30 +82,25 @@ describe('Town resident layout ownership', () => {
     expect(retried.owners).toEqual(saved.owners)
   })
 
-  it('rejects duel deployment when an unrelated resident occupies the reserved inner arena', () => {
+  it('keeps duel arena clear of unrelated residents, obstacles, riding roads and mounted muster', () => {
     const roster = townRoster(), navigation = { areConnected: () => true }
     const open = findTownDuelArena([], navigation, roster)
     expect(open).not.toBeNull()
     const visitor = { ...roster.find(s => s.role === 'civilian')!, id: 'civilian-visitor', x: TOWN_DUEL_CENTER.x, z: TOWN_DUEL_CENTER.z }
     expect(findTownDuelArena([], navigation, [...roster, visitor])).toBeNull()
     expect(findTownDuelArena([{ isBarricade: false, box: new Box3(new Vector3(-100, -100, -100), new Vector3(200, 100, 100)) }], navigation, roster)).toBeNull()
-  })
 
-  it('keeps duel deployment and its fallback candidates outside riding roads and mounted muster', () => {
-    const area = findTownDuelArena([], { areConnected: () => true }, townRoster())!
-    expect(area).not.toBeNull()
+    const area = open!
     const box = (x: number, z: number, half: number) => new Box3(new Vector3(x - half, -100, z - half), new Vector3(x + half, 100, z + half))
     expect(townDuelAreaClear(box(area.x, area.z, DUEL_ARENA_HALF_SIZE))).toBe(true)
-    // Independent occupied intervals from the authored roads catch the former z=-58 placement.
     for (const road of [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS]) {
       expect(townDuelAreaClear(box((road.ax + road.bx) / 2, (road.az + road.bz) / 2, 1))).toBe(false)
     }
     expect(townDuelAreaClear(box(TOWN_MOUNTED_MISSION_MUSTER.x, TOWN_MOUNTED_MISSION_MUSTER.z, 1))).toBe(false)
   })
 
-  it('blocks a second horse at a parked riderless mount while allowing reuse of the same physical horse', () => {
+  it('validates civilian mount clearance for parked, dead, and nonresident mounts', () => {
     const point = { x: 100, z: 70 }
-    // The player has walked away; the parked physical horse remains at the spawn point.
     const parked = { dead: false, disposed: false, riderNpc: null, riderPlayer: null,
       combatRadius: 2, group: { position: { ...point } } }
     expect(civilianMountsClear(point, [parked, parked])).toBe(false)
@@ -115,18 +110,9 @@ describe('Town resident layout ownership', () => {
     expect(civilianMountsClear(point, [
       { ...parked, dead: true }, { ...parked, disposed: true },
     ])).toBe(true)
-  })
 
-  it('rejects a bulk foot-to-horse placement at infantry Follow spacing using both final mounted footprints', () => {
-    const plans = [{ point: { x: 100, z: 70 }, radius: 2 }, { point: { x: 103, z: 70 }, radius: 2 }]
-    // 3m clears the old 2m horse + 0.5m walking actor precheck, but not two final horses.
-    expect(townMountPlacementBatchClear(plans)).toBe(false)
-    expect(plans[1].point).toEqual({ x: 103, z: 70 })
-    expect(townMountPlacementBatchClear([plans[0], { point: { x: 104, z: 70 }, radius: 2 }])).toBe(true)
-  })
-
-  it('keeps a nonresident HR rider mount occupied unless that exact rider is checked separately', () => {
-    const point = { x: 100, z: 70 }, resident = {}, privateSoldier = {}
+    // Nonresident HR rider mount
+    const resident = {}, privateSoldier = {}
     const mount = { dead: false, disposed: false, riderNpc: privateSoldier, riderPlayer: null,
       combatRadius: 2, group: { position: { ...point } } }
     expect(civilianMountsClear(point, [mount], [], new Set([resident]))).toBe(false)

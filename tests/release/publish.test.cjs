@@ -28,27 +28,21 @@ test('a complete immutable published release needs no files or mutations', async
   assert.deepEqual(await publishRelease(client, tag, paths), { changed: false })
   assert.deepEqual(client.calls, [])
 })
-for (const { name, assets } of [
-  { name: 'a missing download', assets: [asset(names[0])] },
-  { name: 'duplicate download identity', assets: [...names.map(asset), asset(names[0])] },
-]) {
-  test(`published release rejects ${name} without mutation`, async () => {
+test('published release rejects missing or duplicate download identity without mutation', async () => {
+  for (const assets of [[asset(names[0])], [...names.map(asset), asset(names[0])]]) {
     const client = fakeClient(release(false, assets))
     await assert.rejects(inspectRelease(client, tag, names), /download/)
     await assert.rejects(publishRelease(client, tag, paths), /download/)
     assert.deepEqual(client.calls, [])
-  })
-}
-for (const { name, state } of [
-  { name: 'a published release for another tag', state: { ...release(false), tag_name: 'v9.9.9' } },
-  { name: 'a prerelease draft', state: { ...release(true), prerelease: true } },
-]) {
-  test(`never modifies ${name}`, async () => {
+  }
+})
+test('never modifies a published release for another tag or a prerelease draft', async () => {
+  for (const state of [{ ...release(false), tag_name: 'v9.9.9' }, { ...release(true), prerelease: true }]) {
     const client = fakeClient(state)
     await assert.rejects(publishRelease(client, tag, paths), /Unexpected|Expected/)
     assert.deepEqual(client.calls, [])
-  })
-}
+  }
+})
 test('a new release remains a draft until both downloads are present', async () => {
   const client = fakeClient(null)
   assert.equal(await inspectRelease(client, tag, names), false)

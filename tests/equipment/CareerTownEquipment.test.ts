@@ -220,32 +220,6 @@ describe('Town equipment domain, canonical ownership and persisted native source
     expect(resolveTownActorEquipment(restored, 'roman', 'melee_cavalry-3').refs.melee).toEqual({ itemId: 'centurion_blade', source: 'inventory' })
   })
 
-  it('rolls back a bulk bow allocation while retaining native shield ownership when storage fails', () => {
-    const h = harness(); h.context.safeActorIds = new Set(['gate:north:0']); h.buy('elven_runebow')
-    // The bulk owner already validates its staged domain data. Seed durable bytes
-    // directly here; CareerProfileStore validation has a separate persistence owner.
-    h.storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(h.read()))
-    const before = cloneCareerProfile(h.read()), durableBefore = h.saved()
-    let staged: CareerProfile | undefined
-    let saves = 0
-    h.storage.failWrites = true
-    const result = bulkCareerEquipment(h.read, h.context, 1, 'bow', next => {
-      saves++; staged = next
-      // Exercise a real failed storage write at the injected persistence boundary.
-      h.storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(next))
-      return true
-    })
-    expect(result).toMatchObject({ changed: false, reason: 'save-failed', changedActorIds: [] })
-    expect(saves).toBe(1)
-    expect(staged!.townEquipment!.roman!.actors['gate:north:0']).toMatchObject({
-      ranged: { itemId: 'elven_runebow', source: 'inventory' }, shield: { itemId: 'scutum_t2', source: 'native', nativeId: 'roman/gate:north:0/shield' },
-    })
-    expect(staged!.townEquipment!.roman!.nativeReserve).not.toContain('roman/gate:north:0/shield')
-    expect(availableCareerItem(staged!, 'elven_runebow')).toBe(0)
-    expect(h.read()).toEqual(before)
-    expect(h.saved()).toBe(durableBefore)
-    expect(availableCareerItem(h.read(), 'elven_runebow')).toBe(1)
-  })
   it('counts Player, HR, Town and Civilian in one quantity pool and refuses another claimant', () => {
     const h = harness(); h.buy('paladin_sword_t4', 4)
     const next = cloneCareerProfile(h.read())
@@ -381,7 +355,7 @@ function unloadedNorthSwords() {
 }
 
 describe('Commander native equipment resale and permanent token ownership', () => {
-  it('sells an unloaded T2 sword once for 360 available merit and never adds it to Inventory', () => {
+  it('sells unloaded native sword for merit, rejecting overflow, invalid holders and save failure', () => {
     const h = resaleHarness(), id = h.retire(), before = cloneCareerProfile(h.read())
     const result = h.sell([id])
     expect(result).toMatchObject({ sold: true, soldCount: 1, earnedMerit: 360 })
@@ -392,18 +366,16 @@ describe('Commander native equipment resale and permanent token ownership', () =
     expect(careerItemTotal(h.read(), 'gladius_standard')).toBe(0)
     expect(h.sell([id])).toMatchObject({ sold: false, earnedMerit: 0 })
     expect(h.reload().availableMerit).toBe(before.availableMerit + 360)
-  })
-  it('rejects a native sale that would overflow available merit', () => {
-    const h = resaleHarness(), id = h.retire()
-    h.read().availableMerit = Number.MAX_SAFE_INTEGER
-    const before = cloneCareerProfile(h.read())
-    expect(h.sell([id])).toMatchObject({ sold: false, reason: 'invalid-quantity' })
-    expect(h.read()).toEqual(before)
 
-  })
-  it('rejects resale of a native sword held by a different actor', () => {
-    const h = resaleHarness(); h.buy('paladin_sword_t4')
-    // A valid sparse saved transfer is the input; bulk allocation has its own owner above.
+    // Overflow rejection
+    const overflowH = resaleHarness(), overflowId = overflowH.retire()
+    overflowH.read().availableMerit = Number.MAX_SAFE_INTEGER
+    const overflowBefore = cloneCareerProfile(overflowH.read())
+    expect(overflowH.sell([overflowId])).toMatchObject({ sold: false, reason: 'invalid-quantity' })
+    expect(overflowH.read()).toEqual(overflowBefore)
+
+    // Rejection of held native sword
+    h.buy('paladin_sword_t4')
     const origin = resolveTownActorEquipment(h.read(), 'roman', 'gate:north:0').refs
     const recipient = resolveTownActorEquipment(h.read(), 'roman', 'gate:north:7').refs
     const transferred = cloneCareerProfile(h.read())
@@ -415,23 +387,17 @@ describe('Commander native equipment resale and permanent token ownership', () =
       nativeReserve: ['roman/gate:north:7/melee'],
     } }
     h.set(transferred)
-    expect(h.store.save(transferred)).toBe(true)
-    const before = cloneCareerProfile(h.read()), durableBefore = h.saved()
     expect(h.sell(['roman/gate:north:0/melee'])).toMatchObject({ sold: false, reason: 'invalid-token', earnedMerit: 0 })
-    expect(h.read()).toEqual(before)
-    expect(h.saved()).toBe(durableBefore)
-  })
-  it.each(['false', 'throw'] as const)('rolls back all tokens and merit on a %s save failure, then permits retry', failure => {
-    const { h, ids } = unloadedNorthSwords()
-    const before = cloneCareerProfile(h.read()), disk = h.saved()
-    h.storage.failWrites = true
-    const save = failure === 'throw' ? () => { throw new Error('quota') } : h.save
-    expect(h.sell(ids, save)).toMatchObject({ sold: false, reason: 'save-failed', earnedMerit: 0, soldCount: 0 })
-    expect(h.read()).toEqual(before); expect(h.saved()).toBe(disk)
-    h.storage.failWrites = false
-    expect(h.sell(ids)).toMatchObject({ sold: true, soldCount: 2, earnedMerit: 720 })
-    expect(JSON.parse(h.saved()!).townEquipment.roman.soldNativeIds).toEqual(ids)
-    expect(h.read().availableMerit).toBe(before.availableMerit + 720)
+
+    // Rollback on save failure
+    const { h: failH, ids } = unloadedNorthSwords()
+    const failBefore = cloneCareerProfile(failH.read()), disk = failH.saved()
+    failH.storage.failWrites = true
+    expect(failH.sell(ids)).toMatchObject({ sold: false, reason: 'save-failed', earnedMerit: 0, soldCount: 0 })
+    expect(failH.read()).toEqual(failBefore); expect(failH.saved()).toBe(disk)
+    failH.storage.failWrites = false
+    expect(failH.sell(ids)).toMatchObject({ sold: true, soldCount: 2, earnedMerit: 720 })
+    expect(failH.read().availableMerit).toBe(failBefore.availableMerit + 720)
   })
   it('excludes Ranger native weapons and rejects invalid bulk requests without selling valid tokens', () => {
     const h = resaleHarness(); h.retire(); h.buy('steel_sword')

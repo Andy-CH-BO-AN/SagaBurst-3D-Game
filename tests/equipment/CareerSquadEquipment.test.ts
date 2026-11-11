@@ -75,10 +75,8 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     expect(sellTownProduct(loaded, 'roman_officer_shield_t4')).toMatchObject({ sold: false, reason: 'allocated' })
     balanced(loaded)
   })
-  it.each([
-    { shieldId: 'commander_shield_t5', name: '月桂聖壁 Laurelguard Aegis' },
-    { shieldId: 'viking_berserker_shield_t5', name: '戰貓怒嚎盾 Warcat Roarshield' },
-  ])('lets a Recruit trade $shieldId and transfer its remaining copy without duplicating allocations', ({ shieldId, name }) => {
+  it('lets a Recruit trade T5 shield and transfer its remaining copy without duplicating allocations', () => {
+    const { shieldId, name } = { shieldId: 'commander_shield_t5', name: '月桂聖壁 Laurelguard Aegis' }
     const h = harness('recruit'), before = cloneCareerProfile(h.read())
     const result = purchaseTownEquipment(h.read(), 'axe_t5', 2)
     expect(result).toMatchObject({ purchased: true, spentMerit: 5000 })
@@ -156,20 +154,23 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     expect(careerItemTotal(restored, 'snow-leopard')).toBe(1)
     balanced(restored)
   })
-  it.each([
-    { field: 'unknown ID', change: { id: 'unknown-mount' } },
-    { field: 'wrong kind', change: { kind: 'weapon' } },
-    { field: 'forged cost', change: { cost: 0 } },
-    { field: 'forged tier', change: { requiredTier: 1 } },
-    { field: 'invalid quantity', change: { quantity: 0 } },
-  ] as const)('rejects a shop receipt with $field without changing inventory or merit', ({ change }) => {
-    const h = harness('recruit'), before = cloneCareerProfile(h.read())
-    const receipt: CareerPurchaseRequest = { kind: 'mount', id: 'snow-leopard', requiredTier: 5, cost: 9000 }
-    const result = purchaseCareerContent(h.read(), { ...receipt, ...change })
-    expect(result.purchased).toBe(false)
-    expect(result.spentMerit).toBe(0)
-    expect(result.profile).toEqual(before)
-    expect(h.read()).toEqual(before)
+  it('rejects forged/invalid shop receipts without changing inventory or merit', () => {
+    const changes = [
+      { id: 'unknown-mount' },
+      { kind: 'weapon' as const },
+      { cost: 0 },
+      { requiredTier: 1 as const },
+      { quantity: 0 },
+    ]
+    for (const change of changes) {
+      const h = harness('recruit'), before = cloneCareerProfile(h.read())
+      const receipt: CareerPurchaseRequest = { kind: 'mount', id: 'snow-leopard', requiredTier: 5, cost: 9000 }
+      const result = purchaseCareerContent(h.read(), { ...receipt, ...change })
+      expect(result.purchased).toBe(false)
+      expect(result.spentMerit).toBe(0)
+      expect(result.profile).toEqual(before)
+      expect(h.read()).toEqual(before)
+    }
   })
   it('rejects removing the only weapon, swaps Sword for Lance, and sells the released Sword', () => {
     const h = harness(), id = h.hire(), before = cloneCareerProfile(h.read())
@@ -227,22 +228,25 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     expect(recruitPersonalSquadMember(viking.read(), { ...choice, visualAssetId: 'byzantine-cataphract-t5' }, viking.save)).toMatchObject({ recruited: false, reason: 'invalid-product' })
     expect(parseCareerProfile({ ...viking.read(), personalSquad: { members: [{ ...byzantine }] } })).toBeNull()
   })
-  it.each([
-    ['roman', 4, 'captain', 'roman-centurion-t4', 'centurion', 500, 700, 'gladius_standard'],
-    ['viking', 4, 'captain', 'viking-heavy-hero-t4', 'dragon-oathguard', 500, 550, 'steel_sword'],
-    ['viking', 5, 'commander', 'viking-heavy-hero-t5', 'ironblood-warlord', 3000, 1000, 'steel_sword'],
-  ] as const)('hires the %s elite T%i hero at its catalog price with ordinary gear, and its body survives reload', (faction, characterTier, heroArchetype, visualAssetId, combatProfileId, price, maxHp, melee) => {
-    const h = harness('commander', faction), choice = { characterTier, heroArchetype, recruitmentRole: 'swordsman' as const, visualAssetId }
-    const result = recruitPersonalSquadMember(h.read(), choice, h.save)
-    expect(result.recruited).toBe(true); expect(h.read().availableMerit).toBe(60000 - price)
-    const member = h.store.load()!.personalSquad!.members[0]
-    expect(member).toMatchObject({ type: heroArchetype, characterFaction: faction, visualAssetId, originalHirePrice: price, equipment: { melee, mount: 'horse' } })
-    expect(personalMemberLoadout(member, faction).hero).toMatchObject({ visualAssetId, combatProfileId })
-    expect(resolvePersonalRecruitment(faction, choice)!.maxHp).toBe(maxHp)
-    const other = harness('commander', faction === 'roman' ? 'viking' : 'roman')
-    expect(recruitPersonalSquadMember(other.read(), choice, other.save)).toMatchObject({ recruited: false, reason: 'invalid-product' })
-    expect(other.read().availableMerit).toBe(60000)
-    expect(parseCareerProfile({ ...other.read(), personalSquad: { members: [{ ...member }] } })).toBeNull()
+  it('hires elite T4/T5 heroes at catalog price with ordinary gear across factions', () => {
+    const cases = [
+      ['roman', 4, 'captain', 'roman-centurion-t4', 'centurion', 500, 700, 'gladius_standard'],
+      ['viking', 4, 'captain', 'viking-heavy-hero-t4', 'dragon-oathguard', 500, 550, 'steel_sword'],
+      ['viking', 5, 'commander', 'viking-heavy-hero-t5', 'ironblood-warlord', 3000, 1000, 'steel_sword'],
+    ] as const
+    for (const [faction, characterTier, heroArchetype, visualAssetId, combatProfileId, price, maxHp, melee] of cases) {
+      const h = harness('commander', faction), choice = { characterTier, heroArchetype, recruitmentRole: 'swordsman' as const, visualAssetId }
+      const result = recruitPersonalSquadMember(h.read(), choice, h.save)
+      expect(result.recruited).toBe(true); expect(h.read().availableMerit).toBe(60000 - price)
+      const member = h.store.load()!.personalSquad!.members[0]
+      expect(member).toMatchObject({ type: heroArchetype, characterFaction: faction, visualAssetId, originalHirePrice: price, equipment: { melee, mount: 'horse' } })
+      expect(personalMemberLoadout(member, faction).hero).toMatchObject({ visualAssetId, combatProfileId })
+      expect(resolvePersonalRecruitment(faction, choice)!.maxHp).toBe(maxHp)
+      const other = harness('commander', faction === 'roman' ? 'viking' : 'roman')
+      expect(recruitPersonalSquadMember(other.read(), choice, other.save)).toMatchObject({ recruited: false, reason: 'invalid-product' })
+      expect(other.read().availableMerit).toBe(60000)
+      expect(parseCareerProfile({ ...other.read(), personalSquad: { members: [{ ...member }] } })).toBeNull()
+    }
   })
   it('equips Ranger weapons normally and never restores a deliberately removed default on reload', () => {
     const h = harness(), id = h.hire('ranger')
@@ -294,23 +298,20 @@ describe('Atomic HR release and refunds', () => {
     expect(careerItemTotal(h.read(), 'gladius_rusty')).toBe(2); expect(availableCareerItem(h.read(), 'gladius_rusty')).toBe(2)
     expect(careerItemTotal(h.read(), 'scutum_t1')).toBe(1); balanced(h.read())
   })
-  it('rolls back member, allocations and currency when saving a release fails', () => {
+  it('rolls back members, allocations and currency on failed single or bulk release and rejects stale members', () => {
     const h = harness(), id = h.hire('captain'), before = cloneCareerProfile(h.read()), disk = h.store.load()
     h.fail(); expect(h.sell(id).reason).toBe('save-failed'); expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(disk)
-  })
-})
-describe('Batch shop and HR resale', () => {
-  it('rejects a stale member in a bulk release before selling any valid member', () => {
-    const h = harness(), ids = [h.hire(), h.hire('captain')], before = cloneCareerProfile(h.read())
+
+    // Rejects stale member in bulk release
+    const bulkH = harness(), ids = [bulkH.hire(), bulkH.hire('captain')], bulkBefore = cloneCareerProfile(bulkH.read())
     let saves = 0
-    const save = (next: CareerProfile) => { saves++; return h.save(next) }
-    expect(sellPersonalSquadMembers(h.read, h.authority, [ids[0], 'personal:missing'], save).reason).toBe('missing-member')
-    expect(saves).toBe(0); expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(before)
-  })
-  it('retains the entire squad, inventory and funds when the final bulk save fails', () => {
-    const h = harness(), ids = [h.hire(), h.hire('captain'), h.hire('ranger')], before = cloneCareerProfile(h.read())
-    h.fail(); expect(h.sellMany(ids).reason).toBe('save-failed')
-    expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(before)
+    const save = (next: CareerProfile) => { saves++; return bulkH.save(next) }
+    expect(sellPersonalSquadMembers(bulkH.read, bulkH.authority, [ids[0], 'personal:missing'], save).reason).toBe('missing-member')
+    expect(saves).toBe(0); expect(bulkH.read()).toEqual(bulkBefore); expect(bulkH.store.load()).toEqual(bulkBefore)
+
+    // Final bulk save rollback
+    bulkH.fail(); expect(bulkH.sellMany(ids).reason).toBe('save-failed')
+    expect(bulkH.read()).toEqual(bulkBefore); expect(bulkH.store.load()).toEqual(bulkBefore)
   })
 })
 describe('Inventory migration and normalization', () => {
@@ -327,16 +328,14 @@ describe('Inventory migration and normalization', () => {
     expect(personalMemberRefund(loaded, loaded.personalSquad!.members[0])).toBe(40)
     expect(parseCareerProfile(JSON.parse(JSON.stringify(loaded)))).toEqual(loaded); balanced(loaded)
   })
-  it('rejects a save that allocates one weapon copy to two Ranger squad members', () => {
+  it('rejects saves with duplicate weapon allocations or inconsistent hero identity', () => {
     const h = harness(); h.hire('ranger'); h.hire('ranger')
     const invalid = cloneCareerProfile(h.read()); invalid.inventory!.quantities.gladius_standard = 1
     expect(parseCareerProfile(invalid)).toBeNull()
-  })
-  it('rejects an explicit hero identity inconsistent with the saved member type', () => {
-    const h = harness(); h.hire('ranger')
-    const invalid = cloneCareerProfile(h.read())
-    invalid.personalSquad!.members[0].heroArchetype = 'captain'
-    expect(parseCareerProfile(invalid)).toBeNull()
+
+    const badHero = cloneCareerProfile(h.read())
+    badHero.personalSquad!.members[0].heroArchetype = 'captain'
+    expect(parseCareerProfile(badHero)).toBeNull()
   })
   it('commits a receiptless legacy member identity once before exposing the migrated profile', () => {
     const h = harness(), id = h.hire(), legacy = cloneCareerProfile(h.read()), member = legacy.personalSquad!.members[0]

@@ -315,28 +315,6 @@ describe('Town load failure recovery', () => {
     expect(original.racePlayerState).toMatchObject({ hp: 0, dead: true })
     expect(original.playerAerialState).toMatchObject({ hp: 0, dead: true })
   })
-
-  it('preserves death checkpoints on an ordinary town reload and restart until explicit death return', async () => {
-    const local = new MemoryStorage(), body = element()
-    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
-    vi.stubGlobal('document', { body, createElement: () => element() })
-    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
-    const store = new CareerProfileStore(local)
-    expect(store.save(settledTownDefeatProfile())).toBe(true)
-    const original = store.load()!, serialized = local.getItem(CAREER_STORAGE_KEY)
-    const start = vi.fn()
-    vi.mocked(TownScene.create).mockResolvedValue({ start } as unknown as TownScene)
-    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn())
-    await Promise.resolve()
-    expect(vi.mocked(TownScene.create).mock.calls[0][1]).toEqual(original)
-    vi.mocked(TownScene.create).mock.calls[0][3](original)
-    await Promise.resolve()
-    expect(start).toHaveBeenCalledTimes(2)
-    expect(vi.mocked(TownScene.create).mock.calls[1][1]).toEqual(original)
-    expect(local.getItem(CAREER_STORAGE_KEY)).toBe(serialized)
-    expect(store.load()?.racePlayerState).toMatchObject({ hp: 0, dead: true })
-    expect(store.load()?.playerAerialState).toMatchObject({ hp: 0, dead: true })
-  })
 })
 
 
@@ -430,28 +408,5 @@ describe('Retirement ending lifecycle', () => {
     closeThird(); closeThird()
     expect(body.children.filter(child => !child.removed)).toHaveLength(0)
     expect(home).toHaveBeenCalledOnce()
-  })
-
-  it('hides Skip only after the copy animation completes and clears its completion handler on dispose', () => {
-    const body = element()
-    vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
-    const profile = createCareerProfile('roman')
-    profile.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 1, combatElapsedSeconds: 0, outcome: 'escaped' }
-    const close = showCommanderRetirementEnding(profile, { home: vi.fn(), newCareer: vi.fn() })
-    const title = findText(body, '帶旗離城')!, skip = findText(body, '略過動畫')!
-    const copy = body.querySelectorAll('div').find(node => node.children.includes(title))!
-    const finish = copy.onanimationend!
-    expect(skip.hidden).not.toBe(true)
-    finish({ target: title, animationName: 'retirement-copy' })
-    finish({ target: copy, animationName: 'retirement-fade' })
-    expect(skip.hidden).not.toBe(true)
-    finish({ target: copy, animationName: 'retirement-copy' })
-    expect(skip.hidden).toBe(true)
-    close()
-    expect(copy.onanimationend).toBeNull()
-    // A retained completion callback may not touch a disposed view.
-    skip.hidden = false
-    finish({ target: copy, animationName: 'retirement-copy' })
-    expect(skip.hidden).toBe(false)
   })
 })

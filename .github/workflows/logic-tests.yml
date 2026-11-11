@@ -21,8 +21,8 @@ on:
         value: ${{ jobs.gate.outputs.verified-sha }}
 # Read-only token permissions are inherited from caller CI workflow.
 jobs:
-  # One job, one execution. Related and Full share the plan, run and verification
-  # steps; only what gets selected differs, and only Related has a case limit.
+  # One job, one execution. All PRs and pushes run the full logic suite under
+  # the 1,000 cases hard limit and 100ms per-leaf budget.
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -37,8 +37,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # Run the same strict path/mode policy used by the planner before seed restore.
-      # Safe documentation and CSS-only PRs still pass the Web typecheck/build gate.
+      # Run input classification and asset validation policy.
       - name: Probe Git evidence and input validation policy
         id: seed-policy
         env:
@@ -49,14 +48,6 @@ jobs:
         run: node tests/tooling/ci-plan.cjs --probe seed --mode "$TEST_MODE" --base "$TEST_BASE" --head "$TEST_HEAD" --event "$TEST_EVENT"
       - name: Validate changed asset families and offline producer outputs
         run: node tests/tooling/ci-asset-run.cjs output/ci-inputs.json
-      # No unverified branch-scoped cache: restore a canonical publisher's
-      # repository-scoped exact-base artifact, then verify the seed SHA.
-      - name: Restore exact PR-base Full evidence from cross-run artifact
-        if: inputs.mode == 'related' && steps.seed-policy.outputs.requires-seed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SUPERCOV_EVIDENCE_BASE: ${{ inputs.base }}
-        run: node tests/tooling/supercov-evidence.cjs restore
       - name: Plan test inventory and selection
         env:
           TEST_MODE: ${{ inputs.mode }}
@@ -81,22 +72,3 @@ jobs:
             output/asset-validation.json
           if-no-files-found: warn
           overwrite: true
-      # Each canonical dev/main push produces a new SHA-exact immutable Full seed,
-      # only after every test above passed (steps stop at the first failure).
-      - name: Record strict Full seed from one complete instrumented run
-        if: inputs.mode == 'full' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        run: node tests/tooling/supercov-seed.cjs output/test-plan.json output/aggregate.json
-      - name: Package size-bounded canonical Full evidence
-        if: inputs.mode == 'full' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        run: |
-          tar -czf output/supercov-evidence.tar.gz .supercov/runs output/supercov-seed.json
-          node tests/tooling/supercov-evidence-policy.cjs . output/supercov-evidence.tar.gz
-      # Repository-scoped artifact is immutable, bound to this exact SHA,
-      # and independently provenance-checked by Related restore.
-      - uses: actions/upload-artifact@v4
-        if: inputs.mode == 'full' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        with:
-          name: supercov-seed-${{ github.sha }}
-          path: output/supercov-evidence.tar.gz
-          if-no-files-found: error
-          retention-days: 45

@@ -9,30 +9,32 @@ describe('Ground mounted archer steering', () => {
     expect(canUseMountedBowOrbit('charge', true, true)).toBe(false)
     expect(canUseMountedBowOrbit('charge', false, false)).toBe(false)
   })
-  it.each([-1, 1] as const)('runs forward around a stationary centre with side %s', side => {
-    const speed = 12, radius = orbitRadius(30, speed, .3)
-    const p = { x: radius, z: 0 }, target = { x: 0, z: 0 }, direction = { x: 0, z: 0 }
-    let yaw = side === 1 ? Math.PI : 0
-    const dt = 1 / 60
-    let maxTurn = 0, maxForwardError = 0, maxLateral = 0
-    for (let frame = 0; frame < 900; frame++) {
-      writeOrbitDirection(direction, p, target, side, radius)
-      const previousYaw = yaw
-      yaw = steerOrbitForward(direction, yaw, Math.atan2(direction.x, direction.z), speed, dt, radius)
-      maxTurn = Math.max(maxTurn, Math.abs(angleDifference(yaw, previousYaw)))
-      const dx = direction.x * speed * dt, dz = direction.z * speed * dt
-      // Actual displacement is parallel to the model's +Z, never a strafe/backstep.
-      maxForwardError = Math.max(maxForwardError, Math.abs(dx * Math.sin(yaw) + dz * Math.cos(yaw) - speed * dt))
-      maxLateral = Math.max(maxLateral, Math.abs(dx * Math.cos(yaw) - dz * Math.sin(yaw)))
-      p.x += dx; p.z += dz
+  it('runs forward around a stationary centre on either side', () => {
+    for (const side of [-1, 1] as const) {
+      const speed = 12, radius = orbitRadius(30, speed, .3)
+      const p = { x: radius, z: 0 }, target = { x: 0, z: 0 }, direction = { x: 0, z: 0 }
+      let yaw = side === 1 ? Math.PI : 0
+      const dt = 1 / 60
+      let maxTurn = 0, maxForwardError = 0, maxLateral = 0
+      for (let frame = 0; frame < 900; frame++) {
+        writeOrbitDirection(direction, p, target, side, radius)
+        const previousYaw = yaw
+        yaw = steerOrbitForward(direction, yaw, Math.atan2(direction.x, direction.z), speed, dt, radius)
+        maxTurn = Math.max(maxTurn, Math.abs(angleDifference(yaw, previousYaw)))
+        const dx = direction.x * speed * dt, dz = direction.z * speed * dt
+        // Actual displacement is parallel to the model's +Z, never a strafe/backstep.
+        maxForwardError = Math.max(maxForwardError, Math.abs(dx * Math.sin(yaw) + dz * Math.cos(yaw) - speed * dt))
+        maxLateral = Math.max(maxLateral, Math.abs(dx * Math.cos(yaw) - dz * Math.sin(yaw)))
+        p.x += dx; p.z += dz
+      }
+      expect(maxTurn).toBeLessThanOrEqual(orbitTurnRate(speed, radius) * dt + 1e-10)
+      expect(maxForwardError).toBeLessThan(1e-10)
+      expect(maxLateral).toBeLessThan(1e-10)
+      expect(Math.hypot(p.x, p.z)).toBeCloseTo(radius, 0)
+      const targetBearing = angleDifference(Math.atan2(-p.x, -p.z), yaw)
+      expect(targetBearing * side).toBeGreaterThan(1.3)
+      expect(Math.abs(targetBearing)).toBeLessThan(1.8)
     }
-    expect(maxTurn).toBeLessThanOrEqual(orbitTurnRate(speed, radius) * dt + 1e-10)
-    expect(maxForwardError).toBeLessThan(1e-10)
-    expect(maxLateral).toBeLessThan(1e-10)
-    expect(Math.hypot(p.x, p.z)).toBeCloseTo(radius, 0)
-    const targetBearing = angleDifference(Math.atan2(-p.x, -p.z), yaw)
-    expect(targetBearing * side).toBeGreaterThan(1.3)
-    expect(Math.abs(targetBearing)).toBeLessThan(1.8)
   })
 
   it('keeps the faster cat mounts on the circle without a speed multiplier', () => {
@@ -50,19 +52,21 @@ describe('Ground mounted archer steering', () => {
     expect(Math.abs(Math.hypot(p.x, p.z) - radius)).toBeLessThan(1)
   })
 
-  it.each([.65, 1.3])('recovers the firing radius from initial distance factor %s', factor => {
-    const speed = 10, radius = orbitRadius(30, speed, .8)
-    const p = { x: radius * factor, z: 0 }, direction = { x: 0, z: 0 }
-    let yaw = Math.PI
-    for (let frame = 0; frame < 1200; frame++) {
-      writeOrbitDirection(direction, p, { x: 0, z: 0 }, 1, radius)
-      const desired = Math.atan2(direction.x, direction.z)
-      yaw = orbitHeading(yaw, desired, speed, 1 / 60)
-      const step = speed / 60
-      p.x += Math.sin(yaw) * step; p.z += Math.cos(yaw) * step
+  it('recovers the firing radius from initial distance factors', () => {
+    for (const factor of [.65, 1.3]) {
+      const speed = 10, radius = orbitRadius(30, speed, .8)
+      const p = { x: radius * factor, z: 0 }, direction = { x: 0, z: 0 }
+      let yaw = Math.PI
+      for (let frame = 0; frame < 1200; frame++) {
+        writeOrbitDirection(direction, p, { x: 0, z: 0 }, 1, radius)
+        const desired = Math.atan2(direction.x, direction.z)
+        yaw = orbitHeading(yaw, desired, speed, 1 / 60)
+        const step = speed / 60
+        p.x += Math.sin(yaw) * step; p.z += Math.cos(yaw) * step
+      }
+      expect(Math.abs(Math.hypot(p.x, p.z) - radius)).toBeLessThan(1)
+      expect(radius).toBeLessThan(30 * .8)
     }
-    expect(Math.abs(Math.hypot(p.x, p.z) - radius)).toBeLessThan(1)
-    expect(radius).toBeLessThan(30 * .8)
   })
 
   it('bounds steering through moving-centre acquisition and a target switch', () => {
@@ -89,15 +93,15 @@ describe('Ground mounted archer steering', () => {
     // Turn geometry does not replace the existing directional speed policy.
   })
 
-  it.each([-1, 1])(
-    'keeps rearward torso twist anatomical on side %s, leaving the remainder to arms', side => {
+  it('keeps rearward torso twist anatomical on both sides, leaving the remainder to arms', () => {
+    for (const side of [-1, 1]) {
       const sourceYaw = side * Math.PI / 2
       const correction = side * Math.PI / 2
       const actualTurn = mountedBowTorsoTurn(sourceYaw, correction)
       expect(sourceYaw + actualTurn).toBeCloseTo(side * 100 * Math.PI / 180)
       expect(Math.abs(correction - actualTurn)).toBeGreaterThan(1)
-    },
-  )
+    }
+  })
   it('takes the short turn across the rear-facing ±180 degree seam', () => {
     const from = 179 * Math.PI / 180
     const to = -179 * Math.PI / 180

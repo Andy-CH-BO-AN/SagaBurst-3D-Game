@@ -1,26 +1,22 @@
 'use strict'
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { finishRelatedPlan, validateManifest, selectedNames, selectionSummary, requireRelatedBudget } = require('../tooling/ci-plan.cjs')
-const { aggregate, partialBatches, verifiedFullSha } = require('../tooling/ci-run.cjs')
+const { validateManifest, selectedNames, selectionSummary, requireLogicBudget } = require('../tooling/ci-plan.cjs')
+const { aggregate, verifiedFullSha } = require('../tooling/ci-run.cjs')
+const { assessJobs } = require('../tooling/ci-check-jobs.cjs')
+const { MAX_LOGIC_CASES } = require('../tooling/budget.cjs')
+
 const item = (file, count, runner = 'vitest') => ({
   file, runner, names: Array.from({ length: count }, (_, i) => 'suite > case ' + i),
   nativeNames: Array.from({ length: count }, (_, i) => 'suite case ' + i) })
-const vitest = item('tests/a.test.ts', 3)
-const node = item('tests/release/ci.test.cjs', 1, 'node')
 const sha = 'a'.repeat(40)
-function related() {
-  return { planId: 'synthetic', mode: 'related', source: 'Supercov native tests affected',
-    baseSha: 'b'.repeat(40), headSha: sha, changedFiles: ['src/a.ts'],
-    inventory: [vitest, node], selected: [vitest.file, node.file],
-    selectedCases: { [vitest.file]: [0, 2], [node.file]: [0] }, expectedCount: 3, fallback: null,
-    breakdown: { nativeAffected: 2, nativeUndetermined: 0, directTests: 1, nodeContracts: 1, duplicatesRemoved: 1, total: 3 } }
-}
+
 function full(...sizes) {
   const inventory = sizes.map((size, i) => item('tests/f' + i + '.test.ts', size))
   return { planId: 'synthetic', mode: 'full', inventory, selected: inventory.map(f => f.file), changedFiles: [],
     headSha: sha, checkoutSha: sha, expectedCount: sizes.reduce((a, b) => a + b, 0) }
 }
+
 // What the runner reports back: every selected leaf passed, unless a test changes it.
 function run(plan, change = cases => cases) {
   const reports = ['vitest', 'node'].flatMap(runner => {
@@ -30,55 +26,31 @@ function run(plan, change = cases => cases) {
   })
   return { runId: 'run', planId: plan.planId, result: 'passed', reports }
 }
-test('Related summary resolves exact names and reports a reconciling breakdown', () => {
-  const plan = validateManifest(related())
-  assert.deepEqual(selectedNames(plan, vitest.file), [vitest.names[0], vitest.names[2]])
-  const summary = selectionSummary(plan)
-  assert.match(summary, /Total suite: 4 leaves; Selected: 3 leaves/)
-  for (const line of [/Native affected runnable cases: 2/, /Native undetermined runnable cases: 0/,
-    /Added\/modified test cases: 1/, /Fixed Node contracts: 1/, /Duplicates removed: 1/,
-    /Final unique selected cases: 3 \/ 500/]) assert.match(summary, line)
-})
-test('Related accepts exactly 500 unique cases and rejects 501 without fallback', () => {
-  const plan = count => {
-    const big = item('tests/big.test.ts', count)
-    return { ...related(), inventory: [big], selected: [big.file],
-      selectedCases: { [big.file]: big.names.map((_, i) => i) }, expectedCount: count }
-  }
-  assert.equal(validateManifest(plan(500)).expectedCount, 500)
-  assert.throws(() => validateManifest(plan(501)), /500-case limit: 501 unique cases\. Split the feature PR/)
-  assert.doesNotThrow(() => requireRelatedBudget(500))
-  assert.throws(() => requireRelatedBudget(501), /no Full fallback/)
-})
-test('an over-limit selection still reports its breakdown before failing', () => {
-  const big = item('tests/big.test.ts', 501)
-  const plan = { ...related(), inventory: [big], selected: [big.file],
-    selectedCases: { [big.file]: big.names.map((_, i) => i) }, expectedCount: 501 }
-  const published = []
-  assert.throws(() => finishRelatedPlan(plan, summary => published.push(selectionSummary(summary))), /501 unique cases/)
-  assert.match(published[0], /Native affected runnable cases: 2/)
-  assert.deepEqual(finishRelatedPlan(related(), () => assert.fail('within the limit')).expectedCount, 3)
-})
-test('no plan can be divided into shards to escape the Related limit', () => {
-  assert.throws(() => validateManifest({ ...related(), shards: [] }), /cannot be sharded/)
-  assert.throws(() => validateManifest({ ...full(1), shards: [] }), /cannot be sharded/)
-})
-test('Full has no aggregate limit and verifies execution at any size', () => {
-  for (const sizes of [[500], [500, 1], [500, 480], [600, 600]]) {
+
+test('Full logic suite enforces 1,000 cases hard limit and verifies execution', () => {
+  for (const sizes of [[500], [500, 480], [1000]]) {
     const plan = validateManifest(full(...sizes))
     assert.equal(verifiedFullSha(plan), sha)
-    assert.match(selectionSummary(plan), /Related health: N\/A/)
-    assert.match(selectionSummary(plan), /Case limit: none/)
+    assert.match(selectionSummary(plan), /Case limit: 1000 hard limit/)
   }
-  const justOver = validateManifest(full(500, 1))
-  assert.equal(aggregate(justOver, run(justOver)).count, 501)
+  const valid = validateManifest(full(500, 500))
+  assert.equal(aggregate(valid, run(valid)).count, 1000)
+  assert.throws(() => validateManifest(full(501, 500)), /1000-case limit: 1001 unique cases/)
+  assert.throws(() => requireLogicBudget(1001), /1000-case limit/)
+  assert.doesNotThrow(() => requireLogicBudget(1000))
 })
+
+test('no plan can be divided into shards to escape the budget limit', () => {
+  assert.throws(() => validateManifest({ ...full(1), shards: [] }), /cannot be sharded/)
+})
+
 test('Full must select the whole inventory and cannot filter individual cases', () => {
   const plan = full(2, 2)
   assert.throws(() => validateManifest({ ...plan, selected: [plan.selected[0]], expectedCount: 2 }), /Missing\/duplicate/)
   assert.throws(() => validateManifest({ ...plan, selectedCases: {} }), /cannot filter/)
   assert.throws(() => validateManifest({ ...plan, expectedCount: 3 }), /expected case count/)
 })
+
 test('missing, duplicate, skipped, failed or over-budget Full cases fail the gate', () => {
   const plan = validateManifest(full(2))
   const leaf = plan.inventory[0]
@@ -94,6 +66,7 @@ test('missing, duplicate, skipped, failed or over-budget Full cases fail the gat
   assert.throws(() => aggregate(plan, { ...run(plan), result: 'failed' }), /failed logic run/)
   assert.throws(() => aggregate(plan, null), /failed logic run/)
 })
+
 test('docs-only and CSS-only empty plans require explicit safe classification', () => {
   const empty = { mode: 'related', docsOnly: true, inventory: [], selected: [],
     changedFiles: ['docs/README.md'], expectedCount: 0 }
@@ -102,30 +75,14 @@ test('docs-only and CSS-only empty plans require explicit safe classification', 
   assert.equal(validateManifest({ ...empty, docsOnly: false, cssOnly: true }).selected.length, 0)
   assert.throws(() => validateManifest({ ...empty, docsOnly: false }), /Empty code selection/)
 })
-test('invalid selected ordinal, duplicate identity and stale count are rejected', () => {
-  assert.throws(() => validateManifest({ ...related(), selectedCases: {
-    [vitest.file]: [0, 0], [node.file]: [0] } }), /Invalid selected/)
-  assert.throws(() => validateManifest({ ...related(), selectedCases: {
-    [vitest.file]: [0, 100], [node.file]: [0] } }), /Invalid selected/)
-  assert.throws(() => validateManifest({ ...related(), expectedCount: 2 }), /expected case count/)
-})
-test('normal Vitest execution must match exactly selected individual leaves', () => {
-  const plan = related()
-  assert.equal(aggregate(plan, run(plan)).count, 3)
-  assert.throws(() => aggregate(plan, run(plan, cases => cases[0].file === vitest.file ? cases.slice(0, -1) : cases)), /Missing|duplicate|Unexpected/)
-  assert.throws(() => aggregate(plan, run(plan, cases => cases[0].file === vitest.file
-    ? [...cases, { file: vitest.file, name: vitest.names[1], state: 'passed', ms: 5 }] : cases)), /Missing|duplicate|Unexpected/)
-})
-test('partial files share a process unless a selected name would run an unselected leaf elsewhere', () => {
-  const file = (name, ...names) => ({ file: name, runner: 'vitest', names, nativeNames: names })
-  const a = file('tests/a.test.ts', 'one', 'shared')
-  const b = file('tests/b.test.ts', 'two', 'other')
-  const c = file('tests/c.test.ts', 'one', 'three')
-  const plan = { inventory: [a, b, c], selectedCases: { [a.file]: [0], [b.file]: [0], [c.file]: [1] } }
-  assert.deepEqual(partialBatches(plan, [a.file, b.file, c.file]), [[a.file, b.file], [c.file]])
+
+test('純資產空選測必須有獨立驗證成功的證據', () => {
+  const plan = { mode: 'related', assetOnly: true, inventory: [], selected: [], expectedCount: 0 }
+  assert.throws(() => validateManifest(plan), /independent passed validation/)
+  assert.equal(validateManifest({ ...plan, assetValidation: { result: 'passed', files: ['model.glb'] } }).expectedCount, 0)
+  assert.throws(() => validateManifest({ ...plan, assetValidation: { result: 'failed', files: ['model.glb'] } }), /independent passed validation/)
 })
 
-const { assessJobs } = require('../tooling/ci-check-jobs.cjs')
 test('必要 Job 缺少、跳過或舊 Attempt 不得冒充成功', () => {
   const run = { id: 20, head_sha: sha, run_attempt: 2, status: 'completed', conclusion: 'success' }
   const jobs = ['logic / gate', 'web'].map(name => ({ name, id: 20, head_sha: sha, run_attempt: 2, status: 'completed', conclusion: 'success' }))
@@ -134,12 +91,6 @@ test('必要 Job 缺少、跳過或舊 Attempt 不得冒充成功', () => {
   assert.equal(assessJobs(run, [{ ...jobs[0], conclusion: 'skipped' }, jobs[1]], sha).result, 'unverified')
   assert.equal(assessJobs(run, [{ ...jobs[0], run_attempt: 1 }, jobs[1]], sha).required['logic / gate'], 'stale-attempt')
   assert.equal(assessJobs(run, jobs, 'b'.repeat(40)).result, 'unverified')
-})
-test('純資產空選測必須有獨立驗證成功的證據', () => {
-  const plan = { mode: 'related', assetOnly: true, inventory: [], selected: [], expectedCount: 0 }
-  assert.throws(() => validateManifest(plan), /independent passed validation/)
-  assert.equal(validateManifest({ ...plan, assetValidation: { result: 'passed', files: ['model.glb'] } }).expectedCount, 0)
-  assert.throws(() => validateManifest({ ...plan, assetValidation: { result: 'failed', files: ['model.glb'] } }), /independent passed validation/)
 })
 
 test('目前驗收拒絕較早綠燈，歷史診斷不回報目前 passed', () => {
