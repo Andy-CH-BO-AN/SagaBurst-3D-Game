@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { createDuelArena, type DuelArenaEnvironment } from './DuelArena'
 import { DUEL_ARENA_LABELS, type DuelArenaId } from './DuelArenaCatalog'
 import { ARENA_DUEL_REFEREE_SLOTS } from './DuelArenaVenue'
-import { ArenaChaseRoute, arenaStandingFeet } from './DuelArenaChase'
+import { ArenaChaseRoute, ArenaSupportTracker, arenaStandingFeet } from './DuelArenaChase'
 import { CareerDuelController, duelLoadout, type CareerDuelOpponentRequest, type CareerDuelResident } from '../career/CareerDuelController'
 import { resolveCareerDuelClass } from '../career/CareerDuelClasses'
 import { careerDuelArena, isCareerDuelPresetId, isCareerDuelTier, type CareerDuelTier } from '../career/CareerDuelState'
@@ -394,13 +394,17 @@ export class CareerDuelArenaScene {
   /** Where the player is supported: a ground mount's own position when riding, else the feet under the pelvis-origin body. */
   private playerStandingFeet(): { x: number; y: number; z: number } {
     const mount = this.player.isMounted ? this.player.currentMount : null
-    return arenaStandingFeet(this.player.position, mount && !mount.isFlyingMount ? mount.group.position : null, PLAYER_HALF_HEIGHT)
+    return this.playerSupport.observe(
+      arenaStandingFeet(this.player.position, mount && !mount.isFlyingMount ? mount.group.position : null, PLAYER_HALF_HEIGHT),
+      this.player.isGrounded)
   }
+  private readonly playerSupport = new ArenaSupportTracker()
 
   private updateActors(dt: number): void {
     // Same per-frame topology sync and path-search budget reset as Town; without it the budget never refills.
     this.navigation.sync(this.arena.obstacles)
     this.navigation.beginFrame()
+    this.stairNavigation.beginFrame()
     for (const actor of this.duel.actors) {
       const distance = actor.group.position.distanceTo(this.camera.position)
       if (actor.dead) { actor.update(dt, this.player, [], [], this.arena.obstacles, this.hp, () => {}, () => false, false, distance); continue }

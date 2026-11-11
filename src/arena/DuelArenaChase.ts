@@ -46,6 +46,20 @@ export function arenaStandingFeet(body: Feet, mountGround: Feet | null, bodyHalf
   return mountGround ?? { x: body.x, y: body.y - bodyHalfHeight, z: body.z }
 }
 
+/**
+ * A body in the air (jump, fall) keeps the support height it last stood on, so a floor jump is
+ * never read as standing on the stands and a jump from the dais is still on the dais; the level
+ * updates again on landing. The horizontal position is always the live one.
+ */
+export class ArenaSupportTracker {
+  private supportY = 0
+
+  observe(feet: Feet, grounded: boolean): Feet {
+    if (grounded) this.supportY = feet.y
+    return { x: feet.x, y: this.supportY, z: feet.z }
+  }
+}
+
 const distance = (a: { x: number; z: number }, b: { x: number; z: number }): number => Math.hypot(a.x - b.x, a.z - b.z)
 
 function onFlight(link: ArenaStairLink, point: Feet): boolean {

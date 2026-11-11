@@ -6,7 +6,7 @@ import {
 import { createValhallaObstacles, VALHALLA } from '../../src/arena/ValhallaLayout'
 import { DUEL_ARENA_IDS, parseDuelArenaId } from '../../src/arena/DuelArena'
 import { resolveDuelArenaPreviewSetup } from '../../src/debug/DuelArenaPreview'
-import { ArenaChaseRoute, arenaStairLinks, arenaStandingFeet } from '../../src/arena/DuelArenaChase'
+import { ArenaChaseRoute, ArenaSupportTracker, arenaStairLinks, arenaStandingFeet } from '../../src/arena/DuelArenaChase'
 import { ARENA_DUEL_REFEREE_SLOTS } from '../../src/arena/DuelArenaVenue'
 import { arenaDuelPartyPlan } from '../../src/arena/CareerDuelArenaScene'
 import { FallingRider } from '../../src/movement/FallingRider'
@@ -227,6 +227,18 @@ describe('duel arena layout collision', () => {
       expect(new ArenaChaseRoute(id).next({ x: 0, y: 0, z: -4 }, arenaStandingFeet({ ...riderPelvis, y: raised + 1.6 }, { ...floorMount, y: raised }, 0.95)), id).not.toBeNull()
     }
     expect(arenaStandingFeet({ x: 1, y: 0.95, z: 2 }, null, 0.95)).toEqual({ x: 1, y: 0, z: 2 })
+  })
+
+  it('keeps the support level while airborne: a floor jump never reads as raised, a dais jump stays raised', () => {
+    const floor = new ArenaSupportTracker()
+    floor.observe({ x: 0, y: 0, z: 5 }, true)
+    const jump = floor.observe({ x: 0, y: 4.7, z: 5 }, false) // Mounted jump apex, above both raised levels
+    expect([jump.y, new ArenaChaseRoute('viking-valhalla').next({ x: 0, y: 0, z: -4 }, jump)]).toEqual([0, null])
+    const dais = new ArenaSupportTracker()
+    dais.observe({ x: 0, y: 3, z: 33 }, true)
+    const leap = dais.observe({ x: 0, y: 4.5, z: 33 }, false)
+    expect(new ArenaChaseRoute('viking-valhalla').next({ x: 0, y: 0, z: -4 }, leap)).not.toBeNull()
+    expect(dais.observe({ x: 0, y: 0, z: 20 }, true).y).toBe(0) // Landing on the floor updates the level.
   })
 
   it('builds the bodies each saved duel borrowed and keeps the referee off the obstacles beside the duel lane', () => {
