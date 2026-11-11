@@ -70,6 +70,52 @@ function parseGlb(bytes) {
   }
   return { document, binary }
 }
+// Unknown/new manifest fields are runtime-sensitive by default. Each admitted
+// metadata field is validated by the family contract below.
+function requireStaticManifestChange(before, after) {
+  const safe = new Set(['source', 'attribution', 'files', 'fileSha256', 'boneMap', 'audit', 'visualAcceptance', 'knownLimitations'])
+  const canonical = value => JSON.stringify(value, (_, v) => v && !Array.isArray(v) && typeof v === 'object'
+    ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v)
+  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    if (!safe.has(key) && canonical(before[key]) !== canonical(after[key])) fail('Manifest runtime-sensitive field changed: ' + key)
+  }
+}
+function validateWeapon(input, host, contracts, checked) {
+  const path = input.file, root = path.slice(0, path.lastIndexOf('/'))
+  const family = root.split('/').at(-1)
+  const read = file => { checked.add(file); return host.read(file) }
+  const doc = read(root + '/ATTRIBUTION.md').toString('utf8')
+  check(doc.trim(), 'Missing weapon attribution')
+  let paths = [path], rows
+  if (family !== 'high-tier') {
+    rows = JSON.parse(read(root + '/sources.json').toString('utf8'))
+    check(Array.isArray(rows), 'Weapon source inventory')
+    if (!path.endsWith('.glb')) paths = Object.values(contracts.shields).filter(p => ('public/' + p).startsWith(root + '/')).map(p => 'public/' + p)
+  } else if (!path.endsWith('.glb')) paths = Object.values(contracts.shields).filter(p => ('public/' + p).startsWith(root + '/')).map(p => 'public/' + p)
+  check(paths.length, 'No registered weapon outputs')
+  for (const file of paths) {
+    check(Object.values(contracts.shields).includes(file.slice(7)), 'Unknown runtime weapon registry path: ' + file)
+    const bytes = read(file), asset = parseGlb(bytes), name = file.split('/').at(-1).replace('.glb', '')
+    const extras = asset.document.asset.extras
+    if (family === 'high-tier' && extras?.factionEquipment) {
+      validateShields([file.slice(7)], host, contracts, checked)
+      continue
+    }
+    if (family === 'high-tier') {
+      check(extras?.author && extras.license && extras.source && digest(extras.sourceSha256) && doc.includes(extras.sourceSha256) && doc.includes(extras.source), 'Weapon embedded provenance differs from attribution')
+    } else {
+      const matches = rows.filter(r => r.weapon === name || r.publishedPath === file.slice(7))
+      check(matches.length === 1, 'Missing/duplicate weapon source record')
+      const row = matches[0], sourceSha = row.sourceSha256 ?? row.source?.sha256
+      const finalSha = row.finalSha256 ?? row.final?.sha256 ?? (row.final?.byteIdenticalToSource === true ? sourceSha : null)
+      check(digest(sourceSha) && digest(finalSha) && hash(bytes) === finalSha, 'Weapon source/final SHA256 mismatch')
+      check(row.rightsEvidence || row.license || row.source?.license || (row.sourceProvider && doc.includes(sourceSha)), 'Missing weapon source rights record')
+      if (extras?.sourceSha256) check(extras.sourceSha256 === sourceSha, 'Embedded weapon source mismatch')
+      if (extras?.byzantineEquipment) check(extras.byzantineEquipment.sourceSha256 === sourceSha && extras.byzantineEquipment.publishedPath === file.slice(7), 'Byzantine embedded provenance mismatch')
+    }
+    host.glbs.push(asset)
+  }
+}
 function validateHumanoid(root, host, contracts, checked) {
   const read = file => { checked.add(file); return host.read(file) }
   const json = file => { const value = JSON.parse(read(file).toString('utf8')); check(value && typeof value === 'object' && Object.keys(value).length, 'Empty JSON: ' + file); return value }
@@ -145,6 +191,7 @@ function validateAssets(inputs, host, contracts) {
   for (const input of inputs) {
     if (input.kind === 'asset') {
       if (input.asset.family === 'humanoid') roots.add(input.asset.root)
+      else if (input.asset.family === 'weapon') validateWeapon(input, host, contracts, checked)
       else shields.add(input.asset.id)
     } else if (input.kind === 'builder') {
       const spec = BUILDERS[input.file]
@@ -175,4 +222,4 @@ function validateAssets(inputs, host, contracts) {
   }
   return { result: 'passed', files: [...checked].sort(), families: roots.size + (shields.size ? 1 : 0) }
 }
-module.exports = { parseGlb, validateAssets, localReference, hash }
+module.exports = { parseGlb, validateAssets, localReference, hash, requireStaticManifestChange }

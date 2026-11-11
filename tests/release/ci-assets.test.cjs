@@ -1,7 +1,7 @@
 'use strict'
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { parseGlb, validateAssets, hash } = require('../tooling/ci-assets.cjs')
+const { parseGlb, validateAssets, hash, requireStaticManifestChange } = require('../tooling/ci-assets.cjs')
 const { assetInput, classifyInputs, htmlStyleOnly } = require('../tooling/ci-inputs.cjs')
 function glb(document = {}, binary = Buffer.alloc(4)) {
   const text = Buffer.from(JSON.stringify({ asset: { version: '2.0' }, buffers: [{ byteLength: binary.length }], ...document }))
@@ -94,4 +94,23 @@ test('未知資產、Builder、Symlink 與刪除在混合輸入中仍須封閉�
     { status: 'D', file: 'public/models/characters/v2/fixture/lod0.glb' }, { status: 'M', file: 'src/link.ts' }]
   const result = classifyInputs(changes, { regular: () => false, read: () => '', docsOnly: () => false })
   assert.ok(result.every(i => i.kind === 'unknown'))
+})
+
+test('Manifest 握持、來源映射與未知欄位不能取得純資產豁免', () => {
+  const before = { id: 'fixture', swordGripFrames: { lod0: [0, 0, 0] }, selectedSource: { rig: 'mixamo24' }, fileSha256: { lod0: 'old' } }
+  assert.doesNotThrow(() => requireStaticManifestChange(before, { ...before, fileSha256: { lod0: 'new' } }))
+  assert.throws(() => requireStaticManifestChange(before, { ...before, swordGripFrames: { lod0: [1, 0, 0] } }), /swordGripFrames/)
+  assert.throws(() => requireStaticManifestChange(before, { ...before, selectedSource: { rig: 'other' } }), /selectedSource/)
+  assert.throws(() => requireStaticManifestChange(before, { ...before, futureRuntimeFlag: true }), /futureRuntimeFlag/)
+})
+test('正式一般武器走自身來源契約，仍驗證來源與內容雜湊', () => {
+  const file = 'public/models/weapons/t5/sword.glb', bytes = glb(), files = new Map([
+    [file, bytes], ['public/models/weapons/t5/ATTRIBUTION.md', Buffer.from('fixture license')],
+    ['public/models/weapons/t5/sources.json', Buffer.from(JSON.stringify([{ weapon: 'sword', license: 'fixture', source: { sha256: 'a'.repeat(64) }, final: { sha256: hash(bytes) } }]))],
+  ])
+  const input = { kind: 'asset', file, asset: assetInput(file) }, host = { read: f => { assert.ok(files.has(f), f); return files.get(f) } }
+  assert.equal(input.asset.family, 'weapon')
+  assert.equal(validateAssets([input], host, { shields: { sword_t5: file.slice(7) } }).result, 'passed')
+  files.set(file, glb({ asset: { version: '2.0', generator: 'changed' } }))
+  assert.throws(() => validateAssets([input], host, { shields: { sword_t5: file.slice(7) } }), /SHA256 mismatch/)
 })

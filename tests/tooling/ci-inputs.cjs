@@ -15,8 +15,8 @@ function assetInput(file) {
   const character = CHARACTER_ROOT.exec(file)
   if (character && CHARACTER_FILES.test(character[2])) return { family: 'humanoid', id: character[1], root: file.slice(0, file.lastIndexOf('/')) }
   if (/^public\/models\/weapons\/(?:faction-shields|high-tier|t5|byzantine)\/[a-z0-9-]+\.glb$/.test(file) ||
-      [SHIELD_ROOT + 'sources.json', SHIELD_ROOT + 'ATTRIBUTION.md'].includes(file)) {
-    return { family: 'shield', id: file.slice('public/'.length), root: SHIELD_ROOT.slice(0, -1) }
+      /^public\/models\/weapons\/(?:faction-shields|high-tier|t5|byzantine)\/(?:sources\.json|ATTRIBUTION\.md)$/.test(file)) {
+    return { family: file.startsWith(SHIELD_ROOT) ? 'shield' : 'weapon', id: file.slice('public/'.length), root: SHIELD_ROOT.slice(0, -1) }
   }
   return null
 }

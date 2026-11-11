@@ -4,7 +4,7 @@
 const fs = require('node:fs')
 const { resolve, join } = require('node:path')
 const { execFileSync } = require('node:child_process')
-const { validateAssets, hash } = require('./ci-assets.cjs')
+const { validateAssets, hash, requireStaticManifestChange } = require('./ci-assets.cjs')
 const root = resolve(__dirname, '../..')
 function literal(node, ts) {
   if (ts.isAsExpression(node) || ts.isSatisfiesExpression(node) || ts.isParenthesizedExpression(node)) return literal(node.expression, ts)
@@ -95,9 +95,7 @@ async function run(inputs, evidence) {
   for (const input of assets.filter(i => i.status === 'M' && i.file.endsWith('/manifest.json'))) {
     const old = JSON.parse(execFileSync('git', ['show', evidence.baseSha + ':' + input.file], { cwd: root, encoding: 'utf8' }))
     const next = JSON.parse(host.read(input.file).toString('utf8'))
-    const timing = m => (m.animations?.embedded ?? []).map(b => ({ clip: b.clip, duration: b.duration, loop: b.loop,
-      events: b.events, nominalSpeed: b.nominalSpeed, meleeCycleSeconds: b.meleeCycleSeconds, attackFadeInSeconds: b.attackFadeInSeconds, attackTransition: b.attackTransition, punchHands: b.punchHands }))
-    if (JSON.stringify(timing(old)) !== JSON.stringify(timing(next))) throw Error('Manifest runtime animation semantics changed; static asset exemption is insufficient: ' + input.file)
+    requireStaticManifestChange(old, next)
   }
   const result = assets.length ? validateAssets(assets, host, runtimeContracts()) : { result: 'not-needed', files: [] }
   if (host.glbs?.some(a => a.document.extensionsUsed?.includes('EXT_meshopt_compression'))) {

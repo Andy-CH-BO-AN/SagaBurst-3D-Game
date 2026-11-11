@@ -293,3 +293,19 @@ as acceptable, so preserve the Web job's explicit successful-logic requirement.
 An externally reported workflow failure/missing job remains unverified even if no
 summary was produced. Do not substitute an old attempt, force push or empty commit
 for a permanent fix.
+
+Review corrections: general equipment now uses its own provenance contract:
+High-tier Bow's embedded source/license plus attribution, T5's source/final hash
+records (including the byte-identical shield), and Byzantine's own sources table.
+Faction equipment retains the separate faction source audit and collision checks.
+The Bow family has no published final SHA record; validate its embedded source
+provenance, GLB structure and bind the actual content digest in the CI report.
+Existing Manifest changes use a conservative top-level metadata allowlist;
+all other changed or newly introduced fields fail closed, including grip frames,
+selected-source mappings, animation bindings and unknown future runtime flags.
+
+The external assessor defaults to current-validation mode: it enumerates all
+matching CI runs for the PR head, selects the newest run, and reads its current
+attempt. An earlier successful run cannot replace a newer failed/pending attempt.
+Use `--historical` only for diagnosis; successful historical checks are labelled
+`historical-passed`, never current `passed`.
