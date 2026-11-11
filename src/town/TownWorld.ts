@@ -49,7 +49,7 @@ export class TownWorld {
   readonly fortifications: ReturnType<typeof createTownFortifications>
   get gates() { return this.fortifications.gates }
   /** Damageable structures. `obstacles` is the hit/collision volume; `supports` (floors, steps) leave and return with it but are never hit. */
-  readonly buildings: { id: string; ownerFaction: Faction; campId?: number; obstacles: ObstacleData[]; supports: ObstacleData[]; hp: DamageableObstacle; roof: THREE.Group; ruin: THREE.Group; damaged: boolean; setDamaged(damaged: boolean): void }[] = []
+  readonly buildings: { id: string; ownerFaction: Faction; campId?: number; obstacles: ObstacleData[]; supports: ObstacleData[]; hp: DamageableObstacle; roof: THREE.Group; ruin: THREE.Group; damaged: boolean; restorePhysics?(): void; setDamaged(damaged: boolean): void }[] = []
   /** Faction architecture resources shared by every civic building, the plaza and their dressing. */
   private readonly architecture: ArchitectureKit
   private readonly geometries = new Set<THREE.BufferGeometry>()
@@ -282,6 +282,12 @@ export class TownWorld {
   }
   private geo<T extends THREE.BufferGeometry>(g: T): T { this.geometries.add(g); return g }
   private mat(color: number): THREE.MeshStandardMaterial { const m = new THREE.MeshStandardMaterial({ color, roughness: .88 }); this.materials.add(m); return m }
+  /** Authored civic support height, shared by initial stall placement and live movement. */
+  civicFloorY(id: string): number {
+    const floor = this.buildings.find(building => building.id === id)?.supports[0]?.walkSurface
+    if (!floor) throw new Error(`城鎮建築缺少樓板：${id}`)
+    return floor.topY
+  }
   private cube(parent: THREE.Object3D, x: number, y: number, z: number, w: number, h: number, d: number, material: THREE.Material): THREE.Mesh {
     const mesh = new THREE.Mesh(this.box, material); mesh.position.set(x, y, z); mesh.scale.set(w, h, d); mesh.castShadow = true; mesh.receiveShadow = true; parent.add(mesh); return mesh
   }
@@ -303,10 +309,29 @@ export class TownWorld {
     const hp = new DamageableObstacle({ kind: 'tent', maxHp: placed.spec.maxHp, root: placed.root })
     const obstacles = placed.obstacles.map(obstacle => ({ ...obstacle, damageable: hp }))
     const supports = placed.supports
-    this.buildings.push({ id, ownerFaction: this.ownerAllegiance, obstacles, supports, hp, roof: placed.roof, ruin: placed.ruin, damaged: false, setDamaged: placed.setDamaged })
+    const airspace = { box: placed.bounds.clone(), isBarricade: false }
+    const ruins = placed.ruinObstacles
+    const invalidate = () => { markObstacleTopologyChanged(this.obstacles); markObstacleTopologyChanged(this.airspaceObstacles) }
+    const setDamaged = (damaged: boolean) => {
+      placed.setDamaged(damaged); airspace.box.copy(placed.bounds); invalidate()
+    }
+    const restorePhysics = () => {
+      for (const part of ruins) { removeObstacleData(this.obstacles, part); removeObstacleData(this.airspaceObstacles, part) }
+      airspace.box.copy(placed.bounds)
+      for (const part of [airspace, ...obstacles, ...supports]) if (!this.airspaceObstacles.includes(part)) this.airspaceObstacles.push(part)
+      invalidate()
+    }
+    this.buildings.push({ id, ownerFaction: this.ownerAllegiance, obstacles, supports, hp, roof: placed.roof, ruin: placed.ruin, damaged: false, setDamaged, restorePhysics })
     this.obstacles.push(...obstacles, ...supports)
-    this.airspaceObstacles.push({ box: placed.bounds.clone(), isBarricade: false })
-    hp.onDestroyed(() => { placed.ruin.visible = true; for (const part of [...obstacles, ...supports]) removeObstacleData(this.obstacles, part) })
+    this.airspaceObstacles.push(airspace)
+    hp.onDestroyed(() => {
+      placed.ruin.visible = true
+      for (const part of obstacles) { removeObstacleData(this.obstacles, part); removeObstacleData(this.airspaceObstacles, part) }
+      removeObstacleData(this.airspaceObstacles, airspace)
+      // The foundation and entrance remain visible and walkable. Only fallen pieces obstruct movement/flight.
+      this.obstacles.push(...ruins); this.airspaceObstacles.push(...ruins)
+      invalidate()
+    })
   }
   /** Bandit camp tent (canvas roof over a low base). */
   private tent(id: string, x: number, z: number, yaw: number, campId: number): void {
@@ -342,6 +367,7 @@ export class TownWorld {
       building.ruin.visible = false
       if (building.damaged) building.setDamaged(false)
       building.damaged = false
+      building.restorePhysics?.()
       for (const obstacle of [...building.obstacles, ...building.supports]) if (!this.obstacles.includes(obstacle)) {
         this.obstacles.push(obstacle)
         markObstacleTopologyChanged(this.obstacles)

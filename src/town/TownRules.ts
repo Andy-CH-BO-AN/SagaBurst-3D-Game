@@ -11,7 +11,7 @@ import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { NPC } from '../world/NPC'
-import type { Mount } from '../world/Mount'
+import { MountType, type Mount } from '../world/Mount'
 import { heavyT4Variant, resolveT4UnitLoadout, T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
 import { getT5ProfileForPreset, resolveT5UnitLoadout } from '../battle/T5HeroCatalog'
 import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
@@ -321,7 +321,11 @@ export function updateRangerMount(ranger: Pick<NPC, 'dead' | 'mount' | 'mountVeh
 }
 
 export function townCaptainProfile(faction: CharacterFaction) { return T4_UNIT_PROFILES[faction === 'roman' ? 'roman_sword_cavalry' : 'viking_sword_cavalry'] }
-export function stableHorsePositions() { return Array.from({ length: TOWN_RULES.stableHorses }, (_, i) => ({ ...townSitePoint('stable', -5.2 + i * 2.6, 1), variant: (i % 3) as 0 | 1 | 2 })) }
+export function stableHorsePositions(faction: CharacterFaction = 'roman') {
+  const types = faction === 'viking'
+    ? [MountType.SNOW_LEOPARD, MountType.ORANGE_CAT, MountType.WHITE_CAT, MountType.SERVAL, MountType.CARACAL]
+    : [MountType.ORANGE_CAT, MountType.HORSE, MountType.ARMORED_HORSE, MountType.CORGI, MountType.BLACK_CAT]
+  return Array.from({ length: TOWN_RULES.stableHorses }, (_, i) => ({ ...townSitePoint('stable', -5.2 + i * 2.6, 1), variant: (i % 3) as 0 | 1 | 2, type: types[i] })) }
 
 export function isTownProductOwned(profile: CareerProfile, item: TownProduct): boolean {
   return item.id === 'horse' ? ownsCareerHorse(profile)

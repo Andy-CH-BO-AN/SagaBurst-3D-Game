@@ -18,6 +18,10 @@ describe('Town architecture plans', () => {
   it('keep every collider and floor inside the original Town occupancy', () => {
     for (const spec of SPECS) {
       const e = spec.envelope, original = originalTownFootprint(spec.faction, spec.kind)
+      if (spec.kind === 'weapons') {
+        const publicFloorFront = Math.max(...spec.floor.filter(r => spec.entrance.x > r.minX && spec.entrance.x < r.maxX).map(r => r.maxZ))
+        expect(spec.entrance.z, label(spec)).toBe(publicFloorFront)
+      }
       // The envelope never shrinks below the body the Town already reserves.
       expect(e.maxX - e.minX, label(spec)).toBeGreaterThanOrEqual(original.width)
       expect(e.maxZ - e.minZ, label(spec)).toBeGreaterThanOrEqual(original.depth)
@@ -55,6 +59,8 @@ describe('Town architecture plans', () => {
   it('keep the five stable stalls on the Town horse spawns with clear exits', () => {
     const { x: sx, z: sz, yaw } = TOWN_SITES.stable
     const expected = stableHorsePositions().map(p => ({ x: Math.cos(yaw) * (p.x - sx) - Math.sin(yaw) * (p.z - sz), z: Math.sin(yaw) * (p.x - sx) + Math.cos(yaw) * (p.z - sz) }))
+    expect(stableHorsePositions('roman').map(p => p.type)).toEqual(['ORANGE_CAT', 'HORSE', 'ARMORED_HORSE', 'CORGI', 'BLACK_CAT'])
+    expect(stableHorsePositions('viking').map(p => p.type)).toEqual(['SNOW_LEOPARD', 'ORANGE_CAT', 'WHITE_CAT', 'SERVAL', 'CARACAL'])
     for (const faction of FACTIONS) {
       const spec = architectureSpec(faction, 'stable'), stalls = spec.anchors.filter(a => a.role === 'horse')
       expect(stalls.map(a => [a.x, a.z]), faction).toEqual(expected.map(p => [expect.closeTo(p.x, 6), expect.closeTo(p.z, 6)]))

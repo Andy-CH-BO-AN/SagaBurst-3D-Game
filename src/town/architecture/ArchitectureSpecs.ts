@@ -53,8 +53,6 @@ export interface BuildingSpec {
   /** Structural top above the floor (used for airspace review and showcase). */
   readonly height: number
   readonly maxHp: number
-  /** Keep the floor at floorY above the centre terrain (stable horses spawn there); never lift it. */
-  readonly fixedFloor?: boolean
 }
 
 const rect = (minX: number, maxX: number, minZ: number, maxZ: number): LocalRect => ({ minX, maxX, minZ, maxZ })
@@ -310,7 +308,7 @@ function romanStable(): BuildingSpec {
     floor: [rect(-c.side.inner, c.side.inner, c.rear.z1, c.front)],
     // The porch is a gentle ramp so horses can also walk back into their stalls.
     entrance: { x: 0, z: c.front, yaw: 0, width: 13, doorWidth: 2.34, height: c.arcade.spring, approach: c.porch.front - c.front - .2 },
-    anchors: stableAnchors(), colliders, height: c.clerestory.top + c.clerestory.rise, maxHp: 300, fixedFloor: true,
+    anchors: stableAnchors(), colliders, height: c.clerestory.top + c.clerestory.rise, maxHp: 300,
   }
 }
 
@@ -441,7 +439,7 @@ function vikingWeapons(): BuildingSpec {
   return {
     faction: 'viking', kind: 'weapons', label: '維京鐵匠鋪', envelope: rect(-6, 6, -5.6, 9.2), floorY: c.F,
     floor: [rect(h.minX, f.maxX, h.back, h.front)],
-    entrance: { x: 2.85, z: f.front, yaw: 0, width: 4.2, doorWidth: 4.2, height: 3.0, approach: .8 },
+    entrance: { x: 2.85, z: h.front, yaw: 0, width: 4.2, doorWidth: 4.2, height: 3.0, approach: .8 },
     anchors: [{ id: 'merchant', x: 0, z: 7.5, yaw: 0, role: 'merchant' }], colliders, height: h.ridge + 1.6, maxHp: 300,
   }
 }
@@ -464,7 +462,7 @@ function vikingStable(): BuildingSpec {
     faction: 'viking', kind: 'stable', label: '維京馬廄', envelope: rect(-7.5, 7.5, -6.1, 9.8), floorY: c.F,
     floor: [rect(-c.side.inner, c.side.inner, c.rear.z1, r.frontEaveZ)],
     entrance: { x: 0, z: r.frontEaveZ, yaw: 0, width: 13, doorWidth: 2.28, height: r.frontEave, approach: c.porch.front - r.frontEaveZ - .2 },
-    anchors: stableAnchors(), colliders, height: r.ridge + 1.5, maxHp: 300, fixedFloor: true,
+    anchors: stableAnchors(), colliders, height: r.ridge + 1.5, maxHp: 300,
   }
 }
 

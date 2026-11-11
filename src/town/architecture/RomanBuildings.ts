@@ -251,9 +251,10 @@ export function buildRomanWeapons(ctx: BuildContext): void {
   for (const side of [-1, 1]) {
     const gx = side * tb.x, gy = ctx.ground(gx, tb.z)
     s.table(gx, gy, tb.z, tb.halfX * 2, tb.halfZ * 2, tb.top - gy + F > 0 ? F + tb.top - gy : 1)
-    for (let i = 0; i < 4; i++) ctx.display(['gladius_standard', 'centurion_blade', 'gladius_rusty', 'steel_sword'][i], 'melee', gx - .9 + i * .6, F + tb.top + .05, tb.z, Math.PI / 2, Math.PI / 2)
+    const ids = side < 0 ? ['paladin_sword_t4', 'sword_t5'] : ['paladin_sword_t4', 'sword_t5']
+    ids.forEach((id, i) => ctx.display(id, id === 'bow_t5' ? 'ranged' : 'melee', gx, F + tb.top, tb.z + (i - .5) * .6, 0, Math.PI / 2))
   }
-  ctx.display('scutum_t2', 'shield', -5.75, ctx.ground(-5.75, 6.4) + 1.0, 6.4, 0, Math.PI / 2)
+  s.scutum(-5.1, F + 2.1, b.front + .12, 0, 0)
   s.crate(-5.4, ctx.ground(-5.4, 7.8), 7.8, .6)
   s.barrel(5.55, ctx.ground(5.55, 5.6), 5.6, .8)
   s.banner(4.6, top - .3, b.front + .15, 0, .9, 2.3)
@@ -296,7 +297,7 @@ export function buildRomanStable(ctx: BuildContext): void {
   for (const side of [-1, 1]) s.column(side * pr.postX, ctx.ground(side * pr.postX, pr.postZ), pr.postZ, F + pr.low - ctx.ground(side * pr.postX, pr.postZ), .14, { capital: 'stone', flutes: false })
   s.span('wood', -T.side.outer, F + pr.low - .2, pr.postZ - .1, T.side.outer, F + pr.low, pr.postZ + .1, PALETTE.darkTimber)
   // Stalls: partitions, mangers, hay racks, straw and lanterns.
-  s.span('cloth', -T.side.inner, F + .005, T.rear.z1, T.side.inner, F + .03, T.front, PALETTE.hay)
+  s.span('cloth', -T.side.inner, F - .025, T.rear.z1, T.side.inner, F, T.front, PALETTE.hay)
   for (let i = 1; i <= 4; i++) {
     const x = -6.5 + i * 2.6, d = T.dividers
     s.span('wood', x - .07, F, d.back, x + .07, F + d.top - .1, d.front, PALETTE.timber)

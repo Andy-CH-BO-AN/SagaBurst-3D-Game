@@ -181,6 +181,10 @@ it('keeps final Town population homes, ground stations and fallbacks clear of ra
   // Own full-population HR clearance here, reusing this invariant's real roster.
   // The scenery suite only needs the west-gate guard that constrains its fixture.
   for (const service of [hr, resolveTownHRLayout('viking', [], roads, roster)]) {
+    // Mounted HR officer must leave a 6m-wide central approach open.
+    const dx = service.officer.x - service.site.x, dz = service.officer.z - service.site.z
+    const localSide = Math.cos(service.site.yaw) * dx - Math.sin(service.site.yaw) * dz
+    expect(Math.abs(localSide) - 1.25).toBeGreaterThanOrEqual(3)
     const courtyard = new Box3().setFromPoints(service.muster.map(p => new Vector3(p.x, 0, p.z)))
       .expandByVector(new Vector3(2.2, 100, 2.2))
     const residentReservations = [rectangle(service.site, service.width + 2.4, service.depth + 6),

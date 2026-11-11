@@ -115,7 +115,7 @@ export function buildVikingTownCenter(ctx: BuildContext): void {
   for (let x = -hs.half + .5; x < hs.half - .3; x += .45) s.add('glow', new THREE.BoxGeometry(.3, .06, .5).translate(x, F + .38, (hs.back + hs.front) / 2), 0xff7a2a, null)
   s.span('wood', -T.seat.half, F, T.seat.back, T.seat.half, F + .6, T.seat.front, PALETTE.carved)
   s.span('wood', -T.seat.half, F + .6, T.seat.back, T.seat.half, F + 1.6, T.seat.back + .2, PALETTE.carved)
-  for (const side of [-1, 1]) { s.dragonHead(side * T.seat.half, F + .6, T.seat.back + .1, 0, .35); s.span('wood', side < 0 ? -9 : 3, F, h.back + h.wall, side < 0 ? -3 : 9, F + .5, h.back + h.wall + .55, PALETTE.timber) }
+  for (const side of [-1, 1]) { s.lynxHead(side * T.seat.half, F + .6, T.seat.back + .1, 0, .35); s.span('wood', side < 0 ? -9 : 3, F, h.back + h.wall, side < 0 ? -3 : 9, F + .5, h.back + h.wall + .55, PALETTE.timber) }
   s.span('cloth', -T.seat.half + .1, F + .62, T.seat.back + .2, T.seat.half - .1, F + .7, T.seat.front, PALETTE.fur)
   for (const side of [-1, 1]) for (const x of [2.5, 5.5, 8.5]) s.shield(side * x, F + 2.2, h.back + h.wall + .06, 0, .45, x === 5.5 ? [PALETTE.cream, PALETTE.red] : [PALETTE.red, PALETTE.cream])
   for (const x of [-6, 6]) s.banner(x, top - .1, h.back + h.wall + .05, 0, 1.0, 2.2, 'wood')
@@ -218,7 +218,7 @@ export function buildVikingWeapons(ctx: BuildContext): void {
   r.gableRoof('wood', shedRoof)
   if (ctx.snow) r.snowOnGable({ ...shedRoof, coverage: .5 })
   r.beam('wood', V(fx, F + f.ridge + .2, f.back - .4), V(fx, F + f.ridge + .2, f.front + .4), .28, .28, PALETTE.darkTimber, true)
-  r.dragonHead(fx, F + f.ridge + .05, f.front + .35, 0, .9)
+  r.lynxHead(fx, F + f.ridge + .05, f.front + .35, 0, .9)
   // Forge, hood and stone chimney with fire; anvil, coal, tools.
   s.span('stone', 1.8, F, f.back + .5, 4.6, F + 1.1, -3.4, PALETTE.footing)
   s.span('stone', 2.1, F + 1.1, f.back + .6, 4.3, F + 1.16, -3.6, 0x3b3430)
@@ -242,7 +242,7 @@ export function buildVikingWeapons(ctx: BuildContext): void {
   const canopyRoof = { axis: 'x' as const, cz: (c.back + c.front) / 2, halfSpan: (c.front - c.back) / 2, from: -6, to: 6, eave: low, ridge: crest, thickness: .18, color: PALETTE.weathered }
   r.gableRoof('wood', canopyRoof)
   if (ctx.snow) r.snowOnGable({ ...canopyRoof, coverage: .55, thickness: .18 })
-  for (const side of [-1, 1]) r.dragonHead(side * 6.05, crest - .15, (c.back + c.front) / 2, side * Math.PI / 2, .7)
+  for (const side of [-1, 1]) r.lynxHead(side * 6.05, crest - .15, (c.back + c.front) / 2, side * Math.PI / 2, .7)
   s.span('wood', -.8, low - 1.45, c.postZ[1] - .05, .8, low - .35, c.postZ[1] + .05, PALETTE.carved)
   for (const side of [-1, 1]) s.beam('metal', V(side * .5, low - .35, c.postZ[1] + .02), V(side * .5, low, c.postZ[1] + .02), .02, .02, PALETTE.iron)
   s.box('metal', 0, low - 1.0, c.postZ[1] + .09, .55, .16, .06, PALETTE.iron)
@@ -253,12 +253,13 @@ export function buildVikingWeapons(ctx: BuildContext): void {
   for (const side of [-1, 1]) {
     const gx = side * tb.x, gy = ctx.ground(gx, tb.z)
     s.table(gx, gy, tb.z, tb.halfX * 2, tb.halfZ * 2, F + tb.top - gy)
-    for (let i = 0; i < 4; i++) ctx.display(['viking_axe_t2', 'steel_sword', 'viking_axe_t2', 'gladius_rusty'][i], 'melee', gx - .9 + i * .6, F + tb.top + .05, tb.z, Math.PI / 2, Math.PI / 2)
+    const ids = side < 0 ? ['axe_t5', 'axe_t5'] : ['axe_t5', 'bow_t5']
+    ids.forEach((id, i) => ctx.display(id, id === 'bow_t5' ? 'ranged' : 'melee', gx, F + tb.top, tb.z + (i - .5) * .6, 0, Math.PI / 2))
   }
-  for (let i = 0; i < 3; i++) s.shield(-4.9 + i * .75, ctx.ground(-4.4, 4.05) + .55, h.front + .3, 0, .48, [PALETTE.red, PALETTE.cream], -.25)
+  s.shield(-3.8, F + 1.8, h.front + .12, 0, .6)
   s.barrel(-.4, ctx.ground(-.4, 4.1), 4.1, .85)
   s.span('cloth', 4.6, F + .62, -2.1, 5.1, F + .66, -1.3, PALETTE.fur)
-  ctx.display('round_shield_t2', 'shield', 5.7, ctx.ground(5.7, 6.4) + 1.0, 6.4, 0, Math.PI / 2)
+
 }
 
 /* ─────────────── Stable ─────────────── */
@@ -292,7 +293,7 @@ export function buildVikingStable(ctx: BuildContext): void {
   s.beam('wood', V(-T.side.outer, F + pr.low, pr.postZ), V(T.side.outer, F + pr.low, pr.postZ), .24, .24, PALETTE.darkTimber)
   for (const x of [-5.2, -2.6, 0, 2.6, 5.2]) s.lantern(x, F + R.frontEave - .5, T.posts.z + .3)
   // Stalls: X-braced partitions, mangers, hay, straw.
-  s.span('cloth', -T.side.inner, F + .005, T.rear.z1, T.side.inner, F + .03, R.frontEaveZ, PALETTE.hay)
+  s.span('cloth', -T.side.inner, F - .025, T.rear.z1, T.side.inner, F, R.frontEaveZ, PALETTE.hay)
   for (let i = 1; i <= 4; i++) {
     const x = -6.5 + i * 2.6, d = T.dividers
     for (const z of [d.back, d.front]) s.cylinder('wood', x, F, z, .1, .11, d.top, PALETTE.weathered, 6)
@@ -313,7 +314,7 @@ export function buildVikingStable(ctx: BuildContext): void {
   s.shield(-T.side.outer - .08, F + 1.6, 2.4, -Math.PI / 2, .5)
   // Hanging horse board (carved head silhouette, no lettering).
   s.span('wood', -.7, F + pr.low - 1.25, pr.postZ - .05, .7, F + pr.low - .35, pr.postZ + .05, PALETTE.carved)
-  s.dragonHead(0, F + pr.low - 1.25, pr.postZ + .1, 0, .38, PALETTE.darkTimber)
+  s.lynxHead(0, F + pr.low - 1.25, pr.postZ + .1, 0, .38, PALETTE.darkTimber)
 }
 
 /* ─────────────── Homes ─────────────── */
