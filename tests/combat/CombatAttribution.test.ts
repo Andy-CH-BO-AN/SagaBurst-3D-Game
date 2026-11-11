@@ -625,6 +625,27 @@ it('空手 Duel NPC 追擊沿用既有導航：路徑被牆擋住時朝路徑點
   expect(move).not.toHaveBeenCalled()
 })
 
+it('空手 Duel NPC 四連拳播放中玩家退出拳距：繼續逼近，不取消、不重啟連拳，也不重複傷害', () => {
+  const hit = vi.fn(), move = vi.fn(), cancel = vi.fn()
+  const player = { dead: false, targetable: true, isMounted: false,
+    combatPosition: new THREE.Vector3(0, 0, 3), group: { position: new THREE.Vector3(0, 0, 3) } } as Player
+  const animator = { busy: true, cancel, start: vi.fn(), setLocomotion() {}, update: () => ({ fists: [] }) }
+  const body = Object.assign(Object.create(NPC.prototype), {
+    group: { position: new THREE.Vector3() }, animator, visualMovementSpeed: 0,
+    _faceDirection() {}, _updateFootPhysics() {}, _moveByDirection: move, ...navigationStubs(),
+  })
+  const entry = NPC.prototype as unknown as { updateUnarmedDuel(dt: number, player: Player, obstacles: [], distance: number, callback: typeof hit): void }
+  entry.updateUnarmedDuel.call(body, .2, player, [], 0, hit)
+  expect(move).toHaveBeenCalledOnce()
+  expect(move.mock.calls[0][0].z).toBeGreaterThan(.99) // Toward the player while the combo is still playing.
+  expect([animator.start, cancel, hit].map(spy => spy.mock.calls.length)).toEqual([0, 0, 0])
+  // Inside punch range mid-combo, the NPC holds and the running combo is neither restarted nor stacked.
+  player.combatPosition.set(0, 0, .5)
+  move.mockClear()
+  entry.updateUnarmedDuel.call(body, .2, player, [], 0, hit)
+  expect([move.mock.calls.length, animator.start.mock.calls.length]).toEqual([0, 0])
+})
+
 it('空手 NPC 的出拳距離同時可觸發（大於身體碰撞距離）且打得到（拳頭可及），追擊停點在觸發距離內', async () => {
   const { UNARMED_ACTOR_CONTACT_DISTANCE, UNARMED_ATTACK_DISTANCE, UNARMED_STOP_DISTANCE } = await import('../../src/combat/UnarmedCombat')
   const shortestArmedFistReach = .53, fistRadius = .055, bodyRadius = .3

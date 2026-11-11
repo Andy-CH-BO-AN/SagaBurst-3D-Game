@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { createDuelArena, type DuelArenaEnvironment } from './DuelArena'
 import { DUEL_ARENA_LABELS, type DuelArenaId } from './DuelArenaCatalog'
 import { ARENA_DUEL_REFEREE_SLOTS } from './DuelArenaVenue'
-import { ArenaChaseRoute } from './DuelArenaChase'
+import { ArenaChaseRoute, arenaStandingFeet } from './DuelArenaChase'
 import { CareerDuelController, duelLoadout, type CareerDuelOpponentRequest, type CareerDuelResident } from '../career/CareerDuelController'
 import { resolveCareerDuelClass } from '../career/CareerDuelClasses'
 import { careerDuelArena, isCareerDuelPresetId, isCareerDuelTier, type CareerDuelTier } from '../career/CareerDuelState'
@@ -391,7 +391,16 @@ export class CareerDuelArenaScene {
     if (this.skillsDirty && this.elapsed % 5 < dt) this.flushSkills()
   }
 
+  /** Where the player is supported: a ground mount's own position when riding, else the feet under the pelvis-origin body. */
+  private playerStandingFeet(): { x: number; y: number; z: number } {
+    const mount = this.player.isMounted ? this.player.currentMount : null
+    return arenaStandingFeet(this.player.position, mount && !mount.isFlyingMount ? mount.group.position : null, PLAYER_HALF_HEIGHT)
+  }
+
   private updateActors(dt: number): void {
+    // Same per-frame topology sync and path-search budget reset as Town; without it the budget never refills.
+    this.navigation.sync(this.arena.obstacles)
+    this.navigation.beginFrame()
     for (const actor of this.duel.actors) {
       const distance = actor.group.position.distanceTo(this.camera.position)
       if (actor.dead) { actor.update(dt, this.player, [], [], this.arena.obstacles, this.hp, () => {}, () => false, false, distance); continue }
@@ -401,7 +410,7 @@ export class CareerDuelArenaScene {
       if (!chase && actor === this.duel.opponent) this.chaseRoute.reset()
       const waypoint = chase ? this.chaseRoute.next(
         { x: actor.combatPosition.x, y: actor.combatPosition.y, z: actor.combatPosition.z },
-        { x: this.player.position.x, y: this.player.position.y - PLAYER_HALF_HEIGHT, z: this.player.position.z }) : null
+        this.playerStandingFeet()) : null
       if (waypoint) {
         if (!this.chaseWaypoint || this.chaseWaypoint.x !== waypoint.x || this.chaseWaypoint.z !== waypoint.z) {
           this.chaseWaypoint = waypoint

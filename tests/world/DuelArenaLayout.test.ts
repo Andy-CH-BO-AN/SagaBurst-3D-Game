@@ -6,7 +6,7 @@ import {
 import { createValhallaObstacles, VALHALLA } from '../../src/arena/ValhallaLayout'
 import { DUEL_ARENA_IDS, parseDuelArenaId } from '../../src/arena/DuelArena'
 import { resolveDuelArenaPreviewSetup } from '../../src/debug/DuelArenaPreview'
-import { ArenaChaseRoute, arenaStairLinks } from '../../src/arena/DuelArenaChase'
+import { ArenaChaseRoute, arenaStairLinks, arenaStandingFeet } from '../../src/arena/DuelArenaChase'
 import { ARENA_DUEL_REFEREE_SLOTS } from '../../src/arena/DuelArenaVenue'
 import { arenaDuelPartyPlan } from '../../src/arena/CareerDuelArenaScene'
 import { FallingRider } from '../../src/movement/FallingRider'
@@ -216,6 +216,17 @@ describe('duel arena layout collision', () => {
     expect(hall.next({ x: 0, y: 3, z: throne.high.z + 0.2 }, dais)).toBeNull()
     // Standing on the landing beside its far end never re-opens the route frame to frame.
     for (const x of [1.1, 1.2, 1.3]) expect([hall.next({ x, y: 3, z: throne.high.z + 0.1 }, dais), hall.active]).toEqual([null, false])
+  })
+
+  it('judges a rider by its ground mount, not by pelvis height, so a floor-level rider is never sent up the stairs', () => {
+    const riderPelvis = { x: 0, y: 2.6, z: 5 } // Seat height: far above the 1.2 m raised threshold
+    const floorMount = { x: 0, y: 0, z: 5 }
+    for (const id of ['roman-colosseum', 'viking-valhalla'] as const) {
+      const raised = arenaStairLinks(id)[0].topY
+      expect(new ArenaChaseRoute(id).next({ x: 0, y: 0, z: -4 }, arenaStandingFeet(riderPelvis, floorMount, 0.95)), id).toBeNull()
+      expect(new ArenaChaseRoute(id).next({ x: 0, y: 0, z: -4 }, arenaStandingFeet({ ...riderPelvis, y: raised + 1.6 }, { ...floorMount, y: raised }, 0.95)), id).not.toBeNull()
+    }
+    expect(arenaStandingFeet({ x: 1, y: 0.95, z: 2 }, null, 0.95)).toEqual({ x: 1, y: 0, z: 2 })
   })
 
   it('builds the bodies each saved duel borrowed and keeps the referee off the obstacles beside the duel lane', () => {

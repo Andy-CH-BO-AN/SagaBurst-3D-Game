@@ -37,6 +37,15 @@ export function arenaStairLinks(id: DuelArenaId): readonly ArenaStairLink[] { re
 
 interface Feet { readonly x: number; readonly y: number; readonly z: number }
 
+/**
+ * The height navigation compares with ARENA_RAISED_FEET_Y is where a body is supported, never
+ * its model height: a rider's pelvis sits above the mount's seat, so a ground mount's own
+ * position (`mountGround`) stands for the pair. On foot, `body` is the pelvis-origin group.
+ */
+export function arenaStandingFeet(body: Feet, mountGround: Feet | null, bodyHalfHeight: number): Feet {
+  return mountGround ?? { x: body.x, y: body.y - bodyHalfHeight, z: body.z }
+}
+
 const distance = (a: { x: number; z: number }, b: { x: number; z: number }): number => Math.hypot(a.x - b.x, a.z - b.z)
 
 function onFlight(link: ArenaStairLink, point: Feet): boolean {
