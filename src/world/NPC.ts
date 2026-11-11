@@ -83,7 +83,7 @@ import { WEAPONS, type WeaponCombatKind } from '../rpg/WeaponDatabase'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { ChaseTargetCoordinator } from '../navigation/ChaseTargetCoordinator'
 import { NavigationPathFollower, type NavigationRouteKind } from '../navigation/NavigationPathFollower'
-import { LayeredNavigationRoute } from '../navigation/LayeredNavigationRoute'
+import { LayeredNavigationRoute, type LayeredNavigationRequest, type LayeredNavigationStep } from '../navigation/LayeredNavigationRoute'
 import {
   clampFollowSlotToDeck,
   clampFollowSlotToBridge,
@@ -660,6 +660,8 @@ export class NPC {
   }
   private readonly _navigationPath = new NavigationPathFollower()
   private readonly _layeredNavigationRoute = new LayeredNavigationRoute(this._navigationPath)
+  private readonly _chaseNavigation: { route: NavigationRouteKind; step: LayeredNavigationStep | null } = { route: 'direct', step: null }
+  private readonly _gateDamageAllowed = (obstacle: ObstacleData): boolean => this._isAttackableObstacle(obstacle)
   private readonly _tmpNavigationTarget = new THREE.Vector3()
   private _activeNavigationWorld: NavigationWorld | null = null
 
@@ -2176,6 +2178,36 @@ export class NPC {
     )
   }
 
+  /** Join human pursuit to the same follower's legal gate approach before
+   * classifying the human as unreachable. Explicit travel/duty keeps its owner. */
+  private _resolveChaseNavigation(request: LayeredNavigationRequest, obstacles: ObstacleData[]): typeof this._chaseNavigation {
+    request.attackableGate = !this.missionMovement && !this.encounterOrigin && !this.holdsRampartPosition
+      && !this.hasSiegeObstacle && (this.tacticalOrder === 'attack' || this.tacticalOrder === 'charge')
+      ? this._gateDamageAllowed : undefined
+    const result = this._chaseNavigation
+    result.step = this._layeredNavigationRoute.resolve(request, obstacles, this._tmpNavigationTarget)
+    result.route = result.step?.route ?? (this.hasSiegeObstacle ? 'unreachable' : !request.skipGroundNavigation
+      ? this._resolveNavigationMoveTarget(request.goal, obstacles, request.world) : 'direct')
+    if (!result.step && request.skipGroundNavigation) this._tmpNavigationTarget.copy(request.goal)
+    if (result.route === 'unreachable' && !this.hasSiegeObstacle) {
+      result.step = this._layeredNavigationRoute.resolveBlockedPursuit(request, obstacles, this._tmpNavigationTarget) ?? result.step
+      result.route = result.step?.route ?? result.route
+    }
+    return result
+  }
+
+  /** Gate shots use the existing ballistic LOS/range owner; melee first reaches
+   * the safe exterior approach, then uses the ordinary structure attack point. */
+  private _readyPursuitGate(step: LayeredNavigationStep | null, obstacles: ObstacleData[]): ObstacleData | null {
+    const gate = step?.breach
+    if (!gate || !this._isAttackableObstacle(gate)) return null
+    if (!this.hasActiveRangedWeapon) return step.approachReached ? gate : null
+    const aim = this._getObstacleAttackPoint(gate, this._tmpSiegeTarget)
+    if (this._rangedObstacleDistance(aim) > this.maxRangedAttackDistance) return null
+    const blocker = this._findRangedTrajectoryBlocker(aim, obstacles)
+    return blocker === null || blocker === gate ? gate : null
+  }
+
   private _clearSiegeFallback(): void {
     this._siegeTargetObstacle = null
   }
@@ -2373,6 +2405,8 @@ export class NPC {
     obstacles: ObstacleData[],
   ): ObstacleData | null {
     if (this.hasSiegeObstacle) { this._siegeTargetObstacle = this.assignedSiegeObstacle; return this.assignedSiegeObstacle }
+    const pursuitGate = this._layeredNavigationRoute?.closedGateObstacle
+    if (pursuitGate && pursuitGate === this._siegeTargetObstacle && this._isAttackableObstacle(pursuitGate)) return pursuitGate
     if (!this._isAttackableObstacle(this._siegeTargetObstacle)) {
       this._clearSiegeFallback()
       return null
@@ -3210,8 +3244,7 @@ export class NPC {
         const npcLayer = layeredNav ? layeredNav.getNavLayer(this.combatPosition) : 'ground'
         const targetLayer = layeredNav ? layeredNav.getNavLayer(targetInfo.position) : 'ground'
         const isCrossLayer = layeredNav ? (npcLayer !== targetLayer) : false
-        let navigationRoute: NavigationRouteKind = 'direct'
-        const layeredStep = this._layeredNavigationRoute.resolve({
+        const chaseNavigation = this._resolveChaseNavigation({
           position: this.combatPosition, goal: targetInfo.position, world: navigationWorld, outpost: layeredNav ?? null,
           currentLayer: npcLayer, targetLayer, differentLayer: isCrossLayer,
           mounted: this.isMounted, outpostMounted: Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
@@ -3221,29 +3254,21 @@ export class NPC {
               ? null : this.campaignEntranceId,
           sectorId: this.townSiegeGateId, actorId: this.combatantId,
           skipGroundNavigation: skipBoidsAndObstacles,
-        }, obstacles, this._tmpNavigationTarget)
+        }, obstacles)
+        const layeredStep = chaseNavigation.step
+        let navigationRoute = chaseNavigation.route
         this.layeredCombatMovement = Boolean(layeredStep?.confirmedLayeredStep)
-        if (layeredStep) {
-          navigationRoute = layeredStep.route
-        } else {
-          navigationRoute = this.hasSiegeObstacle ? 'unreachable' : !skipBoidsAndObstacles
-            ? this._resolveNavigationMoveTarget(
-              targetInfo.position,
-              obstacles,
-              navigationWorld,
-            )
-            : 'direct'
-          if (skipBoidsAndObstacles) this._tmpNavigationTarget.copy(targetInfo.position)
-        }
 
         // A normal walkable route always wins over obstacle combat.
         if (navigationRoute !== 'unreachable') {
           this._clearSiegeFallback()
         }
-        let siegeObstacle = navigationRoute === 'unreachable'
+        const pursuitGate = this._readyPursuitGate(layeredStep, obstacles)
+        let siegeObstacle = pursuitGate ?? (navigationRoute === 'unreachable'
           ? (this._getActiveSiegeObstacle(targetInfo.position, obstacles)
              ?? (layeredNav && isCrossLayer ? this._getActiveSiegeObstacle(this._tmpNavigationTarget, obstacles) : null))
-          : null
+          : null)
+        if (pursuitGate) this._activateDirectObstacle(pursuitGate)
 
         // Ranged units only draw melee against a genuinely close human target.
         // A wall between them and that human remains a navigation/siege problem.

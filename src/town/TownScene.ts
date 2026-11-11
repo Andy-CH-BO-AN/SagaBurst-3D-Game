@@ -376,6 +376,7 @@ export class TownScene {
     this.world = new TownWorld(context.worldFaction, this.scene, context.worldOwnerAllegiance,
       { fourGateSiege: profile.activeMission?.kind === 'commander-four-gate-defense' })
     this.navigation.setTownRamparts(this.world.fortifications.rampartLayout)
+    this.navigation.townNav!.setSiegeGates(this.world.gates)
     this.navigation.townNav!.setWatchtower(this.world.commandWatchtower)
     const population = townConquestRoster(this.world.hr, withTownCommandSquadRoster(context.residentFaction, townRoster()), this.world.eagleTraining, this.world.eagleGarrison)
     if (shouldSpawnTownCommander(profile)) {

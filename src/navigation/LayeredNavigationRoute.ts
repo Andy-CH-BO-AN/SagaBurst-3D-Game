@@ -1,11 +1,12 @@
 import type { Vector3 } from 'three'
 import { findBlockingObstacleAlongPath, type ObstacleData } from '../world/Terrain'
+import type { TownGateApproach } from './TownLayeredNavigation'
 import type { TownGateId } from '../town/TownLayout'
 import { isRampartLayer, isStairLayer, type OutpostLayeredNavigation, type OutpostNavLayer } from './OutpostLayeredNavigation'
 import { NavigationPathFollower, type NavigationRouteKind } from './NavigationPathFollower'
 import type { NavigationWorld } from './NavigationWorld'
 
-interface LayeredNavigationRequest {
+export interface LayeredNavigationRequest {
   position: Vector3
   goal: Vector3
   world: NavigationWorld | null
@@ -22,12 +23,15 @@ interface LayeredNavigationRequest {
   sectorId: TownGateId | null
   actorId: string
   skipGroundNavigation: boolean
+  attackableGate?: (obstacle: ObstacleData) => boolean
 }
 
-interface LayeredNavigationStep {
+export interface LayeredNavigationStep {
   route: NavigationRouteKind
   confirmedLayeredStep: boolean
   tower: boolean
+  breach?: ObstacleData
+  approachReached?: boolean
 }
 
 /** Joins existing Town/Outpost routes to an actor's existing ground follower.
@@ -37,6 +41,12 @@ interface LayeredNavigationStep {
 export class LayeredNavigationRoute {
   private readonly step: LayeredNavigationStep = { route: 'direct', confirmedLayeredStep: false, tower: false }
 
+  private gateApproach: TownGateApproach | null = null
+  private readonly breachStep: LayeredNavigationStep = { route: 'direct', confirmedLayeredStep: false, tower: false }
+  get closedGateObstacle(): ObstacleData | null {
+    return this.gateApproach?.gate.state === 'closed' ? this.gateApproach.gate.siegeObstacle : null
+  }
+
   constructor(private readonly follower: NavigationPathFollower) {}
 
   /** The returned step is scratch storage, valid until this actor's next call.
@@ -44,6 +54,11 @@ export class LayeredNavigationRoute {
    */
   resolve(request: LayeredNavigationRequest, obstacles: ObstacleData[], out: Vector3): LayeredNavigationStep | null {
     const { position, goal, world, outpost } = request
+    if (this.gateApproach && request.attackableGate) {
+      const gate = world?.townNav?.selectClosedGateApproach(position, goal, request.attackableGate, request.sectorId, this.gateApproach.id)
+      if (gate === this.gateApproach) return this.writeGateApproach(request, obstacles, out)
+    }
+    this.gateApproach = null
     const step = this.step
     step.route = 'direct'; step.confirmedLayeredStep = false; step.tower = false
     const town = !request.flying ? world?.townNav?.resolveMoveTarget(position, goal, out,
@@ -71,6 +86,22 @@ export class LayeredNavigationRoute {
       // Outpost handoff may recover direct travel; Town blocked routes stay closed.
       if (step.route === 'unreachable' && !this.blocked(request, obstacles, out)) step.route = 'direct'
     }
+    return step
+  }
+
+  resolveBlockedPursuit(request: LayeredNavigationRequest, obstacles: ObstacleData[], out: Vector3): LayeredNavigationStep | null {
+    if (!request.attackableGate || request.flying) return null
+    this.gateApproach = request.world?.townNav?.selectClosedGateApproach(request.position, request.goal,
+      request.attackableGate, request.sectorId, this.gateApproach?.id) ?? null
+    return this.gateApproach ? this.writeGateApproach(request, obstacles, out) : null
+  }
+
+  private writeGateApproach(request: LayeredNavigationRequest, obstacles: ObstacleData[], out: Vector3): LayeredNavigationStep {
+    const gate = this.gateApproach!, step = this.breachStep
+    out.copy(gate.approach)
+    step.route = this.groundRoute(request, obstacles, out)
+    step.breach = gate.gate.siegeObstacle
+    step.approachReached = request.position.distanceToSquared(gate.approach) <= 1.5 ** 2
     return step
   }
 

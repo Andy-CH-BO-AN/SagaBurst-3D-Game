@@ -3,9 +3,17 @@ import { TownWatchtowerNavigation } from './TownWatchtowerNavigation'
 import type { CommandWatchtowerLayout } from '../town/TownCommandWatchtowerLayout'
 import { crossingGateBreach, gateBreachLane, gateBreachProgress, hasClearedGateBreach } from './GateBreachPortal'
 import { AvailableBreachEntrances, type BreachEntrance } from './AvailableBreachEntrances'
-import { TOWN_CITY, type TownGateId } from '../town/TownLayout'
-import { getWalkRampHeight } from '../world/Terrain'
+import { TOWN_CITY, TOWN_GATES, TOWN_GATE_ASSAULT_APPROACH, townGatePoint, type TownGateId } from '../town/TownLayout'
+import { getTerrainHeight, getWalkRampHeight, type ObstacleData } from '../world/Terrain'
 import { townRampartHeight, type TownRamp, type TownRampartLayout } from '../town/TownRamparts'
+
+import type { CampaignGateController } from '../campaign/CampaignGate'
+
+export interface TownGateApproach {
+  id: TownGateId
+  approach: THREE.Vector3
+  gate: Pick<CampaignGateController, 'state' | 'siegeObstacle'>
+}
 
 /** Town layout adapter. Ground approaches still use NavigationWorld's bounded A*.
  * Elevated travel follows a small perimeter graph, never a second navigation grid.
@@ -14,6 +22,40 @@ export class TownLayeredNavigation {
   /** Empty and inactive in every existing Town mode. */
   readonly siegeEntrances = new AvailableBreachEntrances()
   siegeActive = false
+  private readonly gateApproaches = new Map<TownGateId, TownGateApproach>()
+  /** Live physical gate state; registration never opens or damages a gate. */
+  setSiegeGates(gates: ReadonlyMap<TownGateId, TownGateApproach['gate']>): void {
+    this.gateApproaches.clear()
+    for (const spec of TOWN_GATES) {
+      const gate = gates.get(spec.id)
+      if (!gate) continue
+      const p = townGatePoint(spec, 0, -TOWN_GATE_ASSAULT_APPROACH)
+      this.gateApproaches.set(spec.id, { id: spec.id, gate,
+        approach: new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z), p.z) })
+    }
+  }
+  /** Only after ordinary human/entrance navigation has failed. Component checks
+   * reuse the ground topology; no A* is run for the four candidate approaches. */
+  selectClosedGateApproach(current: THREE.Vector3, goal: THREE.Vector3,
+    accepts: (obstacle: ObstacleData) => boolean, sector?: TownGateId | null, preferred?: TownGateId): TownGateApproach | null {
+    const outside = current.x <= TOWN_CITY.minX || current.x >= TOWN_CITY.maxX
+      || current.z <= TOWN_CITY.minZ || current.z >= TOWN_CITY.maxZ
+    const insideGoal = goal.x > TOWN_CITY.minX && goal.x < TOWN_CITY.maxX
+      && goal.z > TOWN_CITY.minZ && goal.z < TOWN_CITY.maxZ
+    if (!outside || !insideGoal || this.isElevated(current) || this.rampAt(current)
+      || Math.abs(current.y - getTerrainHeight(current.x, current.z)) > 1.1) return null
+    const valid = (entry: TownGateApproach) => (!sector || entry.id === sector) && entry.gate.state === 'closed'
+      && accepts(entry.gate.siegeObstacle) && this.connected(current, entry.approach)
+    const prior = preferred ? this.gateApproaches.get(preferred) : undefined
+    if (prior && valid(prior)) return prior
+    let nearest: TownGateApproach | null = null, distance = Infinity
+    for (const entry of this.gateApproaches.values()) {
+      if (!valid(entry)) continue
+      const d = current.distanceToSquared(entry.approach)
+      if (d < distance) { nearest = entry; distance = d }
+    }
+    return nearest
+  }
   watchtower: TownWatchtowerNavigation | null = null
   setWatchtower(layout: CommandWatchtowerLayout): void { this.watchtower = new TownWatchtowerNavigation(layout) }
   constructor(readonly layout: TownRampartLayout, private readonly connected: (a: THREE.Vector3, b: THREE.Vector3) => boolean = () => false) {}

@@ -11,7 +11,7 @@ import { getTerrainHeight, type EntityCollisionBody } from '../world/Terrain'
 import type { TownWorld } from '../town/TownWorld'
 import { TOWN_CITY, TOWN_GATES, type TownGateId } from '../town/TownLayout'
 import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
-import { allocateTownSiegeCrews, isTownSiegeDockConnected, planTownSiegeRamps, townSiegeFrame, townSiegeSectorReceiptsMatch, type TownSiegeApproach, type TownSiegeCrewSlot, type TownSiegeEscortClearance, type TownSiegeRampAssignment } from './TownFourGateSiegePolicy'
+import { withinTownSiegeSector, allocateTownSiegeCrews, isTownSiegeDockConnected, planTownSiegeRamps, townSiegeFrame, townSiegeSectorReceiptsMatch, type TownSiegeApproach, type TownSiegeCrewSlot, type TownSiegeEscortClearance, type TownSiegeRampAssignment } from './TownFourGateSiegePolicy'
 import { TownGateBreachPolicy, type TownGateBreachEvent } from './TownGateBreachPolicy'
 import { parseTownFourGateSiegeCheckpoint, type TownFourGateSiegeCheckpoint, type TownSiegeActorCheckpoint } from './TownFourGateSiegeCheckpoint'
 
@@ -316,6 +316,13 @@ export class TownFourGateSiege {
     // tower/wall. Layered navigation owns the actual reachable descent/ascent.
     if (local && ground && npc.combatPosition.distanceToSquared(p) <= 64 ** 2
       && (outside || breached)) return 0
+    // Ground contact may cross the nearest-gate boundary, but never leave a
+    // fixed 24m overlap of the assigned sector. Keep both bodies local and use
+    // the existing ground connectivity only for this ground-to-ground exception.
+    if (!local && outside && ground && npc.combatPosition.distanceToSquared(p) <= 20 ** 2
+      && Math.abs(npc.combatPosition.y - getTerrainHeight(npc.combatPosition.x, npc.combatPosition.z)) < 1.1
+      && withinTownSiegeSector(npc.combatPosition, gateId, 24) && withinTownSiegeSector(p, gateId, 24)
+      && nav.areConnected(npc.combatPosition, p)) return 0
     // A cavalryman already fighting on the wall may finish the local engagement.
     if (local && town.isElevated(npc.combatPosition) && town.isElevated(p)) return 0
     if (!breached) return null

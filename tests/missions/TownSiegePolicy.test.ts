@@ -454,3 +454,44 @@ it('四門騎兵先攔截本區城外敵人，清除後恢復攻門，突破後�
   owner.options.navigation.areConnected = () => false
   expect(actor.combatTargetPriority!(ground)).toBe(0)
 })
+
+it('攔截相鄰 sector 眼前可達的地面敵人，超出固定分界帶後恢復原北門任務', () => {
+  let connected = true
+  const entries = new AvailableBreachEntrances()
+  entries.set({ id: 'east:open', gateId: 'east', type: 'gate', position: new Vector3(150, 0, 45),
+    approach: new Vector3(162, 0, 45), exit: new Vector3(138, 0, 45), mounted: true, walkable: true, faction: null, connectionId: 'east' })
+  const gate = { state: 'closed', siegeObstacle: { damageable: { destroyed: false, isDamageableBy: () => true } } }
+  const rider = {
+    combatantId: 'north:rider', dead: false, siegeTransport: null, tacticalOrder: 'charge', hasFormationTarget: false,
+    campaignBreachCompleted: false, campaignEntranceId: null as string | null, townSiegeGateId: 'north',
+    characterFaction: 'viking', aiType: AIType.MELEE, isMounted: true, mount: { isFlyingMount: false },
+    combatPosition: new Vector3(184, getTerrainHeight(184, -140), -140),
+    combatTargetPriority: undefined as NPC['combatTargetPriority'], priorityCombatTarget: null as NPC | null,
+    assignedSiegeObstacle: null as unknown, _isAttackableObstacle: NPC.prototype['_isAttackableObstacle'],
+    get hasTacticalCombatPriority() { return Object.getOwnPropertyDescriptor(NPC.prototype, 'hasTacticalCombatPriority')!.get!.call(this) },
+    assignSiegeObstacle(obstacle: unknown) { this.assignedSiegeObstacle = obstacle }, setTacticalOrder() {},
+  }
+  const owner = Object.assign(Object.create(TownFourGateSiege.prototype) as { route(actor: typeof rider): void }, {
+    attackerIds: new Set([rider.combatantId]), actorSectors: new Map([[rider.combatantId, 'north']]),
+    playerCommands: new Set(), departedActors: new Map(),
+    options: { acceptsOrders: () => true, attackerRole: () => 'gate-cavalry', world: { gates: new Map([['north', gate]]) },
+      navigation: { townNav: { siegeEntrances: entries, isElevated: () => false }, areConnected: () => connected } },
+  })
+  const target = { dead: false, combatPosition: new Vector3(190, getTerrainHeight(190, -140), -140) } as NPC
+  owner.route(rider)
+  expect(rider.combatTargetPriority!(target)).toBe(0)
+  rider.priorityCombatTarget = target
+  const hasGateTask = () => Object.getOwnPropertyDescriptor(NPC.prototype, 'hasSiegeObstacle')!.get!.call(rider)
+  expect(hasGateTask()).toBe(false)
+  connected = false
+  expect(rider.combatTargetPriority!(target)).toBeNull()
+  connected = true
+  // Still only 12m away, but the target has left the fixed 24m sector overlap.
+  rider.combatPosition.set(218, getTerrainHeight(218, -140), -140)
+  target.combatPosition.set(230, getTerrainHeight(230, -140), -140)
+  expect(rider.combatTargetPriority!(target)).toBeNull()
+  expect(hasGateTask()).toBe(true)
+  expect(rider.assignedSiegeObstacle).toBe(gate.siegeObstacle)
+  expect(rider.campaignEntranceId).toBeNull()
+  expect(rider.townSiegeGateId).toBe('north')
+})
