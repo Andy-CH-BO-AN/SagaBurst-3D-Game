@@ -447,4 +447,10 @@ it('四門騎兵先攔截本區城外敵人，清除後恢復攻門，突破後�
   expect(acquire()?.npc).toBe(wall)
   actor.combatPosition.copy(wall.combatPosition)
   expect(actor.combatTargetPriority!(wall)).toBe(0)
+  // A target walking down to the ground must remain interceptable. The ground
+  // component beneath a wall cannot decide whether its docked descent is legal.
+  eastGate.state = 'closed'
+  Object.assign(ground, { dead: false })
+  owner.options.navigation.areConnected = () => false
+  expect(actor.combatTargetPriority!(ground)).toBe(0)
 })

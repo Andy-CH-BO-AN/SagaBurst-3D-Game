@@ -312,8 +312,10 @@ export class TownFourGateSiege {
     const ground = Math.abs(p.y - getTerrainHeight(p.x, p.z)) < 1.1
     const outside = p.x <= TOWN_CITY.minX || p.x >= TOWN_CITY.maxX || p.z <= TOWN_CITY.minZ || p.z >= TOWN_CITY.maxZ
     const breached = this.options.world.gates.get(gateId)!.state !== 'closed'
+    // Target priority does not use ground components to reject an actor on a
+    // tower/wall. Layered navigation owns the actual reachable descent/ascent.
     if (local && ground && npc.combatPosition.distanceToSquared(p) <= 64 ** 2
-      && (outside || breached) && nav.areConnected(npc.combatPosition, p)) return 0
+      && (outside || breached)) return 0
     // A cavalryman already fighting on the wall may finish the local engagement.
     if (local && town.isElevated(npc.combatPosition) && town.isElevated(p)) return 0
     if (!breached) return null
