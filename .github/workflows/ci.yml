@@ -59,7 +59,19 @@ jobs:
         if: always()
         env:
           LOGIC_RESULT: ${{ needs.logic.result }}
-        run: test "$LOGIC_RESULT" = success
+          VALIDATION_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          {
+            echo '### Required job execution'
+            echo "Logic result: $LOGIC_RESULT"
+            echo 'Web job: executed (its conclusion is reported by GitHub, not this step)'
+            echo "PR/event head: $VALIDATION_HEAD"
+            echo "Checkout ref SHA: $GITHUB_SHA"
+            echo "Run: $RUN_URL"
+            echo 'Missing jobs cannot emit this summary; inspect the run externally with ci-check-jobs.cjs.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$LOGIC_RESULT" = success
   desktop:
     needs: logic
     # Skip desktop packaging/smoke for PRs into dev and all pushes. PRs into main
