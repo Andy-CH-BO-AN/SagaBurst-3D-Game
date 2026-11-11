@@ -86,6 +86,7 @@ import { SpectatorCameraController } from '../camera/SpectatorCameraController'
 import { NPC, AIType, Faction } from '../world/NPC'
 import { Mount, MountType, felineVariantFromMountId } from '../world/Mount'
 import { XongkoroVisual } from '../world/XongkoroVisual'
+import { preloadArchitectureStatues } from './architecture/TownArchitecture'
 import { eagleLandingFootprint } from '../world/EagleLanding'
 import { isEagleLandingClearOfMounts } from '../world/EagleLandingOccupants'
 import { EagleLandingQueue } from '../world/EagleLandingQueue'
@@ -360,7 +361,7 @@ export class TownScene {
       const felineVariants = careerFelineVariants(profile)
       // Deployment and Patrol officers are elite heroes: their bodies and Byzantine gear must exist before any resident spawns.
       const officers = [...new Set([sceneContext.residentFaction, sceneContext.worldFaction])].map(townOfficerPreload)
-      await Promise.all([...siegeHeroes, ...officers.flatMap(officer => officer.heroAssets.map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))), prepareByzantineEquipment([...officers.flatMap(officer => officer.equipmentIds), profile.equipment?.melee, profile.equipment?.shield, ...(profile.personalSquad?.members ?? []).flatMap(member => { const { loadout } = personalMemberLoadout(member, profile.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), ...[...civilianFactions].map(faction => HumanoidAssetRegistry.preloadAsset(CIVILIAN_HUMANOID_ASSETS[faction])), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), CorgiVisual.preload(), SnowLeopardVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(sceneContext.residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(formerCommanderHero && formerCommanderHero !== playerHero && formerCommanderHero !== commanderHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[formerCommanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero && id !== formerCommanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
+      await Promise.all([...siegeHeroes, ...officers.flatMap(officer => officer.heroAssets.map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))), prepareByzantineEquipment([...officers.flatMap(officer => officer.equipmentIds), profile.equipment?.melee, profile.equipment?.shield, ...(profile.personalSquad?.members ?? []).flatMap(member => { const { loadout } = personalMemberLoadout(member, profile.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), ...[...civilianFactions].map(faction => HumanoidAssetRegistry.preloadAsset(CIVILIAN_HUMANOID_ASSETS[faction])), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), CorgiVisual.preload(), SnowLeopardVisual.preload(), XongkoroVisual.preload(), preloadArchitectureStatues(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(sceneContext.residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(formerCommanderHero && formerCommanderHero !== playerHero && formerCommanderHero !== commanderHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[formerCommanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero && id !== formerCommanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
       progress('建立村莊與營地…')
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       const town = new TownScene(container, renderer, profile, onCampaign, onRestart, onHome, onTutorialLaunch)
@@ -442,6 +443,8 @@ export class TownScene {
     this.player.group.position.set(townEntry.x, getTerrainHeight(townEntry.x, townEntry.z) + .9, townEntry.z)
     this.player.group.rotation.y = townEntry.yaw
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
+    // DEV-only QA handle (browser verification of buildings, entrances and damage); stripped from production.
+    if (import.meta.env.DEV) Object.assign(window, { __townScene: { world: this.world, player: this.player, orbit: this.orbit, camera: this.camera, input: this.input, residents: this.residents, stableHorses: this.stableHorses } })
     this.navigation.sync(this.world.obstacles)
     this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,
       () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds,
@@ -4347,6 +4350,7 @@ export class TownScene {
     this.raf = requestAnimationFrame(t => this.frame(t))
   }
   dispose(preservePointerLock = false): void {
+    if (import.meta.env.DEV) delete (window as unknown as { __townScene?: unknown }).__townScene
     this.promotionPreviewCleanup?.(); this.promotionPreviewCleanup = undefined
     this.projectileObstacles.clear()
     this.promotionAttempt = null

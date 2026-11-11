@@ -533,3 +533,35 @@ export function originalTownFootprint(faction: ArchitectureFaction, kind: CivicB
   if (kind === 'hr-center') return faction === 'roman' ? { width: 16, depth: 13 } : { width: 13, depth: 22 }
   return faction === 'roman' ? { width: 9, depth: 8 } : { width: 9, depth: 12 }
 }
+
+/* ───────────────────────────── Plaza ───────────────────────────── */
+
+export type PlazaPropKind = 'monument' | 'bench' | 'planter' | 'brazier' | 'banner' | 'supplies' | 'runestone'
+/** One plaza prop: world XZ centre, facing, and the collision radius it occupies. */
+export interface PlazaProp { readonly kind: PlazaPropKind; readonly x: number; readonly z: number; readonly yaw: number; readonly radius: number }
+
+/** Centre of the plaza decoration, in the open column between the authored training squads. */
+export const TOWN_PLAZA_MONUMENT = { x: 59, z: 18.5, radius: 2.0 } as const
+
+/**
+ * Plaza furniture in world coordinates. The Town plaza is also the infantry
+ * training ground, the player's entry point and the Captain's mounted approach,
+ * so props only use the gaps between those (south-east corner, the column at
+ * x≈59, the row gap east of x=62 and the west edge).
+ */
+export function townPlazaLayout(faction: ArchitectureFaction): PlazaProp[] {
+  const m = TOWN_PLAZA_MONUMENT
+  const common: PlazaProp[] = [
+    { kind: 'monument', x: m.x, z: m.z, yaw: Math.PI, radius: m.radius },
+    { kind: 'bench', x: 59, z: 11.5, yaw: 0, radius: 1.25 },
+    { kind: 'bench', x: 59, z: 25.5, yaw: 0, radius: 1.25 },
+    { kind: 'brazier', x: 66, z: -2.5, yaw: 0, radius: .5 },
+    { kind: 'brazier', x: 35.5, z: 25, yaw: 0, radius: .5 },
+    { kind: 'banner', x: 70, z: 1.5, yaw: 0, radius: .2 },
+    { kind: 'banner', x: 35.5, z: 20.5, yaw: Math.PI / 2, radius: .2 },
+  ]
+  return faction === 'roman'
+    ? [...common, { kind: 'planter', x: 67.5, z: 20.5, yaw: 0, radius: 1.0 }, { kind: 'planter', x: 72.5, z: 20.5, yaw: 0, radius: 1.0 },
+      { kind: 'brazier', x: 72.5, z: -2.5, yaw: 0, radius: .5 }]
+    : [...common, { kind: 'runestone', x: 68, z: 20.5, yaw: 0, radius: .8 }, { kind: 'supplies', x: 72.5, z: -1.5, yaw: 0, radius: 1.4 }]
+}

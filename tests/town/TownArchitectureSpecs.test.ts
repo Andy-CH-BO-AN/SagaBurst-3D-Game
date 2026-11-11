@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
-  architectureSpec, CIVIC_BUILDING_KINDS, originalTownFootprint,
+  architectureSpec, CIVIC_BUILDING_KINDS, originalTownFootprint, townPlazaLayout,
   type ArchitectureCollider, type ArchitectureFaction, type BuildingSpec, type LocalRect,
 } from '../../src/town/architecture/ArchitectureSpecs'
-import { stableHorsePositions, TOWN_SITES } from '../../src/town/TownRules'
+import { stableHorsePositions, TOWN_SITES, townPlayerEntryPoint, townRoster } from '../../src/town/TownRules'
+import { TOWN_CENTER, TOWN_PLAZA, TOWN_WELL } from '../../src/town/TownLayout'
 
 const FACTIONS: readonly ArchitectureFaction[] = ['roman', 'viking']
 const SPECS: readonly BuildingSpec[] = FACTIONS.flatMap(faction => CIVIC_BUILDING_KINDS.map(kind => architectureSpec(faction, kind)))
@@ -62,6 +63,24 @@ describe('Town architecture plans', () => {
         const lane: LocalRect = { minX: stall.x - 1, maxX: stall.x + 1, minZ: stall.z - 1, maxZ: spec.envelope.maxZ + 1 }
         expect(blocking(spec).filter(c => overlaps(c, lane)).map(c => c.box), `${faction} ${stall.id}`).toEqual([])
       }
+    }
+  })
+
+  it('keep plaza furniture off resident stations, the player entry and the Captain approach', () => {
+    const roster = townRoster()
+    const stations = roster.flatMap(actor => [{ id: actor.id, x: actor.x, z: actor.z }, ...(actor.garrison ? [{ id: `${actor.id}/garrison`, ...actor.garrison }] : [])])
+    const entry = townPlayerEntryPoint()
+    for (const faction of FACTIONS) for (const prop of townPlazaLayout(faction)) {
+      const name = `${faction} ${prop.kind} ${prop.x},${prop.z}`
+      expect(prop.x - prop.radius >= TOWN_PLAZA.minX && prop.x + prop.radius <= TOWN_PLAZA.maxX
+        && prop.z - prop.radius >= TOWN_PLAZA.minZ && prop.z + prop.radius <= TOWN_PLAZA.maxZ, name).toBe(true)
+      // A standing body (.4m) keeps another .8m of walking room around every prop.
+      expect(stations.filter(s => Math.hypot(s.x - prop.x, s.z - prop.z) < prop.radius + 1.2).map(s => s.id), name).toEqual([])
+      expect(Math.hypot(entry.x - prop.x, entry.z - prop.z), name).toBeGreaterThan(prop.radius + 3)
+      expect(Math.hypot(TOWN_WELL.x - prop.x, TOWN_WELL.z - prop.z), name).toBeGreaterThan(prop.radius + TOWN_WELL.radius + 1)
+      // The Captain's mounted approach in front of the hall stays open (TownCivilianLife).
+      const approach = Math.abs(prop.x - (TOWN_CENTER.x - 8)) < 13 + prop.radius && prop.z > TOWN_CENTER.z + 13 - prop.radius && prop.z < TOWN_CENTER.z + 28 + prop.radius
+      expect(approach, name).toBe(false)
     }
   })
 })

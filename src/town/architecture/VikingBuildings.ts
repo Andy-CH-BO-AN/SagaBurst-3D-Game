@@ -271,7 +271,8 @@ export function buildVikingStable(ctx: BuildContext): void {
     s.profile('wood', x, [[T.rear.z0, 0], [R.frontEaveZ, 0], [R.frontEaveZ, F + R.frontEave], [R.ridgeZ, F + R.ridge], [T.rear.z0, F + R.rearEave + .4]], T.side.outer - T.side.inner, PALETTE.weathered)
     s.span('stone', side * T.side.outer - .5, -.4, T.rear.z0 - .08, side * T.side.inner + side * 0, F + .35, R.frontEaveZ, PALETTE.footing)
     battens(s, V(side * T.side.outer, 0, T.rear.z0), V(side * T.side.outer, 0, R.frontEaveZ), F, R.frontEave - .2, V(side, 0, 0), 1.4)
-    r.crossedGable(side * (T.side.outer + .1), F + R.ridge + .45, R.ridgeZ, 6.3, R.ridge - R.rearEave + .5, side * Math.PI / 2, 1.1)
+    // Boards follow the shorter rear slope so they stay inside the stable's footprint.
+    r.crossedGable(side * (T.side.outer + .1), F + R.ridge + .45, R.ridgeZ, R.ridgeZ - R.rearEaveZ, R.ridge - R.rearEave + .5, side * Math.PI / 2, 1.1)
     for (let i = 0; i < 3; i++) s.add('metal', new THREE.TorusGeometry(.18, .025, 4, 10).rotateY(Math.PI / 2).translate(side * (T.side.inner - .05), F + 2.0, -3.6 + i * .7), PALETTE.darkTimber)
   }
   r.shedRoof('roof', { axis: 'x', low: [R.rearEaveZ, F + R.rearEave], high: [R.ridgeZ, F + R.ridge], from: -T.side.outer - .5, to: T.side.outer + .5, thickness: THATCH })

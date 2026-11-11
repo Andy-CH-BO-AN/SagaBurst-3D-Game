@@ -44,6 +44,7 @@ import {
 import { createTerrain, getScenePlayableWorldBound, getTerrainHeight, resetTerrainScenePolicy, TERRAIN_TREE_POSITIONS, EntityCollisionBody, ObstacleData, resolveObstacleCollision } from './world/Terrain'
 import { DamageableObstacle } from './world/DamageableObstacle'
 import { TownWorld } from './town/TownWorld'
+import { preloadArchitectureStatues } from './town/architecture/TownArchitecture'
 import {
   createBridgePreviewSpawnPlan,
   createRiverCrossingBattlefield,
@@ -989,6 +990,7 @@ export class Game {
 
     if (isRomanTownBattle || isVikingTownBattle) {
       const townFaction = isRomanTownBattle ? 'roman' : 'viking'
+      await preloadArchitectureStatues()
       const townWorld = new TownWorld(townFaction, this.scene, Faction.TOWN)
       terrainMesh = townWorld.terrainMesh
       obstacles = townWorld.obstacles
