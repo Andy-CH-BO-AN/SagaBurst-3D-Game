@@ -12,6 +12,7 @@ import { CareerMountController } from '../career/CareerMountController'
 import { HERO_CLASS_NAMES } from '../career/CareerHeroClasses'
 import { resolveCareerHeroAsset, resolveCareerOrdinaryTier, resolveCareerPlayerMaxHp } from '../career/CareerPlayerProfile'
 import type { ActiveCareerMission, CareerMissionOutcome } from '../career/CareerMissionState'
+import type { PlayerBattleStats } from '../combat/BattleStatsTracker'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
 import { UNIT_PRESETS, type UnitLoadout, type UnitPresetId } from '../battle/UnitPresetCatalog'
@@ -101,6 +102,13 @@ export function arenaDuelPartyPlan(active: Pick<ActiveCareerMission, 'duelPreset
   }
 }
 
+/** A decided duel result and the stats it was decided with, held until its save succeeds. */
+interface PendingArenaSettlement {
+  readonly outcome: CareerMissionOutcome
+  readonly player: PlayerBattleStats
+  readonly merit: PlayerBattleStats | undefined
+}
+
 /**
  * Independent Career scene for a formal 1v1 duel. Duel rules (phases, countdown, timer,
  * outcome, illegal unarmed attacks, checkpoint cadence) stay in CareerDuelController; this
@@ -141,8 +149,11 @@ export class CareerDuelArenaScene {
   private disposed = false
   private panel: HTMLElement | null = null
   private settled = false
-  /** A settlement save failed: only the panel's retry button may save again, never the frame loop. */
-  private settlementRetryPending = false
+  /**
+   * The decided result whose save failed. Combat stays frozen on it — no clocks, AI, shots or
+   * player actions — and only the panel's retry button sends this same settlement again.
+   */
+  private pendingSettlement: PendingArenaSettlement | null = null
   private skillsDirty = false
   private readonly aimPoint = new THREE.Vector3()
 
@@ -336,6 +347,12 @@ export class CareerDuelArenaScene {
   /** One gameplay step (also used by DEV QA at a fixed rate). */
   update(dt: number): void {
     if (this.disposed) return
+    if (this.pendingSettlement) {
+      // Only presentation moves while the decided result waits for its save.
+      this.arena.update(dt)
+      this.damageNumbers.update(dt, this.camera)
+      return
+    }
     this.elapsed += dt
     const active = this.profile.activeMission
     if (!this.panel) this.orbit.update(this.input, dt, this.arena.obstacles)
@@ -610,22 +627,33 @@ export class CareerDuelArenaScene {
 
   /** Per-frame settlement: a decided outcome is claimed once; a failed save waits for the player's retry. */
   private settleFrame(outcome: CareerMissionOutcome | null): void {
-    if (outcome && !this.settlementRetryPending) this.finish(outcome)
+    if (outcome && !this.pendingSettlement) this.finish(outcome)
   }
 
+  private captureSettlement(outcome: CareerMissionOutcome): PendingArenaSettlement {
+    const stats = this.duel.snapshot()
+    return { outcome, player: { ...stats.player }, merit: stats.meritPlayer && { ...stats.meritPlayer } }
+  }
+
+  /** Saves the decided result, or the one already frozen by an earlier failed save. */
   private finish(outcome: CareerMissionOutcome): void {
     if (this.settled) return
     this.flushSkills()
     const active = this.profile.activeMission
     if (!active || active.result) return
-    const stats = this.duel.snapshot()
-    const claim = claimCareerMission(cloneCareerProfile(this.profile), active.id, outcome, stats.player, stats.meritPlayer)
+    const settlement = this.pendingSettlement ?? this.captureSettlement(outcome)
+    const claim = claimCareerMission(cloneCareerProfile(this.profile), active.id, settlement.outcome, settlement.player, settlement.merit)
     if (!this.commit(claim.profile)) {
-      this.settlementRetryPending = true
+      this.pendingSettlement = settlement
+      // Release the pointer and held keys so the retry button is clickable at once.
+      this.input.clear()
+      this.player.clearTownAction()
+      document.exitPointerLock?.()
       this.openPanel('單挑結算尚未保存', '保存失敗；軍功尚未入帳，結果保留在競技場。')
-      this.button('重試保存結算', () => { this.settlementRetryPending = false; this.closePanel(); this.finish(outcome) })
+      this.button('重試保存結算', () => { this.closePanel(); this.finish(settlement.outcome) })
       return
     }
+    this.pendingSettlement = null
     this.settled = true
     this.input.clear()
     this.player.clearTownAction()

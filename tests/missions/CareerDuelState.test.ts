@@ -273,37 +273,55 @@ describe('Career Duel independent arena', () => {
     expect(controller.beginReturn()).toBe(false)
   })
 
-  it('pauses per-frame settlement after a failed save so the retry panel stays put, then pays the claim once on retry', () => {
-    vi.stubGlobal('document', {})
+  it('freezes combat on the decided result after a failed settlement save and retries that same settlement once', () => {
+    const exitPointerLock = vi.fn()
+    vi.stubGlobal('document', { exitPointerLock })
     onTestFinished(() => { vi.unstubAllGlobals() })
-    // The real arena settlement methods on a plain host: no renderer, scene, actor or DOM is built.
-    const settle = (CareerDuelArenaScene.prototype as unknown as { settleFrame(this: object, outcome: 'victory' | null): void }).settleFrame
+    // The real arena update/settlement methods on a plain host: no renderer, scene, actor or DOM is built.
+    const scene = CareerDuelArenaScene.prototype as unknown as {
+      settleFrame(this: object, outcome: 'victory' | null): void
+      update(this: object, dt: number): void
+    }
     const panels: string[] = []
     let retry: (() => void) | null = null, failSave = true
+    const live = { player: { ...stats }, squads: [] }
+    const player = { hp: 150, clearTownAction: vi.fn(), update: () => { throw new Error('player combat ran while frozen') } }
     const base = { ...createCareerProfile('roman'), tutorial: undefined }
     const host = Object.assign(Object.create(CareerDuelArenaScene.prototype) as object, {
       profile: duel(base, 'roman_heavy_infantry', 1, 'arena-settle'),
       store: { save: () => !failSave },
-      settled: false, settlementRetryPending: false, skillsDirty: false,
-      duel: { snapshot: () => ({ player: stats, squads: [] }) },
-      input: { clear() {} }, player: { clearTownAction() {} },
+      disposed: false, settled: false, pendingSettlement: null, skillsDirty: false, elapsed: 0,
+      duel: { snapshot: () => live, update: () => { throw new Error('duel clock ran while frozen') } },
+      // An arrow still in flight: it would hit the player if shots advanced.
+      shots: [{ arrow: { update() { player.hp -= 60 } } }],
+      arena: { update: vi.fn() }, damageNumbers: { update: vi.fn() }, camera: {},
+      input: { clear: vi.fn() }, player,
       openPanel(title: string) { panels.push(title) }, closePanel() {},
       button(_label: string, action: () => void) { retry = action },
       openResult(result: { outcome: string }) { panels.push(`result:${result.outcome}`) },
-    }) as { profile: CareerProfile }
+    }) as { profile: CareerProfile; input: { clear: () => void }; arena: { update: () => void } }
     const merit = host.profile.totalMerit
-    for (let frame = 0; frame < 30; frame++) settle.call(host, 'victory')
-    // One failure panel, not one per frame; nothing paid or settled yet.
+    const expected = claimCareerMission(cloneCareerProfile(host.profile), 'arena-settle', 'victory', { ...stats }).meritAwarded
+    scene.settleFrame.call(host, 'victory')
+    // The failed save releases the pointer and held input and opens one stable panel.
+    expect([panels, exitPointerLock.mock.calls.length, vi.mocked(host.input.clear).mock.calls.length]).toEqual([['單挑結算尚未保存'], 1, 1])
+    live.player.survived = false // A later hit would change the live stats; the frozen claim must not.
+    for (let frame = 0; frame < 30; frame++) {
+      scene.update.call(host, 1 / 60)
+      scene.settleFrame.call(host, 'victory')
+    }
+    expect(player.hp).toBe(150) // No shot, AI or player combat advanced.
+    expect(vi.mocked(host.arena.update).mock.calls.length).toBe(30) // Presentation still moves.
     expect(panels).toEqual(['單挑結算尚未保存'])
     expect([host.profile.totalMerit, host.profile.activeMission!.result, host.profile.claimedBattleIds]).toEqual([merit, undefined, []])
     failSave = false
     retry!()
-    for (let frame = 0; frame < 30; frame++) settle.call(host, 'victory')
+    for (let frame = 0; frame < 30; frame++) scene.settleFrame.call(host, 'victory')
     expect(panels).toEqual(['單挑結算尚未保存', 'result:victory'])
     expect(host.profile.claimedBattleIds).toEqual(['arena-settle'])
-    const paid = host.profile.totalMerit - merit
-    expect(paid).toBeGreaterThan(0)
-    expect(paid).toBe(host.profile.activeMission!.result!.merit.total)
+    expect(host.profile.activeMission!.result!.stats.survived).toBe(true) // The decided snapshot, not the later one.
+    expect(host.profile.totalMerit - merit).toBe(expected)
+    expect(expected).toBeGreaterThan(0)
   })
 })
 
