@@ -202,7 +202,7 @@ export class CommanderFourGateDefenseController {
       navigation: this.navigation, grid: new SpatialGrid<NPC>(), actors: () => this.fieldNpcs,
       sectors, acceptsOrders: npc => !this.playerIssuedCommands.has(npc.combatantId) && !this.civilianCommandOwns(npc),
       attackerRole: npc => airIds.has(npc.combatantId) ? 'air' : cavalryIds.has(npc.combatantId) ? 'gate-cavalry'
-        : rangedIds.has(npc.combatantId) ? 'ranged' : 'siege-infantry', allowMountedRamps: false, approach: 'world-edge', historicalSectorReceipts: true,
+        : rangedIds.has(npc.combatantId) ? 'ranged' : 'siege-infantry', allowMountedRamps: true, approach: 'world-edge', historicalSectorReceipts: true,
       // 280-man army: extra rear room for the infantry rows. The swept corridor keeps the proven legacy
       // 50m clip near the wall (a full sweep proved illegal against real Town obstacles at west:left).
       ...(v2 ? { escortClearance: {
