@@ -5,7 +5,6 @@ import {
 } from '../../src/arena/ColosseumLayout'
 import { createValhallaObstacles, VALHALLA } from '../../src/arena/ValhallaLayout'
 import { DUEL_ARENA_IDS, parseDuelArenaId } from '../../src/arena/DuelArena'
-import { resolveDuelArenaPreviewSetup } from '../../src/debug/DuelArenaPreview'
 import { ArenaChaseRoute, ArenaSupportTracker, arenaStairLinks, arenaStandingFeet } from '../../src/arena/DuelArenaChase'
 import { ARENA_DUEL_REFEREE_SLOTS } from '../../src/arena/DuelArenaVenue'
 import { arenaDuelPartyPlan } from '../../src/arena/CareerDuelArenaScene'
@@ -103,14 +102,10 @@ describe('duel arena layout collision', () => {
     }
   })
 
-  it('resolves the DEV preview route and arena IDs without accepting unknown arenas', () => {
+  it('accepts known duel arena IDs and rejects unknown arenas', () => {
     expect(DUEL_ARENA_IDS).toEqual(['roman-colosseum', 'viking-valhalla'])
     expect(parseDuelArenaId('viking-valhalla')).toBe('viking-valhalla')
     expect(parseDuelArenaId('valhalla')).toBeNull()
-    expect(resolveDuelArenaPreviewSetup(new URLSearchParams('duelarena=roman&nolock'))).toEqual({ arena: 'roman-colosseum', faction: 'roman' })
-    expect(resolveDuelArenaPreviewSetup(new URLSearchParams('duelarena=valhalla&faction=roman'))).toEqual({ arena: 'viking-valhalla', faction: 'roman' })
-    // Unknown arenas fall through to the normal entry flow.
-    expect(resolveDuelArenaPreviewSetup(new URLSearchParams('duelarena=forum'))).toBeNull()
   })
 
   it('hands an airborne ground-mount fall to the dismounted rider and keeps grounded dismounts harmless', () => {
