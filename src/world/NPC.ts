@@ -1785,6 +1785,7 @@ export class NPC {
 
   assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number, arrivalOrder?: TacticalOrder, reached = false): void {
     if (this.dead) return
+    this.pursuitBlockedTargets?.clear()
     this.releaseOutpostRampartGarrison()
     this._clearNavigationPath()
     this._clearObstacleDetour()
@@ -1828,6 +1829,7 @@ export class NPC {
   assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted), marchSpeed?: number,
     anchor?: { position: THREE.Vector3; yaw: number }): void {
     if (this.dead || target === this) return
+    this.pursuitBlockedTargets?.clear()
     this.releaseOutpostRampartGarrison()
     if (this.mount?.isFlyingMount) this.setEagleFlightOrder(null)
     this._clearNavigationPath()
@@ -2523,7 +2525,7 @@ export class NPC {
     )
     const previous = previousIsPlayer ? player : previousNpc
     if (previous && this._isCachedTargetValid(player) && (this.tacticalOrder === 'attack' || this.tacticalOrder === 'charge')
-      && !this.holdsRampartPosition && !this.encounterOrigin && this.playerHitFocus <= 0) {
+      && !this.mount?.isFlyingMount && !this.holdsRampartPosition && !this.encounterOrigin && this.playerHitFocus <= 0) {
       const previousRank = this.combatTargetPriority?.(previous) ?? 0
       const next = target?.isPlayer ? player : target?.npc
       const nextRank = next ? this.combatTargetPriority?.(next) ?? 0 : Infinity
@@ -3124,7 +3126,7 @@ export class NPC {
       case AIState.CHASE: {
         this.alertSprite.visible = false
         if (!this.hasActiveRangedWeapon) this.attackTimer = Math.max(0, this.attackTimer - dt)
-        const eligibleCharge = !this.layeredCombatMovement && isEligibleMeleeCavalry(
+        const eligibleCavalry = isEligibleMeleeCavalry(
           this.isMounted,
           this.mount,
           this.hasActiveRangedWeapon,
@@ -3132,6 +3134,7 @@ export class NPC {
           this.hasSiegeObstacle,
           this.holdsRampartPosition,
         )
+        const eligibleCharge = eligibleCavalry && !this.layeredCombatMovement
         if (targetInfo && !targetInfo.isDead && eligibleCharge && this.cavalryPassthroughTimer > 0) {
           const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
           if (!isTargetInForwardCone(this.combatPosition, currentYaw, targetInfo.position)) {
@@ -3452,7 +3455,7 @@ export class NPC {
             const endpoint = this._tmpFaceDir.copy(this.mount.group.position).addScaledVector(moveDir, this.mount.baseSpeed * (dt + .15))
             if (findBlockingObstacleAlongPath(this.mount.group.position, endpoint, NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) moveDir.set(0, 0, 0)
           }
-        } else if (eligibleCharge && !siegeObstacle && !this.siegeBypassTarget && !layeredStep?.confirmedLayeredStep) {
+        } else if (eligibleCavalry && !siegeObstacle && !this.siegeBypassTarget && !layeredStep?.confirmedLayeredStep) {
           const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
           const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
           const maxDist = layeredStep?.tower
