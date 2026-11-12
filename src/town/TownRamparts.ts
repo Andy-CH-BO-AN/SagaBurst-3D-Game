@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { TownDockPassages } from './TownDockPassages'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { getTerrainHeight, getWalkRampHeight, TERRAIN_MIN_HEIGHT, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
+import { getTerrainHeight, getWalkRampHeight, TERRAIN_MIN_HEIGHT, WALK_SURFACE_STEP_UP, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
 import { TOWN_CITY, TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
 
 export const TOWN_RAMPART = { width: 10, inward: 6.2, rampWidth: 6, slope: .4, landing: 8 } as const
@@ -27,11 +27,18 @@ export function surfaceBox(s: WalkRampSurface, thickness = .35): THREE.Box3 {
  * Ground A* must enter at the ramp foot instead of cutting across its high lip.
  * These records only constrain navigation; the real ramp owns body/projectile collision.
  */
-export function rampNavigationSides(surface: WalkRampSurface): ObstacleData[] {
+export function rampNavigationSides(surface: WalkRampSurface, bodyRadius = 1): ObstacleData[] {
   return [-1, 1].map(side => {
-    const edge = { ...surface, startX: surface.startX - surface.dirZ * surface.halfWidth * side,
-      startZ: surface.startZ + surface.dirX * surface.halfWidth * side, halfWidth: .02 }
-    return { box: surfaceBox(edge), isBarricade: false, physicalPassable: true, projectilePassable: true }
+    // Reserve an inward body-width band so a lower-ground cell beside the lip
+    // cannot be recovered to the wrong side of the same coarse grid cell.
+    const offset = Math.max(0, surface.halfWidth - bodyRadius)
+    const edge = { ...surface, startX: surface.startX - surface.dirZ * offset * side,
+      startZ: surface.startZ + surface.dirX * offset * side, halfWidth: bodyRadius + .02 }
+    const box = surfaceBox(edge)
+    // Remain visible to navigation while standing on the top floor as well;
+    // otherwise descending agents alternate between direct and path at its lip.
+    box.max.y += WALK_SURFACE_STEP_UP
+    return { box, isBarricade: false, physicalPassable: true, projectilePassable: true }
   })
 }
 function surface(a: THREE.Vector3, b: THREE.Vector3, width: number): WalkRampSurface {

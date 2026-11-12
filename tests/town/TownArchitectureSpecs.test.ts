@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MOUNT_MOVEMENT_RADIUS } from '../../src/world/Mount'
 import {
-  architectureSpec, CIVIC_BUILDING_KINDS,
+  architectureSpec, architectureRuinCorridors, CIVIC_BUILDING_KINDS,
   type ArchitectureCollider, type ArchitectureFaction, type BuildingSpec, type LocalRect,
 } from '../../src/town/architecture/ArchitectureSpecs'
 import { stableHorsePositions, TOWN_SITES } from '../../src/town/TownRules'
@@ -15,6 +15,21 @@ const overlaps = (c: ArchitectureCollider, r: LocalRect, margin = 0): boolean =>
 const label = (spec: BuildingSpec) => `${spec.faction}/${spec.kind}`
 
 describe('Town architecture plans', () => {
+  it('廢墟淨空涵蓋第二入口、完整坡道與門內轉向，並遵循入口朝向', () => {
+    const plan = architectureSpec('roman', 'hr-center')
+    const corridors = architectureRuinCorridors({ ...plan,
+      interior: { minX: -8, maxX: 30, minZ: -10, maxZ: 12 },
+      entrance: { x: 0, z: 12, yaw: 0, width: 8.4, doorWidth: 6.4, height: 6.2, approach: 5 },
+      additionalEntrances: [{ x: 30, z: 0, yaw: Math.PI / 2, width: 8.4, doorWidth: 6.4, height: 6.2, approach: 7 }],
+    })
+    const inside = (r: LocalRect, x: number, z: number) => x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ
+    expect(inside(corridors[0], 4.1, 17.9)).toBe(true)
+    expect(inside(corridors[1], 37.9, -4.1)).toBe(true)
+    expect(inside(corridors[1], -7.9, 4.1)).toBe(true)
+    // Side rubble away from both required corridors remains physical.
+    expect(corridors.some(r => inside(r, 15, 9))).toBe(false)
+  })
+
   it('keep collider and floor inside their authored plan and match the public entrance to its floor edge', () => {
     for (const spec of SPECS) {
       const e = spec.envelope

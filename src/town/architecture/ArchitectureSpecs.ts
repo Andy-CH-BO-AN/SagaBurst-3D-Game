@@ -513,8 +513,38 @@ export interface HRHallLayout {
   readonly muster: readonly { x: number; z: number }[]
   readonly desk: LocalRect
   readonly rack: { x: number; z: number; length: number; yaw: number }
+  readonly extraRack: { x: number; z: number; length: number; yaw: number; footprint: LocalRect }
+  readonly windows: readonly number[]
+  readonly wallDisplays: readonly { x: number; z: number; yaw: number; width: number; shield: boolean; id: string }[]
   readonly furniture: readonly { rect: LocalRect; height: number; kind: 'bench' | 'table' }[]
   readonly statues: readonly { x: number; z: number; half: number }[]
+}
+/** Surviving raised-floor edges retain navigation guidance when walls collapse. */
+export function hrFloorNavigationEdges(hall: Pick<HRHallLayout, 'body' | 'portals'>): LocalRect[] {
+  const b = hall.body, edges = [rect(b.minX, b.minX, b.minZ, b.maxZ),
+    rect(b.maxX, b.maxX, b.minZ, b.maxZ), rect(b.minX, b.maxX, b.minZ, b.minZ)]
+  let from = b.minX
+  for (const e of [...hall.portals].sort((a, b) => a.x - b.x)) {
+    edges.push(rect(from, e.x - e.width / 2, b.maxZ, b.maxZ))
+    from = e.x + e.width / 2
+  }
+  edges.push(rect(from, b.maxX, b.maxZ, b.maxZ))
+  return edges.filter(edge => edge.minX <= edge.maxX)
+}
+
+/** Full doorway-to-interior corridors, including each real approach and rider clearance. */
+export function architectureRuinCorridors(spec: BuildingSpec): LocalRect[] {
+  return [spec.entrance, ...spec.additionalEntrances ?? []].map(e => {
+    const forwardX = Math.sin(e.yaw), forwardZ = Math.cos(e.yaw), rightX = forwardZ, rightZ = -forwardX
+    const inside = spec.interior
+    const back = inside ? Math.min(...[inside.minX, inside.maxX].flatMap(x => [inside.minZ, inside.maxZ]
+      .map(z => (x - e.x) * forwardX + (z - e.z) * forwardZ))) : -1.5
+    const half = e.doorWidth / 2 + 1, front = e.approach + 1
+    const corners = [-half, half].flatMap(side => [back, front].map(along => ({
+      x: e.x + side * rightX + along * forwardX, z: e.z + side * rightZ + along * forwardZ })))
+    return rect(Math.min(...corners.map(p => p.x)), Math.max(...corners.map(p => p.x)),
+      Math.min(...corners.map(p => p.z)), Math.max(...corners.map(p => p.z)))
+  })
 }
 export function expandedHrCenter(faction: ArchitectureFaction, muster: readonly { x: number; z: number }[]): { hall: HRHallLayout; spec: BuildingSpec } {
   const base = architectureSpec(faction, 'hr-center'), roman = faction === 'roman'
@@ -529,18 +559,53 @@ export function expandedHrCenter(faction: ArchitectureFaction, muster: readonly 
     width: 8.4, doorWidth: 6.4, height: 6.2, approach: 3.5 }))
   const desk = rect(-2.6, 2.6, body.minZ + 2.3, body.minZ + 3.3)
   const serviceSide = portals[1].x > 0 ? -1 : 1
-  const rack = { x: serviceSide < 0 ? body.minX + wall + .7 : body.maxX - wall - .7, z: -1, length: 6, yaw: -serviceSide * Math.PI / 2 }
+  const windows = [-6, 0, 6]
+  // The low blade rack occupies the bay between two windows, away from tables.
+  const rack = { x: serviceSide < 0 ? body.minX + wall + .7 : body.maxX - wall - .7,
+    z: (windows[1] + windows[2]) / 2, length: windows[2] - windows[1] - 1.8, yaw: -serviceSide * Math.PI / 2 }
+  const rackMinX = serviceSide < 0 ? desk.maxX + .8 : Math.max(...xs) + 2.8
+  const rackMaxX = serviceSide < 0 ? Math.min(...xs) - 2.8 : desk.minX - .8
+  const extraRack = { x: (rackMinX + rackMaxX) / 2, z: body.minZ + wall + .3,
+    length: rackMaxX - rackMinX, yaw: 0, footprint: rect(rackMinX, rackMaxX, body.minZ + wall + .15, body.minZ + wall + 1.65) }
   const furniture = [-1, 1].map(side => roman
     ? { rect: rect(side * 4 - 1.2, side * 4 + 1.2, 7, 7.5), height: .5, kind: 'bench' as const }
     : { rect: rect(side * 2.9 - .5, side * 2.9 + .5, -5, -1), height: .9, kind: 'table' as const })
   const statues = [-1, 1].map(side => ({ x: side * (roman ? 5.9 : 4.8), z: body.maxZ + .7, half: roman ? .6 : .45 }))
-  const hall: HRHallLayout = { body, wall, eave, ridge, portals, muster, desk, rack, furniture, statues }
+  const wallDisplays: HRHallLayout['wallDisplays'][number][] = []
+  const weapons = roman ? ['paladin_sword_t4', 'sword_t5', 'spear_t4', 'byzantine_standard_lance_t5', 'bow_t5']
+    : ['paladin_mace_t4', 'axe_t5', 'spear_t4', 'spear_t5', 'bow_t5']
+  const shields = roman ? ['centurion_aquila_shield_t4', 'byzantine_eagle_shield_t5']
+    : ['viking_dragonward_shield_t4', 'viking_berserker_shield_t5']
+  let weaponIndex = 0, shieldIndex = 0
+  const addBays = (from: number, to: number, point: (t: number) => { x: number; z: number; yaw: number },
+    excluded: readonly [number, number][]) => {
+    const count = Math.floor((to - from) / 3.6)
+    for (let i = 0; i < count; i++) {
+      const width = Math.min(3, (to - from) / count - .5), t = from + (i + .5) * (to - from) / count
+      if (excluded.some(([lo, hi]) => t + width / 2 > lo && t - width / 2 < hi)) continue
+      const shield = wallDisplays.length % 3 === 2
+      wallDisplays.push({ ...point(t), width, shield, id: shield ? shields[shieldIndex++ % shields.length] : weapons[weaponIndex++ % weapons.length] })
+    }
+  }
+  // Long walls alternate blades, polearms, bows and shields. Rear flags keep
+  // their own bays; front doorways and shield jambs retain full clearance.
+  addBays(body.minX + wall + 1, body.maxX - wall - 1, x => ({ x, z: body.minZ + wall + .08, yaw: 0 }), portals.map(p => [p.x - 1.4, p.x + 1.4]))
+  addBays(body.minX + wall + 1, body.maxX - wall - 1, x => ({ x, z: body.maxZ - wall - .08, yaw: Math.PI }), portals.map(p => [p.x - 4.5, p.x + 4.5]))
+  // End-wall bays stay between the actual windows rather than covering them.
+  for (const side of [-1, 1]) for (let i = 1; i < windows.length; i++) {
+    const z = (windows[i - 1] + windows[i]) / 2, shield = side < 0
+    wallDisplays.push({ x: side < 0 ? body.minX + wall + .08 : body.maxX - wall - .08, z,
+      yaw: -side * Math.PI / 2, width: windows[i] - windows[i - 1] - 2, shield,
+      id: shield ? shields[shieldIndex++ % shields.length] : weapons[weaponIndex++ % weapons.length] })
+  }
+  const hall: HRHallLayout = { body, wall, eave, ridge, portals, muster, desk, rack, extraRack, windows, wallDisplays, furniture, statues }
   const colliders: ArchitectureCollider[] = [
     solid(body.minX, body.minZ, body.minX + wall, body.maxZ, F + eave),
     solid(body.maxX - wall, body.minZ, body.maxX, body.maxZ, F + eave),
     solid(body.minX + wall, body.minZ, body.maxX - wall, body.minZ + wall, F + eave),
     solid(desk.minX, desk.minZ, desk.maxX, desk.maxZ, F + 1.05, 'prop'),
     solid(rack.x - .5, rack.z - rack.length / 2, rack.x + .5, rack.z + rack.length / 2, F + 2.2, 'prop'),
+    solid(extraRack.footprint.minX, extraRack.footprint.minZ, extraRack.footprint.maxX, extraRack.footprint.maxZ, F + 3.6, 'prop'),
     ...furniture.map(p => solid(p.rect.minX, p.rect.minZ, p.rect.maxX, p.rect.maxZ, F + p.height, 'prop')),
     ...statues.map(p => post(p.x, p.z, p.half, F + 3.7, 'statue')),
   ]

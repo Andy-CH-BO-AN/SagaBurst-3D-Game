@@ -197,7 +197,7 @@ function buildExpandedVikingHrCenter(ctx: BuildContext): void {
     const x = side < 0 ? b.minX : b.maxX
     plankWall(s, x, b.minZ + h.wall, x - side * h.wall, b.maxZ, F, h.eave)
     battens(s, V(x, 0, b.minZ), V(x, 0, b.maxZ), F, h.eave, V(side, 0, 0))
-    for (const z of [-6, 0, 6]) s.window(x + side * .02, F + 3.5, z, side * Math.PI / 2, 1, 1.2, 'wood')
+    for (const z of h.windows) s.window(x + side * .02, F + 3.5, z, side * Math.PI / 2, 1, 1.2, 'wood')
   }
   s.wall('wood', cx, F, b.maxZ - h.wall / 2, width, h.eave, h.wall,
     h.portals.map(p => ({ x: p.x - cx, y: 0, w: p.doorWidth, h: p.height })), PALETTE.weathered)

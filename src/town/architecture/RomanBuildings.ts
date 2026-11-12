@@ -204,8 +204,8 @@ function buildExpandedRomanHrCenter(ctx: BuildContext): void {
   for (const side of [-1, 1]) {
     const x = side < 0 ? b.minX : b.maxX
     s.wall('stone', x - side * h.wall / 2, F, cz, depth, h.eave, h.wall,
-      [-6, 0, 6].map(z => ({ x: -side * (z - cz), y: 2.5, w: 1.2, h: 1.8, arch: .6 })), PALETTE.cream, side * Math.PI / 2)
-    for (const z of [-6, 0, 6]) s.window(x + side * .02, F + 3.4, z, side * Math.PI / 2, 1.2, 1.8, 'stone', true)
+      h.windows.map(z => ({ x: -side * (z - cz), y: 2.5, w: 1.2, h: 1.8, arch: .6 })), PALETTE.cream, side * Math.PI / 2)
+    for (const z of h.windows) s.window(x + side * .02, F + 3.4, z, side * Math.PI / 2, 1.2, 1.8, 'stone', true)
     for (const [lo, hi, color] of [[0, .9, PALETTE.marble], [1.1, 1.6, PALETTE.redPlaster], [h.eave - .6, h.eave - .2, PALETTE.redPlaster]] as const)
       s.span('stone', x - .06, F + lo, b.minZ, x + .06, F + hi, b.maxZ, color)
   }

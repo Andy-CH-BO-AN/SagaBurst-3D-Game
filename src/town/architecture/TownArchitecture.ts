@@ -1,11 +1,11 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { flameParts } from '../../arena/ArenaKit'
-import { getTerrainHeight, type ObstacleData, type WalkRampSurface } from '../../world/Terrain'
+import { getTerrainHeight, WALK_SURFACE_STEP_UP, type ObstacleData, type WalkRampSurface } from '../../world/Terrain'
 import { rampNavigationSides, surfaceBox } from '../TownRamparts'
 import type { CommandWatchtowerLayout } from '../TownCommandWatchtowerLayout'
 import { ArchitectureKit, PALETTE, Sketch, preloadArchitectureDecorations, tabletopDisplay, type BuildContext } from './ArchitectureKit'
-import { architectureSpec, expandedHrCenter, DEEP, TOWN_PLAZA_MONUMENT, townPlazaLayout, type ArchitectureFaction, type BuildingSpec, type CivicBuildingKind, type LocalRect, type PlazaProp } from './ArchitectureSpecs'
+import { architectureSpec, architectureRuinCorridors, expandedHrCenter, hrFloorNavigationEdges, DEEP, TOWN_PLAZA_MONUMENT, townPlazaLayout, type ArchitectureFaction, type BuildingSpec, type CivicBuildingKind, type LocalRect, type PlazaProp } from './ArchitectureSpecs'
 import { buildRomanHome, buildRomanHrCenter, buildRomanStable, buildRomanTownCenter, buildRomanWeapons } from './RomanBuildings'
 import { buildVikingHome, buildVikingHrCenter, buildVikingStable, buildVikingTownCenter, buildVikingWeapons } from './VikingBuildings'
 
@@ -201,7 +201,7 @@ export function placeArchitecture(kit: ArchitectureKit, kind: CivicBuildingKind,
   const ruinBase = new Sketch(kit)
   foundation({ ...ctx, body: ruinBase }, spec, plinthBottom)
   ruinBase.build(ruin, `${root.name}-ruin-foundation`)
-  const rubbleBoxes = rubble(kit, ruin, spec, options.hrMuster)
+  const rubbleBoxes = rubble(kit, ruin, spec, ground, options.hrMuster)
   root.updateMatrixWorld(true)
 
   // Collision in world space.
@@ -222,6 +222,11 @@ export function placeArchitecture(kit: ArchitectureKit, kind: CivicBuildingKind,
   const supports: ObstacleData[] = []
   const floorTop = rootY + spec.floorY, base = rootY + plinthBottom
   for (const rect of spec.floor) supports.push(walkSlab(site, rect, floorTop, base))
+  if (expanded) for (const edge of hrFloorNavigationEdges(expanded.hall)) {
+    supports.push({ box: toWorld(edge.minX - .02, plinthBottom, edge.minZ - .02,
+      edge.maxX + .02, spec.floorY + WALK_SURFACE_STEP_UP, edge.maxZ + .02),
+    isBarricade: false, physicalPassable: true, projectilePassable: true })
+  }
   const e = spec.entrance
   const threshold = world(e.x, e.z)
   for (const entrance of [spec.entrance, ...spec.additionalEntrances ?? []]) {
@@ -343,18 +348,26 @@ function foundation(ctx: BuildContext, spec: BuildingSpec, bottom: number): void
   }
 }
 
-function rubble(kit: ArchitectureKit, ruin: THREE.Group, spec: BuildingSpec, reserved: readonly { x: number; z: number }[] = []): THREE.Box3[] {
+function rubble(kit: ArchitectureKit, ruin: THREE.Group, spec: BuildingSpec, ground: TerrainSampler, reserved: readonly { x: number; z: number }[] = []): THREE.Box3[] {
   const boxes: THREE.Box3[] = []
   const s = new Sketch(kit), e = spec.envelope, roman = kit.faction === 'roman'
+  const corridors = architectureRuinCorridors(spec)
   const w = e.maxX - e.minX, d = e.maxZ - e.minZ
   const addChunk = (g: THREE.BufferGeometry, slot: 'stone' | 'wood' | 'roof', color: number) => {
     g.computeBoundingBox()
     const b = g.boundingBox!
-    // Keep the service/entrance aisle clear, including its mounted body radius.
-    const halfAisle = spec.entrance.doorWidth / 2 + 1
-    if (b.max.x > spec.entrance.x - halfAisle && b.min.x < spec.entrance.x + halfAisle) { g.dispose(); return }
+    const blocked = spec.additionalEntrances?.length
+      ? corridors.some(c => b.max.x > c.minX && b.min.x < c.maxX && b.max.z > c.minZ && b.min.z < c.maxZ)
+      : b.max.x > spec.entrance.x - spec.entrance.doorWidth / 2 - 1 && b.min.x < spec.entrance.x + spec.entrance.doorWidth / 2 + 1
+    if (blocked) { g.dispose(); return }
     if (reserved.some(p => p.x + 2.2 > b.min.x && p.x - 2.2 < b.max.x && p.z + 2.2 > b.min.z && p.z - 2.2 < b.max.z)) { g.dispose(); return }
-    boxes.push(b.clone()); s.add(slot, g, color)
+    // Debris rests on a surviving slab or the actual surrounding terrain;
+    // the former F+.4 centre left short blocks hanging above their support.
+    const samples = [b.min.x, b.max.x].flatMap(x => [b.min.z, b.max.z].map(z => ground(x, z)))
+    let support = Math.max(...samples)
+    if (spec.floor.some(f => b.max.x > f.minX && b.min.x < f.maxX && b.max.z > f.minZ && b.min.z < f.maxZ)) support = Math.max(support, spec.floorY)
+    g.translate(0, support - b.min.y, 0); g.computeBoundingBox()
+    boxes.push(g.boundingBox!.clone()); s.add(slot, g, color)
   }
   for (let i = 0; i < 14; i++) {
     const x = (e.minX + e.maxX) / 2 + Math.sin(i * 8) * w * .35, z = (e.minZ + e.maxZ) / 2 + Math.cos(i * 4) * d * .3

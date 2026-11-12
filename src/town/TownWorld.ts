@@ -156,7 +156,7 @@ export class TownWorld {
     })
     this.root.add(watchtower); this.trackOwned(watchtower)
     this.airspaceObstacles.push(createTownCommandWatchtowerAirspaceObstacle(this.commandWatchtower))
-    this.airspaceObstacles.push(...this.obstacles)
+    this.airspaceObstacles.push(...this.obstacles.filter(obstacle => !obstacle.physicalPassable))
     this.validateAirfield()
     const roster = townRoster().filter(actor => actor.duty !== 'civilian')
     const entry = townPlayerEntryPoint()
