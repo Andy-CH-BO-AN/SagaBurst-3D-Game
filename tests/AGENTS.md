@@ -12,6 +12,13 @@
 - 核心 owner 保護重要演算法與 failure mode；caller 只保護必要資料傳遞、權限、失敗處理及副作用順序，不重跑完整核心矩陣。
 - 優先保護無法遊玩、取消與 rollback、資料損壞、存檔交易、ownership、重複結算、戰鬥有效命中與死亡、指揮資格、導航可達性和必要容量邊界。
 
+## Regression 設計與正式呼叫路徑
+
+- 新增測試前先寫出**可觀察的行為契約與失敗模式**，不是照目前實作抄 expected。先查「使用者／事件入口 → 真正決策 owner → 正式 caller → side effects／存檔 → 替換／退出 cleanup」。純函式小改動不必製作流程表；跨模組、非同步或生命週期修改，須簡短盤點這條路徑與責任歸屬。
+- **Helper / Service 測試通過，不等於正式遊戲已修好**。改動跨越 caller 邊界時，至少用一個輕量且執行真實 production caller 的案例驗證授權、資料傳遞、儲存或清理確實觸發；可隔離場景／網路等外部依賴，但不自行模擬或代做受測 caller 的決策。
+- 不同的失敗模式應有可獨立定位的案例：正常 Save/Load、非法權限、舊版遷移、寫入失敗與非同步取消不是同一個 scenario。**同一不可分交易**可用多個 assertions，**同一契約**少量資料變體可迭代；不要以大型單一 `it` 或迴圈藏多項不相干的失敗模式，也不為了守住 case count 刪除重要斷言。
+- 存檔相容性測試使用**真實歷史格式與授權／編組形狀**（可縮小無關 Fixture，不可改變造成 Bug 的關鍵形狀）；驗證首次載入、需要時的持久化、再次載入的冪等性，以及任務、HP、陣亡、指揮權、獎勵等必要不變量。無法安全遷移或寫入失敗時應 fail closed、保留原始資料，不只驗證 parser 有回傳值。
+
 ## 成本與邏輯範圍
 
 - 每個保留的邏輯 leaf case 最多 100ms，包含該案例的 beforeEach、body、afterEach、onTestFinished 與案例專屬 cleanup。以不受 fake timers 影響的真實單調時鐘量測；timeout 或 slowTestThreshold 不能取代預算驗證。
@@ -36,6 +43,14 @@
 - 每 case 圍繞一個行為，名稱清楚描述 scenario 與結果；同一交易或狀態轉換可以有多個必要 assertions，集合不變條件可迭代檢查。
 - 優先斷言公開狀態與輸出；副作用順序本身是契約時明確驗證。Regression 必須在對應錯誤行為下失敗，不能只檢查呼叫或沒有 throw。
 - 可設定 A*、scheduler 預算由測試自行指定 n，驗證同 frame 最多 n 筆、第 n + 1 筆保留、合法下一 frame 繼續及重複 timestamp 不重複耗用預算；不寫死 production 當前數值。
+
+## 非同步、資源與生命週期 Regression
+
+- 先區分**唯讀查詢**與**會改變狀態的操作**。查看 UI／狀態不得暗中建立 demand、啟動載入／重試或改變 ownership，除非這就是明示的產品契約；測試要能抓到「僅查看未選裝備卻觸發載入或通知」這類副作用。
+- 有 acquire／subscribe／create 的資源，必須找到正式 caller 中對應的 release／unsubscribe／dispose，涵蓋**換裝、替換物件、切換場景、初始化失敗與離場**。測試不能只手動呼叫 Service 的 dispose 就宣稱 Game 會清理；多個有效 owner 共享資源時，一個離開不能誤釋放其他人。
+- 對 preload、request、retry、timeout、abort 與 dispose，使用 fake timers、可控制順序的 deferred Promise 和窄 loader double 驗證**延遲完成／亂序完成**：過期結果不能覆寫新結果、誤清新 request 的狀態或在 owner 離開後觸發通知；已 dispose 的實例不可被舊工作復活。非必要預熱失敗不應阻塞場景，未就緒資產不可提前提供戰鬥效果。
+- 先定義資源可見性與交易邊界：部分載入失敗不可發布半成品、寫入失敗不可對外暴露半提交狀態；測成功路徑也要測拒絕、重試與失敗回復。用可觀察狀態驗證，而不是只確認 mock 被呼叫。
+- **不得為了讓 Test Double 過關而削弱 Production**：不在正式程式吞掉必要錯誤（例如空 `catch`）、加入假 fallback／只供測試的分支，或暴露不完整的 test-only reset API。優先注入狹窄的外部依賴或建立可隔離的 Service 實例；確需抽出純邏輯時，正式 caller 必須真正使用，且只做最低限度重構。
 
 ## 時間、隔離、cleanup 與型別
 
