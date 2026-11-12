@@ -11,7 +11,7 @@ import { getTerrainHeight, type EntityCollisionBody } from '../world/Terrain'
 import type { TownWorld } from '../town/TownWorld'
 import { TOWN_CITY, TOWN_GATES, type TownGateId } from '../town/TownLayout'
 import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
-import { allocateTownSiegeCrews, isTownSiegeDockConnected, planTownSiegeRamps, townSiegeFrame, townSiegeSectorReceiptsMatch, type TownSiegeApproach, type TownSiegeCrewSlot, type TownSiegeEscortClearance, type TownSiegeRampAssignment } from './TownFourGateSiegePolicy'
+import { withinTownSiegeSector, allocateTownSiegeCrews, isTownSiegeDockConnected, planTownSiegeRamps, townSiegeFrame, townSiegeSectorReceiptsMatch, type TownSiegeApproach, type TownSiegeCrewSlot, type TownSiegeEscortClearance, type TownSiegeRampAssignment } from './TownFourGateSiegePolicy'
 import { TownGateBreachPolicy, type TownGateBreachEvent } from './TownGateBreachPolicy'
 import { parseTownFourGateSiegeCheckpoint, type TownFourGateSiegeCheckpoint, type TownSiegeActorCheckpoint } from './TownFourGateSiegeCheckpoint'
 
@@ -210,12 +210,13 @@ export class TownFourGateSiege {
     this.departedActors.set(npc.combatantId, { ...snapshotCommandActor(npc, undefined, 'exited'),
       entranceId: npc.campaignEntranceId, breachCompleted: npc.campaignBreachCompleted })
     this.actorsById.delete(npc.combatantId)
-    npc.campaignEntranceId = null; npc.townSiegeGateId = null
+    npc.campaignEntranceId = null; npc.townSiegeGateId = null; npc.combatTargetPriority = undefined
   }
   /** Caller must forward every explicit player command, including Defend. */
   notifyPlayerOrder(npc: NPC): void {
     if (!this.actorsById.has(npc.combatantId)) return
     this.playerCommands.add(npc.combatantId); this.convoy.release(npc)
+    npc.combatTargetPriority = undefined
     this.crewRamps.get(npc.combatantId)?.releaseCrew(npc)
     npc.campaignEntranceId = null; npc.assignSiegeObstacle(null)
   }
@@ -295,9 +296,45 @@ export class TownFourGateSiege {
       this.route(npc, state === 'DOCKED' ? assignment.id : undefined)
     }
   }
+  /** Local ground interception is an exception to the gate task, not a new march owner. */
+  private cavalryTargetPriority(npc: NPC, target: NPC | import('../player/Player').Player): number | null {
+    const nav = this.options.navigation, town = nav.townNav!, p = target.combatPosition
+    const gateId = this.actorSectors.get(npc.combatantId)!
+    if ('mount' in target && target.mount?.isFlyingMount
+      || 'currentMount' in target && target.currentMount?.isFlyingMount) return null
+    // Closest authored gate defines the local sector, independent of unit IDs.
+    let sector = TOWN_GATES[0], distance = Infinity
+    for (const gate of TOWN_GATES) {
+      const d = (p.x - gate.x) ** 2 + (p.z - gate.z) ** 2
+      if (d < distance) { sector = gate; distance = d }
+    }
+    const local = sector.id === gateId
+    const ground = Math.abs(p.y - getTerrainHeight(p.x, p.z)) < 1.1
+    const outside = p.x <= TOWN_CITY.minX || p.x >= TOWN_CITY.maxX || p.z <= TOWN_CITY.minZ || p.z >= TOWN_CITY.maxZ
+    const breached = this.options.world.gates.get(gateId)!.state !== 'closed'
+    // Target priority does not use ground components to reject an actor on a
+    // tower/wall. Layered navigation owns the actual reachable descent/ascent.
+    if (local && ground && npc.combatPosition.distanceToSquared(p) <= 64 ** 2
+      && (outside || breached)) return 0
+    // Ground contact may cross the nearest-gate boundary, but never leave a
+    // fixed 24m overlap of the assigned sector. Keep both bodies local and use
+    // the existing ground connectivity only for this ground-to-ground exception.
+    if (!local && outside && ground && npc.combatPosition.distanceToSquared(p) <= 20 ** 2
+      && Math.abs(npc.combatPosition.y - getTerrainHeight(npc.combatPosition.x, npc.combatPosition.z)) < 1.1
+      && withinTownSiegeSector(npc.combatPosition, gateId, 24) && withinTownSiegeSector(p, gateId, 24)
+      && nav.areConnected(npc.combatPosition, p)) return 0
+    // A cavalryman already fighting on the wall may finish the local engagement.
+    if (local && town.isElevated(npc.combatPosition) && town.isElevated(p)) return 0
+    if (!breached) return null
+    if (local) return 1
+    // Other sectors compete only after all valid local targets are gone.
+    return 2
+  }
   private route(npc: NPC, preferred?: TownSiegeRampId): void {
-    if (!this.attackerIds.has(npc.combatantId) || npc.siegeTransport || !this.accepts(npc) || npc.campaignBreachCompleted) return
+    if (!this.attackerIds.has(npc.combatantId) || npc.siegeTransport || !this.accepts(npc)) return
     const role = this.options.attackerRole?.(npc)
+    if (role === 'gate-cavalry') npc.combatTargetPriority = target => this.cavalryTargetPriority(npc, target)
+    if (npc.campaignBreachCompleted) return
     // Air keeps its flight owner; archers keep normal ranged targeting and LOS.
     // Neither is assigned a melee obstacle or a charge when a ramp docks.
     if (npc.mount?.isFlyingMount || role === 'air') {
@@ -350,7 +387,8 @@ export class TownFourGateSiege {
       this.routeEligibility.set(npc.combatantId, eligible)
     }
     for (const npc of this.options.actors()) {
-      if (!this.attackerIds.has(npc.combatantId) || npc.mount?.isFlyingMount || this.options.attackerRole?.(npc) === 'air' || npc.siegeTransport || !this.accepts(npc)) {
+      if (!this.attackerIds.has(npc.combatantId) || npc.mount?.isFlyingMount || this.options.attackerRole?.(npc) === 'air'
+        || npc.hasTacticalCombatPriority || npc.siegeTransport || !this.accepts(npc)) {
         this.convoy.release(npc); continue
       }
       this.convoy.update(npc, this.rampList)
@@ -377,7 +415,7 @@ export class TownFourGateSiege {
       this.options.world.siegeAirspace?.remove(ramp.obstacles)
     }
     this.entrances.clear(); this.options.navigation.townNav!.siegeActive = false
-    for (const npc of this.actorsById.values()) { npc.campaignEntranceId = null; npc.townSiegeGateId = null; npc.siegeBypassTarget = null }
+    for (const npc of this.actorsById.values()) { npc.campaignEntranceId = null; npc.townSiegeGateId = null; npc.siegeBypassTarget = null; npc.combatTargetPriority = undefined }
     this.ramps.clear(); this.rampList.length = 0; this.crewRamps.clear(); this.pending.clear(); this.attackerIds.clear(); this.routeEligibility.clear(); this.actorsById.clear(); this.departedActors.clear()
   }
 }

@@ -10,7 +10,7 @@ import { shouldSpawnTownCommander, TOWN_COMMANDER_ID } from '../town/TownCommand
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import * as THREE from 'three'
 import { SIEGE_PREPARATION_SECONDS, siegeNearestGate, siegeReservePoint, siegeRoster, siegeRosterVersion, siegeAttackerOrder, siegeDefensePlans, siegeMuster, siegePoint, siegeOutward, insideSiegeTown, type TownSiegeState } from './TownSiege'
-import { TOWN_GATES, type TownGateId } from '../town/TownLayout'
+import { TOWN_GATE_ASSAULT_APPROACH, TOWN_GATES, type TownGateId } from '../town/TownLayout'
 import type { CampaignGateController } from '../campaign/CampaignGate'
 import { closeSiegeGate, overlapsGateClosure, type GateClosureBody } from '../town/TownSiegeGateClosure'
 import type { SiegeCavalryClaim, TownOutskirtsWarfareController } from '../town/TownOutskirtsWarfareController'
@@ -549,7 +549,7 @@ export class TownDefenseController {
       const gate = this.siegeContext.gates.get(group.id)!
       for (const npc of group.members) {
         if (npc.dead || this.siege.crossedActorIds.includes(npc.combatantId)) continue
-        const approach = siegePoint(group.id, 0, -12)
+        const approach = siegePoint(group.id, 0, -TOWN_GATE_ASSAULT_APPROACH)
         if (this.isPlayerCommanded(npc)) {
           // Player intent owns travel. Attack/Charge may engage the nearby gate;
           // Formation/Follow/Defend remain untouched, including after a breach.
@@ -723,6 +723,7 @@ export class TownDefenseController {
       if (saved) this.plannedArmyPositions.push(new THREE.Vector3(saved.x, 0, saved.z))
       const materialize = () => {
         const npc = reused ?? trackNpcSpawn(new NPC(this.scene, point.x, point.z, spec.faction, identity.characterFaction, spec.aiType, spec.name, spec.tier, spec.cavalry, spec.loadout, spec.presetId, spec.squadId, id, this.events.emit, identity.visualAssetId, identity.combatProfileId, identity.specialCombatProfile, undefined, undefined, undefined, undefined, identity.characterTier, identity.heroArchetype))
+        npc.enableBattlefieldEngagement()
         npc.respawnEnabled = false; npc.missionAerialDefense = true; npc.clearEncounter()
         const commandSquad = active.officialSquad && officialActorSquadId(active.officialSquad, id)
         if (commandSquad !== undefined) { npc.setCommandSquad(commandSquad); npc.combatOwnership = 'mission-official' }

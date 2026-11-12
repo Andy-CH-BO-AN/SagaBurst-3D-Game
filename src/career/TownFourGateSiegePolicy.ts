@@ -46,6 +46,16 @@ export function townSiegeSectorReceiptsMatch(
     && saved.releasedCavalryActorIds.every(id => sector.cavalryActorIds.includes(id) || historicalRoles && sector.wallActorIds.includes(id))
 }
 
+/** A bounded overlap across the authored Voronoi sector, not a moving chase leash.
+ * A target leaving this strip cannot renew its allowance merely because the rider followed it. */
+export function withinTownSiegeSector(point: { x: number; z: number }, gateId: TownGateId, overlap: number): boolean {
+  const own = TOWN_GATES.find(gate => gate.id === gateId)!
+  const ownDistanceSq = (point.x - own.x) ** 2 + (point.z - own.z) ** 2
+  return TOWN_GATES.every(gate => gate.id === gateId || ownDistanceSq
+    - ((point.x - gate.x) ** 2 + (point.z - gate.z) ** 2)
+      <= 2 * Math.hypot(gate.x - own.x, gate.z - own.z) * overlap)
+}
+
 export const townSiegeRampId = (gateId: TownGateId, side: -1 | 1): TownSiegeRampId => `town-siege-ramp:${gateId}:${side < 0 ? 'left' : 'right'}`
 export function townSiegeFrame(gateId: TownGateId) {
   const gate = TOWN_GATES.find(g => g.id === gateId)!

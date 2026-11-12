@@ -202,7 +202,7 @@ export class CommanderFourGateDefenseController {
       navigation: this.navigation, grid: new SpatialGrid<NPC>(), actors: () => this.fieldNpcs,
       sectors, acceptsOrders: npc => !this.playerIssuedCommands.has(npc.combatantId) && !this.civilianCommandOwns(npc),
       attackerRole: npc => airIds.has(npc.combatantId) ? 'air' : cavalryIds.has(npc.combatantId) ? 'gate-cavalry'
-        : rangedIds.has(npc.combatantId) ? 'ranged' : 'siege-infantry', allowMountedRamps: false, approach: 'world-edge', historicalSectorReceipts: true,
+        : rangedIds.has(npc.combatantId) ? 'ranged' : 'siege-infantry', allowMountedRamps: true, approach: 'world-edge', historicalSectorReceipts: true,
       // 280-man army: extra rear room for the infantry rows. The swept corridor keeps the proven legacy
       // 50m clip near the wall (a full sweep proved illegal against real Town obstacles at west:left).
       ...(v2 ? { escortClearance: {
@@ -332,6 +332,7 @@ export class CommanderFourGateDefenseController {
       spec.name, spec.tier, spec.cavalry, spec.loadout, spec.presetId, spec.squadId, id, this.events.emit,
       spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile, undefined, undefined, undefined,
       spec.spawnY === undefined ? undefined : { y: spec.spawnY }, spec.characterTier, spec.heroArchetype))
+    npc.enableBattlefieldEngagement()
     npc.respawnEnabled = false
     const mount = this.materializeMount(spec)
     if (mount) npc.mountVehicle(mount)
