@@ -76,6 +76,7 @@ export function felineVariantFromMountId(value: string | null | undefined): Feli
 
 /** Shared physical footprint for live mounts and equipment preflight without materialization. */
 export function mountCombatRadius(type: MountType): number { return type === MountType.XONGKORO ? 7 : 2 }
+export const MOUNT_MOVEMENT_RADIUS = 1
 export const DEFAULT_MOUNT_TYPE = MountType.HORSE
 
 /**
@@ -645,7 +646,7 @@ export class Mount {
       this.previousPosition,
       this.velY,
       this.onGround,
-      1,
+      MOUNT_MOVEMENT_RADIUS,
       2.6,
       0,
       obstacles,

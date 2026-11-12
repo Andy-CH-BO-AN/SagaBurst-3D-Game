@@ -75,8 +75,9 @@ export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPerson
   npc.combatOwnership = 'player-personal'
   npc.respawnEnabled = false
   npc.group.rotation.y = slot.yaw
+  if (slot.y !== undefined) npc.group.position.y = slot.y
   if (!spec.mounted) return { npc }
-  const mount = trackNpcSpawn(new Mount(scene, careerMountType(spec.loadout.mountId!), boardingPad?.x ?? slot.x, boardingPad?.z ?? slot.z, undefined, horseVariantForStableKey(`personal:${member.id}`)))
+  const mount = trackNpcSpawn(new Mount(scene, careerMountType(spec.loadout.mountId!), boardingPad?.x ?? slot.x, boardingPad?.z ?? slot.z, (boardingPad ?? slot).y, horseVariantForStableKey(`personal:${member.id}`)))
   mount.group.rotation.y = boardingPad?.yaw ?? slot.yaw; mount.reservedForTown = true
   if (!boardingPad) npc.mountVehicle(mount)
   return { npc, mount }
@@ -619,16 +620,16 @@ export class PersonalSquadRuntime {
     this.returningOnFoot.delete(actor); this.releaseEaglePad(actor.combatantId)
   }
 
-  private walkTo(actor: NPC, slot: PersonalSquadSpawnSlot, preserveHeight = false): void {
+  private walkTo(actor: NPC, slot: PersonalSquadSpawnSlot): void {
     actor.missionMovement = this.state === 'RETURNING'
-    actor.assignFormationTarget(this.returnCommand, new THREE.Vector3(slot.x, preserveHeight ? slot.y ?? getTerrainHeight(slot.x, slot.z) : getTerrainHeight(slot.x, slot.z), slot.z),
+    actor.assignFormationTarget(this.returnCommand, new THREE.Vector3(slot.x, slot.y ?? getTerrainHeight(slot.x, slot.z), slot.z),
       new THREE.Vector3(Math.sin(slot.yaw), 0, Math.cos(slot.yaw)), undefined, actor.mount?.isFlyingMount ? 'defend' : undefined)
   }
 
   private orderBoarding(actor: NPC, mount: Mount, index: number): void {
     const pad = this.position(mount.group.position, mount.group.rotation.y)
     this.boarding.set(actor, { pad, index })
-    this.walkTo(actor, pad, true)
+    this.walkTo(actor, pad)
   }
 
   private updateEagleTransfers(): void {

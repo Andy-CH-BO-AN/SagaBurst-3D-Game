@@ -1,0 +1,40 @@
+[
+  {
+    "asset": "roman-legion-banner.glb",
+    "source": "Meshy_AI_Roman_Legion_Banner_1111160339_texture(1).glb",
+    "sourceSha256": "e0d9ee5471aa41cc18bb2ac8212527df22a845d964d97bdf188bda91697217cc",
+    "sha256": "2c1284cc389eac1d5671f8f6d544d4d7222ad4fb97fbc79c02df17503a1a4230",
+    "triangles": 1015,
+    "texture": "1024x1024 JPEG",
+    "height": 1,
+    "forward": "+Z",
+    "permission": "Owner supplied Meshy GLB and explicitly requested inclusion in SagaBurst on 2026-11-12.",
+    "parts": [
+      "BannerCloth",
+      "Crossbar"
+    ],
+    "crossbarBaseY": 0.955
+  },
+  {
+    "asset": "viking-cat-banner.glb",
+    "source": "Meshy_AI_Viking_Cat_Banner_1111160153_texture(1).glb",
+    "sourceSha256": "b568b24a9ce94daaba4717d982031759e57c94103700a51d85191e283148c840",
+    "sha256": "310488b2dac214223f4efb8140d118c75bec90ba42332441de7fe4e1e6b1346f",
+    "triangles": 895,
+    "texture": "1024x1024 JPEG",
+    "height": 1,
+    "forward": "+Z",
+    "permission": "Owner supplied Meshy GLB and explicitly requested inclusion in SagaBurst on 2026-11-12."
+  },
+  {
+    "asset": "carved-lynx-head.glb",
+    "source": "Meshy_AI_Carved_Lynx_Head_1111160016_texture(1).glb",
+    "sourceSha256": "20fbb1473737b9137a194f845036b90d76810924d333047ebb45aac024ad95d8",
+    "sha256": "2f4de4103fcbe7ca11311a229a6750e756c1fabd181ced01539d90dc1464599a",
+    "triangles": 3181,
+    "texture": "1024x1024 JPEG",
+    "height": 1,
+    "forward": "+Z",
+    "permission": "Owner supplied Meshy GLB and explicitly requested inclusion in SagaBurst on 2026-11-12."
+  }
+]

@@ -1,3 +1,4 @@
+import { expandedHrCenter } from './architecture/ArchitectureSpecs'
 import { townEagleRoster, type TownEagleGarrisonLayout } from './TownEagleGarrison'
 import { eagleTrainerSpec, type TownEagleTrainingGround } from './TownEagleTrainingGround'
 import * as THREE from 'three'
@@ -10,8 +11,8 @@ export interface TownHRLayout {
   site: { x: number; z: number; yaw: number }
   width: number
   depth: number
-  officer: { x: number; z: number; yaw: number }
-  muster: { x: number; z: number; yaw: number }[]
+  officer: { x: number; y?: number; z: number; yaw: number }
+  muster: { x: number; y?: number; z: number; yaw: number }[]
 }
 function point(site: TownHRLayout['site'], side: number, forward: number) {
   return { x: site.x + Math.cos(site.yaw) * side + Math.sin(site.yaw) * forward,
@@ -47,14 +48,26 @@ export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readon
   for (const site of sites) {
     // Reserve the eaves plus margin, without rejecting a hall beside the overhead deck.
     if (!clear(footprint(site, width + 2.4, depth + 6))) continue
-    const officer = point(site, 0, depth / 2 + 4)
+    const officer = point(site, -(width / 2 - 2), depth / 2 + 4)
     // Mounted body diameter is 2m; keep another .25m clearance on each side.
     if (!clear(footprint(officer, 2.5, 2.5))) continue
     for (const courtyardSide of [1, -1]) {
       const muster = Array.from({ length: 30 }, (_, i) => point(site,
         courtyardSide * (width / 2 + 5 + Math.floor(i / 5) * 4.5), (i % 5 - 2) * 4.5))
       const area = new THREE.Box3().setFromPoints(muster.map(p => new THREE.Vector3(p.x, 0, p.z))).expandByVector(new THREE.Vector3(2.2, 100, 2.2))
-      if (clear(area)) return { site, width, depth, officer, muster }
+      if (!clear(area)) continue
+      const layout = { site, width, depth, officer, muster }
+      const { hall: plan } = expandedHrCenter(faction, townHrLocalMuster(layout))
+      const side = Math.cos(site.yaw) * (officer.x - site.x) - Math.sin(site.yaw) * (officer.z - site.z)
+      const forward = Math.sin(site.yaw) * (officer.x - site.x) + Math.cos(site.yaw) * (officer.z - site.z)
+      if (side > plan.body.minX && side < plan.body.maxX && forward > plan.body.minZ && forward < plan.body.maxZ) {
+        const clearance = plan.wall + 1.5
+        Object.assign(officer, point(site, Math.max(plan.body.minX + clearance, Math.min(plan.body.maxX - clearance, side)),
+          Math.max(plan.body.minZ + clearance, Math.min(plan.body.maxZ - clearance, forward))))
+      }
+      const hall = new THREE.Box3(new THREE.Vector3(plan.body.minX, -100, plan.body.minZ), new THREE.Vector3(plan.body.maxX, 100, plan.body.maxZ))
+        .applyMatrix4(new THREE.Matrix4().makeRotationY(site.yaw)).translate(new THREE.Vector3(site.x, 0, site.z))
+      if (clear(hall) && clear(footprint(officer, 2.5, 2.5))) return layout
     }
   }
   throw new Error('No walkable HR Center and mounted courtyard in the western district')
@@ -75,4 +88,10 @@ export function townConquestRoster(layout: TownHRLayout, residents: readonly Tow
   const roster = [...residents.map(spec => eagleGarrison && spec.eagle ? positioned.get(spec.id) ?? spec : spec), hrOfficerSpec(layout), ...(eagleTraining ? [eagleTrainerSpec(eagleTraining)] : [])]
   if (new Set(roster.map(actor => actor.id)).size !== roster.length) throw new Error('Duplicate town conquest actor ID')
   return roster
+}
+
+/** Preserve saved XZ positions and order when deriving the enclosed hall. */
+export function townHrLocalMuster(layout: Pick<TownHRLayout, 'site' | 'muster'>): { x: number; z: number }[] {
+  const { site } = layout, c = Math.cos(site.yaw), s = Math.sin(site.yaw)
+  return layout.muster.map(p => ({ x: c * (p.x - site.x) - s * (p.z - site.z), z: s * (p.x - site.x) + c * (p.z - site.z) }))
 }

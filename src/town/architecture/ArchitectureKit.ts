@@ -1,6 +1,13 @@
+import type { HRHallLayout } from './ArchitectureSpecs'
 import * as THREE from 'three'
-import { ArenaResources, arenaRandom, bannerQuad, brazierParts, createFlameMaterial, flameParts, mergedMesh, paintedTexture, speckle, tint } from '../../arena/ArenaKit'
-import type { ArchitectureFaction } from './ArchitectureSpecs'
+import { ArenaResources, arenaRandom, brazierParts, createFlameMaterial, flameParts, mergedMesh, paintedTexture, speckle, tint } from '../../arena/ArenaKit'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { WeaponMeshFactory } from '../../world/WeaponMeshFactory'
+import { preloadHighTierEquipment, createT5Melee, createByzantineEquipment, requestByzantineEquipment, isByzantineEquipmentId } from '../../world/HighTierEquipment'
+import { preloadPaladinEquipment, createPaladinEquipment } from '../../world/PaladinEquipment'
+import { publicAssetUrl } from '../../assets/publicAssetUrl'
+import { WEAPONS } from '../../rpg/WeaponDatabase'
+import type { ArchitectureFaction, CivicBuildingKind } from './ArchitectureSpecs'
 
 /**
  * Shared GPU resources and part vocabulary for one faction's Town architecture.
@@ -38,6 +45,7 @@ export interface BuildContext {
   /** Damageable roof; Town damage tilts/hides this group. */
   readonly roof: Sketch
   readonly root: THREE.Group
+  readonly hrHall?: HRHallLayout
   readonly snow: boolean
   /** Local terrain height at a building-local point (outdoor props sit on it). */
   ground(x: number, z: number): number
@@ -247,8 +255,10 @@ export interface ArchHole { x: number; y: number; w: number; h: number; arch?: n
  * meshes. Coordinates are building-local metres (front = +Z).
  */
 export class Sketch {
+  private readonly extras: THREE.Object3D[] = []
+  readonly airspaceParts: { parent: THREE.Object3D; local: THREE.Box3; decoration?: boolean }[] = []
   private readonly parts = new Map<PartSlot, THREE.BufferGeometry[]>()
-  constructor(readonly kit: ArchitectureKit) {}
+  constructor(readonly kit: ArchitectureKit, private readonly buildingKind?: CivicBuildingKind) {}
 
   add(slot: PartSlot, geometry: THREE.BufferGeometry, color?: THREE.ColorRepresentation, uvScale: number | null = .25): THREE.BufferGeometry {
     if (uvScale !== null && slot !== 'banner' && slot !== 'roof' && slot !== 'flame') projectUV(geometry, uvScale)
@@ -263,11 +273,15 @@ export class Sketch {
     const meshes: THREE.Mesh[] = []
     for (const [slot, parts] of this.parts) {
       if (!parts.length) continue
+      for (const part of parts) { part.computeBoundingBox(); this.airspaceParts.push({ parent, local: part.boundingBox!.clone() }) }
       const mesh = mergedMesh(this.kit.resources, parts, this.kit.materials.slots[slot], {
         name: `${name}-${slot}`, castShadow: !SHADOWLESS.has(slot), receiveShadow: slot !== 'flame' && slot !== 'glow' })
       if (slot === 'flame') mesh.renderOrder = 5
       parent.add(mesh); meshes.push(mesh)
     }
+    for (const extra of this.extras) this.airspaceParts.push({ parent, local: new THREE.Box3().setFromObject(extra), decoration: true })
+    if (this.extras.length) parent.add(batchDecorations(this.extras, this.kit.resources))
+    this.extras.length = 0
     this.parts.clear()
     return meshes
   }
@@ -400,23 +414,17 @@ export class Sketch {
     this.box('stone', x, y0 - .15, z, radius * 2.6, .3, radius * 2.6, PALETTE.footing)
   }
 
-  /** Carved beast head on a curled neck; local +Z of the head faces `yaw`. */
-  dragonHead(x: number, y: number, z: number, yaw: number, scale = 1, color: number = PALETTE.carved): void {
-    const s = scale
-    const curve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(0, 0, -.1 * s), new THREE.Vector3(0, .55 * s, .05 * s), new THREE.Vector3(0, 1.0 * s, .32 * s), new THREE.Vector3(0, 1.18 * s, .7 * s),
-    ])
-    const parts: THREE.BufferGeometry[] = [new THREE.TubeGeometry(curve, 10, .17 * s, 7, false)]
-    const head = new THREE.BoxGeometry(.3 * s, .3 * s, .62 * s).translate(0, 1.22 * s, .98 * s)
-    const snout = new THREE.ConeGeometry(.15 * s, .42 * s, 6).rotateX(Math.PI / 2).translate(0, 1.2 * s, 1.45 * s)
-    const jaw = new THREE.BoxGeometry(.24 * s, .09 * s, .62 * s).rotateX(.35).translate(0, 1.0 * s, 1.18 * s)
-    const crest = new THREE.ConeGeometry(.08 * s, .36 * s, 5).rotateX(-.7).translate(0, 1.45 * s, .72 * s)
-    for (const side of [-1, 1]) parts.push(new THREE.ConeGeometry(.06 * s, .28 * s, 5).rotateX(-1.1).translate(side * .1 * s, 1.4 * s, .78 * s))
-    parts.push(head, snout, jaw, crest)
-    for (const p of parts) { p.rotateY(yaw); p.translate(x, y, z); this.add('wood', p, color) }
-    for (const side of [-1, 1]) this.add('metal', new THREE.SphereGeometry(.035 * s, 6, 4).translate(side * .16 * s, 1.27 * s, 1.1 * s).rotateY(yaw).translate(x, y, z), 0xd8a040)
+  /** Shared carved lynx head seated on a wooden base; local +Z of the head faces `yaw`. */
+  lynxHead(x: number, y: number, z: number, yaw: number, scale = 1, color: number = PALETTE.carved): void {
+    const head = ornament('carved-lynx-head', scale * 1.25)
+    if (!head) return
+    head.position.set(x, y, z); head.rotation.y = yaw
+    this.extras.push(head)
+    // Neck/base seats on the ridge beam rather than hanging beyond it.
+    this.box('wood', x, y - .12 * scale, z, .46 * scale, .3 * scale, .42 * scale, color, yaw)
   }
-  /** Crossed Viking bargeboards meeting at a gable apex, ending in two dragon heads. */
+
+  /** Crossed Viking bargeboards meeting at a gable apex, with a single carved lynx finial. */
   crossedGable(x: number, apexY: number, z: number, halfSpan: number, rise: number, alongYaw: number, scale = 1): void {
     // alongYaw: direction the gable faces (0 = +Z). Boards lie in the gable plane.
     const right = new THREE.Vector3(Math.cos(alongYaw), 0, -Math.sin(alongYaw))
@@ -431,40 +439,128 @@ export class Sketch {
         const p = eave.clone().lerp(over, t).addScaledVector(face, .08)
         this.add('wood', new THREE.TorusGeometry(.1, .025, 4, 8).rotateY(alongYaw).translate(p.x, p.y, p.z), PALETTE.darkTimber)
       }
-      this.dragonHead(over.x, over.y - .25 * scale, over.z, alongYaw + (side < 0 ? -.35 : .35) + Math.PI * 0, .8 * scale)
+
     }
+    const template = ornaments.get('carved-lynx-head')
+    if (!template) return
+    const publicHall = this.buildingKind === 'town-center' || this.buildingKind === 'hr-center'
+    const home = this.buildingKind?.startsWith('home')
+    const height = Math.min(publicHall ? 3.2 : home ? 1.4 : 2.0,
+      Math.max(publicHall ? 1.5 : .9, Math.min(halfSpan * 2 * (publicHall ? .2 : .15), rise * .85)))
+    const bounds = new THREE.Box3().setFromObject(template)
+    // Board depth is .14m and relief projects another .105m. Seat the complete
+    // rear of the carving ahead of that plane for every gable heading.
+    const boardFront = .14 / 2 + .105
+    const head = ornament('carved-lynx-head', height)!
+    const front = boardFront - bounds.min.z * height
+    const centre = apex.clone().addScaledVector(face, front)
+    centre.y -= bounds.getCenter(new THREE.Vector3()).y * height
+    // Seat the carving around the ridge joint; its bottom-origin pivot must
+    // not stack the entire head above the apex and into reserved flight space.
+    head.position.copy(centre); head.rotation.y = alongYaw; this.extras.push(head)
+    const rearSeat = centre.clone().addScaledVector(face, bounds.min.z * height).add(V3(0, height * .22, 0))
+    this.beam('wood', apex, rearSeat, height * .28, height * .25, PALETTE.carved)
+    this.box('wood', rearSeat.x, rearSeat.y, rearSeat.z, height * .33, height * .35, .18, PALETTE.carved, alongYaw)
   }
 
   /** Round shield (painted quadrants, iron rim and boss) facing yaw, centre at (x, y, z). */
-  shield(x: number, y: number, z: number, yaw: number, radius = .45, colors: readonly number[] = [PALETTE.red, PALETTE.cream], tilt = 0): void {
-    const sectors = 8
-    for (let i = 0; i < sectors; i++) {
-      const g = new THREE.CylinderGeometry(radius, radius, .06, 3, 1, false, i / sectors * Math.PI * 2, Math.PI * 2 / sectors)
-      g.rotateX(Math.PI / 2).rotateX(tilt).rotateY(yaw).translate(x, y, z)
-      this.add('wood', g, colors[Math.floor(i / 2) % colors.length], .9)
-    }
-    this.add('metal', new THREE.TorusGeometry(radius, .03, 4, 16).rotateX(tilt).rotateY(yaw).translate(x, y, z), PALETTE.iron)
-    this.add('metal', new THREE.SphereGeometry(radius * .22, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI / 2).rotateX(tilt).rotateY(yaw).translate(x, y, z), PALETTE.iron)
+  shield(x: number, y: number, z: number, yaw: number, radius = .45, _colors: readonly number[] = [PALETTE.red, PALETTE.cream], tilt = 0, id = this.kit.faction === 'roman' ? 'roman_officer_shield_t4' : 'viking_berserker_shield_t5'): void {
+    const model = equipmentDisplay(id, 'shield')
+    if (!model) return
+    // Wall plane is z=0; the complete rear bounds, including the grip, stay outside it.
+    const bounds = new THREE.Box3().setFromObject(model), size = bounds.getSize(new THREE.Vector3())
+    model.scale.setScalar(radius * 2 / size.y)
+    model.rotation.x = tilt
+    const b = new THREE.Box3().setFromObject(model)
+    model.position.set(-(b.min.x + b.max.x) / 2, -(b.min.y + b.max.y) / 2, -b.min.z)
+    const mount = new THREE.Group(); mount.position.set(x, y, z); mount.rotation.y = yaw; mount.add(model)
+    this.extras.push(decorationLod(mount))
+    // Two pegs into the wall support the shield at its rear grip.
+    const dir = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw))
+    for (const dy of [-.1, .1]) this.beam('wood', new THREE.Vector3(x, y + dy, z).addScaledVector(dir, -.12), new THREE.Vector3(x, y + dy, z).addScaledVector(dir, .2), .07, .07, PALETTE.darkTimber)
   }
   /** Roman curved scutum (tall rectangle) leaning at the given yaw. */
-  scutum(x: number, y: number, z: number, yaw: number, lean = .18): void {
-    const g = new THREE.CylinderGeometry(1.1, 1.1, 1.15, 10, 1, true, -.38, .76)
-    g.translate(0, 0, -1.05).rotateX(lean).rotateY(yaw).translate(x, y, z)
-    this.add('cloth', g, PALETTE.red)
-    this.add('metal', new THREE.SphereGeometry(.09, 8, 5).translate(0, 0, .06).rotateX(lean).rotateY(yaw).translate(x, y, z), PALETTE.gold)
+  scutum(x: number, y: number, z: number, yaw: number, lean = .18, id = 'roman_officer_shield_t4'): void {
+    this.shield(x, y, z, yaw, .575, undefined, lean, id)
+  }
+  /** Upright combat asset on a wall board, supported at real geometry sections. */
+  wallWeapon(id: string, x: number, y: number, z: number, yaw: number, width: number, height: number): void {
+    const model = uprightEquipmentDisplay(id)
+    if (!model) return
+    const original = new THREE.Box3().setFromObject(model), size = original.getSize(new THREE.Vector3())
+    model.scale.multiplyScalar(Math.min(1, width / size.x, height / size.y))
+    const bounds = new THREE.Box3().setFromObject(model)
+    model.position.set(-bounds.getCenter(new THREE.Vector3()).x, -bounds.getCenter(new THREE.Vector3()).y, .16 - bounds.min.z)
+    const fitted = new THREE.Box3().setFromObject(model), fittedSize = fitted.getSize(new THREE.Vector3())
+    const right = V3(Math.cos(yaw), 0, -Math.sin(yaw)), face = V3(Math.sin(yaw), 0, Math.cos(yaw))
+    const point = (lx: number, ly: number, lz: number) => V3(x, y + ly, z).addScaledVector(right, lx).addScaledVector(face, lz)
+    const board = point(0, 0, .06)
+    this.box('wood', board.x, board.y, board.z, fittedSize.x + .24, fittedSize.y + .16, .12, PALETTE.darkTimber, yaw)
+    for (const level of [-.28, .28].map(f => fittedSize.y * f)) {
+      const contact = new THREE.Vector3(), section = horizontalSection(model, level, contact)
+      if (section.isEmpty()) throw new Error(`壁掛武器缺少支撐截面：${id}`)
+      // Touch the rear-most actual vertex at this height, including curved bows.
+      this.beam('metal', point(contact.x, level, .1), point(contact.x, level, contact.z + .02), .06, .06, PALETTE.iron)
+    }
+    const mount = new THREE.Group(); mount.position.set(x, y, z); mount.rotation.y = yaw; mount.add(model)
+    const lod = decorationLod(mount); lod.name = `architecture-wall-${id}`; this.extras.push(lod)
   }
   /** Hanging banner from a rod: top centre at (x, top, z), facing yaw. */
-  banner(x: number, top: number, z: number, yaw: number, width: number, height: number, rod: 'gold' | 'wood' = 'gold'): void {
-    this.add('banner', bannerQuad(x, top, z, yaw, width, height, .06), undefined, null)
-    const half = width / 2 + .12, dir = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw))
-    const a = new THREE.Vector3(x, top + .03, z).addScaledVector(dir, -half), b = new THREE.Vector3(x, top + .03, z).addScaledVector(dir, half)
-    const face = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(.06)
-    this.beam(rod === 'gold' ? 'metal' : 'wood', a.add(face), b.add(face), .07, .07, rod === 'gold' ? PALETTE.gold : PALETTE.darkTimber, true)
+  banner(x: number, top: number, z: number, yaw: number, width: number, height: number, rod: 'gold' | 'wood' = 'gold', poleRadius?: number): void {
+    const asset = this.kit.faction === 'roman' ? 'roman-legion-banner' : 'viking-cat-banner'
+    // Uniform scale constrained by both opening width and height; never stretch the source.
+    const template = ornaments.get(asset)
+    if (!template) return
+    const bounds = new THREE.Box3().setFromObject(template), size = bounds.getSize(new THREE.Vector3())
+    const scale = Math.min(width / size.x, height / size.y)
+    const face = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw))
+    const base = new THREE.Vector3(x, top - size.y * scale, z)
+    const doubleFaced = poleRadius !== undefined && this.kit.faction === 'roman'
+    for (const side of doubleFaced ? [1, -1] : [1]) {
+      const model = template.clone(true); model.scale.setScalar(scale)
+      if (doubleFaced) model.getObjectByName('Crossbar')?.removeFromParent()
+      const bodyBounds = new THREE.Box3().setFromObject(model)
+      const back = bodyBounds.min.z / scale
+      const distance = poleRadius === undefined ? -bounds.min.z * scale : poleRadius - back * scale
+      model.position.copy(base).addScaledVector(face, side * distance)
+      model.rotation.y = yaw + (side < 0 ? Math.PI : 0)
+      this.extras.push(decorationLod(model))
+    }
+    const crossbar = doubleFaced ? template.getObjectByName('Crossbar') : undefined
+    if (crossbar) {
+      const model = crossbar.clone(true); model.scale.setScalar(scale)
+      model.position.copy(base); model.rotation.y = yaw
+      this.extras.push(decorationLod(model))
+      // Source cloth loops are split below the original crossbar. Short pegs
+      // reach both cloth faces around the single central pole.
+      for (const side of [-1, 1]) {
+        const p = new THREE.Vector3(x, top - .06 * scale, z).addScaledVector(new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw)), side * size.x * scale * .3)
+        this.beam('wood', p.clone().addScaledVector(face, -(poleRadius! + .03)), p.clone().addScaledVector(face, poleRadius! + .03), .035, .035, PALETTE.darkTimber, true)
+      }
+    } else if (doubleFaced) {
+      throw new Error('羅馬獨立軍旗缺少唯一 Crossbar 資產')
+    } else if (poleRadius !== undefined) {
+      // Viking's one-piece crossbar stays with its cloth, wholly in front of
+      // the pole. A cantilever joins that crossbar back to the central shaft.
+      const hanger = base.clone(); hanger.y = top - .04 * scale
+      const crossbarDepth = poleRadius + (bounds.getCenter(new THREE.Vector3()).z - bounds.min.z) * scale
+      this.beam(rod === 'gold' ? 'metal' : 'wood', hanger, hanger.clone().addScaledVector(face, crossbarDepth), .08, .08, rod === 'gold' ? PALETTE.gold : PALETTE.darkTimber, true)
+    }
+    // Wall banners already include their source crossbar. Brackets attach its
+    // ends to the wall; no second horizontal rod is added over the GLB.
+    if (poleRadius === undefined) {
+      const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw))
+      for (const side of [-1, 1]) {
+        const p = new THREE.Vector3(x, top - .04 * scale, z).addScaledVector(right, side * size.x * scale * .4)
+        this.beam(rod === 'gold' ? 'metal' : 'wood', p.clone().addScaledVector(face, -.18), p.clone().addScaledVector(face, .08), .05, .05, PALETTE.iron)
+      }
+    }
   }
+
   /** Free-standing banner pole with crossbar and banner. */
   bannerPole(x: number, y0: number, z: number, yaw: number, height = 6, slot: 'metal' | 'wood' = 'wood'): void {
     this.cylinder(slot, x, y0, z, .07, .09, height, slot === 'metal' ? PALETTE.gold : PALETTE.darkTimber, 8)
-    this.banner(x, y0 + height - .45, z, yaw, 1.15, 2.4, slot === 'metal' ? 'gold' : 'wood')
+    this.banner(x, y0 + height - .45, z, yaw, 1.15, 2.4, slot === 'metal' ? 'gold' : 'wood', .09)
     if (slot === 'metal') this.add('metal', new THREE.ConeGeometry(.12, .4, 8).translate(x, y0 + height + .2, z), PALETTE.gold)
   }
   /** Gold Roman eagle with spread wings on a plaque plane facing yaw. */
@@ -557,27 +653,52 @@ export class Sketch {
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.box('wood', x + sx * (w / 2 - .12), y0 + (top - .1) / 2, z + sz * (d / 2 - .12), .12, top - .1, .12, PALETTE.darkTimber)
   }
   /** Spear/sword rack along local axis at yaw. */
-  weaponRack(x: number, y0: number, z: number, length: number, yaw: number, kind: 'spear' | 'sword' | 'axe' = 'spear'): void {
+  weaponRack(x: number, y0: number, z: number, length: number, yaw: number, kind: 'spear' | 'sword' | 'axe' = 'spear', ids?: readonly string[]): void {
     const dir = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw))
+    const face = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw))
     const a = new THREE.Vector3(x, y0, z).addScaledVector(dir, -length / 2), b = new THREE.Vector3(x, y0, z).addScaledVector(dir, length / 2)
-    for (const y of [.35, 1.25]) this.beam('wood', a.clone().setY(y0 + y), b.clone().setY(y0 + y), .1, .1, PALETTE.darkTimber)
+    const bars = [.35, 1.25], barHalfDepth = .05, trayTop = .08
+    for (const y of bars) this.beam('wood', a.clone().setY(y0 + y), b.clone().setY(y0 + y), .1, .1, PALETTE.darkTimber)
     for (const p of [a, b]) this.box('wood', p.x, y0 + .8, p.z, .12, 1.6, .12, PALETTE.darkTimber)
-    const count = Math.max(2, Math.floor(length / .32))
-    for (let i = 1; i < count; i++) {
-      const p = a.clone().lerp(b, i / count)
-      if (kind === 'spear') {
-        this.cylinder('wood', p.x, y0 + .1, p.z, .025, .03, 2.3, PALETTE.timber, 5)
-        this.add('metal', new THREE.ConeGeometry(.05, .3, 4).translate(p.x, y0 + 2.55, p.z), 0xb8bcc0)
-      } else if (kind === 'sword') {
-        this.box('metal', p.x, y0 + .95, p.z, .06, 1.0, .012, 0xc4c8cc, yaw)
-        this.box('metal', p.x, y0 + 1.48, p.z, .26, .05, .05, PALETTE.gold, yaw)
-        this.box('wood', p.x, y0 + 1.64, p.z, .05, .26, .05, PALETTE.darkTimber, yaw)
-      } else {
-        this.cylinder('wood', p.x, y0 + .2, p.z, .025, .03, 1.5, PALETTE.timber, 5)
-        this.box('metal', p.x, y0 + 1.6, p.z, .03, .32, .26, 0xb0b4b8, yaw + Math.PI / 2)
-      }
-    }
+    const fallback = kind === 'spear' ? 'spear_t5' : this.kit.faction === 'roman' ? 'paladin_sword_t4' : 'axe_t5'
+    const pieces = ids ?? Array.from({ length: Math.max(2, Math.floor(length / .9)) }, () => fallback)
+    const exhibits = pieces.flatMap(id => {
+      const model = uprightEquipmentDisplay(id)
+      return model ? [{ id, model, upright: new THREE.Box3().setFromObject(model) }] : []
+    })
+    const occupied = exhibits.reduce((sum, piece) => sum + piece.upright.max.x - piece.upright.min.x, 0)
+    if (occupied > length) throw new Error(`武器架寬度不足：${pieces.join(', ')}`)
+    const gap = (length - occupied) / (exhibits.length + 1)
+    let cursor = gap
+    exhibits.forEach(({ id, model, upright }) => {
+      const width = upright.max.x - upright.min.x
+      const p = a.clone().addScaledVector(dir, cursor + width / 2)
+      cursor += width + gap
+      const height = upright.max.y - upright.min.y
+      const supportY = height + trayTop > bars[1] ? bars[1] : bars[0]
+      // The base cleat sets a lean derived from this actual weapon's length.
+      const baseRun = Math.min(.18, height * .12)
+      model.rotation.x = -Math.atan2(baseRun, supportY - trayTop)
+      const bounds = new THREE.Box3().setFromObject(model)
+      const baseY = trayTop - bounds.min.y
+      const sections = bars.map(y => horizontalSection(model, y - baseY)).filter(b => !b.isEmpty())
+      const offsetZ = Math.max(...sections.map(b => barHalfDepth - b.min.z))
+      if (!Number.isFinite(offsetZ)) throw new Error(`武器架找不到可支撐截面：${id}`)
+      model.position.set(-(bounds.min.x + bounds.max.x) / 2, baseY, offsetZ)
+      const mount = new THREE.Group(); mount.position.copy(p); mount.rotation.y = yaw; mount.add(model)
+      this.extras.push(decorationLod(mount))
+      const foot = horizontalSection(model, trayTop + .01)
+      const centreZ = foot.isEmpty() ? offsetZ : (foot.min.z + foot.max.z) / 2
+      const centreX = foot.isEmpty() ? 0 : (foot.min.x + foot.max.x) / 2
+      const tray = p.clone().addScaledVector(face, centreZ).addScaledVector(dir, centreX)
+      const trayWidth = Math.max(.22, foot.isEmpty() ? .22 : foot.max.x - foot.min.x + .08)
+      this.box('wood', tray.x, y0 + trayTop / 2, tray.z, trayWidth, trayTop, .28, PALETTE.darkTimber, yaw)
+      // A low cleat in front of the actual lowest section keeps the base from sliding.
+      const stop = tray.clone().addScaledVector(face, .14)
+      this.box('wood', stop.x, y0 + trayTop + .04, stop.z, trayWidth, .08, .05, PALETTE.carved, yaw)
+    })
   }
+
   anvil(x: number, y0: number, z: number, yaw = 0): void {
     this.cylinder('wood', x, y0, z, .38, .44, .55, PALETTE.darkTimber, 10)
     this.box('metal', x, y0 + .63, z, .24, .16, .5, PALETTE.iron, yaw)
@@ -618,6 +739,8 @@ export class Sketch {
     this.gableRoof('snow', { ...options, halfSpan: options.halfSpan * coverage, eave: eave + lift, ridge: options.ridge + lift, thickness: .1 })
   }
 }
+
+const V3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
 
 function holePath(hole: ArchHole): THREE.Path {
   const path = new THREE.Path(), x0 = hole.x - hole.w / 2, x1 = hole.x + hole.w / 2
@@ -669,4 +792,187 @@ function polyFaces(faces: THREE.Vector3[][], scale: number): THREE.BufferGeometr
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
   g.computeVertexNormals()
   return g
+}
+
+
+// Page-owned immutable templates. ArchitectureKit must never dispose their render resources.
+const ornaments = new Map<string, THREE.Group>()
+const equipmentTemplates = new Map<string, THREE.Group>()
+let decorationLoading: Promise<void> | undefined
+export function preloadArchitectureDecorations(): Promise<void> {
+  decorationLoading ??= Promise.all([
+    preloadHighTierEquipment(), preloadPaladinEquipment(),
+    ...['byzantine_standard_lance_t5', 'centurion_aquila_shield_t4', 'byzantine_eagle_shield_t5', 'viking_dragonward_shield_t4'].filter(isByzantineEquipmentId).map(id => requestByzantineEquipment(id)),
+    ...['roman-legion-banner', 'viking-cat-banner', 'carved-lynx-head'].map(async id => {
+      if (ornaments.has(id)) return
+      const url = publicAssetUrl(`models/architecture/${id}.glb`)
+      const gltf = await new GLTFLoader().loadAsync(url)
+      gltf.scene.traverse(o => { if (o instanceof THREE.Mesh) { o.castShadow = false; o.receiveShadow = true } })
+      ornaments.set(id, gltf.scene)
+    }),
+  ]).then(() => undefined).catch(error => {
+    decorationLoading = undefined
+    console.error('城鎮正式裝飾資產載入失敗，請檢查 models/architecture 與武器預載', error)
+    throw error
+  })
+  return decorationLoading
+}
+function decorationLod(model: THREE.Object3D, far = 100): THREE.LOD {
+  // Centre the LOD at the decoration, not the building/world origin.
+  const lod = new THREE.LOD(); lod.position.copy(model.position); model.position.set(0, 0, 0)
+  lod.addLevel(model, 0); lod.addLevel(new THREE.Object3D(), far)
+  return lod
+}
+function ornament(id: string, height: number): THREE.Object3D | undefined {
+  const template = ornaments.get(id)
+  if (!template) return undefined
+  const model = template.clone(true); model.name = id; model.scale.setScalar(height)
+  return decorationLod(model, id === 'carved-lynx-head' ? 120 : 100)
+}
+/** Combat's real cached GLB bodies; only the handheld carry transform is omitted for static exhibits. */
+export function equipmentDisplay(id: string, kind: 'melee' | 'ranged' | 'shield'): THREE.Group | undefined {
+  let template = equipmentTemplates.get(id)
+  if (!template) {
+    // Preview without a preload must not invent a lower-quality replacement.
+    try {
+      template = new THREE.Group()
+      if (isByzantineEquipmentId(id)) {
+        const model = createByzantineEquipment(id)
+        if (!model) throw new Error(`展示裝備尚未預載：${id}`)
+        template.add(model)
+      } else if (id === 'paladin_mace_t4') template.add(createPaladinEquipment(id))
+      else if (id === 'axe_t5' || id === 'sword_t5' || id === 'spear_t5') template.add(createT5Melee(id))
+      else if (kind === 'melee') WeaponMeshFactory.buildMelee(id, template)
+      else if (kind === 'shield') WeaponMeshFactory.buildShield(id, template)
+      else WeaponMeshFactory.buildRanged(id, template, true)
+      template.traverse(o => { if (o instanceof THREE.Mesh) { o.castShadow = false; o.receiveShadow = true } })
+      equipmentTemplates.set(id, template)
+    } catch (error) { console.warn(`建築展示裝備未就緒：${id}`, error); return undefined }
+  }
+  return template.clone(true)
+}
+/** Display orientation follows the real runtime weapon kind; bows use ranged GLB. */
+function uprightEquipmentDisplay(id: string): THREE.Group | undefined {
+  const model = equipmentDisplay(id, WEAPONS[id]?.type === 'ranged' ? 'ranged' : 'melee')
+  if (!model) return undefined
+  const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3())
+  if (size.x < size.z) model.rotation.y = Math.PI / 2
+  return model
+}
+/** Places the lowest transformed vertex bounds on a horizontal contact plane. */
+export function tabletopDisplay(id: string, kind: 'melee' | 'ranged' | 'shield', x: number, y: number, z: number, yaw: number): THREE.Object3D {
+  const model = equipmentDisplay(id, kind) ?? new THREE.Group()
+  const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3())
+  // Flat blade/axe normals are Z; the runtime bow's thin axis is X.
+  // Map the thinnest axis to vertical and the long Y shaft along local Z.
+  if (size.x < size.z) model.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(V3(0, 1, 0), V3(0, 0, 1), V3(1, 0, 0)))
+  else model.rotation.set(Math.PI / 2, 0, 0)
+  const heading = new THREE.Group(); heading.rotation.y = yaw; heading.add(model)
+  const bounds = new THREE.Box3().setFromObject(heading)
+  if (!bounds.isEmpty()) heading.position.set(x - (bounds.min.x + bounds.max.x) / 2, y - bounds.min.y, z - (bounds.min.z + bounds.max.z) / 2)
+  heading.name = 'architecture-display-' + id
+  return decorationLod(heading)
+}
+
+/** Pack flat exhibits by their rotated bounds inside the actual tabletop. */
+export function tabletopDisplayRow(pieces: readonly { id: string; kind: 'melee' | 'ranged' }[], x: number, y: number, z: number, width: number, depth: number, yaw: number): THREE.Object3D {
+  const models = pieces.map(piece => tabletopDisplay(piece.id, piece.kind, 0, 0, 0, yaw))
+  const sizes = models.map(model => new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()))
+  const gap = .08, total = sizes.reduce((sum, size) => sum + size.z, 0) + gap * Math.max(0, pieces.length - 1)
+  const scale = Math.min(1, width / Math.max(...sizes.map(size => size.x)), depth / total)
+  const row = new THREE.Group(); row.position.set(x, y, z)
+  let cursor = -total * scale / 2
+  models.forEach((model, i) => {
+    model.scale.setScalar(scale); model.position.multiplyScalar(scale)
+    model.position.z += cursor + sizes[i].z * scale / 2
+    cursor += (sizes[i].z + gap) * scale; row.add(model)
+  })
+  return row
+}
+
+/** Keep the small HR's recruitment, equipment, faction furniture and iron lights. */
+export function buildHrHallDetails(ctx: BuildContext): void {
+  const h = ctx.hrHall!, s = ctx.body, roman = ctx.kit.faction === 'roman'
+  const F = roman ? .5 : .45, desk = h.desk, rear = h.body.minZ + h.wall
+  for (const p of h.statues) {
+    const base = Math.min(F, ctx.ground(p.x, p.z)) - .4
+    s.span('stone', p.x - p.half, base, p.z - p.half, p.x + p.half, F + 1.2, p.z + p.half, roman ? PALETTE.marble : PALETTE.footing)
+    ctx.statue(p.x, F + 1.2, p.z, 0, 2.5)
+  }
+  s.table((desk.minX + desk.maxX) / 2, F, (desk.minZ + desk.maxZ) / 2, desk.maxX - desk.minX, desk.maxZ - desk.minZ, 1.05)
+  s.span('cloth', desk.minX, F + .1, desk.maxZ - .01, desk.maxX, F + .95, desk.maxZ + .02, PALETTE.red)
+  if (roman) s.laurel(0, F + .6, desk.maxZ + .04, 0, .3)
+  else { s.shield(-1.4, F + 1.6, rear + .08, 0, .55); s.shield(1.4, F + 1.6, rear + .08, 0, .55, undefined, 0, 'viking_dragonward_shield_t4') }
+  s.weaponRack(h.rack.x, F, h.rack.z, h.rack.length, h.rack.yaw, 'spear', roman
+    ? ['paladin_sword_t4', 'sword_t5'] : ['paladin_mace_t4', 'axe_t5'])
+  s.weaponRack(h.extraRack.x, F, h.extraRack.z, h.extraRack.length, h.extraRack.yaw, 'spear',
+    ['spear_t4', roman ? 'byzantine_standard_lance_t5' : 'spear_t5'])
+  for (const p of h.furniture) {
+    const r = p.rect, x = (r.minX + r.maxX) / 2, z = (r.minZ + r.maxZ) / 2
+    if (p.kind === 'bench') s.bench(x, F, z, r.maxX - r.minX, 0)
+    else s.table(x, F, z, r.maxX - r.minX, r.maxZ - r.minZ, p.height)
+  }
+  for (const display of h.wallDisplays) {
+    // All complete bounds stay above mounted bodies, below the eave and clear
+    // of door/window bays. No floor props are added among the 30 muster slots.
+    if (display.shield) s.shield(display.x, F + 4.65, display.z, display.yaw, .65, undefined, 0, display.id)
+    else s.wallWeapon(display.id, display.x, F + 4.65, display.z, display.yaw, display.width - .3, 2.7)
+  }
+  for (const { x } of h.portals) {
+    s.banner(x, F + 6.3, rear + .08, 0, 1.6, 2.8, roman ? 'gold' : 'wood')
+    s.span('cloth', x - 1, F + .005, desk.maxZ + .3, x + 1, F + .02, h.body.maxZ, roman ? PALETTE.red : PALETTE.darkRed)
+    const ring = V3(x, F + 7.4, 0)
+    s.add('metal', new THREE.TorusGeometry(1, .05, 6, 20).rotateX(Math.PI / 2).translate(ring.x, ring.y, ring.z), PALETTE.iron)
+    for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; s.add('glow', new THREE.SphereGeometry(.06, 5, 4).translate(x + Math.cos(a), ring.y + .2, Math.sin(a)), PALETTE.glow, null) }
+    s.beam('metal', ring, V3(x, F + h.ridge, 0), .03, .03, PALETTE.iron)
+  }
+}
+
+/** Repeated GLB parts share one submission per geometry/material within a building. */
+function batchDecorations(objects: readonly THREE.Object3D[], resources: ArenaResources): THREE.Object3D {
+  const groups: { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[]; matrices: THREE.Matrix4[]; name: string }[] = []
+  for (const object of objects) {
+    object.updateMatrixWorld(true)
+    object.traverse(o => {
+      if (!(o instanceof THREE.Mesh)) return
+      let group = groups.find(g => g.geometry === o.geometry && g.material === o.material)
+      if (!group) groups.push(group = { geometry: o.geometry, material: o.material, matrices: [], name: object.name })
+      group.matrices.push(o.matrixWorld.clone())
+    })
+  }
+  const root = new THREE.Group(); root.name = 'architecture-shared-decorations'
+  for (const group of groups) {
+    const mesh = new THREE.InstancedMesh(group.geometry, group.material, group.matrices.length)
+    group.matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix))
+    mesh.name = group.name; mesh.receiveShadow = true; mesh.castShadow = false
+    mesh.computeBoundingBox(); mesh.computeBoundingSphere()
+    // Only the per-building instance buffer is owned here; render templates remain page-owned.
+    resources.track(mesh)
+    root.add(mesh)
+  }
+  return decorationLod(root, 120)
+}
+
+/** Exact triangle/plane intersections after the model's transform, used only while building a static rack. */
+function horizontalSection(model: THREE.Object3D, y: number, rearContact?: THREE.Vector3): THREE.Box3 {
+  model.updateMatrixWorld(true)
+  const result = new THREE.Box3(), points = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]
+  rearContact?.set(0, y, Infinity)
+  const include = (p: THREE.Vector3) => {
+    result.expandByPoint(p)
+    if (rearContact && p.z < rearContact.z) rearContact.copy(p)
+  }
+  model.traverse(object => {
+    if (!(object instanceof THREE.Mesh)) return
+    const position = object.geometry.attributes.position, index = object.geometry.index
+    for (let i = 0; i < (index?.count ?? position.count); i += 3) {
+      for (let k = 0; k < 3; k++) points[k].fromBufferAttribute(position, index ? index.getX(i + k) : i + k).applyMatrix4(object.matrixWorld)
+      for (let k = 0; k < 3; k++) {
+        const a = points[k], b = points[(k + 1) % 3]
+        if (Math.abs(a.y - y) < 1e-6) include(a)
+        if ((a.y < y) !== (b.y < y)) include(a.clone().lerp(b, (y - a.y) / (b.y - a.y)))
+      }
+    }
+  })
+  return result
 }

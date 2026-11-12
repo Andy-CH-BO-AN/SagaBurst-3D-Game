@@ -44,6 +44,7 @@ export interface BuildingSpec {
   /** Walkable floor slabs at floorY (interior, portico, stalls). */
   readonly floor: readonly LocalRect[]
   readonly entrance: ArchitectureEntrance
+  readonly additionalEntrances?: readonly ArchitectureEntrance[]
   /** Public interior where NPCs may later gather; absent for closed residences. */
   readonly interior?: LocalRect
   /** Corridor from the doorway into the main room that must stay clear. */
@@ -53,8 +54,6 @@ export interface BuildingSpec {
   /** Structural top above the floor (used for airspace review and showcase). */
   readonly height: number
   readonly maxHp: number
-  /** Keep the floor at floorY above the centre terrain (stable horses spawn there); never lift it. */
-  readonly fixedFloor?: boolean
 }
 
 const rect = (minX: number, maxX: number, minZ: number, maxZ: number): LocalRect => ({ minX, maxX, minZ, maxZ })
@@ -310,7 +309,7 @@ function romanStable(): BuildingSpec {
     floor: [rect(-c.side.inner, c.side.inner, c.rear.z1, c.front)],
     // The porch is a gentle ramp so horses can also walk back into their stalls.
     entrance: { x: 0, z: c.front, yaw: 0, width: 13, doorWidth: 2.34, height: c.arcade.spring, approach: c.porch.front - c.front - .2 },
-    anchors: stableAnchors(), colliders, height: c.clerestory.top + c.clerestory.rise, maxHp: 300, fixedFloor: true,
+    anchors: stableAnchors(), colliders, height: c.clerestory.top + c.clerestory.rise, maxHp: 300,
   }
 }
 
@@ -441,7 +440,7 @@ function vikingWeapons(): BuildingSpec {
   return {
     faction: 'viking', kind: 'weapons', label: '維京鐵匠鋪', envelope: rect(-6, 6, -5.6, 9.2), floorY: c.F,
     floor: [rect(h.minX, f.maxX, h.back, h.front)],
-    entrance: { x: 2.85, z: f.front, yaw: 0, width: 4.2, doorWidth: 4.2, height: 3.0, approach: .8 },
+    entrance: { x: 2.85, z: h.front, yaw: 0, width: 4.2, doorWidth: 4.2, height: 3.0, approach: .8 },
     anchors: [{ id: 'merchant', x: 0, z: 7.5, yaw: 0, role: 'merchant' }], colliders, height: h.ridge + 1.6, maxHp: 300,
   }
 }
@@ -464,7 +463,7 @@ function vikingStable(): BuildingSpec {
     faction: 'viking', kind: 'stable', label: '維京馬廄', envelope: rect(-7.5, 7.5, -6.1, 9.8), floorY: c.F,
     floor: [rect(-c.side.inner, c.side.inner, c.rear.z1, r.frontEaveZ)],
     entrance: { x: 0, z: r.frontEaveZ, yaw: 0, width: 13, doorWidth: 2.28, height: r.frontEave, approach: c.porch.front - r.frontEaveZ - .2 },
-    anchors: stableAnchors(), colliders, height: r.ridge + 1.5, maxHp: 300, fixedFloor: true,
+    anchors: stableAnchors(), colliders, height: r.ridge + 1.5, maxHp: 300,
   }
 }
 
@@ -504,6 +503,143 @@ function vikingHome(kind: 'home-a' | 'home-b' | 'home-c'): BuildingSpec {
     envelope: rect(-4.7, 4.7, -6.2, 6.2), floorY: F, floor: [floor], entrance, anchors: [], colliders, height, maxHp: 300 }
 }
 
+/** Formal HR encloses the unchanged deployment slots; previews keep the small plan. */
+export interface HRHallLayout {
+  readonly body: LocalRect
+  readonly wall: number
+  readonly eave: number
+  readonly ridge: number
+  readonly portals: readonly ArchitectureEntrance[]
+  readonly muster: readonly { x: number; z: number }[]
+  readonly desk: LocalRect
+  readonly rack: { x: number; z: number; length: number; yaw: number }
+  readonly extraRack: { x: number; z: number; length: number; yaw: number; footprint: LocalRect }
+  readonly windows: readonly number[]
+  readonly wallDisplays: readonly { x: number; z: number; yaw: number; width: number; shield: boolean; id: string }[]
+  readonly furniture: readonly { rect: LocalRect; height: number; kind: 'bench' | 'table' }[]
+  readonly statues: readonly { x: number; z: number; half: number }[]
+}
+/** Surviving raised-floor edges retain navigation guidance when walls collapse. */
+export function hrFloorNavigationEdges(hall: Pick<HRHallLayout, 'body' | 'portals'>): LocalRect[] {
+  const b = hall.body, edges = [rect(b.minX, b.minX, b.minZ, b.maxZ),
+    rect(b.maxX, b.maxX, b.minZ, b.maxZ), rect(b.minX, b.maxX, b.minZ, b.minZ)]
+  let from = b.minX
+  for (const e of [...hall.portals].sort((a, b) => a.x - b.x)) {
+    edges.push(rect(from, e.x - e.width / 2, b.maxZ, b.maxZ))
+    from = e.x + e.width / 2
+  }
+  edges.push(rect(from, b.maxX, b.maxZ, b.maxZ))
+  return edges.filter(edge => edge.minX <= edge.maxX)
+}
+
+/** Full doorway-to-interior corridors, including each real approach and rider clearance. */
+export function architectureRuinCorridors(spec: BuildingSpec): LocalRect[] {
+  return [spec.entrance, ...spec.additionalEntrances ?? []].map(e => {
+    const forwardX = Math.sin(e.yaw), forwardZ = Math.cos(e.yaw), rightX = forwardZ, rightZ = -forwardX
+    const inside = spec.interior
+    const back = inside ? Math.min(...[inside.minX, inside.maxX].flatMap(x => [inside.minZ, inside.maxZ]
+      .map(z => (x - e.x) * forwardX + (z - e.z) * forwardZ))) : -1.5
+    const half = e.doorWidth / 2 + 1, front = e.approach + 1
+    const corners = [-half, half].flatMap(side => [back, front].map(along => ({
+      x: e.x + side * rightX + along * forwardX, z: e.z + side * rightZ + along * forwardZ })))
+    return rect(Math.min(...corners.map(p => p.x)), Math.max(...corners.map(p => p.x)),
+      Math.min(...corners.map(p => p.z)), Math.max(...corners.map(p => p.z)))
+  })
+}
+export function expandedHrCenter(faction: ArchitectureFaction, muster: readonly { x: number; z: number }[]): { hall: HRHallLayout; spec: BuildingSpec } {
+  const base = architectureSpec(faction, 'hr-center'), roman = faction === 'roman'
+  const original = roman ? ROMAN_HR_CENTER.body : VIKING_HR_CENTER.body
+  const xs = muster.map(p => p.x), zs = muster.map(p => p.z)
+  const body = { minX: Math.min(-original.halfX, ...xs.map(x => x - 3)), maxX: Math.max(original.halfX, ...xs.map(x => x + 3)),
+    minZ: Math.min(original.back, ...zs.map(z => z - 3)), maxZ: Math.max(original.front, ...zs.map(z => z + 3)) }
+  const wall = original.wall, F = base.floorY, eave = 6.7, ridge = 11.4
+  // Flush thresholds remove the raised porch's two projecting slab corners.
+  // The approach now meets the doorway directly, without an exposed high side.
+  const portals = [0, (Math.min(...xs) + Math.max(...xs)) / 2].map(x => ({ x, z: body.maxZ, yaw: 0,
+    width: 8.4, doorWidth: 6.4, height: 6.2, approach: 3.5 }))
+  const desk = rect(-2.6, 2.6, body.minZ + 2.3, body.minZ + 3.3)
+  const serviceSide = portals[1].x > 0 ? -1 : 1
+  const windows = [-6, 0, 6]
+  // The low blade rack occupies the bay between two windows, away from tables.
+  const rack = { x: serviceSide < 0 ? body.minX + wall + .7 : body.maxX - wall - .7,
+    z: (windows[1] + windows[2]) / 2, length: windows[2] - windows[1] - 1.8, yaw: -serviceSide * Math.PI / 2 }
+  const rackMinX = serviceSide < 0 ? desk.maxX + .8 : Math.max(...xs) + 2.8
+  const rackMaxX = serviceSide < 0 ? Math.min(...xs) - 2.8 : desk.minX - .8
+  const extraRack = { x: (rackMinX + rackMaxX) / 2, z: body.minZ + wall + .3,
+    length: rackMaxX - rackMinX, yaw: 0, footprint: rect(rackMinX, rackMaxX, body.minZ + wall + .15, body.minZ + wall + 1.65) }
+  const furniture = [-1, 1].map(side => roman
+    ? { rect: rect(side * 4 - 1.2, side * 4 + 1.2, 7, 7.5), height: .5, kind: 'bench' as const }
+    : { rect: rect(side * 2.9 - .5, side * 2.9 + .5, -5, -1), height: .9, kind: 'table' as const })
+  const statues = [-1, 1].map(side => ({ x: side * (roman ? 5.9 : 4.8), z: body.maxZ + .7, half: roman ? .6 : .45 }))
+  const wallDisplays: HRHallLayout['wallDisplays'][number][] = []
+  const weapons = roman ? ['paladin_sword_t4', 'sword_t5', 'spear_t4', 'byzantine_standard_lance_t5', 'bow_t5']
+    : ['paladin_mace_t4', 'axe_t5', 'spear_t4', 'spear_t5', 'bow_t5']
+  const shields = roman ? ['centurion_aquila_shield_t4', 'byzantine_eagle_shield_t5']
+    : ['viking_dragonward_shield_t4', 'viking_berserker_shield_t5']
+  let weaponIndex = 0, shieldIndex = 0
+  const addBays = (from: number, to: number, point: (t: number) => { x: number; z: number; yaw: number },
+    excluded: readonly [number, number][]) => {
+    const count = Math.floor((to - from) / 3.6)
+    for (let i = 0; i < count; i++) {
+      const width = Math.min(3, (to - from) / count - .5), t = from + (i + .5) * (to - from) / count
+      if (excluded.some(([lo, hi]) => t + width / 2 > lo && t - width / 2 < hi)) continue
+      const shield = wallDisplays.length % 3 === 2
+      wallDisplays.push({ ...point(t), width, shield, id: shield ? shields[shieldIndex++ % shields.length] : weapons[weaponIndex++ % weapons.length] })
+    }
+  }
+  // Long walls alternate blades, polearms, bows and shields. Rear flags keep
+  // their own bays; front doorways and shield jambs retain full clearance.
+  addBays(body.minX + wall + 1, body.maxX - wall - 1, x => ({ x, z: body.minZ + wall + .08, yaw: 0 }), portals.map(p => [p.x - 1.4, p.x + 1.4]))
+  addBays(body.minX + wall + 1, body.maxX - wall - 1, x => ({ x, z: body.maxZ - wall - .08, yaw: Math.PI }), portals.map(p => [p.x - 4.5, p.x + 4.5]))
+  // End-wall bays stay between the actual windows rather than covering them.
+  for (const side of [-1, 1]) for (let i = 1; i < windows.length; i++) {
+    const z = (windows[i - 1] + windows[i]) / 2, shield = side < 0
+    wallDisplays.push({ x: side < 0 ? body.minX + wall + .08 : body.maxX - wall - .08, z,
+      yaw: -side * Math.PI / 2, width: windows[i] - windows[i - 1] - 2, shield,
+      id: shield ? shields[shieldIndex++ % shields.length] : weapons[weaponIndex++ % weapons.length] })
+  }
+  const hall: HRHallLayout = { body, wall, eave, ridge, portals, muster, desk, rack, extraRack, windows, wallDisplays, furniture, statues }
+  const colliders: ArchitectureCollider[] = [
+    solid(body.minX, body.minZ, body.minX + wall, body.maxZ, F + eave),
+    solid(body.maxX - wall, body.minZ, body.maxX, body.maxZ, F + eave),
+    solid(body.minX + wall, body.minZ, body.maxX - wall, body.minZ + wall, F + eave),
+    solid(desk.minX, desk.minZ, desk.maxX, desk.maxZ, F + 1.05, 'prop'),
+    solid(rack.x - .5, rack.z - rack.length / 2, rack.x + .5, rack.z + rack.length / 2, F + 2.2, 'prop'),
+    solid(extraRack.footprint.minX, extraRack.footprint.minZ, extraRack.footprint.maxX, extraRack.footprint.maxZ, F + 3.6, 'prop'),
+    ...furniture.map(p => solid(p.rect.minX, p.rect.minZ, p.rect.maxX, p.rect.maxZ, F + p.height, 'prop')),
+    ...statues.map(p => post(p.x, p.z, p.half, F + 3.7, 'statue')),
+  ]
+  let edge = body.minX + wall
+  for (const p of [...portals].sort((a, b) => a.x - b.x)) {
+    const half = p.doorWidth / 2
+    colliders.push(solid(edge, body.maxZ - wall, p.x - half, body.maxZ, F + eave))
+    colliders.push(above(p.x - half, F + p.height, body.maxZ - wall, p.x + half, F + eave, body.maxZ))
+    for (const side of [-1, 1]) colliders.push(post(p.x + side * 3.7, body.maxZ - wall / 2, .38, F + eave))
+    colliders.push(above(p.x - 4.3, F + eave, body.maxZ - .2, p.x + 4.3, F + eave + 2.4, p.z + 2, 'roof'))
+    edge = p.x + half
+  }
+  colliders.push(solid(edge, body.maxZ - wall, body.maxX - wall, body.maxZ, F + eave))
+  // Bound the real sloped panels, rather than filling every eave up to the ridge.
+  const cz = (body.minZ + body.maxZ) / 2, half = (body.maxZ - body.minZ) / 2 + .4
+  for (let i = 0; i < 8; i++) for (const side of [-1, 1]) {
+    const inner = half * i / 8, outer = half * (i + 1) / 8, z0 = cz + side * inner, z1 = cz + side * outer
+    colliders.push(above(body.minX - .4, F + ridge - (ridge - eave) * outer / half, Math.min(z0, z1),
+      body.maxX + .4, F + ridge - (ridge - eave) * inner / half + .45, Math.max(z0, z1), 'roof'))
+    for (const x of [body.minX, body.maxX - wall]) colliders.push(above(x, F + eave, Math.min(z0, z1), x + wall,
+      F + ridge - (ridge - eave) * inner / half + .3, Math.max(z0, z1), 'roof'))
+  }
+  if (!roman) for (let x = body.minX + 1; x < body.maxX; x += 4.5)
+    colliders.push(above(x - .15, F + eave - .15, body.minZ, x + .15, F + eave + .15, body.maxZ, 'roof'))
+  const floor = [body]
+  return { hall, spec: { ...base, label: roman ? '羅馬大型徵募大廳 · HR' : '維京大型戰士徵募長屋 · HR',
+    envelope: rect(body.minX - .9, body.maxX + .9, body.minZ - .9, portals[0].z + portals[0].approach),
+    floor, entrance: portals[0], additionalEntrances: portals.slice(1),
+    interior: rect(body.minX + wall, body.maxX - wall, body.minZ + wall, body.maxZ - wall),
+    aisle: rect(-1.4, 1.4, body.minZ + 3.6, portals[0].z),
+    anchors: base.anchors.map(a => a.role === 'officer' ? { ...a, z: body.minZ + wall + .8 } : a),
+    colliders, height: ridge + 2 } }
+}
+
 /** Authored plan for one faction building kind. */
 export function architectureSpec(faction: ArchitectureFaction, kind: CivicBuildingKind): BuildingSpec {
   if (faction === 'roman') {
@@ -532,4 +668,36 @@ export function originalTownFootprint(faction: ArchitectureFaction, kind: CivicB
   if (kind === 'stable') return { width: 14, depth: 11 }
   if (kind === 'hr-center') return faction === 'roman' ? { width: 16, depth: 13 } : { width: 13, depth: 22 }
   return faction === 'roman' ? { width: 9, depth: 8 } : { width: 9, depth: 12 }
+}
+
+/* ───────────────────────────── Plaza ───────────────────────────── */
+
+export type PlazaPropKind = 'monument' | 'bench' | 'planter' | 'brazier' | 'banner' | 'supplies' | 'runestone'
+/** One plaza prop: world XZ centre, facing, and the collision radius it occupies. */
+export interface PlazaProp { readonly kind: PlazaPropKind; readonly x: number; readonly z: number; readonly yaw: number; readonly radius: number }
+
+/** Centre of the plaza decoration, in the open column between the authored training squads. */
+export const TOWN_PLAZA_MONUMENT = { x: 59, z: 18.5, radius: 2.0 } as const
+
+/**
+ * Plaza furniture in world coordinates. The Town plaza is also the infantry
+ * training ground, the player's entry point and the Captain's mounted approach,
+ * so props only use the gaps between those (south-east corner, the column at
+ * x≈59, the row gap east of x=62 and the west edge).
+ */
+export function townPlazaLayout(faction: ArchitectureFaction): PlazaProp[] {
+  const m = TOWN_PLAZA_MONUMENT
+  const common: PlazaProp[] = [
+    { kind: 'monument', x: m.x, z: m.z, yaw: Math.PI, radius: m.radius },
+    { kind: 'bench', x: 59, z: 11.5, yaw: 0, radius: 1.25 },
+    { kind: 'bench', x: 59, z: 25.5, yaw: 0, radius: 1.25 },
+    { kind: 'brazier', x: 66, z: -2.5, yaw: 0, radius: .5 },
+    { kind: 'brazier', x: 35.5, z: 25, yaw: 0, radius: .5 },
+    { kind: 'banner', x: 70, z: 1.5, yaw: 0, radius: .2 },
+    { kind: 'banner', x: 35.5, z: 20.5, yaw: Math.PI / 2, radius: .2 },
+  ]
+  return faction === 'roman'
+    ? [...common, { kind: 'planter', x: 67.5, z: 20.5, yaw: 0, radius: 1.0 }, { kind: 'planter', x: 72.5, z: 20.5, yaw: 0, radius: 1.0 },
+      { kind: 'brazier', x: 72.5, z: -2.5, yaw: 0, radius: .5 }]
+    : [...common, { kind: 'runestone', x: 68, z: 20.5, yaw: 0, radius: .8 }, { kind: 'supplies', x: 72.5, z: -1.5, yaw: 0, radius: 1.4 }]
 }

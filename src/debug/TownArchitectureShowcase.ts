@@ -23,11 +23,11 @@ import { TOWN_SITES, townAuthoredRoster, stableHorsePositions } from '../town/To
 import { resolveTownHRLayout } from '../town/TownHRLayout'
 import { createTownFortifications } from '../town/TownFortifications'
 import { createTownCommandWatchtower } from '../town/TownCommandWatchtower'
-import { TOWN_COMMAND_WATCHTOWER } from '../town/TownCommandWatchtowerLayout'
+import { TOWN_COMMAND_WATCHTOWER, validateWatchtowerPlacement } from '../town/TownCommandWatchtowerLayout'
 import { initializeTownWorldTerrain } from '../town/TownWorld'
 import {
   ArchitectureKit, architectureLocalToWorld, buildEaglePadMarkings, buildEagleStation, buildTownPlaza, dressCommandWatchtower, dressTownGate,
-  dressTownGateLeaves, dressTownWalls, loadArchitectureStatues, originalTownFootprint, placeArchitecture, townHomeVariant, TOWN_PLAZA_MONUMENT,
+  dressTownGateLeaves, dressTownWalls, preloadArchitectureStatues, originalTownFootprint, placeArchitecture, townHomeVariant, TOWN_PLAZA_MONUMENT,
   type ArchitectureFaction, type ArchitectureStatues, type CivicBuildingKind, type PlacedArchitecture,
 } from '../town/architecture/TownArchitecture'
 
@@ -75,7 +75,7 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
     disposed = true; cancelAnimationFrame(raf)
     setObstaclePathQuerySource(obstacles, false)
     input?.dispose(); player?.dispose(); mounts.forEach(m => m.dispose())
-    kit.dispose(); statues?.dispose(); owned.forEach(o => o.dispose())
+    kit.dispose(); owned.forEach(o => o.dispose())
     renderer.dispose(); renderer.domElement.remove(); panel.remove()
     window.removeEventListener('resize', resize); window.removeEventListener('pagehide', cleanup)
     delete (window as unknown as { __townArchitecture?: unknown }).__townArchitecture
@@ -91,7 +91,7 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
     sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -150, right: 150, top: 140, bottom: -140, far: 260 }); sun.shadow.bias = -.002
     scene.add(sun); scene.add(sun.target)
     await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), XongkoroVisual.preload(), preloadPaladinEquipment(), preloadHighTierEquipment(),
-      loadArchitectureStatues().then(loaded => { statues = loaded })])
+      preloadArchitectureStatues().then(loaded => { statues = loaded ?? undefined })])
     if (disposed) return
     scene.add(townGround(faction, owned))
     const roads: TownRoad[] = [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS]
@@ -100,13 +100,13 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
     const entries: ShowcaseEntry[] = []
     const place = (id: string, label: string, kind: CivicBuildingKind, site: { x: number; z: number; yaw: number }) => {
       const placed = placeArchitecture(kit, kind, site, { statues })
-      world.add(placed.root); obstacles.push(...placed.obstacles)
+      world.add(placed.root, placed.ruin); obstacles.push(...placed.obstacles, ...placed.supports)
       const saved = { p: placed.root.position.clone(), r: placed.root.rotation.y }
       placed.root.position.set(0, 0, 0); placed.root.rotation.y = 0; placed.root.updateMatrixWorld(true)
       const local = new THREE.Box3()
       let triangles = 0, meshes = 0
       placed.root.traverse(o => {
-        if (!(o instanceof THREE.Mesh) || !o.visible || o.parent?.name === 'ruin') return
+        if (!(o instanceof THREE.Mesh) || !o.visible) return
         if (o.parent instanceof THREE.LOD && o.parent.levels[0].object !== o) return
         local.expandByObject(o); meshes++
         const g = o.geometry as THREE.BufferGeometry; triangles += (g.index ? g.index.count : g.getAttribute('position').count) / 3
@@ -149,6 +149,9 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
     // Same airspace TownWorld feeds flight checks: colliders plus each building's and gatehouse's full visual bounds.
     const airspace = [...obstacles.filter(o => !o.walkSurface), { box: towerDressing.airspace, isBarricade: false, projectilePassable: true },
       ...entries.map(e => ({ box: e.placed.bounds, isBarricade: false })), ...gatehouses.map(root => ({ box: new THREE.Box3().setFromObject(root), isBarricade: false }))]
+    // TownWorld throws on this; surface it here before integration.
+    let watchtowerPlacement = 'ok'
+    try { validateWatchtowerPlacement(layout, [...obstacles.filter(o => !towerObstacles.includes(o)), ...entries.map(e => ({ box: e.placed.bounds, isBarricade: false }))], roads) } catch (error) { watchtowerPlacement = String(error) }
     const padChecks = pads.map(pad => ({ id: pad.id, landing: isEagleLandingClear(pad, airspace, pads.filter(o => o !== pad), TOWN_PLAYABLE_WORLD_BOUND),
       approach: isEagleApproachClear(pad, airspace, pads.filter(o => o !== pad), TOWN_PLAYABLE_WORLD_BOUND) }))
     // Real stable horses in their five stalls and one parked xongkoro per eagle field.
@@ -177,7 +180,7 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
       overlays.footprints.add(rect(placed.site, -original.width / 2, original.width / 2, -original.depth / 2, original.depth / 2, y, footMat))
       const env = placed.spec.envelope
       overlays.footprints.add(rect(placed.site, env.minX, env.maxX, env.minZ, env.maxZ, y + .05, envMat))
-      for (const o of placed.obstacles) {
+      for (const o of [...placed.obstacles, ...placed.supports]) {
         const helper = new THREE.Box3Helper(o.box, o.walkSurface ? 0x5aff7a : o.navigationPassable ? 0xffa64a : 0xff5a5a)
         ;(helper.material as THREE.Material).depthTest = false; helper.renderOrder = 998; overlays.colliders.add(helper); owned.push(helper.geometry, helper.material as THREE.Material)
       }
@@ -320,7 +323,7 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
       for (const code of held) input!.keys[code] = true
       try { for (let t = 0; t < seconds; t += 1 / 60) simulate(1 / 60) } finally { for (const code of held) input!.keys[code] = false }
     }
-    Object.assign(window, { __townArchitecture: { faction, entries, report, padChecks, checkEntrances, residentClearance, goto, walkTo, teleport, advance, toggleRoofs, toggleGates,
+    Object.assign(window, { __townArchitecture: { faction, entries, report, padChecks, watchtowerPlacement, checkEntrances, residentClearance, goto, walkTo, teleport, advance, toggleRoofs, toggleGates,
       overlays, camera, renderer, player, horse, fort, setMode: (m: 'player' | 'free') => { mode = m; free.enabled = m === 'free' }, frameInfo,
       cost: { meshes: totalMeshes, triangles: Math.round(totalTriangles) }, dispose: cleanup,
       /** QA: one synchronous frame (works while the tab is in the background). */
@@ -342,6 +345,7 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
           `模式 ${mode === 'player' ? '玩家' : '自由鏡頭'}${p.isMounted ? ' · 騎乘' : ''} · 玩家 ${p.position.x.toFixed(1)}, ${feet.toFixed(2)}, ${p.position.z.toFixed(1)}`,
           `本幀 draw calls ${frameInfo.calls} · 三角面 ${frameInfo.triangles.toLocaleString()}`,
           `建築與裝飾 ${totalMeshes} meshes · ${Math.round(totalTriangles).toLocaleString()} 三角面（含城牆／瞭望塔）`,
+          `瞭望塔佔地檢查：${watchtowerPlacement}`,
           `巨鷹停機位 ${pads.length} 個：${failing.length ? '✘ ' + failing.join(', ') : '全部通過 landing／approach 淨空'}`,
           `廣場紀念碑與最近 authored 居民距離 ${residentClearance.toFixed(1)}m`,
           ...report().map(r => `${r.id.padEnd(12)} 原 ${r.original} → 建 ${r.built}（範圍 ${r.envelope}）高 ${r.height}m`),
@@ -357,7 +361,7 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
 
 /** Rise over run of the entrance steps (mounts climb ≤ ~0.5). */
 function entranceSlope(p: PlacedArchitecture): number {
-  const ramp = p.obstacles.find(o => o.walkSurface && o.walkSurface.startY !== o.walkSurface.topY)?.walkSurface
+  const ramp = p.supports.find(o => o.walkSurface && o.walkSurface.startY !== o.walkSurface.topY)?.walkSurface
   return ramp ? Math.abs(ramp.topY - ramp.startY) / ramp.length : 0
 }
 function batchStatic(parent: THREE.Group, owned: { dispose(): void }[]): void {

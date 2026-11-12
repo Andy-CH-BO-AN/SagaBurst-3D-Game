@@ -106,3 +106,31 @@ export function townHousing(faction: 'roman' | 'viking') {
 
 export const TOWN_CENTER = { x: 52, z: -22, width: 24, depth: 20, yaw: 0 } as const
 export const TOWN_WELL = { x: 72, z: 30, radius: 1.35 } as const
+
+export interface CivicClearanceShape {
+  readonly id: string
+  readonly bounds: THREE.Box3
+  readonly blocking: readonly THREE.Box3[]
+}
+/** World-space physical access audit; overhead decoration is reported separately from a blocked road. */
+export function townCivicClearance(shapes: readonly CivicClearanceShape[], roads: readonly TownRoad[],
+  actors: readonly { id: string; x: number; z: number; radius: number }[]): { blocked: string[]; outlineRoads: string[]; neighbors: string[] } {
+  const blocked: string[] = [], outlineRoads: string[] = [], neighbors: string[] = []
+  const touches = (b: THREE.Box3, p: typeof actors[number]) => {
+    const dx = Math.max(b.min.x - p.x, 0, p.x - b.max.x), dz = Math.max(b.min.z - p.z, 0, p.z - b.max.z)
+    return dx * dx + dz * dz < p.radius * p.radius
+  }
+  for (const shape of shapes) {
+    for (const [i, road] of roads.entries()) {
+      if (townRoadIntersectsBox(road, shape.bounds)) outlineRoads.push(`${shape.id}/road-${i}`)
+      if (shape.blocking.some(box => townRoadIntersectsBox(road, box))) blocked.push(`${shape.id}/road-${i}`)
+    }
+    for (const actor of actors) if (shape.blocking.some(box => touches(box, actor))) blocked.push(`${shape.id}/${actor.id}`)
+  }
+  for (let i = 0; i < shapes.length; i++) for (let j = 0; j < i; j++) {
+    const a = shapes[i], b = shapes[j]
+    if (a.bounds.intersectsBox(b.bounds)) neighbors.push(`${a.id}/${b.id}`)
+    if (a.blocking.some(x => b.blocking.some(y => x.intersectsBox(y)))) blocked.push(`${a.id}/${b.id}`)
+  }
+  return { blocked, outlineRoads, neighbors }
+}

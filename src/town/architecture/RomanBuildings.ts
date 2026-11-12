@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { PALETTE, type BuildContext, type Sketch } from './ArchitectureKit'
+import { PALETTE, tabletopDisplayRow, buildHrHallDetails, type BuildContext, type Sketch } from './ArchitectureKit'
 import { ROMAN_HOMES, ROMAN_HR_CENTER, ROMAN_STABLE, ROMAN_TOWN_CENTER, ROMAN_WEAPONS } from './ArchitectureSpecs'
 
 /* Roman vocabulary: marble/travertine masonry, red plaster panels, terracotta
@@ -126,6 +126,7 @@ export function buildRomanTownCenter(ctx: BuildContext): void {
 
 /* ─────────────── HR Center (military recruitment hall) ─────────────── */
 export function buildRomanHrCenter(ctx: BuildContext): void {
+  if (ctx.hrHall) { buildExpandedRomanHrCenter(ctx); return }
   const s = ctx.body, r = ctx.roof, T = ROMAN_HR_CENTER, F = T.F, b = T.body, top = F + b.top
   const innerX = b.halfX - b.wall, innerBack = b.back + b.wall, innerFront = b.front - b.wall, p = T.portico
   const alcoves = [-1, 1].map(side => ({ x: side * T.alcoves.x, y: .9, w: T.alcoves.half * 2, h: T.alcoves.height, arch: T.alcoves.half }))
@@ -181,8 +182,8 @@ export function buildRomanHrCenter(ctx: BuildContext): void {
   s.eagle(0, F + 4.1, innerBack + .1, 0, 1.0)
   for (const side of [-1, 1]) {
     s.banner(side * 4.4, F + 5.4, innerBack + .05, 0, 1.2, 3.0)
-    s.weaponRack(side * (innerX - .3), F, -1, 6, Math.PI / 2, side < 0 ? 'spear' : 'sword')
-    for (const z of [-3.4, -1.6, .2]) s.scutum(side * (innerX - .06), F + 3.4, z, -side * Math.PI / 2, .02)
+    s.weaponRack(side * (innerX - .7), F, -1, 6, -side * Math.PI / 2, 'spear', ['paladin_sword_t4', 'byzantine_standard_lance_t5', 'sword_t5'])
+    for (const z of [-3.4, -1.6, .2]) s.scutum(side * (innerX - .06), F + 3.4, z, -side * Math.PI / 2, .02, side < 0 ? 'centurion_aquila_shield_t4' : 'byzantine_eagle_shield_t5')
     s.bench(side * 5, F, 2.05, 2.8, 0)
     for (const z of [-4.5, 3]) { s.box('metal', side * (innerX - .1), F + 3.0, z, .12, .5, .12, PALETTE.iron); s.bowlFire(side * (innerX - .32), F + 3.25, z, .45) }
   }
@@ -191,6 +192,47 @@ export function buildRomanHrCenter(ctx: BuildContext): void {
   s.add('metal', new THREE.TorusGeometry(1.0, .05, 6, 20).rotateX(Math.PI / 2).translate(ring.x, ring.y, ring.z), PALETTE.iron)
   for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; s.add('glow', new THREE.SphereGeometry(.06, 5, 4).translate(Math.cos(a), ring.y + .2, ring.z + Math.sin(a)), PALETTE.glow, null) }
   s.beam('metal', ring, V(0, top, ring.z), .03, .03, PALETTE.iron)
+}
+
+/** The small Principia theme extends into one enclosed recruitment basilica. */
+function buildExpandedRomanHrCenter(ctx: BuildContext): void {
+  const h = ctx.hrHall!, b = h.body, s = ctx.body, r = ctx.roof, F = ROMAN_HR_CENTER.F
+  const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2, width = b.maxX - b.minX, depth = b.maxZ - b.minZ
+  s.wall('stone', cx, F, b.maxZ - h.wall / 2, width, h.eave, h.wall,
+    h.portals.map(p => ({ x: p.x - cx, y: 0, w: p.doorWidth, h: p.height, arch: .8 })), PALETTE.cream)
+  s.wall('stone', cx, F, b.minZ + h.wall / 2, width, h.eave, h.wall, [], PALETTE.cream)
+  for (const side of [-1, 1]) {
+    const x = side < 0 ? b.minX : b.maxX
+    s.wall('stone', x - side * h.wall / 2, F, cz, depth, h.eave, h.wall,
+      h.windows.map(z => ({ x: -side * (z - cz), y: 2.5, w: 1.2, h: 1.8, arch: .6 })), PALETTE.cream, side * Math.PI / 2)
+    for (const z of h.windows) s.window(x + side * .02, F + 3.4, z, side * Math.PI / 2, 1.2, 1.8, 'stone', true)
+    for (const [lo, hi, color] of [[0, .9, PALETTE.marble], [1.1, 1.6, PALETTE.redPlaster], [h.eave - .6, h.eave - .2, PALETTE.redPlaster]] as const)
+      s.span('stone', x - .06, F + lo, b.minZ, x + .06, F + hi, b.maxZ, color)
+  }
+  let edge = b.minX
+  for (const p of [...h.portals].sort((a, b) => a.x - b.x)) {
+    for (const [lo, hi, color] of [[0, .9, PALETTE.marble], [1.1, 1.6, PALETTE.redPlaster]] as const)
+      s.span('stone', edge, F + lo, b.maxZ, p.x - p.doorWidth / 2, F + hi, b.maxZ + .06, color)
+    edge = p.x + p.doorWidth / 2
+  }
+  for (const [lo, hi, color] of [[0, .9, PALETTE.marble], [1.1, 1.6, PALETTE.redPlaster]] as const)
+    s.span('stone', edge, F + lo, b.maxZ, b.maxX, F + hi, b.maxZ + .06, color)
+  for (const z of [b.minZ, b.maxZ]) s.box('stone', cx, F + h.eave, z, width + .36, .25, .36, PALETTE.marble)
+  for (const x of [b.minX, b.maxX]) s.box('stone', x, F + h.eave, cz, .36, .25, depth, PALETTE.marble)
+  const roof = { axis: 'x' as const, cz, halfSpan: depth / 2 + .4, from: b.minX - .4, to: b.maxX + .4, eave: F + h.eave, ridge: F + h.ridge, thickness: .25 }
+  r.gableRoof('roof', roof)
+  ridgeTiles(r, V(roof.from, roof.ridge + .15, cz), V(roof.to, roof.ridge + .15, cz))
+  for (const side of [-1, 1]) pedimentFront(r, side < 0 ? b.minX - .08 : b.maxX + .08, F + h.eave, cz, depth + .5, h.ridge - h.eave, side * Math.PI / 2)
+  for (const p of h.portals) {
+    for (const side of [-1, 1]) {
+      s.column(p.x + side * 3.7, F, b.maxZ - h.wall / 2, h.eave, .38)
+      s.doorLeaf(p.x + side * p.doorWidth / 2, F, b.maxZ - h.wall - .1, p.doorWidth / 2 - .05, p.height - .8, side < 0 ? Math.PI : 0)
+    }
+    r.gableRoof('roof', { axis: 'z', cx: p.x, halfSpan: 4.3, from: b.maxZ - .2, to: p.z + 2, eave: F + h.eave, ridge: F + h.eave + 2.4, thickness: .25 })
+    pedimentFront(r, p.x, F + h.eave, p.z + 1.85, 8.6, 2.4)
+  }
+  for (const x of [b.minX + 1.5, b.maxX - 1.5]) s.banner(x, F + 6.1, b.maxZ + .1, 0, 1.1, 3.0)
+  buildHrHallDetails(ctx)
 }
 
 /* ─────────────── Weapon shop (fabrica / armoury) ─────────────── */
@@ -228,7 +270,7 @@ export function buildRomanWeapons(ctx: BuildContext): void {
   s.span('stone', -4.4, F + b.top + T.roof.rise + 1.4, -4.7, -3.2, F + b.top + T.roof.rise + 1.7, -3.5, PALETTE.marble)
   s.brazier(-3.8, F + .3, -3.9, .8, PALETTE.footing)
   for (let i = 0; i < 5; i++) { const x = -1.6 + i * .5; s.box('wood', x, F + 2.1, b.back + b.wall + .05, .05, .55, .05, PALETTE.timber); s.box('metal', x, F + 2.4, b.back + b.wall + .07, .2, .12, .1, PALETTE.iron) }
-  s.weaponRack(2.3, F, -4.25, 2.8, 0, 'sword')
+  s.weaponRack(2.3, F, -4.25, 2.8, 0, 'spear', ['paladin_sword_t4', 'byzantine_standard_lance_t5', 'sword_t5'])
   s.anvil(-.6, F, -1.2, .4)
   s.cylinder('wood', 1.5, F, -1.4, .45, .4, .7, PALETTE.timber, 12); s.cylinder('water', 1.5, F + .62, -1.4, .4, .4, .04, undefined, 12)
   for (const z of [-1.6, -.6, .4]) s.scutum(4.6, F + .62, z, -Math.PI / 2, .28)
@@ -251,9 +293,11 @@ export function buildRomanWeapons(ctx: BuildContext): void {
   for (const side of [-1, 1]) {
     const gx = side * tb.x, gy = ctx.ground(gx, tb.z)
     s.table(gx, gy, tb.z, tb.halfX * 2, tb.halfZ * 2, tb.top - gy + F > 0 ? F + tb.top - gy : 1)
-    for (let i = 0; i < 4; i++) ctx.display(['gladius_standard', 'centurion_blade', 'gladius_rusty', 'steel_sword'][i], 'melee', gx - .9 + i * .6, F + tb.top + .05, tb.z, Math.PI / 2, Math.PI / 2)
+    const ids = ['paladin_sword_t4', 'sword_t5']
+    ctx.root.add(tabletopDisplayRow(ids.map(id => ({ id, kind: id === 'bow_t5' ? 'ranged' : 'melee' })), gx, F + tb.top, tb.z, tb.halfX * 2, tb.halfZ * 2, Math.PI / 2))
   }
-  ctx.display('scutum_t2', 'shield', -5.75, ctx.ground(-5.75, 6.4) + 1.0, 6.4, 0, Math.PI / 2)
+  s.scutum(-5.1, F + 2.1, b.front + .12, 0, 0, 'centurion_aquila_shield_t4')
+  s.scutum(4.5, F + 2.4, -2.5, -Math.PI / 2, 0, 'byzantine_eagle_shield_t5')
   s.crate(-5.4, ctx.ground(-5.4, 7.8), 7.8, .6)
   s.barrel(5.55, ctx.ground(5.55, 5.6), 5.6, .8)
   s.banner(4.6, top - .3, b.front + .15, 0, .9, 2.3)
@@ -267,11 +311,11 @@ export function buildRomanStable(ctx: BuildContext): void {
   s.wall('stone', 0, F, (T.rear.z0 + T.rear.z1) / 2, T.side.outer * 2, backEave - F, T.rear.z1 - T.rear.z0, [], PALETTE.cream)
   for (const side of [-1, 1]) {
     const x = side * (T.side.inner + T.side.outer) / 2
-    s.wall('stone', x, F, (T.rear.z0 + T.front) / 2, T.front - T.rear.z0, ar.entablature, T.side.outer - T.side.inner, [], PALETTE.cream, Math.PI / 2)
-    s.span('stone', side * T.side.inner, F, cl.back, side * T.side.outer, F + cl.top, cl.front, PALETTE.redPlaster)
+    for (const [bottom, top, color] of [[0, .9, PALETTE.marble], [.9, 1, PALETTE.cream], [1, 1.4, PALETTE.redPlaster], [1.4, ar.entablature, PALETTE.cream]] as const)
+      s.span('stone', x - (T.side.outer - T.side.inner) / 2, F + bottom, T.rear.z1,
+        x + (T.side.outer - T.side.inner) / 2, F + top, T.front, color)
+    s.span('stone', side * T.side.inner, F + ar.entablature, cl.back, side * T.side.outer, F + cl.top, cl.front, PALETTE.redPlaster)
     pedimentFront(s, side * (T.side.outer + .05), F + cl.top, (cl.front + cl.back) / 2, cl.front - cl.back + .6, cl.rise + .2, side * Math.PI / 2, true)
-    s.span('stone', side * T.side.outer - .06, F, T.rear.z0, side * T.side.outer + .06, F + .9, T.front, PALETTE.marble)
-    s.span('stone', side * T.side.outer - .06, F + 1.0, T.rear.z0, side * T.side.outer + .06, F + 1.4, T.front, PALETTE.redPlaster)
     // Harness pegs and a saddle inside the end stalls.
     for (let i = 0; i < 3; i++) s.add('metal', new THREE.TorusGeometry(.18, .025, 4, 10).rotateY(Math.PI / 2).translate(side * (T.side.inner - .05), F + 2.0, -3.6 + i * .7), PALETTE.darkTimber)
   }
@@ -296,7 +340,7 @@ export function buildRomanStable(ctx: BuildContext): void {
   for (const side of [-1, 1]) s.column(side * pr.postX, ctx.ground(side * pr.postX, pr.postZ), pr.postZ, F + pr.low - ctx.ground(side * pr.postX, pr.postZ), .14, { capital: 'stone', flutes: false })
   s.span('wood', -T.side.outer, F + pr.low - .2, pr.postZ - .1, T.side.outer, F + pr.low, pr.postZ + .1, PALETTE.darkTimber)
   // Stalls: partitions, mangers, hay racks, straw and lanterns.
-  s.span('cloth', -T.side.inner, F + .005, T.rear.z1, T.side.inner, F + .03, T.front, PALETTE.hay)
+  s.span('cloth', -T.side.inner, F - .025, T.rear.z1, T.side.inner, F, T.front, PALETTE.hay)
   for (let i = 1; i <= 4; i++) {
     const x = -6.5 + i * 2.6, d = T.dividers
     s.span('wood', x - .07, F, d.back, x + .07, F + d.top - .1, d.front, PALETTE.timber)

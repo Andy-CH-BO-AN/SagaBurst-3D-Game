@@ -2,7 +2,8 @@ import { TownWatchtowerNavigation } from '../../src/navigation/TownWatchtowerNav
 import { NavigationPathFollower } from '../../src/navigation/NavigationPathFollower'
 import { TownFourGateSiege } from '../../src/career/TownFourGateSiege'
 import { getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, getTownCommandWatchtowerUnderfill } from '../../src/town/TownCommandWatchtowerLayout'
-import { surfaceBox } from '../../src/town/TownRamparts'
+import { rampNavigationSides, surfaceBox } from '../../src/town/TownRamparts'
+import { hrFloorNavigationEdges } from '../../src/town/architecture/ArchitectureSpecs'
 import { resolveObstacleCollision } from '../../src/world/Terrain'
 import * as THREE from 'three'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
@@ -40,6 +41,47 @@ function obstacle(
 }
 
 describe('NavigationWorld', () => {
+  it('從高入口兩側返回時經坡腳走入，避開樓板側緣而不增加實體牆', () => {
+    const ramp = { startX: 0, startZ: 6, dirX: 0, dirZ: -1, startY: 0, topY: 2,
+      length: 6, landing: 0, halfWidth: 4.2, mounted: true }
+    const floor = { ...ramp, startZ: -10, dirZ: 1, startY: 2, length: 10, halfWidth: 12 }
+    const sides = rampNavigationSides(ramp)
+    const perimeter = hrFloorNavigationEdges({ body: { minX: -12, maxX: 12, minZ: -10, maxZ: 0 },
+      portals: [{ x: 0, z: 0, yaw: 0, width: 8.4, doorWidth: 6.4, height: 6.2, approach: 6 }] })
+      .map(e => ({ box: new THREE.Box3(new THREE.Vector3(e.minX - .02, -.4, e.minZ - .02),
+        new THREE.Vector3(e.maxX + .02, 2.75, e.maxZ + .02)), isBarricade: false, physicalPassable: true }))
+    const obstacles: ObstacleData[] = [
+      ...[ramp, floor].map(walkSurface => ({ box: surfaceBox(walkSurface), walkSurface,
+        solidBelow: -.4, navigationPassable: true, isBarricade: false })),
+      ...sides, ...perimeter,
+    ]
+    const world = new NavigationWorld({ minX: -16, maxX: 16, minZ: -14, maxZ: 14 })
+    world.sync(obstacles)
+    const goal = new THREE.Vector3(0, 2, -6), out = new THREE.Vector3()
+    for (const side of [-1, 1]) {
+      const p = new THREE.Vector3(side * 6, 0, 1), follower = new NavigationPathFollower()
+      let velocityY = 0, onGround = true
+      for (const target of [goal, p.clone()]) {
+        for (let frame = 0; frame < 600 && p.distanceTo(target) > .25; frame++) {
+          world.beginFrame()
+          const route = follower.resolveMoveTarget(p, target, world,
+            findBlockingObstacleAlongPath(p, target, 1, 2.6, 0, obstacles) !== null, out)
+          const previous = p.clone(), direction = out.clone().sub(p).setY(0), distance = direction.length()
+          if (route === 'direct' || route === 'path') p.addScaledVector(direction.normalize(), Math.min(.12, distance))
+          velocityY -= 22 / 60; p.y = Math.max(0, p.y + velocityY / 60)
+          const hit = resolveObstacleCollision(p, previous, velocityY, onGround, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+          velocityY = hit.velocityY; onGround = hit.onGround
+        }
+        expect(p.distanceTo(target), `入口 ${side < 0 ? '左' : '右'}側`).toBeLessThan(.25)
+      }
+      // Navigation guidance cannot become invisible body/projectile geometry.
+      const crossing = new THREE.Vector3(side * 3.9, 0, 3), before = new THREE.Vector3(side * 4.5, 0, 3)
+      resolveObstacleCollision(crossing, before, 0, true, 1, 2.6, 0, sides, { mountedSurfaces: true })
+      expect(crossing.toArray()).toEqual([side * 3.9, 0, 3])
+    }
+    expect(sides.every(side => side.projectilePassable)).toBe(true)
+  })
+
   it('rebuilds only when shared obstacle topology changes', () => {
     const world = new NavigationWorld({ minX: -50, maxX: 50, minZ: -50, maxZ: 50, cellSize: 2 })
     const obstacles: ObstacleData[] = []

@@ -84,8 +84,9 @@ import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
 import { CompassUI } from '../ui/CompassUI'
 import { SpectatorCameraController } from '../camera/SpectatorCameraController'
 import { NPC, AIType, Faction } from '../world/NPC'
-import { Mount, MountType, felineVariantFromMountId } from '../world/Mount'
+import { Mount, MountType, felineVariantFromMountId, felineVariantForMountType, isFelineMountType } from '../world/Mount'
 import { XongkoroVisual } from '../world/XongkoroVisual'
+import { preloadArchitectureStatues } from './architecture/TownArchitecture'
 import { eagleLandingFootprint } from '../world/EagleLanding'
 import { isEagleLandingClearOfMounts } from '../world/EagleLandingOccupants'
 import { EagleLandingQueue } from '../world/EagleLandingQueue'
@@ -189,7 +190,7 @@ import { TownMissionCombat, type TownCombatResident as Resident } from './TownMi
 import { TownCavalryPatrolController } from './TownCavalryPatrolController'
 import { withTownCommandSquadRoster } from './TownRules'
 import { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController'
-import { TOWN_RULES, townActorHeroProfile, TownEvent, townCaptainProfile, townMilitaryEquipment, townOfficerPreload, stableHorsePositions, townSitePoint, townPlayerEntryPoint, TOWN_SITES, isCivilian, productStatus, townShopProducts, deferTownResult, settleTown, updateRangerMount, type TownResult } from './TownRules'
+import { TOWN_RULES, townActorHeroProfile, TownEvent, townCaptainProfile, townMilitaryEquipment, townOfficerPreload, stableHorsePositions, townSitePoint, townPlayerEntryPoint, isCivilian, productStatus, townShopProducts, deferTownResult, settleTown, updateRangerMount, type TownResult } from './TownRules'
 
 let sound: SoundManager
 interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; readonly sourceRef?: CombatActorRef; age: number; maxLifetimeSeconds?: number }
@@ -357,10 +358,10 @@ export class TownScene {
         const hero = personalMemberLoadout(member, profile.faction).hero
         return hero ? [hero.visualAssetId] : []
       }))
-      const felineVariants = careerFelineVariants(profile)
+      const felineVariants = new Set([...careerFelineVariants(profile), ...stableHorsePositions(sceneContext.worldFaction).filter(stall => isFelineMountType(stall.type)).map(stall => felineVariantForMountType(stall.type))])
       // Deployment and Patrol officers are elite heroes: their bodies and Byzantine gear must exist before any resident spawns.
       const officers = [...new Set([sceneContext.residentFaction, sceneContext.worldFaction])].map(townOfficerPreload)
-      await Promise.all([...siegeHeroes, ...officers.flatMap(officer => officer.heroAssets.map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))), prepareByzantineEquipment([...officers.flatMap(officer => officer.equipmentIds), profile.equipment?.melee, profile.equipment?.shield, ...(profile.personalSquad?.members ?? []).flatMap(member => { const { loadout } = personalMemberLoadout(member, profile.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), ...[...civilianFactions].map(faction => HumanoidAssetRegistry.preloadAsset(CIVILIAN_HUMANOID_ASSETS[faction])), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), CorgiVisual.preload(), SnowLeopardVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(sceneContext.residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(formerCommanderHero && formerCommanderHero !== playerHero && formerCommanderHero !== commanderHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[formerCommanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero && id !== formerCommanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
+      await Promise.all([...siegeHeroes, ...officers.flatMap(officer => officer.heroAssets.map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))), prepareByzantineEquipment([...officers.flatMap(officer => officer.equipmentIds), profile.equipment?.melee, profile.equipment?.shield, ...(profile.personalSquad?.members ?? []).flatMap(member => { const { loadout } = personalMemberLoadout(member, profile.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), ...[...civilianFactions].map(faction => HumanoidAssetRegistry.preloadAsset(CIVILIAN_HUMANOID_ASSETS[faction])), HorseAssetRegistry.preload(renderer), ...(sceneContext.worldFaction === 'roman' ? [HorseAssetRegistry.preloadArmored(renderer)] : []), BlackCatVisual.preloadVariants(felineVariants), CorgiVisual.preload(), SnowLeopardVisual.preload(), XongkoroVisual.preload(), preloadArchitectureStatues(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(sceneContext.residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(formerCommanderHero && formerCommanderHero !== playerHero && formerCommanderHero !== commanderHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[formerCommanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero && id !== formerCommanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
       progress('建立村莊與營地…')
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       const town = new TownScene(container, renderer, profile, onCampaign, onRestart, onHome, onTutorialLaunch)
@@ -405,9 +406,9 @@ export class TownScene {
       this.event.register('cat', this.cat)
       this.serviceMarkers.set('cat', this.world.addServiceMarker(this.cat.group, 2.15))
     }
-    for (const stall of context.missionOnlyResidents ? [] : stableHorsePositions()) {
-      const horse = new Mount(this.scene, MountType.HORSE, stall.x, stall.z, getTerrainHeight(TOWN_SITES.stable.x, TOWN_SITES.stable.z) + .5, stall.variant)
-      horse.reservedForTown = true; horse.group.rotation.y = stall.yaw
+    for (const stall of context.missionOnlyResidents ? [] : stableHorsePositions(context.worldFaction)) {
+      const horse = new Mount(this.scene, stall.type, stall.x, stall.z, this.world.civicFloorY('stable'), stall.variant)
+      horse.group.rotation.y = stall.yaw
       this.stableHorses.push(horse); this.mounts.push(horse)
     }
     await this.initializeResidents(roster, context, progress)
@@ -443,6 +444,8 @@ export class TownScene {
     this.player.group.position.set(townEntry.x, getTerrainHeight(townEntry.x, townEntry.z) + .9, townEntry.z)
     this.player.group.rotation.y = townEntry.yaw
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
+    // DEV-only QA handle (browser verification of buildings, entrances and damage); stripped from production.
+    if (import.meta.env.DEV) Object.assign(window, { __townScene: { world: this.world, player: this.player, orbit: this.orbit, camera: this.camera, input: this.input, residents: this.residents, stableHorses: this.stableHorses } })
     this.navigation.sync(this.world.obstacles)
     this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,
       () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds,
@@ -847,13 +850,13 @@ export class TownScene {
           const nativeRef = careerEquipment?.refs.mount ?? (equipmentActorIds.has(spec.id)
             ? resolveTownActorEquipment(this.profile, residentArmyFaction, spec.id).refs.mount : null)
           const reused = findTownNativeMount(this.mounts, nativeRef)
-          const mount = reused ?? trackNpcSpawn(new Mount(this.scene, careerMountType(equippedMount as CareerMountId), spec.x, spec.z, undefined, horseVariantForStableKey(`town:${residentArmyFaction}:${spec.id}`)))
+          const mount = reused ?? trackNpcSpawn(new Mount(this.scene, careerMountType(equippedMount as CareerMountId), spec.x, spec.z, spec.y, horseVariantForStableKey(`town:${residentArmyFaction}:${spec.id}`)))
           if (nativeRef?.source === 'native') registerTownNativeMount(mount, nativeRef.nativeId!)
           mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI
           if (spec.role !== 'ranger' || mount !== this.cat) {
             // The shared native Cat starts at the stable; transferred holders need their own spawn baseline before binding.
             // Saved command/mission positions are restored after resident initialization.
-            if (reused) mount.group.position.set(spec.x, getTerrainHeight(spec.x, spec.z), spec.z)
+            if (reused) mount.group.position.set(spec.x, spec.y ?? getTerrainHeight(spec.x, spec.z), spec.z)
             npc.mountVehicle(mount)
           }
           homeMount = mount
@@ -2646,7 +2649,20 @@ export class TownScene {
       formationSlots: (anchor, occupied, count) => personalTownDeployment(anchor, occupied, count,
         TOWN_NAVIGATION_BOUNDS, this.world.obstacles, this.navigation),
       emit: event => this.emitCombatEvent(event),
-      onSpawn: npc => { (this.captainPatrol?.active ? this.captainPatrol : this.defense?.active ? this.defense : this.mission)?.registerPersonalActor(npc); this.synchronizeCommandActors() },
+      onSpawn: (npc, mount) => {
+        // Older checkpoints may still store terrain Y beneath the new slab.
+        if (mount && !mount.isFlyingMount) {
+          const y = this.world.civicSupportY('hr-center', mount.group.position)
+          if (y !== undefined && mount.group.position.y < y) { mount.group.position.y = y; if (npc.mount === mount) npc.mountVehicle(mount) }
+        }
+        if (!npc.mount) {
+          const y = this.world.civicSupportY('hr-center', npc.group.position)
+          if (y !== undefined && npc.group.position.y < y) npc.group.position.y = y
+        }
+        const mission = this.captainPatrol?.active ? this.captainPatrol : this.defense?.active ? this.defense : this.mission
+        mission?.registerPersonalActor(npc)
+        this.synchronizeCommandActors()
+      },
     })
   }
 
@@ -3768,7 +3784,7 @@ export class TownScene {
       if (Math.hypot(position.x - playerBody.position.x, position.z - playerBody.position.z) > 3) continue
       resolveEntityCollision(playerBody, { position, radius: r.npc.mount ? .95 : .42, height: r.npc.mount ? 2.8 : 1.8, bottomOffset: 0, anchored: true }, this.world.obstacles)
     }
-    for (const mount of this.townServiceMounts) if (!mount.dead) resolveEntityCollision(playerBody, { position: mount.group.position, radius: .85, height: 2, bottomOffset: 0, anchored: true }, this.world.obstacles)
+    for (const mount of this.townServiceMounts) if (!mount.dead && mount !== this.player.currentMount) resolveEntityCollision(playerBody, { position: mount.group.position, radius: .85, height: 2, bottomOffset: 0, anchored: true }, this.world.obstacles)
     for (const npc of [...this.mission.fieldNpcs, ...this.defense.fieldNpcs, ...(this.duel?.fieldNpcs ?? []), ...(this.race?.actors ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? [])]) if (!npc.dead && npc.combatPosition.distanceTo(this.player.combatPosition) < 3) resolveEntityCollision(playerBody, { position: npc.combatPosition, radius: .42, height: 1.8, bottomOffset: 0, anchored: false }, this.world.obstacles)
     this.player.group.position.y = Math.max(this.player.group.position.y, getTerrainHeight(this.player.group.position.x, this.player.group.position.z) + .9)
   }
@@ -4016,7 +4032,7 @@ export class TownScene {
     const playerPosition = this.player.currentMount?.group.position ?? this.player.combatPosition
     if (!this.player.isMounted && !this.player.isFalling) {
       let mountDistance = CAREER_MOUNT_INTERACTION_DISTANCE
-      const mounts = new Set([this.careerMounts?.activeMount, ...this.temporaryMounts.all, ...(this.outskirts?.mounts ?? [])])
+      const mounts = new Set([this.careerMounts?.activeMount, ...this.temporaryMounts.all, ...this.stableHorses, ...(this.outskirts?.mounts ?? [])])
       for (const mount of mounts) {
         if (!mount?.availableForPlayer || mount.isAirborne || Math.abs(mount.group.position.y - playerPosition.y) > 3) continue
         const distance = Math.hypot(mount.group.position.x - playerPosition.x, mount.group.position.z - playerPosition.z)
@@ -4185,7 +4201,10 @@ export class TownScene {
     if (this.retirementFinale?.active) this.careerMounts.update(dt)
     this.missionCombat.updateDepartingCavalry(dt)
     this.updateCareerHorseAudio()
-    for (const horse of this.stableHorses) if (!horse.dead) horse.horseVisual?.update(dt, horse.group.position.distanceTo(this.camera.position))
+    for (const mount of this.stableHorses) if (!mount.dead && !mount.riderNpc && !mount.riderPlayer) {
+      mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
+      mount.beginControlledFrame(); mount.finishControlledFrame(dt, this.world.obstacles)
+    }
     for (const m of this.mounts) {
       m.setCameraDistance(m.group.position.distanceTo(this.camera.position))
       if (m.dead || !m.riderNpc && !m.riderPlayer && m !== this.cat && !this.stableHorses.includes(m)) m.update(dt, m.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles)
@@ -4350,6 +4369,7 @@ export class TownScene {
     this.raf = requestAnimationFrame(t => this.frame(t))
   }
   dispose(preservePointerLock = false): void {
+    if (import.meta.env.DEV) delete (window as unknown as { __townScene?: unknown }).__townScene
     this.promotionPreviewCleanup?.(); this.promotionPreviewCleanup = undefined
     this.projectileObstacles.clear()
     this.promotionAttempt = null

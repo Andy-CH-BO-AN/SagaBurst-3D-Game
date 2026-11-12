@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { TownWorld } from '../town/TownWorld'
+import { preloadArchitectureStatues } from '../town/architecture/TownArchitecture'
 import { TownFourGateSiege, type TownSiegeSectorRoster } from '../career/TownFourGateSiege'
 import { createTownSiegeCrewSlots, townSiegeFrame } from '../career/TownFourGateSiegePolicy'
 import { parseTownFourGateSiegeCheckpoint } from '../career/TownFourGateSiegeCheckpoint'
@@ -60,7 +61,7 @@ export async function launchTownFourGateSiegePreview(container: HTMLElement): Pr
   }
   const resize = () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight) }
   try {
-    await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer),
+    await Promise.all([preloadArchitectureStatues(), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer),
       BlackCatVisual.preload(), CorgiVisual.preload(), ...(['roman-hero-t4', 'viking-hero-t4', 'roman-hero-t5', 'viking-hero-t5'] as const)
         .map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
     const text = query.get('restore') === '1' ? sessionStorage.getItem(PREVIEW_KEY) : null
