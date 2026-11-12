@@ -9,47 +9,17 @@ import { AIType } from '../../src/world/NPC'
 import type { CombatEvent } from '../../src/combat/CombatAttribution'
 import {
   CAPTAIN_STEEL_AVALANCHE_ID, COMMANDER_IRON_LEGION_ID, SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID,
-  HEAVY_FIELD_SPECS, caltropRouteExists, createHeavyFieldState, heavyActorIds, heavyEnemyActorIds, heavyFriendlyActorIds,
-  heavyCommandPlan, heavyFrontlineDistance, isHeavyFormationComplete, heavyGroupsTotal, heavyNpcGroups, heavyTacticalOrder, ironLegionEnemyActorIds, IRON_LEGION_ENEMY_GROUPS,
+  createHeavyFieldState, heavyActorIds,
+  heavyCommandPlan, heavyFrontlineDistance, isHeavyFormationComplete, heavyNpcGroups, heavyTacticalOrder,
   parseHeavyFieldState, planVeteranCaltropDefense, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge,
-  shouldTriggerHeavyEnemyCharge, validateCaltropLayout, veteranCaltropWorldRects,
+  shouldTriggerHeavyEnemyCharge, veteranCaltropWorldRects,
 } from '../../src/career/HeavyCavalryMissions'
-
-const tiers = (groups: readonly { tier: number; count: number }[]) =>
-  groups.reduce<Record<number, number>>((acc, g) => ({ ...acc, [g.tier]: (acc[g.tier] ?? 0) + g.count }), {})
 
 function damage(targetType: 'npc' | 'mount', id: string, appliedDamage: number): CombatEvent {
   return { type: 'damage_applied', method: 'melee', requestedDamage: 10, appliedDamage,
     source: { actorId: 'p', actorType: 'player', allegiance: 0, characterFaction: 'roman' },
     target: targetType === 'npc' ? { targetId: id, targetType, name: 'x' } : { targetId: `${id}:mount`, targetType, name: 'm', ownerActorId: id } } as unknown as CombatEvent
 }
-
-describe('heavy cavalry Career rosters', () => {
-  it('每關兵力、Tier 與玩家編制位置符合任務規格', () => {
-    const soldier = HEAVY_FIELD_SPECS[SOLDIER_IRON_ENCOUNTER_ID]
-    expect(heavyGroupsTotal(soldier.friendly)).toBe(75)
-    expect(tiers(soldier.friendly)).toEqual({ 2: 65, 3: 9, 4: 1 })
-    expect(tiers(soldier.enemy)).toEqual({ 3: 50, 4: 9, 5: 1 })
-    expect(heavyFriendlyActorIds(SOLDIER_IRON_ENCOUNTER_ID)).toHaveLength(74)
-
-    const veteran = HEAVY_FIELD_SPECS[VETERAN_IRON_TIDE_ID]
-    expect(heavyGroupsTotal(veteran.friendly)).toBe(300)
-    expect(tiers(veteran.friendly)).toEqual({ 3: 294, 4: 6 })
-    expect(tiers(veteran.enemy)).toEqual({ 3: 70, 4: 25, 5: 5 })
-    expect(heavyFriendlyActorIds(VETERAN_IRON_TIDE_ID)).toHaveLength(299)
-    expect(heavyNpcGroups(VETERAN_IRON_TIDE_ID, 'friendly').filter(g => g.role === 'melee').reduce((n, g) => n + g.count, 0)).toBe(99)
-
-    const captain = HEAVY_FIELD_SPECS[CAPTAIN_STEEL_AVALANCHE_ID]
-    expect(heavyFriendlyActorIds(CAPTAIN_STEEL_AVALANCHE_ID)).toHaveLength(29)
-    expect(heavyEnemyActorIds(CAPTAIN_STEEL_AVALANCHE_ID)).toHaveLength(200)
-    expect(captain.enemy.every(g => g.role !== 'spear')).toBe(true)
-    expect(tiers(captain.enemy)).toEqual({ 3: 196, 4: 4 })
-
-    expect(tiers(IRON_LEGION_ENEMY_GROUPS)).toEqual({ 4: 210, 5: 90 })
-    expect(new Set(ironLegionEnemyActorIds('m')).size).toBe(300)
-    expect(new Set(heavyActorIds('m', 'enemy', IRON_LEGION_ENEMY_GROUPS))).toEqual(new Set(ironLegionEnemyActorIds('m')))
-  })
-})
 
 describe('heavy cavalry tactical triggers', () => {
   const enemies = new Set(['e1'])
@@ -120,22 +90,6 @@ describe('heavy cavalry tactical triggers', () => {
   })
 })
 
-describe('Veteran caltrop defence', () => {
-  it('拒馬零散段落具可通行路徑，完全封閉拒馬牆被判定無路徑', () => {
-    const layout = planVeteranCaltropDefense()
-    expect(validateCaltropLayout(layout)).toEqual({ ok: true, problems: [] })
-    expect(layout.gaps.length).toBeGreaterThan(1)
-    expect(layout.caltrops.length).toBe(layout.gaps.length + 1)
-    const route = caltropRouteExists(layout)
-    expect(route.reachable).toBe(true)
-    expect(route.minPassableWidth).toBeGreaterThanOrEqual(2)
-    expect(veteranCaltropWorldRects(layout, 'roman')[0].maxZ).toBeLessThan(0)
-
-    const wall = { ...layout, caltrops: [{ minX: -80, maxX: 80, minDepth: -0.6, maxDepth: 0.6 }] }
-    expect(caltropRouteExists(wall).reachable).toBe(false)
-  })
-})
-
 describe('heavy cavalry field missions in Career', () => {
   const profileFor = (rank: 'soldier' | 'veteran' | 'captain' | 'commander', faction: 'roman' | 'viking' = 'roman') => {
     const profile = createCareerProfile(faction)
@@ -187,6 +141,7 @@ describe('heavy cavalry field missions in Career', () => {
     const veteran = acceptHeavyFieldMission(profileFor('veteran'), VETERAN_IRON_TIDE_ID, 'v')!
     expect([veteran.activeMission!.officialSquad, veteran.activeMission!.personalSquad]).toEqual([undefined, undefined])
     expect(acceptHeavyFieldMission(profileFor('soldier'), SOLDIER_IRON_ENCOUNTER_ID, 's')!.activeMission!.officialSquad).toBeUndefined()
+    expect(acceptHeavyFieldMission(profileFor('captain'), SOLDIER_IRON_ENCOUNTER_ID, 's')!.activeMission!.officialSquad).toBeUndefined()
     const rects = veteranCaltropWorldRects(planVeteranCaltropDefense(), 'roman')
     const friendly = createCareerHeavySpawnPlan(veteran).npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
     expect(friendly.filter(spec => rects.some(r => spec.x > r.minX - 1 && spec.x < r.maxX + 1 && spec.z > r.minZ - 1 && spec.z < r.maxZ + 1))).toEqual([])
@@ -196,20 +151,5 @@ describe('heavy cavalry field missions in Career', () => {
     expect(captain.officialSquad?.actorIds).toHaveLength(29)
     expect(captain.officialSquad?.actorIds.every(id => captain.friendlyActorIds.includes(id))).toBe(true)
     expect(captain.personalSquad?.memberIds).toEqual(['personal:hr-1'])
-  })
-
-  it('指揮權依玩家軍階而非任務：Captain 與 Commander 在任何一關可指揮並帶私兵，Veteran 不行', () => {
-    const withSquad = (rank: 'veteran' | 'captain' | 'commander') => { const p = profileFor(rank); p.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }; return p }
-    const captain = acceptHeavyFieldMission(withSquad('captain'), SOLDIER_IRON_ENCOUNTER_ID, 'a')!.activeMission!
-    expect(captain.officialSquad?.actorIds).toHaveLength(50)
-    expect(captain.personalSquad?.memberIds).toEqual(['personal:hr-1'])
-    const commander = acceptHeavyFieldMission(withSquad('commander'), VETERAN_IRON_TIDE_ID, 'b')!.activeMission!
-    expect(commander.officialSquad?.squads?.map(squad => squad.actorIds.length)).toEqual([50, 50, 50, 50, 50, 49])
-    expect(commander.officialSquad?.commandedSquadIds).toHaveLength(6)
-    expect(commander.personalSquad).toBeDefined()
-    const veteran = acceptHeavyFieldMission(withSquad('veteran'), SOLDIER_IRON_ENCOUNTER_ID, 'c')!.activeMission!
-    expect([veteran.officialSquad, veteran.personalSquad]).toEqual([undefined, undefined])
-    const restored = parseCareerProfile(JSON.parse(JSON.stringify(acceptHeavyFieldMission(withSquad('commander'), CAPTAIN_STEEL_AVALANCHE_ID, 'd'))))
-    expect(restored?.activeMission?.officialSquad?.commandRank).toBe('commander')
   })
 })

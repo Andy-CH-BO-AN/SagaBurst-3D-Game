@@ -73,7 +73,7 @@ export function createHeavyFieldMission(profile: CareerProfile, templateId: stri
   if (!entry || !isHeavyFieldMissionId(templateId) || !getHeavyFieldMissionAvailability(profile, templateId).unlocked) return null
   const friendlyActorIds = heavyActorIds(id, 'friendly', heavyNpcGroups(templateId, 'friendly'))
   const targetActorIds = heavyActorIds(id, 'enemy', heavyNpcGroups(templateId, 'enemy'))
-  const officialSquad = heavyOfficialAuthority(profile, id, friendlyActorIds)
+  const officialSquad = heavyOfficialAuthority(profile, id, templateId, friendlyActorIds)
   return {
     id, templateId, kind: HEAVY_FIELD_KIND, targetCampId: -1, phase: 'PREPARING', targetActorIds, friendlyActorIds, acceptedAt: Date.now(),
     commanderMission: { version: 1, kind: HEAVY_FIELD_KIND, deploymentComplete: false, heavyField: createHeavyFieldState(templateId) },
@@ -86,9 +86,10 @@ export function createHeavyFieldMission(profile: CareerProfile, templateId: stri
 /** Command follows the player's rank, not the mission: Soldier / Veteran command nobody. */
 export function heavyRankCommands(rank: CareerRank): boolean { return rank === 'captain' || rank === 'commander' }
 
-/** Same squad limits as custom battles (50 per squad, 10 squads): Captain commands one squad, Commander commands the whole force. */
-function heavyOfficialAuthority(profile: CareerProfile, missionId: string, friendlyActorIds: readonly string[]) {
+/** Same squad limits as custom battles (50 per squad, 10 squads): Captain commands one squad in Captain missions only, Commander commands the whole force. */
+function heavyOfficialAuthority(profile: CareerProfile, missionId: string, templateId: string, friendlyActorIds: readonly string[]) {
   if (!heavyRankCommands(profile.rank)) return undefined
+  if (profile.rank === 'captain' && templateId !== CAPTAIN_STEEL_AVALANCHE_ID) return undefined
   const squads: OfficialCommandSquad[] = []
   const size = MAX_COMMAND_SQUAD_SIZE
   const count = profile.rank === 'commander' ? MAX_COMMAND_SQUADS : 1

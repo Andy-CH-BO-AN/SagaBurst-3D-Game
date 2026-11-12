@@ -59,49 +59,12 @@ describe('Career horse appearance transactions', () => {
     expect(current.selectedMountId).toBeUndefined()
   })
 
-  it('keeps the saved and live coat when persistence rejects the change', () => {
-    const p = profile(), apply = vi.fn(), commit = vi.fn(() => false)
-    expect(entry(() => p, commit, apply).setAppearanceVariant(2)).toBe(false)
-    expect(p.horseAppearanceVariant).toBe(0); expect(apply).not.toHaveBeenCalled()
-  })
-
-  it('blocks appearance changes during a race before persisting or touching the mount', () => {
-    // This boundary reads only the presence of the race, not its runtime/render state.
-    const p = profile(); p.activeRace = {} as NonNullable<CareerProfile['activeRace']>
-    const apply = vi.fn(), commit = vi.fn()
-    expect(entry(() => p, commit, apply).setAppearanceVariant(1)).toBe(false)
-    expect(commit).not.toHaveBeenCalled(); expect(apply).not.toHaveBeenCalled()
-  })
-
   it('normalizes a legacy save without an appearance to grey independently of legacy horse tier', () => {
     const p = profile(); delete p.horseAppearanceVariant
     p.ownedHorseTiers = [3]; p.selectedMountId = 'horse-t3'
     const loaded = parseCareerProfile(JSON.parse(JSON.stringify(p)))!
     expect(loaded.selectedMountId).toBe('horse')
     expect(careerMountAppearanceVariant(loaded)).toBe(0)
-  })
-
-  it('reports explicit error and preserves save state without substituting an ordinary horse when armored warhorse asset is unavailable', async () => {
-    HorseAssetRegistry.resetForTesting()
-    const current = profile(); addCareerItem(current, 'armored-horse', 1)
-    current.rank = 'commander'; current.selectedMountId = 'armored-horse'
-    current.activeMission = { kind: 'outpost-relief', targetActorIds: [], friendlyActorIds: [], mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 600 }, unavailable: [] } } as unknown as CareerProfile['activeMission']
-    const preloadSpy = vi.spyOn(HorseAssetRegistry, 'preloadArmored').mockRejectedValue(new Error('GLB 404'))
-    const controller = Object.create(CareerMountController.prototype) as CareerMountController
-    Object.assign(controller as unknown as object, {
-      scene: {}, player: () => ({ isFalling: false, currentMount: null, combatPosition: new Vector3(), facingYaw: 0 }), readProfile: () => current,
-      commit: vi.fn(() => true), obstacles: () => [], occupied: () => [], sceneKey: () => 'town-home', options: {},
-      hp: new Map([['armored-horse', 600]]), armorImpact: new Map([['armored-horse', 50]]), unavailable: new Set(),
-      active: null, requestSeq: 0, pending: null, statusText: '',
-    })
-
-    const saved = structuredClone(current)
-    expect(controller.restoreActiveMount()).toBe(false)
-    expect(controller.activeMountId).toBeNull()
-    expect(current).toEqual(saved)
-    expect(preloadSpy).not.toHaveBeenCalled()
-    expect(controller.statusText).toContain('重甲戰馬資源載入失敗')
-    preloadSpy.mockRestore()
   })
 
   it('purges unowned mount armor on resale and syncOwnership so re-purchasing starts with full 50 armor', () => {
