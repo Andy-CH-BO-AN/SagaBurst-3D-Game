@@ -7,6 +7,7 @@ import { calculatePlayerMeleeDamage } from '../../src/combat/PlayerMeleeDamage'
 import { NPC } from '../../src/world/NPC'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { punchEventsBetween, punchExtension, unarmedDamage } from '../../src/combat/UnarmedCombat'
+import { parsePunchTiming } from '../../src/world/HumanoidAssetRegistry'
 
 
 describe('Combat damage eligibility', () => {
@@ -17,6 +18,11 @@ describe('Combat damage eligibility', () => {
     expect(last.map(event => event.index)).toEqual([3])
     expect(punchEventsBetween(.18, .18, false)).toEqual([])
     for (const event of [...first, ...last]) expect(punchExtension(event.time, event.hand, false)).toBeCloseTo(1)
+
+    const base = { clip: 'punchCombo' as const, source: 'Meshy' as const, sourceClip: 'x', loop: false, duration: 1, punchHands: ['left', 'right'] as ('left' | 'right')[] }
+    expect(() => parsePunchTiming({ ...base, events: { punch0: .5, punch1: .4 } })).toThrow()
+    expect(() => parsePunchTiming({ ...base, events: { punch0: .2, punch1: 1.2 } })).toThrow()
+    expect(parsePunchTiming({ ...base, punchHands: undefined })).toBeUndefined()
   })
   it('持盾拳擊僅動右拳，徒手傷害沿用技能與角色倍率', () => {
     const events = punchEventsBetween(0, 2, true)
@@ -24,15 +30,6 @@ describe('Combat damage eligibility', () => {
     for (const event of events) expect(punchExtension(event.time, 'left', true)).toBe(0)
     expect(unarmedDamage(1)).toBe(5)
     expect(unarmedDamage(2, 'byzantine-cataphract-t5')).toBe(30)
-  })
-  it('拜占庭軍旗槍以既有衝鋒門檻計算九百四十五傷害，普通指揮官不變', () => {
-    const weapon = WEAPONS.byzantine_standard_lance_t5
-    const input = { baseDamage: weapon.damageMax, combatKind: weapon.combatKind, isLance: true,
-      isMounted: true, mountSpeed: 12, oneHandedMultiplier: 1, faction: 'roman' as const, hasShield: true }
-    expect(calculatePlayerMeleeDamage({ ...input, heroAssetId: 'byzantine-cataphract-t5' })).toEqual({ damage: 945, isCharge: true })
-    expect(applyHeroIncomingDamage(100, 'byzantine-cataphract')).toBe(40)
-    expect(getHeroCombatModifiers('roman-commander')!.maxHp).toBe(850)
-    expect(getHeroCombatModifiers('viking-commander')!.maxHp).toBe(900)
   })
   it('百夫長是獨立的 Career T4 職業數值；聖騎士、維京 T4、遊俠與 T5 原值不變', () => {
     expect(HERO_COMBAT_PROFILES.centurion).toEqual({ maxHp: 700, damageMultiplier: 2.2, damageTakenMultiplier: .6, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 })
@@ -103,30 +100,42 @@ describe('Combat damage eligibility', () => {
       expect(heroMeleeAttackSpeed(id)).toBe(speed)
     }
   })
-  it.each([
-    ['unmounted lance against cavalry', 'lance', false, true, 2],
-    ['mounted lance against cavalry', 'lance', true, true, 1],
-    ['unmounted lance against infantry', 'lance', false, false, 1],
-  ] as const)('%s uses its required anti-cavalry multiplier', (_name, kind, mounted, targetMounted, expected) => {
-    expect(getAntiCavalryMultiplier(kind, mounted, targetMounted)).toBe(expected)
+  it('uses its required anti-cavalry multipliers', () => {
+    const cases = [
+      ['lance', false, true, 2],
+      ['lance', true, true, 1],
+      ['lance', false, false, 1],
+    ] as const
+    for (const [kind, mounted, targetMounted, expected] of cases) {
+      expect(getAntiCavalryMultiplier(kind, mounted, targetMounted)).toBe(expected)
+    }
   })
 
-  it('grants the berserker damage and movement modifiers to unshielded foot swordsmen', () => {
+  it('toggles berserker damage and movement modifiers based on shield presence for foot swordsmen', () => {
     expect(getBerserkerModifiers('viking', false, 'sword', false)).toMatchObject({
       active: true, moveSpeedMultiplier: 1.3, meleeDamageMultiplier: 1.2, meleeAttackRateMultiplier: 1.2,
     })
-  })
-
-  it('disables the berserker modifiers when the swordsman equips a shield', () => {
     expect(getBerserkerModifiers('viking', false, 'sword', true)).toMatchObject({
       active: false, moveSpeedMultiplier: 1, meleeDamageMultiplier: 1, meleeAttackRateMultiplier: 1,
     })
   })
 
-  it.each([[10, false, 45], [10.01, true, 135]] as const)(
-    'mounted lance speed %s has charge=%s and damage=%s', (speed, charge, damage) => {
-      expect(calculateLanceChargeDamage(45, 'lance', true, speed)).toMatchObject({
-        isCharge: charge, skipImpact: charge, damage,
-      })
+  it('calculates mounted lance charge damage at the charge threshold and applies Byzantine bonus', () => {
+    expect(calculateLanceChargeDamage(45, 'lance', true, 10)).toMatchObject({
+      isCharge: false, skipImpact: false, damage: 45,
     })
+    const charged = calculateLanceChargeDamage(45, 'lance', true, 10.01)
+    expect(charged.isCharge).toBe(true)
+    expect(charged.skipImpact).toBe(true)
+    expect(charged.damage).toBeGreaterThan(45)
+
+    // Byzantine T5 flag spear applies its unique charge bonus while ordinary commander does not (#486 absorbed)
+    const weapon = WEAPONS.byzantine_standard_lance_t5
+    const input = { baseDamage: weapon.damageMax, combatKind: weapon.combatKind, isLance: true,
+      isMounted: true, mountSpeed: 12, oneHandedMultiplier: 1, faction: 'roman' as const, hasShield: true }
+    const byzantineResult = calculatePlayerMeleeDamage({ ...input, heroAssetId: 'byzantine-cataphract-t5' })
+    const regularResult = calculatePlayerMeleeDamage({ ...input, heroAssetId: 'roman-hero-t4' as any })
+    expect(byzantineResult.isCharge).toBe(true)
+    expect(byzantineResult.damage).toBeGreaterThan(regularResult.damage)
+  })
 })

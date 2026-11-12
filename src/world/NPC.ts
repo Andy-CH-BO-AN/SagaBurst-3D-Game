@@ -40,7 +40,10 @@ import type { CharacterRig, MountedPoseKind, CharacterFaction } from './Characte
 import { HumanoidAssetRegistry, disposeHumanoidInstanceSkeletons } from './HumanoidAssetRegistry'
 import type { HeroAssetId } from './HeroAssetCatalog'
 import { resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
-import { isEquipmentUsable, resolveEquipmentSlot } from './HighTierEquipment'
+import {
+  acquireEquipmentDemand, isEquipmentUsable, releaseAllEquipmentDemands,
+  releaseEquipmentDemand, resolveEquipmentSlot,
+} from './HighTierEquipment'
 import { applyHeroIncomingDamage, applyHeroOutgoingDamage, applyHeroMeleeDamage, heroMeleeAttackSpeed, getHeroCombatModifiers, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 
@@ -357,8 +360,12 @@ export class NPC {
   private heldMeleeWeaponId: string | null = 'steel_sword'
   get meleeWeaponId(): string | null { return this.heldMeleeWeaponId }
   set meleeWeaponId(id: string | null) {
+    if (this.selectedMeleeWeaponId && this.selectedMeleeWeaponId !== id) {
+      releaseEquipmentDemand(this.selectedMeleeWeaponId, this)
+    }
     this.selectedMeleeWeaponId = id
-    this.heldMeleeWeaponId = resolveEquipmentSlot(id, this.heldMeleeWeaponId)
+    if (id) acquireEquipmentDemand(id, this)
+    this.heldMeleeWeaponId = resolveEquipmentSlot(id, this.heldMeleeWeaponId, this)
   }
   public rangedWeaponId?: string
   public loadout?: UnitLoadout
@@ -542,8 +549,12 @@ export class NPC {
   private heldShieldId: string | null = null
   get shieldId(): string | null { return this.heldShieldId }
   set shieldId(id: string | null) {
+    if (this.selectedShieldId && this.selectedShieldId !== id) {
+      releaseEquipmentDemand(this.selectedShieldId, this)
+    }
     this.selectedShieldId = id
-    this.heldShieldId = resolveEquipmentSlot(id, this.heldShieldId)
+    if (id) acquireEquipmentDemand(id, this)
+    this.heldShieldId = resolveEquipmentSlot(id, this.heldShieldId, this)
   }
   readonly equipmentVisualLOD = new EquipmentVisualLODController()
   private builtShieldId: string | null | undefined = undefined
@@ -1298,6 +1309,7 @@ export class NPC {
   }
 
   dispose(): void {
+    releaseAllEquipmentDemands(this)
     this.bowVisual?.dispose()
     this.combatEventBindingsClosed = true
     this.combatEventBindings.length = 0

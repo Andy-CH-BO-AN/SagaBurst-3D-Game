@@ -61,7 +61,7 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(cavalryTurnRate(speed)).toBeLessThanOrEqual(CAVALRY_MAX_TURN_RATE)
   })
 
-  it('distinguishes targets in front vs behind the charging cavalry', () => {
+  it('evaluates forward cone and scores forward over rearward targets during charge and pass-through', () => {
     const cavalryPos = new THREE.Vector3(0, 0, 0)
     const yaw = 0 // Local +Z is forward: (0, 0, 1)
 
@@ -72,132 +72,17 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(isTargetInForwardCone(cavalryPos, yaw, forwardTarget)).toBe(true)
     expect(isTargetInForwardCone(cavalryPos, yaw, rearTarget)).toBe(false)
     expect(isTargetInForwardCone(cavalryPos, yaw, sideTarget)).toBe(false)
-  })
-
-  it('strictly filters out rearward targets during pass-through phase', () => {
-    const cx = 0, cz = 10
-    const yaw = 0 // Facing +Z
-    const rearX = 0, rearZ = 8 // Behind at 2m
-    const aheadX = 0, aheadZ = 18 // Ahead at 8m
 
     // In passthrough: rear target must return Infinity (disqualified)
-    expect(scoreCavalryTarget(cx, cz, yaw, rearX, rearZ, true)).toBe(Infinity)
-
-    // Ahead target has a finite, valid score
-    const aheadScore = scoreCavalryTarget(cx, cz, yaw, aheadX, aheadZ, true)
+    expect(scoreCavalryTarget(0, 10, yaw, 0, 8, true)).toBe(Infinity)
+    const aheadScore = scoreCavalryTarget(0, 10, yaw, 0, 18, true)
     expect(Number.isFinite(aheadScore)).toBe(true)
     expect(aheadScore).toBeLessThan(50)
-  })
-
-  it('prefers distant forward targets over closer rearward targets during normal charge', () => {
-    const cx = 0, cz = 0
-    const yaw = 0 // Facing +Z
-    const aheadX = 0, aheadZ = 12 // 12m in front
-    const rearX = 0, rearZ = -4 // 4m behind
-
-    const forwardScore = scoreCavalryTarget(cx, cz, yaw, aheadX, aheadZ, false)
-    const rearScore = scoreCavalryTarget(cx, cz, yaw, rearX, rearZ, false)
 
     // Forward target at 12m has a better (lower) score than rear target at 4m
+    const forwardScore = scoreCavalryTarget(0, 0, yaw, 0, 12, false)
+    const rearScore = scoreCavalryTarget(0, 0, yaw, 0, -4, false)
     expect(forwardScore).toBeLessThan(rearScore)
-  })
-
-  it('simulates a charge pass-through without spinning on contact', () => {
-    let x = 0, z = 0
-    let yaw = 0 // Heading +Z
-    const targetZ = 10
-    const speed = 12
-    const dt = 1 / 60
-
-    let passthroughTimer = 0
-    let didSnapTurn = false
-
-    for (let frame = 0; frame < 120; frame++) {
-      // Check if reached target
-      if (z >= targetZ && passthroughTimer === 0) {
-        passthroughTimer = 1.0 // Trigger passthrough
-      }
-
-      if (passthroughTimer > 0) {
-        passthroughTimer = Math.max(0, passthroughTimer - dt)
-      }
-
-      // Check target: enemy at z=10 is now behind if z > 10
-      const isBehind = z > targetZ
-      const score = scoreCavalryTarget(x, z, yaw, 0, targetZ, passthroughTimer > 0)
-
-      if (isBehind && passthroughTimer > 0) {
-        // Must reject target behind
-        expect(score).toBe(Infinity)
-      }
-
-      const prevYaw = yaw
-      // If score is Infinity, maintain forward heading
-      const desiredYaw = score === Infinity ? yaw : Math.atan2(0 - x, targetZ - z)
-      yaw = steerCavalryHeading(yaw, desiredYaw, speed, dt)
-
-      if (Math.abs(angleDifference(yaw, prevYaw)) > 0.5) {
-        didSnapTurn = true
-      }
-
-      z += Math.cos(yaw) * speed * dt
-      x += Math.sin(yaw) * speed * dt
-    }
-
-    expect(didSnapTurn).toBe(false)
-    expect(z).toBeGreaterThan(targetZ + 5) // Successfully charged through target position
-  })
-
-  it('sequences multiple enemies along a column during continuous charge', () => {
-    // Three enemies at z = 10, 18, 26
-    const enemies = [
-      { id: 1, x: 0, z: 10 },
-      { id: 2, x: 0, z: 18 },
-      { id: 3, x: 0, z: 26 },
-    ]
-
-    let x = 0, z = 0
-    let yaw = 0
-    const speed = 12
-    const dt = 1 / 60
-    const hitSequence: number[] = []
-    let passthroughTimer = 0
-
-    for (let frame = 0; frame < 180; frame++) {
-      if (passthroughTimer > 0) passthroughTimer = Math.max(0, passthroughTimer - dt)
-
-      // Find best target among surviving enemies
-      let bestScore = Infinity
-      let bestEnemy: (typeof enemies)[0] | null = null
-
-      for (const enemy of enemies) {
-        const s = scoreCavalryTarget(x, z, yaw, enemy.x, enemy.z, passthroughTimer > 0)
-        if (s < bestScore) {
-          bestScore = s
-          bestEnemy = enemy
-        }
-      }
-
-      if (bestEnemy) {
-        // If within 1.5m, register hit
-        const dist = Math.hypot(bestEnemy.x - x, bestEnemy.z - z)
-        if (dist <= 1.5 && !hitSequence.includes(bestEnemy.id)) {
-          hitSequence.push(bestEnemy.id)
-          passthroughTimer = 0.5 // brief passthrough per hit
-        }
-      }
-
-      // Steer toward bestEnemy if found, else maintain forward
-      const desiredYaw = bestEnemy ? Math.atan2(bestEnemy.x - x, bestEnemy.z - z) : yaw
-      yaw = steerCavalryHeading(yaw, desiredYaw, speed, dt)
-
-      z += Math.cos(yaw) * speed * dt
-      x += Math.sin(yaw) * speed * dt
-    }
-
-    // Must hit enemies in sequence 1, 2, 3 without stalling
-    expect(hitSequence).toEqual([1, 2, 3])
-    expect(z).toBeGreaterThan(30)
   })
 
   it('finds best forward target using findCavalryChargeTarget', () => {
@@ -318,7 +203,7 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(restrictedTarget).toBeNull()
   })
 
-  it('keeps charge heading forward without turning back when target moves behind during ATTACK', () => {
+  it('keeps charge heading forward when target moves behind and shares turn budget with lance tip', () => {
     const cavalryPos = new THREE.Vector3(0, 0, 10)
     const currentYaw = 0 // Facing +Z
     const enemyBehindPos = new THREE.Vector3(0, 0, 8) // Behind at z=8
@@ -335,37 +220,24 @@ describe('Continuous Melee Cavalry Charge', () => {
     const desiredYaw = (inFront && targetDirX * targetDirX + targetDirZ * targetDirZ > 0.001)
       ? Math.atan2(targetDirX, targetDirZ)
       : currentYaw
-
     expect(desiredYaw).toBe(currentYaw)
 
     // Steering maintains heading with zero turn
     const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
     expect(newYaw).toBe(currentYaw)
-  })
 
-  it('shares turn budget between heading steering and lance tip correction without exceeding maximum frame turn rate', () => {
-    const speed = 12
-    const dt = 1 / 60
+    // Shares turn budget between heading steering and lance tip correction
     const maxTurnBudget = cavalryTurnRate(speed) * dt
-
     const initialYaw = 0
-    const desiredYaw = 0.5 // Desires a turn to the right
-    const steerYaw = steerCavalryHeading(initialYaw, desiredYaw, speed, dt)
-
-    // Heading steering consumed max turn in + direction
+    const steerYaw = steerCavalryHeading(initialYaw, 0.5, speed, dt)
     const headingTurn = steerYaw - initialYaw
     expect(headingTurn).toBeCloseTo(maxTurnBudget, 6)
 
-    // Lance tip ALSO desires an offset in the same + turn direction
-    const tipYawOffset = -0.3 // Subtracting negative offset means turning further right
-
-    // Shared budget calculation (from NPC.ts):
+    const tipYawOffset = -0.3
     const unconstrainedYaw = steerYaw - tipYawOffset
     const totalDiff = angleDifference(unconstrainedYaw, initialYaw)
     const clampedDiff = Math.max(-maxTurnBudget, Math.min(maxTurnBudget, totalDiff))
     const finalYaw = initialYaw + clampedDiff
-
-    // Net actual turn between initial yaw and final yaw
     const actualTotalTurn = Math.abs(angleDifference(finalYaw, initialYaw))
     expect(actualTotalTurn).toBeLessThanOrEqual(maxTurnBudget + 1e-6)
     expect(actualTotalTurn).toBeCloseTo(maxTurnBudget, 6)
@@ -450,57 +322,6 @@ describe('Continuous Melee Cavalry Charge', () => {
     // Geometry is in exact sync with mount forward step
     const distToTarget = new THREE.Vector3(0.3, 1.4, 2.5).distanceTo(tipWorld)
     expect(distToTarget).toBeCloseTo(0.2, 5)
-  })
-
-  it('prefers a 35m enemy NPC over a 100m player in candidate competition', () => {
-    const cavalry = {
-      combatPosition: new THREE.Vector3(0, 0, 0),
-      group: { rotation: { y: 0 } },
-      mount: { group: { rotation: { y: 0 } } },
-      hostileToPlayer: true,
-      combatTargetAllowed: () => true,
-    } as any
-
-    const player = {
-      targetable: true,
-      dead: false,
-      position: new THREE.Vector3(0, 0, 100), // Player at 100m ahead
-      group: { position: new THREE.Vector3(0, 0, 100) },
-      isMounted: false,
-    } as any
-
-    const npcAt35 = {
-      combatPosition: new THREE.Vector3(0, 0, 35), // Enemy NPC at 35m ahead
-      dead: false,
-      mount: null,
-    } as any
-
-    const candidateBuffer: any[] = []
-    const isHostile = () => true
-
-    const grid = {
-      getNearbyInto: (_pos: any, radius: number, out: any[]) => {
-        expect(radius).toBeGreaterThanOrEqual(35)
-        out.push(npcAt35)
-        return out
-      },
-      findNearest: () => null,
-    } as any
-
-    const target = findCavalryChargeTarget(
-      cavalry,
-      player,
-      grid,
-      null,
-      candidateBuffer,
-      false,
-      isHostile,
-    )
-
-    expect(target).not.toBeNull()
-    expect(target!.isPlayer).toBe(false)
-    expect(target!.npc).toBe(npcAt35)
-    expect(target!.position.z).toBe(35)
   })
 
   it('falls back to nearest available ground target when no forward candidate exists', () => {

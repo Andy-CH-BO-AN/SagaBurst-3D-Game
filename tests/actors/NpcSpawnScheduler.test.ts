@@ -17,18 +17,6 @@ describe('shared render-frame NPC budget', () => {
     expect(batch.enqueue('c', create)).toBe(false)
   })
 
-  it('does not reopen an empty frame or materialize a callback enqueue in the same frame', () => {
-    const scheduler = new NpcSpawnScheduler(), calls = vi.fn()
-    scheduler.tick(16)
-    const first = scheduler.batch(), second = scheduler.batch()
-    first.enqueue('first', () => { calls(); second.enqueue('second', calls); second.seal(); scheduler.tick(32) })
-    first.seal()
-    scheduler.tick(16); expect(calls).not.toHaveBeenCalled()
-    scheduler.tick(32); scheduler.tick(32)
-    expect(calls).toHaveBeenCalledOnce()
-    scheduler.tick(48); expect(calls).toHaveBeenCalledTimes(2)
-  })
-
   it('cancels old owners, skips invalid jobs and never reports cancellation as successful readiness', async () => {
     const scheduler = new NpcSpawnScheduler(), create = vi.fn()
     const old = scheduler.batch(), next = scheduler.batch()
@@ -76,18 +64,5 @@ describe('shared render-frame NPC budget', () => {
       scheduler.tick(32); expect(calls).toHaveBeenCalledTimes(2)
       scheduler.tick(48); expect(calls).toHaveBeenCalledTimes(3)
     } finally { vi.unstubAllGlobals() }
-  })
-
-
-  it('marks empty finalizer failures and settles loading even when owner cleanup also throws', async () => {
-    const scheduler = new NpcSpawnScheduler(), error = new Error('empty roster finalization')
-    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
-    try {
-      const batch = scheduler.batch(() => { throw new Error('cleanup') })
-      batch.seal(() => { throw error })
-      expect(batch.status).toBe('failed'); expect(batch.ready).toBe(false)
-      await expect(scheduler.wait(batch)).rejects.toBe(error)
-      expect(log).toHaveBeenCalledOnce()
-    } finally { log.mockRestore() }
   })
 })

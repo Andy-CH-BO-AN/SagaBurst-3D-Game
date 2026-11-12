@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest'
-import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
 import { returnPersonalMissionToHR, type PersonalSquadMission } from '../../src/career/CareerPersonalSquadMission'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { Vector3, Euler } from 'three'
@@ -18,6 +17,7 @@ import { createCareerProfile } from '../../src/career/CareerProfile'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 
 import { createArmyCommandHarness as controllerHarness, type CommandRecipientFixture } from '../helpers/armyCommandHarness'
+import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
 
 describe('Personal Squad command lifecycle routing', () => {
   it('keeps a newly recruited hero pending until assets load and propagates asset failure without materialization', async () => {
@@ -54,7 +54,7 @@ describe('Personal Squad command lifecycle routing', () => {
       for (const spy of spies) spy.mockRestore()
     }
   })
-  it('keeps private ALL and its identity separate from all eight official squads; ineffective Dismiss keeps the command', () => {
+  it('keeps private ALL and its identity separate from all eight official squads; ineffective or repeated Dismiss keeps the command and reports no success', () => {
     const official = Array.from({ length: 8 }, (_, i) => ({ squadId: i + 1, setTacticalOrder: vi.fn() }))
     const personal = { faction: Faction.PLAYER, presetId: 'roman_sword_cavalry', squadId: 'personal', dead: false,
       tacticalOrder: 'defend', setTacticalOrder: vi.fn((order: string) => { personal.tacticalOrder = order }) }
@@ -64,9 +64,14 @@ describe('Personal Squad command lifecycle routing', () => {
     expect(entries.map(entry => entry.target)).toEqual(['squad:personal', 'all'])
     input.pressAll(); controller.update(); input.press('2'); controller.update()
     expect(personal.setTacticalOrder).toHaveBeenCalledExactlyOnceWith('charge')
-    input.press('9'); controller.update(); input.press('6'); controller.update()
-    expect(issue).toHaveBeenCalledExactlyOnceWith('dismiss')
+    ui.showFeedback.mockClear()
+    for (let attempt = 0; attempt < 2; attempt++) {
+      input.press('9'); controller.update(); input.press('6'); controller.update()
+    }
+    expect(issue).toHaveBeenCalledTimes(2)
     expect(personal.tacticalOrder).toBe('charge')
+    expect(ui.showFeedback).not.toHaveBeenCalled()
+    expect(controller.isSubmenuOpen).toBe(false)
     for (const unit of official) expect(unit.setTacticalOrder).not.toHaveBeenCalled()
     personal.tacticalOrder = 'defend'; ui.render.mockClear(); controller.update()
     expect(ui.render.mock.lastCall![0][0]).toMatchObject({ target: 'squad:personal', order: 'defend' })

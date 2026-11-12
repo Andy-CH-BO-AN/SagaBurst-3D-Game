@@ -12,11 +12,18 @@
 - 核心 owner 保護重要演算法與 failure mode；caller 只保護必要資料傳遞、權限、失敗處理及副作用順序，不重跑完整核心矩陣。
 - 優先保護無法遊玩、取消與 rollback、資料損壞、存檔交易、ownership、重複結算、戰鬥有效命中與死亡、指揮資格、導航可達性和必要容量邊界。
 
+## Regression 設計與正式呼叫路徑
+
+- 新增測試前先寫出**可觀察的行為契約與失敗模式**，不是照目前實作抄 expected。先查「使用者／事件入口 → 真正決策 owner → 正式 caller → side effects／存檔 → 替換／退出 cleanup」。純函式小改動不必製作流程表；跨模組、非同步或生命週期修改，須簡短盤點這條路徑與責任歸屬。
+- **Helper / Service 測試通過，不等於正式遊戲已修好**。改動跨越 caller 邊界時，至少用一個輕量且執行真實 production caller 的案例驗證授權、資料傳遞、儲存或清理確實觸發；可隔離場景／網路等外部依賴，但不自行模擬或代做受測 caller 的決策。
+- 不同的失敗模式應有可獨立定位的案例：正常 Save/Load、非法權限、舊版遷移、寫入失敗與非同步取消不是同一個 scenario。**同一不可分交易**可用多個 assertions，**同一契約**少量資料變體可迭代；不要以大型單一 `it` 或迴圈藏多項不相干的失敗模式，也不為了守住 case count 刪除重要斷言。
+- 存檔相容性測試使用**真實歷史格式與授權／編組形狀**（可縮小無關 Fixture，不可改變造成 Bug 的關鍵形狀）；驗證首次載入、需要時的持久化、再次載入的冪等性，以及任務、HP、陣亡、指揮權、獎勵等必要不變量。無法安全遷移或寫入失敗時應 fail closed、保留原始資料，不只驗證 parser 有回傳值。
+
 ## 成本與邏輯範圍
 
 - 每個保留的邏輯 leaf case 最多 100ms，包含該案例的 beforeEach、body、afterEach、onTestFinished 與案例專屬 cleanup。以不受 fake timers 影響的真實單調時鐘量測；timeout 或 slowTestThreshold 不能取代預算驗證。
-- PR → `dev` 的 **Related CI 合計最多 500 個 unique leaf cases**，不得分成多次執行繞過，也不得在 Desktop jobs 重複執行同一批 logic cases；超過 500 時應拆分 Feature PR。push → `dev`（Full 通過後發佈 SHA-exact Supercov seed）、PR／push → `main`、Pages、Release 與手動 Full 執行完整 repository，**沒有總數上限**。兩者都在單一 `logic / gate` job 內完成。each、動態生成與多實作 contract 的每一列均計入。
-- 單一 leaf 通常應低於 70ms，保留 30ms 執行餘裕；這是**非阻擋的預警目標**，不得靠隱藏案例或刪掉必要回歸達標。Related 的 500 個與每 case 100ms 都是硬門檻，不設 repository 案例配額。
+- 全庫所有 PR 與 push 一律執行 **Full Test CI**（全庫邏輯測試上限最多 **1,000 unique leaf cases**，包含 Vitest 與 Node tests；優先改善目標為 **500–600 cases**），不得分成多次執行繞過，也不得在 Desktop jobs 重複執行同一批 logic cases。都在單一 `logic / gate` job 內完成。each、動態生成與多實作 contract 的每一列均計入。
+- 單一 leaf 通常應低於 70ms，保留 30ms 執行餘裕；每個保留的邏輯 leaf case 最多 100ms（包含 hooks 與 cleanup）。1,000 個與每 case 100ms 都是硬門檻。
 - 若任一 case 達 70ms，新增前先盤點該能力 owner 的現有覆蓋，優先採取淨減、去除重複 failure mode、縮小 fixture 與依賴；新案例若不可替代，需在 PR 說明風險與成本，不以硬性淨減要求犧牲關鍵保護。
 - Import／collection、setupFiles、beforeAll／afterAll 與整套 wall time 另外記錄；不得將案例成本藏入共用初始化或 cache。
 - Unit tests 不生成場景或 3D model，不建立 Scene、Group、Object3D 假場景、Mesh、geometry、material、texture、skeleton、rig 或 AnimationMixer。
@@ -36,6 +43,14 @@
 - 每 case 圍繞一個行為，名稱清楚描述 scenario 與結果；同一交易或狀態轉換可以有多個必要 assertions，集合不變條件可迭代檢查。
 - 優先斷言公開狀態與輸出；副作用順序本身是契約時明確驗證。Regression 必須在對應錯誤行為下失敗，不能只檢查呼叫或沒有 throw。
 - 可設定 A*、scheduler 預算由測試自行指定 n，驗證同 frame 最多 n 筆、第 n + 1 筆保留、合法下一 frame 繼續及重複 timestamp 不重複耗用預算；不寫死 production 當前數值。
+
+## 非同步、資源與生命週期 Regression
+
+- 先區分**唯讀查詢**與**會改變狀態的操作**。查看 UI／狀態不得暗中建立 demand、啟動載入／重試或改變 ownership，除非這就是明示的產品契約；測試要能抓到「僅查看未選裝備卻觸發載入或通知」這類副作用。
+- 有 acquire／subscribe／create 的資源，必須找到正式 caller 中對應的 release／unsubscribe／dispose，涵蓋**換裝、替換物件、切換場景、初始化失敗與離場**。測試不能只手動呼叫 Service 的 dispose 就宣稱 Game 會清理；多個有效 owner 共享資源時，一個離開不能誤釋放其他人。
+- 對 preload、request、retry、timeout、abort 與 dispose，使用 fake timers、可控制順序的 deferred Promise 和窄 loader double 驗證**延遲完成／亂序完成**：過期結果不能覆寫新結果、誤清新 request 的狀態或在 owner 離開後觸發通知；已 dispose 的實例不可被舊工作復活。非必要預熱失敗不應阻塞場景，未就緒資產不可提前提供戰鬥效果。
+- 先定義資源可見性與交易邊界：部分載入失敗不可發布半成品、寫入失敗不可對外暴露半提交狀態；測成功路徑也要測拒絕、重試與失敗回復。用可觀察狀態驗證，而不是只確認 mock 被呼叫。
+- **不得為了讓 Test Double 過關而削弱 Production**：不在正式程式吞掉必要錯誤（例如空 `catch`）、加入假 fallback／只供測試的分支，或暴露不完整的 test-only reset API。優先注入狹窄的外部依賴或建立可隔離的 Service 實例；確需抽出純邏輯時，正式 caller 必須真正使用，且只做最低限度重構。
 
 ## 時間、隔離、cleanup 與型別
 
@@ -61,15 +76,12 @@
 
 - Runner 實際 collection 是數量依據；Node release leaf cases 與 Vitest 合併，避免漏跑或重算。報告缺失、過期、collection error 或空 suite 均不能通過。
 - CI 與 npm test 必須經由相同 planner／manifest 與預算守門；任何超過 100ms 的邏輯 case 輸出檔案、完整名稱、耗時並失敗。不得吞掉 runner 的原始失敗退出碼。
-- PR → dev 使用 Supercov Related Test CI：還原與 PR base SHA 完全相同的 Full seed，依 Supercov native affected／undetermined identities 選測，不另設 gameplay source-to-test mapping；唯一的靜態分析只用於驗證新增 runtime 模組（詳見 [tooling/README.md](tooling/README.md)）。push → dev 執行 Full，通過後發佈綁定該 commit 的 seed；Related 與 Full 不得互相取代，Related 不得自動退回 Full。
-- Related selection 所有 runner 合計必須 `<=500`；新增與修改的測試檔一律全測。超過 500、缺少 exact base seed、證據不一致、刪除／搬移的 runtime 來源、無法以 TypeScript 模組解析證明測試關聯的新增 runtime 來源或無法安全判定時直接 fail closed，要求等待 seed、補證據或拆小 PR，不得自動退回 Full。已刪測試不得執行。
-- PR → main、push → main、正式 tag／release／Pages 發佈前與手動 Full mode 必須跑 Full Test gate。Full 沒有總數上限，必須驗證所有 discovered files 及 leaves 恰好執行一次，再允許 publish。
+- 所有 PR 與 push 一律執行 Full Test CI。廢除 Supercov 與 Related Test Selection；全庫最多 1,000 cases（優先目標 500–600 cases），每 case 最多 100ms。
+- 全庫 Full Test 必須驗證所有 discovered files 及 leaves 恰好執行一次，再允許 publish。
 - main Full gate 只執行一次：`push → main` 由 `ci.yml` 跑 Full，Pages 與 Release 於同一 workflow run 以 `needs` 共用、不再各自重跑；Pages 與 Release 僅接受綁定同一精確 SHA 的 Full 驗證（`verified-sha`），失敗、取消、SHA 不符或缺少驗證即自行跑 Full 或失敗（Pages 另在部署前確認 `GITHUB_SHA` 仍為最新 `origin/main`，過期則 skip 以免舊 commit 覆蓋新版網站）。手動 `v*` tag 無同 run 證明，必須 Full。
-- Related manifest 保留完整 discovery，以檔案、完整 runner 名稱及 collection ordinal 精準指定 leaf；each 每列獨立計數。名稱重複、動態 wrapper 或無法安全對應 body 時，保守執行完整 owner file。Runner 僅可省略 manifest 未選 leaf；已選 skip、漏跑、多跑、重複或過期 evidence 均失敗。Full 禁用 Behavior Filter。
-- 固定的小型 Node tooling／release suite 不經第二套 selector，只有全跑或不跑：只改 `src/**`、非 Node 測試、`tests/helpers` 與文件的 PR 不跑（不讀遊戲程式碼；`docs/releases/` 除外），其他輸入與 Full 一律全跑。config／dependency 變更可能選取全部 leaf，並因超過 500 而 fail closed。不得透過搬移檔案、dynamic import 或不登記依賴規避 selection。
-- 嚴格文件／CSS、經證明的 HTML inline style、獨立資產驗證通過的 asset-only 與 SHA 證據完整的真正空 Diff，允許各自明確標記的 empty plan；不可混為 docs-only。保留單檔／指定案例開發能力，但 Related／subset 通過不能代表 Full Suite 通過。
+- 嚴格文件／CSS、經證明的 HTML inline style、獨立資產驗證通過的 asset-only 與 SHA 證據完整的真正空 Diff，允許各自明確標記的 empty plan；不可混為 docs-only。保留單檔／指定案例開發能力。
 - 開發中可先跑受影響 suite（`rtk npm test -- <file-or-directory>` 或 `-t`，屬局部驗證），再依需要本地跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build` 作快速回饋；**不要求本地完整測試執行三次，也不以本地全量重跑作合併必要條件**。
-- **PR 驗收以對應最新 PR head 的 GitHub Actions CI 為準**（含該 head 對應的 GitHub PR merge ref）；檢查適用的 web、desktop jobs 結果。CI 必須通過 `logic / gate`（plan、執行、完整性驗證與 Related 500 上限）、`npm run typecheck:test`、`npm run build` 及適用的 smoke。PR → dev／main 與合併後 push → dev 不安裝 Chromium 或執行 Web smoke，但保留 Typecheck、Build；push → main、Pages、Release 與手動 Full validation 仍執行 Web smoke。PR 中所有 selected logic cases 只在 logic gate 執行一次；Windows／macOS Desktop PR jobs 只在 PR → main 驗證 package／smoke，不重跑 Node logic；PR → dev 與 push → dev 不跑 Desktop。Windows／macOS Node component 驗證保留在正式 Release、完整測試與發佈閘門。不得用舊 commit、先前綠燈或單一 subset 冒充目前 PR 已驗證。
-- 檢視同一次 CI 中的 mode、base/head、selection reasons、case count、max leaf 時間及 **Top 10 slow leaf**（完整名稱、檔案、hooks/cleanup 含入）；有 case 達 70ms 為非阻擋預警，應標記優化方向。每個 case >100ms、Related >500 或任一適用 CI job 失敗仍不得宣稱通過；不靠重跑三次、只挑最好的一次或增加 retry 掩蓋不穩定。只有 CI 失敗／平台異常／結果過期或有明確疑慮才重跑或補充診斷。
+- **PR 驗收以對應最新 PR head 的 GitHub Actions CI 為準**（含該 head 對應的 GitHub PR merge ref）；檢查適用的 web、desktop jobs 結果。CI 必須通過 `logic / gate`（plan、執行、完整性驗證與 1,000 cases 上限）、`npm run typecheck:test`、`npm run build` 及適用的 smoke。PR → dev／main 與合併後 push → dev 不安裝 Chromium 或執行 Web smoke，但保留 Typecheck、Build；push → main、Pages、Release 與手動 Full validation 仍執行 Web smoke。PR 中所有 selected logic cases 只在 logic gate 執行一次；Windows／macOS Desktop PR jobs 只在 PR → main 驗證 package／smoke，不重跑 Node logic；PR → dev 與 push → dev 不跑 Desktop。Windows／macOS Node component 驗證保留在正式 Release、完整測試與發佈閘門。不得用舊 commit、先前綠燈或單一 subset 冒充目前 PR 已驗證。
+- 檢視同一次 CI 中的 mode、base/head、selection reasons、case count、max leaf 時間及 **Top 10 slow leaf**（完整名稱、檔案、hooks/cleanup 含入）；有 case 達 70ms 為非阻擋預警，應標記優化方向。每個 case >100ms、Case count >1000 或任一適用 CI job 失敗仍不得宣稱通過；不靠重跑三次、只挑最好的一次或增加 retry 掩蓋不穩定。只有 CI 失敗／平台異常／結果過期或有明確疑慮才重跑或補充診斷。
 - 僅在重大核心邏輯變更或新測試難確認有效性時，可對少量關鍵 owner 作受控負向驗證，確認測試真的會失敗再還原；不把 mutation check 當作每 PR 必經步驟，也不引入大型 mutation framework。
 - PR 誠實記錄 CI run URL、驗證 commit、結果、保留／刪除的 failure mode、已知失敗與未驗證範圍；一次性量測放 PR 或 ignored `output/`，不寫入長期規範或提交大型永久審計文件。

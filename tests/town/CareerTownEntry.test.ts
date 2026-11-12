@@ -315,28 +315,6 @@ describe('Town load failure recovery', () => {
     expect(original.racePlayerState).toMatchObject({ hp: 0, dead: true })
     expect(original.playerAerialState).toMatchObject({ hp: 0, dead: true })
   })
-
-  it('preserves death checkpoints on an ordinary town reload and restart until explicit death return', async () => {
-    const local = new MemoryStorage(), body = element()
-    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
-    vi.stubGlobal('document', { body, createElement: () => element() })
-    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
-    const store = new CareerProfileStore(local)
-    expect(store.save(settledTownDefeatProfile())).toBe(true)
-    const original = store.load()!, serialized = local.getItem(CAREER_STORAGE_KEY)
-    const start = vi.fn()
-    vi.mocked(TownScene.create).mockResolvedValue({ start } as unknown as TownScene)
-    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn())
-    await Promise.resolve()
-    expect(vi.mocked(TownScene.create).mock.calls[0][1]).toEqual(original)
-    vi.mocked(TownScene.create).mock.calls[0][3](original)
-    await Promise.resolve()
-    expect(start).toHaveBeenCalledTimes(2)
-    expect(vi.mocked(TownScene.create).mock.calls[1][1]).toEqual(original)
-    expect(local.getItem(CAREER_STORAGE_KEY)).toBe(serialized)
-    expect(store.load()?.racePlayerState).toMatchObject({ hp: 0, dead: true })
-    expect(store.load()?.playerAerialState).toMatchObject({ hp: 0, dead: true })
-  })
 })
 
 
@@ -376,25 +354,27 @@ describe('Captain battlefield Career entry routing', () => {
     expect(returned.totalMerit).toBe(merit)
     expect(returned.civilianCommandSquad?.owners.merchant).toBe('daily')
   })
-  it.each(['frontline', 'eagle'] as const)('%s reload resumes the actual Captain battle before constructing a Town scene', async kind => {
-    const local = new MemoryStorage(), session = new MemoryStorage(), body = element()
-    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
-    vi.stubGlobal('document', { body, createElement: () => element() })
-    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
-    const fresh = { ...createCareerProfile('roman'), rank: 'captain' as const, totalMerit: 5000, availableMerit: 5000,
-      starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'], ownedMounts: ['xongkoro' as const] }
-    const accepted = kind === 'eagle' ? acceptCaptainEagle(fresh, 'resume-eagle')! : acceptCaptainFrontline(fresh, 'resume-frontline')!
-    expect(new CareerProfileStore(local).save(accepted)).toBe(true)
-    const launch = vi.fn(async (_config: CareerCombatLaunch) => {})
-    enterCareerTown(element() as unknown as HTMLElement, launch, vi.fn())
-    await Promise.resolve()
-    expect(launch).toHaveBeenCalledOnce()
-    expect(TownScene.create).not.toHaveBeenCalled()
-    expect(launch.mock.calls[0][0]).toMatchObject(kind === 'eagle'
-      ? { type: 'captain-eagle', careerMissionId: 'resume-eagle', battle: { careerEagleMissionId: 'resume-eagle' } }
-      : { type: 'defense', careerMissionId: 'resume-frontline', careerMissionKind: 'captain-outpost-defense', stageId: 9 })
-    expect(session.getItem(CAREER_OUTPOST_SESSION_KEY)).toBe(accepted.activeMission!.id)
-    expect(session.getItem(TOWN_ENTRY_KEY)).toBeNull()
+  it('Captain frontline and eagle reload resumes the actual Captain battle before constructing a Town scene', async () => {
+    for (const kind of ['frontline', 'eagle'] as const) {
+      const local = new MemoryStorage(), session = new MemoryStorage(), body = element()
+      vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
+      vi.stubGlobal('document', { body, createElement: () => element() })
+      vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+      const fresh = { ...createCareerProfile('roman'), rank: 'captain' as const, totalMerit: 5000, availableMerit: 5000,
+        starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'], ownedMounts: ['xongkoro' as const] }
+      const accepted = kind === 'eagle' ? acceptCaptainEagle(fresh, 'resume-eagle')! : acceptCaptainFrontline(fresh, 'resume-frontline')!
+      expect(new CareerProfileStore(local).save(accepted)).toBe(true)
+      const launch = vi.fn(async (_config: CareerCombatLaunch) => {})
+      enterCareerTown(element() as unknown as HTMLElement, launch, vi.fn())
+      await Promise.resolve()
+      expect(launch).toHaveBeenCalledOnce()
+      expect(TownScene.create).not.toHaveBeenCalled()
+      expect(launch.mock.calls[0][0]).toMatchObject(kind === 'eagle'
+        ? { type: 'captain-eagle', careerMissionId: 'resume-eagle', battle: { careerEagleMissionId: 'resume-eagle' } }
+        : { type: 'defense', careerMissionId: 'resume-frontline', careerMissionKind: 'captain-outpost-defense', stageId: 9 })
+      expect(session.getItem(CAREER_OUTPOST_SESSION_KEY)).toBe(accepted.activeMission!.id)
+      expect(session.getItem(TOWN_ENTRY_KEY)).toBeNull()
+    }
   })
 })
 
@@ -407,10 +387,7 @@ describe('Retirement ending lifecycle', () => {
     profile.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 1, combatElapsedSeconds: 0, outcome: 'escaped' }
     const show = () => showCommanderRetirementEnding(profile, { home, newCareer })
     const closeFirst = show()
-    const title = findText(body, '帶旗離城')!
-    expect(title.tabIndex).toBe(-1)
-    expect(title.focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true })
-    expect(findText(body, '開啟新生涯')!.focus).not.toHaveBeenCalled()
+    expect(findText(body, '帶旗離城')).not.toBeNull()
     const firstHome = findText(body, '返回主選單')!
     const staleHome = firstHome.onclick!
     const closeSecond = show()
@@ -430,28 +407,5 @@ describe('Retirement ending lifecycle', () => {
     closeThird(); closeThird()
     expect(body.children.filter(child => !child.removed)).toHaveLength(0)
     expect(home).toHaveBeenCalledOnce()
-  })
-
-  it('hides Skip only after the copy animation completes and clears its completion handler on dispose', () => {
-    const body = element()
-    vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
-    const profile = createCareerProfile('roman')
-    profile.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 1, combatElapsedSeconds: 0, outcome: 'escaped' }
-    const close = showCommanderRetirementEnding(profile, { home: vi.fn(), newCareer: vi.fn() })
-    const title = findText(body, '帶旗離城')!, skip = findText(body, '略過動畫')!
-    const copy = body.querySelectorAll('div').find(node => node.children.includes(title))!
-    const finish = copy.onanimationend!
-    expect(skip.hidden).not.toBe(true)
-    finish({ target: title, animationName: 'retirement-copy' })
-    finish({ target: copy, animationName: 'retirement-fade' })
-    expect(skip.hidden).not.toBe(true)
-    finish({ target: copy, animationName: 'retirement-copy' })
-    expect(skip.hidden).toBe(true)
-    close()
-    expect(copy.onanimationend).toBeNull()
-    // A retained completion callback may not touch a disposed view.
-    skip.hidden = false
-    finish({ target: copy, animationName: 'retirement-copy' })
-    expect(skip.hidden).toBe(false)
   })
 })

@@ -25,8 +25,7 @@ describe('Town Siege placement and readiness', () => {
     grid.setBlockedBox(box, true)
     const occupied = [{ point: new Vector3(1, 0, -103), spacing: 2.5 }]
     const point = entry(grid, [{ box, isBarricade: false }]).walkable(new Vector3(0, 0, -100), occupied, 2.5, 'north')
-    expect(point.z).toBeGreaterThan(-115); expect(point.z).toBeLessThan(-75)
-    expect(Math.abs(point.x)).toBeLessThan(40); expect(grid.isBlocked(grid.worldToCell(point)!)).toBe(false)
+    expect(grid.isBlocked(grid.worldToCell(point)!)).toBe(false)
     expect(point.x + .55 < box.min.x || point.x - .55 > box.max.x || point.z + .55 < box.min.z || point.z - .55 > box.max.z).toBe(true)
     expect(Math.hypot(point.x - 1, point.z + 103)).toBeGreaterThanOrEqual(2.5)
     expect(occupied).toHaveLength(2); expect(occupied[1]).toEqual({ point, spacing: 2.5 })

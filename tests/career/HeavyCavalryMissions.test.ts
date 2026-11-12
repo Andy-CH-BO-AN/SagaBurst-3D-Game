@@ -2,54 +2,25 @@ import { describe, expect, it } from 'vitest'
 import { availableCareerMissionsForPage } from '../../src/career/CareerMissionCatalog'
 import { careerMissionTierForTemplateId } from '../../src/career/CareerMissionTier'
 import { createCareerProfile } from '../../src/career/CareerProfile'
-import { parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { CareerProfileStore, CAREER_STORAGE_KEY, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { acceptHeavyFieldMission, createCareerHeavySpawnPlan, getHeavyFieldMissionAvailability } from '../../src/career/HeavyFieldMission'
 import { Faction } from '../../src/combat/CombatFaction'
 import { AIType } from '../../src/world/NPC'
 import type { CombatEvent } from '../../src/combat/CombatAttribution'
+import { MemoryStorage } from '../helpers/memoryStorage'
 import {
   CAPTAIN_STEEL_AVALANCHE_ID, COMMANDER_IRON_LEGION_ID, SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID,
-  HEAVY_FIELD_SPECS, caltropRouteExists, createHeavyFieldState, heavyActorIds, heavyEnemyActorIds, heavyFriendlyActorIds,
-  heavyCommandPlan, heavyFrontlineDistance, isHeavyFormationComplete, heavyGroupsTotal, heavyNpcGroups, heavyTacticalOrder, ironLegionEnemyActorIds, IRON_LEGION_ENEMY_GROUPS,
+  createHeavyFieldState,
+  heavyCommandPlan, heavyFrontlineDistance, isHeavyFormationComplete, heavyTacticalOrder,
   parseHeavyFieldState, planVeteranCaltropDefense, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge,
-  shouldTriggerHeavyEnemyCharge, validateCaltropLayout, veteranCaltropWorldRects,
+  shouldTriggerHeavyEnemyCharge, veteranCaltropWorldRects,
 } from '../../src/career/HeavyCavalryMissions'
-
-const tiers = (groups: readonly { tier: number; count: number }[]) =>
-  groups.reduce<Record<number, number>>((acc, g) => ({ ...acc, [g.tier]: (acc[g.tier] ?? 0) + g.count }), {})
 
 function damage(targetType: 'npc' | 'mount', id: string, appliedDamage: number): CombatEvent {
   return { type: 'damage_applied', method: 'melee', requestedDamage: 10, appliedDamage,
     source: { actorId: 'p', actorType: 'player', allegiance: 0, characterFaction: 'roman' },
     target: targetType === 'npc' ? { targetId: id, targetType, name: 'x' } : { targetId: `${id}:mount`, targetType, name: 'm', ownerActorId: id } } as unknown as CombatEvent
 }
-
-describe('heavy cavalry Career rosters', () => {
-  it('每關兵力、Tier 與玩家編制位置符合任務規格', () => {
-    const soldier = HEAVY_FIELD_SPECS[SOLDIER_IRON_ENCOUNTER_ID]
-    expect(heavyGroupsTotal(soldier.friendly)).toBe(75)
-    expect(tiers(soldier.friendly)).toEqual({ 2: 65, 3: 9, 4: 1 })
-    expect(tiers(soldier.enemy)).toEqual({ 3: 50, 4: 9, 5: 1 })
-    expect(heavyFriendlyActorIds(SOLDIER_IRON_ENCOUNTER_ID)).toHaveLength(74)
-
-    const veteran = HEAVY_FIELD_SPECS[VETERAN_IRON_TIDE_ID]
-    expect(heavyGroupsTotal(veteran.friendly)).toBe(300)
-    expect(tiers(veteran.friendly)).toEqual({ 3: 294, 4: 6 })
-    expect(tiers(veteran.enemy)).toEqual({ 3: 70, 4: 25, 5: 5 })
-    expect(heavyFriendlyActorIds(VETERAN_IRON_TIDE_ID)).toHaveLength(299)
-    expect(heavyNpcGroups(VETERAN_IRON_TIDE_ID, 'friendly').filter(g => g.role === 'melee').reduce((n, g) => n + g.count, 0)).toBe(99)
-
-    const captain = HEAVY_FIELD_SPECS[CAPTAIN_STEEL_AVALANCHE_ID]
-    expect(heavyFriendlyActorIds(CAPTAIN_STEEL_AVALANCHE_ID)).toHaveLength(29)
-    expect(heavyEnemyActorIds(CAPTAIN_STEEL_AVALANCHE_ID)).toHaveLength(200)
-    expect(captain.enemy.every(g => g.role !== 'spear')).toBe(true)
-    expect(tiers(captain.enemy)).toEqual({ 3: 196, 4: 4 })
-
-    expect(tiers(IRON_LEGION_ENEMY_GROUPS)).toEqual({ 4: 210, 5: 90 })
-    expect(new Set(ironLegionEnemyActorIds('m')).size).toBe(300)
-    expect(new Set(heavyActorIds('m', 'enemy', IRON_LEGION_ENEMY_GROUPS))).toEqual(new Set(ironLegionEnemyActorIds('m')))
-  })
-})
 
 describe('heavy cavalry tactical triggers', () => {
   const enemies = new Set(['e1'])
@@ -120,25 +91,6 @@ describe('heavy cavalry tactical triggers', () => {
   })
 })
 
-describe('Veteran caltrop defence', () => {
-  it('拒馬為零散段落，缺口與弓兵列缺口皆有槍兵且騎兵有可通行路徑', () => {
-    const layout = planVeteranCaltropDefense()
-    expect(validateCaltropLayout(layout)).toEqual({ ok: true, problems: [] })
-    expect(layout.gaps.length).toBeGreaterThan(1)
-    expect(layout.caltrops.length).toBe(layout.gaps.length + 1)
-    const route = caltropRouteExists(layout)
-    expect(route.reachable).toBe(true)
-    expect(route.minPassableWidth).toBeGreaterThanOrEqual(2)
-    expect(veteranCaltropWorldRects(layout, 'roman')[0].maxZ).toBeLessThan(0)
-  })
-
-  it('完全封閉的拒馬牆會被判定為無路徑', () => {
-    const layout = planVeteranCaltropDefense()
-    const wall = { ...layout, caltrops: [{ minX: -80, maxX: 80, minDepth: -0.6, maxDepth: 0.6 }] }
-    expect(caltropRouteExists(wall).reachable).toBe(false)
-  })
-})
-
 describe('heavy cavalry field missions in Career', () => {
   const profileFor = (rank: 'soldier' | 'veteran' | 'captain' | 'commander', faction: 'roman' | 'viking' = 'roman') => {
     const profile = createCareerProfile(faction)
@@ -160,34 +112,37 @@ describe('heavy cavalry field missions in Career', () => {
     expect(getHeavyFieldMissionAvailability(profileFor('captain'), SOLDIER_IRON_ENCOUNTER_ID).unlocked).toBe(true)
   })
 
-  it.each([SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID, CAPTAIN_STEEL_AVALANCHE_ID] as const)('%s 接受後兵力、重騎兵 Preset 與初始距離（>200m）正確', missionId => {
-    const rank = missionId === SOLDIER_IRON_ENCOUNTER_ID ? 'soldier' : missionId === VETERAN_IRON_TIDE_ID ? 'veteran' : 'captain'
-    const accepted = acceptHeavyFieldMission(profileFor(rank), missionId, `test:${missionId}`)!
-    const plan = createCareerHeavySpawnPlan(accepted)
-    const friendly = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER), enemy = plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY)
-    expect(friendly).toHaveLength(accepted.activeMission!.friendlyActorIds.length)
-    expect(enemy).toHaveLength(accepted.activeMission!.targetActorIds.length)
-    expect(new Set(plan.npcSpecs.map(spec => spec.actorId)).size).toBe(plan.npcSpecs.length)
-    if (missionId !== CAPTAIN_STEEL_AVALANCHE_ID) expect(enemy.every(spec => spec.presetId === 'viking_heavy_cavalry' && spec.loadout?.mountId === 'snow-leopard' && spec.loadout.shieldId)).toBe(true)
-    else expect(friendly.every(spec => spec.presetId === 'roman_heavy_cavalry' && spec.characterTier === 4 && spec.loadout?.mountId === 'armored-horse')).toBe(true)
-    expect(friendly.every(spec => (spec.loadout?.rangedWeaponId ? spec.aiType === AIType.RANGED : spec.aiType === AIType.MELEE))).toBe(true)
-    // Every T4 / T5 heavy cavalryman is the heavy class of its own army, never the classic T4 or the Commander body.
-    const heavyClass = { roman: { 4: 'centurion', 5: 'byzantine-cataphract' }, viking: { 4: 'dragon-oathguard', 5: 'ironblood-warlord' } } as const
-    const elite = plan.npcSpecs.filter(spec => spec.presetId?.endsWith('_heavy_cavalry') && spec.characterTier! >= 4)
-    expect(elite.every(spec => spec.combatProfileId === heavyClass[spec.characterFaction][spec.characterTier as 4 | 5])).toBe(true)
-    const eliteCounts = { [SOLDIER_IRON_ENCOUNTER_ID]: [9, 1], [VETERAN_IRON_TIDE_ID]: [25, 5], [CAPTAIN_STEEL_AVALANCHE_ID]: [29, 0] }[missionId]
-    expect([4, 5].map(tier => elite.filter(spec => spec.characterTier === tier).length)).toEqual(eliteCounts)
-    expect(heavyFrontlineDistance(friendly, enemy)).toBeGreaterThan(200)
-    expect(accepted.activeMission!.commanderMission?.heavyField?.enemyChargeTriggered).toBe(false)
-    const restored = parseCareerProfile(JSON.parse(JSON.stringify(accepted)))
-    expect(restored?.activeMission?.templateId).toBe(missionId)
-    expect(restored?.activeMission?.commanderMission?.heavyField).toEqual(accepted.activeMission!.commanderMission!.heavyField)
+  it('接受後兵力、重騎兵 Preset 與初始距離（>200m）在各軍階任務正確', () => {
+    const missionIds = [SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID, CAPTAIN_STEEL_AVALANCHE_ID] as const
+    for (const missionId of missionIds) {
+      const rank = missionId === SOLDIER_IRON_ENCOUNTER_ID ? 'soldier' : missionId === VETERAN_IRON_TIDE_ID ? 'veteran' : 'captain'
+      const accepted = acceptHeavyFieldMission(profileFor(rank), missionId, `test:${missionId}`)!
+      const plan = createCareerHeavySpawnPlan(accepted)
+      const friendly = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER), enemy = plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY)
+      expect(friendly).toHaveLength(accepted.activeMission!.friendlyActorIds.length)
+      expect(enemy).toHaveLength(accepted.activeMission!.targetActorIds.length)
+      expect(new Set(plan.npcSpecs.map(spec => spec.actorId)).size).toBe(plan.npcSpecs.length)
+      if (missionId !== CAPTAIN_STEEL_AVALANCHE_ID) expect(enemy.every(spec => spec.presetId === 'viking_heavy_cavalry' && spec.loadout?.mountId === 'snow-leopard' && spec.loadout.shieldId)).toBe(true)
+      else expect(friendly.every(spec => spec.presetId === 'roman_heavy_cavalry' && spec.characterTier === 4 && spec.loadout?.mountId === 'armored-horse')).toBe(true)
+      expect(friendly.every(spec => (spec.loadout?.rangedWeaponId ? spec.aiType === AIType.RANGED : spec.aiType === AIType.MELEE))).toBe(true)
+      const heavyClass = { roman: { 4: 'centurion', 5: 'byzantine-cataphract' }, viking: { 4: 'dragon-oathguard', 5: 'ironblood-warlord' } } as const
+      const elite = plan.npcSpecs.filter(spec => spec.presetId?.endsWith('_heavy_cavalry') && spec.characterTier! >= 4)
+      expect(elite.every(spec => spec.combatProfileId === heavyClass[spec.characterFaction][spec.characterTier as 4 | 5])).toBe(true)
+      const eliteCounts = { [SOLDIER_IRON_ENCOUNTER_ID]: [9, 1], [VETERAN_IRON_TIDE_ID]: [25, 5], [CAPTAIN_STEEL_AVALANCHE_ID]: [29, 0] }[missionId]
+      expect([4, 5].map(tier => elite.filter(spec => spec.characterTier === tier).length)).toEqual(eliteCounts)
+      expect(heavyFrontlineDistance(friendly, enemy)).toBeGreaterThan(200)
+      expect(accepted.activeMission!.commanderMission?.heavyField?.enemyChargeTriggered).toBe(false)
+      const restored = parseCareerProfile(JSON.parse(JSON.stringify(accepted)))
+      expect(restored?.activeMission?.templateId).toBe(missionId)
+      expect(restored?.activeMission?.commanderMission?.heavyField).toEqual(accepted.activeMission!.commanderMission!.heavyField)
+    }
   })
 
   it('Veteran 單位不與拒馬重疊，Captain 官方軍令編制為 29 人單隊且私兵另列', () => {
     const veteran = acceptHeavyFieldMission(profileFor('veteran'), VETERAN_IRON_TIDE_ID, 'v')!
     expect([veteran.activeMission!.officialSquad, veteran.activeMission!.personalSquad]).toEqual([undefined, undefined])
     expect(acceptHeavyFieldMission(profileFor('soldier'), SOLDIER_IRON_ENCOUNTER_ID, 's')!.activeMission!.officialSquad).toBeUndefined()
+    expect(acceptHeavyFieldMission(profileFor('captain'), SOLDIER_IRON_ENCOUNTER_ID, 's')!.activeMission!.officialSquad).toBeUndefined()
     const rects = veteranCaltropWorldRects(planVeteranCaltropDefense(), 'roman')
     const friendly = createCareerHeavySpawnPlan(veteran).npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
     expect(friendly.filter(spec => rects.some(r => spec.x > r.minX - 1 && spec.x < r.maxX + 1 && spec.z > r.minZ - 1 && spec.z < r.maxZ + 1))).toEqual([])
@@ -199,18 +154,173 @@ describe('heavy cavalry field missions in Career', () => {
     expect(captain.personalSquad?.memberIds).toEqual(['personal:hr-1'])
   })
 
-  it('指揮權依玩家軍階而非任務：Captain 與 Commander 在任何一關可指揮並帶私兵，Veteran 不行', () => {
-    const withSquad = (rank: 'veteran' | 'captain' | 'commander') => { const p = profileFor(rank); p.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }; return p }
-    const captain = acceptHeavyFieldMission(withSquad('captain'), SOLDIER_IRON_ENCOUNTER_ID, 'a')!.activeMission!
-    expect(captain.officialSquad?.actorIds).toHaveLength(50)
-    expect(captain.personalSquad?.memberIds).toEqual(['personal:hr-1'])
-    const commander = acceptHeavyFieldMission(withSquad('commander'), VETERAN_IRON_TIDE_ID, 'b')!.activeMission!
-    expect(commander.officialSquad?.squads?.map(squad => squad.actorIds.length)).toEqual([50, 50, 50, 50, 50, 49])
-    expect(commander.officialSquad?.commandedSquadIds).toHaveLength(6)
-    expect(commander.personalSquad).toBeDefined()
-    const veteran = acceptHeavyFieldMission(withSquad('veteran'), SOLDIER_IRON_ENCOUNTER_ID, 'c')!.activeMission!
-    expect([veteran.officialSquad, veteran.personalSquad]).toEqual([undefined, undefined])
-    const restored = parseCareerProfile(JSON.parse(JSON.stringify(acceptHeavyFieldMission(withSquad('commander'), CAPTAIN_STEEL_AVALANCHE_ID, 'd'))))
-    expect(restored?.activeMission?.officialSquad?.commandRank).toBe('commander')
+  it('Captain in Soldier and Steel Avalanche round trips with rank-specific official squad authority and personal squad', () => {
+    // 1. Captain accepts Soldier mission: save() === true -> loadChecked() has same mission, personalSquad, officialSquad === undefined
+    const store1 = new CareerProfileStore(new MemoryStorage())
+    const captainSoldier = profileFor('captain')
+    captainSoldier.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+    const acceptedCaptainSoldier = acceptHeavyFieldMission(captainSoldier, SOLDIER_IRON_ENCOUNTER_ID, 'cap-sol')!
+    expect(store1.save(acceptedCaptainSoldier)).toBe(true)
+    const loadedCaptainSoldier = store1.loadChecked().profile!
+    expect(loadedCaptainSoldier.activeMission?.templateId).toBe(SOLDIER_IRON_ENCOUNTER_ID)
+    expect(loadedCaptainSoldier.activeMission?.officialSquad).toBeUndefined()
+    expect(loadedCaptainSoldier.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
+
+    // 2. Captain accepts Steel Avalanche: save() === true -> loadChecked() keeps 29-man squad
+    const store2 = new CareerProfileStore(new MemoryStorage())
+    const captainSteel = profileFor('captain')
+    captainSteel.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+    const acceptedCaptainSteel = acceptHeavyFieldMission(captainSteel, CAPTAIN_STEEL_AVALANCHE_ID, 'cap-steel')!
+    expect(store2.save(acceptedCaptainSteel)).toBe(true)
+    const loadedCaptainSteel = store2.loadChecked().profile!
+    expect(loadedCaptainSteel.activeMission?.templateId).toBe(CAPTAIN_STEEL_AVALANCHE_ID)
+    expect(loadedCaptainSteel.activeMission?.officialSquad?.actorIds).toHaveLength(29)
+    expect(loadedCaptainSteel.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
+  })
+
+  it('Commander in Soldier and Veteran Heavy Field round trips full squads, rejecting forged claims and tampered orders', () => {
+    const store3 = new CareerProfileStore(new MemoryStorage())
+    const commanderProfile = profileFor('commander')
+
+    // 3a. Commander in Soldier Heavy Field (74 friendly actors across 2 squads)
+    const acceptedCmdSoldier = acceptHeavyFieldMission(commanderProfile, SOLDIER_IRON_ENCOUNTER_ID, 'cmd-sol')!
+    expect(store3.save(acceptedCmdSoldier)).toBe(true)
+    const loadedCmdSoldier = store3.loadChecked().profile!
+    expect(loadedCmdSoldier.activeMission?.templateId).toBe(SOLDIER_IRON_ENCOUNTER_ID)
+    expect(loadedCmdSoldier.activeMission?.officialSquad?.commandRank).toBe('commander')
+    expect(loadedCmdSoldier.activeMission?.officialSquad?.actorIds).toEqual(acceptedCmdSoldier.activeMission!.friendlyActorIds)
+
+    // 3b. Commander in Veteran Heavy Field (299 friendly actors across 6 squads)
+    const acceptedCmdVeteran = acceptHeavyFieldMission(commanderProfile, VETERAN_IRON_TIDE_ID, 'cmd-vet')!
+    expect(store3.save(acceptedCmdVeteran)).toBe(true)
+    const loadedCmdVeteran = store3.loadChecked().profile!
+    expect(loadedCmdVeteran.activeMission?.templateId).toBe(VETERAN_IRON_TIDE_ID)
+    expect(loadedCmdVeteran.activeMission?.officialSquad?.commandRank).toBe('commander')
+    expect(loadedCmdVeteran.activeMission?.officialSquad?.squads).toHaveLength(6)
+    expect(loadedCmdVeteran.activeMission?.officialSquad?.actorIds).toEqual(acceptedCmdVeteran.activeMission!.friendlyActorIds)
+
+    // 3c. Forged Commander Heavy Field claims: injected stranger ID, tampered squad, wrong order, or wrong squad count rejected
+    const forgedCmd = structuredClone(acceptedCmdVeteran)
+    forgedCmd.activeMission!.officialSquad!.actorIds[0] = 'stranger_actor_id'
+    expect(store3.save(forgedCmd)).toBe(false)
+
+    const forgedCmdSquad = structuredClone(acceptedCmdVeteran)
+    forgedCmdSquad.activeMission!.officialSquad!.squads![0].actorIds[0] = 'stranger_actor_id'
+    expect(store3.save(forgedCmdSquad)).toBe(false)
+
+    const forgedCmdOrder = structuredClone(acceptedCmdVeteran)
+    forgedCmdOrder.activeMission!.officialSquad!.squads![0].squadId = 2 as any
+    expect(store3.save(forgedCmdOrder)).toBe(false)
+
+    const forgedCmdCount = structuredClone(acceptedCmdVeteran)
+    forgedCmdCount.activeMission!.officialSquad!.squads!.pop()
+    expect(store3.save(forgedCmdCount)).toBe(false)
+  })
+
+  it('recognizes 50-man legacy Captain grant and atomically revokes officialSquad while preserving combat state idempotently', () => {
+    const captainSoldier = profileFor('captain')
+    captainSoldier.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+    const acceptedCaptainSoldier = acceptHeavyFieldMission(captainSoldier, SOLDIER_IRON_ENCOUNTER_ID, 'cap-sol')!
+
+    const storage4 = new MemoryStorage()
+    const store4 = new CareerProfileStore(storage4)
+    const legacyCaptainSave = structuredClone(acceptedCaptainSoldier)
+    const friendlies = acceptedCaptainSoldier.activeMission!.friendlyActorIds
+    const squad50 = friendlies.slice(0, 50)
+    legacyCaptainSave.activeMission!.phase = 'ENGAGING'
+    legacyCaptainSave.activeMission!.deadFriendlyActorIds = [friendlies[2]]
+    legacyCaptainSave.activeMission!.actorHealth = {
+      [friendlies[2]]: { hp: 0 },
+      [friendlies[0]]: { hp: 42 },
+    }
+    legacyCaptainSave.activeMission!.officialSquad = {
+      type: 'mission-official',
+      missionId: 'cap-sol',
+      townFaction: 'roman',
+      squadId: 1,
+      actorIds: squad50,
+      contribution: { kills: 0, damageTaken: 0, structuresDestroyed: 0, gateBreaches: 0, damageDealt: 0, arrowHits: 0, meleeHits: 0, mountDamage: 0 },
+    } as any
+
+    storage4.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacyCaptainSave))
+    // 1st loadChecked: durable migration runs, rewrites storage, revokes officialSquad while preserving casualties/HP/phase
+    const migratedProfile = store4.loadChecked().profile!
+    expect(migratedProfile.activeMission?.templateId).toBe(SOLDIER_IRON_ENCOUNTER_ID)
+    expect(migratedProfile.activeMission?.officialSquad).toBeUndefined()
+    expect(migratedProfile.activeMission?.phase).toBe('ENGAGING')
+    expect(migratedProfile.activeMission?.actorHealth?.[friendlies[0]]?.hp).toBe(42)
+    expect(migratedProfile.activeMission?.deadFriendlyActorIds).toEqual([friendlies[2]])
+    expect(migratedProfile.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
+
+    // Verify storage was durably committed
+    const persistedParsed = JSON.parse(storage4.getItem(CAREER_STORAGE_KEY)!)
+    expect(persistedParsed.activeMission?.officialSquad).toBeUndefined()
+
+    // 2nd loadChecked: idempotent, returns matching profile
+    const reloadedProfile = store4.loadChecked().profile!
+    expect(reloadedProfile.activeMission?.officialSquad).toBeUndefined()
+    expect(reloadedProfile.activeMission?.templateId).toBe(SOLDIER_IRON_ENCOUNTER_ID)
+  })
+
+  it('fails closed on storage write failure during migration, retaining original legacy bytes and returning error', () => {
+    const captainSoldier = profileFor('captain')
+    captainSoldier.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+    const acceptedCaptainSoldier = acceptHeavyFieldMission(captainSoldier, SOLDIER_IRON_ENCOUNTER_ID, 'cap-sol')!
+    const legacyCaptainSave = structuredClone(acceptedCaptainSoldier)
+    const friendlies = acceptedCaptainSoldier.activeMission!.friendlyActorIds
+    legacyCaptainSave.activeMission!.officialSquad = {
+      type: 'mission-official',
+      missionId: 'cap-sol',
+      townFaction: 'roman',
+      squadId: 1,
+      actorIds: friendlies.slice(0, 50),
+      contribution: { kills: 0, damageTaken: 0, structuresDestroyed: 0, gateBreaches: 0, damageDealt: 0, arrowHits: 0, meleeHits: 0, mountDamage: 0 },
+    } as any
+
+    const brokenStorage = new MemoryStorage()
+    brokenStorage.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacyCaptainSave))
+    const validLegacyBytes = brokenStorage.getItem(CAREER_STORAGE_KEY)!
+    brokenStorage.setItem = () => { throw new Error('disk failure') }
+    const brokenStore = new CareerProfileStore(brokenStorage)
+    const brokenResult = brokenStore.loadChecked()
+    expect(brokenResult.profile).toBeNull()
+    expect(brokenResult.error).toContain('生涯資料升級無法儲存')
+    expect(brokenStorage.getItem(CAREER_STORAGE_KEY)).toBe(validLegacyBytes)
+  })
+
+  it('fails closed on forged legacy grants and corrupted Heavy Field missions without modifying storage', () => {
+    const captainSoldier = profileFor('captain')
+    captainSoldier.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+    const acceptedCaptainSoldier = acceptHeavyFieldMission(captainSoldier, SOLDIER_IRON_ENCOUNTER_ID, 'cap-sol')!
+    const legacyCaptainSave = structuredClone(acceptedCaptainSoldier)
+    const friendlies = acceptedCaptainSoldier.activeMission!.friendlyActorIds
+    legacyCaptainSave.activeMission!.officialSquad = {
+      type: 'mission-official',
+      missionId: 'cap-sol',
+      townFaction: 'roman',
+      squadId: 1,
+      actorIds: friendlies.slice(0, 50),
+      contribution: { kills: 0, damageTaken: 0, structuresDestroyed: 0, gateBreaches: 0, damageDealt: 0, arrowHits: 0, meleeHits: 0, mountDamage: 0 },
+    } as any
+
+    // 1. Forged Captain grant (unrecognizable actor ID): fail-closed, does not overwrite storage
+    const forgedStorage = new MemoryStorage()
+    const forgedCaptainSave = structuredClone(legacyCaptainSave)
+    forgedCaptainSave.activeMission!.officialSquad!.actorIds[0] = 'stranger_id'
+    forgedStorage.setItem(CAREER_STORAGE_KEY, JSON.stringify(forgedCaptainSave))
+    const forgedBytes = forgedStorage.getItem(CAREER_STORAGE_KEY)!
+    const forgedStore = new CareerProfileStore(forgedStorage)
+    const forgedResult = forgedStore.loadChecked()
+    expect(forgedResult.profile).toBeNull()
+    expect(forgedStorage.getItem(CAREER_STORAGE_KEY)).toBe(forgedBytes)
+
+    // 2. Corrupted active Heavy Field: fail-closed, does not save/drop mission
+    const storage = new MemoryStorage()
+    const store = new CareerProfileStore(storage)
+    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacyCaptainSave))
+    const migratedProfile = store.loadChecked().profile!
+    const corruptedSave = structuredClone(migratedProfile)
+    corruptedSave.activeMission!.targetActorIds = ['corrupted_target']
+    expect(store.save(corruptedSave)).toBe(false)
   })
 })

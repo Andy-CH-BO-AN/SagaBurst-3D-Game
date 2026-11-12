@@ -96,29 +96,34 @@ describe('BattleStatsTracker', () => {
     expect(tracker.officialCommandCheckpoint()).toEqual({ ...emptyPersonalContribution(), damageDealt: 7, kills: 1, damageTaken: 4 })
   })
 
-  it.each(['personal', 'official'] as const)('gates all %s squad counters on accepted source and event while preserving valid events', kind => {
-    const events = new CombatEventStream()
-    const source: CombatActorRef = { ...squadSource(1), actorId: kind,
-      squadId: kind === 'personal' ? 'personal' : 1,
-      ownership: kind === 'personal' ? 'player-personal' : 'mission-official' }
-    const tracker = new BattleStatsTracker(events, true, undefined, {}, {
-      acceptsSource: candidate => kind === 'personal' && candidate.actorId === source.actorId,
-      acceptsEvent: event => event.target.targetId === 'accepted',
-      initialMemberIds: kind === 'personal' ? [source.actorId] : [],
-      official: { acceptsSource: candidate => kind === 'official' && candidate.actorId === source.actorId,
-        initialMemberIds: kind === 'official' ? [source.actorId] : [] },
-    })
-    onTestFinished(() => tracker.dispose())
-    for (const [actorId, targetId] of [[source.actorId, 'accepted'], ['unaccepted-source', 'accepted'], [source.actorId, 'other-mission']]) {
-      const captured = { ...source, actorId }, target = { ...npcTarget(targetId), structureKind: 'gate' as const }
-      events.emit({ type: 'damage_applied', source: captured, target, method: 'melee', requestedDamage: 7, appliedDamage: 7 })
-      events.emit({ type: 'actor_killed', source: captured, target, method: 'melee' })
-      events.emit({ type: 'structure_damaged', source: captured, target: { ...target, targetType: 'structure' }, method: 'siege', requestedDamage: 11, appliedDamage: 11, hpRatio: .5 })
-      events.emit({ type: 'structure_destroyed', source: captured, target: { ...target, targetType: 'structure' }, method: 'siege' })
+  it('gates all personal and official squad counters on accepted source and event while preserving valid events', () => {
+    for (const kind of ['personal', 'official'] as const) {
+      const events = new CombatEventStream()
+      const source: CombatActorRef = { ...squadSource(1), actorId: kind,
+        squadId: kind === 'personal' ? 'personal' : 1,
+        ownership: kind === 'personal' ? 'player-personal' : 'mission-official' }
+      const tracker = new BattleStatsTracker(events, true, undefined, {}, {
+        acceptsSource: candidate => kind === 'personal' && candidate.actorId === source.actorId,
+        acceptsEvent: event => event.target.targetId === 'accepted',
+        initialMemberIds: kind === 'personal' ? [source.actorId] : [],
+        official: { acceptsSource: candidate => kind === 'official' && candidate.actorId === source.actorId,
+          initialMemberIds: kind === 'official' ? [source.actorId] : [] },
+      })
+      try {
+        for (const [actorId, targetId] of [[source.actorId, 'accepted'], ['unaccepted-source', 'accepted'], [source.actorId, 'other-mission']]) {
+          const captured = { ...source, actorId }, target = { ...npcTarget(targetId), structureKind: 'gate' as const }
+          events.emit({ type: 'damage_applied', source: captured, target, method: 'melee', requestedDamage: 7, appliedDamage: 7 })
+          events.emit({ type: 'actor_killed', source: captured, target, method: 'melee' })
+          events.emit({ type: 'structure_damaged', source: captured, target: { ...target, targetType: 'structure' }, method: 'siege', requestedDamage: 11, appliedDamage: 11, hpRatio: .5 })
+          events.emit({ type: 'structure_destroyed', source: captured, target: { ...target, targetType: 'structure' }, method: 'siege' })
+        }
+        expect(tracker.snapshot([], { dead: false } as Player).squads.find(squad => squad.squadId === source.squadId)).toMatchObject({
+          damageDealt: 7, kills: 1, structureDamage: 11, structuresDestroyed: 1, gateBreaches: 1,
+        })
+      } finally {
+        tracker.dispose()
+      }
     }
-    expect(tracker.snapshot([], { dead: false } as Player).squads.find(squad => squad.squadId === source.squadId)).toMatchObject({
-      damageDealt: 7, kills: 1, structureDamage: 11, structuresDestroyed: 1, gateBreaches: 1,
-    })
   })
 
   it('never adds player events or an overlapping NPC to command merit more than once', () => {

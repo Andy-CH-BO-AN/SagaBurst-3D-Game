@@ -1,11 +1,10 @@
 const { readFileSync } = require('node:fs')
 
-// Related selection is a precise subset, so it has a hard ceiling. Full is every
-// test in the repository and has no aggregate limit.
-const MAX_RELATED_CASES = 500
+// Full logic test suite limit across Vitest + Node runner.
+const MAX_LOGIC_CASES = 1000
 const MAX_CASE_MS = 100
 
-function validateReports(reports, { runId, runners = ['vitest', 'node'], maxCases = Infinity } = {}) {
+function validateReports(reports, { runId, runners = ['vitest', 'node'], maxCases = MAX_LOGIC_CASES } = {}) {
   const errors = []
   if (!Array.isArray(reports)) throw new Error('Missing test reports')
   for (const runner of runners) {
@@ -42,4 +41,4 @@ function readReport(file, runId) {
   return report
 }
 
-module.exports = { MAX_RELATED_CASES, MAX_CASE_MS, validateReports, readReport }
+module.exports = { MAX_LOGIC_CASES, MAX_CASE_MS, validateReports, readReport }

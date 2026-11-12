@@ -101,16 +101,18 @@ describe('Career reload routing', () => {
     expect(JSON.stringify(profile)).toBe(saved)
   })
 
-  it.each(['departing', 'mobilizing', 'final-stand'] as const)('preserves %s recovery priority without a town flag', phase => {
-    const profile = createCareerProfile('viking')
-    profile.rank = 'commander'; profile.totalMerit = profile.availableMerit = 20000
-    profile.careerRetirement = { version: 1, phase, acceptedAt: 1, combatElapsedSeconds: phase === 'final-stand' ? 42 : 0 }
-    const saved = JSON.stringify(profile)
-    const store = new CareerProfileStore(new MemoryStorage())
-    expect(store.save(profile)).toBe(true)
-    const restored = store.loadChecked().profile!
-    expect(restored.careerRetirement).toEqual(profile.careerRetirement)
-    expect(shouldResumeCareerTown(restored, false)).toBe(true)
-    expect(JSON.stringify(profile)).toBe(saved)
+  it('preserves departing, mobilizing, and final-stand recovery priority without a town flag', () => {
+    for (const phase of ['departing', 'mobilizing', 'final-stand'] as const) {
+      const profile = createCareerProfile('viking')
+      profile.rank = 'commander'; profile.totalMerit = profile.availableMerit = 20000
+      profile.careerRetirement = { version: 1, phase, acceptedAt: 1, combatElapsedSeconds: phase === 'final-stand' ? 42 : 0 }
+      const saved = JSON.stringify(profile)
+      const store = new CareerProfileStore(new MemoryStorage())
+      expect(store.save(profile)).toBe(true)
+      const restored = store.loadChecked().profile!
+      expect(restored.careerRetirement).toEqual(profile.careerRetirement)
+      expect(shouldResumeCareerTown(restored, false)).toBe(true)
+      expect(JSON.stringify(profile)).toBe(saved)
+    }
   })
 })

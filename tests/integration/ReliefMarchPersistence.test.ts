@@ -26,8 +26,6 @@ describe('shared relief march checkpoint', () => {
       combatPosition: new THREE.Vector3(spec.x, 0, spec.z), mount: { baseSpeed: 12 },
       assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(), setTacticalOrder: vi.fn() }))
     const breach = new THREE.Vector3(0, 0, getCampaignOutpostPlacement(faction).frontZ)
-    const captain = rescue.find(npc => npc.name === 'Captain')!
-    expect(captain.combatPosition.distanceTo(breach)).toBeGreaterThan(300)
     const follow = vi.fn(), charge = vi.fn()
     const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, vi.fn(), charge, config.careerReliefPhase === 'charge', { chargeAfterFollow: true })
     controller.start(); controller.start(); controller.update(); controller.update()

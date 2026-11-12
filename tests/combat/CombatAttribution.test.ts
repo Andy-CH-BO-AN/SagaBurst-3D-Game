@@ -158,15 +158,12 @@ describe('Combat attribution foundation', () => {
     expect(h.hp()).toBe(80)
     expect(h.events.filter(event => event.type === 'damage_applied')).toHaveLength(4)
   })
-  it('拳頭接觸點剛好在零點八米時可命中', () => {
-    const npc = mockNpc({ position: new THREE.Vector3(0, 0, 1.1) })
+  it('拳頭在 0.8m 邊界命中判定（<=0.8m 命中，>0.8m 不命中）', () => {
     const strike = { from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }
-    expect(traceFistStrike(strike, new THREE.Vector3(), [npc], [])).toMatchObject({ kind: 'body', target: npc })
-  })
-  it('拳頭有幾何接觸但超過零點八米時不命中', () => {
-    const npc = mockNpc({ position: new THREE.Vector3(0, 0, 1.101) })
-    const strike = { from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }
-    expect(traceFistStrike(strike, new THREE.Vector3(), [npc], [])).toBeUndefined()
+    const inRangeNpc = mockNpc({ position: new THREE.Vector3(0, 0, 1.1) })
+    expect(traceFistStrike(strike, new THREE.Vector3(), [inRangeNpc], [])).toMatchObject({ kind: 'body', target: inRangeNpc })
+    const outOfRangeNpc = mockNpc({ position: new THREE.Vector3(0, 0, 1.101) })
+    expect(traceFistStrike(strike, new THREE.Vector3(), [outOfRangeNpc], [])).toBeUndefined()
   })
   it('拳頭被障礙物遮蔽時不會命中後方目標', () => {
     const npc = mockNpc({ position: new THREE.Vector3(0, 0, 1) })
@@ -522,7 +519,7 @@ it('Career melee → NPC 傷害 → CombatEvent → 單挑統計、軍功與徒�
   expect(claimed.profile.totalMerit).toBe(9)
 })
 
-it.each(['resident', 'mount'] as const)('Career %s 的真實空手傷害只發一次徒手 XP', route => {
+it('Career resident 與 mount 的真實空手傷害只發一次徒手 XP', () => {
   const player = mockPlayer()
   const profile = createCareerProfile('roman')
   const town = Object.assign(Object.create(TownScene.prototype) as TownFistEntry, {
@@ -534,50 +531,55 @@ it.each(['resident', 'mount'] as const)('Career %s 的真實空手傷害只發�
     mission: { events: new CombatEventStream() },
   })
   const contact = { kind: 'body' as const, time: .5, attackSource: 'unarmed' as const }
-  if (route === 'resident') {
-    const target = mockNpc()
-    Object.setPrototypeOf(target, NPC.prototype)
-    const entry = town as unknown as { hitResident(npc: NPC, amount: number, method: 'melee', c: typeof contact): void }
-    entry.hitResident(target, 5, 'melee', contact)
-    expect(target.hp).toBe(195)
-  } else {
-    let hp = 100
-    const target = { group: { uuid: 'mount', position: new THREE.Vector3() }, displayName: 'horse', maxHp: 100,
-      get currentHp() { return hp }, dead: false, currentLod: 0,
-      takeDamage(amount: number) { hp -= amount; return true } } as unknown as Mount
-    const entry = town as unknown as { hitBattlefieldMount(mount: Mount, amount: number, method: 'melee', source: undefined, c: typeof contact): void }
-    entry.hitBattlefieldMount(target, 5, 'melee', undefined, contact)
-    expect(hp).toBe(95)
-  }
+
+  // resident route
+  const target = mockNpc()
+  Object.setPrototypeOf(target, NPC.prototype)
+  const entryResident = town as unknown as { hitResident(npc: NPC, amount: number, method: 'melee', c: typeof contact): void }
+  entryResident.hitResident(target, 5, 'melee', contact)
+  expect(target.hp).toBe(195)
   expect(town.skills.skillState.unarmed.xp).toBe(10)
   expect(town.skills.skillState.oneHanded.xp).toBe(0)
+
+  // mount route
+  let mountHp = 100
+  const mountTarget = { group: { uuid: 'mount', position: new THREE.Vector3() }, displayName: 'horse', maxHp: 100,
+    get currentHp() { return mountHp }, dead: false, currentLod: 0,
+    takeDamage(amount: number) { mountHp -= amount; return true } } as unknown as Mount
+  const entryMount = town as unknown as { hitBattlefieldMount(mount: Mount, amount: number, method: 'melee', source: undefined, c: typeof contact): void }
+  entryMount.hitBattlefieldMount(mountTarget, 5, 'melee', undefined, contact)
+  expect(mountHp).toBe(95)
+  expect(town.skills.skillState.unarmed.xp).toBe(20)
 })
 
-it.each([
-  [1, undefined, 100], [2, undefined, 100], [3, undefined, 100],
-  [4, 'praetorian', 70], [5, 'roman-commander', 50],
-] as const)('T%s Duel NPC 真的出拳且每拳固定 5，保留 Tier 承傷配置', (tier, profile, expectedIncoming) => {
-  const strike = { from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }
-  const hit = vi.fn()
-  const player = { dead: false, targetable: true, isMounted: false,
-    combatPosition: new THREE.Vector3(0, 0, .75), group: { position: new THREE.Vector3(0, 0, .75) } } as Player
-  const animator = { busy: false, cancel: vi.fn(), start: vi.fn(), setLocomotion() {},
-    update: () => ({ fists: [strike] }) }
-  const body = Object.assign(Object.create(NPC.prototype), {
-    duelUnarmed: true, duelHostile: true, combatProfileId: profile as HeroCombatProfileId | undefined,
-    _tier: tier, currentHp: 200, _maxHp: 200, state: AIState.CHASE, _faction: Faction.TOWN,
-    meleeWeaponId: null, loadout: {}, meleeAttackRadius: .8, mount: null,
-    group: { position: new THREE.Vector3() }, rig: {}, pendingFall: { active: false }, mountedOrbitActive: true,
-    animator, visualMovementSpeed: 0, _faceDirection() {}, _updateFootPhysics() {}, ...navigationStubs(),
-  }) as NPC
-  NPC.prototype.update.call(body, .2, player, [], [], [], { setFill() {} }, hit, () => false)
-  expect(animator.start).toHaveBeenCalledExactlyOnceWith('punchCombo', 1)
-  expect(hit).toHaveBeenCalledExactlyOnceWith(5, true)
-  expect(body.meleeDamage).toBe(5)
-  NPC.prototype.takeDamage.call(body, 100)
-  expect(body.hp).toBe(200 - expectedIncoming)
-  const guard = NPC.prototype as unknown as { _isTargetInMeleeRange(target: THREE.Vector3): boolean }
-  expect(guard._isTargetInMeleeRange.call(body, player.combatPosition)).toBe(false) // Ordinary equipment guard is unchanged.
+it('T1..T5 Duel NPC 真的出拳且每拳固定 5，保留 Tier 承傷配置', () => {
+  const tiers = [
+    [1, undefined, 100], [2, undefined, 100], [3, undefined, 100],
+    [4, 'praetorian', 70], [5, 'roman-commander', 50],
+  ] as const
+  for (const [tier, profile, expectedIncoming] of tiers) {
+    const strike = { from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }
+    const hit = vi.fn()
+    const player = { dead: false, targetable: true, isMounted: false,
+      combatPosition: new THREE.Vector3(0, 0, .75), group: { position: new THREE.Vector3(0, 0, .75) } } as Player
+    const animator = { busy: false, cancel: vi.fn(), start: vi.fn(), setLocomotion() {},
+      update: () => ({ fists: [strike] }) }
+    const body = Object.assign(Object.create(NPC.prototype), {
+      duelUnarmed: true, duelHostile: true, combatProfileId: profile as HeroCombatProfileId | undefined,
+      _tier: tier, currentHp: 200, _maxHp: 200, state: AIState.CHASE, _faction: Faction.TOWN,
+      meleeWeaponId: null, loadout: {}, meleeAttackRadius: .8, mount: null,
+      group: { position: new THREE.Vector3() }, rig: {}, pendingFall: { active: false }, mountedOrbitActive: true,
+      animator, visualMovementSpeed: 0, _faceDirection() {}, _updateFootPhysics() {}, ...navigationStubs(),
+    }) as NPC
+    NPC.prototype.update.call(body, .2, player, [], [], [], { setFill() {} }, hit, () => false)
+    expect(animator.start).toHaveBeenCalledExactlyOnceWith('punchCombo', 1)
+    expect(hit).toHaveBeenCalledExactlyOnceWith(5, true)
+    expect(body.meleeDamage).toBe(5)
+    NPC.prototype.takeDamage.call(body, 100)
+    expect(body.hp).toBe(200 - expectedIncoming)
+    const guard = NPC.prototype as unknown as { _isTargetInMeleeRange(target: THREE.Vector3): boolean }
+    expect(guard._isTargetInMeleeRange.call(body, player.combatPosition)).toBe(false)
+  }
 })
 
 const navigationStubs = () => ({ _navigationPath: { clear() {} }, _tmpMoveDir: new THREE.Vector3(), _tmpNavigationTarget: new THREE.Vector3(),
