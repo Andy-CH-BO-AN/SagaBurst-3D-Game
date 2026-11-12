@@ -7,6 +7,7 @@ import { calculatePlayerMeleeDamage } from '../../src/combat/PlayerMeleeDamage'
 import { NPC } from '../../src/world/NPC'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { punchEventsBetween, punchExtension, unarmedDamage } from '../../src/combat/UnarmedCombat'
+import { parsePunchTiming } from '../../src/world/HumanoidAssetRegistry'
 
 
 describe('Combat damage eligibility', () => {
@@ -17,6 +18,11 @@ describe('Combat damage eligibility', () => {
     expect(last.map(event => event.index)).toEqual([3])
     expect(punchEventsBetween(.18, .18, false)).toEqual([])
     for (const event of [...first, ...last]) expect(punchExtension(event.time, event.hand, false)).toBeCloseTo(1)
+
+    const base = { clip: 'punchCombo' as const, source: 'Meshy' as const, sourceClip: 'x', loop: false, duration: 1, punchHands: ['left', 'right'] as ('left' | 'right')[] }
+    expect(() => parsePunchTiming({ ...base, events: { punch0: .5, punch1: .4 } })).toThrow()
+    expect(() => parsePunchTiming({ ...base, events: { punch0: .2, punch1: 1.2 } })).toThrow()
+    expect(parsePunchTiming({ ...base, punchHands: undefined })).toBeUndefined()
   })
   it('持盾拳擊僅動右拳，徒手傷害沿用技能與角色倍率', () => {
     const events = punchEventsBetween(0, 2, true)

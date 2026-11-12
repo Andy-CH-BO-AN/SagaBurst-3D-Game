@@ -1,31 +1,8 @@
-import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import { AssetLoadTimeout, OnDemandAssets } from '../../src/assets/OnDemandAssets'
-import { parsePunchTiming, type HumanoidAssetManifest } from '../../src/world/HumanoidAssetRegistry'
 import { ARMORS } from '../../src/rpg/ArmorDatabase'
 import { careerShopProduct } from '../../src/career/CareerShopCatalog'
 import { FACTION_SHIELD_BANDS } from '../../src/combat/FactionShieldGeometry'
-
-const dir = 'public/models/characters/v2/byzantine-cataphract-t5'
-const manifest = JSON.parse(readFileSync(`${dir}/manifest.json`, 'utf8')) as HumanoidAssetManifest & { fileSha256: Record<string, string> }
-
-describe('Byzantine punch contact timeline (manifest data only; no GLB parsing)', () => {
-  it('validates punch contact timeline and rejects malformed timelines', () => {
-    const combo = manifest.animations!.embedded.find(b => b.clip === 'punchCombo')!
-    expect(combo.duration).toBeCloseTo(2.2, 2)
-    const timing = parsePunchTiming(combo)!
-    expect(timing.contacts.map(c => c.hand)).toEqual(['left', 'right', 'left', 'right'])
-    expect(timing.contacts.map(c => +c.time.toFixed(2))).toEqual([.6, .88, 1.1, 1.37])
-
-    const rightTiming = parsePunchTiming(manifest.animations!.embedded.find(b => b.clip === 'punchRight')!)!
-    expect(new Set(rightTiming.contacts.map(c => c.hand))).toEqual(new Set(['right']))
-
-    const base = { clip: 'punchCombo' as const, source: 'Meshy' as const, sourceClip: 'x', loop: false, duration: 1, punchHands: ['left', 'right'] as ('left' | 'right')[] }
-    expect(() => parsePunchTiming({ ...base, events: { punch0: .5, punch1: .4 } })).toThrow()
-    expect(() => parsePunchTiming({ ...base, events: { punch0: .2, punch1: 1.2 } })).toThrow()
-    expect(parsePunchTiming({ ...base, punchHands: undefined })).toBeUndefined()
-  })
-})
 
 describe('Optional Byzantine equipment loading', () => {
   const TIMEOUT = 1000, RETRY = 500

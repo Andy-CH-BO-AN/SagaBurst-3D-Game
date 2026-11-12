@@ -35,7 +35,7 @@ import {
   setSceneRiverCrossing,
   type ObstacleData,
 } from '../../src/world/Terrain'
-import { getTownRampartLayout, townRampFoundation, townRampartHeight } from '../../src/town/TownRamparts'
+import { getTownRampartLayout, townRampFoundation } from '../../src/town/TownRamparts'
 import { getWalkRampHeight } from '../../src/world/Terrain'
 import { initializeTownWorldTerrain } from '../../src/town/TownWorld'
 
