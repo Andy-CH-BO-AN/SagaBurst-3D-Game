@@ -77,28 +77,32 @@ describe('Town equipment domain, canonical ownership and persisted native source
     expect(careerItemTotal(loaded, 'byzantine_standard_lance_t5') + careerItemTotal(loaded, 'armored-horse')).toBe(0)
     expect(h.reload()).toEqual(loaded)
   })
-  it.each([['roman', 'sword', 'paladin_sword_t4'], ['viking', 'axe', 'paladin_mace_t4']] as const)('bulk refit never downgrades or restocks the %s deployment officer\'s untouched T5 lance', (faction, melee, t4Stock) => {
-    const h = harness(faction); h.context.safeActorIds = new Set(['deployment']); h.buy('spear_t4'); h.buy(t4Stock)
-    const lance = resolveTownActorEquipment(h.read(), faction, 'deployment').loadout.meleeWeaponId
-    for (const category of ['spear', melee] as const) expect(h.bulk(1, category)).toMatchObject({ changed: false, changedActorIds: [] })
-    expect(h.read().townEquipment).toBeUndefined()
-    expect([availableCareerItem(h.read(), 'spear_t4'), availableCareerItem(h.read(), t4Stock)]).toEqual([1, 1])
-    expect(resolveTownActorEquipment(h.read(), faction, 'deployment').loadout.meleeWeaponId).toBe(lance)
+  it('bulk refit never downgrades or restocks the deployment officer\'s untouched T5 lance across factions', () => {
+    for (const [faction, melee, t4Stock] of [['roman', 'sword', 'paladin_sword_t4'], ['viking', 'axe', 'paladin_mace_t4']] as const) {
+      const h = harness(faction); h.context.safeActorIds = new Set(['deployment']); h.buy('spear_t4'); h.buy(t4Stock)
+      const lance = resolveTownActorEquipment(h.read(), faction, 'deployment').loadout.meleeWeaponId
+      for (const category of ['spear', melee] as const) expect(h.bulk(1, category)).toMatchObject({ changed: false, changedActorIds: [] })
+      expect(h.read().townEquipment).toBeUndefined()
+      expect([availableCareerItem(h.read(), 'spear_t4'), availableCareerItem(h.read(), t4Stock)]).toEqual([1, 1])
+      expect(resolveTownActorEquipment(h.read(), faction, 'deployment').loadout.meleeWeaponId).toBe(lance)
+    }
   })
-  it.each([['roman', 'paladin_sword_t4'], ['viking', 'paladin_mace_t4']] as const)('lets the %s deployment officer switch from its T5 lance to the T4 weapon its native token records, only from available stock', (faction, t4) => {
-    const h = harness(faction); h.context.safeActorIds = new Set(['deployment'])
-    const native = resolveTownActorEquipment(h.read(), faction, 'deployment')
-    expect(native.refs.melee).toMatchObject({ itemId: t4, source: 'native', nativeId: `${faction}/deployment/melee` })
-    expect(native.loadout.meleeWeaponId).not.toBe(t4)
-    expect(h.change('deployment', 'melee', t4)).toMatchObject({ changed: false, reason: 'no-available-item' })
-    expect(h.read().townEquipment).toBeUndefined()
-    h.buy(t4)
-    expect(h.change('deployment', 'melee', t4)).toMatchObject({ changed: true, changedActorIds: ['deployment'] })
-    const loaded = h.reload()
-    expect(resolveTownActorEquipment(loaded, faction, 'deployment')).toMatchObject({ refs: { melee: { itemId: t4, source: 'inventory' } }, loadout: { meleeWeaponId: t4 } })
-    expect(loaded.townEquipment![faction]!.nativeReserve).toContain(`${faction}/deployment/melee`)
-    expect([careerItemTotal(loaded, t4), availableCareerItem(loaded, t4)]).toEqual([1, 0])
-    expect(h.change('deployment', 'melee', t4)).toMatchObject({ changed: false, reason: 'no-op' })
+  it('lets the deployment officer switch from its T5 lance to the T4 weapon its native token records across factions, only from available stock', () => {
+    for (const [faction, t4] of [['roman', 'paladin_sword_t4'], ['viking', 'paladin_mace_t4']] as const) {
+      const h = harness(faction); h.context.safeActorIds = new Set(['deployment'])
+      const native = resolveTownActorEquipment(h.read(), faction, 'deployment')
+      expect(native.refs.melee).toMatchObject({ itemId: t4, source: 'native', nativeId: `${faction}/deployment/melee` })
+      expect(native.loadout.meleeWeaponId).not.toBe(t4)
+      expect(h.change('deployment', 'melee', t4)).toMatchObject({ changed: false, reason: 'no-available-item' })
+      expect(h.read().townEquipment).toBeUndefined()
+      h.buy(t4)
+      expect(h.change('deployment', 'melee', t4)).toMatchObject({ changed: true, changedActorIds: ['deployment'] })
+      const loaded = h.reload()
+      expect(resolveTownActorEquipment(loaded, faction, 'deployment')).toMatchObject({ refs: { melee: { itemId: t4, source: 'inventory' } }, loadout: { meleeWeaponId: t4 } })
+      expect(loaded.townEquipment![faction]!.nativeReserve).toContain(`${faction}/deployment/melee`)
+      expect([careerItemTotal(loaded, t4), availableCareerItem(loaded, t4)]).toEqual([1, 0])
+      expect(h.change('deployment', 'melee', t4)).toMatchObject({ changed: false, reason: 'no-op' })
+    }
   })
   it('still refits a manually equipped deployment officer by the weapon actually held', () => {
     const h = harness(); h.context.safeActorIds = new Set(['deployment']); h.buy('spear_t4'); h.buy('spear_t5')
@@ -241,6 +245,12 @@ describe('Town equipment domain, canonical ownership and persisted native source
     }).reason).toBe('no-available-item')
     expect(saves).toBe(0)
     expect(h.read()).toEqual(before)
+    // Absorbed from #671: returning an allocated copy restores the pool for another claimant
+    next.equipment = {}
+    h.set(next)
+    expect(availableCareerItem(h.read(), 'paladin_sword_t4')).toBe(1)
+    expect(h.change('civilian-1', 'melee', 'paladin_sword_t4').changed).toBe(true)
+    expect(availableCareerItem(h.read(), 'paladin_sword_t4')).toBe(0)
   })
   it('redistributes one native sword in its authored squad and never recreates it at the origin on reload', () => {
     const h = harness(); h.context.safeActorIds = new Set(['gate:north:0', 'gate:north:7']); h.buy('centurion_blade')
