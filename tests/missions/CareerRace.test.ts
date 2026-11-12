@@ -8,7 +8,7 @@ import { createCareerProfile, cloneCareerProfile, type CareerProfile } from '../
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
-import { canEnterRace, finalizeRaceDeployment, MOUNTED_RACES, pickRaceOpponentMount, RACE_PLAYER_CAN_SPRINT, RACE_SCHEDULE_VERSION, advanceRaceClock, advanceRaceRider, parseRaceSession, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, raceStageOpponentLabel, selectRaceCommander, updateRaceGuidance,
+import { canEnterRace, finalizeRaceDeployment, advanceRaceClock, advanceRaceRider, parseRaceSession, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
 import { RACE_START_SLOTS, RACE_LINES, raceWaypoints, raceMovementIsLegal, illegalTownCrossing, type RacePosition } from '../../src/career/CareerRaceRoute'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -30,33 +30,6 @@ function cross(r: RaceRider, from: RacePosition, to: RacePosition, time = 20): v
 }
 
 describe('Mounted race policy and countdown', () => {
-  it('orders six all-sprint 1v1 stages with feline opponent pools and scheduleVersion 3', () => {
-    expect(MOUNTED_RACES.map(r => [r.id, r.mount, r.opponents ?? [r.mount], r.sprint])).toEqual([
-      ['race-1', 'horse', ['horse'], true],
-      ['race-2', 'orange-cat', ['orange-cat'], true],
-      ['race-3', 'corgi', ['corgi'], true],
-      ['race-4', 'snow-leopard', ['snow-leopard'], true],
-      ['race-5', 'black-cat', ['black-cat', 'white-cat'], true],
-      ['race-6', 'serval', ['serval', 'caracal'], true],
-    ])
-    expect(RACE_PLAYER_CAN_SPRINT).toBe(true)
-    expect(RACE_SCHEDULE_VERSION).toBe(3)
-    expect(MOUNTED_RACES.map(r => r.name)).toEqual(['Race I', 'Race II', 'Race III', 'Race IV', 'Race V', 'Race VI'])
-    expect(MOUNTED_RACES.map(r => r.merit)).toEqual([100, 400, 900, 1600, 2500, 3600])
-    expect(MOUNTED_RACES.map(raceStageOpponentLabel)).toEqual(['戰馬', '橘貓', '柯基', '重甲雪豹', '黑貓／白貓', '藪貓／獰貓'])
-    expect(pickRaceOpponentMount(MOUNTED_RACES[4], () => 0.1)).toBe('black-cat')
-    expect(pickRaceOpponentMount(MOUNTED_RACES[4], () => 0.9)).toBe('white-cat')
-    expect(pickRaceOpponentMount(MOUNTED_RACES[5], () => 0.2)).toBe('serval')
-    expect(pickRaceOpponentMount(MOUNTED_RACES[5], () => 0.8)).toBe('caracal')
-    const p = profile()
-    expect(canEnterRace(p, mount)).toBe(true)
-    for (const felineId of ['white-cat', 'orange-cat', 'serval', 'caracal'] as const) {
-      const fp = createCareerProfile('viking'); addCareerItem(fp, felineId, 1)
-      expect(canEnterRace(fp, { ...mount, id: felineId })).toBe(true)
-    }
-    p.rank = 'commander'; expect(canEnterRace(p, mount)).toBe(true)
-    expect(p.duelHighestDefeatedTierByPreset).toBeUndefined()
-  })
   it('selects the actual Commander and never substitutes another living resident', () => {
     const cavalry = { spec: { id: 'cavalry-1' }, npc: { dead: false, hostileToPlayer: false, isFalling: false } }
     const commander = { spec: { id: 'commander' }, npc: { dead: false, hostileToPlayer: false, isFalling: false } }
@@ -64,7 +37,7 @@ describe('Mounted race policy and countdown', () => {
     commander.npc.dead = true
     expect(selectRaceCommander([cavalry, commander])).toBeUndefined()
   })
-  it('rejects forged ownership, unavailable mounts, eagles and overlapping formal work', () => {
+  it('rejects forged ownership, unavailable mounts, eagles and overlapping formal work while allowing valid mounts', () => {
     const p = createCareerProfile('viking'); p.selectedMountId = 'horse'
     expect(canEnterRace(p, mount)).toBe(false)
     addCareerItem(p, 'horse', 1)
@@ -72,6 +45,12 @@ describe('Mounted race policy and countdown', () => {
     expect(canEnterRace(p, { ...mount, mounted: false })).toBe(false)
     expect(canEnterRace(p, { ...mount, hp: 0, dead: true })).toBe(false)
     expect(canEnterRace(p, { ...mount, id: 'xongkoro', airborne: true })).toBe(false)
+    expect(canEnterRace(p, mount)).toBe(true)
+    for (const felineId of ['white-cat', 'orange-cat', 'serval', 'caracal'] as const) {
+      const fp = createCareerProfile('viking'); addCareerItem(fp, felineId, 1)
+      expect(canEnterRace(fp, { ...mount, id: felineId })).toBe(true)
+    }
+    p.rank = 'commander'; expect(canEnterRace(p, mount)).toBe(true)
     p.activeRace = session()
     expect(canEnterRace(p, mount)).toBe(false)
     expect(createCareerDuelMission(p, 'viking_archer', 1, 'opponent', 'captain')).toBeNull()

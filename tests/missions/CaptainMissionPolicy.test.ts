@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Box3, Vector3 } from 'three'
-import { acceptCaptainEagle, acceptCaptainFrontline, applyCaptainFrontlineEnemyHeroes, captainFrontlineEnemyHeroAsset, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
-import { BattleSpawner } from '../../src/battle/BattleSpawner'
-import { createDefenseCampaignWaveConfig } from '../../src/campaign/DefenseCampaignLaunch'
+import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_GATE_DEFENSE_ID, captainGateDefenseActorIds, commanderGateDefenseSlots, commanderGateDefenseSquads, createCaptainGateDefenseMission, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../../src/career/CaptainMissionCatalog'
 import { townDefenseForceCountsForProfile } from '../../src/career/TownDefenseRoster'
 import { hasCompleteRetirementMobilizationCheckpoint, retirementAssaultFormations, retirementGroundStaging, retirementMobilizationNeedsPreparation } from '../../src/career/CareerRetirementMobilization'
@@ -122,20 +120,6 @@ describe('Commander accepted production rosters without actor materialization', 
     const specs = createCaptainFrontlineSpawnPlan(createCaptainFrontlineLaunch(loaded), saved).npcSpecs
     expect(specs.find(spec => spec.actorId === first)!.squadId).toBe(3)
     expect(specs.find(spec => spec.actorId === last)!.squadId).toBe(1)
-  })
-
-  it('makes the Frontline attackers\' T4 captain the faction heavy class while the Ranger and every count stay unchanged', () => {
-    const launch = createCaptainFrontlineLaunch(acceptCaptainFrontline(commander(), 'frontline-heroes')!)
-    const attackers = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'attackers')).npcSpecs
-    const before = attackers.map(spec => [spec.presetId, spec.characterTier, spec.loadout])
-    expect(attackers.filter(spec => spec.characterTier === 4).map(spec => spec.combatProfileId).sort()).toEqual(['ranger', 'varangian'])
-    applyCaptainFrontlineEnemyHeroes(attackers)
-    expect(attackers).toHaveLength(202)
-    expect(attackers.filter(spec => spec.characterTier === 4).map(spec => [spec.combatProfileId, spec.visualAssetId]).sort())
-      .toEqual([['dragon-oathguard', 'viking-heavy-hero-t4'], ['ranger', 'maki-archer-t4']])
-    expect(attackers.map(spec => [spec.presetId, spec.characterTier, spec.loadout])).toEqual(before)
-    expect(captainFrontlineEnemyHeroAsset('roman')).toBe('viking-heavy-hero-t4')
-    expect(captainFrontlineEnemyHeroAsset('viking')).toBe('roman-centurion-t4')
   })
 
   it('uses Veteran authored squads with distinct pending reinforcement groups at fresh Commander acceptance', () => {

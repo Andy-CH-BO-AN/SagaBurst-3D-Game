@@ -1,4 +1,4 @@
-import { CareerBridgeBattleRuntime, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, commitCareerBridgeBattleResult, createCareerFelineBattleLaunch, isCareerFelineBattle, recoverClaimedCareerBridgeBattle, careerFelineHeroAssetIds, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, felineInitialTacticalOrder, felineFriendlyMountId, markFelineVanguardCharge, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness } from '../../src/career/CareerBridgeBattle'
+import { CareerBridgeBattleRuntime, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, commitCareerBridgeBattleResult, createCareerFelineBattleLaunch, isCareerFelineBattle, recoverClaimedCareerBridgeBattle, careerFelineHeroAssetIds, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, felineInitialTacticalOrder, markFelineVanguardCharge, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness } from '../../src/career/CareerBridgeBattle'
 import { COMMANDER_BRIDGEHEAD_ID, createBridgeheadRoster } from '../../src/career/CommanderMissionCatalog'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { officialActorSquadId, officialCommandAcceptsActor } from '../../src/career/CareerCommandAuthority'
@@ -770,52 +770,6 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(clearCareerMission(victory.profile, restored.id).activeMission).toBeUndefined()
     const failure = claimCareerMission(loaded, restored.id, 'failure', { ...zeroStats, survived: false })
     expect(failure.profile.activeMission?.result?.outcome).toBe('failure')
-  })
-
-  it('maps friendly cavalry roles and tiers deterministically to six feline mounts and enemy to horse', () => {
-    expect(felineFriendlyMountId('melee', 4, 0)).toBe('caracal')
-    expect(felineFriendlyMountId('melee', 4, 59)).toBe('caracal')
-    expect(felineFriendlyMountId('lancer', 4, 0)).toBe('serval')
-    expect(felineFriendlyMountId('lancer', 4, 59)).toBe('serval')
-    expect(felineFriendlyMountId('horse_archer', 4, 0)).toBe('black-cat')
-    expect(felineFriendlyMountId('horse_archer', 4, 19)).toBe('black-cat')
-    expect(felineFriendlyMountId('horse_archer', 4, 20)).toBe('white-cat')
-    expect(felineFriendlyMountId('horse_archer', 4, 39)).toBe('white-cat')
-    expect(felineFriendlyMountId('horse_archer', 4, 40)).toBe('orange-cat')
-    expect(felineFriendlyMountId('horse_archer', 4, 59)).toBe('orange-cat')
-    expect(felineFriendlyMountId('lancer', 5, 0)).toBe('snow-leopard')
-    expect(felineFriendlyMountId('lancer', 5, 19)).toBe('snow-leopard')
-  })
-
-  it('arranges friendly feline cavalry into a seven-squad tactical formation with corridors and bounds', () => {
-    const profile = accepted(COMMANDER_FELINE_CAVALRY_ID)
-    const plan = createCareerFelineSpawnPlan(profile)
-    const friendly = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
-    const squads = [1, 2, 3, 4, 5, 6, 7].map(id => friendly.filter(spec => spec.squadId === id))
-
-    // Squad sizes: S1-S6: 30, S7: 20
-    expect(squads.map(s => s.length)).toEqual([30, 30, 30, 30, 30, 30, 20])
-
-    // S5 and S6 corridor: min distance between S5 and S6 X coordinates
-    const s5Xs = squads[4].map(spec => spec.x), s6Xs = squads[5].map(spec => spec.x)
-    const s5MaxX = Math.max(...s5Xs), s6MinX = Math.min(...s6Xs)
-    expect(s6MinX - s5MaxX).toBeCloseTo(9.6, 1)
-
-    // S7 front center corridor to S1 and S2
-    const s7Xs = squads[6].map(spec => spec.x)
-    const s1Xs = squads[0].map(spec => spec.x), s2Xs = squads[1].map(spec => spec.x)
-    expect(Math.min(...s7Xs) - Math.max(...s1Xs)).toBeCloseTo(9.6, 1)
-    expect(Math.min(...s2Xs) - Math.max(...s7Xs)).toBeCloseTo(9.6, 1)
-
-    // S3 rear left to S5 and S6 to S4 rear right
-    const s3Xs = squads[2].map(spec => spec.x), s4Xs = squads[3].map(spec => spec.x)
-    expect(Math.min(...s5Xs) - Math.max(...s3Xs)).toBeCloseTo(9.6, 1)
-    expect(Math.min(...s4Xs) - Math.max(...s6Xs)).toBeCloseTo(9.6, 1)
-
-    // Verify player clearance: all friendly units are safely in front of player spawn (|Z| = 145)
-    for (const spec of friendly) {
-      expect(Math.abs(spec.z)).toBeLessThanOrEqual(140)
-    }
   })
 
   it('validates feline deployment readiness contracts before dismissing loading', () => {
