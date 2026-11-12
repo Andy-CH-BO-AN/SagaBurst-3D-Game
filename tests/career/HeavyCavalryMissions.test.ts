@@ -9,8 +9,8 @@ import { AIType } from '../../src/world/NPC'
 import type { CombatEvent } from '../../src/combat/CombatAttribution'
 import {
   CAPTAIN_STEEL_AVALANCHE_ID, COMMANDER_IRON_LEGION_ID, SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID,
-  createHeavyFieldState, heavyActorIds,
-  heavyCommandPlan, heavyFrontlineDistance, isHeavyFormationComplete, heavyNpcGroups, heavyTacticalOrder,
+  createHeavyFieldState,
+  heavyCommandPlan, heavyFrontlineDistance, isHeavyFormationComplete, heavyTacticalOrder,
   parseHeavyFieldState, planVeteranCaltropDefense, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge,
   shouldTriggerHeavyEnemyCharge, veteranCaltropWorldRects,
 } from '../../src/career/HeavyCavalryMissions'

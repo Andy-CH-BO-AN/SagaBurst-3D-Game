@@ -12,7 +12,7 @@ import { ARENA_GROUND_FALL_POLICY, groundFallDamage, GroundFallTracker } from '.
 import { Player } from '../../src/player/Player'
 import {
   claimFlatTerrainOverride, getFlatTerrainOverride, getTerrainHeight,
-  releaseFlatTerrainOverride, resetTerrainScenePolicy, resolveObstacleCollision,
+  releaseFlatTerrainOverride, resetTerrainScenePolicy,
 } from '../../src/world/Terrain'
 
 // Numeric layout data only: no scene, mesh, material or arena visuals are built.
@@ -44,7 +44,7 @@ describe('duel arena layout collision', () => {
     expect(trackedHeight).toBeCloseTo(landed!, 1)
     expect(groundFallDamage(150, trackedHeight!, ARENA_GROUND_FALL_POLICY)).toBe(150)
     // Low falls stay harmless; mid falls scale linearly.
-    expect(groundFallDamage(150, ARENA_GROUND_FALL_POLICY.minHeight - 0.5, ARENA_GROUND_FALL_POLICY)).toBe(0)
+    expect(groundFallDamage(150, ARENA_GROUND_FALL_POLICY.safeHeight - 0.5, ARENA_GROUND_FALL_POLICY)).toBe(0)
     const midDamage = groundFallDamage(150, 10.5, ARENA_GROUND_FALL_POLICY)
     expect(midDamage).toBeGreaterThan(0)
     expect(midDamage).toBeLessThan(150)
