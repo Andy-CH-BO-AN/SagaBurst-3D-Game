@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { PALETTE, type BuildContext, type Sketch } from './ArchitectureKit'
+import { PALETTE, tabletopDisplayRow, type BuildContext, type Sketch } from './ArchitectureKit'
 import { ROMAN_HOMES, ROMAN_HR_CENTER, ROMAN_STABLE, ROMAN_TOWN_CENTER, ROMAN_WEAPONS } from './ArchitectureSpecs'
 
 /* Roman vocabulary: marble/travertine masonry, red plaster panels, terracotta
@@ -181,8 +181,8 @@ export function buildRomanHrCenter(ctx: BuildContext): void {
   s.eagle(0, F + 4.1, innerBack + .1, 0, 1.0)
   for (const side of [-1, 1]) {
     s.banner(side * 4.4, F + 5.4, innerBack + .05, 0, 1.2, 3.0)
-    s.weaponRack(side * (innerX - .3), F, -1, 6, Math.PI / 2, side < 0 ? 'spear' : 'sword')
-    for (const z of [-3.4, -1.6, .2]) s.scutum(side * (innerX - .06), F + 3.4, z, -side * Math.PI / 2, .02)
+    s.weaponRack(side * (innerX - .7), F, -1, 6, -side * Math.PI / 2, 'spear', ['paladin_sword_t4', 'byzantine_standard_lance_t5', 'sword_t5'])
+    for (const z of [-3.4, -1.6, .2]) s.scutum(side * (innerX - .06), F + 3.4, z, -side * Math.PI / 2, .02, side < 0 ? 'centurion_aquila_shield_t4' : 'byzantine_eagle_shield_t5')
     s.bench(side * 5, F, 2.05, 2.8, 0)
     for (const z of [-4.5, 3]) { s.box('metal', side * (innerX - .1), F + 3.0, z, .12, .5, .12, PALETTE.iron); s.bowlFire(side * (innerX - .32), F + 3.25, z, .45) }
   }
@@ -228,7 +228,7 @@ export function buildRomanWeapons(ctx: BuildContext): void {
   s.span('stone', -4.4, F + b.top + T.roof.rise + 1.4, -4.7, -3.2, F + b.top + T.roof.rise + 1.7, -3.5, PALETTE.marble)
   s.brazier(-3.8, F + .3, -3.9, .8, PALETTE.footing)
   for (let i = 0; i < 5; i++) { const x = -1.6 + i * .5; s.box('wood', x, F + 2.1, b.back + b.wall + .05, .05, .55, .05, PALETTE.timber); s.box('metal', x, F + 2.4, b.back + b.wall + .07, .2, .12, .1, PALETTE.iron) }
-  s.weaponRack(2.3, F, -4.25, 2.8, 0, 'sword')
+  s.weaponRack(2.3, F, -4.25, 2.8, 0, 'spear', ['paladin_sword_t4', 'byzantine_standard_lance_t5', 'sword_t5'])
   s.anvil(-.6, F, -1.2, .4)
   s.cylinder('wood', 1.5, F, -1.4, .45, .4, .7, PALETTE.timber, 12); s.cylinder('water', 1.5, F + .62, -1.4, .4, .4, .04, undefined, 12)
   for (const z of [-1.6, -.6, .4]) s.scutum(4.6, F + .62, z, -Math.PI / 2, .28)
@@ -251,10 +251,11 @@ export function buildRomanWeapons(ctx: BuildContext): void {
   for (const side of [-1, 1]) {
     const gx = side * tb.x, gy = ctx.ground(gx, tb.z)
     s.table(gx, gy, tb.z, tb.halfX * 2, tb.halfZ * 2, tb.top - gy + F > 0 ? F + tb.top - gy : 1)
-    const ids = side < 0 ? ['paladin_sword_t4', 'sword_t5'] : ['paladin_sword_t4', 'sword_t5']
-    ids.forEach((id, i) => ctx.display(id, id === 'bow_t5' ? 'ranged' : 'melee', gx, F + tb.top, tb.z + (i - .5) * .6, 0, Math.PI / 2))
+    const ids = ['paladin_sword_t4', 'sword_t5']
+    ctx.root.add(tabletopDisplayRow(ids.map(id => ({ id, kind: id === 'bow_t5' ? 'ranged' : 'melee' })), gx, F + tb.top, tb.z, tb.halfX * 2, tb.halfZ * 2, Math.PI / 2))
   }
-  s.scutum(-5.1, F + 2.1, b.front + .12, 0, 0)
+  s.scutum(-5.1, F + 2.1, b.front + .12, 0, 0, 'centurion_aquila_shield_t4')
+  s.scutum(4.5, F + 2.4, -2.5, -Math.PI / 2, 0, 'byzantine_eagle_shield_t5')
   s.crate(-5.4, ctx.ground(-5.4, 7.8), 7.8, .6)
   s.barrel(5.55, ctx.ground(5.55, 5.6), 5.6, .8)
   s.banner(4.6, top - .3, b.front + .15, 0, .9, 2.3)
@@ -268,11 +269,11 @@ export function buildRomanStable(ctx: BuildContext): void {
   s.wall('stone', 0, F, (T.rear.z0 + T.rear.z1) / 2, T.side.outer * 2, backEave - F, T.rear.z1 - T.rear.z0, [], PALETTE.cream)
   for (const side of [-1, 1]) {
     const x = side * (T.side.inner + T.side.outer) / 2
-    s.wall('stone', x, F, (T.rear.z0 + T.front) / 2, T.front - T.rear.z0, ar.entablature, T.side.outer - T.side.inner, [], PALETTE.cream, Math.PI / 2)
-    s.span('stone', side * T.side.inner, F, cl.back, side * T.side.outer, F + cl.top, cl.front, PALETTE.redPlaster)
+    for (const [bottom, top, color] of [[0, .9, PALETTE.marble], [.9, 1, PALETTE.cream], [1, 1.4, PALETTE.redPlaster], [1.4, ar.entablature, PALETTE.cream]] as const)
+      s.span('stone', x - (T.side.outer - T.side.inner) / 2, F + bottom, T.rear.z1,
+        x + (T.side.outer - T.side.inner) / 2, F + top, T.front, color)
+    s.span('stone', side * T.side.inner, F + ar.entablature, cl.back, side * T.side.outer, F + cl.top, cl.front, PALETTE.redPlaster)
     pedimentFront(s, side * (T.side.outer + .05), F + cl.top, (cl.front + cl.back) / 2, cl.front - cl.back + .6, cl.rise + .2, side * Math.PI / 2, true)
-    s.span('stone', side * T.side.outer - .06, F, T.rear.z0, side * T.side.outer + .06, F + .9, T.front, PALETTE.marble)
-    s.span('stone', side * T.side.outer - .06, F + 1.0, T.rear.z0, side * T.side.outer + .06, F + 1.4, T.front, PALETTE.redPlaster)
     // Harness pegs and a saddle inside the end stalls.
     for (let i = 0; i < 3; i++) s.add('metal', new THREE.TorusGeometry(.18, .025, 4, 10).rotateY(Math.PI / 2).translate(side * (T.side.inner - .05), F + 2.0, -3.6 + i * .7), PALETTE.darkTimber)
   }

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { flameParts } from '../../arena/ArenaKit'
-import { PALETTE, type BuildContext, type Sketch } from './ArchitectureKit'
+import { PALETTE, tabletopDisplayRow, type BuildContext, type Sketch } from './ArchitectureKit'
 import { VIKING_HOMES, VIKING_HR_CENTER, VIKING_STABLE, VIKING_TOWN_CENTER, VIKING_WEAPONS } from './ArchitectureSpecs'
 
 /* Viking vocabulary: stone footings, vertical plank and log walls, steep
@@ -175,8 +175,8 @@ export function buildVikingHrCenter(ctx: BuildContext): void {
   s.banner(0, top - .1, b.back + b.wall + .05, 0, 1.6, 2.8, 'wood')
   for (const side of [-1, 1]) {
     const innerX = b.halfX - b.wall
-    s.weaponRack(side * (innerX - .2), F, (T.racks.z0 + T.racks.z1) / 2, T.racks.z1 - T.racks.z0, Math.PI / 2, side < 0 ? 'axe' : 'spear')
-    for (const z of [-8, 1.5, 4, 6.5]) s.shield(side * (innerX - .05), F + 2.7, z, -side * Math.PI / 2, .45, z > 2 ? [PALETTE.cream, PALETTE.red] : [PALETTE.red, 0x2f4a6a])
+    s.weaponRack(side * (innerX - .7), F, (T.racks.z0 + T.racks.z1) / 2, T.racks.z1 - T.racks.z0, -side * Math.PI / 2, 'axe', ['paladin_mace_t4', 'axe_t5', 'spear_t5'])
+    for (const z of [-8, 1.5, 4, 6.5]) s.shield(side * (innerX - .05), F + 2.7, z, -side * Math.PI / 2, .45, undefined, 0, side < 0 ? 'viking_dragonward_shield_t4' : 'viking_berserker_shield_t5')
     s.table(side * (T.longTables.minX + T.longTables.maxX) / 2, F, (T.longTables.back + T.longTables.front) / 2, T.longTables.maxX - T.longTables.minX, T.longTables.front - T.longTables.back, .9)
     s.span('cloth', side * 1.0 - .9, F + .005, -6.4, side * 1.0 + .9, F + .02, 8.6, PALETTE.darkRed)
     const ring = V(0, top + 1.4, side * 4)
@@ -230,7 +230,7 @@ export function buildVikingWeapons(ctx: BuildContext): void {
   s.span('wood', 4.4, F, -1.0, 5.1, F + .7, -.2, PALETTE.darkTimber)
   for (let i = 0; i < 6; i++) s.add('stone', new THREE.IcosahedronGeometry(.13, 0).translate(4.55 + (i % 3) * .2, F + .76, -.85 + Math.floor(i / 3) * .3), 0x252321)
   for (let i = 0; i < 5; i++) { const x = 1.2 + i * .5; s.box('wood', x, F + 2.0, f.back + .55, .05, .6, .05, PALETTE.timber); s.box('metal', x, F + 2.35, f.back + .57, .22, .1, .08, PALETTE.iron) }
-  s.weaponRack(.95, F, 0, 3.4, Math.PI / 2, 'axe')
+  s.weaponRack(.95, F, 0, 3.4, Math.PI / 2, 'axe', ['paladin_mace_t4', 'axe_t5'])
   // Merchant canopy: four carved posts, shingle gable, hanging smith's board.
   const c = T.canopy, low = ctx.canopyY, crest = low + (c.ridge - c.minY)
   for (const side of [-1, 1]) for (const z of c.postZ) {
@@ -253,10 +253,11 @@ export function buildVikingWeapons(ctx: BuildContext): void {
   for (const side of [-1, 1]) {
     const gx = side * tb.x, gy = ctx.ground(gx, tb.z)
     s.table(gx, gy, tb.z, tb.halfX * 2, tb.halfZ * 2, F + tb.top - gy)
-    const ids = side < 0 ? ['axe_t5', 'axe_t5'] : ['axe_t5', 'bow_t5']
-    ids.forEach((id, i) => ctx.display(id, id === 'bow_t5' ? 'ranged' : 'melee', gx, F + tb.top, tb.z + (i - .5) * .6, 0, Math.PI / 2))
+    const ids = side < 0 ? ['paladin_mace_t4', 'axe_t5'] : ['paladin_mace_t4', 'bow_t5']
+    ctx.root.add(tabletopDisplayRow(ids.map(id => ({ id, kind: id === 'bow_t5' ? 'ranged' : 'melee' })), gx, F + tb.top, tb.z, tb.halfX * 2, tb.halfZ * 2, Math.PI / 2))
   }
-  s.shield(-3.8, F + 1.8, h.front + .12, 0, .6)
+  s.shield(-3.8, F + 1.8, h.front + .12, 0, .6, undefined, 0, 'viking_dragonward_shield_t4')
+  s.shield(5.05, F + 2.0, -2.7, -Math.PI / 2, .6, undefined, 0, 'viking_berserker_shield_t5')
   s.barrel(-.4, ctx.ground(-.4, 4.1), 4.1, .85)
   s.span('cloth', 4.6, F + .62, -2.1, 5.1, F + .66, -1.3, PALETTE.fur)
 

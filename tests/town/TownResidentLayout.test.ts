@@ -7,11 +7,11 @@ import { Box3, Matrix4, Vector3 } from 'three'
 import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
 import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, civilianMountsClear, townMountPlacementBatchClear, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes } from '../../src/town/TownCivilianLife'
 import { findTownDuelArena, townDuelAreaClear, DUEL_ARENA_HALF_SIZE } from '../../src/town/TownDuelArena'
-import { TOWN_DUEL_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_MOUNTED_MISSION_MUSTER } from '../../src/town/TownLayout'
+import { townRoadIntersectsBox, TOWN_DUEL_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_MOUNTED_MISSION_MUSTER } from '../../src/town/TownLayout'
 import { townRoster, townPatrolRefitPoint, townPlayerEntryPoint, withTownCommandSquadRoster } from '../../src/town/TownRules'
 import { townPatrolDeparture, townPatrolRoute } from '../../src/town/TownPatrolRoute'
 import { getTownCommandWatchtowerLayout, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
-import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
+import { resolveTownHRLayout, townConquestRoster, townHrCampLayout } from '../../src/town/TownHRLayout'
 import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
 import { resolveTownEagleGarrison } from '../../src/town/TownEagleGarrison'
 import { resolveTownCommanderPosition, townCommanderSpec } from '../../src/town/TownCommander'
@@ -181,6 +181,13 @@ it('keeps final Town population homes, ground stations and fallbacks clear of ra
   // Own full-population HR clearance here, reusing this invariant's real roster.
   // The scenery suite only needs the west-gate guard that constrains its fixture.
   for (const service of [hr, resolveTownHRLayout('viking', [], roads, roster)]) {
+    const camp = townHrCampLayout(service)
+    expect(camp.slots).toHaveLength(30)
+    const worldCamp = new Box3(new Vector3(camp.minX, -100, camp.minZ), new Vector3(camp.maxX, 100, camp.maxZ))
+      .applyMatrix4(new Matrix4().makeRotationY(service.site.yaw)).translate(new Vector3(service.site.x, 0, service.site.z))
+    expect(roads.some(road => townRoadIntersectsBox(road, worldCamp, 1))).toBe(false)
+    const postGap = Math.min(...camp.posts.flatMap(post => camp.slots.map(slot => Math.hypot(post.x - slot.x, post.z - slot.z) - .35)))
+    expect(postGap).toBeGreaterThan(2.2)
     // Mounted HR officer must leave a 6m-wide central approach open.
     const dx = service.officer.x - service.site.x, dz = service.officer.z - service.site.z
     const localSide = Math.cos(service.site.yaw) * dx - Math.sin(service.site.yaw) * dz

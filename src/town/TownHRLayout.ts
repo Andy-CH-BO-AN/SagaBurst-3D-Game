@@ -54,7 +54,8 @@ export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readon
       const muster = Array.from({ length: 30 }, (_, i) => point(site,
         courtyardSide * (width / 2 + 5 + Math.floor(i / 5) * 4.5), (i % 5 - 2) * 4.5))
       const area = new THREE.Box3().setFromPoints(muster.map(p => new THREE.Vector3(p.x, 0, p.z))).expandByVector(new THREE.Vector3(2.2, 100, 2.2))
-      if (clear(area)) return { site, width, depth, officer, muster }
+      if (!clear(area)) continue
+      return { site, width, depth, officer, muster }
     }
   }
   throw new Error('No walkable HR Center and mounted courtyard in the western district')
@@ -75,4 +76,25 @@ export function townConquestRoster(layout: TownHRLayout, residents: readonly Tow
   const roster = [...residents.map(spec => eagleGarrison && spec.eagle ? positioned.get(spec.id) ?? spec : spec), hrOfficerSpec(layout), ...(eagleTraining ? [eagleTrainerSpec(eagleTraining)] : [])]
   if (new Set(roster.map(actor => actor.id)).size !== roster.length) throw new Error('Duplicate town conquest actor ID')
   return roster
+}
+
+/** Local ground courtyard preserves every authored muster identity and coordinate. */
+export interface TownHRCampLayout {
+  readonly minX: number; readonly maxX: number; readonly minZ: number; readonly maxZ: number
+  readonly roofFront: number
+  readonly slots: readonly { x: number; z: number }[]
+  readonly posts: readonly { x: number; z: number }[]
+  readonly racks: readonly { x: number; z: number }[]
+}
+export function townHrCampLayout(layout: Pick<TownHRLayout, 'site' | 'muster'>): TownHRCampLayout {
+  const { site } = layout, c = Math.cos(site.yaw), s = Math.sin(site.yaw)
+  const slots = layout.muster.map(p => ({ x: c * (p.x - site.x) - s * (p.z - site.z), z: s * (p.x - site.x) + c * (p.z - site.z) }))
+  const minX = Math.min(...slots.map(p => p.x)) - 3, maxX = Math.max(...slots.map(p => p.x)) + 3
+  const minZ = Math.min(...slots.map(p => p.z)) - 3, maxZ = Math.max(...slots.map(p => p.z)) + 3
+  const rows = [...new Set(slots.map(p => p.z))].sort((a, b) => a - b)
+  const roofFront = (rows[0] + rows[1]) / 2
+  const postX = [minX + .3, (minX + maxX) / 2, maxX - .3]
+  return { minX, maxX, minZ, maxZ, roofFront, slots,
+    posts: postX.flatMap(x => [minZ + .3, roofFront].map(z => ({ x, z }))),
+    racks: [minX + 5, maxX - 5].map(x => ({ x, z: minZ + .4 })) }
 }

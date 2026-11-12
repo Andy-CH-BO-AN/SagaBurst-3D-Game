@@ -6,17 +6,17 @@ import { resolveTownEagleTrainingGround, type TownEagleTrainingGround } from './
 import { XONGKORO_LANDING } from '../world/EagleLanding'
 import { eagleLandingFootprint, isEagleLandingClear } from '../world/EagleLanding'
 import { isEagleApproachClear } from '../world/EagleApproach'
-import { resolveTownHRLayout, type TownHRLayout } from './TownHRLayout'
+import { resolveTownHRLayout, townHrCampLayout, type TownHRLayout } from './TownHRLayout'
 import { TownDockPassages } from './TownDockPassages'
 import { TownSiegeAirspace } from './TownSiegeAirspace'
 import { createTownFortifications } from './TownFortifications'
-import { TOWN_CENTER, TOWN_WELL, TOWN_PLAZA, townHousing, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_CITY, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
+import { townCivicClearance, type CivicClearanceShape, TOWN_CENTER, TOWN_WELL, TOWN_PLAZA, townHousing, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_CITY, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
 import { ArchitectureKit, architectureStatues, buildTownPlaza, placeArchitecture, townHomeVariant, type CivicBuildingKind } from './architecture/TownArchitecture'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { createCampfireVisual, createPineVisual } from '../world/EnvironmentVisuals'
 import { Faction } from '../combat/CombatFaction'
-import { TOWN_SITES } from './TownRules'
+import { TOWN_SITES, townRoster, townPlayerEntryPoint } from './TownRules'
 import { DamageableObstacle } from '../world/DamageableObstacle'
 import { getTerrainHeight, removeObstacleData, resetTerrainScenePolicy, setObstaclePathQuerySource, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
 import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_GROUND_SIZE, TOWN_BANDIT_CAMP_CENTERS, townSceneryPoint, nearTownBanditCamp } from './TownBounds'
@@ -33,6 +33,8 @@ export function initializeTownWorldTerrain(scene?: { userData: Record<string, un
 export class TownWorld {
   readonly root = new THREE.Group()
   readonly roads: TownRoad[] = []
+  readonly civicShapes: CivicClearanceShape[] = []
+  readonly civicClearance: ReturnType<typeof townCivicClearance>
   readonly hr: TownHRLayout
   readonly eagleGarrison: TownEagleGarrisonLayout
   readonly eagleTraining: TownEagleTrainingGround
@@ -156,6 +158,14 @@ export class TownWorld {
     this.airspaceObstacles.push(createTownCommandWatchtowerAirspaceObstacle(this.commandWatchtower))
     this.airspaceObstacles.push(...this.obstacles)
     this.validateAirfield()
+    const roster = townRoster().filter(actor => actor.duty !== 'civilian')
+    const entry = townPlayerEntryPoint()
+    this.civicClearance = townCivicClearance(this.civicShapes, this.roads, [
+      ...roster.map(actor => ({ ...actor, ...(actor.garrison ?? {}), radius: actor.mounted ? 1 : .42 })),
+      { id: 'player-entry', ...entry, radius: .42 }, { id: 'hr-officer', ...this.hr.officer, radius: 1 },
+      ...this.hr.muster.map((slot, index) => ({ id: `hr-muster-${index}`, ...slot, radius: 2.2 })),
+    ])
+    if (this.civicClearance.blocked.length) console.warn('城鎮建築通道淨空需檢查', this.civicClearance)
     this.batch(this.root)
     setObstaclePathQuerySource(this.obstacles, true)
   }
@@ -304,30 +314,30 @@ export class TownWorld {
   }
   /** Faction civic building from the shared architecture plans, registered with HP, ruin and supports. */
   private civic(id: string, kind: CivicBuildingKind, site: { x: number; z: number; yaw: number }): void {
-    const placed = placeArchitecture(this.architecture, kind, site, { statues: architectureStatues() })
+    const placed = placeArchitecture(this.architecture, kind, site, { statues: architectureStatues(), hrCamp: kind === 'hr-center' ? townHrCampLayout(this.hr) : undefined })
     this.root.add(placed.root, placed.ruin)
+    this.civicShapes.push({ id, bounds: placed.bounds, blocking: placed.obstacles.filter(o => !o.navigationPassable).map(o => o.box) })
     const hp = new DamageableObstacle({ kind: 'tent', maxHp: placed.spec.maxHp, root: placed.root })
     const obstacles = placed.obstacles.map(obstacle => ({ ...obstacle, damageable: hp }))
     const supports = placed.supports
-    const airspace = { box: placed.bounds.clone(), isBarricade: false }
+    const airspace = placed.airspaceBounds.map(box => ({ box, isBarricade: false }))
     const ruins = placed.ruinObstacles
     const invalidate = () => { markObstacleTopologyChanged(this.obstacles); markObstacleTopologyChanged(this.airspaceObstacles) }
     const setDamaged = (damaged: boolean) => {
-      placed.setDamaged(damaged); airspace.box.copy(placed.bounds); invalidate()
+      placed.setDamaged(damaged); invalidate()
     }
     const restorePhysics = () => {
       for (const part of ruins) { removeObstacleData(this.obstacles, part); removeObstacleData(this.airspaceObstacles, part) }
-      airspace.box.copy(placed.bounds)
-      for (const part of [airspace, ...obstacles, ...supports]) if (!this.airspaceObstacles.includes(part)) this.airspaceObstacles.push(part)
+      for (const part of [...airspace, ...obstacles, ...supports]) if (!this.airspaceObstacles.includes(part)) this.airspaceObstacles.push(part)
       invalidate()
     }
     this.buildings.push({ id, ownerFaction: this.ownerAllegiance, obstacles, supports, hp, roof: placed.roof, ruin: placed.ruin, damaged: false, setDamaged, restorePhysics })
     this.obstacles.push(...obstacles, ...supports)
-    this.airspaceObstacles.push(airspace)
+    this.airspaceObstacles.push(...airspace)
     hp.onDestroyed(() => {
       placed.ruin.visible = true
       for (const part of obstacles) { removeObstacleData(this.obstacles, part); removeObstacleData(this.airspaceObstacles, part) }
-      removeObstacleData(this.airspaceObstacles, airspace)
+      for (const part of airspace) removeObstacleData(this.airspaceObstacles, part)
       // The foundation and entrance remain visible and walkable. Only fallen pieces obstruct movement/flight.
       this.obstacles.push(...ruins); this.airspaceObstacles.push(...ruins)
       invalidate()
