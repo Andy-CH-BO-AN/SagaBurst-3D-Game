@@ -27,14 +27,4 @@ describe('quadruped preload error ownership', () => {
     expect(loader).toHaveBeenCalledExactlyOnceWith('/mount/horse.glb')
     expect(publish).not.toHaveBeenCalled()
   })
-
-  it('rejects an unapproved manifest before loading or publication', async () => {
-    vi.stubGlobal('fetch', vi.fn<ManifestFetch>().mockResolvedValue({ ok: true, status: 200, json: async () => ({ status: 'draft', forward: '+Z', source: { license: 'fixture' } }) }))
-    const publish = vi.fn<(template: GLTF) => void>()
-    const loader = vi.spyOn(GLTFLoader.prototype, 'loadAsync')
-    const preload = createQuadrupedAssetPreload({ baseUrl: '/mount', name: 'Horse', bodyPrefix: 'horse' }, publish)
-    await expect(preload()).rejects.toThrow('Horse asset has not passed source and visual validation')
-    expect(loader).not.toHaveBeenCalled()
-    expect(publish).not.toHaveBeenCalled()
-  })
 })

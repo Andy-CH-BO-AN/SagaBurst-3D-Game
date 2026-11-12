@@ -9,6 +9,7 @@ import { MovingPlatformSupport } from '../../src/movement/MovingPlatformSupport'
 import { MobileSiegeRampController } from '../../src/campaign/MobileSiegeRampController'
 import { evacuateAbandonedRamp } from '../../src/campaign/SiegeConvoy'
 import type { SiegeRampAssignment } from '../../src/campaign/MobileSiegeRampPolicy'
+import { parseCampaignSiegeCheckpoint } from '../../src/campaign/CampaignSiegeCheckpoint'
 import { allocateTownSiegeCrews, createTownSiegeCrewSlots, isTownSiegeDockConnected, planTownSiegeRamps, townSiegeFrame } from '../../src/career/TownFourGateSiegePolicy'
 import { getTerrainHeight, getWalkRampHeight, type ObstacleData } from '../../src/world/Terrain'
 import { NPC, AIType, AIState } from '../../src/world/NPC'
@@ -170,6 +171,18 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(controller2.state).toBe('PUSHING')
     controller2.observeMovement(1, 42, 20, 42, 20)
     expect(controller2.state).toBe('ABANDONED')
+  })
+
+  it('starts a fresh actual horizontal displacement window at one metre and abandons a sub-metre next window', () => {
+    const assignment = watchdogCrew(), controller = new MobileSiegeRampController(assignment, 100)
+    for (const combatantId of [...assignment.pusherIds, ...assignment.assaultIds]) controller.register({ combatantId, dead: false })
+    controller.advance(.1, false)
+    controller.observeMovement(10, 0, 0, .6, .8)
+    expect(controller.state).toBe('PUSHING')
+    controller.observeMovement(9, .6, .8, 1.5, .8)
+    expect(controller.state).toBe('PUSHING')
+    controller.observeMovement(1, 1.5, .8, 1.5, .8)
+    expect(controller.state).toBe('ABANDONED')
   })
 
   it('repairs only a living assigned passenger saved inside the hull before binding the restored platform', () => {
@@ -372,6 +385,25 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(npc.missionMovement).toBe(false)
   })
 
+  it('releases trailing cavalry when their own ramp front reaches the hundred-metre gate radius', () => {
+    const assignments = commanderCavalryEscortAssignments('convoy'), initial = createCommanderCavalryEscort('convoy')
+    const north = assignments.filter(a => a.gateId === 'north' && a.side === -1)
+    const actors = new Map<string, CommanderCavalryEscortActorFrame>(north.map(a => [a.actorId,
+      { dead: false, position: { x: 30, z: -215 } }]))
+    const ramp: CommanderCavalryEscortRampFrame = {
+      state: 'PUSHING', position: { x: 0, z: -215.001 }, distance: 10, alivePushers: 4,
+    }
+    const ramps = new Map<TownSiegeRampId, CommanderCavalryEscortRampFrame>([[north[0].rampId, ramp]])
+    const waiting = advanceCommanderCavalryEscort(initial, 0, actors, ramps)
+    expect(waiting.releasedActorIds).toEqual([])
+    ramp.position.z = -215
+    const released = advanceCommanderCavalryEscort(waiting.checkpoint, 0, actors, ramps)
+    expect(released.releasedActorIds).toEqual(north.map(a => a.actorId))
+    expect(released.checkpoint.groups[north[0].rampId].releaseReason).toBe('gate-range')
+    expect(assignments.filter(a => a.rampId !== north[0].rampId).every(a => released.checkpoint.actors[a.actorId].mode === 'escort')).toBe(true)
+    expect(advanceCommanderCavalryEscort(released.checkpoint, 0, actors, ramps).releasedActorIds).toEqual([])
+  })
+
   it('allocates the formal 280 attackers with eighty unique Town crew, T3 faction infantry and stable gate roles', () => {
     const roster = createCommanderFourGateDefenseRoster('defense', 'roman')
     const slots = roster.crew, crews = allocateTownSiegeCrews([...slots].reverse())
@@ -548,6 +580,14 @@ describe('shared siege crew and vehicle lifecycle', () => {
     restored.restore({ state: 'DOCKED', distance: 1, dockingProgress: 1 })
     expect(restored.advance(10)).toBe(0); expect(restored.dockingProgress).toBe(1)
     expect(events.filter(e => e === 'DOCKED')).toHaveLength(1)
+  })
+
+  it('retains the old Campaign v1 checkpoint identities and two-ramp capacity', () => {
+    const crews = allocateSiegeRampCrews(createTownSiegeCrewSlots('viking').slice(0, 20).map(({ spec }) => ({ ...spec, tier: 3 as const })))
+    const snapshot = { version: 1, breached: true, ramps: crews.map(assignment => ({ assignment, stagingZ: -20, position: { x: -20, y: 8, z: 49 },
+      hp: 520, state: 'DOCKED', distance: 69, dockingProgress: 1 })), actors: {}, destroyedPalisadeIds: [] }
+    expect(parseCampaignSiegeCheckpoint(snapshot)).toEqual(snapshot)
+    expect(parseCampaignSiegeCheckpoint({ ...snapshot, ramps: [...snapshot.ramps, snapshot.ramps[0]] })).toBeUndefined()
   })
 
   it('moves the shared X carrier but releases a withdrawn pusher from transport and body-collision exemptions', () => {

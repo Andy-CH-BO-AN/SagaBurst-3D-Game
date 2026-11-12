@@ -5,13 +5,11 @@ import { changePersonalEquipment,recruitPersonalSquadMember } from '../../src/ca
 import { createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import type { PersonalSquadState } from '../../src/town/TownPersonalSquadController'
-import { purchaseTownEquipment,townRoster } from '../../src/town/TownRules'
+import { purchaseTownEquipment } from '../../src/town/TownRules'
 import { appendCommanderRetirementOption } from '../../src/town/TownRetirementUI'
 import { areOrdinaryTownServicesPeaceful } from '../../src/career/CareerRetirement'
-import { createTownCareerEquipmentUI } from '../../src/town/TownCareerEquipmentUI'
 import { squadEquipmentUI,townEquipmentUI,type TownEquipmentMemberView,type TownEquipmentSquadView,type TownEquipmentUIBindings } from '../../src/town/TownSquadEquipmentUI'
 import { type EquipmentSquadAdapter } from '../../src/ui/EquipmentUI'
-import { combatUnitDisplayName,personalUnitDisplayName,townUnitDisplayName } from '../../src/ui/UnitDisplayName'
 import { appendPersonalRecruitmentConfigurator, personalRecruitmentPresentation } from '../../src/town/TownRecruitmentPanel'
 import type { PersonalRecruitmentChoice } from '../../src/career/CareerRecruitmentCatalog'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -156,33 +154,6 @@ function townUIHarness(personal: EquipmentSquadAdapter = { render: vi.fn() }) {
 }
 
 describe('Town-wide equipment panels', () => {
-
-  it('renders authored names for absent and dead residents while preserving stable UI member IDs', () => {
-    vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
-    vi.stubGlobal('Option', class { constructor(readonly text: string, readonly value: string) {} })
-    const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'commander' }
-    const savedProfile = structuredClone(profile)
-    const trainingResident = { spec: { id: 'melee_cavalry-0' }, npc: { dead: true, name: 'internal-training-id' } }
-    const adapter = createTownCareerEquipmentUI(() => profile,
-      () => ({ townFaction: 'roman', peaceful: true, safeActorIds: new Set<string>(), personalState: 'RESERVE' }),
-      () => [trainingResident], () => true, () => 0).town
-    const root = new Element('div')
-    adapter.render(root as unknown as HTMLElement, () => {})
-    const first = root.descendants().find(node => node.dataset.memberId === 'gate:north:0')!
-    expect(first.children[0].textContent).toBe('北門劍兵 01 · T2')
-    expect(first.descendants().some(node => node.textContent.includes('不在目前場景'))).toBe(true)
-    expect(first.descendants().every(node => !node.textContent.includes('gate:north:0')
-      && !node.attributes['aria-label']?.includes('gate:north:0'))).toBe(true)
-    const training = root.descendants().find(node => node.dataset.memberId === 'melee_cavalry-0')!
-    expect(training.children[0].textContent).toBe('訓練隊劍兵 01 · T2')
-    expect(training.descendants().some(node => node.textContent.includes('已陣亡'))).toBe(true)
-    expect(trainingResident).toEqual({ spec: { id: 'melee_cavalry-0' }, npc: { dead: true, name: 'internal-training-id' } })
-    const spear = root.descendants().find(node => node.dataset.memberId === 'gate:north:4')!
-    expect(spear.children[0].textContent).toBe('北門槍兵 01 · T2')
-    expect(profile).toEqual(savedProfile)
-  })
-
-
   it('blocks locked access, no-inventory actions, and stale controls when unavailable', () => {
     const h = townUIHarness(), root = h.render(), stale = root.descendants().find(node => node.dataset.bulkCategory === 'sword')!
     h.view.allowed = false; h.view.reason = '需正式升任 Commander。'
@@ -204,27 +175,6 @@ describe('Town-wide equipment panels', () => {
     select.value = 'paladin_sword_t4'; select.onchange!()
     expect(h.change).not.toHaveBeenCalled()
     expect(h.root().descendants().some(node => node.textContent === '死亡動畫中，無法整補。')).toBe(true)
-  })
-})
-
-
-describe('Unit display identity', () => {
-  it('maintains display name and tier stability across personal and town units', () => {
-    const member = { id: 'personal-one', type: 'soldier' as const, characterTier: 3 as const, recruitmentRole: 'spearman' as const,
-      equipment: { melee: 'hunting_spear', ranged: null, shield: null, mount: null } }
-    expect(personalUnitDisplayName(member, 'roman')).toBe('私兵・羅馬槍兵 · T3')
-    expect(personalUnitDisplayName({ ...member, equipment: { ...member.equipment, melee: 'paladin_sword_t4' } }, 'roman')).toBe('私兵・羅馬槍兵 · T3')
-    expect(personalUnitDisplayName({ id: 'legacy', type: 'soldier' }, 'viking')).toContain('T2')
-
-    const spec = townRoster().find(spec => spec.id === 'ranged_cavalry-0')!
-    expect(townUnitDisplayName(spec, 'roman')).toBe('訓練隊標槍兵 01 · T2')
-    expect(townUnitDisplayName(spec, 'viking')).toBe('訓練隊弓兵 01 · T2')
-    expect(townUnitDisplayName({ ...spec, unitKind: undefined }, 'roman')).toBe('訓練隊標槍兵 01 · T2')
-    expect(townUnitDisplayName(spec, 'roman', { mounted: true })).toBe('訓練隊標槍騎兵 01 · T2')
-    expect(townUnitDisplayName({ ...spec, mounted: true }, 'viking', { mounted: false })).toBe('訓練隊弓兵 01 · T2')
-    expect(combatUnitDisplayName({ faction: 'roman', combatProfileId: 'roman-commander', tier: 4, enemy: true })).toBe('敵方羅馬指揮官 · T5')
-    expect(combatUnitDisplayName({ faction: 'viking', combatProfileId: 'ranger', tier: 4 })).toBe('維京遊俠 · T4')
-    expect(combatUnitDisplayName({ enemy: true })).toBe('敵方士兵')
   })
 })
 

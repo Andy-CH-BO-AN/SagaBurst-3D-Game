@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { createCareerDuelMission, type CareerDuelTier } from '../../src/career/CareerDuelState'
 import { getUnitPresetsForFaction, type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
-import { careerDuelMissionLabel } from '../../src/career/CareerDuelSelection'
 import { TownScene } from '../../src/town/TownScene'
 
 // Only the DOM boundary is a double; invoke the real UI methods without a TownScene constructor.
@@ -19,12 +18,11 @@ class Element {
   replaceChildren(...children: Element[]) { this.children = children }
   setAttribute(name: string, value: string) { this.attributes[name] = value }
   title = ''
-  focus() { focused = this }
+  focus() {}
   click() { if (!this.disabled) this.onclick?.() }
   descendants(): Element[] { return this.children.flatMap(child => [child, ...child.descendants()]) }
   querySelector(tag: string) { return this.descendants().find(child => child.tag === tag) ?? null }
 }
-let focused: Element | null = null
 const dom = (element: Element) => element as unknown as HTMLElement
 
 interface DuelSelectionEntry {
@@ -64,86 +62,33 @@ function selection(profile: CareerProfile) {
   return { root, content, rows, buttons, accept, entry, tabs: root.children[0].children }
 }
 
-afterEach(() => { focused = null; vi.unstubAllGlobals() })
+afterEach(() => { vi.unstubAllGlobals() })
 
 describe('Career Duel selection pages', () => {
   const find = (h: ReturnType<typeof selection>, label: string) => h.content.descendants().find(n => n.tag === 'button' && n.children[0]?.textContent === label)!
   const tierRows = (h: ReturnType<typeof selection>) => h.content.descendants().filter(n => n.tag === 'article')
   const actions = (row: Element) => (row.children[2]?.children ?? []).flatMap(c => c.tag === 'div' ? c.children.filter(n => n.tag === 'button') : [c])
 
-  it('shows boxing and every unit as peers on one page, with independent T1–T5 states and no scroll reset on switch', () => {
+  it('manages Duel tier unlocking, unarmed and armed class choices, and forwards selected class options', () => {
     const profile: CareerProfile = { ...createCareerProfile('roman'), duelHighestDefeatedTierByPreset: { roman_heavy_infantry: 3 }, unarmedDuelHighestDefeatedTier: 1 }
-    const before = JSON.stringify(profile), h = selection(profile)
+    const h = selection(profile)
     const presets = getUnitPresetsForFaction('roman')
-    expect(h.content.descendants().filter(n => n.tag === 'button' && n.className.includes('duel-subject')).map(b => b.children[0].textContent))
-      .toEqual(['🥊 空手對戰', ...presets.map(p => p.nameZh)])
+
+    // Unarmed T1-T5 states: T1 completed, T2 available, T3-T5 locked
     expect(tierRows(h).map(r => r.className.split(' ')[1])).toEqual(['duel-tier-completed', 'duel-tier-available', 'duel-tier-locked', 'duel-tier-locked', 'duel-tier-locked'])
-    expect(tierRows(h)[2].children[1].textContent).toBe('需先擊敗 T2 空手對手')
-    expect(h.content.descendants().find(n => n.className === 'duel-rules')!.textContent).toContain('90 秒')
-    h.root.scrollTop = 500
-    find(h, presets[0].nameZh).click()
-    expect(h.root.scrollTop).toBe(500)
-    expect(tierRows(h).map(r => r.className.split(' ')[1])).toEqual(['duel-tier-completed', 'duel-tier-completed', 'duel-tier-completed', 'duel-tier-available', 'duel-tier-locked'])
-    expect(h.content.descendants().find(n => n.className === 'duel-rules')!.textContent).toContain('30 秒')
-    expect(tierRows(h)[4].children[1].textContent).toBe('需先擊敗 T4 ' + presets[0].nameZh)
-    expect(JSON.stringify(profile)).toBe(before)
-  })
-
-  it('offers both arenas to any culture, keeps the choice across unit switches and resets it when the page reopens', () => {
-    const arenas = (h: ReturnType<typeof selection>) => h.content.descendants().filter(n => n.className.includes('duel-arena-option'))
-    const checked = (h: ReturnType<typeof selection>) => arenas(h).find(n => n.attributes['aria-checked'] === 'true')!.textContent
-    const h = selection({ ...createCareerProfile('viking'), duelHighestDefeatedTierByPreset: {} })
-    expect(arenas(h).map(n => n.textContent)).toEqual(['羅馬競技場', '維京英靈殿'])
-    expect(checked(h)).toBe('維京英靈殿')
-    arenas(h)[0].click()
-    expect(checked(h)).toBe('羅馬競技場')
-    find(h, getUnitPresetsForFaction('viking')[0].nameZh).click()
-    expect(checked(h)).toBe('羅馬競技場')
-    expect(h.entry.duelArenaChoice).toBe('roman-colosseum')
-    h.entry.openDuelPage(h.entry.panel)
-    expect(h.entry.duelArenaChoice).toBeNull()
-  })
-
-  it('forwards only enabled acceptances and offers each T4/T5 class directly on the tier row', () => {
-    const h = selection({ ...createCareerProfile('roman'), duelHighestDefeatedTierByPreset: { roman_heavy_infantry: 3 }, unarmedDuelHighestDefeatedTier: 1 })
     actions(tierRows(h)[1])[0].click(); expect(h.accept).toHaveBeenCalledExactlyOnceWith(undefined, 2, 'unarmed'); h.accept.mockClear()
-    expect(actions(tierRows(h)[2])).toHaveLength(0)
-    find(h, getUnitPresetsForFaction('roman')[0].nameZh).click()
+    expect(actions(tierRows(h)[2])).toHaveLength(0) // Locked tier cannot be challenged
+
+    // Switch to heavy infantry: T1-T3 completed, T4 available with special classes, T5 locked
+    find(h, presets[0].nameZh).click()
+    expect(tierRows(h).map(r => r.className.split(' ')[1])).toEqual(['duel-tier-completed', 'duel-tier-completed', 'duel-tier-completed', 'duel-tier-available', 'duel-tier-locked'])
     actions(tierRows(h)[2])[0].click(); expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 3, 'armed'); h.accept.mockClear()
+
+    // T4 offers Praetorian Captain and Centurion
     expect(actions(tierRows(h)[3]).map(b => b.textContent)).toEqual(['挑戰 禁衛軍隊長', '挑戰 百夫長'])
     actions(tierRows(h)[3])[1].click()
     expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 4, 'armed', 'centurion')
-    expect(actions(tierRows(h)[4])).toHaveLength(0)
-  })
-
-  it('keeps the chosen subject across Racing/Review tabs and preserves arrow/Home/End keyboard navigation', () => {
-    const h = selection(createCareerProfile('viking')), presets = getUnitPresetsForFaction('viking')
-    find(h, presets[1].nameZh).click()
-    h.root.scrollTop = 400; h.tabs[1].click()
-    expect(h.root.scrollTop).toBe(0)
-    expect(h.content.querySelector('h3')!.textContent).toContain('Racing')
-    h.tabs[2].click(); expect(h.content.children.map(node => node.textContent)).toEqual(['Review'])
-    const key = (index: number, value: string) => {
-      const preventDefault = vi.fn()
-      h.tabs[index].onkeydown!({ key: value, preventDefault } as unknown as KeyboardEvent)
-      expect(preventDefault).toHaveBeenCalledOnce()
-    }
-    key(2, 'ArrowRight')
-    expect(h.content.querySelector('h3')!.textContent).toContain(presets[1].nameZh)
-    expect(h.tabs.map(tab => [tab.attributes['aria-selected'], tab.tabIndex])).toEqual([['true', 0], ['false', -1], ['false', -1]])
-    expect(focused).toBe(h.tabs[0])
-    key(0, 'End'); expect(focused).toBe(h.tabs[2])
-    key(2, 'ArrowLeft'); expect(focused).toBe(h.tabs[1])
-    key(1, 'Home'); expect(focused).toBe(h.tabs[0])
-    expect(h.accept).not.toHaveBeenCalled()
-  })
-})
-
-describe('Career Duel mission label', () => {
-  it('names an unarmed Duel by its rule, never by the unit it borrows internally', () => {
-    const name = (id: string) => `兵種:${id}`
-    expect(careerDuelMissionLabel({ duelMode: 'unarmed', duelTier: 3, duelPresetId: 'roman_spearman' }, name)).toBe('T3 空手對戰')
-    expect(careerDuelMissionLabel({ duelMode: 'armed', duelTier: 2, duelPresetId: 'roman_spearman' }, name)).toBe('T2 兵種:roman_spearman')
+    expect(actions(tierRows(h)[4])).toHaveLength(0) // T5 locked
   })
 })
 

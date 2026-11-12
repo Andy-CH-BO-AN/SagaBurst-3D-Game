@@ -16,7 +16,7 @@ function walk(dir) {
 }
 function git(...args) { return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim() }
 function changes(base, head, event) {
-  if (!base || !head || /^0+$/.test(base)) throw new Error('Missing Git base/head for Related')
+  if (!base || !head || /^0+$/.test(base)) throw new Error('Missing Git base/head')
   git('cat-file', '-e', base + '^{commit}')
   git('cat-file', '-e', head + '^{commit}')
   const start = event === 'pull_request' ? git('merge-base', base, head) : base
@@ -71,32 +71,9 @@ function safeNewAgentLink(base, head, file, readGit = git, readLink = readLinkBl
       original === readGit('ls-tree', head, '--', target)
   } catch { return false }
 }
-function noSeedPolicy(changed, base, head, {
-  regular = regularTrackedFile, gitignore = safeGitignore,
-  agentLink = safeNewAgentLink,
-} = {}) {
-  if (!changed.length) return null
-  let hasCss = false
-  for (const change of changed) {
-    if (!/^(A|M)$/.test(change.status) || change.oldFile) return null
-    if (change.status === 'A' && agentLink(base, head, change.file)) continue
-    if (!regular(head, change.file) ||
-        (change.status === 'M' && !regular(base, change.file))) return null
-    if (cssOnlyAsset(change.file)) { hasCss = true; continue }
-    if (docsOnly(change.file)) continue
-    if (change.file === '.gitignore' && gitignore(base, head)) continue
-    return null
-  }
-  return hasCss ? 'css-only' : 'docs-only'
-}
-function probeSeed({mode, base, head, event}) {
-  if (mode !== 'related') return true
-  return prepareInputs({mode, base, head, event}).requiresSeed
-}
-
-function prepareInputs({ mode, base, head, event }, cwd = root) {
+function prepareInputs({ mode = 'full', base, head, event }, cwd = root) {
   // Reusable Full callers (tags) have no before SHA; use the checked-out parent
-  // only to identify changed assets, never as a Related seed substitute.
+  // only to identify changed assets.
   if (mode === 'full' && (!base || /^0+$/.test(base))) base = execFileSync('git', ['rev-parse', 'HEAD^'], { cwd, encoding: 'utf8' }).trim()
   const evidence = gitEvidence({ base, head, event }, cwd)
   const readGit = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
@@ -108,9 +85,8 @@ function prepareInputs({ mode, base, head, event }, cwd = root) {
       (change.file === '.gitignore' && regular('head', change.file) && safeGitignore(base, evidence.checkoutSha))),
   })
   const unknown = inputs.filter(i => i.kind === 'unknown')
-  // Full still checks assets, but has no need to classify all executable inputs.
-  const unsafe = mode === 'related' ? unknown : unknown.filter(i => i.file.startsWith('public/models/') || /^tools\/build-/.test(i.file))
-  const requiresSeed = inputs.some(i => i.kind === 'runtime')
+  const unsafe = unknown.filter(i => i.file.startsWith('public/models/') || /^tools\/build-/.test(i.file))
+  const requiresSeed = false
   const policy = inputs.some(i => ['asset', 'builder'].includes(i.kind)) ? 'asset-only'
     : inputs.some(i => ['css', 'html-style'].includes(i.kind)) ? 'css-only' : inputs.length ? 'docs-only' : 'empty-diff'
   return { evidence, inputs, requiresSeed, policy, unsafe }
@@ -180,8 +156,7 @@ async function discover() {
 function selectedNames(plan, file) {
   const item = plan.inventory.find(item => item.file === file)
   if (!item) throw new Error('Missing inventory identity: ' + file)
-  return plan.mode === 'related' && plan.selectedCases?.[file]
-    ? plan.selectedCases[file].map(index => item.names[index]) : item.names
+  return item.names
 }
 function selectedCount(plan) {
   return plan.selected.reduce((sum, file) => sum + selectedNames(plan, file).length, 0)
@@ -192,79 +167,39 @@ function requireLogicBudget(count) {
       ' unique cases. Hard CI ceiling is ' + MAX_LOGIC_CASES + ' cases.')
   }
 }
-function requireRelatedBudget(count) {
-  return requireLogicBudget(count)
-}
 function validateManifest(plan) {
-  if (!['related', 'full'].includes(plan.mode) || !Array.isArray(plan.inventory) ||
+  if (plan.mode !== 'full' || !Array.isArray(plan.inventory) ||
     !Array.isArray(plan.selected)) throw new Error('Invalid plan')
   // A manifest has exactly one execution. Splitting one is how a limit gets dodged.
   if (Object.hasOwn(plan, 'shards')) throw new Error('Logic plans cannot be sharded')
-  if (plan.mode === 'full' && plan.selectedCases) throw new Error('Full cannot filter individual tests')
+  if (plan.selectedCases) throw new Error('Full cannot filter individual tests')
   const files = plan.inventory.map(item => item.file)
   if (new Set(files).size !== files.length) throw new Error('Duplicate inventory files')
   if (plan.inventory.some(item => !item.names?.length)) throw new Error('Empty test file in inventory')
   if (new Set(plan.selected).size !== plan.selected.length ||
+      plan.selected.length !== files.length ||
       plan.selected.some(file => !files.includes(file))) {
     throw new Error('Missing/duplicate/unexpected test file selection')
-  }
-  if (plan.mode === 'full' && plan.selected.length !== files.length) {
-    throw new Error('Missing/duplicate/unexpected test file selection')
-  }
-  if (plan.selectedCases) {
-    if (Object.keys(plan.selectedCases).sort().join('|') !== [...plan.selected].sort().join('|')) {
-      throw new Error('Missing or unexpected exact selection')
-    }
-    for (const [file, indices] of Object.entries(plan.selectedCases)) {
-      const item = plan.inventory.find(item => item.file === file)
-      if (!item || !Array.isArray(indices) || !indices.length || new Set(indices).size !== indices.length ||
-        indices.some(i => !Number.isInteger(i) || i < 0 || i >= item.names.length)) {
-        throw new Error('Invalid selected test identity: ' + file)
-      }
-      if (indices.length < item.names.length && (new Set(item.names).size !== item.names.length ||
-        (item.nativeNames && new Set(item.nativeNames).size !== item.nativeNames.length))) {
-        throw new Error('Ambiguous partial leaf identity: ' + file)
-      }
-    }
   }
   const count = selectedCount(plan)
   if (count !== plan.expectedCount) throw new Error('Plan expected case count disagrees with its selection')
   requireLogicBudget(count)
   if (plan.assetOnly && (plan.assetValidation?.result !== 'passed' || !plan.assetValidation.files?.length)) throw new Error('Asset-only requires independent passed validation')
-  if (!count && !(plan.mode === 'related' && (plan.docsOnly || plan.cssOnly || plan.assetOnly ||
-      (plan.emptyDiff && plan.gitEvidence?.changes?.length === 0 && plan.gitEvidence.checkoutSha === plan.checkoutSha)))) throw new Error('Empty code selection')
+  if (!count) throw new Error('Empty code selection')
   return plan
-}
-function relatedSelectionLines(plan) {
-  const b = plan.breakdown
-  if (!b) return []
-  return [
-    'Related selection:',
-    '  Native affected runnable cases: ' + b.nativeAffected,
-    '  Native undetermined runnable cases: ' + b.nativeUndetermined,
-    '  Added/modified test cases: ' + b.directTests,
-    '  Fixed Node contracts: ' + b.nodeContracts,
-    '  Duplicates removed: ' + b.duplicatesRemoved,
-    '  Final unique selected cases: ' + b.total + ' / ' + MAX_LOGIC_CASES,
-    ...(plan.newSources ?? []).map(item => 'New runtime source ' + item.file + ': ' + item.verdict),
-  ]
 }
 function selectionSummary(plan) {
   const total = plan.inventory.reduce((sum, item) => sum + item.names.length, 0)
   const count = selectedCount(plan)
-  const pct = total ? (100 * count / total).toFixed(1) : '0.0'
   return [
-    'Mode: ' + (plan.mode === 'full' ? 'Full' : 'Related'),
-    'Selection source: ' + (plan.source || (plan.docsOnly ? 'Safe documents / agent config' : plan.cssOnly ? 'CSS-only: Web build and static validation' : 'Explicit Full')),
+    'Mode: Full',
+    'Selection source: Explicit Full',
     'Base SHA: ' + (plan.baseSha || '-') + '; Head SHA: ' + (plan.headSha || '-'),
     'Checkout SHA: ' + (plan.checkoutSha || '-') + '; Merge-base SHA: ' + (plan.gitEvidence?.mergeBaseSha || '-'),
-    'Seed SHA: ' + (plan.seedSha || 'not required') + '; Asset validation: ' + (plan.assetValidation?.result || 'not-needed'),
-    ...(plan.inputClassification ? [inputSummary({ evidence: plan.gitEvidence, inputs: plan.inputClassification, requiresSeed: plan.requiresSeed, policy: plan.nonRuntimePolicy })] : []),
-    ...(plan.zeroSelectionReason ? ['Zero-selection reason: ' + plan.zeroSelectionReason] : []),
-    'Total suite: ' + total + ' leaves; Selected: ' + count + ' leaves (' + pct + '%); Files: ' + plan.selected.length,
-    'Related health: ' + (plan.mode !== 'related' ? 'N/A' : count > 500 ? 'FAIL' : count > 300 ? 'Very broad' : count > 200 ? 'Broad' : count > 100 ? 'Normal' : 'Excellent'),
+    'Asset validation: ' + (plan.assetValidation?.result || 'not-needed'),
+    ...(plan.inputClassification ? [inputSummary({ evidence: plan.gitEvidence, inputs: plan.inputClassification, requiresSeed: false, policy: plan.nonRuntimePolicy })] : []),
+    'Total suite: ' + total + ' leaves; Selected: ' + count + ' leaves; Files: ' + plan.selected.length,
     'Case limit: ' + MAX_LOGIC_CASES + ' hard limit',
-    ...relatedSelectionLines(plan),
     'Fallback: none',
   ].join('\n')
 }
@@ -289,12 +224,7 @@ function publishSummary(plan) {
   const message = selectionSummary(plan) + '\n'
   console.log(message)
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-    '\n### Logic test selection\n\n\`\`\`text\n' + message + '\`\`\`\n')
-}
-// An over-limit selection fails, and its breakdown is what tells the author what to split.
-function finishRelatedPlan(plan, publish = publishSummary) {
-  if (plan.expectedCount > MAX_LOGIC_CASES) publish(plan)
-  return validateManifest(plan)
+    '\n### Logic test selection\n\n```text\n' + message + '```\n')
 }
 function options(args) {
   const result = {}
@@ -329,5 +259,5 @@ if (require.main === module) (async () => {
     'has-tests=' + (plan.expectedCount > 0) + '\n')
 })().catch(error => { console.error(error); process.exitCode = 1 })
 module.exports = { createPlan, discover, discoverNode, docsOnly, changes, options,
-  finishRelatedPlan, requireLogicBudget, requireRelatedBudget, selectedNames, selectionSummary, validateManifest,
-  regularTrackedFile, safeGitignore, safeNewAgentLink, noSeedPolicy, probeSeed, prepareInputs, inputSummary }
+  requireLogicBudget, selectedNames, selectionSummary, validateManifest,
+  regularTrackedFile, safeGitignore, safeNewAgentLink, prepareInputs, inputSummary }

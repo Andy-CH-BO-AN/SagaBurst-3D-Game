@@ -83,31 +83,38 @@ const templates = new Map<string, GLTF>()
 let bowBody: THREE.Group | undefined
 let pending: Promise<void> | undefined
 export function preloadHighTierEquipment(): Promise<void> {
-  pending ??= Promise.all([...new Set(Object.values(HIGH_TIER_WEAPON_ASSETS))].map(async path => {
-    const gltf = await new GLTFLoader().loadAsync(publicAssetUrl(path))
-    gltf.scene.traverse(object => {
-      if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true }
-    })
-    templates.set(path, gltf)
-    if (path === HIGH_TIER_WEAPON_ASSETS.bow_t5) {
-      bowBody = new THREE.Group()
-      gltf.scene.updateMatrixWorld(true)
+  pending ??= Promise.all([
+    ...[...new Set(Object.values(HIGH_TIER_WEAPON_ASSETS))].map(async path => {
+      const gltf = await new GLTFLoader().loadAsync(publicAssetUrl(path))
       gltf.scene.traverse(object => {
-        if (!(object instanceof THREE.Mesh)) return
-        const geometry = object.geometry.clone()
-        const point = new THREE.Vector3()
-        if (object instanceof THREE.SkinnedMesh) {
-          const positions = geometry.attributes.position
-          for (let i = 0; i < positions.count; i++) {
-            object.getVertexPosition(i, point)
-            positions.setXYZ(i, point.x, point.y, point.z)
-          }
-        }
-        geometry.applyMatrix4(object.matrixWorld)
-        bowBody!.add(new THREE.Mesh(geometry, object.material))
+        if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true }
       })
-    }
-  })).then(() => undefined).catch(error => { pending = undefined; throw error })
+      templates.set(path, gltf)
+      if (path === HIGH_TIER_WEAPON_ASSETS.bow_t5) {
+        bowBody = new THREE.Group()
+        gltf.scene.updateMatrixWorld(true)
+        gltf.scene.traverse(object => {
+          if (!(object instanceof THREE.Mesh)) return
+          const geometry = object.geometry.clone()
+          const point = new THREE.Vector3()
+          if (object instanceof THREE.SkinnedMesh) {
+            const positions = geometry.attributes.position
+            for (let i = 0; i < positions.count; i++) {
+              object.getVertexPosition(i, point)
+              positions.setXYZ(i, point.x, point.y, point.z)
+            }
+          }
+          geometry.applyMatrix4(object.matrixWorld)
+          bowBody!.add(new THREE.Mesh(geometry, object.material))
+        })
+      }
+    }),
+    ...Object.keys(BYZANTINE_EQUIPMENT_ASSETS).map(id =>
+      byzantineEquipment.load(id as ByzantineEquipmentId).catch(error => {
+        console.warn(`[HighTierEquipment] Non-blocking preload failure for ${id}:`, error)
+      })
+    ),
+  ]).then(() => undefined).catch(error => { pending = undefined; throw error })
   return pending
 }
 function template(id: keyof typeof HIGH_TIER_WEAPON_ASSETS): GLTF {

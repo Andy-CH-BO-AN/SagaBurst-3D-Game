@@ -130,7 +130,7 @@ function execute(plan, out) {
       .filter(item => item.state !== 'passed' || item.ms > MAX_CASE_MS)
       .map(item => ({ runner: report.runner, file: item.file, name: item.name,
         state: item.state === 'passed' ? item.ms.toFixed(3) + 'ms > ' + MAX_CASE_MS + 'ms' : item.state })))
-    const label = plan.mode === 'full' ? 'Full' : 'Related'
+    const label = 'Full'
     console.error(label + ' FAILED; identified failing leaves: ' + failed.length)
     for (const item of failed) console.error('  ' + item.file + ' > ' + item.name + ' [' + item.state + ']')
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
@@ -156,7 +156,7 @@ if (require.main === module) (async () => {
     console.log(`sha=${verifiedFullSha(JSON.parse(readFileSync(args['verified-sha'], 'utf8')))}`)
   } else if (args.local) {
     const inventory = args.local === 'release' ? discoverNode() : null
-    const plan = inventory ? { planId: randomUUID(), mode: 'related', scope: 'node-release', event: 'local', baseSha: '', headSha: '', changedFiles: [], inventory, selected: inventory.map(item => item.file), reasons: Object.fromEntries(inventory.map(item => [item.file, ['Node release component']])), expectedCount: inventory.reduce((sum, item) => sum + item.names.length, 0) } : await createPlan({ mode: 'full', event: 'local' })
+    const plan = inventory ? { planId: randomUUID(), mode: 'full', scope: 'node-release', event: 'local', baseSha: '', headSha: '', changedFiles: [], inventory, selected: inventory.map(item => item.file), reasons: Object.fromEntries(inventory.map(item => [item.file, ['Node release component']])), expectedCount: inventory.reduce((sum, item) => sum + item.names.length, 0) } : await createPlan({ mode: 'full', event: 'local' })
     const out = 'output/test-budget/local'
     mkdirSync(out, { recursive: true })
     writeFileSync(`${out}/plan.json`, JSON.stringify(plan, null, 2))

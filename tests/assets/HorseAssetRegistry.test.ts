@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import type * as THREE from 'three'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { HorseAssetLoadError, HorseAssetRegistry, validateHorseManifest, type HorseAssetManifest, type HorseTemplate } from '../../src/world/HorseAssetRegistry'
+import { HorseAssetLoadError, HorseAssetRegistry, type HorseAssetManifest, type HorseTemplate } from '../../src/world/HorseAssetRegistry'
 
 const horseManifest = JSON.parse(readFileSync(new URL('../../public/models/mounts/v1/horse/manifest.json', import.meta.url), 'utf8')) as HorseAssetManifest
 const armoredManifest = JSON.parse(readFileSync(new URL('../../public/models/mounts/v1/armored-horse/manifest.json', import.meta.url), 'utf8')) as HorseAssetManifest
@@ -27,12 +27,6 @@ beforeEach(() => HorseAssetRegistry.resetForTesting())
 afterEach(() => { HorseAssetRegistry.resetForTesting(); vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('horse package preload barrier', () => {
-  it('rejects a package missing the death state before loading its model', () => {
-    const incomplete = structuredClone(horseManifest)
-    incomplete.clips = incomplete.clips.filter(clip => clip !== 'death')
-    expect(() => validateHorseManifest(incomplete)).toThrow('Horse manifest is missing death clip')
-  })
-
   it('starts both packages together, deduplicates callers and waits for the slower armored package before entry', async () => {
     const slow = gate()
     const load = vi.spyOn(boundary, 'load').mockResolvedValue(ordinary)

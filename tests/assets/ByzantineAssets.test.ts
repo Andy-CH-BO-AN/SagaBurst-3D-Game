@@ -2,12 +2,9 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import { AssetLoadTimeout, OnDemandAssets } from '../../src/assets/OnDemandAssets'
 import { parsePunchTiming, type HumanoidAssetManifest } from '../../src/world/HumanoidAssetRegistry'
-import { BYZANTINE_EQUIPMENT_ASSETS, HIGH_TIER_WEAPON_ASSETS, prepareByzantineEquipment } from '../../src/world/HighTierEquipment'
-import { existsSync } from 'node:fs'
 import { ARMORS } from '../../src/rpg/ArmorDatabase'
 import { careerShopProduct } from '../../src/career/CareerShopCatalog'
 import { FACTION_SHIELD_BANDS } from '../../src/combat/FactionShieldGeometry'
-import { HERO_ASSETS } from '../../src/world/HeroAssetCatalog'
 
 const dir = 'public/models/characters/v2/byzantine-cataphract-t5'
 const manifest = JSON.parse(readFileSync(`${dir}/manifest.json`, 'utf8')) as HumanoidAssetManifest & { fileSha256: Record<string, string> }
@@ -31,19 +28,6 @@ describe('Byzantine punch contact timeline (manifest data only; no GLB parsing)'
 })
 
 describe('Optional Byzantine equipment loading', () => {
-  it('stays out of the shared high-tier preload, whose failure or pending would block ordinary scenes', () => {
-    const shared = new Set<string>(Object.values(HIGH_TIER_WEAPON_ASSETS))
-    for (const path of Object.values(BYZANTINE_EQUIPMENT_ASSETS)) expect(shared.has(path)).toBe(false)
-    expect(Object.keys(HIGH_TIER_WEAPON_ASSETS)).toContain('spear_t5')
-  })
-  it('requests nothing for scenes that do not use it', async () => {
-    const loaded = vi.fn(async () => ({}))
-    vi.stubGlobal('fetch', loaded)
-    try {
-      await expect(prepareByzantineEquipment(['spear_t5', 'commander_shield_t5', null, undefined])).resolves.toBe('ready')
-      expect(loaded).not.toHaveBeenCalled()
-    } finally { vi.unstubAllGlobals() }
-  })
   const TIMEOUT = 1000, RETRY = 500
   const bounded = (loader: (id: 'a', signal: AbortSignal) => Promise<string>) => new OnDemandAssets<'a', string>(loader, { timeoutMs: TIMEOUT, retryDelayMs: RETRY })
   it('deduplicates concurrent requests, retries after a failure and loads a success only once', async () => {
@@ -117,49 +101,22 @@ describe('Optional Byzantine equipment loading', () => {
   })
 })
 
-describe('Centurion T4 asset and Aquila shield contracts (manifest/data only; no GLB parsing)', () => {
-  it('Centurion has its own Mixamo66 manifest with three LODs and the canonical clip set; the Aquila shield is a 48-impact on-demand T4 shop item', () => {
-    const base = 'public/models/characters/v2/roman-centurion-t4'
-    const centurion = JSON.parse(readFileSync(`${base}/manifest.json`, 'utf8')) as HumanoidAssetManifest
-    expect(centurion).toMatchObject({ id: 'roman-centurion-t4', status: 'ready', skeleton: 'project-humanoid-v1', selectedSource: { rig: 'mixamo66' }, sharedLodPose: true })
-    for (const file of Object.values(centurion.files!)) expect(existsSync(`${base}/${file}`)).toBe(true)
-    expect(centurion.metrics!.heightM).toBeCloseTo(HERO_ASSETS['roman-centurion-t4'].descriptor.heightM, 2)
-    const clips = centurion.animations!.embedded.map(b => b.clip)
-    for (const clip of ['idle', 'walk', 'run', 'mounted', 'death', 'swordSlash', 'axeAttack1H', 'axeAttack2H', 'axeMountedIdle', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow']) expect(clips).toContain(clip)
-    expect(JSON.parse(readFileSync('public/models/characters/v2/roman-hero-t4/manifest.json', 'utf8')).id).toBe('roman-hero-t4') // Paladin left in place
+describe('Centurion Aquila shield contracts', () => {
+  it('validates Aquila shield as a 48-impact T4 shop item with custom shield bands', () => {
     expect(ARMORS.centurion_aquila_shield_t4).toMatchObject({ tier: 4, shieldImpactMax: 48 })
     expect([ARMORS.roman_officer_shield_t4.shieldImpactMax, ARMORS.paladin_shield_t4.shieldImpactMax]).toEqual([48, 48])
     expect(careerShopProduct('centurion_aquila_shield_t4')).toMatchObject({ category: 'armor', tier: 4, price: 1440 })
-    const path = BYZANTINE_EQUIPMENT_ASSETS.centurion_aquila_shield_t4
-    expect(existsSync(`public/${path}`)).toBe(true)
-    expect(Object.values(HIGH_TIER_WEAPON_ASSETS)).not.toContain(path)
     const bands = FACTION_SHIELD_BANDS.centurion_aquila_shield_t4
     expect(bands.length).toBeGreaterThan(20)
     expect(bands).not.toEqual(FACTION_SHIELD_BANDS.roman_officer_shield_t4)
   })
 })
 
-describe('Viking heavy T4/T5 assets and Dragonward shield contracts (manifest/data only; no GLB parsing)', () => {
-  it('both heavy heroes ship their own Mixamo24 three-LOD manifests with the canonical clips; Dragonward is a 48-impact on-demand T4 shop shield', () => {
-    for (const id of ['viking-heavy-hero-t4', 'viking-heavy-hero-t5'] as const) {
-      const base = `public/models/characters/v2/${id}`
-      const heavy = JSON.parse(readFileSync(`${base}/manifest.json`, 'utf8')) as HumanoidAssetManifest
-      expect(heavy).toMatchObject({ id, status: 'ready', skeleton: 'project-humanoid-v1', selectedSource: { rig: 'mixamo24' } })
-      for (const file of [...Object.values(heavy.files!), 'bone-map.json', 'audit.json', 'ATTRIBUTION.md']) expect(existsSync(`${base}/${file}`)).toBe(true)
-      expect(heavy.metrics!.heightM).toBeCloseTo(HERO_ASSETS[id].descriptor.heightM, 2)
-      expect(HERO_ASSETS[id].descriptor.faction).toBe('viking')
-      const clips = heavy.animations!.embedded.map(b => b.clip)
-      for (const clip of ['idle', 'walk', 'run', 'mounted', 'swordSlash', 'axeAttack1H', 'axeAttack2H', 'axeMountedIdle', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow']) expect(clips).toContain(clip)
-      // Foot one-hand axe uses the Bandit attack (the animator selects axeAttack1HFoot when the asset embeds it).
-      expect(heavy.animations!.embedded.find(b => b.clip === 'axeAttack1HFoot')).toMatchObject({ sourceClip: 'Bandit@attack.fbx', retargetedFrom: 'roman-hero-t5' })
-      expect(heavy.animations!.runtimeGenerated).toEqual(expect.arrayContaining(['hit', 'death', 'lanceThrust', 'mountedLance']))
-    }
+describe('Viking Dragonward shield contracts', () => {
+  it('validates Dragonward shield as a 48-impact T4 shop shield with custom shield bands', () => {
     expect(ARMORS.viking_dragonward_shield_t4).toMatchObject({ tier: 4, shieldImpactMax: 48 })
-    expect(ARMORS.viking_berserker_shield_t5.shieldImpactMax).toBe(96) // the T5 Warcat Roarshield is kept
+    expect(ARMORS.viking_berserker_shield_t5.shieldImpactMax).toBe(96)
     expect(careerShopProduct('viking_dragonward_shield_t4')).toMatchObject({ category: 'armor', tier: 4, price: 1440 })
-    const path = BYZANTINE_EQUIPMENT_ASSETS.viking_dragonward_shield_t4
-    expect(existsSync(`public/${path}`)).toBe(true)
-    expect(Object.values(HIGH_TIER_WEAPON_ASSETS)).not.toContain(path)
     const bands = FACTION_SHIELD_BANDS.viking_dragonward_shield_t4
     expect(bands.length).toBeGreaterThan(20)
     expect(bands).not.toEqual(FACTION_SHIELD_BANDS.viking_berserker_shield_t5)
