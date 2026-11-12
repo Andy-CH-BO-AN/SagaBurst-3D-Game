@@ -53,7 +53,7 @@ function classifyInputs(changed, { regular, read, docsOnly, safeSpecial }) {
     if (/^src\/.*\.[cm]?[jt]sx?$/.test(file) || /^tests\/.*\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file) || /^docs\/releases\/.*\.md$/.test(file) ||
         /^(tests\/(?:tooling|helpers|release)\/|\.github\/workflows\/)/.test(file) ||
         /^(package(?:-lock)?\.json|tsconfig(?:\.[-\w]+)?\.json|vite\.config\.[cm]?[jt]s|vitest\.config\.[cm]?[jt]s)$/.test(file)) {
-      return { ...item, kind: 'runtime', reason: 'Supercov native Related and direct test-file policy' }
+      return { ...item, kind: 'runtime', reason: 'Full logic test suite and runtime policy' }
     }
     return item
   })

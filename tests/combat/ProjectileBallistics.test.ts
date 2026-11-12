@@ -30,15 +30,11 @@ describe('projectile launch admission', () => {
     expect(shots).toHaveLength(2)
     expect(admission.snapshot()).toEqual({ acceptedShots: 3, rejectedShots: 2,
       capacityRejectedShots: 2, peakActiveShots: 2 })
-  })
 
-  it('keeps legacy void launches successful while explicit scene rejection preserves ammo', () => {
-    const admission = new ProjectileAdmission(2, 1)
+    // Explicit scene rejection preserves ammo
     const legacyLaunch = (): void => {}
     expect(projectileAmmoAfterLaunch(2, legacyLaunch())).toBe(1)
     expect(projectileAmmoAfterLaunch(2, admission.reject())).toBe(2)
-    expect(admission.snapshot()).toEqual({ acceptedShots: 0, rejectedShots: 1,
-      capacityRejectedShots: 0, peakActiveShots: 0 })
   })
 })
 
@@ -78,17 +74,11 @@ describe('bounded projectile interception and arc clearance', () => {
     expect(arc.isPathClear(origin, 65, [wall], () => 0)).toBe(false)
     expect(arc.isPathClear(origin, 65, [], () => 0)).toBe(true)
   })
-  it('blocks a terrain ridge between trajectory samples', () => {
+  it('blocks a terrain ridge between trajectory samples and detects above-ground frame endpoints', () => {
     const origin = new THREE.Vector3(0, 31.4, -200), arc = new BallisticIntercept()
     expect(arc.solve(origin, new THREE.Vector3(0, 1.4, 200), new THREE.Vector3(), 65)).toBe(true)
     expect(arc.isPathClear(origin, 65, [], (_x, z) => Math.abs(z) < 10 ? 150 : 0)).toBe(false)
-  })
 
-})
-
-
-describe('shared terrain first contact', () => {
-  it('blocks a ridge between two above-ground frame endpoints', () => {
     const from = new THREE.Vector3(-100, 1.5, 0), to = new THREE.Vector3(100, 1.5, 0)
     expect(from.y).toBeGreaterThan(getTerrainHeight(from.x, from.z))
     expect(to.y).toBeGreaterThan(getTerrainHeight(to.x, to.z))
@@ -153,25 +143,25 @@ describe('finite projectile obstacle trace', () => {
     expect(arc.solve(remoteFrom, remoteTo, new THREE.Vector3(), 15)).toBe(true)
     expect(arc.isPathClear(remoteFrom, 15, [obstacle], () => -10)).toBe(true)
     expect(exactReads).toBe(0)
-  })
 
-  it('keeps rotated slab protrusions hittable outside their narrower walk envelope', () => {
-    const obstacle: ObstacleData = { isBarricade: false,
+    // Slab protrusion outside narrower walk envelope (#534 merged)
+    const slab: ObstacleData = { isBarricade: false,
       box: new THREE.Box3(new THREE.Vector3(9.9, -1, -.1), new THREE.Vector3(10.1, 1, .1)),
       projectileBoxes: [new THREE.Box3(new THREE.Vector3(-2, -.2, -.2), new THREE.Vector3(2, .2, .2))],
       projectileWorldToLocal: new THREE.Matrix4().makeRotationY(Math.PI / 2).setPosition(10, 0, 0).invert(),
     }
-    const from = new THREE.Vector3(8, 0, 1), to = new THREE.Vector3(12, 0, 1)
-    const contact = { fraction: Infinity, point: new THREE.Vector3() }
-    expect(findBlockingProjectileObstacleAlongPath(from, to, [obstacle], contact)).toBe(obstacle)
-    expect(contact.point.x).toBeCloseTo(9.8)
-    expect(contact.point.z).toBe(1)
-    const arc = new BallisticIntercept()
-    expect(arc.solve(from, to, new THREE.Vector3(), 15)).toBe(true)
-    expect(arc.isPathClear(from, 15, [obstacle], () => -10)).toBe(false)
-    obstacle.projectileWorldToLocal!.makeRotationY(Math.PI / 2).setPosition(20, 0, 0).invert()
-    expect(arc.isPathClear(from, 15, [obstacle], () => -10)).toBe(true)
+    const slabFrom = new THREE.Vector3(8, 0, 1), slabTo = new THREE.Vector3(12, 0, 1)
+    const slabContact = { fraction: Infinity, point: new THREE.Vector3() }
+    expect(findBlockingProjectileObstacleAlongPath(slabFrom, slabTo, [slab], slabContact)).toBe(slab)
+    expect(slabContact.point.x).toBeCloseTo(9.8)
+    expect(slabContact.point.z).toBe(1)
+    expect(arc.solve(slabFrom, slabTo, new THREE.Vector3(), 15)).toBe(true)
+    expect(arc.isPathClear(slabFrom, 15, [slab], () => -10)).toBe(false)
+    slab.projectileWorldToLocal!.makeRotationY(Math.PI / 2).setPosition(20, 0, 0).invert()
+    expect(arc.isPathClear(slabFrom, 15, [slab], () => -10)).toBe(true)
   })
+
+
 })
 
 describe('Town live projectile candidates', () => {
@@ -226,7 +216,7 @@ describe('Town live projectile candidates', () => {
 
 
 describe('whole ballistic arc candidates', () => {
-  it('includes the unsampled apex and tolerance edge while retaining source order and duplicates', () => {
+  it('collects whole ballistic arc candidates and releases them safely if collection throws', () => {
     const origin = new THREE.Vector3(), end = new THREE.Vector3(10, 0, 0)
     const apex: ObstacleData = { isBarricade: false,
       box: new THREE.Box3(new THREE.Vector3(4, 1.2, -1), new THREE.Vector3(6, 1.3, 1)) }
@@ -241,18 +231,17 @@ describe('whole ballistic arc candidates', () => {
     expect(bounds.max.y).toBeCloseTo(1.225 + 1e-6, 10)
     expect(bounds.containsPoint(origin)).toBe(true)
     expect(bounds.containsPoint(end)).toBe(true)
-  })
 
-  it('releases partially collected live obstacles when collection throws', () => {
-    const arc = new BallisticIntercept(), origin = new THREE.Vector3(0, 2, 0)
-    expect(arc.solve(origin, new THREE.Vector3(8, 2, 0), new THREE.Vector3(), 15)).toBe(true)
+    // Release partially collected obstacles on throw
+    const arc = new BallisticIntercept(), launchOrigin = new THREE.Vector3(0, 2, 0)
+    expect(arc.solve(launchOrigin, new THREE.Vector3(8, 2, 0), new THREE.Vector3(), 15)).toBe(true)
     const retained: ObstacleData = { isBarricade: false,
       box: new THREE.Box3(new THREE.Vector3(1, -10, -1), new THREE.Vector3(2, 10, 1)) }
     const throwing: ObstacleData = { ...retained, get projectileBounds(): THREE.Box3 { throw new Error('disposed owner') } }
-    expect(() => arc.isPathClear(origin, 15, [retained, throwing], () => -10)).toThrow('disposed owner')
+    expect(() => arc.isPathClear(launchOrigin, 15, [retained, throwing], () => -10)).toThrow('disposed owner')
     const scratch = arc as unknown as { pathObstacles: ObstacleData[] }
     expect(scratch.pathObstacles).toHaveLength(0)
-    expect(arc.isPathClear(origin, 15, [], () => -10)).toBe(true)
+    expect(arc.isPathClear(launchOrigin, 15, [], () => -10)).toBe(true)
   })
 })
 

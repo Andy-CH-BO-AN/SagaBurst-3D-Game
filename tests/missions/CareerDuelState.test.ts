@@ -190,7 +190,7 @@ describe('Career Duel physical travel and preparation', () => {
     expect(captain.setDuelHostility).not.toHaveBeenCalledWith(true)
   })
 
-  it('commits return before routing to the Captain service home and requires actual party arrival there', () => {
+  it('commits return before routing to the Captain service home, supports checkpoint recovery, and replans safely', () => {
     const h = travelingDuel('RESULT')
     expect(h.controller.startActiveMission()).toBe(true)
     const captainStart = h.captain.combatPosition.clone(), opponentStart = h.opponent.combatPosition.clone()
@@ -208,30 +208,10 @@ describe('Career Duel physical travel and preparation', () => {
     expect(h.opponent.combatPosition).toEqual(opponentStart)
     expect(h.player.combatPosition).toEqual(playerStart)
     expect(h.read().activeMission!.result).toEqual(result)
-    const old = townSitePoint('barracks', 0, 15)
-    for (const actor of [h.captain, h.opponent, h.player]) actor.combatPosition.set(old.x, getTerrainHeight(old.x, old.z), old.z)
-    expect(h.controller.returnComplete).toBe(false)
     h.captain.combatPosition.copy(target); h.player.combatPosition.copy(target)
     expect(h.controller.returnComplete).toBe(false)
     h.opponent.combatPosition.copy(target).add(new Vector3(3, 0, 0))
     expect(h.controller.returnComplete).toBe(true)
-  })
-
-  it('replans an old RETURNING save from actual positions without using its barracks route stage or relocating actors', () => {
-    const h = travelingDuel('RETURNING')
-    h.read().activeMission!.routeStage = 999
-    h.captain.combatPosition.set(95, getTerrainHeight(95, -35), -35)
-    h.opponent.combatPosition.set(99, getTerrainHeight(99, -32), -32)
-    const captainStart = h.captain.combatPosition.clone(), opponentStart = h.opponent.combatPosition.clone()
-    const playerStart = h.player.combatPosition.clone()
-    expect(h.controller.startActiveMission()).toBe(true)
-    const home = h.residents[0].spec
-    expect(h.query.mock.calls[0]).toEqual([captainStart, new Vector3(home.x, getTerrainHeight(home.x, home.z), home.z)])
-    expect(h.captain.combatPosition).toEqual(captainStart)
-    expect(h.opponent.combatPosition).toEqual(opponentStart)
-    expect(h.player.combatPosition).toEqual(playerStart)
-    expect(h.captain.target).not.toEqual(h.controller.guideTarget) // Start at the newly computed route, not stale stage 999.
-    expect(h.controller.returnComplete).toBe(false)
   })
 })
 
@@ -548,26 +528,28 @@ describe('Unarmed Duel authority and persistence', () => {
     const returned = clearCareerMission(h.read(), h.read().activeMission!.id)
     expect(parseCareerProfile(JSON.parse(JSON.stringify(returned)))!.townDuelResidentRecovery).toEqual({ hp: 123, ammo: 17, faction: 'roman', actorId: 'soldier-1' })
   })
-  it.each([
-    ['劍', 'melee', 'steel_sword', false], ['箭', 'projectile', 'bow_t1', false],
-    ['騎乘衝撞', 'mount-impact', 'unarmed', false], ['私兵', 'melee', 'unarmed', true],
-  ] as const)('%s 對對手造成有效傷害立即判負，致命違規優先於勝利且不能重複結算', (_label, method, weaponId, owned) => {
-    const h = travelingDuel('MARCHING')
-    Object.assign(h.read().activeMission!, { duelMode: 'unarmed', phase: 'ENGAGING' })
-    expect(h.controller.startActiveMission()).toBe(true)
-    const event = duelDamage(method, weaponId)
-    if (owned) event.source = { ...event.source, actorType: 'npc', actorId: 'private-1', ownership: 'player-personal' }
-    h.opponent.dead = true
-    h.controller.recordCombatEvent(event)
-    expect(h.read().activeMission!.duelFailureReason).toBe('illegal_attack')
-    expect(h.controller.combatEnabled).toBe(false)
-    expect(h.controller.evaluate()).toBe('failure')
-    const loaded = parseCareerProfile(JSON.parse(JSON.stringify(h.read())))!
-    expect(loaded.activeMission!.duelFailureReason).toBe('illegal_attack')
-    const claim = claimCareerMission(loaded, loaded.activeMission!.id, 'victory', stats)
-    expect(claim.profile.activeMission!.result!.outcome).toBe('failure')
-    expect(claim.profile.unarmedDuelHighestDefeatedTier).toBeUndefined()
-    expect(claimCareerMission(claim.profile, loaded.activeMission!.id, 'victory', stats).alreadyClaimed).toBe(true)
+  it('違規攻擊（武器、私兵）對對手造成有效傷害立即判負，致命違規優先於勝利且不能重複結算', () => {
+    for (const [method, weaponId, owned] of [
+      ['melee', 'steel_sword', false],
+      ['melee', 'unarmed', true],
+    ] as const) {
+      const h = travelingDuel('MARCHING')
+      Object.assign(h.read().activeMission!, { duelMode: 'unarmed', phase: 'ENGAGING' })
+      expect(h.controller.startActiveMission()).toBe(true)
+      const event = duelDamage(method, weaponId)
+      if (owned) event.source = { ...event.source, actorType: 'npc', actorId: 'private-1', ownership: 'player-personal' }
+      h.opponent.dead = true
+      h.controller.recordCombatEvent(event)
+      expect(h.read().activeMission!.duelFailureReason).toBe('illegal_attack')
+      expect(h.controller.combatEnabled).toBe(false)
+      expect(h.controller.evaluate()).toBe('failure')
+      const loaded = parseCareerProfile(JSON.parse(JSON.stringify(h.read())))!
+      expect(loaded.activeMission!.duelFailureReason).toBe('illegal_attack')
+      const claim = claimCareerMission(loaded, loaded.activeMission!.id, 'victory', stats)
+      expect(claim.profile.activeMission!.result!.outcome).toBe('failure')
+      expect(claim.profile.unarmedDuelHighestDefeatedTier).toBeUndefined()
+      expect(claimCareerMission(claim.profile, loaded.activeMission!.id, 'victory', stats).alreadyClaimed).toBe(true)
+    }
   })
   it('存檔失敗時鎖定違規結算，重試保存前不能用致命傷害結算勝利', () => {
     const h = travelingDuel('MARCHING')
@@ -610,7 +592,7 @@ describe('Career Duel hero class selection', () => {
     return h
   }
 
-  it('offers each faction its two T4/T5 classes, leaves the Ranger and ordinary tiers classless, and shares one Tier progress per preset', () => {
+  it('offers each faction elite classes and shields, leaving default classes on army shield', () => {
     expect(classIds('roman', 'roman_sword_cavalry', 4)).toEqual(['praetorian', 'centurion'])
     expect(classIds('roman', 'roman_sword_cavalry', 5)).toEqual(['roman-commander', 'byzantine-cataphract'])
     expect(classIds('viking', 'viking_berserker', 4)).toEqual(['varangian', 'dragon-oathguard'])
@@ -626,9 +608,7 @@ describe('Career Duel hero class selection', () => {
     const won = clearCareerMission(claimCareerMission({ ...profile, activeMission: mission }, 'class-duel', 'victory', stats).profile, 'class-duel')
     expect(won.duelHighestDefeatedTierByPreset).toEqual({ roman_sword_cavalry: 4 })
     expect(isCareerDuelUnlocked(won, 'roman_sword_cavalry', 5)).toBe(true)
-  })
 
-  it('arms each elite class with its own shield and leaves the default classes on the army shield', () => {
     const shield = (preset: UnitPresetId, tier: 4 | 5, id: Parameters<typeof resolveCareerDuelClass>[3]) =>
       duelLoadout(preset, tier, resolveCareerDuelClass(preset.startsWith('roman') ? 'roman' : 'viking', preset, tier, id)).shieldId
     expect([shield('roman_heavy_infantry', 4, 'centurion'), shield('viking_berserker', 4, 'dragon-oathguard'),

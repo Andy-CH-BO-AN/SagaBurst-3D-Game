@@ -153,8 +153,8 @@ describe('Career Town layout checkpoint migration', () => {
     expect(saved).toEqual(before)
   })
 
-  it.each([{ boarding: false, mounted: true }, { boarding: true, mounted: false }])(
-    'keeps a v3 eagle at a v1 historical location in place when boarding=$boarding', ({ boarding, mounted }) => {
+  it('keeps a v3 eagle at a v1 historical location in place for both boarding and unboarded mounted riders', () => {
+    for (const { boarding, mounted } of [{ boarding: false, mounted: true }, { boarding: true, mounted: false }]) {
       const formation = { commandId: 7, position: { x: -90, y: 2, z: 56, yaw: 0 }, reached: true }
       const saved = personal({ boarding, order: 'follow', formation,
         position: { x: privateHome.x + 1, y: mounted ? 5 : 2, z: privateHome.z + 2, yaw: .7 },
@@ -168,25 +168,25 @@ describe('Career Town layout checkpoint migration', () => {
       expect(next.members['personal:eagle'].position).toBe(actor.position)
       expect(saved).toEqual(before)
       expect(migratePersonalTownLayout(next, 'town-home', layout, terrain)).toBe(next)
-    })
+    }
+  })
 
-  it.each([
-    { version: 2, x: -95, z: 65 },
-    { version: 3, x: -90, z: 56 },
-  ])('migrates a version $version private eagle at its parked home exactly once through storage', ({ version, x, z }) => {
-    const profile = createCareerProfile('roman'), saved = personal()
-    saved.layoutVersion = version
-    saved.members['personal:eagle'].mount!.position = { x, y: 2, z, yaw: Math.PI }
-    profile.personalSquadRuntime = saved
-    const store = new CareerProfileStore(new MemoryStorage())
-    expect(store.save(profile)).toBe(true)
-    const loaded = store.load()!
-    loaded.personalSquadRuntime = migratePersonalTownLayout(loaded.personalSquadRuntime, 'town-home', layout, terrain)
-    expect(store.save(loaded)).toBe(true)
-    const restored = store.load()!.personalSquadRuntime!
-    expect(restored.layoutVersion).toBe(4)
-    expect(restored.members['personal:eagle'].mount).toMatchObject({ hp: 73, position: { x: -70, y: 12, z: 25 } })
-    expect(migratePersonalTownLayout(restored, 'town-home', layout, terrain)).toBe(restored)
+  it('migrates v2 and v3 private eagles at their parked homes exactly once through storage', () => {
+    for (const { version, x, z } of [{ version: 2, x: -95, z: 65 }, { version: 3, x: -90, z: 56 }]) {
+      const profile = createCareerProfile('roman'), saved = personal()
+      saved.layoutVersion = version
+      saved.members['personal:eagle'].mount!.position = { x, y: 2, z, yaw: Math.PI }
+      profile.personalSquadRuntime = saved
+      const store = new CareerProfileStore(new MemoryStorage())
+      expect(store.save(profile)).toBe(true)
+      const loaded = store.load()!
+      loaded.personalSquadRuntime = migratePersonalTownLayout(loaded.personalSquadRuntime, 'town-home', layout, terrain)
+      expect(store.save(loaded)).toBe(true)
+      const restored = store.load()!.personalSquadRuntime!
+      expect(restored.layoutVersion).toBe(4)
+      expect(restored.members['personal:eagle'].mount).toMatchObject({ hp: 73, position: { x: -70, y: 12, z: 25 } })
+      expect(migratePersonalTownLayout(restored, 'town-home', layout, terrain)).toBe(restored)
+    }
   })
 })
 
@@ -207,8 +207,8 @@ describe('Town garrison parked-home migration', () => {
     return { version: 1, layoutVersion: version, sceneKey: 'town:roman', pairs: [pair] }
   }
 
-  it.each([{ version: 3, mounted: true }, { version: 2, mounted: false }])(
-    'moves only the v$version parked home and its mounted=$mounted rider consistently, once', ({ version, mounted }) => {
+  it('moves only the parked home and its rider consistently for v3 mounted and v2 unmounted, exactly once', () => {
+    for (const { version, mounted } of [{ version: 3, mounted: true }, { version: 2, mounted: false }]) {
       const saved = checkpoint(mounted, version), before = structuredClone(saved)
       const next = migrateTownEagleGarrisonLayout(saved, 'town:roman', pads, terrain)!
       expect(next.pairs[0]).toEqual({ ...before.pairs[0],
@@ -217,20 +217,23 @@ describe('Town garrison parked-home migration', () => {
       expect(next.layoutVersion).toBe(4)
       expect(saved).toEqual(before)
       expect(migrateTownEagleGarrisonLayout(next, 'town:roman', pads, terrain)).toBe(next)
-    })
+    }
+  })
 
-  it.each([true, false])('preserves every off-base grounded checkpoint field when mounted=%s', mounted => {
-    const saved = checkpoint(mounted)
-    const pair = saved.pairs[0]
-    pair.duty = mounted ? 'mounted-waiting' : 'walking-to-mount'
-    // Another pad is not this pair's home; a rider approaching from elsewhere stays put too.
-    pair.mount.position = { x: mounted ? -57 : 20, y: 5, z: mounted ? -75 : 30, yaw: .7 }
-    pair.position = { x: 21, y: mounted ? 8 : 5, z: 31, yaw: .7 }
-    const before = structuredClone(saved)
-    const next = migrateTownEagleGarrisonLayout(saved, 'town:roman', pads, terrain)!
-    expect(next.pairs[0]).toBe(pair)
-    expect(next).toEqual({ ...before, layoutVersion: 4 })
-    expect(saved).toEqual(before)
-    expect(migrateTownEagleGarrisonLayout(next, 'town:roman', pads, terrain)).toBe(next)
+  it('preserves every off-base grounded checkpoint field when mounted or unmounted', () => {
+    for (const mounted of [true, false]) {
+      const saved = checkpoint(mounted)
+      const pair = saved.pairs[0]
+      pair.duty = mounted ? 'mounted-waiting' : 'walking-to-mount'
+      // Another pad is not this pair's home; a rider approaching from elsewhere stays put too.
+      pair.mount.position = { x: mounted ? -57 : 20, y: 5, z: mounted ? -75 : 30, yaw: .7 }
+      pair.position = { x: 21, y: mounted ? 8 : 5, z: 31, yaw: .7 }
+      const before = structuredClone(saved)
+      const next = migrateTownEagleGarrisonLayout(saved, 'town:roman', pads, terrain)!
+      expect(next.pairs[0]).toBe(pair)
+      expect(next).toEqual({ ...before, layoutVersion: 4 })
+      expect(saved).toEqual(before)
+      expect(migrateTownEagleGarrisonLayout(next, 'town:roman', pads, terrain)).toBe(next)
+    }
   })
 })

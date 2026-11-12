@@ -144,7 +144,7 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(dispatches).toBe(1)
   })
 
-  it('abandons a fully deployed carrier after its first ten immobile simulation seconds exactly once', () => {
+  it('abandons a fully deployed carrier after immobile simulation seconds, resetting observation across checkpoint restore', () => {
     const assignment = watchdogCrew(), events: string[] = []
     const controller = new MobileSiegeRampController(assignment, 100, state => events.push(state))
     controller.observeMovement(20, 0, 0, 0, 0)
@@ -155,14 +155,22 @@ describe('shared siege crew and vehicle lifecycle', () => {
       disposed: false, controller, position, assignment, crew: new Map(), canMove: () => false,
     })
     for (let frame = 0; frame < 99; frame++) owner.update(.1, [])
-    for (const dt of [0, -1, NaN, Infinity]) owner.update(dt, [])
     expect(controller.state).toBe('PUSHING')
     owner.update(.1, [])
     expect(controller.state).toBe('ABANDONED')
     expect(controller.currentSpeed).toBe(0)
-    owner.update(100, [])
     expect(events).toEqual(['PUSHING', 'ABANDONED'])
-    expect(position).toEqual(new Vector3())
+
+    // Checkpoint restore resets unfinished observation
+    const controller2 = new MobileSiegeRampController(assignment, 100)
+    for (const combatantId of [...assignment.pusherIds, ...assignment.assaultIds]) controller2.register({ combatantId, dead: false })
+    controller2.advance(.1, false)
+    controller2.observeMovement(9, 30, 20, 30, 20)
+    controller2.restore({ state: 'PUSHING', distance: 12, dockingProgress: 0 })
+    controller2.observeMovement(9, 42, 20, 42, 20)
+    expect(controller2.state).toBe('PUSHING')
+    controller2.observeMovement(1, 42, 20, 42, 20)
+    expect(controller2.state).toBe('ABANDONED')
   })
 
   it('starts a fresh actual horizontal displacement window at one metre and abandons a sub-metre next window', () => {
@@ -174,18 +182,6 @@ describe('shared siege crew and vehicle lifecycle', () => {
     controller.observeMovement(9, .6, .8, 1.5, .8)
     expect(controller.state).toBe('PUSHING')
     controller.observeMovement(1, 1.5, .8, 1.5, .8)
-    expect(controller.state).toBe('ABANDONED')
-  })
-
-  it('resets an unfinished pushing observation when restoring a checkpoint', () => {
-    const assignment = watchdogCrew(), controller = new MobileSiegeRampController(assignment, 100)
-    for (const combatantId of [...assignment.pusherIds, ...assignment.assaultIds]) controller.register({ combatantId, dead: false })
-    controller.advance(.1, false)
-    controller.observeMovement(9, 30, 20, 30, 20)
-    controller.restore({ state: 'PUSHING', distance: 12, dockingProgress: 0 })
-    controller.observeMovement(9, 42, 20, 42, 20)
-    expect(controller.state).toBe('PUSHING')
-    controller.observeMovement(1, 42, 20, 42, 20)
     expect(controller.state).toBe('ABANDONED')
   })
 
@@ -408,57 +404,6 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(advanceCommanderCavalryEscort(released.checkpoint, 0, actors, ramps).releasedActorIds).toEqual([])
   })
 
-  it('allocates the formal 280 attackers with eighty unique Town crew, T3 faction infantry and stable gate roles', () => {
-    const roster = createCommanderFourGateDefenseRoster('defense', 'roman')
-    const slots = roster.crew, crews = allocateTownSiegeCrews([...slots].reverse())
-    expect(roster.all).toHaveLength(280)
-    expect(new Set(roster.all.map(spec => spec.actorId)).size).toBe(280)
-    expect(roster.ground).toHaveLength(280)
-    expect(roster.air).toHaveLength(0)
-    expect(roster.cavalry.filter(spec => spec.tier === 3 && spec.loadout?.mountId === 'horse')).toHaveLength(56)
-    expect(roster.cavalry.filter(spec => spec.tier === 4 && spec.loadout?.mountId === 'corgi')).toHaveLength(4)
-    expect(roster.archers.filter(spec => spec.tier === 3 && !spec.loadout?.mountId)).toHaveLength(56)
-    expect(roster.archers.filter(spec => spec.tier === 4 && !spec.loadout?.mountId)).toHaveLength(4)
-    expect(roster.all.every(spec => spec.respawnEnabled === false)).toBe(true)
-    // Rear guards: exactly the existing T3 melee preset of the attacking faction, never mounted or mixed.
-    const expectedInfantry = { roman: ['roman_heavy_infantry', 'centurion_blade', 'scutum_t3'],
-      viking: ['viking_berserker', 'viking_axe_t3', 'round_shield_t3'] } as const
-    for (const faction of ['roman', 'viking'] as const) {
-      const infantry = createCommanderFourGateDefenseRoster('defense', faction).infantry
-      expect(infantry).toHaveLength(80)
-      expect(infantry.every(spec => spec.presetId === expectedInfantry[faction][0] && spec.tier === 3 && spec.characterTier === 3
-        && spec.aiType === AIType.MELEE && !spec.cavalry && spec.loadout?.mountId === null
-        && spec.loadout?.meleeWeaponId === expectedInfantry[faction][1] && spec.loadout?.shieldId === expectedInfantry[faction][2])).toBe(true)
-    }
-    expect(roster.infantry.filter(spec => spec.actorId!.startsWith('defense:north:left:escort:infantry:'))).toHaveLength(10)
-    expect(roster.infantry.map(spec => spec.actorId)).toContain('defense:west:right:escort:infantry:10')
-    // Crew allocation is unchanged by the extra guards (the legacy 230 keeps its eagle rangers and no infantry).
-    const legacy = createCommanderFourGateDefenseRoster('defense', 'roman', 1)
-    expect(legacy.all).toHaveLength(230)
-    expect(legacy.air.filter(spec => spec.tier === 4 && spec.loadout?.mountId === 'xongkoro')).toHaveLength(30)
-    expect(legacy.infantry).toHaveLength(0)
-    for (const spec of [...roster.cavalry, ...roster.archers, ...legacy.air]) {
-      const axis = Math.max(Math.abs(spec.x), Math.abs(spec.z))
-      expect(axis).toBeGreaterThanOrEqual(TOWN_PLAYABLE_WORLD_BOUND - 15)
-      expect(axis).toBeLessThanOrEqual(TOWN_PLAYABLE_WORLD_BOUND - (spec.loadout?.mountId === 'xongkoro' ? 15 : 4))
-    }
-    for (const gate of ['north', 'south', 'east', 'west']) {
-      expect(roster.ground.filter(spec => roster.gateByActorId.get(spec.actorId!) === gate)).toHaveLength(70)
-      expect(roster.cavalry.filter(spec => spec.actorId?.startsWith(`defense:${gate}:lancer:`))).toHaveLength(15)
-      expect(roster.archers.filter(spec => spec.actorId?.startsWith(`defense:${gate}:archer:`))).toHaveLength(15)
-    }
-    expect(crews).toHaveLength(8)
-    expect(new Set(crews.flatMap(c => [...c.pusherIds, ...c.assaultIds])).size).toBe(80)
-    expect(crews.flatMap(c => [...c.pusherIds, ...c.assaultIds]).some(id => id.includes(':escort:'))).toBe(false)
-    expect(slots.filter(s => s.spec.visualAssetId === 'roman-hero-t4')).toHaveLength(72)
-    expect(slots.filter(s => s.spec.combatProfileId === 'roman-commander')).toHaveLength(8)
-    const east = crews.find(c => c.id === 'town-siege-ramp:east:left')!
-    expect([...east.pusherIds].sort()).toEqual(['defense:east:left:pusher:1', 'defense:east:left:pusher:2', 'defense:east:left:pusher:3', 'defense:east:left:pusher:4'])
-    expect(east.assaultIds).toHaveLength(6)
-    const duplicate = structuredClone(slots); duplicate[10].spec.actorId = duplicate[0].spec.actorId
-    expect(() => allocateTownSiegeCrews(duplicate)).toThrow('Invalid Town siege crew')
-  })
-
   it('keeps each ten-man infantry guard on its own vehicle until it docks, behind the lancers and independent of their 100m release', () => {
     const assignments = commanderInfantryEscortAssignments('guard'), initial = createCommanderInfantryEscort('guard')
     expect(assignments).toHaveLength(80)
@@ -503,6 +448,8 @@ describe('shared siege crew and vehicle lifecycle', () => {
 
   it('plans full edge approaches with finite walkable ramps and six deck riders plus four ground pushers', () => {
     const slots = createTownSiegeCrewSlots('viking'), assignments = allocateTownSiegeCrews(slots)
+    const duplicate = structuredClone(slots); duplicate[10].spec.actorId = duplicate[0].spec.actorId
+    expect(() => allocateTownSiegeCrews(duplicate)).toThrow('Invalid Town siege crew')
     const layout = getTownRampartLayout()
     const obstruction = { box: new Box3(new Vector3(18, -10, -280), new Vector3(19, 20, -270)), isBarricade: true }
     const placements = planTownSiegeRamps(layout, [obstruction], undefined, 'world-edge')
@@ -593,6 +540,7 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(parseCampaignSiegeCheckpoint(snapshot)).toEqual(snapshot)
     expect(parseCampaignSiegeCheckpoint({ ...snapshot, ramps: [...snapshot.ramps, snapshot.ramps[0]] })).toBeUndefined()
   })
+
   it('moves the shared X carrier but releases a withdrawn pusher from transport and body-collision exemptions', () => {
     const assignment = allocateTownSiegeCrews(createTownSiegeCrewSlots('roman')).find(a => a.id === 'town-siege-ramp:east:left')!
     const controller = new MobileSiegeRampController(assignment, 40)

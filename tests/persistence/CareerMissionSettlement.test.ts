@@ -155,7 +155,8 @@ describe('Town mission settlement transactions', () => {
     expect(h.store.load()!.activeMission!.borrowedActorIdentities).toEqual({ resident: { characterFaction: 'roman', characterTier: 2 } })
   })
 
-  it.each([ENEMY_TOWN_ASSAULT_ID, CAPTAIN_SIEGE_COMMAND_ID])('settles a restored %s ground victory once with surviving mounted and dismounted air support and only actual combat credit', templateId => {
+  it('settles a restored ground victory once with surviving mounted and dismounted air support and only actual combat credit', () => {
+    const templateId = ENEMY_TOWN_ASSAULT_ID
     const h = fixture('enemy-town-assault', false, templateId), active = h.read().activeMission!
     const roster = townRoster()
     const specs = roster.filter(spec => spec.eagle && spec.index < 2 || spec.role === 'ranger' || spec.duty === 'watchtower_guard')
@@ -626,13 +627,12 @@ describe('Town mission settlement transactions', () => {
     expect(h.residentState.restoreForTown).not.toHaveBeenCalled()
   })
 
-  it('makes completed return the single durable authority for mount armor without overwriting from stale runtime snapshots', () => {
+  it('makes completed return the single durable authority for mount armor and preserves state on save failure', () => {
     const h = fixture('town-defense', true)
     h.read().mountArmor = { 'armored-horse': 0 }
     h.read().playerAerialState = {
       sceneKey: 'town-home', hp: 77, dead: false, position: { x: 50, y: 80, z: 70, yaw: 0 },
     }
-    // Supply pre-return live objects to verify they are NOT recaptured by a second write.
     h.runtime.townCommand = {
       checkpoint: vi.fn(() => ({ commandedActorIds: ['stale-actor-id'], squads: [] })) as unknown as NonNullable<TownProfileCommitRuntime['townCommand']>['checkpoint'],
       stageRefit: vi.fn(p => p),
@@ -657,14 +657,11 @@ describe('Town mission settlement transactions', () => {
     )
     expect(careerMounts.checkpoint()?.armorImpact).toEqual({ 'armored-horse': 0 })
 
-    // In production, TownScene.restPlayerInTown executes careerMounts.restInTown({ persist: options?.persistMount ?? false }).
     h.town.restPlayer = vi.fn((options?: { persistMount?: boolean }) => {
       careerMounts.restInTown({ persist: options?.persistMount ?? false })
     })
 
     expect(h.settlement.returnToTown('direct')).toEqual({ status: 'restarted' })
-
-    // Single durable authority: only 1 save transaction occurs.
     expect(h.commit).toHaveBeenCalledTimes(1)
     expect(h.town.restPlayer).toHaveBeenCalledOnce()
     expect(h.town.restart).toHaveBeenCalledOnce()
@@ -674,34 +671,24 @@ describe('Town mission settlement transactions', () => {
     expect(saved.activeMission).toBeUndefined()
     expect(saved.playerAerialState).toBeUndefined()
     expect(saved.townCommandSquad?.commandedActorIds ?? []).not.toContain('stale-actor-id')
-
-    // In-memory runtime mount armor is cleared (restored to 50/50 for next summon).
     expect(careerMounts.checkpoint()?.armorImpact).toBeUndefined()
-  })
 
-  it('preserves durable and runtime mount armor when the completed return save fails', () => {
-    const h = fixture('town-defense', true)
-    h.read().mountArmor = { 'armored-horse': 0 }
-    h.storage.writable = false
-
-    const careerMounts = new CareerMountController(
+    // Preserves durable and runtime mount armor when save fails
+    const hFail = fixture('town-defense', true)
+    hFail.read().mountArmor = { 'armored-horse': 0 }
+    hFail.storage.writable = false
+    const failMounts = new CareerMountController(
       {} as any,
-      () => h.player as unknown as any,
-      () => h.read(),
-      next => h.commit(next),
+      () => hFail.player as unknown as any,
+      () => hFail.read(),
+      next => hFail.commit(next),
       () => [],
       () => [],
     )
-    expect(careerMounts.checkpoint()?.armorImpact).toEqual({ 'armored-horse': 0 })
-
-    h.town.restPlayer = vi.fn((options?: { persistMount?: boolean }) => {
-      careerMounts.restInTown({ persist: options?.persistMount ?? false })
-    })
-
-    expect(h.settlement.returnToTown('direct')).toEqual({ status: 'save-failed', destination: 'restart' })
-    expect(h.town.restPlayer).not.toHaveBeenCalled()
-    expect(h.town.restart).not.toHaveBeenCalled()
-    expect(h.read().mountArmor).toEqual({ 'armored-horse': 0 })
-    expect(careerMounts.checkpoint()?.armorImpact).toEqual({ 'armored-horse': 0 })
+    hFail.town.restPlayer = vi.fn()
+    expect(hFail.settlement.returnToTown('direct')).toEqual({ status: 'save-failed', destination: 'restart' })
+    expect(hFail.town.restPlayer).not.toHaveBeenCalled()
+    expect(hFail.read().mountArmor).toEqual({ 'armored-horse': 0 })
+    expect(failMounts.checkpoint()?.armorImpact).toEqual({ 'armored-horse': 0 })
   })
 })

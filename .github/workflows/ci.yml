@@ -24,7 +24,7 @@ jobs:
   logic:
     uses: ./.github/workflows/logic-tests.yml
     with:
-      mode: ${{ github.event_name == 'workflow_dispatch' && 'full' || github.base_ref == 'main' && 'full' || (github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')) && 'full' || 'related' }}
+      mode: full
       base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before || '' }}
       head: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       event: ${{ github.event_name }}

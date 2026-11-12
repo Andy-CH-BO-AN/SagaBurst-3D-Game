@@ -2,7 +2,7 @@ const { spawnSync, execFileSync } = require('node:child_process')
 const { readFileSync, writeFileSync, mkdirSync, appendFileSync, rmSync } = require('node:fs')
 const { resolve, join, relative, dirname } = require('node:path')
 const { randomUUID } = require('node:crypto')
-const { validateReports, MAX_CASE_MS, MAX_RELATED_CASES } = require('./budget.cjs')
+const { validateReports, MAX_CASE_MS, MAX_LOGIC_CASES } = require('./budget.cjs')
 const { validateManifest, options, createPlan, discoverNode, selectedNames } = require('./ci-plan.cjs')
 const root = resolve(__dirname, '../..')
 const normalize = file => relative(root, resolve(root, file)).replaceAll('\\', '/')
@@ -15,7 +15,7 @@ function verifyExecution(plan, summary) {
   if (!summary?.runId || summary.planId !== plan.planId || summary.result !== 'passed') throw new Error('Missing, stale or failed logic run')
   const runners = ['vitest', 'node'].filter(runner => filesFor(plan, runner).length)
   const result = validateReports(summary.reports, { runId: summary.runId, runners,
-    ...(plan.mode === 'related' ? { maxCases: MAX_RELATED_CASES } : {}) })
+    maxCases: MAX_LOGIC_CASES })
   for (const report of summary.reports) {
     const files = (report.files ?? []).map(item => normalize(item.file))
     exact(files, filesFor(plan, report.runner), `${report.runner} files`)
@@ -122,7 +122,7 @@ function execute(plan, out) {
     if (runnerErrors.length) throw new Error(runnerErrors.join('\n'))
     summary.result = 'passed'
     const result = verifyExecution(plan, summary)
-    console.log(`${plan.mode === 'full' ? 'Full' : 'Related'} budget: ${result.count}${plan.mode === 'related' ? '/' + MAX_RELATED_CASES : ''} cases; max ${result.maxMs.toFixed(3)}ms`)
+    console.log(`Full budget: ${result.count}/${MAX_LOGIC_CASES} cases; max ${result.maxMs.toFixed(3)}ms`)
   } catch (error) {
     summary.result = 'failed'
     summary.error = error.message
@@ -130,7 +130,7 @@ function execute(plan, out) {
       .filter(item => item.state !== 'passed' || item.ms > MAX_CASE_MS)
       .map(item => ({ runner: report.runner, file: item.file, name: item.name,
         state: item.state === 'passed' ? item.ms.toFixed(3) + 'ms > ' + MAX_CASE_MS + 'ms' : item.state })))
-    const label = plan.mode === 'full' ? 'Full' : 'Related'
+    const label = 'Full'
     console.error(label + ' FAILED; identified failing leaves: ' + failed.length)
     for (const item of failed) console.error('  ' + item.file + ' > ' + item.name + ' [' + item.state + ']')
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
@@ -156,7 +156,7 @@ if (require.main === module) (async () => {
     console.log(`sha=${verifiedFullSha(JSON.parse(readFileSync(args['verified-sha'], 'utf8')))}`)
   } else if (args.local) {
     const inventory = args.local === 'release' ? discoverNode() : null
-    const plan = inventory ? { planId: randomUUID(), mode: 'related', scope: 'node-release', event: 'local', baseSha: '', headSha: '', changedFiles: [], inventory, selected: inventory.map(item => item.file), reasons: Object.fromEntries(inventory.map(item => [item.file, ['Node release component']])), expectedCount: inventory.reduce((sum, item) => sum + item.names.length, 0) } : await createPlan({ mode: 'full', event: 'local' })
+    const plan = inventory ? { planId: randomUUID(), mode: 'full', scope: 'node-release', event: 'local', baseSha: '', headSha: '', changedFiles: [], inventory, selected: inventory.map(item => item.file), reasons: Object.fromEntries(inventory.map(item => [item.file, ['Node release component']])), expectedCount: inventory.reduce((sum, item) => sum + item.names.length, 0) } : await createPlan({ mode: 'full', event: 'local' })
     const out = 'output/test-budget/local'
     mkdirSync(out, { recursive: true })
     writeFileSync(`${out}/plan.json`, JSON.stringify(plan, null, 2))

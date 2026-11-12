@@ -9,11 +9,13 @@ describe('vehicle part swept body collision (pure geometry)', () => {
   const board = new THREE.Box3(new THREE.Vector3(-2.5, -.25, -3), new THREE.Vector3(2.5, 0, 3))
   const inverse = new THREE.Matrix4().makeTranslation(0, -4, 0)
 
-  it.each([{ radius: .5, x: 2.8 }, { radius: 1, x: 3.2 }])('includes body radius $radius outside the board edge', ({ radius, x }) => {
-    const body = { position: new THREE.Vector3(x, 3, 0), radius, height: 1.9, bottomOffset: 0 }
-    expect(intersectsSweptPart(body, board, inverse, .2)).toBe(true)
-    body.position.x = 2.5 + radius + .01
-    expect(intersectsSweptPart(body, board, inverse, .2)).toBe(false)
+  it('includes body radius outside the board edge', () => {
+    for (const { radius, x } of [{ radius: .5, x: 2.8 }, { radius: 1, x: 3.2 }]) {
+      const body = { position: new THREE.Vector3(x, 3, 0), radius, height: 1.9, bottomOffset: 0 }
+      expect(intersectsSweptPart(body, board, inverse, .2)).toBe(true)
+      body.position.x = 2.5 + radius + .01
+      expect(intersectsSweptPart(body, board, inverse, .2)).toBe(false)
+    }
   })
 
   it('keeps a sloping board underside instead of blocking the empty space in its world AABB', () => {

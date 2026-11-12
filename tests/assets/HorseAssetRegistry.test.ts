@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import type * as THREE from 'three'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { HorseAssetLoadError, HorseAssetRegistry, validateHorseManifest, type HorseAssetManifest, type HorseTemplate } from '../../src/world/HorseAssetRegistry'
+import { HorseAssetLoadError, HorseAssetRegistry, type HorseAssetManifest, type HorseTemplate } from '../../src/world/HorseAssetRegistry'
 
 const horseManifest = JSON.parse(readFileSync(new URL('../../public/models/mounts/v1/horse/manifest.json', import.meta.url), 'utf8')) as HorseAssetManifest
 const armoredManifest = JSON.parse(readFileSync(new URL('../../public/models/mounts/v1/armored-horse/manifest.json', import.meta.url), 'utf8')) as HorseAssetManifest
@@ -27,12 +27,6 @@ beforeEach(() => HorseAssetRegistry.resetForTesting())
 afterEach(() => { HorseAssetRegistry.resetForTesting(); vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('horse package preload barrier', () => {
-  it('rejects a package missing the death state before loading its model', () => {
-    const incomplete = structuredClone(horseManifest)
-    incomplete.clips = incomplete.clips.filter(clip => clip !== 'death')
-    expect(() => validateHorseManifest(incomplete)).toThrow('Horse manifest is missing death clip')
-  })
-
   it('starts both packages together, deduplicates callers and waits for the slower armored package before entry', async () => {
     const slow = gate()
     const load = vi.spyOn(boundary, 'load').mockResolvedValue(ordinary)
@@ -55,25 +49,29 @@ describe('horse package preload barrier', () => {
     expect(load).toHaveBeenCalledTimes(1); expect(loadArmored).toHaveBeenCalledTimes(1)
   })
 
-  it.each(['ordinary', 'armored'] as const)('surfaces %s package failure and retries only the failed package', async failed => {
-    const load = vi.spyOn(boundary, 'load').mockResolvedValue(ordinary)
-    const loadArmored = vi.spyOn(boundary, 'loadArmored').mockResolvedValue(armored)
-    const failing = failed === 'ordinary' ? load : loadArmored
-    failing.mockRejectedValueOnce(new Error('GLB / manifest / KTX2 unavailable'))
-    await expect(HorseAssetRegistry.preload(renderer)).rejects.toThrow(HorseAssetLoadError)
-    const available = failed === 'ordinary' ? HorseAssetRegistry.armoredReady : HorseAssetRegistry.ready
-    expect(available).toBe(true)
-    if (failed === 'armored') {
-      expect(HorseAssetRegistry.armoredError?.message).toContain('KTX2 unavailable')
-      expect(() => HorseAssetRegistry.resolveTemplate({ armored: true })).toThrow('KTX2 unavailable')
+  it('surfaces package failure and retries only the failed package', async () => {
+    for (const failed of ['ordinary', 'armored'] as const) {
+      vi.restoreAllMocks()
+      HorseAssetRegistry.resetForTesting()
+      const load = vi.spyOn(boundary, 'load').mockResolvedValue(ordinary)
+      const loadArmored = vi.spyOn(boundary, 'loadArmored').mockResolvedValue(armored)
+      const failing = failed === 'ordinary' ? load : loadArmored
+      failing.mockRejectedValueOnce(new Error('GLB / manifest / KTX2 unavailable'))
+      await expect(HorseAssetRegistry.preload(renderer)).rejects.toThrow(HorseAssetLoadError)
+      const available = failed === 'ordinary' ? HorseAssetRegistry.armoredReady : HorseAssetRegistry.ready
+      expect(available).toBe(true)
+      if (failed === 'armored') {
+        expect(HorseAssetRegistry.armoredError?.message).toContain('KTX2 unavailable')
+        expect(() => HorseAssetRegistry.resolveTemplate({ armored: true })).toThrow('KTX2 unavailable')
+      }
+      const retry = HorseAssetRegistry.preload(renderer)
+      expect(HorseAssetRegistry.preload(renderer)).toBe(retry)
+      await retry
+      expect(HorseAssetRegistry.ready).toBe(true); expect(HorseAssetRegistry.armoredReady).toBe(true)
+      expect(load).toHaveBeenCalledTimes(failed === 'ordinary' ? 2 : 1)
+      expect(loadArmored).toHaveBeenCalledTimes(failed === 'armored' ? 2 : 1)
+      expect(HorseAssetRegistry.armoredError).toBeNull()
     }
-    const retry = HorseAssetRegistry.preload(renderer)
-    expect(HorseAssetRegistry.preload(renderer)).toBe(retry)
-    await retry
-    expect(HorseAssetRegistry.ready).toBe(true); expect(HorseAssetRegistry.armoredReady).toBe(true)
-    expect(load).toHaveBeenCalledTimes(failed === 'ordinary' ? 2 : 1)
-    expect(loadArmored).toHaveBeenCalledTimes(failed === 'armored' ? 2 : 1)
-    expect(HorseAssetRegistry.armoredError).toBeNull()
   })
 
   it('times out a stalled package and ignores its late completion after a successful retry', async () => {

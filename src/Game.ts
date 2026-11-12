@@ -920,6 +920,7 @@ export class Game {
       this.input?.dispose()
       this.player?.dispose()
       this._disposeCareerOutpostBattleActors()
+      this.inventoryManager?.dispose()
       throw error
     })
   }
@@ -1497,7 +1498,7 @@ export class Game {
       this.armyCommandUI.setOfficialSquadLabel(officialCommandHudLabel(this._careerCommandMission()?.officialSquad))
     }
     this.equipmentUI      = new EquipmentUI()
-    this.inventoryManager = this.isTrainingGround ? createTrainingInventory(playerHeroId) : new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId, playerFaction)
+    this._setInventoryManager(this.isTrainingGround ? createTrainingInventory(playerHeroId) : new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId, playerFaction))
     if (this.careerProfile) {
       const inventory = new TownEquipment(() => this.careerProfile!, profile => {
         if (!this.careerStore.save(profile)) return false
@@ -1505,7 +1506,7 @@ export class Game {
         return true
       })
       inventory.prepareForCombat()
-      this.inventoryManager = inventory
+      this._setInventoryManager(inventory)
       this.player.setMaxHp(resolveCareerPlayerMaxHp(this.careerProfile, this.basePlayerMaxHp))
       this.player.setHp(this.player.maxHp)
       this.controlsHint.textContent = 'WASD 移動 ｜ Shift 衝刺 ｜ 左鍵攻擊 ｜ 右鍵／F 舉盾瞄準 ｜ Tab 裝備 ｜ 滾輪切換武器'
@@ -1883,6 +1884,7 @@ export class Game {
     this.trainingDamageUnsubscribe?.(); this.trainingUI?.dispose()
     this.equipmentUI.close(); this._disposeCareerOutpostBattleActors()
     this.trainingGround?.dispose(); this.player.dispose()
+    this.inventoryManager?.dispose()
     for (const arrow of this.arrows) arrow.destroy()
     this._aimTargetRegistry.clear(); this.damageNumbers.clear(); this.weaponWheelUI.dispose()
     this.soundManager.updateHorseGallopLoops([])
@@ -1940,6 +1942,11 @@ export class Game {
     this._refillTraining()
   }
 
+  private _setInventoryManager(inventory: InventoryManager): void {
+    this.inventoryManager?.dispose()
+    this.inventoryManager = inventory
+  }
+
   private _changeTrainingCharacter(heroId?: PlayerHeroId): void {
     if (!this.trainingGround) return
     if (this.tutorialLaunch) return
@@ -1952,7 +1959,7 @@ export class Game {
     this.playerMaxHpOverride = undefined
     this.player.setMaxHp(resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, this.skillManager.skillState))
     this.player.setDamageHud(this.hpBar)
-    this.inventoryManager = createTrainingInventory(heroId)
+    this._setInventoryManager(createTrainingInventory(heroId))
     this.armyCommandController.setInventory(this.inventoryManager)
     this._bindPlayerCombatCallbacks()
     this._resetTraining()
@@ -1969,6 +1976,7 @@ export class Game {
     this._disposeCareerOutpostBattleActors()
     this.trainingGround.dispose()
     this.player.dispose()
+    this.inventoryManager?.dispose()
     for (const arrow of this.arrows) arrow.destroy()
     this.arrows.length = 0
     this._aimTargetRegistry.clear()

@@ -19,8 +19,10 @@ export interface OnDemandAssetOptions<Id extends string> {
  * timed-out request is forgotten, so the next one starts fresh and a late old result can never replace it. */
 export class OnDemandAssets<Id extends string, Asset> {
   private readonly requests = new Map<Id, Promise<Asset>>()
+  private readonly abortControllers = new Map<Id, AbortController>()
   private readonly loaded = new Map<Id, Asset>()
   private readonly failedAt = new Map<Id, number>()
+  private disposed = false
 
   constructor(private readonly loader: (id: Id, signal: AbortSignal) => Promise<Asset>, private readonly options: OnDemandAssetOptions<Id>) {}
 
@@ -31,30 +33,69 @@ export class OnDemandAssets<Id extends string, Asset> {
   }
 
   load(id: Id): Promise<Asset> {
+    if (this.disposed) return Promise.reject(new Error('OnDemandAssets disposed'))
     const asset = this.loaded.get(id)
     if (asset !== undefined) return Promise.resolve(asset)
     const existing = this.requests.get(id)
     if (existing) return existing
     this.failedAt.delete(id)
     const { timeoutMs, onFailure } = this.options
-    const tracked = new Promise<Asset>((resolve, reject) => {
-      const abort = new AbortController()
+    const abort = new AbortController()
+    this.abortControllers.set(id, abort)
+    let tracked!: Promise<Asset>
+    tracked = new Promise<Asset>((resolve, reject) => {
       const timer = setTimeout(() => {
         reject(new AssetLoadTimeout(id, timeoutMs))
         abort.abort()
       }, timeoutMs)
-      const settle = () => clearTimeout(timer)
+      const settle = () => {
+        clearTimeout(timer)
+        abort.signal.removeEventListener('abort', onAbort)
+        if (this.abortControllers.get(id) === abort) {
+          this.abortControllers.delete(id)
+        }
+      }
+      const onAbort = () => {
+        settle()
+        const cancelErr = new Error(this.disposed ? 'OnDemandAssets disposed' : `Asset load aborted: ${id}`)
+        cancelErr.name = this.disposed ? 'DisposedError' : 'AbortError'
+        reject(cancelErr)
+      }
+      abort.signal.addEventListener('abort', onAbort, { once: true })
+
       let work: Promise<Asset>
       try { work = this.loader(id, abort.signal) } catch (error) { work = Promise.reject(error) }
-      work.then(result => { settle(); resolve(result) }, error => { settle(); reject(error) })
+      work.then(result => {
+        settle()
+        if (this.disposed || abort.signal.aborted) {
+          const cancelErr = new Error(this.disposed ? 'OnDemandAssets disposed' : `Asset load aborted: ${id}`)
+          cancelErr.name = this.disposed ? 'DisposedError' : 'AbortError'
+          reject(cancelErr)
+        } else {
+          resolve(result)
+        }
+      }, error => { settle(); reject(error) })
     }).then(result => {
-      this.requests.delete(id)
+      if (this.requests.get(id) === tracked) {
+        this.requests.delete(id)
+      }
+      if (this.disposed || abort.signal.aborted) {
+        const cancelErr = new Error(this.disposed ? 'OnDemandAssets disposed' : `Asset load aborted: ${id}`)
+        cancelErr.name = this.disposed ? 'DisposedError' : 'AbortError'
+        throw cancelErr
+      }
       this.loaded.set(id, result)
       return result
     }, error => {
-      this.requests.delete(id)
-      this.failedAt.set(id, Date.now())
-      onFailure?.(id, error)
+      if (this.requests.get(id) === tracked) {
+        this.requests.delete(id)
+      }
+      const isTimeout = error instanceof AssetLoadTimeout
+      const isCancellation = this.disposed || (abort.signal.aborted && !isTimeout)
+      if (!isCancellation) {
+        this.failedAt.set(id, Date.now())
+        onFailure?.(id, error)
+      }
       throw error
     })
     this.requests.set(id, tracked)
@@ -63,10 +104,22 @@ export class OnDemandAssets<Id extends string, Asset> {
 
   /** Safe to call every frame: returns the asset when loaded and otherwise keeps at most one paced request going. */
   poll(id: Id): Asset | undefined {
+    if (this.disposed) return undefined
     const asset = this.loaded.get(id)
     if (asset !== undefined || this.requests.has(id)) return asset
     const failedAt = this.failedAt.get(id)
     if (failedAt === undefined || Date.now() - failedAt >= this.options.retryDelayMs) void this.load(id).catch(() => {})
     return undefined
+  }
+
+  dispose(): void {
+    this.disposed = true
+    for (const controller of this.abortControllers.values()) {
+      controller.abort()
+    }
+    this.abortControllers.clear()
+    this.requests.clear()
+    this.loaded.clear()
+    this.failedAt.clear()
   }
 }

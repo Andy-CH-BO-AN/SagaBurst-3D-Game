@@ -25,17 +25,13 @@ describe('enemy eagle patrol policy and saved generations', () => {
     saved.pairs[0].arrivalState = 'RETURN_QUEUE'
     expect(parseEnemyEaglePatrolCheckpoint(JSON.parse(JSON.stringify(saved)))).toEqual(saved)
   })
-  it.each([
-    'negative generation',
-    'nonfinite cooldown',
-  ])('rejects malformed %s before materialization', (kind) => {
-    const saved = state()
-    if (kind === 'duplicate') saved.pairs.push({ ...saved.pairs[0] })
-    if (kind === 'negative generation') saved.pairs[0].generation = -1
-    if (kind === 'nonfinite cooldown') saved.pairs[0].respawnRemaining = Infinity
-    if (kind === 'invalid home') saved.pairs[0].home.x = 999
-    if (kind === 'invalid waypoint') saved.pairs[0].waypoint = 4
-    if (kind === 'unknown version') Object.assign(saved, { version: 2 })
-    expect(parseEnemyEaglePatrolCheckpoint(saved)).toBeUndefined()
+  it('rejects malformed negative generation and nonfinite cooldown before materialization', () => {
+    const savedNegative = state()
+    savedNegative.pairs[0].generation = -1
+    expect(parseEnemyEaglePatrolCheckpoint(savedNegative)).toBeUndefined()
+
+    const savedNonfinite = state()
+    savedNonfinite.pairs[0].respawnRemaining = Infinity
+    expect(parseEnemyEaglePatrolCheckpoint(savedNonfinite)).toBeUndefined()
   })
 })

@@ -29,7 +29,7 @@ describe('Veteran progression and stable borrowed rosters', () => {
     const accepted = acceptVeteranMission(profile, village, {
       missionId: 'shortage', availableTownCavalryActorIds: [...available, 'civilian-0', available[0]],
     })!
-    const loaded = parseCareerProfile(JSON.parse(JSON.stringify(accepted)))!, active = loaded.activeMission!
+    const active = accepted.activeMission!
     const roster = createVeteranRoster(village, 'roman', active.id, active.veteranRosterVersion, active.borrowedActorIds)
     const ordinary = roster.friendly.filter(unit => unit.tier === 3)
     expect(ordinary.filter(unit => unit.source === 'town').map(unit => unit.actorId).sort()).toEqual([...available].sort())

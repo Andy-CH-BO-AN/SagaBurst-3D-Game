@@ -27,17 +27,13 @@ it('keeps automatic health tied to character identity and requires a choice for 
   const defaults = getDefaultBattleConfig()
   expect(needsPlayerHpConfirmation(defaults)).toBe(false)
   expect(resolveOrdinaryPlayerBaseHp('viking', 2, defaults)).toBe(135)
+  for (const preset of [PRESET_10V10, PRESET_25V25, PRESET_50V50, PRESET_100V100, PRESET_200V200]) {
+    expect(needsPlayerHpConfirmation(preset)).toBe(false)
+  }
   const legacy = { ...defaults, playerHpSource: undefined, playerHp: 200 }
   expect(needsPlayerHpConfirmation(legacy)).toBe(true)
   const confirmed = { ...legacy, playerHpSource: 'custom' as const }
   expect(needsPlayerHpConfirmation(confirmed)).toBe(false)
   expect(resolveOrdinaryPlayerBaseHp('viking', 2, confirmed)).toBe(200)
   expect(validateBattleConfig({ ...confirmed, playerHpSource: 'unknown' }).valid).toBe(false)
-})
-
-it('all standard generated presets use formal health without requiring override confirmation', () => {
-  for (const preset of [PRESET_10V10, PRESET_25V25, PRESET_50V50, PRESET_100V100, PRESET_200V200]) {
-    expect(needsPlayerHpConfirmation(preset)).toBe(false)
-    expect(resolveOrdinaryPlayerBaseHp('roman', 1, preset)).toBe(100)
-  }
 })

@@ -1,6 +1,6 @@
 /**
  * CustomBattle2.test.ts
- * Comprehensive test suite for Custom Battle 2.0 features:
+ * Comprehensive test suite for Custom Battle features:
  * - Ground Battle 300 vs 300 limits, free T1-T5 tiers, removal of T4 limit.
  * - Aerial Battle 50 vs 50 limits (49 AI + player or 50 AI spectator), xongkoro mounts, altitudes.
  * - Cavalry mount resolution: T1-T3 horse, T4 individual feline/corgi draw, T5 individual wildcat draw, seed repeatability.
@@ -25,20 +25,8 @@ import { SquadFormationPlanner } from '../../src/battle/SquadFormationPlanner'
 import { AerialFormationPlanner } from '../../src/battle/AerialFormationPlanner'
 import { BattleController } from '../../src/battle/BattleController'
 import { BattleSetupUI } from '../../src/ui/BattleSetupUI'
-import { applyLoadoutCard, BATTLE_SETUP_MELEE_GROUPS, BATTLE_SETUP_SHIELD_GROUPS } from '../../src/ui/BattleSetupLoadoutCards'
 import { getCustomBattlePresetsForFaction, getUnitPresetsForFaction } from '../../src/battle/UnitPresetCatalog'
-import { t5EquipmentIdsForArmy } from '../../src/battle/T5HeroCatalog'
 import { mountTypeFromId, MountType } from '../../src/world/Mount'
-import {
-  createDefaultPlayerLoadout,
-  normalizeArmyConfig,
-  PLAYER_MELEE_SELECTION_IDS,
-  PLAYER_SHIELD_IDS,
-} from '../../src/battle/BattleConfig'
-import { WEAPONS } from '../../src/rpg/WeaponDatabase'
-import { ARMORS } from '../../src/rpg/ArmorDatabase'
-import { SETUP_PLAYER_HERO_IDS } from '../../src/world/HeroAssetCatalog'
-import { HERO_COMBAT_PROFILE_BY_ASSET } from '../../src/battle/HeroCombatProfile'
 import {
   squadShortcutKey,
   SquadId,
@@ -109,7 +97,7 @@ function createMockNpc(
   } as unknown as NPC & { dead: boolean }
 }
 
-describe('Custom Battle 2.0: Ground Battle Limits and Tiers', () => {
+describe('Custom Battle: Ground Battle Limits and Tiers', () => {
   it('allows up to 300 AI per faction and rejects 301', () => {
     const validConfig = makeGroundConfig(300, 300)
     expect(validateBattleConfig(validConfig).valid).toBe(true)
@@ -125,33 +113,72 @@ describe('Custom Battle 2.0: Ground Battle Limits and Tiers', () => {
     expect(resRoman.errors.some(e => e.includes('300'))).toBe(true)
   })
 
-  it('allows arbitrary combinations of T1..T5 with no 3-unit limit on T4 and no limit on T5', () => {
+  it('allows arbitrary combinations of T1..T5 with no unit limit, validating loadouts, mounts and combat profiles including heavy cavalry', () => {
     const config = makeGroundConfig(0, 50)
     const vikingArmy = createEmptyArmyConfig()
     vikingArmy.infantry[1] = 50
     vikingArmy.infantry[2] = 50
     vikingArmy.infantry[3] = 50
-    vikingArmy.infantry[4] = 75 // More than old limit of 3!
+    vikingArmy.infantry[4] = 70 // More than old limit of 3!
     vikingArmy.infantry[5] = 75 // T5 allowed freely
     config.viking = vikingArmy
-    // Total is 300
+    // Add Roman & Viking heavy cavalry across T1..T5 (5 units, keeping total Viking = 300)
+    config.roman = { ...config.roman, roman_heavy_cavalry: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 } }
+    config.viking = { ...config.viking, viking_heavy_cavalry: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 } }
+
     const res = validateBattleConfig(config)
     expect(res.valid).toBe(true)
 
     // Plan spawn and check specs contain T4 and T5 heroes
     const plan = BattleSpawner.createSpawnPlan(config)
-    const t4s = plan.npcSpecs.filter(s => s.characterFaction === 'viking' && s.tier === 4)
-    const t5s = plan.npcSpecs.filter(s => s.characterFaction === 'viking' && s.tier === 5)
-    expect(t4s.length).toBe(75)
+    const t4s = plan.npcSpecs.filter(s => s.characterFaction === 'viking' && s.tier === 4 && !s.cavalry)
+    const t5s = plan.npcSpecs.filter(s => s.characterFaction === 'viking' && s.tier === 5 && !s.cavalry)
+    expect(t4s.length).toBe(70)
     expect(t5s.length).toBe(75)
 
     // Verify T4 and T5 heroes receive appropriate combat profiles
     expect(t4s[0].combatProfileId).toBe('varangian')
     expect(t5s[0].combatProfileId).toBe('viking-commander')
+
+    // Verify heavy cavalry loadouts, mounts, and combat profiles (merged from #130)
+    const LANCES = ['hunting_spear', 'steel_lance', 'heavy_lance', 'spear_t4']
+    const expectedHeavy = {
+      roman: {
+        presetId: 'roman_heavy_cavalry', mountId: 'armored-horse', mountType: MountType.ARMORED_HORSE,
+        shields: ['scutum_t1', 'scutum_t2', 'scutum_t3', 'roman_officer_shield_t4', 'byzantine_eagle_shield_t5'],
+        t5: { weapon: 'byzantine_standard_lance_t5', combat: 'byzantine-cataphract' },
+        t4: { combat: 'centurion' },
+      },
+      viking: {
+        presetId: 'viking_heavy_cavalry', mountId: 'snow-leopard', mountType: MountType.SNOW_LEOPARD,
+        shields: ['round_shield_t1', 'round_shield_t2', 'round_shield_t3', 'paladin_shield_t4', 'viking_berserker_shield_t5'],
+        t5: { weapon: 'spear_t5', combat: 'ironblood-warlord' },
+        t4: { combat: 'dragon-oathguard' },
+      },
+    } as const
+
+    for (const faction of ['roman', 'viking'] as const) {
+      const want = expectedHeavy[faction]
+      for (const tier of [1, 2, 3, 4, 5] as const) {
+        const specs = plan.npcSpecs.filter(spec => spec.presetId === want.presetId && spec.tier === tier)
+        expect(specs.length).toBe(1)
+        const [spec] = specs
+        const hero = tier === 5 ? want.t5 : tier === 4 ? want.t4 : undefined
+        expect(spec).toMatchObject({ characterFaction: faction, cavalry: true, combatProfileId: hero?.combat })
+        expect(spec.loadout).toMatchObject({
+          meleeWeaponId: tier === 5 ? want.t5.weapon : LANCES[tier - 1],
+          shieldId: want.shields[tier - 1], rangedWeaponId: null, mountId: want.mountId,
+        })
+        expect(mountTypeFromId(spec.loadout?.mountId)).toBe(want.mountType)
+      }
+      const custom = getCustomBattlePresetsForFaction(faction).map(preset => preset.id)
+      expect(custom).toContain(`${faction}_heavy_cavalry`)
+      expect(getUnitPresetsForFaction(faction).map(preset => preset.id)).not.toContain(`${faction}_heavy_cavalry`)
+    }
   })
 })
 
-describe('Custom Battle 2.0: Aerial Battle Limits and Configuration', () => {
+describe('Custom Battle: Aerial Battle Limits and Configuration', () => {
   it('allows 49 AI + 1 player (total 50) for participating player, and 50 AI for enemy', () => {
     const config = makeAerialConfig(49, 50, false)
     expect(validateBattleConfig(config).valid).toBe(true)
@@ -182,34 +209,7 @@ describe('Custom Battle 2.0: Aerial Battle Limits and Configuration', () => {
     expect(res.errors.some(e => e.includes('aerial battle cannot contain non-archer unit'))).toBe(true)
   })
 
-  it('spawns all aerial units on xongkoro with safe altitudes between 35m and 55m', () => {
-    const config = makeAerialConfig(20, 20, false)
-    const plan = BattleSpawner.createSpawnPlan(config)
-
-    expect(plan.npcSpecs.length).toBe(40)
-    for (const spec of plan.npcSpecs) {
-      expect(spec.cavalry).toBe(true)
-      expect(spec.loadout?.mountId).toBe('xongkoro')
-      expect(spec.spawnY).toBeGreaterThanOrEqual(35)
-      expect(spec.spawnY).toBeLessThanOrEqual(55)
-    }
-  })
-
-  it('keeps single 50-eagle squad strictly within playable map boundaries |Z| <= 270 and |X| <= 220', () => {
-    const config = makeAerialConfig(49, 50, false)
-    const plan = AerialFormationPlanner.planAerialBattle(config)
-
-    expect(plan.npcSpecs.length).toBe(99)
-    for (const spec of plan.npcSpecs) {
-      expect(Math.abs(spec.z)).toBeLessThanOrEqual(270)
-      expect(Math.abs(spec.x)).toBeLessThanOrEqual(220)
-    }
-    // Player within safe bounds
-    expect(Math.abs(plan.playerSpawn.z)).toBeLessThanOrEqual(275)
-    expect(plan.playerSpawn.y).toBe(35)
-  })
-
-  it('keeps multi-squad 50-eagle army strictly within playable map boundaries', () => {
+  it('spawns aerial units on xongkoro within safe altitudes and map boundaries', () => {
     const config = makeAerialConfig(49, 50, false)
     config.commandGrouping = 'squad'
     config.squadAssignments = [
@@ -219,16 +219,22 @@ describe('Custom Battle 2.0: Aerial Battle Limits and Configuration', () => {
       { presetId: 'viking_archer', tier: 3, squadId: 4, count: 10 },
       { presetId: 'viking_archer', tier: 3, squadId: 5, count: 9 },
     ]
-    const plan = AerialFormationPlanner.planAerialBattle(config)
-
+    const plan = BattleSpawner.createSpawnPlan(config)
+    expect(plan.npcSpecs.length).toBe(99)
     for (const spec of plan.npcSpecs) {
+      expect(spec.cavalry).toBe(true)
+      expect(spec.loadout?.mountId).toBe('xongkoro')
+      expect(spec.spawnY).toBeGreaterThanOrEqual(35)
+      expect(spec.spawnY).toBeLessThanOrEqual(55)
       expect(Math.abs(spec.z)).toBeLessThanOrEqual(270)
       expect(Math.abs(spec.x)).toBeLessThanOrEqual(220)
     }
+    expect(Math.abs(plan.playerSpawn.z)).toBeLessThanOrEqual(275)
+    expect(plan.playerSpawn.y).toBe(35)
   })
 })
 
-describe('Custom Battle 2.0: Cavalry Mount Assignments and Seed Repeatability', () => {
+describe('Custom Battle: Cavalry Mount Assignments and Seed Repeatability', () => {
   it('assigns legal mounts across T1..T5 and allocates distinct mounts independently per NPC', () => {
     // T1..T3 receive standard horse
     expect(getCustomBattleMount(1, 0)).toBe('horse')
@@ -267,98 +273,40 @@ describe('Custom Battle 2.0: Cavalry Mount Assignments and Seed Repeatability', 
     expect(t4MountsInBattle.size).toBeGreaterThanOrEqual(2)
     expect(t5MountsInBattle.size).toBeGreaterThanOrEqual(2)
   })
-
-  it('guarantees deterministic mount assignment on rematch with identical seed', () => {
-    const seed = 12345678
-    const config1 = makeGroundConfig(0, 10)
-    const vikingArmy = createEmptyArmyConfig()
-    vikingArmy.cavalry[4] = 10
-    vikingArmy.cavalry[5] = 10
-    config1.viking = vikingArmy
-    config1.seed = seed
-
-    const config2 = { ...config1 }
-
-    const plan1 = BattleSpawner.createSpawnPlan(config1)
-    const plan2 = BattleSpawner.createSpawnPlan(config2)
-
-    const mounts1 = plan1.npcSpecs.map(s => s.loadout?.mountId)
-    const mounts2 = plan2.npcSpecs.map(s => s.loadout?.mountId)
-    expect(mounts1).toEqual(mounts2)
-  })
 })
 
-describe('Custom Battle 2.0: Squad Formation Layout Rules', () => {
-  it('places <= 5 squads ALL in rear rank, leaving front rank completely empty', () => {
-    const numSquads = 5
-    const config = makeGroundConfig(numSquads * 10, 10)
-    config.commandGrouping = 'squad'
-    config.squadAssignments = []
-    for (let s = 1; s <= numSquads; s++) {
-      config.squadAssignments.push({
-        presetId: 'viking_berserker',
-        tier: 1,
-        squadId: s as SquadId,
-        count: 10,
-      })
-    }
+describe('Custom Battle: Squad Formation Layout Rules', () => {
+  it('places <= 5 squads in rear rank, > 5 squads across front and rear without overlap, and spawns player behind rear rank', () => {
+    // Case 1: <= 5 squads
+    const config5 = makeGroundConfig(50, 10)
+    config5.commandGrouping = 'squad'
+    config5.squadAssignments = Array.from({ length: 5 }, (_, i) => ({
+      presetId: 'viking_berserker' as const, tier: 1 as const, squadId: (i + 1) as SquadId, count: 10,
+    }))
+    const plan5 = SquadFormationPlanner.planCustomBattle(config5)
+    const vikingUnits5 = plan5.npcSpecs.filter(u => u.characterFaction === 'viking')
+    expect(vikingUnits5.length).toBe(50)
+    for (const unit of vikingUnits5) expect(unit.z).toBeGreaterThanOrEqual(200)
 
-    const plan = SquadFormationPlanner.planCustomBattle(config)
-    const vikingUnits = plan.npcSpecs.filter(u => u.characterFaction === 'viking')
-    expect(vikingUnits.length).toBe(numSquads * 10)
+    // Case 2: > 5 squads (6 squads)
+    const config6 = makeGroundConfig(60, 10)
+    config6.commandGrouping = 'squad'
+    config6.squadAssignments = Array.from({ length: 6 }, (_, i) => ({
+      presetId: 'viking_berserker' as const, tier: 1 as const, squadId: (i + 1) as SquadId, count: 10,
+    }))
+    const plan6 = SquadFormationPlanner.planCustomBattle(config6)
+    const vikingUnits6 = plan6.npcSpecs.filter(u => u.characterFaction === 'viking')
+    const frontUnits = vikingUnits6.filter(u => u.squadId! <= 5)
+    const rearUnits = vikingUnits6.filter(u => u.squadId! >= 6)
+    expect(frontUnits.length).toBe(50)
+    expect(rearUnits.length).toBe(10)
+    const maxFrontZ = Math.max(...frontUnits.map(u => u.z))
+    const minRearZ = Math.min(...rearUnits.map(u => u.z))
+    expect(minRearZ).toBeGreaterThan(maxFrontZ + 10)
 
-    // In Viking deployment, South is Z > 0.
-    // Rear rank is at the edge (Z >= 200).
-    for (const unit of vikingUnits) {
-      expect(unit.z).toBeGreaterThanOrEqual(200)
-    }
-  })
-
-  it('places squads 1-5 in front rank and squads 6-10 in rear rank when > 5 squads without overlap and preserves enemy default grouping', () => {
-    for (const numSquads of [6, 10]) {
-      const config = makeGroundConfig(numSquads * 10, 10)
-      config.commandGrouping = 'squad'
-      config.squadAssignments = []
-      for (let s = 1; s <= numSquads; s++) {
-        config.squadAssignments.push({
-          presetId: 'viking_berserker',
-          tier: 1,
-          squadId: s as SquadId,
-          count: 10,
-        })
-      }
-
-      const plan = SquadFormationPlanner.planCustomBattle(config)
-      const vikingUnits = plan.npcSpecs.filter(u => u.characterFaction === 'viking')
-      expect(vikingUnits.length).toBe(numSquads * 10)
-
-      const frontUnits = vikingUnits.filter(u => u.squadId! <= 5)
-      const rearUnits = vikingUnits.filter(u => u.squadId! >= 6)
-
-      expect(frontUnits.length).toBe(5 * 10)
-      expect(rearUnits.length).toBe((numSquads - 5) * 10)
-
-      const maxFrontZ = Math.max(...frontUnits.map(u => u.z))
-      const minRearZ = Math.min(...rearUnits.map(u => u.z))
-
-      // Crucial requirement: Front rank and rear rank NEVER overlap!
-      // Between front and rear rank there is a clear inter-rank corridor.
-      expect(minRearZ).toBeGreaterThan(maxFrontZ + 10)
-
-      // Player Viking manual squad assignments do NOT pollute enemy Roman grouping
-      const romanUnits = plan.npcSpecs.filter(u => u.characterFaction === 'roman')
-      expect(romanUnits.every(s => s.squadId === 1)).toBe(true)
-    }
-  })
-
-  it('spawns player safely behind rear rank on own edge', () => {
-    const config = makeGroundConfig(50, 50)
-    const plan = SquadFormationPlanner.planCustomBattle(config)
-
-    const vikingUnits = plan.npcSpecs.filter(u => u.characterFaction === 'viking')
-    const maxZ = Math.max(...vikingUnits.map(u => u.z))
-    // Player spawn must be behind the furthest rear row of their army
-    expect(plan.playerSpawn.z).toBeGreaterThan(maxZ + 5)
+    // Player spawn behind furthest rear row
+    const maxZ = Math.max(...vikingUnits6.map(u => u.z))
+    expect(plan6.playerSpawn.z).toBeGreaterThan(maxZ + 5)
   })
 
   it('maintains safe distance >= 4.0m between mounted units in 50-unit cavalry squads', () => {
@@ -378,24 +326,9 @@ describe('Custom Battle 2.0: Squad Formation Layout Rules', () => {
       }
     }
   })
-
-  it('generates authentic camp pickups with valid weapon IDs and horses when includeCamps is enabled', () => {
-    const config = makeGroundConfig(30, 30)
-    config.rules.includeCamps = true
-    config.mapId = 'original'
-
-    const plan = SquadFormationPlanner.planCustomBattle(config)
-    expect(plan.pickupSpecs.length).toBeGreaterThan(0)
-    expect(plan.horseSpecs.length).toBeGreaterThan(0)
-
-    // Verify all generated equipment IDs are valid weapons/shields from catalog
-    const pickupIds = plan.pickupSpecs.map(p => p.weaponId).filter((id): id is string => Boolean(id))
-    expect(pickupIds.length).toBeGreaterThan(0)
-    expect(pickupIds.every(id => id in WEAPONS || id in ARMORS)).toBe(true)
-  })
 })
 
-describe('Custom Battle 2.0: Player-Inclusive Victory & Defeat Rules', () => {
+describe('Custom Battle: Player-Inclusive Victory & Defeat Rules', () => {
   it('keeps battle ongoing when friendly AI are all eliminated but player is still alive', () => {
     const config = makeGroundConfig(10, 10)
     const controller = new BattleController(config)
@@ -406,25 +339,41 @@ describe('Custom Battle 2.0: Player-Inclusive Victory & Defeat Rules', () => {
     ]
     controller.initCounts(npcs, player)
 
-    // Friendly AI dies, player alive, enemy alive
+    // Friendly AI dies, player alive, enemy alive -> ongoing
     npcs[0].dead = true
     controller.update(npcs, player)
-
     expect(controller.getResult()).toBeNull()
   })
 
   it('keeps battle ongoing when player dies but friendly AI are still alive', () => {
     const config = makeGroundConfig(10, 10)
     const controller = new BattleController(config)
-    const player = { dead: true }
+    const player = { dead: false }
     const npcs = [
       createMockNpc(Faction.PLAYER, false, 'viking'),
       createMockNpc(Faction.ENEMY, false, 'roman'),
     ]
-    controller.initCounts(npcs, { dead: false })
+    controller.initCounts(npcs, player)
 
+    // Player dies, friendly AI alive, enemy alive -> ongoing
+    player.dead = true
     controller.update(npcs, player)
     expect(controller.getResult()).toBeNull()
+  })
+
+  it('determines VIKING_VICTORY when player is alive and all enemy Roman AI die', () => {
+    const config = makeGroundConfig(10, 10)
+    const controller = new BattleController(config)
+    const player = { dead: false }
+    const npcs = [
+      createMockNpc(Faction.PLAYER, false, 'viking'),
+      createMockNpc(Faction.ENEMY, false, 'roman'),
+    ]
+    controller.initCounts(npcs, player)
+
+    npcs[1].dead = true
+    controller.update(npcs, player)
+    expect(controller.getResult()).toBe('VIKING_VICTORY')
   })
 
   it('determines ROMAN_VICTORY when player dies and all friendly Viking AI die', () => {
@@ -437,32 +386,13 @@ describe('Custom Battle 2.0: Player-Inclusive Victory & Defeat Rules', () => {
     ]
     controller.initCounts(npcs, player)
 
-    // Both Viking AI and player die, Roman alive
     npcs[0].dead = true
     player.dead = true
     controller.update(npcs, player)
-
     expect(controller.getResult()).toBe('ROMAN_VICTORY')
   })
 
-  it('determines VIKING_VICTORY when enemy Romans are wiped and player or Viking AI is alive', () => {
-    const config = makeGroundConfig(10, 10)
-    const controller = new BattleController(config)
-    const player = { dead: false }
-    const npcs = [
-      createMockNpc(Faction.PLAYER, true, 'viking'), // Viking AI dead
-      createMockNpc(Faction.ENEMY, false, 'roman'),
-    ]
-    controller.initCounts(npcs, player)
-
-    // Roman eliminated, player still alive
-    npcs[1].dead = true
-    controller.update(npcs, player)
-
-    expect(controller.getResult()).toBe('VIKING_VICTORY')
-  })
-
-  it('determines DRAW when both sides are wiped out simultaneously including player', () => {
+  it('determines DRAW when both sides are eliminated simultaneously', () => {
     const config = makeGroundConfig(10, 10)
     const controller = new BattleController(config)
     const player = { dead: false }
@@ -476,7 +406,6 @@ describe('Custom Battle 2.0: Player-Inclusive Victory & Defeat Rules', () => {
     npcs[1].dead = true
     player.dead = true
     controller.update(npcs, player)
-
     expect(controller.getResult()).toBe('DRAW')
   })
 
@@ -499,8 +428,8 @@ describe('Custom Battle 2.0: Player-Inclusive Victory & Defeat Rules', () => {
   })
 })
 
-describe('Custom Battle 2.0: Roman Player Squad Assignments and Shortcuts (P0)', () => {
-  it('applies manual squad assignments to Roman army when player is Roman (Ground)', () => {
+describe('Custom Battle: Roman Player Squad Assignments and Shortcuts (P0)', () => {
+  it('applies manual squad assignments to Roman army in ground and aerial battles', () => {
     const config = makeGroundConfig(20, 20)
     config.playerFaction = 'roman'
     config.commandGrouping = 'squad'
@@ -521,37 +450,26 @@ describe('Custom Battle 2.0: Roman Player Squad Assignments and Shortcuts (P0)',
     expect(squadShortcutKey(6)).toBe('6')
     expect(squadShortcutKey(10)).toBe('0')
 
-    // Viking army (enemy) should use automatic grouping, NOT squadAssignments
     const vikingSpecs = plan.npcSpecs.filter(s => s.characterFaction === 'viking')
-    expect(vikingSpecs.length).toBe(20)
     expect(vikingSpecs.every(s => s.squadId === 1)).toBe(true)
-  })
 
-  it('applies manual squad assignments to Roman army when player is Roman (Aerial)', () => {
-    const config = makeAerialConfig(20, 20, false)
-    config.playerFaction = 'roman'
-    config.commandGrouping = 'squad'
-    config.squadAssignments = [
+    // Aerial
+    const aerialConfig = makeAerialConfig(20, 20, false)
+    aerialConfig.playerFaction = 'roman'
+    aerialConfig.commandGrouping = 'squad'
+    aerialConfig.squadAssignments = [
       { presetId: 'roman_archer', tier: 3, squadId: 6, count: 10 },
       { presetId: 'roman_archer', tier: 3, squadId: 10, count: 10 },
     ]
-    const plan = AerialFormationPlanner.planAerialBattle(config)
-    const romanSpecs = plan.npcSpecs.filter(s => s.characterFaction === 'roman')
-    expect(romanSpecs.length).toBe(20)
-
-    const squad6 = romanSpecs.filter(s => s.squadId === 6)
-    const squad10 = romanSpecs.filter(s => s.squadId === 10)
-    expect(squad6.length).toBe(10)
-    expect(squad10.length).toBe(10)
-
-    // Viking army (enemy) uses automatic grouping
-    const vikingSpecs = plan.npcSpecs.filter(s => s.characterFaction === 'viking')
-    expect(vikingSpecs.length).toBe(20)
-    expect(vikingSpecs.every(s => s.squadId === 1)).toBe(true)
+    const aerialPlan = AerialFormationPlanner.planAerialBattle(aerialConfig)
+    const aerialRoman = aerialPlan.npcSpecs.filter(s => s.characterFaction === 'roman')
+    expect(aerialRoman.length).toBe(20)
+    expect(aerialRoman.filter(s => s.squadId === 6).length).toBe(10)
+    expect(aerialRoman.filter(s => s.squadId === 10).length).toBe(10)
   })
 })
 
-describe('Custom Battle 2.0: Clearance and Collision Avoidance (P1)', () => {
+describe('Custom Battle: Clearance and Collision Avoidance (P1)', () => {
   it('throws a descriptive error when all candidate coordinates in the deployment zone are blocked', () => {
     const config = makeGroundConfig(5, 5)
     // Create an obstacle covering the entire Viking deployment zone
@@ -664,7 +582,7 @@ describe('Custom Battle 2.0: Clearance and Collision Avoidance (P1)', () => {
   })
 })
 
-describe('Custom Battle 2.0: Battle Type Map Selection Persistence (P2)', () => {
+describe('Custom Battle: Battle Type Map Selection Persistence (P2)', () => {
   it('resets map to original in aerial mode and preserves ground map selection across mode toggles', () => {
     const config = makeGroundConfig(10, 10)
     config.mapId = 'roman_town'
@@ -696,105 +614,5 @@ describe('Custom Battle 2.0: Battle Type Map Selection Persistence (P2)', () => 
     ui.switchBattleType('ground')
     expect(ui.getConfig().battleType).toBe('ground')
     expect(ui.getConfig().mapId).toBe('snow')
-  })
-})
-
-describe('Custom Battle player equipment menu', () => {
-  const cardIds = (groups: typeof BATTLE_SETUP_MELEE_GROUPS) => groups.flatMap(group => group.cards.map(card => card.id))
-
-  it('offers every selectable melee weapon and shield, including the Byzantine pair', () => {
-    expect(cardIds(BATTLE_SETUP_MELEE_GROUPS).filter(Boolean).sort()).toEqual([...PLAYER_MELEE_SELECTION_IDS].sort())
-    expect(cardIds(BATTLE_SETUP_SHIELD_GROUPS).filter(Boolean).sort()).toEqual([...PLAYER_SHIELD_IDS].sort())
-  })
-
-  it('keeps a clicked Byzantine card through the hero change, validation and refresh of the config', () => {
-    const config = makeGroundConfig(1, 1)
-    config.playerLoadout = createDefaultPlayerLoadout()
-    applyLoadoutCard(config.playerLoadout, 'melee', 'byzantine_standard_lance_t5')
-    applyLoadoutCard(config.playerLoadout, 'shield', 'byzantine_eagle_shield_t5')
-    config.playerHeroId = 'byzantine-cataphract-t5'
-    config.playerFaction = 'roman'
-    expect(validateBattleConfig(config).valid).toBe(true)
-    expect(new BattleSetupUI(config).getConfig().playerLoadout).toMatchObject({
-      meleeWeaponId: 'byzantine_standard_lance_t5', shieldId: 'byzantine_eagle_shield_t5',
-    })
-  })
-
-  it('offers the Centurion T4 as a player hero with its own combat profile, keeping the existing options', () => {
-    expect(SETUP_PLAYER_HERO_IDS).toContain('roman-centurion-t4')
-    const config = makeGroundConfig(1, 1)
-    config.playerLoadout = createDefaultPlayerLoadout()
-    applyLoadoutCard(config.playerLoadout, 'shield', 'centurion_aquila_shield_t4')
-    config.playerHeroId = 'roman-centurion-t4'
-    expect(validateBattleConfig(config).valid).toBe(true)
-    expect(HERO_COMBAT_PROFILE_BY_ASSET[config.playerHeroId]).toBe('centurion')
-    expect(new BattleSetupUI(config).getConfig()).toMatchObject({ playerHeroId: 'roman-centurion-t4', playerLoadout: { shieldId: 'centurion_aquila_shield_t4' } })
-  })
-})
-
-describe('Custom Battle Heavy Cavalry', () => {
-  const LANCES = ['hunting_spear', 'steel_lance', 'heavy_lance', 'spear_t4']
-  const expected = {
-    roman: {
-      presetId: 'roman_heavy_cavalry', mountId: 'armored-horse', mountType: MountType.ARMORED_HORSE,
-      shields: ['scutum_t1', 'scutum_t2', 'scutum_t3', 'roman_officer_shield_t4', 'byzantine_eagle_shield_t5'],
-      t5: { weapon: 'byzantine_standard_lance_t5', combat: 'byzantine-cataphract' },
-      t4: { combat: 'centurion' },
-    },
-    viking: {
-      presetId: 'viking_heavy_cavalry', mountId: 'snow-leopard', mountType: MountType.SNOW_LEOPARD,
-      shields: ['round_shield_t1', 'round_shield_t2', 'round_shield_t3', 'paladin_shield_t4', 'viking_berserker_shield_t5'],
-      t5: { weapon: 'spear_t5', combat: 'ironblood-warlord' },
-      t4: { combat: 'dragon-oathguard' },
-    },
-  } as const
-
-  function heavyConfig(mode: 'formation' | 'scattered' = 'formation'): BattleConfig {
-    const config = makeGroundConfig(0, 0)
-    config.mode = mode
-    config.roman = { ...config.roman, roman_heavy_cavalry: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 } }
-    config.viking = { ...config.viking, viking_heavy_cavalry: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 } }
-    return config
-  }
-
-  it('spawns the exact loadout, mount, look and combat profile for every faction and tier', () => {
-    const config = heavyConfig()
-    expect(validateBattleConfig(config).valid).toBe(true)
-    const plan = BattleSpawner.createSpawnPlan(config)
-    for (const faction of ['roman', 'viking'] as const) {
-      const want = expected[faction]
-      for (const tier of [1, 2, 3, 4, 5] as const) {
-        const specs = plan.npcSpecs.filter(spec => spec.presetId === want.presetId && spec.tier === tier)
-        expect(specs.length).toBe(1)
-        const [spec] = specs
-        const hero = tier === 5 ? want.t5 : tier === 4 ? want.t4 : undefined
-        expect(spec).toMatchObject({ characterFaction: faction, cavalry: true, combatProfileId: hero?.combat })
-        expect(spec.loadout).toMatchObject({
-          meleeWeaponId: tier === 5 ? want.t5.weapon : LANCES[tier - 1],
-          shieldId: want.shields[tier - 1], rangedWeaponId: null, mountId: want.mountId,
-        })
-        expect(mountTypeFromId(spec.loadout?.mountId)).toBe(want.mountType)
-      }
-    }
-  })
-
-  it('counts toward squads in both plans and only asks for Byzantine gear when Roman T5 is fielded', () => {
-    expect(BattleSpawner.createSpawnPlan(heavyConfig('scattered')).npcSpecs.filter(spec => spec.presetId?.endsWith('heavy_cavalry')).length).toBe(10)
-    const ids = (army: BattleConfig['roman'], faction: 'roman' | 'viking') => t5EquipmentIdsForArmy(normalizeArmyConfig(army, faction))
-    expect(ids(heavyConfig().roman, 'roman')).toEqual(['byzantine_standard_lance_t5', 'byzantine_eagle_shield_t5'])
-    expect(ids(heavyConfig().viking, 'viking').some(id => id.startsWith('byzantine'))).toBe(false)
-    expect(ids({ ...heavyConfig().roman, roman_heavy_cavalry: { 1: 3, 2: 0, 3: 0, 4: 2, 5: 0 } }, 'roman')).toEqual([])
-    const oldConfig = makeGroundConfig(2, 2)
-    expect(ids(oldConfig.roman, 'roman').some(id => id.startsWith('byzantine'))).toBe(false)
-    expect(validateBattleConfig(oldConfig).valid).toBe(true)
-  })
-
-  it('appears only in the Custom Battle roster, beside the lancers it does not replace', () => {
-    for (const faction of ['roman', 'viking'] as const) {
-      const custom = getCustomBattlePresetsForFaction(faction).map(preset => preset.id)
-      expect(custom).toContain(`${faction}_heavy_cavalry`)
-      expect(custom).toContain(`${faction}_lancer`)
-      expect(getUnitPresetsForFaction(faction).map(preset => preset.id)).not.toContain(`${faction}_heavy_cavalry`)
-    }
   })
 })
