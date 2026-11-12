@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
-import { BYZANTINE_EQUIPMENT_RETRY_MS, BYZANTINE_EQUIPMENT_WAIT_MS, byzantineEquipmentStatus } from '../../src/world/HighTierEquipment'
+import { BYZANTINE_EQUIPMENT_RETRY_MS, BYZANTINE_EQUIPMENT_WAIT_MS, byzantineEquipmentStatus, preloadHighTierEquipment } from '../../src/world/HighTierEquipment'
 import { AIState, AIType, Faction, NPC } from '../../src/world/NPC'
 import { showEquipmentLoadNotice } from '../../src/ui/EquipmentLoadNotice'
 
 const gltfLoads = vi.hoisted(() => ({ next: [] as Array<() => Promise<unknown>>, count: 0 }))
 vi.mock('three/examples/jsm/loaders/GLTFLoader.js', () => ({
-  GLTFLoader: class { async parseAsync() { return { scene: { traverse() {} } } } },
+  GLTFLoader: class {
+    async loadAsync() { return { scene: { traverse() {}, updateMatrixWorld() {} } } }
+    async parseAsync() { return { scene: { traverse() {} } } }
+  },
 }))
 vi.mock('../../src/ui/EquipmentLoadNotice', () => ({ showEquipmentLoadNotice: vi.fn() }))
 
@@ -108,5 +111,12 @@ describe('Equipment waiting for its model', () => {
       expect([actor.shieldId, actor.hasActiveShield]).toEqual([SHIELD, true])
     }
     expect(spawned.meleeWeaponId).toBe('steel_lance')
+  })
+
+  it('allows scene entry preload to complete promptly even when unused byzantine equipment is permanently pending', async () => {
+    let completed = false
+    void preloadHighTierEquipment().then(() => { completed = true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(completed).toBe(true)
   })
 })

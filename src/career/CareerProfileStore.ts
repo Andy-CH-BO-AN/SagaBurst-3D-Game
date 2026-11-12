@@ -56,7 +56,7 @@ import {
 import { getCareerMissionTemplate } from './CareerMissionCatalog'
 import { COMMANDER_FELINE_CAVALRY_KIND, COMMANDER_IRON_LEGION_KIND, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_FRIENDLY_TOTAL, felineCavalryActorIds, felineVanguardActorId } from './CommanderMissionCatalog'
 import { HEAVY_FIELD_KIND, heavyActorIds, heavyNpcGroups, ironLegionEnemyActorIds, ironLegionVanguardActorId, isHeavyFieldMissionId, parseHeavyFieldState } from './HeavyCavalryMissions'
-import { careerHeavyFieldMissionRankOk } from './HeavyFieldMission'
+import { careerHeavyFieldMissionRankOk, heavyMissionOfficialCommandPolicy } from './HeavyFieldMission'
 import { BRIDGEHEAD_PREPARATION_SECONDS, type ActiveCareerMission, type CareerMissionPhase, type CommanderMissionState, type VeteranOutpostBattleState } from './CareerMissionState'
 import { CAREER_DUEL_TEMPLATE_ID, DUEL_COUNTDOWN_SECONDS, DUEL_COMBAT_SECONDS, isCareerDuelPresetId, isCareerDuelTier, parseCareerDuelCommanderHome, parseCareerDuelTravelCheckpoint } from './CareerDuelState'
 
@@ -453,19 +453,41 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
         && felineBattle.actors[felineBattle.player.mountActorId]?.mount
         || personalSquad?.memberIds.includes(felineBattle.player.mountActorId)
           && personalSquad.members[felineBattle.player.mountActorId]?.mount)))) return undefined
+  let heavyOfficialSquad = acceptedOfficialSquad
   if (heavyMission) {
     const templateId = template!.id as Parameters<typeof heavyNpcGroups>[0]
     const expectedFriendly = heavyActorIds(raw.id as string, 'friendly', heavyNpcGroups(templateId, 'friendly'))
     const expectedEnemies = heavyActorIds(raw.id as string, 'enemy', heavyNpcGroups(templateId, 'enemy'))
-    const commandsSquad = rank === 'captain' || rank === 'commander'
+    const shouldCommand = heavyMissionOfficialCommandPolicy(rank, templateId)
     if (friendlyActorIds.length !== expectedFriendly.length || targetActorIds.length !== expectedEnemies.length
       || friendlyActorIds.some((id, index) => id !== expectedFriendly[index]) || targetActorIds.some((id, index) => id !== expectedEnemies[index])
-      || commandsSquad !== Boolean(acceptedOfficialSquad)
       || raw.personalSquad !== undefined && !personalSquad
       || personalSquad?.memberIds.some(id => knownActorIds.has(id))
       || raw.felineBattle !== undefined && !felineBattle
       || felineBattle && (Object.keys(felineBattle.actors).length !== friendlyActorIds.length + targetActorIds.length
         || Object.keys(felineBattle.actors).some(id => !knownActorIds.has(id)))) return undefined
+    if (shouldCommand) {
+      if (!heavyOfficialSquad) return undefined
+      if (rank === 'captain') {
+        if (heavyOfficialSquad.commandRank !== undefined
+          || heavyOfficialSquad.actorIds.length !== 29 || heavyOfficialSquad.actorIds.some(id => !friendlyActorIds.includes(id))) return undefined
+      } else if (rank === 'commander') {
+        if (heavyOfficialSquad.commandRank !== 'commander'
+          || heavyOfficialSquad.actorIds.length !== friendlyActorIds.length
+          || !heavyOfficialSquad.squads
+          || !heavyOfficialSquad.squads.every((squad, i) => squad.actorIds.every((id, slot) => id === friendlyActorIds[i * 50 + slot]))) return undefined
+      }
+    } else {
+      if (heavyOfficialSquad) {
+        // Safe compatibility: legacy save produced by older buggy code where Captain got unauthorized officialSquad in Soldier/Veteran mission.
+        // Revoke the officialSquad safely, but preserve mission, casualties, HP, personal squad, combat progress.
+        if (rank === 'captain' && heavyOfficialSquad.type === 'mission-official' && heavyOfficialSquad.missionId === raw.id) {
+          heavyOfficialSquad = undefined
+        } else {
+          return undefined
+        }
+      }
+    }
   }
   const marchPosition = raw.mountedMarchPosition as { x?: unknown; z?: unknown } | undefined
   const mountedMarchPosition = marchPosition && typeof marchPosition.x === 'number' && Number.isFinite(marchPosition.x)
@@ -476,7 +498,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     ...(commanderState ? { commanderMission: commanderState } : {}),
     ...(fourGateDefense ? { fourGateDefense } : {}),
     id: raw.id,
-    ...(acceptedOfficialSquad ? { officialSquad: acceptedOfficialSquad } : {}),
+    ...(heavyMission ? (heavyOfficialSquad ? { officialSquad: heavyOfficialSquad } : {}) : (acceptedOfficialSquad ? { officialSquad: acceptedOfficialSquad } : {})),
     ...(template?.kind === 'captain-patrol-command' ? { patrolKilledActorIds: uniqueStrings(raw.patrolKilledActorIds),
       ...(raw.patrolReturnStates && typeof raw.patrolReturnStates === 'object' ? { patrolReturnStates: Object.fromEntries(
         Object.entries(raw.patrolReturnStates).filter(([id, state]) => officialSquad?.actorIds.includes(id)
@@ -785,6 +807,8 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   // Never silently turn a rejected in-flight Commander V checkpoint into a peaceful Town.
   if ((savedMission?.kind === 'commander-four-gate-defense' || savedMission?.templateId === COMMANDER_FOUR_GATE_DEFENSE_ID)
     && !activeMission?.fourGateDefense) return null
+  if ((savedMission?.kind === HEAVY_FIELD_KIND || (typeof savedMission?.templateId === 'string' && isHeavyFieldMissionId(savedMission.templateId)))
+    && !activeMission) return null
   const activeOutpostMission = parseOutpostMission(raw.activeOutpostMission, raw.faction, rank)
   const personalSquadRuntime = parsePersonalMission(raw.personalSquadRuntime)
   const townCommandSquad = parseTownCommandSquad(raw.townCommandSquad)
@@ -1039,6 +1063,8 @@ export class CareerProfileStore {
         && !parsed.activeMission?.officialSquad) return false
       if (profile.activeOutpostMission?.officialSquad?.commandRank === 'commander'
         && !parsed.activeOutpostMission?.officialSquad) return false
+      if ((profile.activeMission?.kind === HEAVY_FIELD_KIND || (typeof profile.activeMission?.templateId === 'string' && isHeavyFieldMissionId(profile.activeMission.templateId)))
+        && !parsed.activeMission) return false
       this.storage.setItem(
         CAREER_STORAGE_KEY,
         JSON.stringify(cloneCareerProfile(parsed)),

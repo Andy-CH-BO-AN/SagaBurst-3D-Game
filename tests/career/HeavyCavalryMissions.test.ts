@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { availableCareerMissionsForPage } from '../../src/career/CareerMissionCatalog'
 import { careerMissionTierForTemplateId } from '../../src/career/CareerMissionTier'
 import { createCareerProfile } from '../../src/career/CareerProfile'
-import { parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { CareerProfileStore, CAREER_STORAGE_KEY, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { acceptHeavyFieldMission, createCareerHeavySpawnPlan, getHeavyFieldMissionAvailability } from '../../src/career/HeavyFieldMission'
 import { Faction } from '../../src/combat/CombatFaction'
 import { AIType } from '../../src/world/NPC'
 import type { CombatEvent } from '../../src/combat/CombatAttribution'
+import { MemoryStorage } from '../helpers/memoryStorage'
+import { acceptCommanderMission } from '../../src/career/CommanderMissionCatalog'
 import {
   CAPTAIN_STEEL_AVALANCHE_ID, COMMANDER_IRON_LEGION_ID, SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID,
   createHeavyFieldState,
@@ -151,5 +153,69 @@ describe('heavy cavalry field missions in Career', () => {
     expect(captain.officialSquad?.actorIds).toHaveLength(29)
     expect(captain.officialSquad?.actorIds.every(id => captain.friendlyActorIds.includes(id))).toBe(true)
     expect(captain.personalSquad?.memberIds).toEqual(['personal:hr-1'])
+  })
+
+  it('saves and loads Heavy Field active missions with strict rank authority, legacy revocation, and fail-closed corrupt protection', () => {
+    // 1. Captain accepts Soldier mission: save() === true -> loadChecked() has same mission, personalSquad, officialSquad === undefined
+    const store1 = new CareerProfileStore(new MemoryStorage())
+    const captainSoldier = profileFor('captain')
+    captainSoldier.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+    const acceptedCaptainSoldier = acceptHeavyFieldMission(captainSoldier, SOLDIER_IRON_ENCOUNTER_ID, 'cap-sol')!
+    expect(store1.save(acceptedCaptainSoldier)).toBe(true)
+    const loadedCaptainSoldier = store1.loadChecked().profile!
+    expect(loadedCaptainSoldier.activeMission?.templateId).toBe(SOLDIER_IRON_ENCOUNTER_ID)
+    expect(loadedCaptainSoldier.activeMission?.officialSquad).toBeUndefined()
+    expect(loadedCaptainSoldier.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
+
+    // 2. Captain accepts Steel Avalanche: save() === true -> loadChecked() keeps 29-man squad
+    const store2 = new CareerProfileStore(new MemoryStorage())
+    const captainSteel = profileFor('captain')
+    captainSteel.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+    const acceptedCaptainSteel = acceptHeavyFieldMission(captainSteel, CAPTAIN_STEEL_AVALANCHE_ID, 'cap-steel')!
+    expect(store2.save(acceptedCaptainSteel)).toBe(true)
+    const loadedCaptainSteel = store2.loadChecked().profile!
+    expect(loadedCaptainSteel.activeMission?.templateId).toBe(CAPTAIN_STEEL_AVALANCHE_ID)
+    expect(loadedCaptainSteel.activeMission?.officialSquad?.actorIds).toHaveLength(29)
+    expect(loadedCaptainSteel.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
+
+    // 3. Commander accepts Commander Iron Legion: valid squads roundtrip, while forged squads reject
+    const store3 = new CareerProfileStore(new MemoryStorage())
+    const commanderProfile = profileFor('commander')
+    const acceptedCommander = acceptCommanderMission(commanderProfile, COMMANDER_IRON_LEGION_ID, 'cmd-legion')!
+    expect(store3.save(acceptedCommander)).toBe(true)
+    const loadedCommander = store3.loadChecked().profile!
+    expect(loadedCommander.activeMission?.officialSquad?.commandRank).toBe('commander')
+    expect(loadedCommander.activeMission?.officialSquad?.squads?.length).toBeGreaterThan(1)
+
+    // Forged claim: unofficial stranger actorId injected into squad
+    const forgedCommander = structuredClone(acceptedCommander)
+    forgedCommander.activeMission!.officialSquad!.actorIds = ['stranger_actor_id']
+    expect(store3.save(forgedCommander)).toBe(false)
+
+    // 4. Legacy Captain Soldier save with unauthorized officialSquad: safely revokes officialSquad while retaining mission, casualties & state
+    const storage4 = new MemoryStorage()
+    const store4 = new CareerProfileStore(storage4)
+    const legacyCaptainSave = structuredClone(acceptedCaptainSoldier)
+    legacyCaptainSave.activeMission!.officialSquad = {
+      type: 'mission-official',
+      missionId: 'cap-sol',
+      townFaction: 'roman',
+      squadId: 1,
+      actorIds: acceptedCaptainSoldier.activeMission!.friendlyActorIds.slice(0, 10),
+      contribution: { kills: 0, damageTaken: 0, structuresDestroyed: 0, gateBreaches: 0, damageDealt: 0, arrowHits: 0, meleeHits: 0, mountDamage: 0 },
+    } as any
+    storage4.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacyCaptainSave))
+    const migratedProfile = store4.loadChecked().profile!
+    expect(migratedProfile.activeMission?.templateId).toBe(SOLDIER_IRON_ENCOUNTER_ID)
+    expect(migratedProfile.activeMission?.officialSquad).toBeUndefined()
+    expect(migratedProfile.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
+
+    // 5. Corrupted active Heavy Field: fail-closed, does not save/drop mission
+    expect(store4.save(migratedProfile)).toBe(true)
+    const validBytes = storage4.getItem(CAREER_STORAGE_KEY)!
+    const corruptedSave = structuredClone(migratedProfile)
+    corruptedSave.activeMission!.targetActorIds = ['corrupted_target']
+    expect(store4.save(corruptedSave)).toBe(false)
+    expect(storage4.getItem(CAREER_STORAGE_KEY)).toBe(validBytes)
   })
 })
