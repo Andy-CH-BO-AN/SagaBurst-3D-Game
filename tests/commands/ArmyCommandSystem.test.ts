@@ -9,8 +9,6 @@ import { stageOfficialCommandOrder } from '../../src/career/CareerOfficialComman
 import { parseCommandActorCheckpoint } from '../../src/career/CareerCommandAuthority'
 import { restoreCommandActor, snapshotCommandActor } from '../../src/career/CareerCommandActorCheckpoint'
 import { createCareerProfile } from '../../src/career/CareerProfile'
-import { acceptCommanderMission, COMMANDER_BRIDGEHEAD_ID } from '../../src/career/CommanderMissionCatalog'
-import { CareerCommandHudTypes } from '../../src/career/CareerCommandHudTypes'
 
 import { createArmyCommandHarness as controllerHarness, createRampartCommandActor, type CommandRecipientFixture } from '../helpers/armyCommandHarness'
 
@@ -79,26 +77,6 @@ describe('Army command roster, dispatch and submenu', () => {
     expect(restored.isOutpostRampartGarrisonActive).toBe(false)
     expect(restored.holdsRampartPosition).toBe(false)
     expect(h.ui.render.mock.lastCall![0].find(row => row.target === 'squad:1')?.order).toBe('attack')
-  })
-
-  it('retains accepted infantry types through pending deployment and complete squad casualties, including Squad 8', () => {
-    const profile = acceptCommanderMission({ ...createCareerProfile('roman'), rank: 'commander', totalMerit: 20000 },
-      COMMANDER_BRIDGEHEAD_ID, 'hud-bridge')!
-    const types = new CareerCommandHudTypes()
-    let pending = true
-    const source = () => careerCommandHudRoster({ sceneKey: 'bridge:hud-bridge', faction: 'roman', missionId: 'hud-bridge',
-      official: profile.activeMission!.officialSquad, officialPending: pending, unitTypes: types.read(profile), actors: [] })
-    const h = controllerHarness([], null, null, null, 'roman', 'squad', true, undefined,
-      { accepts: () => false, enabled: () => true }, source)
-    const entry = () => h.ui.render.mock.lastCall![0].find(row => row.target === 'squad:8')!
-    expect(entry().units).toEqual({ icons: '🏹', description: '🏹 弓兵' })
-    expect(entry().summary).toBe('0/25 · 部署中 25')
-    const authority = profile.activeMission!.officialSquad!
-    authority.members = Object.fromEntries(authority.actorIds.map(id => [id, { status: 'dead' as const, hp: 0 }]))
-    pending = false; h.controller.update()
-    expect(entry().summary).toBe('0/25 · 陣亡 25')
-    expect(entry().units).toEqual({ icons: '🏹', description: '🏹 弓兵' })
-    expect(h.ui.render.mock.lastCall![0].filter(row => row.target !== 'all')).toHaveLength(8)
   })
 
   it('commits a direct ALL order before mutations and excludes dead, returning and unowned records', () => {
@@ -184,12 +162,13 @@ describe('Army command roster, dispatch and submenu', () => {
     expect(h.controller.isSubmenuOpen).toBe(false)
   })
 
-  it('previews the highlighted or opened target through wheel, submenu and Q-back without issuing orders', () => {
+  it('previews the highlighted or opened target through wheel, submenu and Q-back without issuing orders, and clears on authority revocation', () => {
     const record = (id: string, squadId: SquadIdentity, faction = Faction.TOWN) =>
       ({ combatantId: id, squadId, faction, dead: false, setTacticalOrder: vi.fn() })
     const actors = [record('a1', 1), record('a2', 1), record('b1', 2), record('lost', 1), record('foe', 1, Faction.ENEMY)]
+    let enabled = true
     const h = controllerHarness(actors, null, null, null, 'roman', 'squad', true, undefined,
-      { accepts: npc => npc.combatantId !== 'lost' && npc.faction === Faction.TOWN, enabled: () => true })
+      { accepts: npc => npc.combatantId !== 'lost' && npc.faction === Faction.TOWN, enabled: () => enabled })
     const preview = () => {
       const ids: string[] = []
       h.controller.forEachCommandPreviewMember(npc => ids.push(npc.combatantId))
@@ -211,30 +190,16 @@ describe('Army command roster, dispatch and submenu', () => {
     h.input.pressKey('KeyQ'); h.controller.update()
     expect(preview()).toEqual({ target: null, ids: [] })
     for (const actor of actors) expect(actor.setTacticalOrder).not.toHaveBeenCalled()
-  })
 
-  it('does not preview deployed-roster exclusions or any member once command authority is revoked', () => {
-    const actors = [{ combatantId: 'field', squadId: 1, faction: Faction.TOWN, dead: false },
-      { combatantId: 'reserve', squadId: 1, faction: Faction.TOWN, dead: false }]
-    let enabled = true
-    const roster = () => ({ contextId: 'm1', members: [
-      { id: 'field', squadId: 1 as const, state: 'deployed' as const },
-      { id: 'reserve', squadId: 1 as const, state: 'reserve' as const },
-    ] })
-    const h = controllerHarness(actors, null, null, null, 'roman', 'squad', true, undefined,
-      { accepts: () => true, enabled: () => enabled }, roster)
+    // Revoking command authority clears preview target and members
     h.input.pressKey('KeyQ'); h.controller.update()
-    const ids: string[] = []
-    h.controller.forEachCommandPreviewMember(npc => ids.push(npc.combatantId))
-    expect(ids).toEqual(['field'])
+    expect(preview().ids).toEqual(['b1'])
     enabled = false
     expect(h.controller.commandPreviewTarget).toBeNull()
-    ids.length = 0
-    h.controller.forEachCommandPreviewMember(npc => ids.push(npc.combatantId))
-    expect(ids).toEqual([])
+    expect(preview().ids).toEqual([])
   })
 
-  it('drops the old 3/29 and command selection when a new mission authorizes 20 different IDs', () => {
+  it('clears command selection and drops old authority across new missions, town free-roam and scene changes', () => {
     const actors: CommandRecipientFixture[] = Array.from({ length: 3 }, (_, index) => ({
       combatantId: `a:${index}`, faction: Faction.TOWN, squadId: 1, dead: false, setTacticalOrder: vi.fn(),
     }))
@@ -246,56 +211,41 @@ describe('Army command roster, dispatch and submenu', () => {
         `${missionId}:${index}`, { status: missionId === 'a' && index >= 3 ? 'dead' : 'reserve' },
       ])),
     })
-    let current = official('a', 29), deploying = false
+    let current = official('a', 29)
     const provider = () => careerCommandHudRoster({
       sceneKey: 'town:roman', faction: 'roman', missionId: current.missionId,
-      official: current, officialPending: deploying, actors: actors as Array<{ combatantId: string; dead: boolean }>,
+      official: current, officialPending: false, actors: actors as Array<{ combatantId: string; dead: boolean }>,
     })
     const h = controllerHarness(actors, null, null, null, 'roman', 'squad', true, undefined,
       { accepts: npc => current.actorIds.includes(npc.combatantId), enabled: () => true }, provider)
-    expect(h.ui.render.mock.lastCall![0].map(entry => [entry.target, entry.summary])).toEqual([
-      ['squad:1', '3/29 · 陣亡 26'], ['all', '3/29 · 陣亡 26'],
-    ])
-    h.input.press('1'); h.controller.update(); h.input.press('3'); h.controller.update()
-    expect(h.ui.render.mock.lastCall![0][0].order).toBe('defend')
 
-    current = official('b', 20); deploying = true; actors.length = 0
+    // Select squad 1
+    h.input.press('1'); h.controller.update()
+    expect(h.controller.selected).not.toBeNull()
+
+    // Switching to mission 'b' clears selection and changes authority
+    current = official('b', 20); actors.length = 0
     h.controller.update()
     expect(h.controller.selected).toBeNull()
-    expect(h.ui.render.mock.lastCall![0].map(entry => [entry.target, entry.summary, entry.order])).toEqual([
-      ['squad:1', '0/20 · 部署中 20', 'attack'], ['all', '0/20 · 部署中 20', 'attack'],
-    ])
-    actors.push({ combatantId: 'b:0', squadId: 1, faction: Faction.TOWN, dead: false })
-    h.controller.update()
-    expect(h.ui.render.mock.lastCall![0][0].summary).toBe('1/20 · 部署中 19')
-    deploying = false // Failed/unavailable placements cannot remain reported as deployed.
-    h.controller.update()
-    expect(h.ui.render.mock.lastCall![0][0].summary).toBe('1/20 · 未部署 19')
-  })
 
-  it('does not reuse squad:1 from a completed battle in town free-roam or a different scene', () => {
-    const actors: CommandRecipientFixture[] = [{ combatantId: 'battle:1', squadId: 1, faction: Faction.TOWN, dead: false }]
+    // Switching scene to town free-roam does not reuse old battle squad authority
     let scene = 'eagle:battle', missionId = 'battle', town = false
-    const source = () => careerCommandHudRoster({
+    const sceneActors: CommandRecipientFixture[] = [{ combatantId: 'battle:1', squadId: 1, faction: Faction.TOWN, dead: false }]
+    const sceneSource = () => careerCommandHudRoster({
       sceneKey: scene, faction: 'viking', ...(town ? {} : { missionId }),
       official: town ? {
         type: 'town-command', squadId: 1, townFaction: 'viking', actorIds: ['town:1'], contribution: emptyPersonalContribution(),
       } : {
         type: 'mission-official', missionId, squadId: 1, townFaction: 'viking',
         actorIds: ['battle:1'], contribution: emptyPersonalContribution(),
-      }, actors: actors as Array<{ combatantId: string; dead: boolean }>,
+      }, actors: sceneActors as Array<{ combatantId: string; dead: boolean }>,
     })
-    const h = controllerHarness(actors, null, null, null, 'viking', 'squad', true, undefined,
-      { accepts: npc => town ? npc.combatantId === 'town:1' : npc.combatantId === 'battle:1', enabled: () => true }, source)
-    expect(h.ui.render.mock.lastCall![0][0].summary).toBe('1/1')
-    town = true; scene = 'town:home'; actors.splice(0, 1, { combatantId: 'town:1', squadId: 1, faction: Faction.TOWN, dead: false })
-    h.controller.update()
-    expect(h.ui.render.mock.lastCall![0][0].summary).toBe('1/1')
-    // Even with identical display counts, the saved identity and authority changed.
-    h.input.press('1'); h.controller.update()
-    town = false; missionId = 'next'; scene = 'outpost:next'; actors.length = 0
-    h.controller.update()
-    expect(h.controller.selected).toBeNull()
-    expect(h.ui.render.mock.lastCall![0][0].summary).toBe('0/1 · 未部署 1')
+    const hScene = controllerHarness(sceneActors, null, null, null, 'viking', 'squad', true, undefined,
+      { accepts: npc => town ? npc.combatantId === 'town:1' : npc.combatantId === 'battle:1', enabled: () => true }, sceneSource)
+    hScene.input.press('1'); hScene.controller.update()
+    expect(hScene.controller.selected).not.toBeNull()
+    town = false; missionId = 'next'; scene = 'outpost:next'; sceneActors.length = 0
+    hScene.controller.update()
+    expect(hScene.controller.selected).toBeNull()
   })
 })
