@@ -7,7 +7,7 @@ import { resolveObstacleCollision } from '../../src/world/Terrain'
 import * as THREE from 'three'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { AvailableBreachEntrances, type BreachEntrance } from '../../src/navigation/AvailableBreachEntrances'
-import { getTownRampartLayout, type TownRampartLayout } from '../../src/town/TownRamparts'
+import { getTownRampartLayout, townRampartHeight, type TownRampartLayout } from '../../src/town/TownRamparts'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   NavigationWorld,
@@ -334,6 +334,53 @@ describe('opt-in Town siege navigation', () => {
     expect(nav.resolveMoveTarget(outside, goal, out, entry.id)).toEqual({ ground: true, blocked: true })
     expect(out).toEqual(outside)
   })
+  it('沿已接牆坡道由城牆下降至城外，地面追擊不被原攻門入口拉回', () => {
+    const layout = getTownRampartLayout(), nav = new TownLayeredNavigation(layout, () => true)
+    const entry = eastRamp('town-siege-ramp:east:left', 62), out = new THREE.Vector3()
+    // The synthetic carrier meets the real ring's mathematical support height.
+    const top = townRampartHeight(layout, entry.exit.x, entry.exit.z)!
+    entry.exit.y = top; entry.position.y = top
+    entry.surface!.topY = top; entry.bridgeSurface!.startY = top; entry.bridgeSurface!.topY = top
+    nav.siegeActive = true; nav.siegeEntrances.set(entry)
+    const goal = new THREE.Vector3(210, 0, 62)
+    expect(nav.resolveMoveTarget(entry.exit, goal, out, entry.id, true, 'east')).toEqual({ ground: false })
+    expect(out).toEqual(entry.position)
+    expect(nav.resolveMoveTarget(entry.position, goal, out, entry.id, true, 'east')).toEqual({ ground: false })
+    expect(out).toEqual(entry.approach)
+    const middle = new THREE.Vector3(170, top / 2, 62)
+    nav.resolveMoveTarget(middle, goal, out, entry.id, true, 'east')
+    expect(out).toEqual(entry.approach)
+    expect(nav.resolveMoveTarget(entry.approach, goal, out, entry.id, true, 'east')).toBeNull()
+  })
+
+  it('下降只選仍然可走、允許騎乘且寬度足夠的接牆入口，入口失效後回到合法城內坡道', () => {
+    const layout = getTownRampartLayout(), nav = new TownLayeredNavigation(layout, () => true)
+    const entry = eastRamp('town-siege-ramp:east:left', 62), out = new THREE.Vector3()
+    const top = townRampartHeight(layout, entry.exit.x, entry.exit.z)!
+    entry.exit.y = top; entry.position.y = top
+    entry.surface!.topY = top; entry.bridgeSurface!.startY = top; entry.bridgeSurface!.topY = top
+    const current = entry.exit.clone(), goal = new THREE.Vector3(210, 0, 62)
+    nav.siegeActive = true
+    // MOVING has not published an entrance; the native stairs remain authoritative.
+    nav.resolveMoveTarget(current, goal, out, entry.id, true, 'east')
+    expect(out.equals(entry.position)).toBe(false)
+    nav.siegeEntrances.set(entry)
+    entry.mounted = false
+    nav.resolveMoveTarget(current, goal, out, entry.id, true, 'east')
+    expect(out.equals(entry.position)).toBe(false)
+    nav.resolveMoveTarget(current, goal, out, entry.id, false, 'east')
+    expect(out).toEqual(entry.position)
+    entry.mounted = true; entry.surface!.halfWidth = 1
+    nav.resolveMoveTarget(current, goal, out, entry.id, true, 'east')
+    expect(out.equals(entry.position)).toBe(false)
+    entry.surface!.halfWidth = 2.5
+    nav.resolveMoveTarget(current, goal, out, entry.id, true, 'east')
+    expect(out).toEqual(entry.position)
+    nav.siegeEntrances.remove(entry.id)
+    nav.resolveMoveTarget(current, goal, out, entry.id, true, 'east')
+    expect(out.equals(entry.position)).toBe(false)
+  })
+
   it('revokes one destroyed vehicle while retaining a reachable same-gate alternative and rejecting unreachable reroutes', () => {
     const entries = new AvailableBreachEntrances(), left = eastRamp('town-siege-ramp:east:left', 62), right = eastRamp('town-siege-ramp:east:right', 25)
     entries.set(left); entries.set(right)
