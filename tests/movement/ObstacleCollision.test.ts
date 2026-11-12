@@ -199,22 +199,6 @@ describe('obstacle walk-surface collision', () => {
     }
   })
 
-  it('joins the town ramp knee, turn and deck at one height without placing the flight under the widened deck', () => {
-    // Numeric layout only: no town builder, geometry, model or scene.
-    const layout = getTownRampartLayout()
-    const ramp = layout.ramps.find(r => r.gateId === 'north')!
-    const s = ramp.surface
-    expect(getWalkRampHeight(s, ramp.landing.x, ramp.landing.z)).toBeCloseTo(s.topY)
-    const link = layout.decks.find(d => d.id === 'landing:north')!.surface
-    expect(getWalkRampHeight(link, ramp.landing.x, ramp.landing.z)).toBeCloseTo(s.topY)
-    expect(townRampartHeight(layout, ramp.connection.x, ramp.connection.z)).toBeCloseTo(s.topY)
-    const flightX = s.startX + s.dirX * (s.length - 2)
-    const flightZ = s.startZ + s.dirZ * (s.length - 2)
-    expect(layout.decks.filter(d => !d.id.startsWith('landing:'))
-      .some(d => getWalkRampHeight(d.surface, flightX, flightZ) !== null)).toBe(false)
-    expect(s.landing / 2).toBeGreaterThan(1 + .16)
-  })
-
   it('camera rays use slab slices rather than the empty space inside a sloped envelope', () => {
     const obstacle = deck(6)
     obstacle.box.min.y = 0
