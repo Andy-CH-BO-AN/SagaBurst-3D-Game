@@ -33,6 +33,18 @@ export const BYZANTINE_EQUIPMENT_WAIT_MS = 20000
 /** Gap between automatic retries while an actor still has one of these items selected. */
 export const BYZANTINE_EQUIPMENT_RETRY_MS = 15000
 
+const demandedEquipment = new Set<ByzantineEquipmentId>()
+
+export function markEquipmentDemanded(id: unknown): void {
+  if (isByzantineEquipmentId(id)) {
+    const isNew = !demandedEquipment.has(id)
+    demandedEquipment.add(id)
+    if (isNew && byzantineEquipment.status(id) === 'failed') {
+      showEquipmentLoadNotice(WEAPONS[id]?.name ?? ARMORS[id]?.name ?? id)
+    }
+  }
+}
+
 const byzantineEquipment = new OnDemandAssets<ByzantineEquipmentId, GLTF>(async (id, signal) => {
   // Fetched here, not by GLTFLoader: its FileLoader queues a repeat URL behind a hung request, so a retry would hang too.
   const url = publicAssetUrl(BYZANTINE_EQUIPMENT_ASSETS[id])
@@ -46,33 +58,52 @@ const byzantineEquipment = new OnDemandAssets<ByzantineEquipmentId, GLTF>(async 
 }, {
   timeoutMs: BYZANTINE_EQUIPMENT_WAIT_MS,
   retryDelayMs: BYZANTINE_EQUIPMENT_RETRY_MS,
-  onFailure: id => showEquipmentLoadNotice(WEAPONS[id]?.name ?? ARMORS[id]?.name ?? id),
+  onFailure: id => {
+    if (demandedEquipment.has(id)) {
+      showEquipmentLoadNotice(WEAPONS[id]?.name ?? ARMORS[id]?.name ?? id)
+    }
+  },
 })
 
 /** Instances own transforms only. Undefined until loaded: callers must not substitute another model. */
-export const createByzantineEquipment = (id: ByzantineEquipmentId): THREE.Group | undefined => byzantineEquipment.get(id)?.scene.clone(true)
-export const requestByzantineEquipment = (id: ByzantineEquipmentId): Promise<THREE.Group> => byzantineEquipment.load(id).then(gltf => gltf.scene.clone(true))
+export const createByzantineEquipment = (id: ByzantineEquipmentId): THREE.Group | undefined => {
+  markEquipmentDemanded(id)
+  return byzantineEquipment.get(id)?.scene.clone(true)
+}
+export const requestByzantineEquipment = (id: ByzantineEquipmentId): Promise<THREE.Group> => {
+  markEquipmentDemanded(id)
+  return byzantineEquipment.load(id).then(gltf => gltf.scene.clone(true))
+}
 export const byzantineEquipmentStatus = (id: ByzantineEquipmentId): OnDemandAssetStatus => byzantineEquipment.status(id)
 
 /** An item whose model is not loaded has no combat effect yet; asking keeps a paced load going. */
 export function isEquipmentUsable(id: string): boolean {
-  return !isByzantineEquipmentId(id) || byzantineEquipment.get(id) !== undefined || byzantineEquipment.poll(id) !== undefined
+  if (isByzantineEquipmentId(id)) {
+    markEquipmentDemanded(id)
+    return byzantineEquipment.get(id) !== undefined || byzantineEquipment.poll(id) !== undefined
+  }
+  return true
 }
 
 /** What a slot really holds: the selection once usable, otherwise whatever it already held. Never an invented fallback. */
 export function resolveEquipmentSlot<T extends string>(selected: T | null | undefined, held: T | null): T | null {
   if (!selected) return null
+  if (isByzantineEquipmentId(selected)) markEquipmentDemanded(selected)
   return isEquipmentUsable(selected) ? selected : held
 }
 
 /** An explicit re-equip retries at once rather than waiting for the paced retry. */
 export function retryEquipmentNow(id: string): void {
-  if (isByzantineEquipmentId(id)) void byzantineEquipment.load(id).catch(() => {})
+  if (isByzantineEquipmentId(id)) {
+    markEquipmentDemanded(id)
+    void byzantineEquipment.load(id).catch(() => {})
+  }
 }
 
 /** For a scene that knows it will use these items: waits before actors are built, but always lets the scene open. */
 export async function prepareByzantineEquipment(ids: Iterable<unknown>): Promise<'ready' | 'failed' | 'timed-out'> {
   const needed = [...new Set(ids)].filter(isByzantineEquipmentId)
+  for (const id of needed) markEquipmentDemanded(id)
   const results = await Promise.allSettled(needed.map(id => byzantineEquipment.load(id)))
   const failures = results.flatMap(result => result.status === 'rejected' ? [result.reason] : [])
   if (!failures.length) return 'ready'
@@ -82,6 +113,13 @@ export async function prepareByzantineEquipment(ids: Iterable<unknown>): Promise
 const templates = new Map<string, GLTF>()
 let bowBody: THREE.Group | undefined
 let pending: Promise<void> | undefined
+export function resetHighTierEquipmentForTest(): void {
+  demandedEquipment.clear()
+  pending = undefined
+  bowBody = undefined
+  templates.clear()
+}
+
 export function preloadHighTierEquipment(): Promise<void> {
   // Warming: Byzantine equipment is kicked off in background to populate cache without blocking scene-entry
   for (const id of Object.keys(BYZANTINE_EQUIPMENT_ASSETS) as ByzantineEquipmentId[]) {
@@ -97,29 +135,31 @@ export function preloadHighTierEquipment(): Promise<void> {
       })
       templates.set(path, gltf)
       if (path === HIGH_TIER_WEAPON_ASSETS.bow_t5) {
-        try {
-          bowBody = new THREE.Group()
-          gltf.scene.updateMatrixWorld(true)
-          gltf.scene.traverse(object => {
-            if (!(object instanceof THREE.Mesh)) return
-            const geometry = object.geometry.clone()
-            const point = new THREE.Vector3()
-            if (object instanceof THREE.SkinnedMesh) {
-              const positions = geometry.attributes.position
-              for (let i = 0; i < positions.count; i++) {
-                object.getVertexPosition(i, point)
-                positions.setXYZ(i, point.x, point.y, point.z)
-              }
+        const body = new THREE.Group()
+        gltf.scene.updateMatrixWorld(true)
+        gltf.scene.traverse(object => {
+          if (!(object instanceof THREE.Mesh)) return
+          const geometry = object.geometry.clone()
+          const point = new THREE.Vector3()
+          if (object instanceof THREE.SkinnedMesh) {
+            const positions = geometry.attributes.position
+            for (let i = 0; i < positions.count; i++) {
+              object.getVertexPosition(i, point)
+              positions.setXYZ(i, point.x, point.y, point.z)
             }
-            geometry.applyMatrix4(object.matrixWorld)
-            bowBody!.add(new THREE.Mesh(geometry, object.material))
-          })
-        } catch {
-          // Logic-only test environment guards prevent THREE.Group/Mesh construction
-        }
+          }
+          geometry.applyMatrix4(object.matrixWorld)
+          body.add(new THREE.Mesh(geometry, object.material))
+        })
+        bowBody = body
       }
     })
-  ).then(() => undefined).catch(error => { pending = undefined; throw error })
+  ).then(() => undefined).catch(error => {
+    pending = undefined
+    bowBody = undefined
+    templates.clear()
+    throw error
+  })
   return pending
 }
 function template(id: keyof typeof HIGH_TIER_WEAPON_ASSETS): GLTF {

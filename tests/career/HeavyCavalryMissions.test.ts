@@ -8,7 +8,6 @@ import { Faction } from '../../src/combat/CombatFaction'
 import { AIType } from '../../src/world/NPC'
 import type { CombatEvent } from '../../src/combat/CombatAttribution'
 import { MemoryStorage } from '../helpers/memoryStorage'
-import { acceptCommanderMission } from '../../src/career/CommanderMissionCatalog'
 import {
   CAPTAIN_STEEL_AVALANCHE_ID, COMMANDER_IRON_LEGION_ID, SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID,
   createHeavyFieldState,
@@ -178,44 +177,109 @@ describe('heavy cavalry field missions in Career', () => {
     expect(loadedCaptainSteel.activeMission?.officialSquad?.actorIds).toHaveLength(29)
     expect(loadedCaptainSteel.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
 
-    // 3. Commander accepts Commander Iron Legion: valid squads roundtrip, while forged squads reject
+    // 3. Commander in Soldier & Veteran Heavy Field: valid save/load roundtrips, and forged squads reject
     const store3 = new CareerProfileStore(new MemoryStorage())
     const commanderProfile = profileFor('commander')
-    const acceptedCommander = acceptCommanderMission(commanderProfile, COMMANDER_IRON_LEGION_ID, 'cmd-legion')!
-    expect(store3.save(acceptedCommander)).toBe(true)
-    const loadedCommander = store3.loadChecked().profile!
-    expect(loadedCommander.activeMission?.officialSquad?.commandRank).toBe('commander')
-    expect(loadedCommander.activeMission?.officialSquad?.squads?.length).toBeGreaterThan(1)
 
-    // Forged claim: unofficial stranger actorId injected into squad
-    const forgedCommander = structuredClone(acceptedCommander)
-    forgedCommander.activeMission!.officialSquad!.actorIds = ['stranger_actor_id']
-    expect(store3.save(forgedCommander)).toBe(false)
+    // 3a. Commander in Soldier Heavy Field (74 friendly actors across 2 squads)
+    const acceptedCmdSoldier = acceptHeavyFieldMission(commanderProfile, SOLDIER_IRON_ENCOUNTER_ID, 'cmd-sol')!
+    expect(store3.save(acceptedCmdSoldier)).toBe(true)
+    const loadedCmdSoldier = store3.loadChecked().profile!
+    expect(loadedCmdSoldier.activeMission?.templateId).toBe(SOLDIER_IRON_ENCOUNTER_ID)
+    expect(loadedCmdSoldier.activeMission?.officialSquad?.commandRank).toBe('commander')
+    expect(loadedCmdSoldier.activeMission?.officialSquad?.actorIds).toEqual(acceptedCmdSoldier.activeMission!.friendlyActorIds)
 
-    // 4. Legacy Captain Soldier save with unauthorized officialSquad: safely revokes officialSquad while retaining mission, casualties & state
+    // 3b. Commander in Veteran Heavy Field (299 friendly actors across 6 squads)
+    const acceptedCmdVeteran = acceptHeavyFieldMission(commanderProfile, VETERAN_IRON_TIDE_ID, 'cmd-vet')!
+    expect(store3.save(acceptedCmdVeteran)).toBe(true)
+    const loadedCmdVeteran = store3.loadChecked().profile!
+    expect(loadedCmdVeteran.activeMission?.templateId).toBe(VETERAN_IRON_TIDE_ID)
+    expect(loadedCmdVeteran.activeMission?.officialSquad?.commandRank).toBe('commander')
+    expect(loadedCmdVeteran.activeMission?.officialSquad?.squads).toHaveLength(6)
+    expect(loadedCmdVeteran.activeMission?.officialSquad?.actorIds).toEqual(acceptedCmdVeteran.activeMission!.friendlyActorIds)
+
+    // 3c. Forged Commander Heavy Field claims: injected stranger ID, tampered squad, wrong order, or wrong squad count rejected
+    const forgedCmd = structuredClone(acceptedCmdVeteran)
+    forgedCmd.activeMission!.officialSquad!.actorIds[0] = 'stranger_actor_id'
+    expect(store3.save(forgedCmd)).toBe(false)
+
+    const forgedCmdSquad = structuredClone(acceptedCmdVeteran)
+    forgedCmdSquad.activeMission!.officialSquad!.squads![0].actorIds[0] = 'stranger_actor_id'
+    expect(store3.save(forgedCmdSquad)).toBe(false)
+
+    const forgedCmdOrder = structuredClone(acceptedCmdVeteran)
+    forgedCmdOrder.activeMission!.officialSquad!.squads![0].squadId = 2 as any
+    expect(store3.save(forgedCmdOrder)).toBe(false)
+
+    const forgedCmdCount = structuredClone(acceptedCmdVeteran)
+    forgedCmdCount.activeMission!.officialSquad!.squads!.pop()
+    expect(store3.save(forgedCmdCount)).toBe(false)
+
+    // 4. Authentic 50-man legacy Captain grant: durable migration, casualties/HP preserved, idempotent
     const storage4 = new MemoryStorage()
     const store4 = new CareerProfileStore(storage4)
     const legacyCaptainSave = structuredClone(acceptedCaptainSoldier)
+    const friendlies = acceptedCaptainSoldier.activeMission!.friendlyActorIds
+    const squad50 = friendlies.slice(0, 50)
+    legacyCaptainSave.activeMission!.phase = 'ENGAGING'
+    legacyCaptainSave.activeMission!.deadFriendlyActorIds = [friendlies[2]]
+    legacyCaptainSave.activeMission!.actorHealth = {
+      [friendlies[2]]: { hp: 0 },
+      [friendlies[0]]: { hp: 42 },
+    }
     legacyCaptainSave.activeMission!.officialSquad = {
       type: 'mission-official',
       missionId: 'cap-sol',
       townFaction: 'roman',
       squadId: 1,
-      actorIds: acceptedCaptainSoldier.activeMission!.friendlyActorIds.slice(0, 10),
+      actorIds: squad50,
       contribution: { kills: 0, damageTaken: 0, structuresDestroyed: 0, gateBreaches: 0, damageDealt: 0, arrowHits: 0, meleeHits: 0, mountDamage: 0 },
     } as any
+
     storage4.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacyCaptainSave))
+    // 1st loadChecked: durable migration runs, rewrites storage, revokes officialSquad while preserving casualties/HP/phase
     const migratedProfile = store4.loadChecked().profile!
     expect(migratedProfile.activeMission?.templateId).toBe(SOLDIER_IRON_ENCOUNTER_ID)
     expect(migratedProfile.activeMission?.officialSquad).toBeUndefined()
+    expect(migratedProfile.activeMission?.phase).toBe('ENGAGING')
+    expect(migratedProfile.activeMission?.actorHealth?.[friendlies[0]]?.hp).toBe(42)
+    expect(migratedProfile.activeMission?.deadFriendlyActorIds).toEqual([friendlies[2]])
     expect(migratedProfile.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
 
-    // 5. Corrupted active Heavy Field: fail-closed, does not save/drop mission
-    expect(store4.save(migratedProfile)).toBe(true)
-    const validBytes = storage4.getItem(CAREER_STORAGE_KEY)!
+    // Verify storage was durably committed
+    const persistedParsed = JSON.parse(storage4.getItem(CAREER_STORAGE_KEY)!)
+    expect(persistedParsed.activeMission?.officialSquad).toBeUndefined()
+
+    // 2nd loadChecked: idempotent, returns matching profile
+    const reloadedProfile = store4.loadChecked().profile!
+    expect(reloadedProfile.activeMission?.officialSquad).toBeUndefined()
+    expect(reloadedProfile.activeMission?.templateId).toBe(SOLDIER_IRON_ENCOUNTER_ID)
+
+    // 5. Failed storage write during migration: fail-closed, retains original bytes, returns error
+    const brokenStorage = new MemoryStorage()
+    brokenStorage.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacyCaptainSave))
+    const validLegacyBytes = brokenStorage.getItem(CAREER_STORAGE_KEY)!
+    brokenStorage.setItem = () => { throw new Error('disk failure') }
+    const brokenStore = new CareerProfileStore(brokenStorage)
+    const brokenResult = brokenStore.loadChecked()
+    expect(brokenResult.profile).toBeNull()
+    expect(brokenResult.error).toContain('生涯資料升級無法儲存')
+    expect(brokenStorage.getItem(CAREER_STORAGE_KEY)).toBe(validLegacyBytes)
+
+    // 6. Forged Captain grant (unrecognizable actor ID): fail-closed, does not overwrite storage
+    const forgedStorage = new MemoryStorage()
+    const forgedCaptainSave = structuredClone(legacyCaptainSave)
+    forgedCaptainSave.activeMission!.officialSquad!.actorIds[0] = 'stranger_id'
+    forgedStorage.setItem(CAREER_STORAGE_KEY, JSON.stringify(forgedCaptainSave))
+    const forgedBytes = forgedStorage.getItem(CAREER_STORAGE_KEY)!
+    const forgedStore = new CareerProfileStore(forgedStorage)
+    const forgedResult = forgedStore.loadChecked()
+    expect(forgedResult.profile).toBeNull()
+    expect(forgedStorage.getItem(CAREER_STORAGE_KEY)).toBe(forgedBytes)
+
+    // 7. Corrupted active Heavy Field: fail-closed, does not save/drop mission
     const corruptedSave = structuredClone(migratedProfile)
     corruptedSave.activeMission!.targetActorIds = ['corrupted_target']
     expect(store4.save(corruptedSave)).toBe(false)
-    expect(storage4.getItem(CAREER_STORAGE_KEY)).toBe(validBytes)
   })
 })

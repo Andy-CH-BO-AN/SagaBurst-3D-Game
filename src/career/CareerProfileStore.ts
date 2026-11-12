@@ -472,16 +472,40 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
         if (heavyOfficialSquad.commandRank !== undefined
           || heavyOfficialSquad.actorIds.length !== 29 || heavyOfficialSquad.actorIds.some(id => !friendlyActorIds.includes(id))) return undefined
       } else if (rank === 'commander') {
+        const expectedSquadCount = Math.ceil(friendlyActorIds.length / 50)
         if (heavyOfficialSquad.commandRank !== 'commander'
           || heavyOfficialSquad.actorIds.length !== friendlyActorIds.length
+          || heavyOfficialSquad.actorIds.some((id, index) => id !== friendlyActorIds[index])
           || !heavyOfficialSquad.squads
-          || !heavyOfficialSquad.squads.every((squad, i) => squad.actorIds.every((id, slot) => id === friendlyActorIds[i * 50 + slot]))) return undefined
+          || heavyOfficialSquad.squads.length !== expectedSquadCount
+          || !heavyOfficialSquad.squads.every((squad, i) =>
+            squad.squadId === i + 1
+            && squad.actorIds.length === Math.min(50, friendlyActorIds.length - i * 50)
+            && squad.actorIds.every((id, slot) => id === friendlyActorIds[i * 50 + slot])
+          )) return undefined
       }
     } else {
-      if (heavyOfficialSquad) {
-        // Safe compatibility: legacy save produced by older buggy code where Captain got unauthorized officialSquad in Soldier/Veteran mission.
-        // Revoke the officialSquad safely, but preserve mission, casualties, HP, personal squad, combat progress.
-        if (rank === 'captain' && heavyOfficialSquad.type === 'mission-official' && heavyOfficialSquad.missionId === raw.id) {
+      if (raw.officialSquad !== undefined) {
+        // Safe compatibility: recognizable legacy save produced by older buggy code where Captain got unauthorized officialSquad in Soldier/Veteran mission.
+        // It must match the exact recognizable grant structure from old heavyOfficialAuthority:
+        // - rank === 'captain'
+        // - officialSquad.type === 'mission-official'
+        // - officialSquad.missionId === raw.id
+        // - officialSquad.townFaction === faction
+        // - officialSquad.commandRank === undefined
+        // - actorIds must match exactly friendlyActorIds.slice(0, Math.min(50, friendlyActorIds.length))
+        // If it does not match this recognizable legacy shape, fail-closed!
+        const expectedCount = Math.min(50, friendlyActorIds.length)
+        const isRecognizableLegacyCaptainGrant =
+          rank === 'captain'
+          && officialSquad?.type === 'mission-official'
+          && officialSquad.missionId === raw.id
+          && officialSquad.townFaction === faction
+          && officialSquad.commandRank === undefined
+          && officialSquad.actorIds.length === expectedCount
+          && officialSquad.actorIds.every((id, slot) => id === friendlyActorIds[slot])
+
+        if (isRecognizableLegacyCaptainGrant) {
           heavyOfficialSquad = undefined
         } else {
           return undefined
@@ -1024,7 +1048,14 @@ export class CareerProfileStore {
       const commanderShieldMigration = profile && (['roman', 'viking'] as const).some(faction =>
         profile.townEquipment?.[faction]?.commanderShieldItemId !== undefined
         && previous.townEquipment?.[faction]?.commanderShieldItemId === undefined)
-      if (profile && (previous.tutorial === undefined || profile.healthRulesVersion !== previous.healthRulesVersion || profile.commanderHealthVersion !== previous.commanderHealthVersion || residentMigration || rangerMigration || personalIdentityMigration || borrowedIdentityMigration || commanderShieldMigration || profile.commanderMeleeGranted && previous.commanderMeleeGranted !== true)
+      const heavyCaptainRevocationMigration = Boolean(
+        profile
+        && profile.rank === 'captain'
+        && (previous.activeMission?.kind === HEAVY_FIELD_KIND || (typeof previous.activeMission?.templateId === 'string' && isHeavyFieldMissionId(previous.activeMission.templateId)))
+        && previous.activeMission?.officialSquad !== undefined
+        && profile.activeMission?.officialSquad === undefined
+      )
+      if (profile && (previous.tutorial === undefined || profile.healthRulesVersion !== previous.healthRulesVersion || profile.commanderHealthVersion !== previous.commanderHealthVersion || residentMigration || rangerMigration || personalIdentityMigration || borrowedIdentityMigration || commanderShieldMigration || profile.commanderMeleeGranted && previous.commanderMeleeGranted !== true || heavyCaptainRevocationMigration)
         && !this.save(profile)) return { profile: null, error: '生涯資料升級無法儲存；原資料已保留，請重試。' }
       return profile ? { profile } : { profile: null, error: '生涯存檔損壞或版本不支援；原資料已保留。' }
     } catch { return { profile: null, error: '無法讀取生涯存檔；原資料已保留。' } }

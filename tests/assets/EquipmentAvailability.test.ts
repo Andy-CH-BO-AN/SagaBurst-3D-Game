@@ -1,13 +1,41 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
-import { BYZANTINE_EQUIPMENT_RETRY_MS, BYZANTINE_EQUIPMENT_WAIT_MS, byzantineEquipmentStatus, preloadHighTierEquipment } from '../../src/world/HighTierEquipment'
+import {
+  BYZANTINE_EQUIPMENT_RETRY_MS, BYZANTINE_EQUIPMENT_WAIT_MS, byzantineEquipmentStatus,
+  createT5BowBody, isEquipmentUsable, preloadHighTierEquipment, resetHighTierEquipmentForTest,
+} from '../../src/world/HighTierEquipment'
 import { AIState, AIType, Faction, NPC } from '../../src/world/NPC'
 import { showEquipmentLoadNotice } from '../../src/ui/EquipmentLoadNotice'
 
 const gltfLoads = vi.hoisted(() => ({ next: [] as Array<() => Promise<unknown>>, count: 0 }))
+const bowError = vi.hoisted(() => ({ current: undefined as Error | undefined }))
+
+vi.mock('three', async importOriginal => {
+  const real = await importOriginal<typeof import('three')>()
+  class FakeGroup {
+    add = vi.fn()
+    traverse = vi.fn()
+    clone() { return this }
+  }
+  return {
+    ...real,
+    Group: FakeGroup,
+  }
+})
+
 vi.mock('three/examples/jsm/loaders/GLTFLoader.js', () => ({
   GLTFLoader: class {
-    async loadAsync() { return { scene: { traverse() {}, updateMatrixWorld() {} } } }
+    async loadAsync(path: string) {
+      if (bowError.current && path.includes('bow.glb')) {
+        return {
+          scene: {
+            updateMatrixWorld() { throw bowError.current },
+            traverse() {},
+          },
+        }
+      }
+      return { scene: { traverse() {}, updateMatrixWorld() {} } }
+    }
     async parseAsync() { return { scene: { traverse() {} } } }
   },
 }))
@@ -37,12 +65,19 @@ describe('Equipment waiting for its model', () => {
     vi.useFakeTimers()
     gltfLoads.count = 0
     gltfLoads.next = []
+    bowError.current = undefined
+    resetHighTierEquipmentForTest()
     vi.stubGlobal('fetch', () => {
       gltfLoads.count++
       return (gltfLoads.next.shift() ?? (() => new Promise(() => {})))()
     })
   })
-  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.mocked(showEquipmentLoadNotice).mockClear() })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.mocked(showEquipmentLoadNotice).mockClear()
+    resetHighTierEquipmentForTest()
+  })
 
   it('gives the player no combat effect until the lance loads, retries after a timeout and keeps the saved selection', async () => {
     const inventory = new InventoryManager({ meleeWeaponId: LANCE, rangedWeaponId: 'elven_runebow', shieldId: 'round_shield_t1' })
@@ -113,10 +148,28 @@ describe('Equipment waiting for its model', () => {
     expect(spawned.meleeWeaponId).toBe('steel_lance')
   })
 
-  it('allows scene entry preload to complete promptly even when unused byzantine equipment is permanently pending', async () => {
+  it('allows scene entry preload to complete and time out without notifying player for unselected equipment', async () => {
     let completed = false
     void preloadHighTierEquipment().then(() => { completed = true })
     await vi.advanceTimersByTimeAsync(0)
     expect(completed).toBe(true)
+
+    // Unselected items time out after 20s without showing load notice
+    await vi.advanceTimersByTimeAsync(BYZANTINE_EQUIPMENT_WAIT_MS)
+    expect(showEquipmentLoadNotice).not.toHaveBeenCalled()
+
+    // Formal selection of the failed equipment prompts player and does not enable combat effect
+    expect(isEquipmentUsable('centurion_aquila_shield_t4')).toBe(false)
+    expect(showEquipmentLoadNotice).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects preload cleanly on bow_t5 geometry error without exposing partial body, and succeeds on retry', async () => {
+    bowError.current = new Error('corrupt bow geometry')
+    await expect(preloadHighTierEquipment()).rejects.toThrow('corrupt bow geometry')
+    expect(() => createT5BowBody()).toThrow('T5 bow was not preloaded')
+
+    bowError.current = undefined
+    await expect(preloadHighTierEquipment()).resolves.toBeUndefined()
+    expect(createT5BowBody()).toBeDefined()
   })
 })
