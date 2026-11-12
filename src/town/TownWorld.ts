@@ -6,7 +6,7 @@ import { resolveTownEagleTrainingGround, type TownEagleTrainingGround } from './
 import { XONGKORO_LANDING } from '../world/EagleLanding'
 import { eagleLandingFootprint, isEagleLandingClear } from '../world/EagleLanding'
 import { isEagleApproachClear } from '../world/EagleApproach'
-import { resolveTownHRLayout, townHrCampLayout, type TownHRLayout } from './TownHRLayout'
+import { resolveTownHRLayout, townHrLocalMuster, type TownHRLayout } from './TownHRLayout'
 import { TownDockPassages } from './TownDockPassages'
 import { TownSiegeAirspace } from './TownSiegeAirspace'
 import { createTownFortifications } from './TownFortifications'
@@ -18,7 +18,7 @@ import { createCampfireVisual, createPineVisual } from '../world/EnvironmentVisu
 import { Faction } from '../combat/CombatFaction'
 import { TOWN_SITES, townRoster, townPlayerEntryPoint } from './TownRules'
 import { DamageableObstacle } from '../world/DamageableObstacle'
-import { getTerrainHeight, removeObstacleData, resetTerrainScenePolicy, setObstaclePathQuerySource, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
+import { getTerrainHeight, getWalkRampHeight, removeObstacleData, resetTerrainScenePolicy, setObstaclePathQuerySource, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
 import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_GROUND_SIZE, TOWN_BANDIT_CAMP_CENTERS, townSceneryPoint, nearTownBanditCamp } from './TownBounds'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { proceduralMaterial } from '../world/ProceduralMaterials'
@@ -298,6 +298,15 @@ export class TownWorld {
     if (!floor) throw new Error(`城鎮建築缺少樓板：${id}`)
     return floor.topY
   }
+  /** Surviving floor/ramp height, also used to admit legacy saved actors to HR. */
+  civicSupportY(id: string, point: { x: number; z: number }): number | undefined {
+    let y: number | undefined
+    for (const support of this.buildings.find(b => b.id === id)?.supports ?? []) {
+      const value = support.walkSurface && getWalkRampHeight(support.walkSurface, point.x, point.z)
+      if (typeof value === 'number') y = Math.max(y ?? -Infinity, value)
+    }
+    return y
+  }
   private cube(parent: THREE.Object3D, x: number, y: number, z: number, w: number, h: number, d: number, material: THREE.Material): THREE.Mesh {
     const mesh = new THREE.Mesh(this.box, material); mesh.position.set(x, y, z); mesh.scale.set(w, h, d); mesh.castShadow = true; mesh.receiveShadow = true; parent.add(mesh); return mesh
   }
@@ -314,8 +323,15 @@ export class TownWorld {
   }
   /** Faction civic building from the shared architecture plans, registered with HP, ruin and supports. */
   private civic(id: string, kind: CivicBuildingKind, site: { x: number; z: number; yaw: number }): void {
-    const placed = placeArchitecture(this.architecture, kind, site, { statues: architectureStatues(), hrCamp: kind === 'hr-center' ? townHrCampLayout(this.hr) : undefined })
+    const placed = placeArchitecture(this.architecture, kind, site, { statues: architectureStatues(), hrMuster: kind === 'hr-center' ? townHrLocalMuster(this.hr) : undefined })
     this.root.add(placed.root, placed.ruin)
+    if (kind === 'hr-center') {
+      for (const slot of this.hr.muster) slot.y = placed.floorY
+      for (const support of placed.supports) {
+        const y = support.walkSurface && getWalkRampHeight(support.walkSurface, this.hr.officer.x, this.hr.officer.z)
+        if (typeof y === 'number') this.hr.officer.y = y
+      }
+    }
     this.civicShapes.push({ id, bounds: placed.bounds, blocking: placed.obstacles.filter(o => !o.navigationPassable).map(o => o.box) })
     const hp = new DamageableObstacle({ kind: 'tent', maxHp: placed.spec.maxHp, root: placed.root })
     const obstacles = placed.obstacles.map(obstacle => ({ ...obstacle, damageable: hp }))

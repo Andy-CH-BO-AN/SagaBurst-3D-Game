@@ -1,4 +1,3 @@
-import type { TownHRCampLayout } from '../TownHRLayout'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { flameParts } from '../../arena/ArenaKit'
@@ -6,7 +5,7 @@ import { getTerrainHeight, type ObstacleData, type WalkRampSurface } from '../..
 import { surfaceBox } from '../TownRamparts'
 import type { CommandWatchtowerLayout } from '../TownCommandWatchtowerLayout'
 import { ArchitectureKit, PALETTE, Sketch, preloadArchitectureDecorations, tabletopDisplay, type BuildContext } from './ArchitectureKit'
-import { architectureSpec, DEEP, TOWN_PLAZA_MONUMENT, townPlazaLayout, type ArchitectureFaction, type BuildingSpec, type CivicBuildingKind, type LocalRect, type PlazaProp } from './ArchitectureSpecs'
+import { architectureSpec, expandedHrCenter, DEEP, TOWN_PLAZA_MONUMENT, townPlazaLayout, type ArchitectureFaction, type BuildingSpec, type CivicBuildingKind, type LocalRect, type PlazaProp } from './ArchitectureSpecs'
 import { buildRomanHome, buildRomanHrCenter, buildRomanStable, buildRomanTownCenter, buildRomanWeapons } from './RomanBuildings'
 import { buildVikingHome, buildVikingHrCenter, buildVikingStable, buildVikingTownCenter, buildVikingWeapons } from './VikingBuildings'
 
@@ -99,7 +98,7 @@ export interface PlacedArchitecture {
   readonly interior?: readonly THREE.Vector3[]
   /** Visual world bounds of the built body and roof. */
   readonly bounds: THREE.Box3
-  /** Visual overhangs outside structural colliders; open camp gaps remain clear. */
+  /** Visual overhangs outside structural colliders; tall finials keep local bounds. */
   readonly airspaceBounds: readonly THREE.Box3[]
   /** Partially collapsed roof (tilted, lowered, trim hidden) or restored. */
   setDamaged(damaged: boolean): void
@@ -113,7 +112,7 @@ export interface PlaceArchitectureOptions {
   readonly terrain?: TerrainSampler
   /** Viking Town winter dressing (snow caps); defaults to the faction. */
   readonly snow?: boolean
-  readonly hrCamp?: TownHRCampLayout
+  readonly hrMuster?: readonly { x: number; z: number }[]
 }
 
 const BUILDERS: Record<ArchitectureFaction, Record<CivicBuildingKind, (ctx: BuildContext) => void>> = {
@@ -138,7 +137,8 @@ export function architectureLocalToWorld(site: ArchitectureSite, x: number, z: n
  * collision always agree. Site yaw must be a multiple of 90°.
  */
 export function placeArchitecture(kit: ArchitectureKit, kind: CivicBuildingKind, site: ArchitectureSite, options: PlaceArchitectureOptions = {}): PlacedArchitecture {
-  let spec = architectureSpec(kit.faction, kind)
+  const expanded = kind === 'hr-center' && options.hrMuster ? expandedHrCenter(kit.faction, options.hrMuster) : undefined
+  let spec = expanded?.spec ?? architectureSpec(kit.faction, kind)
   const authoredColliders = new Set(spec.colliders)
   const terrain = options.terrain ?? getTerrainHeight
   const world = (x: number, z: number) => architectureLocalToWorld(site, x, z)
@@ -150,6 +150,20 @@ export function placeArchitecture(kit: ArchitectureKit, kind: CivicBuildingKind,
   for (const x of [env.minX, 0, env.maxX]) for (const z of [env.minZ, 0, env.maxZ]) { const p = world(x, z); low = Math.min(low, terrain(p.x, p.z) - groundY) }
   const lift = Math.max(0, high + .12 - spec.floorY)
   const rootY = groundY + lift
+  if (expanded) {
+    // The actual terrain determines a 1:2 approach; the mounted leading edge
+    // must not meet the slab before it is within the step-up height.
+    const entrances = [spec.entrance, ...spec.additionalEntrances ?? []].map(e => {
+      let approach = e.approach
+      for (let i = 0; i < 40; i++, approach += .5) {
+        const p = world(e.x + Math.sin(e.yaw) * approach, e.z + Math.cos(e.yaw) * approach)
+        if (Math.abs(rootY + spec.floorY - terrain(p.x, p.z) - .03) <= approach * .5) return { ...e, approach }
+      }
+      throw new Error('HR entrance has no traversable terrain approach')
+    })
+    spec = { ...spec, entrance: entrances[0], additionalEntrances: entrances.slice(1),
+      envelope: { ...spec.envelope, maxZ: Math.max(spec.envelope.maxZ, ...entrances.map(e => e.z + e.approach)) } }
+  }
   const plinthBottom = Math.min(low, 0) - lift - .6
   const ground = (x: number, z: number) => { const p = world(x, z); return terrain(p.x, p.z) - rootY }
   const service = spec.anchors.find(anchor => anchor.role === 'merchant')
@@ -163,7 +177,7 @@ export function placeArchitecture(kit: ArchitectureKit, kind: CivicBuildingKind,
   const statues = options.statues === undefined ? architectureStatues() : options.statues
   const body = new Sketch(kit, kind), roofSketch = new Sketch(kit, kind)
   const ctx: BuildContext = {
-    kit, body, roof: roofSketch, root, snow: options.snow ?? kit.faction === 'viking', ground, canopyY,
+    kit, body, roof: roofSketch, root, hrHall: expanded?.hall, snow: options.snow ?? kit.faction === 'viking', ground, canopyY,
     statue: (x, y, z, yaw, height) => { if (statues) root.add(statueLod(kit, statues, x, y, z, yaw, height)) },
     display: (id, kindOf, x, y, z, _tilt = 0, yaw = 0) => root.add(tabletopDisplay(id, kindOf, x, y, z, yaw)),
   }
@@ -173,21 +187,9 @@ export function placeArchitecture(kit: ArchitectureKit, kind: CivicBuildingKind,
   const direct = root.children.filter(child => child !== roof).map(child => ({ parent: root as THREE.Object3D, local: new THREE.Box3().setFromObject(child).applyMatrix4(root.matrixWorld.clone().invert()) }))
   body.build(root, root.name)
   roofSketch.build(roof, `${root.name}-roof`)
-  const airParts = [...direct, ...body.airspaceParts, ...roofSketch.airspaceParts]
+  const airParts = [...direct, ...body.airspaceParts, ...roofSketch.airspaceParts.filter(part => !expanded || part.decoration)]
   const mainCeiling = Math.max(...spec.colliders.filter(c => c.role === 'roof').map(c => c.box[4]))
-  const airCeilings = new Map<THREE.Object3D, number>([[root, mainCeiling], [roof, mainCeiling]])
-  if (kind === 'hr-center' && options.hrCamp) {
-    const camp = options.hrCamp, campBody = new THREE.Group(), campRoof = new THREE.Group()
-    campBody.name = 'hr-camp'; campRoof.name = 'hr-camp-roof'
-    const campSketch = new Sketch(kit, kind), campRoofSketch = new Sketch(kit, kind)
-    const colliders = buildHrCamp({ ...ctx, body: campSketch, roof: campRoofSketch }, camp)
-    campSketch.build(campBody, `${root.name}-camp`); campRoofSketch.build(campRoof, `${root.name}-camp-roof`)
-    root.add(campBody); roof.add(campRoof); airParts.push(...campSketch.airspaceParts, ...campRoofSketch.airspaceParts)
-    const ceiling = Math.max(...colliders.filter(c => c.role === 'roof').map(c => c.box[4]))
-    airCeilings.set(campBody, ceiling); airCeilings.set(campRoof, ceiling)
-    spec = { ...spec, envelope: { minX: Math.min(spec.envelope.minX, camp.minX), maxX: Math.max(spec.envelope.maxX, camp.maxX),
-      minZ: Math.min(spec.envelope.minZ, camp.minZ), maxZ: Math.max(spec.envelope.maxZ, camp.maxZ) }, colliders: [...spec.colliders, ...colliders] }
-  }
+  const airCeilings = new Map<THREE.Object3D, number>([[root, expanded ? spec.floorY + expanded.hall.eave : mainCeiling], [roof, mainCeiling]])
   // Pivot the roof at its eave so damage tilts it in place.
   const roofBox = new THREE.Box3().setFromObject(roof).applyMatrix4(root.matrixWorld.clone().invert())
   const pivot = roofBox.isEmpty() ? 0 : roofBox.min.y
@@ -199,7 +201,7 @@ export function placeArchitecture(kit: ArchitectureKit, kind: CivicBuildingKind,
   const ruinBase = new Sketch(kit)
   foundation({ ...ctx, body: ruinBase }, spec, plinthBottom)
   ruinBase.build(ruin, `${root.name}-ruin-foundation`)
-  const rubbleBoxes = rubble(kit, ruin, spec, options.hrCamp?.slots)
+  const rubbleBoxes = rubble(kit, ruin, spec, options.hrMuster)
   root.updateMatrixWorld(true)
 
   // Collision in world space.
@@ -220,14 +222,17 @@ export function placeArchitecture(kit: ArchitectureKit, kind: CivicBuildingKind,
   const supports: ObstacleData[] = []
   const floorTop = rootY + spec.floorY, base = rootY + plinthBottom
   for (const rect of spec.floor) supports.push(walkSlab(site, rect, floorTop, base))
-  const e = spec.entrance, out = new THREE.Vector3(Math.sin(e.yaw), 0, Math.cos(e.yaw))
+  const e = spec.entrance
   const threshold = world(e.x, e.z)
-  const foot = world(e.x + out.x * e.approach, e.z + out.z * e.approach)
-  const footY = terrain(foot.x, foot.z) + .03
-  if (e.approach > 0 && Math.abs(floorTop - footY) > .05) {
-    const length = Math.hypot(threshold.x - foot.x, threshold.z - foot.z)
-    const ramp: WalkRampSurface = { startX: foot.x, startZ: foot.z, dirX: (threshold.x - foot.x) / length, dirZ: (threshold.z - foot.z) / length,
-      halfWidth: e.width / 2, length, landing: 0, startY: footY, topY: floorTop, mounted: true }
+  for (const entrance of [spec.entrance, ...spec.additionalEntrances ?? []]) {
+    const out = new THREE.Vector3(Math.sin(entrance.yaw), 0, Math.cos(entrance.yaw))
+    const start = world(entrance.x, entrance.z)
+    const foot = world(entrance.x + out.x * entrance.approach, entrance.z + out.z * entrance.approach)
+    const footY = terrain(foot.x, foot.z) + .03
+    if (entrance.approach <= 0 || Math.abs(floorTop - footY) <= .05) continue
+    const length = Math.hypot(start.x - foot.x, start.z - foot.z)
+    const ramp: WalkRampSurface = { startX: foot.x, startZ: foot.z, dirX: (start.x - foot.x) / length, dirZ: (start.z - foot.z) / length,
+      halfWidth: entrance.width / 2, length, landing: 0, startY: footY, topY: floorTop, mounted: true }
     const box = surfaceBox(ramp); box.min.y = Math.min(base, footY - .4)
     supports.push({ box, walkSurface: ramp, solidBelow: box.min.y, isBarricade: false, navigationPassable: true })
   }
@@ -268,7 +273,7 @@ export function placeArchitecture(kit: ArchitectureKit, kind: CivicBuildingKind,
 
 /** Keep one envelope per body/roof below its structural roofline. Tall finials
  * keep their own bounds instead of raising an entire hall into a flight lane.
- * Separate parents retain the camp gap and the live roof damage transform. */
+ * Separate parents retain the live roof damage transform. */
 function partitionAirspaceParts(parts: readonly { parent: THREE.Object3D; local: THREE.Box3 }[], ceilings: ReadonlyMap<THREE.Object3D, number>): { parent: THREE.Object3D; local: THREE.Box3 }[] {
   const low = new Map<THREE.Object3D, THREE.Box3>(), high: { parent: THREE.Object3D; local: THREE.Box3 }[] = []
   for (const { parent, local } of parts) {
@@ -321,19 +326,20 @@ function foundation(ctx: BuildContext, spec: BuildingSpec, bottom: number): void
     if (roman) s.span('stone', r.minX, F - .06, r.minZ, r.maxX, F, r.maxZ, PALETTE.marble)
     else s.span('wood', r.minX, F - .06, r.minZ, r.maxX, F, r.maxZ, PALETTE.timber)
   }
-  const e = spec.entrance
-  if (e.approach <= 0) return
-  const out = new THREE.Vector3(Math.sin(e.yaw), 0, Math.cos(e.yaw))
-  const footY = ctx.ground(e.x + out.x * e.approach, e.z + out.z * e.approach) + .03
-  // One real gentle ramp: visible top and WalkRampSurface share the same endpoints.
-  const half = e.width / 2, bottomY = Math.min(F, footY) - .35
-  const vertices = [-half, F, 0, half, F, 0, half, footY, e.approach, -half, footY, e.approach,
-    -half, bottomY, 0, half, bottomY, 0, half, bottomY, e.approach, -half, bottomY, e.approach]
-  const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
-  geometry.setIndex([0, 3, 2, 0, 2, 1, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 3, 7, 6, 3, 6, 2, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5])
-  geometry.computeVertexNormals(); geometry.rotateY(e.yaw).translate(e.x, 0, e.z)
-  s.add(roman || spec.kind === 'hr-center' ? 'stone' : 'wood', geometry, color)
+  for (const e of [spec.entrance, ...spec.additionalEntrances ?? []]) {
+    if (e.approach <= 0) continue
+    const out = new THREE.Vector3(Math.sin(e.yaw), 0, Math.cos(e.yaw))
+    const footY = ctx.ground(e.x + out.x * e.approach, e.z + out.z * e.approach) + .03
+    // One real gentle ramp: visible top and WalkRampSurface share the same endpoints.
+    const half = e.width / 2, bottomY = Math.min(F, footY) - .35
+    const vertices = [-half, F, 0, half, F, 0, half, footY, e.approach, -half, footY, e.approach,
+      -half, bottomY, 0, half, bottomY, 0, half, bottomY, e.approach, -half, bottomY, e.approach]
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
+    geometry.setIndex([0, 3, 2, 0, 2, 1, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 3, 7, 6, 3, 6, 2, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5])
+    geometry.computeVertexNormals(); geometry.rotateY(e.yaw).translate(e.x, 0, e.z)
+    s.add(roman || spec.kind === 'hr-center' ? 'stone' : 'wood', geometry, color)
+  }
 }
 
 function rubble(kit: ArchitectureKit, ruin: THREE.Group, spec: BuildingSpec, reserved: readonly { x: number; z: number }[] = []): THREE.Box3[] {
@@ -791,44 +797,4 @@ export function buildEagleStation(kit: ArchitectureKit, site: ArchitectureSite, 
   root.updateMatrixWorld(true)
   const box = new THREE.Box3().setFromObject(root)
   return { root, obstacles: [{ box, isBarricade: false }] }
-}
-
-/** Open muster compound: original terrain remains the authoritative ground, with no raised slab under saved actors. */
-function buildHrCamp(ctx: BuildContext, camp: TownHRCampLayout): import('./ArchitectureSpecs').ArchitectureCollider[] {
-  const s = ctx.body, r = ctx.roof, roman = ctx.kit.faction === 'roman'
-  const colliders: import('./ArchitectureSpecs').ArchitectureCollider[] = []
-  const maxGround = Math.max(...camp.posts.map(p => ctx.ground(p.x, p.z)), ...camp.slots.map(p => ctx.ground(p.x, p.z)))
-  const eave = maxGround + 6.5, ridge = eave + 1.1, postRadius = .22
-  for (const p of camp.posts) {
-    const ground = ctx.ground(p.x, p.z)
-    if (roman) s.column(p.x, ground, p.z, eave - ground, postRadius, { capital: 'stone', flutes: false })
-    else s.carvedPost(p.x, ground, p.z, eave - ground, postRadius)
-    const half = postRadius * 1.55
-    colliders.push({ role: 'column', box: [p.x - half, ground - .3, p.z - half, p.x + half, eave, p.z + half] })
-  }
-  const cz = (camp.minZ + camp.roofFront) / 2, span = (camp.roofFront - camp.minZ) / 2
-  r.gableRoof(roman ? 'roof' : 'wood', { axis: 'x', cz, halfSpan: span, from: camp.minX, to: camp.maxX, eave, ridge, thickness: .22 })
-  if (!roman && ctx.snow) r.snowOnGable({ axis: 'x', cz, halfSpan: span, from: camp.minX, to: camp.maxX, eave, ridge, thickness: .22 })
-  colliders.push({ role: 'roof', box: [camp.minX, eave, camp.minZ, camp.maxX, ridge + .5, camp.roofFront] })
-  s.beam('wood', new THREE.Vector3(camp.minX, eave, camp.minZ + .3), new THREE.Vector3(camp.maxX, eave, camp.minZ + .3), .25, .25, PALETTE.darkTimber)
-  for (const rack of camp.racks) {
-    const y = ctx.ground(rack.x, rack.z)
-    s.weaponRack(rack.x, y, rack.z, 4.2, 0, 'spear', roman
-      ? ['paladin_sword_t4', 'byzantine_standard_lance_t5', 'sword_t5'] : ['paladin_mace_t4', 'axe_t5', 'spear_t5'])
-    colliders.push({ role: 'prop', box: [rack.x - 2.15, y, rack.z - .2, rack.x + 2.15, y + 1.6, rack.z + .2] })
-  }
-  const shields = roman ? ['centurion_aquila_shield_t4', 'byzantine_eagle_shield_t5'] : ['viking_dragonward_shield_t4', 'viking_berserker_shield_t5']
-  for (const [i, x] of [camp.minX + 2, (camp.minX + camp.maxX) / 2, camp.maxX - 2].entries()) {
-    const z = camp.minZ + .2, y = ctx.ground(x, z)
-    for (const side of [-1, 1]) s.box(roman ? 'stone' : 'wood', x + side * .75, y + 1.55, z, .12, 3.1, .15, roman ? PALETTE.ashlar : PALETTE.darkTimber)
-    s.box(roman ? 'stone' : 'wood', x, y + 2.2, z, 1.8, 1.8, .15, roman ? PALETTE.cream : PALETTE.timber)
-    s.shield(x, y + 2.3, z + .075, 0, .65, undefined, 0, shields[i % shields.length])
-    colliders.push({ role: 'prop', box: [x - .9, y, z - .08, x + .9, y + 3.1, z + .08] })
-  }
-  for (const x of [camp.minX + 1, camp.maxX - 1]) {
-    const z = camp.minZ + 1, y = ctx.ground(x, z)
-    s.crate(x, y, z, .8); s.banner(x, eave - .1, camp.minZ + .2, 0, 1.4, 2)
-    colliders.push({ role: 'prop', box: [x - .4, y, z - .4, x + .4, y + .8, z + .4] })
-  }
-  return colliders
 }

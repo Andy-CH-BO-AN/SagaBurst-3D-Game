@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { flameParts } from '../../arena/ArenaKit'
-import { PALETTE, tabletopDisplayRow, type BuildContext, type Sketch } from './ArchitectureKit'
+import { PALETTE, tabletopDisplayRow, buildHrHallDetails, type BuildContext, type Sketch } from './ArchitectureKit'
 import { VIKING_HOMES, VIKING_HR_CENTER, VIKING_STABLE, VIKING_TOWN_CENTER, VIKING_WEAPONS } from './ArchitectureSpecs'
 
 /* Viking vocabulary: stone footings, vertical plank and log walls, steep
@@ -125,6 +125,7 @@ export function buildVikingTownCenter(ctx: BuildContext): void {
 
 /* ─────────────── Warrior recruitment hall ─────────────── */
 export function buildVikingHrCenter(ctx: BuildContext): void {
+  if (ctx.hrHall) { buildExpandedVikingHrCenter(ctx); return }
   const s = ctx.body, r = ctx.roof, T = VIKING_HR_CENTER, F = T.F, b = T.body, top = F + b.top
   plankWall(s, -b.halfX, b.back, b.halfX, b.back + b.wall, F, b.top)
   for (const side of [-1, 1]) {
@@ -185,6 +186,48 @@ export function buildVikingHrCenter(ctx: BuildContext): void {
     s.beam('metal', ring, V(0, F + T.roof.ridge - .6, ring.z), .03, .03, PALETTE.iron)
   }
   s.span('cloth', -1.0, F + .005, T.table.front + .2, 1.0, F + .02, b.front - .4, PALETTE.darkRed)
+}
+
+/** Enclosed longhouse using the small HR's timber, carving, snow and Cat banners. */
+function buildExpandedVikingHrCenter(ctx: BuildContext): void {
+  const h = ctx.hrHall!, b = h.body, s = ctx.body, r = ctx.roof, F = VIKING_HR_CENTER.F
+  const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2, width = b.maxX - b.minX, depth = b.maxZ - b.minZ
+  plankWall(s, b.minX, b.minZ, b.maxX, b.minZ + h.wall, F, h.eave)
+  for (const side of [-1, 1]) {
+    const x = side < 0 ? b.minX : b.maxX
+    plankWall(s, x, b.minZ + h.wall, x - side * h.wall, b.maxZ, F, h.eave)
+    battens(s, V(x, 0, b.minZ), V(x, 0, b.maxZ), F, h.eave, V(side, 0, 0))
+    for (const z of [-6, 0, 6]) s.window(x + side * .02, F + 3.5, z, side * Math.PI / 2, 1, 1.2, 'wood')
+  }
+  s.wall('wood', cx, F, b.maxZ - h.wall / 2, width, h.eave, h.wall,
+    h.portals.map(p => ({ x: p.x - cx, y: 0, w: p.doorWidth, h: p.height })), PALETTE.weathered)
+  for (let x = b.minX; x <= b.maxX; x += 1.3) {
+    if (h.portals.some(p => Math.abs(x - p.x) < p.doorWidth / 2 + .2)) continue
+    s.box('wood', x, F + h.eave / 2, b.maxZ + .05, .14, h.eave, .1, PALETTE.darkTimber)
+  }
+  const roof = { axis: 'x' as const, cz, halfSpan: depth / 2 + .4, from: b.minX - .4, to: b.maxX + .4, eave: F + h.eave, ridge: F + h.ridge, thickness: THATCH }
+  r.gableRoof('roof', roof)
+  if (ctx.snow) r.snowOnGable(roof)
+  ridge(r, V(roof.from, roof.ridge + .15, cz), V(roof.to, roof.ridge + .15, cz))
+  for (const side of [-1, 1]) {
+    const x = side < 0 ? b.minX - .15 : b.maxX + .15
+    r.gable('wood', x, F + h.eave, cz, depth, h.ridge - h.eave, .3, PALETTE.weathered, side * Math.PI / 2)
+    r.crossedGable(x, F + h.ridge + .2, cz, depth / 2 + .4, h.ridge - h.eave, side * Math.PI / 2, 1.25)
+  }
+  for (let x = b.minX + 1; x < b.maxX; x += 4.5) r.beam('wood', V(x, F + h.eave, b.minZ), V(x, F + h.eave, b.maxZ), .25, .3, PALETTE.darkTimber)
+  for (const p of h.portals) {
+    for (const side of [-1, 1]) {
+      s.carvedPost(p.x + side * 3.7, F, b.maxZ + .8, h.eave, .25)
+      s.doorLeaf(p.x + side * p.doorWidth / 2, F, b.maxZ - h.wall - .1, p.doorWidth / 2 - .05, p.height - .1, side < 0 ? Math.PI : 0)
+      s.shield(p.x + side * 4.4, F + 3.8, b.maxZ + .1, 0, .55, undefined, 0, side < 0 ? 'viking_dragonward_shield_t4' : 'viking_berserker_shield_t5')
+    }
+    const porch = { axis: 'z' as const, cx: p.x, halfSpan: 4.3, from: b.maxZ - .2, to: p.z + .2, eave: F + h.eave, ridge: F + h.eave + 2.4, thickness: THATCH }
+    r.gableRoof('roof', porch); if (ctx.snow) r.snowOnGable(porch)
+    r.gable('wood', p.x, F + h.eave, p.z + .05, 8.6, 2.4, .3, PALETTE.weathered)
+    r.crossedGable(p.x, F + h.eave + 2.6, p.z + .25, 4.5, 2.4, 0, 1.25)
+  }
+  s.banner((h.portals[0].x + h.portals[1].x) / 2, F + 6.2, b.maxZ + .12, 0, 1.4, 2.8, 'wood')
+  buildHrHallDetails(ctx)
 }
 
 /* ─────────────── Smithy ─────────────── */

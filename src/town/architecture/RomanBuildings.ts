@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { PALETTE, tabletopDisplayRow, type BuildContext, type Sketch } from './ArchitectureKit'
+import { PALETTE, tabletopDisplayRow, buildHrHallDetails, type BuildContext, type Sketch } from './ArchitectureKit'
 import { ROMAN_HOMES, ROMAN_HR_CENTER, ROMAN_STABLE, ROMAN_TOWN_CENTER, ROMAN_WEAPONS } from './ArchitectureSpecs'
 
 /* Roman vocabulary: marble/travertine masonry, red plaster panels, terracotta
@@ -126,6 +126,7 @@ export function buildRomanTownCenter(ctx: BuildContext): void {
 
 /* ─────────────── HR Center (military recruitment hall) ─────────────── */
 export function buildRomanHrCenter(ctx: BuildContext): void {
+  if (ctx.hrHall) { buildExpandedRomanHrCenter(ctx); return }
   const s = ctx.body, r = ctx.roof, T = ROMAN_HR_CENTER, F = T.F, b = T.body, top = F + b.top
   const innerX = b.halfX - b.wall, innerBack = b.back + b.wall, innerFront = b.front - b.wall, p = T.portico
   const alcoves = [-1, 1].map(side => ({ x: side * T.alcoves.x, y: .9, w: T.alcoves.half * 2, h: T.alcoves.height, arch: T.alcoves.half }))
@@ -191,6 +192,47 @@ export function buildRomanHrCenter(ctx: BuildContext): void {
   s.add('metal', new THREE.TorusGeometry(1.0, .05, 6, 20).rotateX(Math.PI / 2).translate(ring.x, ring.y, ring.z), PALETTE.iron)
   for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; s.add('glow', new THREE.SphereGeometry(.06, 5, 4).translate(Math.cos(a), ring.y + .2, ring.z + Math.sin(a)), PALETTE.glow, null) }
   s.beam('metal', ring, V(0, top, ring.z), .03, .03, PALETTE.iron)
+}
+
+/** The small Principia theme extends into one enclosed recruitment basilica. */
+function buildExpandedRomanHrCenter(ctx: BuildContext): void {
+  const h = ctx.hrHall!, b = h.body, s = ctx.body, r = ctx.roof, F = ROMAN_HR_CENTER.F
+  const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2, width = b.maxX - b.minX, depth = b.maxZ - b.minZ
+  s.wall('stone', cx, F, b.maxZ - h.wall / 2, width, h.eave, h.wall,
+    h.portals.map(p => ({ x: p.x - cx, y: 0, w: p.doorWidth, h: p.height, arch: .8 })), PALETTE.cream)
+  s.wall('stone', cx, F, b.minZ + h.wall / 2, width, h.eave, h.wall, [], PALETTE.cream)
+  for (const side of [-1, 1]) {
+    const x = side < 0 ? b.minX : b.maxX
+    s.wall('stone', x - side * h.wall / 2, F, cz, depth, h.eave, h.wall,
+      [-6, 0, 6].map(z => ({ x: -side * (z - cz), y: 2.5, w: 1.2, h: 1.8, arch: .6 })), PALETTE.cream, side * Math.PI / 2)
+    for (const z of [-6, 0, 6]) s.window(x + side * .02, F + 3.4, z, side * Math.PI / 2, 1.2, 1.8, 'stone', true)
+    for (const [lo, hi, color] of [[0, .9, PALETTE.marble], [1.1, 1.6, PALETTE.redPlaster], [h.eave - .6, h.eave - .2, PALETTE.redPlaster]] as const)
+      s.span('stone', x - .06, F + lo, b.minZ, x + .06, F + hi, b.maxZ, color)
+  }
+  let edge = b.minX
+  for (const p of [...h.portals].sort((a, b) => a.x - b.x)) {
+    for (const [lo, hi, color] of [[0, .9, PALETTE.marble], [1.1, 1.6, PALETTE.redPlaster]] as const)
+      s.span('stone', edge, F + lo, b.maxZ, p.x - p.doorWidth / 2, F + hi, b.maxZ + .06, color)
+    edge = p.x + p.doorWidth / 2
+  }
+  for (const [lo, hi, color] of [[0, .9, PALETTE.marble], [1.1, 1.6, PALETTE.redPlaster]] as const)
+    s.span('stone', edge, F + lo, b.maxZ, b.maxX, F + hi, b.maxZ + .06, color)
+  for (const z of [b.minZ, b.maxZ]) s.box('stone', cx, F + h.eave, z, width + .36, .25, .36, PALETTE.marble)
+  for (const x of [b.minX, b.maxX]) s.box('stone', x, F + h.eave, cz, .36, .25, depth, PALETTE.marble)
+  const roof = { axis: 'x' as const, cz, halfSpan: depth / 2 + .4, from: b.minX - .4, to: b.maxX + .4, eave: F + h.eave, ridge: F + h.ridge, thickness: .25 }
+  r.gableRoof('roof', roof)
+  ridgeTiles(r, V(roof.from, roof.ridge + .15, cz), V(roof.to, roof.ridge + .15, cz))
+  for (const side of [-1, 1]) pedimentFront(r, side < 0 ? b.minX - .08 : b.maxX + .08, F + h.eave, cz, depth + .5, h.ridge - h.eave, side * Math.PI / 2)
+  for (const p of h.portals) {
+    for (const side of [-1, 1]) {
+      s.column(p.x + side * 3.7, F, b.maxZ + .8, h.eave, .38)
+      s.doorLeaf(p.x + side * p.doorWidth / 2, F, b.maxZ - h.wall - .1, p.doorWidth / 2 - .05, p.height - .8, side < 0 ? Math.PI : 0)
+    }
+    r.gableRoof('roof', { axis: 'z', cx: p.x, halfSpan: 4.3, from: b.maxZ - .2, to: p.z + .2, eave: F + h.eave, ridge: F + h.eave + 2.4, thickness: .25 })
+    pedimentFront(r, p.x, F + h.eave, p.z + .05, 8.6, 2.4)
+  }
+  for (const x of [b.minX + 1.5, b.maxX - 1.5]) s.banner(x, F + 6.1, b.maxZ + .1, 0, 1.1, 3.0)
+  buildHrHallDetails(ctx)
 }
 
 /* ─────────────── Weapon shop (fabrica / armoury) ─────────────── */

@@ -1,3 +1,4 @@
+import type { HRHallLayout } from './ArchitectureSpecs'
 import * as THREE from 'three'
 import { ArenaResources, arenaRandom, brazierParts, createFlameMaterial, flameParts, mergedMesh, paintedTexture, speckle, tint } from '../../arena/ArenaKit'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -43,6 +44,7 @@ export interface BuildContext {
   /** Damageable roof; Town damage tilts/hides this group. */
   readonly roof: Sketch
   readonly root: THREE.Group
+  readonly hrHall?: HRHallLayout
   readonly snow: boolean
   /** Local terrain height at a building-local point (outdoor props sit on it). */
   ground(x: number, z: number): number
@@ -253,7 +255,7 @@ export interface ArchHole { x: number; y: number; w: number; h: number; arch?: n
  */
 export class Sketch {
   private readonly extras: THREE.Object3D[] = []
-  readonly airspaceParts: { parent: THREE.Object3D; local: THREE.Box3 }[] = []
+  readonly airspaceParts: { parent: THREE.Object3D; local: THREE.Box3; decoration?: boolean }[] = []
   private readonly parts = new Map<PartSlot, THREE.BufferGeometry[]>()
   constructor(readonly kit: ArchitectureKit, private readonly buildingKind?: CivicBuildingKind) {}
 
@@ -276,7 +278,7 @@ export class Sketch {
       if (slot === 'flame') mesh.renderOrder = 5
       parent.add(mesh); meshes.push(mesh)
     }
-    for (const extra of this.extras) this.airspaceParts.push({ parent, local: new THREE.Box3().setFromObject(extra) })
+    for (const extra of this.extras) this.airspaceParts.push({ parent, local: new THREE.Box3().setFromObject(extra), decoration: true })
     if (this.extras.length) parent.add(batchDecorations(this.extras, this.kit.resources))
     this.extras.length = 0
     this.parts.clear()
@@ -855,6 +857,41 @@ export function tabletopDisplayRow(pieces: readonly { id: string; kind: 'melee' 
     cursor += (sizes[i].z + gap) * scale; row.add(model)
   })
   return row
+}
+
+/** Keep the small HR's recruitment, equipment, faction furniture and iron lights. */
+export function buildHrHallDetails(ctx: BuildContext): void {
+  const h = ctx.hrHall!, s = ctx.body, roman = ctx.kit.faction === 'roman'
+  const F = roman ? .5 : .45, desk = h.desk, rear = h.body.minZ + h.wall
+  for (const p of h.statues) {
+    const base = Math.min(F, ctx.ground(p.x, p.z)) - .4
+    s.span('stone', p.x - p.half, base, p.z - p.half, p.x + p.half, F + 1.2, p.z + p.half, roman ? PALETTE.marble : PALETTE.footing)
+    ctx.statue(p.x, F + 1.2, p.z, 0, 2.5)
+  }
+  s.table((desk.minX + desk.maxX) / 2, F, (desk.minZ + desk.maxZ) / 2, desk.maxX - desk.minX, desk.maxZ - desk.minZ, 1.05)
+  s.span('cloth', desk.minX, F + .1, desk.maxZ - .01, desk.maxX, F + .95, desk.maxZ + .02, PALETTE.red)
+  if (roman) s.laurel(0, F + .6, desk.maxZ + .04, 0, .3)
+  else { s.shield(-1.4, F + 1.6, rear + .08, 0, .55); s.shield(1.4, F + 1.6, rear + .08, 0, .55, undefined, 0, 'viking_dragonward_shield_t4') }
+  s.weaponRack(h.rack.x, F, h.rack.z, h.rack.length, h.rack.yaw, 'spear', roman
+    ? ['paladin_sword_t4', 'byzantine_standard_lance_t5', 'sword_t5'] : ['paladin_mace_t4', 'axe_t5', 'spear_t5'])
+  for (const p of h.furniture) {
+    const r = p.rect, x = (r.minX + r.maxX) / 2, z = (r.minZ + r.maxZ) / 2
+    if (p.kind === 'bench') s.bench(x, F, z, r.maxX - r.minX, 0)
+    else s.table(x, F, z, r.maxX - r.minX, r.maxZ - r.minZ, p.height)
+  }
+  const shields = roman ? ['centurion_aquila_shield_t4', 'byzantine_eagle_shield_t5'] : ['viking_dragonward_shield_t4', 'viking_berserker_shield_t5']
+  for (let x = h.body.minX + 2, i = 0; x < h.body.maxX - 1; x += 4.5, i++) {
+    if (Math.abs(x) < 3) continue
+    s.shield(x, F + 3.8, rear + .08, 0, .6, undefined, 0, shields[i % shields.length])
+  }
+  for (const { x } of h.portals) {
+    s.banner(x, F + 6.3, rear + .08, 0, 1.6, 2.8, roman ? 'gold' : 'wood')
+    s.span('cloth', x - 1, F + .005, desk.maxZ + .3, x + 1, F + .02, h.body.maxZ, roman ? PALETTE.red : PALETTE.darkRed)
+    const ring = V3(x, F + 7.4, 0)
+    s.add('metal', new THREE.TorusGeometry(1, .05, 6, 20).rotateX(Math.PI / 2).translate(ring.x, ring.y, ring.z), PALETTE.iron)
+    for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; s.add('glow', new THREE.SphereGeometry(.06, 5, 4).translate(x + Math.cos(a), ring.y + .2, Math.sin(a)), PALETTE.glow, null) }
+    s.beam('metal', ring, V3(x, F + h.ridge, 0), .03, .03, PALETTE.iron)
+  }
 }
 
 /** Repeated GLB parts share one submission per geometry/material within a building. */

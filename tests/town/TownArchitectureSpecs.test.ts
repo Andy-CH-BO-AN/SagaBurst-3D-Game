@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { MOUNT_MOVEMENT_RADIUS } from '../../src/world/Mount'
 import {
-  architectureSpec, CIVIC_BUILDING_KINDS, townPlazaLayout,
+  architectureSpec, CIVIC_BUILDING_KINDS,
   type ArchitectureCollider, type ArchitectureFaction, type BuildingSpec, type LocalRect,
 } from '../../src/town/architecture/ArchitectureSpecs'
-import { stableHorsePositions, TOWN_SITES, townPlayerEntryPoint, townRoster } from '../../src/town/TownRules'
-import { TOWN_CENTER, TOWN_PLAZA, TOWN_WELL } from '../../src/town/TownLayout'
+import { stableHorsePositions, TOWN_SITES } from '../../src/town/TownRules'
 
 const FACTIONS: readonly ArchitectureFaction[] = ['roman', 'viking']
 const SPECS: readonly BuildingSpec[] = FACTIONS.flatMap(faction => CIVIC_BUILDING_KINDS.map(kind => architectureSpec(faction, kind)))
@@ -71,19 +70,4 @@ describe('Town architecture plans', () => {
     }
   })
 
-  it('keep plaza furniture off resident stations, the player entry and the Captain approach', () => {
-    const roster = townRoster()
-    const stations = roster.flatMap(actor => [{ id: actor.id, x: actor.x, z: actor.z }, ...(actor.garrison ? [{ id: `${actor.id}/garrison`, ...actor.garrison }] : [])])
-    const entry = townPlayerEntryPoint(), conflicts: string[] = []
-    for (const faction of FACTIONS) for (const prop of townPlazaLayout(faction)) {
-      const name = `${faction} ${prop.kind} ${prop.x},${prop.z}`
-      if (!(prop.x - prop.radius >= TOWN_PLAZA.minX && prop.x + prop.radius <= TOWN_PLAZA.maxX
-        && prop.z - prop.radius >= TOWN_PLAZA.minZ && prop.z + prop.radius <= TOWN_PLAZA.maxZ)) conflicts.push(`${name}/plaza`)
-      for (const station of stations) if (Math.hypot(station.x - prop.x, station.z - prop.z) < prop.radius + 1.2) conflicts.push(`${name}/${station.id}`)
-      if (Math.hypot(entry.x - prop.x, entry.z - prop.z) <= prop.radius + 3) conflicts.push(`${name}/entry`)
-      if (Math.hypot(TOWN_WELL.x - prop.x, TOWN_WELL.z - prop.z) <= prop.radius + TOWN_WELL.radius + 1) conflicts.push(`${name}/well`)
-      if (Math.abs(prop.x - (TOWN_CENTER.x - 8)) < 13 + prop.radius && prop.z > TOWN_CENTER.z + 13 - prop.radius && prop.z < TOWN_CENTER.z + 28 + prop.radius) conflicts.push(`${name}/captain`)
-    }
-    expect(conflicts).toEqual([])
-  })
 })

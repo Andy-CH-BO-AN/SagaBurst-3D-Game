@@ -1,3 +1,5 @@
+import { expandedHrCenter, townPlazaLayout } from '../../src/town/architecture/ArchitectureSpecs'
+import { TOWN_CENTER, TOWN_PLAZA, TOWN_WELL } from '../../src/town/TownLayout'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { getTownRampartLayout } from '../../src/town/TownRamparts'
 import { townStationSpec } from '../../src/town/TownGarrison'
@@ -11,7 +13,7 @@ import { townRoadIntersectsBox, TOWN_DUEL_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_RO
 import { townRoster, townPatrolRefitPoint, townPlayerEntryPoint, withTownCommandSquadRoster } from '../../src/town/TownRules'
 import { townPatrolDeparture, townPatrolRoute } from '../../src/town/TownPatrolRoute'
 import { getTownCommandWatchtowerLayout, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
-import { resolveTownHRLayout, townConquestRoster, townHrCampLayout } from '../../src/town/TownHRLayout'
+import { resolveTownHRLayout, townConquestRoster, townHrLocalMuster } from '../../src/town/TownHRLayout'
 import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
 import { resolveTownEagleGarrison } from '../../src/town/TownEagleGarrison'
 import { resolveTownCommanderPosition, townCommanderSpec } from '../../src/town/TownCommander'
@@ -150,6 +152,18 @@ describe('Town resident layout ownership', () => {
 
 it('keeps final Town population homes, ground stations and fallbacks clear of ramp approaches, watchtower and each other', () => {
   const roster = townRoster(), layout = getTownRampartLayout()
+    const plazaStations = roster.flatMap(actor => [{ id: actor.id, x: actor.x, z: actor.z }, ...(actor.garrison ? [{ id: `${actor.id}/garrison`, ...actor.garrison }] : [])])
+    const entry = townPlayerEntryPoint(), conflicts: string[] = []
+    for (const faction of ['roman', 'viking'] as const) for (const prop of townPlazaLayout(faction)) {
+      const name = `${faction} ${prop.kind} ${prop.x},${prop.z}`
+      if (!(prop.x - prop.radius >= TOWN_PLAZA.minX && prop.x + prop.radius <= TOWN_PLAZA.maxX
+        && prop.z - prop.radius >= TOWN_PLAZA.minZ && prop.z + prop.radius <= TOWN_PLAZA.maxZ)) conflicts.push(`${name}/plaza`)
+      for (const station of plazaStations) if (Math.hypot(station.x - prop.x, station.z - prop.z) < prop.radius + 1.2) conflicts.push(`${name}/${station.id}`)
+      if (Math.hypot(entry.x - prop.x, entry.z - prop.z) <= prop.radius + 3) conflicts.push(`${name}/entry`)
+      if (Math.hypot(TOWN_WELL.x - prop.x, TOWN_WELL.z - prop.z) <= prop.radius + TOWN_WELL.radius + 1) conflicts.push(`${name}/well`)
+      if (Math.abs(prop.x - (TOWN_CENTER.x - 8)) < 13 + prop.radius && prop.z > TOWN_CENTER.z + 13 - prop.radius && prop.z < TOWN_CENTER.z + 28 + prop.radius) conflicts.push(`${name}/captain`)
+    }
+    expect(conflicts).toEqual([])
   // Retain the original 3m resident / 5m patrol tower margins, using this
   // invariant's existing production roster rather than a second cold fixture.
   const footprints = watchtowerFootprints(getTownCommandWatchtowerLayout())
@@ -181,13 +195,19 @@ it('keeps final Town population homes, ground stations and fallbacks clear of ra
   // Own full-population HR clearance here, reusing this invariant's real roster.
   // The scenery suite only needs the west-gate guard that constrains its fixture.
   for (const service of [hr, resolveTownHRLayout('viking', [], roads, roster)]) {
-    const camp = townHrCampLayout(service)
-    expect(camp.slots).toHaveLength(30)
-    const worldCamp = new Box3(new Vector3(camp.minX, -100, camp.minZ), new Vector3(camp.maxX, 100, camp.maxZ))
+    const slots = townHrLocalMuster(service), { spec, hall } = expandedHrCenter(service === hr ? 'roman' : 'viking', slots)
+    const worldHall = new Box3(new Vector3(hall.body.minX, -100, hall.body.minZ), new Vector3(hall.body.maxX, 100, hall.body.maxZ))
       .applyMatrix4(new Matrix4().makeRotationY(service.site.yaw)).translate(new Vector3(service.site.x, 0, service.site.z))
-    expect(roads.some(road => townRoadIntersectsBox(road, worldCamp, 1))).toBe(false)
-    const postGap = Math.min(...camp.posts.flatMap(post => camp.slots.map(slot => Math.hypot(post.x - slot.x, post.z - slot.z) - .35)))
-    expect(postGap).toBeGreaterThan(2.2)
+    expect(roads.some(road => townRoadIntersectsBox(road, worldHall, 1))).toBe(false)
+    const failures = slots.flatMap((p, i) => {
+      const inner = spec.interior!
+      const outside = p.x - 2.2 < inner.minX || p.x + 2.2 > inner.maxX || p.z - 2.2 < inner.minZ || p.z + 2.2 > inner.maxZ
+      const blocked = spec.colliders.some(c => c.role !== 'roof' && c.role !== 'overhead'
+        && p.x + 2.2 > c.box[0] && p.x - 2.2 < c.box[3] && p.z + 2.2 > c.box[2] && p.z - 2.2 < c.box[5])
+      const roof = spec.colliders.some(c => c.role === 'roof' && p.x >= c.box[0] && p.x <= c.box[3] && p.z >= c.box[2] && p.z <= c.box[5] && c.box[1] - spec.floorY >= 5.5)
+      return outside || blocked || !roof ? [i] : []
+    })
+    expect(failures).toEqual([])
     // Mounted HR officer must leave a 6m-wide central approach open.
     const dx = service.officer.x - service.site.x, dz = service.officer.z - service.site.z
     const localSide = Math.cos(service.site.yaw) * dx - Math.sin(service.site.yaw) * dz

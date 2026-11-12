@@ -850,13 +850,13 @@ export class TownScene {
           const nativeRef = careerEquipment?.refs.mount ?? (equipmentActorIds.has(spec.id)
             ? resolveTownActorEquipment(this.profile, residentArmyFaction, spec.id).refs.mount : null)
           const reused = findTownNativeMount(this.mounts, nativeRef)
-          const mount = reused ?? trackNpcSpawn(new Mount(this.scene, careerMountType(equippedMount as CareerMountId), spec.x, spec.z, undefined, horseVariantForStableKey(`town:${residentArmyFaction}:${spec.id}`)))
+          const mount = reused ?? trackNpcSpawn(new Mount(this.scene, careerMountType(equippedMount as CareerMountId), spec.x, spec.z, spec.y, horseVariantForStableKey(`town:${residentArmyFaction}:${spec.id}`)))
           if (nativeRef?.source === 'native') registerTownNativeMount(mount, nativeRef.nativeId!)
           mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI
           if (spec.role !== 'ranger' || mount !== this.cat) {
             // The shared native Cat starts at the stable; transferred holders need their own spawn baseline before binding.
             // Saved command/mission positions are restored after resident initialization.
-            if (reused) mount.group.position.set(spec.x, getTerrainHeight(spec.x, spec.z), spec.z)
+            if (reused) mount.group.position.set(spec.x, spec.y ?? getTerrainHeight(spec.x, spec.z), spec.z)
             npc.mountVehicle(mount)
           }
           homeMount = mount
@@ -2649,7 +2649,20 @@ export class TownScene {
       formationSlots: (anchor, occupied, count) => personalTownDeployment(anchor, occupied, count,
         TOWN_NAVIGATION_BOUNDS, this.world.obstacles, this.navigation),
       emit: event => this.emitCombatEvent(event),
-      onSpawn: npc => { (this.captainPatrol?.active ? this.captainPatrol : this.defense?.active ? this.defense : this.mission)?.registerPersonalActor(npc); this.synchronizeCommandActors() },
+      onSpawn: (npc, mount) => {
+        // Older checkpoints may still store terrain Y beneath the new slab.
+        if (mount && !mount.isFlyingMount) {
+          const y = this.world.civicSupportY('hr-center', mount.group.position)
+          if (y !== undefined && mount.group.position.y < y) { mount.group.position.y = y; if (npc.mount === mount) npc.mountVehicle(mount) }
+        }
+        if (!npc.mount) {
+          const y = this.world.civicSupportY('hr-center', npc.group.position)
+          if (y !== undefined && npc.group.position.y < y) npc.group.position.y = y
+        }
+        const mission = this.captainPatrol?.active ? this.captainPatrol : this.defense?.active ? this.defense : this.mission
+        mission?.registerPersonalActor(npc)
+        this.synchronizeCommandActors()
+      },
     })
   }
 

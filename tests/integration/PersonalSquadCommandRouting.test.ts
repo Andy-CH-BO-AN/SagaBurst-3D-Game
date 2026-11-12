@@ -165,6 +165,22 @@ describe('Personal Squad command lifecycle routing', () => {
     expect(issue).not.toHaveBeenCalled()
   })
 
+  it('returns a ground private soldier to the HR floor height on Dismiss', () => {
+    const slot = { x: -72, y: 2.4, z: 16, yaw: .5 }
+    const actor = { dead: false, mount: undefined, combatantId: 'personal:floor', missionMovement: false,
+      assignFormationTarget: vi.fn<NPC['assignFormationTarget']>() }
+    // Numeric actor boundary only; Dismiss and return routing are real, checkpoint persistence has its own owner.
+    const checkpoint = vi.fn()
+    const runtime = Object.assign(Object.create(PersonalSquadRuntime.prototype), {
+      options: { hasHR: true }, state: 'ACTIVE', returnCommand: -1000, actors: [actor],
+      slots: new Map([[actor, slot]]), pending: new Map(), boarding: new Map(), returningOnFoot: new Set(),
+      awaitingEaglePad: new Set(), reservedEagleOwners: new Set(), checkpoint,
+    }) as Pick<PersonalSquadRuntime, 'dismiss'>
+    expect(runtime.dismiss()).toBe(true)
+    expect(actor.assignFormationTarget.mock.lastCall![1].toArray()).toEqual([slot.x, slot.y, slot.z])
+    expect(actor.missionMovement).toBe(true)
+  })
+
   it('does not report success for reserve or repeated returning Dismiss', () => {
     const issue = vi.fn(() => false)
     const { controller, input, ui } = controllerHarness([], null, null, null, 'roman', 'squad', true, { issue, enabled: () => true })
