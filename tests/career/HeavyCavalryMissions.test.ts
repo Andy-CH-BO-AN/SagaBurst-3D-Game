@@ -154,7 +154,7 @@ describe('heavy cavalry field missions in Career', () => {
     expect(captain.personalSquad?.memberIds).toEqual(['personal:hr-1'])
   })
 
-  it('saves and loads Heavy Field active missions with strict rank authority, legacy revocation, and fail-closed corrupt protection', () => {
+  it('Captain in Soldier and Steel Avalanche round trips with rank-specific official squad authority and personal squad', () => {
     // 1. Captain accepts Soldier mission: save() === true -> loadChecked() has same mission, personalSquad, officialSquad === undefined
     const store1 = new CareerProfileStore(new MemoryStorage())
     const captainSoldier = profileFor('captain')
@@ -176,8 +176,9 @@ describe('heavy cavalry field missions in Career', () => {
     expect(loadedCaptainSteel.activeMission?.templateId).toBe(CAPTAIN_STEEL_AVALANCHE_ID)
     expect(loadedCaptainSteel.activeMission?.officialSquad?.actorIds).toHaveLength(29)
     expect(loadedCaptainSteel.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
+  })
 
-    // 3. Commander in Soldier & Veteran Heavy Field: valid save/load roundtrips, and forged squads reject
+  it('Commander in Soldier and Veteran Heavy Field round trips full squads, rejecting forged claims and tampered orders', () => {
     const store3 = new CareerProfileStore(new MemoryStorage())
     const commanderProfile = profileFor('commander')
 
@@ -214,8 +215,13 @@ describe('heavy cavalry field missions in Career', () => {
     const forgedCmdCount = structuredClone(acceptedCmdVeteran)
     forgedCmdCount.activeMission!.officialSquad!.squads!.pop()
     expect(store3.save(forgedCmdCount)).toBe(false)
+  })
 
-    // 4. Authentic 50-man legacy Captain grant: durable migration, casualties/HP preserved, idempotent
+  it('recognizes 50-man legacy Captain grant and atomically revokes officialSquad while preserving combat state idempotently', () => {
+    const captainSoldier = profileFor('captain')
+    captainSoldier.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+    const acceptedCaptainSoldier = acceptHeavyFieldMission(captainSoldier, SOLDIER_IRON_ENCOUNTER_ID, 'cap-sol')!
+
     const storage4 = new MemoryStorage()
     const store4 = new CareerProfileStore(storage4)
     const legacyCaptainSave = structuredClone(acceptedCaptainSoldier)
@@ -254,8 +260,23 @@ describe('heavy cavalry field missions in Career', () => {
     const reloadedProfile = store4.loadChecked().profile!
     expect(reloadedProfile.activeMission?.officialSquad).toBeUndefined()
     expect(reloadedProfile.activeMission?.templateId).toBe(SOLDIER_IRON_ENCOUNTER_ID)
+  })
 
-    // 5. Failed storage write during migration: fail-closed, retains original bytes, returns error
+  it('fails closed on storage write failure during migration, retaining original legacy bytes and returning error', () => {
+    const captainSoldier = profileFor('captain')
+    captainSoldier.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+    const acceptedCaptainSoldier = acceptHeavyFieldMission(captainSoldier, SOLDIER_IRON_ENCOUNTER_ID, 'cap-sol')!
+    const legacyCaptainSave = structuredClone(acceptedCaptainSoldier)
+    const friendlies = acceptedCaptainSoldier.activeMission!.friendlyActorIds
+    legacyCaptainSave.activeMission!.officialSquad = {
+      type: 'mission-official',
+      missionId: 'cap-sol',
+      townFaction: 'roman',
+      squadId: 1,
+      actorIds: friendlies.slice(0, 50),
+      contribution: { kills: 0, damageTaken: 0, structuresDestroyed: 0, gateBreaches: 0, damageDealt: 0, arrowHits: 0, meleeHits: 0, mountDamage: 0 },
+    } as any
+
     const brokenStorage = new MemoryStorage()
     brokenStorage.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacyCaptainSave))
     const validLegacyBytes = brokenStorage.getItem(CAREER_STORAGE_KEY)!
@@ -265,8 +286,24 @@ describe('heavy cavalry field missions in Career', () => {
     expect(brokenResult.profile).toBeNull()
     expect(brokenResult.error).toContain('生涯資料升級無法儲存')
     expect(brokenStorage.getItem(CAREER_STORAGE_KEY)).toBe(validLegacyBytes)
+  })
 
-    // 6. Forged Captain grant (unrecognizable actor ID): fail-closed, does not overwrite storage
+  it('fails closed on forged legacy grants and corrupted Heavy Field missions without modifying storage', () => {
+    const captainSoldier = profileFor('captain')
+    captainSoldier.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+    const acceptedCaptainSoldier = acceptHeavyFieldMission(captainSoldier, SOLDIER_IRON_ENCOUNTER_ID, 'cap-sol')!
+    const legacyCaptainSave = structuredClone(acceptedCaptainSoldier)
+    const friendlies = acceptedCaptainSoldier.activeMission!.friendlyActorIds
+    legacyCaptainSave.activeMission!.officialSquad = {
+      type: 'mission-official',
+      missionId: 'cap-sol',
+      townFaction: 'roman',
+      squadId: 1,
+      actorIds: friendlies.slice(0, 50),
+      contribution: { kills: 0, damageTaken: 0, structuresDestroyed: 0, gateBreaches: 0, damageDealt: 0, arrowHits: 0, meleeHits: 0, mountDamage: 0 },
+    } as any
+
+    // 1. Forged Captain grant (unrecognizable actor ID): fail-closed, does not overwrite storage
     const forgedStorage = new MemoryStorage()
     const forgedCaptainSave = structuredClone(legacyCaptainSave)
     forgedCaptainSave.activeMission!.officialSquad!.actorIds[0] = 'stranger_id'
@@ -277,9 +314,13 @@ describe('heavy cavalry field missions in Career', () => {
     expect(forgedResult.profile).toBeNull()
     expect(forgedStorage.getItem(CAREER_STORAGE_KEY)).toBe(forgedBytes)
 
-    // 7. Corrupted active Heavy Field: fail-closed, does not save/drop mission
+    // 2. Corrupted active Heavy Field: fail-closed, does not save/drop mission
+    const storage = new MemoryStorage()
+    const store = new CareerProfileStore(storage)
+    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacyCaptainSave))
+    const migratedProfile = store.loadChecked().profile!
     const corruptedSave = structuredClone(migratedProfile)
     corruptedSave.activeMission!.targetActorIds = ['corrupted_target']
-    expect(store4.save(corruptedSave)).toBe(false)
+    expect(store.save(corruptedSave)).toBe(false)
   })
 })

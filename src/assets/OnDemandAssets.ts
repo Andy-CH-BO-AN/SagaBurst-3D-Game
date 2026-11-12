@@ -19,8 +19,10 @@ export interface OnDemandAssetOptions<Id extends string> {
  * timed-out request is forgotten, so the next one starts fresh and a late old result can never replace it. */
 export class OnDemandAssets<Id extends string, Asset> {
   private readonly requests = new Map<Id, Promise<Asset>>()
+  private readonly abortControllers = new Map<Id, AbortController>()
   private readonly loaded = new Map<Id, Asset>()
   private readonly failedAt = new Map<Id, number>()
+  private disposed = false
 
   constructor(private readonly loader: (id: Id, signal: AbortSignal) => Promise<Asset>, private readonly options: OnDemandAssetOptions<Id>) {}
 
@@ -37,24 +39,30 @@ export class OnDemandAssets<Id extends string, Asset> {
     if (existing) return existing
     this.failedAt.delete(id)
     const { timeoutMs, onFailure } = this.options
+    const abort = new AbortController()
+    this.abortControllers.set(id, abort)
     const tracked = new Promise<Asset>((resolve, reject) => {
-      const abort = new AbortController()
       const timer = setTimeout(() => {
         reject(new AssetLoadTimeout(id, timeoutMs))
         abort.abort()
       }, timeoutMs)
-      const settle = () => clearTimeout(timer)
+      const settle = () => {
+        clearTimeout(timer)
+        this.abortControllers.delete(id)
+      }
       let work: Promise<Asset>
       try { work = this.loader(id, abort.signal) } catch (error) { work = Promise.reject(error) }
       work.then(result => { settle(); resolve(result) }, error => { settle(); reject(error) })
     }).then(result => {
       this.requests.delete(id)
-      this.loaded.set(id, result)
+      if (!this.disposed) this.loaded.set(id, result)
       return result
     }, error => {
       this.requests.delete(id)
-      this.failedAt.set(id, Date.now())
-      onFailure?.(id, error)
+      if (!this.disposed) {
+        this.failedAt.set(id, Date.now())
+        onFailure?.(id, error)
+      }
       throw error
     })
     this.requests.set(id, tracked)
@@ -68,5 +76,15 @@ export class OnDemandAssets<Id extends string, Asset> {
     const failedAt = this.failedAt.get(id)
     if (failedAt === undefined || Date.now() - failedAt >= this.options.retryDelayMs) void this.load(id).catch(() => {})
     return undefined
+  }
+
+  dispose(): void {
+    for (const controller of this.abortControllers.values()) {
+      controller.abort()
+    }
+    this.abortControllers.clear()
+    this.requests.clear()
+    this.loaded.clear()
+    this.failedAt.clear()
   }
 }
