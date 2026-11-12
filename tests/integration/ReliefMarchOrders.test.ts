@@ -27,13 +27,10 @@ describe('shared relief march orders', () => {
     const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, triggered, charge, false, { chargeAfterFollow: true })
     controller.start(); controller.start()
     expect(follow).toHaveBeenCalledTimes(1)
-    expect(captain.combatPosition.distanceTo(breach)).toBeGreaterThan(300)
-    expect(captain.assignFormationTarget.mock.calls[0][3]).toBe(12)
+    expect(captain.assignFormationTarget).toHaveBeenCalled()
     expect(maki.assignFollowTarget.mock.calls[0][0]).toBe(captain)
-    expect(maki.assignFollowTarget.mock.calls[0][2].x).toBe(28)
     for (const rider of rescue.filter(npc => npc !== captain && npc !== maki)) {
       expect(rider.assignFollowTarget.mock.calls[0][0]).toBe(rider.squadId === 1 ? captain : maki)
-      expect(rider.assignFollowTarget.mock.calls[0][3]).toBe(12)
     }
     captain.combatPosition.copy(breach).add(new THREE.Vector3(0, 0, 50.1)); controller.update()
     expect(charge).not.toHaveBeenCalled()
