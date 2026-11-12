@@ -225,11 +225,11 @@ function buildExpandedRomanHrCenter(ctx: BuildContext): void {
   for (const side of [-1, 1]) pedimentFront(r, side < 0 ? b.minX - .08 : b.maxX + .08, F + h.eave, cz, depth + .5, h.ridge - h.eave, side * Math.PI / 2)
   for (const p of h.portals) {
     for (const side of [-1, 1]) {
-      s.column(p.x + side * 3.7, F, b.maxZ + .8, h.eave, .38)
+      s.column(p.x + side * 3.7, F, b.maxZ - h.wall / 2, h.eave, .38)
       s.doorLeaf(p.x + side * p.doorWidth / 2, F, b.maxZ - h.wall - .1, p.doorWidth / 2 - .05, p.height - .8, side < 0 ? Math.PI : 0)
     }
-    r.gableRoof('roof', { axis: 'z', cx: p.x, halfSpan: 4.3, from: b.maxZ - .2, to: p.z + .2, eave: F + h.eave, ridge: F + h.eave + 2.4, thickness: .25 })
-    pedimentFront(r, p.x, F + h.eave, p.z + .05, 8.6, 2.4)
+    r.gableRoof('roof', { axis: 'z', cx: p.x, halfSpan: 4.3, from: b.maxZ - .2, to: p.z + 2, eave: F + h.eave, ridge: F + h.eave + 2.4, thickness: .25 })
+    pedimentFront(r, p.x, F + h.eave, p.z + 1.85, 8.6, 2.4)
   }
   for (const x of [b.minX + 1.5, b.maxX - 1.5]) s.banner(x, F + 6.1, b.maxZ + .1, 0, 1.1, 3.0)
   buildHrHallDetails(ctx)

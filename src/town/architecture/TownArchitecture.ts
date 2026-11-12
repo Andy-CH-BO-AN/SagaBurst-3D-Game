@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { flameParts } from '../../arena/ArenaKit'
 import { getTerrainHeight, type ObstacleData, type WalkRampSurface } from '../../world/Terrain'
-import { surfaceBox } from '../TownRamparts'
+import { rampNavigationSides, surfaceBox } from '../TownRamparts'
 import type { CommandWatchtowerLayout } from '../TownCommandWatchtowerLayout'
 import { ArchitectureKit, PALETTE, Sketch, preloadArchitectureDecorations, tabletopDisplay, type BuildContext } from './ArchitectureKit'
 import { architectureSpec, expandedHrCenter, DEEP, TOWN_PLAZA_MONUMENT, townPlazaLayout, type ArchitectureFaction, type BuildingSpec, type CivicBuildingKind, type LocalRect, type PlazaProp } from './ArchitectureSpecs'
@@ -235,6 +235,7 @@ export function placeArchitecture(kit: ArchitectureKit, kind: CivicBuildingKind,
       halfWidth: entrance.width / 2, length, landing: 0, startY: footY, topY: floorTop, mounted: true }
     const box = surfaceBox(ramp); box.min.y = Math.min(base, footY - .4)
     supports.push({ box, walkSurface: ramp, solidBelow: box.min.y, isBarricade: false, navigationPassable: true })
+    if (expanded) supports.push(...rampNavigationSides(ramp))
   }
   const ruinObstacles: ObstacleData[] = rubbleBoxes.map(b => ({ box: b.applyMatrix4(rotation).translate(new THREE.Vector3(site.x, rootY, site.z)), isBarricade: false }))
   const anchors = spec.anchors.map(anchor => {

@@ -523,7 +523,9 @@ export function expandedHrCenter(faction: ArchitectureFaction, muster: readonly 
   const body = { minX: Math.min(-original.halfX, ...xs.map(x => x - 3)), maxX: Math.max(original.halfX, ...xs.map(x => x + 3)),
     minZ: Math.min(original.back, ...zs.map(z => z - 3)), maxZ: Math.max(original.front, ...zs.map(z => z + 3)) }
   const wall = original.wall, F = base.floorY, eave = 6.7, ridge = 11.4
-  const portals = [0, (Math.min(...xs) + Math.max(...xs)) / 2].map(x => ({ x, z: body.maxZ + 1.8, yaw: 0,
+  // Flush thresholds remove the raised porch's two projecting slab corners.
+  // The approach now meets the doorway directly, without an exposed high side.
+  const portals = [0, (Math.min(...xs) + Math.max(...xs)) / 2].map(x => ({ x, z: body.maxZ, yaw: 0,
     width: 8.4, doorWidth: 6.4, height: 6.2, approach: 3.5 }))
   const desk = rect(-2.6, 2.6, body.minZ + 2.3, body.minZ + 3.3)
   const serviceSide = portals[1].x > 0 ? -1 : 1
@@ -547,8 +549,8 @@ export function expandedHrCenter(faction: ArchitectureFaction, muster: readonly 
     const half = p.doorWidth / 2
     colliders.push(solid(edge, body.maxZ - wall, p.x - half, body.maxZ, F + eave))
     colliders.push(above(p.x - half, F + p.height, body.maxZ - wall, p.x + half, F + eave, body.maxZ))
-    for (const side of [-1, 1]) colliders.push(post(p.x + side * 3.7, body.maxZ + .8, .38, F + eave))
-    colliders.push(above(p.x - 4.3, F + eave, body.maxZ - .2, p.x + 4.3, F + eave + 2.4, p.z + .2, 'roof'))
+    for (const side of [-1, 1]) colliders.push(post(p.x + side * 3.7, body.maxZ - wall / 2, .38, F + eave))
+    colliders.push(above(p.x - 4.3, F + eave, body.maxZ - .2, p.x + 4.3, F + eave + 2.4, p.z + 2, 'roof'))
     edge = p.x + half
   }
   colliders.push(solid(edge, body.maxZ - wall, body.maxX - wall, body.maxZ, F + eave))
@@ -563,7 +565,7 @@ export function expandedHrCenter(faction: ArchitectureFaction, muster: readonly 
   }
   if (!roman) for (let x = body.minX + 1; x < body.maxX; x += 4.5)
     colliders.push(above(x - .15, F + eave - .15, body.minZ, x + .15, F + eave + .15, body.maxZ, 'roof'))
-  const floor = [body, ...portals.map(p => rect(p.x - p.width / 2, p.x + p.width / 2, body.maxZ, p.z))]
+  const floor = [body]
   return { hall, spec: { ...base, label: roman ? '羅馬大型徵募大廳 · HR' : '維京大型戰士徵募長屋 · HR',
     envelope: rect(body.minX - .9, body.maxX + .9, body.minZ - .9, portals[0].z + portals[0].approach),
     floor, entrance: portals[0], additionalEntrances: portals.slice(1),

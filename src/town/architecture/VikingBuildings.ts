@@ -217,14 +217,14 @@ function buildExpandedVikingHrCenter(ctx: BuildContext): void {
   for (let x = b.minX + 1; x < b.maxX; x += 4.5) r.beam('wood', V(x, F + h.eave, b.minZ), V(x, F + h.eave, b.maxZ), .25, .3, PALETTE.darkTimber)
   for (const p of h.portals) {
     for (const side of [-1, 1]) {
-      s.carvedPost(p.x + side * 3.7, F, b.maxZ + .8, h.eave, .25)
+      s.carvedPost(p.x + side * 3.7, F, b.maxZ - h.wall / 2, h.eave, .25)
       s.doorLeaf(p.x + side * p.doorWidth / 2, F, b.maxZ - h.wall - .1, p.doorWidth / 2 - .05, p.height - .1, side < 0 ? Math.PI : 0)
       s.shield(p.x + side * 4.4, F + 3.8, b.maxZ + .1, 0, .55, undefined, 0, side < 0 ? 'viking_dragonward_shield_t4' : 'viking_berserker_shield_t5')
     }
-    const porch = { axis: 'z' as const, cx: p.x, halfSpan: 4.3, from: b.maxZ - .2, to: p.z + .2, eave: F + h.eave, ridge: F + h.eave + 2.4, thickness: THATCH }
+    const porch = { axis: 'z' as const, cx: p.x, halfSpan: 4.3, from: b.maxZ - .2, to: p.z + 2, eave: F + h.eave, ridge: F + h.eave + 2.4, thickness: THATCH }
     r.gableRoof('roof', porch); if (ctx.snow) r.snowOnGable(porch)
-    r.gable('wood', p.x, F + h.eave, p.z + .05, 8.6, 2.4, .3, PALETTE.weathered)
-    r.crossedGable(p.x, F + h.eave + 2.6, p.z + .25, 4.5, 2.4, 0, 1.25)
+    r.gable('wood', p.x, F + h.eave, p.z + 1.85, 8.6, 2.4, .3, PALETTE.weathered)
+    r.crossedGable(p.x, F + h.eave + 2.6, p.z + 2.05, 4.5, 2.4, 0, 1.25)
   }
   s.banner((h.portals[0].x + h.portals[1].x) / 2, F + 6.2, b.maxZ + .12, 0, 1.4, 2.8, 'wood')
   buildHrHallDetails(ctx)

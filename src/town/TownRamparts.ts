@@ -23,6 +23,17 @@ export function surfaceBox(s: WalkRampSurface, thickness = .35): THREE.Box3 {
   return new THREE.Box3(new THREE.Vector3(Math.min(s.startX, endX) - Math.abs(s.dirZ) * s.halfWidth, Math.min(s.startY, s.topY) - thickness, Math.min(s.startZ, endZ) - Math.abs(s.dirX) * s.halfWidth),
     new THREE.Vector3(Math.max(s.startX, endX) + Math.abs(s.dirZ) * s.halfWidth, Math.max(s.startY, s.topY), Math.max(s.startZ, endZ) + Math.abs(s.dirX) * s.halfWidth))
 }
+/** A raised entrance's solid sides cannot be crossed from the lower ground.
+ * Ground A* must enter at the ramp foot instead of cutting across its high lip.
+ * These records only constrain navigation; the real ramp owns body/projectile collision.
+ */
+export function rampNavigationSides(surface: WalkRampSurface): ObstacleData[] {
+  return [-1, 1].map(side => {
+    const edge = { ...surface, startX: surface.startX - surface.dirZ * surface.halfWidth * side,
+      startZ: surface.startZ + surface.dirX * surface.halfWidth * side, halfWidth: .02 }
+    return { box: surfaceBox(edge), isBarricade: false, physicalPassable: true, projectilePassable: true }
+  })
+}
 function surface(a: THREE.Vector3, b: THREE.Vector3, width: number): WalkRampSurface {
   const length = Math.hypot(b.x - a.x, b.z - a.z)
   return { startX: a.x, startZ: a.z, startY: a.y, topY: b.y, dirX: (b.x - a.x) / length, dirZ: (b.z - a.z) / length, length, landing: 0, halfWidth: width / 2, mounted: true }

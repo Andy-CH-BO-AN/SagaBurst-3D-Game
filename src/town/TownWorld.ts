@@ -336,7 +336,7 @@ export class TownWorld {
     const hp = new DamageableObstacle({ kind: 'tent', maxHp: placed.spec.maxHp, root: placed.root })
     const obstacles = placed.obstacles.map(obstacle => ({ ...obstacle, damageable: hp }))
     const supports = placed.supports
-    const airspace = placed.airspaceBounds.map(box => ({ box, isBarricade: false }))
+    const airspace: ObstacleData[] = placed.airspaceBounds.map(box => ({ box, isBarricade: false }))
     const ruins = placed.ruinObstacles
     const invalidate = () => { markObstacleTopologyChanged(this.obstacles); markObstacleTopologyChanged(this.airspaceObstacles) }
     const setDamaged = (damaged: boolean) => {
@@ -344,7 +344,7 @@ export class TownWorld {
     }
     const restorePhysics = () => {
       for (const part of ruins) { removeObstacleData(this.obstacles, part); removeObstacleData(this.airspaceObstacles, part) }
-      for (const part of [...airspace, ...obstacles, ...supports]) if (!this.airspaceObstacles.includes(part)) this.airspaceObstacles.push(part)
+      for (const part of [...airspace, ...obstacles, ...supports]) if (!part.physicalPassable && !this.airspaceObstacles.includes(part)) this.airspaceObstacles.push(part)
       invalidate()
     }
     this.buildings.push({ id, ownerFaction: this.ownerAllegiance, obstacles, supports, hp, roof: placed.roof, ruin: placed.ruin, damaged: false, setDamaged, restorePhysics })
