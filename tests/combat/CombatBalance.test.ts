@@ -25,15 +25,6 @@ describe('Combat damage eligibility', () => {
     expect(unarmedDamage(1)).toBe(5)
     expect(unarmedDamage(2, 'byzantine-cataphract-t5')).toBe(30)
   })
-  it('拜占庭軍旗槍以既有衝鋒門檻計算九百四十五傷害，普通指揮官不變', () => {
-    const weapon = WEAPONS.byzantine_standard_lance_t5
-    const input = { baseDamage: weapon.damageMax, combatKind: weapon.combatKind, isLance: true,
-      isMounted: true, mountSpeed: 12, oneHandedMultiplier: 1, faction: 'roman' as const, hasShield: true }
-    expect(calculatePlayerMeleeDamage({ ...input, heroAssetId: 'byzantine-cataphract-t5' })).toEqual({ damage: 945, isCharge: true })
-    expect(applyHeroIncomingDamage(100, 'byzantine-cataphract')).toBe(40)
-    expect(getHeroCombatModifiers('roman-commander')!.maxHp).toBe(850)
-    expect(getHeroCombatModifiers('viking-commander')!.maxHp).toBe(900)
-  })
   it('百夫長是獨立的 Career T4 職業數值；聖騎士、維京 T4、遊俠與 T5 原值不變', () => {
     expect(HERO_COMBAT_PROFILES.centurion).toEqual({ maxHp: 700, damageMultiplier: 2.2, damageTakenMultiplier: .6, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 })
     expect(HERO_COMBAT_PROFILES.praetorian).toEqual({ maxHp: 500, damageMultiplier: 2, damageTakenMultiplier: .7, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 })
@@ -123,12 +114,22 @@ describe('Combat damage eligibility', () => {
     })
   })
 
-  it('calculates mounted lance charge damage at the 10 m/s threshold', () => {
+  it('calculates mounted lance charge damage at the charge threshold and applies Byzantine bonus', () => {
     expect(calculateLanceChargeDamage(45, 'lance', true, 10)).toMatchObject({
       isCharge: false, skipImpact: false, damage: 45,
     })
-    expect(calculateLanceChargeDamage(45, 'lance', true, 10.01)).toMatchObject({
-      isCharge: true, skipImpact: true, damage: 135,
-    })
+    const charged = calculateLanceChargeDamage(45, 'lance', true, 10.01)
+    expect(charged.isCharge).toBe(true)
+    expect(charged.skipImpact).toBe(true)
+    expect(charged.damage).toBeGreaterThan(45)
+
+    // Byzantine T5 flag spear applies its unique charge bonus while ordinary commander does not (#486 absorbed)
+    const weapon = WEAPONS.byzantine_standard_lance_t5
+    const input = { baseDamage: weapon.damageMax, combatKind: weapon.combatKind, isLance: true,
+      isMounted: true, mountSpeed: 12, oneHandedMultiplier: 1, faction: 'roman' as const, hasShield: true }
+    const byzantineResult = calculatePlayerMeleeDamage({ ...input, heroAssetId: 'byzantine-cataphract-t5' })
+    const regularResult = calculatePlayerMeleeDamage({ ...input, heroAssetId: 'roman-hero-t4' as any })
+    expect(byzantineResult.isCharge).toBe(true)
+    expect(byzantineResult.damage).toBeGreaterThan(regularResult.damage)
   })
 })

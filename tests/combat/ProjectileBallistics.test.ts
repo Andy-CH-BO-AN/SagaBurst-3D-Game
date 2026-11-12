@@ -143,25 +143,25 @@ describe('finite projectile obstacle trace', () => {
     expect(arc.solve(remoteFrom, remoteTo, new THREE.Vector3(), 15)).toBe(true)
     expect(arc.isPathClear(remoteFrom, 15, [obstacle], () => -10)).toBe(true)
     expect(exactReads).toBe(0)
-  })
 
-  it('keeps rotated slab protrusions hittable outside their narrower walk envelope', () => {
-    const obstacle: ObstacleData = { isBarricade: false,
+    // Slab protrusion outside narrower walk envelope (#534 merged)
+    const slab: ObstacleData = { isBarricade: false,
       box: new THREE.Box3(new THREE.Vector3(9.9, -1, -.1), new THREE.Vector3(10.1, 1, .1)),
       projectileBoxes: [new THREE.Box3(new THREE.Vector3(-2, -.2, -.2), new THREE.Vector3(2, .2, .2))],
       projectileWorldToLocal: new THREE.Matrix4().makeRotationY(Math.PI / 2).setPosition(10, 0, 0).invert(),
     }
-    const from = new THREE.Vector3(8, 0, 1), to = new THREE.Vector3(12, 0, 1)
-    const contact = { fraction: Infinity, point: new THREE.Vector3() }
-    expect(findBlockingProjectileObstacleAlongPath(from, to, [obstacle], contact)).toBe(obstacle)
-    expect(contact.point.x).toBeCloseTo(9.8)
-    expect(contact.point.z).toBe(1)
-    const arc = new BallisticIntercept()
-    expect(arc.solve(from, to, new THREE.Vector3(), 15)).toBe(true)
-    expect(arc.isPathClear(from, 15, [obstacle], () => -10)).toBe(false)
-    obstacle.projectileWorldToLocal!.makeRotationY(Math.PI / 2).setPosition(20, 0, 0).invert()
-    expect(arc.isPathClear(from, 15, [obstacle], () => -10)).toBe(true)
+    const slabFrom = new THREE.Vector3(8, 0, 1), slabTo = new THREE.Vector3(12, 0, 1)
+    const slabContact = { fraction: Infinity, point: new THREE.Vector3() }
+    expect(findBlockingProjectileObstacleAlongPath(slabFrom, slabTo, [slab], slabContact)).toBe(slab)
+    expect(slabContact.point.x).toBeCloseTo(9.8)
+    expect(slabContact.point.z).toBe(1)
+    expect(arc.solve(slabFrom, slabTo, new THREE.Vector3(), 15)).toBe(true)
+    expect(arc.isPathClear(slabFrom, 15, [slab], () => -10)).toBe(false)
+    slab.projectileWorldToLocal!.makeRotationY(Math.PI / 2).setPosition(20, 0, 0).invert()
+    expect(arc.isPathClear(slabFrom, 15, [slab], () => -10)).toBe(true)
   })
+
+
 })
 
 describe('Town live projectile candidates', () => {
