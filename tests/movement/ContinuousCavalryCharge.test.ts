@@ -1,3 +1,4 @@
+import { SpatialGrid } from '../../src/world/SpatialGrid'
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import {
@@ -527,13 +528,8 @@ describe('Continuous Melee Cavalry Charge', () => {
     const candidateBuffer: any[] = []
     const isHostile = () => true
 
-    const grid = {
-      getNearbyInto: (_pos: any, _radius: number, out: any[]) => {
-        out.push(rearEnemy)
-        return out
-      },
-      findNearest: () => rearEnemy,
-    } as any
+    const grid = new SpatialGrid<typeof rearEnemy>(20)
+    grid.insert(rearEnemy)
 
     // 1. In passthrough mode: must NOT fall back to rear enemy (returns null to keep straight)
     const passthroughTarget = findCavalryChargeTarget(
@@ -560,6 +556,8 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(normalTarget).not.toBeNull()
     expect(normalTarget!.npc).toBe(rearEnemy)
     expect(normalTarget!.position.z).toBe(-20)
+    expect(findCavalryChargeTarget(cavalry, player, grid, null, candidateBuffer, false, isHostile,
+      undefined, candidate => candidate !== rearEnemy)).toBeNull()
   })
 
   it('invalidates cached target on attack completion and ignores rear cached target in CHASE during passthrough', () => {

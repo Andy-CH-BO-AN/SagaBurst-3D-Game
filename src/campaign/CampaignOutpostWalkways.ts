@@ -88,6 +88,8 @@ export interface OutpostWalkwayStair {
 }
 
 export interface OutpostWalkwayLayout {
+  /** Full authored enclosure; side/rear pursuit cannot be classified by front Z alone. */
+  perimeter?: { minX: number; maxX: number; minZ: number; maxZ: number }
   /** +1 when the interior lies toward +Z of the front wall, otherwise -1. */
   zSign: 1 | -1
   decks: OutpostWalkwayDeck[]
@@ -348,7 +350,10 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
     frontCrenelSpans: crenelSpans.map(([minX, maxX]) => ({ minX, maxX })),
   }
 
-  return { zSign, decks, stairs, bridge }
+  return { zSign, decks, stairs, bridge, perimeter: {
+    minX: placement.centerX - placement.halfWidth, maxX: placement.centerX + placement.halfWidth,
+    minZ: Math.min(placement.frontZ, placement.backZ), maxZ: Math.max(placement.frontZ, placement.backZ),
+  } }
 }
 
 export type OutpostWalkwayLaunchFields = Pick<DefenseCampaignLaunchConfig,
