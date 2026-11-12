@@ -490,9 +490,10 @@ export class Sketch {
     const scale = Math.min(width / size.x, height / size.y)
     const face = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw))
     const base = new THREE.Vector3(x, top - size.y * scale, z)
-    for (const side of poleRadius === undefined ? [1] : [1, -1]) {
+    const doubleFaced = poleRadius !== undefined && this.kit.faction === 'roman'
+    for (const side of doubleFaced ? [1, -1] : [1]) {
       const model = template.clone(true); model.scale.setScalar(scale)
-      if (poleRadius !== undefined) model.getObjectByName('Crossbar')?.removeFromParent()
+      if (doubleFaced) model.getObjectByName('Crossbar')?.removeFromParent()
       const bodyBounds = new THREE.Box3().setFromObject(model)
       const back = bodyBounds.min.z / scale
       const distance = poleRadius === undefined ? -bounds.min.z * scale : poleRadius - back * scale
@@ -500,7 +501,7 @@ export class Sketch {
       model.rotation.y = yaw + (side < 0 ? Math.PI : 0)
       this.extras.push(decorationLod(model))
     }
-    const crossbar = poleRadius === undefined ? undefined : template.getObjectByName('Crossbar')
+    const crossbar = doubleFaced ? template.getObjectByName('Crossbar') : undefined
     if (crossbar) {
       const model = crossbar.clone(true); model.scale.setScalar(scale)
       model.position.copy(base); model.rotation.y = yaw
@@ -511,8 +512,14 @@ export class Sketch {
         const p = new THREE.Vector3(x, top - .06 * scale, z).addScaledVector(new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw)), side * size.x * scale * .3)
         this.beam('wood', p.clone().addScaledVector(face, -(poleRadius! + .03)), p.clone().addScaledVector(face, poleRadius! + .03), .035, .035, PALETTE.darkTimber, true)
       }
-    } else if (poleRadius !== undefined) {
+    } else if (doubleFaced) {
       throw new Error('羅馬獨立軍旗缺少唯一 Crossbar 資產')
+    } else if (poleRadius !== undefined) {
+      // Viking's one-piece crossbar stays with its cloth, wholly in front of
+      // the pole. A cantilever joins that crossbar back to the central shaft.
+      const hanger = base.clone(); hanger.y = top - .04 * scale
+      const crossbarDepth = poleRadius + (bounds.getCenter(new THREE.Vector3()).z - bounds.min.z) * scale
+      this.beam(rod === 'gold' ? 'metal' : 'wood', hanger, hanger.clone().addScaledVector(face, crossbarDepth), .08, .08, rod === 'gold' ? PALETTE.gold : PALETTE.darkTimber, true)
     }
     // Wall banners already include their source crossbar. Brackets attach its
     // ends to the wall; no second horizontal rod is added over the GLB.
@@ -528,7 +535,7 @@ export class Sketch {
   /** Free-standing banner pole with crossbar and banner. */
   bannerPole(x: number, y0: number, z: number, yaw: number, height = 6, slot: 'metal' | 'wood' = 'wood'): void {
     this.cylinder(slot, x, y0, z, .07, .09, height, slot === 'metal' ? PALETTE.gold : PALETTE.darkTimber, 8)
-    this.banner(x, y0 + height - .45, z, yaw, 1.15, 2.4, slot === 'metal' ? 'gold' : 'wood', this.kit.faction === 'roman' ? .09 : undefined)
+    this.banner(x, y0 + height - .45, z, yaw, 1.15, 2.4, slot === 'metal' ? 'gold' : 'wood', .09)
     if (slot === 'metal') this.add('metal', new THREE.ConeGeometry(.12, .4, 8).translate(x, y0 + height + .2, z), PALETTE.gold)
   }
   /** Gold Roman eagle with spread wings on a plaque plane facing yaw. */
