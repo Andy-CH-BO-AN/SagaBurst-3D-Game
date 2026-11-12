@@ -46,39 +46,41 @@ function returning(change: 'mount dies' | 'ranged restored') {
   return { body, mount, member, resident, controller, wallY, profile }
 }
 
-it.each(['mount dies', 'ranged restored'] as const)('retargets a ground return when %s during travel and waits for actual wall arrival', change => {
-  const { body, mount, member, resident, controller, wallY, profile } = returning(change)
-  body.updateTownTravel.mockImplementationOnce(() => {
-    if (change === 'mount dies') { mount.dead = true; body.isMounted = false }
-    else { body.rangedWeaponId = 'wooden_shortbow'; body.hasActiveRangedWeapon = true }
-    body.reached = true // The old ground goal was reached in this travel update.
-  })
-  controller.updateResident(resident, .1, new Vector3(), [], {} as NavigationWorld)
-  expect(member.formation?.position).toEqual({ x: 10, y: wallY, z: 0, yaw: 0 })
-  expect(body.assignFormationTarget).toHaveBeenCalledOnce()
-  expect(member.status).toBe('deployed')
-  expect(body.activateTownRampartGarrison).not.toHaveBeenCalled()
-  // A formal mission handoff at the stale fallback must retain wall return.
-  const fallbackHandoff = controller.stageMissionHandoff(profile).townCommandSquad!
-  expect(fallbackHandoff.state).toBe('RETURNING')
-  expect(fallbackHandoff.members?.guard).toMatchObject({ status: 'deployed',
-    formation: { position: { x: 10, y: wallY, z: 0 } } })
-  // A stale reached flag at the same XZ on ground must never activate a wall guard.
-  body.combatPosition.set(10, getTerrainHeight(10, 0), 0); body.reached = true
-  resident.spec = townStationSpec(resident.spec, false, true)
-  const belowWallHandoff = controller.stageMissionHandoff(profile).townCommandSquad!
-  expect(belowWallHandoff.state).toBe('RETURNING')
-  expect(belowWallHandoff.members?.guard?.status).toBe('deployed')
-  controller.updateResident(resident, .1, new Vector3(), [], {} as NavigationWorld)
-  expect(member.status).toBe('deployed')
-  expect(body.activateTownRampartGarrison).not.toHaveBeenCalled()
-  body.combatPosition.y = wallY
-  expect(controller.stageMissionHandoff(profile).townCommandSquad?.members?.guard?.status).toBe('reserve')
-  controller.updateResident(resident, .1, new Vector3(), [], {} as NavigationWorld)
-  expect(member.status).toBe('reserve')
-  expect(member.formation).toBeUndefined()
-  expect(body.activateTownRampartGarrison).toHaveBeenCalledOnce()
-  expect(controller.state).toBe('TRAINING')
+it('retargets a ground return when mount dies or ranged restored during travel and waits for actual wall arrival', () => {
+  for (const change of ['mount dies', 'ranged restored'] as const) {
+    const { body, mount, member, resident, controller, wallY, profile } = returning(change)
+    body.updateTownTravel.mockImplementationOnce(() => {
+      if (change === 'mount dies') { mount.dead = true; body.isMounted = false }
+      else { body.rangedWeaponId = 'wooden_shortbow'; body.hasActiveRangedWeapon = true }
+      body.reached = true // The old ground goal was reached in this travel update.
+    })
+    controller.updateResident(resident, .1, new Vector3(), [], {} as NavigationWorld)
+    expect(member.formation?.position).toEqual({ x: 10, y: wallY, z: 0, yaw: 0 })
+    expect(body.assignFormationTarget).toHaveBeenCalledOnce()
+    expect(member.status).toBe('deployed')
+    expect(body.activateTownRampartGarrison).not.toHaveBeenCalled()
+    // A formal mission handoff at the stale fallback must retain wall return.
+    const fallbackHandoff = controller.stageMissionHandoff(profile).townCommandSquad!
+    expect(fallbackHandoff.state).toBe('RETURNING')
+    expect(fallbackHandoff.members?.guard).toMatchObject({ status: 'deployed',
+      formation: { position: { x: 10, y: wallY, z: 0 } } })
+    // A stale reached flag at the same XZ on ground must never activate a wall guard.
+    body.combatPosition.set(10, getTerrainHeight(10, 0), 0); body.reached = true
+    resident.spec = townStationSpec(resident.spec, false, true)
+    const belowWallHandoff = controller.stageMissionHandoff(profile).townCommandSquad!
+    expect(belowWallHandoff.state).toBe('RETURNING')
+    expect(belowWallHandoff.members?.guard?.status).toBe('deployed')
+    controller.updateResident(resident, .1, new Vector3(), [], {} as NavigationWorld)
+    expect(member.status).toBe('deployed')
+    expect(body.activateTownRampartGarrison).not.toHaveBeenCalled()
+    body.combatPosition.y = wallY
+    expect(controller.stageMissionHandoff(profile).townCommandSquad?.members?.guard?.status).toBe('reserve')
+    controller.updateResident(resident, .1, new Vector3(), [], {} as NavigationWorld)
+    expect(member.status).toBe('reserve')
+    expect(member.formation).toBeUndefined()
+    expect(body.activateTownRampartGarrison).toHaveBeenCalledOnce()
+    expect(controller.state).toBe('TRAINING')
+  }
 })
 
 it('repairs a stationary garrison on the wrong floor without accepting its stale reached flag or moving it instantly', () => {
