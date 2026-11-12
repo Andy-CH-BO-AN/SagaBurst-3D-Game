@@ -50,6 +50,7 @@ export interface OutpostLayeredMoveResult {
   targetLayer: OutpostNavLayer
   step: OutpostLayeredRouteStep
   blocked?: boolean
+  entranceId?: string
 }
 
 export function isRampartLayer(layer: OutpostNavLayer): boolean {
@@ -380,7 +381,7 @@ export class OutpostLayeredNavigation {
   private readonly meleePosition = new THREE.Vector3()
   private readonly meleePreviousPosition = new THREE.Vector3()
 
-  constructor(layout: OutpostWalkwayLayout) {
+  constructor(layout: OutpostWalkwayLayout, private readonly connected: (a: THREE.Vector3, b: THREE.Vector3) => boolean = () => true) {
     this.layout = layout
     this.leftWaypoints = this._buildStairWaypoints(-1)
     this.rightWaypoints = this._buildStairWaypoints(1)
@@ -568,6 +569,51 @@ export class OutpostLayeredNavigation {
     return (point.z - frontZ) * this.layout.zSign >= 0
   }
 
+  private stairUsable(side: OutpostWalkwaySide, mounted: boolean): boolean {
+    const ramp = this.getStair(side)?.ramp
+    return Boolean(ramp && (!mounted || ramp.mounted && ramp.halfWidth >= 1.6))
+  }
+  private ascentSide(preferred: OutpostWalkwaySide, mounted: boolean, position: THREE.Vector3, entranceId?: string | null): OutpostWalkwaySide | null {
+    const transfer = Boolean(entranceId && this.entrances.entries.get(entranceId)?.surface)
+    const usable = (side: OutpostWalkwaySide) => this.stairUsable(side, mounted)
+      && (!transfer || this.connected(position, this.getWaypoints(side).groundEntrance))
+    if (usable(preferred)) return preferred
+    const other = preferred === -1 ? 1 : -1
+    return usable(other) ? other : null
+  }
+  private descentSide(preferred: OutpostWalkwaySide, mounted: boolean, groundGoal?: THREE.Vector3): OutpostWalkwaySide | null {
+    const usable = (side: OutpostWalkwaySide) => this.stairUsable(side, mounted)
+      && (!groundGoal || this.connected(this.getWaypoints(side).groundEntrance, groundGoal))
+    if (usable(preferred)) return preferred
+    const other = preferred === -1 ? 1 : -1
+    return usable(other) ? other : null
+  }
+  private rampUsable(entry: BreachEntrance, mounted: boolean): boolean {
+    return entry.walkable && Boolean(entry.surface) && (!mounted || entry.mounted
+      && entry.surface!.halfWidth >= 1.6 && (!entry.bridgeSurface || entry.bridgeSurface.halfWidth >= 1.6))
+      && isRampartLayer(getOutpostNavLayer(entry.exit, this.layout))
+  }
+  /** Select one existing stair/deck/carrier route only when ground has no breach. */
+  private groundTransfer(current: THREE.Vector3, goal: THREE.Vector3, mounted: boolean, preferred?: string | null): BreachEntrance | null {
+    const inside = this.insidePerimeter(current)
+    if (inside === this.insidePerimeter(goal)) return null
+    for (const e of this.entrances.entries.values()) if (e.walkable && !e.surface && (!mounted || e.mounted)) return null
+    const valid = (e: BreachEntrance) => this.rampUsable(e, mounted)
+      && this.layout.stairs.some(stair => this.stairUsable(stair.side, mounted)
+        && (inside ? this.getNavLayer(current) !== 'ground' || this.connected(current, this.getWaypoints(stair.side).groundEntrance)
+          : this.connected(this.getWaypoints(stair.side).groundEntrance, goal)))
+      && (inside ? this.connected(e.approach, goal) : this.connected(current, e.approach))
+    const prior = preferred ? this.entrances.entries.get(preferred) : undefined
+    if (prior && valid(prior)) return prior
+    let selected: BreachEntrance | null = null, cost = Infinity
+    for (const e of this.entrances.entries.values()) {
+      if (!valid(e)) continue
+      const distance = current.distanceTo(inside ? e.exit : e.approach) + goal.distanceTo(inside ? e.approach : e.exit)
+      if (distance < cost) { selected = e; cost = distance }
+    }
+    return selected
+  }
+
   /** Exterior approaches require a docked siege connection, even with interior mounted access. */
   needsSiegeRoute(current: THREE.Vector3, goal: THREE.Vector3): boolean {
     if (!this.entrances.hasWalkable) return false
@@ -581,7 +627,7 @@ export class OutpostLayeredNavigation {
 
   private siegeRoute(current: THREE.Vector3, goal: THREE.Vector3, mounted: boolean,
     out: THREE.Vector3, preferred?: string | null): OutpostLayeredMoveResult | null {
-    if (!this.entrances.hasMountedRamp) return null
+    if (!this.entrances.hasWalkable) return null
     const currentLayer = this.getNavLayer(current), targetLayer = this.getNavLayer(goal)
     const outside = (point: THREE.Vector3): boolean => !this.insidePerimeter(point)
     const preferredEntry = preferred ? this.entrances.entries.get(preferred) : undefined
@@ -590,13 +636,13 @@ export class OutpostLayeredNavigation {
     // Mounted exterior routing retains the explicit dock connection preference.
     if (!mounted && currentLayer === 'ground' && chosen && !chosen.surface
       && !targetLayer.startsWith('siege_')) return null
-    const ramps = [...this.entrances.entries.values()].filter(e => e.walkable && e.surface && (!mounted || e.mounted))
+    const ramps = [...this.entrances.entries.values()].filter(e => this.rampUsable(e, mounted))
     if (!ramps.length) return null
     let entry: BreachEntrance | undefined
     if (currentLayer.startsWith('siege_')) entry = ramps.find(e => e.side === (currentLayer === 'siege_left' ? -1 : 1))
-    if (!entry && chosen?.walkable && chosen.surface) entry = chosen
+    if (!entry && chosen && ramps.includes(chosen)) entry = chosen
     if (!entry) entry = ramps.reduce((a, b) => current.distanceToSquared(a.exit) <= current.distanceToSquared(b.exit) ? a : b)
-    const result = (step: OutpostLayeredRouteStep): OutpostLayeredMoveResult => ({ target: out, currentLayer, targetLayer, isCrossLayer: true, step })
+    const result = (step: OutpostLayeredRouteStep): OutpostLayeredMoveResult => ({ target: out, currentLayer, targetLayer, isCrossLayer: true, step, entranceId: entry!.id })
     // Ground travel belongs to A*. Only clear the low ramp end here before
     // turning; do not keep driving back to a stale ingress waypoint.
     if (mounted && currentLayer === 'ground' && targetLayer === 'ground') {
@@ -626,7 +672,7 @@ export class OutpostLayeredNavigation {
     const ramp = entry.surface!
     const ground = new THREE.Vector3(ramp.startX, ramp.startY, ramp.startZ)
     const onRamp = currentLayer.startsWith('siege_')
-    const descend = targetLayer === 'ground' && (mounted || outside(goal))
+    const descend = targetLayer === 'ground' && outside(goal)
     if (onRamp) {
       out.copy(descend ? entry.approach : entry.exit)
       if (descend && Math.hypot(current.x - ground.x, current.z - ground.z) < 1) out.copy(entry.approach)
@@ -641,7 +687,7 @@ export class OutpostLayeredNavigation {
       }
       out.copy(ground); return result('descend_stair')
     }
-    if (currentLayer === 'ground' && (isRampartLayer(targetLayer) || targetLayer.startsWith('siege_')
+    if (currentLayer === 'ground' && outside(current) && (isRampartLayer(targetLayer) || targetLayer.startsWith('siege_')
       || outside(current) && !outside(goal) && (!chosen || chosen.surface))) {
       if (Math.hypot(current.x - entry.approach.x, current.z - entry.approach.z) > 2.4) {
         out.copy(entry.approach); return result('ground_approach')
@@ -665,6 +711,15 @@ export class OutpostLayeredNavigation {
   ): OutpostLayeredMoveResult {
     const currentLayer = this.getNavLayer(currentPos)
     let targetLayer = this.getNavLayer(goalPos)
+    // Redirect only the native ascent; the final goal owns the later descent.
+    if (targetLayer === 'ground' && (currentLayer === 'ground' || isStairLayer(currentLayer))) {
+      const transfer = this.groundTransfer(currentPos, goalPos, isMounted, preferredEntrance)
+      if (transfer) {
+        const step = this.resolveMoveTarget(currentPos, transfer.exit, isMounted, out, transfer.id)
+        step.entranceId = transfer.id
+        return step
+      }
+    }
     // Once both bodies are on ground, the shared A* owns the complete route.
     // A selected entrance is an ingress preference, not an endlessly renewed
     // waypoint that pulls a rider back after it has already crossed a wall gap.
@@ -682,10 +737,6 @@ export class OutpostLayeredNavigation {
       const crossing = this.insidePerimeter(currentPos) !== this.insidePerimeter(goalPos)
       if (crossing && ![...this.entrances.entries.values()].some(entry => entry.walkable && !entry.surface
         && (!isMounted || entry.mounted))) {
-        // Foot assault may still climb a live tower and descend the interior
-        // stairs. A mounted-only restriction must never become a ground bypass.
-        const siege = this.siegeRoute(currentPos, goalPos, isMounted, out, preferredEntrance)
-        if (siege) return siege
         out.copy(currentPos)
         return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'ground_cross', blocked: true }
       }
@@ -699,8 +750,8 @@ export class OutpostLayeredNavigation {
         .reduce<BreachEntrance | undefined>((best, entry) => !best
           || currentPos.distanceToSquared(entry.exit) < currentPos.distanceToSquared(best.exit) ? entry : best, undefined)
       : undefined
-    const interiorMountedRoute = isMounted && this.layout.stairs.some(stair => stair.ramp.mounted)
-      && currentInside && (goalInside || Boolean(groundExit))
+    const interiorMountedRoute = isMounted && this.layout.stairs.some(stair => this.stairUsable(stair.side, true))
+      && currentInside && (goalInside || Boolean(groundExit) || isStairLayer(currentLayer))
     const siege = interiorMountedRoute ? null : this.siegeRoute(currentPos, goalPos, isMounted, out, preferredEntrance)
     if (siege) return siege
 
@@ -876,8 +927,9 @@ export class OutpostLayeredNavigation {
     // Case 2: Rampart Gate -> Ground or Stair (Must NOT leap off bridge; route to nearest stair)
     if (currentLayer === 'rampart_gate') {
       const bridge = this.layout.bridge!
-      const targetSide: OutpostWalkwaySide =
-        targetLayer === 'stair_left' || (targetLayer !== 'stair_right' && currentPos.x < 0) ? -1 : 1
+      const targetSide = this.descentSide(targetLayer === 'stair_left' || (targetLayer !== 'stair_right' && currentPos.x < 0) ? -1 : 1,
+        isMounted, targetLayer === 'ground' ? goalPos : undefined)
+      if (targetSide === null) { out.copy(currentPos); return { target: out, currentLayer, targetLayer, isCrossLayer: true, step: 'deck_approach', blocked: true } }
       const deck = this.getDeck(targetSide)!
       const corridorMidZ = (bridge.slab.min.z + bridge.slab.max.z) * 0.5
       const portal = targetSide < 0
@@ -889,7 +941,8 @@ export class OutpostLayeredNavigation {
 
     // Case 3: Ground -> Rampart Gate (Ascend nearest stair to deck, then bridge)
     if (currentLayer === 'ground' && targetLayer === 'rampart_gate') {
-      const targetSide: OutpostWalkwaySide = (goalPos.x < 0 || currentPos.x < 0) ? -1 : 1
+      const targetSide = this.ascentSide((goalPos.x < 0 || currentPos.x < 0) ? -1 : 1, isMounted, currentPos, preferredEntrance)
+      if (targetSide === null) { out.copy(currentPos); return { target: out, currentLayer, targetLayer, isCrossLayer: true, step: 'ground_approach', blocked: true } }
       const wp = this.getWaypoints(targetSide)
       if (!this._atStairEntrance(currentPos, wp)) {
         out.copy(wp.groundEntrance)
@@ -923,7 +976,8 @@ export class OutpostLayeredNavigation {
 
     // Case 7: Ground -> Rampart Deck or Stair
     if (currentLayer === 'ground' && (isRampartLayer(targetLayer) || isStairLayer(targetLayer))) {
-      const targetSide = layerSide(targetLayer) ?? ((goalPos.x < 0 || currentPos.x < 0) ? -1 : 1)
+      const targetSide = this.ascentSide(layerSide(targetLayer) ?? ((goalPos.x < 0 || currentPos.x < 0) ? -1 : 1), isMounted, currentPos, preferredEntrance)
+      if (targetSide === null) { out.copy(currentPos); return { target: out, currentLayer, targetLayer, isCrossLayer: true, step: 'ground_approach', blocked: true } }
       const wp = this.getWaypoints(targetSide)
       if (!this._atStairEntrance(currentPos, wp)) {
         out.copy(wp.groundEntrance)
@@ -937,6 +991,9 @@ export class OutpostLayeredNavigation {
     // Case 8: Rampart Deck -> Ground or Same-Side Stair
     if (isRampartLayer(currentLayer)) {
       const currentSide = layerSide(currentLayer) ?? (currentPos.x < 0 ? -1 : 1)
+      const descent = this.descentSide(currentSide, isMounted, targetLayer === 'ground' ? goalPos : undefined)
+      if (descent === null) { out.copy(currentPos); return { target: out, currentLayer, targetLayer, isCrossLayer: true, step: 'deck_approach', blocked: true } }
+      if (descent !== currentSide) return this.resolveMoveTarget(currentPos, this.getWaypoints(descent).deckConnection, isMounted, out, preferredEntrance)
       const wp = this.getWaypoints(currentSide)
       const distToStairX = Math.abs(currentPos.x - wp.stair.ramp.startX)
 
@@ -963,8 +1020,8 @@ export class OutpostLayeredNavigation {
       const currentSide = layerSide(currentLayer)!
       const wp = this.getWaypoints(currentSide)
 
-      // Target is on the SAME side rampart deck -> ascend toward top landing / deck connection
-      if (isRampartLayer(targetLayer) && layerSide(targetLayer) === currentSide) {
+      // Finish the stair before traversing the elevated bridge.
+      if (isRampartLayer(targetLayer)) {
         // A body displaced sideways by traffic must not turn back after it has
         // passed the landing. Continue to the deck through the actual opening.
         const beforeLanding = (currentPos.z - wp.stairTopLanding.z) * wp.stair.ramp.dirZ < -.8
@@ -977,7 +1034,7 @@ export class OutpostLayeredNavigation {
         }
       }
 
-      // Target is ground, opposite rampart, or opposite stair -> must descend to ground entrance first
+      // Ground or opposite-stair goals descend to the entrance first
       const distToEntrance = Math.hypot(currentPos.x - wp.groundEntrance.x, currentPos.z - wp.groundEntrance.z)
       if (distToEntrance > 0.8) {
         this._writeStairTarget(wp, false, out)

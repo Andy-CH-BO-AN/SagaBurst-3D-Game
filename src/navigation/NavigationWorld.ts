@@ -57,7 +57,7 @@ export class NavigationWorld {
   }
 
   setOutpostWalkways(layout: OutpostWalkwayLayout | null): void {
-    this._outpostNav = layout ? new OutpostLayeredNavigation(layout) : null
+    this._outpostNav = layout ? new OutpostLayeredNavigation(layout, (a, b) => this.areConnected(a, b)) : null
   }
 
   constructor(bounds: NavigationGridOptions = {

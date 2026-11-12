@@ -41,6 +41,7 @@ export interface LayeredNavigationStep {
 export class LayeredNavigationRoute {
   private readonly step: LayeredNavigationStep = { route: 'direct', confirmedLayeredStep: false, tower: false }
 
+  private transitEntranceId: string | null = null
   private gateApproach: TownGateApproach | null = null
   private readonly breachStep: LayeredNavigationStep = { route: 'direct', confirmedLayeredStep: false, tower: false }
   get closedGateObstacle(): ObstacleData | null {
@@ -62,8 +63,9 @@ export class LayeredNavigationRoute {
     const step = this.step
     step.route = 'direct'; step.confirmedLayeredStep = false; step.tower = false
     const town = !request.flying ? world?.townNav?.resolveMoveTarget(position, goal, out,
-      request.entranceId, request.mounted, request.sectorId, request.actorId) : null
+      request.entranceId ?? this.transitEntranceId, request.mounted, request.sectorId, request.actorId) : null
     if (town) {
+      this.transitEntranceId = town.entranceId ?? (town.blocked ? null : this.transitEntranceId)
       step.tower = Boolean(town.tower)
       if (town.blocked) step.route = 'unreachable'
       // Town ground approaches retain topology checks even on a skipped boids frame.
@@ -73,15 +75,16 @@ export class LayeredNavigationRoute {
     }
     if (!outpost || !(request.differentLayer
       || isRampartLayer(request.currentLayer) && isRampartLayer(request.targetLayer)
-      || isStairLayer(request.currentLayer) || outpost.needsSiegeRoute(position, goal))) return null
+      || isStairLayer(request.currentLayer) || outpost.needsSiegeRoute(position, goal))) { this.transitEntranceId = null; return null }
 
-    const layered = outpost.resolveMoveTarget(position, goal, request.outpostMounted, out, request.entranceId)
+    const layered = outpost.resolveMoveTarget(position, goal, request.outpostMounted, out, request.entranceId ?? this.transitEntranceId)
+    this.transitEntranceId = layered.entranceId ?? null
     if (layered.blocked) { step.route = 'unreachable'; return step }
     if (layered.step !== 'ground_approach' && layered.step !== 'ground_cross') {
       step.confirmedLayeredStep = true
       return step
     }
-    if (!request.skipGroundNavigation || layered.step === 'ground_cross') {
+    if (!request.skipGroundNavigation || layered.step === 'ground_cross' || layered.entranceId) {
       step.route = this.groundRoute(request, obstacles, out)
       // A coarse ground cell can reject a physically clear approach. Only this
       // Outpost handoff may recover direct travel; Town blocked routes stay closed.
