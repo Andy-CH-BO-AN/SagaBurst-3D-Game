@@ -4,9 +4,25 @@ import type { NPC } from '../world/NPC'
 import type { Mount } from '../world/Mount'
 import { getTerrainHeight } from '../world/Terrain'
 import type { PersonalActorCheckpoint, PersonalActorPosition } from './CareerPersonalSquadMission'
+import { ARMORS } from '../rpg/ArmorDatabase'
 
 function position(point: THREE.Vector3, yaw: number): PersonalActorPosition {
   return { x: point.x, y: point.y, z: point.z, yaw }
+}
+
+/** Durability of the shield the actor was given. A shield whose model is still loading has no held state yet, so its
+ * recorded durability (restored or never damaged) is read by id; the held value alone would save a loading shield as 0. */
+function savedShieldDurability(npc: NPC): number {
+  const id = npc.requestedShieldId
+  if (!id) return npc.shield.shieldImpactRemaining
+  return npc.shield.captureDurability()[id] ?? ARMORS[id]?.shieldImpactMax ?? 0
+}
+
+/** Restores durability by the actor's requested shield id, so a shield that arrives later keeps the saved value. */
+function restoreShieldDurability(npc: NPC, value: number): void {
+  const id = npc.requestedShieldId
+  if (!id) { npc.shield.shieldImpactRemaining = Math.min(npc.shield.shieldImpactMax, value); return }
+  npc.shield.restoreDurability({ ...npc.shield.captureDurability(), [id]: value })
 }
 
 /** Borrowed residents retain their own gear and mount; this is a save, never a refit. */
@@ -15,7 +31,7 @@ export function snapshotCommandActor(npc: NPC, homeMount?: Mount,
   const mount = homeMount ?? npc.mount ?? undefined
   return { status: npc.dead ? 'dead' : status, hp: npc.hp,
     position: position(npc.combatPosition, npc.mount?.group.rotation.y ?? npc.group.rotation.y),
-    ammo: npc.combatAmmo, shieldImpact: npc.shield.shieldImpactRemaining, order: npc.tacticalOrder,
+    ammo: npc.combatAmmo, shieldImpact: savedShieldDurability(npc), order: npc.tacticalOrder,
     ...(npc.isOutpostRampartGarrisonActive ? { outpostRampartGarrison: true } : {}),
     ...(npc.isTownRampartGarrisonActive ? { townRampartGarrison: true } : {}),
     ...(npc.isMountedTownRampartGarrisonEnabled ? { townRampartMounted: true } : {}),
@@ -32,7 +48,7 @@ export function restoreCommandActor(npc: NPC, saved: PersonalActorCheckpoint, ho
   npc.releaseOutpostRampartGarrison?.()
   npc.restoreCombatHealth(saved.status === 'dead' ? 0 : saved.hp ?? npc.hp)
   if (saved.ammo !== undefined) npc.restoreCombatAmmo(saved.ammo)
-  if (saved.shieldImpact !== undefined) npc.shield.shieldImpactRemaining = Math.min(npc.shield.shieldImpactMax, saved.shieldImpact)
+  if (saved.shieldImpact !== undefined) restoreShieldDurability(npc, saved.shieldImpact)
   const mount = homeMount ?? npc.mount ?? undefined
   if (mount && saved.mount) {
     mount.restoreArmor(saved.mount.armorImpactRemaining)

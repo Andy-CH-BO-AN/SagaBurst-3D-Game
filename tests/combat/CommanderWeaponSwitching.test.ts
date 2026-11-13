@@ -709,3 +709,16 @@ it('preserves merchant fixed gear with a purchased horse and switches only its e
   expect(actor.loadout).toEqual({ meleeWeaponId: 'sword_t5', secondaryMeleeWeaponId: 'axe_t5',
     shieldId: 'paladin_shield_t4', rangedWeaponId: null, mountId: 'horse' })
 })
+
+describe('NPC shield durability before the model arrives', () => {
+  it('keeps a restored durability for the requested shield until that shield is equipped', () => {
+    const id = 'viking_dragonward_shield_t4'
+    const shield = new ShieldState()
+    shield.restoreDurability({ [id]: 17 })
+    expect(shield.captureDurability()).toEqual({ [id]: 17 })
+    shield.equip(id)
+    expect(shield.shieldImpactRemaining).toBe(17)
+    expect(shield.captureDurability()).toEqual({ [id]: 17 })
+  })
+})
+
