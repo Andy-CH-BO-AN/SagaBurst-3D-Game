@@ -11,7 +11,7 @@ import { BlackCatVisual } from '../world/BlackCatVisual'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import type { CareerProfile } from './CareerProfile'
-import { findSergeantResident, resolveTownEntryFallbackPoint, sergeantReturnFromResidents, type SergeantResidentLike } from '../town/SergeantReturn'
+import { findMountParkingPoint, findSergeantResident, planSergeantReturn, resolveTownEntryFallbackPoint, sergeantReturnFromResidents, type SergeantResidentLike } from '../town/SergeantReturn'
 import { townPlayerEntryPoint } from '../town/TownRules'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
@@ -49,6 +49,8 @@ export class CareerRaceController {
   private preloadInFlight = false
   error = ''
   saveFailed = false
+  /** Unridden mounts and other floor occupants the Town knows about; part of every return clearance. */
+  parkedBlockers?: () => { x: number; z: number; radius: number }[]
 
   constructor(private readonly scene: THREE.Scene, private readonly navigation: NavigationWorld,
     private readonly obstacles: readonly ObstacleData[], private readonly residents: readonly RaceResident[],
@@ -449,30 +451,36 @@ export class CareerRaceController {
     const player = this.capturePlayerState()
     if (!player) return false
     let target: RacePosition | undefined
+    let mountTarget: RacePosition | undefined
+    let dismount = false
     if (!current.townEvent?.pendingResult) {
       const sergeant = this.residents.filter((r): r is RaceResident & { spec: { id: string; role: string } } =>
         r.spec.id === 'deployment' && (!r.spec.role || r.spec.role === 'deployment'))
         .map(r => ({ ...r, spec: { ...r.spec, role: 'deployment' } }))
-      const blockers = this.residents.filter(r => !r.npc.dead).map(r => ({ x: r.npc.combatPosition.x, z: r.npc.combatPosition.z, radius: 1.5 }))
-      const resolved = sergeantReturnFromResidents(sergeant, {
-        clearanceRadius: player.mounted && !player.dead ? 1.25 : 0.75,
-        obstacles: this.obstacles,
-        blockers,
-        terrainHeight: getTerrainHeight,
-        isValid: point => this.legalSegment(point, point),
+      const playerMount = this.mounts.activeMount
+      const blockers = [...this.residents.filter(r => !r.npc.dead).map(r => ({ x: r.npc.combatPosition.x, z: r.npc.combatPosition.z, radius: 1.5 })),
+        ...(this.parkedBlockers?.() ?? []).filter(b => !playerMount || Math.hypot(b.x - playerMount.group.position.x, b.z - playerMount.group.position.z) > 0.01)]
+      const stance = (mounted: boolean) => ({ clearanceRadius: mounted ? 1.25 : 0.75, obstacles: this.obstacles, blockers,
+        terrainHeight: getTerrainHeight, isValid: (point: { x: number; z: number }) => this.legalSegment(point, point) })
+      const plan = planSergeantReturn({
+        resolve: mounted => sergeantReturnFromResidents(sergeant, stance(mounted)) ?? resolveTownEntryFallbackPoint(townPlayerEntryPoint(), stance(mounted)),
+        restoreMounted: player.mounted && !player.dead,
+        hasMount: Boolean(playerMount),
+        // A mount that is already standing clear of the arrival point may stay; otherwise it is parked at a proven spot.
+        findMountPark: point => {
+          const there = playerMount && !playerMount.dead && !player.mounted ? { x: playerMount.group.position.x, z: playerMount.group.position.z } : null
+          if (there && Math.hypot(there.x - point.x, there.z - point.z) >= 2.4 && this.legalSegment(there, there)) return there
+          return findMountParkingPoint(point, { obstacles: this.obstacles, terrainHeight: getTerrainHeight, isValid: p => this.legalSegment(p, p),
+            occupied: [point, ...blockers] })
+        },
       })
-      const fallback = resolved ?? resolveTownEntryFallbackPoint(townPlayerEntryPoint(), {
-        clearanceRadius: player.mounted && !player.dead ? 1.25 : 0.75,
-        obstacles: this.obstacles,
-        blockers,
-        terrainHeight: getTerrainHeight,
-        isValid: point => this.legalSegment(point, point),
-      })
-      if (!fallback) { this.error = '鎮內沒有合法返回位置，請稍後重試。'; return false }
-      const ground = getTerrainHeight(fallback.x, fallback.z)
-      target = { x: fallback.x, z: fallback.z, y: ground + (player.mounted && !player.dead ? 0 : .9), yaw: fallback.yaw }
+      if (plan.status === 'blocked') { this.error = '鎮內沒有合法返回位置（含停馬位），請稍後重試。'; return false }
+      const ground = getTerrainHeight(plan.point.x, plan.point.z), standing = player.mounted && !player.dead && !plan.dismount
+      target = { x: plan.point.x, z: plan.point.z, y: ground + (standing ? 0 : .9), yaw: plan.point.yaw }
+      if (plan.mountPark) mountTarget = { x: plan.mountPark.x, z: plan.mountPark.z, y: getTerrainHeight(plan.mountPark.x, plan.mountPark.z), yaw: plan.point.yaw }
+      dismount = plan.dismount || !standing && player.mounted
     }
-    const next = raceReturnProfile(current, player, target, this.player().maxHp)
+    const next = raceReturnProfile(current, player, target, this.player().maxHp, { dismount, mountDestination: mountTarget })
     if (!next) return false
     if (!this.commit(next)) return false
     this.captainReturning = Boolean(this.captain && !this.captain.npc.dead && !this.captain.npc.hostileToPlayer)

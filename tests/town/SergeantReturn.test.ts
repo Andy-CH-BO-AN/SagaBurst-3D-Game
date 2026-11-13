@@ -3,7 +3,9 @@ import { Box3, Vector3 } from 'three'
 import {
   CAREER_MISSION_RETURN_KEY,
   consumeCareerMissionReturnFlag,
+  findMountParkingPoint,
   markCareerMissionReturnToSergeant,
+  resolveNearestLegalPoint,
   planSergeantReturn,
   peekCareerMissionReturnFlag,
   resolveSergeantReturnPoint,
@@ -171,5 +173,24 @@ describe('Sergeant return contract', () => {
     intent.begin({ x: 0, z: 0 })
     expect(intent.tick(1, { x: 30, z: 0 }, () => true)).toBe('abandoned')
     expect(intent.pending).toBe(false)
+  })
+
+  it('finds a legal mount parking spot clear of occupants, and none when every ring is blocked', () => {
+    const arrival = { x: 10, z: 10 }
+    const spot = findMountParkingPoint(arrival, { terrainHeight: () => 0, occupied: [arrival, { x: 12.4, z: 10 }] })!
+    expect(Math.hypot(spot.x - arrival.x, spot.z - arrival.z)).toBeGreaterThanOrEqual(2.4)
+    expect(Math.hypot(spot.x - 12.4, spot.z - 10)).toBeGreaterThanOrEqual(2.1)
+    expect(findMountParkingPoint(arrival, { terrainHeight: () => 0, isValid: () => false })).toBeNull()
+    const wall = { box: new Box3(new Vector3(-30, -1, -30), new Vector3(50, 6, 50)), isBarricade: false }
+    expect(findMountParkingPoint(arrival, { terrainHeight: () => 0, obstacles: [wall] })).toBeNull()
+  })
+
+  it('holds a blocked return at the nearest verified point instead of the blocked ordinary entry', () => {
+    const home = { x: 60, z: 2, yaw: 0 }
+    const blockers = [{ x: 60, z: 2, radius: 6 }]
+    const held = resolveNearestLegalPoint(home, { blockers, terrainHeight: () => 0 })!
+    expect(held).not.toBeNull()
+    expect(Math.hypot(held.x - home.x, held.z - home.z)).toBeGreaterThanOrEqual(6 + 0.75)
+    expect(resolveNearestLegalPoint(home, { isValid: () => false, terrainHeight: () => 0 })).toBeNull()
   })
 })

@@ -228,3 +228,48 @@ export class SergeantReturnIntent {
     return 'placed'
   }
 }
+
+export interface MountParkingOptions {
+  obstacles?: readonly ObstacleData[]
+  /** Everything that already stands there: residents, other mounts, the player's own arrival point. */
+  occupied?: readonly { x: number; z: number }[]
+  terrainHeight?: (x: number, z: number) => number
+  isValid?: (point: { x: number; z: number }) => boolean
+}
+
+/** A legal place to leave an unridden mount near `origin`; null when the surroundings leave none. */
+export function findMountParkingPoint(origin: { x: number; z: number }, options: MountParkingOptions = {}): { x: number; z: number } | null {
+  const terrainHeight = options.terrainHeight ?? getTerrainHeight
+  for (const radius of [2.4, 4.0, 5.6]) {
+    for (let index = 0; index < 12; index++) {
+      const angle = index / 12 * Math.PI * 2
+      const x = origin.x + Math.sin(angle) * radius, z = origin.z + Math.cos(angle) * radius
+      const y = terrainHeight(x, z)
+      if (Math.max(Math.abs(x), Math.abs(z)) > DEFAULT_WORLD_BOUND) continue
+      const blocked = (options.obstacles ?? []).some(obstacle => !obstacle.navigationPassable
+        && obstacle.box.max.y > y + 0.35 && obstacle.box.min.y < y + 2.6
+        && x > obstacle.box.min.x - 1.05 && x < obstacle.box.max.x + 1.05 && z > obstacle.box.min.z - 1.05 && z < obstacle.box.max.z + 1.05)
+      if (blocked || (options.occupied ?? []).some(other => Math.hypot(other.x - x, z - other.z) < 2.1)
+        || (options.isValid && !options.isValid({ x, z }))) continue
+      return { x, z }
+    }
+  }
+  return null
+}
+
+/**
+ * The nearest verified standing point around `home`, searched outward ring by ring. Used to hold the player
+ * somewhere legal while a mission return still waits for the Sergeant's front to clear.
+ */
+export function resolveNearestLegalPoint(home: SergeantPose, options: SergeantReturnOptions = {}, maxRadius = 60): SergeantReturnPoint | null {
+  const terrainHeight = options.terrainHeight ?? getTerrainHeight
+  for (let radius = 2; radius <= maxRadius; radius += 2) {
+    for (let index = 0; index < 16; index++) {
+      const angle = index / 16 * Math.PI * 2
+      const x = home.x + Math.sin(angle) * radius, z = home.z + Math.cos(angle) * radius
+      const y = terrainHeight(x, z)
+      if (isCandidateClear(x, z, y, { x: Number.NaN, z: Number.NaN }, options)) return { x, y, z, yaw: home.yaw ?? 0 }
+    }
+  }
+  return null
+}
