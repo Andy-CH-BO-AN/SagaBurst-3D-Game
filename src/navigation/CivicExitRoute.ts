@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { architectureLocalToWorld, type BuildingSpec } from '../town/architecture/ArchitectureSpecs'
-import { findBlockingObstacleAlongPath, type ObstacleData } from '../world/Terrain'
+import { findBlockingObstacleAlongPath, findObstacleDetourPlan, type ObstacleData } from '../world/Terrain'
 
 /** Ramp safety line: a leaving body is released only once its centre is this far past the ramp foot. */
 const OUTSIDE_CLEARANCE = 1
@@ -79,6 +79,8 @@ function insideHall(hall: CivicHall, p: { x: number; z: number }, margin = 0): b
   return hall.rects.some(r => p.x > r.minX - margin && p.x < r.maxX + margin && p.z > r.minZ - margin && p.z < r.maxZ + margin)
 }
 
+type PlanOutcome = 'found' | 'sealed' | 'none'
+
 export type CivicExitResult = { kind: 'walk'; target: THREE.Vector3 } | { kind: 'blocked' } | null
 
 interface CivicExitRequest {
@@ -142,7 +144,7 @@ export class CivicExitRoute {
         if (commandIdentity !== this.identity) {
           const hall = this.hall
           this.clear()
-          if (!this.plan(hall, p, obstacles, radius, height, commandIdentity, -1)) { this.returning = null; return null }
+          if (this.plan(hall, p, obstacles, radius, height, commandIdentity, -1) !== 'found') { this.returning = null; return null }
         }
       }
     }
@@ -152,7 +154,9 @@ export class CivicExitRoute {
         this.returning = null
         this.indoorCommand = null
         if (insideHall(hall, g, .5)) return null
-        if (!this.plan(hall, p, obstacles, radius, height, commandIdentity, 1)) return { kind: 'blocked' }
+        const outcome = this.plan(hall, p, obstacles, radius, height, commandIdentity, 1)
+        if (outcome === 'sealed') return { kind: 'blocked' }
+        if (outcome === 'none') return null
       } else {
         // Outside every hall: only the newest indoor command that left the hall may bring the body back through the same doorway.
         const returning = this.returning
@@ -161,7 +165,7 @@ export class CivicExitRoute {
           this.returning = null
           return null
         }
-        if (!this.plan(returning.hall, p, obstacles, radius, height, commandIdentity, -1)) { this.returning = null; return null }
+        if (this.plan(returning.hall, p, obstacles, radius, height, commandIdentity, -1) !== 'found') { this.returning = null; return null }
       }
     }
     return this.follow(p)
@@ -177,28 +181,45 @@ export class CivicExitRoute {
     return this.along(p) >= this.door!.approach + OUTSIDE_CLEARANCE
   }
 
-  /** Fixed legs through the doorway. Candidates are the direct line and one lateral pivot on the door-aligned line,
-   * tried in that order; a route is taken only if every leg is clear for this body. Leaving ends beyond the ramp,
-   * entering ends with the whole body inside. If no candidate is clear, the doorway is sealed for this body. */
-  private plan(hall: CivicHall, p: THREE.Vector3, obstacles: ObstacleData[], radius: number, height: number, identity: number, direction: 1 | -1): boolean {
+  /** Fixed legs through the doorway. Approach candidates, in order: the direct line, one lateral pivot on the
+   * door-aligned line, then a corner of the nearest blocking obstacle (from the repo's detour helper) with one lateral
+   * leg on the door-aligned line. Each candidate is taken only if
+   * every leg is clear for this body. "Sealed" means the door line itself is statically blocked; "none" means no
+   * approach was found, which is not a seal and never starts the breach fallback. */
+  private plan(hall: CivicHall, p: THREE.Vector3, obstacles: ObstacleData[], radius: number, height: number, identity: number, direction: 1 | -1): PlanOutcome {
     const doors = [...hall.doors].sort((a, b) => direction > 0 ? p.distanceTo(a.inside) - p.distanceTo(b.inside) : p.distanceTo(a.threshold) - p.distanceTo(b.threshold))
+    let sealed = false
     for (const door of doors) {
-      const routes = direction > 0
-        ? [[p, door.inside, door.threshold, door.beyond],
-          [p, new THREE.Vector3(door.inside.x, p.y, p.z), door.inside, door.threshold, door.beyond]]
-        : [[p, door.threshold, door.inside],
-          [p, new THREE.Vector3(door.threshold.x, p.y, p.z), door.threshold, door.inside]]
-      const route = routes.find(candidate => routeClear(candidate, obstacles, radius, height))
-      if (!route) continue
+      const target = direction > 0 ? door.inside : door.threshold
+      const tail = direction > 0 ? [door.threshold, door.beyond] : [door.inside]
+      const doorLine = direction > 0 ? [door.inside, door.threshold, door.beyond] : [door.threshold, door.inside]
+      if (!routeClear(doorLine, obstacles, radius, height)) { sealed = true; continue }
+      const pivot = new THREE.Vector3(target.x, p.y, p.z)
+      const approaches: THREE.Vector3[][] = [
+        [p, target],
+        [p, pivot, target],
+      ]
+      // A short detour from the repo's own obstacle-detour corner, then one lateral leg on the door-aligned line.
+      for (const side of [undefined, 1, -1] as const) {
+        const detour = findObstacleDetourPlan(p, target, radius, height, 0, obstacles, side)
+        if (detour) {
+          const z = detour.waypoint.z
+          approaches.push([p, detour.waypoint, new THREE.Vector3(target.x, p.y, z), target])
+          // Or step along the body's own line to the corner's level first, then cross laterally on the door-aligned line.
+          approaches.push([p, new THREE.Vector3(p.x, p.y, z), new THREE.Vector3(target.x, p.y, z), target])
+        }
+      }
+      const approach = approaches.find(candidate => routeClear([...candidate, ...tail], obstacles, radius, height))
+      if (!approach) continue
       this.hall = hall
       this.door = door
       this.direction = direction
-      this.waypoints = route
+      this.waypoints = [...approach, ...tail]
       this.index = 1
       this.identity = identity
-      return true
+      return 'found'
     }
-    return false
+    return sealed ? 'sealed' : 'none'
   }
 
   private follow(p: THREE.Vector3): CivicExitResult {

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { civicHallFromPlan } from '../../src/navigation/CivicExitRoute'
+import { CivicExitRoute, civicHallFromPlan } from '../../src/navigation/CivicExitRoute'
 import { LayeredNavigationRoute, type LayeredNavigationRequest } from '../../src/navigation/LayeredNavigationRoute'
 import { CIVIC_EXIT_MAX_SPEED, formationArrived, steerCivicExitRider } from '../../src/movement/CivicExitSteering'
 import { steerCavalryHeading } from '../../src/movement/ContinuousCavalryCharge'
@@ -80,7 +80,7 @@ function localToGround(local: { x: number; z: number }): THREE.Vector3 {
   return new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z), p.z)
 }
 
-interface Trip { reached: boolean; crossedDoor: boolean; crossedFrame: number; handBack: boolean; rampMaxSpeed: number; rampReversed: boolean; civicAfterCompletion: boolean; reenteredFrame: number; bodyInsideOnArrival: boolean; frames: number; stopped: NavigationRouteKind | null; end: string }
+interface Trip { reached: boolean; crossedDoor: boolean; crossedFrame: number; handBack: boolean; rampMaxSpeed: number; rampReversed: boolean; civicAfterCompletion: boolean; reenteredFrame: number; bodyInsideOnArrival: boolean; civicFrames: number; firstCivicFrame: number; frames: number; stopped: NavigationRouteKind | null; end: string }
 
 interface RideOptions {
   /** Physical-only body across the route (a friendly jam). Never part of the navigation grid. */
@@ -105,8 +105,14 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
   const out = new THREE.Vector3(), p = start.clone()
   let commanded = goal, identity = 0, nextCommand = 0, intent: 'chase' | 'command' = options.chase ? 'chase' : 'command'
   let crossedFrame = -1, leaving = false, exitCompleted = false, rampReversed = false, civicAfterCompletion = false
-  let reenteredFrame = -1, bodyInside = false
+  let reenteredFrame = -1, bodyInside = false, civicFrames = 0, firstCivicFrame = -1
   let target = goal, yaw = options.yaw ?? 0, velocityY = 0, onGround = true, crossedDoor = false, handBack = false, rampMaxSpeed = 0
+  // Settle the body on the terrain before it moves, as a standing unit is, so routes are planned at its real height.
+  for (let settle = 0; settle < 6; settle++) {
+    velocityY -= 22 / 60; p.y = Math.max(getTerrainHeight(p.x, p.z), p.y + velocityY / 60)
+    const hit = resolveObstacleCollision(p, p.clone(), velocityY, onGround, RIDER_RADIUS, RIDER_HEIGHT, 0, obstacles, { mountedSurfaces: true })
+    velocityY = hit.velocityY; onGround = hit.onGround
+  }
   for (let frame = 0; frame < MAX_FRAMES; frame++) {
     const order = options.commands?.[nextCommand]
     if (order && order.when(p, frame)) { nextCommand++; identity++; commanded = order.goal; intent = order.intent ?? 'command' }
@@ -122,7 +128,7 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
     const step = layered.resolve(request, obstacles, out)
     const route: NavigationRouteKind = step?.route ?? ground.resolveMoveTarget(p, target, world,
       findBlockingObstacleAlongPath(p, target, RIDER_RADIUS, RIDER_HEIGHT, 0, obstacles) !== null, out)
-    if (route === 'unreachable') return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, reenteredFrame, bodyInsideOnArrival: bodyInside, frames: frame, stopped: route, end: at(p) }
+    if (route === 'unreachable') return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, reenteredFrame, bodyInsideOnArrival: bodyInside, civicFrames, firstCivicFrame, frames: frame, stopped: route, end: at(p) }
     // Leaving through the doorway, the ramp band before the safety line must stay under civic steering.
     // Only the outbound leg counts: once the exit completes, any inbound routing is ordinary.
     // The outbound leg ends at its safety line; later civic steps are the return through the doorway.
@@ -154,6 +160,7 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
     const afterMove = (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z
     // Horizontal pace only: ramp snapping changes height, which the pace cap does not govern.
     if (exitCompleted && step?.civicExit) civicAfterCompletion = true
+    if (step?.civicExit) { civicFrames++; if (firstCivicFrame < 0) firstCivicFrame = frame }
     if (leaving && afterMove > 0 && afterMove < rampEnd) {
       rampMaxSpeed = Math.max(rampMaxSpeed, Math.hypot(p.x - previous.x, p.z - previous.z) / DT)
       // Turning back on the doorway ramp is forbidden: the horizontal step must keep heading outward.
@@ -165,9 +172,9 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
     // The return is complete only once the whole body is back inside the doorway.
     if (exitCompleted && reenteredFrame < 0 && bodyInside) reenteredFrame = frame
     // Arrival is the shared formation decision: a committed exit holds it until the ramp is cleared.
-    if (formationArrived(Math.hypot(p.x - target.x, p.z - target.z), 1.5, false, step?.civicExit)) return { reached: true, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, reenteredFrame, bodyInsideOnArrival: bodyInside, frames: frame + 1, stopped: null, end: at(p) }
+    if (formationArrived(Math.hypot(p.x - target.x, p.z - target.z), 1.5, false, step?.civicExit)) return { reached: true, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, reenteredFrame, bodyInsideOnArrival: bodyInside, civicFrames, firstCivicFrame, frames: frame + 1, stopped: null, end: at(p) }
   }
-  return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, reenteredFrame, bodyInsideOnArrival: bodyInside, frames: MAX_FRAMES, stopped: null, end: at(p) }
+  return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, reenteredFrame, bodyInsideOnArrival: bodyInside, civicFrames, firstCivicFrame, frames: MAX_FRAMES, stopped: null, end: at(p) }
 }
 
 /** Enemy positions outside the hall, relative to the front door: in front, beside, and behind the building. */
@@ -351,6 +358,31 @@ describe('mounted civic exit from the Town Center', () => {
     const trip = ride(rig, mountedAt(rig, 'service:commander'), outsideGoals(rig).front, { yaw: Math.PI })
     expect(trip.reached, `frames=${trip.frames}`).toBe(true)
     expect(trip.crossedDoor).toBe(true)
+  })
+
+  it('roman: a body off the station detours around the columns, rides out the front door and never reports unreachable', () => {
+    const rig = townCenterRig('roman', true)
+    const q = architectureLocalToWorld(SITE, -6.2, -4)
+    const trip = ride(rig, new THREE.Vector3(q.x, rig.groundY + rig.spec.floorY, q.z), outsideGoals(rig).front)
+    expect(trip.stopped, `frames=${trip.frames} end=${trip.end}`).toBeNull()
+    expect(trip.crossedDoor, `end=${trip.end}`).toBe(true)
+    expect(trip.reached, `frames=${trip.frames} end=${trip.end}`).toBe(true)
+    // The civic route itself must carry the body; ordinary routing reaching the door would pass for the wrong reason.
+    expect(trip.firstCivicFrame, `ordinary routing moved the body before the detour was found, end=${trip.end}`).toBe(0)
+    expect(trip.civicFrames, `civic steering frames, end=${trip.end}`).toBeGreaterThan(60)
+  })
+
+  it('an approach that cannot be found is ordinary routing, not a sealed doorway', () => {
+    const rig = townCenterRig('viking', true)
+    const hall = civicHallFromPlan('town-center', rig.spec, SITE, rig.groundY + rig.spec.floorY)
+    const c = architectureLocalToWorld(SITE, 0, 0), y = rig.groundY + rig.spec.floorY
+    const boxAt = (x0: number, x1: number, z0: number, z1: number): ObstacleData => ({ box: new THREE.Box3(new THREE.Vector3(x0, y - .6, z0), new THREE.Vector3(x1, y + 3, z1)), isBarricade: false })
+    // Four solid blocks closing the body in on every side, while the door itself stays open.
+    const ring = [boxAt(c.x - 1.6, c.x - 1, c.z - 1, c.z + 1), boxAt(c.x + 1, c.x + 1.6, c.z - 1, c.z + 1),
+      boxAt(c.x - 1.6, c.x + 1.6, c.z + 1, c.z + 1.6), boxAt(c.x - 1.6, c.x + 1.6, c.z - 1.6, c.z - 1)]
+    const result = new CivicExitRoute().resolve({ position: new THREE.Vector3(c.x, y, c.z), goal: outsideGoals(rig).front, halls: [hall],
+      radius: 1, height: 2.6, commandIdentity: 0, movementIntent: 'command' }, [...rig.obstacles, ...ring])
+    expect(result).toBeNull()
   })
 
   it('a sealed doorway is rejected by the static clearance route at once, so ordinary target fallback runs', () => {
