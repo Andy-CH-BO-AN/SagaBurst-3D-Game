@@ -1,5 +1,6 @@
 import { Box3, Vector3, type Scene } from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { CareerArenaSession } from '../../src/arena/CareerArenaSession'
 import { CareerDuelArenaScene } from '../../src/arena/CareerDuelArenaScene'
 import { type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
 import { careerDuelClassOptions, resolveCareerDuelClass } from '../../src/career/CareerDuelClasses'
@@ -269,19 +270,22 @@ describe('Career Duel independent arena', () => {
     const live = { player: { ...stats }, squads: [] }
     const player = { hp: 150, clearTownAction: vi.fn(), update: () => { throw new Error('player combat ran while frozen') } }
     const base = { ...createCareerProfile('roman'), tutorial: undefined }
+    const input = { clear: vi.fn() }
+    // The real save transactions; only the DOM panel and the result view are recorded.
+    const session = new CareerArenaSession(duel(base, 'roman_heavy_infantry', 1, 'arena-settle'), {
+      noun: '單挑', store: { save: () => !failSave },
+      panel: { isOpen: false, show(title: string) { panels.push(title) }, close() {}, button(_label: string, action: () => void) { retry = action } },
+      skills: {} as never, sound: {} as never, input, player: () => player as never,
+      openResult: result => { panels.push(`result:${result.outcome}`) }, leave() {},
+    })
     const host = Object.assign(Object.create(CareerDuelArenaScene.prototype) as object, {
-      profile: duel(base, 'roman_heavy_infantry', 1, 'arena-settle'),
-      store: { save: () => !failSave },
-      disposed: false, settled: false, pendingSettlement: null, skillsDirty: false, elapsed: 0,
+      session, disposed: false, elapsed: 0,
       duel: { snapshot: () => live, update: () => { throw new Error('duel clock ran while frozen') } },
       // An arrow still in flight: it would hit the player if shots advanced.
       shots: [{ arrow: { update() { player.hp -= 60 } } }],
       arena: { update: vi.fn() }, damageNumbers: { update: vi.fn() }, camera: {},
-      input: { clear: vi.fn() }, player,
-      openPanel(title: string) { panels.push(title) }, closePanel() {},
-      button(_label: string, action: () => void) { retry = action },
-      openResult(result: { outcome: string }) { panels.push(`result:${result.outcome}`) },
-    }) as { profile: CareerProfile; input: { clear: () => void }; arena: { update: () => void } }
+      input, player,
+    }) as unknown as { profile: CareerProfile; input: { clear: () => void }; arena: { update: () => void } }
     const merit = host.profile.totalMerit
     const expected = claimCareerMission(cloneCareerProfile(host.profile), 'arena-settle', 'victory', { ...stats }).meritAwarded
     scene.settleFrame.call(host, 'victory')
