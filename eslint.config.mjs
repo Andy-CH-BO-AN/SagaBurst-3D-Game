@@ -38,22 +38,6 @@ function isFunction(node) {
   return node?.type === 'ArrowFunctionExpression' || node?.type === 'FunctionExpression'
 }
 
-function isTestApiExpression(node) {
-  return hasApiExpression(node, TEST_APIS)
-}
-
-function isSuiteApiExpression(node) {
-  return hasApiExpression(node, SUITE_APIS)
-}
-
-function hasApiExpression(node, apiNames) {
-  let current = node
-  while (current?.type === 'CallExpression' || current?.type === 'MemberExpression') {
-    current = current.type === 'CallExpression' ? current.callee : current.object
-  }
-  return current?.type === 'Identifier' && apiNames.has(current.name)
-}
-
 function unwrapExpression(node) {
   while (['ChainExpression', 'ParenthesizedExpression', 'TSAsExpression', 'TSTypeAssertion',
     'TSNonNullExpression', 'TSInstantiationExpression'].includes(node?.type)) {
@@ -120,21 +104,22 @@ function moduleMatches(source, suffix) {
 function isHeavyImportedConstructor(sourceCode, node) {
   const callee = unwrapExpression(node.callee)
   if (callee.type === 'Identifier') {
-    if (!HEAVY_CONSTRUCTORS.has(callee.name) && !HEAVY_ACTOR_NAMES.has(callee.name)) return false
     const binding = importedBinding(sourceCode, callee)
     if (!binding) return false
     if (binding.source === 'three') return !binding.namespace && HEAVY_CONSTRUCTORS.has(binding.imported)
-    return moduleMatches(binding.source, HEAVY_ACTOR_MODULES.get(binding.imported))
+    return HEAVY_ACTOR_NAMES.has(binding.imported) &&
+      moduleMatches(binding.source, HEAVY_ACTOR_MODULES.get(binding.imported))
   }
 
   if (callee.type !== 'MemberExpression') return false
   const member = staticMemberName(callee)
-  if (!member || !HEAVY_CONSTRUCTORS.has(member) && !HEAVY_ACTOR_NAMES.has(member)) return false
+  if (!member) return false
   const object = unwrapExpression(callee.object)
   const binding = importedBinding(sourceCode, object)
   if (!binding) return false
   if (binding.source === 'three') return binding.namespace && HEAVY_CONSTRUCTORS.has(member)
-  return binding.namespace && moduleMatches(binding.source, HEAVY_ACTOR_MODULES.get(member))
+  return binding.namespace && HEAVY_ACTOR_NAMES.has(member) &&
+    moduleMatches(binding.source, HEAVY_ACTOR_MODULES.get(member))
 }
 
 function nodeTestApiName(sourceCode, expression) {
@@ -168,18 +153,28 @@ function nodeTestCallbackOwner(sourceCode, memberExpression) {
   return null
 }
 
-function nodeTestDisabledCall(sourceCode, node) {
+function nodeTestDisabledKind(sourceCode, node) {
   const callee = unwrapExpression(node.callee)
-  if (callee.type === 'MemberExpression' && ['skip', 'todo'].includes(staticMemberName(callee)) &&
-      nodeTestApiName(sourceCode, callee.object)) return true
+  if (callee.type === 'MemberExpression') {
+    const modifier = staticMemberName(callee)
+    if (nodeTestApiName(sourceCode, callee.object)) {
+      if (modifier === 'only') return 'focused'
+      if (['skip', 'todo'].includes(modifier)) return 'disabled'
+    }
+  }
 
-  if (!NODE_TEST_CASE_APIS.has(nodeTestApiName(sourceCode, node.callee))) return false
+  const api = nodeTestApiName(sourceCode, node.callee)
+  if (!NODE_TEST_CASE_APIS.has(api) && !NODE_TEST_SUITE_APIS.has(api)) return null
   const options = node.arguments[1]
-  if (options?.type !== 'ObjectExpression') return false
-  return options.properties.some(property => {
-    if (property.type !== 'Property' || !['skip', 'todo'].includes(staticMemberName(property) ?? property.key.name)) return false
-    return !(property.value.type === 'Literal' && property.value.value === false)
-  })
+  if (options?.type !== 'ObjectExpression') return null
+  for (const property of options.properties) {
+    if (property.type !== 'Property') continue
+    const option = staticMemberName(property) ?? property.key.name
+    if (!['only', 'skip', 'todo'].includes(option) ||
+        (property.value.type === 'Literal' && property.value.value === false)) continue
+    return option === 'only' ? 'focused' : 'disabled'
+  }
+  return null
 }
 
 function literalTestTitle(node) {
@@ -195,12 +190,58 @@ function enclosingNodeTestSuite(sourceCode, node) {
   return sourceCode.ast
 }
 
-function isTestCaseCall(node) {
-  return node?.type === 'CallExpression' && isTestApiExpression(node.callee) && Boolean(testCallback(node))
+const VITEST_CHAIN_METHODS = new Set([
+  'each', 'concurrent', 'sequential', 'fails', 'only', 'skip', 'todo', 'runIf', 'skipIf',
+])
+
+function registrationChain(expression) {
+  let current = unwrapExpression(expression)
+  const members = []
+  while (current?.type === 'CallExpression' || current?.type === 'MemberExpression') {
+    if (current.type === 'CallExpression') current = unwrapExpression(current.callee)
+    else {
+      members.unshift(staticMemberName(current))
+      current = unwrapExpression(current.object)
+    }
+  }
+  return { root: current, members }
 }
 
-function isTestSuiteCall(node) {
-  return node?.type === 'CallExpression' && isSuiteApiExpression(node.callee) && Boolean(testCallback(node))
+function registrationApi(sourceCode, expression) {
+  const nodeApi = nodeTestApiName(sourceCode, expression)
+  if (NODE_TEST_APIS.has(nodeApi)) return { api: nodeApi, framework: 'node:test' }
+
+  const { root, members } = registrationChain(expression)
+  if (root?.type !== 'Identifier') return null
+  const binding = importedBinding(sourceCode, root)
+  if (binding?.source === 'vitest') {
+    const api = binding.namespace ? members.shift() : binding.imported
+    if (!TEST_APIS.has(api) && !SUITE_APIS.has(api)) return null
+    return members.every(method => VITEST_CHAIN_METHODS.has(method))
+      ? { api, framework: 'vitest', modifiers: members }
+      : null
+  }
+  if (binding) return null
+
+  const variable = variableInScope(sourceCode.getScope(root), root.name)
+  if (variable?.defs?.length) return null
+  if (Object.hasOwn(vitest.environments.env.globals, root.name) &&
+      (TEST_APIS.has(root.name) || SUITE_APIS.has(root.name))) {
+    return members.every(method => VITEST_CHAIN_METHODS.has(method))
+      ? { api: root.name, framework: 'vitest', modifiers: members }
+      : null
+  }
+  return null
+}
+
+function isTestCaseCall(sourceCode, node) {
+  return node?.type === 'CallExpression' && TEST_APIS.has(registrationApi(sourceCode, node.callee)?.api) &&
+    Boolean(testCallback(node))
+}
+
+function isTestSuiteCall(sourceCode, node) {
+  return node?.type === 'CallExpression' && SUITE_APIS.has(registrationApi(sourceCode, node.callee)?.api) &&
+    Boolean(testCallback(node))
 }
 
 function conditionalRegistrationAncestor(node) {
@@ -216,24 +257,46 @@ function conditionalRegistrationAncestor(node) {
   return null
 }
 
-function usesConditionalTestMethod(node) {
+function usesConditionalTestMethod(sourceCode, node) {
   let current = node
   while (current?.type === 'CallExpression' || current?.type === 'MemberExpression') {
-    if (current.type === 'MemberExpression' && ['runIf', 'skipIf'].includes(current.property?.name) &&
-        (isTestApiExpression(current.object) || isSuiteApiExpression(current.object))) return true
+    if (current.type === 'MemberExpression' && ['runIf', 'skipIf'].includes(staticMemberName(current)) &&
+        registrationApi(sourceCode, current.object)?.framework === 'vitest') return true
     current = current.type === 'CallExpression' ? current.callee : current.object
   }
   return false
+}
+
+function isRegistrationWrapperCall(sourceCode, node) {
+  const callee = unwrapExpression(node.callee)
+  if (callee.type !== 'MemberExpression' || !['each', 'runIf', 'skipIf'].includes(staticMemberName(callee))) {
+    return false
+  }
+  return registrationApi(sourceCode, callee.object) !== null
+}
+
+function isFocusedCallHandledByVitestPlugin(node) {
+  const callee = unwrapExpression(node.callee)
+  if (callee.type === 'MemberExpression') {
+    return staticMemberName(callee) === 'only' && callee.object.type === 'Identifier' &&
+      ['it', 'test', 'describe'].includes(callee.object.name)
+  }
+  if (callee.type !== 'CallExpression') return false
+  const each = unwrapExpression(callee.callee)
+  if (each.type !== 'MemberExpression' || staticMemberName(each) !== 'each') return false
+  const only = unwrapExpression(each.object)
+  return only.type === 'MemberExpression' && staticMemberName(only) === 'only' &&
+    only.object.type === 'Identifier' && ['it', 'test', 'describe'].includes(only.object.name)
 }
 
 function testCallback(node) {
   return [...(node.arguments ?? [])].reverse().find(isFunction)
 }
 
-function isInsideTestBody(node) {
+function isInsideTestBody(sourceCode, node) {
   for (let current = node.parent; current; current = current.parent) {
     if (isFunction(current) && current.parent?.type === 'CallExpression' &&
-        isTestCaseCall(current.parent) && testCallback(current.parent) === current) return true
+        isTestCaseCall(sourceCode, current.parent) && testCallback(current.parent) === current) return true
   }
   return false
 }
@@ -259,6 +322,32 @@ function hasRealTimerWait(sourceCode, promise) {
 const testAuthoring = {
   meta: { name: 'test-authoring' },
   rules: {
+    'no-vitest-unrunnable-tests': {
+      meta: {
+        type: 'problem',
+        docs: { description: 'Disallow focused and todo registrations not covered by the Vitest plugin' },
+        schema: [],
+        messages: {
+          focused: 'Do not focus a Vitest test with only; keep the full test suite runnable.',
+          todo: 'Do not leave a Vitest test marked todo; implement or remove it.',
+        },
+      },
+      create(context) {
+        const sourceCode = context.sourceCode
+        return {
+          CallExpression(node) {
+            if (isRegistrationWrapperCall(sourceCode, node)) return
+            const registration = registrationApi(sourceCode, node.callee)
+            if (registration?.framework !== 'vitest') return
+            if (registration.modifiers.includes('todo')) {
+              context.report({ node, messageId: 'todo' })
+            } else if (registration.modifiers.includes('only') && !isFocusedCallHandledByVitestPlugin(node)) {
+              context.report({ node, messageId: 'focused' })
+            }
+          },
+        }
+      },
+    },
     'no-heavy-three-constructor': {
       meta: {
         type: 'problem',
@@ -281,14 +370,18 @@ const testAuthoring = {
     'no-node-disabled-tests': {
       meta: {
         type: 'problem',
-        docs: { description: 'Disallow skipped and todo tests registered through node:test' },
+        docs: { description: 'Disallow focused, skipped, and todo tests registered through node:test' },
         schema: [],
-        messages: { disabled: 'Do not disable or mark a Node test as todo; remove it or make it runnable.' },
+        messages: {
+          focused: 'Do not focus a Node test with only; keep the full test suite runnable.',
+          disabled: 'Do not disable or mark a Node test as todo; remove it or make it runnable.',
+        },
       },
       create(context) {
         return {
           CallExpression(node) {
-            if (nodeTestDisabledCall(context.sourceCode, node)) context.report({ node, messageId: 'disabled' })
+            const kind = nodeTestDisabledKind(context.sourceCode, node)
+            if (kind) context.report({ node, messageId: kind })
           },
         }
       },
@@ -333,11 +426,14 @@ const testAuthoring = {
         messages: { conditional: 'Do not register tests conditionally. Use a data-driven case only when it checks the same invariant.' },
       },
       create(context) {
-        // Keep parameterized loops legal; this covers conditional registration forms such as if/ternary/logical branches and runIf/skipIf.
+        const sourceCode = context.sourceCode
+        // Identify the registrar independently of callback syntax; named callbacks are valid registrations too.
+        // Unconditional .each and data-driven loops stay legal.
         return {
           CallExpression(node) {
-            if (!isTestCaseCall(node) && !isTestSuiteCall(node)) return
-            if (usesConditionalTestMethod(node.callee) || conditionalRegistrationAncestor(node)) {
+            if (isRegistrationWrapperCall(sourceCode, node)) return
+            if (!registrationApi(sourceCode, node.callee)) return
+            if (usesConditionalTestMethod(sourceCode, node.callee) || conditionalRegistrationAncestor(node)) {
               context.report({ node, messageId: 'conditional' })
             }
           },
@@ -355,7 +451,7 @@ const testAuthoring = {
         const sourceCode = context.sourceCode
         return {
           CallExpression(node) {
-            if (!isTestCaseCall(node)) return
+            if (!isTestCaseCall(sourceCode, node)) return
             const callback = testCallback(node)
             if (!callback) return
             const lines = effectiveBodyLines(sourceCode, callback.body)
@@ -375,7 +471,7 @@ const testAuthoring = {
         const sourceCode = context.sourceCode
         return {
           NewExpression(node) {
-            if (isInsideTestBody(node) && hasRealTimerWait(sourceCode, node)) {
+            if (isInsideTestBody(sourceCode, node) && hasRealTimerWait(sourceCode, node)) {
               context.report({ node, messageId: 'sleep' })
             }
           },
@@ -393,7 +489,7 @@ const vitestBlockers = {
 }
 
 const sharedTestRules = {
-  ...vitestBlockers,
+  'test-authoring/no-vitest-unrunnable-tests': 'error',
   'test-authoring/no-heavy-three-constructor': 'error',
   'test-authoring/no-conditional-test-registration': 'error',
   'test-authoring/large-test-body': 'warn',
@@ -401,9 +497,9 @@ const sharedTestRules = {
 }
 
 export default [
-  { ignores: ['tests/helpers/**', 'tests/tooling/**', 'tests/fixtures/**'] },
   {
-    files: ['tests/**/*.test.ts'],
+    files: ['tests/**/*.{test,spec}.?(c|m)[jt]s?(x)'],
+    ignores: ['tests/**/*.test.cjs', 'tests/release/**'],
     languageOptions: {
       parser: tseslint.parser,
       sourceType: 'module',
@@ -412,6 +508,7 @@ export default [
     plugins: { vitest, '@typescript-eslint': tseslint.plugin, 'test-authoring': testAuthoring },
     rules: {
       ...sharedTestRules,
+      ...vitestBlockers,
       'vitest/expect-expect': 'warn',
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/ban-ts-comment': ['warn', {
@@ -425,7 +522,7 @@ export default [
   {
     files: ['tests/**/*.test.cjs'],
     languageOptions: { sourceType: 'commonjs' },
-    plugins: { vitest, 'test-authoring': testAuthoring },
+    plugins: { 'test-authoring': testAuthoring },
     rules: {
       ...sharedTestRules,
       'test-authoring/no-node-disabled-tests': 'error',

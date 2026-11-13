@@ -85,8 +85,8 @@
 
 ## Test Authoring Lint
 
-- 執行 `npm run lint:test`；CI 會在既有 logic gate 的 `npm ci` 後執行，不會新增測試案例或另一個 Full Test Job。
-- ESLint Error 會阻擋 focused／disabled／重複標題／條件式註冊、Unit Test 重型 3D constructor，以及直接的 Node test `.only`／`.skip`／`.todo`。
+- 執行 `npm run lint:test`；範圍需與 runner 收檔一致，涵蓋 Vitest `.test`／`.spec` 測試檔與遞迴發現的 Node `.test.cjs`，不因 `tests/` 子目錄漏掉案例。CI 會在既有 logic gate 的 `npm ci` 後執行，不會新增測試案例或另一個 Full Test Job。
+- ESLint Error 會阻擋 Vitest focused／disabled／重複標題／條件式註冊、Unit Test 重型 3D constructor，以及 Node `test`／`describe` 的 `.only`／`.skip`／`.todo` 和明確啟用的停用 options。
 - Test body 超過 120 行、`expect-expect`、真實 timer wait pattern、`any` 與 `@ts-ignore` 僅輸出 Warning；不可為了消除 Warning 刪除重要 assertions 或大規模改寫既有案例。
 - Owner 歸屬、failure mode 是否重複、正式 caller 覆蓋、Regression 是否能攔截 Bug、Legacy 格式及跨模組 Import 是否合理，仍須依本文件由人工 Review。
 
