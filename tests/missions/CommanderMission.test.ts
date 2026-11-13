@@ -32,10 +32,11 @@ function commander(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
   return profile
 }
 
-function accepted(templateId: string, faction: 'roman' | 'viking' = 'roman', personal = false): CareerProfile {
+function accepted(templateId: string, faction: 'roman' | 'viking' = 'roman', personal = false,
+  missionId = `test:${templateId}`): CareerProfile {
   const profile = commander(faction)
   if (personal) profile.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
-  const next = acceptCommanderMission(profile, templateId, `test:${templateId}`)
+  const next = acceptCommanderMission(profile, templateId, missionId)
   if (!next?.activeMission) throw new Error(`Could not accept ${templateId}`)
   return next
 }
@@ -405,7 +406,13 @@ describe('Bridgehead official field battle', () => {
   })
 
   it('keeps Bridgehead victory unclaimed after a failed result save and retries it once', () => {
-    const profile = accepted(COMMANDER_BRIDGEHEAD_ID), mission = profile.activeMission!
+    const profile = accepted(COMMANDER_BRIDGEHEAD_ID, 'roman', true, 'br'), mission = profile.activeMission!
+    mission.personalSquad!.sceneKey = `bridge:${mission.id}`
+    mission.personalSquad!.state = 'ACTIVE'
+    mission.personalSquad!.members['personal:hr-1'] = { status: 'deployed', hp: 17, order: 'formation',
+      position: { x: -5, z: -100, yaw: 0 },
+      formation: { commandId: 8, position: { x: 4, z: -45, yaw: 0 }, reached: false, arrivalOrder: 'defend' } }
+    const expectedPersonalSquad = structuredClone(mission.personalSquad!)
     const playerStats = { damageDealt: 0, damageTaken: 10, kills: 0, structureDamage: 0,
       structuresDestroyed: 0, gateBreaches: 0, survived: false }
     const stats = { player: playerStats, squads: [],
@@ -417,26 +424,33 @@ describe('Bridgehead official field battle', () => {
     mission.bridgeBattle = { ready: true, player: { hp: 100, stamina: 70, dead: false,
       position: { x: 0, y: 1, z: -90, yaw: 0 }, ammo: 5, shieldImpact: 2 },
       playerStats: { ...playerStats }, actors: Object.fromEntries([
-        ...mission.friendlyActorIds.map(id => [id, { status: 'deployed', hp: 30 }]),
-        ...mission.targetActorIds.map(id => [id, { status: 'dead', hp: 0 }]),
+        ...mission.friendlyActorIds.map(id => [id, { status: 'deployed' }]),
+        ...mission.targetActorIds.map(id => [id, { status: 'dead' }]),
       ]) }
+    expect(mission.result).toBeUndefined()
+    expect(profile.claimedBattleIds).not.toContain(mission.id)
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
-    expect(store.save(profile)).toBe(true)
+    // Seed the existing pre-result save; the successful retry below uses the real CareerProfileStore.
+    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
     const unclaimedBytes = storage.getItem(CAREER_STORAGE_KEY)!
     storage.writable = false
-    expect(commitCareerBridgeBattleResult(store, mission.id, stats)).toBeNull()
+    // Simulate the write rejection at the store boundary; the successful retry uses the real CareerProfileStore.
+    const failedAttemptStore = { loadChecked: () => ({ profile }), save: () => {
+      try { storage.setItem(CAREER_STORAGE_KEY, 'failed write'); return true } catch { return false }
+    } }
+    expect(commitCareerBridgeBattleResult(failedAttemptStore, mission.id, stats)).toBeNull()
     expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(unclaimedBytes)
-    const failedSave = JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!) as CareerProfile
-    expect(failedSave.activeMission!.result).toBeUndefined()
-    expect(failedSave.claimedBattleIds).not.toContain(mission.id)
     storage.writable = true
     const claimed = commitCareerBridgeBattleResult(store, mission.id, stats)!
     expect(claimed.profile.activeMission!.result!.merit.total).toBe(100)
     expect(claimed.profile.careerMissionCompletionsByTier?.[5]).toBe(1)
     expect(claimed.profile.totalMerit).toBe(20_100)
-    const reloadedClaim = JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!) as CareerProfile
+    const reloadedClaim = store.load()!
     expect(reloadedClaim.totalMerit).toBe(claimed.profile.totalMerit)
     expect(reloadedClaim.activeMission!.result!.merit.total).toBe(100)
+    const restoredPersonalSquad = reloadedClaim.activeMission!.personalSquad
+    expect(restoredPersonalSquad).toBeDefined()
+    expect(restoredPersonalSquad).toEqual(expectedPersonalSquad)
     expect(reloadedClaim.careerMissionCompletionsByTier?.[5]).toBe(1)
     expect(reloadedClaim.claimedBattleIds.filter(id => id === mission.id)).toHaveLength(1)
   })
