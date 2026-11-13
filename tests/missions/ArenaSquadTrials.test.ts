@@ -98,14 +98,20 @@ describe('Arena Squad Trials', () => {
     mission.arenaTrial = { ...mission.arenaTrial!, stage: 'engaged', combatElapsed: 5, actors: {
       [archer]: { status: 'active', hp: 40, x: 8, z: -20, yaw: 1, y: 5.5, ammo: 0, shieldImpact: 0 },
       [mission.friendlyActorIds[1]]: { status: 'active', hp: 90, x: 1, z: -20, yaw: 0 } },
-    player: { knocked: false, hp: 33, stamina: 20, x: 0, z: -14, yaw: 0, y: 3.95, ammo: 0, shieldImpact: 0, shieldDurability: { shield_a: 0, shield_b: 12 } } }
+    player: { knocked: false, hp: 33, stamina: 20, x: 0, z: -14, yaw: 0, y: 3.95, ammo: 0, shieldImpact: 0, shieldDurability: { shield_a: 0, shield_b: 12 },
+      fall: { velocityY: -12.5, grounded: false, apexY: 17.9 } } }
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
     expect(store.save({ ...profile, activeMission: mission })).toBe(true)
     const restored = store.load()!.activeMission!.arenaTrial!
     expect(restored.actors[archer]).toMatchObject({ y: 5.5, ammo: 0, shieldImpact: 0 })
     expect(restored.actors[mission.friendlyActorIds[1]]).not.toHaveProperty('ammo')
     expect(restored.player).toMatchObject({ y: 3.95, ammo: 0, shieldImpact: 0, shieldDurability: { shield_a: 0, shield_b: 12 } })
+    expect(restored.player?.fall).toEqual({ velocityY: -12.5, grounded: false, apexY: 17.9 })
     const bad = JSON.parse(storage.getItem('sagaburst_career_v1')!)
+    bad.activeMission.arenaTrial.player.fall.grounded = 'no'
+    storage.setItem('sagaburst_career_v1', JSON.stringify(bad))
+    expect(store.load()?.activeMission).toBeUndefined()
+    bad.activeMission.arenaTrial.player.fall.grounded = false
     bad.activeMission.arenaTrial.player.ammo = -1
     storage.setItem('sagaburst_career_v1', JSON.stringify(bad))
     expect(store.load()?.activeMission).toBeUndefined()

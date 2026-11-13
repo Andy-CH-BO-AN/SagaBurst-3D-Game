@@ -173,6 +173,33 @@ describe('Town mission settlement transactions', () => {
     expect(returned.personalSquad?.members.map(member => member.id)).toEqual(['personal:dead', 'personal:hurt'])
   })
 
+  it('lets an arena trial capture the Town command checkpoint without the formal-mission troop handoff', () => {
+    const h = fixture()
+    Object.assign(h.player.shield, { reset: vi.fn() })
+    const peaceful = cloneCareerProfile(h.read())
+    delete peaceful.activeMission
+    expect(h.store.save(peaceful)).toBe(true)
+    h.publish(peaceful)
+    const commanded = { type: 'town-command', squadId: 1, townFaction: 'roman', actorIds: ['patrol:1'], commandedActorIds: ['patrol:1'], contribution: emptyPersonalContribution(),
+      sceneKey: 'town-home', state: 'TRAINING', authorized: true, members: { 'patrol:1': { status: 'deployed', order: 'defend' } } } as unknown as NonNullable<CareerProfile['townCommandSquad']>
+    const stageMissionHandoff = vi.fn((p: CareerProfile) => ({ ...p, townCommandSquad: { ...commanded, authorized: false, state: 'RETURNING' as const } }))
+    h.runtime.townCommand = { checkpoint: vi.fn(() => commanded), stageRefit: vi.fn(p => p), stageMissionHandoff,
+      applySavedState: vi.fn(), grant: vi.fn() } as unknown as TownProfileCommitRuntime['townCommand']
+
+    const trial = cloneCareerProfile(peaceful)
+    trial.activeMission = createArenaTrialMission(peaceful, 1, 'roman-colosseum', 'trial-command')!
+    expect(h.commit(trial)).toBe(true)
+    expect(stageMissionHandoff).not.toHaveBeenCalled()
+    expect(h.read().townCommandSquad).toMatchObject({ authorized: true, state: 'TRAINING', commandedActorIds: ['patrol:1'], members: { 'patrol:1': { order: 'defend' } } })
+
+    // Control: any other formal mission still hands its troops over.
+    const bandit = cloneCareerProfile(peaceful)
+    bandit.activeMission = { ...createActiveCareerMission('recruit-bandits-01', 0, 1, 0, 'control'), kind: 'bandit' }
+    h.publish(peaceful)
+    expect(h.commit(bandit)).toBe(true)
+    expect(stageMissionHandoff).toHaveBeenCalledTimes(1)
+  })
+
   it('saves the accepted native body before a field transition and publishes nothing on a rejected write', () => {
     const h = fixture()
     const peaceful = cloneCareerProfile(h.read()); delete peaceful.activeMission

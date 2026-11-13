@@ -50,6 +50,8 @@ import { resolveEntityCollision } from '../world/Terrain'
 const PLAYER_HALF_HEIGHT = 0.95
 const RESUME_GRACE_SECONDS = 3
 const CHECKPOINT_SECONDS = 2
+/** A fall changes quickly, so it is saved far more often than a quiet fight. */
+const AIRBORNE_CHECKPOINT_SECONDS = 0.25
 
 export interface CareerArenaTrialCallbacks {
   /** The trial is settled (or cancelled) and saved; Town may be rebuilt. */
@@ -207,6 +209,8 @@ export class CareerArenaTrialScene {
       if (saved.ammo !== undefined) this.player.setArrowCount(saved.ammo)
       if (saved.shieldDurability) this.player.shield.restoreDurability(saved.shieldDurability)
       if (saved.shieldImpact !== undefined) this.player.shield.shieldImpactRemaining = Math.min(this.player.shield.shieldImpactMax, saved.shieldImpact)
+      // A fall under way resumes with its own apex, so the grace period cannot erase it.
+      if (saved.fall && !saved.knocked) this.player.restoreFootFall(saved.fall)
     }
     if (!settled) await this.buildBodies(trial, progress)
     this.hp.setFill(this.player.hpRatio)
@@ -336,7 +340,8 @@ export class CareerArenaTrialScene {
     for (const body of this.bodies) if (body.npc.dead && !this.knocked.has(body.actorId)) { this.knocked.add(body.actorId); changed = true }
     // A knock-out is saved at once so a reload can never stand the body back up.
     this.checkpointClock += dt
-    if (changed || this.checkpointClock >= CHECKPOINT_SECONDS) this.persistProgress()
+    const airborne = !this.player.dead && !this.player.isGrounded && !this.player.currentMount
+    if (changed || this.checkpointClock >= (airborne ? AIRBORNE_CHECKPOINT_SECONDS : CHECKPOINT_SECONDS)) this.persistProgress()
     const end = resolveArenaTrialEnd(this.counts(), this.combatElapsed)
     if (end && !this.pendingSettlement) this.finish(end.outcome, end.reason)
   }
@@ -529,7 +534,8 @@ export class CareerArenaTrialScene {
       knocked: this.player.dead, hp: this.player.dead ? 0 : this.player.hp, stamina: this.player.staminaValue,
       x: this.player.position.x, z: this.player.position.z, yaw: this.player.facingYaw,
       y: this.player.group.position.y, ammo: this.player.arrowCount, shieldImpact: this.player.shield.shieldImpactRemaining,
-      shieldDurability: { ...this.player.shield.captureDurability() } } }
+      shieldDurability: { ...this.player.shield.captureDurability() },
+      ...(this.player.currentMount || this.player.isFalling ? {} : (fall => fall.grounded && fall.apexY === null ? {} : { fall })(this.player.captureFootFall())) } }
     active.phase = 'ENGAGING'
     active.playerStats = this.tracker.checkpoint()
     return this.commit(next)

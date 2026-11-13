@@ -133,6 +133,8 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
     || runtime.profile.faction !== next.faction
   const civilianStateChanged = JSON.stringify(next.civilianCommandSquad) !== JSON.stringify(runtime.profile.civilianCommandSquad)
   if (!restoringResidents && change !== 'civilian-command' && !civilianStateChanged && runtime.civilianCommand) next.civilianCommandSquad = runtime.civilianCommand.checkpoint() ?? next.civilianCommandSquad
+  // An Arena Squad Trial takes no Town troops: it only captures the Town's current command checkpoint.
+  const arenaTrialStart = startsFormal && next.activeMission?.kind === 'arena-squad-trial'
   const startsDefense = startsFormal && (next.activeMission?.kind === 'town-defense' || next.activeMission?.kind === 'commander-four-gate-defense')
   if (startsFormal && next.activeMission?.kind === 'commander-four-gate-defense') {
     next.activeMission.mountState = runtime.careerMounts!.checkpoint()
@@ -142,9 +144,9 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   const respawning = Boolean(runtime.player?.dead && runtime.profile.activeMission && !next.activeMission)
   const returningFromDefense = Boolean((runtime.profile.activeMission?.kind === 'town-defense' || runtime.profile.activeMission?.kind === 'commander-four-gate-defense') && runtime.profile.activeMission.result && !next.activeMission)
   if ((startsDefense && next.rank !== 'commander' || respawning || returningFromDefense) && runtime.townCommand) next = runtime.townCommand.stageRefit(next, startsDefense)
-  else if (startsFormal && runtime.townCommand) next = runtime.townCommand.stageMissionHandoff(next)
+  else if (startsFormal && !arenaTrialStart && runtime.townCommand) next = runtime.townCommand.stageMissionHandoff(next)
   else if (!restoringResidents && !townStateChanged && next.faction === runtime.profile.faction && runtime.townCommand) next.townCommandSquad = runtime.townCommand.checkpoint() ?? next.townCommandSquad
-  if (startsFormal && next.activeMission && next.activeMission.kind !== 'commander-four-gate-defense' && next.townCommandSquad) {
+  if (startsFormal && !arenaTrialStart && next.activeMission && next.activeMission.kind !== 'commander-four-gate-defense' && next.townCommandSquad) {
     const returning = new Set(next.townCommandSquad.actorIds.filter(id => {
       const member = next.townCommandSquad!.members?.[id]
       return Boolean(next.townCommandSquad!.nativeReturnStates?.[id])

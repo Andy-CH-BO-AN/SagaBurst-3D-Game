@@ -116,6 +116,8 @@ export interface ArenaTrialPlayerState {
   y?: number; ammo?: number; shieldImpact?: number
   /** Per-shield remaining durability, so swapping shields in the arena survives a reload too. */
   shieldDurability?: Record<string, number>
+  /** An ordinary fall still under way when saved; absent when standing or for older saves. */
+  fall?: { velocityY: number; grounded: boolean; apexY: number | null }
 }
 export interface ArenaTrialState {
   version: 1
@@ -288,9 +290,15 @@ export function parseArenaTrialState(value: unknown, mission: { friendlyActorIds
       if (!p.shieldDurability || typeof p.shieldDurability !== 'object' || !Object.values(p.shieldDurability).every(v => typeof v === 'number' && Number.isFinite(v) && v >= 0)) return undefined
       shieldDurability = { ...(p.shieldDurability as Record<string, number>) }
     }
+    let fall: ArenaTrialPlayerState['fall']
+    if (p.fall !== undefined) {
+      const f = p.fall as Record<string, unknown> | null
+      if (!f || !finite(f.velocityY) || typeof f.grounded !== 'boolean' || !(f.apexY === null || finite(f.apexY))) return undefined
+      fall = { velocityY: f.velocityY, grounded: f.grounded, apexY: f.apexY as number | null }
+    }
     player = { knocked: p.knocked, hp: p.hp as number, stamina: p.stamina as number, x: p.x as number, z: p.z as number, yaw: p.yaw as number,
       ...(p.y !== undefined ? { y: p.y as number } : {}), ...(p.ammo !== undefined ? { ammo: p.ammo as number } : {}),
-      ...(p.shieldImpact !== undefined ? { shieldImpact: p.shieldImpact as number } : {}), ...(shieldDurability ? { shieldDurability } : {}) }
+      ...(p.shieldImpact !== undefined ? { shieldImpact: p.shieldImpact as number } : {}), ...(shieldDurability ? { shieldDurability } : {}), ...(fall ? { fall } : {}) }
   }
   if (raw.endReason !== undefined && raw.endReason !== 'timeout' && raw.endReason !== 'eliminated') return undefined
   return { version: 1, tier: raw.tier, arenaId, stage: raw.stage, combatElapsed: raw.combatElapsed, actors, ...(player ? { player } : {}),
