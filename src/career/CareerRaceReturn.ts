@@ -9,7 +9,8 @@ export function raceReturnAction(phase: CareerRaceSession['phase'] | undefined, 
 }
 
 /** Stage one save: completed race, real resources and any deferred native Town settlement. */
-export function raceReturnProfile(current: CareerProfile, player: RaceRider, destination: RacePosition | undefined, recoveryHp: number): CareerProfile | null {
+export function raceReturnProfile(current: CareerProfile, player: RaceRider, destination: RacePosition | undefined, recoveryHp: number,
+  options: { dismount?: boolean; mountDestination?: RacePosition } = {}): CareerProfile | null {
   const race = current.activeRace
   if (!race || !['result', 'returning'].includes(race.phase) || !current.raceRecords?.some(r => r.sessionId === race.id)) return null
   let next = cloneCareerProfile(current)
@@ -22,7 +23,10 @@ export function raceReturnProfile(current: CareerProfile, player: RaceRider, des
     const returning = structuredClone(player)
     if (destination) {
       returning.position = { ...destination }
-      if (returning.mounted) returning.mountPosition = { ...destination }
+      // Walking arrival: the mount is left at its own proven parking spot, never under the player.
+      if (options.dismount) returning.mounted = false
+      if (options.mountDestination) returning.mountPosition = { ...options.mountDestination }
+      else if (returning.mounted) returning.mountPosition = { ...destination }
     }
     if (returning.dead) {
       if (!destination) return null

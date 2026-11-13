@@ -4,6 +4,7 @@ import { getOrdinarySoldierHp, resolveOrdinaryPlayerBaseHp, resolveOrdinarySoldi
 import { CareerCommandHudTypes } from './career/CareerCommandHudTypes'
 import { officialCommandHudLabel } from './career/CommanderTownSquadLabels'
 import { stageMissionReturnRebuild } from './career/CareerMissionReturnRecovery'
+import { markCareerMissionReturnToSergeant } from './town/SergeantReturn'
 import { townRoster } from './town/TownRules'
 import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, careerFieldTacticalOrder, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, dispatchFelineVanguardCharge, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { prepareByzantineEquipment, preloadHighTierEquipment } from './world/HighTierEquipment'
@@ -28,6 +29,8 @@ import { CorgiVisual } from './world/CorgiVisual'
 import { careerHeavyPreloadPlan } from './career/HeavyCavalrySpawn'
 import { COMMANDER_IRON_LEGION_ID } from './career/HeavyCavalryMissions'
 import { createHeavyFieldDeployment, getHeavyFieldMissionDefinition, isCareerHeavyFieldBattle, type HeavyFieldDeployment } from './career/HeavyFieldMission'
+import { createCareerFieldCheckpointSeed, createCareerFieldDeployment, FIELD_BANDIT_DETECTION_RANGE, FIELD_SWEEP_CHARGE_DISTANCE, findVeteranSquadsInRange, isCareerFieldNoCommandMission, isMigratedCareerFieldMission, isMigratedFieldDeploymentReady, resolveFieldActorCheckpoint, resolveFieldDamagedTargetId, resolveMigratedPlayerMountState, shouldTriggerSweepAlert, type CareerFieldDeployment } from './career/CareerFieldBattle'
+import { createCampfireVisual } from './world/EnvironmentVisuals'
 import { createCaltropBarrier } from './world/CaltropBarrier'
 import { HEAVY_FIELD_SPECS, VETERAN_IRON_TIDE_ID, heavyCommandPlan, isHeavyFormationComplete, heavyFrontlineDistance, planVeteranCaltropDefense, veteranCaltropWorldRects, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, type HeavyPoint } from './career/HeavyCavalryMissions'
 import { BlackCatVisual, FELINE_MOUNT_VARIANTS, type FelineMountVariant } from './world/BlackCatVisual'
@@ -163,6 +166,7 @@ import { getT5ProfileForPreset, t5EquipmentIdsForArmy } from './battle/T5HeroCat
 import type { UnitPresetId } from './battle/UnitPresetCatalog'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
+import { populateNpcFactionGrids, selectHostileNpcGrid } from './world/HostileNpcGrid'
 import { EntityCollisionBroadPhase } from './world/EntityCollisionBroadPhase'
 import { ArrowProjectile } from './world/ArrowProjectile'
 import { DEFAULT_MOUNT_TYPE, Mount, MountState, MountType, mountTypeFromId, mountTypeFromSave, felineVariantFromMountId } from './world/Mount'
@@ -216,7 +220,7 @@ import { personalOutpostDeployment, personalRearDeployment } from './career/Pers
 import { planPersonalOutpostGround } from './career/PersonalOutpostGroundPlan'
 import { careerOutpostCommandMeritPolicy } from './career/CareerOutpostMission'
 import { careerOutpostActorId } from './career/CareerOutpostRoster'
-import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerProfile } from './career/CareerProfile'
+import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerMountId, type CareerProfile } from './career/CareerProfile'
 import { CareerMissionCheckpoint, type CareerMissionCheckpointReason } from './career/CareerMissionCheckpoint'
 import type { ActiveCareerMission, BridgeBattleDeployment } from './career/CareerMissionState'
 import { createBridgeheadRoster } from './career/CommanderMissionCatalog'
@@ -670,12 +674,14 @@ export class Game {
   private felineChargeUnsubscribe?: () => void
   /** Heavy-cavalry field battles (Soldier / Veteran / Captain): deployment plan and throttled trigger clock. */
   private heavyDeployment?: HeavyFieldDeployment
+  private careerFieldDeployment?: CareerFieldDeployment
+  private careerFieldCheckClock = 0
   private heavyCheckClock = 0
   private heavyFormationElapsed = 0
   /** Soldier and Veteran field battles give the player no command authority at all. */
   private get heavyNoCommand(): boolean {
     const mission = this.careerProfile?.activeMission
-    return isCareerHeavyFieldBattle(mission) && !mission.officialSquad && !mission.personalSquad
+    return Boolean(mission && (isCareerHeavyFieldBattle(mission) || isCareerFieldNoCommandMission(mission)) && !mission.officialSquad && !mission.personalSquad)
   }
   private heavyGuide: MissionGuide | null = null
   private captainEagleSpawnBatch?: NpcSpawnBatch
@@ -743,6 +749,7 @@ export class Game {
   private _npcSubphaseCollector: NpcSubphaseCollector | null = null
   private _npcSubphaseAggregator: NpcSubphaseAggregator | null = null
   private startingHorse: Mount | null = null
+  private startingHorseMountId?: string
   private loadedSaveMount: Mount | null = null
 
   // Enemy HUD elements
@@ -812,6 +819,7 @@ export class Game {
     [Faction.TOWN]: new SpatialGrid<NPC>(20),
     [Faction.BANDIT]: new SpatialGrid<NPC>(20),
   }
+  private readonly playerHostileNpcGrid = new SpatialGrid<NPC>(20)
   public readonly devGridStats = {
     queriesPerFrame: 0,
     returnedNeighborsAvg: 0,
@@ -847,7 +855,7 @@ export class Game {
       if (this.fieldMissionId || campaignConfig?.careerMissionKind === 'captain-outpost-defense') {
         const mission = this.careerProfile?.activeMission
         const expectedId = this.fieldMissionId ?? campaignConfig?.careerMissionId
-        const heavyField = isCareerHeavyFieldBattle(mission)
+        const heavyField = isCareerHeavyFieldBattle(mission) || isMigratedCareerFieldMission(mission)
         if (!mission || mission.id !== expectedId
           || !heavyField && (mission.officialSquad?.type !== 'mission-official' || mission.officialSquad.missionId !== mission.id)
           || heavyField && mission.officialSquad && (mission.officialSquad.type !== 'mission-official' || mission.officialSquad.missionId !== mission.id)
@@ -980,7 +988,7 @@ export class Game {
     const isCustomAerial = isCustomBattle && battleConfig?.battleType === 'aerial'
     const customMapId = isCustomBattle ? (isCustomAerial ? 'original' : (battleConfig?.mapId ?? 'original')) : undefined
     const isBridgeBattle = isBridgePreview || Boolean(this.bridgeLaunch) || customMapId === 'bridge'
-    const isSnowBattle = customMapId === 'snow'
+    const isSnowBattle = customMapId === 'snow' || Boolean(this.felineMissionId && battleConfig?.mapId === 'snow')
     const isRomanTownBattle = customMapId === 'roman_town'
     const isVikingTownBattle = customMapId === 'viking_town'
 
@@ -1068,6 +1076,20 @@ export class Game {
     if (isCareerHeavyFieldBattle(heavyMissionForObstacles) && heavyMissionForObstacles.templateId === VETERAN_IRON_TIDE_ID) {
       createCaltropBarrier(this.scene, veteranCaltropWorldRects(planVeteranCaltropDefense(), this.careerProfile!.faction), obstacles)
     }
+    if (this.felineMissionId && this.careerProfile && isMigratedCareerFieldMission(this.careerProfile.activeMission)) {
+      this.careerFieldDeployment = createCareerFieldDeployment(this.careerProfile)
+      const fire = this.careerFieldDeployment.campfireCenter
+      if (fire) {
+        const y = getTerrainHeight(fire.x, fire.z)
+        const visual = createCampfireVisual(Math.round(fire.x * 73 + fire.z * 31))
+        visual.position.set(fire.x, y, fire.z)
+        this.scene.add(visual)
+        obstacles.push({
+          box: new THREE.Box3(new THREE.Vector3(fire.x - .6, y, fire.z - .6), new THREE.Vector3(fire.x + .6, y + .55, fire.z + .6)),
+          isBarricade: false,
+        })
+      }
+    }
     this.obstacles = obstacles
     this.navigationWorld.sync(this.obstacles)
     this._aimTargetRegistry.addStaticTarget(terrainMesh)
@@ -1152,7 +1174,8 @@ export class Game {
     } else if (this.bridgeLaunch && this.careerProfile) {
       battlePlan = createCareerBridgeSpawnPlan(this.careerProfile)
     } else if (this.felineMissionId && this.careerProfile) {
-      if (isCareerHeavyFieldBattle(this.careerProfile.activeMission)) {
+      if (this.careerFieldDeployment) battlePlan = this.careerFieldDeployment.plan
+      else if (isCareerHeavyFieldBattle(this.careerProfile.activeMission)) {
         this.heavyDeployment = createHeavyFieldDeployment(this.careerProfile)
         battlePlan = this.heavyDeployment.plan
       } else battlePlan = createCareerFelineSpawnPlan(this.careerProfile)
@@ -1426,12 +1449,16 @@ export class Game {
       this.captainEagleHud = new CaptainEagleHUD('bridgehead')
     } else if (this.felineMissionId && battlePlan) {
       const fieldMission = this.careerProfile?.activeMission
-      this.captainEagleHud = new CaptainEagleHUD('feline', fieldMission?.templateId === COMMANDER_IRON_LEGION_ID
+      this.captainEagleHud = new CaptainEagleHUD('feline', this.careerFieldDeployment
+        ? { title: this.careerFieldDeployment.title, force: this.careerFieldDeployment.forceLabel }
+        : fieldMission?.templateId === COMMANDER_IRON_LEGION_ID
         ? { title: 'COMMANDER VII · 鐵甲軍團決戰', force: '正式六貓騎兵' }
         : isCareerHeavyFieldBattle(fieldMission) ? { title: getHeavyFieldMissionDefinition(fieldMission.templateId)?.name ?? '重騎兵戰場', force: '正式友軍' } : undefined)
+      this._applyCareerPlayerHealthForCheckpoint()
       this._declareCaptainEagleRoster(battlePlan)
     } else if (this.captainEagleMissionId && battlePlan) {
       this.captainEagleHud = new CaptainEagleHUD()
+      this._applyCareerPlayerHealthForCheckpoint()
       this._declareCaptainEagleRoster(battlePlan)
     } else if (battleConfig && battlePlan) {
       await this._executeBattleSpawnPlan(battlePlan, progress)
@@ -1462,6 +1489,7 @@ export class Game {
       )
       this.startingHorse = startingHorse
       const ownedMountId = activeBattleConfig?.playerLoadout?.mountId
+      this.startingHorseMountId = ownedMountId
       if (this.careerProfile && ownedMountId) startingHorse.restoreArmor(this.careerProfile.activeMission?.mountState?.armorImpact?.[ownedMountId] ?? this.careerProfile.mountArmor?.[ownedMountId])
       const reliefHeading = isBridgePreview || this.bridgeLaunch ? 0 : campaignConfig?.careerMissionKind === 'outpost-relief' ? (isRoman ? Math.PI : 0) : undefined
       const mountHeading = reliefHeading ?? (isRoman ? 0 : Math.PI)
@@ -1512,7 +1540,9 @@ export class Game {
       this.controlsHint.textContent = 'WASD 移動 ｜ Shift 衝刺 ｜ 左鍵攻擊 ｜ 右鍵／F 舉盾瞄準 ｜ Tab 裝備 ｜ 滾輪切換武器'
     }
     this.combatEvents.subscribe(event => this._awardPlayerSkillXpFromEvent(event))
-    if (this.felineMissionId && isCareerHeavyFieldBattle(this.careerProfile?.activeMission)) {
+    if (this.felineMissionId && this.careerFieldDeployment) {
+      this.felineChargeUnsubscribe = this.combatEvents.subscribe(event => this._handleMigratedFieldDamage(event))
+    } else if (this.felineMissionId && isCareerHeavyFieldBattle(this.careerProfile?.activeMission)) {
       this.felineChargeUnsubscribe = this.combatEvents.subscribe(event => this._handleHeavyEnemyDamage(event))
     } else if (this.felineMissionId && this.careerProfile?.activeMission?.commanderMission?.felineChargeTriggered !== true) {
       this.felineChargeUnsubscribe = this.combatEvents.subscribe(event => this._handleFelineVanguardDamage(event))
@@ -1617,7 +1647,7 @@ export class Game {
         if (this.bridgeLaunch) this._declareCaptainEagleRoster(battlePlan)
         this._queueCaptainEagleRoster(battlePlan)
         await gameplayNpcSpawns.wait(this.captainEagleSpawnBatch!,
-          (done, total) => progress(`${this.bridgeLaunch ? '部署橋頭部隊' : this.felineMissionId ? (isCareerHeavyFieldBattle(this.careerProfile?.activeMission) ? '部署鐵騎戰場部隊' : '部署六貓騎兵團') : '部署巨鷹部隊'} ${done} / ${total}…`))
+          (done, total) => progress(`${this.bridgeLaunch ? '部署橋頭部隊' : this.felineMissionId ? (this.careerFieldDeployment ? `部署${this.careerFieldDeployment.title}部隊` : isCareerHeavyFieldBattle(this.careerProfile?.activeMission) ? '部署鐵騎戰場部隊' : '部署六貓騎兵團') : '部署巨鷹部隊'} ${done} / ${total}…`))
         if (this.bridgeLaunch || this.felineMissionId) this._restoreCaptainEaglePlayer()
         if (!this._persistCaptainMission(true)) throw new Error('Career field initial deployment could not be saved')
         if (this.bridgeRuntime?.deployment.phase === 'spawning'
@@ -2688,6 +2718,130 @@ export class Game {
     return spawned
   }
 
+  /** One-shot alert transition. Re-issuing it would reset paths and camp-return formations every tick. */
+  private _activateMigratedFieldBanditCamp(mission: ActiveCareerMission): void {
+    if (mission.sweepAlerted) return
+    mission.sweepAlerted = true
+    const targets = new Set(mission.targetActorIds)
+    const friendlies = new Set(mission.friendlyActorIds)
+    for (const npc of this.npcs) {
+      if (npc.dead) continue
+      if (targets.has(npc.combatantId)) {
+        npc.triggerEncounterAlert()
+        npc.setTacticalOrder('charge')
+      } else if (this.careerFieldDeployment?.kind === 'bandit' && friendlies.has(npc.combatantId)
+        && !officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) {
+        npc.setTacticalOrder('charge')
+      }
+    }
+    if (this.careerFieldDeployment?.kind === 'bandit') mission.fieldFriendlyCharge = true
+  }
+
+  private _activateMigratedVeteranSquad(mission: ActiveCareerMission, squadId: number): boolean {
+    const engaged = new Set(mission.engagedEnemySquadIds ?? [])
+    if (engaged.has(squadId)) return false
+    engaged.add(squadId)
+    mission.engagedEnemySquadIds = [...engaged]
+    const squadMap = this.careerFieldDeployment?.enemySquadIdsByActorId ?? {}
+    for (const npc of this.npcs) {
+      if (!npc.dead && squadMap[npc.combatantId] === squadId) {
+        npc.setTacticalOrder(npc.isMounted ? 'charge' : 'attack')
+      }
+    }
+    return true
+  }
+
+  private _handleMigratedFieldDamage(event: CombatEvent): void {
+    const mission = this.careerProfile?.activeMission
+    const deployment = this.careerFieldDeployment
+    if (!mission || !deployment || mission.id !== this.felineMissionId) return
+    const targetId = resolveFieldDamagedTargetId(event, deployment)
+    if (!targetId || !mission.targetActorIds.includes(targetId)) return
+    if (deployment.kind === 'veteran-field') {
+      const squadId = deployment.enemySquadIdsByActorId[targetId]
+      if (squadId !== undefined && this._activateMigratedVeteranSquad(mission, squadId)) {
+        this._persistHeavyState('伏兵已驚動；狀態將隨下次戰場存檔重試。')
+      }
+      return
+    }
+    if (!mission.sweepAlerted) {
+      this._activateMigratedFieldBanditCamp(mission)
+      this._persistHeavyState('盜匪已被驚動；狀態將隨下次戰場存檔重試。')
+    }
+  }
+
+  private _updateMigratedFieldBattle(dt: number, mission: ActiveCareerMission): void {
+    const deployment = this.careerFieldDeployment
+    const runtimeReady = this.captainEagleSpawnBatch?.ready === true && (!this.personalSquad || this.personalSquad.ready)
+    if (!deployment || !runtimeReady || !isMigratedFieldDeploymentReady(mission, runtimeReady)) return
+    this.careerFieldCheckClock += dt
+    if (this.careerFieldCheckClock < .25) return
+    this.careerFieldCheckClock = 0
+    const friendlyIds = new Set(mission.friendlyActorIds)
+    const enemyIds = new Set(mission.targetActorIds)
+    const observers = [
+      ...(!this.player.dead ? [{ x: this.player.combatPosition.x, z: this.player.combatPosition.z }] : []),
+      ...this.npcs
+        .filter(npc => !npc.dead && (friendlyIds.has(npc.combatantId) || npc.combatOwnership === 'player-personal'))
+        .map(npc => ({ x: npc.combatPosition.x, z: npc.combatPosition.z })),
+    ]
+    if (!observers.length) return
+    if (deployment.kind === 'veteran-field') {
+      const engaged = new Set(mission.engagedEnemySquadIds ?? [])
+      const enemies = this.npcs
+        .filter(npc => !npc.dead && enemyIds.has(npc.combatantId))
+        .map(npc => ({ actorId: npc.combatantId, x: npc.combatPosition.x, z: npc.combatPosition.z }))
+      const triggered = findVeteranSquadsInRange(observers, enemies, deployment.enemySquadIdsByActorId, engaged)
+      if (triggered.length) {
+        let changed = false
+        for (const squadId of triggered) changed = this._activateMigratedVeteranSquad(mission, squadId) || changed
+        if (changed) this._persistHeavyState('敵軍部隊已投入戰鬥；狀態將隨下次戰場存檔重試。')
+      }
+      return
+    }
+    if (deployment.kind === 'cavalry-sweep') {
+      const alerted = shouldTriggerSweepAlert(observers, deployment.enemyCenter, Boolean(mission.sweepAlerted))
+      if (alerted) {
+        const wasAlerted = Boolean(mission.sweepAlerted)
+        this._activateMigratedFieldBanditCamp(mission)
+        if (!wasAlerted) this._persistHeavyState('盜匪營地已警戒；狀態將隨下次戰場存檔重試。')
+      }
+      // Alert (80m) only wakes the camp; the friendly charge keeps its own 60m threshold.
+      const closeEnough = observers.some(p =>
+        Math.hypot(p.x - deployment.enemyCenter.x, p.z - deployment.enemyCenter.z) <= FIELD_SWEEP_CHARGE_DISTANCE)
+      if (closeEnough) this._issueMigratedFieldCharge(mission, friendlyIds)
+      return
+    }
+    // Recruit bandits: advance once player nears Captain/campfire or bandits detect friendlies.
+    const enemies = this.npcs.filter(npc => !npc.dead && enemyIds.has(npc.combatantId))
+    const banditAlerted = Boolean(mission.sweepAlerted)
+      || enemies.some(enemy => enemy.encounterIsAlerted || observers.some(obs =>
+        Math.hypot(obs.x - enemy.combatPosition.x, obs.z - enemy.combatPosition.z) <= FIELD_BANDIT_DETECTION_RANGE))
+    if (banditAlerted) {
+      const wasAlerted = Boolean(mission.sweepAlerted)
+      this._activateMigratedFieldBanditCamp(mission)
+      if (!wasAlerted) this._persistHeavyState('營地盜匪已發現我方；狀態將隨下次戰場存檔重試。')
+      return
+    }
+    const captain = deployment.captainActorId ? this.npcs.find(n => n.combatantId === deployment.captainActorId && !n.dead) : undefined
+    const engage = this.player.dead
+      || (captain && Math.hypot(this.player.combatPosition.x - captain.combatPosition.x, this.player.combatPosition.z - captain.combatPosition.z) <= 14)
+      || Math.hypot(this.player.combatPosition.x - deployment.enemyCenter.x, this.player.combatPosition.z - deployment.enemyCenter.z) <= 48
+    if (engage) this._issueMigratedFieldCharge(mission, friendlyIds)
+  }
+
+  /** Charge is a state transition: only actors not already charging get the (path-resetting) order. */
+  private _issueMigratedFieldCharge(mission: ActiveCareerMission, friendlyIds: ReadonlySet<string>): void {
+    if (mission.fieldFriendlyCharge) return
+    mission.fieldFriendlyCharge = true
+    for (const npc of this.npcs) {
+      if (npc.dead || !friendlyIds.has(npc.combatantId) || npc.tacticalOrder === 'charge') continue
+      if (officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) continue
+      npc.setTacticalOrder('charge')
+    }
+    this._persistHeavyState('友軍已發動衝鋒；狀態將隨下次戰場存檔重試。')
+  }
+
   /** The mission-wide order of one heavy-cavalry actor; formation holds use real formation targets. */
   private _applyHeavyFieldOrder(npc: NPC, mission: ActiveCareerMission): void {
     const state = mission.commanderMission?.heavyField
@@ -2932,11 +3086,43 @@ export class Game {
     }
   }
 
+  /** The first roster checkpoint must record the real Career HP pool, not the pre-skill base. */
+  private _applyCareerPlayerHealthForCheckpoint(): void {
+    if (!this.careerProfile || this.fieldCheckpoint) return
+    this.player.setMaxHp(resolveCareerPlayerMaxHp(this.careerProfile, this.basePlayerMaxHp))
+    this.player.setHp(this.player.maxHp)
+  }
+
   /** Save the entire declaration before the first scheduled actor may materialize. */
   private _declareCaptainEagleRoster(plan: BattleSpawnPlan): void {
     const next = cloneCareerProfile(this.careerProfile!)
     const mission = next.activeMission!
     if (this.fieldCheckpoint) return
+    if (this.felineMissionId && this.careerFieldDeployment) {
+      const playerMountId = (this.startingHorseMountId ?? next.selectedMountId) as CareerMountId | undefined
+      mission.felineBattle = createCareerFieldCheckpointSeed(mission, plan, {
+        hp: this.player.hp,
+        maxHp: this.player.maxHp,
+        stamina: this.player.staminaValue,
+        x: this.player.position.x,
+        y: this.player.position.y,
+        z: this.player.position.z,
+        yaw: this.player.group.rotation.y,
+        ammo: this.player.arrowCount,
+        shieldImpact: this.player.shield.shieldImpactRemaining,
+        stats: this.battleStats.checkpoint(),
+        mount: this.startingHorse ? {
+          mountId: playerMountId,
+          hp: this.startingHorse.currentHp,
+          armorImpactRemaining: this.startingHorse.armorImpactRemaining,
+          mounted: this.player.currentMount === this.startingHorse,
+        } : undefined,
+        profileMountArmor: next.mountArmor,
+      }, (x, z) => getTerrainHeight(x, z))
+      if (!this.careerStore.save(next)) throw new Error('Career field roster declaration could not be saved')
+      this.careerProfile = next
+      return
+    }
     const actors: CaptainEagleCheckpoint['actors'] = {}
     const declaration = this.bridgeLaunch ? createBridgeheadRoster(mission, next.faction) : undefined
     for (const spec of declaration ? [...declaration.friendly, ...declaration.enemy] : plan.npcSpecs) {
@@ -2961,17 +3147,32 @@ export class Game {
     const batch = this._newSpawnBatch()
     this.captainEagleSpawnBatch = batch
     for (const spec of plan.npcSpecs) {
-      const official = mission.officialSquad?.members?.[spec.actorId!]
-      const actor = official?.status !== 'reserve' ? official ?? saved.actors[spec.actorId!] : saved.actors[spec.actorId!] ?? official
+      const actor = resolveFieldActorCheckpoint(mission, spec.actorId!, saved.actors[spec.actorId!])
       if (actor?.status === 'dead' || actor?.hp === 0) continue
       batch.enqueue(spec.actorId!, () => {
         const npc = this._spawnNpc(spec)
-        npc.group.rotation.y = this.bridgeLaunch ? spec.faction === Faction.PLAYER ? 0 : Math.PI : spec.characterFaction === 'roman' ? 0 : Math.PI
+        npc.group.rotation.y = this.careerFieldDeployment
+          ? (spec.faction === Faction.PLAYER ? this.careerFieldDeployment.playerYaw : this.careerFieldDeployment.playerYaw + Math.PI)
+          : this.bridgeLaunch ? spec.faction === Faction.PLAYER ? 0 : Math.PI : spec.characterFaction === 'roman' ? 0 : Math.PI
         if (npc.mount) npc.mount.group.rotation.y = npc.group.rotation.y
+        if (this.felineMissionId && this.careerFieldDeployment && spec.faction !== Faction.PLAYER) {
+          if (this.careerFieldDeployment.kind === 'bandit' || this.careerFieldDeployment.kind === 'cavalry-sweep') {
+            const center = this.careerFieldDeployment.campfireCenter ?? this.careerFieldDeployment.enemyCenter
+            npc.configureBanditEncounter(new THREE.Vector3(center.x, 0, center.z), [new THREE.Vector3(spec.x, 0, spec.z)],
+              this.careerFieldDeployment.kind === 'cavalry-sweep' ? Infinity : undefined)
+            if (mission.sweepAlerted) npc.triggerEncounterAlert()
+          }
+        }
         if (this.felineMissionId && isCareerHeavyFieldBattle(mission)) this._applyHeavyFieldOrder(npc, mission)
         else npc.setTacticalOrder(this.felineMissionId
           ? careerFieldTacticalOrder(mission, npc.faction)
           : npc.faction === Faction.PLAYER ? 'defend' : this.bridgeLaunch ? 'charge' : 'attack')
+        if (this.felineMissionId && this.careerFieldDeployment?.kind === 'veteran-field' && spec.faction !== Faction.PLAYER) {
+          const squadId = this.careerFieldDeployment.enemySquadIdsByActorId[spec.actorId!]
+          if (squadId !== undefined && (mission.engagedEnemySquadIds ?? []).includes(squadId)) {
+            npc.setTacticalOrder(npc.isMounted ? 'charge' : 'attack')
+          }
+        }
         const controlled = officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)
         const restoreOrder = !mission.officialSquad?.actorIds.includes(npc.combatantId) || controlled
         if (actor) restoreCommandActor(npc, restoreOrder ? actor : { ...actor, order: undefined, formation: undefined }, this.careerVeteranActorMounts.get(npc.combatantId) ?? undefined)
@@ -2995,6 +3196,7 @@ export class Game {
         const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(orphan.mountId), p.x, p.z, undefined,
           orphan.stableKey ? horseVariantForStableKey(orphan.stableKey) : 0))
         mount.currentHp = Math.min(mount.maxHp, orphan.saved.hp)
+        mount.restoreArmor(orphan.saved.armorImpactRemaining)
         mount.group.position.set(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z)
         mount.group.rotation.y = p.yaw
         if (orphan.saved.flight && mount.flight) {
@@ -3033,7 +3235,9 @@ export class Game {
     }
     const mount = this.startingHorse
     if (mount) {
-      const id = this.captainEagleMissionId ? 'xongkoro' : this.felineMissionId ? this.careerProfile?.selectedMountId : this.bridgeLaunch?.battle.playerLoadout?.mountId ?? this.defenseCampaignConfig?.playerLoadout.mountId
+      const id = (this.captainEagleMissionId ? 'xongkoro'
+        : this.felineMissionId ? this.startingHorseMountId ?? this.careerProfile?.selectedMountId
+        : this.bridgeLaunch?.battle.playerLoadout?.mountId ?? this.defenseCampaignConfig?.playerLoadout.mountId) as CareerMountId | undefined
       if (id) mission.mountState = { ...mission.mountState, hp: { ...mission.mountState?.hp, [id]: mount.dead ? 0 : mount.currentHp },
         armorImpact: { ...mission.mountState?.armorImpact, [id]: mount.armorImpactRemaining },
         unavailable: [...new Set([...(mission.mountState?.unavailable ?? []), ...(mount.dead ? [id] : [])])],
@@ -3150,10 +3354,17 @@ export class Game {
     if (!saved) return
     const mount = saved.mountActorId ? this.careerVeteranActorMounts.get(saved.mountActorId) : this.startingHorse
     if (saved.mountActorId && !mount) throw new Error('Saved borrowed Career mount missing after field roster deployment')
+    const playerMountId = (this.captainEagleMissionId ? 'xongkoro'
+      : this.felineMissionId ? this.startingHorseMountId ?? this.careerProfile?.selectedMountId
+      : this.bridgeLaunch?.battle.playerLoadout?.mountId ?? this.defenseCampaignConfig?.playerLoadout.mountId) as CareerMountId | undefined
+    const migratedMount = resolveMigratedPlayerMountState(
+      this.careerProfile?.activeMission,
+      playerMountId,
+      this.careerProfile?.mountArmor,
+    )
     if (saved.mountActorId && this.startingHorse) {
-      const id = this.bridgeLaunch?.battle.playerLoadout?.mountId ?? (this.felineMissionId ? this.careerProfile?.selectedMountId : undefined)
-      this.startingHorse.restoreArmor(saved.homeMount?.armorImpactRemaining ?? (id ? this.careerProfile?.activeMission?.mountState?.armorImpact?.[id] : undefined) ?? this.startingHorse.armorImpactRemaining)
-      const hp = saved.homeMount?.hp ?? (id && this.careerProfile?.activeMission?.mountState?.hp[id])
+      this.startingHorse.restoreArmor(saved.homeMount?.armorImpactRemaining ?? migratedMount.armorImpact ?? this.startingHorse.armorImpactRemaining)
+      const hp = saved.homeMount?.hp ?? migratedMount.hp
       if (typeof hp === 'number') {
         if (hp <= 0) { this.startingHorse.takeDamage(this.startingHorse.maxHp + 1); this.player.dismountFromMount() }
         else this.startingHorse.currentHp = Math.min(this.startingHorse.maxHp, hp)
@@ -3169,8 +3380,8 @@ export class Game {
       this.player.dismountFromMount({ preserveWorldPosition: true })
     }
     if (mount) {
-      mount.restoreArmor(saved.mount?.armorImpactRemaining ?? mount.armorImpactRemaining)
-      const hp = saved.mount?.hp ?? saved.mountHp ?? this.careerProfile?.activeMission?.mountState?.hp.xongkoro
+      mount.restoreArmor(saved.mount?.armorImpactRemaining ?? (saved.mountActorId ? undefined : migratedMount.armorImpact) ?? mount.armorImpactRemaining)
+      const hp = saved.mount?.hp ?? saved.mountHp ?? (saved.mountActorId ? undefined : migratedMount.hp)
       if (hp !== undefined) {
         if (hp <= 0) { mount.takeDamage(mount.maxHp + 1); this.player.dismountFromMount() }
         else mount.currentHp = Math.min(mount.maxHp, hp)
@@ -3207,6 +3418,7 @@ export class Game {
     }
     if (!this.fieldMissionId) return
     if (this.felineMissionId && isCareerHeavyFieldBattle(mission) && !this.captainResultPending && !mission.result) this._updateHeavyField(dt, mission)
+    if (this.felineMissionId && this.careerFieldDeployment && !this.captainResultPending && !mission.result) this._updateMigratedFieldBattle(dt, mission)
     if (this.bridgeRuntime) {
       const runtime = this.bridgeRuntime
       runtime.observe(mission, this.npcs)
@@ -3239,8 +3451,9 @@ export class Game {
       if (result) this._showCaptainEagleResult(result)
       return
     }
-    // Heavy-cavalry battles are decided by the whole friendly force, never by the player alone.
-    const officialIds = new Set(isCareerHeavyFieldBattle(mission) ? mission.friendlyActorIds : mission.officialSquad?.actorIds)
+    // Heavy-cavalry and migrated field battles are decided by the whole friendly force, never by the player alone.
+    const officialIds = new Set(isCareerHeavyFieldBattle(mission) || isMigratedCareerFieldMission(mission)
+      ? mission.friendlyActorIds : mission.officialSquad?.actorIds)
     const enemyIds = new Set(mission.targetActorIds)
     const officialAlive = this.npcs.filter(npc => !npc.dead && officialIds.has(npc.combatantId)).length
     const enemyAlive = this.npcs.filter(npc => !npc.dead && enemyIds.has(npc.combatantId)).length
@@ -4096,6 +4309,7 @@ export class Game {
     sessionStorage.removeItem('sagaburst_campaign_config')
     sessionStorage.removeItem('sagaburst_battle_config')
     sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+    if (completed) markCareerMissionReturnToSergeant()
     window.location.href = window.location.pathname
   }
 
@@ -5360,14 +5574,9 @@ export class Game {
     if (profile) t0 = performance.now()
     this.combatMountGrid.clear()
     for (const mount of this.mounts) if (!mount.dead && !mount.disposed) this.combatMountGrid.insert(mount)
-    this.npcGrid.clear()
-    for (const grid of Object.values(this.npcFactionGrids)) grid.clear()
-    for (const npc of this.npcs) {
-      if (npc.hp <= 0) continue
+    populateNpcFactionGrids(this.npcs, this.npcGrid, this.npcFactionGrids, this.playerHostileNpcGrid, npc => {
       npc.combatMountGrid = this.combatMountGrid
-      this.npcGrid.insert(npc)
-      this.npcFactionGrids[npc.faction].insert(npc)
-    }
+    })
     const npcGridMs = profile ? performance.now() - t0 : 0
 
     // 2. NPC Update
@@ -5436,9 +5645,7 @@ export class Game {
         }
       }
 
-      const hostileNpcGrid = npc.faction === Faction.PLAYER
-        ? this.npcFactionGrids[Faction.ENEMY]
-        : this.npcFactionGrids[Faction.PLAYER]
+      const hostileNpcGrid = selectHostileNpcGrid(npc.faction, this.playerHostileNpcGrid, this.npcFactionGrids)
 
       npc.update(
         dt, 

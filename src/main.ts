@@ -9,12 +9,11 @@ import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './career/
  */
 import { Game } from './Game'
 import { HorseAssetLoadError } from './world/HorseAssetRegistry'
-import { enterCareerTown, TOWN_ENTRY_KEY } from './town/CareerTownEntry'
+import { enterCareerTown, recoverSettledStartupMissionReturn, TOWN_ENTRY_KEY } from './town/CareerTownEntry'
 import { CAREER_OUTPOST_SESSION_KEY, clearCareerOutpost } from './career/CareerOutpostMission'
 import { createCareerOutpostLaunch } from './career/CareerOutpostLaunch'
 import { clearCareerMission } from './career/CareerProfile'
-import { stageMissionReturnRebuild } from './career/CareerMissionReturnRecovery'
-import { townRoster } from './town/TownRules'
+import { markCareerMissionReturnToSergeant } from './town/SergeantReturn'
 import { createCareerVeteranOutpostLaunch, isCareerVeteranOutpostMission, shouldResumeCareerVeteranOutpost } from './career/CareerVeteranOutpost'
 import { createCareerCommanderOutpostLaunch, isCareerCommanderOutpostMission } from './career/CommanderOutpost'
 import { CareerProfileStore } from './career/CareerProfileStore'
@@ -299,15 +298,20 @@ async function bootstrap(): Promise<void> {
     await launchCareerTutorial({ careerId: tutorialSession.careerId, sessionId: tutorialSession.id, stage: tutorialSession.stage })
     return
   }
+  const settleClaimedOnStartup = (
+    clearedProfile: ReturnType<typeof clearCareerMission>,
+    personalSquad: NonNullable<typeof activeCareerMission>['personalSquad'] | undefined,
+    errorMessage: string,
+  ): boolean => {
+    if (recoverSettledStartupMissionReturn(clearedProfile, careerStore, personalSquad)) return true
+    showCareerRecoveryError(errorMessage, () => window.location.reload())
+    return false
+  }
   const captainStandalone = activeCareerMission?.templateId === CAPTAIN_FRONTLINE_COMMAND_ID && activeCareerMission.kind === 'captain-outpost-defense'
     || activeCareerMission?.templateId === CAPTAIN_EAGLE_BATTLE_ID && activeCareerMission.kind === 'captain-eagle-battle'
   if (outpostProfile && activeCareerMission && captainStandalone) {
     if (outpostProfile.claimedBattleIds.includes(activeCareerMission.id)) {
-      const returned = stageMissionReturnRebuild(clearCareerMission(outpostProfile, activeCareerMission.id),
-        townRoster().map(spec => ({ spec })), activeCareerMission.personalSquad)
-      if (!careerStore.save(returned)) throw new Error('無法保存 Captain 任務返回狀態')
-      sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
-      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      if (!settleClaimedOnStartup(clearCareerMission(outpostProfile, activeCareerMission.id), activeCareerMission.personalSquad, '無法保存 Captain 任務返回狀態，已領獎紀錄與軍功均已保留。')) return
     } else {
       await resumeStoredCareerMission(activeCareerMission.id, () => activeCareerMission.kind === 'captain-eagle-battle'
         ? createCaptainEagleLaunch(outpostProfile) : createCaptainFrontlineLaunch(outpostProfile))
@@ -320,10 +324,7 @@ async function bootstrap(): Promise<void> {
       return
     }
     if (outpostProfile.claimedBattleIds.includes(activeCareerMission.id)) {
-      const cleared = stageMissionReturnRebuild(clearCareerMission(outpostProfile, activeCareerMission.id),
-        townRoster().map(spec => ({ spec })), activeCareerMission.personalSquad)
-      if (!careerStore.save(cleared)) throw new Error('無法保存 Veteran Outpost 返回狀態')
-      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      if (!settleClaimedOnStartup(clearCareerMission(outpostProfile, activeCareerMission.id), activeCareerMission.personalSquad, '無法保存 Veteran Outpost 返回狀態，已領獎紀錄與軍功均已保留。')) return
     } else {
       // A terminal battle whose claim could not be saved must return to its result screen for retry.
       await resumeStoredCareerMission(activeCareerMission.id, () => createCareerVeteranOutpostLaunch(outpostProfile))
@@ -332,11 +333,7 @@ async function bootstrap(): Promise<void> {
   }
   if (outpostProfile && activeCareerMission && isCareerCommanderOutpostMission(activeCareerMission)) {
     if (outpostProfile.claimedBattleIds.includes(activeCareerMission.id)) {
-      const cleared = stageMissionReturnRebuild(clearCareerMission(outpostProfile, activeCareerMission.id),
-        townRoster().map(spec => ({ spec })), activeCareerMission.personalSquad)
-      if (!careerStore.save(cleared)) throw new Error('無法保存 Commander Last Stand 返回狀態')
-      sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
-      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      if (!settleClaimedOnStartup(clearCareerMission(outpostProfile, activeCareerMission.id), activeCareerMission.personalSquad, '無法保存 Commander Last Stand 返回狀態，已領獎紀錄與軍功均已保留。')) return
     } else {
       await resumeStoredCareerMission(activeCareerMission.id, () => createCareerCommanderOutpostLaunch(outpostProfile))
       return
@@ -344,11 +341,7 @@ async function bootstrap(): Promise<void> {
   }
   if (outpostProfile && activeCareerMission && isCareerFelineBattle(activeCareerMission)) {
     if (outpostProfile.claimedBattleIds.includes(activeCareerMission.id)) {
-      const returned = stageMissionReturnRebuild(clearCareerMission(outpostProfile, activeCareerMission.id),
-        townRoster().map(spec => ({ spec })), activeCareerMission.personalSquad)
-      if (!careerStore.save(returned)) throw new Error('無法保存六貓騎兵任務返回狀態')
-      sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
-      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      if (!settleClaimedOnStartup(clearCareerMission(outpostProfile, activeCareerMission.id), activeCareerMission.personalSquad, '無法保存野外／騎兵任務返回狀態，已領獎紀錄與軍功均已保留。')) return
     } else {
       await resumeStoredCareerMission(activeCareerMission.id, () => createCareerFelineBattleLaunch(outpostProfile))
       return
@@ -363,6 +356,7 @@ async function bootstrap(): Promise<void> {
     if (recovery === 'return-to-town') {
       sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
       sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      markCareerMissionReturnToSergeant()
     } else {
       await resumeStoredCareerMission(activeCareerMission.id, () => createCareerBridgeBattleLaunch(outpostProfile))
       return
@@ -371,11 +365,7 @@ async function bootstrap(): Promise<void> {
   if (!completedCareer && outpostProfile?.activeOutpostMission) {
     const mission = outpostProfile.activeOutpostMission
     if (outpostProfile.claimedBattleIds.includes(mission.id)) {
-      const returned = stageMissionReturnRebuild(clearCareerOutpost(outpostProfile),
-        townRoster().map(spec => ({ spec })), mission.personalSquad)
-      if (!careerStore.save(returned)) throw new Error('無法保存 Outpost 返回狀態')
-      sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
-      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      if (!settleClaimedOnStartup(clearCareerOutpost(outpostProfile), mission.personalSquad, '無法保存 Outpost 返回狀態，已領獎紀錄與軍功均已保留。')) return
     } else {
       // Rebuild from Career state rather than trusting a free Campaign setup loadout.
       await resumeStoredCareerMission(mission.id, () => createCareerOutpostLaunch(outpostProfile))

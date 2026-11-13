@@ -91,9 +91,8 @@ describe('Borrowed Town mission target permission', () => {
 
   it('acquires the engaged mission target beyond a borrowed actor\'s station across mission templates', () => {
     const cases = [
-      { kind: 'patrol', templateId: 'recruit-patrol-01' },
       { kind: 'cavalry-sweep', templateId: 'career-cavalry-sweep' },
-      { kind: 'veteran-field', templateId: 'veteran-scout-hunters' },
+      { kind: 'veteran-field', templateId: 'veteran-tragedy-of-the-scouts' },
     ] as const
     for (const { kind, templateId } of cases) {
       const { soldier, bandit, profile, mission, player } = borrowedTownCombat('ENGAGING', kind)

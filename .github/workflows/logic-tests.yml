@@ -37,6 +37,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run lint:test
       # Run input classification and asset validation policy.
       - name: Probe Git evidence and input validation policy
         id: seed-policy

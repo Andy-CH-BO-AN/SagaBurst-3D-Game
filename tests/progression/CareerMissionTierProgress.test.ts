@@ -5,7 +5,9 @@ import { COMMANDER_FOUR_GATE_DEFENSE_ID } from '../../src/career/CommanderFourGa
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import type { RaceRider } from '../../src/career/CareerRaceState'
 import { describe,expect,it } from 'vitest'
-import { availableRecruitMissions } from '../../src/career/CareerMissionCatalog'
+import { availableRecruitMissions, getRetiredCareerMissionTemplate, isRetiredRecruitPatrolMission } from '../../src/career/CareerMissionCatalog'
+import { retireObsoleteActiveMission } from '../../src/career/CareerMissionRecovery'
+import { townRoster } from '../../src/town/TownRules'
 import { claimCareerOutpost } from '../../src/career/CareerOutpostMission'
 import {
 careerMissionCompletionsForTier,
@@ -32,18 +34,50 @@ describe('Home mission prerequisites by mission tier', () => {
     expect(parseCareerProfile({ ...profile, careerMissionCompletionsByTier: { 1: -1, 2: 5.9, 3: 100 } })?.careerMissionCompletionsByTier).toEqual({ 1: 0, 2: 5, 3: 100 })
   })
 
-  it('allows recruits to freely select any non-retired recruit mission without merit or completion prerequisites', () => {
+  it('allows recruits to freely select any non-retired recruit mission and excludes retired patrol missions', () => {
     const rawRecruit = createCareerProfile('roman')
     const list = availableRecruitMissions(rawRecruit).map(template => template.id)
     expect(list).toContain('recruit-bandits-01')
     expect(list).toContain('recruit-bandits-02')
     expect(list).toContain('recruit-bandits-03')
     expect(list).toContain('recruit-bandits-04')
-    expect(list).toContain('recruit-patrol-01')
-    expect(list).toContain('recruit-patrol-02')
+    expect(list).not.toContain('recruit-patrol-01')
+    expect(list).not.toContain('recruit-patrol-02')
+    expect(getRetiredCareerMissionTemplate('recruit-patrol-01')?.id).toBe('recruit-patrol-01')
+    expect(getRetiredCareerMissionTemplate('recruit-patrol-02')?.id).toBe('recruit-patrol-02')
     expect(list).not.toContain('career-enemy-town-assault')
     expect(list).not.toContain(SOLDIER_TOWN_DEFENSE_TEMPLATE_ID)
     expect(list).not.toContain(TOWN_DEFENSE_TEMPLATE_ID)
+  })
+
+  it('safely retires in-flight legacy recruit-patrol saves without awarding merit or settling battles', () => {
+    for (const templateId of ['recruit-patrol-01', 'recruit-patrol-02'] as const) {
+      const legacy = parseCareerProfile({
+        ...createCareerProfile('roman'),
+        totalMerit: 150,
+        availableMerit: 90,
+        careerMissionCompletions: 2,
+        activeMission: {
+          id: `legacy-${templateId}`,
+          templateId,
+          kind: 'patrol',
+          targetCampId: 1,
+          phase: 'MARCHING',
+          patrolStage: 1,
+          targetActorIds: ['b0', 'b1'],
+          friendlyActorIds: ['captain', 'inf0'],
+          acceptedAt: 1000,
+        },
+      })!
+      expect(legacy.activeMission?.templateId).toBe(templateId)
+      expect(isRetiredRecruitPatrolMission(legacy.activeMission)).toBe(true)
+      const retired = retireObsoleteActiveMission(legacy, townRoster().map(spec => ({ spec })))!
+      expect(retired.activeMission).toBeUndefined()
+      expect(retired.totalMerit).toBe(150)
+      expect(retired.availableMerit).toBe(90)
+      expect(retired.careerMissionCompletions).toBe(2)
+      expect(retired.claimedBattleIds).toEqual([])
+    }
   })
 
   it('preserves legacy Recruit progress and reconstructs only proven Soldier victories', () => {

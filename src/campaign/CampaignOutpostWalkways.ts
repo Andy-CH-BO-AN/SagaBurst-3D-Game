@@ -360,15 +360,16 @@ export type OutpostWalkwayLaunchFields = Pick<DefenseCampaignLaunchConfig,
   'type' | 'careerMissionId' | 'careerMissionKind' | 'careerReliefPhase'
   | 'careerVeteranOutpost' | 'careerPersonalSquad'>
 
-/** Shared Outpost ramparts; breached relief battles retain their original map. */
+/** Shared Outpost ramparts across every formal Outpost mission and preview. */
 export function isOutpostWalkwayEnabled(
   config: OutpostWalkwayLaunchFields | null | undefined,
   devPreview: boolean,
 ): boolean {
   if (devPreview) return true
-  if (!config || config.type !== 'defense' || config.careerReliefPhase) return false
+  if (!config || config.type !== 'defense') return false
   if (config.careerMissionKind) {
     return config.careerMissionKind === 'outpost-defense'
+      || config.careerMissionKind === 'outpost-relief'
       || config.careerMissionKind === 'captain-outpost-defense'
       || config.careerMissionKind === 'veteran-outpost-defense'
       || config.careerMissionKind === 'veteran-outpost-assault'
