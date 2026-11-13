@@ -11,6 +11,7 @@ import { BlackCatVisual } from '../world/BlackCatVisual'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import type { CareerProfile } from './CareerProfile'
+import { sergeantReturnFromResidents } from '../town/SergeantReturn'
 import { townPlayerEntryPoint } from '../town/TownRules'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
@@ -19,7 +20,7 @@ import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeploymen
   type CareerRaceSession, type RaceId, type RaceRider, type RaceReferee, type RaceMountId } from './CareerRaceState'
 import { legalRaceStart, RACE_START, RACE_START_SLOTS, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, type RacePoint, type RacePosition } from './CareerRaceRoute'
 
-interface RaceResident { npc: NPC; homeMount?: Mount; spec: { id: string; x: number; z: number; yaw?: number } }
+interface RaceResident { npc: NPC; homeMount?: Mount; spec: { id: string; role?: string; x: number; z: number; yaw?: number } }
 const commandId = -7400
 const RACE_DEPLOY_RETRY_MS = 3000
 function vector(p: RacePoint): THREE.Vector3 { return new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z), p.z) }
@@ -427,12 +428,26 @@ export class CareerRaceController {
     if (!player) return false
     let target: RacePosition | undefined
     if (!current.townEvent?.pendingResult && (direct || player.dead)) {
-      const home = townPlayerEntryPoint()
-      const destination = [0, 4, -4, 8, -8].flatMap(dx => [0, 4, -4].map(dz => ({ x: home.x + dx, z: home.z + dz })))
-        .find(point => this.legalSegment(point, point) && this.residents.every(r => r.npc.dead || Math.hypot(r.npc.combatPosition.x - point.x, r.npc.combatPosition.z - point.z) > 3))
-      if (!destination) { this.error = '鎮內沒有合法返回位置，請稍後重試。'; return false }
-      const ground = getTerrainHeight(destination.x, destination.z)
-      target = { ...destination, y: ground + (player.mounted && !player.dead ? 0 : .9), yaw: home.yaw }
+      const sergeant = this.residents.filter((r): r is RaceResident & { spec: { id: string; role: string } } =>
+        r.spec.id === 'deployment' && (!r.spec.role || r.spec.role === 'deployment'))
+        .map(r => ({ ...r, spec: { ...r.spec, role: 'deployment' } }))
+      const blockers = this.residents.filter(r => !r.npc.dead).map(r => ({ x: r.npc.combatPosition.x, z: r.npc.combatPosition.z, radius: 1.5 }))
+      const resolved = sergeantReturnFromResidents(sergeant, {
+        clearanceRadius: player.mounted && !player.dead ? 1.25 : 0.75,
+        obstacles: this.obstacles,
+        blockers,
+        terrainHeight: getTerrainHeight,
+        isValid: point => this.legalSegment(point, point),
+      })
+      const fallback = resolved ?? (() => {
+        const home = townPlayerEntryPoint()
+        const point = [0, 4, -4, 8, -8].flatMap(dx => [0, 4, -4].map(dz => ({ x: home.x + dx, z: home.z + dz })))
+          .find(candidate => this.legalSegment(candidate, candidate) && this.residents.every(r => r.npc.dead || Math.hypot(r.npc.combatPosition.x - candidate.x, r.npc.combatPosition.z - candidate.z) > 3))
+        return point ? { ...point, y: getTerrainHeight(point.x, point.z), yaw: home.yaw } : null
+      })()
+      if (!fallback) { this.error = '鎮內沒有合法返回位置，請稍後重試。'; return false }
+      const ground = getTerrainHeight(fallback.x, fallback.z)
+      target = { x: fallback.x, z: fallback.z, y: ground + (player.mounted && !player.dead ? 0 : .9), yaw: fallback.yaw }
     }
     const next = raceReturnProfile(current, player, target, this.player().maxHp)
     if (!next) return false

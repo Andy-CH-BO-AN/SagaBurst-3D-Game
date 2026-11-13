@@ -57,6 +57,7 @@ import { getCareerMissionTemplate } from './CareerMissionCatalog'
 import { COMMANDER_FELINE_CAVALRY_KIND, COMMANDER_IRON_LEGION_KIND, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_FRIENDLY_TOTAL, felineCavalryActorIds, felineVanguardActorId } from './CommanderMissionCatalog'
 import { HEAVY_FIELD_KIND, heavyActorIds, heavyNpcGroups, ironLegionEnemyActorIds, ironLegionVanguardActorId, isHeavyFieldMissionId, parseHeavyFieldState } from './HeavyCavalryMissions'
 import { careerHeavyFieldMissionRankOk, heavyMissionOfficialCommandPolicy } from './HeavyFieldMission'
+import { isMigratedCareerFieldTemplate } from './CareerFieldBattle'
 import { BRIDGEHEAD_PREPARATION_SECONDS, type ActiveCareerMission, type CareerMissionPhase, type CommanderMissionState, type VeteranOutpostBattleState } from './CareerMissionState'
 import { CAREER_DUEL_TEMPLATE_ID, DUEL_COUNTDOWN_SECONDS, DUEL_COMBAT_SECONDS, isCareerDuelPresetId, isCareerDuelTier, parseCareerDuelCommanderHome, parseCareerDuelTravelCheckpoint } from './CareerDuelState'
 
@@ -336,6 +337,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
   const captainStandalone = template?.kind === 'captain-patrol-command' || template?.kind === 'captain-eagle-battle'
   const commanderMission = Boolean(template?.id.startsWith('commander-'))
   const heavyMission = template?.kind === HEAVY_FIELD_KIND
+  const migratedFieldMission = typeof template?.id === 'string' && isMigratedCareerFieldTemplate(template.id)
   if (
     typeof raw.id !== 'string' || !raw.id
     || (!template && !duel)
@@ -533,7 +535,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     } : {}),
     ...(battle && template?.kind === 'captain-outpost-defense' ? { battle } : {}),
     ...(bridgeBattle && template?.kind === 'commander-bridgehead-battle' ? { bridgeBattle } : {}),
-    ...(felineBattle && (felineFamily || heavyMission) ? { felineBattle } : {}),
+    ...(felineBattle && (felineFamily || heavyMission || migratedFieldMission) ? { felineBattle } : {}),
     ...(bridgeDeployment && template?.kind === 'commander-bridgehead-battle' ? { bridgeDeployment } : {}),
     ...(eagleBattle && template?.kind === 'captain-eagle-battle' ? { eagleBattle } : {}),
     templateId: duel ? CAREER_DUEL_TEMPLATE_ID : template!.id,

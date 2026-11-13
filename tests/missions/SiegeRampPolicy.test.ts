@@ -2,8 +2,9 @@ import { describe, expect, it, onTestFinished } from 'vitest'
 import { Box3, Matrix4, Vector3, type Object3D } from 'three'
 import { Game } from '../../src/Game'
 import { createDefaultDefensePlayerLoadout, type DefenseCampaignLaunchConfig } from '../../src/campaign/DefenseCampaignLaunch'
-import { allocateSiegeRampCrews, getSiegeRampPlacement, placeSiegeRampCrew, siegeRampDeckHeightAt, siegeRampRearHeightAt, SIEGE_RAMP } from '../../src/campaign/MobileSiegeRampPolicy'
-import type { OutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkways'
+import { allocateSiegeRampCrews, getSiegeRampPlacement, isMobileSiegeRampEnabled, placeSiegeRampCrew, siegeRampDeckHeightAt, siegeRampRearHeightAt, SIEGE_RAMP } from '../../src/campaign/MobileSiegeRampPolicy'
+import { getOutpostWalkwayLayout, isOutpostWalkwayEnabled, OUTPOST_WALKWAY, type OutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkways'
+import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
 import { MobileSiegeRamp } from '../../src/campaign/MobileSiegeRamp'
 import { MovingPlatformSupport } from '../../src/movement/MovingPlatformSupport'
 import { MobileSiegeRampController } from '../../src/campaign/MobileSiegeRampController'
@@ -620,6 +621,46 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(shared).toEqual([neighbor])
     expect(position).toEqual(new Vector3(0, 10, -15)); expect(controller.state).toBe('DESTROYED')
     controller.observeMovement(20, 0, 0, 0, 0); expect(controller.state).toBe('DESTROYED')
+  })
+
+  it('unifies all formal Outpost missions on latest walkways while disabling mobile siege ramps for relief', () => {
+    for (const careerMissionKind of [
+      'outpost-defense',
+      'outpost-relief',
+      'captain-outpost-defense',
+      'veteran-outpost-defense',
+      'veteran-outpost-assault',
+      'commander-outpost-last-stand',
+    ] as const) {
+      const config = {
+        type: 'defense',
+        careerMissionId: `${careerMissionKind}:test`,
+        careerMissionKind,
+        ...(careerMissionKind === 'outpost-relief' ? { careerReliefPhase: 'advance' as const } : {}),
+      } as DefenseCampaignLaunchConfig
+      expect(isOutpostWalkwayEnabled(config, false)).toBe(true)
+      expect(isMobileSiegeRampEnabled(config)).toBe(careerMissionKind !== 'outpost-relief')
+    }
+    expect(isOutpostWalkwayEnabled({
+      type: 'defense',
+      careerMissionId: 'relief:charge',
+      careerMissionKind: 'outpost-relief',
+      careerReliefPhase: 'charge',
+    }, false)).toBe(true)
+
+    for (const faction of ['roman', 'viking'] as const) {
+      const placement = getCampaignOutpostPlacement(faction)
+      const layout = getOutpostWalkwayLayout(placement)
+      expect(layout.bridge).not.toBeNull()
+      // Gate breach corridor is 8m wide ([-4, 4]) and mounted cavalry height is 2.6m;
+      // walkway bridge deck must stay comfortably above riders and bridge posts stay outside [-4, 4].
+      expect(OUTPOST_WALKWAY.deckClearance - OUTPOST_WALKWAY.deckThickness).toBeGreaterThanOrEqual(4.0)
+      expect(layout.bridge!.slab.min.x).toBeLessThanOrEqual(-4.0)
+      expect(layout.bridge!.slab.max.x).toBeGreaterThanOrEqual(4.0)
+      for (const post of layout.bridge!.posts) {
+        expect(post.max.x <= -4.0 || post.min.x >= 4.0).toBe(true)
+      }
+    }
   })
 
 })

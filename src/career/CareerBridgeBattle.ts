@@ -20,6 +20,13 @@ import {
 import { IRON_LEGION_ENEMY_GROUPS } from './HeavyCavalryMissions'
 import { heavyUnitSpec } from './HeavyCavalrySpawn'
 import { createCareerHeavyBattleLaunch, createCareerHeavySpawnPlan, isCareerHeavyFieldBattle } from './HeavyFieldMission'
+import {
+  careerFieldBattleHeroAssetIds,
+  careerFieldInitialTacticalOrder,
+  createCareerFieldBattleLaunch,
+  createCareerFieldDeployment,
+  isMigratedCareerFieldMission,
+} from './CareerFieldBattle'
 import { heavyTacticalOrder } from './HeavyCavalryMissions'
 import { careerCombatPlayerLoadout } from './CaptainBattleLaunch'
 import { resolveCareerHeroAsset } from './CareerPlayerProfile'
@@ -284,7 +291,8 @@ function setFelineFormationCount(
   bucket[3] = count
 }
 
-export function careerFelineHeroAssetIds(profile: Pick<CareerProfile, 'faction'>): HeroAssetId[] {
+export function careerFelineHeroAssetIds(profile: CareerProfile): HeroAssetId[] {
+  if (isMigratedCareerFieldMission(profile.activeMission)) return careerFieldBattleHeroAssetIds(profile)
   const enemyFaction: CareerProfile['faction'] = profile.faction === 'roman' ? 'viking' : 'roman'
   const assets = new Set<HeroAssetId>(['maki-archer-t4'])
   for (const faction of [profile.faction, enemyFaction] as const) {
@@ -542,12 +550,14 @@ export function isCareerFelineBattle(mission: ActiveCareerMission | undefined): 
   return careerFieldMissionMatches(mission, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_FELINE_CAVALRY_KIND)
     || careerFieldMissionMatches(mission, COMMANDER_IRON_LEGION_ID, COMMANDER_IRON_LEGION_KIND)
     || isCareerHeavyFieldBattle(mission)
+    || isMigratedCareerFieldMission(mission)
 }
 
 /** Initial / restored order of one NPC of a field battle; the Reload path uses the same rule. */
 export function careerFieldTacticalOrder(mission: ActiveCareerMission, faction: Faction): TacticalOrder {
   const heavy = mission.commanderMission?.heavyField
   if (isCareerHeavyFieldBattle(mission) && heavy) return heavyTacticalOrder(mission.templateId, faction === Faction.PLAYER ? 'friendly' : 'enemy', heavy)
+  if (isMigratedCareerFieldMission(mission)) return careerFieldInitialTacticalOrder(mission, faction)
   return felineInitialTacticalOrder(faction, mission.commanderMission?.felineChargeTriggered === true)
 }
 
@@ -563,6 +573,7 @@ function expandIronLegionEnemy(mission: ActiveCareerMission, faction: CareerProf
 
 export function createCareerFelineBattleLaunch(profile: CareerProfile): CareerFelineBattleLaunch {
   const mission = profile.activeMission
+  if (isMigratedCareerFieldMission(mission)) return createCareerFieldBattleLaunch(profile)
   if (isCareerHeavyFieldBattle(mission)) return createCareerHeavyBattleLaunch(profile)
   if (!isCareerFelineBattle(mission) || profile.rank !== 'commander'
     || mission.friendlyActorIds.length !== FELINE_FRIENDLY_TOTAL || mission.targetActorIds.length !== FELINE_ENEMY_TOTAL
@@ -580,6 +591,7 @@ export function createCareerFelineBattleLaunch(profile: CareerProfile): CareerFe
 export function createCareerFelineSpawnPlan(profile: CareerProfile): BattleSpawnPlan {
   createCareerFelineBattleLaunch(profile)
   const mission = profile.activeMission!
+  if (isMigratedCareerFieldMission(mission)) return createCareerFieldDeployment(profile).plan
   if (isCareerHeavyFieldBattle(mission)) return createCareerHeavySpawnPlan(profile)
   const enemyFaction = profile.faction === 'roman' ? 'viking' : 'roman'
   const template = createFelineFormationPlan(profile.faction)

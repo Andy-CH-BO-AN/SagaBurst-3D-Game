@@ -7,7 +7,8 @@ import type { CareerProfile } from '../career/CareerProfile'
 import { createAndSaveCareer } from '../career/CareerCreation'
 import { showCommanderRetirementEnding } from './TownRetirementUI'
 import { CareerProfileStore } from '../career/CareerProfileStore'
-import { CAREER_RECOVERY_NOTICE_KEY } from '../career/CareerMissionRecovery'
+import { CAREER_RECOVERY_NOTICE_KEY, retireObsoleteActiveMission } from '../career/CareerMissionRecovery'
+import { isRetiredRecruitPatrolMission } from '../career/CareerMissionCatalog'
 import { createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from '../career/CaptainMissionCatalog'
 import { clearCareerMission } from '../career/CareerProfile'
@@ -24,6 +25,7 @@ import { careerDuelArena } from '../career/CareerDuelState'
 import { CareerDuelArenaScene } from '../arena/CareerDuelArenaScene'
 import { DUEL_ARENA_LABELS } from '../arena/DuelArenaCatalog'
 import { DUEL_ARENA_RETURN_KEY } from '../arena/DuelArenaReturn'
+import { markCareerMissionReturnToSergeant } from './SergeantReturn'
 export const TOWN_ENTRY_KEY = 'sagaburst_career_town'
 export function enterCareerTown(container: HTMLElement, launchCampaign: (config: CareerCombatLaunch) => Promise<void>, home: () => void,
   onMissionLaunchError?: (missionId: string, error: unknown) => void,
@@ -48,6 +50,18 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
     if (!open) return false
     const generation = ++routeGeneration
     const current = () => open && generation === routeGeneration
+    if (isRetiredRecruitPatrolMission(profile.activeMission)) {
+      const retired = retireObsoleteActiveMission(profile, townRoster().map(spec => ({ spec })))
+      if (retired) {
+        if (!store.save(retired)) {
+          status.textContent = '無法保存已退休巡邏任務的安全撤回狀態，請重試。'
+          if (!selection) { document.body.append(form); button('重試恢復城鎮', () => { void start(profile) }) }
+          return false
+        }
+        profile = retired
+        sessionStorage.setItem(CAREER_RECOVERY_NOTICE_KEY, '新兵巡邏任務（南路巡邏／林線巡邏）已退休並安全撤回，原有軍功與進度未受影響。')
+      }
+    }
     if (profile.careerRetirement?.phase === 'completed') {
       form.remove()
       sessionStorage.removeItem(TOWN_ENTRY_KEY)
@@ -134,12 +148,17 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       : active?.templateId === COMMANDER_LAST_STAND_ID && active.kind === 'commander-outpost-last-stand' ? () => createCareerCommanderOutpostLaunch(profile) : null
     if (active && captainLaunch) {
       if (profile.claimedBattleIds.includes(active.id)) {
-        const cleared = stageMissionReturnRebuild(clearCareerMission(profile, active.id), townRoster().map(spec => ({ spec })), active.personalSquad)
+        const cleared = stageMissionReturnRebuild(
+          refitTownCommandForSceneChange(clearCareerMission(profile, active.id)),
+          townRoster().map(spec => ({ spec })),
+          active.personalSquad,
+        )
         if (!store.save(cleared)) {
           status.textContent = '無法保存正式任務返回狀態，請重試。'
           button('重試返回小鎮', () => { void start(profile) })
           return false
         }
+        markCareerMissionReturnToSergeant()
         profile = cleared
       } else {
         form.remove()
