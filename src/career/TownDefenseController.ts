@@ -876,7 +876,8 @@ export class TownDefenseController {
         const snapped = grid.cellToWorld(cell)
         if (gateId && siegeNearestGate(snapped) !== gateId) continue
         if (insideSiegeTown(snapped) !== inside || Math.abs(snapped.x) > 345 || Math.abs(snapped.z) > 345) continue
-        if (this.siegeContext?.obstacles.some(obstacle => overlapsGateClosure(obstacle.navigationBox ?? obstacle.box, snapped, spacing >= 4 ? 1.5 : .55))) continue
+        if (this.siegeContext?.obstacles.some(obstacle => !obstacle.navigationPassable
+          && overlapsGateClosure(obstacle.navigationBox ?? obstacle.box, snapped, spacing >= 4 ? 1.5 : .55))) continue
         if (occupied.some(other => (snapped.x - other.point.x) ** 2 + (snapped.z - other.point.z) ** 2 < ((spacing + other.spacing) / 2) ** 2)) continue
         const result = this.withTerrain(snapped)
         occupied.push({ point: result, spacing })
