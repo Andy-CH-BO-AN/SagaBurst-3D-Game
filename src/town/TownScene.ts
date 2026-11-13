@@ -198,6 +198,11 @@ const NAMES: Record<string, string> = { captain: '騎兵隊長', commander: '指
 export class TownScene {
   private eagleGarrison?: TownEagleGarrisonController
   private readonly eagleLandingQueue = new EagleLandingQueue()
+  /**
+   * HR private eagles settle vertically inside their own reserved pad column, so they
+   * queue among themselves instead of behind the Town air force's approach corridors.
+   */
+  private readonly privateEagleLandingQueue = new EagleLandingQueue()
   private garrisonRestored = false
   private readonly aerialView = new AerialViewPolicy()
   private readonly weaponWheel = new WeaponWheel()
@@ -2742,7 +2747,7 @@ export class TownScene {
       canRefit: () => this.canRefitSquad(this.personalSquad?.actors ?? []),
       sceneKey: context.worldFaction === profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
       hasHR: home, eaglePads: privateEaglePads,
-      eagleLandingQueue: this.eagleLandingQueue, layoutVersion: home ? TOWN_LAYOUT_VERSION : undefined,
+      eagleLandingQueue: this.privateEagleLandingQueue, layoutVersion: home ? TOWN_LAYOUT_VERSION : undefined,
       eaglePadClear: (pad, ownMount) => isEagleLandingClearOfMounts(pad, this.world.obstacles,
         this.combatMounts, ownMount, TOWN_PLAYABLE_WORLD_BOUND),
       formationSlots: (anchor, occupied, count) => personalTownDeployment(anchor, occupied, count,
@@ -4218,6 +4223,7 @@ export class TownScene {
     if (ready) {
       this.elapsed += dt
       this.eagleLandingQueue?.beginFrame(dt)
+      this.privateEagleLandingQueue?.beginFrame(dt)
       this.townCommand?.beginFrame()
       this.synchronizeEaglePatrolPolicy()
       this.eagleGarrison?.beginFrame(dt)

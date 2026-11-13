@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import { Box3, Euler, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { EagleFlightController, parseEagleFlightSnapshot, type EagleFlightIntent } from '../../src/movement/EagleFlightController'
+import { EagleFlightAI, type EagleFlightCommand } from '../../src/movement/EagleFlightAI'
+import { XONGKORO } from '../../src/movement/XongkoroConfig'
+import { isEaglePadArrived } from '../../src/world/EaglePadArrival'
 import { Player } from '../../src/player/Player'
 import { Mount, MountState } from '../../src/world/Mount'
 import type { CombatActorRef } from '../../src/combat/CombatAttribution'
@@ -127,5 +130,77 @@ describe('Eagle flight boarding clearance', () => {
     expect(flight.phase).toBe('grounded')
     expect(eagle.group.position).toEqual(new Vector3())
     expect(flight.velocity.length()).toBe(0)
+  })
+})
+
+/** The real pilot steering the real controller; only terrain and time are fixed. */
+function pilotedEagle(position: Vector3, yaw = 0) {
+  const pilot = new EagleFlightAI(), flight = new EagleFlightController(), rotation = new Euler(0, yaw, 0)
+  const obstacles: ObstacleData[] = []
+  let elapsed = 0
+  const advance = (command: EagleFlightCommand) => {
+    flight.setIntent(pilot.update(.1, flight, position, command, [], obstacles, 3000, flatGround))
+    flight.update(position, rotation, .1, obstacles, 3000, flatGround)
+    elapsed += .1
+  }
+  // Read through the snapshot: the controller mutates its phase behind TypeScript's narrowing.
+  return { pilot, flight, position, obstacles, advance, get elapsed() { return elapsed },
+    get phase() { return flight.snapshot().phase } }
+}
+const pad = { x: 60, z: 40, yaw: Math.PI / 2 }
+const returnToPad = (): EagleFlightCommand => ({ kind: 'return', destination: new Vector3(pad.x, 0, pad.z), landingYaw: pad.yaw, vertical: true })
+const arrived = (eagle: ReturnType<typeof pilotedEagle>) => isEaglePadArrived({ position: eagle.position,
+  flight: eagle.flight.snapshot(), pad, groundHeight: 0, clear: true })
+
+describe('Vertical private-eagle pad takeoff and landing', () => {
+  it('lifts on the spot, then flies back from cruise and settles near-vertically onto the assigned pad', () => {
+    const eagle = pilotedEagle(new Vector3())
+    const follow: EagleFlightCommand = { kind: 'follow', destination: new Vector3(0, 0, 220), vertical: true }
+    eagle.advance(follow)
+    expect([eagle.phase, eagle.flight.speed]).toEqual(['takeoff', 0])
+    while (eagle.phase === 'takeoff' && eagle.elapsed < 10) eagle.advance(follow)
+    // Forward speed is only gained above the pad clearance, never as a ground roll.
+    expect(eagle.phase).toBe('cruise')
+    expect(eagle.position.y).toBeGreaterThanOrEqual(XONGKORO.verticalTakeoffHeight)
+    expect(Math.hypot(eagle.position.x, eagle.position.z)).toBeLessThan(.5)
+    while (eagle.elapsed < 12) eagle.advance(follow)
+    expect(eagle.position.y).toBeGreaterThan(25)
+    expect(eagle.position.z).toBeGreaterThan(60)
+
+    const dismissedAt = eagle.elapsed, order = returnToPad()
+    let lowDrift = 0
+    while (eagle.phase !== 'grounded' && eagle.elapsed - dismissedAt < 60) {
+      eagle.advance(order)
+      // Below the alignment hold the eagle may only sink, not glide across the pad.
+      if (eagle.position.y < XONGKORO.verticalHoldHeight - .5) lowDrift = Math.max(lowDrift, Math.hypot(eagle.position.x - pad.x, eagle.position.z - pad.z))
+    }
+    expect(arrived(eagle)).toBe(true)
+    expect(lowDrift).toBeLessThan(1)
+    expect(eagle.elapsed - dismissedAt).toBeLessThan(40)
+  })
+
+  it('aborts a settle whose pad column becomes blocked, keeps flying, and lands once it clears', () => {
+    const eagle = pilotedEagle(new Vector3(pad.x - 70, 30, pad.z), Math.PI / 2)
+    eagle.flight.phase = 'cruise'; eagle.flight.speed = XONGKORO.cruiseSpeed
+    const order = returnToPad()
+    while (eagle.phase !== 'landing' && eagle.elapsed < 20) eagle.advance(order)
+    expect(eagle.phase).toBe('landing')
+    eagle.obstacles.push({ isBarricade: false,
+      box: new Box3(new Vector3(pad.x - 3, 0, pad.z - 3), new Vector3(pad.x + 3, 4, pad.z + 3)) })
+    const blockedAt = eagle.elapsed
+    let lowest = Infinity
+    while (eagle.elapsed - blockedAt < 20) {
+      eagle.advance(order)
+      lowest = Math.min(lowest, eagle.position.y)
+      expect(eagle.phase).not.toBe('grounded')
+      expect(eagle.phase).not.toBe('landing')
+    }
+    // It left the column under power instead of hovering over, or sinking into, the blockage.
+    expect(lowest).toBeGreaterThan(15)
+    expect(eagle.flight.speed).toBeGreaterThan(XONGKORO.minimumSpeed - .5)
+    eagle.obstacles.length = 0
+    const clearedAt = eagle.elapsed
+    while (eagle.phase !== 'grounded' && eagle.elapsed - clearedAt < 60) eagle.advance(order)
+    expect(arrived(eagle)).toBe(true)
   })
 })

@@ -1,11 +1,13 @@
 import * as THREE from 'three'
 import { getTerrainHeight, resolveObstacleCollision, type ObstacleData } from '../world/Terrain'
 import { XONGKORO } from './XongkoroConfig'
-import { isEagleLandingClear } from '../world/EagleLanding'
+import { isEagleLandingClear, type EagleLandingPoint } from '../world/EagleLanding'
 import { EAGLE_PAD_YAW_TOLERANCE } from '../world/EaglePadArrival'
 
 export type EagleFlightPhase = 'grounded' | 'takeoff' | 'cruise' | 'landing'
-export interface EagleFlightIntent { yaw: number; pitch: number; bankInput?: number; sprint?: boolean; brake?: boolean; takeoff?: boolean; landingTarget?: { x: number; z: number; yaw: number } }
+export interface EagleFlightIntent { yaw: number; pitch: number; bankInput?: number; sprint?: boolean; brake?: boolean; takeoff?: boolean; landingTarget?: { x: number; z: number; yaw: number }
+  /** Opt-in vertical take-off and pad landing. Cruise remains fixed-wing: no sustained hover. */
+  vertical?: boolean }
 export interface EagleFlightSnapshot {
   phase: EagleFlightPhase; yaw: number; pitch: number; bank: number; speed: number
   velocity: { x: number; y: number; z: number }
@@ -21,7 +23,11 @@ export function parseEagleFlightSnapshot(value: unknown): EagleFlightSnapshot | 
 const approach = (value: number, target: number, step: number): number => value + THREE.MathUtils.clamp(target - value, -step, step)
 const angleDelta = (a: number, b: number): number => Math.atan2(Math.sin(a - b), Math.cos(a - b))
 
-/** Fixed-wing movement shared by human steering and AI intent; no actor speed modifiers. */
+/**
+ * Fixed-wing movement shared by human steering and AI intent; no actor speed modifiers.
+ * `intent.vertical` only replaces the ground roll and the final pad glide with a
+ * flapping lift/settle; it reuses the existing takeoff/landing phases and snapshots.
+ */
 export class EagleFlightController {
   phase: EagleFlightPhase = 'grounded'
   yaw = 0
@@ -40,7 +46,7 @@ export class EagleFlightController {
   private readonly side = new THREE.Vector3()
   private readonly landingPoint = { x: 0, z: 0, yaw: 0 }
 
-  setIntent(intent: EagleFlightIntent): void { Object.assign(this.intent, { bankInput: 0, sprint: false, brake: false, takeoff: false, landingTarget: undefined }, intent) }
+  setIntent(intent: EagleFlightIntent): void { Object.assign(this.intent, { bankInput: 0, sprint: false, brake: false, takeoff: false, landingTarget: undefined, vertical: false }, intent) }
   snapshot(): EagleFlightSnapshot {
     return { phase: this.phase, yaw: this.yaw, pitch: this.pitch, bank: this.bank, speed: this.speed,
       velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z } }
@@ -71,12 +77,17 @@ export class EagleFlightController {
       this.speed = 0
       if (!this.intent.takeoff || !this.canLand(position, obstacles, terrainHeight, bound)) return
       this.phase = 'takeoff'
-      this.speed = XONGKORO.minimumSpeed
-      this.pitch = Math.max(XONGKORO.takeoffPitch, this.intent.pitch)
+      this.speed = this.intent.vertical ? 0 : XONGKORO.minimumSpeed
+      this.pitch = this.intent.vertical ? 0 : Math.max(XONGKORO.takeoffPitch, this.intent.pitch)
     }
     const steps = Math.max(1, Math.ceil(dt * XONGKORO.sprintSpeed / XONGKORO.collisionStep))
     const step = dt / steps
     for (let i = 0; i < steps; i++) {
+      if (this.intent.vertical && this.verticalStep(position, step, obstacles, bound, terrainHeight)) {
+        if ((this.phase as EagleFlightPhase) === 'grounded') break
+        this.contain(position, obstacles, bound, terrainHeight(position.x, position.z), terrainHeight)
+        continue
+      }
       let desiredYaw = this.intent.yaw
       let desiredPitch = THREE.MathUtils.clamp(this.intent.pitch, -XONGKORO.maxPitch, XONGKORO.maxPitch)
       if (this.phase === 'landing') {
@@ -139,33 +150,99 @@ export class EagleFlightController {
           break
         }
       }
-      // Three overlapping torso volumes follow pitch/yaw. Wing span is clearance, never flesh.
-      this.ahead.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch))
-      this.side.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw))
-      for (const along of [-3.2, 0, 3.2]) {
-        this.sample.copy(position).addScaledVector(this.ahead, along)
-        this.oldSample.copy(this.previous).addScaledVector(this.oldAhead, along)
-        this.correction.copy(this.sample)
-        const sampleGround = terrainHeight(this.sample.x, this.sample.z)
-        if (this.sample.y < sampleGround && this.phase !== 'landing') this.sample.y = sampleGround
-        resolveObstacleCollision(this.sample, this.oldSample, this.velocity.y, false,
-          XONGKORO.bodyRadius, XONGKORO.bodyHeight, 0, obstacles)
-        this.correction.sub(this.sample)
-        position.sub(this.correction)
-      }
-      for (const across of [-9, -6, -3, 3, 6, 9]) {
-        this.sample.copy(position).addScaledVector(this.side, across); this.sample.y += 1.8
-        this.oldSample.copy(this.previous).addScaledVector(this.oldSide, across); this.oldSample.y += 1.8
-        this.correction.copy(this.sample)
-        resolveObstacleCollision(this.sample, this.oldSample, this.velocity.y, false, .9, 1.2, 0, obstacles)
-        this.correction.sub(this.sample)
-        position.sub(this.correction)
-      }
-      // Continuous hard boundary contact. Intent steering above turns the eagle back before contact.
-      position.x = THREE.MathUtils.clamp(position.x, -bound + XONGKORO.wingClearance, bound - XONGKORO.wingClearance)
-      position.z = THREE.MathUtils.clamp(position.z, -bound + XONGKORO.wingClearance, bound - XONGKORO.wingClearance)
-      position.y = Math.min(position.y, surface + XONGKORO.maxAltitude)
+      this.contain(position, obstacles, bound, surface, terrainHeight)
     }
     rotation.set(-this.pitch, this.yaw, this.bank, 'YXZ')
+  }
+
+  /**
+   * One vertical take-off or pad-landing step. Returns false whenever ordinary
+   * fixed-wing flight must handle the step (cruise, a refused capture, or an abort).
+   */
+  private verticalStep(position: THREE.Vector3, step: number, obstacles: ObstacleData[], bound: number,
+    terrainHeight: (x: number, z: number) => number): boolean {
+    const surface = terrainHeight(position.x, position.z)
+    const target = this.intent.landingTarget
+    if (this.phase === 'takeoff') {
+      // Lift on the spot; forward speed is only gained once the pad clearance is behind.
+      if (position.y - surface >= XONGKORO.verticalTakeoffHeight) { this.phase = 'cruise'; return false }
+      this.beginStep(position)
+      this.speed = approach(this.speed, 0, XONGKORO.acceleration * step)
+      this.pitch = approach(this.pitch, 0, XONGKORO.pitchRate * step)
+      this.bank = approach(this.bank, 0, XONGKORO.bankResponse * step)
+      this.velocity.set(Math.sin(this.yaw) * this.speed, XONGKORO.verticalClimbRate, Math.cos(this.yaw) * this.speed)
+      position.addScaledVector(this.velocity, step)
+      return true
+    }
+    if (!target || !this.intent.brake) return false
+    const dx = target.x - position.x, dz = target.z - position.z, distance = Math.hypot(dx, dz)
+    if (this.phase !== 'landing' && (this.phase !== 'cruise' || distance > XONGKORO.verticalCaptureRadius
+      || this.speed > XONGKORO.minimumSpeed + .5)) return false
+    // The descent column is the pad's own footprint, not wherever the eagle happens to brake.
+    if (!isEagleLandingClear(target as EagleLandingPoint, obstacles, [], bound, terrainHeight)) {
+      if (this.phase === 'landing') this.phase = 'cruise'
+      return false
+    }
+    this.phase = 'landing'
+    this.beginStep(position)
+    const yawError = angleDelta(target.yaw, this.yaw)
+    this.yaw += THREE.MathUtils.clamp(yawError, -XONGKORO.turnRate * step, XONGKORO.turnRate * step)
+    this.bank = approach(this.bank, 0, XONGKORO.bankResponse * step)
+    // Hold above the pad while trimming position/heading; only an aligned eagle settles.
+    const aligned = distance < 1 && Math.abs(yawError) <= EAGLE_PAD_YAW_TOLERANCE / 2
+    const height = position.y - surface - (aligned ? 0 : XONGKORO.verticalHoldHeight)
+    this.pitch = approach(this.pitch, position.y - surface > 3 ? XONGKORO.verticalFlarePitch : 0, XONGKORO.pitchRate * step)
+    this.sample.set(dx, 0, dz)
+    if (distance > .0001) this.sample.multiplyScalar(Math.min(XONGKORO.minimumSpeed, distance * 1.2) / distance)
+    this.correction.set(this.velocity.x, 0, this.velocity.z)
+    this.sample.sub(this.correction).clampLength(0, XONGKORO.acceleration * step)
+    this.correction.add(this.sample)
+    const sink = Math.min(XONGKORO.verticalDescentRate, Math.max(1, height * 1.2))
+    this.velocity.set(this.correction.x, height > 0 ? Math.max(-sink, -height / step)
+      : Math.min(XONGKORO.verticalClimbRate, -height / step), this.correction.z)
+    this.speed = Math.hypot(this.velocity.x, this.velocity.z)
+    position.addScaledVector(this.velocity, step)
+    const ground = terrainHeight(position.x, position.z)
+    if (aligned && position.y <= ground + .05) {
+      position.y = ground; this.phase = 'grounded'; this.speed = 0; this.pitch = 0; this.bank = 0
+      this.velocity.set(0, 0, 0)
+    }
+    return true
+  }
+
+  private beginStep(position: THREE.Vector3): void {
+    this.oldAhead.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch))
+    this.oldSide.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw))
+    this.previous.copy(position)
+  }
+
+  private contain(position: THREE.Vector3, obstacles: ObstacleData[], bound: number, surface: number,
+    terrainHeight: (x: number, z: number) => number): void {
+    // Three overlapping torso volumes follow pitch/yaw. Wing span is clearance, never flesh.
+    this.ahead.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch))
+    this.side.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw))
+    for (const along of [-3.2, 0, 3.2]) {
+      this.sample.copy(position).addScaledVector(this.ahead, along)
+      this.oldSample.copy(this.previous).addScaledVector(this.oldAhead, along)
+      this.correction.copy(this.sample)
+      const sampleGround = terrainHeight(this.sample.x, this.sample.z)
+      if (this.sample.y < sampleGround && this.phase !== 'landing') this.sample.y = sampleGround
+      resolveObstacleCollision(this.sample, this.oldSample, this.velocity.y, false,
+        XONGKORO.bodyRadius, XONGKORO.bodyHeight, 0, obstacles)
+      this.correction.sub(this.sample)
+      position.sub(this.correction)
+    }
+    for (const across of [-9, -6, -3, 3, 6, 9]) {
+      this.sample.copy(position).addScaledVector(this.side, across); this.sample.y += 1.8
+      this.oldSample.copy(this.previous).addScaledVector(this.oldSide, across); this.oldSample.y += 1.8
+      this.correction.copy(this.sample)
+      resolveObstacleCollision(this.sample, this.oldSample, this.velocity.y, false, .9, 1.2, 0, obstacles)
+      this.correction.sub(this.sample)
+      position.sub(this.correction)
+    }
+    // Continuous hard boundary contact. Intent steering above turns the eagle back before contact.
+    position.x = THREE.MathUtils.clamp(position.x, -bound + XONGKORO.wingClearance, bound - XONGKORO.wingClearance)
+    position.z = THREE.MathUtils.clamp(position.z, -bound + XONGKORO.wingClearance, bound - XONGKORO.wingClearance)
+    position.y = Math.min(position.y, surface + XONGKORO.maxAltitude)
   }
 }

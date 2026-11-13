@@ -1,12 +1,17 @@
 /** One scene's automatic approach permission, independent of permanent pad ownership. */
 export class EagleLandingQueue {
   private readonly waiting = new Set<string>()
-  private active?: { owner: string; deadline: number }
+  private active?: { owner: string; deadline: number; best: number }
   private time = 0
   private availableAt = 0
 
-  /** A failed approach yields to waiting aircraft instead of renewing while circling. */
-  constructor(private readonly approachSeconds = 60, private readonly goAroundSeconds = 3) {}
+  /**
+   * A failed approach yields to waiting aircraft instead of renewing while circling.
+   * `approachSeconds` is a stall window: only a new closest `remaining` distance
+   * extends it, so a working approach is never cut off and an orbit cannot renew.
+   */
+  constructor(private readonly approachSeconds = 60, private readonly goAroundSeconds = 3,
+    private readonly progressDistance = 1) {}
 
   beginFrame(dt: number): void {
     this.time += Math.max(0, dt)
@@ -19,12 +24,18 @@ export class EagleLandingQueue {
     }
   }
 
-  request(owner: string, clear = true): boolean {
+  /** `remaining` is the caller's distance still to cover to touchdown; omitted keeps the fixed window. */
+  request(owner: string, clear = true, remaining?: number): boolean {
     if (!clear) { this.release(owner); return false }
     this.waiting.add(owner)
-    if (this.active?.owner === owner) return true
+    if (this.active?.owner === owner) {
+      if (remaining !== undefined && remaining <= this.active.best - this.progressDistance) {
+        this.active.best = remaining; this.active.deadline = this.time + this.approachSeconds
+      }
+      return true
+    }
     if (!this.active && this.time >= this.availableAt && this.waiting.values().next().value === owner) {
-      this.active = { owner, deadline: this.time + this.approachSeconds }
+      this.active = { owner, deadline: this.time + this.approachSeconds, best: remaining ?? Infinity }
       return true
     }
     return false

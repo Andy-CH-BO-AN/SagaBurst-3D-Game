@@ -20,6 +20,8 @@ export interface EagleFlightCommand {
   /** Explicit world altitude for following an airborne leader, never added to AGL. */
   altitude?: number
   landingYaw?: number
+  /** Opt-in on-the-spot takeoff and vertical pad landing; cruise and combat stay fixed-wing. */
+  vertical?: boolean
 }
 
 /** Tactical intentions only. All four attacks and ordered travel use the shared flight physics. */
@@ -46,6 +48,8 @@ export class EagleFlightAI {
   private progressSeconds = 0
   private readonly progressPosition = new THREE.Vector3()
   private readonly landingTarget = { x: 0, z: 0, yaw: 0 }
+  private verticalRetry = 0
+  private settling = false
   private readonly intent: EagleFlightIntent = { yaw: 0, pitch: 0 }
 
   get canUseRanged(): boolean { return this.maneuver === 'cruise' && this.tactic?.startsWith('RANGED') === true }
@@ -57,6 +61,7 @@ export class EagleFlightAI {
     this.target = undefined; this.tactic = null; this.maneuver = 'cruise'; this.elapsed = 0; this.pass = 0; this.rangedCommitRemaining = 0
     this.landingStage = 'approach'; this.landingX = this.landingZ = Infinity
     this.avoidanceRemaining = 0; this.progressSeconds = 0
+    this.verticalRetry = 0; this.settling = false
   }
   attacked(): void {
     this.maneuver = 'pass'
@@ -78,9 +83,11 @@ export class EagleFlightAI {
     this.intent.sprint = false
     this.intent.brake = false
     this.intent.takeoff = command.kind !== 'hold'
+    this.intent.vertical = command.vertical === true
     if (command.kind !== 'combat') {
       this.target = undefined; this.tactic = null; this.maneuver = 'cruise'; this.rangedCommitRemaining = 0
-      if (command.kind === 'return') this.planLanding(position, destination, command.landingYaw ?? flight.yaw, flight, terrainHeight, bound)
+      if (command.kind === 'return' && command.vertical) this.planVerticalLanding(dt, position, destination, command.landingYaw ?? flight.yaw, flight, terrainHeight)
+      else if (command.kind === 'return') this.planLanding(position, destination, command.landingYaw ?? flight.yaw, flight, terrainHeight, bound)
       else {
         this.goal.y = command.altitude ?? terrainHeight(destination.x, destination.z) + this.cruiseAltitude
         const distance = Math.hypot(destination.x - position.x, destination.z - position.z)
@@ -185,6 +192,12 @@ export class EagleFlightAI {
       this.direction.x += (position.x - other.x) * weight
       this.direction.y += (position.y - other.y) * weight
       this.direction.z += (position.z - other.z) * weight
+    }
+    // A vertical lift needs the column above the pad: wait for a bird passing or settling overhead.
+    if (this.intent.vertical && this.intent.takeoff && flight.phase === 'grounded') for (const other of neighbors) {
+      const above = other.y - position.y
+      if (above > 2 && above < XONGKORO.verticalTakeoffHeight + XONGKORO.wingClearance
+        && Math.hypot(other.x - position.x, other.z - position.z) < XONGKORO.wingClearance * 2) { this.intent.takeoff = false; break }
     }
     this.avoidanceRemaining = Math.max(0, this.avoidanceRemaining - dt)
     this.ahead.copy(this.direction).normalize().multiplyScalar(lookahead).add(position)
@@ -301,6 +314,26 @@ export class EagleFlightAI {
   private recover(position: THREE.Vector3, flight: EagleFlightController, ground: number): void {
     this.maneuver = 'recover'; this.elapsed = 0
     this.goal.set(position.x + Math.sin(flight.yaw) * 35, ground + this.cruiseAltitude, position.z + Math.cos(flight.yaw) * 35)
+  }
+  /** Fly to the pad at cruise height, brake into the controller's hover capture, and retry after an abort. */
+  private planVerticalLanding(dt: number, position: THREE.Vector3, destination: THREE.Vector3, yaw: number,
+    flight: EagleFlightController, terrain: (x: number, z: number) => number): void {
+    this.landingTarget.x = destination.x; this.landingTarget.z = destination.z; this.landingTarget.yaw = yaw
+    this.intent.landingTarget = this.landingTarget
+    const headingError = Math.abs(Math.atan2(Math.sin(yaw - flight.yaw), Math.cos(yaw - flight.yaw)))
+    if (flight.phase === 'grounded' && position.distanceToSquared(destination) < EAGLE_PAD_ARRIVAL_RADIUS ** 2
+      && headingError <= EAGLE_PAD_YAW_TOLERANCE) {
+      this.goal.copy(position); this.intent.takeoff = false; this.intent.brake = true; return
+    }
+    // A settle that fell back to cruise was refused or blocked: leave the column before trying again.
+    if (this.settling && flight.phase === 'cruise') this.verticalRetry = XONGKORO.verticalRetrySeconds
+    this.settling = flight.phase === 'landing'
+    this.verticalRetry = Math.max(0, this.verticalRetry - dt)
+    this.goal.set(destination.x, 0, destination.z)
+    if (this.verticalRetry > 0) this.orbit(position, destination, XONGKORO.aiOrbitRadius)
+    else this.intent.brake = Math.hypot(destination.x - position.x, destination.z - position.z) < 45
+    this.goal.y = terrain(destination.x, destination.z) + this.cruiseAltitude
+    this.intent.takeoff = true
   }
   private planLanding(position: THREE.Vector3, destination: THREE.Vector3, yaw: number, flight: EagleFlightController,
     terrain: (x: number, z: number) => number, bound: number): void {

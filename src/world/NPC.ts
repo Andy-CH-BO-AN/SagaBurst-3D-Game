@@ -271,6 +271,8 @@ export class NPC {
   private readonly eagleAnchor = new THREE.Vector3()
   private eagleAnchorSet = false
   private eagleFlightOrder: NpcEagleFlightOrder | null = null
+  /** Owner opt-in: this rider's eagle takes off on the spot and lands vertically on its assigned pad. */
+  eagleVerticalFlight = false
   private readonly eagleCommand: EagleFlightCommand = { kind: 'cruise', destination: this.eagleGoal }
   private readonly eagleTargetVelocity = new THREE.Vector3()
   private readonly eagleLastTargetPosition = new THREE.Vector3()
@@ -4141,6 +4143,7 @@ export class NPC {
       command.kind = order?.kind === 'hold' ? 'hold' : this.tacticalOrder === 'defend' ? 'defend' : 'cruise'
     }
     if (order?.kind === 'hold') command.kind = 'hold'
+    command.vertical = this.eagleVerticalFlight
     mount.beginControlledFrame()
     mount.setFlightIntent(this.eaglePilot.update(dt, flight, mount.group.position, command, this.eagleNeighbors, obstacles, this.playableWorldBound))
     mount.finishControlledFrame(dt, obstacles)
@@ -4197,7 +4200,7 @@ export class NPC {
       this.eagleGoal.copy(targetMount?.isFlyingMount ? targetMount.group.position : target.position)
       command.kind = 'combat'; command.target = targetIdentity; command.targetAirborne = targetMount?.isAirborne === true
       command.targetVelocity = this.eagleTargetVelocity; command.rangedAvailable = ranged && this.maxRangedAttackDistance >= this.eaglePilot.cruiseAltitude; command.rangedDistance = this.maxRangedAttackDistance
-      command.altitude = undefined
+      command.altitude = undefined; command.vertical = this.eagleVerticalFlight
       mount.beginControlledFrame()
       mount.setFlightIntent(this.eaglePilot.update(dt, flight, mount.group.position, command, this.eagleNeighbors, obstacles, this.playableWorldBound))
       const targetYaw = Math.atan2(this.eagleGoal.x - mount.group.position.x, this.eagleGoal.z - mount.group.position.z)
