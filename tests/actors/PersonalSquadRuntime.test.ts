@@ -7,6 +7,8 @@ import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { EaglePadReservations } from '../../src/career/EaglePadReservations'
+import { EagleLandingQueue } from '../../src/world/EagleLandingQueue'
+import type { EagleFlightPhase } from '../../src/movement/EagleFlightController'
 import { parsePersonalMission } from '../../src/career/CareerPersonalSquadMission'
 import { PersonalSquadRuntime, spawnPersonalSquadActor } from '../../src/career/PersonalSquadRuntime'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
@@ -230,18 +232,19 @@ interface StandbyActor {
   group: { position: Vector3; rotation: Euler }; combatPosition: Vector3; disposed: boolean
   setTacticalOrder(order: string): void; assignFormationTarget: ReturnType<typeof vi.fn<NPC['assignFormationTarget']>>
   assignFollowTarget: ReturnType<typeof vi.fn>; isFormationTargetReached(id: number): boolean
-  restoreCombatHealth(hp: number): void; restoreCombatAmmo(): void; setEagleFlightOrder(): void; dispose(): void
+  restoreCombatHealth(hp: number): void; restoreCombatAmmo(): void; dispose(): void
+  flightOrder?: string; setEagleFlightOrder(order: { kind: string } | null): void
   mountVehicle(mount: Mount): void; dismountFromMount(): void
 }
 /** Grounded, stopped eagle on its pad: the numeric fields `isEaglePadArrived` and checkpoints read. */
 interface StandbyEagle {
   isFlyingMount: true; isAirborne: boolean; dead: boolean; currentHp: number; maxHp: number; armorImpactRemaining: number
   group: { position: Vector3; rotation: Euler }
-  flight: { phase: 'grounded'; speed: number; yaw: number; velocity: { x: number; y: number; z: number }; snapshot(): unknown }
+  flight: { phase: EagleFlightPhase; speed: number; yaw: number; velocity: { x: number; y: number; z: number }; snapshot(): unknown }
   restoreArmor(): void; dispose(): void
 }
 /** Numeric actor double: only the private-squad lifecycle API; no scene, mesh or asset. */
-function standbyHarness(members: { id: string; mount?: 'xongkoro' }[], options: { saved?: PersonalSquadMission; failOnce?: string[] } = {}) {
+function standbyHarness(members: { id: string; mount?: 'xongkoro' }[], options: { saved?: PersonalSquadMission; failOnce?: string[]; queue?: EagleLandingQueue } = {}) {
   let profile = createCareerProfile('roman')
   profile.rank = 'captain'; profile.availableMerit = 100_000
   // Real hires own their equipment; an eagle rider additionally owns its xongkoro.
@@ -267,7 +270,7 @@ function standbyHarness(members: { id: string; mount?: 'xongkoro' }[], options: 
       assignFormationTarget: vi.fn<NPC['assignFormationTarget']>((id: number) => { actor.formationCommandId = id; actor.tacticalOrder = 'formation'; actor.arrived = false }),
       assignFollowTarget: vi.fn(() => { actor.tacticalOrder = 'follow' }),
       isFormationTargetReached: () => actor.arrived,
-      restoreCombatHealth(hp) { actor.hp = Math.min(actor.maxHp, hp) }, restoreCombatAmmo() {}, setEagleFlightOrder() {},
+      restoreCombatHealth(hp) { actor.hp = Math.min(actor.maxHp, hp) }, restoreCombatAmmo() {}, setEagleFlightOrder(order) { actor.flightOrder = order?.kind },
       dispose() { actor.disposed = true },
       mountVehicle(mount) { actor.mount = mount; actor.isMounted = true },
       dismountFromMount() { actor.mount = undefined; actor.isMounted = false } }
@@ -286,7 +289,7 @@ function standbyHarness(members: { id: string; mount?: 'xongkoro' }[], options: 
   const scheduler = new NpcSpawnScheduler()
   const player = { dead: false, combatPosition: new Vector3(), group: { rotation: { y: 0 } } }
   const runtime = new PersonalSquadRuntime({} as never, muster, () => profile, () => player as never, spawn as never,
-    { scheduler, hasHR: true, eaglePads: new EaglePadReservations([pad]) })
+    { scheduler, hasHR: true, eaglePads: new EaglePadReservations([pad]), eagleLandingQueue: options.queue })
   let frame = 0
   const flush = () => { while (scheduler.pending) scheduler.tick(++frame) }
   return { runtime, scheduler, muster, pad, spawned, actors, mounts, flush,
@@ -405,6 +408,36 @@ it('finishes an eagle return at HR standby with the same rider and parked eagle,
   h.runtime.updateLifecycle()
   expect(rider.mount).toBe(eagle)
   expect(h.actors).toHaveLength(2)
+})
+
+it('keeps an airborne eagle on its return order while it closes on the pad, holds a stalled one for retry, and never reports it home', () => {
+  const queue = new EagleLandingQueue(10, 3)
+  const h = standbyHarness([{ id: 'personal:eagle', mount: 'xongkoro' }], { queue })
+  h.runtime.materializeStandby(); h.flush()
+  const [rider] = h.actors, [eagle] = h.mounts
+  expect(h.runtime.follow()).toBe(true)
+  rider.group.position.copy(eagle.group.position)
+  h.runtime.updateLifecycle()
+  expect(rider.mount).toBe(eagle)
+  // Dismiss is issued from cruise, far from the pad.
+  eagle.isAirborne = true; eagle.flight.phase = 'cruise'; eagle.flight.speed = 13
+  eagle.group.position.set(h.pad.x, 30, h.pad.z + 100)
+  expect(h.runtime.dismiss()).toBe(true)
+  expect(rider.flightOrder).toBe('return')
+  // 20 s of real closure: twice the queue window, yet the approach is never reset to Hold.
+  for (let step = 0; step < 5; step++) {
+    queue.beginFrame(4)
+    eagle.group.position.z -= 15
+    h.runtime.updateLifecycle()
+    expect([rider.flightOrder, rider.mount, h.runtime.state]).toEqual(['return', eagle, 'RETURNING'])
+  }
+  // No further progress: the permission lapses to Hold, then the same eagle may try again.
+  queue.beginFrame(11)
+  h.runtime.updateLifecycle()
+  expect([rider.flightOrder, rider.mount, h.runtime.state]).toEqual(['hold', eagle, 'RETURNING'])
+  queue.beginFrame(3)
+  h.runtime.updateLifecycle()
+  expect([rider.flightOrder, rider.mount, h.runtime.state]).toEqual(['return', eagle, 'RETURNING'])
 })
 
 it('pauses only a failed HR standby ID: the Town stays usable, a later hire still stands at HR, and retry adds the same ID once', () => {

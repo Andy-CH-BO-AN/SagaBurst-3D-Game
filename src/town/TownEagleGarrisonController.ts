@@ -64,6 +64,8 @@ export class TownEagleGarrisonController {
     for (const resident of residents) if (resident.spec.eagle && resident.homeMount) {
       this.pairs.set(resident.npc, { resident, duty: 'standby', refitAllowed: false, serviceRefit: false, route: townEaglePatrolRoute(resident.spec.eagle.homePadId), waypoint: 0, patrolElapsed: 0, patrolActive: false, replacementRemaining: 0, ambientRecovery: false, restRemaining: 0, playerOwned: false, commandReturn: false })
       resident.npc.setEagleCruiseAltitude(resident.spec.eagle.cruiseAltitude)
+      // Same automatic vertical take-off, approach and landing as HR private eagles.
+      resident.npc.eagleVerticalFlight = true
       resident.homeMount.reservedForTown = true
     }
   }
@@ -384,7 +386,10 @@ export class TownEagleGarrisonController {
     if (pair.duty === 'return-queue' || pair.duty === 'returning') {
       npc.setMissionCombatTarget(null)
       const clear = this.padClear(pair, obstacles, occupied)
-      const permitted = this.landingQueue.request(spec.id, clear)
+      // Real closure keeps the permission; only pads sharing airspace wait for each other.
+      const at = mount!.group.position
+      const permitted = this.landingQueue.request(spec.id, clear,
+        Math.hypot(at.x - eagle.home.x, at.z - eagle.home.z) + Math.max(0, at.y - getTerrainHeight(eagle.home.x, eagle.home.z)), eagle.home)
       if (!permitted && pair.duty === 'returning') {
         pair.duty = 'return-queue'
         npc.setEagleFlightOrder({ kind: 'hold', cruiseAltitude: eagle.cruiseAltitude })

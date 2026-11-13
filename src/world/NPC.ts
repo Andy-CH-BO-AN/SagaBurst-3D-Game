@@ -99,6 +99,7 @@ import { damageObstacle, damageNpc, damageMount } from '../combat/DamageRouter'
 import { createNpcCombatActorRef, type CombatEventSink, type CombatDamageContext } from '../combat/CombatAttribution'
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
 import { EagleFlightAI, type EagleFlightCommand, type EagleTactic } from '../movement/EagleFlightAI'
+import type { EagleTraffic } from './EagleAirspace'
 import { eagleBowEngagementRange } from '../combat/EagleRangedCombat'
 import { collectBallisticPathObstacles, BallisticIntercept, createProjectileFlightBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import { projectileAmmoAfterLaunch, type ProjectileLaunchResult } from '../combat/ProjectileAdmission'
@@ -265,12 +266,16 @@ export class NPC {
   private fallContext: CombatDamageContext | undefined
   private readonly eaglePilot = new EagleFlightAI()
   private readonly eagleNeighbors: THREE.Vector3[] = []
+  /** Other airborne eagles by live reference, for the shared take-off/landing column check. */
+  private readonly eagleTraffic: EagleTraffic[] = []
   private readonly eagleTargets: PhysicalCombatTarget[] = []
   private readonly eagleNpcCandidates: NPC[] = []
   private readonly eagleGoal = new THREE.Vector3()
   private readonly eagleAnchor = new THREE.Vector3()
   private eagleAnchorSet = false
   private eagleFlightOrder: NpcEagleFlightOrder | null = null
+  /** Owner opt-in: this rider's eagle takes off on the spot and lands vertically on its assigned pad. */
+  eagleVerticalFlight = false
   private readonly eagleCommand: EagleFlightCommand = { kind: 'cruise', destination: this.eagleGoal }
   private readonly eagleTargetVelocity = new THREE.Vector3()
   private readonly eagleLastTargetPosition = new THREE.Vector3()
@@ -4069,6 +4074,7 @@ export class NPC {
 
   private _addEagleNeighbor(other: Mount): void {
     const mount = this.mount!
+    if (other.isAirborne && other.flight) this.eagleTraffic.push(other.flight.traffic(other.group.position))
     const position = mount.group.position, point = other.group.position
     const ownVelocity = mount.flight!.velocity, velocity = other.flight!.velocity
     const x = point.x - position.x, y = point.y - position.y, z = point.z - position.z
@@ -4094,7 +4100,7 @@ export class NPC {
   /** Physical neighbors are independent of hostility, target acquisition and ground boid throttles. */
   private _collectEagleNeighbors(nearby: NPC[], player?: Player, attackMount?: Mount | null): void {
     const mount = this.mount!
-    this.eagleNeighbors.length = 0
+    this.eagleNeighbors.length = 0; this.eagleTraffic.length = 0
     const mounts = this.combatMountGrid?.getNearbyInto(mount.group.position,
       XONGKORO.aiSeparationRadius + XONGKORO.sprintSpeed * 2, this.eagleMountNeighbors)
     if (mounts) {
@@ -4141,8 +4147,9 @@ export class NPC {
       command.kind = order?.kind === 'hold' ? 'hold' : this.tacticalOrder === 'defend' ? 'defend' : 'cruise'
     }
     if (order?.kind === 'hold') command.kind = 'hold'
+    command.vertical = this.eagleVerticalFlight
     mount.beginControlledFrame()
-    mount.setFlightIntent(this.eaglePilot.update(dt, flight, mount.group.position, command, this.eagleNeighbors, obstacles, this.playableWorldBound))
+    mount.setFlightIntent(this.eaglePilot.update(dt, flight, mount.group.position, command, this.eagleNeighbors, obstacles, this.playableWorldBound, undefined, this.eagleTraffic))
     mount.finishControlledFrame(dt, obstacles)
     this._syncToMount()
     if (formation && !order && Math.hypot(mount.group.position.x - formation.position.x, mount.group.position.z - formation.position.z) < XONGKORO.aiOrbitRadius + 5) {
@@ -4197,9 +4204,9 @@ export class NPC {
       this.eagleGoal.copy(targetMount?.isFlyingMount ? targetMount.group.position : target.position)
       command.kind = 'combat'; command.target = targetIdentity; command.targetAirborne = targetMount?.isAirborne === true
       command.targetVelocity = this.eagleTargetVelocity; command.rangedAvailable = ranged && this.maxRangedAttackDistance >= this.eaglePilot.cruiseAltitude; command.rangedDistance = this.maxRangedAttackDistance
-      command.altitude = undefined
+      command.altitude = undefined; command.vertical = this.eagleVerticalFlight
       mount.beginControlledFrame()
-      mount.setFlightIntent(this.eaglePilot.update(dt, flight, mount.group.position, command, this.eagleNeighbors, obstacles, this.playableWorldBound))
+      mount.setFlightIntent(this.eaglePilot.update(dt, flight, mount.group.position, command, this.eagleNeighbors, obstacles, this.playableWorldBound, undefined, this.eagleTraffic))
       const targetYaw = Math.atan2(this.eagleGoal.x - mount.group.position.x, this.eagleGoal.z - mount.group.position.z)
       const headingError = Math.abs(Math.atan2(Math.sin(targetYaw - flight.yaw), Math.cos(targetYaw - flight.yaw)))
       if ((!ranged || kind === 'bow') && this.eaglePilot.canUseMelee && headingError < .6 && mount.group.position.distanceTo(this.eagleGoal) < XONGKORO.aiAttackRange
