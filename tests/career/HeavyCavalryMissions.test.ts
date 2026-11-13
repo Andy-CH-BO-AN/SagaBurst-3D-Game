@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { t4EquipmentIdsForArmy } from '../../src/battle/T4HeroCatalog'
 import { availableCareerMissionsForPage } from '../../src/career/CareerMissionCatalog'
+import { careerHeavyPreloadPlan, heavyUnitSpec } from '../../src/career/HeavyCavalrySpawn'
 import { careerMissionTierForTemplateId } from '../../src/career/CareerMissionTier'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, CAREER_STORAGE_KEY, parseCareerProfile } from '../../src/career/CareerProfileStore'
@@ -322,5 +324,23 @@ describe('heavy cavalry field missions in Career', () => {
     const corruptedSave = structuredClone(migratedProfile)
     corruptedSave.activeMission!.targetActorIds = ['corrupted_target']
     expect(store.save(corruptedSave)).toBe(false)
+  })
+})
+
+describe('T4 heavy cavalry signature shields', () => {
+  it('只有兩個 T4 重騎兵 preset 換成特色盾，同陣營其他 T4 與 T5 重騎兵維持原盾', () => {
+    expect(heavyUnitSpec('roman-t4-cav', 'roman', Faction.PLAYER, 'heavy_cavalry', 4).loadout?.shieldId).toBe('centurion_aquila_shield_t4')
+    expect(heavyUnitSpec('viking-t4-cav', 'viking', Faction.ENEMY, 'heavy_cavalry', 4).loadout?.shieldId).toBe('viking_dragonward_shield_t4')
+    expect(heavyUnitSpec('roman-t4-inf', 'roman', Faction.PLAYER, 'melee', 4).loadout?.shieldId).toBe('roman_officer_shield_t4')
+    expect(heavyUnitSpec('viking-t4-inf', 'viking', Faction.ENEMY, 'melee', 4).loadout?.shieldId).toBe('paladin_shield_t4')
+    expect(heavyUnitSpec('roman-t5-cav', 'roman', Faction.ENEMY, 'heavy_cavalry', 5).loadout?.shieldId).not.toBe('centurion_aquila_shield_t4')
+    expect(t4EquipmentIdsForArmy({ roman_heavy_cavalry: { 4: 1 }, viking_heavy_cavalry: { 4: 2 }, roman_heavy_infantry: { 4: 3 } }))
+      .toEqual(['centurion_aquila_shield_t4', 'viking_dragonward_shield_t4'])
+    expect(t4EquipmentIdsForArmy({ roman_heavy_cavalry: { 4: 0 } })).toEqual([])
+  })
+
+  it('T4-only 重騎兵任務預載 NPC 盾牌，不需要玩家或 T5 陣容提供', () => {
+    const plan = careerHeavyPreloadPlan(CAPTAIN_STEEL_AVALANCHE_ID, 'roman')
+    expect(plan.equipmentIds).toEqual(['centurion_aquila_shield_t4'])
   })
 })

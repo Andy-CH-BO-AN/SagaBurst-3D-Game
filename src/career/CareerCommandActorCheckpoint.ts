@@ -4,9 +4,31 @@ import type { NPC } from '../world/NPC'
 import type { Mount } from '../world/Mount'
 import { getTerrainHeight } from '../world/Terrain'
 import type { PersonalActorCheckpoint, PersonalActorPosition } from './CareerPersonalSquadMission'
+import { ARMORS } from '../rpg/ArmorDatabase'
 
 function position(point: THREE.Vector3, yaw: number): PersonalActorPosition {
   return { x: point.x, y: point.y, z: point.z, yaw }
+}
+
+/** Durability of the shield the actor was given. A shield whose model is still loading has no held state yet, so its
+ * recorded durability (restored or never damaged) is read by id; the held value alone would save a loading shield as 0. */
+export function savedShieldDurability(npc: NPC): number {
+  const id = npc.requestedShieldId
+  if (!id) return npc.shield.shieldImpactRemaining
+  return npc.shield.captureDurability()[id] ?? ARMORS[id]?.shieldImpactMax ?? 0
+}
+
+/** Full durability of the shield the actor was given, read from its catalogue, so a refit works before the model is held. */
+function fullShieldDurability(npc: NPC): number {
+  const id = npc.requestedShieldId
+  return id ? ARMORS[id]?.shieldImpactMax ?? 0 : npc.shield.shieldImpactMax
+}
+
+/** Restores durability by the actor's requested shield id, so a shield that arrives later keeps the saved value. */
+export function restoreShieldDurability(npc: NPC, value: number): void {
+  const id = npc.requestedShieldId
+  if (!id) { npc.shield.shieldImpactRemaining = Math.min(npc.shield.shieldImpactMax, value); return }
+  npc.shield.restoreDurability({ ...npc.shield.captureDurability(), [id]: value })
 }
 
 /** Borrowed residents retain their own gear and mount; this is a save, never a refit. */
@@ -15,7 +37,7 @@ export function snapshotCommandActor(npc: NPC, homeMount?: Mount,
   const mount = homeMount ?? npc.mount ?? undefined
   return { status: npc.dead ? 'dead' : status, hp: npc.hp,
     position: position(npc.combatPosition, npc.mount?.group.rotation.y ?? npc.group.rotation.y),
-    ammo: npc.combatAmmo, shieldImpact: npc.shield.shieldImpactRemaining, order: npc.tacticalOrder,
+    ammo: npc.combatAmmo, shieldImpact: savedShieldDurability(npc), order: npc.tacticalOrder,
     ...(npc.isOutpostRampartGarrisonActive ? { outpostRampartGarrison: true } : {}),
     ...(npc.isTownRampartGarrisonActive ? { townRampartGarrison: true } : {}),
     ...(npc.isMountedTownRampartGarrisonEnabled ? { townRampartMounted: true } : {}),
@@ -32,7 +54,7 @@ export function restoreCommandActor(npc: NPC, saved: PersonalActorCheckpoint, ho
   npc.releaseOutpostRampartGarrison?.()
   npc.restoreCombatHealth(saved.status === 'dead' ? 0 : saved.hp ?? npc.hp)
   if (saved.ammo !== undefined) npc.restoreCombatAmmo(saved.ammo)
-  if (saved.shieldImpact !== undefined) npc.shield.shieldImpactRemaining = Math.min(npc.shield.shieldImpactMax, saved.shieldImpact)
+  if (saved.shieldImpact !== undefined) restoreShieldDurability(npc, saved.shieldImpact)
   const mount = homeMount ?? npc.mount ?? undefined
   if (mount && saved.mount) {
     mount.restoreArmor(saved.mount.armorImpactRemaining)
@@ -70,7 +92,7 @@ export function refitCommandCheckpoint(npc: NPC, homeMount?: Mount,
   status: PersonalActorCheckpoint['status'] = 'deployed'): PersonalActorCheckpoint {
   const saved = snapshotCommandActor(npc, homeMount, status)
   saved.status = status; saved.hp = npc.maxHp; saved.ammo = npc.combatAmmoCapacity
-  saved.shieldImpact = npc.shield.shieldImpactMax
+  saved.shieldImpact = fullShieldDurability(npc)
   if (saved.fall && saved.position) saved.position.y = getTerrainHeight(saved.position.x, saved.position.z)
   delete saved.fall
   const mount = homeMount ?? npc.mount
@@ -99,7 +121,7 @@ export function refitCommandActor(npc: NPC, homeMount?: Mount): void {
   } else if (mount) mount.currentHp = mount.maxHp
   npc.refitCombat()
   saved.status = 'deployed'; saved.hp = npc.maxHp
-  saved.ammo = npc.combatAmmo; saved.shieldImpact = npc.shield.shieldImpactMax
+  saved.ammo = npc.combatAmmo; saved.shieldImpact = fullShieldDurability(npc)
   if (saved.fall && saved.position) saved.position.y = getTerrainHeight(saved.position.x, saved.position.z)
   delete saved.fall
   if (saved.mount && mount) {

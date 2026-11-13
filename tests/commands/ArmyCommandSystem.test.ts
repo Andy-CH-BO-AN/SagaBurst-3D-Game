@@ -7,7 +7,9 @@ import { Faction } from '../../src/world/NPC'
 import type { NPC } from '../../src/world/NPC'
 import { stageOfficialCommandOrder } from '../../src/career/CareerOfficialCommandOrder'
 import { parseCommandActorCheckpoint } from '../../src/career/CareerCommandAuthority'
-import { restoreCommandActor, snapshotCommandActor } from '../../src/career/CareerCommandActorCheckpoint'
+import { refitCommandActor, refitCommandCheckpoint, restoreCommandActor, snapshotCommandActor } from '../../src/career/CareerCommandActorCheckpoint'
+import { ShieldState } from '../../src/combat/ShieldBlocking'
+import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 
 import { createArmyCommandHarness as controllerHarness, createRampartCommandActor, type CommandRecipientFixture } from '../helpers/armyCommandHarness'
@@ -249,3 +251,33 @@ describe('Army command roster, dispatch and submenu', () => {
     expect(hScene.controller.selected).toBeNull()
   })
 })
+
+describe('Career command shield durability while the shield model loads', () => {
+  const shieldId = 'viking_dragonward_shield_t4'
+  /** An actor that was given its shield but whose GLB has not arrived: nothing is held yet, so the shield max is 0. */
+  const loadingActor = () => {
+    const npc = createRampartCommandActor('shield:loading', 'viking')
+    Object.assign(npc, { selectedShieldId: shieldId, heldShieldId: null, shield: new ShieldState(), refitCombat: () => {} })
+    return npc
+  }
+  const checkpoint = (shieldImpact: number) => ({ status: 'deployed', hp: 80, shieldImpact, order: 'follow' }) as PersonalActorCheckpoint
+
+  it('keeps a saved read-path durability (17 or 0 of 48) for the requested shield, then applies it when the model arrives', () => {
+    for (const saved of [17, 0]) {
+      const npc = loadingActor()
+      restoreCommandActor(npc, checkpoint(saved))
+      expect(snapshotCommandActor(npc).shieldImpact).toBe(saved)
+      npc.shield.equip(shieldId)
+      expect(npc.shield.shieldImpactRemaining).toBe(saved)
+    }
+  })
+
+  it('a refit taken before the model arrives saves and applies the full 48 of the requested shield, not the 0 held', () => {
+    const npc = loadingActor()
+    expect(refitCommandCheckpoint(npc).shieldImpact).toBe(48)
+    refitCommandActor(npc)
+    npc.shield.equip(shieldId)
+    expect(npc.shield.shieldImpactRemaining).toBe(48)
+  })
+})
+

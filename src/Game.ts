@@ -161,6 +161,7 @@ import { preloadMakiRangerBow } from './world/MakiRangerEquipment'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from './rpg/WeaponDatabase'
 import { normalizeArmyConfig } from './battle/BattleConfig'
 import { getT5ProfileForPreset, t5EquipmentIdsForArmy } from './battle/T5HeroCatalog'
+import { t4EquipmentIdsForArmy } from './battle/T4HeroCatalog'
 import type { UnitPresetId } from './battle/UnitPresetCatalog'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
@@ -472,7 +473,7 @@ export class Game {
         game.clock.start(); requestAnimationFrame(game._loop)
         return game
       }
-      await Promise.all([prepareByzantineEquipment([...heavyPreload.equipmentIds, ...(battleConfig && !campaignConfig ? (['viking', 'roman'] as const).flatMap(faction => t5EquipmentIdsForArmy(normalizeArmyConfig(battleConfig[faction], faction))) : []), battleConfig?.playerLoadout?.meleeWeaponId, battleConfig?.playerLoadout?.shieldId, personalProfile?.equipment?.melee, personalProfile?.equipment?.shield, ...personalMembers.flatMap(member => { const { loadout } = personalMemberLoadout(member, personalProfile!.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
+      await Promise.all([prepareByzantineEquipment([...heavyPreload.equipmentIds, ...(battleConfig && !campaignConfig ? (['viking', 'roman'] as const).flatMap(faction => { const army = normalizeArmyConfig(battleConfig[faction], faction); return [...t5EquipmentIdsForArmy(army), ...t4EquipmentIdsForArmy(army)] }) : []), battleConfig?.playerLoadout?.meleeWeaponId, battleConfig?.playerLoadout?.shieldId, personalProfile?.equipment?.melee, personalProfile?.equipment?.shield, ...personalMembers.flatMap(member => { const { loadout } = personalMemberLoadout(member, personalProfile!.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
       const heroAssets = new Set<HeroAssetId>()
       if (trainingGround) heroAssets.add('maki-archer-t4')
       const validationHero = import.meta.env.DEV && trainingGround ? commanderValidationHero(query) : undefined
