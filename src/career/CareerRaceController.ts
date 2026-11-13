@@ -11,7 +11,7 @@ import { BlackCatVisual } from '../world/BlackCatVisual'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import type { CareerProfile } from './CareerProfile'
-import { findMountParkingPoint, findSergeantResident, planSergeantReturn, resolveTownEntryFallbackPoint, sergeantReturnFromResidents, type SergeantResidentLike } from '../town/SergeantReturn'
+import { findMountParkingPoint, findSergeantResident, isMountParkingClear, planSergeantReturn, resolveTownEntryFallbackPoint, sergeantReturnFromResidents, type SergeantResidentLike } from '../town/SergeantReturn'
 import { townPlayerEntryPoint } from '../town/TownRules'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
@@ -50,7 +50,7 @@ export class CareerRaceController {
   error = ''
   saveFailed = false
   /** Unridden mounts and other floor occupants the Town knows about; part of every return clearance. */
-  parkedBlockers?: () => { x: number; z: number; radius: number }[]
+  parkedBlockers?: (except?: Mount | null) => { x: number; z: number; radius: number }[]
 
   constructor(private readonly scene: THREE.Scene, private readonly navigation: NavigationWorld,
     private readonly obstacles: readonly ObstacleData[], private readonly residents: readonly RaceResident[],
@@ -459,19 +459,22 @@ export class CareerRaceController {
         .map(r => ({ ...r, spec: { ...r.spec, role: 'deployment' } }))
       const playerMount = this.mounts.activeMount
       const blockers = [...this.residents.filter(r => !r.npc.dead).map(r => ({ x: r.npc.combatPosition.x, z: r.npc.combatPosition.z, radius: 1.5 })),
-        ...(this.parkedBlockers?.() ?? []).filter(b => !playerMount || Math.hypot(b.x - playerMount.group.position.x, b.z - playerMount.group.position.z) > 0.01)]
+        // Only the mount being planned is excluded, by identity; any other animal standing there still blocks.
+        ...(this.parkedBlockers?.(playerMount) ?? [])]
       const stance = (mounted: boolean) => ({ clearanceRadius: mounted ? 1.25 : 0.75, obstacles: this.obstacles, blockers,
         terrainHeight: getTerrainHeight, isValid: (point: { x: number; z: number }) => this.legalSegment(point, point) })
       const plan = planSergeantReturn({
         resolve: mounted => sergeantReturnFromResidents(sergeant, stance(mounted)) ?? resolveTownEntryFallbackPoint(townPlayerEntryPoint(), stance(mounted)),
         restoreMounted: player.mounted && !player.dead,
         hasMount: Boolean(playerMount),
-        // A mount that is already standing clear of the arrival point may stay; otherwise it is parked at a proven spot.
+        // A mount already standing clear may stay; either way the same radius-aware clearance decides.
         findMountPark: point => {
+          const radius = playerMount?.combatRadius
+          const options = { obstacles: this.obstacles, terrainHeight: getTerrainHeight, radius, isValid: (p: { x: number; z: number }) => this.legalSegment(p, p),
+            occupied: [{ x: point.x, z: point.z, radius: 0.75 }, ...blockers] }
           const there = playerMount && !playerMount.dead && !player.mounted ? { x: playerMount.group.position.x, z: playerMount.group.position.z } : null
-          if (there && Math.hypot(there.x - point.x, there.z - point.z) >= 2.4 && this.legalSegment(there, there)) return there
-          return findMountParkingPoint(point, { obstacles: this.obstacles, terrainHeight: getTerrainHeight, isValid: p => this.legalSegment(p, p),
-            occupied: [point, ...blockers] })
+          if (there && isMountParkingClear(there, options)) return there
+          return findMountParkingPoint(point, options)
         },
       })
       if (plan.status === 'blocked') { this.error = '鎮內沒有合法返回位置（含停馬位），請稍後重試。'; return false }
@@ -483,6 +486,7 @@ export class CareerRaceController {
     const next = raceReturnProfile(current, player, target, this.player().maxHp, { dismount, mountDestination: mountTarget })
     if (!next) return false
     if (!this.commit(next)) return false
+    this.error = ''
     this.captainReturning = Boolean(this.captain && !this.captain.npc.dead && !this.captain.npc.hostileToPlayer)
     this.disposeRacer()
     this.session = undefined

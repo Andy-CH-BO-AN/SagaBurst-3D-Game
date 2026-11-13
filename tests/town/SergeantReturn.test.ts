@@ -4,6 +4,7 @@ import {
   CAREER_MISSION_RETURN_KEY,
   consumeCareerMissionReturnFlag,
   findMountParkingPoint,
+  isMountParkingClear,
   markCareerMissionReturnToSergeant,
   resolveNearestLegalPoint,
   planSergeantReturn,
@@ -192,5 +193,16 @@ describe('Sergeant return contract', () => {
     expect(held).not.toBeNull()
     expect(Math.hypot(held.x - home.x, held.z - home.z)).toBeGreaterThanOrEqual(6 + 0.75)
     expect(resolveNearestLegalPoint(home, { isValid: () => false, terrainHeight: () => 0 })).toBeNull()
+  })
+
+  it('sizes mount parking by each occupant radius, so a landed eagle keeps its full body clear', () => {
+    const arrival = { x: 10, z: 10 }, eagle = { x: 13, z: 10, radius: 7 }
+    const spot = findMountParkingPoint(arrival, { terrainHeight: () => 0, occupied: [{ ...arrival, radius: 0.75 }, eagle] })!
+    expect(spot).not.toBeNull()
+    expect(Math.hypot(spot.x - eagle.x, spot.z - eagle.z)).toBeGreaterThanOrEqual(7 + 1.05)
+    // Keeping a mount in place is judged by the very same test as choosing a new spot.
+    expect(isMountParkingClear({ x: 15.4, z: 10 }, { terrainHeight: () => 0, occupied: [eagle] })).toBe(false)
+    expect(isMountParkingClear({ x: 30, z: 10 }, { terrainHeight: () => 0, occupied: [eagle] })).toBe(true)
+    expect(isMountParkingClear({ x: 30, z: 10 }, { terrainHeight: () => 0, occupied: [eagle], radius: 30 })).toBe(false)
   })
 })
