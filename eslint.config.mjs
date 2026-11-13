@@ -360,10 +360,10 @@ const testAuthoring = {
         }
       },
     },
-    'no-vitest-namespace-identical-title': {
+    'no-vitest-identical-title': {
       meta: {
         type: 'problem',
-        docs: { description: 'Supplement Vitest identical-title detection for namespace and mixed registrations' },
+        docs: { description: 'Disallow duplicate Vitest test and suite titles within the same suite' },
         schema: [],
         messages: {
           duplicateTest: 'Test title "{{title}}" is already registered in this suite.',
@@ -385,28 +385,17 @@ const testAuthoring = {
             const suite = enclosingVitestSuite(sourceCode, node)
             let titles = titlesBySuite.get(suite)
             if (!titles) {
-              titles = { tests: new Map(), suites: new Map() }
+              titles = { tests: new Set(), suites: new Set() }
               titlesBySuite.set(suite, titles)
             }
             const kind = SUITE_APIS.has(registration.api) ? 'suites' : 'tests'
-            let sources = titles[kind].get(title)
-            if (!sources) {
-              sources = { named: 0, namespace: 0 }
-              titles[kind].set(title, sources)
-            }
-
-            // The installed Vitest rule handles named imports; this supplements namespace and mixed calls only.
-            const duplicate = registration.namespace
-              ? sources.named + sources.namespace > 0
-              : sources.namespace > 0 && sources.named === 0
-            if (duplicate) {
+            if (titles[kind].has(title)) {
               context.report({
                 node,
                 messageId: kind === 'tests' ? 'duplicateTest' : 'duplicateSuite',
                 data: { title },
               })
-            }
-            sources[registration.namespace ? 'namespace' : 'named']++
+            } else titles[kind].add(title)
           },
         }
       },
@@ -548,8 +537,7 @@ const vitestBlockers = {
   'vitest/no-focused-tests': 'error',
   'vitest/no-disabled-tests': 'error',
   'vitest/no-test-prefixes': 'error',
-  'vitest/no-identical-title': 'error',
-  'test-authoring/no-vitest-namespace-identical-title': 'error',
+  'test-authoring/no-vitest-identical-title': 'error',
 }
 
 const sharedTestRules = {
