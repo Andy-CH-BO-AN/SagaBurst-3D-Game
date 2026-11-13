@@ -57,7 +57,8 @@ interface TownReturnScene {
   readonly player: Pick<Player, 'group'>
   clearCombatShots(): void
   restPlayer(options?: { persistMount?: boolean }): void
-  returnPersonalSquad?(direct: boolean): void
+  /** `rebuild` replaces the Town scene; an in-place return keeps the private squad as it is. */
+  returnPersonalSquad?(rebuild: boolean): void
   /** Rebuild the saved private squad in place (a duel return; the squad never left Town). */
   restorePersonalSquad?(saved: CareerProfile['personalSquadRuntime']): void
   preservesResident?(npc: NPC): boolean
@@ -145,12 +146,13 @@ export class TownMissionSettlement {
     if (inPlace && garrison) for (const pair of garrison.pairs) {
       if (defense || pair.hp <= 0 || pair.mount.hp <= 0) pair.refitAllowed = true
     }
-    // A duel never took the private squad: its saved Town checkpoint is restored unchanged.
-    // Any other same-scene arrival keeps the squad as it is, including one already
-    // dismissed to HR (RESERVE): arrival is not a refit boundary.
-    if (active.kind !== 'duel') next.personalSquadRuntime = intent === 'arrived' ? active.personalSquad : undefined
+    // The private squad hand-off depends on in-place versus rebuilt Town, never on how
+    // the player travelled: any same-scene return (walking or direct) keeps its live
+    // wounds, casualties and mounts, including a squad already dismissed to HR. Only
+    // the rebuilt scene applies the formal HR refit. A duel never took the squad.
+    if (active.kind !== 'duel') next.personalSquadRuntime = inPlace ? active.personalSquad : undefined
     if (!this.profiles.commit(next, { kind: 'mission-return', destination: inPlace ? 'in-place' : 'restart', travel: intent })) return { status: 'save-failed', destination: inPlace ? 'party' : 'restart' }
-    this.town.returnPersonalSquad?.(intent === 'direct')
+    this.town.returnPersonalSquad?.(!inPlace)
     if (inPlace && active.kind === 'duel') this.town.restorePersonalSquad?.(next.personalSquadRuntime)
     if (captainPatrol) this.missions.patrol?.release()
 

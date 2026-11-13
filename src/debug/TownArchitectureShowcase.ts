@@ -11,16 +11,20 @@ import { StaminaBar } from '../ui/StaminaBar'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
 import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
 import { XongkoroVisual } from '../world/XongkoroVisual'
-import { Mount, MountType } from '../world/Mount'
+import { Mount, MountType, felineVariantForMountType, isFelineMountType } from '../world/Mount'
+import { BlackCatVisual } from '../world/BlackCatVisual'
+import { CorgiVisual } from '../world/CorgiVisual'
+import { SnowLeopardVisual } from '../world/SnowLeopardVisual'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import { preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { getTerrainHeight, setObstaclePathQuerySource, type ObstacleData } from '../world/Terrain'
 import { XONGKORO_LANDING, isEagleLandingClear } from '../world/EagleLanding'
 import { isEagleApproachClear } from '../world/EagleApproach'
 import { TOWN_GROUND_SIZE, TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
-import { TOWN_CENTER, TOWN_CITY, TOWN_CITY_ROADS, TOWN_GATES, TOWN_GARRISON_EAGLE_SITES, TOWN_LOCAL_ROADS, TOWN_PLAZA, TOWN_PRIVATE_EAGLE_SITES, townHousing, type TownRoad } from '../town/TownLayout'
+import { TOWN_CENTER, TOWN_CITY, TOWN_CITY_ROADS, TOWN_EAGLE_STATION_SITES, TOWN_GATES, TOWN_GARRISON_EAGLE_SITES, TOWN_LOCAL_ROADS, TOWN_PLAZA, TOWN_PRIVATE_EAGLE_SITES, townHousing, type TownRoad } from '../town/TownLayout'
 import { TOWN_SITES, townAuthoredRoster, stableHorsePositions } from '../town/TownRules'
-import { resolveTownHRLayout } from '../town/TownHRLayout'
+import { resolveTownHRLayout, townHrLocalMuster } from '../town/TownHRLayout'
+import { buildTownGroundSign, townEagleSigns } from '../town/TownGroundSign'
 import { createTownFortifications } from '../town/TownFortifications'
 import { createTownCommandWatchtower } from '../town/TownCommandWatchtower'
 import { TOWN_COMMAND_WATCHTOWER, validateWatchtowerPlacement } from '../town/TownCommandWatchtowerLayout'
@@ -90,7 +94,11 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
     const sun = new THREE.DirectionalLight(0xffecd0, 2.4); sun.position.set(-40, 75, 30); sun.castShadow = true
     sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -150, right: 150, top: 140, bottom: -140, far: 260 }); sun.shadow.bias = -.002
     scene.add(sun); scene.add(sun.target)
+    // The five stalls hold the faction's real stable mounts (cats, corgi, snow leopard, armored horse), as in Town.
+    const stalls = stableHorsePositions(faction)
+    const felines = new Set(stalls.filter(stall => isFelineMountType(stall.type)).map(stall => felineVariantForMountType(stall.type)))
     await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), XongkoroVisual.preload(), preloadPaladinEquipment(), preloadHighTierEquipment(),
+      ...(faction === 'roman' ? [HorseAssetRegistry.preloadArmored(renderer)] : []), BlackCatVisual.preloadVariants(felines), CorgiVisual.preload(), SnowLeopardVisual.preload(),
       preloadArchitectureStatues().then(loaded => { statues = loaded ?? undefined })])
     if (disposed) return
     scene.add(townGround(faction, owned))
@@ -98,8 +106,8 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
     scene.add(townRoads(roads, faction, owned))
     const world = new THREE.Group(); world.name = 'architecture-showcase'; scene.add(world)
     const entries: ShowcaseEntry[] = []
-    const place = (id: string, label: string, kind: CivicBuildingKind, site: { x: number; z: number; yaw: number }) => {
-      const placed = placeArchitecture(kit, kind, site, { statues })
+    const place = (id: string, label: string, kind: CivicBuildingKind, site: { x: number; z: number; yaw: number }, hrMuster?: ReturnType<typeof townHrLocalMuster>) => {
+      const placed = placeArchitecture(kit, kind, site, { statues, hrMuster })
       world.add(placed.root, placed.ruin); obstacles.push(...placed.obstacles, ...placed.supports)
       const saved = { p: placed.root.position.clone(), r: placed.root.rotation.y }
       placed.root.position.set(0, 0, 0); placed.root.rotation.y = 0; placed.root.updateMatrixWorld(true)
@@ -133,7 +141,8 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
       if (leaves) dressTownGateLeaves(kit, leaves.children)
     }
     const hr = resolveTownHRLayout(faction, obstacles, roads)
-    place('hr-center', 'HR 中心', 'hr-center', hr.site)
+    // The same expanded hall as Town: its 30 mounted standby slots come from this HR layout.
+    place('hr-center', 'HR 中心', 'hr-center', hr.site, townHrLocalMuster(hr))
     const plaza = buildTownPlaza(kit, TOWN_PLAZA, { statues }); world.add(plaza.root); obstacles.push(...plaza.obstacles)
     const towerObstacles: ObstacleData[] = []
     const tower = createTownCommandWatchtower(layout, faction, towerObstacles, { ...kit.materials.plain })
@@ -144,20 +153,26 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
     // Eagle fields: painted pads, two shared supply posts, clearance against the built world.
     const pads = [...TOWN_PRIVATE_EAGLE_SITES.map((p, i) => ({ ...p, id: `private-eagle-pad:${i + 1}` })), ...TOWN_GARRISON_EAGLE_SITES.map((p, i) => ({ ...p, id: `garrison-${i + 1}` }))]
     world.add(buildEaglePadMarkings(kit, pads, XONGKORO_LANDING))
-    const stations = [buildEagleStation(kit, { x: -40, z: 32.5, yaw: 0 }), buildEagleStation(kit, { x: -36, z: -8, yaw: 0 })]
+    // Town's station layout: the trainer's private-field post and the garrison post, each with its sign.
+    const stations = TOWN_EAGLE_STATION_SITES.map(site => buildEagleStation(kit, site))
     for (const station of stations) { world.add(station.root); obstacles.push(...station.obstacles) }
-    // Same airspace TownWorld feeds flight checks: colliders plus each building's and gatehouse's full visual bounds.
+    const signBox = new THREE.BoxGeometry(1, 1, 1); owned.push(signBox)
+    const signs = townEagleSigns().map(spec => buildTownGroundSign(spec, { box: signBox, wood: kit.materials.plain.wood, dark: kit.materials.plain.dark, own: resource => owned.push(resource) }))
+    for (const sign of signs) { world.add(sign.root); obstacles.push(...sign.obstacles) }
+    // Same airspace TownWorld feeds flight checks: colliders, each building's airspace bounds and the gatehouses' visual bounds.
     const airspace = [...obstacles.filter(o => !o.walkSurface), { box: towerDressing.airspace, isBarricade: false, projectilePassable: true },
-      ...entries.map(e => ({ box: e.placed.bounds, isBarricade: false })), ...gatehouses.map(root => ({ box: new THREE.Box3().setFromObject(root), isBarricade: false }))]
+      ...[...stations, ...signs].map(part => ({ box: part.airspace, isBarricade: false })),
+      ...entries.flatMap(e => e.placed.airspaceBounds.map(box => ({ box, isBarricade: false }))), ...gatehouses.map(root => ({ box: new THREE.Box3().setFromObject(root), isBarricade: false }))]
     // TownWorld throws on this; surface it here before integration.
     let watchtowerPlacement = 'ok'
-    try { validateWatchtowerPlacement(layout, [...obstacles.filter(o => !towerObstacles.includes(o)), ...entries.map(e => ({ box: e.placed.bounds, isBarricade: false }))], roads) } catch (error) { watchtowerPlacement = String(error) }
+    try { validateWatchtowerPlacement(layout, [...obstacles.filter(o => !towerObstacles.includes(o)), ...entries.flatMap(e => e.placed.airspaceBounds.map(box => ({ box, isBarricade: false })))], roads) } catch (error) { watchtowerPlacement = String(error) }
     const padChecks = pads.map(pad => ({ id: pad.id, landing: isEagleLandingClear(pad, airspace, pads.filter(o => o !== pad), TOWN_PLAYABLE_WORLD_BOUND),
       approach: isEagleApproachClear(pad, airspace, pads.filter(o => o !== pad), TOWN_PLAYABLE_WORLD_BOUND) }))
     // Real stable horses in their five stalls and one parked xongkoro per eagle field.
-    for (const stall of stableHorsePositions()) {
-      const horse = new Mount(scene, MountType.HORSE, stall.x, stall.z, getTerrainHeight(TOWN_SITES.stable.x, TOWN_SITES.stable.z) + .5, stall.variant)
-      horse.visualHold = true; mounts.push(horse)
+    const stable = entries.find(entry => entry.id === 'stable')!.placed
+    for (const stall of stalls) {
+      const mount = new Mount(scene, stall.type, stall.x, stall.z, stable.floorY, stall.variant)
+      mount.group.rotation.y = stall.yaw; mount.visualHold = true; mounts.push(mount)
     }
     for (const pad of [pads[1], pads[5]]) {
       const eagle = new Mount(scene, MountType.XONGKORO, pad.x, pad.z, getTerrainHeight(pad.x, pad.z))

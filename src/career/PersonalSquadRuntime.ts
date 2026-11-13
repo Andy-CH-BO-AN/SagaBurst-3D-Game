@@ -627,9 +627,11 @@ export class PersonalSquadRuntime {
     return clonePersonalMission(this.mission)
   }
 
-  endMission(directReturn: boolean): void {
-    // An in-place return keeps a squad already dismissed to HR: same actors, wounds and casualties.
-    if (directReturn || this.state === 'RESERVE' && !(this.hasHR && this.mission && this.actors.length)) this.cleanup()
+  /** `rebuild` is a scene-replacing return; an in-place return keeps the squad as it is. */
+  endMission(rebuild: boolean): void {
+    // In place, a squad dismissed to HR keeps its checkpoint even when only casualty
+    // records remain (no actors after a reload): nothing refills it from the roster.
+    if (rebuild || this.state === 'RESERVE' && !(this.hasHR && this.mission)) this.cleanup()
     else this.battleWorn = Boolean(this.mission || this.actors.length)
   }
   cleanup(): void { this.disposeActors(); this.mission = undefined; this.battleWorn = false }

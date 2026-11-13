@@ -3,6 +3,7 @@ import { expect, it, vi } from 'vitest'
 import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
 import { returnPersonalMissionToHR, type PersonalSquadMission } from '../../src/career/CareerPersonalSquadMission'
 import { createCareerProfile } from '../../src/career/CareerProfile'
+import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { EaglePadReservations } from '../../src/career/EaglePadReservations'
@@ -525,4 +526,27 @@ it('stands a hire made while the old squad follows at its own HR slot without ch
   expect(restoredOld.assignFollowTarget).toHaveBeenCalledOnce()
   expect(restoredNew.assignFollowTarget).not.toHaveBeenCalled()
   expect(r.runtime.acceptsCommand(restoredNew as unknown as NPC)).toBe(false)
+})
+
+it('keeps an all-casualty HR squad through reload, in-place mission return and another reload without refilling it', () => {
+  const ids = [{ id: 'personal:a' }, { id: 'personal:b' }]
+  const fallen: PersonalSquadMission = { squadId: 'personal', sceneKey: 'town-home', state: 'RESERVE', memberIds: ['personal:a', 'personal:b'],
+    contribution: emptyPersonalContribution(), members: { 'personal:a': { status: 'dead', hp: 0 }, 'personal:b': { status: 'dead', hp: 0 } } }
+  // Reload during the mission: casualties have no actors.
+  const r = standbyHarness(ids, { saved: fallen })
+  r.profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 1, 0, 'qa-fallen')
+  r.runtime.restoreMission(fallen); r.flush(); r.runtime.updateLifecycle()
+  expect([r.actors.length, r.scheduler.pending]).toEqual([0, 0])
+  // In-place settlement clears the mission; the casualty-only checkpoint stays authoritative.
+  delete r.profile.activeMission
+  r.runtime.endMission(false)
+  r.runtime.updateLifecycle(); r.runtime.materializeStandby(); r.flush()
+  expect([r.actors.length, r.scheduler.pending]).toEqual([0, 0])
+  const saved = parsePersonalMission(JSON.parse(JSON.stringify(r.runtime.checkpoint())))!
+  expect(saved.members).toEqual(fallen.members)
+  // Another reload at home: still no revival until an explicit HR refit.
+  const again = standbyHarness(ids, { saved })
+  again.runtime.restoreMission(saved); again.runtime.updateLifecycle(); again.flush()
+  expect([again.actors.length, again.scheduler.pending]).toEqual([0, 0])
+  expect(again.runtime.checkpoint()?.members).toEqual(fallen.members)
 })

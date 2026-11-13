@@ -10,7 +10,8 @@ import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTraining
 import { townStationSpec } from '../../src/town/TownGarrison'
 import { TownGroundStations } from '../../src/town/TownGroundStation'
 import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
-import { TOWN_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_PLAZA, TOWN_WELL } from '../../src/town/TownLayout'
+import { TOWN_CENTER, TOWN_CITY_ROADS, TOWN_EAGLE_STATION_SERVICE_POST, TOWN_EAGLE_STATION_SITES, TOWN_LOCAL_ROADS, TOWN_PLAZA, TOWN_WELL, townRoadIntersectsBox } from '../../src/town/TownLayout'
+import { townEagleSigns } from '../../src/town/TownGroundSign'
 import { townPatrolDeparture, townPatrolRoute } from '../../src/town/TownPatrolRoute'
 import { getTownRampartLayout } from '../../src/town/TownRamparts'
 import { townPatrolRefitPoint, townPlayerEntryPoint, townRoster, withTownCommandSquadRoster } from '../../src/town/TownRules'
@@ -189,6 +190,15 @@ it('keeps final Town population homes, ground stations and fallbacks clear of ra
   const civilians = population.filter(a => a.role === 'civilian')
   expect(civilians.length).toBeGreaterThan(0)
   expect(population.map(a => a.id)).toEqual(expect.arrayContaining(['hr-officer', 'eagle-trainer', 'commander']))
+  // The trainer serves at the private field's supply post: the roster, spawn/return home and
+  // sign all come from the station layout, with the walk-through sign straight in front of him.
+  const [trainingStation] = TOWN_EAGLE_STATION_SITES, trainer = population.find(a => a.id === 'eagle-trainer')!
+  expect(trainer).toMatchObject({ ...architectureLocalToWorld(trainingStation, TOWN_EAGLE_STATION_SERVICE_POST.x, TOWN_EAGLE_STATION_SERVICE_POST.z), yaw: trainingStation.yaw })
+  const signs = townEagleSigns(), trainingSign = signs.find(sign => sign.id === 'eagle-training')!
+  expect(trainingSign.headroom).toBeGreaterThanOrEqual(2.6)
+  expect(Math.abs(trainingSign.x - trainer.x)).toBeLessThan(trainingSign.width / 2 - 1)
+  expect(trainingSign.z - trainer.z).toBeGreaterThan(3)
+  expect(signs.filter(sign => roads.some(road => townRoadIntersectsBox(road, rectangle(sign, sign.width + .5, 1), 1)))).toEqual([])
   let homeGap = Infinity
   for (const civilian of civilians) for (const fallback of fallbacks) homeGap = Math.min(homeGap, Math.hypot(civilian.x - fallback.x, civilian.z - fallback.z))
   expect(homeGap).toBeGreaterThanOrEqual(4.5)

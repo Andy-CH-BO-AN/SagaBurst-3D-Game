@@ -1,7 +1,8 @@
 import { markObstacleTopologyChanged } from '../world/ObstacleTopology'
 import { createTownCommandWatchtower } from './TownCommandWatchtower'
 import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, TOWN_COMMAND_WATCHTOWER, validateWatchtowerPlacement, type CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
-import { resolveTownEagleGarrison, TOWN_EAGLE_GARRISON_NAME, type TownEagleGarrisonLayout } from './TownEagleGarrison'
+import { resolveTownEagleGarrison, type TownEagleGarrisonLayout } from './TownEagleGarrison'
+import { buildTownGroundSign, townEagleSigns } from './TownGroundSign'
 import { resolveTownEagleTrainingGround, type TownEagleTrainingGround } from './TownEagleTrainingGround'
 import { XONGKORO_LANDING } from '../world/EagleLanding'
 import { eagleLandingFootprint, isEagleLandingClear } from '../world/EagleLanding'
@@ -113,8 +114,9 @@ export class TownWorld {
       this.siegeAirspace = new TownSiegeAirspace(this.airspaceObstacles)
       this.siegeDockPassages = new TownDockPassages(this.obstacles, this.siegeAirspace)
     }
-    this.fortifications = createTownFortifications(faction, this.obstacles, { stone: this.stone, wood: this.wood, dark: this.dark, snow: this.snow }, this.siegeDockPassages)
-    this.root.add(this.fortifications.root); this.trackOwned(this.fortifications.root)
+    // Same faction material set as the architecture showcase; the kit owns and disposes it.
+    this.fortifications = createTownFortifications(faction, this.obstacles, this.architecture.materials.plain, this.siegeDockPassages)
+    this.root.add(this.fortifications.root); this.trackOwned(this.fortifications.root, false)
     this.batch(this.fortifications.wallRoot)
     for (const child of this.fortifications.wallRoot.children) if (child instanceof THREE.Group) this.batch(child)
     this.dressFortifications()
@@ -156,10 +158,8 @@ export class TownWorld {
     this.eagleGarrison = resolveTownEagleGarrison(this.eagleTraining)
     this.eagleTrainingGround()
     validateWatchtowerPlacement(this.commandWatchtower, [...this.obstacles, ...this.airspaceObstacles], this.roads)
-    const watchtower = createTownCommandWatchtower(this.commandWatchtower, faction, this.obstacles, {
-      stone: this.stone, wood: this.wood, dark: this.dark, plaster: this.plaster, snow: this.snow, accent: this.roofMat,
-    })
-    this.root.add(watchtower); this.trackOwned(watchtower)
+    const watchtower = createTownCommandWatchtower(this.commandWatchtower, faction, this.obstacles, { ...this.architecture.materials.plain })
+    this.root.add(watchtower); this.trackOwned(watchtower, false)
     // Faction cladding and pavilion roof; ramps, landings, rails and their collision are unchanged.
     const towerDressing = dressCommandWatchtower(this.architecture, this.commandWatchtower, { x: TOWN_COMMAND_WATCHTOWER.x, z: TOWN_COMMAND_WATCHTOWER.z })
     this.root.add(towerDressing.root)
@@ -180,20 +180,25 @@ export class TownWorld {
   }
 
   private eagleTrainingGround(): void {
-    const { trainer } = this.eagleTraining
-    // Leave the first landing pad and the nearby diagonal road clear after turning the frame.
-    const x = trainer.x - 5, z = trainer.z + 6
-    const yaw = Math.atan2(this.hr.officer.x - x, this.hr.officer.z - z)
-    // Clear the 2.3m on-foot NPC body (and 1.9m Player) with a little headroom.
-    this.groundedTrainingSign(['XONGKORO TRAINING', '老鷹訓練場 · E 交談'], x, z, 10, yaw, 2.6)
     // Painted faction landing marks follow the existing terrain: no floor, collision or airspace.
     this.root.add(buildEaglePadMarkings(this.architecture, [...this.eagleTraining.pads, ...this.eagleGarrison.pads], XONGKORO_LANDING))
-    this.groundedTrainingSign(TOWN_EAGLE_GARRISON_NAME.split(' · '), -35, -8, 12)
-    // Shared low supply posts; `validateAirfield` re-checks every pad against them.
+    // Supply posts (the trainer serves at the private one) and their signs share one station layout;
+    // `validateAirfield` re-checks every pad against both.
     for (const site of TOWN_EAGLE_STATION_SITES) {
       const station = buildEagleStation(this.architecture, site)
       this.root.add(station.root); this.obstacles.push(...station.obstacles)
+      this.airspaceObstacles.push({ box: station.airspace, isBarricade: false })
     }
+    for (const spec of townEagleSigns()) {
+      const sign = buildTownGroundSign(spec, { box: this.box, wood: this.wood, dark: this.dark, own: resource => this.own(resource) })
+      this.root.add(sign.root); this.obstacles.push(...sign.obstacles); this.batch(sign.root)
+      this.airspaceObstacles.push({ box: sign.airspace, isBarricade: false })
+    }
+  }
+  private own(resource: THREE.BufferGeometry | THREE.Material | THREE.Texture): void {
+    if (resource instanceof THREE.BufferGeometry) this.geometries.add(resource)
+    else if (resource instanceof THREE.Material) this.materials.add(resource)
+    else this.textures.add(resource)
   }
 
   /** PR1 gatehouses, leaf detail and wall dressing around the existing gates and curtain walls (controllers, HP and ramparts unchanged). */
@@ -257,43 +262,12 @@ export class TownWorld {
     const y = getTerrainHeight(x, z)
     this.obstacles.push({ box: new THREE.Box3(new THREE.Vector3(x - w / 2, y - 2, z - d / 2), new THREE.Vector3(x + w / 2, y + h, z + d / 2)), isBarricade: false })
   }
-  private trackOwned(root: THREE.Object3D): void {
-    root.traverse(o => { if (o instanceof THREE.Mesh) { this.geometries.add(o.geometry); for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (!m.name.startsWith('procedural-')) this.materials.add(m) } })
+  private trackOwned(root: THREE.Object3D, materials = true): void {
+    root.traverse(o => { if (o instanceof THREE.Mesh) { this.geometries.add(o.geometry); if (materials) for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (!m.name.startsWith('procedural-')) this.materials.add(m) } })
   }
   private campfire(x: number, z: number): void {
     const fire = createCampfireVisual(Math.round(x * 73 + z * 31)); fire.position.set(x, getTerrainHeight(x, z), z)
     this.trackOwned(fire); this.root.add(fire); this.solid(x, z, 1.2, .55, 1.2)
-  }
-  private groundedTrainingSign(lines: readonly string[], x: number, z: number, width: number, yaw = 0, minimumHeadroom = 0): void {
-    const root = new THREE.Group(), ground = getTerrainHeight(x, z)
-    root.position.set(x, ground, z); root.rotation.y = yaw; this.root.add(root)
-    const halfWidth = width / 2, cos = Math.cos(yaw), sin = Math.sin(yaw)
-    const point = (side: number, front = 0) => ({ x: x + cos * side + sin * front, z: z - sin * side + cos * front })
-    const posts = [-1, 1].map(side => {
-      const position = point(side * halfWidth)
-      return { side, ...position, ground: getTerrainHeight(position.x, position.z) }
-    })
-    const collisionSpan = .25 * (Math.abs(cos) + Math.abs(sin))
-    let top = Math.max(ground, ...posts.map(post => post.ground)) + 3.6
-    if (minimumHeadroom > 0) {
-      // Include the front-mounted board and a walking body's depth, not just its two feet.
-      let passageGround = ground
-      for (let side = -halfWidth; side <= halfWidth; side += .5) for (const front of [-.6, 0, .3, .9]) {
-        const sample = point(side, front)
-        passageGround = Math.max(passageGround, getTerrainHeight(sample.x, sample.z))
-      }
-      top = Math.max(top, passageGround + minimumHeadroom + .6 + (width / 6.4 + .15) / 2)
-    }
-    for (const post of posts) {
-      const { side, ground: postGround } = post, height = top - postGround
-      this.cube(root, side * halfWidth, postGround - ground + height / 2, 0, .2, height, .2, this.wood)
-      this.solid(post.x, post.z, collisionSpan, height, collisionSpan)
-    }
-    this.cube(root, 0, top - ground - .2, 0, width + .4, .2, .25, this.wood)
-    // The label faces local +Z; mount its .16m backing against the timber's front face.
-    this.sign(root, lines.join('\n'), 0, top - ground - .6, .25 / 2 + .16, width, false)
-    this.batch(root)
-    this.airspaceObstacles.push({ box: new THREE.Box3().setFromObject(root), isBarricade: false })
   }
   /** Batch static siblings per material, retaining damageable roofs and shader effects as separate roots. */
   private batch(parent: THREE.Group): void {
@@ -439,25 +413,7 @@ export class TownWorld {
     this.targets.push(target); return target
   }
   finalizeTrainingTargets(): void { this.batch(this.root) }
-  private textTexture(text: string): THREE.CanvasTexture {
-    const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 160
-    const ctx = canvas.getContext('2d')!
-    ctx.fillStyle = '#34281e'; ctx.fillRect(0, 0, 1024, 160)
-    for (let y = 8; y < 160; y += 8) { ctx.strokeStyle = y % 16 ? '#4b3825' : '#291d13'; ctx.beginPath(); ctx.moveTo(0, y); ctx.bezierCurveTo(300, y - 4, 650, y + 5, 1024, y); ctx.stroke() }
-    ctx.strokeStyle = '#917044'; ctx.lineWidth = 6; ctx.strokeRect(8, 8, 1008, 144)
-    for (const x of [28, 996]) for (const y of [28, 132]) { ctx.fillStyle = '#201b17'; ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2); ctx.fill() }
-    const lines = text.split('\n')
-    ctx.fillStyle = '#f3dfab'; ctx.font = `bold ${lines.length > 1 ? 48 : 78}px Georgia, serif`; ctx.textAlign = 'center'
-    lines.forEach((line, index) => ctx.fillText(line, 512, lines.length > 1 ? 65 + index * 62 : 112, 940))
-    const map = new THREE.CanvasTexture(canvas); map.colorSpace = THREE.SRGBColorSpace; this.textures.add(map); return map
-  }
-  private sign(parent: THREE.Object3D, text: string, x: number, y: number, z: number, width: number, hanging = true): void {
-    this.cube(parent, x, y, z - .08, width + .18, width / 6.4 + .15, .16, this.dark)
-    if (hanging) for (const side of [-1, 1]) this.cube(parent, x + side * width * .36, y + width / 10, z - .08, .06, .7, .06, this.dark)
-    const material = new THREE.MeshBasicMaterial({ map: this.textTexture(text) }); this.materials.add(material)
-    const sign = new THREE.Mesh(this.geo(new THREE.PlaneGeometry(width, width / 6.4)), material)
-    sign.name = 'town-shop-sign'; sign.position.set(x, y, z + .02); parent.add(sign)
-  }
+
   private markerMaterial?: THREE.SpriteMaterial
   addServiceMarker(parent: THREE.Object3D, height: number): THREE.Sprite {
     if (!this.markerMaterial) {

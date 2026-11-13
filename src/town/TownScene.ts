@@ -642,7 +642,7 @@ export class TownScene {
         get player() { return town.player },
         clearCombatShots: () => this.clearMissionCombatShots(),
         restPlayer: options => this.restPlayerInTown(options),
-        returnPersonalSquad: direct => this.personalSquad?.endMission(direct),
+        returnPersonalSquad: rebuild => this.personalSquad?.endMission(rebuild),
         restorePersonalSquad: saved => this.restorePersonalSquad(saved),
         restart: p => { this.missionResultOpen = false; const reason = this.player.dead ? 'death-return' : undefined; this.dispose(); this.onRestart(p, reason) },
       },

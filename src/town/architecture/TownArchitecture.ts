@@ -771,8 +771,9 @@ export function buildEaglePadMarkings(kit: ArchitectureKit, pads: readonly { x: 
 /**
  * Shared low supply post for eagle fields (open canvas/shingle shed, harness
  * rack with saddles, crates, two banner standards). Footprint 8×4m, under 3.4m.
+ * The service post stands in its open front (`TOWN_EAGLE_STATION_SERVICE_POST`).
  */
-export function buildEagleStation(kit: ArchitectureKit, site: ArchitectureSite, terrain: TerrainSampler = getTerrainHeight): ArchitectureDressing {
+export function buildEagleStation(kit: ArchitectureKit, site: ArchitectureSite, terrain: TerrainSampler = getTerrainHeight): ArchitectureDressing & { readonly airspace: THREE.Box3 } {
   const roman = kit.faction === 'roman', groundY = terrain(site.x, site.z)
   const root = new THREE.Group(); root.name = `architecture-${kit.faction}-eagle-station`
   root.position.set(site.x, groundY, site.z); root.rotation.y = site.yaw
@@ -804,6 +805,18 @@ export function buildEagleStation(kit: ArchitectureKit, site: ArchitectureSite, 
   for (const x of [-3.6, 3.9]) s.bannerPole(x, ground(x, 1.6), 1.6, 0, 3.4, roman ? 'metal' : 'wood')
   s.build(root, root.name)
   root.updateMatrixWorld(true)
-  const box = new THREE.Box3().setFromObject(root)
-  return { root, obstacles: [{ box, isBarricade: false }] }
+  // Only the parts that actually stand on the ground block; the open front, the
+  // service post at the opening and the space under the roof stay walkable.
+  const rotation = new THREE.Matrix4().makeRotationY(site.yaw), offset = new THREE.Vector3(site.x, groundY, site.z)
+  const part = (x0: number, z0: number, x1: number, z1: number, top: number): ObstacleData =>
+    ({ box: new THREE.Box3(new THREE.Vector3(x0, -2, z0), new THREE.Vector3(x1, top, z1)).applyMatrix4(rotation).translate(offset), isBarricade: false })
+  const obstacles = [
+    ...[[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.2], [1.6, 1.2]].map(([x, z]) => part(x - .2, z - .2, x + .2, z + .2, z < 0 ? 2.9 : 2.5)),
+    part(-1.7, -1.8, 1.7, -1.5, roman ? 1.0 : 1.4), // back wall
+    part(-1.2, -1.0, 1.2, -.2, .9), // counter
+    part(-1.35, .05, -.65, .75, .7), part(.75, .15, 1.45, .85, .8), // crate, barrel
+    part(rx - .25, -1.55, rx + .25, 1.55, 1.55), // harness rack
+    ...[-3.6, 3.9].map(x => part(x - .15, 1.45, x + .15, 1.75, 3.4)), // banner standards
+  ]
+  return { root, obstacles, airspace: new THREE.Box3().setFromObject(root) }
 }

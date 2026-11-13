@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import type { EaglePad } from '../career/EaglePadReservations'
 import type { ObstacleData } from '../world/Terrain'
-import { TOWN_CITY, TOWN_PRIVATE_EAGLE_SITES, townRoadIntersectsBox, type TownRoad } from './TownLayout'
+import { TOWN_CITY, TOWN_EAGLE_STATION_SERVICE_POST, TOWN_EAGLE_STATION_SITES, TOWN_PRIVATE_EAGLE_SITES, townRoadIntersectsBox, type TownRoad } from './TownLayout'
+import { architectureLocalToWorld } from './architecture/ArchitectureSpecs'
 import { TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
 import type { TownActorSpec } from './TownRules'
 import type { TownHRLayout } from './TownHRLayout'
@@ -28,9 +29,12 @@ export function resolveTownEagleTrainingGround(obstacles: readonly ObstacleData[
     }
   }
   const site = pads[0]
-  // Keep the service NPC and sign at their existing clear positions beside HR.
-  const trainer = { x: site.x - 5, z: site.z - 18, yaw: 0 }
-  return { site, trainer, pads }
+  return { site, trainer: townEagleTrainerPost(), pads }
+}
+
+/** The trainer serves from the private field's supply post: one source for roster, spawn/return and sign. */
+export function townEagleTrainerPost(station = TOWN_EAGLE_STATION_SITES[0]): { x: number; z: number; yaw: number } {
+  return { ...architectureLocalToWorld(station, TOWN_EAGLE_STATION_SERVICE_POST.x, TOWN_EAGLE_STATION_SERVICE_POST.z), yaw: station.yaw }
 }
 
 export function eagleTrainerSpec(layout: TownEagleTrainingGround): TownActorSpec {

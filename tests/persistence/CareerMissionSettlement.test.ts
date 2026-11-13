@@ -658,6 +658,20 @@ describe('Town mission settlement transactions', () => {
     expect(h.town.returnPersonalSquad).toHaveBeenCalledExactlyOnceWith(false)
   })
 
+  it('keeps private wounds on a direct same-scene Veteran return: in place, not travel, decides the refit', () => {
+    const h = fixture('veteran-field', true), profile = h.read()
+    profile.personalSquad = { members: [{ id: 'personal:wounded', type: 'soldier' }, { id: 'personal:dead', type: 'soldier' }] }
+    profile.activeMission!.personalSquad = snapshotPersonalMission(profile)!
+    profile.activeMission!.personalSquad!.state = 'ACTIVE'
+    profile.activeMission!.personalSquad!.members['personal:wounded'] = { status: 'deployed', hp: 9, ammo: 0 }
+    profile.activeMission!.personalSquad!.members['personal:dead'] = { status: 'dead', hp: 0 }
+    expect(h.settlement.returnToTown('direct')).toMatchObject({ status: 'returned' })
+    expect(h.store.loadChecked().profile!.personalSquadRuntime?.members).toMatchObject({
+      'personal:wounded': { status: 'deployed', hp: 9, ammo: 0 }, 'personal:dead': { status: 'dead', hp: 0 } })
+    expect(h.town.returnPersonalSquad).toHaveBeenCalledExactlyOnceWith(false)
+    expect(h.town.restart).not.toHaveBeenCalled()
+  })
+
   it('commits a grounded Captain return before resetting the airborne player and releasing the patrol once', () => {
     const h = fixture('captain-patrol-command', true)
     h.read().playerAerialState = { sceneKey: 'town-home', hp: 100, dead: false, position: { x: 50, y: 80, z: 70, yaw: 0 },

@@ -37,6 +37,8 @@ export const TOWN_GARRISON_EAGLE_SITES = [
 ]
 /** Low eagle-field supply posts (8×4m, under 3.4m): beside the private pads, behind the garrison sign. */
 export const TOWN_EAGLE_STATION_SITES = [{ x: -40, z: 32.5, yaw: 0 }, { x: -35, z: -12.5, yaw: 0 }] as const
+/** Station-local service post in the open front, facing out (+Z) toward visitors. */
+export const TOWN_EAGLE_STATION_SERVICE_POST = { x: 0, z: 1.9 } as const
 export const TOWN_HR_REGION = { minX: -94, maxX: -73, minZ: 18, maxZ: 35, yaw: 0 } as const
 export interface TownRoad { ax: number; az: number; bx: number; bz: number; width: number }
 /** Exact road rectangle, including the caller's clearance. */
