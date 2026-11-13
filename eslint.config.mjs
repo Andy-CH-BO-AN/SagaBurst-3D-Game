@@ -191,7 +191,7 @@ function enclosingNodeTestSuite(sourceCode, node) {
 }
 
 const VITEST_CHAIN_METHODS = new Set([
-  'each', 'concurrent', 'sequential', 'fails', 'only', 'skip', 'todo', 'runIf', 'skipIf',
+  'each', 'for', 'concurrent', 'sequential', 'fails', 'only', 'skip', 'todo', 'runIf', 'skipIf',
 ])
 
 function registrationChain(expression) {
@@ -218,7 +218,7 @@ function registrationApi(sourceCode, expression) {
     const api = binding.namespace ? members.shift() : binding.imported
     if (!TEST_APIS.has(api) && !SUITE_APIS.has(api)) return null
     return members.every(method => VITEST_CHAIN_METHODS.has(method))
-      ? { api, framework: 'vitest', modifiers: members }
+      ? { api, framework: 'vitest', modifiers: members, namespace: binding.namespace }
       : null
   }
   if (binding) return null
@@ -228,7 +228,7 @@ function registrationApi(sourceCode, expression) {
   if (Object.hasOwn(vitest.environments.env.globals, root.name) &&
       (TEST_APIS.has(root.name) || SUITE_APIS.has(root.name))) {
     return members.every(method => VITEST_CHAIN_METHODS.has(method))
-      ? { api: root.name, framework: 'vitest', modifiers: members }
+      ? { api: root.name, framework: 'vitest', modifiers: members, namespace: false }
       : null
   }
   return null
@@ -269,10 +269,19 @@ function usesConditionalTestMethod(sourceCode, node) {
 
 function isRegistrationWrapperCall(sourceCode, node) {
   const callee = unwrapExpression(node.callee)
-  if (callee.type !== 'MemberExpression' || !['each', 'runIf', 'skipIf'].includes(staticMemberName(callee))) {
+  if (callee.type !== 'MemberExpression' || !['each', 'for', 'runIf', 'skipIf'].includes(staticMemberName(callee))) {
     return false
   }
   return registrationApi(sourceCode, callee.object) !== null
+}
+
+function enclosingVitestSuite(sourceCode, node) {
+  for (let current = node.parent; current; current = current.parent) {
+    if (current.type !== 'CallExpression' || isRegistrationWrapperCall(sourceCode, current)) continue
+    const registration = registrationApi(sourceCode, current.callee)
+    if (registration?.framework === 'vitest' && SUITE_APIS.has(registration.api)) return current
+  }
+  return sourceCode.ast
 }
 
 function isFocusedCallHandledByVitestPlugin(node) {
@@ -329,6 +338,7 @@ const testAuthoring = {
         schema: [],
         messages: {
           focused: 'Do not focus a Vitest test with only; keep the full test suite runnable.',
+          disabled: 'Do not skip a Vitest test or suite; remove it or make it runnable.',
           todo: 'Do not leave a Vitest test marked todo; implement or remove it.',
         },
       },
@@ -341,9 +351,62 @@ const testAuthoring = {
             if (registration?.framework !== 'vitest') return
             if (registration.modifiers.includes('todo')) {
               context.report({ node, messageId: 'todo' })
+            } else if (registration.namespace && registration.modifiers.includes('skip')) {
+              context.report({ node, messageId: 'disabled' })
             } else if (registration.modifiers.includes('only') && !isFocusedCallHandledByVitestPlugin(node)) {
               context.report({ node, messageId: 'focused' })
             }
+          },
+        }
+      },
+    },
+    'no-vitest-namespace-identical-title': {
+      meta: {
+        type: 'problem',
+        docs: { description: 'Supplement Vitest identical-title detection for namespace and mixed registrations' },
+        schema: [],
+        messages: {
+          duplicateTest: 'Test title "{{title}}" is already registered in this suite.',
+          duplicateSuite: 'Suite title "{{title}}" is already registered in this suite.',
+        },
+      },
+      create(context) {
+        const sourceCode = context.sourceCode
+        const titlesBySuite = new Map()
+        return {
+          CallExpression(node) {
+            if (isRegistrationWrapperCall(sourceCode, node)) return
+            const registration = registrationApi(sourceCode, node.callee)
+            if (registration?.framework !== 'vitest' ||
+                registration.modifiers.some(method => method === 'each' || method === 'for')) return
+            const title = literalTestTitle(node.arguments[0])
+            if (title === null) return
+
+            const suite = enclosingVitestSuite(sourceCode, node)
+            let titles = titlesBySuite.get(suite)
+            if (!titles) {
+              titles = { tests: new Map(), suites: new Map() }
+              titlesBySuite.set(suite, titles)
+            }
+            const kind = SUITE_APIS.has(registration.api) ? 'suites' : 'tests'
+            let sources = titles[kind].get(title)
+            if (!sources) {
+              sources = { named: 0, namespace: 0 }
+              titles[kind].set(title, sources)
+            }
+
+            // The installed Vitest rule handles named imports; this supplements namespace and mixed calls only.
+            const duplicate = registration.namespace
+              ? sources.named + sources.namespace > 0
+              : sources.namespace > 0 && sources.named === 0
+            if (duplicate) {
+              context.report({
+                node,
+                messageId: kind === 'tests' ? 'duplicateTest' : 'duplicateSuite',
+                data: { title },
+              })
+            }
+            sources[registration.namespace ? 'namespace' : 'named']++
           },
         }
       },
@@ -486,6 +549,7 @@ const vitestBlockers = {
   'vitest/no-disabled-tests': 'error',
   'vitest/no-test-prefixes': 'error',
   'vitest/no-identical-title': 'error',
+  'test-authoring/no-vitest-namespace-identical-title': 'error',
 }
 
 const sharedTestRules = {
