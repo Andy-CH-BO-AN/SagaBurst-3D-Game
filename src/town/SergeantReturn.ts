@@ -136,3 +136,27 @@ export function sergeantReturnFromResidents(
     : sergeant.spec.yaw ?? 0
   return resolveSergeantReturnPoint({ x, z, yaw }, options)
 }
+
+const FALLBACK_OFFSETS = [0, 4, -4, 8, -8] as const
+
+/**
+ * Backup return point around the ordinary Town entry. It is checked with the same
+ * final-state (walking or mounted) clearance as the Sergeant point, so a blocked
+ * Sergeant never degrades into an unchecked position.
+ */
+export function resolveTownEntryFallbackPoint(
+  home: SergeantPose,
+  options: SergeantReturnOptions = {},
+): SergeantReturnPoint | null {
+  const terrainHeight = options.terrainHeight ?? getTerrainHeight
+  for (const dx of FALLBACK_OFFSETS) {
+    for (const dz of FALLBACK_OFFSETS) {
+      const x = home.x + dx
+      const z = home.z + dz
+      const y = terrainHeight(x, z)
+      if (!isCandidateClear(x, z, y, { x: Number.NaN, z: Number.NaN }, options)) continue
+      return { x, y, z, yaw: home.yaw ?? 0 }
+    }
+  }
+  return null
+}

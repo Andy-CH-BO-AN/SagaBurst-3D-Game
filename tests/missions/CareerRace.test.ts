@@ -548,4 +548,42 @@ describe('Race return and deferred native Town outcomes', () => {
     expect(Math.hypot(settledPos.x - sergeantSpec.x, settledPos.z - sergeantSpec.z)).toBeLessThanOrEqual(4.1)
     expect(Math.hypot(settledPos.x - captainSpec.x, settledPos.z - captainSpec.z)).toBeGreaterThan(10)
   })
+
+  it('dismounts cleanly at Sergeant when only walking Sergeant placement is safe', () => {
+    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
+    const p = profile()
+    p.racePlayerState = {
+      actorId: 'player', mountId: 'horse',
+      position: { x: 18, z: -24, y: 1.5, yaw: 1.2 },
+      mountPosition: { x: 18, z: -24, y: 1.5, yaw: 1.2 },
+      hp: 84, mountHp: 65, stamina: 72, mounted: true, dead: false, checkpoint: 0,
+    }
+    const playerPos = new Vector3(60, 0.9, -5.5)
+    const mountPos = new Vector3(0, 0, 0)
+    const activeMount = { group: { position: mountPos, rotation: { y: 0 } }, dead: false }
+    const mountVehicle = vi.fn()
+    const dismountFromMount = vi.fn()
+    const playerDouble = {
+      group: { position: playerPos, rotation: { y: Math.PI } },
+      combatPosition: playerPos,
+      facingYaw: Math.PI,
+      faceDirection: vi.fn(), syncMountTransform: vi.fn(), mountVehicle, dismountFromMount,
+      setStamina: vi.fn(), setHp: vi.fn(),
+      currentMount: null, dead: false, hp: 100, maxHp: 100, staminaValue: 100,
+    }
+    Object.assign(controller, {
+      session: undefined,
+      obstacles: [],
+      read: () => p,
+      player: () => playerDouble,
+      mounts: { restoreRaceMount: vi.fn(), activeMount },
+    })
+
+    controller.restorePlayer({ preservePlacement: true, dismount: true })
+    expect(mountVehicle).not.toHaveBeenCalled()
+    expect(playerDouble.currentMount).toBeNull()
+    expect(playerPos.x).toBe(60)
+    expect(playerPos.z).toBe(-5.5)
+    expect(Math.hypot(mountPos.x - playerPos.x, mountPos.z - playerPos.z)).toBeGreaterThan(1.5)
+  })
 })

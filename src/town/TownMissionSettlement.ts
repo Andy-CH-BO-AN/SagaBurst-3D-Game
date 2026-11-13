@@ -206,11 +206,14 @@ export class TownMissionSettlement {
       }
     }
     if (completed) this.town.applyResidentReturn?.()
-    const entry = this.town.resolveSergeantReturnPoint?.() ?? sergeantReturnFromResidents(this.town.residents) ?? townPlayerEntryPoint()
-    const entryY = getTerrainHeight(entry.x, entry.z) + .9
     this.town.restPlayer({ persistMount: false })
-    if ((active.kind === 'cavalry-sweep' || veteranField || active.kind === 'captain-patrol-command') && (intent === 'direct' || active.phase !== 'RETURNING')) {
-      this.town.player.group.position.set(entry.x, entryY, entry.z)
+    // The scene resolver checks the final (now walking) stance; null leaves the player at the legal
+    // spot they already stand on instead of teleporting to an unchecked fallback.
+    const resolver = this.town.resolveSergeantReturnPoint
+    const entry = resolver ? resolver.call(this.town) : sergeantReturnFromResidents(this.town.residents) ?? townPlayerEntryPoint()
+    if (entry && (active.kind === 'cavalry-sweep' || veteranField || active.kind === 'captain-patrol-command')) {
+      // Captain I walk-back (phase RETURNING) also ends in front of the Sergeant once saved.
+      this.town.player.group.position.set(entry.x, getTerrainHeight(entry.x, entry.z) + .9, entry.z)
       this.town.player.group.rotation.y = entry.yaw
       this.town.player.faceDirection?.(Math.sin(entry.yaw), Math.cos(entry.yaw))
       this.town.orbit?.setYaw(entry.yaw + Math.PI)

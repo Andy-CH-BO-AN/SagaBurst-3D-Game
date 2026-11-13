@@ -699,4 +699,35 @@ describe('Town mission settlement transactions', () => {
     expect(hFail.read().mountArmor).toEqual({ 'armored-horse': 0 })
     expect(failMounts.checkpoint()?.armorImpact).toEqual({ 'armored-horse': 0 })
   })
+
+  it('places a completed Captain I walk-back (RETURNING) in front of the Sergeant only after the save succeeds', () => {
+    const h = fixture('captain-patrol-command', true)
+    const entry = { x: 60, y: 4, z: 1.5, yaw: Math.PI }
+    Object.assign(h.town, { resolveSergeantReturnPoint: vi.fn(() => entry) })
+    expect(h.read().activeMission!.phase).toBe('RETURNING')
+    h.storage.writable = false
+    expect(h.settlement.returnToTown('arrived').status).toBe('save-failed')
+    expect(h.player.group.position.x).toBe(50)
+    h.storage.writable = true
+    expect(h.settlement.returnToTown('arrived').status).toBe('returned')
+    expect(h.player.group.position.x).toBe(entry.x)
+    expect(h.player.group.position.z).toBe(entry.z)
+    expect(h.player.group.position.y).toBeCloseTo(getTerrainHeight(entry.x, entry.z) + .9)
+    expect(h.player.group.rotation.y).toBe(entry.yaw)
+  })
+
+  it('keeps the player on the current legal spot when no Sergeant or backup point is legal', () => {
+    const settled = fixture('captain-patrol-command', true)
+    Object.assign(settled.town, { resolveSergeantReturnPoint: vi.fn(() => null) })
+    expect(settled.settlement.returnToTown('arrived').status).toBe('returned')
+    expect(settled.player.group.position.toArray()).toEqual([50, 80, 70])
+
+    const grounded = fixture('veteran-field', true)
+    grounded.player.hp = 0; grounded.player.dead = true
+    grounded.runtime.resolveSergeantReturnPoint = vi.fn(() => null)
+    Object.assign(grounded.town, { resolveSergeantReturnPoint: grounded.runtime.resolveSergeantReturnPoint })
+    expect(grounded.settlement.returnToTown('direct').status).toBe('returned')
+    expect(grounded.player.resetForScene).toHaveBeenCalledWith(50, 80, 70)
+    expect(grounded.player.group.position.toArray()).toEqual([50, 80, 70])
+  })
 })

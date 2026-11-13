@@ -10,6 +10,8 @@ import { COMMANDER_DECAPITATION_ID, COMMANDER_SKY_RAID_ID } from '../../src/care
 import { townCaptainProfile } from '../../src/town/TownRules'
 import { VETERAN_MISSION_IDS, acceptVeteranMission, getVeteranMissionDefinition } from '../../src/career/VeteranMission'
 import {
+  FIELD_SWEEP_CHARGE_DISTANCE,
+  FIELD_SWEEP_DETECTION_RANGE,
   MIGRATED_CAREER_FIELD_TEMPLATE_IDS,
   careerFieldBattleHeroAssetIds,
   careerFieldBattleMapId,
@@ -341,5 +343,69 @@ describe('Phase 2B migrated career field battles', () => {
       armorImpact: 18,
       unavailable: false,
     })
+  })
+
+  test('legacy Town Captain II save keeps roster resources but redeploys at the field spawn', () => {
+    const captain = createCareerProfile('roman')
+    captain.rank = 'captain'
+    captain.ownedMounts = ['horse']
+    captain.selectedMountId = 'horse'
+    const accepted = acceptCaptainCavalryCommand(captain, 'cap-legacy', ['captain', ...Array.from({ length: 58 }, () => undefined)])!
+    const active = accepted.activeMission!
+    expect(active.felineBattle).toBeUndefined()
+    const [, deployedId, deadId, untouchedId] = active.officialSquad!.actorIds
+    const townPoint = { x: 999, y: 7, z: 998, yaw: 2 }
+    active.officialSquad!.members = {
+      [deployedId]: {
+        status: 'deployed', hp: 80, ammo: 12, shieldImpact: 6, order: 'follow', position: townPoint,
+        formation: { commandId: 4, position: townPoint, reached: true },
+        mount: { hp: 50, armorImpactRemaining: 9, mounted: true, position: townPoint },
+      },
+      [deadId]: { status: 'dead', hp: 0, position: townPoint },
+    }
+    const deployment = createCareerFieldDeployment(accepted)
+    const seed = createCareerFieldCheckpointSeed(active, deployment.plan, {
+      hp: 130, maxHp: 130, stamina: 100, x: 0, y: 0, z: 0, yaw: 0, ammo: 0, shieldImpact: 0,
+      stats: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
+    }, () => 0)
+    const spec = deployment.plan.npcSpecs.find(entry => entry.actorId === deployedId)!
+    const deployed = seed.actors[deployedId]
+    expect(Object.keys(seed.actors)).toHaveLength(deployment.plan.npcSpecs.length)
+    expect(deployed).toMatchObject({ status: 'reserve', hp: 80, ammo: 12, shieldImpact: 6, order: 'follow' })
+    expect(deployed.position).toMatchObject({ x: spec.x, z: spec.z })
+    expect(deployed.position!.x).not.toBe(townPoint.x)
+    expect(deployed.formation).toBeUndefined()
+    expect(deployed.mount).toMatchObject({ hp: 50, armorImpactRemaining: 9, mounted: true })
+    expect(deployed.mount!.position).toMatchObject({ x: spec.x, z: spec.z })
+    expect(seed.actors[deadId]).toMatchObject({ status: 'dead', hp: 0 })
+    expect(seed.actors[untouchedId].status).toBe('reserve')
+    expect(active.officialSquad!.actorIds).toHaveLength(29)
+  })
+
+  test('first field checkpoint keeps the skill-adjusted HP pool and clamps legacy HP against it', () => {
+    const base = {
+      stamina: 100, x: 0, y: 0, z: 0, yaw: 0, ammo: 0, shieldImpact: 0,
+      stats: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
+    }
+    const fresh = createBanditActive('recruit-bandits-01')
+    const freshSeed = createCareerFieldCheckpointSeed(fresh, createCareerFieldDeployment({ ...createCareerProfile('roman'), activeMission: fresh }).plan,
+      { ...base, hp: 130, maxHp: 130 }, () => 0)
+    expect(freshSeed.player.hp).toBe(130)
+
+    const legacy = createBanditActive('recruit-bandits-01')
+    legacy.playerHp = 115
+    const legacySeed = createCareerFieldCheckpointSeed(legacy, createCareerFieldDeployment({ ...createCareerProfile('roman'), activeMission: legacy }).plan,
+      { ...base, hp: 130, maxHp: 130 }, () => 0)
+    expect(legacySeed.player.hp).toBe(115)
+  })
+
+  test('keeps 80m sweep camp alert distinct from 60m friendly charge distance and preserves one-shot alert state', () => {
+    expect(FIELD_SWEEP_DETECTION_RANGE).toBe(80)
+    expect(FIELD_SWEEP_CHARGE_DISTANCE).toBe(60)
+    const campCenter = { x: 0, z: 0 }
+    expect(shouldTriggerSweepAlert([{ x: 0, z: 85 }], campCenter, false)).toBe(false)
+    expect(shouldTriggerSweepAlert([{ x: 0, z: 75 }], campCenter, false)).toBe(true)
+    expect(75 <= FIELD_SWEEP_CHARGE_DISTANCE).toBe(false)
+    expect(shouldTriggerSweepAlert([{ x: 0, z: 200 }], campCenter, true)).toBe(true)
   })
 })

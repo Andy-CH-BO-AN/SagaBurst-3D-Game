@@ -568,19 +568,29 @@ export function createCareerFieldCheckpointSeed(
   for (const spec of plan.npcSpecs) {
     if (!spec.actorId) throw new Error('Career field actor missing identity')
     const savedHealth = mission.actorHealth?.[spec.actorId]
+    // Pre-migration Town saves keep per-actor resources in officialSquad.members. Only
+    // resources carry over; every spatial field (position, formation, fall) is Town-space.
+    const legacy = mission.officialSquad?.members?.[spec.actorId]
     const dead = deadTargets.has(spec.actorId) || deadFriendlies.has(spec.actorId) || savedHealth?.hp === 0
+      || legacy?.status === 'dead' || legacy?.hp === 0
     const y = terrainHeightAt(spec.x, spec.z)
     const yaw = spec.faction === Faction.PLAYER ? fallbackPlayer.yaw : fallbackPlayer.yaw + Math.PI
+    const hp = dead ? 0 : savedHealth?.hp ?? legacy?.hp
+    const mountHp = savedHealth?.mountHp ?? legacy?.mount?.hp
+    const spawn = { x: spec.x, y, z: spec.z, yaw }
     actors[spec.actorId] = {
       status: dead ? 'dead' : 'reserve',
-      ...(dead ? { hp: 0 } : savedHealth?.hp !== undefined ? { hp: savedHealth.hp } : {}),
-      position: { x: spec.x, y, z: spec.z, yaw },
-      ...(savedHealth?.mountHp !== undefined && spec.cavalry ? {
+      ...(hp !== undefined ? { hp } : {}),
+      ...(legacy?.ammo !== undefined ? { ammo: legacy.ammo } : {}),
+      ...(legacy?.shieldImpact !== undefined ? { shieldImpact: legacy.shieldImpact } : {}),
+      ...(legacy?.order ? { order: legacy.order } : {}),
+      position: spawn,
+      ...(mountHp !== undefined && spec.cavalry ? {
         mount: {
-          hp: savedHealth.mountHp,
-          armorImpactRemaining: savedHealth.mountArmorImpact ?? 0,
-          mounted: !dead && savedHealth.mountHp > 0,
-          position: { x: spec.x, y, z: spec.z, yaw },
+          hp: mountHp,
+          armorImpactRemaining: savedHealth?.mountArmorImpact ?? legacy?.mount?.armorImpactRemaining ?? 0,
+          mounted: !dead && mountHp > 0 && (legacy?.mount?.mounted ?? true),
+          position: spawn,
         },
       } : {}),
     }

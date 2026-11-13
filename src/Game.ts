@@ -1454,9 +1454,11 @@ export class Game {
         : fieldMission?.templateId === COMMANDER_IRON_LEGION_ID
         ? { title: 'COMMANDER VII · 鐵甲軍團決戰', force: '正式六貓騎兵' }
         : isCareerHeavyFieldBattle(fieldMission) ? { title: getHeavyFieldMissionDefinition(fieldMission.templateId)?.name ?? '重騎兵戰場', force: '正式友軍' } : undefined)
+      this._applyCareerPlayerHealthForCheckpoint()
       this._declareCaptainEagleRoster(battlePlan)
     } else if (this.captainEagleMissionId && battlePlan) {
       this.captainEagleHud = new CaptainEagleHUD()
+      this._applyCareerPlayerHealthForCheckpoint()
       this._declareCaptainEagleRoster(battlePlan)
     } else if (battleConfig && battlePlan) {
       await this._executeBattleSpawnPlan(battlePlan, progress)
@@ -2716,7 +2718,9 @@ export class Game {
     return spawned
   }
 
+  /** One-shot alert transition. Re-issuing it would reset paths and camp-return formations every tick. */
   private _activateMigratedFieldBanditCamp(mission: ActiveCareerMission): void {
+    if (mission.sweepAlerted) return
     mission.sweepAlerted = true
     const targets = new Set(mission.targetActorIds)
     const friendlies = new Set(mission.friendlyActorIds)
@@ -2801,15 +2805,10 @@ export class Game {
         this._activateMigratedFieldBanditCamp(mission)
         if (!wasAlerted) this._persistHeavyState('盜匪營地已警戒；狀態將隨下次戰場存檔重試。')
       }
-      const closeEnough = alerted || observers.some(p =>
+      // Alert (80m) only wakes the camp; the friendly charge keeps its own 60m threshold.
+      const closeEnough = observers.some(p =>
         Math.hypot(p.x - deployment.enemyCenter.x, p.z - deployment.enemyCenter.z) <= FIELD_SWEEP_CHARGE_DISTANCE)
-      if (closeEnough) {
-        for (const npc of this.npcs) {
-          if (!npc.dead && friendlyIds.has(npc.combatantId) && !officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) {
-            npc.setTacticalOrder('charge')
-          }
-        }
-      }
+      if (closeEnough) this._issueMigratedFieldCharge(mission, friendlyIds)
       return
     }
     // Recruit bandits: advance once player nears Captain/campfire or bandits detect friendlies.
@@ -2827,12 +2826,15 @@ export class Game {
     const engage = this.player.dead
       || (captain && Math.hypot(this.player.combatPosition.x - captain.combatPosition.x, this.player.combatPosition.z - captain.combatPosition.z) <= 14)
       || Math.hypot(this.player.combatPosition.x - deployment.enemyCenter.x, this.player.combatPosition.z - deployment.enemyCenter.z) <= 48
-    if (engage) {
-      for (const npc of this.npcs) {
-        if (!npc.dead && friendlyIds.has(npc.combatantId) && !officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) {
-          npc.setTacticalOrder('charge')
-        }
-      }
+    if (engage) this._issueMigratedFieldCharge(mission, friendlyIds)
+  }
+
+  /** Charge is a state transition: only actors not already charging get the (path-resetting) order. */
+  private _issueMigratedFieldCharge(mission: ActiveCareerMission, friendlyIds: ReadonlySet<string>): void {
+    for (const npc of this.npcs) {
+      if (npc.dead || !friendlyIds.has(npc.combatantId) || npc.tacticalOrder === 'charge') continue
+      if (officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) continue
+      npc.setTacticalOrder('charge')
     }
   }
 
@@ -3080,6 +3082,13 @@ export class Game {
     }
   }
 
+  /** The first roster checkpoint must record the real Career HP pool, not the pre-skill base. */
+  private _applyCareerPlayerHealthForCheckpoint(): void {
+    if (!this.careerProfile || this.fieldCheckpoint) return
+    this.player.setMaxHp(resolveCareerPlayerMaxHp(this.careerProfile, this.basePlayerMaxHp))
+    this.player.setHp(this.player.maxHp)
+  }
+
   /** Save the entire declaration before the first scheduled actor may materialize. */
   private _declareCaptainEagleRoster(plan: BattleSpawnPlan): void {
     const next = cloneCareerProfile(this.careerProfile!)
@@ -3134,7 +3143,9 @@ export class Game {
     const batch = this._newSpawnBatch()
     this.captainEagleSpawnBatch = batch
     for (const spec of plan.npcSpecs) {
-      const official = mission.officialSquad?.members?.[spec.actorId!]
+      // Migrated open-field battles own their roster in `felineBattle.actors` (seeded with the
+      // field spawn and carrying legacy resources); Town-space officialSquad.members must not win.
+      const official = this.careerFieldDeployment ? undefined : mission.officialSquad?.members?.[spec.actorId!]
       const actor = official?.status !== 'reserve' ? official ?? saved.actors[spec.actorId!] : saved.actors[spec.actorId!] ?? official
       if (actor?.status === 'dead' || actor?.hp === 0) continue
       batch.enqueue(spec.actorId!, () => {

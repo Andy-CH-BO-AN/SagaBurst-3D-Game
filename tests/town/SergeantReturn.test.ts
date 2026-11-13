@@ -5,6 +5,7 @@ import {
   consumeCareerMissionReturnFlag,
   markCareerMissionReturnToSergeant,
   resolveSergeantReturnPoint,
+  resolveTownEntryFallbackPoint,
   sergeantReturnFromResidents,
 } from '../../src/town/SergeantReturn'
 import { DUEL_ARENA_RETURN_KEY } from '../../src/arena/DuelArenaReturn'
@@ -98,5 +99,32 @@ describe('Sergeant return contract', () => {
     markCareerMissionReturnToSergeant(storage)
     expect(consumeCareerMissionReturnFlag(storage)).toBe(true)
     expect(consumeCareerMissionReturnFlag(storage)).toBe(false)
+  })
+
+  it('validates Town entry fallback clearance by stance and returns null when completely blocked', () => {
+    const home = { x: 10, z: 20, yaw: 0.5 }
+    // Blocker at 1.1m away allows walking (0.75m clearance) at home, but blocks mounted (1.25m).
+    const blockers = [{ x: 11.1, z: 20, radius: 0 }]
+    const walkSafe = resolveTownEntryFallbackPoint(home, {
+      clearanceRadius: 0.75,
+      blockers,
+      terrainHeight: () => 1.5,
+    })
+    expect(walkSafe).toMatchObject({ x: 10, y: 1.5, z: 20, yaw: 0.5 })
+
+    const mountShifts = resolveTownEntryFallbackPoint(home, {
+      clearanceRadius: 1.25,
+      blockers,
+      terrainHeight: () => 1.5,
+    })
+    expect(mountShifts).not.toBeNull()
+    expect(mountShifts!.x !== 10 || mountShifts!.z !== 20).toBe(true)
+
+    const allBlocked = resolveTownEntryFallbackPoint(home, {
+      clearanceRadius: 1.25,
+      isValid: () => false,
+      terrainHeight: () => 1.5,
+    })
+    expect(allBlocked).toBeNull()
   })
 })

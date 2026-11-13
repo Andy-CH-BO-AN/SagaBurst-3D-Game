@@ -165,7 +165,7 @@ import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { careerDuelSubjectRules, careerDuelMissionLabel, careerDuelProgressLabel, careerDuelTierEntries, type CareerDuelSubject } from '../career/CareerDuelSelection'
 import { type CareerDuelTier, isUnarmedDuelUnlocked, isCareerDuelUnlocked, duelFightBannerVisible } from '../career/CareerDuelState'
 import { DUEL_ARENA_IDS, DUEL_ARENA_LABELS, defaultDuelArenaForFaction, type DuelArenaId } from '../arena/DuelArenaCatalog'
-import { consumeCareerMissionReturnFlag, sergeantReturnFromResidents, type SergeantReturnPoint } from './SergeantReturn'
+import { consumeCareerMissionReturnFlag, resolveTownEntryFallbackPoint, sergeantReturnFromResidents, type SergeantReturnPoint } from './SergeantReturn'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { fieldMissionHud, missionPhaseLabel, personalSquadStateLabel, townCommandStateLabel } from '../career/CareerMissionPresentation'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
@@ -648,18 +648,10 @@ export class TownScene {
     await this.restoreActiveCareerMission()
     this.race.restore()
     await this.race.waitForDeployment()
-    this.race.restorePlayer({ preservePlacement: Boolean(missionReturnEntry) })
-    if (missionReturnEntry && this.player.currentMount) {
-      const mountedEntry = this.resolveSergeantReturnPoint()
-      if (mountedEntry) {
-        const groundY = getTerrainHeight(mountedEntry.x, mountedEntry.z)
-        this.player.currentMount.group.position.set(mountedEntry.x, groundY, mountedEntry.z)
-        this.player.currentMount.group.rotation.y = mountedEntry.yaw
-        this.player.group.position.set(mountedEntry.x, groundY + .9, mountedEntry.z)
-        this.player.faceDirection(Math.sin(mountedEntry.yaw), Math.cos(mountedEntry.yaw))
-        this.player.syncMountTransform()
-        this.orbit.setYaw(mountedEntry.yaw + Math.PI)
-      }
+    this.race.restorePlayer({ preservePlacement: Boolean(missionReturnEntry), dismount: missionReturnEntry?.dismount })
+    if (missionReturnEntry) {
+      this.player.syncMountTransform()
+      this.orbit.setYaw(missionReturnEntry.yaw + Math.PI)
     }
     if (this.player.dead && this.profile.activeRace) this.enterMissionObserver()
     await this.waitForInitialMissionDeployment(progress)
@@ -2297,7 +2289,11 @@ export class TownScene {
       return equipment === 'ready'
     } catch (error) { console.error('Duel opponent assets could not be loaded', error); return false }
   }
-  private resolveSergeantReturnPoint(): SergeantReturnPoint | null {
+  /**
+   * Sergeant point first, then a backup near the ordinary Town entry; both are checked against the
+   * final stance (`mounted` uses the wider mount body). Null means no legal point exists.
+   */
+  private resolveSergeantReturnPoint(mounted = Boolean(this.player?.currentMount)): SergeantReturnPoint | null {
     const blockers = [
       ...(this.residents ?? []).filter(r => !r.npc.dead && r.spec.id !== 'deployment').map(r => ({
         x: r.npc.combatPosition.x, z: r.npc.combatPosition.z, radius: r.npc.mount ? 1.5 : 0.7,
@@ -2306,19 +2302,28 @@ export class TownScene {
         x: m.group.position.x, z: m.group.position.z, radius: m.combatRadius,
       })),
     ]
-    return sergeantReturnFromResidents(this.residents ?? [], {
-      clearanceRadius: this.player?.currentMount ? 1.25 : 0.75,
+    const options = {
+      clearanceRadius: mounted ? 1.25 : 0.75,
       obstacles: this.world?.obstacles,
       blockers,
       terrainHeight: getTerrainHeight,
-    })
+    }
+    return sergeantReturnFromResidents(this.residents ?? [], options)
+      ?? resolveTownEntryFallbackPoint(townPlayerEntryPoint(), options)
   }
   /** After any formal Career mission, arena duel or race settles, place the player directly in front of the Sergeant. */
-  private consumeCareerMissionReturnPoint(): SergeantReturnPoint | null {
+  private consumeCareerMissionReturnPoint(): (SergeantReturnPoint & { dismount: boolean }) | null {
     if (!consumeCareerMissionReturnFlag()) return null
     if (this.profile.activeMission || this.profile.activeOutpostMission || this.sceneContext.missionOnlyResidents) return null
-    return this.resolveSergeantReturnPoint()
+    // A saved race pose may put the player back on a mount; the point must fit that final stance.
+    const race = this.profile.racePlayerState
+    const willMount = Boolean(race?.mounted && !race.dead)
+    const mounted = willMount ? this.resolveSergeantReturnPoint(true) : null
+    if (mounted) return { ...mounted, dismount: false }
+    const walking = this.resolveSergeantReturnPoint(false)
+    return walking ? { ...walking, dismount: willMount } : null
   }
+
   private openDuelPage(panel: HTMLElement): void {
     this.duelArenaChoice = null
     const activities = [['duel', '單挑 Duel'], ['race', '繞城賽馬 Racing'], ['review', '重溫入伍旅程']] as const

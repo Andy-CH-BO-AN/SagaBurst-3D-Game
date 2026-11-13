@@ -239,7 +239,7 @@ export class CareerRaceController {
   }
 
   /** Restore uses the existing owned-mount adapter, never a selection-only free mount. */
-  restorePlayer(options: { preservePlacement?: boolean } = {}): void {
+  restorePlayer(options: { preservePlacement?: boolean; dismount?: boolean } = {}): void {
     const r = this.session?.player ?? this.read().racePlayerState
     if (!r || this.read().activeMission || this.read().activeOutpostMission) return
     const p = this.player()
@@ -248,7 +248,7 @@ export class CareerRaceController {
     const keepPlacement = Boolean(!this.session && options.preservePlacement)
     if (keepPlacement) {
       if (mount) {
-        if (r.mounted && !mount.dead && !r.dead) {
+        if (r.mounted && !mount.dead && !r.dead && !options.dismount) {
           mount.group.position.set(p.group.position.x, getTerrainHeight(p.group.position.x, p.group.position.z), p.group.position.z)
           mount.group.rotation.y = p.group.rotation.y
           p.mountVehicle(mount)
