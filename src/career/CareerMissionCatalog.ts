@@ -1,4 +1,4 @@
-import { CAPTAIN_MISSION_CATALOG, availableCaptainMissions, getCaptainMissionDefinition, type CaptainMissionDefinition } from './CaptainMissionCatalog'
+import { CAPTAIN_MISSION_CATALOG, availableCaptainMissions, getCaptainMissionDefinition, RETIRED_CAPTAIN_GATE_DEFENSE_DEFINITION, RETIRED_CAPTAIN_SIEGE_COMMAND_DEFINITION, type CaptainMissionDefinition } from './CaptainMissionCatalog'
 import { COMMANDER_MISSION_CATALOG, availableCommanderMissions, getCommanderMissionDefinition, type CommanderMissionDefinition } from './CommanderMissionCatalog'
 import { HEAVY_FIELD_MISSION_CATALOG, getHeavyFieldMissionAvailability, getHeavyFieldMissionDefinition, type HeavyFieldMissionDefinition } from './HeavyFieldMission'
 import { resolveCareerReliefMount } from './CareerOutpostMission'
@@ -111,6 +111,19 @@ const patrol = (
   minRank: 'recruit',
 })
 
+export const RETIRED_ENEMY_TOWN_ASSAULT_TEMPLATE: RecruitMissionTemplate = {
+  id: 'career-enemy-town-assault',
+  kind: 'enemy-town-assault',
+  name: 'Enemy Town Assault · 進攻敵方家園',
+  briefing: '目標：率軍從四門進攻敵城，擊潰全部地面守軍並迫使空軍撤離。',
+  friendlyCombatants: 120,
+  risk: '極高',
+  requiresEnlistmentMerit: 0,
+  requiresCompletions: 0,
+  storyOnce: false,
+  minRank: 'soldier',
+}
+
 export const VETERAN_TOWN_DEFENSE_TEMPLATE: RecruitTownDefenseMissionTemplate = {
   id: VETERAN_TOWN_DEFENSE_TEMPLATE_ID,
   kind: 'town-defense',
@@ -123,9 +136,20 @@ export const VETERAN_TOWN_DEFENSE_TEMPLATE: RecruitTownDefenseMissionTemplate = 
   maxCivilianDeaths: 10,
   risk: '極高',
   requiresEnlistmentMerit: 0,
-  requiresCompletions: 5,
+  requiresCompletions: 0,
   storyOnce: false,
   minRank: 'veteran',
+}
+
+export const RETIRED_CAREER_MISSION_TEMPLATES: readonly CareerMissionTemplate[] = [
+  RETIRED_ENEMY_TOWN_ASSAULT_TEMPLATE,
+  VETERAN_TOWN_DEFENSE_TEMPLATE,
+  RETIRED_CAPTAIN_GATE_DEFENSE_DEFINITION,
+  RETIRED_CAPTAIN_SIEGE_COMMAND_DEFINITION,
+]
+
+export function getRetiredCareerMissionTemplate(id: string): CareerMissionTemplate | null {
+  return RETIRED_CAREER_MISSION_TEMPLATES.find(template => template.id === id) ?? null
 }
 
 /**
@@ -135,9 +159,8 @@ export const VETERAN_TOWN_DEFENSE_TEMPLATE: RecruitTownDefenseMissionTemplate = 
  */
 export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
   { id: 'career-cavalry-sweep', kind: 'cavalry-sweep', name: 'Cavalry Sweep · 騎兵清剿', briefing: '目標：在軍營集合後跟隨騎兵出城，消滅全部盜匪。', friendlyCombatants: 60, risk: '低', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'recruit' },
-  { id: 'career-enemy-town-assault', kind: 'enemy-town-assault', name: 'Enemy Town Assault · 進攻敵方家園', briefing: '目標：率軍從四門進攻敵城，擊潰全部地面守軍並迫使空軍撤離。', friendlyCombatants: 120, risk: '極高', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'soldier' },
   mission('recruit-bandits-01', '營火邊的三名盜匪', 5, 3, '低', 0),
-  mission('recruit-bandits-02', '大隊剿匪', 20, 12, '中', 2, 0, 1),
+  mission('recruit-bandits-02', '大隊剿匪', 20, 12, '中', 2, 0, 0),
 
   patrol(
     'recruit-patrol-01',
@@ -156,13 +179,11 @@ export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
     8,
     7,
     '中',
-    60,
+    0,
   ),
 
-  mission('recruit-bandits-03', '寡不敵眾', 6, 10, '高', 3, 90),
-  mission('recruit-bandits-04', '深入敵營', 10, 20, '極高', 4, 120),
-
-
+  mission('recruit-bandits-03', '寡不敵眾', 6, 10, '高', 3, 0),
+  mission('recruit-bandits-04', '深入敵營', 10, 20, '極高', 4, 0),
 ]
 
 export function patrolPreferredCamp(routeId: RecruitPatrolRouteId): number {
@@ -175,12 +196,12 @@ export function getRecruitMissionTemplate(id: string): RecruitMissionTemplate | 
 
 /** Generic lookup used by the active-mission save parser; the legacy Recruit lookup stays narrow. */
 export function getCareerMissionTemplate(id: string): CareerMissionTemplate | null {
-  if (id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID) return VETERAN_TOWN_DEFENSE_TEMPLATE
-  return getRecruitMissionTemplate(id) ?? getVeteranMissionDefinition(id) ?? getCaptainMissionDefinition(id) ?? getCommanderMissionDefinition(id) ?? getHeavyFieldMissionDefinition(id)
-}
-
-export function isEnemyTownAssaultUnlocked(profile: Pick<CareerProfile, 'completedOutpostRelief'>): boolean {
-  return profile.completedOutpostRelief === true
+  const active = getRecruitMissionTemplate(id)
+    ?? getVeteranMissionDefinition(id)
+    ?? getCaptainMissionDefinition(id)
+    ?? getCommanderMissionDefinition(id)
+    ?? getHeavyFieldMissionDefinition(id)
+  return active ?? getRetiredCareerMissionTemplate(id)
 }
 
 export function availableRecruitMissions(profile: CareerProfile): RecruitMissionTemplate[] {
@@ -188,19 +209,15 @@ export function availableRecruitMissions(profile: CareerProfile): RecruitMission
   const merit = enlistmentMerit(profile)
   const completions = profile.careerMissionCompletions ?? 0
   const completedStory = profile.completedCareerMissionTemplateIds ?? []
-  const available = RECRUIT_MISSION_CATALOG.filter(template => (
+  return RECRUIT_MISSION_CATALOG.filter(template => (
     CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf(template.minRank)
     && merit >= template.requiresEnlistmentMerit
     && (template.kind === 'town-defense' ? careerMissionCompletionsForTier(profile, careerMissionTier(template)) : completions) >= template.requiresCompletions
     && (template.kind !== 'cavalry-sweep' || Boolean(resolveCareerReliefMount(profile)))
-    && (template.kind !== 'enemy-town-assault' || isEnemyTownAssaultUnlocked(profile))
     && (!template.storyOnce || !completedStory.includes(template.id))
   )).map(template => template.kind === 'town-defense'
     ? { ...template, enemyCount: townDefenseEnemyCount(template.id, profile.rank) }
     : template)
-  return isTownDefenseMissionAvailable(profile, VETERAN_TOWN_DEFENSE_TEMPLATE)
-    ? [...available, { ...VETERAN_TOWN_DEFENSE_TEMPLATE, enemyCount: townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, profile.rank) }]
-    : available
 }
 
 export type CareerMissionPage = 'recruit' | 'soldier' | 'veteran' | 'captain' | 'commander'
@@ -230,9 +247,7 @@ export function careerMissionTemplatesForPage(profile: CareerProfile, page: Care
   if (page === 'commander') return [...COMMANDER_MISSION_CATALOG]
   if (page === 'captain') return isCareerMissionPageUnlocked(profile, page) ? [...CAPTAIN_MISSION_CATALOG, ...heavyTemplatesForTier(4)] : []
   if (page === 'veteran') {
-    if (!isCareerMissionPageUnlocked(profile, page)) return []
-    const homeDefense = { ...VETERAN_TOWN_DEFENSE_TEMPLATE, enemyCount: townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, profile.rank) }
-    return [...VETERAN_MISSION_CATALOG, homeDefense, ...heavyTemplatesForTier(3)]
+    return isCareerMissionPageUnlocked(profile, page) ? [...VETERAN_MISSION_CATALOG, ...heavyTemplatesForTier(3)] : []
   }
   const ordinary = availableRecruitMissions(profile).filter(template => careerMissionPage(template) === page)
   return page === 'soldier' && isCareerMissionPageUnlocked(profile, page) ? [...ordinary, ...heavyTemplatesForTier(2)] : ordinary
@@ -242,20 +257,10 @@ function heavyTemplatesForTier(tier: CareerMissionTier): HeavyFieldMissionDefini
   return HEAVY_FIELD_MISSION_CATALOG.filter(template => careerMissionTier(template) === tier)
 }
 
-function isTownDefenseMissionAvailable(profile: CareerProfile, template: RecruitTownDefenseMissionTemplate): boolean {
-  return !profile.activeRace && !profile.activeMission
-    && CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf(template.minRank)
-    && enlistmentMerit(profile) >= template.requiresEnlistmentMerit
-    && careerMissionCompletionsForTier(profile, careerMissionTier(template)) >= template.requiresCompletions
-    && !(template.storyOnce && (profile.completedCareerMissionTemplateIds ?? []).includes(template.id))
-}
-
 export function availableCareerMissionsForPage(profile: CareerProfile, page: CareerMissionPage): CareerMissionTemplate[] {
   if (page === 'commander') return availableCommanderMissions(profile)
   if (page === 'captain') return [...availableCaptainMissions(profile), ...heavyTemplatesForTier(4).filter(template => getHeavyFieldMissionAvailability(profile, template.id).unlocked)]
   const heavyUnlocked = (template: CareerMissionTemplate) => template.kind === 'heavy-cavalry-field' && getHeavyFieldMissionAvailability(profile, template.id).unlocked
-  if (page === 'veteran') return careerMissionTemplatesForPage(profile, page).filter(template => template.kind === 'heavy-cavalry-field' ? heavyUnlocked(template) : template.kind === 'town-defense'
-    ? availableRecruitMissions(profile).some(available => available.id === template.id)
-    : getVeteranMissionAvailability(profile, template.id).unlocked)
+  if (page === 'veteran') return careerMissionTemplatesForPage(profile, page).filter(template => template.kind === 'heavy-cavalry-field' ? heavyUnlocked(template) : getVeteranMissionAvailability(profile, template.id).unlocked)
   return careerMissionTemplatesForPage(profile, page).filter(template => template.kind !== 'heavy-cavalry-field' || heavyUnlocked(template))
 }

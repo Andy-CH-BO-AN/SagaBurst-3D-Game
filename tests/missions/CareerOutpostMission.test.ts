@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acceptCareerOutpost, claimCareerOutpost, clearCareerOutpost, isCareerOutpostUnlocked, type CareerOutpostStageId } from '../../src/career/CareerOutpostMission'
+import { acceptCareerOutpost, acceptCareerOutpostRelief, claimCareerOutpost, clearCareerOutpost, isCareerOutpostReliefUnlocked, isCareerOutpostUnlocked, type CareerOutpostStageId } from '../../src/career/CareerOutpostMission'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -13,12 +13,21 @@ function mission(stageId: CareerOutpostStageId = 1): CareerProfile {
 }
 describe('Career Outpost unlocks and results', () => {
 
-  it('requires Soldier, a previous victory, and no active mission', () => {
+  it('allows Soldiers to choose any valid Outpost stage independently while rejecting Recruits, invalid stageIds, and overlapping missions', () => {
     expect(acceptCareerOutpost(createCareerProfile('roman'), 1, 'recruit')).toBeNull()
     expect(isCareerOutpostUnlocked(soldier(), 1)).toBe(true)
-    expect(isCareerOutpostUnlocked(soldier(), 2)).toBe(false)
-    expect(isCareerOutpostUnlocked(soldier(), 3)).toBe(false)
+    expect(isCareerOutpostUnlocked(soldier(), 2)).toBe(true)
+    expect(isCareerOutpostUnlocked(soldier(), 3)).toBe(true)
+    expect(isCareerOutpostUnlocked(soldier(), 99)).toBe(false)
+    expect(acceptCareerOutpost(soldier(), 99 as any)).toBeNull()
     expect(acceptCareerOutpost(mission(), 1, 'other')).toBeNull()
+  })
+  it('unlocks Cavalry Relief for Soldiers without requiring stage completions while still enforcing mount ownership', () => {
+    const unmounted = soldier()
+    expect(isCareerOutpostReliefUnlocked(unmounted)).toBe(true)
+    expect(acceptCareerOutpostRelief(unmounted)).toBeNull()
+    const mounted: CareerProfile = { ...unmounted, ownedMounts: ['horse'], selectedMountId: 'horse-t1' }
+    expect(acceptCareerOutpostRelief(mounted)).not.toBeNull()
   })
   it('awards battle-policy merit once, including after persistence and reload', () => {
     const current = mission(), store = new CareerProfileStore(new MemoryStorage())
@@ -37,10 +46,10 @@ describe('Career Outpost unlocks and results', () => {
     expect(duplicate.profile).toEqual(reloaded)
     expect(clearCareerOutpost(reloaded).activeOutpostMission).toBeUndefined()
   })
-  it('settles defeat merit without unlocking the next stage and permits retry', () => {
+  it('settles defeat merit without crediting stage completion and permits retry', () => {
     const profile = claimCareerOutpost(mission(), 'outpost-battle', 'defeat', stats).profile
     expect(profile.totalMerit).toBeGreaterThan(300)
-    expect(isCareerOutpostUnlocked(profile, 2)).toBe(false)
+    expect(profile.completedOutpostStages ?? []).not.toContain(1)
     expect(profile.outpostBattleRecords?.[0].completed).toBe(false)
     expect(acceptCareerOutpost(clearCareerOutpost(profile), 1, 'retry')).not.toBeNull()
   })

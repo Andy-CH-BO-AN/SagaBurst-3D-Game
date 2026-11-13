@@ -1,21 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { Box3, Vector3 } from 'three'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
-import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_GATE_DEFENSE_ID, captainGateDefenseActorIds, commanderGateDefenseSlots, commanderGateDefenseSquads, createCaptainGateDefenseMission, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../../src/career/CaptainMissionCatalog'
-import { townDefenseForceCountsForProfile } from '../../src/career/TownDefenseRoster'
+import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_GATE_DEFENSE_ID, commanderGateDefenseSlots, commanderGateDefenseSquads, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../../src/career/CaptainMissionCatalog'
 import { hasCompleteRetirementMobilizationCheckpoint, retirementAssaultFormations, retirementGroundStaging, retirementMobilizationNeedsPreparation } from '../../src/career/CareerRetirementMobilization'
 import { townDefaultActorLoadout, townEquipmentActorSpecs } from '../../src/career/CareerTownEquipmentState'
 import { TOWN_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, townHousing } from '../../src/town/TownLayout'
 import { TOWN_WATCHTOWER_ARCHER_IDS } from '../../src/town/TownNativeGuardIdentity'
 import { getTerrainHeight } from '../../src/world/Terrain'
-import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
-import { VETERAN_TOWN_DEFENSE_TEMPLATE } from '../../src/career/CareerMissionCatalog'
 import { officialActorSquadId, officialCommandSquads } from '../../src/career/CareerCommandAuthority'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { buildCommanderAuthorityForMission } from '../../src/career/CommanderMissionAcceptance'
 import { acceptVeteranMission } from '../../src/career/VeteranMission'
-import { townAssaultObjectiveRoster, townDefenseForceCounts, townRoster, type TownActorSpec } from '../../src/town/TownRules'
+import { townAssaultObjectiveRoster, townRoster, type TownActorSpec } from '../../src/town/TownRules'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { withNativeRetirementCheckpoints } from '../helpers/RetirementMobilizationFixture'
 
@@ -91,21 +88,8 @@ describe('Commander accepted production rosters without actor materialization', 
     expect(reduced).toEqual(full.map(squad => ({ ...squad,
       actorIds: squad.actorIds.filter(id => !unavailable.has(id) && id !== 'gate:south:0'),
     })))
-    const highMeritCaptain = createCaptainGateDefenseMission({ ...commander(), rank: 'captain' }, accepted, [], residents)
-    expect(highMeritCaptain.officialSquad!.actorIds).toEqual(captainGateDefenseActorIds(residents))
-    expect(highMeritCaptain.officialSquad!.commandRank).toBeUndefined()
-    const force = townDefenseForceCounts(residents)
-    expect(force).toEqual({ friendlySoldiers: 213, friendlyCombatants: 214 })
-    expect(force.friendlySoldiers).toBe(highMeritCaptain.friendlyActorIds.length)
-    expect(VETERAN_TOWN_DEFENSE_TEMPLATE).toMatchObject(force)
-    expect(getCaptainMissionDefinition(CAPTAIN_GATE_DEFENSE_ID)).toMatchObject(force)
-    expect(highMeritCaptain.friendlyActorIds.filter(id => id.startsWith('watchtower-archer:'))).toHaveLength(5)
-    expect(highMeritCaptain.officialSquad!.actorIds.some(id => id.startsWith('watchtower-archer:'))).toBe(false)
-    const withCommander = [...residents, townCommanderSpec({ x: 0, z: 0, yaw: 0 })]
-    const commandedDefense = createCaptainGateDefenseMission(commander(), accepted, [], withCommander)
-    expect(townDefenseForceCountsForProfile(commander(), withCommander)).toEqual({ friendlySoldiers: 214, friendlyCombatants: 215 })
-    expect(townDefenseForceCountsForProfile(commander(), withCommander).friendlySoldiers).toBe(commandedDefense.friendlyActorIds.length)
-    expect(townDefenseForceCountsForProfile(commander(), withCommander, new Set(['commander']))).toEqual(force)
+    expect(getCaptainMissionDefinition(CAPTAIN_GATE_DEFENSE_ID)).toBeNull()
+    expect(getCaptainMissionAvailability(commander(), CAPTAIN_GATE_DEFENSE_ID).unlocked).toBe(false)
   })
 
   it('replays Frontline saved membership instead of regrouping actors after reload', () => {

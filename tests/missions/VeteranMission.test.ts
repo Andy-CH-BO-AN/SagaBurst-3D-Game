@@ -6,9 +6,19 @@ const first = 'veteran-dread-outpost', second = 'veteran-scout-hunters', village
 const stats = { damageDealt: 50, damageTaken: 0, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
 const veteran = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'veteran', totalMerit: 900, availableMerit: 900, ownedMounts: ['horse'] })
 describe('Veteran progression and stable borrowed rosters', () => {
-  it('unlocks the next mission after a saved victory and refuses a duplicate reward', () => {
+  it('permits independent Veteran mission selection while enforcing rank, mount and race mutual exclusion', () => {
+    const soldier = { ...veteran(), rank: 'soldier' as const }
+    expect(getVeteranMissionAvailability(soldier, second).unlocked).toBe(false)
+    const unmounted = { ...veteran(), ownedMounts: [] }
+    expect(getVeteranMissionAvailability(unmounted, second).unlocked).toBe(false)
+    expect(getVeteranMissionAvailability(unmounted, first).unlocked).toBe(true) // first doesn't require mount
+    const racing = { ...veteran(), activeRace: { id: 'test-race', raceId: 'cavalry-sprint', laps: 1, currentLap: 1, checkpoints: [] } as any }
+    expect(getVeteranMissionAvailability(racing, second).unlocked).toBe(false)
+    expect(acceptVeteranMission(racing, second)).toBeNull()
+    expect(getVeteranMissionAvailability(veteran(), second).unlocked).toBe(true)
+    expect(getVeteranMissionAvailability(veteran(), 'veteran-tragedy-of-the-scouts').unlocked).toBe(true)
+
     const accepted = acceptVeteranMission(veteran(), first, { missionId: 'victory' })!
-    expect(getVeteranMissionAvailability(veteran(), second).unlocked).toBe(false)
     const claimed = claimCareerMission(accepted, 'victory', 'victory', stats)
     const loaded = parseCareerProfile(JSON.parse(JSON.stringify(claimed.profile)))!
     expect(loaded.careerMissionCompletionsByTier?.[3]).toBe(1)
@@ -17,10 +27,10 @@ describe('Veteran progression and stable borrowed rosters', () => {
     expect(duplicate.alreadyClaimed).toBe(true); expect(duplicate.meritAwarded).toBe(0)
     expect(duplicate.profile.totalMerit).toBe(loaded.totalMerit)
   })
-  it('keeps the next mission locked after failure while allowing the failed mission to retry', () => {
+  it('allows failed mission to retry and does not block other veteran missions after failure', () => {
     const accepted = acceptVeteranMission(veteran(), first, { missionId: 'failed' })!
     const returned = clearCareerMission(claimCareerMission(accepted, 'failed', 'failure', stats).profile, 'failed')
-    expect(getVeteranMissionAvailability(returned, second).unlocked).toBe(false)
+    expect(getVeteranMissionAvailability(returned, second).unlocked).toBe(true)
     expect(acceptVeteranMission(returned, first, { missionId: 'retry' })).not.toBeNull()
   })
   it('borrows only available permanent cavalry and fills the exact shortage with stable temporary identities', () => {
