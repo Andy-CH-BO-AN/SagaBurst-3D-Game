@@ -4,6 +4,9 @@ import type { DuelArenaId } from './DuelArenaCatalog'
 import type { ArenaTrialFormation } from './ArenaTrialFormation'
 import type { ObstacleData } from '../world/Terrain'
 
+/** One-metre cells keep the three-metre door navigable between both jambs. */
+export const PRISON_NAV_CELL_SIZE = 1
+
 /** Inner arena gate / hall entrance, independent of the player's culture. */
 export function prisonExitPlan(id: DuelArenaId) {
   return id === 'roman-colosseum'
@@ -14,6 +17,10 @@ export function prisonExitPlan(id: DuelArenaId) {
 export function prisonGateObstacle(id: DuelArenaId): ObstacleData {
   const { gateZ, height, halfWidth } = prisonExitPlan(id)
   return { box: new Box3(new Vector3(-halfWidth, 0, gateZ - .18), new Vector3(halfWidth, height, gateZ + .18)), isBarricade: false }
+}
+/** Past the crossing plane by more than an infantry formation's arrival distance. */
+export function prisonExitDestination(id: DuelArenaId): Vector3 {
+  return new Vector3(0, 0, prisonExitPlan(id).crossingZ - 2)
 }
 export function prisonFormation(id: DuelArenaId): ArenaTrialFormation {
   const gateZ = id === 'roman-colosseum' ? -20 : -38
@@ -46,7 +53,9 @@ export function prisonExitObstacles(id: DuelArenaId, original: readonly Obstacle
     if (b.max.y > height) {
       const box = b.clone()
       box.min.x = Math.max(b.min.x, -halfWidth); box.max.x = Math.min(b.max.x, halfWidth); box.min.y = height
-      pieces.push({ ...wall, box })
+      // Stand walk planes keep their upper support, with the same doorway
+      // clearance beneath them as the gate; the generic thin-slab underside is lower.
+      pieces.push({ ...wall, box, ...(wall.walkSurface ? { solidBelow: height } : {}), navigationPassable: true })
     }
     return pieces
   })

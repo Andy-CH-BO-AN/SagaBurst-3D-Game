@@ -64,11 +64,17 @@ describe('Career prison break decisions', () => {
     expect(claimPrisonSword(claimed, 1, friends[1].actorId)!.swords).toEqual({ 0: 'player', 1: friends[1].actorId })
   })
 
-  it('清場與開門都不等於勝利，僅活玩家從地面穿過出口才成功，倒地優先判負', () => {
-    expect(prisonOutcome(false, true, false)).toBeNull()
-    expect(prisonOutcome(false, false, true)).toBeNull()
-    expect(prisonOutcome(false, true, true)).toBe('victory')
-    expect(prisonOutcome(true, true, true)).toBe('failure')
+  it('全隊越獄：玩家倒下仍有隊友不結算，開門不結算，活隊員實際過門成功，全員倒下才失敗', () => {
+    const progress = { playerDead: true, friendlyAlive: 1, gateOpen: false, playerCrossed: false, friendlyCrossed: false }
+    expect(prisonOutcome(progress)).toBeNull()
+    expect(prisonOutcome({ ...progress, gateOpen: true })).toBeNull()
+    expect(prisonOutcome({ ...progress, friendlyCrossed: true })).toBeNull()
+    expect(prisonOutcome({ ...progress, gateOpen: true, friendlyCrossed: true })).toBe('victory')
+    expect(prisonOutcome({ ...progress, gateOpen: true, playerCrossed: true })).toBeNull()
+    expect(prisonOutcome({ ...progress, playerDead: false, gateOpen: true, playerCrossed: true })).toBe('victory')
+    expect(prisonOutcome({ ...progress, playerDead: false, friendlyAlive: 0 })).toBeNull()
+    expect(prisonOutcome({ ...progress, friendlyAlive: 0 })).toBe('failure')
+    expect(prisonOutcome({ ...progress, friendlyAlive: 0, gateOpen: true, friendlyCrossed: true })).toBe('failure')
     for (const [arena, z] of [['roman-colosseum', -20.45], ['viking-valhalla', -38.65]] as const) {
       expect(crossedPrisonExit(arena, { x: 0, y: .95, z: z + 1 }, { x: 0, y: .95, z: z - 1 })).toBe(true)
       expect(crossedPrisonExit(arena, { x: 8, y: .95, z: z + 1 }, { x: 8, y: .95, z: z - 1 })).toBe(false)

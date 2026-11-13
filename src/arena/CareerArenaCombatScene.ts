@@ -1,11 +1,11 @@
 import { ArenaPanel, CareerArenaSession, type ArenaSettlement } from './CareerArenaSession'
 import { bindWindowResize, createSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO } from '../rendering/SceneRenderer'
-import { prisonFormation } from './PrisonBreakLayout'
+import { prisonFormation, prisonExitDestination, PRISON_NAV_CELL_SIZE } from './PrisonBreakLayout'
 import { townRoster } from '../town/TownRules'
 import { commitPrisonBreakReturn } from '../career/CareerMissionReturnRecovery'
 import * as THREE from 'three'
 import { PrisonBreakProps } from './PrisonBreakProps'
-import { prisonRoster, prisonUnitSpec, claimPrisonSword, crossedPrisonExit, prisonOutcome, prisonTaunt, settlePrisonBreak, PRISON_SWORD_ID } from '../career/CareerPrisonBreak'
+import { prisonRoster, prisonUnitSpec, claimPrisonSword, crossedPrisonExit, prisonOutcome, prisonTaunt, prisonResultDescription, settlePrisonBreak, PRISON_SWORD_ID } from '../career/CareerPrisonBreak'
 import { InventoryManager } from '../rpg/InventoryManager'
 
 import { createDuelArena, type DuelArenaEnvironment } from './DuelArena'
@@ -32,6 +32,7 @@ import { SHIELD_CONFIG, type CombatContact } from '../combat/ShieldBlocking'
 import { traceFistStrike, unarmedDamage } from '../combat/UnarmedCombat'
 import { playAppliedPunchHit, SoundManager } from '../audio/SoundManager'
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
+import { SpectatorCameraController } from '../camera/SpectatorCameraController'
 import { NavigationWorld } from '../navigation/NavigationWorld'
 import { Player, DEFAULT_PLAYER_MAX_HP } from '../player/Player'
 import { PlayerInput } from '../player/PlayerInput'
@@ -73,10 +74,12 @@ interface Body {
   readonly npc: NPC
   marker: THREE.Sprite
   pickupSwordIndex?: number
+  previousPosition: THREE.Vector3
+  escaping?: boolean
 }
 interface Shot { arrow: ArrowProjectile; player: boolean; source?: NPC; age: number }
 interface TrialSettlement extends ArenaSettlement { readonly reason?: ArenaTrialEndReason }
-interface PendingSettlement { readonly outcome: CareerMissionOutcome; readonly reason?: ArenaTrialEndReason; readonly player: PlayerBattleStats }
+interface PendingSettlement { readonly outcome: CareerMissionOutcome; readonly escapedBy?: string; readonly player: PlayerBattleStats }
 
 let markerTexture: THREE.CanvasTexture | null = null
 function teamMarkerTexture(): THREE.CanvasTexture {
@@ -113,12 +116,13 @@ export class CareerArenaCombatScene {
   private readonly sound = new SoundManager()
   private readonly listeners = new AbortController()
   private readonly events = new CombatEventStream()
-  private readonly navigation = new NavigationWorld({ minX: -120, maxX: 120, minZ: -120, maxZ: 120 })
+  private readonly navigation: NavigationWorld
   private readonly markerMaterials = { friendly: new THREE.SpriteMaterial({ map: teamMarkerTexture(), color: 0x4da3ff, depthTest: false }),
     enemy: new THREE.SpriteMaterial({ map: teamMarkerTexture(), color: 0xff5a4d, depthTest: false }) }
   private arena!: DuelArenaEnvironment
   private player!: Player
   private orbit!: ThirdPersonCamera
+  private spectator?: SpectatorCameraController
   private inventory!: InventoryManager
   private tracker!: BattleStatsTracker
   private formation!: ArenaTrialFormation
@@ -157,6 +161,8 @@ export class CareerArenaCombatScene {
   private constructor(private readonly container: HTMLElement, private readonly renderer: THREE.WebGLRenderer,
     profile: CareerProfile, private readonly arenaId: DuelArenaId, private readonly callbacks: CareerArenaTrialCallbacks) {
     this.localProfile = profile
+    this.navigation = new NavigationWorld({ minX: -120, maxX: 120, minZ: -120, maxZ: 120,
+      ...(profile.activeMission?.prisonBreak ? { cellSize: PRISON_NAV_CELL_SIZE } : {}) })
     if (!profile.activeMission?.prisonBreak) this.session = new CareerArenaSession<TrialSettlement>(profile, {
       noun: '試煉', panel: new ArenaPanel('arena-trial-panel'), store: this.store, skills: this.skills, sound: this.sound, input: this.input,
       player: () => this.player,
@@ -273,6 +279,7 @@ export class CareerArenaCombatScene {
     }
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
     this.orbit.setYaw(spawn.yaw + Math.PI)
+    if (this.prison && this.player.dead) this.orbit.update(this.input, 0, this.arena.obstacles)
     this.tracker = new BattleStatsTracker(this.events, false, undefined, mission.playerStats)
     if (this.inventory instanceof TownEquipment) this.inventory.prepareForCombat()
     // prepareForCombat tops up supplies; a saved fight restores what was really left (0 means spent or broken).
@@ -333,7 +340,7 @@ export class CareerArenaCombatScene {
       const marker = new THREE.Sprite(this.markerMaterials[entry.team])
       marker.scale.set(0.6, 0.6, 1); marker.renderOrder = 10
       this.scene.add(marker)
-      this.bodies.push({ actorId, team: entry.team, npc, marker })
+      this.bodies.push({ actorId, team: entry.team, npc, marker, previousPosition: npc.combatPosition.clone() })
       this.tracker.registerNpc(npc, entry.team === 'friendly')
       if (++built % 6 === 0) {
         progress(`部署部隊 ${built} / ${standing.length}…`)
@@ -374,7 +381,7 @@ export class CareerArenaCombatScene {
     if (this.settlementPending || this.pickupRetry) { this.arena.update(dt); this.damageNumbers.update(dt, this.camera); return }
     this.elapsed += dt
     const fighting = this.phase === 'fight'
-    if (!this.panelOpen && (!this.prison || !this.player.dead)) this.orbit.update(this.input, dt, this.arena.obstacles)
+    this.updateCamera(dt)
     if (!this.player.dead && !this.panelOpen) {
       let step: ReturnType<PlayerInput['consumeWheelStep']>
       while ((step = this.input.consumeWheelStep()) !== 0) this.weaponWheel.cycle(this.inventory, step)
@@ -386,6 +393,9 @@ export class CareerArenaCombatScene {
     this.updateBodies(dt)
     if (fighting) { this.melee(); this.resolveBodies(); if (this.prison) this.pickupSwords() }
     if (this.pickupRetry) return
+    // A living teammate who has already crossed wins before any in-flight shot
+    // can hit them later in this frame. A rejected receipt freezes this same crossing.
+    if (this.prison?.gateOpen && this.resolvePrisonResult()) return
     this.updateShots(dt)
     this.arena.update(dt)
     this.props?.update(dt)
@@ -398,8 +408,9 @@ export class CareerArenaCombatScene {
     if (this.prisonHud) {
       this.prisonHud.hidden = this.phase === 'result'
       this.prisonHud.textContent = this.prison?.gateOpen ? '鐵門已開，穿過出口　↓' : `看守剩餘 ${this.counts().enemyActive}／5`
+      if (this.player.dead) this.prisonHud.textContent += '\n你已倒下，正在觀戰；友軍仍可逃脫（WASD 移動視角）'
       if (this.phase === 'countdown') this.prisonHud.textContent += ` · ${Math.ceil(this.countdownRemaining)}`
-      else if (!Object.values(this.prison!.swords).includes('player') && this.props?.swords.some(mesh => mesh.visible && mesh.position.distanceTo(this.player.position) < 2)) this.prisonHud.textContent += '\nE 拾取 T1 劍'
+      else if (!this.player.dead && !Object.values(this.prison!.swords).includes('player') && this.props?.swords.some(mesh => mesh.visible && mesh.position.distanceTo(this.player.position) < 2)) this.prisonHud.textContent += '\nE 拾取 T1 劍'
     }
     this.hud.update({
       phase: this.prison ? null : this.phase, countdown: this.countdownRemaining, label: ARENA_TRIAL_DEFINITIONS[this.trial.tier].label,
@@ -410,17 +421,37 @@ export class CareerArenaCombatScene {
     else if (this.skillsDirty && this.elapsed % 5 < dt) this.flushSkills()
   }
 
+  private updateCamera(dt: number): void {
+    if (this.panelOpen) return
+    if (this.prison && this.player.dead) {
+      if (!this.spectator) {
+        this.spectator = new SpectatorCameraController(this.camera)
+        this.spectator.initFromCamera()
+      }
+      this.spectator.update(this.input, dt)
+    } else this.orbit.update(this.input, dt, this.arena.obstacles)
+  }
+
   private counts() {
     return arenaTrialCounts(this.mission, { actors: {}, player: { knocked: this.player.dead } as ArenaTrialState['player'] },
       new Set([...this.knocked, ...this.bodies.filter(body => body.npc.dead).map(body => body.actorId)]))
   }
 
-  private advancePhase(dt: number): void {
+  private resolvePrisonResult(): boolean {
     if (this.prison && this.phase !== 'result') {
-      const result = prisonOutcome(this.player.dead, this.prison.gateOpen,
-        crossedPrisonExit(this.arenaId, this.previousPlayerPosition, this.player.position))
-      if (result) { this.finish(result); return }
+      const friend = this.bodies.find(body => body.team === 'friendly' && !body.npc.dead && crossedPrisonExit(this.arenaId,
+        { x: body.previousPosition.x, y: body.previousPosition.y + PLAYER_HALF_HEIGHT, z: body.previousPosition.z },
+        { x: body.npc.combatPosition.x, y: body.npc.combatPosition.y + PLAYER_HALF_HEIGHT, z: body.npc.combatPosition.z }))
+      const playerCrossed = !this.player.dead && crossedPrisonExit(this.arenaId, this.previousPlayerPosition, this.player.position)
+      const result = prisonOutcome({ playerDead: this.player.dead, friendlyAlive: this.counts().friendlyActive,
+        gateOpen: this.prison.gateOpen, playerCrossed, friendlyCrossed: Boolean(friend) })
+      if (result) { this.finishPrison(result, playerCrossed ? 'player' : friend?.actorId); return true }
     }
+    return false
+  }
+
+  private advancePhase(dt: number): void {
+    if (this.resolvePrisonResult()) return
     if (this.phase === 'countdown') {
       // The resume grace of an already-fighting trial still keeps the saved fight current: a landing, a knock-out or
       // a fall under way must survive a second reload. The first deployment countdown saves nothing.
@@ -474,9 +505,19 @@ export class CareerArenaCombatScene {
     const live = this.bodies.filter(body => !body.npc.dead).map(body => body.npc)
     for (const body of this.bodies) {
       const { npc } = body
+      body.previousPosition.copy(npc.combatPosition)
       const distance = npc.group.position.distanceTo(this.camera.position)
       if (npc.dead) { npc.update(dt, this.player, [], [], this.arena.obstacles, this.hp, () => {}, () => false, false, distance); continue }
       if (this.phase !== 'fight') { npc.updateTownPeace(dt, distance, false, false); continue }
+      if (this.prison?.gateOpen && body.team === 'friendly') {
+        if (!body.escaping) {
+          body.escaping = true
+          delete body.pickupSwordIndex
+          npc.assignFormationTarget(701, prisonExitDestination(this.arenaId), new THREE.Vector3(0, 0, -1))
+        }
+        npc.updateTownTravel(dt, distance, live, this.arena.obstacles, this.navigation)
+        continue
+      }
       if (this.prison && npc.battlefieldUnarmed) {
         const available = this.props!.swords.filter(mesh => mesh.visible)
         const nearest = available.sort((a, b) => a.position.distanceToSquared(npc.combatPosition) - b.position.distanceToSquared(npc.combatPosition))[0]
@@ -706,12 +747,12 @@ export class CareerArenaCombatScene {
 
   private pickupSwords(): void {
     const prison = this.prison
-    if (!prison || this.player.dead || this.pickupRetry) return
+    if (!prison || this.pickupRetry || prison.gateOpen) return
     for (let i = 0; i < this.props!.swords.length; i++) {
       const mesh = this.props!.swords[i]
       if (!mesh.visible) continue
       let owner: string | undefined
-      if (!Object.values(prison.swords).includes('player') && mesh.position.distanceTo(this.player.position) < 2 && this.input.consumeKeyE()) owner = 'player'
+      if (!this.player.dead && !Object.values(prison.swords).includes('player') && mesh.position.distanceTo(this.player.position) < 2 && this.input.consumeKeyE()) owner = 'player'
       const npc = this.bodies.find(body => body.team === 'friendly' && !body.npc.dead && body.npc.battlefieldUnarmed && mesh.position.distanceTo(body.npc.combatPosition) < 1.4)
       owner ??= npc?.actorId
       if (!owner) continue
@@ -736,8 +777,9 @@ export class CareerArenaCombatScene {
     return true
   }
 
-  private finishPrison(outcome: CareerMissionOutcome): void {
+  private finishPrison(outcome: CareerMissionOutcome, escapedBy?: string): void {
     const firstAttempt = !this.pendingSettlement
+    if (this.pendingSettlement) { outcome = this.pendingSettlement.outcome; escapedBy = this.pendingSettlement.escapedBy }
     // Freeze the final snapshot in memory. Exactly one write owns combat, receipt and reward.
     const staged = this.pendingPrisonProfile ?? this.captureProgress()
     if (!staged) return
@@ -753,12 +795,12 @@ export class CareerArenaCombatScene {
         document.body.append(this.subtitle)
       }
     }
-    const saved = settlePrisonBreak(staged, outcome, next => this.store.save(next))
+    const saved = settlePrisonBreak(staged, outcome, next => this.store.save(next), escapedBy)
     if (!saved) {
       this.pendingPrisonProfile = staged
-      this.pendingSettlement = { outcome, player: this.tracker.snapshot([], this.player).player }
+      this.pendingSettlement = { outcome, escapedBy, player: this.tracker.snapshot([], this.player).player }
       this.openPanel('逃脫結果尚未保存', '保存失敗；逃脫軍功尚未入帳。')
-      this.button('重試保存結算', () => this.finishPrison(outcome))
+      this.button('重試保存結算', () => this.finishPrison(outcome, escapedBy))
       return
     }
     this.profile = saved; this.pendingSettlement = null; this.pendingPrisonProfile = null; this.settled = true
@@ -769,7 +811,7 @@ export class CareerArenaCombatScene {
     const result = this.prison!.result!
     this.settled = true; this.phase = 'result'
     const victory = result.outcome === 'victory'
-    this.openPanel(victory ? '逃出牢籠' : '逃脫失敗', victory ? '你穿過了敵軍的鐵門。' : '你在穿過鐵門前倒下了。')
+    this.openPanel(victory ? '逃出牢籠' : '逃脫失敗', prisonResultDescription(this.prison!))
     this.panel!.id = 'prison-break-panel'
     this.panel!.querySelector('h2')!.style.color = victory ? '#f6d27c' : '#f0b7a3'
     const reward = document.createElement('p'); reward.id = 'prison-break-merit'
