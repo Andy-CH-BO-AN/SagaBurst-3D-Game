@@ -1,4 +1,4 @@
-import { expandedHrCenter } from './architecture/ArchitectureSpecs'
+import { expandedHrCenter, SERVICE_ANCHOR_CLEARANCE } from './architecture/ArchitectureSpecs'
 import { townEagleRoster, type TownEagleGarrisonLayout } from './TownEagleGarrison'
 import { eagleTrainerSpec, type TownEagleTrainingGround } from './TownEagleTrainingGround'
 import * as THREE from 'three'
@@ -48,9 +48,7 @@ export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readon
   for (const site of sites) {
     // Reserve the eaves plus margin, without rejecting a hall beside the overhead deck.
     if (!clear(footprint(site, width + 2.4, depth + 6))) continue
-    const officer = point(site, -(width / 2 - 2), depth / 2 + 4)
-    // Mounted body diameter is 2m; keep another .25m clearance on each side.
-    if (!clear(footprint(officer, 2.5, 2.5))) continue
+    const officer = point(site, 0, 0)
     for (const courtyardSide of [1, -1]) {
       const muster = Array.from({ length: 30 }, (_, i) => point(site,
         courtyardSide * (width / 2 + 5 + Math.floor(i / 5) * 4.5), (i % 5 - 2) * 4.5))
@@ -58,13 +56,11 @@ export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readon
       if (!clear(area)) continue
       const layout = { site, width, depth, officer, muster }
       const { hall: plan } = expandedHrCenter(faction, townHrLocalMuster(layout))
-      const side = Math.cos(site.yaw) * (officer.x - site.x) - Math.sin(site.yaw) * (officer.z - site.z)
-      const forward = Math.sin(site.yaw) * (officer.x - site.x) + Math.cos(site.yaw) * (officer.z - site.z)
-      if (side > plan.body.minX && side < plan.body.maxX && forward > plan.body.minZ && forward < plan.body.maxZ) {
-        const clearance = plan.wall + 1.5
-        Object.assign(officer, point(site, Math.max(plan.body.minX + clearance, Math.min(plan.body.maxX - clearance, side)),
-          Math.max(plan.body.minZ + clearance, Math.min(plan.body.maxZ - clearance, forward))))
-      }
+      // The HR Officer serves indoors at the end of the recruitment desk, on the side away
+      // from the muster rows and rear racks, leaving the central approach from the doors open.
+      const serviceSide = plan.portals[1].x > 0 ? -1 : 1
+      Object.assign(officer, point(site, serviceSide * (plan.desk.maxX - plan.desk.minX) / 2 + serviceSide * (SERVICE_ANCHOR_CLEARANCE + .7),
+        (plan.desk.minZ + plan.desk.maxZ) / 2))
       const hall = new THREE.Box3(new THREE.Vector3(plan.body.minX, -100, plan.body.minZ), new THREE.Vector3(plan.body.maxX, 100, plan.body.maxZ))
         .applyMatrix4(new THREE.Matrix4().makeRotationY(site.yaw)).translate(new THREE.Vector3(site.x, 0, site.z))
       if (clear(hall) && clear(footprint(officer, 2.5, 2.5))) return layout

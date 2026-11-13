@@ -66,7 +66,7 @@ import { TownPersonalSquadController, personalMemberLoadout } from './TownPerson
 import { snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
 import { siegeMuster } from '../career/TownSiege'
 import { personalTownDeployment, personalTownEagleDeployment } from '../career/PersonalSquadDeployment'
-import { shouldSpawnTownCommander, townCommanderHeroAsset, resolveTownCommanderPosition, townCommanderSpec } from './TownCommander'
+import { placeTownCenterServiceResidents, shouldSpawnTownCommander, townCommanderHeroAsset, resolveTownCommanderPosition, townCommanderSpec } from './TownCommander'
 import { HERO_COMBAT_PROFILE_BY_ASSET, HERO_COMBAT_PROFILES, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import { townAssaultObjectiveRoster, townRoster, townName, type TownActorSpec } from './TownRules'
 import { townDefenseForceCountsForProfile } from '../career/TownDefenseRoster'
@@ -379,9 +379,10 @@ export class TownScene {
     this.navigation.townNav!.setSiegeGates(this.world.gates)
     this.navigation.townNav!.setWatchtower(this.world.commandWatchtower)
     const population = townConquestRoster(this.world.hr, withTownCommandSquadRoster(context.residentFaction, townRoster()), this.world.eagleTraining, this.world.eagleGarrison)
+    placeTownCenterServiceResidents(population, role => this.world.serviceStation(role))
     if (shouldSpawnTownCommander(profile)) {
       this.navigation.sync(this.world.obstacles)
-      population.push(townCommanderSpec(resolveTownCommanderPosition(this.world.obstacles, this.world.roads, this.navigation, population)))
+      population.push(townCommanderSpec(resolveTownCommanderPosition(this.world.serviceStation('commander'), this.navigation, population)))
     }
     this.navigation.sync(this.world.obstacles)
     assignTownCivilianHomes(population, this.world.airspaceObstacles, this.navigation)
@@ -444,7 +445,11 @@ export class TownScene {
     this.player.group.rotation.y = townEntry.yaw
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
     // DEV-only QA handle (browser verification of buildings, entrances and damage); stripped from production.
-    if (import.meta.env.DEV) Object.assign(window, { __townScene: { world: this.world, player: this.player, orbit: this.orbit, camera: this.camera, input: this.input, residents: this.residents, stableHorses: this.stableHorses } })
+    if (import.meta.env.DEV) {
+      const scene = this
+      Object.assign(window, { __townScene: { world: this.world, player: this.player, orbit: this.orbit, camera: this.camera, input: this.input, residents: this.residents, stableHorses: this.stableHorses,
+        get personalSquad() { return scene.personalSquad }, get profile() { return scene.profile }, openRecruitmentPanel: () => scene.openRecruitmentPanel() } })
+    }
     this.navigation.sync(this.world.obstacles)
     this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,
       () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds,
@@ -825,9 +830,9 @@ export class TownScene {
         const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, borrowedIdentity?.characterFaction ?? characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, borrowedIdentity?.visualAssetId ?? (ranger ? 'maki-archer-t4' : heroAsset), borrowedIdentity?.combatProfileId ?? (ranger ? 'ranger' : combatProfile), borrowedIdentity?.specialCombatProfile ?? (ranger ? 'maki-ranger' : undefined), civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined, undefined, borrowedIdentity?.characterTier ?? (civilian ? TOWN_RULES.garrisonTier : spec.role === 'commander' ? 5 : hero ? hero.characterTier : ranger ? 4 : military!.level), borrowedIdentity?.heroArchetype))
         npc.enableBattlefieldEngagement()
         if (!spec.eagle && spec.duty !== 'patrol') npc.combatTargetAllowed = target => this.residentCombatTargetAllowed(spec, npc, target)
-        if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery)
+        if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery, undefined, spec)
         const duelRecovery = this.profile.townDuelResidentRecovery
-        if (duelRecovery?.faction === residentArmyFaction && duelRecovery.actorId === spec.id) restoreCareerDuelCommander(npc, duelRecovery)
+        if (duelRecovery?.faction === residentArmyFaction && duelRecovery.actorId === spec.id) restoreCareerDuelCommander(npc, duelRecovery, undefined, spec)
         npc.setTownPeaceful(); npc.group.rotation.y = spec.yaw ?? Math.PI
         if (spec.y !== undefined) npc.group.position.y = spec.y
         if (spec.garrison?.kind === 'rampart' || spec.duty === 'watchtower_guard') npc.activateTownRampartGarrison()
@@ -1826,6 +1831,12 @@ export class TownScene {
       this.openRecruitmentPanel(repaired ? '私兵全隊已恢復完整戰力：士兵、坐騎、箭矢與盾牌皆已整補。' : this.notice || '目前無法整補私兵。')
     })
     refit.disabled = !this.personalSquad?.canRefit
+    if (this.personalSquad?.error) {
+      const failed = document.createElement('p'); failed.className = 'town-summary'
+      failed.textContent = '部分私兵尚未在人資中心就位（資源載入失敗）。重試不會重複扣款或重複生成。'
+      panel.append(failed)
+      this.button(panel, '重試私兵就位', () => { this.personalSquad?.retryStandby(); this.openRecruitmentPanel() })
+    }
     if (refit.disabled) {
       const why = document.createElement('p'); why.className = 'town-summary'
       why.textContent = !members.length ? '還沒有私兵可整補。' : this.profile.activeMission || this.profile.activeOutpostMission ? '任務進行中，結算後才能整補。'
@@ -1841,7 +1852,8 @@ export class TownScene {
         const type = choice.heroArchetype ?? 'soldier'
         const first = !this.profile.townDialogueSeen?.includes(`${this.profile.faction}:hr-recruit-${type}`)
         const result = recruitPersonalSquadMember(this.profile, choice, next => this.commit(next))
-        if (result.recruited) { this.inventory.syncOwnership(); this.careerMounts.syncOwnership() }
+        // Only a saved hire materializes: the new member appears at its HR muster slot without a Follow order.
+        if (result.recruited) { this.inventory.syncOwnership(); this.careerMounts.syncOwnership(); this.personalSquad?.materializeStandby() }
         const price = resolvePersonalRecruitment(this.profile.faction, choice)?.price ?? 0
         const message = result.recruited ? first ? PERSONAL_RECRUIT_DIALOGUE[type] : `招募成功！目前私兵 ${this.profile.personalSquad?.members.length ?? 0}/30 人。`
           : result.reason === 'rank-locked' ? choice.characterTier === 5 ? '招募 T5 需要正式任命為指揮官。' : '需要正式任命為隊長才能招募。'
@@ -1885,7 +1897,7 @@ export class TownScene {
     this.button(confirm, '確認遣散', () => {
       if (this.player.dead || !this.serviceAvailable('hr-officer')) return
       const result = sellPersonalSquadMembers(() => this.profile, this.personalSquad!, ids, next => this.commit(next))
-      if (result.sold) { this.inventory.syncOwnership(); this.careerMounts.syncOwnership() }
+      if (result.sold) { this.inventory.syncOwnership(); this.careerMounts.syncOwnership(); this.personalSquad?.materializeStandby() }
       this.openRecruitmentPanel(result.sold ? `已遣散 ${result.soldCount} 人，退還 ${result.refund.toLocaleString()} 軍功。` : result.reason === 'save-failed' ? this.notice : result.reason === 'last-weapon' ? '非遊俠隊員至少要帶一把武器離開，請先為他們換上武器。' : '目前無法遣散隊員。')
     })
     this.button(confirm, '取消', () => this.openRecruitmentPanel())
@@ -3112,7 +3124,7 @@ export class TownScene {
       await HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCommanderHeroAsset(this.profile.faction)].descriptor)
       if (this.disposed || !shouldSpawnTownCommander(this.profile)) return
       this.navigation.sync(this.world.obstacles)
-      const spec = townCommanderSpec(resolveTownCommanderPosition(this.world.obstacles, this.world.roads, this.navigation, this.residents.map(resident => resident.spec)))
+      const spec = townCommanderSpec(resolveTownCommanderPosition(this.world.serviceStation('commander'), this.navigation, this.residents.map(resident => resident.spec)))
       const entries = careerTownSceneRoster(this.profile, [spec])
       await this.initializeResidents(entries, this.sceneContext, () => {}, true)
       this.residentRoster.push(...entries)

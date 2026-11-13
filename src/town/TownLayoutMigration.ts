@@ -18,6 +18,9 @@ export interface PersonalTownMigrationLayout {
   padForMember?: (memberId: string) => EaglePad | undefined
 }
 
+/** How far from its muster slot a standby actor may stand (pushed, turned) and still count as at HR. */
+export const PERSONAL_HR_STANDBY_RADIUS = 2.5
+
 /** Consume a formal return before any actors spawn. Legacy RESERVE actors whose
  * return flag was already consumed may since have fought or received commands:
  * preserve their exact resources/positions and restore Dismiss eligibility only.
@@ -25,8 +28,12 @@ export interface PersonalTownMigrationLayout {
  */
 export function placePersonalMissionAtHR(saved: PersonalSquadMission, layout: PersonalTownMigrationLayout): PersonalSquadMission {
   if (saved.sceneKey !== 'town-home') return saved
+  // HR standby keeps its deployed actors at the muster slots; only a RESERVE
+  // checkpoint with someone elsewhere in Town is an ambiguous legacy return.
+  const atHR = (position?: PersonalActorPosition) => Boolean(position)
+    && layout.muster.some(slot => Math.hypot(slot.x - position!.x, slot.z - position!.z) <= PERSONAL_HR_STANDBY_RADIUS)
   if (!saved.returnToHR) return saved.state === 'RESERVE'
-    && saved.memberIds.some(id => saved.members[id]?.status === 'deployed')
+    && saved.memberIds.some(id => saved.members[id]?.status === 'deployed' && !atHR(saved.members[id].position))
       ? { ...saved, state: 'ACTIVE' } : saved
   const next = returnPersonalMissionToHR(saved)!
   for (const id of next.memberIds) {

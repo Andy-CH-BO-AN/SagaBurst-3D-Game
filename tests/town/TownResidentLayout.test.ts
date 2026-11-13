@@ -1,9 +1,9 @@
 import { Box3, Matrix4, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
-import { townPlazaLayout } from '../../src/town/architecture/ArchitectureSpecs'
+import { architectureLocalToWorld, architectureSpec, townPlazaLayout } from '../../src/town/architecture/ArchitectureSpecs'
 import { CIVILIAN_HOME_LAYOUT_VERSION, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes, civilianBodyClear, civilianHomeAnchor, civilianMountsClear, civilianPointLegal, migrateCivilianHomes } from '../../src/town/TownCivilianLife'
-import { resolveTownCommanderPosition, townCommanderSpec } from '../../src/town/TownCommander'
+import { placeTownCenterServiceResidents, resolveTownCommanderPosition, townCommanderSpec } from '../../src/town/TownCommander'
 import { getTownCommandWatchtowerLayout, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
 import { resolveTownEagleGarrison } from '../../src/town/TownEagleGarrison'
 import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
@@ -172,7 +172,13 @@ it('keeps final Town population homes, ground stations and fallbacks clear of ra
     expect(towerReservations.some(box => footprints.some(tower => tower.intersectsBox(box)))).toBe(false)
   }
   const population = townConquestRoster(hr, withTownCommandSquadRoster('roman', roster), training, resolveTownEagleGarrison(training))
-  population.push(townCommanderSpec(resolveTownCommanderPosition([], roads, navigation, population)))
+  // The Town places its Captain, Sergeant and Commander at the hall plan's indoor posts.
+  const station = (role: 'captain' | 'deployment' | 'commander') => {
+    const anchor = architectureSpec('roman', 'town-center').anchors.find(a => a.id === `service:${role}`)!
+    return { ...architectureLocalToWorld(TOWN_CENTER, anchor.x, anchor.z), yaw: anchor.yaw + TOWN_CENTER.yaw }
+  }
+  placeTownCenterServiceResidents(population, station)
+  population.push(townCommanderSpec(resolveTownCommanderPosition(station('commander'), navigation, population)))
   // Reserve an otherwise legal home in the final population. This makes the
   // lost-fallback bug observable even when today's default slots happen to miss homes.
   const unreserved = population.filter(a => a.role !== 'civilian').map(a => a.garrison ?? a)

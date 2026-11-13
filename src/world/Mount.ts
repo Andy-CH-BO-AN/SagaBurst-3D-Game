@@ -526,7 +526,8 @@ export class Mount {
     this.eagleAttack?.cancel()
   }
 
-  restoreForTown(x: number, z: number, yaw: number): void {
+  /** `y` keeps a mount on a raised floor (e.g. inside a hall); omitted, it stands on the terrain. */
+  restoreForTown(x: number, z: number, yaw: number, y?: number): void {
     this.riderNpc = null
     this.riderFaction = null
     this.currentHp = this.maxHp
@@ -537,7 +538,7 @@ export class Mount {
     // leaves the scene graph until this same native mount is restored.
     if (this.eagleVisual && this.eagleVisual.root.parent !== this.group) this.group.add(this.eagleVisual.root)
     this.group.visible = true
-    this.group.position.set(x, getTerrainHeight(x, z), z)
+    this.group.position.set(x, y ?? getTerrainHeight(x, z), z)
     this.group.rotation.set(0, yaw, 0)
     this.previousPosition.copy(this.group.position)
     this.movementSpeed = 0

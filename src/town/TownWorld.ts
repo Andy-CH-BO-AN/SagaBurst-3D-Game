@@ -11,7 +11,8 @@ import { TownDockPassages } from './TownDockPassages'
 import { TownSiegeAirspace } from './TownSiegeAirspace'
 import { createTownFortifications } from './TownFortifications'
 import { townCivicClearance, type CivicClearanceShape, TOWN_CENTER, TOWN_WELL, TOWN_PLAZA, townHousing, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_CITY, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
-import { ArchitectureKit, architectureStatues, buildTownPlaza, placeArchitecture, townHomeVariant, type CivicBuildingKind } from './architecture/TownArchitecture'
+import { ArchitectureKit, architectureStatues, buildTownPlaza, placeArchitecture, townHomeVariant, type CivicBuildingKind, type TownCenterServiceRole } from './architecture/TownArchitecture'
+import type { TownServiceStation } from './TownCommanderIdentity'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { createCampfireVisual, createPineVisual } from '../world/EnvironmentVisuals'
@@ -36,6 +37,8 @@ export class TownWorld {
   readonly civicShapes: CivicClearanceShape[] = []
   readonly civicClearance: ReturnType<typeof townCivicClearance>
   readonly hr: TownHRLayout
+  /** Indoor Town Center posts of the Captain, Sergeant and Commander (world XZ, floor Y). */
+  private readonly serviceStations = new Map<TownCenterServiceRole, TownServiceStation>()
   readonly eagleGarrison: TownEagleGarrisonLayout
   readonly eagleTraining: TownEagleTrainingGround
   readonly commandWatchtower: CommandWatchtowerLayout
@@ -292,7 +295,13 @@ export class TownWorld {
   }
   private geo<T extends THREE.BufferGeometry>(g: T): T { this.geometries.add(g); return g }
   private mat(color: number): THREE.MeshStandardMaterial { const m = new THREE.MeshStandardMaterial({ color, roughness: .88 }); this.materials.add(m); return m }
-  /** Authored civic support height, shared by initial stall placement and live movement. */
+  /** Indoor post of a Town Center service resident, from the faction's own hall plan. */
+  serviceStation(role: TownCenterServiceRole): TownServiceStation {
+    const station = this.serviceStations.get(role)
+    if (!station) throw new Error(`城鎮中心缺少服務站位：${role}`)
+    return { ...station }
+  }
+  /** Authored civic support height, shared by initial stall placement and live movement.*/
   civicFloorY(id: string): number {
     const floor = this.buildings.find(building => building.id === id)?.supports[0]?.walkSurface
     if (!floor) throw new Error(`城鎮建築缺少樓板：${id}`)
@@ -324,6 +333,8 @@ export class TownWorld {
   /** Faction civic building from the shared architecture plans, registered with HP, ruin and supports. */
   private civic(id: string, kind: CivicBuildingKind, site: { x: number; z: number; yaw: number }): void {
     const placed = placeArchitecture(this.architecture, kind, site, { statues: architectureStatues(), hrMuster: kind === 'hr-center' ? townHrLocalMuster(this.hr) : undefined })
+    if (kind === 'town-center') for (const anchor of placed.anchors) if (anchor.role === 'service')
+      this.serviceStations.set(anchor.id.slice('service:'.length) as TownCenterServiceRole, { x: anchor.x, y: anchor.y, z: anchor.z, yaw: anchor.yaw })
     this.root.add(placed.root, placed.ruin)
     if (kind === 'hr-center') {
       for (const slot of this.hr.muster) slot.y = placed.floorY

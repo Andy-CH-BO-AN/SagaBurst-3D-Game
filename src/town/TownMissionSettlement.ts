@@ -193,7 +193,7 @@ export class TownMissionSettlement {
           this.restoreResident(resident)
           if (active.kind === 'duel' && active.duelCommanderHome
             && (active.duelMode === 'unarmed' ? resident.npc.combatantId === active.duelOpponentActorId : active.duelTier === 5 && resident.spec.id === 'commander')) {
-            restoreCareerDuelCommander(resident.npc, active.duelCommanderHome, resident.homeMount)
+            restoreCareerDuelCommander(resident.npc, active.duelCommanderHome, resident.homeMount, resident.spec)
           }
         }
       }

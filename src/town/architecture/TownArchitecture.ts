@@ -5,7 +5,7 @@ import { getTerrainHeight, WALK_SURFACE_STEP_UP, type ObstacleData, type WalkRam
 import { rampNavigationSides, surfaceBox } from '../TownRamparts'
 import type { CommandWatchtowerLayout } from '../TownCommandWatchtowerLayout'
 import { ArchitectureKit, PALETTE, Sketch, preloadArchitectureDecorations, tabletopDisplay, type BuildContext } from './ArchitectureKit'
-import { architectureSpec, architectureRuinCorridors, expandedHrCenter, hrFloorNavigationEdges, DEEP, TOWN_PLAZA_MONUMENT, townPlazaLayout, type ArchitectureFaction, type BuildingSpec, type CivicBuildingKind, type LocalRect, type PlazaProp } from './ArchitectureSpecs'
+import { architectureLocalToWorld, architectureSpec, architectureRuinCorridors, expandedHrCenter, hrFloorNavigationEdges, DEEP, TOWN_PLAZA_MONUMENT, townPlazaLayout, type ArchitectureFaction, type BuildingSpec, type CivicBuildingKind, type LocalRect, type PlazaProp } from './ArchitectureSpecs'
 import { buildRomanHome, buildRomanHrCenter, buildRomanStable, buildRomanTownCenter, buildRomanWeapons } from './RomanBuildings'
 import { buildVikingHome, buildVikingHrCenter, buildVikingStable, buildVikingTownCenter, buildVikingWeapons } from './VikingBuildings'
 
@@ -122,11 +122,6 @@ const BUILDERS: Record<ArchitectureFaction, Record<CivicBuildingKind, (ctx: Buil
     'home-a': ctx => buildVikingHome(ctx, 'home-a'), 'home-b': ctx => buildVikingHome(ctx, 'home-b'), 'home-c': ctx => buildVikingHome(ctx, 'home-c') },
 }
 
-/** Building-local (side = x, forward = z) → world, the same mapping as TownRules.townSitePoint. */
-export function architectureLocalToWorld(site: ArchitectureSite, x: number, z: number): { x: number; z: number } {
-  return { x: site.x + Math.cos(site.yaw) * x + Math.sin(site.yaw) * z, z: site.z - Math.sin(site.yaw) * x + Math.cos(site.yaw) * z }
-}
-
 /**
  * Builds one faction building at a Town site on the live terrain.
  *
@@ -215,7 +210,7 @@ export function placeArchitecture(kit: ArchitectureKit, kind: CivicBuildingKind,
     // DEEP is a plan sentinel, never a sampled camp terrain coordinate.
     const box = toWorld(x0, authoredColliders.has(collider) && y0 <= DEEP ? plinthBottom - .4 : y0, z0, x1, y1, z1)
     const overhead = collider.role === 'roof' || collider.role === 'overhead'
-    const obstacle = { box, isBarricade: false, ...(overhead ? { navigationPassable: true } : {}) }
+    const obstacle = { box, isBarricade: false, ...(overhead || collider.role === 'post' ? { navigationPassable: true } : {}) }
     obstacles.push(obstacle)
     if (collider.role === 'roof') roofColliders.push({ obstacle, original: box.clone(), local: new THREE.Box3(new THREE.Vector3(x0, y0 - pivot, z0), new THREE.Vector3(x1, y1 - pivot, z1)) })
   }

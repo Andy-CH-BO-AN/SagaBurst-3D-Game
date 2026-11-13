@@ -10,6 +10,8 @@ import {
   architectureSpec,
   CIVIC_BUILDING_KINDS,
   expandedHrCenter,
+  SERVICE_ANCHOR_CLEARANCE,
+  TOWN_CENTER_SERVICE_ROLES,
   hrFloorNavigationEdges,
   type ArchitectureCollider, type ArchitectureFaction, type BuildingSpec, type LocalRect,
 } from '../../src/town/architecture/ArchitectureSpecs'
@@ -167,3 +169,26 @@ it('fits mounted HR reserves under the roof and leaves its public approach clear
 
   }
 })
+
+it('posts the Captain left, Sergeant centre and Commander right inside each Town Center, clear for a mounted officer', () => {
+  for (const faction of ['roman', 'viking'] as const) {
+    const spec = architectureSpec(faction, 'town-center'), solid = blocking(spec)
+    const posts = TOWN_CENTER_SERVICE_ROLES.map(role => spec.anchors.find(a => a.id === `service:${role}`)!)
+    const [captain, sergeant, commander] = posts
+    // Walking in through the +Z door the player faces -Z, so the left hand is -X.
+    expect(captain.x, faction).toBeLessThan(sergeant.x)
+    expect(commander.x, faction).toBeGreaterThan(sergeant.x)
+    for (const post of posts) {
+      const name = `${faction} ${post.id}`
+      expect(spec.floor.some(r => post.x > r.minX && post.x < r.maxX && post.z > r.minZ && post.z < r.maxZ), name).toBe(true)
+      const body: LocalRect = { minX: post.x, maxX: post.x, minZ: post.z, maxZ: post.z }
+      expect(solid.filter(c => overlaps(c, body, SERVICE_ANCHOR_CLEARANCE)).map(c => c.box), name).toEqual([])
+      // The door-to-Sergeant aisle stays open for players and private soldiers.
+      expect(overlaps({ box: [post.x, 0, post.z, post.x, 0, post.z], role: 'prop' }, spec.aisle!, SERVICE_ANCHOR_CLEARANCE), name).toBe(false)
+      for (const other of spec.anchors) if (other !== post) {
+        expect(Math.hypot(other.x - post.x, other.z - post.z), `${name}/${other.id}`).toBeGreaterThanOrEqual(other.role === 'service' ? SERVICE_ANCHOR_CLEARANCE * 2 : 1.5)
+      }
+    }
+  }
+})
+

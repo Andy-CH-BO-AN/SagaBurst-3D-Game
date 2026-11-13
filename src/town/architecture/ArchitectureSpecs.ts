@@ -18,12 +18,32 @@ export const CIVIC_BUILDING_KINDS: readonly CivicBuildingKind[] = ['town-center'
 export type LocalBox = readonly [number, number, number, number, number, number]
 export const DEEP = -2
 export interface LocalRect { readonly minX: number; readonly maxX: number; readonly minZ: number; readonly maxZ: number }
-export type ColliderRole = 'wall' | 'column' | 'prop' | 'statue' | 'roof' | 'overhead'
+/** `post`: a thin interior post that is solid for bodies and arrows but finer than the 2m navigation grid,
+ * so it never seals off the bays between post rows (local steering slides around it). */
+export type ColliderRole = 'wall' | 'column' | 'post' | 'prop' | 'statue' | 'roof' | 'overhead'
 export interface ArchitectureCollider {
   readonly box: LocalBox
   readonly role: ColliderRole
 }
-export type AnchorRole = 'officer' | 'recruit' | 'npc' | 'merchant' | 'horse'
+export type AnchorRole = 'officer' | 'recruit' | 'npc' | 'merchant' | 'horse' | 'service'
+/** Town Center residents who serve indoors; ids of their `service` anchors are `service:<role>`. */
+export type TownCenterServiceRole = 'captain' | 'deployment' | 'commander'
+export const TOWN_CENTER_SERVICE_ROLES: readonly TownCenterServiceRole[] = ['captain', 'deployment', 'commander']
+/** Body radius a mounted service officer needs on its anchor (mount collision radius plus margin). */
+export const SERVICE_ANCHOR_CLEARANCE = 1.2
+
+/** Building-local (side = x, forward = z) → world, the same mapping as TownRules.townSitePoint. */
+export function architectureLocalToWorld(site: { x: number; z: number; yaw: number }, x: number, z: number): { x: number; z: number } {
+  return { x: site.x + Math.cos(site.yaw) * x + Math.sin(site.yaw) * z, z: site.z - Math.sin(site.yaw) * x + Math.cos(site.yaw) * z }
+}
+/** Seen by a player walking in through the front door: Captain on the left, Sergeant centre, Commander on the right. */
+function serviceAnchors(points: Readonly<Record<TownCenterServiceRole, readonly [number, number]>>): ArchitectureAnchor[] {
+  return TOWN_CENTER_SERVICE_ROLES.map(role => ({ id: `service:${role}`, x: points[role][0], z: points[role][1], yaw: 0, role: 'service' as const }))
+}
+/** Generic gathering anchors keep clear of the service officers. */
+function apartFrom(service: readonly ArchitectureAnchor[], anchors: ArchitectureAnchor[], gap = 2.4): ArchitectureAnchor[] {
+  return anchors.filter(anchor => service.every(s => Math.hypot(s.x - anchor.x, s.z - anchor.z) >= gap))
+}
 export interface ArchitectureAnchor { readonly id: string; readonly x: number; readonly z: number; readonly yaw: number; readonly role: AnchorRole }
 export interface ArchitectureEntrance {
   /** Threshold centre on the floor edge, facing outward along `yaw` (0 = local +Z). */
@@ -220,15 +240,18 @@ function romanTownCenter(): BuildingSpec {
     ...mirrored(side => [post(side * 6.3, -7.6, .38, c.F + 1.4, 'prop')]),
     above(-c.roof.halfSpan, top, c.roof.back, c.roof.halfSpan, c.F + c.roof.eave + c.roof.rise, c.roof.front, 'roof'),
   ]
-  const anchors: ArchitectureAnchor[] = [{ id: 'hall-officer', x: 0, z: -8.1, yaw: 0, role: 'officer' }]
-  for (const side of [-1, 1]) for (const [x, zs] of [[2.8, [-4, -1, 2]], [6.3, [-4.5, -.5, 3]]] as const) for (const z of zs)
-    anchors.push({ id: `hall-${side < 0 ? 'w' : 'e'}-${x}-${z}`, x: side * x, z, yaw: -side * Math.PI / 2, role: 'npc' })
+  const service = serviceAnchors({ captain: [-3.4, -3.0], deployment: [0, -4.4], commander: [3.4, -3.0] })
+  const gathering: ArchitectureAnchor[] = []
+  for (const side of [-1, 1]) for (const [x, zs] of [[2.8, [-4, -1, 2, 3.8]], [6.3, [-4.5, -.5, 1.2, 3]]] as const) for (const z of zs)
+    gathering.push({ id: `hall-${side < 0 ? 'w' : 'e'}-${x}-${z}`, x: side * x, z, yaw: -side * Math.PI / 2, role: 'npc' })
+  const anchors: ArchitectureAnchor[] = [{ id: 'hall-officer', x: 0, z: -8.1, yaw: 0, role: 'officer' }, ...service, ...apartFrom(service, gathering)]
   return {
     faction: 'roman', kind: 'town-center', label: '羅馬城鎮中心 · Principia',
     envelope: rect(-12.2, 12.2, -10.2, 12.6), floorY: c.F,
     floor: [rect(-h.halfX, h.halfX, h.back, c.portico.front)],
     entrance: { x: 0, z: c.portico.front, yaw: 0, width: c.steps.half * 2, doorWidth: c.door.half * 2, height: c.door.height, approach: c.steps.front - c.portico.front },
-    interior: rect(-innerX, innerX, innerBack, innerFront), aisle: rect(-1.6, 1.6, c.table.front + .3, c.portico.front),
+    // The aisle runs from the door to the Sergeant standing in front of the table.
+    interior: rect(-innerX, innerX, innerBack, innerFront), aisle: rect(-1.6, 1.6, -4.4 + SERVICE_ANCHOR_CLEARANCE + .2, c.portico.front),
     anchors, colliders, height: c.tower.top + 1.8, maxHp: 900,
   }
 }
@@ -362,7 +385,7 @@ function vikingTownCenter(): BuildingSpec {
     ...mirrored(side => [solid(side < 0 ? -p.halfX : pIn, h.front - h.wall, side < 0 ? -pIn : p.halfX, p.front, c.F + p.top)]),
     ...mirrored(side => [solid(side < 0 ? -p.halfX : c.door.half, pFront, side < 0 ? -c.door.half : p.halfX, p.front, c.F + p.top)]),
     above(-c.door.half, c.F + c.door.height, pFront, c.door.half, c.F + p.top, p.front),
-    ...c.posts.x.flatMap(x => c.posts.z.map(z => post(x, z, c.posts.r, top))),
+    ...c.posts.x.flatMap(x => c.posts.z.map(z => post(x, z, c.posts.r, top, 'post'))),
     solid(-c.hearth.half, c.hearth.back, c.hearth.half, c.hearth.front, c.F + .55, 'prop'),
     solid(-c.seat.half, c.seat.back, c.seat.half, c.seat.front, c.F + 1.6, 'prop'),
     ...mirrored(side => [solid(side < 0 ? -9 : 3, innerBack, side < 0 ? -3 : 9, innerBack + .55, c.F + .5, 'prop')]),
@@ -381,14 +404,17 @@ function vikingTownCenter(): BuildingSpec {
       return [above(x0, y0, z0, -px, y1, z1, 'roof'), above(px, y0, z0, x1, y1, z1, 'roof'), above(-px, cut, z0, px, y1, z1, 'roof')]
     })
   }
-  const anchors: ArchitectureAnchor[] = [{ id: 'hall-officer', x: 0, z: -6.7, yaw: 0, role: 'officer' }]
+  // The Sergeant stands before the long hearth; Captain and Commander between the post rows.
+  const service = serviceAnchors({ captain: [-6.3, -2.8], deployment: [0, -.8], commander: [6.3, -2.8] })
+  const gathering: ArchitectureAnchor[] = []
   for (const side of [-1, 1]) for (const [x, z] of [[6.3, -2.8], [6.3, -6.8], [3.0, 1.2], [9.3, 1.3], [9.6, -2.8], [2.8, -6.6], [2.8, 5.5], [2.8, 7.6]] as const)
-    anchors.push({ id: `hall-${side < 0 ? 'w' : 'e'}-${x}-${z}`, x: side * x, z, yaw: -side * Math.PI / 2, role: 'npc' })
+    gathering.push({ id: `hall-${side < 0 ? 'w' : 'e'}-${x}-${z}`, x: side * x, z, yaw: -side * Math.PI / 2, role: 'npc' })
+  const anchors: ArchitectureAnchor[] = [{ id: 'hall-officer', x: 0, z: -6.7, yaw: 0, role: 'officer' }, ...service, ...apartFrom(service, gathering)]
   return {
     faction: 'viking', kind: 'town-center', label: '維京領主長屋 · Longhouse', envelope: rect(-12.2, 12.2, -10.2, 12.6), floorY: c.F,
     floor: [rect(-h.halfX, h.halfX, h.back, h.front), rect(-p.halfX, p.halfX, h.front, p.front)],
     entrance: { x: 0, z: p.front, yaw: 0, width: c.stairs.half * 2, doorWidth: c.door.half * 2, height: c.door.height, approach: c.stairs.front - p.front },
-    interior: rect(-innerX, innerX, innerBack, h.front), aisle: rect(-1.4, 1.4, c.hearth.front + .3, p.front),
+    interior: rect(-innerX, innerX, innerBack, h.front), aisle: rect(-1.4, 1.4, -.8 + SERVICE_ANCHOR_CLEARANCE + .2, p.front),
     anchors, colliders, height: p.ridge + 1.8, maxHp: 900,
   }
 }
