@@ -6,6 +6,7 @@ import { describe,expect,it,vi } from 'vitest'
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 import { createTownDefenseMission } from '../../src/career/CareerMissionState'
 import { cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { grantCommanderMelee } from '../../src/career/CareerCommanderEquipment'
 import { captureBorrowedCharacterIdentities, resolveBorrowedCharacterIdentity } from '../../src/career/CareerBorrowedIdentity'
 import { siegeRoster } from '../../src/career/TownSiege'
 import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -71,7 +72,8 @@ describe('siege checkpoint ownership', () => {
   })
 
   it('retires a legacy attacking eagle command receipt on reload and rejects it at native runtime restore', () => {
-    const profile = createFourGateDefenseProfile('ATTACKING', { rosterVersion: 1 })
+    const profile = createFourGateDefenseProfile('ATTACKING', { rosterVersion: 1, enemyRosterVersion: 1 })
+    grantCommanderMelee(profile)
     const active = profile.activeMission!, state = active.fourGateDefense!
     const id = 'town-eagle-rider:1', groundId = 'gate:north:7'
     Object.assign(state.actors[id], { hp: 37, ammo: 2, order: 'follow',
