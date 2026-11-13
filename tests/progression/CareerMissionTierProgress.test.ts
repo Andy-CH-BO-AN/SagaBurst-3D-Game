@@ -32,7 +32,7 @@ describe('Home mission prerequisites by mission tier', () => {
     expect(parseCareerProfile({ ...profile, careerMissionCompletionsByTier: { 1: -1, 2: 5.9, 3: 100 } })?.careerMissionCompletionsByTier).toEqual({ 1: 0, 2: 5, 3: 100 })
   })
 
-  it('preserves legacy Recruit progress and reconstructs only proven Soldier victories while allowing recruits free mission choice', () => {
+  it('allows recruits to freely select any non-retired recruit mission without merit or completion prerequisites', () => {
     const rawRecruit = createCareerProfile('roman')
     const list = availableRecruitMissions(rawRecruit).map(template => template.id)
     expect(list).toContain('recruit-bandits-01')
@@ -44,7 +44,9 @@ describe('Home mission prerequisites by mission tier', () => {
     expect(list).not.toContain('career-enemy-town-assault')
     expect(list).not.toContain(SOLDIER_TOWN_DEFENSE_TEMPLATE_ID)
     expect(list).not.toContain(TOWN_DEFENSE_TEMPLATE_ID)
+  })
 
+  it('preserves legacy Recruit progress and reconstructs only proven Soldier victories', () => {
     const profile = soldier()
     profile.careerMissionCompletions = 5
     expect(available(profile, TOWN_DEFENSE_TEMPLATE_ID)).toBe(false)

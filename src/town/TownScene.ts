@@ -1997,7 +1997,7 @@ export class TownScene {
           const row = document.createElement('article'); row.className = 'town-product'
           const title = document.createElement('strong'); title.textContent = '前哨防守 ' + ['I', 'II', 'III'][stageId - 1]
           const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
-          details.textContent = `守軍最多 ${stage.defenderDeployment.maxUnits} 人（你另外加入）｜敵方 ${stage.attackerArmy.totalUnits} 人\n${completed ? '已完成，可重複挑戰' : unlocked ? '可接取' : `需先完成前哨防守 ${['I', 'II'][stageId - 2]}`}`
+          details.textContent = `守軍最多 ${stage.defenderDeployment.maxUnits} 人（你另外加入）｜敵方 ${stage.attackerArmy.totalUnits} 人\n${completed ? '已完成，可重複挑戰' : unlocked ? '可接取' : '需要晉升為士兵'}`
           row.append(title, details)
           if (unlocked) this.button(row, '接受防守任務', () => this.acceptOutpost(stageId))
           panel.append(row)
@@ -2007,10 +2007,11 @@ export class TownScene {
       const reliefTitle = document.createElement('strong'); reliefTitle.textContent = '騎兵救援'
       const reliefDetails = document.createElement('small')
       const reliefUnlocked = isCareerOutpostReliefUnlocked(this.profile)
+      const reliefMountReady = Boolean(resolveCareerReliefMount(this.profile))
       reliefDetails.style.whiteSpace = 'pre-line'
-      reliefDetails.textContent = !reliefUnlocked ? '需先完成前哨防守 I–III' : !resolveCareerReliefMount(this.profile) ? '需要一匹可使用的自有坐騎' : '我方 50 騎（含你）｜敵方 60 人\n目標：殲滅全部敵軍。你戰死後可繼續觀戰。'
+      reliefDetails.textContent = !reliefUnlocked ? '需要晉升為士兵' : !reliefMountReady ? '需要一匹可使用的自有坐騎' : '我方 50 騎（含你）｜敵方 60 人\n目標：殲滅全部敵軍。你戰死後可繼續觀戰。'
       relief.append(reliefTitle, reliefDetails)
-      if (reliefUnlocked && resolveCareerReliefMount(this.profile)) this.button(relief, '接受騎兵救援', () => this.acceptOutpostRelief())
+      if (reliefUnlocked && reliefMountReady) this.button(relief, '接受騎兵救援', () => this.acceptOutpostRelief())
       panel.append(relief)
     }
     const missions = availableCareerMissionsForPage(this.profile, selectedPage)
@@ -2542,7 +2543,7 @@ export class TownScene {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
     const fresh = this.store.loadChecked().profile
     const next = fresh && acceptCareerOutpostRelief(fresh)
-    if (!next) { this.openPanel('無法接受任務', '需先完成前哨防守 I–III、擁有一匹可使用的自有坐騎，且沒有進行中的任務。'); return }
+    if (!next) { this.openPanel('無法接受任務', '需先晉升為士兵、擁有一匹可使用的自有坐騎，且沒有進行中的任務或交戰事件。'); return }
     if (!this.commit(next)) return
     const launch = createCareerOutpostLaunch(this.profile)
     this.dispose(true)

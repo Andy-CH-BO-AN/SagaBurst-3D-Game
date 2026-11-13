@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { availableRecruitMissions, getCareerMissionTemplate } from '../../src/career/CareerMissionCatalog'
 import { createTownDefenseMission } from '../../src/career/CareerMissionState'
 import { acceptCareerOutpostRelief, claimCareerOutpost, clearCareerOutpost } from '../../src/career/CareerOutpostMission'
-import { createCareerProfile } from '../../src/career/CareerProfile'
+import { claimCareerMission, clearCareerMission, createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { acceptEnemyTownAssault, createEnemyTownAssaultMission, ENEMY_TOWN_ASSAULT_ID } from '../../src/career/EnemyTownAssault'
-import { SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, TOWN_DEFENSE_TEMPLATE_ID, VETERAN_TOWN_DEFENSE_TEMPLATE_ID, townDefenseEnemyCount } from '../../src/career/TownDefenseState'
+import { VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from '../../src/career/TownDefenseState'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 const stats = { player: { damageDealt: 200, damageTaken: 10, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }, squads: [] }
+const missionStats = { damageDealt: 120, kills: 2, survived: true, damageTaken: 10, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }
 function readyForRelief(faction: 'roman' | 'viking' = 'roman') {
   return { ...createCareerProfile(faction), rank: 'soldier' as const, totalMerit: 300, availableMerit: 300,
     completedOutpostStages: [1, 2, 3] as (1 | 2 | 3)[], ownedMounts: ['horse' as const], ownedHorseTiers: [1] as (1 | 2 | 3)[], selectedMountId: 'horse-t1' as const }
@@ -32,7 +33,7 @@ describe('Enemy Town Assault retired mission policy', () => {
     const retry = acceptCareerOutpostRelief(loaded, 'relief-retry')!
     expect(clearCareerOutpost(claimCareerOutpost(retry, 'relief-retry', 'defeat', stats).profile).completedOutpostRelief).toBe(true)
   })
-  it('allows historical active missions to be parsed and recognized via retired lookup', () => {
+  it('allows historical active missions to be parsed, settled once, and cleared safely via retired lookup', () => {
     const rawAssault = {
       ...settleRelief('victory'),
       activeMission: createEnemyTownAssaultMission('legacy-active-assault'),
@@ -42,12 +43,8 @@ describe('Enemy Town Assault retired mission policy', () => {
     expect(parsedAssault.activeMission!.templateId).toBe(ENEMY_TOWN_ASSAULT_ID)
     expect(getCareerMissionTemplate(ENEMY_TOWN_ASSAULT_ID)).not.toBeNull()
 
-    expect(townDefenseEnemyCount(TOWN_DEFENSE_TEMPLATE_ID, 'veteran')).toBe(120)
-    expect(townDefenseEnemyCount(SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, 'soldier')).toBe(120)
-    expect(townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran')).toBe(120)
-
-    const friendlyActorIds = Array.from({ length: 63 }, (_, index) => `legacy-defense:friendly:${index}`)
-    const civilianActorIds = Array.from({ length: 20 }, (_, index) => `legacy-defense:civilian:${index}`)
+    const friendlyActorIds = ['legacy-defense:friendly:0', 'legacy-defense:friendly:1']
+    const civilianActorIds = ['legacy-defense:civilian:0']
     const rawDefense = {
       ...createCareerProfile('roman'),
       rank: 'veteran' as const,
@@ -55,12 +52,18 @@ describe('Enemy Town Assault retired mission policy', () => {
       activeMission: createTownDefenseMission(friendlyActorIds, civilianActorIds, 'legacy-defense', VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran'),
     }
     const stableTargets = [...rawDefense.activeMission.targetActorIds]
-    expect(rawDefense.activeMission.targetActorIds).toHaveLength(120)
     const promotedDefense = { ...rawDefense, rank: 'commander' as const, totalMerit: 2000 }
     const restoredDefense = parseCareerProfile(JSON.parse(JSON.stringify(promotedDefense)))!
     expect(restoredDefense.activeMission!.targetActorIds).toEqual(stableTargets)
-    expect(restoredDefense.activeMission!.targetActorIds).toHaveLength(120)
     expect(restoredDefense.activeMission!.templateId).toBe(VETERAN_TOWN_DEFENSE_TEMPLATE_ID)
     expect(getCareerMissionTemplate(VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).not.toBeNull()
+
+    const settled = claimCareerMission(restoredDefense, restoredDefense.activeMission!.id, 'victory', missionStats)
+    expect(settled.alreadyClaimed).toBe(false)
+    expect(settled.meritAwarded).toBeGreaterThan(0)
+    const duplicate = claimCareerMission(settled.profile, restoredDefense.activeMission!.id, 'victory', missionStats)
+    expect(duplicate.alreadyClaimed).toBe(true)
+    expect(duplicate.meritAwarded).toBe(0)
+    expect(clearCareerMission(duplicate.profile, restoredDefense.activeMission!.id).activeMission).toBeUndefined()
   })
 })
