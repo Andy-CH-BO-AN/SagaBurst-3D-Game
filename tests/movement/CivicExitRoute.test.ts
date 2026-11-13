@@ -19,6 +19,8 @@ const RIDER_BASE_SPEED = 12.8
 const DT = 1 / 60
 /** Friendly jam length in frames; longer than the stall window so a replan happens while jammed. */
 const CROWD_JAM_FRAMES = 300
+/** Ramp jam: long enough for a stall replan to fire while the body is on the ramp. */
+const RAMP_JAM_FRAMES = 600
 const MAX_FRAMES = 900
 
 /** Mirrors placeArchitecture's collision and walk-surface mapping, built from the same plan without meshes. */
@@ -78,35 +80,42 @@ function localToGround(local: { x: number; z: number }): THREE.Vector3 {
   return new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z), p.z)
 }
 
-interface Trip { reached: boolean; crossedDoor: boolean; frames: number; stopped: NavigationRouteKind | null; end: string }
+interface Trip { reached: boolean; crossedDoor: boolean; handBack: boolean; frames: number; stopped: NavigationRouteKind | null; end: string }
 
 interface RideOptions {
-  /** Physical-only body across the doorway (a friendly jam). Never part of the navigation grid. */
+  /** Physical-only body across the route (a friendly jam). Never part of the navigation grid. */
   crowd?: ObstacleData[]
   crowdUntilFrame?: number
   /** Initial heading; defaults to facing the first waypoint's direction. */
   yaw?: number
+  /** A new order: the goal changes at this frame. */
+  switchGoal?: { atFrame: number; goal: THREE.Vector3 }
 }
 
 /** One mounted body. Routing comes from production LayeredNavigationRoute (ground follower as fallback),
  * steering from the same helpers the NPC branches call, and collision from the production resolver. */
 function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: RideOptions = {}): Trip {
-  const { obstacles, world } = rig
+  const { obstacles, world, spec } = rig
+  const e = spec.entrance, rampEnd = e.approach + 1
   const layered = new LayeredNavigationRoute(new NavigationPathFollower()), ground = new NavigationPathFollower()
   const out = new THREE.Vector3(), p = start.clone()
-  let yaw = options.yaw ?? 0, velocityY = 0, onGround = true, crossedDoor = false
+  let target = goal, yaw = options.yaw ?? 0, velocityY = 0, onGround = true, crossedDoor = false, handBack = false
   for (let frame = 0; frame < MAX_FRAMES; frame++) {
+    if (options.switchGoal && frame === options.switchGoal.atFrame) target = options.switchGoal.goal
     world.beginFrame()
     const body = options.crowd && frame < (options.crowdUntilFrame ?? 0) ? [...obstacles, ...options.crowd] : obstacles
     const request: LayeredNavigationRequest = {
-      position: p, goal, world, outpost: null, currentLayer: 'ground', targetLayer: 'ground', differentLayer: false,
+      position: p, goal: target, world, outpost: null, currentLayer: 'ground', targetLayer: 'ground', differentLayer: false,
       mounted: true, outpostMounted: true, flying: false, radius: RIDER_RADIUS, height: RIDER_HEIGHT,
       entranceId: null, sectorId: null, actorId: 'civic-exit-test', skipGroundNavigation: false,
     }
     const step = layered.resolve(request, obstacles, out)
-    const route: NavigationRouteKind = step?.route ?? ground.resolveMoveTarget(p, goal, world,
-      findBlockingObstacleAlongPath(p, goal, RIDER_RADIUS, RIDER_HEIGHT, 0, obstacles) !== null, out)
-    if (route === 'unreachable') return { reached: false, crossedDoor, frames: frame, stopped: route, end: at(p) }
+    const route: NavigationRouteKind = step?.route ?? ground.resolveMoveTarget(p, target, world,
+      findBlockingObstacleAlongPath(p, target, RIDER_RADIUS, RIDER_HEIGHT, 0, obstacles) !== null, out)
+    if (route === 'unreachable') return { reached: false, crossedDoor, handBack, frames: frame, stopped: route, end: at(p) }
+    // Leaving through the doorway, the ramp band before the safety line must stay under civic steering.
+    const along = (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z
+    if (along > 0 && along < rampEnd && !step?.civicExit) handBack = true
     const toward = new THREE.Vector3(out.x - p.x, 0, out.z - p.z), distance = toward.length()
     const previous = p.clone()
     if (distance > 1e-4) {
@@ -129,9 +138,9 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
     const hit = resolveObstacleCollision(p, previous, velocityY, onGround, RIDER_RADIUS, RIDER_HEIGHT, 0, body, { mountedSurfaces: true })
     velocityY = hit.velocityY; onGround = hit.onGround
     if (!crossedDoor && p.clone().sub(rig.threshold).dot(rig.outward) > 0) crossedDoor = true
-    if (Math.hypot(p.x - goal.x, p.z - goal.z) < 1.5) return { reached: true, crossedDoor, frames: frame + 1, stopped: null, end: at(p) }
+    if (Math.hypot(p.x - target.x, p.z - target.z) < 1.5) return { reached: true, crossedDoor, handBack, frames: frame + 1, stopped: null, end: at(p) }
   }
-  return { reached: false, crossedDoor, frames: MAX_FRAMES, stopped: null, end: at(p) }
+  return { reached: false, crossedDoor, handBack, frames: MAX_FRAMES, stopped: null, end: at(p) }
 }
 
 /** Enemy positions outside the hall, relative to the front door: in front, beside, and behind the building. */
@@ -150,13 +159,23 @@ function mountedAt(rig: Rig, postId: string): THREE.Vector3 {
   return new THREE.Vector3(p.x, rig.groundY + rig.spec.floorY, p.z)
 }
 
-/** Physical box across the front doorway, in world space, for a temporary friendly jam. */
-function doorwayBlock(rig: Rig, zOffset: number): ObstacleData {
-  const e = rig.spec.entrance
-  const a = architectureLocalToWorld(SITE, -e.doorWidth / 2 - .2, e.z + zOffset)
-  const b = architectureLocalToWorld(SITE, e.doorWidth / 2 + .2, e.z + zOffset + .8)
+/** Physical box across the route between two local z lines, for a temporary friendly jam. */
+function localBox(rig: Rig, halfX: number, zMin: number, zMax: number): ObstacleData {
+  const a = architectureLocalToWorld(SITE, -halfX, zMin), b = architectureLocalToWorld(SITE, halfX, zMax)
   return { box: new THREE.Box3(new THREE.Vector3(Math.min(a.x, b.x), rig.groundY, Math.min(a.z, b.z)),
     new THREE.Vector3(Math.max(a.x, b.x), rig.groundY + rig.spec.floorY + RIDER_HEIGHT, Math.max(a.z, b.z))), isBarricade: false }
+}
+
+/** Physical box across the front doorway. */
+function doorwayBlock(rig: Rig, zOffset: number): ObstacleData {
+  const e = rig.spec.entrance
+  return localBox(rig, e.doorWidth / 2 + .2, e.z + zOffset, e.z + zOffset + .8)
+}
+
+/** Physical box across the ramp near its foot, so the body clears the threshold before it jams. */
+function rampBlock(rig: Rig): ObstacleData {
+  const e = rig.spec.entrance, mid = e.z + e.approach * .85
+  return localBox(rig, e.width / 2 + .2, mid - .3, mid + .3)
 }
 
 describe('mounted civic exit from the Town Center', () => {
@@ -201,6 +220,24 @@ describe('mounted civic exit from the Town Center', () => {
     expect(trip.stopped, `frames=${trip.frames}`).toBeNull()
     expect(trip.reached, `frames=${trip.frames}`).toBe(true)
     expect(trip.crossedDoor).toBe(true)
+  })
+
+  it('a jam on the ramp after the doorframe keeps civic steering until the ramp safety line, then completes', () => {
+    const rig = townCenterRig('viking', true)
+    const trip = ride(rig, mountedAt(rig, 'service:commander'), outsideGoals(rig).front,
+      { crowd: [rampBlock(rig)], crowdUntilFrame: RAMP_JAM_FRAMES })
+    expect(trip.handBack, 'ordinary chase took over on the ramp').toBe(false)
+    expect(trip.stopped, `frames=${trip.frames}`).toBeNull()
+    expect(trip.reached, `frames=${trip.frames} end=${trip.end}`).toBe(true)
+    expect(trip.crossedDoor).toBe(true)
+  })
+
+  it('a new indoor formation order during an exit cancels the exit, so the superseded route never carries the rider out', () => {
+    const rig = townCenterRig('viking', true)
+    const indoor = localToGround({ x: -6, z: -6 })
+    const trip = ride(rig, mountedAt(rig, 'service:commander'), outsideGoals(rig).front,
+      { switchGoal: { atFrame: 20, goal: indoor } })
+    expect(trip.crossedDoor, `end=${trip.end}`).toBe(false)
   })
 
   it('a commander facing away from the doorway turns in place before stepping toward it', () => {

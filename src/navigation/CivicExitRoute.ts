@@ -112,6 +112,7 @@ function insideHall(hall: CivicHall, p: { x: number; z: number }, margin = 0): b
  * It only supplies the next local waypoint; the actor's attack/charge intent is untouched.
  */
 export class CivicExitRoute {
+  private hall: CivicHall | null = null
   private door: CivicDoor | null = null
   private waypoints: THREE.Vector3[] = []
   private index = 0
@@ -123,6 +124,7 @@ export class CivicExitRoute {
   private readonly out = new THREE.Vector3()
 
   clear(): void {
+    this.hall = null
     this.door = null
     this.waypoints.length = 0
     this.index = 0
@@ -132,22 +134,32 @@ export class CivicExitRoute {
   /** null means the actor is not leaving a civic hall; ordinary routing owns the move. */
   resolve(request: CivicExitRequest, obstacles: readonly ObstacleData[]): CivicExitResult {
     const { position: p, goal: g, halls, revision } = request
-    if (this.door) {
-      if (this.passedDoor(p)) { this.clear(); return null }
-      // Topology changes (e.g. a wall breach) or a long jam at the door replan from here.
-      if (revision !== this.revision || this.stalledFrames > CIVIC_EXIT_STALL_FRAMES) this.clear()
+    if (this.door && this.hall) {
+      // A goal inside the hall is a new order (indoor formation or follow): it replaces the exit intent.
+      // Enemy movement outside the hall keeps the exit, so it never forces a per-frame replan.
+      if (insideHall(this.hall, g, .5) || this.passedDoor(p)) { this.clear(); return null }
+      // Topology changes (e.g. a wall breach) or a long jam replan from here through the same hall,
+      // including on the ramp before the safety line, so ordinary chase never takes over early.
+      if (revision !== this.revision || this.stalledFrames > CIVIC_EXIT_STALL_FRAMES) {
+        const hall = this.hall
+        this.clear()
+        if (!this.plan(hall, p, g, obstacles, revision, request.radius, request.height)) return this.reject(p, revision)
+      }
     }
     if (!this.door) {
       const hall = halls.find(h => insideHall(h, p))
       if (!hall || insideHall(hall, g, .5)) return null
       if (this.failedRevision === revision && p.distanceToSquared(this.failedAt) < REPLAN_DISTANCE_SQ) return { kind: 'blocked' }
-      if (!this.plan(hall, p, g, obstacles, revision, request.radius, request.height)) {
-        this.failedRevision = revision
-        this.failedAt.copy(p)
-        return { kind: 'blocked' }
-      }
+      if (!this.plan(hall, p, g, obstacles, revision, request.radius, request.height)) return this.reject(p, revision)
     }
     return this.follow(p)
+  }
+
+  /** Only a static sealed route is cached as a failure; a jam never is. */
+  private reject(p: THREE.Vector3, revision: number): CivicExitResult {
+    this.failedRevision = revision
+    this.failedAt.copy(p)
+    return { kind: 'blocked' }
   }
 
   private passedDoor(p: THREE.Vector3): boolean {
@@ -162,6 +174,7 @@ export class CivicExitRoute {
     for (const door of doors) {
       const route = this.route(grid, p, door)
       if (!route) continue
+      this.hall = hall
       this.door = door
       this.waypoints = route
       this.index = 0
