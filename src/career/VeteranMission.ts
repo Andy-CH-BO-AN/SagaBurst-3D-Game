@@ -183,6 +183,8 @@ export function getVeteranMissionAvailability(profile: CareerProfile, templateId
   const index = VETERAN_MISSION_IDS.indexOf(templateId as VeteranMissionTemplateId)
   if (index < 0) return { unlocked: false, reason: '無效的老兵任務' }
   if (CAREER_RANKS.indexOf(profile.rank) < CAREER_RANKS.indexOf('veteran')) return { unlocked: false, reason: '需要晉升為老兵' }
+  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission) return { unlocked: false, reason: '請先完成目前的任務或競賽。' }
+  if (profile.townEvent?.state === 'hostile') return { unlocked: false, reason: '目前仍在交戰，暫時無法接取。' }
   const mission = VETERAN_MISSION_CATALOG[index]
   if (mission.requiresMount && !resolveCareerReliefMount(profile)) return { unlocked: false, reason: '需要一匹可使用的自有坐騎' }
   return { unlocked: true }
@@ -492,7 +494,7 @@ export function createVeteranSpawnSpec(unitSpec: VeteranRosterUnit, playerFactio
 export function acceptVeteranMission(current: CareerProfile, templateId: string, options: AcceptVeteranMissionOptions = {}): CareerProfile | null {
   const missionDefinition = getVeteranMissionDefinition(templateId)
   if (!missionDefinition || !getVeteranMissionAvailability(current, templateId).unlocked
-    || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null
+    || current.activeRace || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null
   const missionId = options.missionId ?? createCareerMissionId(missionDefinition.id)
   const veteranRosterVersion = reusesAllTownCavalry(templateId) ? 3 as const
     : missionDefinition.id === VETERAN_MISSION_IDS[5] ? 2 as const : undefined

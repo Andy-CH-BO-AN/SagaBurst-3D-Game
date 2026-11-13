@@ -32,20 +32,7 @@ describe('Home mission prerequisites by mission tier', () => {
     expect(parseCareerProfile({ ...profile, careerMissionCompletionsByTier: { 1: -1, 2: 5.9, 3: 100 } })?.careerMissionCompletionsByTier).toEqual({ 1: 0, 2: 5, 3: 100 })
   })
 
-  it('preserves legacy Recruit progress and reconstructs only proven Soldier victories', () => {
-    const profile = soldier()
-    profile.careerMissionCompletions = 5
-    expect(available(profile, TOWN_DEFENSE_TEMPLATE_ID)).toBe(false)
-    expect(available(profile, SOLDIER_TOWN_DEFENSE_TEMPLATE_ID)).toBe(false)
-    const current = { ...profile, activeOutpostMission: { id: 'legacy-outpost', kind: 'outpost-defense' as const, stageId: 1 as const, acceptedAt: 0 } }
-    const claim = claimCareerOutpost(current, 'legacy-outpost', 'victory', { player: stats, squads: [] })
-    expect(claim.profile.careerMissionCompletionsByTier).toEqual({ 1: 5, 2: 1, 3: 0 })
-    const legacy = { ...claim.profile, careerMissionCompletionsByTier: undefined }
-    expect(careerMissionCompletionsForTier(legacy, 1)).toBe(5)
-    expect(careerMissionCompletionsForTier(legacy, 2)).toBe(1)
-  })
-
-  it('allows recruits to independently access harder recruit missions without merit or completion gates', () => {
+  it('preserves legacy Recruit progress and reconstructs only proven Soldier victories while allowing recruits free mission choice', () => {
     const rawRecruit = createCareerProfile('roman')
     const list = availableRecruitMissions(rawRecruit).map(template => template.id)
     expect(list).toContain('recruit-bandits-01')
@@ -57,6 +44,17 @@ describe('Home mission prerequisites by mission tier', () => {
     expect(list).not.toContain('career-enemy-town-assault')
     expect(list).not.toContain(SOLDIER_TOWN_DEFENSE_TEMPLATE_ID)
     expect(list).not.toContain(TOWN_DEFENSE_TEMPLATE_ID)
+
+    const profile = soldier()
+    profile.careerMissionCompletions = 5
+    expect(available(profile, TOWN_DEFENSE_TEMPLATE_ID)).toBe(false)
+    expect(available(profile, SOLDIER_TOWN_DEFENSE_TEMPLATE_ID)).toBe(false)
+    const current = { ...profile, activeOutpostMission: { id: 'legacy-outpost', kind: 'outpost-defense' as const, stageId: 1 as const, acceptedAt: 0 } }
+    const claim = claimCareerOutpost(current, 'legacy-outpost', 'victory', { player: stats, squads: [] })
+    expect(claim.profile.careerMissionCompletionsByTier).toEqual({ 1: 5, 2: 1, 3: 0 })
+    const legacy = { ...claim.profile, careerMissionCompletionsByTier: undefined }
+    expect(careerMissionCompletionsForTier(legacy, 1)).toBe(5)
+    expect(careerMissionCompletionsForTier(legacy, 2)).toBe(1)
   })
 })
 

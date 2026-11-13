@@ -13,14 +13,15 @@ function mission(stageId: CareerOutpostStageId = 1): CareerProfile {
 }
 describe('Career Outpost unlocks and results', () => {
 
-  it('permits independent stage selection for Soldiers without sequential prerequisites and rejects active-mission conflicts', () => {
+  it('permits independent stage and relief selection for Soldiers while enforcing stageId, mount and active-mission limits', () => {
     expect(acceptCareerOutpost(createCareerProfile('roman'), 1, 'recruit')).toBeNull()
     expect(isCareerOutpostUnlocked(soldier(), 1)).toBe(true)
     expect(isCareerOutpostUnlocked(soldier(), 2)).toBe(true)
     expect(isCareerOutpostUnlocked(soldier(), 3)).toBe(true)
+    expect(isCareerOutpostUnlocked(soldier(), 99)).toBe(false)
+    expect(acceptCareerOutpost(soldier(), 99 as any)).toBeNull()
     expect(acceptCareerOutpost(mission(), 1, 'other')).toBeNull()
-  })
-  it('allows Cavalry Relief without completing stages 1-3 when a usable mount is owned, but rejects without mount', () => {
+
     const unmounted = soldier()
     expect(isCareerOutpostReliefUnlocked(unmounted)).toBe(true)
     expect(acceptCareerOutpostRelief(unmounted)).toBeNull()

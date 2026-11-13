@@ -46,8 +46,8 @@ export interface CareerOutpostRecord extends CareerOutpostMission {
 export function isCareerOutpostStageId(value: unknown): value is CareerOutpostStageId {
   return CAREER_OUTPOST_STAGES.includes(value as CareerOutpostStageId)
 }
-export function isCareerOutpostUnlocked(profile: CareerProfile, _stageId: CareerOutpostStageId): boolean {
-  return profile.rank !== 'recruit'
+export function isCareerOutpostUnlocked(profile: CareerProfile, stageId: unknown): stageId is CareerOutpostStageId {
+  return profile.rank !== 'recruit' && isCareerOutpostStageId(stageId)
 }
 export function acceptCareerOutpost(current: CareerProfile, stageId: CareerOutpostStageId, id: string = crypto.randomUUID()): CareerProfile | null {
   if (!isCareerOutpostUnlocked(current, stageId) || current.activeRace || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null

@@ -146,7 +146,7 @@ import { applyCareerClass, careerClassOffer, CAREER_CLASSES_BY_FACTION, CAREER_C
 import { applyT4Class, isT4ClassId, t4ClassOffer, T4_CLASSES_BY_FACTION, T4_CLASS_FIRST_MERIT, type T4ClassId } from '../career/CareerT4Promotion'
 import { CAREER_CLASS_HERO, T4_CLASS_HERO } from '../career/CareerPlayerProfile'
 import { appendCareerPromotionCards, appendT4PromotionCards, careerClassConfirmation } from '../ui/CareerPromotionUI'
-import { MAX_BULK_PURCHASE_QUANTITY, CAREER_RANKS, CAREER_RANK_LABELS, CAREER_RANK_THRESHOLDS, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile, type CareerMountId, type CareerRank } from '../career/CareerProfile'
+import { MAX_BULK_PURCHASE_QUANTITY, CAREER_RANKS, CAREER_RANK_LABELS, CAREER_RANK_THRESHOLDS, clearCareerMission, cloneCareerProfile, promoteCareer, type CareerProfile, type CareerMountId, type CareerRank } from '../career/CareerProfile'
 import { availableRecruitMissions, availableCareerMissionsForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, getRecruitMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
 import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission, createVeteranRoster, veteranTownCavalryReserveSlots } from '../career/VeteranMission'
 import { selectTownCavalryReserve } from './TownCavalryReserve'
@@ -2045,10 +2045,10 @@ export class TownScene {
       this.button(row, '接受任務', () => this.acceptMission(template.id))
       list.append(row)
     }
-    if (selectedPage === 'recruit' && enlistmentMerit(this.profile) < 60) {
-      const gate = document.createElement('p'); gate.className = 'town-summary'
-      gate.textContent = '多完成幾次任務、累積軍功，就會陸續開放林線巡邏、敵眾我寡的剿匪與守城任務。'
-      panel.append(gate)
+    if (selectedPage === 'recruit') {
+      const summary = document.createElement('p'); summary.className = 'town-summary'
+      summary.textContent = '可自由選擇不同難度的剿匪與巡邏任務；晉升至更高軍階後可解鎖更多進階作戰。'
+      panel.append(summary)
     }
   }
   private townDefenseBoardForce() {

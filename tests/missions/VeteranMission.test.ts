@@ -6,12 +6,15 @@ const first = 'veteran-dread-outpost', second = 'veteran-scout-hunters', village
 const stats = { damageDealt: 50, damageTaken: 0, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
 const veteran = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'veteran', totalMerit: 900, availableMerit: 900, ownedMounts: ['horse'] })
 describe('Veteran progression and stable borrowed rosters', () => {
-  it('permits independent Veteran mission selection while enforcing rank and mount prerequisites', () => {
+  it('permits independent Veteran mission selection while enforcing rank, mount and race mutual exclusion', () => {
     const soldier = { ...veteran(), rank: 'soldier' as const }
     expect(getVeteranMissionAvailability(soldier, second).unlocked).toBe(false)
     const unmounted = { ...veteran(), ownedMounts: [] }
     expect(getVeteranMissionAvailability(unmounted, second).unlocked).toBe(false)
     expect(getVeteranMissionAvailability(unmounted, first).unlocked).toBe(true) // first doesn't require mount
+    const racing = { ...veteran(), activeRace: { id: 'test-race', raceId: 'cavalry-sprint', laps: 1, currentLap: 1, checkpoints: [] } as any }
+    expect(getVeteranMissionAvailability(racing, second).unlocked).toBe(false)
+    expect(acceptVeteranMission(racing, second)).toBeNull()
     expect(getVeteranMissionAvailability(veteran(), second).unlocked).toBe(true)
     expect(getVeteranMissionAvailability(veteran(), 'veteran-tragedy-of-the-scouts').unlocked).toBe(true)
 
