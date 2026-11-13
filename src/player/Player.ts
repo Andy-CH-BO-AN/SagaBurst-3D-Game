@@ -57,6 +57,7 @@ import {
   getBerserkerModifiers,
 } from '../combat/CombatBalance'
 import {
+  PLAYER_RADIUS,
   MAX_STAMINA,
   SPRINT_MULTIPLIER,
   STAMINA_DRAIN,
@@ -76,7 +77,6 @@ const PLAYER_VISUAL_GROUND_OFFSET = -0.15
 export const DEFAULT_PLAYER_MAX_HP = COMBAT_BALANCE.hp.playerDefault
 const MELEE_ATTACK_BUFFER_WINDOW = 0.15 // 150ms input buffer window for early attack clicks
 
-const PLAYER_RADIUS = 0.38
 const MAX_BOW_CHARGE_TIME = 1.2
 export interface ArrowLaunchEvent {
   origin: THREE.Vector3

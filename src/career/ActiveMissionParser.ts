@@ -3,6 +3,7 @@
  * mission family's own roster rules; any failure rejects the whole mission (fail closed).
  */
 import { parseDuelArenaId } from '../arena/DuelArenaCatalog'
+import { parsePrisonBreakState } from './CareerPrisonBreak'
 import { arenaTrialRoster, arenaTrialTierFromTemplateId, parseArenaTrialState } from './CareerArenaTrials'
 import { legacySiegeCharacterTier, parseBorrowedCharacterIdentities } from './CareerBorrowedIdentity'
 import { siegeRoster, siegeRosterVersion } from './TownSiege'
@@ -606,6 +607,11 @@ export function parseActiveMission(value: unknown, faction: CareerProfile['facti
   }
   const result = parseMissionResult(raw)
   if (result) mission.result = result
+  if (raw.prisonBreak !== undefined) {
+    const prison = parsePrisonBreakState(raw.prisonBreak, mission)
+    if (!prison) return undefined
+    mission.prisonBreak = prison
+  }
   if (personalSquad && mission.kind !== 'duel') mission.personalSquad = personalSquad
   if (mission.result && raw.result && typeof raw.result === 'object') {
     const meritStats = parseMissionPlayerStats((raw.result as Record<string, unknown>).meritStats)

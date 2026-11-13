@@ -1,3 +1,5 @@
+import { acceptHeavyFieldMission } from '../../src/career/HeavyFieldMission'
+import { Faction } from '../../src/world/NPC'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { shouldResumeCareerTown } from '../../src/career/CareerResumeRouting'
 import { Game } from '../../src/Game'
@@ -114,5 +116,72 @@ describe('Career reload routing', () => {
       expect(shouldResumeCareerTown(restored, false)).toBe(true)
       expect(JSON.stringify(profile)).toBe(saved)
     }
+  })
+})
+
+
+describe('Heavy field defeat capture at the production Game caller', () => {
+  it('正式結果保存失敗不離場，重試後保存一次被俘資格，玩家倒下的勝利不進戰俘流程', () => {
+    for (const outcome of ['failure', 'victory'] as const) {
+      const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+      const profile = acceptHeavyFieldMission({ ...createCareerProfile('roman'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 'soldier-iron-encounter', `field-${outcome}`)!
+      expect(store.save(profile)).toBe(true)
+      const player = { damageDealt: 20, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
+      const hud = { showResult: vi.fn(), showSaveRetry: vi.fn() }
+      const entry = Object.assign(Object.create(Game.prototype) as { _showFieldBattleResult(outcome: 'victory' | 'failure'): void }, {
+        felineMissionId: profile.activeMission!.id, bridgeLaunch: undefined, careerStore: store,
+        npcs: [{ faction: Faction.ENEMY, characterFaction: 'viking' }], player: { dead: true },
+        fieldBattleHud: hud, battleStats: { freeze() {}, snapshot: () => ({ player, squads: [] }) },
+        _flushCareerSkillProgression: () => true, _persistCareerBattle: () => true,
+      })
+      storage.failWrites = true
+      entry._showFieldBattleResult(outcome)
+      expect(hud.showResult).not.toHaveBeenCalled()
+      expect(store.load()!.activeMission!.result).toBeUndefined()
+      expect(store.load()!.activeMission!.prisonBreak).toBeUndefined()
+      storage.failWrites = false
+      entry._showFieldBattleResult(outcome)
+      const saved = store.load()!
+      expect(saved.activeMission!.result!.outcome).toBe(outcome)
+      expect(saved.activeMission!.prisonBreak?.captor).toBe(outcome === 'failure' ? 'viking' : undefined)
+      expect(saved.claimedBattleIds).toEqual([profile.activeMission!.id])
+      expect(hud.showResult.mock.lastCall?.[4]).toBe(outcome === 'failure' ? '繼續' : '返回小鎮')
+      entry._showFieldBattleResult(outcome)
+      expect(store.load()).toEqual(saved)
+    }
+  })
+
+  it('正式敗北頁繼續先保存被俘進度才離場，寫入失敗可重試且原敗北與軍功收據不變', () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage), session = new Map<string, string>()
+    vi.stubGlobal('window', { removeEventListener: vi.fn(), location: { pathname: '/game/', href: '' } })
+    vi.stubGlobal('sessionStorage', { setItem: (key: string, value: string) => session.set(key, value), removeItem: (key: string) => session.delete(key) })
+    const profile = acceptHeavyFieldMission({ ...createCareerProfile('roman'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 'soldier-iron-encounter', 'field-return')!
+    expect(store.save(profile)).toBe(true)
+    const player = { damageDealt: 20, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
+    const hud = { showResult: vi.fn(), showSaveRetry: vi.fn() }, dispose = vi.fn()
+    const entry = Object.assign(Object.create(Game.prototype) as { _showFieldBattleResult(outcome: 'failure'): void }, {
+      felineMissionId: profile.activeMission!.id, bridgeLaunch: undefined, careerStore: store,
+      npcs: [{ faction: Faction.ENEMY, characterFaction: 'viking' }], player: { dead: true },
+      fieldBattleHud: hud, battleStats: { freeze() {}, snapshot: () => ({ player, squads: [] }) },
+      _flushCareerSkillProgression: () => true, _persistCareerBattle: () => true,
+      _disposeCareerOutpostBattleActors: dispose, _showNotify: vi.fn(),
+    })
+    entry._showFieldBattleResult('failure')
+    const claimed = store.load()!
+    expect(hud.showResult.mock.lastCall?.[4]).toBe('繼續')
+    const continueFromDefeat = hud.showResult.mock.lastCall![3] as () => void
+    storage.failWrites = true
+    continueFromDefeat()
+    expect(store.load()).toEqual(claimed)
+    expect(dispose).not.toHaveBeenCalled()
+    expect(window.location.href).toBe('')
+    storage.failWrites = false
+    continueFromDefeat()
+    const continued = store.load()!
+    expect(continued.activeMission).toEqual({ ...claimed.activeMission, prisonBreak: { ...claimed.activeMission!.prisonBreak, stage: 'escape' } })
+    expect({ ...continued, activeMission: claimed.activeMission }).toEqual(claimed)
+    expect(dispose).toHaveBeenCalledOnce()
+    expect(session.get('sagaburst_career_town')).toBe('1')
+    expect(window.location.href).toBe('/game/')
   })
 })

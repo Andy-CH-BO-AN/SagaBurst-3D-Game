@@ -433,10 +433,10 @@ function facadeGeometries(): { wall: THREE.BufferGeometry[]; trim: THREE.BufferG
   return { wall, trim, bays }
 }
 
-function podiumGeometries(stairBoxes: THREE.Box3[]): { face: THREE.BufferGeometry[]; rail: THREE.BufferGeometry[] } {
+function podiumGeometries(stairBoxes: THREE.Box3[], prisonExit = false): { face: THREE.BufferGeometry[]; rail: THREE.BufferGeometry[] } {
   const clear = (x: number, z: number): boolean => !stairBoxes.some(box => x > box.min.x - 0.2 && x < box.max.x + 0.2 && z > box.min.z && z < box.max.z)
   const t = COLOSSEUM.podiumWallThickness, h = COLOSSEUM.podiumHeight, r = h + COLOSSEUM.balustradeHeight
-  const face = [sweepStrip([0, 0], [0, h], { uLength: 6.5, vLength: h, segments: 160, vFromY: true })]
+  const face = [sweepStrip([0, 0], [0, h], { uLength: 6.5, vLength: h, segments: 160, vFromY: true, keep: (x, z) => !prisonExit || Math.abs(x) > 1.5 || z > -19 })]
   const rail = [
     sweepStrip([0, h], [0, r], { uLength: 2.4, vLength: COLOSSEUM.balustradeHeight, segments: 160, keep: clear, vFromY: true }),
     sweepStrip([0, r], [t, r], { uLength: 2.4, vLength: 4, segments: 160, keep: clear, color: 0xd9ccb0 }),
@@ -464,18 +464,20 @@ function stairGeometries(): THREE.BufferGeometry[] {
   return parts
 }
 
-function gateGeometries(): { frame: THREE.BufferGeometry[]; iron: THREE.BufferGeometry[]; dark: THREE.BufferGeometry[] } {
+function gateGeometries(prisonExit = false): { frame: THREE.BufferGeometry[]; iron: THREE.BufferGeometry[]; dark: THREE.BufferGeometry[] } {
   const frame: THREE.BufferGeometry[] = [], iron: THREE.BufferGeometry[] = [], dark: THREE.BufferGeometry[] = []
   const gate = (theta: number, width: number, height: number, d: number, inward: boolean): void => {
     const w = width / 2
     const opening = new THREE.Shape()
     opening.moveTo(-w, 0); opening.lineTo(-w, height - w); opening.absarc(0, height - w, w, Math.PI, 0, true); opening.lineTo(w, 0); opening.closePath()
     const recess = new THREE.ShapeGeometry(opening, 10).translate(0, 0, 0.03)
-    dark.push(placeOnRing(recess, theta, d, 0, inward))
+    const escapeGate = prisonExit && inward && Math.abs(theta - Math.PI * 1.5) < .01
+    if (!escapeGate) dark.push(placeOnRing(recess, theta, d, 0, inward)); else recess.dispose()
     for (const side of [-1, 1]) frame.push(tint(placeOnRing(boxBetween(side * w - 0.32, 0, 0, side * w + 0.32, height - w + 0.1, 0.32), theta, d, 0, inward), 0xe1d3b4))
     const arch = new THREE.TorusGeometry(w + 0.16, 0.2, 5, 14, Math.PI).scale(1, 1, 0.9).translate(0, height - w, 0.16)
     frame.push(tint(placeOnRing(arch, theta, d, 0, inward), 0xe8dcc0))
     frame.push(tint(placeOnRing(boxBetween(-0.22, height + 0.02, 0.05, 0.22, height + 0.48, 0.42), theta, d, 0, inward), 0xf0e4c6))
+    if (escapeGate) return
     for (let i = -3; i <= 3; i++) {
       const x = i / 3.5 * w
       const barTop = height - w + Math.sqrt(Math.max(0, w * w - x * x)) - 0.05
@@ -717,7 +719,7 @@ function cypressGeometries(): THREE.BufferGeometry[] {
 
 // ── Assembly ─────────────────────────────────────────────────────────────────
 
-export function buildColosseumVisuals(resources: ArenaResources): ColosseumVisuals {
+export function buildColosseumVisuals(resources: ArenaResources, prisonExit = false): ColosseumVisuals {
   const root = new THREE.Group()
   root.name = 'roman-colosseum'
   const textures = createTextures(resources)
@@ -773,11 +775,11 @@ export function buildColosseumVisuals(resources: ArenaResources): ColosseumVisua
   root.add(mergedMesh(resources, [...standGeometries(), ...aisleGeometries(), ...stairGeometries()], seatMaterial, { name: 'colosseum-stands' }))
   const facade = facadeGeometries()
   root.add(mergedMesh(resources, facade.wall, facadeMaterial, { name: 'colosseum-facade' }))
-  const gates = gateGeometries()
+  const gates = gateGeometries(prisonExit)
   const pulvinar = pulvinarGeometries()
   const portico = porticoGeometries()
   root.add(mergedMesh(resources, [...facade.trim, ...gates.frame, ...portico.trim], trimMaterial, { name: 'colosseum-trim' }))
-  const podium = podiumGeometries(stairBoxes)
+  const podium = podiumGeometries(stairBoxes, prisonExit)
   root.add(mergedMesh(resources, podium.face, podiumMaterial, { name: 'colosseum-podium' }))
   root.add(mergedMesh(resources, podium.rail, balustradeMaterial, { name: 'colosseum-balustrade' }))
   root.add(mergedMesh(resources, gates.dark, darkMaterial, { castShadow: false, name: 'colosseum-openings' }))

@@ -1,3 +1,8 @@
+import { PLAYER_RADIUS } from '../../src/movement/MovementBalance'
+import { crossedPrisonExit, prisonOutcome } from '../../src/career/CareerPrisonBreak'
+import { prisonExitObstacles, prisonExitPlan, prisonFormation, prisonGateObstacle, prisonExitDestination, PRISON_NAV_CELL_SIZE } from '../../src/arena/PrisonBreakLayout'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { arenaTrialSlotClear } from '../../src/arena/ArenaTrialFormation'
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import {
@@ -12,7 +17,7 @@ import { ARENA_GROUND_FALL_POLICY, groundFallDamage, GroundFallTracker } from '.
 import { Player } from '../../src/player/Player'
 import {
   claimFlatTerrainOverride, getFlatTerrainOverride, getTerrainHeight,
-  releaseFlatTerrainOverride, resetTerrainScenePolicy,
+  releaseFlatTerrainOverride, resetTerrainScenePolicy, resolveObstacleCollision,
 } from '../../src/world/Terrain'
 
 // Numeric layout data only: no scene, mesh, material or arena visuals are built.
@@ -219,4 +224,59 @@ describe('duel arena layout collision', () => {
       expect(Math.abs(slot.x)).toBeGreaterThan(5) // Beside, never inside, the player/opponent lane.
     }
   })
+})
+
+
+it('關押場景 36 個站位皆合法、側牆仍阻擋且不移除原場景碰撞資料', () => {
+  for (const [id, shell] of [['roman-colosseum', createColosseumObstacles()], ['viking-valhalla', createValhallaObstacles()]] as const) {
+    const originalLength = shell.length
+    const obstacles = prisonExitObstacles(id, shell), formation = prisonFormation(id), gate = prisonExitPlan(id)
+    for (const slot of [formation.player, ...formation.friendly, ...formation.enemy]) expect(arenaTrialSlotClear(slot.x, slot.z, 0, obstacles)).toBe(true)
+    expect(arenaTrialSlotClear(3, gate.gateZ - .3, 0, obstacles)).toBe(false)
+    expect(shell).toHaveLength(originalLength)
+  }
+})
+
+
+it('兩場景開門後 ±1.05 可穿越並結算、±1.25 被門框擋住，關門時中央與門邊皆無法穿越', () => {
+  for (const [id, shell] of [['roman-colosseum', createColosseumObstacles()], ['viking-valhalla', createValhallaObstacles()]] as const) {
+    const gate = prisonExitPlan(id), obstacles = prisonExitObstacles(id, shell)
+    for (const open of [true, false]) for (const x of [-1.25, -1.05, 0, 1.05, 1.25]) {
+      const from = new THREE.Vector3(x, .95, gate.gateZ + 1), to = new THREE.Vector3(x, .95, gate.crossingZ - .2)
+      const collision = open ? obstacles : [...obstacles, prisonGateObstacle(id)]
+      resolveObstacleCollision(to, from, 0, true, PLAYER_RADIUS, 1.9, .95, collision, { walkSurfaces: true })
+      const passes = open && Math.abs(x) <= 1.05
+      if (passes) expect(to.x).toBeCloseTo(x)
+      else expect(to.z, `${id}: ${open ? '開門門框' : '關門'} x=${x}`).toBeGreaterThan(gate.crossingZ)
+      const crossed = crossedPrisonExit(id, from, to)
+      expect(crossed).toBe(passes)
+      expect(prisonOutcome({ playerDead: false, friendlyAlive: 0, gateOpen: open, playerCrossed: crossed, friendlyCrossed: false })).toBe(passes ? 'victory' : null)
+    }
+    const outside = gate.halfWidth - PLAYER_RADIUS + .01
+    expect(crossedPrisonExit(id, { x: outside, y: .95, z: gate.gateZ + 1 }, { x: outside, y: .95, z: gate.crossingZ - 1 })).toBe(false)
+    expect(crossedPrisonExit(id, { x: 0, y: .95, z: gate.crossingZ - .1 }, { x: 0, y: .95, z: gate.crossingZ - 1 })).toBe(false)
+  }
+})
+
+it('兩場景開門後的友軍步兵導航穿過實際門洞，門楣不封住地面路徑且抵達點越過出口', () => {
+  for (const [id, shell] of [['roman-colosseum', createColosseumObstacles()], ['viking-valhalla', createValhallaObstacles()]] as const) {
+    const gate = prisonExitPlan(id), obstacles = prisonExitObstacles(id, shell), destination = prisonExitDestination(id)
+    // Same cell size and alignment as the host, bounded to the door's numeric neighborhood.
+    const nav = new NavigationWorld({ minX: -10, maxX: 10, minZ: -44, maxZ: -10, cellSize: PRISON_NAV_CELL_SIZE })
+    nav.sync(obstacles); nav.beginFrame()
+    const position = new THREE.Vector3(4, 0, gate.gateZ + 4)
+    const route = nav.queryPath(position, destination)
+    expect(route.status, id).toBe('path')
+    if (route.status !== 'path') throw new Error(`${id} 出口無導航路徑`)
+    let crossed = false
+    for (const target of [...nav.grid.pathToWorld(route.path), destination]) {
+      const previous = position.clone()
+      position.copy(target)
+      resolveObstacleCollision(position, previous, 0, true, .5, 2.3, 0, obstacles, { walkSurfaces: true })
+      expect(position.distanceTo(target), JSON.stringify({ id, previous, target, position })).toBeLessThan(.01)
+      crossed ||= crossedPrisonExit(id, { x: previous.x, y: previous.y + .95, z: previous.z }, { x: position.x, y: position.y + .95, z: position.z })
+    }
+    expect(crossed, id).toBe(true)
+    expect(position.z, id).toBeLessThan(gate.crossingZ - .4)
+  }
 })

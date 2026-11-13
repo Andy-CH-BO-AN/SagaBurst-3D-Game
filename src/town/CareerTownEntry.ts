@@ -1,3 +1,6 @@
+import { commitPrisonBreakReturn } from '../career/CareerMissionReturnRecovery'
+import { CareerPrisonBreakScene } from '../arena/CareerPrisonBreakScene'
+import { beginPrisonBreak } from '../career/CareerPrisonBreak'
 import { stageMissionReturnRebuild } from '../career/CareerMissionReturnRecovery'
 import { townRoster } from './TownRules'
 import { createCareerBridgeBattleLaunch, createCareerFelineBattleLaunch, isCareerBridgeBattle, isCareerFelineBattle } from '../career/CareerBridgeBattle'
@@ -92,6 +95,53 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
         newCareer: () => { if (current()) showCreator(profile) },
       })
       return true
+    }
+    const prison = profile.activeMission?.prisonBreak
+    if (prison) {
+      form.remove()
+      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
+      const overlay = document.createElement('section'); overlay.id = 'career-prison-loading'; overlay.className = 'town-panel'
+      overlay.style.cssText = 'position:fixed;inset:0;display:grid;place-content:center;gap:12px;color:#eee;background:#171411;z-index:9998;font:16px system-ui;text-align:center'
+      const text = document.createElement('p'); overlay.append(text); document.body.append(overlay)
+      const action = (label: string, run: () => void) => { const b = document.createElement('button'); b.className = 'town-button'; b.textContent = label; b.onclick = () => { if (current()) run() }; overlay.append(b); return b }
+      const returnAfterLoadFailure = () => {
+        const latest = store.loadChecked().profile
+        if (!latest || latest.activeMission?.id !== prison.missionId) { text.textContent = '任務存檔已更新，請重新載入。'; return }
+        const next = commitPrisonBreakReturn(latest, prison.missionId, townRoster().map(spec => ({ spec })), next => store.save(next))
+        if (!next) { text.textContent = '返回尚未保存，請重試。'; return }
+        markCareerMissionReturnToSergeant()
+        overlay.remove(); void start(next)
+      }
+      if (prison.stage === 'captured') {
+        const result = profile.activeMission!.result!
+        text.textContent = `戰役敗北\n原戰役軍功：${result.merit.total}\n你與友軍被敵軍俘虜了。`
+        action('繼續', () => {
+          const latest = store.loadChecked().profile
+          const next = latest && beginPrisonBreak(latest, prison.missionId)
+          if (!next || !store.save(next)) { text.textContent = '被俘進度尚未保存，請重試。'; return }
+          overlay.remove(); void start(next)
+        })
+        return true
+      }
+      text.textContent = `正在前往${DUEL_ARENA_LABELS[prison.combat.arenaId]}…`
+      try {
+        const arena = await CareerPrisonBreakScene.create(container, { returnToTown: () => {
+          if (!current()) return
+          markCareerMissionReturnToSergeant()
+          void start(store.loadChecked().profile ?? profile)
+        } }, message => { text.textContent = message })
+        if (!current()) { arena.dispose(); overlay.remove(); return false }
+        if (import.meta.env.DEV) (window as unknown as { prisonBreak: CareerPrisonBreakScene }).prisonBreak = arena
+        overlay.remove(); arena.start(); return true
+      } catch (error) {
+        if (!current()) { overlay.remove(); return false }
+        console.error('[Career entry] Prison scene load failed', error)
+        text.textContent = '關押場景載入失敗；逃脫尚未結算。可以重試，或沿原戰役敗北返回小鎮。'
+        action('重試載入', () => { overlay.remove(); void start(store.loadChecked().profile ?? profile) })
+        action('依原敗北返回小鎮', returnAfterLoadFailure)
+        return false
+      }
     }
     // Routing is a capability saved on this enlistment, never inferred from a free-mode URL.
     if (launchTutorial && profile.tutorial && canStartCareerTutorial(profile)) {

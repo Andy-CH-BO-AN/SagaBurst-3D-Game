@@ -1,6 +1,6 @@
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { resolveCareerPlayerMaxHp } from './CareerPlayerProfile'
-import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { clearCareerMission, cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import type { PersonalActorCheckpoint } from './CareerPersonalSquadMission'
 import { civilianCommandRoster } from './CivilianCommandAuthority'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
@@ -92,4 +92,16 @@ export function stageMissionReturnRebuild(current: CareerProfile,
   }
   next.personalSquadRuntime = returnPersonalMissionToHR(roster)
   return stageMissionReturnPlayerHealth(next)
+}
+
+/** Both prison exits return the original, already-claimed defeat through the normal formal rebuild.
+ * Capture its HR snapshot before clearing activeMission: it owns private eagle pad identities.
+ */
+export function commitPrisonBreakReturn(current: CareerProfile, missionId: string,
+  homes: readonly MissionReturnHome[], save: (profile: CareerProfile) => boolean): CareerProfile | null {
+  const active = current.activeMission
+  if (!active?.prisonBreak || active.id !== missionId || active.result?.outcome !== 'failure'
+    || !active.result.claimed || !current.claimedBattleIds.includes(missionId)) return null
+  const returned = stageMissionReturnRebuild(clearCareerMission(current, missionId), homes, active.personalSquad)
+  return save(returned) ? returned : null
 }

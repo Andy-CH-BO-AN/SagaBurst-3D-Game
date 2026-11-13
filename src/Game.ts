@@ -219,6 +219,7 @@ import { personalOutpostDeployment, personalRearDeployment } from './career/Pers
 import { planPersonalOutpostGround } from './career/PersonalOutpostGroundPlan'
 import { careerOutpostCommandMeritPolicy } from './career/CareerOutpostMission'
 import { careerOutpostActorId } from './career/CareerOutpostRoster'
+import { claimCareerFieldResult, beginPrisonBreak } from './career/CareerPrisonBreak'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerMountId, type CareerProfile } from './career/CareerProfile'
 import { CareerMissionCheckpoint, type CareerMissionCheckpointReason } from './career/CareerMissionCheckpoint'
 import type { ActiveCareerMission, BridgeBattleDeployment } from './career/CareerMissionState'
@@ -2998,12 +2999,12 @@ export class Game {
     const fresh = this.careerStore.loadChecked().profile
     if (!fresh) { retry(); return }
     const claim = this.bridgeLaunch ? commitCareerBridgeBattleResult(this.careerStore, this.fieldMissionId!, stats)
-      : claimCareerMission(fresh, this.fieldMissionId!, outcome, stats.player, stats.meritPlayer)
+      : claimCareerFieldResult(fresh, this.fieldMissionId!, outcome, stats.player, stats.meritPlayer ?? stats.player, this.npcs.find(npc => npc.faction === Faction.ENEMY)?.characterFaction)
     if (!claim) { retry(); return }
     if (!this.bridgeLaunch && !this.careerStore.save(claim.profile)) { retry(); return }
     this.careerProfile = claim.profile
     this.fieldResultPending = undefined
-    this.fieldBattleHud?.showResult(outcome, claim.profile.activeMission!.result!.merit.total, stats, () => this._returnToCareerTown())
+    this.fieldBattleHud?.showResult(outcome, claim.profile.activeMission!.result!.merit.total, stats, () => this._returnToCareerTown(), claim.profile.activeMission?.prisonBreak ? '繼續' : '返回小鎮')
   }
 
   private _identifyPersonalOutpostWave(plan: BattleSpawnPlan, wave: 'initial' | 'attackers' | 'reinforcement'): void {
@@ -3786,6 +3787,21 @@ export class Game {
   private _returnToCareerTown(): void {
     if (!this._flushCareerSkillProgression()) { this._showNotify('無法保存技能進度，請重試'); return }
     const profile = this.careerStore.loadChecked().profile
+    if (profile?.activeMission?.prisonBreak?.stage === 'captured') {
+      const captured = beginPrisonBreak(profile, this.fieldMissionId ?? undefined)
+      if (!captured || !this.careerStore.save(captured)) { this._showNotify('無法保存被俘狀態，請重試'); return }
+      // Do not run ordinary mission-return cleanup over the capture capability or its troop snapshots.
+      this.careerProfile = captured
+      this._disposeCareerOutpostBattleActors()
+      window.removeEventListener('pagehide', this.flushCareerBattleOnPageHide)
+      window.removeEventListener('pagehide', this.flushCareerSkillsOnPageHide)
+      window.removeEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
+      sessionStorage.removeItem('sagaburst_campaign_config')
+      sessionStorage.removeItem('sagaburst_battle_config')
+      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      window.location.href = window.location.pathname
+      return
+    }
     const activeMissionId = this.fieldMissionId ?? (this.careerBattleCheckpoint
       ? this.defenseCampaignConfig?.careerMissionId
       : this.defenseCampaignConfig?.careerVeteranOutpost?.missionId
