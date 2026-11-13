@@ -1,3 +1,5 @@
+import { prisonExitObstacles, prisonExitPlan, prisonFormation } from '../../src/arena/PrisonBreakLayout'
+import { arenaTrialSlotClear } from '../../src/arena/ArenaTrialFormation'
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import {
@@ -219,4 +221,16 @@ describe('duel arena layout collision', () => {
       expect(Math.abs(slot.x)).toBeGreaterThan(5) // Beside, never inside, the player/opponent lane.
     }
   })
+})
+
+
+it('關押場景 36 個站位皆合法，移除門阻擋後兩個出口都有地面通道且側牆仍阻擋', () => {
+  for (const [id, shell] of [['roman-colosseum', createColosseumObstacles()], ['viking-valhalla', createValhallaObstacles()]] as const) {
+    const originalLength = shell.length
+    const obstacles = prisonExitObstacles(id, shell), formation = prisonFormation(id), gate = prisonExitPlan(id)
+    for (const slot of [formation.player, ...formation.friendly, ...formation.enemy]) expect(arenaTrialSlotClear(slot.x, slot.z, 0, obstacles)).toBe(true)
+    for (const z of [gate.gateZ + 1, gate.gateZ, gate.crossingZ - .2]) expect(arenaTrialSlotClear(0, z, 0, obstacles)).toBe(true)
+    expect(arenaTrialSlotClear(3, gate.gateZ - .3, 0, obstacles)).toBe(false)
+    expect(shell).toHaveLength(originalLength)
+  }
 })

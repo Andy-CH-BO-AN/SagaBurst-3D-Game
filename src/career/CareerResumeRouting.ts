@@ -6,5 +6,5 @@ import type { CareerProfile } from './CareerProfile'
  */
 export function shouldResumeCareerTown(profile: CareerProfile | null, townSelected: boolean): boolean {
   if (profile?.careerRetirement?.phase === 'completed') return false
-  return Boolean(profile?.careerRetirement) || profile?.townEvent?.state === 'hostile' || townSelected
+  return Boolean(profile?.activeMission?.prisonBreak) || Boolean(profile?.careerRetirement) || profile?.townEvent?.state === 'hostile' || townSelected
 }

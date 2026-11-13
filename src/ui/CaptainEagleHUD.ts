@@ -35,9 +35,9 @@ export class CaptainEagleHUD {
     this.root.textContent = `COMMANDER IV · BRIDGEHEAD BATTLE\n${status}\n目標：殲滅敵騎 · 剩餘 ${enemyAlive} / 200`
   }
 
-  showResult(outcome: CareerMissionOutcome, merit: number, stats: BattleStatsSnapshot, onReturn: () => void): void {
+  showResult(outcome: CareerMissionOutcome, merit: number, stats: BattleStatsSnapshot, onReturn: () => void, action = '返回小鎮'): void {
     this.showModal(`${outcome === 'victory' ? 'VICTORY · 勝利' : 'DEFEAT · 失敗'}`,
-      `Career 軍功 +${merit}（已保存）`, '返回小鎮', onReturn, stats)
+      `Career 軍功 +${merit}（已保存）`, action, onReturn, stats)
   }
 
   showSaveRetry(onRetry: () => void): void {

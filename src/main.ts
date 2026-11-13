@@ -290,13 +290,19 @@ async function bootstrap(): Promise<void> {
   const outpostProfile = menuOnly ? null : careerStore.loadChecked().profile
   // A saved ending wins over stale mission fields without rewriting the Career save.
   const completedCareer = outpostProfile?.careerRetirement?.phase === 'completed'
-  const activeCareerMission = completedCareer ? undefined : outpostProfile?.activeMission
-  const tutorialSession = !completedCareer && !activeCareerMission && !outpostProfile?.activeOutpostMission
+  const activeCareerMission = completedCareer || outpostProfile?.activeMission?.prisonBreak ? undefined : outpostProfile?.activeMission
+  const tutorialSession = !completedCareer && !outpostProfile?.activeMission?.prisonBreak && !activeCareerMission && !outpostProfile?.activeOutpostMission
     && !outpostProfile?.activeRace && !outpostProfile?.careerRetirement && outpostProfile?.townEvent?.state !== 'hostile'
     ? outpostProfile?.tutorial?.session : undefined
   if (tutorialSession) {
     await launchCareerTutorial({ careerId: tutorialSession.careerId, sessionId: tutorialSession.id, stage: tutorialSession.stage })
     return
+  }
+  // Capture is checked before generic claimed-battle recovery can consume its original mission.
+  if (!completedCareer && outpostProfile?.activeMission?.prisonBreak) {
+    sessionStorage.removeItem('sagaburst_battle_config')
+    sessionStorage.removeItem('sagaburst_campaign_config')
+    sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
   }
   const settleClaimedOnStartup = (
     clearedProfile: ReturnType<typeof clearCareerMission>,

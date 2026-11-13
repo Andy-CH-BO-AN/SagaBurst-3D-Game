@@ -289,7 +289,7 @@ function planeWithUv(width: number, height: number, uScale: number, vScale: numb
   return geometry
 }
 
-function shellGeometries(): { walls: THREE.BufferGeometry[]; roof: THREE.BufferGeometry[] } {
+function shellGeometries(prisonExit = false): { walls: THREE.BufferGeometry[]; roof: THREE.BufferGeometry[] } {
   const length = v.backZ - v.frontZ, midZ = (v.backZ + v.frontZ) / 2
   const walls: THREE.BufferGeometry[] = []
   // Side walls (inner faces), front and back walls with gables.
@@ -297,7 +297,11 @@ function shellGeometries(): { walls: THREE.BufferGeometry[]; roof: THREE.BufferG
   walls.push(planeWithUv(length, v.eaveY + 0.6, 5, 5).rotateY(-Math.PI / 2).translate(v.halfWidth, (v.eaveY + 0.6) / 2, midZ))
   const gable = (z: number, facing: 1 | -1): THREE.BufferGeometry => {
     const shape = new THREE.Shape()
-    shape.moveTo(-v.halfWidth, 0); shape.lineTo(v.halfWidth, 0); shape.lineTo(v.halfWidth, v.eaveY)
+    shape.moveTo(-v.halfWidth, 0)
+    if (prisonExit && facing === 1) {
+      shape.lineTo(-1.5, 0); shape.lineTo(-1.5, 3.2); shape.lineTo(1.5, 3.2); shape.lineTo(1.5, 0)
+    }
+    shape.lineTo(v.halfWidth, 0); shape.lineTo(v.halfWidth, v.eaveY)
     shape.lineTo(0, v.ridgeY + 0.3); shape.lineTo(-v.halfWidth, v.eaveY); shape.closePath()
     const geometry = new THREE.ShapeGeometry(shape)
     const position = geometry.getAttribute('position'), uv = geometry.getAttribute('uv')
@@ -679,7 +683,7 @@ function aisleGeometries(): { wood: THREE.BufferGeometry[]; iron: THREE.BufferGe
 
 // ── Assembly ─────────────────────────────────────────────────────────────────
 
-export function buildValhallaVisuals(resources: ArenaResources): ValhallaVisuals {
+export function buildValhallaVisuals(resources: ArenaResources, prisonExit = false): ValhallaVisuals {
   const root = new THREE.Group()
   root.name = 'viking-valhalla'
   const textures = createTextures(resources)
@@ -723,11 +727,11 @@ export function buildValhallaVisuals(resources: ArenaResources): ValhallaVisuals
   runeMesh.renderOrder = 1
   root.add(runeMesh)
 
-  const shell = shellGeometries()
+  const shell = shellGeometries(prisonExit)
   root.add(mergedMesh(resources, shell.walls, wallMaterial, { castShadow: false, name: 'valhalla-walls' }))
   root.add(mergedMesh(resources, shell.roof, roofMaterial, { castShadow: false, name: 'valhalla-roof' }))
 
-  const door = doorGeometries()
+  const door = prisonExit ? { wood: [], iron: [] } : doorGeometries()
   const gallery = galleryGeometries()
   const aisle = aisleGeometries()
   const windows = windowGeometries()

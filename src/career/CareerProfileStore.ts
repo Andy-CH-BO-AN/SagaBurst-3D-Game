@@ -1,5 +1,6 @@
 import { CAREER_CLASSES_BY_FACTION, isCareerEliteClass, isRoadClass, T5_CLASS_ROAD, unlockedCareerClasses, type CareerClassRoad } from './CareerElitePromotion'
 import { parseDuelArenaId } from '../arena/DuelArenaCatalog'
+import { parsePrisonBreakState } from './CareerPrisonBreak'
 import { arenaTrialRoster, arenaTrialTierFromTemplateId, parseArenaTrialState } from './CareerArenaTrials'
 import { isT4ClassId, T4_CLASS_ROAD, T4_CLASSES_BY_FACTION, unlockedT4Classes } from './CareerT4Promotion'
 import { createCareerTutorialState, parseCareerTutorialState } from './CareerTutorialState'
@@ -645,6 +646,11 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
       }
     }
   }
+  if (raw.prisonBreak !== undefined) {
+    const prison = parsePrisonBreakState(raw.prisonBreak, mission)
+    if (!prison) return undefined
+    mission.prisonBreak = prison
+  }
   if (personalSquad && mission.kind !== 'duel') mission.personalSquad = personalSquad
   if (mission.result && raw.result && typeof raw.result === 'object') {
     const meritStats = parseMissionPlayerStats((raw.result as Record<string, unknown>).meritStats)
@@ -838,6 +844,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   try { activeMission = parseActiveMission(raw.activeMission, raw.faction, rank) } catch { return null }
   if (tutorialDuel !== undefined && activeMission?.duelTutorialCareerId !== tutorialDuel) return null
   const savedMission = raw.activeMission as Partial<ActiveCareerMission> | undefined
+  if (savedMission?.prisonBreak && !activeMission?.prisonBreak) return null
   // Never silently turn a rejected in-flight Commander V checkpoint into a peaceful Town.
   if ((savedMission?.kind === 'commander-four-gate-defense' || savedMission?.templateId === COMMANDER_FOUR_GATE_DEFENSE_ID)
     && !activeMission?.fourGateDefense) return null
@@ -1096,6 +1103,7 @@ export class CareerProfileStore {
       if (profile.activeMission?.outpostSiege && !parsed.activeMission?.outpostSiege
         || profile.activeMission?.battle?.outpostSiege && !parsed.activeMission?.battle?.outpostSiege
         || profile.activeOutpostMission?.battle?.outpostSiege && !parsed.activeOutpostMission?.battle?.outpostSiege) return false
+      if (profile.activeMission?.prisonBreak && !parsed.activeMission?.prisonBreak) return false
       if (profile.townAirCommandSquad && !parsed.townAirCommandSquad) return false
       if (profile.townCommandSquad?.commandRank === 'commander'
         && parsed.townCommandSquad?.commandRank !== 'commander') return false

@@ -77,6 +77,8 @@ export interface CareerMissionMountState {
 }
 
 export interface ActiveCareerMission {
+  /** Only new, formally settled heavy-cavalry defeats grant this capability. */
+  prisonBreak?: import('./CareerPrisonBreak').PrisonBreakState
   fourGateDefense?: CommanderFourGateDefenseState
   outpostSiege?: CampaignSiegeCheckpoint
   commanderMission?: CommanderMissionState

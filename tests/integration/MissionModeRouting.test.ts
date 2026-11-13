@@ -1,3 +1,5 @@
+import { acceptHeavyFieldMission } from '../../src/career/HeavyFieldMission'
+import { Faction } from '../../src/world/NPC'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { shouldResumeCareerTown } from '../../src/career/CareerResumeRouting'
 import { Game } from '../../src/Game'
@@ -113,6 +115,37 @@ describe('Career reload routing', () => {
       expect(restored.careerRetirement).toEqual(profile.careerRetirement)
       expect(shouldResumeCareerTown(restored, false)).toBe(true)
       expect(JSON.stringify(profile)).toBe(saved)
+    }
+  })
+})
+
+
+describe('Heavy field defeat capture at the production Game caller', () => {
+  it('正式結果保存失敗不離場，重試後保存一次被俘資格，玩家倒下的勝利不進戰俘流程', () => {
+    for (const outcome of ['failure', 'victory'] as const) {
+      const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+      const profile = acceptHeavyFieldMission({ ...createCareerProfile('roman'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 'soldier-iron-encounter', `field-${outcome}`)!
+      expect(store.save(profile)).toBe(true)
+      const player = { damageDealt: 20, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
+      const hud = { showResult: vi.fn(), showSaveRetry: vi.fn() }
+      const entry = Object.assign(Object.create(Game.prototype) as { _showCaptainEagleResult(outcome: 'victory' | 'failure'): void }, {
+        felineMissionId: profile.activeMission!.id, bridgeLaunch: undefined, careerStore: store,
+        npcs: [{ faction: Faction.ENEMY, characterFaction: 'viking' }], player: { dead: true },
+        captainEagleHud: hud, battleStats: { freeze() {}, snapshot: () => ({ player, squads: [] }) },
+        _flushCareerSkillProgression: () => true, _persistCaptainMission: () => true,
+      })
+      storage.failWrites = true
+      entry._showCaptainEagleResult(outcome)
+      expect(hud.showResult).not.toHaveBeenCalled()
+      expect(store.load()!.activeMission!.result).toBeUndefined()
+      storage.failWrites = false
+      entry._showCaptainEagleResult(outcome)
+      const saved = store.load()!
+      expect(saved.activeMission!.result!.outcome).toBe(outcome)
+      expect(saved.activeMission!.prisonBreak?.captor).toBe(outcome === 'failure' ? 'viking' : undefined)
+      expect(saved.claimedBattleIds).toEqual([profile.activeMission!.id])
+      entry._showCaptainEagleResult(outcome)
+      expect(store.load()!.totalMerit).toBe(saved.totalMerit)
     }
   })
 })

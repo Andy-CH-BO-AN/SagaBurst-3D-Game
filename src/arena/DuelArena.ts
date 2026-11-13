@@ -1,3 +1,4 @@
+import { prisonExitObstacles } from './PrisonBreakLayout'
 import * as THREE from 'three'
 import { ArenaResources } from './ArenaKit'
 import {
@@ -49,7 +50,7 @@ interface ArenaScenePolicy {
   fog: THREE.Fog | THREE.FogExp2 | null
 }
 
-export function createDuelArena(id: DuelArenaId, scene: THREE.Scene): DuelArenaEnvironment {
+export function createDuelArena(id: DuelArenaId, scene: THREE.Scene, prisonExit = false): DuelArenaEnvironment {
   const resources = new ArenaResources()
   const previous: ArenaScenePolicy = { background: scene.background as THREE.Color | THREE.Texture | null, fog: scene.fog }
   const groundY = id === 'roman-colosseum' ? COLOSSEUM.groundY : VALHALLA.groundY
@@ -75,7 +76,7 @@ export function createDuelArena(id: DuelArenaId, scene: THREE.Scene): DuelArenaE
     let constrain: (position: THREE.Vector3) => boolean
     let spawns: DuelArenaEnvironment['spawns']
     if (id === 'roman-colosseum') {
-      const visuals = buildColosseumVisuals(resources)
+      const visuals = buildColosseumVisuals(resources, prisonExit)
       root = visuals.root
       update = visuals.update
       obstacles = createColosseumObstacles()
@@ -86,7 +87,7 @@ export function createDuelArena(id: DuelArenaId, scene: THREE.Scene): DuelArenaE
       scene.background = new THREE.Color(0x9cc2e0)
       scene.fog = new THREE.Fog(0xd6d9d6, 150, 620)
     } else {
-      const visuals = buildValhallaVisuals(resources)
+      const visuals = buildValhallaVisuals(resources, prisonExit)
       root = visuals.root
       update = visuals.update
       obstacles = createValhallaObstacles()
@@ -96,6 +97,13 @@ export function createDuelArena(id: DuelArenaId, scene: THREE.Scene): DuelArenaE
       setSceneGroundFallPolicy(scene, ARENA_GROUND_FALL_POLICY)
       scene.background = new THREE.Color(0x0b0908)
       scene.fog = new THREE.Fog(0x1d1712, 34, 120)
+    }
+    if (prisonExit) {
+      obstacles = prisonExitObstacles(id, obstacles)
+      if (id === 'viking-valhalla') {
+        const originalConstrain = constrain
+        constrain = position => Math.abs(position.x) < 1.4 && position.z < -37 ? false : originalConstrain(position)
+      }
     }
     setObstaclePathQuerySource(obstacles, true)
     scene.add(root)

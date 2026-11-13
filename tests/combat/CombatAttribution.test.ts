@@ -687,3 +687,27 @@ it('protects HR mounts from the real Town damage caller during defense preparati
     expect(targetMount.currentHp).toBe(100)
 
   })
+
+
+it('徒手戰俘沿正式 NPC 索敵命中敵對 NPC，傳遞拳頭接觸與正確受害者', () => {
+  const strike = { from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }
+  const target = Object.assign(Object.create(NPC.prototype), {
+    group: { position: new THREE.Vector3(0, 0, .75) }, mount: null, state: AIState.IDLE, _faction: Faction.ENEMY,
+  }) as NPC
+  const hit = vi.fn((_damage: number, isPlayer: boolean, victim?: NPC) => {
+    expect(isPlayer).toBe(false)
+    expect(victim).toBe(target)
+    expect(body.unarmedContact?.attackSource).toBe('unarmed')
+  })
+  const body = Object.assign(Object.create(NPC.prototype), {
+    battlefieldUnarmed: true, missionCombatTarget: target, _faction: Faction.PLAYER,
+    group: { position: new THREE.Vector3() }, rig: {}, state: AIState.CHASE,
+    pendingFall: { active: false }, mountedOrbitActive: true,
+    animator: { busy: false, cancel() {}, start() {}, setLocomotion() {}, update: () => ({ fists: [strike] }) },
+    _faceDirection() {}, _updateFootPhysics() {}, ...navigationStubs(),
+  }) as NPC
+  const player = { dead: false } as Player
+  NPC.prototype.update.call(body, .2, player, [target], [target], [], { setFill() {} }, hit, () => false)
+  expect(hit).toHaveBeenCalledExactlyOnceWith(5, false, target)
+  expect(body.unarmedContact).toBeUndefined()
+})

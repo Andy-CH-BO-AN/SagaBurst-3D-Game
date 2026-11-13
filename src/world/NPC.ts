@@ -1083,6 +1083,8 @@ export class NPC {
   private townHostile = false
   private duelHostile = false
   duelUnarmed = false
+  /** Encounter-owned, ordinary allegiance targeting; never changes the 1v1 Duel rule. */
+  battlefieldUnarmed = false
   unarmedContact?: import('../combat/ShieldBlocking').CombatContact
   setUnarmedDuel(enabled: boolean): void {
     this._cancelEquipmentCombatState()
@@ -1095,12 +1097,12 @@ export class NPC {
     } else this._syncActiveMeleeEquipment()
   }
 
-  /** Player-only Duel opponent; the shared animator and physical palms own all punch events. */
-  private updateUnarmedDuel(dt: number, player: Player, obstacles: ObstacleData[], cameraDistance: number,
-    hit: (damage: number, isPlayer: boolean) => void, navigationWorld: NavigationWorld | null = null): void {
+  /** Shared fist pursuit; Duel selects only the player, battlefield encounters use allegiance targeting. */
+  private updateUnarmedDuel(dt: number, player: Player | NPC | null, obstacles: ObstacleData[], cameraDistance: number,
+    hit: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void, navigationWorld: NavigationWorld | null = null): void {
     const previous = this.group.position.clone()
-    const delta = player.combatPosition.clone().sub(this.combatPosition).setY(0)
-    const canAttack = !player.dead && player.targetable && this.combatTargetAllowed?.(player) !== false
+    const delta = player ? player.combatPosition.clone().sub(this.combatPosition).setY(0) : new THREE.Vector3()
+    const canAttack = player && !player.dead && (player instanceof NPC || player.targetable) && this.combatTargetAllowed?.(player) !== false
     if (!canAttack) {
       this.animator.cancel()
       this._clearNavigationPath(); this._clearObstacleDetour()
@@ -1136,12 +1138,15 @@ export class NPC {
     this.visualMovementSpeed = dt > 0 ? Math.hypot(this.group.position.x - previous.x, this.group.position.z - previous.z) / dt : 0
     this.animator.setLocomotion(this.visualMovementSpeed, false)
     const events = this.animator.update(dt, cameraDistance)
-    if (!canAttack) return
+    if (!canAttack || !player) return
     for (const strike of events.fists) {
       const contact = traceFistStrike(strike, this.combatPosition, [player], obstacles)
       if (!contact) continue
       this.unarmedContact = contact
-      try { hit(UNARMED_DAMAGE, true) } finally { this.unarmedContact = undefined }
+      try {
+        if (player instanceof NPC) hit(UNARMED_DAMAGE, false, player)
+        else hit(UNARMED_DAMAGE, true)
+      } finally { this.unarmedContact = undefined }
     }
   }
   armTownCivilian(weaponId: string): void {
@@ -2884,6 +2889,11 @@ export class NPC {
       return
     }
 
+    if (this.battlefieldUnarmed) {
+      const target = this._findTarget(player, allNPCs, hostileNpcGrid)
+      this.updateUnarmedDuel(dt, target?.isPlayer ? player : target?.npc ?? null, obstacles, cameraDistance, onHitEntity, navigationWorld)
+      return
+    }
     if (this.duelUnarmed && this.duelHostile) {
       this.updateUnarmedDuel(dt, player, obstacles, cameraDistance, onHitEntity, navigationWorld)
       return
