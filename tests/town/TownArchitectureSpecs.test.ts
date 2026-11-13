@@ -146,7 +146,7 @@ it('fits mounted HR reserves under the roof and leaves its public approach clear
   // Population exclusion is owned by TownResidentLayout; the interior plan needs no residents.
   const roads = [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS]
   for (const faction of ['roman', 'viking'] as const) {
-    const service = resolveTownHRLayout(faction, [], roads)
+    const service = resolveTownHRLayout(faction, [], roads, [])
     const slots = townHrLocalMuster(service), { spec, hall } = expandedHrCenter(faction, slots)
     const worldHall = new Box3(new Vector3(hall.body.minX, -100, hall.body.minZ), new Vector3(hall.body.maxX, 100, hall.body.maxZ))
       .applyMatrix4(new Matrix4().makeRotationY(service.site.yaw)).translate(new Vector3(service.site.x, 0, service.site.z))
