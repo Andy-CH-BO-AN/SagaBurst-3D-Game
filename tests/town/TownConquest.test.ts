@@ -45,6 +45,8 @@ function savedTown() {
     profile, event, store, skills: { skillState: profile.skills },
     clearCareerSkillSaveTimer: vi.fn(), careerSaveFailures: 0, player: { dead: false },
     temporaryMounts: new TemporaryBattlefieldMounts(), onRestart: vi.fn(), dispose: vi.fn(),
+    // A promotion clears the Sergeant board's remembered tab.
+    missionBoard: { page: undefined },
   })
   return { town, store }
 }
