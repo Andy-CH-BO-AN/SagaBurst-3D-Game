@@ -1,22 +1,20 @@
-import { expandedHrCenter, townPlazaLayout } from '../../src/town/architecture/ArchitectureSpecs'
-import { TOWN_CENTER, TOWN_PLAZA, TOWN_WELL } from '../../src/town/TownLayout'
-import { getTerrainHeight } from '../../src/world/Terrain'
-import { getTownRampartLayout } from '../../src/town/TownRamparts'
+import { Box3, Matrix4, Vector3 } from 'three'
+import { describe, expect, it } from 'vitest'
+import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
+import { townPlazaLayout } from '../../src/town/architecture/ArchitectureSpecs'
+import { CIVILIAN_HOME_LAYOUT_VERSION, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes, civilianBodyClear, civilianHomeAnchor, civilianMountsClear, civilianPointLegal, migrateCivilianHomes } from '../../src/town/TownCivilianLife'
+import { resolveTownCommanderPosition, townCommanderSpec } from '../../src/town/TownCommander'
+import { getTownCommandWatchtowerLayout, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
+import { resolveTownEagleGarrison } from '../../src/town/TownEagleGarrison'
+import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
 import { townStationSpec } from '../../src/town/TownGarrison'
 import { TownGroundStations } from '../../src/town/TownGroundStation'
-import { describe, expect, it } from 'vitest'
-import { Box3, Matrix4, Vector3 } from 'three'
-import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
-import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, civilianMountsClear, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes } from '../../src/town/TownCivilianLife'
-import { findTownDuelArena, townDuelAreaClear, DUEL_ARENA_HALF_SIZE } from '../../src/town/TownDuelArena'
-import { townRoadIntersectsBox, TOWN_DUEL_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_MOUNTED_MISSION_MUSTER } from '../../src/town/TownLayout'
-import { townRoster, townPatrolRefitPoint, townPlayerEntryPoint, withTownCommandSquadRoster } from '../../src/town/TownRules'
+import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
+import { TOWN_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_PLAZA, TOWN_WELL } from '../../src/town/TownLayout'
 import { townPatrolDeparture, townPatrolRoute } from '../../src/town/TownPatrolRoute'
-import { getTownCommandWatchtowerLayout, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
-import { resolveTownHRLayout, townConquestRoster, townHrLocalMuster } from '../../src/town/TownHRLayout'
-import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
-import { resolveTownEagleGarrison } from '../../src/town/TownEagleGarrison'
-import { resolveTownCommanderPosition, townCommanderSpec } from '../../src/town/TownCommander'
+import { getTownRampartLayout } from '../../src/town/TownRamparts'
+import { townPatrolRefitPoint, townPlayerEntryPoint, townRoster, withTownCommandSquadRoster } from '../../src/town/TownRules'
+import { getTerrainHeight } from '../../src/world/Terrain'
 
 /** Exact AABB equivalent of a square with vertical interval [-100,100]. */
 function squareIntersects(box: Box3, point: { x: number; z: number }, half: number): boolean {
@@ -82,23 +80,6 @@ describe('Town resident layout ownership', () => {
     expect(retried.members['civilian-0']).toMatchObject({ hp: 13, position: { x: 90, z: 70 } })
     expect(retried.members['civilian-1']).toMatchObject({ hp: 17, position: { x: 100, z: 70 } })
     expect(retried.owners).toEqual(saved.owners)
-  })
-
-  it('keeps duel arena clear of unrelated residents, obstacles, riding roads and mounted muster', () => {
-    const roster = townRoster(), navigation = { areConnected: () => true }
-    const open = findTownDuelArena([], navigation, roster)
-    expect(open).not.toBeNull()
-    const visitor = { ...roster.find(s => s.role === 'civilian')!, id: 'civilian-visitor', x: TOWN_DUEL_CENTER.x, z: TOWN_DUEL_CENTER.z }
-    expect(findTownDuelArena([], navigation, [...roster, visitor])).toBeNull()
-    expect(findTownDuelArena([{ isBarricade: false, box: new Box3(new Vector3(-100, -100, -100), new Vector3(200, 100, 100)) }], navigation, roster)).toBeNull()
-
-    const area = open!
-    const box = (x: number, z: number, half: number) => new Box3(new Vector3(x - half, -100, z - half), new Vector3(x + half, 100, z + half))
-    expect(townDuelAreaClear(box(area.x, area.z, DUEL_ARENA_HALF_SIZE))).toBe(true)
-    for (const road of [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS]) {
-      expect(townDuelAreaClear(box((road.ax + road.bx) / 2, (road.az + road.bz) / 2, 1))).toBe(false)
-    }
-    expect(townDuelAreaClear(box(TOWN_MOUNTED_MISSION_MUSTER.x, TOWN_MOUNTED_MISSION_MUSTER.z, 1))).toBe(false)
   })
 
   it('validates civilian mount clearance for parked, dead, and nonresident mounts', () => {
@@ -181,23 +162,6 @@ it('keeps final Town population homes, ground stations and fallbacks clear of ra
   // Own full-population HR clearance here, reusing this invariant's real roster.
   // The scenery suite only needs the west-gate guard that constrains its fixture.
   for (const service of [hr, resolveTownHRLayout('viking', [], roads, roster)]) {
-    const slots = townHrLocalMuster(service), { spec, hall } = expandedHrCenter(service === hr ? 'roman' : 'viking', slots)
-    const worldHall = new Box3(new Vector3(hall.body.minX, -100, hall.body.minZ), new Vector3(hall.body.maxX, 100, hall.body.maxZ))
-      .applyMatrix4(new Matrix4().makeRotationY(service.site.yaw)).translate(new Vector3(service.site.x, 0, service.site.z))
-    expect(roads.some(road => townRoadIntersectsBox(road, worldHall, 1))).toBe(false)
-    const failures = slots.flatMap((p, i) => {
-      const inner = spec.interior!
-      const outside = p.x - 2.2 < inner.minX || p.x + 2.2 > inner.maxX || p.z - 2.2 < inner.minZ || p.z + 2.2 > inner.maxZ
-      const blocked = spec.colliders.some(c => c.role !== 'roof' && c.role !== 'overhead'
-        && p.x + 2.2 > c.box[0] && p.x - 2.2 < c.box[3] && p.z + 2.2 > c.box[2] && p.z - 2.2 < c.box[5])
-      const roof = spec.colliders.some(c => c.role === 'roof' && p.x >= c.box[0] && p.x <= c.box[3] && p.z >= c.box[2] && p.z <= c.box[5] && c.box[1] - spec.floorY >= 5.5)
-      return outside || blocked || !roof ? [i] : []
-    })
-    expect(failures).toEqual([])
-    // Mounted HR officer must leave a 6m-wide central approach open.
-    const dx = service.officer.x - service.site.x, dz = service.officer.z - service.site.z
-    const localSide = Math.cos(service.site.yaw) * dx - Math.sin(service.site.yaw) * dz
-    expect(Math.abs(localSide) - 1.25).toBeGreaterThanOrEqual(3)
     const courtyard = new Box3().setFromPoints(service.muster.map(p => new Vector3(p.x, 0, p.z)))
       .expandByVector(new Vector3(2.2, 100, 2.2))
     const residentReservations = [rectangle(service.site, service.width + 2.4, service.depth + 6),

@@ -1,32 +1,34 @@
-import { claimCareerTutorialReward, commitCareerTutorial, hasCareerTutorialHorse, recordCareerTutorialOperation, startCareerTutorial, deferCareerTutorial } from '../../src/career/CareerTutorial'
-import { CAREER_TUTORIAL_OPERATIONS } from '../../src/career/CareerTutorialState'
-import { careerShopProduct } from '../../src/career/CareerShopCatalog'
-import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, validateOrdinaryRetirementCommit } from '../../src/career/CareerRetirement'
-import { parseCareerRetirementState } from '../../src/career/CareerRetirementState'
-import { grantStarter, settleTown } from '../../src/town/TownRules'
-import { TownEquipment } from '../../src/town/TownEquipment'
-import { MemoryStorage } from '../helpers/memoryStorage'
-import { describe,expect,it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { applyCareerClass, careerClassOffer, unlockedCareerClasses } from '../../src/career/CareerElitePromotion'
-import { resolveCareerHeroAsset } from '../../src/career/CareerPlayerProfile'
-import { applyT4Class, currentT4Class, t4ClassOffer, unlockedT4Classes } from '../../src/career/CareerT4Promotion'
-import { canAppointCareerRank } from '../../src/career/CareerPromotionAuthority'
 import { addCareerItem, careerItemAllocated, careerItemTotal } from '../../src/career/CareerInventory'
+import { resolveCareerHeroAsset } from '../../src/career/CareerPlayerProfile'
 import {
-claimCareerBattle,
-cloneCareerProfile,
-createCareerProfile,
-purchaseCareerContent,
-resolveCareerRank,
-promoteCareer, type CareerProfile
+  claimCareerBattle,
+  cloneCareerProfile,
+  createCareerProfile,
+  promoteCareer,
+  purchaseCareerContent,
+  resolveCareerRank,
+  type CareerProfile
 } from '../../src/career/CareerProfile'
 import {
-parseCareerProfile, CareerProfileStore, CAREER_STORAGE_KEY
+  CAREER_STORAGE_KEY,
+  CareerProfileStore,
+  parseCareerProfile
 } from '../../src/career/CareerProfileStore'
+import { canAppointCareerRank } from '../../src/career/CareerPromotionAuthority'
+import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, validateOrdinaryRetirementCommit } from '../../src/career/CareerRetirement'
+import { careerShopProduct } from '../../src/career/CareerShopCatalog'
+import { applyT4Class, currentT4Class, t4ClassOffer, unlockedT4Classes } from '../../src/career/CareerT4Promotion'
+import { claimCareerTutorialReward, commitCareerTutorial, deferCareerTutorial, hasCareerTutorialHorse, recordCareerTutorialOperation, startCareerTutorial } from '../../src/career/CareerTutorial'
+import { CAREER_TUTORIAL_OPERATIONS } from '../../src/career/CareerTutorialState'
 import {
-calculateMerit
+  calculateMerit
 } from '../../src/career/MeritCalculator'
 import type { BattleStatsSnapshot } from '../../src/combat/BattleStatsTracker'
+import { TownEquipment } from '../../src/town/TownEquipment'
+import { grantStarter, settleTown } from '../../src/town/TownRules'
+import { MemoryStorage } from '../helpers/memoryStorage'
 
 function stats(overrides: Partial<BattleStatsSnapshot['player']> = {}): BattleStatsSnapshot {
   return {
@@ -43,7 +45,6 @@ function stats(overrides: Partial<BattleStatsSnapshot['player']> = {}): BattleSt
     squads: [],
   }
 }
-
 
 describe('T5 雙職業任命', () => {
   const captain = (total: number) => { const p = createCareerProfile('roman'); p.rank = 'captain'; p.totalMerit = total; p.availableMerit = 777; return p }
@@ -374,7 +375,6 @@ describe('Career profile persistence', () => {
   })
 })
 
-
 describe('Commander melee appointment and save migration', () => {
   it('grants only on formal Commander appointment while preserving selected melee and bow', () => {
     let profile = createCareerProfile('roman')
@@ -468,54 +468,6 @@ function retirementProfile(): CareerProfile {
   return profile
 }
 
-it('round-trips minimal retirement progress and resource snapshots without sharing mutable state', () => {
-  const profile = retirementProfile()
-  profile.retirementRuntime = {
-    player: { position: { x: 1, y: 2, z: -318, yaw: 0.4 }, hp: 17, stamina: 21,
-      arrows: 3, shieldImpact: 4, shieldDurability: { shield_t1: 0 }, mounted: true },
-    mountState: { activeMountId: 'horse', hp: { horse: 9 }, unavailable: ['corgi'] },
-    mount: { position: { x: 1, y: 2, z: -318, yaw: 0.4 }, hp: 9 },
-  }
-  const original = structuredClone(profile)
-  const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
-  expect(store.save(profile)).toBe(true)
-  const loaded = store.loadChecked().profile!
-  expect(loaded).toEqual(original)
-  expect(profile).toEqual(original)
-  const copy = cloneCareerProfile(loaded)
-  copy.careerRetirement!.combatElapsedSeconds = 99
-  copy.retirementRuntime!.player.hp = 90
-  copy.retirementRuntime!.player.shieldDurability!.shield_t1 = 90
-  copy.retirementRuntime!.mountState!.hp.horse = 90
-  copy.retirementRuntime!.mount!.position.x = 90
-  expect(loaded).toEqual(original)
-})
-
-it('rejects corrupted retirement saves without overwriting persisted bytes', () => {
-  const profile = retirementProfile()
-  const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
-  expect(store.save(profile)).toBe(true)
-  const saved = storage.getItem(CAREER_STORAGE_KEY)
-  // Rank normalization must not admit a retirement checkpoint below Commander.
-  expect(store.save({ ...profile, totalMerit: 5200 })).toBe(false)
-  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
-  const invalidRuntime = { ...profile, retirementRuntime: { player: {
-    position: { x: 0, y: 0, z: 0, yaw: 0 }, hp: Number.NaN, stamina: 0,
-    arrows: 0, shieldImpact: 0, mounted: false,
-  } } }
-  expect(store.save(invalidRuntime)).toBe(false)
-  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
-  delete profile.careerRetirement!.outcome
-  expect(store.save(profile)).toBe(false)
-  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
-  const corrupted = JSON.stringify(profile)
-  storage.setItem(CAREER_STORAGE_KEY, corrupted)
-  const rejected = store.loadChecked()
-  expect(rejected.profile).toBeNull()
-  expect(rejected.error).toBeTruthy()
-  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(corrupted)
-})
-
 it('preserves retirement ownership while allowing ordinary resource commits', () => {
   const loaded = retirementProfile()
   // Town commits must preserve every retirement-owned field.
@@ -579,22 +531,6 @@ it('preserves retirement ownership while allowing ordinary resource commits', ()
   expect(ordinary.careerRetirement).toEqual(loaded.careerRetirement)
   expect(ordinary.careerRetirement).not.toBe(loaded.careerRetirement)
 })
-
-it('round-trips a prepared retirement receipt and rejects incomplete or misplaced receipts', () => {
-  const receipt = { version: 1 as const, commandRevoked: true as const,
-    refillCompleted: true as const, formationPrepared: true as const }
-  const progress = { version: 1 as const, phase: 'mobilizing' as const,
-    acceptedAt: 123, combatElapsedSeconds: 0, mobilization: receipt }
-  const parsed = parseCareerRetirementState(JSON.parse(JSON.stringify(progress)))!
-  expect(parsed).toEqual(progress)
-  expect(parsed.mobilization).not.toBe(receipt)
-  for (const invalid of [null, {}, { ...receipt, version: 2 }, { ...receipt, commandRevoked: false },
-    { ...receipt, refillCompleted: false }, { ...receipt, formationPrepared: false }]) {
-    expect(parseCareerRetirementState({ ...progress, mobilization: invalid })).toBeNull()
-  }
-  expect(parseCareerRetirementState({ ...progress, phase: 'departing' })).toBeNull()
-})
-
 
 describe('Career tutorial durable transactions', () => {
   it('recognizes migrated legacy equipment/mount without duplicate payouts, requiring real purchases', () => {

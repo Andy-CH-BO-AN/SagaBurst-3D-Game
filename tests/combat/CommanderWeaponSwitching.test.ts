@@ -1,23 +1,25 @@
 import { Box3, Vector3, type Object3D } from 'three'
-import { DamageableObstacle } from '../../src/world/DamageableObstacle'
-import { ShieldState } from '../../src/combat/ShieldBlocking'
-import { describe, expect, it, vi } from 'vitest'
-import { Faction } from '../../src/combat/CombatFaction'
-import { Player } from '../../src/player/Player'
-import { AIState, AIType, NPC } from '../../src/world/NPC'
-import type { ObstacleData } from '../../src/world/Terrain'
-import { townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
-import type { UnitLoadout } from '../../src/battle/UnitPresetCatalog'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveT4UnitLoadout } from '../../src/battle/T4HeroCatalog'
+import type { UnitLoadout } from '../../src/battle/UnitPresetCatalog'
 import { careerCommanderLoadout } from '../../src/career/CareerCommanderEquipment'
-import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
+import { Faction } from '../../src/combat/CombatFaction'
+import { ShieldState } from '../../src/combat/ShieldBlocking'
 import type { OutpostLayeredNavigation } from '../../src/navigation/OutpostLayeredNavigation'
-import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, PILUM_THROW_RELEASE_TIME, meleeActionTimeScale } from '../../src/world/CharacterCombatAnimator'
-import { MixerController } from '../../src/world/HumanoidAssetRegistry'
-import { axeRecoveryWeight } from '../../src/world/SwordAttachmentContract'
+import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
+import { Player } from '../../src/player/Player'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
+import { townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
+import { showEquipmentLoadNotice } from '../../src/ui/EquipmentLoadNotice'
+import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, meleeActionTimeScale, PILUM_THROW_RELEASE_TIME } from '../../src/world/CharacterCombatAnimator'
 import { type EquipmentPoseState } from '../../src/world/CharacterEquipmentPose'
 import type { HumanoidAnimationController } from '../../src/world/CharacterVisuals'
+import { DamageableObstacle } from '../../src/world/DamageableObstacle'
+import { BYZANTINE_EQUIPMENT_RETRY_MS, BYZANTINE_EQUIPMENT_WAIT_MS, byzantineEquipmentStatus, isEquipmentDemanded, resetHighTierEquipmentForTest } from '../../src/world/HighTierEquipment'
+import { MixerController } from '../../src/world/HumanoidAssetRegistry'
+import { AIState, AIType, NPC } from '../../src/world/NPC'
+import { axeRecoveryWeight } from '../../src/world/SwordAttachmentContract'
+import type { ObstacleData } from '../../src/world/Terrain'
 
 /** Real animation state owner; only the external clip/pose boundary is doubled. */
 function combatAnimator(getMeleeTiming?: HumanoidAnimationController['getMeleeTiming'], weapon: 'lance' | 'axe' = 'lance') {
@@ -419,7 +421,6 @@ function selection(overrides: Partial<SelectionActor> = {}) {
   return { actor, target, player, select }
 }
 
-
 interface TemporaryLoadoutActor {
   arrows: number
   rangedActive: boolean
@@ -488,8 +489,6 @@ describe('Reversible NPC weapon choice', () => {
     h.select([hostile])
     expect(h.actor.rangedActive).toBe(false)
   })
-
-
 
   it('keeps the eagle bow for vertically separated ground threats until physical melee contact is possible', () => {
     const h = selection({ mount: { flight: {} }, eaglePilot: { canUseMelee: false }, combatPosition: new Vector3(0, 5, 0) })
@@ -652,7 +651,6 @@ describe('Reversible NPC weapon choice', () => {
     expect(h.actor.arrows).toBe(12)
   })
 
-
   it('falls back to melee when ammunition is exhausted', () => {
     const h = selection({ arrows: 0 })
     const nearby: NPC[] = []
@@ -688,7 +686,6 @@ describe('Reversible NPC weapon choice', () => {
   })
 })
 
-
 it('preserves merchant fixed gear with a purchased horse and switches only its existing melee weapon between attacks', () => {
   const actor = { townCombatRole: 'merchant', originalCombatEquipment: null,
     animator: { busy: false }, loadout: townMerchantLoadout('horse'), meleeWeaponId: 'sword_t5',
@@ -713,4 +710,95 @@ it('preserves merchant fixed gear with a purchased horse and switches only its e
   expect(actor.meleeWeaponId).toBe('sword_t5')
   expect(actor.loadout).toEqual({ meleeWeaponId: 'sword_t5', secondaryMeleeWeaponId: 'axe_t5',
     shieldId: 'paladin_shield_t4', rangedWeaponId: null, mountId: 'horse' })
+})
+
+vi.mock('../../src/ui/EquipmentLoadNotice', () => ({ showEquipmentLoadNotice: vi.fn() }))
+vi.mock('three/examples/jsm/loaders/GLTFLoader.js', () => ({ GLTFLoader: class {
+  async parseAsync() { return { scene: { traverse() {} } } }
+} }))
+const gltfLoads = { next: [] as Array<() => Promise<unknown>>, count: 0 }
+const SHIELD = 'byzantine_eagle_shield_t5'
+const response = () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(0) })
+
+interface GatedActor {
+  meleeWeaponId: string | null
+  shieldId: string | null
+  hasActiveShield: boolean
+  rebuildShield: ReturnType<typeof vi.fn>
+  _adoptLoadedEquipment(): void
+  dispose(): void
+}
+/** Real equipment slots and adoption; mesh rebuilding is the external boundary. */
+function actorHolding(shieldId: string | null): GatedActor {
+  const actor = Object.assign(Object.create(NPC.prototype) as GatedActor, {
+    _tier: 5, _faction: Faction.ENEMY, _aiType: AIType.MELEE, state: AIState.IDLE, rangedActive: false, townArmed: false,
+    heldMeleeWeaponId: 'steel_lance', selectedMeleeWeaponId: 'steel_lance', heldShieldId: null, selectedShieldId: null,
+    animator: { cancel: vi.fn(), setEquipment: vi.fn() }, rebuildShield: vi.fn(),
+    combatEventBindings: [], pendingFall: { clear: vi.fn() }, mount: null, rig: { animation: { stop: vi.fn() } },
+    characterVisualGroup: { traverse: vi.fn(), removeFromParent: vi.fn() },
+    alertSprite: { material: { map: { dispose: vi.fn() }, dispose: vi.fn() } },
+    group: { removeFromParent: vi.fn() },
+  })
+  if (shieldId) actor.shieldId = shieldId
+  return actor
+}
+
+describe('NPC equipment availability and shared demand release', () => {
+  beforeEach(() => {
+    vi.useFakeTimers(); resetHighTierEquipmentForTest()
+    gltfLoads.count = 0; gltfLoads.next = []
+    vi.stubGlobal('fetch', () => { gltfLoads.count++; return (gltfLoads.next.shift() ?? (() => new Promise(() => {})))() })
+  })
+  afterEach(() => { resetHighTierEquipmentForTest(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.mocked(showEquipmentLoadNotice).mockClear() })
+
+it('lets an NPC block with the eagle shield only after its model loads, and retries a failure on a paced schedule', async () => {
+    gltfLoads.next.push(() => Promise.reject(new Error('404')))
+    const spawned = actorHolding(null), reequipped = actorHolding('scutum_t1')
+    spawned.shieldId = SHIELD
+    reequipped.shieldId = SHIELD
+    await vi.advanceTimersByTimeAsync(0)
+    expect(byzantineEquipmentStatus(SHIELD)).toBe('failed')
+
+    expect([spawned.shieldId, spawned.hasActiveShield]).toEqual([null, false])
+    expect([reequipped.shieldId, reequipped.hasActiveShield]).toEqual(['scutum_t1', true])
+    expect(spawned.meleeWeaponId).toBe('steel_lance')
+    spawned._adoptLoadedEquipment()
+    expect(spawned.rebuildShield).not.toHaveBeenCalled()
+    expect(gltfLoads.count).toBe(1)
+
+    gltfLoads.next.push(() => Promise.resolve(response()))
+    await vi.advanceTimersByTimeAsync(BYZANTINE_EQUIPMENT_RETRY_MS)
+    spawned._adoptLoadedEquipment()
+    expect(gltfLoads.count).toBe(2)
+    await vi.advanceTimersByTimeAsync(0)
+
+    for (const actor of [spawned, reequipped]) {
+      actor._adoptLoadedEquipment()
+      expect(actor.rebuildShield).toHaveBeenCalledTimes(1)
+      expect([actor.shieldId, actor.hasActiveShield]).toEqual([SHIELD, true])
+    }
+    expect(spawned.meleeWeaponId).toBe('steel_lance')
+  })
+
+it('keeps another NPC demand after a shield change and releases the last demand on disposal', async () => {
+  const first = actorHolding(SHIELD), second = actorHolding(SHIELD)
+  first.shieldId = 'scutum_t1'
+  expect(isEquipmentDemanded(SHIELD)).toBe(true)
+  await vi.advanceTimersByTimeAsync(BYZANTINE_EQUIPMENT_WAIT_MS)
+  expect(byzantineEquipmentStatus(SHIELD)).toBe('failed')
+  expect(showEquipmentLoadNotice).toHaveBeenCalledTimes(1)
+  vi.mocked(showEquipmentLoadNotice).mockClear()
+  second.dispose()
+  expect(isEquipmentDemanded(SHIELD)).toBe(false)
+  await vi.advanceTimersByTimeAsync(BYZANTINE_EQUIPMENT_RETRY_MS + BYZANTINE_EQUIPMENT_WAIT_MS)
+  expect(showEquipmentLoadNotice).not.toHaveBeenCalled()
+  first.dispose()
+})
+it('releases only the disposing NPC demand when both hold the same shield', () => {
+  const first = actorHolding(SHIELD), second = actorHolding(SHIELD)
+  first.dispose()
+  expect(isEquipmentDemanded(SHIELD)).toBe(true)
+  second.dispose()
+  expect(isEquipmentDemanded(SHIELD)).toBe(false)
+})
 })

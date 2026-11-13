@@ -1,17 +1,19 @@
-import { NPC, RANGED_AI_LAUNCH_HEIGHT } from '../../src/world/NPC'
-import { TownWatchtowerNavigation } from '../../src/navigation/TownWatchtowerNavigation'
-import { TownProjectileObstacles } from '../../src/town/TownProjectileObstacles'
+import * as THREE from 'three'
 import { Box3, Matrix4, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
-import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, getTownCommandWatchtowerUnderfill, getTownWatchtowerGuardStations, validateWatchtowerPlacement } from '../../src/town/TownCommandWatchtowerLayout'
-import { surfaceBox } from '../../src/town/TownRamparts'
-import { TOWN_CITY_ROADS, TOWN_CENTER, TOWN_HR_REGION, townHousing, type TownRoad } from '../../src/town/TownLayout'
-import { findBlockingObstacleAlongPath, findBlockingProjectileObstacleAlongPath, getTerrainHeight, resolveObstacleCollision, type ObstacleData } from '../../src/world/Terrain'
 import { BallisticIntercept } from '../../src/combat/ProjectileBallistics'
 import { EagleFlightAI } from '../../src/movement/EagleFlightAI'
 import { EagleFlightController } from '../../src/movement/EagleFlightController'
 import { XONGKORO } from '../../src/movement/XongkoroConfig'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
+import { TownWatchtowerNavigation } from '../../src/navigation/TownWatchtowerNavigation'
+import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, getTownCommandWatchtowerUnderfill, getTownWatchtowerGuardStations, validateWatchtowerPlacement } from '../../src/town/TownCommandWatchtowerLayout'
+import { TOWN_CENTER, TOWN_CITY_ROADS, TOWN_HR_REGION, townHousing, type TownRoad } from '../../src/town/TownLayout'
+import { TownProjectileObstacles } from '../../src/town/TownProjectileObstacles'
+import { getTownRampartLayout, surfaceBox } from '../../src/town/TownRamparts'
+import { NPC, RANGED_AI_LAUNCH_HEIGHT } from '../../src/world/NPC'
+import { findBlockingObstacleAlongPath, findBlockingProjectileObstacleAlongPath, getTerrainHeight, resolveObstacleCollision, type ObstacleData } from '../../src/world/Terrain'
 
 function rectangle(x: number, z: number, width: number, depth: number, yaw = 0): Box3 {
   return new Box3(new Vector3(-width / 2, -100, -depth / 2), new Vector3(width / 2, 100, depth / 2))
@@ -178,4 +180,67 @@ describe('Town command watchtower', () => {
     const blocksApproach = { ...layout, footprint: layout.footprint.clone().translate(new Vector3(-17, 0, 0)) }
     expect(() => validateWatchtowerPlacement(blocksApproach, [], [])).toThrow('eagle landing or approach')
   })
+})
+
+it('routes a mounted body up and down connected flights without crossing rails', () => {
+    for (const direction of ['up', 'down'] as const) {
+      const layout = getTownCommandWatchtowerLayout()
+      const nav = new TownLayeredNavigation(getTownRampartLayout())
+      nav.setWatchtower(layout)
+      const tower = nav.watchtower!
+      const obstacles: ObstacleData[] = [{ box: layout.core, isBarricade: false }, ...getTownCommandWatchtowerUnderfill(layout),
+        ...layout.platform.map(surface => ({ box: surfaceBox(surface), walkSurface: surface, isBarricade: false })),
+        ...getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)]
+      const top = new THREE.Vector3(-29, layout.platformY, -41)
+      const current = (direction === 'up' ? tower.approach : top).clone()
+      const goal = direction === 'up' ? top : tower.approach
+      const previous = new THREE.Vector3(), out = new THREE.Vector3()
+      for (let frame = 0; frame < 650 && current.distanceTo(goal) > .3; frame++) {
+        if (!nav.resolveMoveTarget(current, goal, out, null, true)) out.copy(goal)
+        previous.copy(current)
+        const distance = Math.hypot(out.x - current.x, out.z - current.z)
+        const fraction = Math.min(.4, distance) / (distance || 1)
+        current.x += (out.x - current.x) * fraction
+        current.z += (out.z - current.z) * fraction
+        current.y = Math.max(getTerrainHeight(current.x, current.z), current.y - .02)
+        resolveObstacleCollision(current, previous, -1, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+      }
+      expect(current.distanceTo(goal)).toBeLessThan(.3)
+      const outside = tower.approach.clone().add(new THREE.Vector3(4, 0, 0))
+      expect(nav.resolveMoveTarget(outside, top, out)).toEqual({ ground: true, tower: true })
+      expect(out).toEqual(tower.approach)
+      expect(nav.resolveMoveTarget(outside, outside.clone().add(new THREE.Vector3(3, 0, 0)), out)).toBeNull()
+    }
+  })
+
+it('distinguishes stacked flights for pursuit, contact and follow arrival', () => {
+    const layout = getTownCommandWatchtowerLayout(), tower = new TownWatchtowerNavigation(layout)
+    const lower = layout.ramps[0], upper = layout.ramps[4]
+    const a = new THREE.Vector3(lower.startX, lower.startY, lower.startZ).add(new THREE.Vector3(lower.dirX * 5, (lower.topY - lower.startY) * 5 / lower.length, lower.dirZ * 5))
+    const b = new THREE.Vector3(a.x, a.y + upper.startY - lower.startY, a.z)
+    // Solid upper floors must preserve the physical lower passage even for
+    // collision callers that do not opt in to using walk surfaces as support.
+    const upperFoundation = getTownCommandWatchtowerUnderfill(layout).find(obstacle => obstacle.walkSurface === upper)!
+    const body = a.clone(), previousBody = a.clone().add(new THREE.Vector3(.2, 0, 0))
+    resolveObstacleCollision(body, previousBody, 0, true, 1, 2.6, 0, [upperFoundation])
+    expect(body).toEqual(a)
+    expect(tower.surfaceAt(a)).not.toBe(tower.surfaceAt(b))
+    expect(tower.sameLevel(a, b)).toBe(false)
+    const out = new THREE.Vector3()
+    expect(tower.resolve(a, b, out)).toEqual({ ground: false, tower: true })
+    expect(out.z).toBeLessThan(a.z) // Continue north up the first flight, not directly up at identical X/Z.
+    expect(out.y).toBeCloseTo(lower.topY)
+    expect(tower.resolve(b, a, out)).toEqual({ ground: false, tower: true })
+    expect(out.z).toBeGreaterThan(b.z)
+    expect(out.y).toBeCloseTo(upper.startY)
+  })
+
+it('leaves the existing rampart by its stairs before approaching the watchtower', () => {
+  const wall = getTownRampartLayout(), tower = getTownCommandWatchtowerLayout()
+  const nav = new TownLayeredNavigation(wall), out = new THREE.Vector3()
+  nav.setWatchtower(tower)
+  const ramp = wall.ramps[0], current = ramp.landing.clone()
+  expect(nav.resolveMoveTarget(current, new THREE.Vector3(-29, tower.platformY, -41), out)).toEqual({ ground: false })
+  expect(out).toEqual(ramp.entrance)
+  expect(nav.watchtower!.sameLevel(nav.watchtower!.approach, new THREE.Vector3(tower.entrance.startX, tower.entrance.startY, tower.entrance.startZ))).toBe(true)
 })

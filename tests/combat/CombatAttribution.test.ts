@@ -1,25 +1,25 @@
-import { TownScene } from '../../src/town/TownScene'
-import { createCareerProfile, claimCareerMission } from '../../src/career/CareerProfile'
-import { createCareerDuelMission } from '../../src/career/CareerDuelState'
-import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
-import type { HeroCombatProfileId } from '../../src/battle/HeroCombatProfile'
-import { TownEquipment } from '../../src/town/TownEquipment'
 import * as THREE from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
-import { CombatEventStream, type CombatDamageContext, type CombatEventSink } from '../../src/combat/CombatAttribution'
-import { damageNpc, damageObstacle, damagePlayer, damageMount } from '../../src/combat/DamageRouter'
-import { ShieldCollider, ShieldState } from '../../src/combat/ShieldBlocking'
-import { Player } from '../../src/player/Player'
 import { Game } from '../../src/Game'
-import { punchEventsBetween, traceFistStrike } from '../../src/combat/UnarmedCombat'
-import { SkillManager } from '../../src/rpg/SkillManager'
-import { DamageableObstacle } from '../../src/world/DamageableObstacle'
-import { AIState, Faction, NPC } from '../../src/world/NPC'
+import type { HeroCombatProfileId } from '../../src/battle/HeroCombatProfile'
+import { createCareerDuelMission } from '../../src/career/CareerDuelState'
+import { claimCareerMission, createCareerProfile } from '../../src/career/CareerProfile'
+import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
+import { CombatEventStream, type CombatDamageContext, type CombatEventSink } from '../../src/combat/CombatAttribution'
+import { damageMount, damageNpc, damageObstacle, damagePlayer } from '../../src/combat/DamageRouter'
 import { MountArmor } from '../../src/combat/MountArmor'
+import { ShieldCollider, ShieldState } from '../../src/combat/ShieldBlocking'
+import { punchEventsBetween, traceFistStrike } from '../../src/combat/UnarmedCombat'
+import { Player } from '../../src/player/Player'
+import { SkillManager } from '../../src/rpg/SkillManager'
+import { TownEquipment } from '../../src/town/TownEquipment'
+import { TownScene } from '../../src/town/TownScene'
+import { registerTownCombatDisplayName } from '../../src/ui/CombatTargetDisplayName'
+import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import type { Mount } from '../../src/world/Mount'
 import { MountType } from '../../src/world/Mount'
+import { AIState, Faction, NPC } from '../../src/world/NPC'
 import { createCombatEventRecorder } from '../helpers/combatEventRecorder'
-import { registerTownCombatDisplayName } from '../../src/ui/CombatTargetDisplayName'
 
 function eventHarness() { return createCombatEventRecorder(onTestFinished) }
 
@@ -462,7 +462,6 @@ describe('Combat attribution foundation', () => {
 
 })
 
-
 /** Plain runtime ports; no actor constructor, model, scene, skeleton or mixer. */
 interface TownFistEntry {
   melee(): void
@@ -655,3 +654,36 @@ it('空手 NPC 的出拳距離同時可觸發（大於身體碰撞距離）且�
   expect(UNARMED_ATTACK_DISTANCE - bodyRadius).toBeLessThan(shortestArmedFistReach + fistRadius)
   expect(UNARMED_STOP_DISTANCE).toBeLessThan(UNARMED_ATTACK_DISTANCE)
 })
+
+it('protects HR mounts from the real Town damage caller during defense preparation', () => {
+    const targetMount = {
+      id: 'personal-horse',
+      dead: false,
+      disposed: false,
+      currentHp: 100,
+      maxHp: 100,
+      group: { position: new THREE.Vector3(0, 0, 0) },
+    } as any
+
+    const attackerNpc = {
+      combatantId: 'attacker-1',
+      combatOwnership: 'player-personal',
+      faction: Faction.PLAYER,
+      meleeWeaponId: 'sword_iron',
+    } as any
+
+    const mockTown = {
+      retirementFinale: null,
+      fourGateCombatHeld: false,
+      isRetirementEvacuating: () => false,
+      defense: { phase: 'PREPARING' },
+      personalSquad: { mounts: [targetMount] },
+      canHitTownMount: () => true,
+    }
+
+    // 1. During PREPARING phase, personalSquad mount is protected
+    const hitBattlefieldMount = (TownScene.prototype as any).hitBattlefieldMount
+    hitBattlefieldMount.call(mockTown, targetMount, 25, 'melee', attackerNpc, undefined)
+    expect(targetMount.currentHp).toBe(100)
+
+  })

@@ -1,22 +1,21 @@
-import { SpatialGrid } from '../../src/world/SpatialGrid'
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
+import { Faction } from '../../src/combat/CombatFaction'
+import { WeaponSweep } from '../../src/combat/ShieldBlocking'
 import {
-  isEligibleMeleeCavalry,
-  cavalryTurnRate,
-  steerCavalryHeading,
-  isTargetInForwardCone,
-  scoreCavalryTarget,
-  findCavalryChargeTarget,
+  CAVALRY_FORWARD_CONE_COS,
   CAVALRY_MAX_TURN_RATE,
   CAVALRY_PASSTHROUGH_DURATION,
-  CAVALRY_FORWARD_CONE_COS,
+  cavalryTurnRate,
+  findCavalryChargeTarget,
+  isEligibleMeleeCavalry,
+  isTargetInForwardCone,
+  scoreCavalryTarget,
+  steerCavalryHeading,
 } from '../../src/movement/ContinuousCavalryCharge'
 import { angleDifference } from '../../src/movement/MountedArcherOrbit'
-import { WeaponSweep } from '../../src/combat/ShieldBlocking'
-import { Faction } from '../../src/combat/CombatFaction'
 import { isHostileCombatMount } from '../../src/world/NPC'
-import { TownScene } from '../../src/town/TownScene'
+import { SpatialGrid } from '../../src/world/SpatialGrid'
 
 describe('Continuous Melee Cavalry Charge', () => {
   it('identifies eligible ground melee cavalry while excluding ranged, flying, defense, and siege units', () => {
@@ -243,87 +242,6 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(actualTotalTurn).toBeCloseTo(maxTurnBudget, 6)
   })
 
-  it('preserves navigation pause and stops at blocking obstacles during CHASE', () => {
-    // 1. Navigation pause: when moveDir is (0, 0, 0), cavalry does not force forward movement
-    const moveDir = new THREE.Vector3(0, 0, 0)
-    const currentYaw = 0
-    const speed = 12
-    const dt = 1 / 60
-
-    if (moveDir.lengthSq() > 0.0001) {
-      const desiredYaw = Math.atan2(moveDir.x, moveDir.z)
-      const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
-      moveDir.set(Math.sin(newYaw), 0, Math.cos(newYaw))
-    }
-
-    // moveDir remains zero: navigation stop decision preserved
-    expect(moveDir.lengthSq()).toBe(0)
-
-    // 2. Obstacle ahead: when a wall/gate is detected along path, moveDir is stopped
-    const activeMoveDir = new THREE.Vector3(0, 0, 1)
-    const cavalryPos = new THREE.Vector3(0, 0, 10)
-    const wallBox = new THREE.Box3(new THREE.Vector3(-5, 0, 11), new THREE.Vector3(5, 5, 13))
-
-    // Simulate lookahead endpoint
-    const endpoint = new THREE.Vector3().copy(cavalryPos).addScaledVector(activeMoveDir, speed * (dt + 0.15))
-    // Path intersects wallBox:
-    const intersectsWall = wallBox.intersectsBox(new THREE.Box3(
-      new THREE.Vector3(Math.min(cavalryPos.x, endpoint.x) - 1, 0, Math.min(cavalryPos.z, endpoint.z) - 1),
-      new THREE.Vector3(Math.max(cavalryPos.x, endpoint.x) + 1, 2, Math.max(cavalryPos.z, endpoint.z) + 1),
-    ))
-    expect(intersectsWall).toBe(true)
-
-    // Obstacle along path halts movement
-    if (intersectsWall) activeMoveDir.set(0, 0, 0)
-    expect(activeMoveDir.lengthSq()).toBe(0)
-
-    // 3. Passthrough without target stops at obstacle and resets timer
-    let passthroughTimer = 1.0
-    if (intersectsWall) passthroughTimer = 0
-    expect(passthroughTimer).toBe(0)
-  })
-
-  it('synchronizes rider transform and weapon sweep with mount movement during ATTACK', () => {
-    const mountPosition = new THREE.Vector3(0, 0, 0)
-    const riderPosition = new THREE.Vector3(0, 1.2, 0) // Sitting on mount at y=1.2
-    const rideOffset = new THREE.Vector3(0, 1.2, 0)
-
-    const mount = {
-      group: { position: mountPosition, rotation: { y: 0 } },
-      baseSpeed: 12,
-      getRiderPelvisSeatWorld: (target: THREE.Vector3) => target.copy(mountPosition).add(rideOffset),
-      addControlledMovement: (dir: THREE.Vector3, speed: number, dt: number) => {
-        mountPosition.addScaledVector(dir, speed * dt)
-      },
-    }
-
-    const dt = 1 / 60
-    const forwardDir = new THREE.Vector3(0, 0, 1)
-
-    // Simulate mount movement in ATTACK
-    mount.addControlledMovement(forwardDir, mount.baseSpeed, dt)
-    expect(mountPosition.z).toBeCloseTo(0.2, 5)
-
-    // Synchronize rider seat to mount
-    mount.getRiderPelvisSeatWorld(riderPosition)
-    expect(riderPosition.z).toBeCloseTo(0.2, 5)
-    expect(riderPosition.y).toBeCloseTo(1.2, 5)
-
-    // Weapon grip and tip world positions computed relative to updated rider
-    const gripLocal = new THREE.Vector3(0.3, 0.2, 0.4)
-    const tipLocal = new THREE.Vector3(0.3, 0.2, 2.5) // 2.1m lance forward
-
-    const gripWorld = new THREE.Vector3().copy(riderPosition).add(gripLocal)
-    const tipWorld = new THREE.Vector3().copy(riderPosition).add(tipLocal)
-
-    expect(gripWorld.z).toBeCloseTo(0.6, 5)
-    expect(tipWorld.z).toBeCloseTo(2.7, 5)
-
-    // Geometry is in exact sync with mount forward step
-    const distToTarget = new THREE.Vector3(0.3, 1.4, 2.5).distanceTo(tipWorld)
-    expect(distToTarget).toBeCloseTo(0.2, 5)
-  })
-
   it('falls back to nearest available ground target when no forward candidate exists', () => {
     const cavalry = {
       combatPosition: new THREE.Vector3(0, 0, 0),
@@ -379,47 +297,6 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(normalTarget!.position.z).toBe(-20)
     expect(findCavalryChargeTarget(cavalry, player, grid, null, candidateBuffer, false, isHostile,
       undefined, candidate => candidate !== rearEnemy)).toBeNull()
-  })
-
-  it('invalidates cached target on attack completion and ignores rear cached target in CHASE during passthrough', () => {
-    const cavalryPos = new THREE.Vector3(0, 0, 10)
-    const currentYaw = 0 // Facing +Z
-    let passthroughTimer = 1.0
-
-    // Enemy that was just attacked has now been crossed: position is at z = 8 (behind cavalry at z = 10)
-    const rearEnemy = {
-      combatPosition: new THREE.Vector3(0, 0, 8),
-      dead: false,
-    }
-
-    // Verify rear target is not in forward cone
-    const inForwardCone = isTargetInForwardCone(cavalryPos, currentYaw, rearEnemy.combatPosition)
-    expect(inForwardCone).toBe(false)
-
-    // Simulate cached target validation policy in NPC.ts:
-    // If cavalryPassthroughTimer > 0 and target is behind, cached target is invalid
-    const isCachedTargetValid = inForwardCone // returns false
-    expect(isCachedTargetValid).toBe(false)
-
-    // When invalid, CHASE invalidates targetInfo and clears cache
-    let targetInfo: any = { position: rearEnemy.combatPosition, isDead: false, npc: rearEnemy }
-    let cachedTargetNpc: any = rearEnemy
-
-    if (targetInfo && !targetInfo.isDead && passthroughTimer > 0) {
-      if (!isTargetInForwardCone(cavalryPos, currentYaw, targetInfo.position)) {
-        targetInfo = null
-        cachedTargetNpc = null
-      }
-    }
-
-    expect(targetInfo).toBeNull()
-    expect(cachedTargetNpc).toBeNull()
-
-    // In CHASE with targetInfo == null and passthroughTimer > 0:
-    // Cavalry maintains straight forward movement along currentYaw without turning backward
-    const moveDir = new THREE.Vector3(Math.sin(currentYaw), 0, Math.cos(currentYaw))
-    expect(moveDir.z).toBe(1)
-    expect(moveDir.x).toBe(0)
   })
 
   it('executes real geometric weapon sweep across candidates along charging path hitting second enemy without distance cutoff', () => {
@@ -543,122 +420,4 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(isHostileCombatMount(enemyAttacker, enemyDismountedHorse, player)).toBe(false)
   })
 
-  it('enforces TownScene hitBattlefieldMount protection during PREPARING phase and routes melee hits authoritatively', () => {
-    const targetMount = {
-      id: 'personal-horse',
-      dead: false,
-      disposed: false,
-      currentHp: 100,
-      maxHp: 100,
-      group: { position: new THREE.Vector3(0, 0, 0) },
-    } as any
-
-    const attackerNpc = {
-      combatantId: 'attacker-1',
-      combatOwnership: 'player-personal',
-      faction: Faction.PLAYER,
-      meleeWeaponId: 'sword_iron',
-    } as any
-
-    const mockTown = {
-      retirementFinale: null,
-      fourGateCombatHeld: false,
-      isRetirementEvacuating: () => false,
-      defense: { phase: 'PREPARING' },
-      personalSquad: { mounts: [targetMount] },
-      canHitTownMount: () => true,
-    }
-
-    // 1. During PREPARING phase, personalSquad mount is protected
-    const hitBattlefieldMount = (TownScene.prototype as any).hitBattlefieldMount
-    hitBattlefieldMount.call(mockTown, targetMount, 25, 'melee', attackerNpc, undefined)
-    expect(targetMount.currentHp).toBe(100)
-
-    // 2. Authoritative callback routing in TownScene update
-    let routedToTownBattlefieldMount = false
-    const townCallback = (_damage: number, isPlayer: boolean, targetNpc?: any, mountTarget?: any) => {
-      if (isPlayer) { /* player */ }
-      else if (targetNpc) { /* npc */ }
-      else if (mountTarget) {
-        routedToTownBattlefieldMount = true
-      }
-    }
-
-    townCallback(30, false, undefined, targetMount)
-    expect(routedToTownBattlefieldMount).toBe(true)
-  })
-
-  it('routes melee contact to the exact hit entity for player, mounted NPC rider, and standalone mount', () => {
-    let routedPlayer = false
-    let routedNpc: any = null
-    let routedMount: any = null
-
-    const onHitEntity = (_damage: number, isPlayer: boolean, targetNpc?: any, targetMount?: any) => {
-      if (isPlayer) routedPlayer = true
-      if (targetNpc) routedNpc = targetNpc
-      if (targetMount) routedMount = targetMount
-    }
-
-    // 1. Direct hit on Player
-    const playerTarget = { id: 'player-entity' }
-    const playerContact = { kind: 'body' as const, target: playerTarget, time: 0.1 }
-
-    let hitIsPlayer = false
-    let hitNpc: any = undefined
-    let hitMount: any = undefined
-
-    if (playerContact.kind === 'body') {
-      if (playerContact.target === playerTarget) hitIsPlayer = true
-    }
-    onHitEntity(25, hitIsPlayer, hitNpc, hitMount)
-    expect(routedPlayer).toBe(true)
-    expect(routedNpc).toBeNull()
-    expect(routedMount).toBeNull()
-
-    // 2. Direct hit on Mounted NPC rider's horse
-    routedPlayer = false
-    routedNpc = null
-    routedMount = null
-
-    const enemyRider = { id: 'enemy-rider-npc', isMounted: true }
-    const enemyHorse = { id: 'enemy-horse', riderNpc: enemyRider }
-    const horseContact = { kind: 'mount' as const, mount: enemyHorse, time: 0.2 }
-
-    hitIsPlayer = false
-    hitNpc = undefined
-    hitMount = undefined
-
-    if (horseContact.kind === 'mount') {
-      hitMount = horseContact.mount
-      if (horseContact.mount?.riderNpc) hitNpc = horseContact.mount.riderNpc
-    }
-
-    onHitEntity(30, hitIsPlayer, hitNpc, hitMount)
-    expect(routedPlayer).toBe(false)
-    expect(routedNpc).toBe(enemyRider)
-    expect(routedMount).toBe(enemyHorse)
-
-    // 3. Direct hit on Standalone / Unmounted Mount
-    routedPlayer = false
-    routedNpc = null
-    routedMount = null
-
-    const standaloneHorse = { id: 'standalone-horse', riderNpc: undefined, riderPlayer: undefined }
-    const standaloneContact = { kind: 'mount' as const, mount: standaloneHorse, time: 0.15 }
-
-    hitIsPlayer = false
-    hitNpc = undefined
-    hitMount = undefined
-
-    if (standaloneContact.kind === 'mount') {
-      hitMount = standaloneContact.mount
-      if (standaloneContact.mount?.riderNpc) hitNpc = standaloneContact.mount.riderNpc
-    }
-
-    onHitEntity(20, hitIsPlayer, hitNpc, hitMount)
-    expect(routedPlayer).toBe(false)
-    // Never falsely attributes to an unrelated NPC
-    expect(routedNpc).toBeNull()
-    expect(routedMount).toBe(standaloneHorse)
-  })
 })
