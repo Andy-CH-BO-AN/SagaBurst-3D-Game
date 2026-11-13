@@ -5,7 +5,7 @@ import { getTerrainHeight, WALK_SURFACE_STEP_UP, type ObstacleData, type WalkRam
 import { rampNavigationSides, surfaceBox } from '../TownRamparts'
 import type { CommandWatchtowerLayout } from '../TownCommandWatchtowerLayout'
 import { ArchitectureKit, PALETTE, Sketch, preloadArchitectureDecorations, tabletopDisplay, type BuildContext } from './ArchitectureKit'
-import { architectureSpec, architectureRuinCorridors, expandedHrCenter, hrFloorNavigationEdges, DEEP, TOWN_PLAZA_MONUMENT, townPlazaLayout, type ArchitectureFaction, type BuildingSpec, type CivicBuildingKind, type LocalRect, type PlazaProp } from './ArchitectureSpecs'
+import { architectureLocalToWorld, architectureSpec, architectureRuinCorridors, expandedHrCenter, hrFloorNavigationEdges, DEEP, TOWN_PLAZA_MONUMENT, townPlazaLayout, type ArchitectureFaction, type BuildingSpec, type CivicBuildingKind, type LocalRect, type PlazaProp } from './ArchitectureSpecs'
 import { buildRomanHome, buildRomanHrCenter, buildRomanStable, buildRomanTownCenter, buildRomanWeapons } from './RomanBuildings'
 import { buildVikingHome, buildVikingHrCenter, buildVikingStable, buildVikingTownCenter, buildVikingWeapons } from './VikingBuildings'
 
@@ -122,11 +122,6 @@ const BUILDERS: Record<ArchitectureFaction, Record<CivicBuildingKind, (ctx: Buil
     'home-a': ctx => buildVikingHome(ctx, 'home-a'), 'home-b': ctx => buildVikingHome(ctx, 'home-b'), 'home-c': ctx => buildVikingHome(ctx, 'home-c') },
 }
 
-/** Building-local (side = x, forward = z) → world, the same mapping as TownRules.townSitePoint. */
-export function architectureLocalToWorld(site: ArchitectureSite, x: number, z: number): { x: number; z: number } {
-  return { x: site.x + Math.cos(site.yaw) * x + Math.sin(site.yaw) * z, z: site.z - Math.sin(site.yaw) * x + Math.cos(site.yaw) * z }
-}
-
 /**
  * Builds one faction building at a Town site on the live terrain.
  *
@@ -215,7 +210,7 @@ export function placeArchitecture(kit: ArchitectureKit, kind: CivicBuildingKind,
     // DEEP is a plan sentinel, never a sampled camp terrain coordinate.
     const box = toWorld(x0, authoredColliders.has(collider) && y0 <= DEEP ? plinthBottom - .4 : y0, z0, x1, y1, z1)
     const overhead = collider.role === 'roof' || collider.role === 'overhead'
-    const obstacle = { box, isBarricade: false, ...(overhead ? { navigationPassable: true } : {}) }
+    const obstacle = { box, isBarricade: false, ...(overhead || collider.role === 'post' ? { navigationPassable: true } : {}) }
     obstacles.push(obstacle)
     if (collider.role === 'roof') roofColliders.push({ obstacle, original: box.clone(), local: new THREE.Box3(new THREE.Vector3(x0, y0 - pivot, z0), new THREE.Vector3(x1, y1 - pivot, z1)) })
   }
@@ -776,8 +771,9 @@ export function buildEaglePadMarkings(kit: ArchitectureKit, pads: readonly { x: 
 /**
  * Shared low supply post for eagle fields (open canvas/shingle shed, harness
  * rack with saddles, crates, two banner standards). Footprint 8×4m, under 3.4m.
+ * The service post stands in its open front (`TOWN_EAGLE_STATION_SERVICE_POST`).
  */
-export function buildEagleStation(kit: ArchitectureKit, site: ArchitectureSite, terrain: TerrainSampler = getTerrainHeight): ArchitectureDressing {
+export function buildEagleStation(kit: ArchitectureKit, site: ArchitectureSite, terrain: TerrainSampler = getTerrainHeight): ArchitectureDressing & { readonly airspace: THREE.Box3 } {
   const roman = kit.faction === 'roman', groundY = terrain(site.x, site.z)
   const root = new THREE.Group(); root.name = `architecture-${kit.faction}-eagle-station`
   root.position.set(site.x, groundY, site.z); root.rotation.y = site.yaw
@@ -809,6 +805,18 @@ export function buildEagleStation(kit: ArchitectureKit, site: ArchitectureSite, 
   for (const x of [-3.6, 3.9]) s.bannerPole(x, ground(x, 1.6), 1.6, 0, 3.4, roman ? 'metal' : 'wood')
   s.build(root, root.name)
   root.updateMatrixWorld(true)
-  const box = new THREE.Box3().setFromObject(root)
-  return { root, obstacles: [{ box, isBarricade: false }] }
+  // Only the parts that actually stand on the ground block; the open front, the
+  // service post at the opening and the space under the roof stay walkable.
+  const rotation = new THREE.Matrix4().makeRotationY(site.yaw), offset = new THREE.Vector3(site.x, groundY, site.z)
+  const part = (x0: number, z0: number, x1: number, z1: number, top: number): ObstacleData =>
+    ({ box: new THREE.Box3(new THREE.Vector3(x0, -2, z0), new THREE.Vector3(x1, top, z1)).applyMatrix4(rotation).translate(offset), isBarricade: false })
+  const obstacles = [
+    ...[[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.2], [1.6, 1.2]].map(([x, z]) => part(x - .2, z - .2, x + .2, z + .2, z < 0 ? 2.9 : 2.5)),
+    part(-1.7, -1.8, 1.7, -1.5, roman ? 1.0 : 1.4), // back wall
+    part(-1.2, -1.0, 1.2, -.2, .9), // counter
+    part(-1.35, .05, -.65, .75, .7), part(.75, .15, 1.45, .85, .8), // crate, barrel
+    part(rx - .25, -1.55, rx + .25, 1.55, 1.55), // harness rack
+    ...[-3.6, 3.9].map(x => part(x - .15, 1.45, x + .15, 1.75, 3.4)), // banner standards
+  ]
+  return { root, obstacles, airspace: new THREE.Box3().setFromObject(root) }
 }

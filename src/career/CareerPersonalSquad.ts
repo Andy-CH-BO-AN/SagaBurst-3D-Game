@@ -109,7 +109,7 @@ export function personalSquadGreeting(profile: CareerProfile): string {
     case 'commander': return 'Commander，需要補充你的人嗎？'
     case 'captain': return profile.townDialogueSeen?.includes(`${profile.faction}:hr-unlocked`)
       ? '隊長，需要補充你的隊伍嗎？'
-      : '隊長。現在你有資格建立自己的隨行隊伍了。\n最多三十人。他們不屬於巡邏隊，也不屬於城防軍，只聽你的命令。\nT1／T2／T3 士兵為 100／200／300 軍功，T4 隊長與遊俠各 500 軍功。\n需要他們時，按 Q 下令「Follow me · 跟隨」；不用了，就下令「Dismiss · 收隊」讓他們回來整補。'
+      : '隊長。現在你有資格建立自己的隨行隊伍了。\n最多三十人。他們不屬於巡邏隊，也不屬於城防軍，只聽你的命令。\nT1／T2／T3 士兵為 100／200／300 軍功，T4 隊長與遊俠各 500 軍功。\n他們會在人資中心待命。需要他們時，按 Q 下令「Follow me · 跟隨」；不用了，就下令「Dismiss · 收隊」讓他們回到這裡；要補血補給，再找我整補。'
   }
 }
 export const PERSONAL_RECRUIT_DIALOGUE: Record<PersonalSquadMemberType, string> = {

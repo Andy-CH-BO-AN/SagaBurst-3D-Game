@@ -51,6 +51,8 @@ export class CareerRaceController {
   saveFailed = false
   /** Unridden mounts and other floor occupants the Town knows about; part of every return clearance. */
   parkedBlockers?: (except?: Mount | null) => { x: number; z: number; radius: number }[]
+  /** Town return candidates may stand on the Town Center floor instead of terrain. */
+  returnGroundHeight?: (x: number, z: number) => number
 
   constructor(private readonly scene: THREE.Scene, private readonly navigation: NavigationWorld,
     private readonly obstacles: readonly ObstacleData[], private readonly residents: readonly RaceResident[],
@@ -249,16 +251,17 @@ export class CareerRaceController {
     const mount = this.mounts.activeMount
     const keepPlacement = Boolean(!this.session && options.preservePlacement)
     if (keepPlacement) {
+      const groundAt = this.returnGroundHeight ?? getTerrainHeight
       if (mount) {
         if (r.mounted && !mount.dead && !r.dead && !options.dismount) {
-          mount.group.position.set(p.group.position.x, getTerrainHeight(p.group.position.x, p.group.position.z), p.group.position.z)
+          mount.group.position.set(p.group.position.x, groundAt(p.group.position.x, p.group.position.z), p.group.position.z)
           mount.group.rotation.y = p.group.rotation.y
           p.mountVehicle(mount)
         } else {
           // The planner already proved a legal parking spot; never fall back to the player's feet.
           const pos = options.mountPark ?? findSafeCareerMountPosition(p.group.position, this.obstacles, [p.group.position])
           if (pos) {
-            mount.group.position.set(pos.x, getTerrainHeight(pos.x, pos.z), pos.z)
+            mount.group.position.set(pos.x, groundAt(pos.x, pos.z), pos.z)
             mount.group.rotation.y = p.group.rotation.y
           }
         }
@@ -461,8 +464,9 @@ export class CareerRaceController {
       const blockers = [...this.residents.filter(r => !r.npc.dead).map(r => ({ x: r.npc.combatPosition.x, z: r.npc.combatPosition.z, radius: 1.5 })),
         // Only the mount being planned is excluded, by identity; any other animal standing there still blocks.
         ...(this.parkedBlockers?.(playerMount) ?? [])]
+      const groundAt = this.returnGroundHeight ?? getTerrainHeight
       const stance = (mounted: boolean) => ({ clearanceRadius: mounted ? 1.25 : 0.75, obstacles: this.obstacles, blockers,
-        terrainHeight: getTerrainHeight, isValid: (point: { x: number; z: number }) => this.legalSegment(point, point) })
+        terrainHeight: groundAt, isValid: (point: { x: number; z: number }) => this.legalSegment(point, point, groundAt) })
       const plan = planSergeantReturn({
         resolve: mounted => sergeantReturnFromResidents(sergeant, stance(mounted)) ?? resolveTownEntryFallbackPoint(townPlayerEntryPoint(), stance(mounted)),
         restoreMounted: player.mounted && !player.dead,
@@ -470,7 +474,7 @@ export class CareerRaceController {
         // A mount already standing clear may stay; either way the same radius-aware clearance decides.
         findMountPark: point => {
           const radius = playerMount?.combatRadius
-          const options = { obstacles: this.obstacles, terrainHeight: getTerrainHeight, radius, isValid: (p: { x: number; z: number }) => this.legalSegment(p, p),
+          const options = { obstacles: this.obstacles, terrainHeight: groundAt, radius, isValid: (p: { x: number; z: number }) => this.legalSegment(p, p, groundAt),
             occupied: [{ x: point.x, z: point.z, radius: 0.75 }, ...blockers] }
           const there = playerMount && !playerMount.dead && !player.mounted ? { x: playerMount.group.position.x, z: playerMount.group.position.z } : null
           if (there && isMountParkingClear(there, options)) return there
@@ -478,9 +482,9 @@ export class CareerRaceController {
         },
       })
       if (plan.status === 'blocked') { this.error = '鎮內沒有合法返回位置（含停馬位），請稍後重試。'; return false }
-      const ground = getTerrainHeight(plan.point.x, plan.point.z), standing = player.mounted && !player.dead && !plan.dismount
-      target = { x: plan.point.x, z: plan.point.z, y: ground + (standing ? 0 : .9), yaw: plan.point.yaw }
-      if (plan.mountPark) mountTarget = { x: plan.mountPark.x, z: plan.mountPark.z, y: getTerrainHeight(plan.mountPark.x, plan.mountPark.z), yaw: plan.point.yaw }
+      const standing = player.mounted && !player.dead && !plan.dismount
+      target = { x: plan.point.x, z: plan.point.z, y: plan.point.y + (standing ? 0 : .9), yaw: plan.point.yaw }
+      if (plan.mountPark) mountTarget = { x: plan.mountPark.x, z: plan.mountPark.z, y: groundAt(plan.mountPark.x, plan.mountPark.z), yaw: plan.point.yaw }
       dismount = plan.dismount || !standing && player.mounted
     }
     const next = raceReturnProfile(current, player, target, this.player().maxHp, { dismount, mountDestination: mountTarget })
@@ -501,11 +505,11 @@ export class CareerRaceController {
     return RACE_START_SLOTS.every(p => this.legalSegment(p, p) && this.navigation.areConnected(RACE_START, p))
   }
   /** Swept ground body clearance uses the real, current obstacles (including closed gate leaves). */
-  private legalSegment(a: RacePoint, b: RacePoint): boolean {
+  private legalSegment(a: RacePoint, b: RacePoint, groundAt = getTerrainHeight): boolean {
     const distance = Math.hypot(b.x - a.x, b.z - a.z), steps = Math.max(1, Math.ceil(distance / .5))
     if (distance > 20) return false
     for (let i = 0; i <= steps; i++) {
-      const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps, y = getTerrainHeight(x, z)
+      const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps, y = groundAt(x, z)
       if (Math.max(Math.abs(x), Math.abs(z)) > 348 || this.obstacles.some(o => !o.navigationPassable && o.box.max.y > y + .4 && o.box.min.y < y + 2.6
         && x > o.box.min.x - 1 && x < o.box.max.x + 1 && z > o.box.min.z - 1 && z < o.box.max.z + 1)) return false
     }

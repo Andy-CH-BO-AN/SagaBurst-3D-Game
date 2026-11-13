@@ -49,7 +49,7 @@ describe('Personal Squad command lifecycle routing', () => {
       options: { scheduler }, muster: profile.personalSquad.members.map((_, index) => ({ x: index * 5, z: 0, yaw: 0 })),
       pending: new Map(), batches: [], commandRevision: 0, returnCommand: -1000,
       boarding: new Map(), returningOnFoot: new Set(), awaitingEaglePad: new Set(),
-      eaglePads: new EaglePadReservations([]), reservedEagleOwners: new Set(),
+      eaglePads: new EaglePadReservations([]), reservedEagleOwners: new Set(), standbyIds: new Set(), standbyBatches: new Set(), homeArrivals: new Set(), standbyFailures: new Map(),
     }) as Pick<PersonalSquadRuntime, 'follow' | 'dismiss' | 'checkpoint' | 'hudPendingIds' | 'cancelPendingSpawns' | 'canRefit' | 'updateLifecycle'>
     const issue = vi.fn((order: string) => order === 'follow' ? runtime.follow() : runtime.dismiss()), npcs: CommandRecipientFixture[] = []
     const { controller, input } = controllerHarness(npcs, null, null, null, 'roman', 'squad', true, { issue, enabled: () => true })
@@ -68,6 +68,35 @@ describe('Personal Squad command lifecycle routing', () => {
       expect(member.setTacticalOrder).not.toHaveBeenCalled()
       expect(scheduler.pending).toBe(0)
     } finally { runtime.cancelPendingSpawns() }
+  })
+
+  it('sends tactical orders only to deployed private members while HR standby still answers Follow', () => {
+    // Real accept predicate (TownScene: personal owner → acceptsCommand) on a numeric ownership seam.
+    const member = (id: string) => {
+      const npc = { combatantId: id, faction: Faction.PLAYER, presetId: 'roman_sword_cavalry', squadId: 'personal', dead: false,
+        tacticalOrder: 'defend', setTacticalOrder: vi.fn((order: string) => { npc.tacticalOrder = order }) }
+      return npc
+    }
+    const deployed = member('personal:old'), hire = member('personal:new')
+    const runtime = Object.assign(Object.create(PersonalSquadRuntime.prototype), {
+      state: 'ACTIVE', options: { hasHR: true }, actorSet: new Set([deployed, hire]), standbyIds: new Set(['personal:new']),
+    }) as Pick<PersonalSquadRuntime, 'acceptsCommand'> & { state: string }
+    const issue = vi.fn(() => true)
+    const { controller, input } = controllerHarness([deployed, hire], null, null, null, 'roman', 'squad', true, undefined,
+      { accepts: npc => runtime.acceptsCommand(npc), enabled: () => true, issue })
+    input.press('9'); controller.update(); input.press('2'); controller.update()
+    input.pressAll(); controller.update(); input.press('1'); controller.update()
+    expect(deployed.setTacticalOrder.mock.calls).toEqual([['charge'], ['attack']])
+    expect(hire.setTacticalOrder).not.toHaveBeenCalled()
+    // The whole squad on HR standby has no tactical recipient; Follow still reaches the owner.
+    runtime.state = 'RESERVE'
+    input.press('9'); controller.update(); input.press('2'); controller.update()
+    input.pressAll(); controller.update(); input.press('1'); controller.update()
+    expect(deployed.setTacticalOrder).toHaveBeenCalledTimes(2)
+    expect(hire.setTacticalOrder).not.toHaveBeenCalled()
+    // ALL → Follow reaches the private owner (TownScene routes it to `personalSquad.follow()`).
+    input.pressAll(); controller.update(); input.press('5'); controller.update()
+    expect(issue).toHaveBeenCalledExactlyOnceWith('follow', 'all')
   })
 
   it('does not handle Personal Squad commands while a formal mission blocks the owner', () => {

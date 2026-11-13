@@ -63,7 +63,10 @@ interface TownReturnScene {
   deferSergeantReturn?: () => void
   clearCombatShots(): void
   restPlayer(options?: { persistMount?: boolean }): void
-  returnPersonalSquad?(direct: boolean): void
+  /** `rebuild` replaces the Town scene; an in-place return keeps the private squad as it is. */
+  returnPersonalSquad?(rebuild: boolean): void
+  /** Rebuild the saved private squad in place (a duel return; the squad never left Town). */
+  restorePersonalSquad?(saved: CareerProfile['personalSquadRuntime']): void
   preservesResident?(npc: NPC): boolean
   applyResidentReturn?(): void
   restart(profile: CareerProfile): void
@@ -149,9 +152,14 @@ export class TownMissionSettlement {
     if (inPlace && garrison) for (const pair of garrison.pairs) {
       if (defense || pair.hp <= 0 || pair.mount.hp <= 0) pair.refitAllowed = true
     }
-    next.personalSquadRuntime = intent === 'arrived' && active.personalSquad?.state !== 'RESERVE' ? active.personalSquad : undefined
+    // The private squad hand-off depends on in-place versus rebuilt Town, never on how
+    // the player travelled: any same-scene return (walking or direct) keeps its live
+    // wounds, casualties and mounts, including a squad already dismissed to HR. Only
+    // the rebuilt scene applies the formal HR refit. A duel never took the squad.
+    if (active.kind !== 'duel') next.personalSquadRuntime = inPlace ? active.personalSquad : undefined
     if (!this.profiles.commit(next, { kind: 'mission-return', destination: inPlace ? 'in-place' : 'restart', travel: intent })) return { status: 'save-failed', destination: inPlace ? 'party' : 'restart' }
-    this.town.returnPersonalSquad?.(intent === 'direct')
+    this.town.returnPersonalSquad?.(!inPlace)
+    if (inPlace && active.kind === 'duel') this.town.restorePersonalSquad?.(next.personalSquadRuntime)
     if (captainPatrol) this.missions.patrol?.release()
 
     if (!inPlace) {
@@ -202,7 +210,7 @@ export class TownMissionSettlement {
           this.restoreResident(resident)
           if (active.kind === 'duel' && active.duelCommanderHome
             && (active.duelMode === 'unarmed' ? resident.npc.combatantId === active.duelOpponentActorId : active.duelTier === 5 && resident.spec.id === 'commander')) {
-            restoreCareerDuelCommander(resident.npc, active.duelCommanderHome, resident.homeMount)
+            restoreCareerDuelCommander(resident.npc, active.duelCommanderHome, resident.homeMount, resident.spec)
           }
         }
       }
@@ -216,7 +224,8 @@ export class TownMissionSettlement {
     if (!entry && completed) this.town.deferSergeantReturn?.()
     if (entry && (active.kind === 'cavalry-sweep' || veteranField || active.kind === 'captain-patrol-command')) {
       // Captain I walk-back (phase RETURNING) also ends in front of the Sergeant once saved.
-      this.town.player.group.position.set(entry.x, getTerrainHeight(entry.x, entry.z) + .9, entry.z)
+      const ground = 'y' in entry && typeof entry.y === 'number' ? entry.y : getTerrainHeight(entry.x, entry.z)
+      this.town.player.group.position.set(entry.x, ground + .9, entry.z)
       this.town.player.group.rotation.y = entry.yaw
       this.town.player.faceDirection?.(Math.sin(entry.yaw), Math.cos(entry.yaw))
       this.town.orbit?.setYaw(entry.yaw + Math.PI)

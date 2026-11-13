@@ -1,16 +1,17 @@
 import { Box3, Matrix4, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
-import { townPlazaLayout } from '../../src/town/architecture/ArchitectureSpecs'
+import { architectureLocalToWorld, architectureSpec, townPlazaLayout } from '../../src/town/architecture/ArchitectureSpecs'
 import { CIVILIAN_HOME_LAYOUT_VERSION, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes, civilianBodyClear, civilianHomeAnchor, civilianMountsClear, civilianPointLegal, migrateCivilianHomes } from '../../src/town/TownCivilianLife'
-import { resolveTownCommanderPosition, townCommanderSpec } from '../../src/town/TownCommander'
+import { placeTownCenterServiceResidents, resolveTownCommanderPosition, townCommanderSpec } from '../../src/town/TownCommander'
 import { getTownCommandWatchtowerLayout, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
 import { resolveTownEagleGarrison } from '../../src/town/TownEagleGarrison'
 import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
 import { townStationSpec } from '../../src/town/TownGarrison'
 import { TownGroundStations } from '../../src/town/TownGroundStation'
 import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
-import { TOWN_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_PLAZA, TOWN_WELL } from '../../src/town/TownLayout'
+import { TOWN_CENTER, TOWN_CITY_ROADS, TOWN_EAGLE_STATION_SERVICE_POST, TOWN_EAGLE_STATION_SITES, TOWN_LOCAL_ROADS, TOWN_PLAZA, TOWN_WELL, townRoadIntersectsBox } from '../../src/town/TownLayout'
+import { townEagleSigns } from '../../src/town/TownGroundSign'
 import { townPatrolDeparture, townPatrolRoute } from '../../src/town/TownPatrolRoute'
 import { getTownRampartLayout } from '../../src/town/TownRamparts'
 import { townPatrolRefitPoint, townPlayerEntryPoint, townRoster, withTownCommandSquadRoster } from '../../src/town/TownRules'
@@ -172,7 +173,13 @@ it('keeps final Town population homes, ground stations and fallbacks clear of ra
     expect(towerReservations.some(box => footprints.some(tower => tower.intersectsBox(box)))).toBe(false)
   }
   const population = townConquestRoster(hr, withTownCommandSquadRoster('roman', roster), training, resolveTownEagleGarrison(training))
-  population.push(townCommanderSpec(resolveTownCommanderPosition([], roads, navigation, population)))
+  // The Town places its Captain, Sergeant and Commander at the hall plan's indoor posts.
+  const station = (role: 'captain' | 'deployment' | 'commander') => {
+    const anchor = architectureSpec('roman', 'town-center').anchors.find(a => a.id === `service:${role}`)!
+    return { ...architectureLocalToWorld(TOWN_CENTER, anchor.x, anchor.z), yaw: anchor.yaw + TOWN_CENTER.yaw }
+  }
+  placeTownCenterServiceResidents(population, station)
+  population.push(townCommanderSpec(resolveTownCommanderPosition(station('commander'), navigation, population)))
   // Reserve an otherwise legal home in the final population. This makes the
   // lost-fallback bug observable even when today's default slots happen to miss homes.
   const unreserved = population.filter(a => a.role !== 'civilian').map(a => a.garrison ?? a)
@@ -183,6 +190,15 @@ it('keeps final Town population homes, ground stations and fallbacks clear of ra
   const civilians = population.filter(a => a.role === 'civilian')
   expect(civilians.length).toBeGreaterThan(0)
   expect(population.map(a => a.id)).toEqual(expect.arrayContaining(['hr-officer', 'eagle-trainer', 'commander']))
+  // The trainer serves at the private field's supply post: the roster, spawn/return home and
+  // sign all come from the station layout, with the walk-through sign straight in front of him.
+  const [trainingStation] = TOWN_EAGLE_STATION_SITES, trainer = population.find(a => a.id === 'eagle-trainer')!
+  expect(trainer).toMatchObject({ ...architectureLocalToWorld(trainingStation, TOWN_EAGLE_STATION_SERVICE_POST.x, TOWN_EAGLE_STATION_SERVICE_POST.z), yaw: trainingStation.yaw })
+  const signs = townEagleSigns(), trainingSign = signs.find(sign => sign.id === 'eagle-training')!
+  expect(trainingSign.headroom).toBeGreaterThanOrEqual(2.6)
+  expect(Math.abs(trainingSign.x - trainer.x)).toBeLessThan(trainingSign.width / 2 - 1)
+  expect(trainingSign.z - trainer.z).toBeGreaterThan(3)
+  expect(signs.filter(sign => roads.some(road => townRoadIntersectsBox(road, rectangle(sign, sign.width + .5, 1), 1)))).toEqual([])
   let homeGap = Infinity
   for (const civilian of civilians) for (const fallback of fallbacks) homeGap = Math.min(homeGap, Math.hypot(civilian.x - fallback.x, civilian.z - fallback.z))
   expect(homeGap).toBeGreaterThanOrEqual(4.5)
