@@ -57,6 +57,7 @@ import { AIType, Faction, NPC } from '../world/NPC'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import { SnowLeopardVisual } from '../world/SnowLeopardVisual'
 import { resolveEntityCollision, type ObstacleData } from '../world/Terrain'
+import { bindWindowResize, createSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO } from '../rendering/SceneRenderer'
 
 const PLAYER_HALF_HEIGHT = 0.95
 
@@ -171,14 +172,10 @@ export class CareerDuelArenaScene {
     const profile = loaded.profile
     const arenaId = careerDuelArena(profile?.activeMission)
     if (!profile || !arenaId) throw new Error('沒有可載入的競技場單挑任務')
-    const renderer = new THREE.WebGLRenderer({ antialias: true })
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5))
-    renderer.setSize(innerWidth, innerHeight)
-    renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
-    renderer.outputColorSpace = THREE.SRGBColorSpace
-    renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = arenaId === 'roman-colosseum' ? 1.08 : 1.2
+    const renderer = createSceneRenderer({
+      maxPixelRatio: GAMEPLAY_SCENE_MAX_PIXEL_RATIO,
+      toneMappingExposure: arenaId === 'roman-colosseum' ? 1.08 : 1.2,
+    })
     const scene = new CareerDuelArenaScene(container, renderer, profile, arenaId, callbacks)
     try {
       await scene.initialize(progress)
@@ -323,11 +320,7 @@ export class CareerDuelArenaScene {
       this.sound.unlockAudio()
       if (!location.search.includes('nolock') && !this.panel) this.input.requestPointerLock(this.renderer.domElement)
     }, { signal })
-    window.addEventListener('resize', () => {
-      this.camera.aspect = innerWidth / innerHeight
-      this.camera.updateProjectionMatrix()
-      this.renderer.setSize(innerWidth, innerHeight)
-    }, { signal })
+    bindWindowResize(this.camera, this.renderer, signal)
     window.addEventListener('pagehide', () => this.persistNow(), { signal })
   }
 

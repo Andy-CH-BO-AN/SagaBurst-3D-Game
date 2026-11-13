@@ -46,6 +46,7 @@ import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
 import { Faction, NPC } from '../world/NPC'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import { resolveEntityCollision } from '../world/Terrain'
+import { bindWindowResize, createSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO } from '../rendering/SceneRenderer'
 
 const PLAYER_HALF_HEIGHT = 0.95
 const RESUME_GRACE_SECONDS = 3
@@ -143,14 +144,10 @@ export class CareerArenaTrialScene {
     const profile = new CareerProfileStore().loadChecked().profile
     const trial = careerArenaTrial(profile?.activeMission)
     if (!profile || !trial) throw new Error('沒有可載入的競技場軍團試煉')
-    const renderer = new THREE.WebGLRenderer({ antialias: true })
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5))
-    renderer.setSize(innerWidth, innerHeight)
-    renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
-    renderer.outputColorSpace = THREE.SRGBColorSpace
-    renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = trial.arenaId === 'roman-colosseum' ? 1.08 : 1.2
+    const renderer = createSceneRenderer({
+      maxPixelRatio: GAMEPLAY_SCENE_MAX_PIXEL_RATIO,
+      toneMappingExposure: trial.arenaId === 'roman-colosseum' ? 1.08 : 1.2,
+    })
     const scene = new CareerArenaTrialScene(container, renderer, profile, trial.arenaId, callbacks)
     try { await scene.initialize(progress); return scene }
     catch (error) { scene.dispose(); throw error }
@@ -270,11 +267,7 @@ export class CareerArenaTrialScene {
       this.sound.unlockAudio()
       if (!location.search.includes('nolock') && !this.panel) this.input.requestPointerLock(this.renderer.domElement)
     }, { signal })
-    window.addEventListener('resize', () => {
-      this.camera.aspect = innerWidth / innerHeight
-      this.camera.updateProjectionMatrix()
-      this.renderer.setSize(innerWidth, innerHeight)
-    }, { signal })
+    bindWindowResize(this.camera, this.renderer, signal)
     window.addEventListener('pagehide', () => this.persistNow(), { signal })
   }
 

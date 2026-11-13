@@ -345,6 +345,7 @@ import {
 import { BattleStatsTracker, type BattleStatsSnapshot } from './combat/BattleStatsTracker'
 import { CombatTrajectoryDebugger } from './debug/CombatTrajectoryDebugger'
 import { ModelStudio, resolveModelStudioMode, type ModelStudioMode } from './debug/ModelStudio'
+import { BATTLE_SCENE_MAX_PIXEL_RATIO, bindWindowResize, createSceneRenderer } from './rendering/SceneRenderer'
 import type { GameplayBowQAPanel } from './debug/GameplayBowQAPanel'
 import { commanderValidationHero } from './debug/CommanderValidation'
 import { parseHeroBenchmarkQuery, createHeroBenchmarkScenario, configureHeroBenchmarkActors } from './debug/HeroBenchmark'
@@ -406,16 +407,12 @@ export class Game {
     const perfNoShadow = activeProbe === 'no-shadow'
     const perfHalfResolution = activeProbe === 'half-resolution'
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true })
-    const basePixelRatio = Math.min(window.devicePixelRatio, 2)
-    const effectivePixelRatio = perfHalfResolution ? basePixelRatio * 0.5 : basePixelRatio
-    renderer.setPixelRatio(effectivePixelRatio)
-    renderer.setSize(window.innerWidth, window.innerHeight)
-    renderer.shadowMap.enabled = !perfNoShadow
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
-    renderer.outputColorSpace = THREE.SRGBColorSpace
-    renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.16
+    const renderer = createSceneRenderer({
+      maxPixelRatio: BATTLE_SCENE_MAX_PIXEL_RATIO,
+      pixelRatioScale: perfHalfResolution ? 0.5 : 1,
+      shadows: !perfNoShadow,
+      toneMappingExposure: 1.16,
+    })
     container.appendChild(renderer.domElement)
 
     const legacyQa = !trainingGround && import.meta.env.DEV && new URLSearchParams(window.location.search).has('legacyhumanoids')
@@ -4959,11 +4956,7 @@ export class Game {
 
   // ── Resize ──
   private _setupResize(): void {
-    window.addEventListener('resize', () => {
-      this.camera.aspect = window.innerWidth / window.innerHeight
-      this.camera.updateProjectionMatrix()
-      this.renderer.setSize(window.innerWidth, window.innerHeight)
-    }, { signal: this.sceneListeners.signal })
+    bindWindowResize(this.camera, this.renderer, this.sceneListeners.signal)
   }
 
   // ── Main loop ──
