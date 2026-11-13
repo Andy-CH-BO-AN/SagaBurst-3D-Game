@@ -20,15 +20,16 @@ export function prisonFormation(id: DuelArenaId): ArenaTrialFormation {
 }
 /** Open only the floor passage belonging to this encounter; ordinary arenas retain their complete shell. */
 export function prisonExitObstacles(id: DuelArenaId, original: readonly ObstacleData[]): ObstacleData[] {
+  const { halfWidth, height } = prisonExitPlan(id)
   if (id === 'roman-colosseum') return original.filter(({ box }) => !(box.max.z < -19 && box.min.z > -30
-    && box.min.x < 1.5 && box.max.x > -1.5 && box.min.y < 2.1))
+    && box.min.x < halfWidth && box.max.x > -halfWidth && box.min.y < 2.1))
   return original.flatMap(wall => {
     const b = wall.box
     if (!(b.min.z === VALHALLA.frontZ - VALHALLA.wallThickness && b.max.z === VALHALLA.frontZ && b.min.x < -VALHALLA.halfWidth && b.max.x > VALHALLA.halfWidth)) return [wall]
     return [
-      { ...wall, box: new Box3(new Vector3(b.min.x, 0, b.min.z), new Vector3(-1.5, b.max.y, b.max.z)) },
-      { ...wall, box: new Box3(new Vector3(1.5, 0, b.min.z), b.max.clone()) },
-      { ...wall, box: new Box3(new Vector3(-1.5, 3.2, b.min.z), new Vector3(1.5, b.max.y, b.max.z)) },
+      { ...wall, box: new Box3(new Vector3(b.min.x, 0, b.min.z), new Vector3(-halfWidth, b.max.y, b.max.z)) },
+      { ...wall, box: new Box3(new Vector3(halfWidth, 0, b.min.z), b.max.clone()) },
+      { ...wall, box: new Box3(new Vector3(-halfWidth, height, b.min.z), new Vector3(halfWidth, b.max.y, b.max.z)) },
     ]
   })
 }

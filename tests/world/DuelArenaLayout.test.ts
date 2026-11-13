@@ -1,3 +1,5 @@
+import { PLAYER_RADIUS } from '../../src/movement/MovementBalance'
+import { crossedPrisonExit, prisonOutcome } from '../../src/career/CareerPrisonBreak'
 import { prisonExitObstacles, prisonExitPlan, prisonFormation } from '../../src/arena/PrisonBreakLayout'
 import { arenaTrialSlotClear } from '../../src/arena/ArenaTrialFormation'
 import * as THREE from 'three'
@@ -14,7 +16,7 @@ import { ARENA_GROUND_FALL_POLICY, groundFallDamage, GroundFallTracker } from '.
 import { Player } from '../../src/player/Player'
 import {
   claimFlatTerrainOverride, getFlatTerrainOverride, getTerrainHeight,
-  releaseFlatTerrainOverride, resetTerrainScenePolicy,
+  releaseFlatTerrainOverride, resetTerrainScenePolicy, resolveObstacleCollision,
 } from '../../src/world/Terrain'
 
 // Numeric layout data only: no scene, mesh, material or arena visuals are built.
@@ -232,5 +234,23 @@ it('關押場景 36 個站位皆合法，移除門阻擋後兩個出口都有地
     for (const z of [gate.gateZ + 1, gate.gateZ, gate.crossingZ - .2]) expect(arenaTrialSlotClear(0, z, 0, obstacles)).toBe(true)
     expect(arenaTrialSlotClear(3, gate.gateZ - .3, 0, obstacles)).toBe(false)
     expect(shell).toHaveLength(originalLength)
+  }
+})
+
+
+it('玩家貼門框以合法碰撞寬度穿過開門會逃脫，關門與門外繞行仍不結算', () => {
+  for (const [id, shell] of [['roman-colosseum', createColosseumObstacles()], ['viking-valhalla', createValhallaObstacles()]] as const) {
+    const gate = prisonExitPlan(id), obstacles = prisonExitObstacles(id, shell)
+    for (const x of [-1.05, 1.05]) {
+      const from = new THREE.Vector3(x, .95, gate.gateZ + 1), to = new THREE.Vector3(x, .95, gate.crossingZ - .2)
+      resolveObstacleCollision(to, from, 0, true, PLAYER_RADIUS, 1.9, .95, obstacles, { walkSurfaces: true })
+      expect(to.x).toBeCloseTo(x)
+      const crossed = crossedPrisonExit(id, from, to)
+      expect(prisonOutcome(false, true, crossed)).toBe('victory')
+      expect(prisonOutcome(false, false, crossed)).toBeNull()
+    }
+    const outside = gate.halfWidth - PLAYER_RADIUS + .01
+    expect(crossedPrisonExit(id, { x: outside, y: .95, z: gate.gateZ + 1 }, { x: outside, y: .95, z: gate.crossingZ - 1 })).toBe(false)
+    expect(crossedPrisonExit(id, { x: 0, y: .95, z: gate.crossingZ - .1 }, { x: 0, y: .95, z: gate.crossingZ - 1 })).toBe(false)
   }
 })

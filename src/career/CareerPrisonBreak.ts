@@ -1,3 +1,4 @@
+import { PLAYER_RADIUS } from '../movement/MovementBalance'
 import { prisonExitPlan } from '../arena/PrisonBreakLayout'
 import { arenaTrialUnitSpec, parseArenaTrialState, type ArenaTrialState } from './CareerArenaTrials'
 import { claimCareerMission, cloneCareerProfile, type CareerProfile } from './CareerProfile'
@@ -99,11 +100,11 @@ export function claimPrisonSword(state: PrisonBreakState, index: number, actorId
 }
 /** Crossing an actual, floor-level aperture from inside → outside. Walls and other map edges cannot complete it. */
 export function crossedPrisonExit(arenaId: ArenaTrialState['arenaId'], from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }): boolean {
-  const z = prisonExitPlan(arenaId).crossingZ
+  const { crossingZ: z, halfWidth } = prisonExitPlan(arenaId)
   if (!(from.z > z && to.z <= z)) return false
   const t = (z - from.z) / (to.z - from.z)
   const x = from.x + (to.x - from.x) * t, y = from.y + (to.y - from.y) * t
-  return Math.abs(x) <= 1 && y >= 0.6 && y <= 2.1
+  return Math.abs(x) <= halfWidth - PLAYER_RADIUS && y >= 0.6 && y <= 2.1
 }
 export function prisonOutcome(playerDead: boolean, gateOpen: boolean, playerCrossed: boolean): CareerMissionOutcome | null {
   return playerDead ? 'failure' : gateOpen && playerCrossed ? 'victory' : null

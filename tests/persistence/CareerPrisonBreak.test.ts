@@ -1,3 +1,6 @@
+import * as townRules from '../../src/town/TownRules'
+import { commitPrisonBreakReturn } from '../../src/career/CareerMissionReturnRecovery'
+import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { Vector3 } from 'three'
 import { CareerArenaCombatScene } from '../../src/arena/CareerArenaCombatScene'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -7,8 +10,8 @@ import { beginPrisonBreak, claimCareerFieldResult, prisonRoster, settlePrisonBre
 import { CareerProfileStore, CAREER_STORAGE_KEY } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 const stats = { damageDealt: 10, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
-function fixture() {
-  let profile = createCareerProfile('roman'); profile.rank = 'captain'; profile.totalMerit = profile.availableMerit = 5000
+function fixture(rank: 'captain' | 'commander' = 'captain') {
+  let profile = createCareerProfile('roman'); profile.rank = rank; profile.totalMerit = profile.availableMerit = rank === 'commander' ? 80000 : 5000
   profile.ownedWeapons = ['centurion_blade']; profile.equipment = { melee: 'centurion_blade' }
   profile.ownedMounts = ['snow-leopard']; profile.selectedMountId = 'snow-leopard'
   profile.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
@@ -26,7 +29,7 @@ function fixture() {
   return { profile, store, storage }
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe('Prison encounter persistence', () => {
   it('重整保留玩家與 NPC 戰損、拾劍歸屬與已開門', () => {
@@ -118,6 +121,61 @@ describe('Prison encounter persistence', () => {
     expect(restored.activeMission!.prisonBreak!.combat.player).toMatchObject({ z: -39, hp: 43 })
     expect(restored.totalMerit - profile.totalMerit).toBe(100)
     expect(restored.activeMission!.prisonBreak!.result).toEqual({ outcome: 'victory', merit: 100 })
+  })
+
+
+  it('關押載入失敗返回依原任務快照返營保留私人停機位，原敗北與軍功收據不重算', () => {
+    const { profile, store } = fixture()
+    const original = profile.activeMission!
+    original.personalSquad!.members['personal:hr-1'].eaglePadId = 'private-eagle-east'
+    profile.personalSquadRuntime = structuredClone(original.personalSquad!)
+    profile.personalSquadRuntime.members['personal:hr-1'].eaglePadId = 'stale-town-pad'
+    const before = structuredClone(profile)
+    const saved = commitPrisonBreakReturn(profile, original.id, [], next => store.save(next))!
+    expect(saved.activeMission).toBeUndefined()
+    expect(saved.personalSquadRuntime).toMatchObject({ state: 'RESERVE', sceneKey: 'town-home', returnToHR: true,
+      members: { 'personal:hr-1': { status: 'reserve', eaglePadId: 'private-eagle-east' } } })
+    expect(saved.personalSquadRuntime!.members['personal:hr-1'].hp).toBeUndefined()
+    expect(saved.claimedBattleIds).toEqual(before.claimedBattleIds)
+    expect(saved.totalMerit).toBe(before.totalMerit)
+    expect(saved.availableMerit).toBe(before.availableMerit)
+    expect(saved.lifetimeStats).toEqual(before.lifetimeStats)
+    expect(profile.activeMission!.result!.outcome).toBe('failure')
+    expect(profile).toEqual(before)
+  })
+
+  it('正式越獄結果返回先保存原戰敗的 Town／HR 復位，寫入失敗留場重試後才離開', () => {
+    const { profile, store, storage } = fixture('commander')
+    // External home-roster boundary only; the return owner receives the one service used by this case.
+    vi.spyOn(townRules, 'townRoster').mockReturnValue([{ id: 'captain', role: 'captain', duty: 'service', tier: 4,
+      mounted: true, training: false, assaultObjective: true, index: 0, x: 0, z: 0, yaw: 0 }])
+    profile.townCommandSquad = { type: 'town-command', squadId: 1, townFaction: 'roman', actorIds: ['captain'],
+      contribution: emptyPersonalContribution(), state: 'FOLLOWING', authorized: true, sceneKey: 'town-home',
+      commandRank: 'commander', squads: [{ squadId: 1, actorIds: ['captain'] }], commandedActorIds: ['captain'],
+      members: { captain: { status: 'dead', hp: 0, order: 'charge' } } }
+    profile.activeMission!.personalSquad!.members['personal:hr-1'].eaglePadId = 'private-eagle-north'
+    const settled = settlePrisonBreak(profile, 'victory', next => store.save(next))!
+    const leave = vi.fn()
+    const scene = Object.assign(Object.create(CareerArenaCombatScene.prototype) as { returnToTown(): void }, {
+      profile: settled, store, leave, openPanel() {}, button() {},
+    })
+    const bytes = storage.getItem(CAREER_STORAGE_KEY)
+    storage.failWrites = true
+    scene.returnToTown()
+    expect(leave).not.toHaveBeenCalled()
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
+    storage.failWrites = false
+    scene.returnToTown()
+    expect(leave).toHaveBeenCalledOnce()
+    const returned = store.load()!
+    expect(returned.activeMission).toBeUndefined()
+    expect(returned.townCommandSquad).toMatchObject({ state: 'TRAINING', members: { captain: { status: 'reserve' } } })
+    expect(returned.personalSquadRuntime).toMatchObject({ returnToHR: true, state: 'RESERVE',
+      members: { 'personal:hr-1': { status: 'reserve', eaglePadId: 'private-eagle-north' } } })
+    expect(returned.claimedBattleIds).toEqual(settled.claimedBattleIds)
+    expect(returned.totalMerit).toBe(settled.totalMerit)
+    expect(returned.lifetimeStats).toEqual(settled.lifetimeStats)
+    expect(settled.activeMission!.result!.outcome).toBe('failure')
   })
 
 })

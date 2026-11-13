@@ -1,4 +1,7 @@
 /** Shared movement stamina and sprint balance for Player and NPCs. */
+/** Radius used by the on-foot Player collision capsule and doorway admission. */
+export const PLAYER_RADIUS = 0.38
+
 export const MAX_STAMINA = 100
 export const STAMINA_DRAIN = 30
 export const STAMINA_REGEN = 15

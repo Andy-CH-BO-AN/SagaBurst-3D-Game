@@ -1,5 +1,6 @@
 import { prisonFormation } from './PrisonBreakLayout'
-import { stageMissionReturnPlayerHealth } from '../career/CareerMissionReturnRecovery'
+import { townRoster } from '../town/TownRules'
+import { commitPrisonBreakReturn } from '../career/CareerMissionReturnRecovery'
 import * as THREE from 'three'
 import { PrisonBreakProps } from './PrisonBreakProps'
 import { prisonRoster, prisonUnitSpec, claimPrisonSword, crossedPrisonExit, prisonOutcome, prisonTaunt, settlePrisonBreak, PRISON_SWORD_ID } from '../career/CareerPrisonBreak'
@@ -35,7 +36,7 @@ import { PlayerInput } from '../player/PlayerInput'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
 import { SkillManager } from '../rpg/SkillManager'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { TownEquipment } from '../town/TownEquipment'
 import { ArenaTrialHUD } from '../ui/ArenaTrialHUD'
 import { CombatTargetHud } from '../ui/CombatTargetHud'
@@ -47,7 +48,7 @@ import { WeaponWheelUI } from '../ui/WeaponWheelUI'
 import { ArrowProjectile } from '../world/ArrowProjectile'
 import { HERO_ASSETS } from '../world/HeroAssetCatalog'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
-import { prepareByzantineEquipment, preloadHighTierEquipment } from '../world/HighTierEquipment'
+import { HIGH_TIER_WEAPON_ASSETS, prepareByzantineEquipment, preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
 import { Faction, NPC } from '../world/NPC'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
@@ -186,24 +187,35 @@ export class CareerArenaCombatScene {
     return true
   }
 
+  /** Wait only for equipment that the encounter actually uses; ordinary trials keep their original barrier. */
+  private async preloadCombatAssets(): Promise<void> {
+    const plan = arenaTrialPreloadPlan(this.trial.tier, this.profile.faction)
+    if (this.prison) {
+      const specs = prisonRoster(this.prison).filter(entry => !this.prison!.result && this.prison!.combat.actors[entry.actorId]?.status !== 'knocked')
+        .map(entry => prisonUnitSpec(this.prison!, entry, this.profile.faction))
+      plan.heroAssets = [...new Set(specs.flatMap(spec => spec.visualAssetId ? [spec.visualAssetId] : []))]
+      plan.equipmentIds = specs.flatMap(spec => [spec.loadout?.meleeWeaponId, spec.loadout?.rangedWeaponId, spec.loadout?.shieldId].filter((id): id is string => Boolean(id)))
+    }
+    const equipmentIds = this.prison ? plan.equipmentIds : [...plan.equipmentIds, this.profile.equipment?.melee, this.profile.equipment?.shield]
+    const requires = (predicate: (id: string) => boolean) => !this.prison || equipmentIds.some(id => typeof id === 'string' && predicate(id))
+    const [, equipment] = await Promise.all([
+      Promise.all([HumanoidAssetRegistry.preload(),
+        ...(requires(id => id.startsWith('paladin_')) ? [preloadPaladinEquipment()] : []),
+        ...(requires(id => id in HIGH_TIER_WEAPON_ASSETS) ? [preloadHighTierEquipment()] : []),
+        ...(requires(id => id === T4_RANGER_BOW_RANGED_ID) ? [preloadMakiRangerBow()] : []),
+        resolveCareerHeroAsset(this.profile) ? HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[resolveCareerHeroAsset(this.profile)!].descriptor) : Promise.resolve(),
+        ...plan.heroAssets.map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))]),
+      prepareByzantineEquipment(equipmentIds),
+    ])
+    if (equipment !== 'ready') throw new Error('試煉裝備資源載入失敗')
+  }
+
   private async initialize(progress: (text: string) => void): Promise<void> {
     const faction = this.profile.faction
     const trial = this.trial, mission = this.mission
     const settled = this.prison ? Boolean(this.prison.result) : Boolean(mission.result)
     progress(`正在載入${DUEL_ARENA_LABELS[this.arenaId]}與雙方部隊…`)
-    const plan = arenaTrialPreloadPlan(trial.tier, faction)
-    if (this.prison) {
-      const specs = prisonRoster(this.prison).map(entry => prisonUnitSpec(this.prison!, entry, faction))
-      plan.heroAssets = [...new Set(specs.flatMap(spec => spec.visualAssetId ? [spec.visualAssetId] : []))]
-      plan.equipmentIds = specs.flatMap(spec => [spec.loadout?.meleeWeaponId, spec.loadout?.shieldId].filter((id): id is string => Boolean(id)))
-    }
-    const [, equipment] = await Promise.all([
-      Promise.all([HumanoidAssetRegistry.preload(), preloadPaladinEquipment(), preloadHighTierEquipment(), preloadMakiRangerBow(),
-        resolveCareerHeroAsset(this.profile) ? HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[resolveCareerHeroAsset(this.profile)!].descriptor) : Promise.resolve(),
-        ...plan.heroAssets.map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))]),
-      prepareByzantineEquipment([...plan.equipmentIds, this.profile.equipment?.melee, this.profile.equipment?.shield]),
-    ])
-    if (equipment !== 'ready') throw new Error('試煉裝備資源載入失敗')
+    await this.preloadCombatAssets()
     if (this.disposed) return
     this.container.appendChild(this.renderer.domElement)
     // The arena installs ground, bounds and fall rules before any actor reads them.
@@ -799,8 +811,10 @@ export class CareerArenaCombatScene {
   private returnToTown(): void {
     const active = this.profile.activeMission
     if (!active) { this.leave(); return }
-    const next = clearCareerMission(this.profile, active.id)
-    if (!this.commit(this.prison ? stageMissionReturnPlayerHealth(next) : next)) {
+    const saved = this.prison
+      ? commitPrisonBreakReturn(this.profile, active.id, townRoster().map(spec => ({ spec })), next => this.commit(next))
+      : this.commit(clearCareerMission(this.profile, active.id))
+    if (!saved) {
       this.openPanel('返回狀態尚未保存', '結算仍安全保留。請重試保存後返回小鎮。')
       this.button('重試返回小鎮', () => this.returnToTown())
       return
