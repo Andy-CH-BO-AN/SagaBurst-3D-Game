@@ -7,7 +7,7 @@ import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, commitCareerBridge
 import { officialActorSquadId, officialCommandAcceptsActor } from '../../src/career/CareerCommandAuthority'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy } from '../../src/career/CareerMissionState'
 import { claimCareerMission, clearCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { needsDecapitationDeployment, planDecapitationDeployment } from '../../src/career/CommanderDecapitationDeployment'
 import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, createCommanderFourGateDefenseState, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
 import { acceptCommanderMission, availableCommanderMissions, COMMANDER_BRIDGEHEAD_ID, COMMANDER_DECAPITATION_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_FORMER_COMMANDER_SLOT, COMMANDER_IRON_LEGION_ID, COMMANDER_LAST_STAND_ID, COMMANDER_MISSION_CATALOG, COMMANDER_SKY_RAID_ID, createBridgeheadRoster, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_FRIENDLY_TOTAL, FELINE_T4_MOUNTS, FELINE_T5_MOUNTS, FELINE_VANGUARD_ADVANCE_METERS, recordCommanderObjectiveDeath } from '../../src/career/CommanderMissionCatalog'
@@ -367,7 +367,7 @@ describe('Bridgehead official field battle', () => {
     expect(runtime.outcome(true, true)).toBe('victory')
   })
 
-  it('restores casualties and commands and commits defense merit plus Tier 5 victory once after a failed save', () => {
+  it('restores Bridgehead casualties and commands from the saved checkpoint', () => {
     const profile = accepted(COMMANDER_BRIDGEHEAD_ID, 'roman', true), mission = profile.activeMission!
     delete mission.bridgeDeployment // Legacy in-progress saves resume the assault without another countdown.
     mission.personalSquad!.sceneKey = `bridge:${mission.id}`
@@ -376,16 +376,15 @@ describe('Bridgehead official field battle', () => {
       position: { x: -5, z: -100, yaw: 0 },
       formation: { commandId: 8, position: { x: 4, z: -45, yaw: 0 }, reached: false, arrivalOrder: 'defend' },
       mount: { hp: 0, mounted: false, position: { x: -6, z: -99, yaw: 0 } } }
-    const stats = { player: { damageDealt: 0, damageTaken: 10, kills: 0, structureDamage: 0,
-      structuresDestroyed: 0, gateBreaches: 0, survived: false }, squads: [],
-      meritPlayer: { damageDealt: 80, damageTaken: 10, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false } }
     mission.commanderMission!.deploymentComplete = true
     mission.playerDead = true
     mission.deadTargetActorIds = mission.targetActorIds.slice(0, 100)
     const actor = mission.friendlyActorIds[1], dismounted = mission.targetActorIds[100]
+    const playerStats = { damageDealt: 0, damageTaken: 10, kills: 0, structureDamage: 0,
+      structuresDestroyed: 0, gateBreaches: 0, survived: false }
     mission.bridgeBattle = { ready: true, player: { hp: 0, stamina: 0, dead: true,
       position: { x: 0, y: 1, z: -90, yaw: 0 }, ammo: 5, shieldImpact: 2 },
-      playerStats: { ...stats.player }, actors: Object.fromEntries([...mission.friendlyActorIds, ...mission.targetActorIds]
+      playerStats: { ...playerStats }, actors: Object.fromEntries([...mission.friendlyActorIds, ...mission.targetActorIds]
         .map(id => [id, { status: mission.deadTargetActorIds!.includes(id) ? 'dead' : 'deployed', hp: mission.deadTargetActorIds!.includes(id) ? 0 : 30 }])) }
     mission.bridgeBattle.player.homeMount = { hp: 12, mounted: false, position: { x: 15, y: 0, z: -40, yaw: 1 } }
     mission.bridgeBattle.player.mountActorId = mission.targetActorIds[0]
@@ -403,21 +402,75 @@ describe('Bridgehead official field battle', () => {
     expect(restored.activeMission!.personalSquad).toEqual(mission.personalSquad)
     expect(restored.activeMission!.bridgeBattle!.player).toMatchObject({ dead: true, mountActorId: mission.targetActorIds[0],
       homeMount: { hp: 12, position: { x: 15, z: -40, yaw: 1 } } })
-    restored.activeMission!.deadTargetActorIds = [...mission.targetActorIds]
-    expect(store.save(restored)).toBe(true)
+  })
+
+  it('keeps Bridgehead victory unclaimed after a failed result save and retries it once', () => {
+    const profile = accepted(COMMANDER_BRIDGEHEAD_ID), mission = profile.activeMission!
+    const playerStats = { damageDealt: 0, damageTaken: 10, kills: 0, structureDamage: 0,
+      structuresDestroyed: 0, gateBreaches: 0, survived: false }
+    const stats = { player: playerStats, squads: [],
+      meritPlayer: { damageDealt: 80, damageTaken: 10, kills: 2, structureDamage: 0,
+        structuresDestroyed: 0, gateBreaches: 0, survived: false } }
+    mission.bridgeDeployment = { phase: 'assault', preparationRemainingSeconds: 0 }
+    mission.commanderMission!.deploymentComplete = true
+    mission.deadTargetActorIds = [...mission.targetActorIds]
+    mission.bridgeBattle = { ready: true, player: { hp: 100, stamina: 70, dead: false,
+      position: { x: 0, y: 1, z: -90, yaw: 0 }, ammo: 5, shieldImpact: 2 },
+      playerStats: { ...playerStats }, actors: Object.fromEntries([
+        ...mission.friendlyActorIds.map(id => [id, { status: 'deployed', hp: 30 }]),
+        ...mission.targetActorIds.map(id => [id, { status: 'dead', hp: 0 }]),
+      ]) }
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    expect(store.save(profile)).toBe(true)
+    const unclaimedBytes = storage.getItem(CAREER_STORAGE_KEY)!
     storage.writable = false
     expect(commitCareerBridgeBattleResult(store, mission.id, stats)).toBeNull()
-    const failedSave = store.load()!
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(unclaimedBytes)
+    const failedSave = JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!) as CareerProfile
     expect(failedSave.activeMission!.result).toBeUndefined()
     expect(failedSave.claimedBattleIds).not.toContain(mission.id)
     storage.writable = true
     const claimed = commitCareerBridgeBattleResult(store, mission.id, stats)!
     expect(claimed.profile.activeMission!.result!.merit.total).toBe(100)
     expect(claimed.profile.careerMissionCompletionsByTier?.[5]).toBe(1)
-    expect(commitCareerBridgeBattleResult(store, mission.id, stats)!.alreadyClaimed).toBe(true)
-    const reloadedClaim = store.load()!
+    expect(claimed.profile.totalMerit).toBe(20_100)
+    const reloadedClaim = JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!) as CareerProfile
     expect(reloadedClaim.totalMerit).toBe(claimed.profile.totalMerit)
-    expect(reloadedClaim.activeMission!.personalSquad).toEqual(mission.personalSquad)
+    expect(reloadedClaim.activeMission!.result!.merit.total).toBe(100)
+    expect(reloadedClaim.careerMissionCompletionsByTier?.[5]).toBe(1)
+    expect(reloadedClaim.claimedBattleIds.filter(id => id === mission.id)).toHaveLength(1)
+  })
+
+  it('does not duplicate Bridgehead defense merit or Tier 5 victory when a committed settlement is repeated', () => {
+    const profile = accepted(COMMANDER_BRIDGEHEAD_ID), mission = profile.activeMission!
+    const playerStats = { damageDealt: 0, damageTaken: 10, kills: 0, structureDamage: 0,
+      structuresDestroyed: 0, gateBreaches: 0, survived: false }
+    const stats = { player: playerStats, squads: [],
+      meritPlayer: { damageDealt: 80, damageTaken: 10, kills: 2, structureDamage: 0,
+        structuresDestroyed: 0, gateBreaches: 0, survived: false } }
+    mission.bridgeDeployment = { phase: 'assault', preparationRemainingSeconds: 0 }
+    mission.commanderMission!.deploymentComplete = true
+    mission.deadTargetActorIds = [...mission.targetActorIds]
+    mission.bridgeBattle = { ready: true, player: { hp: 100, stamina: 70, dead: false,
+      position: { x: 0, y: 1, z: -90, yaw: 0 }, ammo: 5, shieldImpact: 2 },
+      playerStats: { ...playerStats }, actors: {} }
+    let persisted = profile
+    const store = {
+      loadChecked: () => ({ profile: persisted }),
+      save: (next: CareerProfile) => { persisted = next; return true },
+    }
+
+    const claimed = commitCareerBridgeBattleResult(store, mission.id, stats)!
+    expect(claimed.profile.activeMission!.result!.merit.total).toBe(100)
+    expect(claimed.profile.careerMissionCompletionsByTier?.[5]).toBe(1)
+    const duplicate = commitCareerBridgeBattleResult(store, mission.id, stats)!
+    expect(duplicate.alreadyClaimed).toBe(true)
+    expect(duplicate.meritAwarded).toBe(0)
+    expect(duplicate.profile.totalMerit).toBe(claimed.profile.totalMerit)
+    expect(duplicate.profile.careerMissionCompletionsByTier?.[5]).toBe(1)
+    expect(duplicate.profile.claimedBattleIds.filter(id => id === mission.id)).toHaveLength(1)
+    expect(persisted.totalMerit).toBe(claimed.profile.totalMerit)
+    expect(persisted.activeMission!.result!.merit.total).toBe(100)
   })
 
   it('keeps the last HR survivor fighting after reload and restores its surviving mount without reviving a dead rider', () => {
