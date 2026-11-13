@@ -489,7 +489,7 @@ describe('Race return and deferred native Town outcomes', () => {
     expect(ridden.racePlayerState).toMatchObject({ mounted: true, mountPosition: arrival })
   })
 
-  it('preserves formal Sergeant return placement over stale racePlayerState and lands walked race returns at Sergeant', () => {
+  it('uses the Sergeant’s floor for formal return restore and walked race settlement', () => {
     const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
     const p = profile()
     p.racePlayerState = {
@@ -516,6 +516,7 @@ describe('Race return and deferred native Town outcomes', () => {
       read: () => p,
       player: () => playerDouble,
       mounts: { restoreRaceMount: vi.fn(), activeMount },
+      returnGroundHeight: () => 4,
     })
 
     controller.restorePlayer({ preservePlacement: true })
@@ -523,6 +524,7 @@ describe('Race return and deferred native Town outcomes', () => {
     expect(playerPos.z).toBe(-5.5)
     expect(mountPos.x).toBe(60)
     expect(mountPos.z).toBe(-5.5)
+    expect(mountPos.y).toBe(4)
     expect(mountVehicle).toHaveBeenCalledWith(activeMount)
     expect(setHp).toHaveBeenCalledWith(84)
     expect(setStamina).toHaveBeenCalledWith(72)
@@ -547,6 +549,7 @@ describe('Race return and deferred native Town outcomes', () => {
       obstacles: [],
       legalSegment: () => true,
       player: () => ({ ...playerDouble, combatPosition: new Vector3(captainSpec.x + 2, 0, captainSpec.z), maxHp: 100 }),
+      returnGroundHeight: () => 4,
       mounts: { activeMount: null, activeMountId: undefined },
       read: () => committedProfile,
       commit: (next: CareerProfile) => { committedProfile = next; return true },
@@ -556,6 +559,7 @@ describe('Race return and deferred native Town outcomes', () => {
     expect(walkController.returnComplete).toBe(true)
     expect(walkController.clear(false)).toBe(true)
     const settledPos = committedProfile.racePlayerState!.position
+    expect(settledPos.y).toBeCloseTo(4.9)
     expect(Math.hypot(settledPos.x - sergeantSpec.x, settledPos.z - sergeantSpec.z)).toBeGreaterThanOrEqual(3.0)
     expect(Math.hypot(settledPos.x - sergeantSpec.x, settledPos.z - sergeantSpec.z)).toBeLessThanOrEqual(4.1)
     expect(Math.hypot(settledPos.x - captainSpec.x, settledPos.z - captainSpec.z)).toBeGreaterThan(10)

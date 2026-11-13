@@ -107,16 +107,18 @@ export function selectCareerDuelRoster(residents: readonly CareerDuelResident[],
   return { captain, opponent, referee, loadout: tier === 4 && archery ? { ...opponent.npc.loadout } : loadout, mount }
 }
 
-/** The resident's normal loadout remains authoritative; only its borrowed resources were saved. */
-export function restoreCareerDuelCommander(npc: NPC, home: CareerDuelCommanderHome, homeMount?: Mount): void {
+/** The resident's normal loadout remains authoritative; only its borrowed resources were saved.
+ * `station` is the resident's home (with its floor height, e.g. inside the Town Center). */
+export function restoreCareerDuelCommander(npc: NPC, home: CareerDuelCommanderHome, homeMount?: Mount,
+  station?: { x: number; y?: number; z: number }): void {
   const yaw = npc.group.rotation.y
   npc.dismountFromMount()
-  npc.restoreForTown()
+  npc.restoreForTown(station ? { x: station.x, y: station.y, z: station.z, yaw } : undefined)
   npc.group.rotation.y = yaw
   npc.restoreCombatHealth(home.hp)
   npc.restoreCombatAmmo(home.ammo)
   if (homeMount) {
-    homeMount.restoreForTown(npc.group.position.x, npc.group.position.z, yaw)
+    homeMount.restoreForTown(npc.group.position.x, npc.group.position.z, yaw, npc.group.position.y)
     npc.mountVehicle(homeMount)
   }
 }
@@ -538,7 +540,7 @@ export class CareerDuelController {
     if (this.commanderHome && this.missionOpponent) {
       const resident = this.residents.find(candidate => candidate.npc === this.missionOpponent)
       this.missionOpponent.group.rotation.y = resident?.spec.yaw ?? Math.PI
-      restoreCareerDuelCommander(this.missionOpponent, this.commanderHome, resident?.homeMount)
+      restoreCareerDuelCommander(this.missionOpponent, this.commanderHome, resident?.homeMount, resident?.spec)
     }
     this.commanderHome = null
     if (this.player().unarmedDuelOnly) {

@@ -94,7 +94,8 @@ export function refitCommandActor(npc: NPC, homeMount?: Mount): void {
   if (mount && (mount.dead || npc.dead && mount.isAirborne)) {
     if (npc.mount === mount) npc.dismountFromMount()
     const p = mount.group.position
-    mount.restoreForTown(p.x, p.z, mount.group.rotation.y)
+    // A grounded corpse keeps its floor (HR hall); a fallen eagle returns to the terrain.
+    mount.restoreForTown(p.x, p.z, mount.group.rotation.y, mount.isFlyingMount ? undefined : p.y)
   } else if (mount) mount.currentHp = mount.maxHp
   npc.refitCombat()
   saved.status = 'deployed'; saved.hp = npc.maxHp

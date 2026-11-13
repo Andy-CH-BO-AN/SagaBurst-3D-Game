@@ -8,7 +8,7 @@ import { buildCommanderAuthorityForMission } from '../career/CommanderMissionAcc
 import { townDefenseCommanderIds } from '../career/TownDefenseRoster'
 import { officialCommandIsPlayerControlled } from '../career/CareerCommandAuthority'
 import { captureCareerAerialState } from '../career/CareerAerialState'
-import { followDeployedPersonalMission, snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
+import { followDeployedPersonalMission, snapshotPersonalMission, type PersonalSquadMission } from '../career/CareerPersonalSquadMission'
 import { emptyPersonalContribution } from '../combat/CommandMerit'
 import { stageTownEaglePlayerCommand } from './TownEagleGarrisonController'
 import { townRoster, townPlayerEntryPoint } from './TownRules'
@@ -104,6 +104,12 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
     || missionReturn?.travel === 'direct' && (outgoingReturn?.kind === 'captain-patrol-command'
       || completedReturn && missionReturn.destination === 'in-place')
   const restoringResidents = Boolean(completedReturn || runtime.residentReturnPending)
+  // A duel never deployed the private squad: its Town checkpoint is not a formal HR return.
+  const rebuildForReturn = (value: CareerProfile, personal?: PersonalSquadMission) => {
+    const staged = stageMissionReturnRebuild(value, townRoster().map(spec => ({ spec })), personal)
+    if (outgoingReturn?.kind === 'duel') staged.personalSquadRuntime = value.personalSquadRuntime
+    return staged
+  }
   let next = cloneCareerProfile(profile)
   // Return owns canonical recovery before live ledgers are considered. The
   // settlement caller supplies the destination, never checkpoint override flags.
@@ -114,7 +120,7 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
     })))
     delete next.mountArmor
   } else if (rebuildTown) {
-    next = stageMissionReturnRebuild(next, townRoster().map(spec => ({ spec })), outgoingReturn?.personalSquad)
+    next = rebuildForReturn(next, outgoingReturn?.personalSquad)
   }
   if (groundedTownReturn) delete next.playerAerialState
   // Capture the live race in unrelated town saves, including the hostility transition.
@@ -290,7 +296,10 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
     }
   }
   if (missionFinished && active?.personalSquad) active.personalSquad = followDeployedPersonalMission(active.personalSquad)
-  if ((newMission || newOutpost) && !arenaTrial) next.personalSquadRuntime = undefined
+  // A duel or an Arena Squad Trial does not deploy the private squad: keep its Town checkpoint (wounds,
+  // casualties, mounts) so the return restores the same HR standby.
+  if (newMission || newOutpost) next.personalSquadRuntime = next.activeMission?.kind === 'duel' || arenaTrial
+    ? runtime.personalSquad?.checkpoint() ?? next.personalSquadRuntime : undefined
   const townClaimStateChanged = JSON.stringify([
     next.townCommandSquad?.commandedActorIds,
     next.townCommandSquad?.nativeReturnStates,
@@ -300,7 +309,7 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   ])
   townStateChanged = JSON.stringify(next.townCommandSquad) !== JSON.stringify(runtime.profile.townCommandSquad)
   // HR/native handoff callbacks may save again before the recovered live actors are applied.
-  if (rebuildTown) next = stageMissionReturnRebuild(next, townRoster().map(spec => ({ spec })))
+  if (rebuildTown) next = rebuildForReturn(next)
   else if (restoringResidents) next = stageMissionReturnResidents(next,
     runtime.world.faction === next.faction && !runtime.sceneContext.missionOnlyResidents ? runtime.residents.map(resident => ({
       spec: resident.spec, ...(isMissionReturnResident(resident.spec)
@@ -324,7 +333,8 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
       const resolver = runtime.resolveSergeantReturnPoint
       const entry = resolver ? resolver.call(runtime) : sergeantReturnFromResidents(runtime.residents) ?? townPlayerEntryPoint()
       if (entry) {
-        runtime.player.resetForScene(entry.x, getTerrainHeight(entry.x, entry.z) + .9, entry.z)
+        const ground = 'y' in entry && typeof entry.y === 'number' ? entry.y : getTerrainHeight(entry.x, entry.z)
+        runtime.player.resetForScene(entry.x, ground + .9, entry.z)
         runtime.player.group.rotation.y = entry.yaw
         runtime.player.faceDirection?.(Math.sin(entry.yaw), Math.cos(entry.yaw))
         runtime.orbit?.setYaw(entry.yaw + Math.PI)

@@ -114,6 +114,14 @@ describe('Career Town layout checkpoint migration', () => {
     expect(saved).toEqual(before)
   })
 
+  it('keeps a saved HR standby (every deployed member at its muster slot) in RESERVE with its wounds', () => {
+    const saved = personal({ order: 'defend', position: { x: -84.2, y: 2, z: 70.6, yaw: 0 } })
+    saved.state = 'RESERVE'
+    const before = structuredClone(saved)
+    expect(placePersonalMissionAtHR(saved, layout)).toBe(saved)
+    expect(saved).toEqual(before)
+  })
+
   it('relocates a boarding eagle and changes its walking destination while retaining the rider position and wounds', () => {
     const saved = personal({ boarding: true, formation: { commandId: -1001,
       position: { ...privateHome }, reached: true, speedLimit: 3.5, arrivalOrder: 'defend' } })

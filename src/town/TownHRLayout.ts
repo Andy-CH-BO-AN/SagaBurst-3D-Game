@@ -1,4 +1,4 @@
-import { expandedHrCenter } from './architecture/ArchitectureSpecs'
+import { expandedHrCenter, SERVICE_ANCHOR_CLEARANCE, type BuildingSpec } from './architecture/ArchitectureSpecs'
 import { townEagleRoster, type TownEagleGarrisonLayout } from './TownEagleGarrison'
 import { eagleTrainerSpec, type TownEagleTrainingGround } from './TownEagleTrainingGround'
 import * as THREE from 'three'
@@ -48,23 +48,17 @@ export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readon
   for (const site of sites) {
     // Reserve the eaves plus margin, without rejecting a hall beside the overhead deck.
     if (!clear(footprint(site, width + 2.4, depth + 6))) continue
-    const officer = point(site, -(width / 2 - 2), depth / 2 + 4)
-    // Mounted body diameter is 2m; keep another .25m clearance on each side.
-    if (!clear(footprint(officer, 2.5, 2.5))) continue
+    const officer = point(site, 0, 0)
     for (const courtyardSide of [1, -1]) {
       const muster = Array.from({ length: 30 }, (_, i) => point(site,
         courtyardSide * (width / 2 + 5 + Math.floor(i / 5) * 4.5), (i % 5 - 2) * 4.5))
       const area = new THREE.Box3().setFromPoints(muster.map(p => new THREE.Vector3(p.x, 0, p.z))).expandByVector(new THREE.Vector3(2.2, 100, 2.2))
       if (!clear(area)) continue
       const layout = { site, width, depth, officer, muster }
-      const { hall: plan } = expandedHrCenter(faction, townHrLocalMuster(layout))
-      const side = Math.cos(site.yaw) * (officer.x - site.x) - Math.sin(site.yaw) * (officer.z - site.z)
-      const forward = Math.sin(site.yaw) * (officer.x - site.x) + Math.cos(site.yaw) * (officer.z - site.z)
-      if (side > plan.body.minX && side < plan.body.maxX && forward > plan.body.minZ && forward < plan.body.maxZ) {
-        const clearance = plan.wall + 1.5
-        Object.assign(officer, point(site, Math.max(plan.body.minX + clearance, Math.min(plan.body.maxX - clearance, side)),
-          Math.max(plan.body.minZ + clearance, Math.min(plan.body.maxZ - clearance, forward))))
-      }
+      const { hall: plan, spec } = expandedHrCenter(faction, townHrLocalMuster(layout))
+      const local = hrOfficerLocalPost(plan, spec)
+      if (!local) continue
+      Object.assign(officer, point(site, local.x, local.z))
       const hall = new THREE.Box3(new THREE.Vector3(plan.body.minX, -100, plan.body.minZ), new THREE.Vector3(plan.body.maxX, 100, plan.body.maxZ))
         .applyMatrix4(new THREE.Matrix4().makeRotationY(site.yaw)).translate(new THREE.Vector3(site.x, 0, site.z))
       if (clear(hall) && clear(footprint(officer, 2.5, 2.5))) return layout
@@ -72,6 +66,33 @@ export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readon
   }
   throw new Error('No walkable HR Center and mounted courtyard in the western district')
 }
+/** Mounted officer footprint and the open central approach from the main doors (local, metres). */
+const HR_OFFICER_HALF = 1.25, HR_CENTRAL_APPROACH_HALF = 3
+
+/**
+ * The HR Officer serves indoors at one end of the recruitment desk, outside the
+ * central approach from the doors. Prefer the end away from the muster rows;
+ * step slightly toward the doors, then use the other end, when the hall wall,
+ * racks or furniture leave no room for the mounted officer (the narrower Viking hall).
+ */
+export function hrOfficerLocalPost(plan: ReturnType<typeof expandedHrCenter>['hall'], spec: BuildingSpec): { x: number; z: number } | undefined {
+  const preferred = plan.portals[1].x > 0 ? -1 : 1, centre = (plan.desk.minZ + plan.desk.maxZ) / 2
+  const inner = spec.interior
+  for (const side of [preferred, -preferred]) for (const z of [centre, centre + .9, centre + 1.8]) {
+    const end = side > 0 ? plan.desk.maxX : plan.desk.minX
+    for (const gap of [SERVICE_ANCHOR_CLEARANCE + .7, SERVICE_ANCHOR_CLEARANCE + 1.5, SERVICE_ANCHOR_CLEARANCE + 2.5]) {
+      const x = end + side * gap
+      if (Math.abs(x) - HR_OFFICER_HALF < HR_CENTRAL_APPROACH_HALF) continue
+      const min = { x: x - HR_OFFICER_HALF, z: z - HR_OFFICER_HALF }, max = { x: x + HR_OFFICER_HALF, z: z + HR_OFFICER_HALF }
+      if (inner && (min.x < inner.minX || max.x > inner.maxX || min.z < inner.minZ || max.z > inner.maxZ)) continue
+      if (spec.colliders.some(c => c.role !== 'roof' && c.role !== 'overhead'
+        && max.x > c.box[0] && min.x < c.box[3] && max.z > c.box[2] && min.z < c.box[5])) continue
+      return { x, z }
+    }
+  }
+  return undefined
+}
+
 export const TOWN_HR_OFFICER_ID = 'hr-officer'
 
 export function hrOfficerSpec(layout: Pick<TownHRLayout, 'officer'>): TownActorSpec {
