@@ -166,6 +166,12 @@ it('fits mounted HR reserves under the roof and leaves its public approach clear
     const dx = service.officer.x - service.site.x, dz = service.officer.z - service.site.z
     const localSide = Math.cos(service.site.yaw) * dx - Math.sin(service.site.yaw) * dz
     expect(Math.abs(localSide) - 1.25).toBeGreaterThanOrEqual(3)
+    // ...and stand inside the hall clear of its walls, racks and desk (the Viking hall is narrower).
+    const localDepth = Math.sin(service.site.yaw) * dx + Math.cos(service.site.yaw) * dz
+    const officer = { minX: localSide - 1.25, maxX: localSide + 1.25, minZ: localDepth - 1.25, maxZ: localDepth + 1.25 }
+    expect(officer.minX >= spec.interior!.minX && officer.maxX <= spec.interior!.maxX).toBe(true)
+    expect(spec.colliders.filter(c => c.role !== 'roof' && c.role !== 'overhead'
+      && officer.maxX > c.box[0] && officer.minX < c.box[3] && officer.maxZ > c.box[2] && officer.minZ < c.box[5])).toEqual([])
 
   }
 })

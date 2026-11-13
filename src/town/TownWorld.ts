@@ -1,6 +1,6 @@
 import { markObstacleTopologyChanged } from '../world/ObstacleTopology'
 import { createTownCommandWatchtower } from './TownCommandWatchtower'
-import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, validateWatchtowerPlacement, type CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
+import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, TOWN_COMMAND_WATCHTOWER, validateWatchtowerPlacement, type CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
 import { resolveTownEagleGarrison, TOWN_EAGLE_GARRISON_NAME, type TownEagleGarrisonLayout } from './TownEagleGarrison'
 import { resolveTownEagleTrainingGround, type TownEagleTrainingGround } from './TownEagleTrainingGround'
 import { XONGKORO_LANDING } from '../world/EagleLanding'
@@ -10,8 +10,9 @@ import { resolveTownHRLayout, townHrLocalMuster, type TownHRLayout } from './Tow
 import { TownDockPassages } from './TownDockPassages'
 import { TownSiegeAirspace } from './TownSiegeAirspace'
 import { createTownFortifications } from './TownFortifications'
-import { townCivicClearance, type CivicClearanceShape, TOWN_CENTER, TOWN_WELL, TOWN_PLAZA, townHousing, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_CITY, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
-import { ArchitectureKit, architectureStatues, buildTownPlaza, placeArchitecture, townHomeVariant, type CivicBuildingKind, type TownCenterServiceRole } from './architecture/TownArchitecture'
+import { townCivicClearance, type CivicClearanceShape, TOWN_CENTER, TOWN_WELL, TOWN_PLAZA, townHousing, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_CITY, TOWN_EAGLE_STATION_SITES, TOWN_GATES, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
+import { ArchitectureKit, architectureStatues, buildEaglePadMarkings, buildEagleStation, buildTownPlaza, dressCommandWatchtower, dressTownGate, dressTownGateLeaves, dressTownWalls,
+  placeArchitecture, townHomeVariant, type CivicBuildingKind, type TownCenterServiceRole } from './architecture/TownArchitecture'
 import type { TownServiceStation } from './TownCommanderIdentity'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
@@ -116,6 +117,7 @@ export class TownWorld {
     this.root.add(this.fortifications.root); this.trackOwned(this.fortifications.root)
     this.batch(this.fortifications.wallRoot)
     for (const child of this.fortifications.wallRoot.children) if (child instanceof THREE.Group) this.batch(child)
+    this.dressFortifications()
     const rockGeo = this.geo(new THREE.IcosahedronGeometry(1, 0))
     for (let i = 0; i < 36; i++) {
       const { x, z } = townSceneryPoint(i, 110, 7), y = getTerrainHeight(x, z)
@@ -158,7 +160,11 @@ export class TownWorld {
       stone: this.stone, wood: this.wood, dark: this.dark, plaster: this.plaster, snow: this.snow, accent: this.roofMat,
     })
     this.root.add(watchtower); this.trackOwned(watchtower)
+    // Faction cladding and pavilion roof; ramps, landings, rails and their collision are unchanged.
+    const towerDressing = dressCommandWatchtower(this.architecture, this.commandWatchtower, { x: TOWN_COMMAND_WATCHTOWER.x, z: TOWN_COMMAND_WATCHTOWER.z })
+    this.root.add(towerDressing.root)
     this.airspaceObstacles.push(createTownCommandWatchtowerAirspaceObstacle(this.commandWatchtower))
+    this.airspaceObstacles.push({ box: towerDressing.airspace, isBarricade: false, projectilePassable: true })
     this.airspaceObstacles.push(...this.obstacles.filter(obstacle => !obstacle.physicalPassable))
     this.validateAirfield()
     const roster = townRoster().filter(actor => actor.duty !== 'civilian')
@@ -180,14 +186,27 @@ export class TownWorld {
     const yaw = Math.atan2(this.hr.officer.x - x, this.hr.officer.z - z)
     // Clear the 2.3m on-foot NPC body (and 1.9m Player) with a little headroom.
     this.groundedTrainingSign(['XONGKORO TRAINING', '老鷹訓練場 · E 交談'], x, z, 10, yaw, 2.6)
-    // Corner stakes identify the existing terrain; no extra floor or walk-through platform.
-    for (const site of [...this.eagleTraining.pads, ...this.eagleGarrison.pads]) for (const dx of [-XONGKORO_LANDING.width / 2, XONGKORO_LANDING.width / 2]) {
-      for (const dz of [-XONGKORO_LANDING.depth / 2, XONGKORO_LANDING.depth / 2]) {
-        const x = site.x + dx, z = site.z + dz
-        this.cube(this.root, x, getTerrainHeight(x, z) + .2, z, .3, .4, .3, this.stone)
-      }
-    }
+    // Painted faction landing marks follow the existing terrain: no floor, collision or airspace.
+    this.root.add(buildEaglePadMarkings(this.architecture, [...this.eagleTraining.pads, ...this.eagleGarrison.pads], XONGKORO_LANDING))
     this.groundedTrainingSign(TOWN_EAGLE_GARRISON_NAME.split(' · '), -35, -8, 12)
+    // Shared low supply posts; `validateAirfield` re-checks every pad against them.
+    for (const site of TOWN_EAGLE_STATION_SITES) {
+      const station = buildEagleStation(this.architecture, site)
+      this.root.add(station.root); this.obstacles.push(...station.obstacles)
+    }
+  }
+
+  /** PR1 gatehouses, leaf detail and wall dressing around the existing gates and curtain walls (controllers, HP and ramparts unchanged). */
+  private dressFortifications(): void {
+    const statues = architectureStatues()
+    this.root.add(dressTownWalls(this.architecture, this.fortifications.walls, { x: (TOWN_CITY.minX + TOWN_CITY.maxX) / 2, z: (TOWN_CITY.minZ + TOWN_CITY.maxZ) / 2 }))
+    for (const gate of TOWN_GATES) {
+      const dressing = dressTownGate(this.architecture, gate, { statues })
+      this.root.add(dressing.root); this.obstacles.push(...dressing.obstacles)
+      this.airspaceObstacles.push({ box: new THREE.Box3().setFromObject(dressing.root), isBarricade: false })
+      const leaves = this.fortifications.root.getObjectByName(`town-${gate.id}-gate-leaves`)
+      if (leaves) dressTownGateLeaves(this.architecture, leaves.children)
+    }
   }
 
   private validateAirfield(): void {

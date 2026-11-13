@@ -1,4 +1,4 @@
-import { expandedHrCenter, SERVICE_ANCHOR_CLEARANCE } from './architecture/ArchitectureSpecs'
+import { expandedHrCenter, SERVICE_ANCHOR_CLEARANCE, type BuildingSpec } from './architecture/ArchitectureSpecs'
 import { townEagleRoster, type TownEagleGarrisonLayout } from './TownEagleGarrison'
 import { eagleTrainerSpec, type TownEagleTrainingGround } from './TownEagleTrainingGround'
 import * as THREE from 'three'
@@ -55,12 +55,10 @@ export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readon
       const area = new THREE.Box3().setFromPoints(muster.map(p => new THREE.Vector3(p.x, 0, p.z))).expandByVector(new THREE.Vector3(2.2, 100, 2.2))
       if (!clear(area)) continue
       const layout = { site, width, depth, officer, muster }
-      const { hall: plan } = expandedHrCenter(faction, townHrLocalMuster(layout))
-      // The HR Officer serves indoors at the end of the recruitment desk, on the side away
-      // from the muster rows and rear racks, leaving the central approach from the doors open.
-      const serviceSide = plan.portals[1].x > 0 ? -1 : 1
-      Object.assign(officer, point(site, serviceSide * (plan.desk.maxX - plan.desk.minX) / 2 + serviceSide * (SERVICE_ANCHOR_CLEARANCE + .7),
-        (plan.desk.minZ + plan.desk.maxZ) / 2))
+      const { hall: plan, spec } = expandedHrCenter(faction, townHrLocalMuster(layout))
+      const local = hrOfficerLocalPost(plan, spec)
+      if (!local) continue
+      Object.assign(officer, point(site, local.x, local.z))
       const hall = new THREE.Box3(new THREE.Vector3(plan.body.minX, -100, plan.body.minZ), new THREE.Vector3(plan.body.maxX, 100, plan.body.maxZ))
         .applyMatrix4(new THREE.Matrix4().makeRotationY(site.yaw)).translate(new THREE.Vector3(site.x, 0, site.z))
       if (clear(hall) && clear(footprint(officer, 2.5, 2.5))) return layout
@@ -68,6 +66,33 @@ export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readon
   }
   throw new Error('No walkable HR Center and mounted courtyard in the western district')
 }
+/** Mounted officer footprint and the open central approach from the main doors (local, metres). */
+const HR_OFFICER_HALF = 1.25, HR_CENTRAL_APPROACH_HALF = 3
+
+/**
+ * The HR Officer serves indoors at one end of the recruitment desk, outside the
+ * central approach from the doors. Prefer the end away from the muster rows;
+ * step slightly toward the doors, then use the other end, when the hall wall,
+ * racks or furniture leave no room for the mounted officer (the narrower Viking hall).
+ */
+export function hrOfficerLocalPost(plan: ReturnType<typeof expandedHrCenter>['hall'], spec: BuildingSpec): { x: number; z: number } | undefined {
+  const preferred = plan.portals[1].x > 0 ? -1 : 1, centre = (plan.desk.minZ + plan.desk.maxZ) / 2
+  const inner = spec.interior
+  for (const side of [preferred, -preferred]) for (const z of [centre, centre + .9, centre + 1.8]) {
+    const end = side > 0 ? plan.desk.maxX : plan.desk.minX
+    for (const gap of [SERVICE_ANCHOR_CLEARANCE + .7, SERVICE_ANCHOR_CLEARANCE + 1.5, SERVICE_ANCHOR_CLEARANCE + 2.5]) {
+      const x = end + side * gap
+      if (Math.abs(x) - HR_OFFICER_HALF < HR_CENTRAL_APPROACH_HALF) continue
+      const min = { x: x - HR_OFFICER_HALF, z: z - HR_OFFICER_HALF }, max = { x: x + HR_OFFICER_HALF, z: z + HR_OFFICER_HALF }
+      if (inner && (min.x < inner.minX || max.x > inner.maxX || min.z < inner.minZ || max.z > inner.maxZ)) continue
+      if (spec.colliders.some(c => c.role !== 'roof' && c.role !== 'overhead'
+        && max.x > c.box[0] && min.x < c.box[3] && max.z > c.box[2] && min.z < c.box[5])) continue
+      return { x, z }
+    }
+  }
+  return undefined
+}
+
 export const TOWN_HR_OFFICER_ID = 'hr-officer'
 
 export function hrOfficerSpec(layout: Pick<TownHRLayout, 'officer'>): TownActorSpec {
