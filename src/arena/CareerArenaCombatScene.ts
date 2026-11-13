@@ -359,6 +359,7 @@ export class CareerArenaCombatScene {
     if (!this.player.dead && this.player.isGrounded) this.arena.constrainGroundedBody(this.player.group.position)
     this.updateBodies(dt)
     if (fighting) { this.melee(); this.resolveBodies(); if (this.prison) this.pickupSwords() }
+    if (this.pickupRetry) return
     this.updateShots(dt)
     this.arena.update(dt)
     this.props?.update(dt)

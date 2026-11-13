@@ -117,7 +117,8 @@ export function settlePrisonBreak(current: CareerProfile, outcome: CareerMission
   const state = current.activeMission?.prisonBreak
   if (!state || state.stage === 'captured') return null
   if (state.result) return cloneCareerProfile(current)
-  if (outcome === 'victory' && (!state.gateOpen || state.combat.player?.knocked)) return null
+  if (outcome === 'victory' && (!state.gateOpen || state.combat.player?.knocked)
+    || outcome === 'failure' && !state.combat.player?.knocked) return null
   const next = cloneCareerProfile(current), prison = next.activeMission!.prisonBreak!
   const merit = outcome === 'victory' ? definition(state.templateId)!.merit : 0
   prison.stage = 'result'; prison.result = { outcome, merit }
@@ -149,7 +150,8 @@ export function parsePrisonBreakState(value: unknown, mission: ActiveCareerMissi
   if (raw.stage === 'result') {
     if (!raw.result || !['victory', 'failure'].includes(raw.result.outcome)
       || raw.result.merit !== (raw.result.outcome === 'victory' ? spec.merit : 0)
-      || raw.result.outcome === 'victory' && (!raw.gateOpen || combat.player?.knocked)) return undefined
+      || raw.result.outcome === 'victory' && (!raw.gateOpen || combat.player?.knocked)
+      || raw.result.outcome === 'failure' && !combat.player?.knocked) return undefined
   } else if (raw.result) return undefined
   return { version: 1, missionId: raw.missionId, templateId: raw.templateId, captor: raw.captor, stage: raw.stage,
     combat, swords: Object.fromEntries(swords), gateOpen: raw.gateOpen, ...(raw.result ? { result: { ...raw.result } } : {}) }

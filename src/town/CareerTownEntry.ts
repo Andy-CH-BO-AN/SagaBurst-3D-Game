@@ -1,3 +1,4 @@
+import { stageMissionReturnPlayerHealth } from '../career/CareerMissionReturnRecovery'
 import { CareerPrisonBreakScene } from '../arena/CareerPrisonBreakScene'
 import { beginPrisonBreak } from '../career/CareerPrisonBreak'
 import { stageMissionReturnRebuild } from '../career/CareerMissionReturnRecovery'
@@ -107,7 +108,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       const returnAfterLoadFailure = () => {
         const latest = store.loadChecked().profile
         if (!latest || latest.activeMission?.id !== prison.missionId) { text.textContent = '任務存檔已更新，請重新載入。'; return }
-        const next = clearCareerMission(latest, prison.missionId)
+        const next = stageMissionReturnPlayerHealth(clearCareerMission(latest, prison.missionId))
         if (!store.save(next)) { text.textContent = '返回尚未保存，請重試。'; return }
         markCareerMissionReturnToSergeant()
         overlay.remove(); void start(next)
