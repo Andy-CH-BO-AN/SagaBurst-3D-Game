@@ -39,63 +39,78 @@ import {
   type ObstacleData
 } from '../../src/world/Terrain'
 
-it('routes North and South bank paths exclusively through the five-lane bridge and blocks river or map-edge crossings', () => {
-    const obstacles = createRiverCrossingObstacleData()
-    const world = new NavigationWorld({
-      minX: -PLAYABLE_WORLD_BOUND,
-      maxX: PLAYABLE_WORLD_BOUND,
-      // Keep both full-width river edges and the bridge/banks; distant staging
-      // fields do not participate in this crossing/reconnection contract.
-      minZ: -48,
-      maxZ: 48,
-      cellSize: 2,
-    }, 4)
-    world.rebuild(obstacles)
-    world.beginFrame()
+function createCrossingWorld(obstacles: ObstacleData[]): NavigationWorld {
+  const world = new NavigationWorld({
+    minX: -PLAYABLE_WORLD_BOUND,
+    maxX: PLAYABLE_WORLD_BOUND,
+    // Keep both full-width river edges and the bridge/banks; distant staging
+    // fields do not participate in this crossing/reconnection contract.
+    minZ: -48,
+    maxZ: 48,
+    cellSize: 2,
+  }, 4)
+  world.rebuild(obstacles)
+  world.beginFrame()
+  return world
+}
 
-    const northPoint = new THREE.Vector3(-34, 0, -36)
-    const southPoint = new THREE.Vector3(34, 0, 40)
-    expect(world.areConnected(northPoint, southPoint)).toBe(true)
+const NORTH_POINT = new THREE.Vector3(-34, 0, -36)
+const SOUTH_POINT = new THREE.Vector3(34, 0, 40)
 
-    // Direct off-bridge river crossings and map-edge river cells are blocked.
-    for (const sampleX of [-PLAYABLE_WORLD_BOUND + 1, -140, -32, 32, 140, PLAYABLE_WORLD_BOUND - 1]) {
-      const riverCell = world.grid.worldToCell({ x: sampleX, z: getRiverCenterZ(sampleX) })
-      expect(riverCell).not.toBeNull()
-      expect(world.grid.isBlocked(riverCell!)).toBe(true)
-      expect(
-        findBlockingObstacleAlongPath(
-          new THREE.Vector3(sampleX, 0, -35),
-          new THREE.Vector3(sampleX, 0, 35),
-          0.5,
-          2.3,
-          0,
-          obstacles,
-        ),
-      ).not.toBeNull()
-    }
+it('blocks river cells and map-edge river crossings away from the bridge', () => {
+  const obstacles = createRiverCrossingObstacleData()
+  const world = createCrossingWorld(obstacles)
 
-    // Both North -> South and South -> North paths pass through the bridge corridor.
-    const northToSouth = world.queryPath(northPoint, southPoint)
-    const southToNorth = world.queryPath(southPoint, northPoint)
-    expect(northToSouth.status).toBe('path')
-    expect(southToNorth.status).toBe('path')
-    for (const result of [northToSouth, southToNorth]) {
-      if (result.status !== 'path') continue
-      const riverCrossingPoints = result.path
-        .map(cell => world.grid.cellToWorld(cell))
-        .filter(point => Math.abs(point.z) <= 16)
-      expect(riverCrossingPoints.length).toBeGreaterThan(0)
-      const maxAbsX = Math.max(...riverCrossingPoints.map(point => Math.abs(point.x)))
-      expect(maxAbsX).toBeLessThan(RIVER_CROSSING_LAYOUT.bridge.halfClearWidth)
-    }
+  // Direct off-bridge river crossings and map-edge river cells are blocked.
+  for (const sampleX of [-PLAYABLE_WORLD_BOUND + 1, -140, -32, 32, 140, PLAYABLE_WORLD_BOUND - 1]) {
+    const riverCell = world.grid.worldToCell({ x: sampleX, z: getRiverCenterZ(sampleX) })
+    expect(riverCell).not.toBeNull()
+    expect(world.grid.isBlocked(riverCell!)).toBe(true)
+    expect(
+      findBlockingObstacleAlongPath(
+        new THREE.Vector3(sampleX, 0, -35),
+        new THREE.Vector3(sampleX, 0, 35),
+        0.5,
+        2.3,
+        0,
+        obstacles,
+      ),
+    ).not.toBeNull()
+  }
+})
 
-    // Sealing the bridge corridor disconnects the banks completely (proving zero edge or river shortcuts).
-    world.rebuild([
-      ...obstacles,
-      obstacle(-RIVER_CROSSING_LAYOUT.bridge.halfTotalWidth, -4, RIVER_CROSSING_LAYOUT.bridge.halfTotalWidth, 4),
-    ])
-    expect(world.areConnected(northPoint, southPoint)).toBe(false)
-  })
+it('routes North and South bank paths in both directions only through the five-lane bridge corridor', () => {
+  const world = createCrossingWorld(createRiverCrossingObstacleData())
+
+  expect(world.areConnected(NORTH_POINT, SOUTH_POINT)).toBe(true)
+  // Both North -> South and South -> North paths pass through the bridge corridor.
+  const northToSouth = world.queryPath(NORTH_POINT, SOUTH_POINT)
+  const southToNorth = world.queryPath(SOUTH_POINT, NORTH_POINT)
+  expect(northToSouth.status).toBe('path')
+  expect(southToNorth.status).toBe('path')
+  for (const result of [northToSouth, southToNorth]) {
+    if (result.status !== 'path') continue
+    const riverCrossingPoints = result.path
+      .map(cell => world.grid.cellToWorld(cell))
+      .filter(point => Math.abs(point.z) <= 16)
+    expect(riverCrossingPoints.length).toBeGreaterThan(0)
+    const maxAbsX = Math.max(...riverCrossingPoints.map(point => Math.abs(point.x)))
+    expect(maxAbsX).toBeLessThan(RIVER_CROSSING_LAYOUT.bridge.halfClearWidth)
+  }
+})
+
+it('disconnects the two banks completely once the bridge corridor is sealed', () => {
+  const obstacles = createRiverCrossingObstacleData()
+  const world = createCrossingWorld(obstacles)
+  expect(world.areConnected(NORTH_POINT, SOUTH_POINT)).toBe(true)
+
+  // Sealing the bridge corridor disconnects the banks completely (proving zero edge or river shortcuts).
+  world.rebuild([
+    ...obstacles,
+    obstacle(-RIVER_CROSSING_LAYOUT.bridge.halfTotalWidth, -4, RIVER_CROSSING_LAYOUT.bridge.halfTotalWidth, 4),
+  ])
+  expect(world.areConnected(NORTH_POINT, SOUTH_POINT)).toBe(false)
+})
 
 function obstacle(
   minX: number,
