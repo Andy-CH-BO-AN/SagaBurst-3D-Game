@@ -11,7 +11,7 @@ import { resolveTownHRLayout, townHrLocalMuster, type TownHRLayout } from './Tow
 import { TownDockPassages } from './TownDockPassages'
 import { TownSiegeAirspace } from './TownSiegeAirspace'
 import { createTownFortifications } from './TownFortifications'
-import { townCivicClearance, type CivicClearanceShape, TOWN_CENTER, TOWN_WELL, TOWN_PLAZA, townHousing, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_CITY, TOWN_EAGLE_STATION_SITES, TOWN_GATES, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
+import { townCivicClearance, type CivicClearanceShape, TOWN_CENTER, TOWN_WELL, TOWN_PLAZA, townHousing, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_CITY, TOWN_EAGLE_STATION_SITES, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
 import { ArchitectureKit, architectureStatues, buildEaglePadMarkings, buildEagleStation, buildTownPlaza, dressCommandWatchtower, dressTownGate, dressTownGateLeaves, dressTownWalls,
   placeArchitecture, townHomeVariant, type CivicBuildingKind, type TownCenterServiceRole } from './architecture/TownArchitecture'
 import type { TownServiceStation } from './TownCommanderIdentity'
@@ -204,12 +204,13 @@ export class TownWorld {
     else this.textures.add(resource)
   }
 
-  /** PR1 gatehouses, leaf detail and wall dressing around the existing gates and curtain walls (controllers, HP and ramparts unchanged). */
+  /** Walkable upper gatehouses share the native rampart layout; ground gates retain their existing controller and HP. */
   private dressFortifications(): void {
     const statues = architectureStatues()
     this.root.add(dressTownWalls(this.architecture, this.fortifications.walls, { x: (TOWN_CITY.minX + TOWN_CITY.maxX) / 2, z: (TOWN_CITY.minZ + TOWN_CITY.maxZ) / 2 }))
-    for (const gate of TOWN_GATES) {
-      const dressing = dressTownGate(this.architecture, gate, { statues })
+    for (const house of this.fortifications.rampartLayout.gatehouses ?? []) {
+      const gate = house.gate
+      const dressing = dressTownGate(this.architecture, house, { statues })
       this.root.add(dressing.root); this.obstacles.push(...dressing.obstacles)
       this.airspaceObstacles.push({ box: new THREE.Box3().setFromObject(dressing.root), isBarricade: false })
       const leaves = this.fortifications.root.getObjectByName(`town-${gate.id}-gate-leaves`)

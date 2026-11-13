@@ -24,13 +24,16 @@ export function closeSiegeGate(id: TownGateId, gate: CampaignGateController, bod
   const box = gate.collisionBox
   const center = box.getCenter(new THREE.Vector3()).setY(0)
   for (const body of bodies) {
-    if (!overlapsGateClosure(box, body.position, body.radius)) continue
+    // Closure bodies are expressed at their feet. A defender standing on the
+    // upper gatehouse must not be ejected through the floor by the lower door.
+    if (body.position.y >= box.max.y || !overlapsGateClosure(box, body.position, body.radius)) continue
     let best: THREE.Vector3 | undefined, bestDistance = Infinity
     for (let forward = 1; forward <= 60; forward += 1) {
       for (let sideways = -14; sideways <= 14; sideways += 1) {
         const point = body.position.clone().addScaledVector(outward, forward).addScaledVector(tangent, sideways)
         if (point.clone().sub(center).dot(outward) < body.radius + .6 || overlapsGateClosure(box, point, body.radius + .15)) continue
-        if (obstacles.some(obstacle => !obstacle.damageable?.destroyed && overlapsGateClosure(obstacle.navigationBox ?? obstacle.box, point, body.radius + .15))) continue
+        if (obstacles.some(obstacle => !obstacle.navigationPassable && !obstacle.damageable?.destroyed
+          && overlapsGateClosure(obstacle.navigationBox ?? obstacle.box, point, body.radius + .15))) continue
         if (plans.some(plan => plan.point.distanceToSquared(point) < (plan.body.radius + body.radius + .2) ** 2)) continue
         const distance = forward * forward + sideways * sideways
         if (distance < bestDistance) { best = point; bestDistance = distance }

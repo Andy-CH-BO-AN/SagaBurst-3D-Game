@@ -2,7 +2,8 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { flameParts } from '../../arena/ArenaKit'
 import { getTerrainHeight, WALK_SURFACE_STEP_UP, type ObstacleData, type WalkRampSurface } from '../../world/Terrain'
-import { rampNavigationSides, surfaceBox } from '../TownRamparts'
+import { rampNavigationSides, slabGeometry, surfaceBox } from '../TownRamparts'
+import { GATEHOUSE_SIDES, TOWN_GATEHOUSE, townGatehouseObstacle, townGatehouseParts, type TownGatehouse } from '../TownGatehouse'
 import type { CommandWatchtowerLayout } from '../TownCommandWatchtowerLayout'
 import { ArchitectureKit, PALETTE, Sketch, preloadArchitectureDecorations, tabletopDisplay, type BuildContext } from './ArchitectureKit'
 import { architectureLocalToWorld, architectureSpec, architectureRuinCorridors, expandedHrCenter, hrFloorNavigationEdges, DEEP, TOWN_PLAZA_MONUMENT, townPlazaLayout, type ArchitectureFaction, type BuildingSpec, type CivicBuildingKind, type LocalRect, type PlazaProp } from './ArchitectureSpecs'
@@ -389,96 +390,94 @@ function statueLod(kit: ArchitectureKit, statues: ArchitectureStatues, x: number
 export interface ArchitectureDressing { readonly root: THREE.Group; readonly obstacles: ObstacleData[] }
 
 /**
- * Faction gatehouse around an existing Town gate (TownFortifications keeps the
- * opening, jambs, arch/lintel, leaves, HP and controller). Local +Z is outward.
- * Towers stand only on the outer side of the wall line, clear of the rampart
- * deck (inward ≥ 1.2m) and of the 14m passage.
+ * Outer gatehouse above the native arch/lintel. The foundation and overhead
+ * solids share the dressed geometry; the gate leaves still own ground access.
  */
-export function dressTownGate(kit: ArchitectureKit, gate: { x: number; z: number; yaw: number }, options: { statues?: ArchitectureStatues | null; terrain?: TerrainSampler } = {}): ArchitectureDressing {
-  const terrain = options.terrain ?? getTerrainHeight
+export function dressTownGate(kit: ArchitectureKit, house: TownGatehouse, options: { statues?: ArchitectureStatues | null } = {}): ArchitectureDressing {
+  const { gate, groundY } = house, G = TOWN_GATEHOUSE
   const root = new THREE.Group(); root.name = `architecture-${kit.faction}-gatehouse`
-  const groundY = terrain(gate.x, gate.z)
   root.position.set(gate.x, groundY, gate.z); root.rotation.y = gate.yaw
-  const s = new Sketch(kit), roman = kit.faction === 'roman'
-  const site = { x: gate.x, z: gate.z, yaw: gate.yaw }
-  const ground = (x: number, z: number) => { const p = architectureLocalToWorld(site, x, z); return terrain(p.x, p.z) - groundY }
+  const s = new Sketch(kit), roman = kit.faction === 'roman', floor = house.floorY - groundY
+  const slot = roman ? 'stone' : 'wood'
+  const ground = (x: number, z: number) => { const p = architectureLocalToWorld(gate, x, z); return getTerrainHeight(p.x, p.z) - groundY }
   const obstacles: ObstacleData[] = []
-  const rotation = new THREE.Matrix4().makeRotationY(gate.yaw), offset = new THREE.Vector3(gate.x, groundY, gate.z)
-  const collide = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) =>
-    obstacles.push({ box: new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1)).applyMatrix4(rotation).translate(offset), isBarricade: false })
-  const tower = { inner: 8.8, outer: roman ? 13.8 : 13.6, back: -.9, front: roman ? 4.1 : 3.8, top: roman ? 14 : 12.5 }
-  for (const side of [-1, 1]) {
-    const x0 = side * tower.inner, x1 = side * tower.outer, cx = (x0 + x1) / 2, w = Math.abs(x1 - x0), d = tower.front - tower.back, cz = (tower.back + tower.front) / 2
-    const base = Math.min(ground(cx, tower.front), ground(cx, tower.back), 0) - .8
-    collide(Math.min(x0, x1), base, tower.back, Math.max(x0, x1), tower.top + 2.5, tower.front)
-    if (roman) {
-      s.span('stone', x0, base, tower.back, x1, tower.top - 2.6, tower.front, PALETTE.ashlar)
-      s.span('stone', x0 - side * .1, base, tower.back - .1, x1 + side * .1, 1.2, tower.front + .1, PALETTE.travertine)
-      for (const y of [7.4, 8.0]) s.span('stone', x0, y, tower.front - .02, x1, y + .45, tower.front + .06, PALETTE.redPlaster)
-      s.window(cx, 5.2, tower.front + .03, 0, .45, 1.1, 'stone', true)
-      s.banner(cx, 7.1, tower.front + .1, 0, 1.5, 4.2)
-      // Arched loggia and hip roof with flag.
-      for (const [yaw, fx, fz, width] of [[0, cx, tower.front - .15, w], [Math.PI, cx, tower.back + .15, w], [Math.PI / 2, Math.max(x0, x1) - .15, cz, d], [-Math.PI / 2, Math.min(x0, x1) + .15, cz, d]] as const)
-        s.wall('stone', fx, tower.top - 2.6, fz, width, 2.4, .3, [-1, 0, 1].map(k => ({ x: k * width / 3.2, y: .3, w: .95, h: 1.8, arch: .48 })), PALETTE.ashlar, yaw)
-      s.span('stone', x0 - side * .25, tower.top - .2, tower.back - .25, x1 + side * .25, tower.top + .05, tower.front + .25, PALETTE.marble)
-      s.hipRoof('roof', Math.min(x0, x1) - .4, Math.max(x0, x1) + .4, tower.back - .4, tower.front + .4, tower.top + .05, 1.9)
-      s.cylinder('metal', cx, tower.top + 1.9, cz, .04, .05, 2.6, PALETTE.gold, 6)
-      s.banner(cx + .62, tower.top + 4.35, cz, 0, 1.1, 1.1)
-      // Corinthian column with a fire bowl in front of each jamb, and a statue on a pedestal.
-      s.column(side * 7.9, ground(side * 7.9, 1.65) - .3, 1.65, 7.3 - ground(side * 7.9, 1.65), .44)
-      collide(side * 7.9 - .5, -2, 1.15, side * 7.9 + .5, 7.2, 2.15)
-      s.bowlFire(side * 7.9, 7.2, 1.65, .8)
-      const px = side * 11.3, pz = 5.4, py = ground(px, pz)
-      s.span('stone', px - .75, py - .4, pz - .75, px + .75, py + 1.5, pz + .75, PALETTE.marble)
-      s.laurel(px, py + .9, pz + .78, 0, .28)
-      collide(px - .75, -2, pz - .75, px + .75, py + 4.2, pz + .75)
-      if (options.statues) root.add(statueLod(kit, options.statues, px, py + 1.5, pz, 0, 2.7))
+  for (const { role, box, overhead } of townGatehouseParts(house)) {
+    obstacles.push(townGatehouseObstacle(house, box, overhead))
+    if (role === 'roof') {
+      const [x0, y0, z0, x1, y1, z1] = box
+      s.span(slot, x0, y0, z0, x1, y0 + .18, z1, roman ? PALETTE.marble : PALETTE.darkTimber)
+      s.hipRoof(roman ? 'roof' : 'wood', x0, x1, z0, z1, y0 + .18, y1 - y0 - .18, roman ? undefined : PALETTE.weathered)
     } else {
-      s.span('stone', x0, base, tower.back, x1, 2.4, tower.front, PALETTE.footing)
-      s.span('wood', x0, 2.4, tower.back, x1, tower.top - 2.8, tower.front, PALETTE.weathered)
-      for (let t = .2; t < w; t += .55) s.cylinder('wood', Math.min(x0, x1) + t, 2.4, tower.front + .08, .16, .18, tower.top - 5.2, PALETTE.weathered, 7)
-      for (const y of [4.4, 7.6]) s.beam('wood', new THREE.Vector3(x0, y, tower.front + .3), new THREE.Vector3(x1, y, tower.front + .3), .3, .3, PALETTE.darkTimber, true)
-      s.banner(cx, 8.9, tower.front + .4, 0, 1.4, 4.4, 'wood')
-      // Open lookout: corner posts, railing, shields, pyramid shingle roof, crossed finial, beast heads.
-      for (const [qx, qz] of [[x0, tower.back], [x1, tower.back], [x0, tower.front], [x1, tower.front]]) s.carvedPost(qx, tower.top - 2.8, qz, 2.9, .2)
-      for (const z of [tower.back, tower.front]) s.beam('wood', new THREE.Vector3(x0, tower.top - 1.7, z), new THREE.Vector3(x1, tower.top - 1.7, z), .18, .18, PALETTE.darkTimber)
-      s.span('wood', x0 - side * .3, tower.top - 2.9, tower.back - .3, x1 + side * .3, tower.top - 2.7, tower.front + .3, PALETTE.darkTimber)
-      s.shield(cx - .8, tower.top - 2.0, tower.front + .1, 0, .45); s.shield(cx + .8, tower.top - 2.0, tower.front + .1, 0, .45, [PALETTE.cream, PALETTE.red])
-      s.bowlFire(cx, tower.top - 2.7, cz, .6)
-      s.hipRoof('wood', Math.min(x0, x1) - .55, Math.max(x0, x1) + .55, tower.back - .55, tower.front + .55, tower.top, 2.6, PALETTE.weathered)
-      for (const k of [-1, 1]) s.beam('wood', new THREE.Vector3(cx - .7 * k, tower.top + 2.2, cz), new THREE.Vector3(cx + .7 * k, tower.top + 3.6, cz), .2, .14, PALETTE.carved)
-      for (const [qx, qz, yaw] of [[x1 + side * .4, tower.front + .4, side * Math.PI / 4], [x0 - side * .05, tower.front + .45, -side * Math.PI / 6]] as const) s.lynxHead(qx, tower.top - .2, qz, yaw, .75)
-      s.brazier(side * 8.4, ground(side * 8.4, 2.6), 2.6, 1.15)
-      collide(side * 8.4 - .4, -2, 2.2, side * 8.4 + .4, 1.6, 3.0)
-      const px = side * 11.2, pz = 4.7, py = ground(px, pz)
-      s.cylinder('wood', px, py - .3, pz, .45, .5, .7, PALETTE.darkTimber, 10)
-      collide(px - .5, -2, pz - .5, px + .5, py + 3, pz + .5)
-      if (options.statues) root.add(statueLod(kit, options.statues, px, py + .4, pz, 0, 2.5))
+      s.span(role === 'base' ? 'stone' : slot, ...box, roman
+        ? (role === 'base' ? PALETTE.ashlar : PALETTE.travertine)
+        : (role === 'base' ? PALETTE.footing : PALETTE.weathered))
+      if (!roman && role === 'base') s.span('wood', box[0], box[1] + 2.4, box[5], box[3], box[4], box[5] + .12, PALETTE.weathered)
     }
   }
-  if (roman) {
-    // Attic and pediment over the existing elliptical arch, outward of the rampart deck.
-    s.span('stone', -8.8, 8.5, -.9, 8.8, 10.2, 1.45, PALETTE.ashlar)
-    s.span('stone', -9.0, 10.2, -.9, 9.0, 10.45, 1.6, PALETTE.marble)
-    s.span('stone', -8.8, 8.5, 1.4, 8.8, 9.0, 1.5, PALETTE.redPlaster)
-    s.gable('stone', 0, 10.45, 1.25, 12, 2.6, .5, PALETTE.marble)
-    s.gable('stone', 0, 10.7, 1.52, 10, 1.9, .06, PALETTE.redPlaster)
-    s.eagle(0, 11.6, 1.6, 0, 1.4)
-    for (const k of [-1, 1]) s.laurel(k * 2.9, 11.1, 1.58, 0, .45)
-    s.box('stone', 0, 7.7, 1.25, .8, 1.0, .3, PALETTE.marble)
-    collide(-8.8, 8.5, -.9, 8.8, 13.1, 1.6)
-  } else {
-    // Covered walk over the lintel with railing, shield and crossed axes.
-    for (const x of [-7.4, -3.7, 0, 3.7, 7.4]) s.cylinder('wood', x, 8.2, .1, .14, .14, 2.0, PALETTE.carved, 7)
-    s.beam('wood', new THREE.Vector3(-8.8, 9.1, .9), new THREE.Vector3(8.8, 9.1, .9), .16, .16, PALETTE.darkTimber)
-    s.span('wood', -9.4, 10.2, -1.0, 9.4, 10.35, 1.3, PALETTE.darkTimber)
-    s.shedRoof('wood', { axis: 'x', low: [1.6, 10.2], high: [-.6, 11.2], from: -9.4, to: 9.4, thickness: .16, color: PALETTE.weathered })
-    s.shield(0, 7.65, 1.35, 0, .85)
-    for (const k of [-1, 1]) {
-      s.beam('wood', new THREE.Vector3(-1.6 * k, 6.9, 1.45), new THREE.Vector3(1.0 * k, 8.4, 1.45), .07, .07, PALETTE.timber, true)
-      s.box('metal', 1.05 * k, 8.3, 1.48, .5, .35, .05, PALETTE.iron)
+  const addSlab = (surface: WalkRampSurface, thickness: number, color: number, rail = false) => {
+    s.add(slot, slabGeometry(surface, thickness).translate(-gate.x, -groundY, -gate.z).rotateY(-gate.yaw), color)
+    const count = Math.max(1, Math.ceil(Math.abs(surface.topY - surface.startY) / .16)), boxes: THREE.Box3[] = []
+    for (let i = 0; i < count; i++) {
+      const t = i / count, length = surface.length / count
+      const y = (at: number) => THREE.MathUtils.lerp(surface.startY, surface.topY, at)
+      boxes.push(surfaceBox({ ...surface, startX: surface.startX + surface.dirX * length * i,
+        startZ: surface.startZ + surface.dirZ * length * i, length, startY: y(t), topY: y((i + 1) / count) }, thickness))
     }
-    collide(-9.4, 8.2, -1.0, 9.4, 11.3, 1.6)
+    if (rail) for (const box of boxes) obstacles.push({ box, isBarricade: false, navigationPassable: true })
+    else obstacles.push({ box: surfaceBox(surface, thickness), walkSurface: surface, projectileBoxes: boxes,
+      isBarricade: false, navigationPassable: true })
+  }
+  addSlab(house.deck, G.slab, roman ? PALETTE.ashlar : PALETTE.timber)
+  for (const { surface } of house.links) {
+    addSlab(surface, G.slab, roman ? PALETTE.ashlar : PALETTE.timber)
+    const railFrom = surface.length + G.linkRailStart, t = railFrom / surface.length
+    for (const side of GATEHOUSE_SIDES) {
+      const lateral = side * (surface.halfWidth - G.railThickness / 2)
+      addSlab({ ...surface, startX: surface.startX + surface.dirX * railFrom - surface.dirZ * lateral,
+        startZ: surface.startZ + surface.dirZ * railFrom + surface.dirX * lateral,
+        startY: THREE.MathUtils.lerp(surface.startY, surface.topY, t) + G.railHeight,
+        topY: surface.topY + G.railHeight, length: surface.length - railFrom, halfWidth: G.railThickness / 2 },
+      G.railHeight, roman ? PALETTE.travertine : PALETTE.darkTimber, true)
+    }
+  }
+  for (const side of GATEHOUSE_SIDES) {
+    const cx = side * G.towerCenter
+    const front = G.deckFront
+    if (roman) {
+      for (const y of [7.4, 8.0]) s.span('stone', cx - 2.35, y, front, cx + 2.35, y + .37, front + .06, PALETTE.redPlaster)
+      s.banner(cx, floor - 1.6, front + .1, 0, 1.5, 3.4)
+      s.column(side * 7.9, ground(side * 7.9, 1.65) - .3, 1.65, 7.3 - ground(side * 7.9, 1.65), .44)
+      obstacles.push(townGatehouseObstacle(house, [side * 7.9 - .5, -2, 1.15, side * 7.9 + .5, 7.2, 2.15], false))
+      s.bowlFire(side * 7.9, 7.2, 1.65, .8)
+      s.cylinder('metal', cx, floor + G.headroom + 3.3, 2, .04, .05, 2.6, PALETTE.gold, 6)
+      s.banner(cx + .62, floor + G.headroom + 5.75, 2, 0, 1.1, 1.1)
+    } else {
+      s.banner(cx, floor - .9, front + .18, 0, 1.4, 4.4, 'wood')
+      s.shield(cx - .8, floor + .7, front + .07, 0, .45)
+      s.shield(cx + .8, floor + .7, front + .07, 0, .45, [PALETTE.cream, PALETTE.red])
+      const eave = floor + G.headroom + 1.05
+      s.lynxHead(cx, eave + .1, front + .55, 0, .75)
+      for (const k of GATEHOUSE_SIDES) s.beam('wood', new THREE.Vector3(cx - .7 * k, eave + 2.1, 2),
+        new THREE.Vector3(cx + .7 * k, eave + 3.5, 2), .2, .14, PALETTE.carved)
+      s.brazier(side * 8.4, ground(side * 8.4, 2.6), 2.6, 1.15)
+      obstacles.push(townGatehouseObstacle(house, [side * 8.4 - .4, -2, 2.2, side * 8.4 + .4, 1.6, 3], false))
+    }
+    const pz = roman ? 5.4 : 4.9, py = ground(cx, pz), w = roman ? .75 : .5
+    if (roman) {
+      s.span('stone', cx - w, py - .4, pz - w, cx + w, py + 1.5, pz + w, PALETTE.marble)
+      s.laurel(cx, py + .9, pz + .78, 0, .28)
+    } else s.cylinder('wood', cx, py - .3, pz, .45, .5, .7, PALETTE.darkTimber, 10)
+    obstacles.push(townGatehouseObstacle(house, [cx - w, -2, pz - w, cx + w, py + (roman ? 4.2 : 3), pz + w], false))
+    if (options.statues) root.add(statueLod(kit, options.statues, cx, py + (roman ? 1.5 : .4), pz, 0, roman ? 2.7 : 2.5))
+  }
+  if (roman) {
+    s.gable('stone', 0, floor + G.headroom, G.deckFront + .2, 12, 2.6, .35, PALETTE.marble)
+    s.eagle(0, floor + G.headroom + 1.1, G.deckFront + .48, 0, 1.4)
+    for (const k of GATEHOUSE_SIDES) s.laurel(k * 2.9, floor + G.headroom + .6, G.deckFront + .48, 0, .45)
+  } else {
+    s.shield(0, floor + .75, G.deckFront + .07, 0, .85)
+    for (const k of GATEHOUSE_SIDES) s.beam('wood', new THREE.Vector3(-1.6 * k, floor + .1, G.deckFront + .08),
+      new THREE.Vector3(k, floor + 1.45, G.deckFront + .08), .07, .07, PALETTE.timber, true)
   }
   s.build(root, root.name)
   root.updateMatrixWorld(true)

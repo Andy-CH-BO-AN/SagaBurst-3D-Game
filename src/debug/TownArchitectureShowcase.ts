@@ -21,7 +21,7 @@ import { getTerrainHeight, setObstaclePathQuerySource, type ObstacleData } from 
 import { XONGKORO_LANDING, isEagleLandingClear } from '../world/EagleLanding'
 import { isEagleApproachClear } from '../world/EagleApproach'
 import { TOWN_GROUND_SIZE, TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
-import { TOWN_CENTER, TOWN_CITY, TOWN_CITY_ROADS, TOWN_EAGLE_STATION_SITES, TOWN_GATES, TOWN_GARRISON_EAGLE_SITES, TOWN_LOCAL_ROADS, TOWN_PLAZA, TOWN_PRIVATE_EAGLE_SITES, townHousing, type TownRoad } from '../town/TownLayout'
+import { TOWN_CENTER, TOWN_CITY, TOWN_CITY_ROADS, TOWN_EAGLE_STATION_SITES, TOWN_GARRISON_EAGLE_SITES, TOWN_LOCAL_ROADS, TOWN_PLAZA, TOWN_PRIVATE_EAGLE_SITES, townHousing, type TownRoad } from '../town/TownLayout'
 import { TOWN_SITES, townAuthoredRoster, stableHorsePositions } from '../town/TownRules'
 import { resolveTownHRLayout, townHrLocalMuster } from '../town/TownHRLayout'
 import { buildTownGroundSign, townEagleSigns } from '../town/TownGroundSign'
@@ -135,8 +135,9 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
     for (const group of [fort.wallRoot, ...fort.wallRoot.children.filter(c => c instanceof THREE.Group)]) batchStatic(group as THREE.Group, owned)
     world.add(dressTownWalls(kit, fort.walls, { x: (TOWN_CITY.minX + TOWN_CITY.maxX) / 2, z: (TOWN_CITY.minZ + TOWN_CITY.maxZ) / 2 }))
     const gatehouses: THREE.Object3D[] = []
-    for (const gate of TOWN_GATES) {
-      const dressing = dressTownGate(kit, gate, { statues }); world.add(dressing.root); obstacles.push(...dressing.obstacles); gatehouses.push(dressing.root)
+    for (const house of fort.rampartLayout.gatehouses ?? []) {
+      const gate = house.gate
+      const dressing = dressTownGate(kit, house, { statues }); world.add(dressing.root); obstacles.push(...dressing.obstacles); gatehouses.push(dressing.root)
       const leaves = fort.root.getObjectByName(`town-${gate.id}-gate-leaves`)
       if (leaves) dressTownGateLeaves(kit, leaves.children)
     }
