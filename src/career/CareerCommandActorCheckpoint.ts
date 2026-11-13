@@ -18,6 +18,12 @@ function savedShieldDurability(npc: NPC): number {
   return npc.shield.captureDurability()[id] ?? ARMORS[id]?.shieldImpactMax ?? 0
 }
 
+/** Full durability of the shield the actor was given, read from its catalogue, so a refit works before the model is held. */
+function fullShieldDurability(npc: NPC): number {
+  const id = npc.requestedShieldId
+  return id ? ARMORS[id]?.shieldImpactMax ?? 0 : npc.shield.shieldImpactMax
+}
+
 /** Restores durability by the actor's requested shield id, so a shield that arrives later keeps the saved value. */
 function restoreShieldDurability(npc: NPC, value: number): void {
   const id = npc.requestedShieldId
@@ -86,7 +92,7 @@ export function refitCommandCheckpoint(npc: NPC, homeMount?: Mount,
   status: PersonalActorCheckpoint['status'] = 'deployed'): PersonalActorCheckpoint {
   const saved = snapshotCommandActor(npc, homeMount, status)
   saved.status = status; saved.hp = npc.maxHp; saved.ammo = npc.combatAmmoCapacity
-  saved.shieldImpact = npc.shield.shieldImpactMax
+  saved.shieldImpact = fullShieldDurability(npc)
   if (saved.fall && saved.position) saved.position.y = getTerrainHeight(saved.position.x, saved.position.z)
   delete saved.fall
   const mount = homeMount ?? npc.mount
@@ -115,7 +121,7 @@ export function refitCommandActor(npc: NPC, homeMount?: Mount): void {
   } else if (mount) mount.currentHp = mount.maxHp
   npc.refitCombat()
   saved.status = 'deployed'; saved.hp = npc.maxHp
-  saved.ammo = npc.combatAmmo; saved.shieldImpact = npc.shield.shieldImpactMax
+  saved.ammo = npc.combatAmmo; saved.shieldImpact = fullShieldDurability(npc)
   if (saved.fall && saved.position) saved.position.y = getTerrainHeight(saved.position.x, saved.position.z)
   delete saved.fall
   if (saved.mount && mount) {
