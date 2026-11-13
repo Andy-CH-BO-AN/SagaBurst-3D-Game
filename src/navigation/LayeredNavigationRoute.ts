@@ -65,7 +65,7 @@ export class LayeredNavigationRoute {
     const { position, goal, world, outpost } = request
     if (request.mounted && !request.flying && world?.civicHalls.length) {
       // A mounted body inside a civic hall walks out of its real doorway first.
-      const exit = this.civicExit.resolve({ position, goal, halls: world.civicHalls, revision: world.revision,
+      const exit = this.civicExit.resolve({ position, goal, halls: world.civicHalls,
         radius: request.radius, height: request.height, commandIdentity: request.commandIdentity ?? 0,
         movementIntent: request.movementIntent ?? 'chase' }, obstacles)
       if (exit) {

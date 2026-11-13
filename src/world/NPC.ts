@@ -3538,16 +3538,7 @@ export class NPC {
             maxDist,
           )
         } else if (this.mount && layeredStep?.civicExit && moveDir.lengthSq() > .0001) {
-          // Narrow civic doorway: turn in place, pace below charge speed, never sprint,
-          // and stop at the waypoint so the body cannot overshoot the threshold.
-          const waypointDistance = Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z)
-          const steer = steerCivicExitRider(this.mount.group.rotation.y, Math.atan2(moveDir.x, moveDir.z), waypointDistance, this.mount.baseSpeed, dt)
-          this.mount.group.rotation.y = steer.yaw; this.group.rotation.y = steer.yaw
-          this.chargeSprintLatched = false; this.isSprinting = false
-          if (steer.speed > 0) {
-            this.visualMovementSpeed = Math.max(this.visualMovementSpeed, steer.speed)
-            this.mount.addControlledMovement(moveDir, steer.speed, dt)
-          }
+          this._moveCivicRoute(moveDir, Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z), dt)
         } else {
           if (this.isMounted && layeredStep?.confirmedLayeredStep && moveDir.lengthSq() > .0001) {
             // Turn within the landing instead of driving a wide charge arc off
@@ -4598,16 +4589,7 @@ export class NPC {
     }
 
     if (this.mount && layeredStep?.civicExit && moveDir.lengthSq() > .0001) {
-      // A committed civic exit keeps narrow-doorway steering whatever the command: turn first,
-      // pace below mount speed, no catch-up or sprint, and stop at the waypoint.
-      const waypointDistance = Math.hypot(navigationGoal.x - this.combatPosition.x, navigationGoal.z - this.combatPosition.z)
-      const steer = steerCivicExitRider(this.mount.group.rotation.y, Math.atan2(moveDir.x, moveDir.z), waypointDistance, this.mount.baseSpeed, dt)
-      this.mount.group.rotation.y = steer.yaw; this.group.rotation.y = steer.yaw
-      this.chargeSprintLatched = false; this.isSprinting = false
-      if (steer.speed > 0) {
-        this.visualMovementSpeed = Math.max(this.visualMovementSpeed, steer.speed)
-        this.mount.addControlledMovement(moveDir, steer.speed, dt)
-      }
+      this._moveCivicRoute(moveDir, Math.hypot(navigationGoal.x - this.combatPosition.x, navigationGoal.z - this.combatPosition.z), dt)
     } else {
       // Face the travel direction while moving so directional movement does not
       // classify a distant slot behind the final formation facing as backward.
@@ -4712,6 +4694,19 @@ export class NPC {
     this.mountedBowAim.pitch += THREE.MathUtils.clamp(THREE.MathUtils.clamp(pitch, -MOUNTED_BOW_MAX_PITCH, MOUNTED_BOW_MAX_PITCH) - this.mountedBowAim.pitch, -aimStep, aimStep)
     this.rig.animation?.setEquipmentState?.({ mountedBowAim: this.mountedBowAim })
     return true
+  }
+
+  /** One narrow-doorway step of a committed civic route, shared by chase and formation movement: turn in place
+   * first, pace below mount speed, never sprint or catch up, and stop at the waypoint. */
+  private _moveCivicRoute(direction: THREE.Vector3, waypointDistance: number, dt: number): void {
+    const mount = this.mount!
+    const steer = steerCivicExitRider(mount.group.rotation.y, Math.atan2(direction.x, direction.z), waypointDistance, mount.baseSpeed, dt)
+    mount.group.rotation.y = steer.yaw; this.group.rotation.y = steer.yaw
+    this.chargeSprintLatched = false; this.isSprinting = false
+    if (steer.speed > 0) {
+      this.visualMovementSpeed = Math.max(this.visualMovementSpeed, steer.speed)
+      mount.addControlledMovement(direction, steer.speed, dt)
+    }
   }
 
   private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number, allowSprint = false, maxDistance = Infinity): void {
