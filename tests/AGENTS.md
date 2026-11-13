@@ -31,6 +31,12 @@
 | `InventoryManager`／`NPCEquipmentLifecycle`／`GameInventoryLifecycle` | 分別保護玩家換裝、存檔及需求；NPC 採用裝備、格擋及 demand／dispose；Game 真正的 inventory 替換與退出 caller。 |
 | `CareerRetirementPersistence`／`CareerRetirementMobilization`／`CareerRetirementFinale` | 分別保護持久化、集結與結局結算，不因同屬退休功能而混放。 |
 
+### Cross-owner lint warning
+
+- `npm run lint:test` 會對少量明確列出的 production 決策入口加上非阻擋 Warning：目前試行 `CareerFieldBattle.isMigratedCareerFieldTemplate`／`isMigratedCareerFieldMission` 與 `CareerBridgeBattle.isCareerFelineBattle`。同一 Vitest leaf 直接呼叫兩個 owner 的入口時，提醒 reviewer 確認它們是在驗證同一條正式路徑，還是包含可獨立驗證的行為。這不是案例錯置判定，不要求拆分；不依目錄或 import 數量推測 owner。
+- 只 import 未呼叫、type-only import、同一 owner 的多個入口，以及 fixture helper、`beforeEach`／`afterEach` setup／cleanup、巢狀 helper／延遲 callback 或資料轉換 callback 不會觸發。單一 leaf 的同一交易若經不同模組完成，也可能是合理 caller regression；例如 `commitCareerBridgeBattleResult` 搭配真正的 `CareerProfileStore` 是 Bridgehead 結算重試交易，不應只因跨模組就警告。
+- Warning 只提供 review 線索。**Owner 歸屬、failure mode 是否獨立、caller 是否真的有覆蓋，仍由 review 判斷**；Warning 不增加 leaf 數、不阻擋 CI，也不改變既有 Error 規則。
+
 - 同一不可分交易可有多個 assertions，同一不變量可使用少量資料變體；部署容量、投射物遮擋、地形切換與落水死亡等不同原因的失敗必須能獨立定位。把 200 行以上的大型 `it` 搬進正確檔案，不代表已完成責任整理。
 - 搬移／刪除前核對「原案例與 assertions → 保留案例 → production consumer」，不能只比較名稱或 leaf 數；保留舊版存檔、權限、錯誤恢復與正式 Game call path 的唯一 regression。刪除自建決策流程時，指出真正 owner 的保護位置；沒有等效保護就明列風險，不宣稱已替代。
 
