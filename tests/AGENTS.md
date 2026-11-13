@@ -12,6 +12,28 @@
 - 核心 owner 保護重要演算法與 failure mode；caller 只保護必要資料傳遞、權限、失敗處理及副作用順序，不重跑完整核心矩陣。
 - 優先保護無法遊玩、取消與 rollback、資料損壞、存檔交易、ownership、重複結算、戰鬥有效命中與死亡、指揮資格、導航可達性和必要容量邊界。
 
+### Case 責任歸屬與搬移
+
+- Case 依 **Production Decision Owner 與 Failure Mode** 歸屬，不依 Bug 發生場景、Task／PR 編號、第一個 import、使用的資料或檔名判斷。同一場景可由多個 owner 分別保護；共用 owner 也可合理涵蓋多場景輸入。
+- 依序確認「行為契約 → 容易出錯的決策與模組 → 真實 caller → 可觀察的失敗 → 最小必要測試層級」，再搜尋既有 owner suite。只有尚未覆蓋的獨立 failure mode 才新增 leaf，沒有適合檔案才新增 suite；跨模組案例只驗證 caller 接線、授權、狀態及 cleanup，不重跑核心 owner 的矩陣。
+
+以下是能力邊界範例，名稱用來辨識責任，不作固定檔案路徑清單：
+
+| Owner／能力 | 應保護的契約 |
+| --- | --- |
+| `NavigationWorld` | 共用 A*、FIFO、拓樸與 footprint 失效；不收容所有場景入口配置。 |
+| `TownLayeredNavigation` | 攻城接牆入口、升降與雙向路線。 |
+| `TownCommandWatchtower`／`TownArchitectureSpecs` | 各自建築的通行、入口與室內容量。 |
+| `RiverCrossingBattlefield` | 河流、橋樑、岸邊部署與落水；不同 failure mode 仍分開定位。 |
+| `TownResidentLayout`／`CareerDuelState` | 前者保護居民與坐騎共同佔位；後者保護 Duel 場地與任務選址。 |
+| `PersonalSquadCommandRouting`／`PersonalSquadRuntime` | 前者保護指令選擇、授權與回饋；後者保護已接受招募名冊的部署、Follow／Dismiss、返回 HR、登乘及 restore。 |
+| `OnDemandAssets`／`HighTierEquipment` | 前者保護 loader、timeout、abort、retry；後者保護高階裝備預載結果的原子發布。 |
+| `InventoryManager`／`NPCEquipmentLifecycle`／`GameInventoryLifecycle` | 分別保護玩家換裝、存檔及需求；NPC 採用裝備、格擋及 demand／dispose；Game 真正的 inventory 替換與退出 caller。 |
+| `CareerRetirementPersistence`／`CareerRetirementMobilization`／`CareerRetirementFinale` | 分別保護持久化、集結與結局結算，不因同屬退休功能而混放。 |
+
+- 同一不可分交易可有多個 assertions，同一不變量可使用少量資料變體；部署容量、投射物遮擋、地形切換與落水死亡等不同原因的失敗必須能獨立定位。把 200 行以上的大型 `it` 搬進正確檔案，不代表已完成責任整理。
+- 搬移／刪除前核對「原案例與 assertions → 保留案例 → production consumer」，不能只比較名稱或 leaf 數；保留舊版存檔、權限、錯誤恢復與正式 Game call path 的唯一 regression。刪除自建決策流程時，指出真正 owner 的保護位置；沒有等效保護就明列風險，不宣稱已替代。
+
 ## Regression 設計與正式呼叫路徑
 
 - 新增測試前先寫出**可觀察的行為契約與失敗模式**，不是照目前實作抄 expected。先查「使用者／事件入口 → 真正決策 owner → 正式 caller → side effects／存檔 → 替換／退出 cleanup」。純函式小改動不必製作流程表；跨模組、非同步或生命週期修改，須簡短盤點這條路徑與責任歸屬。
