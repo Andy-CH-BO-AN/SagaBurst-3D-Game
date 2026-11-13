@@ -19,11 +19,17 @@ import {
   isCareerFieldNoCommandMission,
   isMigratedCareerFieldMission,
   isMigratedCareerFieldTemplate,
+  isMigratedFieldDeploymentReady,
   resolveFieldDamagedTargetId,
+  resolveMigratedPlayerMountState,
   shouldTriggerSweepAlert,
 } from '../../src/career/CareerFieldBattle'
 import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
 import { Faction } from '../../src/world/NPC'
+import { SpatialGrid } from '../../src/world/SpatialGrid'
+import { populateNpcFactionGrids, selectHostileNpcGrid } from '../../src/world/HostileNpcGrid'
+import { ChaseTargetCoordinator } from '../../src/navigation/ChaseTargetCoordinator'
+import { Vector3 } from 'three'
 
 function createBanditActive(templateId: string, friendlyIds = ['captain', 'soldier-1', 'soldier-2', 'soldier-3']) {
   const tpl = getRecruitMissionTemplate(templateId)!
@@ -257,5 +263,83 @@ describe('Phase 2B migrated career field battles', () => {
     expect(restoredBattle?.actors[killedEnemyId]?.status).toBe('dead')
     expect(restoredBattle?.actors[survivingEnemyId]).toMatchObject({ status: 'deployed', hp: 42 })
     expect(restoredBattle?.player).toMatchObject({ hp: 88, stamina: 95, dead: false })
+  })
+
+  test('routes Faction.PLAYER target acquisition to Faction.BANDIT without changing bandit faction', () => {
+    const npcGrid = new SpatialGrid<{ combatPosition: Vector3; hp: number; dead: boolean; faction: Faction; hostileToPlayer?: boolean; mount?: { isFlyingMount?: boolean } }>(20)
+    const factionGrids = {
+      [Faction.PLAYER]: new SpatialGrid<typeof npcGrid extends SpatialGrid<infer U> ? U : never>(20),
+      [Faction.ENEMY]: new SpatialGrid<typeof npcGrid extends SpatialGrid<infer U> ? U : never>(20),
+      [Faction.TOWN]: new SpatialGrid<typeof npcGrid extends SpatialGrid<infer U> ? U : never>(20),
+      [Faction.BANDIT]: new SpatialGrid<typeof npcGrid extends SpatialGrid<infer U> ? U : never>(20),
+    }
+    const playerHostileGrid = new SpatialGrid<typeof npcGrid extends SpatialGrid<infer U> ? U : never>(20)
+    const ally = { combatPosition: new Vector3(0, 0, 0), hp: 100, dead: false, faction: Faction.PLAYER }
+    const bandit = { combatPosition: new Vector3(12, 0, 0), hp: 100, dead: false, faction: Faction.BANDIT }
+    const peacefulTown = { combatPosition: new Vector3(4, 0, 0), hp: 100, dead: false, faction: Faction.TOWN, hostileToPlayer: false }
+
+    populateNpcFactionGrids([ally, bandit, peacefulTown], npcGrid, factionGrids, playerHostileGrid)
+
+    const allyHostileGrid = selectHostileNpcGrid(ally.faction, playerHostileGrid, factionGrids)
+    const coordinator = new ChaseTargetCoordinator()
+    const target = coordinator.findGroupTarget(ally as never, allyHostileGrid as never)
+    expect(target).toBe(bandit as never)
+    expect(bandit.faction).toBe(Faction.BANDIT)
+
+    const banditHostileGrid = selectHostileNpcGrid(bandit.faction, playerHostileGrid, factionGrids)
+    expect(banditHostileGrid.findNearest(bandit.combatPosition, () => true)).toBe(ally)
+  })
+
+  test('evaluates migrated field deployment readiness without requiring commanderMission', () => {
+    const mission = createBanditActive('recruit-bandits-01')
+    expect(mission.commanderMission).toBeUndefined()
+    expect(isMigratedFieldDeploymentReady(mission, false)).toBe(false)
+    expect(isMigratedFieldDeploymentReady(mission, true)).toBe(true)
+
+    mission.felineBattle = {
+      ready: true,
+      actors: {},
+      playerStats: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
+      player: { hp: 100, stamina: 100, dead: false, ammo: 0, shieldImpact: 0, position: { x: 0, y: 0, z: 0, yaw: 0 } },
+    }
+    expect(isMigratedFieldDeploymentReady(mission, false)).toBe(true)
+  })
+
+  test('migrates legacy mountState HP, armor impact, and dead/unavailable horse state into felineBattle', () => {
+    const profile = createCareerProfile('roman')
+    const missionWithDeadHorse = createBanditActive('recruit-bandits-01')
+    missionWithDeadHorse.mountState = { activeMountId: 'horse', hp: { horse: 0 }, unavailable: ['horse'] }
+    const deployment = createCareerFieldDeployment({ ...profile, activeMission: missionWithDeadHorse })
+    const deadSeed = createCareerFieldCheckpointSeed(missionWithDeadHorse, deployment.plan, {
+      hp: 90, maxHp: 100, stamina: 80,
+      x: 0, y: 0, z: 0, yaw: 0, ammo: 0, shieldImpact: 0,
+      stats: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
+      mount: { mountId: 'horse', hp: 100, armorImpactRemaining: 0, mounted: true },
+    }, () => 0)
+    expect(deadSeed.player.mountHp).toBe(0)
+    expect(deadSeed.player.mount).toMatchObject({ hp: 0, mounted: false })
+
+    const missionWithDamagedArmored = createBanditActive('recruit-bandits-02')
+    missionWithDamagedArmored.mountState = {
+      activeMountId: 'armored-horse',
+      hp: { 'armored-horse': 135 },
+      armorImpact: { 'armored-horse': 18 },
+      unavailable: [],
+    }
+    const armoredDeployment = createCareerFieldDeployment({ ...profile, activeMission: missionWithDamagedArmored })
+    const damagedSeed = createCareerFieldCheckpointSeed(missionWithDamagedArmored, armoredDeployment.plan, {
+      hp: 100, maxHp: 100, stamina: 100,
+      x: 0, y: 0, z: 0, yaw: 0, ammo: 0, shieldImpact: 0,
+      stats: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
+      mount: { mountId: 'armored-horse', hp: 200, armorImpactRemaining: 50, mounted: true },
+    }, () => 0)
+    expect(damagedSeed.player.mountHp).toBe(135)
+    expect(damagedSeed.player.mount).toMatchObject({ hp: 135, armorImpactRemaining: 18, mounted: true })
+    expect(resolveMigratedPlayerMountState(missionWithDamagedArmored, 'armored-horse')).toEqual({
+      mountId: 'armored-horse',
+      hp: 135,
+      armorImpact: 18,
+      unavailable: false,
+    })
   })
 })

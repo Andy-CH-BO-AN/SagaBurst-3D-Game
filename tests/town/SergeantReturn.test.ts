@@ -29,7 +29,8 @@ describe('Sergeant return contract', () => {
     const livePoint = resolveSergeantReturnPoint(
       { x: base.x + 12, z: base.z - 5, yaw: Math.PI / 3 },
       { terrainHeight: getTerrainHeight },
-    )
+    )!
+    expect(livePoint).not.toBeNull()
     const dist = Math.hypot(livePoint.x - (base.x + 12), livePoint.z - (base.z - 5))
     expect(dist).toBeGreaterThanOrEqual(3.0)
     expect(dist).toBeLessThanOrEqual(4.0)
@@ -59,13 +60,35 @@ describe('Sergeant return contract', () => {
       obstacles: [wall],
       blockers: [horseBlocker],
       terrainHeight: () => 2.5,
-    })
+    })!
+    expect(clear).not.toBeNull()
     expect(clear.y).toBe(2.5)
     expect(clear.x > wall.box.min.x - 0.75 && clear.x < wall.box.max.x + 0.75
       && clear.z > wall.box.min.z - 0.75 && clear.z < wall.box.max.z + 0.75).toBe(false)
     expect(Math.hypot(clear.x - horseBlocker.x, clear.z - horseBlocker.z)).toBeGreaterThanOrEqual(0.75 + 1.5)
     expect(Math.hypot(clear.x - sergeant.x, clear.z - sergeant.z)).toBeGreaterThanOrEqual(3.0)
     expect(Math.hypot(clear.x - sergeant.x, clear.z - sergeant.z)).toBeLessThanOrEqual(4.1)
+  })
+
+  it('returns null instead of an invalid fallback point when all candidates fail isValid or clearance', () => {
+    const rejectedByValidator = resolveSergeantReturnPoint(
+      { x: 60, z: -2, yaw: 0 },
+      { isValid: () => false, terrainHeight: () => 0 },
+    )
+    expect(rejectedByValidator).toBeNull()
+
+    const blockedByObstacle = resolveSergeantReturnPoint(
+      { x: 0, z: 0, yaw: 0 },
+      {
+        obstacles: [{ box: new Box3(new Vector3(-10, -2, -10), new Vector3(10, 6, 10)), isBarricade: false }],
+        terrainHeight: () => 0,
+      },
+    )
+    expect(blockedByObstacle).toBeNull()
+    expect(sergeantReturnFromResidents(
+      [{ spec: { id: 'deployment', role: 'deployment', x: 0, z: 0, yaw: 0 } }],
+      { isValid: () => false, terrainHeight: () => 0 },
+    )).toBeNull()
   })
 
   it('shares one return flag with Arena Duel and consumes it at most once', () => {

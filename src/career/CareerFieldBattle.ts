@@ -22,7 +22,7 @@ import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import type { ActiveCareerMission } from './CareerMissionState'
 import { getCareerMissionTemplate } from './CareerMissionCatalog'
 import { resolveCareerHeroAsset } from './CareerPlayerProfile'
-import type { CareerProfile } from './CareerProfile'
+import { canonicalCareerMountId, type CareerMountId, type CareerProfile } from './CareerProfile'
 import { resolveTownActorEquipment, townEquipmentActorSpecs } from './CareerTownEquipmentState'
 import {
   VETERAN_MISSION_IDS,
@@ -500,6 +500,38 @@ export function isCareerFieldTargetSpec(
   return Boolean(actorId && mission.targetActorIds.includes(actorId))
 }
 
+export function isMigratedFieldDeploymentReady(
+  mission: Pick<ActiveCareerMission, 'felineBattle' | 'commanderMission'>,
+  runtimeReady = false,
+): boolean {
+  return runtimeReady || mission.felineBattle?.ready === true || mission.commanderMission?.deploymentComplete === true
+}
+
+export function resolveMigratedPlayerMountState(
+  mission: Pick<ActiveCareerMission, 'mountState'> | undefined,
+  mountId?: CareerMountId | null,
+  profileMountArmor?: Partial<Record<CareerMountId, number>>,
+): { mountId?: CareerMountId; hp?: number; armorImpact?: number; unavailable: boolean } {
+  const effectiveId = mountId ?? mission?.mountState?.activeMountId
+  if (!effectiveId) return { unavailable: false }
+  const canonicalId = canonicalCareerMountId(effectiveId)
+  const mountState = mission?.mountState
+  const unavailable = Boolean(
+    mountState?.unavailable?.includes(effectiveId) || mountState?.unavailable?.includes(canonicalId),
+  )
+  const savedHp = mountState?.hp?.[effectiveId] ?? mountState?.hp?.[canonicalId]
+  const armorImpact = mountState?.armorImpact?.[effectiveId]
+    ?? mountState?.armorImpact?.[canonicalId]
+    ?? profileMountArmor?.[effectiveId]
+    ?? profileMountArmor?.[canonicalId]
+  return {
+    mountId: effectiveId,
+    hp: unavailable ? 0 : savedHp,
+    armorImpact,
+    unavailable,
+  }
+}
+
 /**
  * Builds the initial open-field `felineBattle` declaration when launching or migrating
  * an in-flight mission save onto the standalone field runtime.
@@ -520,6 +552,13 @@ export function createCareerFieldCheckpointSeed(
     ammo: number
     shieldImpact: number
     stats: CaptainEagleCheckpoint['playerStats']
+    mount?: {
+      mountId?: CareerMountId | null
+      hp?: number
+      armorImpactRemaining?: number
+      mounted?: boolean
+    }
+    profileMountArmor?: Partial<Record<CareerMountId, number>>
   },
   terrainHeightAt: (x: number, z: number) => number,
 ): CaptainEagleCheckpoint {
@@ -549,6 +588,25 @@ export function createCareerFieldCheckpointSeed(
   const deadPlayer = Boolean(mission.playerDead)
   const playerHp = deadPlayer ? 0
     : mission.playerHp !== undefined ? Math.min(fallbackPlayer.maxHp, mission.playerHp) : fallbackPlayer.hp
+  const migratedMount = resolveMigratedPlayerMountState(
+    mission,
+    fallbackPlayer.mount?.mountId,
+    fallbackPlayer.profileMountArmor,
+  )
+  const resolvedMountHp = migratedMount.hp ?? fallbackPlayer.mount?.hp
+  const resolvedMountArmor = migratedMount.armorImpact ?? fallbackPlayer.mount?.armorImpactRemaining ?? 0
+  const mountDead = migratedMount.unavailable || (resolvedMountHp !== undefined && resolvedMountHp <= 0)
+  const finalMountHp = resolvedMountHp === undefined ? undefined : (mountDead ? 0 : resolvedMountHp)
+  const mountIdMatchesActive = !mission.mountState?.activeMountId
+    || !migratedMount.mountId
+    || mission.mountState.activeMountId === migratedMount.mountId
+  const mounted = !deadPlayer && !mountDead && (fallbackPlayer.mount?.mounted ?? mountIdMatchesActive)
+  const playerPosition = {
+    x: fallbackPlayer.x,
+    y: fallbackPlayer.y,
+    z: fallbackPlayer.z,
+    yaw: fallbackPlayer.yaw,
+  }
   return {
     actors,
     ready: false,
@@ -557,14 +615,18 @@ export function createCareerFieldCheckpointSeed(
       hp: playerHp,
       stamina: mission.playerStamina ?? fallbackPlayer.stamina,
       dead: deadPlayer,
-      position: {
-        x: fallbackPlayer.x,
-        y: fallbackPlayer.y,
-        z: fallbackPlayer.z,
-        yaw: fallbackPlayer.yaw,
-      },
+      position: playerPosition,
       ammo: fallbackPlayer.ammo,
       shieldImpact: fallbackPlayer.shieldImpact,
+      ...(finalMountHp !== undefined ? {
+        mountHp: finalMountHp,
+        mount: {
+          hp: finalMountHp,
+          armorImpactRemaining: resolvedMountArmor,
+          mounted,
+          position: playerPosition,
+        },
+      } : {}),
     },
   }
 }

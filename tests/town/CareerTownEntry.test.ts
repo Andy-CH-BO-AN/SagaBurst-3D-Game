@@ -5,13 +5,15 @@ import { acceptCareerOutpostRelief, CAREER_OUTPOST_SESSION_KEY } from '../../src
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
-import { enterCareerTown, TOWN_ENTRY_KEY } from '../../src/town/CareerTownEntry'
+import { enterCareerTown, recoverSettledStartupMissionReturn, TOWN_ENTRY_KEY } from '../../src/town/CareerTownEntry'
+import { CAREER_MISSION_RETURN_KEY } from '../../src/town/SergeantReturn'
 import { showCommanderRetirementEnding } from '../../src/town/TownRetirementUI'
 import { TownScene } from '../../src/town/TownScene'
 import { HorseAssetLoadError } from '../../src/world/HorseAssetRegistry'
 import { CAREER_STORAGE_KEY } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
-import { claimCareerMission } from '../../src/career/CareerProfile'
+import { claimCareerMission, clearCareerMission } from '../../src/career/CareerProfile'
+import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 
 vi.mock('../../src/town/TownScene', () => ({ TownScene: { create: vi.fn() } }))
 vi.mock('../../src/town/TownUI', () => ({ installTownStyles: vi.fn() }))
@@ -353,6 +355,33 @@ describe('Captain battlefield Career entry routing', () => {
     const returned = store.load()!
     expect(returned.totalMerit).toBe(merit)
     expect(returned.civilianCommandSquad?.owners.merchant).toBe('daily')
+  })
+
+  it('marks Sergeant return when recovering claimed field/outpost missions on startup reload and stays atomic if save fails', () => {
+    const local = new MemoryStorage(), session = new MemoryStorage()
+    const base = { ...createCareerProfile('roman'), totalMerit: 4000, availableMerit: 4000, starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'] }
+    const mission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0, 'settled-bandit-reload', 'bandit', 'captain')
+    mission.friendlyActorIds = ['captain', 'soldier-1', 'soldier-2', 'soldier-3']
+    const accepted = { ...base, activeMission: mission }
+    const claimed = claimCareerMission(accepted, mission.id, 'victory', {
+      damageDealt: 100, damageTaken: 0, kills: 3, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true,
+    }).profile
+    const store = new CareerProfileStore(local)
+    expect(store.save(claimed)).toBe(true)
+
+    local.failWrites = true
+    expect(recoverSettledStartupMissionReturn(clearCareerMission(claimed, mission.id), store, claimed.activeMission?.personalSquad, session)).toBeNull()
+    expect(store.load()?.activeMission?.id).toBe(mission.id)
+    expect(session.getItem(CAREER_MISSION_RETURN_KEY)).toBeNull()
+    expect(session.getItem(TOWN_ENTRY_KEY)).toBeNull()
+
+    local.failWrites = false
+    const recovered = recoverSettledStartupMissionReturn(clearCareerMission(claimed, mission.id), store, claimed.activeMission?.personalSquad, session)
+    expect(recovered).not.toBeNull()
+    expect(store.load()?.activeMission).toBeUndefined()
+    expect(store.load()?.totalMerit).toBe(claimed.totalMerit)
+    expect(session.getItem(TOWN_ENTRY_KEY)).toBe('1')
+    expect(session.getItem(CAREER_MISSION_RETURN_KEY)).toBe('1')
   })
   it('Captain frontline and eagle reload resumes the actual Captain battle before constructing a Town scene', async () => {
     for (const kind of ['frontline', 'eagle'] as const) {

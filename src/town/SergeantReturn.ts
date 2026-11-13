@@ -96,7 +96,7 @@ function isCandidateClear(
 export function resolveSergeantReturnPoint(
   sergeant: SergeantPose,
   options: SergeantReturnOptions = {},
-): SergeantReturnPoint {
+): SergeantReturnPoint | null {
   const terrainHeight = options.terrainHeight ?? getTerrainHeight
   const heading = sergeant.yaw ?? 0
   const preferredDistance = options.distance ?? DISTANCE_CANDIDATES[0]
@@ -116,14 +116,7 @@ export function resolveSergeantReturnPoint(
       }
     }
   }
-  const x = Math.round((sergeant.x + Math.sin(heading) * preferredDistance) * 1000) / 1000
-  const z = Math.round((sergeant.z + Math.cos(heading) * preferredDistance) * 1000) / 1000
-  return {
-    x,
-    y: terrainHeight(x, z),
-    z,
-    yaw: Math.atan2(sergeant.x - x, sergeant.z - z),
-  }
+  return null
 }
 
 export function findSergeantResident<T extends SergeantResidentLike>(residents: readonly T[]): T | undefined {

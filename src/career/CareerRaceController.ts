@@ -11,11 +11,11 @@ import { BlackCatVisual } from '../world/BlackCatVisual'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import type { CareerProfile } from './CareerProfile'
-import { sergeantReturnFromResidents } from '../town/SergeantReturn'
+import { findSergeantResident, sergeantReturnFromResidents, type SergeantResidentLike } from '../town/SergeantReturn'
 import { townPlayerEntryPoint } from '../town/TownRules'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
-import { CAREER_MOUNT_INTERACTION_DISTANCE, canUseCareerMount, type CareerMountController } from './CareerMountController'
+import { CAREER_MOUNT_INTERACTION_DISTANCE, canUseCareerMount, findSafeCareerMountPosition, type CareerMountController } from './CareerMountController'
 import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, pickRaceOpponentMount, RACE_SCHEDULE_VERSION, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceId, type RaceRider, type RaceReferee, type RaceMountId } from './CareerRaceState'
 import { legalRaceStart, RACE_START, RACE_START_SLOTS, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, type RacePoint, type RacePosition } from './CareerRaceRoute'
@@ -66,9 +66,13 @@ export class CareerRaceController {
   get resultSaved(): boolean { return Boolean(this.session?.result && this.session.phase !== 'finishing' && this.read().raceRecords?.some(r => r.sessionId === this.session!.id)) }
   get canWalkBack(): boolean { return !this.player().dead && Boolean(this.captain && !this.captain.npc.dead && !this.captain.npc.hostileToPlayer) }
   get returnComplete(): boolean {
-    return this.session?.phase === 'returning' && Boolean(this.captain)
-      && Math.hypot(this.player().combatPosition.x - this.captain!.spec.x, this.player().combatPosition.z - this.captain!.spec.z) < 12
-      && Math.hypot(this.captain!.npc.combatPosition.x - this.captain!.spec.x, this.captain!.npc.combatPosition.z - this.captain!.spec.z) < 4
+    if (this.session?.phase !== 'returning' || !this.captain) return false
+    const playerPos = this.player().combatPosition
+    const captainArrived = Math.hypot(this.captain.npc.combatPosition.x - this.captain.spec.x, this.captain.npc.combatPosition.z - this.captain.spec.z) < 4
+    const nearCaptain = Math.hypot(playerPos.x - this.captain.spec.x, playerPos.z - this.captain.spec.z) < 12
+    const sergeant = findSergeantResident(this.residents.map(r => ({ spec: { ...r.spec, role: r.spec.role ?? '' }, npc: r.npc })) as readonly SergeantResidentLike[])
+    const nearSergeant = Boolean(sergeant && Math.hypot(playerPos.x - sergeant.spec.x, playerPos.z - sergeant.spec.z) < 12)
+    return captainArrived && (nearCaptain || nearSergeant)
   }
   get guideTarget(): THREE.Vector3 | null {
     const s = this.session
@@ -235,19 +239,35 @@ export class CareerRaceController {
   }
 
   /** Restore uses the existing owned-mount adapter, never a selection-only free mount. */
-  restorePlayer(): void {
+  restorePlayer(options: { preservePlacement?: boolean } = {}): void {
     const r = this.session?.player ?? this.read().racePlayerState
     if (!r || this.read().activeMission || this.read().activeOutpostMission) return
     const p = this.player()
     this.mounts.restoreRaceMount(r)
     const mount = this.mounts.activeMount
-    if (mount) {
-      mount.group.position.set(r.mountPosition.x, r.mountPosition.y, r.mountPosition.z); mount.group.rotation.y = r.mountPosition.yaw
-      if (r.mounted && !mount.dead && !r.dead) p.mountVehicle(mount)
+    const keepPlacement = Boolean(!this.session && options.preservePlacement)
+    if (keepPlacement) {
+      if (mount) {
+        if (r.mounted && !mount.dead && !r.dead) {
+          mount.group.position.set(p.group.position.x, getTerrainHeight(p.group.position.x, p.group.position.z), p.group.position.z)
+          mount.group.rotation.y = p.group.rotation.y
+          p.mountVehicle(mount)
+        } else {
+          const nearby = findSafeCareerMountPosition(p.group.position, this.obstacles, [p.group.position])
+          const pos = nearby ?? p.group.position
+          mount.group.position.set(pos.x, getTerrainHeight(pos.x, pos.z), pos.z)
+          mount.group.rotation.y = p.group.rotation.y
+        }
+      }
+    } else {
+      if (mount) {
+        mount.group.position.set(r.mountPosition.x, r.mountPosition.y, r.mountPosition.z); mount.group.rotation.y = r.mountPosition.yaw
+        if (r.mounted && !mount.dead && !r.dead) p.mountVehicle(mount)
+      }
+      if (!r.mounted || r.dead) p.dismountFromMount({ preserveWorldPosition: true })
+      p.group.position.set(r.position.x, r.position.y, r.position.z)
+      p.faceDirection(Math.sin(r.position.yaw), Math.cos(r.position.yaw)); p.syncMountTransform()
     }
-    if (!r.mounted || r.dead) p.dismountFromMount({ preserveWorldPosition: true })
-    p.group.position.set(r.position.x, r.position.y, r.position.z)
-    p.faceDirection(Math.sin(r.position.yaw), Math.cos(r.position.yaw)); p.syncMountTransform()
     p.setStamina(r.stamina)
     if (r.dead) p.takeDamage(p.maxHp * 100, this.hp)
     else p.setHp(r.hp)
@@ -417,7 +437,7 @@ export class CareerRaceController {
       position: position(active === mount && mount ? mount.group.position : p.combatPosition, p.facingYaw),
       ...(mount ? { mountHp: mount.currentHp, mountArmorImpact: mount.armorImpactRemaining, mountPosition: position(mount.group.position, mount.group.rotation.y) } : {}) }
   }
-  clear(direct = true): boolean {
+  clear(_direct = true): boolean {
     if (!this.session || !this.resultSaved) return false
     this.snapshot()
     const current = cloneCareerProfile(this.read())
@@ -427,7 +447,7 @@ export class CareerRaceController {
     const player = this.capturePlayerState()
     if (!player) return false
     let target: RacePosition | undefined
-    if (!current.townEvent?.pendingResult && (direct || player.dead)) {
+    if (!current.townEvent?.pendingResult) {
       const sergeant = this.residents.filter((r): r is RaceResident & { spec: { id: string; role: string } } =>
         r.spec.id === 'deployment' && (!r.spec.role || r.spec.role === 'deployment'))
         .map(r => ({ ...r, spec: { ...r.spec, role: 'deployment' } }))

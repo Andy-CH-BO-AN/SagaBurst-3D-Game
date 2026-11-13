@@ -14,6 +14,7 @@ import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from '../career
 import { clearCareerMission } from '../career/CareerProfile'
 import { CAREER_OUTPOST_SESSION_KEY } from '../career/CareerOutpostMission'
 import { refitTownCommandForSceneChange } from '../career/SquadRefit'
+import type { PersonalSquadMission } from '../career/CareerPersonalSquadMission'
 import { resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext'
 import { COMMANDER_LAST_STAND_ID } from '../career/CommanderMissionCatalog'
 import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
@@ -27,6 +28,25 @@ import { DUEL_ARENA_LABELS } from '../arena/DuelArenaCatalog'
 import { DUEL_ARENA_RETURN_KEY } from '../arena/DuelArenaReturn'
 import { markCareerMissionReturnToSergeant } from './SergeantReturn'
 export const TOWN_ENTRY_KEY = 'sagaburst_career_town'
+
+export function recoverSettledStartupMissionReturn(
+  clearedProfile: CareerProfile,
+  store: Pick<CareerProfileStore, 'save'>,
+  personalSquad?: PersonalSquadMission,
+  storage: Pick<Storage, 'setItem' | 'removeItem'> | undefined = typeof sessionStorage !== 'undefined' ? sessionStorage : undefined,
+  options: { setTownEntry?: boolean } = {},
+): CareerProfile | null {
+  const returned = stageMissionReturnRebuild(
+    refitTownCommandForSceneChange(clearedProfile),
+    townRoster().map(spec => ({ spec })),
+    personalSquad,
+  )
+  if (!store.save(returned)) return null
+  storage?.removeItem(CAREER_OUTPOST_SESSION_KEY)
+  if (options.setTownEntry !== false) storage?.setItem(TOWN_ENTRY_KEY, '1')
+  markCareerMissionReturnToSergeant(storage)
+  return returned
+}
 export function enterCareerTown(container: HTMLElement, launchCampaign: (config: CareerCombatLaunch) => Promise<void>, home: () => void,
   onMissionLaunchError?: (missionId: string, error: unknown) => void,
   launchTutorial?: (context: CareerTutorialLaunch) => Promise<void>): void {
@@ -148,18 +168,19 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       : active?.templateId === COMMANDER_LAST_STAND_ID && active.kind === 'commander-outpost-last-stand' ? () => createCareerCommanderOutpostLaunch(profile) : null
     if (active && captainLaunch) {
       if (profile.claimedBattleIds.includes(active.id)) {
-        const cleared = stageMissionReturnRebuild(
-          refitTownCommandForSceneChange(clearCareerMission(profile, active.id)),
-          townRoster().map(spec => ({ spec })),
+        const recovered = recoverSettledStartupMissionReturn(
+          clearCareerMission(profile, active.id),
+          store,
           active.personalSquad,
+          undefined,
+          { setTownEntry: false },
         )
-        if (!store.save(cleared)) {
+        if (!recovered) {
           status.textContent = '無法保存正式任務返回狀態，請重試。'
           button('重試返回小鎮', () => { void start(profile) })
           return false
         }
-        markCareerMissionReturnToSergeant()
-        profile = cleared
+        profile = recovered
       } else {
         form.remove()
         sessionStorage.setItem(CAREER_OUTPOST_SESSION_KEY, active.id)

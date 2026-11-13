@@ -440,7 +440,8 @@ export class TownScene {
     this.player = new Player(this.scene, profile.faction, resolveCareerHeroAsset(profile), resolveCareerOrdinaryTier(profile))
     this.bindBlockingProgression()
     this.player.setMaxHp(resolveCareerPlayerMaxHp(profile, DEFAULT_PLAYER_MAX_HP), true)
-    const townEntry = this.consumeCareerMissionReturnPoint() ?? townPlayerEntryPoint()
+    const missionReturnEntry = this.consumeCareerMissionReturnPoint()
+    const townEntry = missionReturnEntry ?? townPlayerEntryPoint()
     this.player.group.position.set(townEntry.x, getTerrainHeight(townEntry.x, townEntry.z) + .9, townEntry.z)
     this.player.group.rotation.y = townEntry.yaw
     this.player.faceDirection(Math.sin(townEntry.yaw), Math.cos(townEntry.yaw))
@@ -647,7 +648,19 @@ export class TownScene {
     await this.restoreActiveCareerMission()
     this.race.restore()
     await this.race.waitForDeployment()
-    this.race.restorePlayer()
+    this.race.restorePlayer({ preservePlacement: Boolean(missionReturnEntry) })
+    if (missionReturnEntry && this.player.currentMount) {
+      const mountedEntry = this.resolveSergeantReturnPoint()
+      if (mountedEntry) {
+        const groundY = getTerrainHeight(mountedEntry.x, mountedEntry.z)
+        this.player.currentMount.group.position.set(mountedEntry.x, groundY, mountedEntry.z)
+        this.player.currentMount.group.rotation.y = mountedEntry.yaw
+        this.player.group.position.set(mountedEntry.x, groundY + .9, mountedEntry.z)
+        this.player.faceDirection(Math.sin(mountedEntry.yaw), Math.cos(mountedEntry.yaw))
+        this.player.syncMountTransform()
+        this.orbit.setYaw(mountedEntry.yaw + Math.PI)
+      }
+    }
     if (this.player.dead && this.profile.activeRace) this.enterMissionObserver()
     await this.waitForInitialMissionDeployment(progress)
     progress('預熱城外 Bandit…')
@@ -2487,7 +2500,7 @@ export class TownScene {
       this.player.resetForScene(saved.position.x, saved.position.y, saved.position.z)
       this.spectator = null
       this.hp.setFill(this.player.hpRatio)
-    } else if (direct) {
+    } else {
       const mount = this.player.currentMount
       if (mount && saved.mounted) {
         mount.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
@@ -2498,10 +2511,8 @@ export class TownScene {
         this.player.setPosition(saved.position.x, saved.position.y, saved.position.z)
       }
     }
-    if (direct || dead) {
-      this.player.faceDirection(Math.sin(saved.position.yaw), Math.cos(saved.position.yaw))
-      this.orbit.setYaw(saved.position.yaw + Math.PI)
-    }
+    this.player.faceDirection(Math.sin(saved.position.yaw), Math.cos(saved.position.yaw))
+    this.orbit.setYaw(saved.position.yaw + Math.PI)
     this.closePanel(); this.notice = '賽事已結束，已返回小鎮。'
   }
   private updateRaceHud(): void {

@@ -29,7 +29,7 @@ import { CorgiVisual } from './world/CorgiVisual'
 import { careerHeavyPreloadPlan } from './career/HeavyCavalrySpawn'
 import { COMMANDER_IRON_LEGION_ID } from './career/HeavyCavalryMissions'
 import { createHeavyFieldDeployment, getHeavyFieldMissionDefinition, isCareerHeavyFieldBattle, type HeavyFieldDeployment } from './career/HeavyFieldMission'
-import { createCareerFieldCheckpointSeed, createCareerFieldDeployment, FIELD_BANDIT_DETECTION_RANGE, FIELD_SWEEP_CHARGE_DISTANCE, findVeteranSquadsInRange, isCareerFieldNoCommandMission, isMigratedCareerFieldMission, resolveFieldDamagedTargetId, shouldTriggerSweepAlert, type CareerFieldDeployment } from './career/CareerFieldBattle'
+import { createCareerFieldCheckpointSeed, createCareerFieldDeployment, FIELD_BANDIT_DETECTION_RANGE, FIELD_SWEEP_CHARGE_DISTANCE, findVeteranSquadsInRange, isCareerFieldNoCommandMission, isMigratedCareerFieldMission, isMigratedFieldDeploymentReady, resolveFieldDamagedTargetId, resolveMigratedPlayerMountState, shouldTriggerSweepAlert, type CareerFieldDeployment } from './career/CareerFieldBattle'
 import { createCampfireVisual } from './world/EnvironmentVisuals'
 import { createCaltropBarrier } from './world/CaltropBarrier'
 import { HEAVY_FIELD_SPECS, VETERAN_IRON_TIDE_ID, heavyCommandPlan, isHeavyFormationComplete, heavyFrontlineDistance, planVeteranCaltropDefense, veteranCaltropWorldRects, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, type HeavyPoint } from './career/HeavyCavalryMissions'
@@ -166,6 +166,7 @@ import { getT5ProfileForPreset, t5EquipmentIdsForArmy } from './battle/T5HeroCat
 import type { UnitPresetId } from './battle/UnitPresetCatalog'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
+import { populateNpcFactionGrids, selectHostileNpcGrid } from './world/HostileNpcGrid'
 import { EntityCollisionBroadPhase } from './world/EntityCollisionBroadPhase'
 import { ArrowProjectile } from './world/ArrowProjectile'
 import { DEFAULT_MOUNT_TYPE, Mount, MountState, MountType, mountTypeFromId, mountTypeFromSave, felineVariantFromMountId } from './world/Mount'
@@ -219,7 +220,7 @@ import { personalOutpostDeployment, personalRearDeployment } from './career/Pers
 import { planPersonalOutpostGround } from './career/PersonalOutpostGroundPlan'
 import { careerOutpostCommandMeritPolicy } from './career/CareerOutpostMission'
 import { careerOutpostActorId } from './career/CareerOutpostRoster'
-import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerProfile } from './career/CareerProfile'
+import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerMountId, type CareerProfile } from './career/CareerProfile'
 import { CareerMissionCheckpoint, type CareerMissionCheckpointReason } from './career/CareerMissionCheckpoint'
 import type { ActiveCareerMission, BridgeBattleDeployment } from './career/CareerMissionState'
 import { createBridgeheadRoster } from './career/CommanderMissionCatalog'
@@ -748,6 +749,7 @@ export class Game {
   private _npcSubphaseCollector: NpcSubphaseCollector | null = null
   private _npcSubphaseAggregator: NpcSubphaseAggregator | null = null
   private startingHorse: Mount | null = null
+  private startingHorseMountId?: string
   private loadedSaveMount: Mount | null = null
 
   // Enemy HUD elements
@@ -817,6 +819,7 @@ export class Game {
     [Faction.TOWN]: new SpatialGrid<NPC>(20),
     [Faction.BANDIT]: new SpatialGrid<NPC>(20),
   }
+  private readonly playerHostileNpcGrid = new SpatialGrid<NPC>(20)
   public readonly devGridStats = {
     queriesPerFrame: 0,
     returnedNeighborsAvg: 0,
@@ -1484,6 +1487,7 @@ export class Game {
       )
       this.startingHorse = startingHorse
       const ownedMountId = activeBattleConfig?.playerLoadout?.mountId
+      this.startingHorseMountId = ownedMountId
       if (this.careerProfile && ownedMountId) startingHorse.restoreArmor(this.careerProfile.activeMission?.mountState?.armorImpact?.[ownedMountId] ?? this.careerProfile.mountArmor?.[ownedMountId])
       const reliefHeading = isBridgePreview || this.bridgeLaunch ? 0 : campaignConfig?.careerMissionKind === 'outpost-relief' ? (isRoman ? Math.PI : 0) : undefined
       const mountHeading = reliefHeading ?? (isRoman ? 0 : Math.PI)
@@ -2763,7 +2767,8 @@ export class Game {
 
   private _updateMigratedFieldBattle(dt: number, mission: ActiveCareerMission): void {
     const deployment = this.careerFieldDeployment
-    if (!deployment || mission.commanderMission?.deploymentComplete !== true) return
+    const runtimeReady = this.captainEagleSpawnBatch?.ready === true && (!this.personalSquad || this.personalSquad.ready)
+    if (!deployment || !runtimeReady || !isMigratedFieldDeploymentReady(mission, runtimeReady)) return
     this.careerFieldCheckClock += dt
     if (this.careerFieldCheckClock < .25) return
     this.careerFieldCheckClock = 0
@@ -3081,6 +3086,7 @@ export class Game {
     const mission = next.activeMission!
     if (this.fieldCheckpoint) return
     if (this.felineMissionId && this.careerFieldDeployment) {
+      const playerMountId = (this.startingHorseMountId ?? next.selectedMountId) as CareerMountId | undefined
       mission.felineBattle = createCareerFieldCheckpointSeed(mission, plan, {
         hp: this.player.hp,
         maxHp: this.player.maxHp,
@@ -3092,6 +3098,13 @@ export class Game {
         ammo: this.player.arrowCount,
         shieldImpact: this.player.shield.shieldImpactRemaining,
         stats: this.battleStats.checkpoint(),
+        mount: this.startingHorse ? {
+          mountId: playerMountId,
+          hp: this.startingHorse.currentHp,
+          armorImpactRemaining: this.startingHorse.armorImpactRemaining,
+          mounted: this.player.currentMount === this.startingHorse,
+        } : undefined,
+        profileMountArmor: next.mountArmor,
       }, (x, z) => getTerrainHeight(x, z))
       if (!this.careerStore.save(next)) throw new Error('Career field roster declaration could not be saved')
       this.careerProfile = next
@@ -3209,7 +3222,9 @@ export class Game {
     }
     const mount = this.startingHorse
     if (mount) {
-      const id = this.captainEagleMissionId ? 'xongkoro' : this.felineMissionId ? this.careerProfile?.selectedMountId : this.bridgeLaunch?.battle.playerLoadout?.mountId ?? this.defenseCampaignConfig?.playerLoadout.mountId
+      const id = (this.captainEagleMissionId ? 'xongkoro'
+        : this.felineMissionId ? this.startingHorseMountId ?? this.careerProfile?.selectedMountId
+        : this.bridgeLaunch?.battle.playerLoadout?.mountId ?? this.defenseCampaignConfig?.playerLoadout.mountId) as CareerMountId | undefined
       if (id) mission.mountState = { ...mission.mountState, hp: { ...mission.mountState?.hp, [id]: mount.dead ? 0 : mount.currentHp },
         armorImpact: { ...mission.mountState?.armorImpact, [id]: mount.armorImpactRemaining },
         unavailable: [...new Set([...(mission.mountState?.unavailable ?? []), ...(mount.dead ? [id] : [])])],
@@ -3326,10 +3341,17 @@ export class Game {
     if (!saved) return
     const mount = saved.mountActorId ? this.careerVeteranActorMounts.get(saved.mountActorId) : this.startingHorse
     if (saved.mountActorId && !mount) throw new Error('Saved borrowed Career mount missing after field roster deployment')
+    const playerMountId = (this.captainEagleMissionId ? 'xongkoro'
+      : this.felineMissionId ? this.startingHorseMountId ?? this.careerProfile?.selectedMountId
+      : this.bridgeLaunch?.battle.playerLoadout?.mountId ?? this.defenseCampaignConfig?.playerLoadout.mountId) as CareerMountId | undefined
+    const migratedMount = resolveMigratedPlayerMountState(
+      this.careerProfile?.activeMission,
+      playerMountId,
+      this.careerProfile?.mountArmor,
+    )
     if (saved.mountActorId && this.startingHorse) {
-      const id = this.bridgeLaunch?.battle.playerLoadout?.mountId ?? (this.felineMissionId ? this.careerProfile?.selectedMountId : undefined)
-      this.startingHorse.restoreArmor(saved.homeMount?.armorImpactRemaining ?? (id ? this.careerProfile?.activeMission?.mountState?.armorImpact?.[id] : undefined) ?? this.startingHorse.armorImpactRemaining)
-      const hp = saved.homeMount?.hp ?? (id && this.careerProfile?.activeMission?.mountState?.hp[id])
+      this.startingHorse.restoreArmor(saved.homeMount?.armorImpactRemaining ?? migratedMount.armorImpact ?? this.startingHorse.armorImpactRemaining)
+      const hp = saved.homeMount?.hp ?? migratedMount.hp
       if (typeof hp === 'number') {
         if (hp <= 0) { this.startingHorse.takeDamage(this.startingHorse.maxHp + 1); this.player.dismountFromMount() }
         else this.startingHorse.currentHp = Math.min(this.startingHorse.maxHp, hp)
@@ -3345,8 +3367,8 @@ export class Game {
       this.player.dismountFromMount({ preserveWorldPosition: true })
     }
     if (mount) {
-      mount.restoreArmor(saved.mount?.armorImpactRemaining ?? mount.armorImpactRemaining)
-      const hp = saved.mount?.hp ?? saved.mountHp ?? this.careerProfile?.activeMission?.mountState?.hp.xongkoro
+      mount.restoreArmor(saved.mount?.armorImpactRemaining ?? (saved.mountActorId ? undefined : migratedMount.armorImpact) ?? mount.armorImpactRemaining)
+      const hp = saved.mount?.hp ?? saved.mountHp ?? (saved.mountActorId ? undefined : migratedMount.hp)
       if (hp !== undefined) {
         if (hp <= 0) { mount.takeDamage(mount.maxHp + 1); this.player.dismountFromMount() }
         else mount.currentHp = Math.min(mount.maxHp, hp)
@@ -5539,14 +5561,9 @@ export class Game {
     if (profile) t0 = performance.now()
     this.combatMountGrid.clear()
     for (const mount of this.mounts) if (!mount.dead && !mount.disposed) this.combatMountGrid.insert(mount)
-    this.npcGrid.clear()
-    for (const grid of Object.values(this.npcFactionGrids)) grid.clear()
-    for (const npc of this.npcs) {
-      if (npc.hp <= 0) continue
+    populateNpcFactionGrids(this.npcs, this.npcGrid, this.npcFactionGrids, this.playerHostileNpcGrid, npc => {
       npc.combatMountGrid = this.combatMountGrid
-      this.npcGrid.insert(npc)
-      this.npcFactionGrids[npc.faction].insert(npc)
-    }
+    })
     const npcGridMs = profile ? performance.now() - t0 : 0
 
     // 2. NPC Update
@@ -5615,9 +5632,7 @@ export class Game {
         }
       }
 
-      const hostileNpcGrid = npc.faction === Faction.PLAYER
-        ? this.npcFactionGrids[Faction.ENEMY]
-        : this.npcFactionGrids[Faction.PLAYER]
+      const hostileNpcGrid = selectHostileNpcGrid(npc.faction, this.playerHostileNpcGrid, this.npcFactionGrids)
 
       npc.update(
         dt, 
