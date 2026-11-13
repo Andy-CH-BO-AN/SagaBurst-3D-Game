@@ -1,29 +1,28 @@
-import { CareerBridgeBattleRuntime, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, commitCareerBridgeBattleResult, createCareerFelineBattleLaunch, isCareerFelineBattle, recoverClaimedCareerBridgeBattle, careerFelineHeroAssetIds, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, felineInitialTacticalOrder, markFelineVanguardCharge, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness } from '../../src/career/CareerBridgeBattle'
-import { COMMANDER_BRIDGEHEAD_ID, createBridgeheadRoster } from '../../src/career/CommanderMissionCatalog'
-import { describe, expect, it, vi, onTestFinished } from 'vitest'
-import { officialActorSquadId, officialCommandAcceptsActor } from '../../src/career/CareerCommandAuthority'
-import { claimCareerMission, clearCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
-import { acceptCommanderMission, availableCommanderMissions, COMMANDER_MISSION_CATALOG, COMMANDER_DECAPITATION_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_IRON_LEGION_ID, COMMANDER_FORMER_COMMANDER_SLOT, COMMANDER_LAST_STAND_ID, COMMANDER_SKY_RAID_ID, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_T4_MOUNTS, FELINE_T5_MOUNTS, FELINE_VANGUARD_ADVANCE_METERS, recordCommanderObjectiveDeath } from '../../src/career/CommanderMissionCatalog'
-import { remainingCommanderAttackers } from '../../src/career/CommanderOutpost'
-import { CombatEventStream, type CombatActorRef, type CombatEvent } from '../../src/combat/CombatAttribution'
-import { CommanderTownMissionController } from '../../src/career/CommanderTownMissionController'
-import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
-import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
-import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy } from '../../src/career/CareerMissionState'
-import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
-import type { NPC } from '../../src/world/NPC'
-import type { Player } from '../../src/player/Player'
 import type { Scene } from 'three'
-import { Faction } from '../../src/combat/CombatFaction'
-import { AIType } from '../../src/world/NpcAIType'
-import { MemoryStorage } from '../helpers/memoryStorage'
 import { Box3, Vector3 } from 'three'
-import { NavigationWorld } from '../../src/navigation/NavigationWorld'
-import { needsDecapitationDeployment, planDecapitationDeployment } from '../../src/career/CommanderDecapitationDeployment'
-import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, createCommanderFourGateDefenseState } from '../../src/career/CommanderFourGateDefenseState'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { ActiveMissionClock } from '../../src/career/ActiveMissionClock'
 import type { CaptainEagleCheckpoint } from '../../src/career/CaptainEagleCheckpoint'
+import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, commitCareerBridgeBattleResult, createCareerBridgeOrphanMountPlan, createCareerBridgeSpawnPlan, createCareerFelineBattleLaunch, createCareerFelineOrphanMountPlan, createCareerFelineSpawnPlan, felineInitialTacticalOrder, isCareerFelineBattle, markFelineVanguardCharge, recoverClaimedCareerBridgeBattle, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness } from '../../src/career/CareerBridgeBattle'
+import { officialActorSquadId, officialCommandAcceptsActor } from '../../src/career/CareerCommandAuthority'
+import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy } from '../../src/career/CareerMissionState'
+import { claimCareerMission, clearCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { needsDecapitationDeployment, planDecapitationDeployment } from '../../src/career/CommanderDecapitationDeployment'
+import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, createCommanderFourGateDefenseState, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
+import { acceptCommanderMission, availableCommanderMissions, COMMANDER_BRIDGEHEAD_ID, COMMANDER_DECAPITATION_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_FORMER_COMMANDER_SLOT, COMMANDER_IRON_LEGION_ID, COMMANDER_LAST_STAND_ID, COMMANDER_MISSION_CATALOG, COMMANDER_SKY_RAID_ID, createBridgeheadRoster, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_FRIENDLY_TOTAL, FELINE_T4_MOUNTS, FELINE_T5_MOUNTS, FELINE_VANGUARD_ADVANCE_METERS, recordCommanderObjectiveDeath } from '../../src/career/CommanderMissionCatalog'
+import { remainingCommanderAttackers } from '../../src/career/CommanderOutpost'
+import { CommanderTownMissionController } from '../../src/career/CommanderTownMissionController'
+import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
+import { CombatEventStream, type CombatActorRef, type CombatEvent } from '../../src/combat/CombatAttribution'
+import { Faction } from '../../src/combat/CombatFaction'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import type { Player } from '../../src/player/Player'
+import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
+import type { NPC } from '../../src/world/NPC'
+import { AIType } from '../../src/world/NpcAIType'
+import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
+import { MemoryStorage } from '../helpers/memoryStorage'
 
 function commander(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
   const profile = createCareerProfile(faction)
@@ -246,23 +245,30 @@ describe('Decapitation safe edge deployment', () => {
     expect(plan.official).toHaveLength(30); expect(plan.personal).toHaveLength(27)
     expect(plan.eaglePads).toHaveLength(3)
     const points = [plan.player, ...plan.official, ...plan.personal]
+    const overlaps: [number, number][] = []
     for (const [i, point] of points.entries()) {
       expect(Math.abs(point.x)).toBeLessThanOrEqual(347)
       expect(point.z).toBeGreaterThanOrEqual(-347)
       expect(navigation.grid.isBlocked(navigation.grid.worldToCell(point)!)).toBe(false)
       expect(navigation.areConnected(point, { x: 0, z: -127 })).toBe(true)
-      for (const other of points.slice(i + 1)) expect(Math.hypot(point.x - other.x, point.z - other.z)).toBeGreaterThanOrEqual(4.8)
+      for (let j = i + 1; j < points.length; j++) {
+        const other = points[j]
+        if (Math.hypot(point.x - other.x, point.z - other.z) < 4.8) overlaps.push([i, j])
+      }
       for (const threat of threats) expect(Math.hypot(point.x - threat.x, point.z - threat.z)).toBeGreaterThan(threat.range + 8)
     }
 
+    expect(overlaps).toEqual([])
+  })
+
+  it('rejects a deployment disconnected from the gate instead of granting a remote spawn', () => {
     const blockedNav = new NavigationWorld(bounds)
     blockedNav.rebuild([{ box: new Box3(new Vector3(-350, -10, -200), new Vector3(350, 100, -190)), isBarricade: false }])
     expect(() => planDecapitationDeployment({ navigation: blockedNav, obstacles: [], threats: [],
-      officialCount: 30, personalCount: 0, eagleCount: 0, playerEagle: false })).toThrow('deployment failed')
+      officialCount: 1, personalCount: 0, eagleCount: 0, playerEagle: false })).toThrow('deployment failed')
   })
 
 })
-
 
 describe('Last Stand stable objective recovery', () => {
 
@@ -275,7 +281,6 @@ describe('Last Stand stable objective recovery', () => {
     expect(remainingCommanderAttackers(mission, actors)).toBe(0)
   })
 })
-
 
 describe('Bridgehead official field battle', () => {
   it('grants exactly eight stable infantry squads against twelve squads of 300 mounted riders with faction-specific shared loadouts', () => {
@@ -808,7 +813,6 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(returned.careerMissionCompletionsByTier?.[5]).toBe(1)
   })
 })
-
 
 describe('Commander VII Iron Legion', () => {
   it('面對 300 名重騎兵，六貓軍團全員使用遊俠和 T5 弓，存檔往返保留先鋒與 Charge', () => {

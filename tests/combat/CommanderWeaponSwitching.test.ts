@@ -1,23 +1,23 @@
 import { Box3, Vector3, type Object3D } from 'three'
-import { DamageableObstacle } from '../../src/world/DamageableObstacle'
-import { ShieldState } from '../../src/combat/ShieldBlocking'
 import { describe, expect, it, vi } from 'vitest'
-import { Faction } from '../../src/combat/CombatFaction'
-import { Player } from '../../src/player/Player'
-import { AIState, AIType, NPC } from '../../src/world/NPC'
-import type { ObstacleData } from '../../src/world/Terrain'
-import { townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
-import type { UnitLoadout } from '../../src/battle/UnitPresetCatalog'
 import { resolveT4UnitLoadout } from '../../src/battle/T4HeroCatalog'
+import type { UnitLoadout } from '../../src/battle/UnitPresetCatalog'
 import { careerCommanderLoadout } from '../../src/career/CareerCommanderEquipment'
-import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
+import { Faction } from '../../src/combat/CombatFaction'
+import { ShieldState } from '../../src/combat/ShieldBlocking'
 import type { OutpostLayeredNavigation } from '../../src/navigation/OutpostLayeredNavigation'
-import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, PILUM_THROW_RELEASE_TIME, meleeActionTimeScale } from '../../src/world/CharacterCombatAnimator'
-import { MixerController } from '../../src/world/HumanoidAssetRegistry'
-import { axeRecoveryWeight } from '../../src/world/SwordAttachmentContract'
+import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
+import { Player } from '../../src/player/Player'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
+import { townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
+import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, meleeActionTimeScale, PILUM_THROW_RELEASE_TIME } from '../../src/world/CharacterCombatAnimator'
 import { type EquipmentPoseState } from '../../src/world/CharacterEquipmentPose'
 import type { HumanoidAnimationController } from '../../src/world/CharacterVisuals'
+import { DamageableObstacle } from '../../src/world/DamageableObstacle'
+import { MixerController } from '../../src/world/HumanoidAssetRegistry'
+import { AIState, AIType, NPC } from '../../src/world/NPC'
+import { axeRecoveryWeight } from '../../src/world/SwordAttachmentContract'
+import type { ObstacleData } from '../../src/world/Terrain'
 
 /** Real animation state owner; only the external clip/pose boundary is doubled. */
 function combatAnimator(getMeleeTiming?: HumanoidAnimationController['getMeleeTiming'], weapon: 'lance' | 'axe' = 'lance') {
@@ -419,7 +419,6 @@ function selection(overrides: Partial<SelectionActor> = {}) {
   return { actor, target, player, select }
 }
 
-
 interface TemporaryLoadoutActor {
   arrows: number
   rangedActive: boolean
@@ -488,8 +487,6 @@ describe('Reversible NPC weapon choice', () => {
     h.select([hostile])
     expect(h.actor.rangedActive).toBe(false)
   })
-
-
 
   it('keeps the eagle bow for vertically separated ground threats until physical melee contact is possible', () => {
     const h = selection({ mount: { flight: {} }, eaglePilot: { canUseMelee: false }, combatPosition: new Vector3(0, 5, 0) })
@@ -652,7 +649,6 @@ describe('Reversible NPC weapon choice', () => {
     expect(h.actor.arrows).toBe(12)
   })
 
-
   it('falls back to melee when ammunition is exhausted', () => {
     const h = selection({ arrows: 0 })
     const nearby: NPC[] = []
@@ -687,7 +683,6 @@ describe('Reversible NPC weapon choice', () => {
     expect(h2.actor.animator.cancel).not.toHaveBeenCalled()
   })
 })
-
 
 it('preserves merchant fixed gear with a purchased horse and switches only its existing melee weapon between attacks', () => {
   const actor = { townCombatRole: 'merchant', originalCombatEquipment: null,

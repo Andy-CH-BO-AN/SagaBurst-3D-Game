@@ -1,24 +1,26 @@
+import { Box3, Vector3, type Scene } from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
-import { Vector3, type Scene } from 'three'
-import { CareerDuelController, persistsDuelTravel, selectCareerDuelRoster, duelLoadout, type CareerDuelOpponentRequest, type CareerDuelVenue } from '../../src/career/CareerDuelController'
-import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
-import { NavigationWorld } from '../../src/navigation/NavigationWorld'
-import type { Player } from '../../src/player/Player'
-import type { NPC } from '../../src/world/NPC'
-import type { Mount } from '../../src/world/Mount'
-import type { TownWorld } from '../../src/town/TownWorld'
-import { townSitePoint, type TownActorSpec } from '../../src/town/TownRules'
-import { getTerrainHeight } from '../../src/world/Terrain'
+import { CareerDuelArenaScene } from '../../src/arena/CareerDuelArenaScene'
 import { type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
-import { careerDuelArena, duelCombatSeconds, resolveCareerDuelOutcome, isUnarmedDuelUnlocked, isIllegalUnarmedDuelDamage, careerDuelOpponentHealth, createCareerTutorialDuelMission, CAREER_DUEL_TEMPLATE_ID, createCareerDuelMission, isCareerDuelUnlocked, type CareerDuelTier } from '../../src/career/CareerDuelState'
 import { careerDuelClassOptions, resolveCareerDuelClass } from '../../src/career/CareerDuelClasses'
+import { CareerDuelController, duelLoadout, persistsDuelTravel, selectCareerDuelRoster, type CareerDuelOpponentRequest, type CareerDuelVenue } from '../../src/career/CareerDuelController'
+import { CAREER_DUEL_TEMPLATE_ID, careerDuelArena, careerDuelOpponentHealth, createCareerDuelMission, createCareerTutorialDuelMission, duelCombatSeconds, isCareerDuelUnlocked, isIllegalUnarmedDuelDamage, isUnarmedDuelUnlocked, resolveCareerDuelOutcome, type CareerDuelTier } from '../../src/career/CareerDuelState'
 import { acceptsCareerMissionStat } from '../../src/career/CareerMissionState'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import type { CombatEvent } from '../../src/combat/CombatAttribution'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import type { Player } from '../../src/player/Player'
+import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
+import { DUEL_ARENA_HALF_SIZE, findTownDuelArena, townDuelAreaClear } from '../../src/town/TownDuelArena'
+import { TOWN_CITY_ROADS, TOWN_DUEL_CENTER, TOWN_LOCAL_ROADS, TOWN_MOUNTED_MISSION_MUSTER } from '../../src/town/TownLayout'
+import { townRoster, townSitePoint, type TownActorSpec } from '../../src/town/TownRules'
+import type { TownWorld } from '../../src/town/TownWorld'
+import type { Mount } from '../../src/world/Mount'
+import type { NPC } from '../../src/world/NPC'
 import { Faction } from '../../src/world/NPC'
+import { getTerrainHeight } from '../../src/world/Terrain'
 import { MemoryStorage } from '../helpers/memoryStorage'
-import { CareerDuelArenaScene } from '../../src/arena/CareerDuelArenaScene'
 
 const stats = { damageDealt: 160, damageTaken: 20, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
 
@@ -454,7 +456,6 @@ describe('Career Duel outcome and combat attribution', () => {
   })
 })
 
-
 function duelDamage(method: 'melee' | 'projectile' | 'mount-impact' = 'melee', weaponId = 'unarmed'): CombatEvent {
   return { type: 'damage_applied', source: { actorId: 'player', actorType: 'player', allegiance: Faction.PLAYER, characterFaction: 'roman' },
     target: { targetId: 'soldier-1', targetType: 'npc', name: 'opponent' }, method, weaponId,
@@ -668,3 +669,20 @@ describe('Career Duel hero class selection', () => {
     expect(failed.controller.opponent).toBeNull()
   })
 })
+
+it('keeps duel arena clear of unrelated residents, obstacles, riding roads and mounted muster', () => {
+    const roster = townRoster(), navigation = { areConnected: () => true }
+    const open = findTownDuelArena([], navigation, roster)
+    expect(open).not.toBeNull()
+    const visitor = { ...roster.find(s => s.role === 'civilian')!, id: 'civilian-visitor', x: TOWN_DUEL_CENTER.x, z: TOWN_DUEL_CENTER.z }
+    expect(findTownDuelArena([], navigation, [...roster, visitor])).toBeNull()
+    expect(findTownDuelArena([{ isBarricade: false, box: new Box3(new Vector3(-100, -100, -100), new Vector3(200, 100, 100)) }], navigation, roster)).toBeNull()
+
+    const area = open!
+    const box = (x: number, z: number, half: number) => new Box3(new Vector3(x - half, -100, z - half), new Vector3(x + half, 100, z + half))
+    expect(townDuelAreaClear(box(area.x, area.z, DUEL_ARENA_HALF_SIZE))).toBe(true)
+    for (const road of [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS]) {
+      expect(townDuelAreaClear(box((road.ax + road.bx) / 2, (road.az + road.bz) / 2, 1))).toBe(false)
+    }
+    expect(townDuelAreaClear(box(TOWN_MOUNTED_MISSION_MUSTER.x, TOWN_MOUNTED_MISSION_MUSTER.z, 1))).toBe(false)
+  })

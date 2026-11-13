@@ -1,10 +1,24 @@
+import * as THREE from 'three'
+import { Box3, Matrix4, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
-import { MOUNT_MOVEMENT_RADIUS } from '../../src/world/Mount'
+import { NavigationPathFollower } from '../../src/navigation/NavigationPathFollower'
 import {
-  architectureSpec, architectureRuinCorridors, CIVIC_BUILDING_KINDS,
+  NavigationWorld,
+} from '../../src/navigation/NavigationWorld'
+import {
+  architectureRuinCorridors,
+  architectureSpec,
+  CIVIC_BUILDING_KINDS,
+  expandedHrCenter,
+  hrFloorNavigationEdges,
   type ArchitectureCollider, type ArchitectureFaction, type BuildingSpec, type LocalRect,
 } from '../../src/town/architecture/ArchitectureSpecs'
+import { resolveTownHRLayout, townHrLocalMuster } from '../../src/town/TownHRLayout'
+import { TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, townRoadIntersectsBox } from '../../src/town/TownLayout'
+import { rampNavigationSides, surfaceBox } from '../../src/town/TownRamparts'
 import { stableHorsePositions, TOWN_SITES } from '../../src/town/TownRules'
+import { MOUNT_MOVEMENT_RADIUS } from '../../src/world/Mount'
+import { findBlockingObstacleAlongPath, resolveObstacleCollision, type ObstacleData } from '../../src/world/Terrain'
 
 const FACTIONS: readonly ArchitectureFaction[] = ['roman', 'viking']
 const SPECS: readonly BuildingSpec[] = FACTIONS.flatMap(faction => CIVIC_BUILDING_KINDS.map(kind => architectureSpec(faction, kind)))
@@ -85,4 +99,71 @@ describe('Town architecture plans', () => {
     }
   })
 
+})
+
+it('從高入口兩側返回時經坡腳走入，避開樓板側緣而不增加實體牆', () => {
+    const ramp = { startX: 0, startZ: 6, dirX: 0, dirZ: -1, startY: 0, topY: 2,
+      length: 6, landing: 0, halfWidth: 4.2, mounted: true }
+    const floor = { ...ramp, startZ: -10, dirZ: 1, startY: 2, length: 10, halfWidth: 12 }
+    const sides = rampNavigationSides(ramp)
+    const perimeter = hrFloorNavigationEdges({ body: { minX: -12, maxX: 12, minZ: -10, maxZ: 0 },
+      portals: [{ x: 0, z: 0, yaw: 0, width: 8.4, doorWidth: 6.4, height: 6.2, approach: 6 }] })
+      .map(e => ({ box: new THREE.Box3(new THREE.Vector3(e.minX - .02, -.4, e.minZ - .02),
+        new THREE.Vector3(e.maxX + .02, 2.75, e.maxZ + .02)), isBarricade: false, physicalPassable: true }))
+    const obstacles: ObstacleData[] = [
+      ...[ramp, floor].map(walkSurface => ({ box: surfaceBox(walkSurface), walkSurface,
+        solidBelow: -.4, navigationPassable: true, isBarricade: false })),
+      ...sides, ...perimeter,
+    ]
+    const world = new NavigationWorld({ minX: -16, maxX: 16, minZ: -14, maxZ: 14 })
+    world.sync(obstacles)
+    const goal = new THREE.Vector3(0, 2, -6), out = new THREE.Vector3()
+    for (const side of [-1, 1]) {
+      const p = new THREE.Vector3(side * 6, 0, 1), follower = new NavigationPathFollower()
+      let velocityY = 0, onGround = true
+      for (const target of [goal, p.clone()]) {
+        for (let frame = 0; frame < 600 && p.distanceTo(target) > .25; frame++) {
+          world.beginFrame()
+          const route = follower.resolveMoveTarget(p, target, world,
+            findBlockingObstacleAlongPath(p, target, 1, 2.6, 0, obstacles) !== null, out)
+          const previous = p.clone(), direction = out.clone().sub(p).setY(0), distance = direction.length()
+          if (route === 'direct' || route === 'path') p.addScaledVector(direction.normalize(), Math.min(.12, distance))
+          velocityY -= 22 / 60; p.y = Math.max(0, p.y + velocityY / 60)
+          const hit = resolveObstacleCollision(p, previous, velocityY, onGround, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+          velocityY = hit.velocityY; onGround = hit.onGround
+        }
+        expect(p.distanceTo(target), `入口 ${side < 0 ? '左' : '右'}側`).toBeLessThan(.25)
+      }
+      // Navigation guidance cannot become invisible body/projectile geometry.
+      const crossing = new THREE.Vector3(side * 3.9, 0, 3), before = new THREE.Vector3(side * 4.5, 0, 3)
+      resolveObstacleCollision(crossing, before, 0, true, 1, 2.6, 0, sides, { mountedSurfaces: true })
+      expect(crossing.toArray()).toEqual([side * 3.9, 0, 3])
+    }
+    expect(sides.every(side => side.projectilePassable)).toBe(true)
+  })
+
+it('fits mounted HR reserves under the roof and leaves its public approach clear', () => {
+  // Population exclusion is owned by TownResidentLayout; the interior plan needs no residents.
+  const roads = [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS]
+  for (const faction of ['roman', 'viking'] as const) {
+    const service = resolveTownHRLayout(faction, [], roads)
+    const slots = townHrLocalMuster(service), { spec, hall } = expandedHrCenter(faction, slots)
+    const worldHall = new Box3(new Vector3(hall.body.minX, -100, hall.body.minZ), new Vector3(hall.body.maxX, 100, hall.body.maxZ))
+      .applyMatrix4(new Matrix4().makeRotationY(service.site.yaw)).translate(new Vector3(service.site.x, 0, service.site.z))
+    expect(roads.some(road => townRoadIntersectsBox(road, worldHall, 1))).toBe(false)
+    const failures = slots.flatMap((p, i) => {
+      const inner = spec.interior!
+      const outside = p.x - 2.2 < inner.minX || p.x + 2.2 > inner.maxX || p.z - 2.2 < inner.minZ || p.z + 2.2 > inner.maxZ
+      const blocked = spec.colliders.some(c => c.role !== 'roof' && c.role !== 'overhead'
+        && p.x + 2.2 > c.box[0] && p.x - 2.2 < c.box[3] && p.z + 2.2 > c.box[2] && p.z - 2.2 < c.box[5])
+      const roof = spec.colliders.some(c => c.role === 'roof' && p.x >= c.box[0] && p.x <= c.box[3] && p.z >= c.box[2] && p.z <= c.box[5] && c.box[1] - spec.floorY >= 5.5)
+      return outside || blocked || !roof ? [i] : []
+    })
+    expect(failures).toEqual([])
+    // Mounted HR officer must leave a 6m-wide central approach open.
+    const dx = service.officer.x - service.site.x, dz = service.officer.z - service.site.z
+    const localSide = Math.cos(service.site.yaw) * dx - Math.sin(service.site.yaw) * dz
+    expect(Math.abs(localSide) - 1.25).toBeGreaterThanOrEqual(3)
+
+  }
 })

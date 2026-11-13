@@ -1,28 +1,30 @@
-import { officialCommandHudLabel, resolveCommanderTownTargetLabel } from '../../src/career/CommanderTownSquadLabels'
-import { commanderGateDefenseSlots } from '../../src/career/CommanderTownRoster'
-import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
-import { TownAirCommandSquadController } from '../../src/town/TownAirCommandSquadController'
-import { TOWN_AUTONOMOUS_GUARD_IDS } from '../../src/town/TownNativeGuardIdentity'
 import { Vector3 } from 'three'
-import type { Player } from '../../src/player/Player'
-import { CivilianCommandSquadController, type CivilianCommandResident } from '../../src/town/CivilianCommandSquadController'
-import { civilianCommandRoster } from '../../src/career/CivilianCommandAuthority'
-import { townRoster } from '../../src/town/TownRules'
-import { describe,expect,it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { OfficialCommandAuthority } from '../../src/career/CareerCommandAuthority'
-import { cloneOfficialCommandAuthority,createMissionCommandAuthority,officialActorSquadId,officialCommandAcceptsActor,officialCommandIsPlayerControlled,officialCommandSquads,officialMissionSourcePolicy,parseOfficialCommandAuthority,parseTownCommandSquad,townCommandIsPlayerControlled } from '../../src/career/CareerCommandAuthority'
+import { cloneOfficialCommandAuthority, createMissionCommandAuthority, officialActorSquadId, officialCommandAcceptsActor, officialCommandIsPlayerControlled, officialCommandSquads, officialMissionSourcePolicy, parseOfficialCommandAuthority, parseTownCommandSquad, townCommandIsPlayerControlled } from '../../src/career/CareerCommandAuthority'
+import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
-import { acceptCareerOutpost,acceptCareerOutpostRelief } from '../../src/career/CareerOutpostMission'
-import { cloneCareerProfile,createCareerProfile } from '../../src/career/CareerProfile'
-import { CAREER_STORAGE_KEY,CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { acceptCareerOutpost, acceptCareerOutpostRelief } from '../../src/career/CareerOutpostMission'
+import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
+import { cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { isTownCommandRevokedByRetirement, revokeRetirementTownCommandClaims } from '../../src/career/CareerRetirementCommand'
+import { civilianCommandRoster } from '../../src/career/CivilianCommandAuthority'
+import { buildCommanderAuthorityForMission } from '../../src/career/CommanderMissionAcceptance'
+import { commanderGateDefenseSlots } from '../../src/career/CommanderTownRoster'
+import { officialCommandHudLabel, resolveCommanderTownTargetLabel } from '../../src/career/CommanderTownSquadLabels'
+import { acceptVeteranMission } from '../../src/career/VeteranMission'
 import type { CombatActorRef } from '../../src/combat/CombatAttribution'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
-import { Faction } from '../../src/world/NPC'
 import { MountArmor } from '../../src/combat/MountArmor'
+import type { Player } from '../../src/player/Player'
+import { CivilianCommandSquadController, type CivilianCommandResident } from '../../src/town/CivilianCommandSquadController'
+import { TownAirCommandSquadController } from '../../src/town/TownAirCommandSquadController'
+import { TOWN_AUTONOMOUS_GUARD_IDS } from '../../src/town/TownNativeGuardIdentity'
+import { townRoster } from '../../src/town/TownRules'
 import { MountType } from '../../src/world/Mount'
+import { Faction } from '../../src/world/NPC'
 import { MemoryStorage } from '../helpers/memoryStorage'
-import { isTownCommandRevokedByRetirement, revokeRetirementTownCommandClaims } from '../../src/career/CareerRetirementCommand'
-import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
 
 describe('Saved official command membership', () => {
   it('round-trips returning town members without refilling wounds or dead mounts', () => {
@@ -302,7 +304,6 @@ describe('Commander saved command grant', () => {
 
 })
 
-
 function acceptedOutpost(kind: 'outpost-defense' | 'outpost-relief') {
   const current = { ...createCareerProfile('roman'), rank: 'commander' as const, totalMerit: 20000,
     completedOutpostStages: [1, 2, 3] as const, ownedMounts: ['horse' as const] }
@@ -495,3 +496,20 @@ describe('Civilian and merchant borrowed mount checkpoints', () => {
     expect(h2.actor.dead).toBe(true)
   })
 })
+
+it('uses Veteran authored squads with distinct pending reinforcement groups at fresh Commander acceptance', () => {
+    const profile = acceptVeteranMission(commander(), 'veteran-dread-outpost', { missionId: 'grouped-veteran' })!
+    const mission = profile.activeMission!, authority = buildCommanderAuthorityForMission(profile, mission)!
+    expect(officialCommandSquads(authority).map(squad => [squad.squadId, squad.actorIds.length]))
+      .toEqual([[1, 24], [2, 25], [3, 25], [4, 25], [5, 25], [6, 25]])
+    expect(new Set(authority.actorIds)).toEqual(new Set([...mission.friendlyActorIds, ...mission.reinforcementActorIds!]))
+    expect(officialActorSquadId(authority, mission.reinforcementActorIds![0])).toBe(5)
+    expect(officialActorSquadId(authority, mission.reinforcementActorIds![1])).toBe(6)
+    expect(mission.officialSquad).toBeUndefined()
+    expect(buildCommanderAuthorityForMission({ ...profile, rank: 'captain' }, mission)).toBeUndefined()
+    expect(buildCommanderAuthorityForMission(profile, { ...mission, kind: 'duel' })).toBeUndefined()
+    expect(buildCommanderAuthorityForMission(profile, { ...mission, phase: 'RETURNING' })).toBeUndefined()
+    expect(buildCommanderAuthorityForMission(profile, { ...mission, officialSquad: authority })).toBeUndefined()
+  })
+
+const commander = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'commander', totalMerit: 20000 })

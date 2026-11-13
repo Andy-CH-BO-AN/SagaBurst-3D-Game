@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AssetLoadTimeout, OnDemandAssets } from '../../src/assets/OnDemandAssets'
-import { ARMORS } from '../../src/rpg/ArmorDatabase'
-import { careerShopProduct } from '../../src/career/CareerShopCatalog'
-import { FACTION_SHIELD_BANDS } from '../../src/combat/FactionShieldGeometry'
 
-describe('Optional Byzantine equipment loading', () => {
+describe('OnDemandAssets', () => {
   const TIMEOUT = 1000, RETRY = 500
   const bounded = (loader: (id: 'a', signal: AbortSignal) => Promise<string>) => new OnDemandAssets<'a', string>(loader, { timeoutMs: TIMEOUT, retryDelayMs: RETRY })
   it('deduplicates concurrent requests, retries after a failure and loads a success only once', async () => {
@@ -78,24 +75,26 @@ describe('Optional Byzantine equipment loading', () => {
   })
 })
 
-describe('Centurion Aquila shield contracts', () => {
-  it('validates Aquila shield as a 48-impact T4 shop item with custom shield bands', () => {
-    expect(ARMORS.centurion_aquila_shield_t4).toMatchObject({ tier: 4, shieldImpactMax: 48 })
-    expect([ARMORS.roman_officer_shield_t4.shieldImpactMax, ARMORS.paladin_shield_t4.shieldImpactMax]).toEqual([48, 48])
-    expect(careerShopProduct('centurion_aquila_shield_t4')).toMatchObject({ category: 'armor', tier: 4, price: 1440 })
-    const bands = FACTION_SHIELD_BANDS.centurion_aquila_shield_t4
-    expect(bands.length).toBeGreaterThan(20)
-    expect(bands).not.toEqual(FACTION_SHIELD_BANDS.roman_officer_shield_t4)
+it('rejects pending and future callers after disposal even when the loader ignores abort', async () => {
+  vi.useFakeTimers()
+  let finish!: (value: string) => void
+  let signal!: AbortSignal
+  const loader = vi.fn((_id: string, abort: AbortSignal) => {
+    signal = abort
+    return new Promise<string>(resolve => { finish = resolve })
   })
-})
-
-describe('Viking Dragonward shield contracts', () => {
-  it('validates Dragonward shield as a 48-impact T4 shop shield with custom shield bands', () => {
-    expect(ARMORS.viking_dragonward_shield_t4).toMatchObject({ tier: 4, shieldImpactMax: 48 })
-    expect(ARMORS.viking_berserker_shield_t5.shieldImpactMax).toBe(96)
-    expect(careerShopProduct('viking_dragonward_shield_t4')).toMatchObject({ category: 'armor', tier: 4, price: 1440 })
-    const bands = FACTION_SHIELD_BANDS.viking_dragonward_shield_t4
-    expect(bands.length).toBeGreaterThan(20)
-    expect(bands).not.toEqual(FACTION_SHIELD_BANDS.viking_berserker_shield_t5)
-  })
+  const assets = new OnDemandAssets(loader, { timeoutMs: 100, retryDelayMs: 200 })
+  try {
+    const request = assets.load('item'), rejected = expect(request).rejects.toThrow('OnDemandAssets disposed')
+    assets.dispose()
+    expect(signal.aborted).toBe(true)
+    await rejected
+    finish('late')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(assets.get('item')).toBeUndefined()
+    await expect(assets.load('item')).rejects.toThrow('OnDemandAssets disposed')
+    expect(assets.poll('item')).toBeUndefined()
+    expect(loader).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { assets.dispose(); vi.useRealTimers() }
 })
