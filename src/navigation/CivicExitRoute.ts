@@ -5,14 +5,15 @@ import { NavigationGrid, type NavigationCell } from './NavigationGrid'
 
 /** Clearance grid for one civic hall. Local to the hall; the global A* grid is untouched. */
 export const CIVIC_EXIT_CELL_SIZE = 0.5
-/** Frames without progress before a mounted exit is abandoned to ordinary target fallback. */
+/** Frames without progress before the exit replans from where the body stands. A jam alone never
+ * fails the exit: only a clearance route that is sealed through the doorway does. */
 export const CIVIC_EXIT_STALL_FRAMES = 180
 const PROGRESS_DISTANCE = 0.5
 const WAYPOINT_ARRIVAL = 0.35
 const REPLAN_DISTANCE_SQ = 4
 const OUTSIDE_CLEARANCE = 1
 const INSIDE_ALIGNMENT = 2.5
-const GRID_MARGIN = 3
+const GRID_MARGIN = 6
 
 export interface CivicDoor {
   /** Door centre on the wall plane at floor height. */
@@ -133,8 +134,8 @@ export class CivicExitRoute {
     const { position: p, goal: g, halls, revision } = request
     if (this.door) {
       if (this.passedDoor(p)) { this.clear(); return null }
-      // Topology changes (e.g. a wall breach) invalidate the cached route; replan from here.
-      if (revision !== this.revision) this.clear()
+      // Topology changes (e.g. a wall breach) or a long jam at the door replan from here.
+      if (revision !== this.revision || this.stalledFrames > CIVIC_EXIT_STALL_FRAMES) this.clear()
     }
     if (!this.door) {
       const hall = halls.find(h => insideHall(h, p))
@@ -172,16 +173,17 @@ export class CivicExitRoute {
     return false
   }
 
+  /** Routes to the point beyond the ramp, so a doorway sealed for the body fails here, statically. */
   private route(grid: NavigationGrid, p: THREE.Vector3, door: CivicDoor): THREE.Vector3[] | null {
+    // Aim past the release line so the body crosses it before the final waypoint is reached.
+    const beyond = door.threshold.clone().addScaledVector(door.outward, door.approach + OUTSIDE_CLEARANCE + .5)
     const start = grid.findNearestWalkableCell(p, 2)
-    const inside = grid.findNearestWalkableCell(door.inside, 2)
-    if (!start || !inside) return null
-    const cells: NavigationCell[] | null = start.x === inside.x && start.z === inside.z ? [inside] : grid.findPathCells(start, inside)
+    const goal = grid.findNearestWalkableCell(beyond, 2)
+    if (!start || !goal) return null
+    const cells: NavigationCell[] | null = start.x === goal.x && start.z === goal.z ? [goal] : grid.findPathCells(start, goal)
     if (!cells) return null
     const points = cells.map(cell => grid.cellToWorld(cell, door.floorY))
-    points.push(door.threshold.clone())
-    // Aim past the release line so the body crosses it before the final waypoint is reached.
-    points.push(door.threshold.clone().addScaledVector(door.outward, door.approach + OUTSIDE_CLEARANCE + .5))
+    points.push(beyond)
     return points
   }
 
@@ -195,11 +197,8 @@ export class CivicExitRoute {
     if (p.distanceTo(this.progressAnchor) >= PROGRESS_DISTANCE) {
       this.progressAnchor.copy(p)
       this.stalledFrames = 0
-    } else if (++this.stalledFrames > CIVIC_EXIT_STALL_FRAMES) {
-      this.failedRevision = this.revision
-      this.failedAt.copy(p)
-      this.clear()
-      return { kind: 'blocked' }
+    } else {
+      this.stalledFrames++
     }
     this.out.copy(waypoints[this.index])
     return { kind: 'walk', target: this.out }

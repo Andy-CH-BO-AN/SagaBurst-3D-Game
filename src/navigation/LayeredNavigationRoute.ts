@@ -33,6 +33,8 @@ export interface LayeredNavigationStep {
   tower: boolean
   breach?: ObstacleData
   approachReached?: boolean
+  /** A mounted body leaving a civic hall: steered at narrow-doorway pace, never charged. */
+  civicExit?: boolean
 }
 
 /** Joins existing Town/Outpost routes to an actor's existing ground follower.
@@ -64,7 +66,7 @@ export class LayeredNavigationRoute {
       if (exit) {
         const step = this.step
         step.route = exit.kind === 'walk' ? 'path' : 'unreachable'
-        step.confirmedLayeredStep = false; step.tower = false
+        step.confirmedLayeredStep = false; step.tower = false; step.civicExit = exit.kind === 'walk' ? true : undefined
         if (exit.kind === 'walk') out.copy(exit.target)
         return step
       }
@@ -75,7 +77,7 @@ export class LayeredNavigationRoute {
     }
     this.gateApproach = null
     const step = this.step
-    step.route = 'direct'; step.confirmedLayeredStep = false; step.tower = false
+    step.route = 'direct'; step.confirmedLayeredStep = false; step.tower = false; step.civicExit = undefined
     const town = !request.flying ? world?.townNav?.resolveMoveTarget(position, goal, out,
       request.entranceId ?? this.transitEntranceId, request.mounted, request.sectorId, request.actorId) : null
     if (town) {

@@ -87,6 +87,7 @@ import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { ChaseTargetCoordinator } from '../navigation/ChaseTargetCoordinator'
 import { NavigationPathFollower, type NavigationRouteKind } from '../navigation/NavigationPathFollower'
 import { LayeredNavigationRoute, type LayeredNavigationRequest, type LayeredNavigationStep } from '../navigation/LayeredNavigationRoute'
+import { steerCivicExitRider } from '../movement/CivicExitSteering'
 import {
   clampFollowSlotToDeck,
   clampFollowSlotToBridge,
@@ -3499,7 +3500,7 @@ export class NPC {
             const endpoint = this._tmpFaceDir.copy(this.mount.group.position).addScaledVector(moveDir, this.mount.baseSpeed * (dt + .15))
             if (findBlockingObstacleAlongPath(this.mount.group.position, endpoint, NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) moveDir.set(0, 0, 0)
           }
-        } else if (eligibleCavalry && !siegeObstacle && !this.siegeBypassTarget && !layeredStep?.confirmedLayeredStep) {
+        } else if (eligibleCavalry && !siegeObstacle && !this.siegeBypassTarget && !layeredStep?.confirmedLayeredStep && !layeredStep?.civicExit) {
           const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
           const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
           const maxDist = layeredStep?.tower
@@ -3526,6 +3527,17 @@ export class NPC {
             this.tacticalOrder === 'charge',
             maxDist,
           )
+        } else if (this.mount && layeredStep?.civicExit && moveDir.lengthSq() > .0001) {
+          // Narrow civic doorway: turn in place, pace below charge speed, never sprint,
+          // and stop at the waypoint so the body cannot overshoot the threshold.
+          const waypointDistance = Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z)
+          const steer = steerCivicExitRider(this.mount.group.rotation.y, Math.atan2(moveDir.x, moveDir.z), waypointDistance, this.mount.baseSpeed, dt)
+          this.mount.group.rotation.y = steer.yaw; this.group.rotation.y = steer.yaw
+          this.chargeSprintLatched = false; this.isSprinting = false
+          if (steer.speed > 0) {
+            this.visualMovementSpeed = Math.max(this.visualMovementSpeed, steer.speed)
+            this.mount.addControlledMovement(moveDir, steer.speed, dt)
+          }
         } else {
           if (this.isMounted && layeredStep?.confirmedLayeredStep && moveDir.lengthSq() > .0001) {
             // Turn within the landing instead of driving a wide charge arc off
