@@ -1,3 +1,5 @@
+import { ArenaPanel, CareerArenaSession, type ArenaSettlement } from './CareerArenaSession'
+import { bindWindowResize, createSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO } from '../rendering/SceneRenderer'
 import { prisonFormation } from './PrisonBreakLayout'
 import { townRoster } from '../town/TownRules'
 import { commitPrisonBreakReturn } from '../career/CareerMissionReturnRecovery'
@@ -14,7 +16,7 @@ import {
   arenaTrialRestorablePlan, arenaTrialRoster, arenaTrialUnitSpec, careerArenaTrial, resolveArenaTrialEnd,
   type ArenaTrialActorState, type ArenaTrialEndReason, type ArenaTrialState,
 } from '../career/CareerArenaTrials'
-import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
+import { clearCareerMission, cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { resolveCareerHeroAsset, resolveCareerOrdinaryTier, resolveCareerPlayerMaxHp } from '../career/CareerPlayerProfile'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
@@ -73,6 +75,7 @@ interface Body {
   pickupSwordIndex?: number
 }
 interface Shot { arrow: ArrowProjectile; player: boolean; source?: NPC; age: number }
+interface TrialSettlement extends ArenaSettlement { readonly reason?: ArenaTrialEndReason }
 interface PendingSettlement { readonly outcome: CareerMissionOutcome; readonly reason?: ArenaTrialEndReason; readonly player: PlayerBattleStats }
 
 let markerTexture: THREE.CanvasTexture | null = null
@@ -148,8 +151,28 @@ export class CareerArenaCombatScene {
   private initializationComplete = false
   private readonly aimPoint = new THREE.Vector3()
 
+  /** Ordinary trials keep dev's shared save/session owner; prison has a different fixed-reward receipt. */
+  private readonly session?: CareerArenaSession<TrialSettlement>
+  private localProfile: CareerProfile
   private constructor(private readonly container: HTMLElement, private readonly renderer: THREE.WebGLRenderer,
-    private profile: CareerProfile, private readonly arenaId: DuelArenaId, private readonly callbacks: CareerArenaTrialCallbacks) {}
+    profile: CareerProfile, private readonly arenaId: DuelArenaId, private readonly callbacks: CareerArenaTrialCallbacks) {
+    this.localProfile = profile
+    if (!profile.activeMission?.prisonBreak) this.session = new CareerArenaSession<TrialSettlement>(profile, {
+      noun: '試煉', panel: new ArenaPanel('arena-trial-panel'), store: this.store, skills: this.skills, sound: this.sound, input: this.input,
+      player: () => this.player,
+      onClaiming: () => { this.phase = 'result' },
+      stageClaim: (staged, settlement) => {
+        if (settlement.reason && staged.activeMission?.arenaTrial) staged.activeMission.arenaTrial.endReason = settlement.reason
+      },
+      openResult: result => this.openResult(result),
+      leave: () => this.leave(),
+    })
+  }
+
+  private get profile(): CareerProfile { return this.session?.profile ?? this.localProfile }
+  private set profile(next: CareerProfile) { this.localProfile = next }
+  private get panelOpen(): boolean { return this.session?.panel.isOpen ?? Boolean(this.panel) }
+  private get settlementPending() { return this.session?.pendingSettlement ?? this.pendingSettlement }
 
   private get prison() { return this.profile.activeMission?.prisonBreak }
   /** A runtime roster view only. The saved parent battle and its stats are never replaced. */
@@ -168,20 +191,15 @@ export class CareerArenaCombatScene {
     const profile = new CareerProfileStore().loadChecked().profile
     const trial = profile?.activeMission?.prisonBreak?.combat ?? careerArenaTrial(profile?.activeMission)
     if (!profile || !trial || profile.activeMission?.prisonBreak?.stage === 'captured') throw new Error('沒有可載入的競技場軍團試煉')
-    const renderer = new THREE.WebGLRenderer({ antialias: true })
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5))
-    renderer.setSize(innerWidth, innerHeight)
-    renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
-    renderer.outputColorSpace = THREE.SRGBColorSpace
-    renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = trial.arenaId === 'roman-colosseum' ? 1.08 : 1.2
+    const renderer = createSceneRenderer({ maxPixelRatio: GAMEPLAY_SCENE_MAX_PIXEL_RATIO,
+      toneMappingExposure: trial.arenaId === 'roman-colosseum' ? 1.08 : 1.2 })
     const scene = new CareerArenaCombatScene(container, renderer, profile, trial.arenaId, callbacks)
     try { await scene.initialize(progress); return scene }
     catch (error) { scene.dispose(); throw error }
   }
 
   private commit(next: CareerProfile): boolean {
+    if (this.session) return this.session.commit(next)
     if (!this.store.save(next)) return false
     this.profile = next
     return true
@@ -329,13 +347,9 @@ export class CareerArenaCombatScene {
     const signal = this.listeners.signal
     this.renderer.domElement.addEventListener('click', () => {
       this.sound.unlockAudio()
-      if (!location.search.includes('nolock') && !this.panel) this.input.requestPointerLock(this.renderer.domElement)
+      if (!location.search.includes('nolock') && !this.panelOpen) this.input.requestPointerLock(this.renderer.domElement)
     }, { signal })
-    window.addEventListener('resize', () => {
-      this.camera.aspect = innerWidth / innerHeight
-      this.camera.updateProjectionMatrix()
-      this.renderer.setSize(innerWidth, innerHeight)
-    }, { signal })
+    bindWindowResize(this.camera, this.renderer, signal)
     window.addEventListener('pagehide', () => this.persistNow(), { signal })
   }
 
@@ -357,16 +371,16 @@ export class CareerArenaCombatScene {
   /** One gameplay step (also used by DEV QA at a fixed rate). */
   update(dt: number): void {
     if (this.disposed) return
-    if (this.pendingSettlement || this.pickupRetry) { this.arena.update(dt); this.damageNumbers.update(dt, this.camera); return }
+    if (this.settlementPending || this.pickupRetry) { this.arena.update(dt); this.damageNumbers.update(dt, this.camera); return }
     this.elapsed += dt
     const fighting = this.phase === 'fight'
-    if (!this.panel && (!this.prison || !this.player.dead)) this.orbit.update(this.input, dt, this.arena.obstacles)
-    if (!this.player.dead && !this.panel) {
+    if (!this.panelOpen && (!this.prison || !this.player.dead)) this.orbit.update(this.input, dt, this.arena.obstacles)
+    if (!this.player.dead && !this.panelOpen) {
       let step: ReturnType<PlayerInput['consumeWheelStep']>
       while ((step = this.input.consumeWheelStep()) !== 0) this.weaponWheel.cycle(this.inventory, step)
     }
     this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(this.aimPoint), this.arena.obstacles,
-      this.stamina, this.quiver, this.sound, this.inventory, this.skills.getRangedMultiplier(), fighting && !this.panel)
+      this.stamina, this.quiver, this.sound, this.inventory, this.skills.getRangedMultiplier(), fighting && !this.panelOpen)
     // The ground boundary holds living, supported bodies only; falls always complete.
     if (!this.player.dead && this.player.isGrounded) this.arena.constrainGroundedBody(this.player.group.position)
     this.updateBodies(dt)
@@ -379,7 +393,7 @@ export class CareerArenaCombatScene {
     this.previousPlayerPosition.copy(this.player.position)
     this.updateMarkers()
     this.damageNumbers.update(dt, this.camera)
-    this.weaponWheelUI.update(this.inventory, !this.panel && !this.player.dead)
+    this.weaponWheelUI.update(this.inventory, !this.panelOpen && !this.player.dead)
     this.hp.setFill(this.player.hpRatio)
     if (this.prisonHud) {
       this.prisonHud.hidden = this.phase === 'result'
@@ -392,7 +406,8 @@ export class CareerArenaCombatScene {
       friendly: { active: this.counts().friendlyActive + (this.player.dead ? 0 : 1), total: this.mission.friendlyActorIds.length + 1 },
       enemy: { active: this.counts().enemyActive, total: this.mission.targetActorIds.length },
       remainingSeconds: ARENA_TRIAL_TIME_LIMIT_SECONDS - this.combatElapsed, playerKnocked: this.player.dead })
-    if (this.skillsDirty && this.elapsed % 5 < dt) this.flushSkills()
+    if (this.session) this.session.tickSkillFlush(this.elapsed, dt)
+    else if (this.skillsDirty && this.elapsed % 5 < dt) this.flushSkills()
   }
 
   private counts() {
@@ -435,7 +450,7 @@ export class CareerArenaCombatScene {
     }
     this.checkpointFight(dt)
     const end = resolveArenaTrialEnd(this.counts(), this.combatElapsed)
-    if (end && !this.pendingSettlement) this.finish(end.outcome, end.reason)
+    if (end && !this.settlementPending) this.finish(end.outcome, end.reason)
   }
 
   /** Saves at once on any knock-out or change of the player's own state, and on a steady cadence (faster while falling). */
@@ -617,6 +632,7 @@ export class CareerArenaCombatScene {
   }
 
   private awardSkillXp({ skill, xp }: SkillProgressionAward): void {
+    if (this.session) { this.session.awardSkillXp({ skill, xp }); return }
     if (xp <= 0 || !canAwardPlayerSkillProgression({ dead: this.player.dead, spectatorOnly: this.player.spectatorOnly, observer: false })) return
     const levels = this.skills.addXp(skill, xp, this.sound)
     this.player.blockingLevel = this.skills.skillState.blocking.level
@@ -631,6 +647,7 @@ export class CareerArenaCombatScene {
   }
 
   private flushSkills(): void {
+    if (this.session) { this.session.flushSkills(); return }
     if (!this.skillsDirty) return
     const next = cloneCareerProfile(this.profile)
     next.skills = this.skills.skillState
@@ -669,7 +686,7 @@ export class CareerArenaCombatScene {
   }
 
   private persistNow(): void {
-    if (this.disposed || !this.tracker || !this.initializationComplete || this.pendingSettlement || this.pickupRetry) return
+    if (this.disposed || !this.tracker || !this.initializationComplete || this.settlementPending || this.pickupRetry) return
     this.flushSkills()
     if (this.phase === 'fight' || this.resumeGrace) this.persistProgress()
   }
@@ -763,52 +780,34 @@ export class CareerArenaCombatScene {
     this.button('返回小鎮', () => this.returnToTown())
   }
 
-  private captureSettlement(outcome: CareerMissionOutcome, reason?: ArenaTrialEndReason): PendingSettlement {
+  private captureSettlement(outcome: CareerMissionOutcome, reason?: ArenaTrialEndReason): TrialSettlement {
     const stats = this.tracker.snapshot(this.bodies.map(body => body.npc), this.player)
-    return { outcome, ...(reason ? { reason } : {}), player: { ...stats.player } }
+    const player = { ...stats.player }
+    return { outcome, ...(reason ? { reason } : {}), player, merit: player }
   }
 
   /** Saves the decided result, or the one already frozen by an earlier failed save. */
   private finish(outcome: CareerMissionOutcome, reason?: ArenaTrialEndReason): void {
-    if (this.settled) return
-    if (this.prison) { this.finishPrison(outcome); return }
-    this.flushSkills()
-    const active = this.profile.activeMission
-    if (!active || active.result) return
-    this.phase = 'result'
-    const settlement = this.pendingSettlement ?? this.captureSettlement(outcome, reason)
-    // The end reason is saved in the same transaction as the result, so a reload shows the same wording.
-    const staged = cloneCareerProfile(this.profile)
-    if (settlement.reason && staged.activeMission?.arenaTrial) staged.activeMission.arenaTrial.endReason = settlement.reason
-    const claim = claimCareerMission(staged, active.id, settlement.outcome, settlement.player, settlement.player)
-    if (!this.commit(claim.profile)) {
-      this.pendingSettlement = settlement
-      this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
-      this.openPanel('試煉結算尚未保存', '保存失敗；軍功尚未入帳，結果保留在競技場。')
-      this.button('重試保存結算', () => { this.closePanel(); this.finish(settlement.outcome, settlement.reason) })
-      return
-    }
-    this.pendingSettlement = null
-    this.settled = true
-    this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
-    this.openResult(this.profile.activeMission!.result!)
+    if (this.session) { this.session.finish(() => this.captureSettlement(outcome, reason)); return }
+    if (!this.settled && this.prison) this.finishPrison(outcome)
   }
 
   private openResult(result: NonNullable<ActiveCareerMission['result']>): void {
-    this.settled = true
+    this.session!.markSettled()
     this.phase = 'result'
     const trial = this.trial, merit = result.merit
     const complete = result.outcome === 'victory'
-    this.openPanel(complete ? '試煉勝利' : '試煉失敗',
+    this.session!.panel.show(complete ? '試煉勝利' : '試煉失敗',
       `${DUEL_ARENA_LABELS[this.arenaId]} · ${ARENA_TRIAL_DEFINITIONS[trial.tier].label}\n\n`
       + `戰鬥表現（你）\n擊倒敵人：${result.stats.kills}\n造成傷害：${Math.round(result.stats.damageDealt)}\n結束時狀態：${result.stats.survived ? '仍站立' : '被擊倒'}\n\n`
       + `軍功獎勵（每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功）\n傷害軍功：${merit.damage}\n擊倒軍功：${merit.kills}\n任務貢獻：${merit.contribution}\n本次總軍功：${merit.total}`
       + `${complete ? '' : trial.endReason === 'timeout' ? '\n\n試煉逾時：時限內未分出勝負，本場計為失敗；不造成永久傷亡或裝備損失。' : '\n\n我方全員被擊倒；試煉不造成永久傷亡或裝備損失。'}`)
-    this.button(`返回 ${this.profile.faction === 'roman' ? 'vinum 村' : 'økse 村'}`, () => this.returnToTown())
+    this.session!.addReturnButton()
   }
 
   /** Clears the claimed trial exactly like a Town return; a failed save keeps the arena for retry. */
   private returnToTown(): void {
+    if (this.session) { this.session.returnToTown(); return }
     const active = this.profile.activeMission
     if (!active) { this.leave(); return }
     const saved = this.prison
@@ -849,7 +848,7 @@ export class CareerArenaCombatScene {
     this.panel.append(button)
   }
 
-  private closePanel(): void { this.panel?.remove(); this.panel = null; this.dimmer?.remove(); this.dimmer = undefined }
+  private closePanel(): void { this.session?.panel.close(); this.panel?.remove(); this.panel = null; this.dimmer?.remove(); this.dimmer = undefined }
 
   dispose(): void {
     if (this.disposed) return

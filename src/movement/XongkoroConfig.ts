@@ -15,6 +15,15 @@ export const XONGKORO = {
   takeoffPitch: 0.32,
   landingSpeed: 8,
   landingHeight: 1.5,
+  // Opt-in vertical take-off/landing (HR private eagles): flap straight up to
+  // the validated pad clearance, hover-capture near the pad, then settle.
+  verticalClimbRate: 5,
+  verticalTakeoffHeight: 15,
+  verticalCaptureRadius: 12,
+  verticalDescentRate: 5,
+  verticalHoldHeight: 5,
+  verticalFlarePitch: .2,
+  verticalRetrySeconds: 5,
   bodyRadius: 1.5,
   bodyHalfLength: 4.7,
   bodyHeight: 2.6,

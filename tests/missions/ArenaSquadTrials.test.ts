@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { CareerArenaCombatScene } from '../../src/arena/CareerArenaCombatScene'
+import { CareerArenaSession } from '../../src/arena/CareerArenaSession'
+import { SkillManager } from '../../src/rpg/SkillManager'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   ARENA_TRIAL_DEFINITIONS, ARENA_TRIAL_TIERS, ARENA_TRIAL_TIME_LIMIT_SECONDS, arenaTrialBlocker, arenaTrialRestorablePlan, arenaTrialRoster,
   arenaTrialTeamSizes, arenaTrialUnitSpec, createArenaTrialMission, resolveArenaTrialEnd, resolveArenaTrialOutcome, type ArenaTrialTier,
@@ -133,4 +136,37 @@ describe('Arena Squad Trials', () => {
     expect(again.profile.totalMerit).toBe(first.profile.totalMerit)
     expect(arenaTrialBlocker(profileAt('commander'), 5 as ArenaTrialTier)).toBeNull()
   })
+
+  it('正式試煉場景沿共用 Session 凍結保存失敗的結算，重試不換結果也不重發軍功', () => {
+    vi.stubGlobal('document', { exitPointerLock() {}, getElementById: () => null })
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    const profile = profileAt('captain')
+    profile.activeMission = createArenaTrialMission(profile, 3, 'roman-colosseum', 'session-trial')!
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    expect(store.save(profile)).toBe(true)
+    const result = vi.fn(), live = { ...stats }, capture = vi.fn(() => ({ player: { ...live }, squads: [] }))
+    const player = { dead: false, spectatorOnly: false, hp: 100, blockingLevel: 1, clearTownAction() {}, setHp() {}, setMaxHp() {} }
+    const session = new CareerArenaSession(profile, { noun: '試煉', store, skills: new SkillManager(), sound: {} as never,
+      input: { clear() {} }, player: () => player,
+      panel: { isOpen: false, show() {}, button() {}, close() {} }, openResult: result, leave() {} })
+    const scene = Object.assign(Object.create(CareerArenaCombatScene.prototype) as { finish(outcome: 'victory' | 'failure'): void; update(dt: number): void }, {
+      session, tracker: { snapshot: capture }, bodies: [], player, disposed: false,
+      arena: { update() {} }, damageNumbers: { update() {} }, camera: {},
+    })
+    storage.failWrites = true
+    scene.finish('victory')
+    expect(session.pendingSettlement?.player.damageDealt).toBe(400)
+    expect(result).not.toHaveBeenCalled()
+    scene.update(1 / 60) // The real scene freezes before reaching any player, AI or projectile step.
+    live.damageDealt = 2000
+    storage.failWrites = false
+    scene.finish('failure')
+    const saved = store.load()!
+    expect(saved.activeMission!.result).toMatchObject({ outcome: 'victory', stats: { damageDealt: 400 } })
+    expect(result).toHaveBeenCalledOnce()
+    expect(capture).toHaveBeenCalledOnce()
+    scene.finish('victory')
+    expect(store.load()!.totalMerit).toBe(saved.totalMerit)
+  })
+
 })

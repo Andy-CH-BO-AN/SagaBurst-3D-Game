@@ -191,6 +191,7 @@ import { TownMissionCombat, type TownCombatResident as Resident } from './TownMi
 import { TownCavalryPatrolController } from './TownCavalryPatrolController'
 import { withTownCommandSquadRoster } from './TownRules'
 import { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController'
+import { bindWindowResize, configureSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO } from '../rendering/SceneRenderer'
 import { TOWN_RULES, townActorHeroProfile, TownEvent, townCaptainProfile, townMilitaryEquipment, townOfficerPreload, stableHorsePositions, townSitePoint, townPlayerEntryPoint, isCivilian, productStatus, townShopProducts, deferTownResult, settleTown, updateRangerMount, type TownResult } from './TownRules'
 
 let sound: SoundManager
@@ -199,6 +200,11 @@ const NAMES: Record<string, string> = { captain: '騎兵隊長', commander: '指
 export class TownScene {
   private eagleGarrison?: TownEagleGarrisonController
   private readonly eagleLandingQueue = new EagleLandingQueue()
+  /**
+   * HR private eagles queue among themselves, apart from the Town air force. Both queues
+   * only serialize pads that share airspace; the live column check covers every eagle.
+   */
+  private readonly privateEagleLandingQueue = new EagleLandingQueue()
   private garrisonRestored = false
   private readonly aerialView = new AerialViewPolicy()
   private readonly weaponWheel = new WeaponWheel()
@@ -374,7 +380,7 @@ export class TownScene {
     installTownStyles()
     sound ??= new SoundManager()
     sound.cancelCareerAudio()
-    this.renderer = renderer; renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); renderer.setSize(innerWidth, innerHeight); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; container.appendChild(renderer.domElement)
+    this.renderer = renderer; configureSceneRenderer(renderer, { maxPixelRatio: GAMEPLAY_SCENE_MAX_PIXEL_RATIO }); container.appendChild(renderer.domElement)
     const context = this.sceneContext
     this.world = new TownWorld(context.worldFaction, this.scene, context.worldOwnerAllegiance,
       { fourGateSiege: profile.activeMission?.kind === 'commander-four-gate-defense' })
@@ -788,7 +794,7 @@ export class TownScene {
     for (const type of ['mousedown', 'mouseup', 'wheel'] as const) window.addEventListener(type, e => { if (this.panel || this.equipment.visible) { e.stopImmediatePropagation(); this.input.clear() } }, { ...opts, passive: false })
     renderer.domElement.addEventListener('click', () => { if (!this.panel && !this.equipment.visible) { if (!location.search.includes('nolock')) this.input.requestPointerLock(renderer.domElement); sound.unlockAudio() } }, { signal: this.listeners.signal })
     document.addEventListener('pointerlockchange', () => this.updatePointerPrompt(), { signal: this.listeners.signal })
-    window.addEventListener('resize', () => { this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight) }, { signal: this.listeners.signal })
+    bindWindowResize(this.camera, renderer, this.listeners.signal)
     this.player.onFireArrow = e => this.fire(e.origin, e.direction, e.speed, e.damage, true, false, e.visualKind)
     if (profile.townEvent?.state === 'hostile') { this.inventory.restoreForHostile(); this.activateHostility(false); this.notice = '未結束的小鎮事件已恢復：全鎮仍在追擊。' }
     this.hp.setFill(this.player.hpRatio)
@@ -2792,7 +2798,7 @@ export class TownScene {
       canRefit: () => this.canRefitSquad(this.personalSquad?.actors ?? []),
       sceneKey: context.worldFaction === profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
       hasHR: home, eaglePads: privateEaglePads,
-      eagleLandingQueue: this.eagleLandingQueue, layoutVersion: home ? TOWN_LAYOUT_VERSION : undefined,
+      eagleLandingQueue: this.privateEagleLandingQueue, layoutVersion: home ? TOWN_LAYOUT_VERSION : undefined,
       eaglePadClear: (pad, ownMount) => isEagleLandingClearOfMounts(pad, this.world.obstacles,
         this.combatMounts, ownMount, TOWN_PLAYABLE_WORLD_BOUND),
       formationSlots: (anchor, occupied, count) => personalTownDeployment(anchor, occupied, count,
@@ -4268,6 +4274,7 @@ export class TownScene {
     if (ready) {
       this.elapsed += dt
       this.eagleLandingQueue?.beginFrame(dt)
+      this.privateEagleLandingQueue?.beginFrame(dt)
       this.townCommand?.beginFrame()
       this.synchronizeEaglePatrolPolicy()
       this.eagleGarrison?.beginFrame(dt)
