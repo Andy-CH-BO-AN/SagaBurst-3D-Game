@@ -451,7 +451,7 @@ export class TownScene {
     this.player.faceDirection(Math.sin(townEntry.yaw), Math.cos(townEntry.yaw))
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
     // DEV-only QA handle (browser verification of buildings, entrances and damage); stripped from production.
-    if (import.meta.env.DEV) Object.assign(window, { __townScene: { world: this.world, player: this.player, orbit: this.orbit, camera: this.camera, input: this.input, residents: this.residents, stableHorses: this.stableHorses } })
+    if (import.meta.env.DEV) Object.assign(window, { __townScene: { scene: this, world: this.world, player: this.player, orbit: this.orbit, camera: this.camera, input: this.input, residents: this.residents, stableHorses: this.stableHorses } })
     this.navigation.sync(this.world.obstacles)
     this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,
       () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds,
