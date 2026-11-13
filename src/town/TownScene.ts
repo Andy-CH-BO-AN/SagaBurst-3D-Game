@@ -165,8 +165,7 @@ import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { careerDuelSubjectRules, careerDuelMissionLabel, careerDuelProgressLabel, careerDuelTierEntries, type CareerDuelSubject } from '../career/CareerDuelSelection'
 import { type CareerDuelTier, isUnarmedDuelUnlocked, isCareerDuelUnlocked, duelFightBannerVisible } from '../career/CareerDuelState'
 import { DUEL_ARENA_IDS, DUEL_ARENA_LABELS, defaultDuelArenaForFaction, type DuelArenaId } from '../arena/DuelArenaCatalog'
-import { consumeCareerMissionReturnFlag, planSergeantReturn, resolveTownEntryFallbackPoint, sergeantReturnFromResidents, SergeantReturnIntent, settleCareerMissionReturn, type SergeantReturnPlan, type SergeantReturnPoint } from './SergeantReturn'
-import { findSafeCareerMountPosition } from '../career/CareerMountController'
+import { consumeCareerMissionReturnFlag, findMountParkingPoint, planSergeantReturn, resolveNearestLegalPoint, resolveTownEntryFallbackPoint, sergeantReturnFromResidents, SergeantReturnIntent, settleCareerMissionReturn, type SergeantReturnPlan, type SergeantReturnPoint } from './SergeantReturn'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { fieldMissionHud, missionPhaseLabel, personalSquadStateLabel, townCommandStateLabel } from '../career/CareerMissionPresentation'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
@@ -443,13 +442,16 @@ export class TownScene {
     this.player.setMaxHp(resolveCareerPlayerMaxHp(profile, DEFAULT_PLAYER_MAX_HP), true)
     const missionReturn = this.settleCareerMissionReturnPlan()
     const missionReturnPlan = missionReturn?.status === 'placed' ? missionReturn : null
-    const townEntry = missionReturnPlan?.point ?? townPlayerEntryPoint()
+    // A blocked mission return never starts play on the ordinary entry: hold at the nearest verified point and keep retrying.
+    const heldAt = missionReturn?.status === 'blocked' ? resolveNearestLegalPoint(townPlayerEntryPoint(), this.sergeantReturnOptions(false)) : null
+    if (missionReturn?.status === 'blocked' && !heldAt) throw new Error('鎮內沒有合法的返回落點，請稍後重試。')
+    const townEntry = missionReturnPlan?.point ?? heldAt ?? townPlayerEntryPoint()
     this.player.group.position.set(townEntry.x, getTerrainHeight(townEntry.x, townEntry.z) + .9, townEntry.z)
     this.player.group.rotation.y = townEntry.yaw
     this.player.faceDirection(Math.sin(townEntry.yaw), Math.cos(townEntry.yaw))
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
     // DEV-only QA handle (browser verification of buildings, entrances and damage); stripped from production.
-    if (import.meta.env.DEV) Object.assign(window, { __townScene: { world: this.world, player: this.player, orbit: this.orbit, camera: this.camera, input: this.input, residents: this.residents, stableHorses: this.stableHorses } })
+    if (import.meta.env.DEV) Object.assign(window, { __townScene: { scene: this, world: this.world, player: this.player, orbit: this.orbit, camera: this.camera, input: this.input, residents: this.residents, stableHorses: this.stableHorses } })
     this.navigation.sync(this.world.obstacles)
     this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,
       () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds,
@@ -585,6 +587,7 @@ export class TownScene {
     this.initializeCareerMounts()
     this.race = new CareerRaceController(this.scene, this.navigation, this.world.obstacles, this.residents,
       () => this.player, this.hp, this.careerMounts, () => this.profile, p => this.commit(p, this.player.dead && this.profile.activeRace && !p.activeRace ? 'grounded-return' : 'ordinary'))
+    this.race.parkedBlockers = () => this.townReturnBlockers()
     this.missionCombat = new TownMissionCombat(
       { field: this.mission, duel: this.duel, defense: this.defense },
       {
@@ -2300,22 +2303,28 @@ export class TownScene {
    * final stance (`mounted` uses the wider mount body). Null means no legal point exists.
    */
   private resolveSergeantReturnPoint(mounted = Boolean(this.player?.currentMount)): SergeantReturnPoint | null {
-    const blockers = [
+    const options = this.sergeantReturnOptions(mounted)
+    return sergeantReturnFromResidents(this.residents ?? [], options)
+      ?? resolveTownEntryFallbackPoint(townPlayerEntryPoint(), options)
+  }
+  /** Residents, unridden mounts and (DEV QA only) injected blockers all count as occupied floor. */
+  private townReturnBlockers(): { x: number; z: number; radius: number }[] {
+    return [
       ...(this.residents ?? []).filter(r => !r.npc.dead && r.spec.id !== 'deployment').map(r => ({
         x: r.npc.combatPosition.x, z: r.npc.combatPosition.z, radius: r.npc.mount ? 1.5 : 0.7,
       })),
-      ...(this.mounts ?? []).filter(m => !m.dead && !m.disposed && m !== this.player?.currentMount).map(m => ({
-        x: m.group.position.x, z: m.group.position.z, radius: m.combatRadius,
-      })),
+      ...this.townParkedMountBlockers(),
+      ...(import.meta.env.DEV ? (window as unknown as { __townQaBlockers?: () => { x: number; z: number; radius: number }[] }).__townQaBlockers?.() ?? [] : []),
     ]
-    const options = {
-      clearanceRadius: mounted ? 1.25 : 0.75,
-      obstacles: this.world?.obstacles,
-      blockers,
-      terrainHeight: getTerrainHeight,
-    }
-    return sergeantReturnFromResidents(this.residents ?? [], options)
-      ?? resolveTownEntryFallbackPoint(townPlayerEntryPoint(), options)
+  }
+  /** Unridden mounts stand on the floor and block arrivals; the player's own current mount is excluded. */
+  private townParkedMountBlockers(): { x: number; z: number; radius: number }[] {
+    return (this.mounts ?? []).filter(m => !m.dead && !m.disposed && !m.riderNpc && m !== this.player?.currentMount).map(m => ({
+      x: m.group.position.x, z: m.group.position.z, radius: m.combatRadius,
+    }))
+  }
+  private sergeantReturnOptions(mounted: boolean) {
+    return { clearanceRadius: mounted ? 1.25 : 0.75, obstacles: this.world?.obstacles, blockers: this.townReturnBlockers(), terrainHeight: getTerrainHeight }
   }
   private readonly sergeantReturnIntent = new SergeantReturnIntent()
   /** After any formal Career mission, arena duel or race settles, place the player directly in front of the Sergeant. */
@@ -2333,11 +2342,8 @@ export class TownScene {
       resolve: mounted => this.resolveSergeantReturnPoint(mounted),
       restoreMounted: Boolean(race?.mounted && !race.dead),
       hasMount: Boolean(race),
-      findMountPark: point => findSafeCareerMountPosition(new THREE.Vector3(point.x, point.y, point.z), this.world?.obstacles ?? [], [
-        new THREE.Vector3(point.x, point.y, point.z),
-        ...(this.residents ?? []).filter(r => !r.npc.dead).map(r => new THREE.Vector3(r.npc.combatPosition.x, 0, r.npc.combatPosition.z)),
-        ...(this.mounts ?? []).filter(m => !m.dead && !m.disposed).map(m => m.group.position),
-      ]),
+      findMountPark: point => findMountParkingPoint(point, { obstacles: this.world?.obstacles, terrainHeight: getTerrainHeight,
+        occupied: [point, ...(this.residents ?? []).filter(r => !r.npc.dead).map(r => r.npc.combatPosition), ...this.townReturnBlockers()] }),
     })
   }
   /** No legal Sergeant/backup point yet: keep the intent and retry instead of teleporting to an unchecked spot. */
@@ -2553,8 +2559,14 @@ export class TownScene {
         mount.group.rotation.y = saved.mountPosition.yaw
         this.player.syncMountTransform()
       } else {
+        const parked = mount ?? this.careerMounts.activeMount
         if (mount) this.player.dismountFromMount({ preserveWorldPosition: true })
         this.player.setPosition(saved.position.x, saved.position.y, saved.position.z)
+        // The saved parking spot was proven legal before the save; the mount never stays under the player.
+        if (parked && !saved.mounted && saved.mountPosition) {
+          parked.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
+          parked.group.rotation.y = saved.mountPosition.yaw
+        }
       }
     }
     this.player.faceDirection(Math.sin(saved.position.yaw), Math.cos(saved.position.yaw))

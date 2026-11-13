@@ -477,6 +477,18 @@ describe('Race return and deferred native Town outcomes', () => {
     expect(returned.townEvent).toEqual(recorded.townEvent); expect(returned.raceRecords).toEqual(recorded.raceRecords)
   })
 
+  it('saves a dismounted race return with the mount at its own parking spot, never under the player', () => {
+    const s = session(), p = profile()
+    s.phase = 'racing'; s.player.finishSeconds = 80; s.player.checkpoint = 5; s.opponent.dnf = 'mount lost'; resolveRace(s)
+    const recorded = raceRecordProfile(p, s); recorded.activeRace!.phase = 'returning'
+    recorded.activeRace!.player.mounted = true
+    const arrival = pos(8, -5), parking = pos(11, -3)
+    const returned = raceReturnProfile(recorded, recorded.activeRace!.player, arrival, 100, { dismount: true, mountDestination: parking })!
+    expect(returned.racePlayerState).toMatchObject({ mounted: false, position: arrival, mountPosition: parking })
+    const ridden = raceReturnProfile(recorded, recorded.activeRace!.player, arrival, 100)!
+    expect(ridden.racePlayerState).toMatchObject({ mounted: true, mountPosition: arrival })
+  })
+
   it('preserves formal Sergeant return placement over stale racePlayerState and lands walked race returns at Sergeant', () => {
     const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
     const p = profile()

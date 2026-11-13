@@ -3196,6 +3196,7 @@ export class Game {
         const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(orphan.mountId), p.x, p.z, undefined,
           orphan.stableKey ? horseVariantForStableKey(orphan.stableKey) : 0))
         mount.currentHp = Math.min(mount.maxHp, orphan.saved.hp)
+        mount.restoreArmor(orphan.saved.armorImpactRemaining)
         mount.group.position.set(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z)
         mount.group.rotation.y = p.yaw
         if (orphan.saved.flight && mount.flight) {
