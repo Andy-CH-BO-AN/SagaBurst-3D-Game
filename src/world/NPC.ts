@@ -554,6 +554,8 @@ export class NPC {
   private selectedShieldId: string | null = null
   private heldShieldId: string | null = null
   get shieldId(): string | null { return this.heldShieldId }
+  /** The shield this actor was given, whether or not its model has arrived yet. */
+  get requestedShieldId(): string | null { return this.selectedShieldId }
   set shieldId(id: string | null) {
     if (this.selectedShieldId && this.selectedShieldId !== id) {
       releaseEquipmentDemand(this.selectedShieldId, this)
