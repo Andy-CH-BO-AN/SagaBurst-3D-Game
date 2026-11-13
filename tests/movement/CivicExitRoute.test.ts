@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { civicHallFromPlan } from '../../src/navigation/CivicExitRoute'
 import { LayeredNavigationRoute, type LayeredNavigationRequest } from '../../src/navigation/LayeredNavigationRoute'
-import { CIVIC_EXIT_MAX_SPEED, steerCivicExitRider } from '../../src/movement/CivicExitSteering'
+import { CIVIC_EXIT_MAX_SPEED, formationArrived, steerCivicExitRider } from '../../src/movement/CivicExitSteering'
 import { steerCavalryHeading } from '../../src/movement/ContinuousCavalryCharge'
 import { NavigationPathFollower, type NavigationRouteKind } from '../../src/navigation/NavigationPathFollower'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
@@ -80,7 +80,7 @@ function localToGround(local: { x: number; z: number }): THREE.Vector3 {
   return new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z), p.z)
 }
 
-interface Trip { reached: boolean; crossedDoor: boolean; crossedFrame: number; handBack: boolean; rampMaxSpeed: number; rampReversed: boolean; frames: number; stopped: NavigationRouteKind | null; end: string }
+interface Trip { reached: boolean; crossedDoor: boolean; crossedFrame: number; handBack: boolean; rampMaxSpeed: number; rampReversed: boolean; civicAfterCompletion: boolean; frames: number; stopped: NavigationRouteKind | null; end: string }
 
 interface RideOptions {
   /** Physical-only body across the route (a friendly jam). Never part of the navigation grid. */
@@ -88,10 +88,12 @@ interface RideOptions {
   crowdUntilFrame?: number
   /** Initial heading; defaults to facing the first waypoint's direction. */
   yaw?: number
-  /** A real command (new identity) that moves the goal once `when` first holds. */
-  command?: { when: (p: THREE.Vector3, frame: number) => boolean; goal: THREE.Vector3 }
+  /** Real orders, issued in sequence once `when` first holds. Each new order changes the command identity. */
+  commands?: Array<{ when: (p: THREE.Vector3, frame: number) => boolean; goal: THREE.Vector3; intent?: 'chase' | 'command' }>
   /** An enemy briefly steers its goal elsewhere: no command, so no identity change. */
   enemyDetour?: { fromFrame: number; toFrame: number; goal: THREE.Vector3 }
+  /** The body is pursuing combat targets: every request carries the chase intent. */
+  chase?: boolean
 }
 
 /** One mounted body. Routing comes from production LayeredNavigationRoute (ground follower as fallback),
@@ -101,10 +103,12 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
   const e = spec.entrance, rampEnd = e.approach + 1
   const layered = new LayeredNavigationRoute(new NavigationPathFollower()), ground = new NavigationPathFollower()
   const out = new THREE.Vector3(), p = start.clone()
-  let commanded = goal, identity = 0, commandIssued = false, crossedFrame = -1, leaving = false, exitCompleted = false, rampReversed = false
+  let commanded = goal, identity = 0, nextCommand = 0, intent: 'chase' | 'command' = options.chase ? 'chase' : 'command'
+  let crossedFrame = -1, leaving = false, exitCompleted = false, rampReversed = false, civicAfterCompletion = false
   let target = goal, yaw = options.yaw ?? 0, velocityY = 0, onGround = true, crossedDoor = false, handBack = false, rampMaxSpeed = 0
   for (let frame = 0; frame < MAX_FRAMES; frame++) {
-    if (options.command && !commandIssued && options.command.when(p, frame)) { commandIssued = true; identity++; commanded = options.command.goal }
+    const order = options.commands?.[nextCommand]
+    if (order && order.when(p, frame)) { nextCommand++; identity++; commanded = order.goal; intent = order.intent ?? 'command' }
     const detour = options.enemyDetour
     target = detour && frame >= detour.fromFrame && frame < detour.toFrame ? detour.goal : commanded
     world.beginFrame()
@@ -112,12 +116,12 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
     const request: LayeredNavigationRequest = {
       position: p, goal: target, world, outpost: null, currentLayer: 'ground', targetLayer: 'ground', differentLayer: false,
       mounted: true, outpostMounted: true, flying: false, radius: RIDER_RADIUS, height: RIDER_HEIGHT,
-      entranceId: null, sectorId: null, actorId: 'civic-exit-test', skipGroundNavigation: false, commandIdentity: identity,
+      entranceId: null, sectorId: null, actorId: 'civic-exit-test', skipGroundNavigation: false, commandIdentity: identity, movementIntent: intent,
     }
     const step = layered.resolve(request, obstacles, out)
     const route: NavigationRouteKind = step?.route ?? ground.resolveMoveTarget(p, target, world,
       findBlockingObstacleAlongPath(p, target, RIDER_RADIUS, RIDER_HEIGHT, 0, obstacles) !== null, out)
-    if (route === 'unreachable') return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, frames: frame, stopped: route, end: at(p) }
+    if (route === 'unreachable') return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, frames: frame, stopped: route, end: at(p) }
     // Leaving through the doorway, the ramp band before the safety line must stay under civic steering.
     // Only the outbound leg counts: once the exit completes, any inbound routing is ordinary.
     // The outbound leg ends at its safety line; later civic steps are the return through the doorway.
@@ -148,6 +152,7 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
     velocityY = hit.velocityY; onGround = hit.onGround
     const afterMove = (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z
     // Horizontal pace only: ramp snapping changes height, which the pace cap does not govern.
+    if (exitCompleted && step?.civicExit) civicAfterCompletion = true
     if (leaving && afterMove > 0 && afterMove < rampEnd) {
       rampMaxSpeed = Math.max(rampMaxSpeed, Math.hypot(p.x - previous.x, p.z - previous.z) / DT)
       // Turning back on the doorway ramp is forbidden: the horizontal step must keep heading outward.
@@ -155,9 +160,10 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
     }
     if (afterMove >= rampEnd && leaving) { leaving = false; exitCompleted = true }
     if (!crossedDoor && p.clone().sub(rig.threshold).dot(rig.outward) > 0) { crossedDoor = true; crossedFrame = frame }
-    if (Math.hypot(p.x - target.x, p.z - target.z) < 1.5) return { reached: true, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, frames: frame + 1, stopped: null, end: at(p) }
+    // Arrival is the shared formation decision: a committed exit holds it until the ramp is cleared.
+    if (formationArrived(Math.hypot(p.x - target.x, p.z - target.z), 1.5, false, step?.civicExit)) return { reached: true, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, frames: frame + 1, stopped: null, end: at(p) }
   }
-  return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, frames: MAX_FRAMES, stopped: null, end: at(p) }
+  return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, frames: MAX_FRAMES, stopped: null, end: at(p) }
 }
 
 /** Enemy positions outside the hall, relative to the front door: in front, beside, and behind the building. */
@@ -253,14 +259,14 @@ describe('mounted civic exit from the Town Center', () => {
     const rig = townCenterRig('viking', true)
     const indoor = localToGround({ x: -6, z: -6 })
     const trip = ride(rig, mountedAt(rig, 'service:commander'), outsideGoals(rig).front,
-      { command: { when: (_, frame) => frame === 20, goal: indoor } })
+      { commands: [{ when: (_, frame) => frame === 20, goal: indoor }] })
     expect(trip.crossedDoor, `end=${trip.end}`).toBe(false)
   })
 
   it('an enemy briefly steering into the hall, with no command, keeps the exit to the safety line', () => {
     const rig = townCenterRig('viking', true)
     const trip = ride(rig, mountedAt(rig, 'service:commander'), outsideGoals(rig).front,
-      { enemyDetour: { fromFrame: 20, toFrame: 400, goal: localToGround({ x: -6, z: -6 }) } })
+      { chase: true, enemyDetour: { fromFrame: 20, toFrame: 400, goal: localToGround({ x: -6, z: -6 }) } })
     // The exit must reach the threshold while the detour is still steering the goal inside.
     expect(trip.crossedFrame, `end=${trip.end}`).toBeGreaterThanOrEqual(0)
     expect(trip.crossedFrame, 'the exit must not stall while the enemy steers inside').toBeLessThan(400)
@@ -272,17 +278,60 @@ describe('mounted civic exit from the Town Center', () => {
     // An indoor point the clearance route reaches; points behind the post rows have no route for a radius-1 body.
     const indoor = localToGround({ x: 0, z: 4 })
     const trip = ride(rig, mountedAt(rig, 'service:commander'), outsideGoals(rig).front,
-      { command: { when: p => (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z > .3, goal: indoor } })
+      { commands: [{ when: p => (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z > .3, goal: indoor }] })
     expect(trip.rampReversed, 'turned back on the doorway ramp').toBe(false)
     expect(trip.handBack, 'ordinary chase took over on the ramp').toBe(false)
     expect(trip.crossedDoor).toBe(true)
     expect(trip.reached, `frames=${trip.frames} stopped=${trip.stopped} end=${trip.end}`).toBe(true)
   })
 
+  it('a new indoor formation point within arrival range just past the doorway does not end the exit early', () => {
+    const rig = townCenterRig('viking', true)
+    const nearIndoor = rig.threshold.clone().addScaledVector(rig.outward, -.8)
+    const trip = ride(rig, mountedAt(rig, 'service:commander'), outsideGoals(rig).front,
+      { commands: [{ when: p => (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z > .3, goal: nearIndoor }] })
+    expect(trip.crossedDoor, `arrived early: end=${trip.end}`).toBe(true)
+    // The exit completes first, and only then does the newest indoor command bring the body back in.
+    expect(trip.civicAfterCompletion, `end=${trip.end}`).toBe(true)
+    expect(trip.handBack).toBe(false)
+    expect(trip.rampReversed).toBe(false)
+    expect(trip.reached, `frames=${trip.frames} stopped=${trip.stopped} end=${trip.end}`).toBe(true)
+  })
+
+  it('an enemy chasing into the hall after the exit never starts the indoor return, which needs a real command', () => {
+    const rig = townCenterRig('viking', true)
+    const trip = ride(rig, mountedAt(rig, 'service:commander'), outsideGoals(rig).front,
+      { chase: true, enemyDetour: { fromFrame: 20, toFrame: 400, goal: localToGround({ x: 0, z: 4 }) } })
+    expect(trip.crossedDoor).toBe(true)
+    expect(trip.civicAfterCompletion, 'a combat chase took the indoor return branch').toBe(false)
+  })
+
+  it('a real indoor command followed by a combat chase order before the safety line cancels the return', () => {
+    const rig = townCenterRig('viking', true)
+    const trip = ride(rig, mountedAt(rig, 'service:commander'), outsideGoals(rig).front,
+      { commands: [
+        { when: p => (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z > .3, goal: localToGround({ x: 0, z: 4 }) },
+        { when: p => (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z > 1.2, goal: outsideGoals(rig).front, intent: 'chase' },
+      ] })
+    expect(trip.crossedDoor).toBe(true)
+    expect(trip.civicAfterCompletion, 'a superseded indoor order still brought the body back').toBe(false)
+  })
+
+  it('a real indoor command followed by an outdoor command before the safety line cancels the return', () => {
+    const rig = townCenterRig('viking', true)
+    const trip = ride(rig, mountedAt(rig, 'service:commander'), outsideGoals(rig).front,
+      { commands: [
+        { when: p => (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z > .3, goal: localToGround({ x: 0, z: 4 }) },
+        { when: p => (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z > 1.2, goal: outsideGoals(rig).side },
+      ] })
+    expect(trip.crossedDoor).toBe(true)
+    expect(trip.civicAfterCompletion, 'a superseded indoor order still brought the body back').toBe(false)
+  })
+
   it('a new outdoor order after the threshold keeps the committed exit at narrow pace to the safety line', () => {
     const rig = townCenterRig('viking', true)
     const trip = ride(rig, mountedAt(rig, 'service:commander'), outsideGoals(rig).front,
-      { command: { when: p => (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z > .3, goal: outsideGoals(rig).front } })
+      { commands: [{ when: p => (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z > .3, goal: outsideGoals(rig).front }] })
     expect(trip.handBack, 'a new order took the ramp back from civic steering').toBe(false)
     expect(trip.rampMaxSpeed, `ramp speed ${trip.rampMaxSpeed.toFixed(2)} m/s`).toBeLessThanOrEqual(CIVIC_EXIT_MAX_SPEED + 1e-6)
     expect(trip.reached, `frames=${trip.frames} stopped=${trip.stopped}`).toBe(true)

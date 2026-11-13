@@ -87,7 +87,7 @@ import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { ChaseTargetCoordinator } from '../navigation/ChaseTargetCoordinator'
 import { NavigationPathFollower, type NavigationRouteKind } from '../navigation/NavigationPathFollower'
 import { LayeredNavigationRoute, type LayeredNavigationRequest, type LayeredNavigationStep } from '../navigation/LayeredNavigationRoute'
-import { steerCivicExitRider } from '../movement/CivicExitSteering'
+import { formationArrived, steerCivicExitRider } from '../movement/CivicExitSteering'
 import {
   clampFollowSlotToDeck,
   clampFollowSlotToBridge,
@@ -3275,7 +3275,7 @@ export class NPC {
         const targetLayer = layeredNav ? layeredNav.getNavLayer(targetInfo.position) : 'ground'
         const isCrossLayer = layeredNav ? (npcLayer !== targetLayer) : false
         const chaseNavigation = this._resolveChaseNavigation({
-          position: this.combatPosition, goal: targetInfo.position, world: navigationWorld, outpost: layeredNav ?? null, commandIdentity: this._commandIdentity,
+          position: this.combatPosition, goal: targetInfo.position, world: navigationWorld, outpost: layeredNav ?? null, commandIdentity: this._commandIdentity, movementIntent: 'chase',
           currentLayer: npcLayer, targetLayer, differentLayer: isCrossLayer,
           mounted: this.isMounted, outpostMounted: Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
           flying: Boolean(this.mount?.isFlyingMount), radius: this._movementObstacleRadius(), height: this._movementObstacleHeight(),
@@ -4439,7 +4439,18 @@ export class NPC {
       || Boolean(navigationWorld?.townNav && navigationWorld.townNav.isElevated(this.combatPosition) !== navigationWorld.townNav.isElevated(target.position))
       || navigationWorld?.townNav?.watchtower?.sameLevel(this.combatPosition, target.position) === false
 
-    if (distance <= arrivalDistance && !isDifferentLayer) {
+    // One layered resolution per frame, before arrival: a committed civic exit owns the move until the ramp is cleared.
+    const layeredStep = this._layeredNavigationRoute.resolve({
+      position: this.combatPosition, goal: target.position, world: navigationWorld, outpost: layeredNav ?? null, commandIdentity: this._commandIdentity,
+      movementIntent: 'command',
+      currentLayer: npcLayer, targetLayer, differentLayer: isDifferentLayer,
+      mounted: this.isMounted, outpostMounted: Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
+      flying: Boolean(this.mount?.isFlyingMount), radius: this._movementObstacleRadius(), height: this._movementObstacleHeight(),
+      entranceId: this.campaignEntranceId, sectorId: this.townSiegeGateId, actorId: this.combatantId,
+      skipGroundNavigation: skipBoidsAndObstacles,
+    }, obstacles, this._tmpNavigationTarget)
+
+    if (formationArrived(distance, arrivalDistance, isDifferentLayer, layeredStep?.civicExit)) {
       this._friendlyBypass.clear()
       target.reached = true
       if (target.arrivalOrder === 'defend') {
@@ -4459,14 +4470,6 @@ export class NPC {
     let navigationRoute: NavigationRouteKind = 'direct'
     let navigationGoal = target.position
 
-    const layeredStep = this._layeredNavigationRoute.resolve({
-      position: this.combatPosition, goal: target.position, world: navigationWorld, outpost: layeredNav ?? null, commandIdentity: this._commandIdentity,
-      currentLayer: npcLayer, targetLayer, differentLayer: isDifferentLayer,
-      mounted: this.isMounted, outpostMounted: Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
-      flying: Boolean(this.mount?.isFlyingMount), radius: this._movementObstacleRadius(), height: this._movementObstacleHeight(),
-      entranceId: this.campaignEntranceId, sectorId: this.townSiegeGateId, actorId: this.combatantId,
-      skipGroundNavigation: skipBoidsAndObstacles,
-    }, obstacles, this._tmpNavigationTarget)
     const isConfirmedLayeredStep = layeredStep?.confirmedLayeredStep ?? false
     if (layeredStep) {
       navigationRoute = layeredStep.route

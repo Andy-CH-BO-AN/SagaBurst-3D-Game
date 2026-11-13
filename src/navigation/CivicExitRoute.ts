@@ -103,6 +103,7 @@ interface CivicExitRequest {
   radius: number
   height: number
   commandIdentity: number
+  movementIntent: 'chase' | 'command'
 }
 
 function insideHall(hall: CivicHall, p: { x: number; z: number }, margin = 0): boolean {
@@ -123,6 +124,8 @@ export class CivicExitRoute {
   private direction: 1 | -1 = 1
   /** Set when an exit completes, so a later indoor command can bring the body back through this doorway. */
   private returning: { hall: CivicHall; identity: number } | null = null
+  /** The newest real indoor command issued while leaving; only it may become the return. */
+  private indoorCommand: { hall: CivicHall; identity: number } | null = null
   private waypoints: THREE.Vector3[] = []
   private index = 0
   private revision = -1
@@ -144,17 +147,31 @@ export class CivicExitRoute {
 
   /** null means ordinary routing owns the move (not leaving or entering a civic hall). */
   resolve(request: CivicExitRequest, obstacles: readonly ObstacleData[]): CivicExitResult {
-    const { position: p, goal: g, halls, revision, commandIdentity } = request
+    const { position: p, goal: g, halls, revision, commandIdentity, movementIntent } = request
+    const isCommand = movementIntent === 'command'
     if (this.door && this.hall) {
       if (this.direction > 0) {
-        // Before the doorway, a real command change aimed indoors replaces the exit intent. Enemy movement
-        // never changes the identity, and once the body is at the threshold the exit is committed.
-        if (this.along(p) < 0 && commandIdentity !== this.identity && insideHall(this.hall, g, .5)) { this.clear(); return null }
+        // Before the doorway, a real command aimed indoors replaces the exit intent. Combat chase and enemy
+        // movement never do, and once the body is at the threshold the exit is committed to the safety line.
+        const indoor = isCommand && insideHall(this.hall, g, .5)
+        if (this.along(p) < 0 && commandIdentity !== this.identity && indoor) { this.clear(); return null }
+        if (commandIdentity !== this.identity) this.indoorCommand = indoor ? { hall: this.hall, identity: commandIdentity } : null
         this.identity = commandIdentity
-        if (this.passedDoor(p)) { this.returning = { hall: this.hall, identity: commandIdentity }; this.clear(); return null }
+        if (this.passedDoor(p)) {
+          // Only the newest command, still aimed indoors, may bring the body back through this doorway.
+          const order = this.indoorCommand
+          this.returning = order && order.identity === commandIdentity ? { hall: order.hall, identity: order.identity } : null
+          this.clear()
+          return null
+        }
       } else {
-        // Entering: a goal outside the hall cancels the return; the body stays committed to its indoor route.
-        if (!insideHall(this.hall, g, .5)) { this.clear(); this.returning = null; return null }
+        // Entering again: any non-command or outdoor order ends the return; a newer indoor command re-routes it.
+        if (!isCommand || !insideHall(this.hall, g, .5)) { this.clear(); this.returning = null; return null }
+        if (commandIdentity !== this.identity) {
+          const hall = this.hall
+          this.clear()
+          if (!this.plan(hall, p, g, obstacles, revision, request.radius, request.height, commandIdentity, -1)) { this.returning = null; return null }
+        }
         this.identity = commandIdentity
         if (this.entryArrived(p, g)) { this.clear(); this.returning = null; return null }
       }
@@ -174,13 +191,15 @@ export class CivicExitRoute {
       const hall = halls.find(h => insideHall(h, p))
       if (hall) {
         this.returning = null
+        this.indoorCommand = null
         if (insideHall(hall, g, .5)) return null
         if (this.failedRevision === revision && p.distanceToSquared(this.failedAt) < REPLAN_DISTANCE_SQ) return { kind: 'blocked' }
         if (!this.plan(hall, p, g, obstacles, revision, request.radius, request.height, commandIdentity, 1)) return this.reject(p, revision)
       } else {
-        // Outside every hall: only a body that just completed an exit, and is now ordered indoors, enters again.
+        // Outside every hall: a return needs the same live, newest indoor command that left the hall.
         const returning = this.returning
-        if (!returning || !insideHall(returning.hall, g, .5) || !returning.hall.doors.some(d => p.distanceTo(d.threshold) <= ENTRY_REACH)) {
+        if (!returning || !isCommand || commandIdentity !== returning.identity || !insideHall(returning.hall, g, .5)
+          || !returning.hall.doors.some(d => p.distanceTo(d.threshold) <= ENTRY_REACH)) {
           this.returning = null
           return null
         }
