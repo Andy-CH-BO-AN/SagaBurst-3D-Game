@@ -5,6 +5,7 @@ import { EagleFlightController, parseEagleFlightSnapshot, type EagleFlightIntent
 import { EagleFlightAI, type EagleFlightCommand } from '../../src/movement/EagleFlightAI'
 import { XONGKORO } from '../../src/movement/XongkoroConfig'
 import { isEaglePadArrived } from '../../src/world/EaglePadArrival'
+import type { EagleTraffic } from '../../src/world/EagleAirspace'
 import { Player } from '../../src/player/Player'
 import { Mount, MountState } from '../../src/world/Mount'
 import type { CombatActorRef } from '../../src/combat/CombatAttribution'
@@ -136,15 +137,15 @@ describe('Eagle flight boarding clearance', () => {
 /** The real pilot steering the real controller; only terrain and time are fixed. */
 function pilotedEagle(position: Vector3, yaw = 0) {
   const pilot = new EagleFlightAI(), flight = new EagleFlightController(), rotation = new Euler(0, yaw, 0)
-  const obstacles: ObstacleData[] = []
+  const obstacles: ObstacleData[] = [], traffic: EagleTraffic[] = []
   let elapsed = 0
   const advance = (command: EagleFlightCommand) => {
-    flight.setIntent(pilot.update(.1, flight, position, command, [], obstacles, 3000, flatGround))
+    flight.setIntent(pilot.update(.1, flight, position, command, [], obstacles, 3000, flatGround, traffic))
     flight.update(position, rotation, .1, obstacles, 3000, flatGround)
     elapsed += .1
   }
   // Read through the snapshot: the controller mutates its phase behind TypeScript's narrowing.
-  return { pilot, flight, position, obstacles, advance, get elapsed() { return elapsed },
+  return { pilot, flight, position, obstacles, traffic, advance, get elapsed() { return elapsed },
     get phase() { return flight.snapshot().phase } }
 }
 const pad = { x: 60, z: 40, yaw: Math.PI / 2 }
@@ -152,7 +153,7 @@ const returnToPad = (): EagleFlightCommand => ({ kind: 'return', destination: ne
 const arrived = (eagle: ReturnType<typeof pilotedEagle>) => isEaglePadArrived({ position: eagle.position,
   flight: eagle.flight.snapshot(), pad, groundHeight: 0, clear: true })
 
-describe('Vertical private-eagle pad takeoff and landing', () => {
+describe('Vertical pad takeoff and landing', () => {
   it('lifts on the spot, then flies back from cruise and settles near-vertically onto the assigned pad', () => {
     const eagle = pilotedEagle(new Vector3())
     const follow: EagleFlightCommand = { kind: 'follow', destination: new Vector3(0, 0, 220), vertical: true }
@@ -202,5 +203,53 @@ describe('Vertical private-eagle pad takeoff and landing', () => {
     const clearedAt = eagle.elapsed
     while (eagle.phase !== 'grounded' && eagle.elapsed - clearedAt < 60) eagle.advance(order)
     expect(arrived(eagle)).toBe(true)
+  })
+
+  it('abandons a settle when another eagle holds the column below it, without closing on it, and lands once it leaves', () => {
+    const eagle = pilotedEagle(new Vector3(pad.x - 70, 24, pad.z), Math.PI / 2)
+    eagle.pilot.setCruiseAltitude(24); eagle.flight.phase = 'cruise'; eagle.flight.speed = XONGKORO.cruiseSpeed
+    const order = returnToPad()
+    while (eagle.phase !== 'landing' && eagle.elapsed < 20) eagle.advance(order)
+    expect(eagle.phase).toBe('landing')
+    // A second eagle crosses the pad at 20 m, inside the remaining descent path.
+    const other = { position: new Vector3(pad.x, 20, pad.z), velocity: new Vector3() }
+    eagle.traffic.push(other)
+    const crossedAt = eagle.elapsed
+    let closest = Infinity
+    while (eagle.elapsed - crossedAt < 12) {
+      eagle.advance(order)
+      closest = Math.min(closest, eagle.position.distanceTo(other.position))
+      expect(eagle.phase).not.toBe('grounded')
+    }
+    // The body envelopes (2.6 m tall, 11 m half span) never meet; the settle became a go-around.
+    expect(closest).toBeGreaterThan(XONGKORO.bodyHeight)
+    expect(eagle.phase).toBe('cruise')
+    eagle.traffic.length = 0
+    const clearedAt = eagle.elapsed
+    while (eagle.phase !== 'grounded' && eagle.elapsed - clearedAt < 60) eagle.advance(order)
+    expect(arrived(eagle)).toBe(true)
+  })
+
+  it('stays down under a roof its climb cannot clear, and settles back from a climb that becomes blocked', () => {
+    const eagle = pilotedEagle(new Vector3())
+    const follow: EagleFlightCommand = { kind: 'follow', destination: new Vector3(0, 0, 220), vertical: true }
+    const roof = (height: number): ObstacleData => ({ isBarricade: false,
+      box: new Box3(new Vector3(-6, height, -6), new Vector3(6, height + 1, 6)) })
+    // 15 m passes the 14.5 m landing clearance, but not a 15 m climb plus the body.
+    eagle.obstacles.push(roof(15))
+    for (let frame = 0; frame < 30; frame++) eagle.advance(follow)
+    expect([eagle.phase, eagle.position.y]).toEqual(['grounded', 0])
+    eagle.obstacles.length = 0
+    while (eagle.position.y < 5 && eagle.elapsed < 10) eagle.advance(follow)
+    expect(eagle.phase).toBe('takeoff')
+    // A blockage that appears above an eagle already climbing.
+    eagle.obstacles.push(roof(9))
+    const blockedAt = eagle.elapsed
+    while (eagle.phase !== 'grounded' && eagle.elapsed - blockedAt < 10) eagle.advance(follow)
+    expect([eagle.phase, eagle.position.y]).toEqual(['grounded', 0])
+    expect(Math.hypot(eagle.position.x, eagle.position.z)).toBeLessThan(.5)
+    eagle.obstacles.length = 0
+    while (eagle.phase !== 'cruise' && eagle.elapsed - blockedAt < 30) eagle.advance(follow)
+    expect(eagle.phase).toBe('cruise')
   })
 })

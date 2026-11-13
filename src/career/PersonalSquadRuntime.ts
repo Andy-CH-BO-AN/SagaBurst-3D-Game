@@ -769,7 +769,7 @@ export class PersonalSquadRuntime {
     this.slots.set(npc, this.hasHR ? this.freeMusterSlot(Math.max(0, index)) ?? slot : this.muster[Math.max(0, index)] ?? slot)
     this.spawnedLoadouts.set(member.id, loadoutKey(member))
     if (mount) { this.mounts.push(mount); this.memberMounts.set(member.id, mount) }
-    // HR private eagles lift from and settle onto their pads vertically.
+    // HR private eagles lift from and settle onto their pads vertically, like the Town air force.
     if (mount?.isFlyingMount && this.hasHR) npc.eagleVerticalFlight = true
     if (boardingPad && mount) this.boarding.set(npc, { pad: boardingPad, index: memberIndex })
     return npc
@@ -824,7 +824,7 @@ export class PersonalSquadRuntime {
     // Distance still to fly and sink: real approach progress keeps the permission alive.
     const at = mount.group.position
     const remaining = Math.hypot(at.x - pad.x, at.z - pad.z) + Math.max(0, at.y - getTerrainHeight(pad.x, pad.z))
-    const permitted = this.options.eagleLandingQueue?.request(actor.combatantId, clear, remaining) ?? clear
+    const permitted = this.options.eagleLandingQueue?.request(actor.combatantId, clear, remaining, pad) ?? clear
     if (permitted && !this.approachingEagles.has(actor)) {
       this.approachingEagles.add(actor)
       actor.setEagleFlightOrder({ kind: 'return', target: new THREE.Vector3(pad.x, getTerrainHeight(pad.x, pad.z), pad.z), landingYaw: pad.yaw })

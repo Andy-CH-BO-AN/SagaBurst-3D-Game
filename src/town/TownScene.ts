@@ -199,8 +199,8 @@ export class TownScene {
   private eagleGarrison?: TownEagleGarrisonController
   private readonly eagleLandingQueue = new EagleLandingQueue()
   /**
-   * HR private eagles settle vertically inside their own reserved pad column, so they
-   * queue among themselves instead of behind the Town air force's approach corridors.
+   * HR private eagles queue among themselves, apart from the Town air force. Both queues
+   * only serialize pads that share airspace; the live column check covers every eagle.
    */
   private readonly privateEagleLandingQueue = new EagleLandingQueue()
   private garrisonRestored = false

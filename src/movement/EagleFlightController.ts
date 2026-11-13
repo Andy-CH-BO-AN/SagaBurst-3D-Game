@@ -3,11 +3,14 @@ import { getTerrainHeight, resolveObstacleCollision, type ObstacleData } from '.
 import { XONGKORO } from './XongkoroConfig'
 import { isEagleLandingClear, type EagleLandingPoint } from '../world/EagleLanding'
 import { EAGLE_PAD_YAW_TOLERANCE } from '../world/EaglePadArrival'
+import { isEagleColumnClear } from '../world/EagleAirspace'
 
 export type EagleFlightPhase = 'grounded' | 'takeoff' | 'cruise' | 'landing'
 export interface EagleFlightIntent { yaw: number; pitch: number; bankInput?: number; sprint?: boolean; brake?: boolean; takeoff?: boolean; landingTarget?: { x: number; z: number; yaw: number }
   /** Opt-in vertical take-off and pad landing. Cruise remains fixed-wing: no sustained hover. */
-  vertical?: boolean }
+  vertical?: boolean
+  /** Height above ground at which a vertical take-off flies forward and a landing may turn; defaults to the pad clearance. */
+  climbHeight?: number }
 export interface EagleFlightSnapshot {
   phase: EagleFlightPhase; yaw: number; pitch: number; bank: number; speed: number
   velocity: { x: number; y: number; z: number }
@@ -45,8 +48,21 @@ export class EagleFlightController {
   private readonly oldSide = new THREE.Vector3()
   private readonly side = new THREE.Vector3()
   private readonly landingPoint = { x: 0, z: 0, yaw: 0 }
+  /** Transient vertical take-off state; a restored snapshot simply starts a fresh climb. */
+  private retreating = false
+  private blocked = false
+  private climbStall = 0
+  private climbFrom = -Infinity
+  private takeoffCooldown = 0
+  private readonly trafficView = { position: this.previous, velocity: this.velocity }
 
-  setIntent(intent: EagleFlightIntent): void { Object.assign(this.intent, { bankInput: 0, sprint: false, brake: false, takeoff: false, landingTarget: undefined, vertical: false }, intent) }
+  /** Live view of this eagle for other pilots' airspace checks; no per-frame allocation. */
+  traffic(position: THREE.Vector3): { position: THREE.Vector3; velocity: THREE.Vector3 } {
+    this.trafficView.position = position
+    return this.trafficView
+  }
+
+  setIntent(intent: EagleFlightIntent): void { Object.assign(this.intent, { bankInput: 0, sprint: false, brake: false, takeoff: false, landingTarget: undefined, vertical: false, climbHeight: undefined }, intent) }
   snapshot(): EagleFlightSnapshot {
     return { phase: this.phase, yaw: this.yaw, pitch: this.pitch, bank: this.bank, speed: this.speed,
       velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z } }
@@ -75,7 +91,11 @@ export class EagleFlightController {
       this.yaw = rotation.y
       this.velocity.set(0, 0, 0)
       this.speed = 0
+      this.retreating = this.blocked = false; this.climbStall = 0; this.climbFrom = -Infinity
+      this.takeoffCooldown = Math.max(0, this.takeoffCooldown - dt)
       if (!this.intent.takeoff || !this.canLand(position, obstacles, terrainHeight, bound)) return
+      // A vertical lift needs its whole climb, body and wings, before leaving the ground.
+      if (this.intent.vertical && (this.takeoffCooldown > 0 || !this.climbClear(position, obstacles, terrainHeight))) return
       this.phase = 'takeoff'
       this.speed = this.intent.vertical ? 0 : XONGKORO.minimumSpeed
       this.pitch = this.intent.vertical ? 0 : Math.max(XONGKORO.takeoffPitch, this.intent.pitch)
@@ -164,22 +184,40 @@ export class EagleFlightController {
     const surface = terrainHeight(position.x, position.z)
     const target = this.intent.landingTarget
     if (this.phase === 'takeoff') {
-      // Lift on the spot; forward speed is only gained once the pad clearance is behind.
-      if (position.y - surface >= XONGKORO.verticalTakeoffHeight) { this.phase = 'cruise'; return false }
+      const agl = position.y - surface
+      // Lift on the spot; forward speed is only gained once the climb is behind.
+      if (!this.retreating && agl >= this.climbHeight()) { this.phase = 'cruise'; return false }
+      // A withdrawn take-off (traffic overhead) or a climb that stops gaining height
+      // settles back onto the same spot instead of pressing against the blockage.
+      const expected = XONGKORO.verticalClimbRate * step
+      this.climbStall = !this.retreating && position.y - this.climbFrom < expected * .25 ? this.climbStall + step : 0
+      // A stalled climb always goes back down; a withdrawn one resumes as soon as it may.
+      if (this.climbStall > .5) this.retreating = this.blocked = true
+      else if (!this.blocked) this.retreating = !this.intent.takeoff
       this.beginStep(position)
       this.speed = approach(this.speed, 0, XONGKORO.acceleration * step)
       this.pitch = approach(this.pitch, 0, XONGKORO.pitchRate * step)
       this.bank = approach(this.bank, 0, XONGKORO.bankResponse * step)
-      this.velocity.set(Math.sin(this.yaw) * this.speed, XONGKORO.verticalClimbRate, Math.cos(this.yaw) * this.speed)
+      const sink = Math.min(XONGKORO.verticalDescentRate, Math.max(1, agl * 1.2))
+      this.velocity.set(Math.sin(this.yaw) * this.speed,
+        this.retreating ? Math.max(-sink, -agl / step) : XONGKORO.verticalClimbRate, Math.cos(this.yaw) * this.speed)
       position.addScaledVector(this.velocity, step)
+      this.climbFrom = this.retreating ? -Infinity : position.y - expected
+      if (this.retreating && position.y <= terrainHeight(position.x, position.z) + .05) {
+        position.y = terrainHeight(position.x, position.z); this.phase = 'grounded'; this.speed = 0; this.pitch = 0; this.bank = 0
+        this.velocity.set(0, 0, 0); this.takeoffCooldown = this.blocked ? XONGKORO.verticalRetrySeconds : 0
+        this.retreating = this.blocked = false
+      }
       return true
     }
     if (!target || !this.intent.brake) return false
     const dx = target.x - position.x, dz = target.z - position.z, distance = Math.hypot(dx, dz)
     if (this.phase !== 'landing' && (this.phase !== 'cruise' || distance > XONGKORO.verticalCaptureRadius
       || this.speed > XONGKORO.minimumSpeed + .5)) return false
-    // The descent column is the pad's own footprint, not wherever the eagle happens to brake.
-    if (!isEagleLandingClear(target as EagleLandingPoint, obstacles, [], bound, terrainHeight)) {
+    // The descent column is the pad's own footprint, from the eagle's height to the ground.
+    const padGround = terrainHeight(target.x, target.z)
+    if (!isEagleLandingClear(target as EagleLandingPoint, obstacles, [], bound, terrainHeight)
+      || !isEagleColumnClear(target, padGround, position.y + XONGKORO.bodyHeight, obstacles)) {
       if (this.phase === 'landing') this.phase = 'cruise'
       return false
     }
@@ -189,8 +227,10 @@ export class EagleFlightController {
     this.yaw += THREE.MathUtils.clamp(yawError, -XONGKORO.turnRate * step, XONGKORO.turnRate * step)
     this.bank = approach(this.bank, 0, XONGKORO.bankResponse * step)
     // Hold above the pad while trimming position/heading; only an aligned eagle settles.
-    const aligned = distance < 1 && Math.abs(yawError) <= EAGLE_PAD_YAW_TOLERANCE / 2
-    const height = position.y - surface - (aligned ? 0 : XONGKORO.verticalHoldHeight)
+    // Wings off the pad heading sweep outside its validated footprint: turn above the
+    // surroundings, then trim the last metre just over the pad.
+    const headed = Math.abs(yawError) <= EAGLE_PAD_YAW_TOLERANCE / 2, aligned = headed && distance < 1
+    const height = position.y - surface - (aligned ? 0 : headed ? XONGKORO.verticalHoldHeight : this.climbHeight())
     this.pitch = approach(this.pitch, position.y - surface > 3 ? XONGKORO.verticalFlarePitch : 0, XONGKORO.pitchRate * step)
     this.sample.set(dx, 0, dz)
     if (distance > .0001) this.sample.multiplyScalar(Math.min(XONGKORO.minimumSpeed, distance * 1.2) / distance)
@@ -210,6 +250,15 @@ export class EagleFlightController {
     return true
   }
 
+  private climbHeight(): number {
+    return Math.max(XONGKORO.verticalTakeoffHeight, this.intent.climbHeight ?? 0)
+  }
+  private climbClear(position: THREE.Vector3, obstacles: ObstacleData[], terrainHeight: (x: number, z: number) => number): boolean {
+    this.landingPoint.x = position.x; this.landingPoint.z = position.z; this.landingPoint.yaw = this.yaw
+    const ground = terrainHeight(position.x, position.z)
+    return isEagleColumnClear(this.landingPoint, ground, ground + this.climbHeight() + XONGKORO.bodyHeight + 1, obstacles)
+  }
+
   private beginStep(position: THREE.Vector3): void {
     this.oldAhead.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch))
     this.oldSide.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw))
@@ -226,7 +275,7 @@ export class EagleFlightController {
       this.oldSample.copy(this.previous).addScaledVector(this.oldAhead, along)
       this.correction.copy(this.sample)
       const sampleGround = terrainHeight(this.sample.x, this.sample.z)
-      if (this.sample.y < sampleGround && this.phase !== 'landing') this.sample.y = sampleGround
+      if (this.sample.y < sampleGround && this.phase !== 'landing' && !this.retreating) this.sample.y = sampleGround
       resolveObstacleCollision(this.sample, this.oldSample, this.velocity.y, false,
         XONGKORO.bodyRadius, XONGKORO.bodyHeight, 0, obstacles)
       this.correction.sub(this.sample)
