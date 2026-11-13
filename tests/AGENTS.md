@@ -33,9 +33,11 @@
 
 ### Cross-owner lint warning
 
-- `npm run lint:test` 會對少量明確列出的 production 決策入口加上非阻擋 Warning：目前試行 `CareerFieldBattle.isMigratedCareerFieldTemplate`／`isMigratedCareerFieldMission` 與 `CareerBridgeBattle.isCareerFelineBattle`。同一 Vitest leaf 直接呼叫兩個 owner 的入口時，提醒 reviewer 確認它們是在驗證同一條正式路徑，還是包含可獨立驗證的行為。這不是案例錯置判定，不要求拆分；不依目錄或 import 數量推測 owner。
-- 只 import 未呼叫、type-only import、同一 owner 的多個入口，以及 fixture helper、`beforeEach`／`afterEach` setup／cleanup、巢狀 helper／延遲 callback 或資料轉換 callback 不會觸發。單一 leaf 的同一交易若經不同模組完成，也可能是合理 caller regression；例如 `commitCareerBridgeBattleResult` 搭配真正的 `CareerProfileStore` 是 Bridgehead 結算重試交易，不應只因跨模組就警告。
+- `npm run lint:test` 會對少量明確列出的 production 入口加上非阻擋 Warning；目前只有同一 Vitest leaf 直接呼叫 `CareerBridgeBattle.careerFieldTacticalOrder` 與 `CareerFieldBattle.resolveFieldDamagedTargetId` 這個試行組合會命中。前者決定小隊戰術命令，後者將傷害事件對應到目標 actor；`tests/missions/CareerFieldBattle.test.ts` 的「supports ambush alerts, squad engagement, and non-respawning legacy checkpoint migration」同時直接驗證兩者，且各自涵蓋不同決策，值得 reviewer 確認是否為同一正式路徑。Warning 只指出入口，請 reviewer 判斷，不自動判定案例放錯檔，也不要求拆 case。
+- 舊的任務分類 leaf 同時呼叫 `CareerFieldBattle.isMigratedCareerFieldTemplate`／`isMigratedCareerFieldMission` 與 `CareerBridgeBattle.isCareerFelineBattle`，但這些分類呼叫組成同一條任務路由，現在不會命中 Warning。#490 的 Bridgehead「keeps Bridgehead victory unclaimed after a failed result save and retries it once」則以 `commitCareerBridgeBattleResult` 搭配真正的 `CareerProfileStore` 驗證同一結算交易可重試，也不會命中。跨檔案或跨模組本身不是警告條件。
+- 只 import 未呼叫、type-only import、同一 Owner 的多個入口，以及 fixture helper、`beforeEach`／`afterEach` setup／cleanup、巢狀 helper／延遲 callback 或資料轉換 callback 不會觸發。這條規則依既有 callback 與 import binding 辨識實際呼叫，不依目錄或 import 數量推測 Owner，且每個 leaf 最多報一個 Warning。
 - Warning 只提供 review 線索。**Owner 歸屬、failure mode 是否獨立、caller 是否真的有覆蓋，仍由 review 判斷**；Warning 不增加 leaf 數、不阻擋 CI，也不改變既有 Error 規則。
+- 本次 PR 最新分支 head 的 CI：[test/warn-cross-owner-test-calls Actions runs](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/workflows/ci.yml?query=branch%3Atest%2Fwarn-cross-owner-test-calls)。
 
 - 同一不可分交易可有多個 assertions，同一不變量可使用少量資料變體；部署容量、投射物遮擋、地形切換與落水死亡等不同原因的失敗必須能獨立定位。把 200 行以上的大型 `it` 搬進正確檔案，不代表已完成責任整理。
 - 搬移／刪除前核對「原案例與 assertions → 保留案例 → production consumer」，不能只比較名稱或 leaf 數；保留舊版存檔、權限、錯誤恢復與正式 Game call path 的唯一 regression。刪除自建決策流程時，指出真正 owner 的保護位置；沒有等效保護就明列風險，不宣稱已替代。

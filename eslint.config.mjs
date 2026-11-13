@@ -30,20 +30,31 @@ const HEAVY_ACTOR_MODULES = new Map([
   ['Game', '/src/Game'],
 ])
 const HEAVY_ACTOR_NAMES = new Set(HEAVY_ACTOR_MODULES.keys())
-// Deliberately small pilot set: these two modules own separate Career mission
-// classification decisions. This is not a repository-wide owner/path catalog.
+// Small pilot only. The classification pair below is a composed route, while
+// the warning pattern joins two independently asserted decisions in one leaf.
 const CROSS_OWNER_DECISION_ENTRYPOINTS = [
-  {
-    owner: 'CareerFieldBattle',
-    module: '/src/career/CareerFieldBattle',
-    names: new Set(['isMigratedCareerFieldTemplate', 'isMigratedCareerFieldMission']),
-  },
   {
     owner: 'CareerBridgeBattle',
     module: '/src/career/CareerBridgeBattle',
-    names: new Set(['isCareerFelineBattle']),
+    names: new Set(['isCareerFelineBattle', 'careerFieldTacticalOrder', 'commitCareerBridgeBattleResult']),
+  },
+  {
+    owner: 'CareerFieldBattle',
+    module: '/src/career/CareerFieldBattle',
+    names: new Set([
+      'isMigratedCareerFieldTemplate', 'isMigratedCareerFieldMission', 'resolveFieldDamagedTargetId',
+      'shouldTriggerSweepAlert', 'findVeteranSquadsInRange',
+    ]),
   },
 ]
+const CROSS_OWNER_WARNING_PATTERNS = [
+  [
+    { owner: 'CareerBridgeBattle', entrypoint: 'careerFieldTacticalOrder' },
+    { owner: 'CareerFieldBattle', entrypoint: 'resolveFieldDamagedTargetId' },
+  ],
+]
+const CAREER_PROFILE_STORE_MODULE = '/src/career/CareerProfileStore'
+const CAREER_PROFILE_STORE_METHODS = new Set(['load', 'loadChecked', 'save'])
 const NODE_TEST_APIS = new Set(['test', 'it', 'describe', 'suite'])
 const NODE_TEST_CASE_APIS = new Set(['test', 'it'])
 const NODE_TEST_SUITE_APIS = new Set(['describe', 'suite'])
@@ -134,6 +145,33 @@ function directDecisionEntryPoint(sourceCode, expression) {
   const owner = CROSS_OWNER_DECISION_ENTRYPOINTS.find(candidate =>
     candidate.names.has(importedName) && moduleMatches(binding.source, candidate.module))
   return owner ? { owner: owner.owner, entrypoint: importedName } : null
+}
+
+function careerProfileStoreMethodEntryPoint(sourceCode, expression) {
+  const callee = unwrapExpression(expression)
+  if (callee.type !== 'MemberExpression') return null
+  const method = staticMemberName(callee)
+  if (!CAREER_PROFILE_STORE_METHODS.has(method)) return null
+  const object = unwrapExpression(callee.object)
+  if (object.type !== 'Identifier') return null
+
+  const variable = variableInScope(sourceCode.getScope(object), object.name)
+  for (const definition of variable?.defs ?? []) {
+    if (definition.type !== 'Variable' || definition.node.type !== 'VariableDeclarator') continue
+    const init = unwrapExpression(definition.node.init)
+    const constructor = init?.type === 'NewExpression' ? unwrapExpression(init.callee) : null
+    if (constructor?.type !== 'Identifier') continue
+    const binding = importedBinding(sourceCode, constructor)
+    if (binding?.typeOnly || binding?.namespace || binding?.imported !== 'CareerProfileStore' ||
+        !moduleMatches(binding.source, CAREER_PROFILE_STORE_MODULE)) continue
+    return { owner: 'CareerProfileStore', entrypoint: `CareerProfileStore.${method}` }
+  }
+  return null
+}
+
+function calledOwnerEntryPoint(sourceCode, expression) {
+  return directDecisionEntryPoint(sourceCode, expression) ??
+    careerProfileStoreMethodEntryPoint(sourceCode, expression)
 }
 
 function moduleMatches(source, suffix) {
@@ -598,7 +636,7 @@ const testAuthoring = {
         return {
           CallExpression(node) {
             const callback = enclosingTestCaseCallback(sourceCode, node)
-            const entryPoint = directDecisionEntryPoint(sourceCode, node.callee)
+            const entryPoint = calledOwnerEntryPoint(sourceCode, node.callee)
             if (!callback || !entryPoint) return
 
             let byOwner = entryPointsByCallback.get(callback)
@@ -615,9 +653,11 @@ const testAuthoring = {
           },
           'Program:exit'() {
             for (const [callback, byOwner] of entryPointsByCallback) {
-              if (byOwner.size < 2) continue
-              const entrypoints = [...byOwner]
-                .map(([owner, names]) => `${owner}: ${[...names].join(', ')}`)
+              const pattern = CROSS_OWNER_WARNING_PATTERNS.find(entrypoints =>
+                entrypoints.every(({ owner, entrypoint }) => byOwner.get(owner)?.has(entrypoint)))
+              if (!pattern) continue
+              const entrypoints = pattern
+                .map(({ owner, entrypoint }) => `${owner}.${entrypoint}`)
                 .join('; ')
               context.report({ node: callback, messageId: 'crossOwner', data: { entrypoints } })
             }
