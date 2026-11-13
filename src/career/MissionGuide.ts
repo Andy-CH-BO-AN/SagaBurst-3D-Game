@@ -52,7 +52,7 @@ export class MissionGuide {
     if (phase === 'ENGAGING') {
       this.arrow.style.opacity = '.18'
       this.arrow.style.transform = 'rotate(-90deg) scale(.7)'
-      this.label.textContent = context === 'mounted-field' ? `消滅敵軍 · 剩餘 ${remainingEnemies} 人` : fieldMissionEngagementLabel(patrol ? 'patrol' : 'bandit', remainingEnemies)
+      this.label.textContent = context === 'mounted-field' ? `消滅敵軍 · 剩餘 ${remainingEnemies} 人` : fieldMissionEngagementLabel('bandit', remainingEnemies)
       return
     }
     if (!target || phase === 'RESULT') { this.hide(); return }

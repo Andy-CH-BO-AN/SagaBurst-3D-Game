@@ -1,6 +1,9 @@
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { clonePersonalMission } from './CareerPersonalSquadMission'
 import type { CareerProfileStore } from './CareerProfileStore'
+import { isRetiredRecruitPatrolMission } from './CareerMissionCatalog'
+import { stageMissionReturnRebuild, type MissionReturnHome } from './CareerMissionReturnRecovery'
+import { refitTownCommandForSceneChange } from './SquadRefit'
 
 export const CAREER_RECOVERY_NOTICE_KEY = 'sagaburst_career_recovery_notice'
 
@@ -62,4 +65,16 @@ export function recoverFailedCareerMission(store: Pick<CareerProfileStore, 'load
   const next = prepareFailedCareerMissionReturn(loaded.profile, missionId)
   if (!next) return 'stale'
   return store.save(next) ? 'recovered' : 'storage-error'
+}
+
+/** Safely clear a permanently retired in-flight recruit patrol save without settling or awarding merit. */
+export function retireObsoleteActiveMission(
+  profile: CareerProfile,
+  residents: readonly MissionReturnHome[],
+): CareerProfile | null {
+  const active = profile.activeMission
+  if (!active || !isRetiredRecruitPatrolMission(active)) return null
+  const prepared = prepareFailedCareerMissionReturn(profile, active.id)
+  if (!prepared) return null
+  return stageMissionReturnRebuild(refitTownCommandForSceneChange(prepared), residents, active.personalSquad)
 }

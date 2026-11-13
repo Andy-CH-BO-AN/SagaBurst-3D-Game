@@ -147,11 +147,12 @@ import { applyT4Class, isT4ClassId, t4ClassOffer, T4_CLASSES_BY_FACTION, T4_CLAS
 import { CAREER_CLASS_HERO, T4_CLASS_HERO } from '../career/CareerPlayerProfile'
 import { appendCareerPromotionCards, appendT4PromotionCards, careerClassConfirmation } from '../ui/CareerPromotionUI'
 import { MAX_BULK_PURCHASE_QUANTITY, CAREER_RANKS, CAREER_RANK_LABELS, CAREER_RANK_THRESHOLDS, clearCareerMission, cloneCareerProfile, promoteCareer, type CareerProfile, type CareerMountId, type CareerRank } from '../career/CareerProfile'
-import { availableRecruitMissions, availableCareerMissionsForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, getRecruitMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
+import { availableRecruitMissions, availableCareerMissionsForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, getRecruitMissionTemplate, getRetiredCareerMissionTemplate, isRetiredRecruitPatrolMission, type CareerMissionPage } from '../career/CareerMissionCatalog'
 import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission, createVeteranRoster, veteranTownCavalryReserveSlots } from '../career/VeteranMission'
 import { selectTownCavalryReserve } from './TownCavalryReserve'
 import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
 import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
+import { createCareerFieldBattleLaunch, isMigratedCareerFieldMission } from '../career/CareerFieldBattle'
 import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_LAST_STAND_ID, COMMANDER_MISSION_CATALOG, getCommanderMissionAvailability, getCommanderMissionDefinition, isCommanderTownMission } from '../career/CommanderMissionCatalog'
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
 import { CareerDuelController, duelLoadout, restoreCareerDuelCommander, type CareerDuelOpponentRequest } from '../career/CareerDuelController'
@@ -164,7 +165,7 @@ import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { careerDuelSubjectRules, careerDuelMissionLabel, careerDuelProgressLabel, careerDuelTierEntries, type CareerDuelSubject } from '../career/CareerDuelSelection'
 import { type CareerDuelTier, isUnarmedDuelUnlocked, isCareerDuelUnlocked, duelFightBannerVisible } from '../career/CareerDuelState'
 import { DUEL_ARENA_IDS, DUEL_ARENA_LABELS, defaultDuelArenaForFaction, type DuelArenaId } from '../arena/DuelArenaCatalog'
-import { DUEL_ARENA_RETURN_KEY } from '../arena/DuelArenaReturn'
+import { consumeCareerMissionReturnFlag, findMountParkingPoint, planSergeantReturn, resolveNearestLegalPoint, resolveTownEntryFallbackPoint, sergeantReturnFromResidents, SergeantReturnIntent, settleCareerMissionReturn, type SergeantReturnPlan, type SergeantReturnPoint } from './SergeantReturn'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { fieldMissionHud, missionPhaseLabel, personalSquadStateLabel, townCommandStateLabel } from '../career/CareerMissionPresentation'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
@@ -439,12 +440,18 @@ export class TownScene {
     this.player = new Player(this.scene, profile.faction, resolveCareerHeroAsset(profile), resolveCareerOrdinaryTier(profile))
     this.bindBlockingProgression()
     this.player.setMaxHp(resolveCareerPlayerMaxHp(profile, DEFAULT_PLAYER_MAX_HP), true)
-    const townEntry = this.consumeDuelArenaReturnPoint() ?? townPlayerEntryPoint()
+    const missionReturn = this.settleCareerMissionReturnPlan()
+    const missionReturnPlan = missionReturn?.status === 'placed' ? missionReturn : null
+    // A blocked mission return never starts play on the ordinary entry: hold at the nearest verified point and keep retrying.
+    const heldAt = missionReturn?.status === 'blocked' ? resolveNearestLegalPoint(townPlayerEntryPoint(), this.sergeantReturnOptions(false)) : null
+    if (missionReturn?.status === 'blocked' && !heldAt) throw new Error('鎮內沒有合法的返回落點，請稍後重試。')
+    const townEntry = missionReturnPlan?.point ?? heldAt ?? townPlayerEntryPoint()
     this.player.group.position.set(townEntry.x, getTerrainHeight(townEntry.x, townEntry.z) + .9, townEntry.z)
     this.player.group.rotation.y = townEntry.yaw
+    this.player.faceDirection(Math.sin(townEntry.yaw), Math.cos(townEntry.yaw))
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
     // DEV-only QA handle (browser verification of buildings, entrances and damage); stripped from production.
-    if (import.meta.env.DEV) Object.assign(window, { __townScene: { world: this.world, player: this.player, orbit: this.orbit, camera: this.camera, input: this.input, residents: this.residents, stableHorses: this.stableHorses } })
+    if (import.meta.env.DEV) Object.assign(window, { __townScene: { scene: this, world: this.world, player: this.player, orbit: this.orbit, camera: this.camera, input: this.input, residents: this.residents, stableHorses: this.stableHorses } })
     this.navigation.sync(this.world.obstacles)
     this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,
       () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds,
@@ -580,6 +587,7 @@ export class TownScene {
     this.initializeCareerMounts()
     this.race = new CareerRaceController(this.scene, this.navigation, this.world.obstacles, this.residents,
       () => this.player, this.hp, this.careerMounts, () => this.profile, p => this.commit(p, this.player.dead && this.profile.activeRace && !p.activeRace ? 'grounded-return' : 'ordinary'))
+    this.race.parkedBlockers = except => [...this.townReturnBlockers(except)]
     this.missionCombat = new TownMissionCombat(
       { field: this.mission, duel: this.duel, defense: this.defense },
       {
@@ -633,6 +641,9 @@ export class TownScene {
         preservesResident: npc => Boolean(this.townCommand?.owns(npc) || this.civilianCommand?.owns(npc)),
         world: this.world, navigation: this.navigation, inventory: this.inventory,
         get player() { return town.player },
+        get orbit() { return town.orbit },
+        resolveSergeantReturnPoint: () => this.resolveSergeantReturnPoint(),
+        deferSergeantReturn: () => this.deferSergeantReturn(),
         clearCombatShots: () => this.clearMissionCombatShots(),
         restPlayer: options => this.restPlayerInTown(options),
         returnPersonalSquad: direct => this.personalSquad?.endMission(direct),
@@ -643,7 +654,13 @@ export class TownScene {
     await this.restoreActiveCareerMission()
     this.race.restore()
     await this.race.waitForDeployment()
-    this.race.restorePlayer()
+    // Blocked: keep the saved race state and the one-shot flag untouched; the retry places everything legally.
+    if (missionReturn?.status === 'blocked') this.deferSergeantReturn()
+    else this.race.restorePlayer({ preservePlacement: Boolean(missionReturnPlan), dismount: missionReturnPlan?.dismount, mountPark: missionReturnPlan?.mountPark })
+    if (missionReturnPlan) {
+      this.player.syncMountTransform()
+      this.orbit.setYaw(missionReturnPlan.point.yaw + Math.PI)
+    }
     if (this.player.dead && this.profile.activeRace) this.enterMissionObserver()
     await this.waitForInitialMissionDeployment(progress)
     progress('預熱城外 Bandit…')
@@ -1063,6 +1080,9 @@ export class TownScene {
       get personalCommands() { return scene.personalCommands },
       get personalSquad() { return scene.personalSquad },
       get player() { return scene.player },
+      get orbit() { return scene.orbit },
+      resolveSergeantReturnPoint: () => scene.resolveSergeantReturnPoint(),
+      deferSergeantReturn: () => scene.deferSergeantReturn(),
       get profile() { return scene.profile },
       set profile(value) { scene.profile = value },
       get race() { return scene.race },
@@ -1959,7 +1979,7 @@ export class TownScene {
     if (active) {
       const template = getCareerMissionTemplate(active.templateId)
       const badge = document.createElement('p'); badge.className = 'town-summary'
-      badge.textContent = `任務進行中：${active.kind === 'duel' ? '1v1 單挑' : template?.name ?? active.templateId}\n目前：${missionPhaseLabel(active.phase)}${active.kind === 'duel' ? ` · ${careerDuelMissionLabel(active, id => UNIT_PRESETS[id as UnitPresetId].nameZh)}${active.duelClassId ? ` · ${HERO_CLASS_NAMES[active.duelClassId].zh}` : ''}` : active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense' ? ' · 守住所屬城鎮' : active.kind === 'patrol' ? ' · 沿指定路線巡邏' : active.kind === 'veteran-field' ? ' · 野戰任務' : active.kind === 'bandit' ? ' · 目標：盜匪營地' : ''}\n請先完成目前的任務，才能接取新任務。`
+      badge.textContent = `任務進行中：${active.kind === 'duel' ? '1v1 單挑' : template?.name ?? active.templateId}\n目前：${missionPhaseLabel(active.phase)}${active.kind === 'duel' ? ` · ${careerDuelMissionLabel(active, id => UNIT_PRESETS[id as UnitPresetId].nameZh)}${active.duelClassId ? ` · ${HERO_CLASS_NAMES[active.duelClassId].zh}` : ''}` : active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense' ? ' · 守住所屬城鎮' : active.kind === 'veteran-field' ? ' · 野戰任務' : active.kind === 'bandit' ? ' · 目標：盜匪營地' : ''}\n請先完成目前的任務，才能接取新任務。`
       badge.style.whiteSpace = 'pre-line'
       panel.append(badge)
       return
@@ -2038,9 +2058,7 @@ export class TownScene {
         ? `${template.briefing}\n我方：${template.friendlyCombatants} 人（含你）\n敵方：${townName(this.profile.faction === 'roman' ? 'viking' : 'roman')}全體守軍（${townAssaultObjectiveRoster(townRoster()).length} 人）\n你無指揮權。`
         : template.kind === 'town-defense'
         ? `${template.briefing}\n我方：${defenseForce.friendlyCombatants} 人（含你），守衛${townName(this.profile.faction)}\n敵方：${template.enemyCount} 人（T3 騎兵與 4 名 T4 隊長）\n平民死亡超過 ${template.maxCivilianDeaths} 人即失敗 · 風險：${template.risk}`
-        : template.kind === 'patrol'
-          ? `${template.briefing}\n我方：${template.friendlyCombatants} 人（含你與隊長）\n路線：${template.routeId === 'south-road' ? '南路' : '森林線'} · 風險：${template.risk}`
-          : template.kind === 'bandit' ? `${template.briefing}\n${force(template.friendlyCombatants, `${template.banditCount} 名盜匪`)}\n風險：${template.risk}` : template.briefing
+        : template.kind === 'bandit' ? `${template.briefing}\n${force(template.friendlyCombatants, `${template.banditCount} 名盜匪`)}\n風險：${template.risk}` : template.briefing
       details.style.whiteSpace = 'pre-line'
       row.append(title, details)
       this.button(row, '接受任務', () => this.acceptMission(template.id))
@@ -2048,7 +2066,7 @@ export class TownScene {
     }
     if (selectedPage === 'recruit') {
       const summary = document.createElement('p'); summary.className = 'town-summary'
-      summary.textContent = '可自由選擇不同難度的剿匪與巡邏任務；晉升至更高軍階後可解鎖更多進階作戰。'
+      summary.textContent = '可自由選擇不同難度的剿匪與騎兵清剿任務；晉升至更高軍階後可解鎖更多進階作戰。'
       panel.append(summary)
     }
   }
@@ -2193,8 +2211,9 @@ export class TownScene {
     }
     if (!next) { this.openPanel('無法接受任務', templateId === CAPTAIN_EAGLE_BATTLE_ID ? '需要一隻玩家可以使用的已購買 xongkoro；請檢查私兵分配與坐騎狀態。' : '部隊或坐騎目前不可用。'); return }
     if (!this.commit(next)) return
-    if (templateId === CAPTAIN_FRONTLINE_COMMAND_ID || templateId === CAPTAIN_EAGLE_BATTLE_ID) {
-      const launch = templateId === CAPTAIN_FRONTLINE_COMMAND_ID ? createCaptainFrontlineLaunch(this.profile) : createCaptainEagleLaunch(this.profile)
+    if (templateId === CAPTAIN_FRONTLINE_COMMAND_ID || templateId === CAPTAIN_EAGLE_BATTLE_ID || templateId === CAPTAIN_CAVALRY_COMMAND_ID) {
+      const launch = templateId === CAPTAIN_FRONTLINE_COMMAND_ID ? createCaptainFrontlineLaunch(this.profile)
+        : templateId === CAPTAIN_EAGLE_BATTLE_ID ? createCaptainEagleLaunch(this.profile) : createCareerFieldBattleLaunch(this.profile)
       this.dispose(true); this.onCampaign(launch); return
     }
     const started = templateId === CAPTAIN_PATROL_COMMAND_ID ? this.captainPatrol!.resume(false)
@@ -2219,6 +2238,11 @@ export class TownScene {
     if (!this.commit(next)) return
     if (definition.kind !== 'veteran-field') {
       const launch = createCareerVeteranOutpostLaunch(this.profile)
+      this.dispose(true); this.onCampaign(launch)
+      return
+    }
+    if (isMigratedCareerFieldMission(this.profile.activeMission)) {
+      const launch = createCareerFieldBattleLaunch(this.profile)
       this.dispose(true); this.onCampaign(launch)
       return
     }
@@ -2274,16 +2298,86 @@ export class TownScene {
       return equipment === 'ready'
     } catch (error) { console.error('Duel opponent assets could not be loaded', error); return false }
   }
-  /** After an arena duel the player comes back in front of the Captain who arranged it. */
-  private consumeDuelArenaReturnPoint(): { x: number; z: number; yaw: number } | null {
-    if (sessionStorage.getItem(DUEL_ARENA_RETURN_KEY) !== '1') return null
-    sessionStorage.removeItem(DUEL_ARENA_RETURN_KEY)
-    if (this.profile.activeMission || this.sceneContext.missionOnlyResidents) return null
-    const captain = this.residents.find(resident => resident.spec.id === 'captain')?.spec
-    if (!captain) return null
-    const yaw = captain.yaw ?? 0
-    return { x: captain.x + Math.sin(yaw) * 3.2, z: captain.z + Math.cos(yaw) * 3.2, yaw: yaw + Math.PI }
+  /**
+   * Sergeant point first, then a backup near the ordinary Town entry; both are checked against the
+   * final stance (`mounted` uses the wider mount body). Null means no legal point exists.
+   */
+  private resolveSergeantReturnPoint(mounted = Boolean(this.player?.currentMount)): SergeantReturnPoint | null {
+    const options = this.sergeantReturnOptions(mounted)
+    return sergeantReturnFromResidents(this.residents ?? [], options)
+      ?? resolveTownEntryFallbackPoint(townPlayerEntryPoint(), options)
   }
+  /** Residents, unridden mounts and (DEV QA only) injected blockers all count as occupied floor. */
+  private townReturnBlockers(except?: Mount | null): { x: number; z: number; radius: number }[] {
+    return [
+      ...(this.residents ?? []).filter(r => !r.npc.dead && r.spec.id !== 'deployment').map(r => ({
+        x: r.npc.combatPosition.x, z: r.npc.combatPosition.z, radius: r.npc.mount ? 1.5 : 0.7,
+      })),
+      ...(except === undefined ? this.townParkedMountBlockers() : this.townParkedMountBlockers(except)),
+      ...(import.meta.env.DEV ? (window as unknown as { __townQaBlockers?: () => { x: number; z: number; radius: number }[] }).__townQaBlockers?.() ?? [] : []),
+    ]
+  }
+  /**
+   * Every mount standing in Town, whoever owns it (stable, garrison eagles, personal squad, outskirts, patrols, temporary),
+   * by its own body radius. Only the one being planned is excluded, by identity.
+   */
+  private townParkedMountBlockers(except: Mount | null | undefined = this.player?.currentMount): { x: number; z: number; radius: number }[] {
+    const raceOwn = new Set<Mount>(this.race?.allMounts ?? [])
+    const all = new Set<Mount>([...(this.mounts ?? []), ...(this.combatMounts ?? []), ...(this.personalSquad?.mounts ?? []), ...(this.outskirts?.mounts ?? []),
+      ...(this.enemyEaglePatrol?.mounts ?? []), ...(this.defense?.enemyMounts ?? []), ...(this.temporaryMounts?.all ?? []),
+      ...(this.residents ?? []).flatMap(r => [r.homeMount, r.npc.mount].filter((m): m is Mount => Boolean(m)))])
+    return [...all].filter(m => !m.dead && !m.disposed && !m.riderNpc && m !== except && !raceOwn.has(m)).map(m => ({
+      x: m.group.position.x, z: m.group.position.z, radius: m.combatRadius,
+    }))
+  }
+  private sergeantReturnOptions(mounted: boolean) {
+    return { clearanceRadius: mounted ? 1.25 : 0.75, obstacles: this.world?.obstacles, blockers: this.townReturnBlockers(), terrainHeight: getTerrainHeight }
+  }
+  private readonly sergeantReturnIntent = new SergeantReturnIntent()
+  /** After any formal Career mission, arena duel or race settles, place the player directly in front of the Sergeant. */
+  private settleCareerMissionReturnPlan(): SergeantReturnPlan | null {
+    if (this.profile.activeMission || this.profile.activeOutpostMission || this.sceneContext.missionOnlyResidents) {
+      consumeCareerMissionReturnFlag()
+      return null
+    }
+    return settleCareerMissionReturn(typeof sessionStorage !== 'undefined' ? sessionStorage : undefined, () => this.planSergeantReturn(true))
+  }
+  /** `useRace`: a saved race pose may put the player back on a mount; every stance and the mount's parking spot are checked. */
+  private planSergeantReturn(useRace: boolean): SergeantReturnPlan {
+    const race = useRace ? this.profile.racePlayerState : undefined
+    return planSergeantReturn({
+      resolve: mounted => this.resolveSergeantReturnPoint(mounted),
+      restoreMounted: Boolean(race?.mounted && !race.dead),
+      hasMount: Boolean(race),
+      findMountPark: point => findMountParkingPoint(point, { obstacles: this.world?.obstacles, terrainHeight: getTerrainHeight,
+        occupied: [{ x: point.x, z: point.z, radius: 0.75 }, ...(this.residents ?? []).filter(r => !r.npc.dead).map(r => ({ x: r.npc.combatPosition.x, z: r.npc.combatPosition.z, radius: 1.0 })), ...this.townReturnBlockers()] }),
+    })
+  }
+  /** No legal Sergeant/backup point yet: keep the intent and retry instead of teleporting to an unchecked spot. */
+  private deferSergeantReturn(): void {
+    this.sergeantReturnIntent.begin(this.player?.group.position ?? townPlayerEntryPoint())
+    this.notice = '士官長前方暫無安全位置；清出空間後將自動重試返回。'
+  }
+  private updateSergeantReturnRetry(dt: number): void {
+    if (!this.sergeantReturnIntent.pending || this.disposed || !this.player) return
+    const here = this.player.group.position
+    const outcome = this.sergeantReturnIntent.tick(dt, here, () => {
+      if (this.profile.activeMission || this.profile.activeOutpostMission || this.player.dead) return false
+      const flagged = settleCareerMissionReturn(typeof sessionStorage !== 'undefined' ? sessionStorage : undefined, () => this.planSergeantReturn(true))
+      const plan = flagged ?? this.planSergeantReturn(false)
+      if (plan.status !== 'placed') return false
+      this.player.group.position.set(plan.point.x, getTerrainHeight(plan.point.x, plan.point.z) + .9, plan.point.z)
+      this.player.group.rotation.y = plan.point.yaw
+      this.player.faceDirection(Math.sin(plan.point.yaw), Math.cos(plan.point.yaw))
+      if (flagged) this.race?.restorePlayer({ preservePlacement: true, dismount: plan.dismount, mountPark: plan.mountPark })
+      this.player.syncMountTransform()
+      this.orbit.setYaw(plan.point.yaw + Math.PI)
+      this.notice = ''
+      return true
+    })
+    if (outcome === 'abandoned') { consumeCareerMissionReturnFlag(); this.notice = '' }
+  }
+
   private openDuelPage(panel: HTMLElement): void {
     this.duelArenaChoice = null
     const activities = [['duel', '單挑 Duel'], ['race', '繞城賽馬 Racing'], ['review', '重溫入伍旅程']] as const
@@ -2460,23 +2554,30 @@ export class TownScene {
     if (!this.race?.clear(direct)) { this.notice = this.race?.error || '返回狀態保存失敗，請重試。'; return }
     if (pendingTownResult) { this.showTownResult(pendingTownResult); return }
     const saved = this.profile.racePlayerState!
+    // Two different animals: `ridden` is what the player steps down from (it may be a borrowed stable horse),
+    // `ownMount` is the one clear() planned and saved a position for. Only the latter ever receives that position.
+    const ridden = this.player.currentMount
+    const ownMount = this.careerMounts.activeMount
     if (dead) {
       // Recover only the player, without rebuilding/refitting the Town or ending hostility.
       this.player.resetForScene(saved.position.x, saved.position.y, saved.position.z)
       this.spectator = null
       this.hp.setFill(this.player.hpRatio)
-    } else if (direct) {
-      const mount = this.player.currentMount
-      if (mount && saved.mounted) {
-        mount.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
-        mount.group.rotation.y = saved.mountPosition.yaw
-        this.player.syncMountTransform()
-      } else {
-        if (mount) this.player.dismountFromMount({ preserveWorldPosition: true })
-        this.player.setPosition(saved.position.x, saved.position.y, saved.position.z)
-      }
+    } else if (ridden && ridden === ownMount && saved.mounted) {
+      ridden.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
+      ridden.group.rotation.y = saved.mountPosition.yaw
+      this.player.syncMountTransform()
+    } else {
+      if (ridden) this.player.dismountFromMount({ preserveWorldPosition: true })
+      this.player.setPosition(saved.position.x, saved.position.y, saved.position.z)
     }
-    if (direct || dead) this.player.faceDirection(Math.sin(saved.position.yaw), Math.cos(saved.position.yaw))
+    // Dead or alive, the proven parking spot reaches the owned mount only, so the next Town save reads the same place.
+    if (ownMount && !saved.mounted && saved.mountPosition) {
+      ownMount.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
+      ownMount.group.rotation.y = saved.mountPosition.yaw
+    }
+    this.player.faceDirection(Math.sin(saved.position.yaw), Math.cos(saved.position.yaw))
+    this.orbit.setYaw(saved.position.yaw + Math.PI)
     this.closePanel(); this.notice = '賽事已結束，已返回小鎮。'
   }
   private updateRaceHud(): void {
@@ -2831,6 +2932,10 @@ export class TownScene {
     if (getHeavyFieldMissionDefinition(templateId)) { this.acceptHeavyFieldCareerMission(templateId); return }
     if (getCaptainMissionDefinition(templateId)) { this.acceptCaptainMission(templateId); return }
     if (getVeteranMissionDefinition(templateId)) { this.acceptVeteranCareerMission(templateId); return }
+    if (getRetiredCareerMissionTemplate(templateId) || isRetiredRecruitPatrolMission(templateId)) {
+      this.openPanel('無法接受任務', '該任務已退休。')
+      return
+    }
     const fresh = this.store.load()
     const template = availableRecruitMissions(fresh ?? this.profile).find(candidate => candidate.id === templateId)
     if (!fresh || !template) { this.openPanel('無法接受任務', '生涯存檔已變更，請重新與士官長交談。'); return }
@@ -2839,27 +2944,19 @@ export class TownScene {
     if (template.kind === 'cavalry-sweep') {
       const next = acceptCavalrySweep(fresh, undefined, selectMissionCavalryActorIds(this.residents, 59, this.unavailableTownCavalryActorIds()))
       if (!next || !this.commit(next)) return
-      if (!this.mission.startActiveMission()) { this.openPanel('任務建立失敗', '任務已保存，重新載入後可恢復同一支騎兵隊伍。'); return }
-      this.careerMounts.activate(next.selectedMountId!)
-      this.inventory.prepareForCombat()
-      this.closePanel()
+      this.dispose(true)
+      this.onCampaign(createCareerFieldBattleLaunch(this.profile))
       return
     }
-    if (template.kind === 'enemy-town-assault' || template.kind === 'town-defense' || template.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID) {
+    if (template.kind === 'enemy-town-assault' || template.kind === 'town-defense' || template.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID || template.kind === 'patrol') {
       this.openPanel('無法接受任務', '該任務已退休。')
       return
     }
-    const preferredCamp = template.kind === 'patrol' ? patrolPreferredCamp(template.routeId) : template.preferredCampIndex
-    const campId = this.mission.chooseCamp(preferredCamp)
-    if (campId === null) { this.openPanel('暫時無法接取', '目標營地附近仍在交戰，請稍後再試，或先選擇其他任務。'); return }
-    const mission = this.mission.createMission(template, campId, this.unavailableTownCavalryActorIds())
+    const mission = this.mission.createMission(template, template.preferredCampIndex ?? 0, this.unavailableTownCavalryActorIds())
     const next = cloneCareerProfile(fresh); next.activeMission = mission
     if (!this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始。請確認瀏覽器儲存空間後重試。'); return }
-    if (!this.mission.startActiveMission()) { this.openPanel('任務建立失敗', '任務已保存，但隊伍無法建立。重新載入後可用同一個 missionId 恢復。'); return }
-    this.inventory.prepareForCombat()
-    this.notice = `已接受「${template.name}」。順著畫面下方的箭頭前往集合點，再跟隨隊長出發。`
-    this.playMissionVoice('missionAccepted')
-    this.closePanel()
+    this.dispose(true)
+    this.onCampaign(createCareerFieldBattleLaunch(this.profile))
   }
   private unavailableTownCavalryActorIds(refitTownCommand = false): ReadonlySet<string> {
     return new Set(this.residents.filter(({ spec }) => this.patrol && !this.patrol.isReserveAvailable(spec.id)
@@ -3990,7 +4087,7 @@ export class TownScene {
         if (distance < mountDistance) { mountDistance = distance; this.nearbyTemporaryMount = mount }
       }
     }
-    this.target = null; let nearest = 2.6
+    this.target = null; let nearest = 4.2
     if (!this.profile.activeRace && !this.defense.active && !this.player.isFalling && !this.player.currentMount?.isAirborne) for (const id of ['captain', 'commander', 'deployment', 'merchant', 'ranger', 'cat', 'hr-officer', 'eagle-trainer']) {
       if (!this.serviceAvailable(id)) continue
       const pos = id === 'cat' ? this.cat.group.position : this.residents.find(r => r.spec.id === id)!.npc.combatPosition
@@ -3998,7 +4095,8 @@ export class TownScene {
       const delta = pos.clone().sub(playerPosition)
       if (Math.abs(delta.y) > 2.6) continue
       delta.y = 0; const distance = delta.length()
-      if (distance > nearest || delta.normalize().dot(new THREE.Vector3(Math.sin(this.player.facingYaw), 0, Math.cos(this.player.facingYaw))) < .35) continue
+      const maxDistance = id === 'deployment' ? 4.2 : 2.6
+      if (distance > maxDistance || distance > nearest || delta.normalize().dot(new THREE.Vector3(Math.sin(this.player.facingYaw), 0, Math.cos(this.player.facingYaw))) < .35) continue
       const start = this.player.position.clone(), end = pos.clone().add(new THREE.Vector3(0, 1, 0)), ray = new THREE.Ray(start, end.clone().sub(start).normalize())
       if (this.world.obstacles.some(o => { const hit = ray.intersectBox(o.box, new THREE.Vector3()); return hit && hit.distanceTo(start) < end.distanceTo(start) })) continue
       this.target = id; nearest = distance
@@ -4105,6 +4203,7 @@ export class TownScene {
       this.refreshCombatMounts()
     }
     this.updatePlayerCommands()
+    this.updateSergeantReturnRetry(dt)
     if (!this.spectator) this.orbit.update(this.input, dt, this.world.obstacles)
     if (!this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw,
       this.orbit.getAimPoint(new THREE.Vector3()), this.player.currentMount?.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles, this.stamina,
@@ -4290,7 +4389,7 @@ export class TownScene {
         : this.profile.activeMission.kind === 'town-defense'
         ? `\n守衛城鎮 · ${this.defense.phase === 'PREPARING' ? '敵軍來襲倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : missionPhaseLabel(this.profile.activeMission.phase)} · 敵軍剩餘 ${this.defense.remainingEnemies} 人 · 平民死亡 ${this.defense.civilianDeaths}/10`
         : fieldMissionHud(
-          this.profile.activeMission.kind === 'patrol' ? 'patrol' : 'bandit',
+          'bandit',
           this.profile.activeMission.phase,
           this.mission.remainingEnemies,
         )

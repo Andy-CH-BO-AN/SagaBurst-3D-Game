@@ -141,27 +141,9 @@ export const VETERAN_TOWN_DEFENSE_TEMPLATE: RecruitTownDefenseMissionTemplate = 
   minRank: 'veteran',
 }
 
-export const RETIRED_CAREER_MISSION_TEMPLATES: readonly CareerMissionTemplate[] = [
-  RETIRED_ENEMY_TOWN_ASSAULT_TEMPLATE,
-  VETERAN_TOWN_DEFENSE_TEMPLATE,
-  RETIRED_CAPTAIN_GATE_DEFENSE_DEFINITION,
-  RETIRED_CAPTAIN_SIEGE_COMMAND_DEFINITION,
-]
+export const RETIRED_RECRUIT_PATROL_IDS = ['recruit-patrol-01', 'recruit-patrol-02'] as const
 
-export function getRetiredCareerMissionTemplate(id: string): CareerMissionTemplate | null {
-  return RETIRED_CAREER_MISSION_TEMPLATES.find(template => template.id === id) ?? null
-}
-
-/**
- * The board stays intentionally compact and repeatable. Roughly ten ordinary,
- * credited contributions should earn enough merit for Soldier eligibility;
- * the number of templates is not a promotion requirement.
- */
-export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
-  { id: 'career-cavalry-sweep', kind: 'cavalry-sweep', name: 'Cavalry Sweep · 騎兵清剿', briefing: '目標：在軍營集合後跟隨騎兵出城，消滅全部盜匪。', friendlyCombatants: 60, risk: '低', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'recruit' },
-  mission('recruit-bandits-01', '營火邊的三名盜匪', 5, 3, '低', 0),
-  mission('recruit-bandits-02', '大隊剿匪', 20, 12, '中', 2, 0, 0),
-
+const RETIRED_RECRUIT_PATROL_TEMPLATES: readonly RecruitPatrolMissionTemplate[] = [
   patrol(
     'recruit-patrol-01',
     '南路巡邏',
@@ -181,14 +163,42 @@ export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
     '中',
     0,
   ),
+]
 
+export const RETIRED_CAREER_MISSION_TEMPLATES: readonly CareerMissionTemplate[] = [
+  RETIRED_ENEMY_TOWN_ASSAULT_TEMPLATE,
+  VETERAN_TOWN_DEFENSE_TEMPLATE,
+  RETIRED_CAPTAIN_GATE_DEFENSE_DEFINITION,
+  RETIRED_CAPTAIN_SIEGE_COMMAND_DEFINITION,
+  ...RETIRED_RECRUIT_PATROL_TEMPLATES,
+]
+
+export function getRetiredCareerMissionTemplate(id: string): CareerMissionTemplate | null {
+  return RETIRED_CAREER_MISSION_TEMPLATES.find(template => template.id === id) ?? null
+}
+
+/** True for permanently retired recruit patrol missions (preserved only for save recognition/recovery). */
+export function isRetiredRecruitPatrolMission(
+  mission: { templateId?: string; kind?: string } | string | null | undefined,
+): boolean {
+  if (!mission) return false
+  if (typeof mission === 'string') return (RETIRED_RECRUIT_PATROL_IDS as readonly string[]).includes(mission)
+  return mission.kind === 'patrol'
+    || Boolean(mission.templateId && (RETIRED_RECRUIT_PATROL_IDS as readonly string[]).includes(mission.templateId))
+}
+
+/**
+ * The board stays intentionally compact and repeatable. Roughly ten ordinary,
+ * credited contributions should earn enough merit for Soldier eligibility;
+ * the number of templates is not a promotion requirement.
+ */
+export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
+  { id: 'career-cavalry-sweep', kind: 'cavalry-sweep', name: 'Cavalry Sweep · 騎兵清剿', briefing: '目標：在軍營集合後跟隨騎兵出城，消滅全部盜匪。', friendlyCombatants: 60, risk: '低', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'recruit' },
+  mission('recruit-bandits-01', '營火邊的三名盜匪', 5, 3, '低', 0),
+  mission('recruit-bandits-02', '大隊剿匪', 20, 12, '中', 2, 0, 0),
   mission('recruit-bandits-03', '寡不敵眾', 6, 10, '高', 3, 0),
   mission('recruit-bandits-04', '深入敵營', 10, 20, '極高', 4, 0),
 ]
-
-export function patrolPreferredCamp(routeId: RecruitPatrolRouteId): number {
-  return routeId === 'south-road' ? 1 : 4
-}
 
 export function getRecruitMissionTemplate(id: string): RecruitMissionTemplate | null {
   return RECRUIT_MISSION_CATALOG.find(template => template.id === id) ?? null

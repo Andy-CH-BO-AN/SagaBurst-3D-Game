@@ -15,34 +15,20 @@ export function missionPhaseLabel(phase: CareerMissionPhase): string {
   }
 }
 
-export function fieldMissionEngagementLabel(kind: 'bandit' | 'patrol', remainingEnemies: number): string {
-  return kind === 'patrol'
-    ? '擊退伏兵 · 保護隊伍'
-    : `消滅盜匪 · 剩餘 ${remainingEnemies} 人`
+export function fieldMissionEngagementLabel(_kind: 'bandit', remainingEnemies: number): string {
+  return `消滅盜匪 · 剩餘 ${remainingEnemies} 人`
 }
 
 export function fieldMissionHud(
-  kind: 'bandit' | 'patrol',
+  _kind: 'bandit',
   phase: CareerMissionPhase,
   remainingEnemies: number,
 ): string {
-  if (kind === 'bandit') {
-    const objective = phase === 'ASSEMBLING' ? '前往集合點'
-      : phase === 'MARCHING' ? '跟隨隊長前往盜匪營地'
-        : phase === 'ENGAGING' ? `消滅盜匪 · 剩餘 ${remainingEnemies} 人`
-          : phase === 'RETURNING' ? '返回城鎮' : '剿匪任務結束'
-    return `\n剿匪任務\n${objective}`
-  }
-  const objective = phase === 'ENGAGING'
-    ? '擊退伏兵 · 保護隊伍'
-    : phase === 'MARCHING'
-      ? '跟隨隊長沿路巡邏'
-      : phase === 'RETURNING'
-        ? '返回城鎮'
-        : phase === 'ASSEMBLING'
-          ? '前往集合點'
-          : '巡邏結束'
-  return `\n巡邏任務\n${objective}`
+  const objective = phase === 'ASSEMBLING' ? '前往集合點'
+    : phase === 'MARCHING' ? '跟隨隊長前往盜匪營地'
+      : phase === 'ENGAGING' ? `消滅盜匪 · 剩餘 ${remainingEnemies} 人`
+        : phase === 'RETURNING' ? '返回城鎮' : '剿匪任務結束'
+  return `\n剿匪任務\n${objective}`
 }
 
 /** Player-facing names for squad states; the saved state strings stay unchanged. */

@@ -1,6 +1,7 @@
 import type { TownProfileChange } from './TownProfileCommit'
 import type { TownGarrisonStation } from './TownGarrison'
 import { activateTownResidentHome, restoreTownResidentHome } from './TownResidentHome'
+import { isRetiredRecruitPatrolMission } from '../career/CareerMissionCatalog'
 import type { BanditMissionController } from '../career/BanditMissionController'
 import { restoreCareerDuelCommander, type CareerDuelController } from '../career/CareerDuelController'
 import type { TownDefenseController } from '../career/TownDefenseController'
@@ -13,6 +14,7 @@ import { Faction, type NPC } from '../world/NPC'
 import { isMissionReturnResident } from '../career/CareerMissionReturnRecovery'
 import { getTerrainHeight } from '../world/Terrain'
 import { townPlayerEntryPoint, townSitePoint, type TownActorSpec } from './TownRules'
+import { markCareerMissionReturnToSergeant, sergeantReturnFromResidents, type SergeantReturnPoint } from './SergeantReturn'
 import type { TownEquipment } from './TownEquipment'
 import type { TownWorld } from './TownWorld'
 import { isCareerEnemyTerritoryFieldMission } from '../career/CareerFieldSceneContext'
@@ -54,7 +56,11 @@ interface TownReturnScene {
   world: Pick<TownWorld, 'restoreTownDamage' | 'obstacles'>
   navigation: Pick<NavigationWorld, 'sync'>
   inventory: Pick<TownEquipment, 'sheathAll'>
-  readonly player: Pick<Player, 'group'>
+  readonly player: Pick<Player, 'group'> & Partial<Pick<Player, 'faceDirection'>>
+  orbit?: { setYaw(yaw: number): void }
+  resolveSergeantReturnPoint?: () => SergeantReturnPoint | null
+  /** No legal return point: keep the intent and retry later. */
+  deferSergeantReturn?: () => void
   clearCombatShots(): void
   restPlayer(options?: { persistMount?: boolean }): void
   returnPersonalSquad?(direct: boolean): void
@@ -92,7 +98,7 @@ export class TownMissionSettlement {
       if (latest?.id === profile.activeMission.id) profile.activeMission = latest
     }
     const active = profile.activeMission
-    if (!active || active.result) return { status: 'ignored' }
+    if (!active || active.result || isRetiredRecruitPatrolMission(active)) return { status: 'ignored' }
     const source = active.kind === 'duel' ? this.missions.duel : this.missions.defense.active ? this.missions.defense : this.missions.field
     let stats: BattleStatsSnapshot
     if (active.personalSquad && this.personalResult?.missionId === active.id) {
@@ -160,7 +166,10 @@ export class TownMissionSettlement {
         }
       }
       this.town.inventory.sheathAll()
-      if (completed) this.town.restPlayer({ persistMount: false })
+      if (completed) {
+        this.town.restPlayer({ persistMount: false })
+        markCareerMissionReturnToSergeant()
+      }
       this.town.restart(this.profiles.read())
       return { status: 'restarted' }
     }
@@ -199,11 +208,18 @@ export class TownMissionSettlement {
       }
     }
     if (completed) this.town.applyResidentReturn?.()
-    const entry = townPlayerEntryPoint(), entryY = getTerrainHeight(entry.x, entry.z) + .9
     this.town.restPlayer({ persistMount: false })
-    if ((active.kind === 'cavalry-sweep' || veteranField) && (intent === 'direct' || active.phase !== 'RETURNING')) {
-      this.town.player.group.position.set(entry.x, entryY, entry.z)
+    // The scene resolver checks the final (now walking) stance; null leaves the player at the legal
+    // spot they already stand on instead of teleporting to an unchecked fallback.
+    const resolver = this.town.resolveSergeantReturnPoint
+    const entry = resolver ? resolver.call(this.town) : sergeantReturnFromResidents(this.town.residents) ?? townPlayerEntryPoint()
+    if (!entry && completed) this.town.deferSergeantReturn?.()
+    if (entry && (active.kind === 'cavalry-sweep' || veteranField || active.kind === 'captain-patrol-command')) {
+      // Captain I walk-back (phase RETURNING) also ends in front of the Sergeant once saved.
+      this.town.player.group.position.set(entry.x, getTerrainHeight(entry.x, entry.z) + .9, entry.z)
       this.town.player.group.rotation.y = entry.yaw
+      this.town.player.faceDirection?.(Math.sin(entry.yaw), Math.cos(entry.yaw))
+      this.town.orbit?.setYaw(entry.yaw + Math.PI)
     }
     return { status: 'returned', kind: defense ? 'defense' : active.kind === 'cavalry-sweep' ? 'sweep' : 'party' }
   }

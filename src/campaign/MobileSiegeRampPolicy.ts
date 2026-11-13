@@ -136,7 +136,9 @@ export function intersectsSiegeRampUnderfill(body: EntityCollisionBody, surface:
 }
 
 export function isMobileSiegeRampEnabled(config: DefenseCampaignLaunchConfig | undefined): boolean {
-  return isOutpostWalkwayEnabled(config, false)
+  if (!isOutpostWalkwayEnabled(config, false)) return false
+  // Relief enters through an already-breached gate without siege ramp attackers or dock cuts.
+  return !config?.careerReliefPhase && config?.careerMissionKind !== 'outpost-relief'
 }
 
 export function isSiegeRampCrewCandidate(spec: NpcSpawnSpec, attackerFaction?: NpcSpawnSpec['characterFaction']): boolean {

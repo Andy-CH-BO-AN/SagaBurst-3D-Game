@@ -12,6 +12,7 @@ import { followDeployedPersonalMission, snapshotPersonalMission } from '../caree
 import { emptyPersonalContribution } from '../combat/CommandMerit'
 import { stageTownEaglePlayerCommand } from './TownEagleGarrisonController'
 import { townRoster, townPlayerEntryPoint } from './TownRules'
+import { sergeantReturnFromResidents, type SergeantReturnPoint } from './SergeantReturn'
 import { getTerrainHeight } from '../world/Terrain'
 import type { TownCombatResident } from './TownMissionCombat'
 import type { CareerProfileStore } from '../career/CareerProfileStore'
@@ -43,7 +44,11 @@ export interface TownProfileCommitRuntime {
   profile: CareerProfile
   store: Pick<CareerProfileStore, 'save'>
   skills: Pick<SkillManager, 'skillState'>
-  player?: Pick<Player, 'dead' | 'hp' | 'staminaValue' | 'shield'> & Parameters<typeof captureCareerAerialState>[0]
+  player?: Pick<Player, 'dead' | 'hp' | 'staminaValue' | 'shield'> & Partial<Pick<Player, 'faceDirection'>> & Parameters<typeof captureCareerAerialState>[0]
+  orbit?: { setYaw(yaw: number): void }
+  resolveSergeantReturnPoint?: () => SergeantReturnPoint | null
+  /** No legal return point: keep the intent and retry later. */
+  deferSergeantReturn?: () => void
   residents: readonly TownCombatResident[]
   world: { faction: CareerProfile['faction'] }
   sceneContext: { missionOnlyResidents: boolean }
@@ -311,9 +316,19 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   if (!runtime.store.save(next)) { runtime.careerSaveFailures++; runtime.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
   if (completedReturn && !rebuildTown && runtime.player) {
     if (groundedTownReturn) {
-      const entry = townPlayerEntryPoint()
-      runtime.player.resetForScene(entry.x, getTerrainHeight(entry.x, entry.z) + .9, entry.z)
-      runtime.player.group.rotation.y = entry.yaw
+      // A resolver that finds no legal point keeps the player on the spot they already stand on.
+      const resolver = runtime.resolveSergeantReturnPoint
+      const entry = resolver ? resolver.call(runtime) : sergeantReturnFromResidents(runtime.residents) ?? townPlayerEntryPoint()
+      if (entry) {
+        runtime.player.resetForScene(entry.x, getTerrainHeight(entry.x, entry.z) + .9, entry.z)
+        runtime.player.group.rotation.y = entry.yaw
+        runtime.player.faceDirection?.(Math.sin(entry.yaw), Math.cos(entry.yaw))
+        runtime.orbit?.setYaw(entry.yaw + Math.PI)
+      } else {
+        const here = runtime.player.group.position
+        runtime.player.resetForScene(here.x, here.y, here.z)
+        runtime.deferSergeantReturn?.()
+      }
     } else runtime.player.setHp(runtime.player.maxHp)
   }
   // No handoff callbacks may capture the outgoing battle poses over the saved rebuild.
