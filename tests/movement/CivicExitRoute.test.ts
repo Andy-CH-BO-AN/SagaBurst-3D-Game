@@ -80,7 +80,7 @@ function localToGround(local: { x: number; z: number }): THREE.Vector3 {
   return new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z), p.z)
 }
 
-interface Trip { reached: boolean; crossedDoor: boolean; crossedFrame: number; handBack: boolean; rampMaxSpeed: number; rampReversed: boolean; civicAfterCompletion: boolean; frames: number; stopped: NavigationRouteKind | null; end: string }
+interface Trip { reached: boolean; crossedDoor: boolean; crossedFrame: number; handBack: boolean; rampMaxSpeed: number; rampReversed: boolean; civicAfterCompletion: boolean; reenteredFrame: number; bodyInsideOnArrival: boolean; frames: number; stopped: NavigationRouteKind | null; end: string }
 
 interface RideOptions {
   /** Physical-only body across the route (a friendly jam). Never part of the navigation grid. */
@@ -105,6 +105,7 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
   const out = new THREE.Vector3(), p = start.clone()
   let commanded = goal, identity = 0, nextCommand = 0, intent: 'chase' | 'command' = options.chase ? 'chase' : 'command'
   let crossedFrame = -1, leaving = false, exitCompleted = false, rampReversed = false, civicAfterCompletion = false
+  let reenteredFrame = -1, bodyInside = false
   let target = goal, yaw = options.yaw ?? 0, velocityY = 0, onGround = true, crossedDoor = false, handBack = false, rampMaxSpeed = 0
   for (let frame = 0; frame < MAX_FRAMES; frame++) {
     const order = options.commands?.[nextCommand]
@@ -121,7 +122,7 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
     const step = layered.resolve(request, obstacles, out)
     const route: NavigationRouteKind = step?.route ?? ground.resolveMoveTarget(p, target, world,
       findBlockingObstacleAlongPath(p, target, RIDER_RADIUS, RIDER_HEIGHT, 0, obstacles) !== null, out)
-    if (route === 'unreachable') return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, frames: frame, stopped: route, end: at(p) }
+    if (route === 'unreachable') return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, reenteredFrame, bodyInsideOnArrival: bodyInside, frames: frame, stopped: route, end: at(p) }
     // Leaving through the doorway, the ramp band before the safety line must stay under civic steering.
     // Only the outbound leg counts: once the exit completes, any inbound routing is ordinary.
     // The outbound leg ends at its safety line; later civic steps are the return through the doorway.
@@ -160,10 +161,13 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
     }
     if (afterMove >= rampEnd && leaving) { leaving = false; exitCompleted = true }
     if (!crossedDoor && p.clone().sub(rig.threshold).dot(rig.outward) > 0) { crossedDoor = true; crossedFrame = frame }
+    bodyInside = afterMove <= -RIDER_RADIUS
+    // The return is complete only once the whole body is back inside the doorway.
+    if (exitCompleted && reenteredFrame < 0 && bodyInside) reenteredFrame = frame
     // Arrival is the shared formation decision: a committed exit holds it until the ramp is cleared.
-    if (formationArrived(Math.hypot(p.x - target.x, p.z - target.z), 1.5, false, step?.civicExit)) return { reached: true, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, frames: frame + 1, stopped: null, end: at(p) }
+    if (formationArrived(Math.hypot(p.x - target.x, p.z - target.z), 1.5, false, step?.civicExit)) return { reached: true, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, reenteredFrame, bodyInsideOnArrival: bodyInside, frames: frame + 1, stopped: null, end: at(p) }
   }
-  return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, frames: MAX_FRAMES, stopped: null, end: at(p) }
+  return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, civicAfterCompletion, reenteredFrame, bodyInsideOnArrival: bodyInside, frames: MAX_FRAMES, stopped: null, end: at(p) }
 }
 
 /** Enemy positions outside the hall, relative to the front door: in front, beside, and behind the building. */
@@ -296,6 +300,10 @@ describe('mounted civic exit from the Town Center', () => {
     expect(trip.handBack).toBe(false)
     expect(trip.rampReversed).toBe(false)
     expect(trip.reached, `frames=${trip.frames} stopped=${trip.stopped} end=${trip.end}`).toBe(true)
+    // Arrival counts only once the whole body is back inside, and the crossing happened before arrival.
+    expect(trip.bodyInsideOnArrival, `arrived with the body still outside: end=${trip.end}`).toBe(true)
+    expect(trip.reenteredFrame, 'the body never crossed back in').toBeGreaterThanOrEqual(0)
+    expect(trip.reenteredFrame, 'arrival came before the crossing').toBeLessThan(trip.frames - 1)
   })
 
   it('an enemy chasing into the hall after the exit never starts the indoor return, which needs a real command', () => {
