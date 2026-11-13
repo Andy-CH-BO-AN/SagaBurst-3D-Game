@@ -2557,27 +2557,27 @@ export class TownScene {
     if (!this.race?.clear(direct)) { this.notice = this.race?.error || '返回狀態保存失敗，請重試。'; return }
     if (pendingTownResult) { this.showTownResult(pendingTownResult); return }
     const saved = this.profile.racePlayerState!
-    const parked = this.player.currentMount ?? this.careerMounts.activeMount
+    // Two different animals: `ridden` is what the player steps down from (it may be a borrowed stable horse),
+    // `ownMount` is the one clear() planned and saved a position for. Only the latter ever receives that position.
+    const ridden = this.player.currentMount
+    const ownMount = this.careerMounts.activeMount
     if (dead) {
       // Recover only the player, without rebuilding/refitting the Town or ending hostility.
       this.player.resetForScene(saved.position.x, saved.position.y, saved.position.z)
       this.spectator = null
       this.hp.setFill(this.player.hpRatio)
+    } else if (ridden && ridden === ownMount && saved.mounted) {
+      ridden.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
+      ridden.group.rotation.y = saved.mountPosition.yaw
+      this.player.syncMountTransform()
     } else {
-      const mount = this.player.currentMount
-      if (mount && saved.mounted) {
-        mount.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
-        mount.group.rotation.y = saved.mountPosition.yaw
-        this.player.syncMountTransform()
-      } else {
-        if (mount) this.player.dismountFromMount({ preserveWorldPosition: true })
-        this.player.setPosition(saved.position.x, saved.position.y, saved.position.z)
-      }
+      if (ridden) this.player.dismountFromMount({ preserveWorldPosition: true })
+      this.player.setPosition(saved.position.x, saved.position.y, saved.position.z)
     }
-    // Dead or alive, the proven parking spot reaches the live mount, so the next Town save reads the same place.
-    if (parked && !saved.mounted && saved.mountPosition) {
-      parked.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
-      parked.group.rotation.y = saved.mountPosition.yaw
+    // Dead or alive, the proven parking spot reaches the owned mount only, so the next Town save reads the same place.
+    if (ownMount && !saved.mounted && saved.mountPosition) {
+      ownMount.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
+      ownMount.group.rotation.y = saved.mountPosition.yaw
     }
     this.player.faceDirection(Math.sin(saved.position.yaw), Math.cos(saved.position.yaw))
     this.orbit.setYaw(saved.position.yaw + Math.PI)
