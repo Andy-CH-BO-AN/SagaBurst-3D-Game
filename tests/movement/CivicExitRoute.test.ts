@@ -80,7 +80,7 @@ function localToGround(local: { x: number; z: number }): THREE.Vector3 {
   return new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z), p.z)
 }
 
-interface Trip { reached: boolean; crossedDoor: boolean; crossedFrame: number; handBack: boolean; rampMaxSpeed: number; frames: number; stopped: NavigationRouteKind | null; end: string }
+interface Trip { reached: boolean; crossedDoor: boolean; crossedFrame: number; handBack: boolean; rampMaxSpeed: number; rampReversed: boolean; frames: number; stopped: NavigationRouteKind | null; end: string }
 
 interface RideOptions {
   /** Physical-only body across the route (a friendly jam). Never part of the navigation grid. */
@@ -101,7 +101,7 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
   const e = spec.entrance, rampEnd = e.approach + 1
   const layered = new LayeredNavigationRoute(new NavigationPathFollower()), ground = new NavigationPathFollower()
   const out = new THREE.Vector3(), p = start.clone()
-  let commanded = goal, identity = 0, commandIssued = false, crossedFrame = -1, leaving = false
+  let commanded = goal, identity = 0, commandIssued = false, crossedFrame = -1, leaving = false, exitCompleted = false, rampReversed = false
   let target = goal, yaw = options.yaw ?? 0, velocityY = 0, onGround = true, crossedDoor = false, handBack = false, rampMaxSpeed = 0
   for (let frame = 0; frame < MAX_FRAMES; frame++) {
     if (options.command && !commandIssued && options.command.when(p, frame)) { commandIssued = true; identity++; commanded = options.command.goal }
@@ -117,10 +117,11 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
     const step = layered.resolve(request, obstacles, out)
     const route: NavigationRouteKind = step?.route ?? ground.resolveMoveTarget(p, target, world,
       findBlockingObstacleAlongPath(p, target, RIDER_RADIUS, RIDER_HEIGHT, 0, obstacles) !== null, out)
-    if (route === 'unreachable') return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, frames: frame, stopped: route, end: at(p) }
+    if (route === 'unreachable') return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, frames: frame, stopped: route, end: at(p) }
     // Leaving through the doorway, the ramp band before the safety line must stay under civic steering.
     // Only the outbound leg counts: once the exit completes, any inbound routing is ordinary.
-    if (step?.civicExit) leaving = true
+    // The outbound leg ends at its safety line; later civic steps are the return through the doorway.
+    if (step?.civicExit && !exitCompleted) leaving = true
     const along = (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z
     if (leaving && along > 0 && along < rampEnd && !step?.civicExit) handBack = true
     const toward = new THREE.Vector3(out.x - p.x, 0, out.z - p.z), distance = toward.length()
@@ -141,17 +142,22 @@ function ride(rig: Rig, start: THREE.Vector3, goal: THREE.Vector3, options: Ride
         }
       }
     }
-    velocityY -= 22 / 60; p.y = Math.max(0, p.y + velocityY / 60)
+    // Gravity settles on the terrain, not on y = 0; otherwise a body off the ramp sinks below its surface.
+    velocityY -= 22 / 60; p.y = Math.max(getTerrainHeight(p.x, p.z), p.y + velocityY / 60)
     const hit = resolveObstacleCollision(p, previous, velocityY, onGround, RIDER_RADIUS, RIDER_HEIGHT, 0, body, { mountedSurfaces: true })
     velocityY = hit.velocityY; onGround = hit.onGround
     const afterMove = (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z
     // Horizontal pace only: ramp snapping changes height, which the pace cap does not govern.
-    if (leaving && afterMove > 0 && afterMove < rampEnd) rampMaxSpeed = Math.max(rampMaxSpeed, Math.hypot(p.x - previous.x, p.z - previous.z) / DT)
-    if (afterMove >= rampEnd) leaving = false
+    if (leaving && afterMove > 0 && afterMove < rampEnd) {
+      rampMaxSpeed = Math.max(rampMaxSpeed, Math.hypot(p.x - previous.x, p.z - previous.z) / DT)
+      // Turning back on the doorway ramp is forbidden: the horizontal step must keep heading outward.
+      if ((p.x - previous.x) * rig.outward.x + (p.z - previous.z) * rig.outward.z < -1e-3) rampReversed = true
+    }
+    if (afterMove >= rampEnd && leaving) { leaving = false; exitCompleted = true }
     if (!crossedDoor && p.clone().sub(rig.threshold).dot(rig.outward) > 0) { crossedDoor = true; crossedFrame = frame }
-    if (Math.hypot(p.x - target.x, p.z - target.z) < 1.5) return { reached: true, crossedDoor, handBack, rampMaxSpeed, crossedFrame, frames: frame + 1, stopped: null, end: at(p) }
+    if (Math.hypot(p.x - target.x, p.z - target.z) < 1.5) return { reached: true, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, frames: frame + 1, stopped: null, end: at(p) }
   }
-  return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, frames: MAX_FRAMES, stopped: null, end: at(p) }
+  return { reached: false, crossedDoor, handBack, rampMaxSpeed, crossedFrame, rampReversed, frames: MAX_FRAMES, stopped: null, end: at(p) }
 }
 
 /** Enemy positions outside the hall, relative to the front door: in front, beside, and behind the building. */
@@ -259,6 +265,18 @@ describe('mounted civic exit from the Town Center', () => {
     expect(trip.crossedFrame, `end=${trip.end}`).toBeGreaterThanOrEqual(0)
     expect(trip.crossedFrame, 'the exit must not stall while the enemy steers inside').toBeLessThan(400)
     expect(trip.handBack).toBe(false)
+  })
+
+  it('a command issued on the ramp takes effect at once, but the body never turns back on the ramp and at the safety line heads for the new indoor target', () => {
+    const rig = townCenterRig('viking', true)
+    // An indoor point the clearance route reaches; points behind the post rows have no route for a radius-1 body.
+    const indoor = localToGround({ x: 0, z: 4 })
+    const trip = ride(rig, mountedAt(rig, 'service:commander'), outsideGoals(rig).front,
+      { command: { when: p => (p.x - rig.threshold.x) * rig.outward.x + (p.z - rig.threshold.z) * rig.outward.z > .3, goal: indoor } })
+    expect(trip.rampReversed, 'turned back on the doorway ramp').toBe(false)
+    expect(trip.handBack, 'ordinary chase took over on the ramp').toBe(false)
+    expect(trip.crossedDoor).toBe(true)
+    expect(trip.reached, `frames=${trip.frames} stopped=${trip.stopped} end=${trip.end}`).toBe(true)
   })
 
   it('a new outdoor order after the threshold keeps the committed exit at narrow pace to the safety line', () => {
