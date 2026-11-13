@@ -73,7 +73,7 @@ export interface TownProfileCommitRuntime {
   townRefitOnReturn: boolean
   careerSaveFailures: number
   careerSkillsDirty: boolean
-  deploymentPage?: CareerMissionPage | 'duel'
+  deploymentPage?: CareerMissionPage | 'duel' | 'trial'
   notice: string
   clearCareerSkillSaveTimer(): void
   unavailableTownCavalryActorIds(includeReturning: boolean): ReadonlySet<string>

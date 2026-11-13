@@ -216,7 +216,8 @@ export function claimCareerMission(
   profile.totalMerit += merit.total
   profile.availableMerit += merit.total
   profile.claimedBattleIds.push(missionId)
-  if (active.kind !== 'duel') recordCareerTutorialMissionSettlement(profile, missionId)
+  const arenaTrial = active.kind === 'arena-squad-trial'
+  if (active.kind !== 'duel' && !arenaTrial) recordCareerTutorialMissionSettlement(profile, missionId)
   profile.lifetimeStats.battles += 1
   if (outcome === 'victory') {
     profile.lifetimeStats.victories += 1
@@ -229,13 +230,14 @@ export function claimCareerMission(
           [active.duelPresetId]: Math.max(profile.duelHighestDefeatedTierByPreset?.[active.duelPresetId] ?? 0, active.duelTier) as CareerDuelTier,
         }
       }
-    } else recordCareerMissionCompletion(profile, careerMissionTierForTemplateId(active.templateId))
+    } else if (!arenaTrial) recordCareerMissionCompletion(profile, careerMissionTierForTemplateId(active.templateId))
     if ((active.kind === 'town-defense' || active.kind?.startsWith('veteran-') || active.templateId.startsWith('captain-') || active.templateId.startsWith('commander-'))
       && !(profile.completedCareerMissionTemplateIds ?? []).includes(active.templateId)) {
       profile.completedCareerMissionTemplateIds = [...(profile.completedCareerMissionTemplateIds ?? []), active.templateId]
     }
   }
-  if (!stats.survived) profile.lifetimeStats.deaths += 1
+  // A knocked-out trial player is not a casualty.
+  if (!stats.survived && !arenaTrial) profile.lifetimeStats.deaths += 1
   profile.lifetimeStats.kills += Math.max(0, Math.floor(stats.kills))
   profile.lifetimeStats.damage += Math.max(0, stats.damageDealt)
   if (offense) {
@@ -452,6 +454,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
       ...(profile.activeMission.bridgeDeployment ? { bridgeDeployment: { ...profile.activeMission.bridgeDeployment } } : {}),
       ...(profile.activeMission.felineBattle ? { felineBattle: structuredClone(profile.activeMission.felineBattle) } : {}),
       ...(profile.activeMission.eagleBattle ? { eagleBattle: structuredClone(profile.activeMission.eagleBattle) } : {}),
+      ...(profile.activeMission.arenaTrial ? { arenaTrial: structuredClone(profile.activeMission.arenaTrial) } : {}),
       ...(profile.activeMission.personalSquad ? { personalSquad: clonePersonalMission(profile.activeMission.personalSquad) } : {}),
       ...(profile.activeMission.siege ? { siege: {
         ...profile.activeMission.siege,
