@@ -275,7 +275,9 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   const missionFinished = Boolean(next.activeMission?.result
     && next.activeMission.id === runtime.profile.activeMission?.id && !runtime.profile.activeMission.result)
   const active = next.activeMission ?? next.activeOutpostMission
-  if ((newMission || newOutpost) && next.activeMission?.kind !== 'duel') {
+  // An Arena Squad Trial never uses the private squad: it stays exactly as the Town last saved it.
+  const arenaTrial = next.activeMission?.kind === 'arena-squad-trial'
+  if ((newMission || newOutpost) && next.activeMission?.kind !== 'duel' && !arenaTrial) {
     const roster = snapshotPersonalMission(next)
     if (roster) active!.personalSquad = runtime.personalSquad?.captureForNewMission(roster) ?? roster
   } else if (active?.personalSquad) {
@@ -286,7 +288,7 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
     }
   }
   if (missionFinished && active?.personalSquad) active.personalSquad = followDeployedPersonalMission(active.personalSquad)
-  if (newMission || newOutpost) next.personalSquadRuntime = undefined
+  if ((newMission || newOutpost) && !arenaTrial) next.personalSquadRuntime = undefined
   const townClaimStateChanged = JSON.stringify([
     next.townCommandSquad?.commandedActorIds,
     next.townCommandSquad?.nativeReturnStates,
@@ -342,7 +344,7 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   if (newMission || newOutpost) {
     runtime.personalCommands?.close()
     if (next.activeMission?.kind === 'duel') runtime.personalSquad?.cleanup()
-    else runtime.personalSquad?.beginMission(active?.personalSquad)
+    else if (!arenaTrial) runtime.personalSquad?.beginMission(active?.personalSquad)
   }
   if (next.activeMission && next.activeMission.id !== runtime.profile.activeMission?.id) {
     runtime.player?.shield?.reset()

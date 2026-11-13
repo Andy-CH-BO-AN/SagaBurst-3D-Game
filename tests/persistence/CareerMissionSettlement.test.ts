@@ -10,7 +10,8 @@ import { describe,expect,it,vi } from 'vitest'
 import { CAPTAIN_SIEGE_COMMAND_ID, createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
 import { createActiveCareerMission,createTownDefenseMission,type ActiveCareerMission } from '../../src/career/CareerMissionState'
 import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
-import { claimCareerMission,cloneCareerProfile,createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
+import { claimCareerMission,clearCareerMission,cloneCareerProfile,createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
+import { createArenaTrialMission } from '../../src/career/CareerArenaTrials'
 import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { TownMissionSettlement } from '../../src/town/TownMissionSettlement'
 import { NPC } from '../../src/world/NPC'
@@ -144,6 +145,32 @@ describe('Town mission settlement transactions', () => {
     expect(stored.activeMission?.personalSquad?.sceneKey).toBe('town-home')
     expect(stored.personalSquad?.members.map(member => member.id)).toEqual(peaceful.personalSquad.members.map(member => member.id))
     expect(stored.personalSquad?.members).toHaveLength(30)
+  })
+
+  it('keeps the private squad snapshot untouched through an arena trial accept, settlement and return', () => {
+    const h = fixture()
+    Object.assign(h.player.shield, { reset: vi.fn() })
+    const peaceful = cloneCareerProfile(h.read())
+    delete peaceful.activeMission
+    peaceful.personalSquad = { members: [{ id: 'personal:dead', type: 'soldier' }, { id: 'personal:hurt', type: 'soldier' }] }
+    const squad = snapshotPersonalMission(peaceful)!
+    squad.members['personal:dead'] = { status: 'dead', hp: 0 }
+    squad.members['personal:hurt'] = { status: 'deployed', hp: 17 }
+    peaceful.personalSquadRuntime = squad
+    expect(h.store.save(peaceful)).toBe(true)
+    h.publish(peaceful)
+
+    const trial = cloneCareerProfile(peaceful)
+    trial.activeMission = createArenaTrialMission(peaceful, 1, 'roman-colosseum', 'trial-squad')!
+    expect(h.commit(trial)).toBe(true)
+    const stored = h.store.loadChecked().profile!
+    expect(stored.activeMission?.personalSquad).toBeUndefined()
+    expect(stored.personalSquadRuntime?.members).toEqual(squad.members)
+
+    const claimed = claimCareerMission(stored, 'trial-squad', 'victory', h.stats).profile
+    const returned = clearCareerMission(claimed, 'trial-squad')
+    expect(returned.personalSquadRuntime?.members).toEqual(squad.members)
+    expect(returned.personalSquad?.members.map(member => member.id)).toEqual(['personal:dead', 'personal:hurt'])
   })
 
   it('saves the accepted native body before a field transition and publishes nothing on a rejected write', () => {

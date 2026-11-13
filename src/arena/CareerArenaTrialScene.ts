@@ -4,8 +4,8 @@ import { DUEL_ARENA_LABELS, type DuelArenaId } from './DuelArenaCatalog'
 import { assignArenaTrialSlots, planArenaTrialFormation, type ArenaTrialFormation } from './ArenaTrialFormation'
 import {
   ARENA_TRIAL_COUNTDOWN_SECONDS, ARENA_TRIAL_DEFINITIONS, ARENA_TRIAL_TIME_LIMIT_SECONDS, arenaTrialCounts, arenaTrialPreloadPlan,
-  arenaTrialRestorablePlan, arenaTrialRoster, arenaTrialUnitSpec, careerArenaTrial, resolveArenaTrialOutcome,
-  type ArenaTrialActorState, type ArenaTrialState,
+  arenaTrialRestorablePlan, arenaTrialRoster, arenaTrialUnitSpec, careerArenaTrial, resolveArenaTrialEnd,
+  type ArenaTrialActorState, type ArenaTrialEndReason, type ArenaTrialState,
 } from '../career/CareerArenaTrials'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import { CareerProfileStore } from '../career/CareerProfileStore'
@@ -63,7 +63,7 @@ interface Body {
   marker: THREE.Sprite
 }
 interface Shot { arrow: ArrowProjectile; player: boolean; source?: NPC; age: number }
-interface PendingSettlement { readonly outcome: CareerMissionOutcome; readonly player: PlayerBattleStats }
+interface PendingSettlement { readonly outcome: CareerMissionOutcome; readonly reason?: ArenaTrialEndReason; readonly player: PlayerBattleStats }
 
 let markerTexture: THREE.CanvasTexture | null = null
 function teamMarkerTexture(): THREE.CanvasTexture {
@@ -192,7 +192,7 @@ export class CareerArenaTrialScene {
     const engaged = trial.stage === 'engaged'
     const saved = engaged ? trial.player : undefined
     const spawn = saved ?? { x: formation.player.x, z: formation.player.z, yaw: formation.player.yaw }
-    this.player.resetForScene(spawn.x, this.arena.spawns.player.y + PLAYER_HALF_HEIGHT, spawn.z)
+    this.player.resetForScene(spawn.x, saved?.y ?? this.arena.spawns.player.y + PLAYER_HALF_HEIGHT, spawn.z)
     this.player.faceDirection(Math.sin(spawn.yaw), Math.cos(spawn.yaw))
     if (saved) {
       this.player.setHp(Math.min(maxHp, saved.hp)); this.player.setStamina(saved.stamina)
@@ -202,6 +202,12 @@ export class CareerArenaTrialScene {
     this.orbit.setYaw(spawn.yaw + Math.PI)
     this.tracker = new BattleStatsTracker(this.events, false, undefined, mission.playerStats)
     this.inventory.prepareForCombat()
+    // prepareForCombat tops up supplies; a saved fight restores what was really left (0 means spent or broken).
+    if (saved) {
+      if (saved.ammo !== undefined) this.player.setArrowCount(saved.ammo)
+      if (saved.shieldDurability) this.player.shield.restoreDurability(saved.shieldDurability)
+      if (saved.shieldImpact !== undefined) this.player.shield.shieldImpactRemaining = Math.min(this.player.shield.shieldImpactMax, saved.shieldImpact)
+    }
     if (!settled) await this.buildBodies(trial, progress)
     this.hp.setFill(this.player.hpRatio)
     this.quiver.setArrowCount(this.player.arrowCount)
@@ -231,7 +237,12 @@ export class CareerArenaTrialScene {
       npc.respawnEnabled = false
       npc.enableBattlefieldEngagement()
       npc.group.rotation.y = saved?.yaw ?? slot.yaw
-      if (saved) npc.restoreCombatHealth(saved.hp)
+      if (saved) {
+        npc.restoreCombatHealth(saved.hp)
+        if (saved.y !== undefined) npc.group.position.y = saved.y
+        if (saved.ammo !== undefined) npc.restoreCombatAmmo(saved.ammo)
+        if (saved.shieldImpact !== undefined) npc.shield.shieldImpactRemaining = Math.min(npc.shield.shieldImpactMax, saved.shieldImpact)
+      }
       const marker = new THREE.Sprite(this.markerMaterials[entry.team])
       marker.scale.set(0.6, 0.6, 1); marker.renderOrder = 10
       this.scene.add(marker)
@@ -326,8 +337,8 @@ export class CareerArenaTrialScene {
     // A knock-out is saved at once so a reload can never stand the body back up.
     this.checkpointClock += dt
     if (changed || this.checkpointClock >= CHECKPOINT_SECONDS) this.persistProgress()
-    const outcome = resolveArenaTrialOutcome(this.counts(), this.combatElapsed)
-    if (outcome && !this.pendingSettlement) this.finish(outcome)
+    const end = resolveArenaTrialEnd(this.counts(), this.combatElapsed)
+    if (end && !this.pendingSettlement) this.finish(end.outcome, end.reason)
   }
 
   private updateBodies(dt: number): void {
@@ -511,11 +522,14 @@ export class CareerArenaTrialScene {
     for (const id of [...mission.friendlyActorIds, ...mission.targetActorIds]) {
       const body = this.bodies.find(candidate => candidate.actorId === id)
       if (!body || this.knocked.has(id) || body.npc.dead) { actors[id] = { status: 'knocked', hp: 0, x: 0, z: 0, yaw: 0 }; continue }
-      actors[id] = { status: 'active', hp: body.npc.hp, x: body.npc.combatPosition.x, z: body.npc.combatPosition.z, yaw: body.npc.group.rotation.y }
+      actors[id] = { status: 'active', hp: body.npc.hp, x: body.npc.combatPosition.x, z: body.npc.combatPosition.z, yaw: body.npc.group.rotation.y,
+        y: body.npc.group.position.y, ammo: body.npc.combatAmmo, shieldImpact: body.npc.shield.shieldImpactRemaining }
     }
     active.arenaTrial = { ...this.trial, stage: 'engaged', combatElapsed: this.combatElapsed, actors, player: {
       knocked: this.player.dead, hp: this.player.dead ? 0 : this.player.hp, stamina: this.player.staminaValue,
-      x: this.player.position.x, z: this.player.position.z, yaw: this.player.facingYaw } }
+      x: this.player.position.x, z: this.player.position.z, yaw: this.player.facingYaw,
+      y: this.player.group.position.y, ammo: this.player.arrowCount, shieldImpact: this.player.shield.shieldImpactRemaining,
+      shieldDurability: { ...this.player.shield.captureDurability() } } }
     active.phase = 'ENGAGING'
     active.playerStats = this.tracker.checkpoint()
     return this.commit(next)
@@ -527,25 +541,28 @@ export class CareerArenaTrialScene {
     if (this.phase === 'fight') this.persistProgress()
   }
 
-  private captureSettlement(outcome: CareerMissionOutcome): PendingSettlement {
+  private captureSettlement(outcome: CareerMissionOutcome, reason?: ArenaTrialEndReason): PendingSettlement {
     const stats = this.tracker.snapshot(this.bodies.map(body => body.npc), this.player)
-    return { outcome, player: { ...stats.player } }
+    return { outcome, ...(reason ? { reason } : {}), player: { ...stats.player } }
   }
 
   /** Saves the decided result, or the one already frozen by an earlier failed save. */
-  private finish(outcome: CareerMissionOutcome): void {
+  private finish(outcome: CareerMissionOutcome, reason?: ArenaTrialEndReason): void {
     if (this.settled) return
     this.flushSkills()
     const active = this.profile.activeMission
     if (!active || active.result) return
     this.phase = 'result'
-    const settlement = this.pendingSettlement ?? this.captureSettlement(outcome)
-    const claim = claimCareerMission(cloneCareerProfile(this.profile), active.id, settlement.outcome, settlement.player, settlement.player)
+    const settlement = this.pendingSettlement ?? this.captureSettlement(outcome, reason)
+    // The end reason is saved in the same transaction as the result, so a reload shows the same wording.
+    const staged = cloneCareerProfile(this.profile)
+    if (settlement.reason && staged.activeMission?.arenaTrial) staged.activeMission.arenaTrial.endReason = settlement.reason
+    const claim = claimCareerMission(staged, active.id, settlement.outcome, settlement.player, settlement.player)
     if (!this.commit(claim.profile)) {
       this.pendingSettlement = settlement
       this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
       this.openPanel('試煉結算尚未保存', '保存失敗；軍功尚未入帳，結果保留在競技場。')
-      this.button('重試保存結算', () => { this.closePanel(); this.finish(settlement.outcome) })
+      this.button('重試保存結算', () => { this.closePanel(); this.finish(settlement.outcome, settlement.reason) })
       return
     }
     this.pendingSettlement = null
@@ -563,7 +580,7 @@ export class CareerArenaTrialScene {
       `${DUEL_ARENA_LABELS[this.arenaId]} · ${ARENA_TRIAL_DEFINITIONS[trial.tier].label}\n\n`
       + `戰鬥表現（你）\n擊倒敵人：${result.stats.kills}\n造成傷害：${Math.round(result.stats.damageDealt)}\n結束時狀態：${result.stats.survived ? '仍站立' : '被擊倒'}\n\n`
       + `軍功獎勵（每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功）\n傷害軍功：${merit.damage}\n擊倒軍功：${merit.kills}\n任務貢獻：${merit.contribution}\n本次總軍功：${merit.total}`
-      + `${complete ? '' : '\n\n我方全員被擊倒；試煉不造成永久傷亡或裝備損失。'}`)
+      + `${complete ? '' : trial.endReason === 'timeout' ? '\n\n試煉逾時：時限內未分出勝負，本場計為失敗；不造成永久傷亡或裝備損失。' : '\n\n我方全員被擊倒；試煉不造成永久傷亡或裝備損失。'}`)
     this.button(`返回 ${this.profile.faction === 'roman' ? 'vinum 村' : 'økse 村'}`, () => this.returnToTown())
   }
 

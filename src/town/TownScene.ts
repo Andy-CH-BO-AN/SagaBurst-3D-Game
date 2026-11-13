@@ -2662,6 +2662,8 @@ export class TownScene {
     const mission = fresh && !blocker ? createArenaTrialMission(fresh, tier, arena) : null
     if (!fresh || !mission) { this.openPanel('無法接受試煉', blocker ?? '試煉資料建立失敗。'); return }
     const next = cloneCareerProfile(fresh); next.activeMission = mission
+    // The trial leaves the private squad untouched: keep its latest live Town snapshot for the return.
+    next.personalSquadRuntime = this.personalSquad?.checkpoint() ?? next.personalSquadRuntime
     if (!this.commit(next)) { this.openPanel('試煉保存失敗', '試煉尚未開始。請確認瀏覽器儲存空間後重試。'); return }
     this.playMissionVoice('missionAccepted')
     // The saved trial is loaded by its own arena scene; Town is released, not hidden.

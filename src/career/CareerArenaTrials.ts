@@ -106,8 +106,17 @@ export interface ArenaTrialActorState {
   x: number
   z: number
   yaw: number
+  /** Standing height, remaining ammo and shield durability. Older saves lack them; 0 is a real value (spent / broken), never "missing". */
+  y?: number
+  ammo?: number
+  shieldImpact?: number
 }
-export interface ArenaTrialPlayerState { knocked: boolean; hp: number; stamina: number; x: number; z: number; yaw: number }
+export interface ArenaTrialPlayerState {
+  knocked: boolean; hp: number; stamina: number; x: number; z: number; yaw: number
+  y?: number; ammo?: number; shieldImpact?: number
+  /** Per-shield remaining durability, so swapping shields in the arena survives a reload too. */
+  shieldDurability?: Record<string, number>
+}
 export interface ArenaTrialState {
   version: 1
   tier: ArenaTrialTier
@@ -117,7 +126,10 @@ export interface ArenaTrialState {
   combatElapsed: number
   actors: Record<string, ArenaTrialActorState>
   player?: ArenaTrialPlayerState
+  /** Why a lost trial ended; saved with the result so the result screen reads the same after a reload. */
+  endReason?: ArenaTrialEndReason
 }
+export type ArenaTrialEndReason = 'timeout' | 'eliminated'
 
 /* ───────── roster ───────── */
 
@@ -214,9 +226,14 @@ export interface ArenaTrialCounts { friendlyActive: number; enemyActive: number;
  * the trial while any friendly NPC still stands; the trial is lost only when the whole friendly side is out.
  */
 export function resolveArenaTrialOutcome(counts: ArenaTrialCounts, combatElapsed: number): CareerMissionOutcome | null {
-  if (counts.enemyActive <= 0) return 'victory'
-  if (counts.friendlyActive <= 0 && counts.playerKnocked) return 'failure'
-  return combatElapsed >= ARENA_TRIAL_TIME_LIMIT_SECONDS ? 'failure' : null
+  return resolveArenaTrialEnd(counts, combatElapsed)?.outcome ?? null
+}
+
+/** The outcome together with why a lost trial ended: the whole friendly side out, or the clock running out. */
+export function resolveArenaTrialEnd(counts: ArenaTrialCounts, combatElapsed: number): { outcome: CareerMissionOutcome; reason?: ArenaTrialEndReason } | null {
+  if (counts.enemyActive <= 0) return { outcome: 'victory' }
+  if (counts.friendlyActive <= 0 && counts.playerKnocked) return { outcome: 'failure', reason: 'eliminated' }
+  return combatElapsed >= ARENA_TRIAL_TIME_LIMIT_SECONDS ? { outcome: 'failure', reason: 'timeout' } : null
 }
 
 export function arenaTrialCounts(mission: Pick<ActiveCareerMission, 'friendlyActorIds' | 'targetActorIds'>,
@@ -241,6 +258,8 @@ export function arenaTrialRestorablePlan(mission: Pick<ActiveCareerMission, 'fri
 /* ───────── saved-state parsing ───────── */
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+const optionalFinite = (value: unknown): boolean => value === undefined || finite(value)
+const optionalCount = (value: unknown): boolean => value === undefined || (finite(value) && value >= 0)
 
 export function parseArenaTrialState(value: unknown, mission: { friendlyActorIds: readonly string[]; targetActorIds: readonly string[] }): ArenaTrialState | undefined {
   if (!value || typeof value !== 'object') return undefined
@@ -254,13 +273,26 @@ export function parseArenaTrialState(value: unknown, mission: { friendlyActorIds
     const actor = entry as Record<string, unknown> | null
     if (!known.has(id) || !actor || (actor.status !== 'active' && actor.status !== 'knocked')
       || ![actor.hp, actor.x, actor.z, actor.yaw].every(finite) || (actor.hp as number) < 0) return undefined
-    actors[id] = { status: actor.status, hp: actor.hp as number, x: actor.x as number, z: actor.z as number, yaw: actor.yaw as number }
+    if (!optionalFinite(actor.y) || !optionalCount(actor.ammo) || !optionalCount(actor.shieldImpact)) return undefined
+    actors[id] = { status: actor.status, hp: actor.hp as number, x: actor.x as number, z: actor.z as number, yaw: actor.yaw as number,
+      ...(actor.y !== undefined ? { y: actor.y as number } : {}), ...(actor.ammo !== undefined ? { ammo: actor.ammo as number } : {}),
+      ...(actor.shieldImpact !== undefined ? { shieldImpact: actor.shieldImpact as number } : {}) }
   }
   let player: ArenaTrialPlayerState | undefined
   if (raw.player !== undefined) {
     const p = raw.player as Record<string, unknown> | null
     if (!p || typeof p.knocked !== 'boolean' || ![p.hp, p.stamina, p.x, p.z, p.yaw].every(finite) || (p.hp as number) < 0) return undefined
-    player = { knocked: p.knocked, hp: p.hp as number, stamina: p.stamina as number, x: p.x as number, z: p.z as number, yaw: p.yaw as number }
+    if (!optionalFinite(p.y) || !optionalCount(p.ammo) || !optionalCount(p.shieldImpact)) return undefined
+    let shieldDurability: Record<string, number> | undefined
+    if (p.shieldDurability !== undefined) {
+      if (!p.shieldDurability || typeof p.shieldDurability !== 'object' || !Object.values(p.shieldDurability).every(v => typeof v === 'number' && Number.isFinite(v) && v >= 0)) return undefined
+      shieldDurability = { ...(p.shieldDurability as Record<string, number>) }
+    }
+    player = { knocked: p.knocked, hp: p.hp as number, stamina: p.stamina as number, x: p.x as number, z: p.z as number, yaw: p.yaw as number,
+      ...(p.y !== undefined ? { y: p.y as number } : {}), ...(p.ammo !== undefined ? { ammo: p.ammo as number } : {}),
+      ...(p.shieldImpact !== undefined ? { shieldImpact: p.shieldImpact as number } : {}), ...(shieldDurability ? { shieldDurability } : {}) }
   }
-  return { version: 1, tier: raw.tier, arenaId, stage: raw.stage, combatElapsed: raw.combatElapsed, actors, ...(player ? { player } : {}) }
+  if (raw.endReason !== undefined && raw.endReason !== 'timeout' && raw.endReason !== 'eliminated') return undefined
+  return { version: 1, tier: raw.tier, arenaId, stage: raw.stage, combatElapsed: raw.combatElapsed, actors, ...(player ? { player } : {}),
+    ...(raw.endReason ? { endReason: raw.endReason } : {}) }
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ARENA_TRIAL_DEFINITIONS, ARENA_TRIAL_TIERS, ARENA_TRIAL_TIME_LIMIT_SECONDS, arenaTrialBlocker, arenaTrialRestorablePlan, arenaTrialRoster,
-  arenaTrialTeamSizes, arenaTrialUnitSpec, createArenaTrialMission, resolveArenaTrialOutcome, type ArenaTrialTier,
+  arenaTrialTeamSizes, arenaTrialUnitSpec, createArenaTrialMission, resolveArenaTrialEnd, resolveArenaTrialOutcome, type ArenaTrialTier,
 } from '../../src/career/CareerArenaTrials'
 import { claimCareerMission, createCareerProfile, promoteCareer, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -56,6 +56,10 @@ describe('Arena Squad Trials', () => {
     expect(resolveArenaTrialOutcome({ friendlyActive: 3, enemyActive: 0, playerKnocked: true }, 30)).toBe('victory')
     expect(resolveArenaTrialOutcome({ friendlyActive: 0, enemyActive: 2, playerKnocked: true }, 30)).toBe('failure')
     expect(resolveArenaTrialOutcome({ friendlyActive: 3, enemyActive: 2, playerKnocked: false }, ARENA_TRIAL_TIME_LIMIT_SECONDS)).toBe('failure')
+    // The loss keeps its reason, so a timeout with fighters standing is never reported as elimination.
+    expect(resolveArenaTrialEnd({ friendlyActive: 3, enemyActive: 2, playerKnocked: false }, ARENA_TRIAL_TIME_LIMIT_SECONDS)).toEqual({ outcome: 'failure', reason: 'timeout' })
+    expect(resolveArenaTrialEnd({ friendlyActive: 0, enemyActive: 2, playerKnocked: true }, 30)).toEqual({ outcome: 'failure', reason: 'eliminated' })
+    expect(resolveArenaTrialEnd({ friendlyActive: 0, enemyActive: 0, playerKnocked: true }, 30)).toEqual({ outcome: 'victory' })
   })
 
   it('gates acceptance by rank, and a mid-fight save restores only the standing actors', () => {
@@ -78,9 +82,32 @@ describe('Arena Squad Trials', () => {
     expect(plan).toHaveLength(mission.friendlyActorIds.length + mission.targetActorIds.length - 2)
     expect(plan.find(entry => entry.actorId === mission.targetActorIds[1])?.saved).toMatchObject({ hp: 77, x: 3 })
     expect(restored.arenaTrial?.player?.knocked).toBe(true)
+    const settled = { ...restored, arenaTrial: { ...restored.arenaTrial!, endReason: 'timeout' as const } }
+    expect(store.save({ ...profile, activeMission: settled })).toBe(true)
+    expect(store.load()!.activeMission!.arenaTrial!.endReason).toBe('timeout')
     const tampered = JSON.parse(storage.getItem('sagaburst_career_v1')!)
     tampered.activeMission.arenaTrial.actors['not-in-roster'] = { status: 'knocked', hp: 0, x: 0, z: 0, yaw: 0 }
     storage.setItem('sagaburst_career_v1', JSON.stringify(tampered))
+    expect(store.load()?.activeMission).toBeUndefined()
+  })
+
+  it('saves height, ammo and shield durability exactly, keeping zero as spent and older saves loadable', () => {
+    const profile = profileAt('commander')
+    const mission = createArenaTrialMission(profile, 5, 'viking-valhalla', 'trial-gear')!
+    const [archer] = mission.friendlyActorIds
+    mission.arenaTrial = { ...mission.arenaTrial!, stage: 'engaged', combatElapsed: 5, actors: {
+      [archer]: { status: 'active', hp: 40, x: 8, z: -20, yaw: 1, y: 5.5, ammo: 0, shieldImpact: 0 },
+      [mission.friendlyActorIds[1]]: { status: 'active', hp: 90, x: 1, z: -20, yaw: 0 } },
+    player: { knocked: false, hp: 33, stamina: 20, x: 0, z: -14, yaw: 0, y: 3.95, ammo: 0, shieldImpact: 0, shieldDurability: { shield_a: 0, shield_b: 12 } } }
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    expect(store.save({ ...profile, activeMission: mission })).toBe(true)
+    const restored = store.load()!.activeMission!.arenaTrial!
+    expect(restored.actors[archer]).toMatchObject({ y: 5.5, ammo: 0, shieldImpact: 0 })
+    expect(restored.actors[mission.friendlyActorIds[1]]).not.toHaveProperty('ammo')
+    expect(restored.player).toMatchObject({ y: 3.95, ammo: 0, shieldImpact: 0, shieldDurability: { shield_a: 0, shield_b: 12 } })
+    const bad = JSON.parse(storage.getItem('sagaburst_career_v1')!)
+    bad.activeMission.arenaTrial.player.ammo = -1
+    storage.setItem('sagaburst_career_v1', JSON.stringify(bad))
     expect(store.load()?.activeMission).toBeUndefined()
   })
 
