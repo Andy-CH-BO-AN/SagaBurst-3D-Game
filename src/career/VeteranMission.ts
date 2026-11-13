@@ -181,15 +181,10 @@ export function getVeteranMissionDefinition(templateId: string): VeteranMissionD
 
 export function getVeteranMissionAvailability(profile: CareerProfile, templateId: string): VeteranMissionAvailability {
   const index = VETERAN_MISSION_IDS.indexOf(templateId as VeteranMissionTemplateId)
-  if (index < 0) return { unlocked: false, reason: '請先完成上一個老兵任務' }
+  if (index < 0) return { unlocked: false, reason: '無效的老兵任務' }
   if (CAREER_RANKS.indexOf(profile.rank) < CAREER_RANKS.indexOf('veteran')) return { unlocked: false, reason: '需要晉升為老兵' }
   const mission = VETERAN_MISSION_CATALOG[index]
   if (mission.requiresMount && !resolveCareerReliefMount(profile)) return { unlocked: false, reason: '需要一匹可使用的自有坐騎' }
-  const completed = profile.completedCareerMissionTemplateIds ?? []
-  const previouslyCompleted = completed.includes(mission.id)
-  if (index > 0 && !previouslyCompleted && !completed.includes(VETERAN_MISSION_IDS[index - 1])) {
-    return { unlocked: false, reason: '請先完成上一個老兵任務' }
-  }
   return { unlocked: true }
 }
 

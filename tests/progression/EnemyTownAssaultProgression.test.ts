@@ -1,9 +1,9 @@
 import { describe,expect,it } from 'vitest'
-import { availableRecruitMissions } from '../../src/career/CareerMissionCatalog'
+import { availableRecruitMissions, getCareerMissionTemplate } from '../../src/career/CareerMissionCatalog'
 import { acceptCareerOutpostRelief,claimCareerOutpost,clearCareerOutpost } from '../../src/career/CareerOutpostMission'
 import { createCareerProfile } from '../../src/career/CareerProfile'
-import { CareerProfileStore } from '../../src/career/CareerProfileStore'
-import { acceptEnemyTownAssault,ENEMY_TOWN_ASSAULT_ID } from '../../src/career/EnemyTownAssault'
+import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { acceptEnemyTownAssault, createEnemyTownAssaultMission, ENEMY_TOWN_ASSAULT_ID } from '../../src/career/EnemyTownAssault'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 const stats = { player: { damageDealt: 200, damageTaken: 10, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }, squads: [] }
@@ -20,19 +20,24 @@ function listed(profile: ReturnType<typeof createCareerProfile>) {
   return availableRecruitMissions(profile).some(template => template.id === ENEMY_TOWN_ASSAULT_ID)
 }
 
-describe('Enemy Town Assault canonical Relief prerequisite', () => {
-  it('preserves the unlock through save/load and subsequent Relief defeat', () => {
+describe('Enemy Town Assault retired mission policy', () => {
+  it('retires Enemy Town Assault from active catalogs and permanently rejects new acceptance', () => {
     const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(settleRelief('victory'))).toBe(true)
     const loaded = store.load()!
-    expect(listed(loaded)).toBe(true)
-    expect(acceptEnemyTownAssault(loaded, 'after-reload')).not.toBeNull()
+    expect(listed(loaded)).toBe(false)
+    expect(acceptEnemyTownAssault(loaded, 'after-reload')).toBeNull()
     const retry = acceptCareerOutpostRelief(loaded, 'relief-retry')!
     expect(clearCareerOutpost(claimCareerOutpost(retry, 'relief-retry', 'defeat', stats).profile).completedOutpostRelief).toBe(true)
   })
-  it('blocks direct acceptance during another outpost mission or town hostility', () => {
-    const won = settleRelief('victory')
-    expect(acceptEnemyTownAssault(acceptCareerOutpostRelief(won, 'retry')!, 'assault')).toBeNull()
-    expect(acceptEnemyTownAssault({ ...won, townEvent: { id: 'hostile-town', state: 'hostile' } }, 'assault')).toBeNull()
+  it('allows historical active missions to be parsed and recognized via retired lookup', () => {
+    const raw = {
+      ...settleRelief('victory'),
+      activeMission: createEnemyTownAssaultMission('legacy-active-assault'),
+    }
+    const parsed = parseCareerProfile(raw)!
+    expect(parsed.activeMission).toBeDefined()
+    expect(parsed.activeMission!.templateId).toBe(ENEMY_TOWN_ASSAULT_ID)
+    expect(getCareerMissionTemplate(ENEMY_TOWN_ASSAULT_ID)).not.toBeNull()
   })
 })

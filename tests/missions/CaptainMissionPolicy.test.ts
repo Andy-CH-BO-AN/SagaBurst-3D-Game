@@ -9,7 +9,7 @@ import { TOWN_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, townHousing } from '../
 import { TOWN_WATCHTOWER_ARCHER_IDS } from '../../src/town/TownNativeGuardIdentity'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
-import { VETERAN_TOWN_DEFENSE_TEMPLATE } from '../../src/career/CareerMissionCatalog'
+import { getCareerMissionTemplate, VETERAN_TOWN_DEFENSE_TEMPLATE } from '../../src/career/CareerMissionCatalog'
 import { officialActorSquadId, officialCommandSquads } from '../../src/career/CareerCommandAuthority'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -98,7 +98,9 @@ describe('Commander accepted production rosters without actor materialization', 
     expect(force).toEqual({ friendlySoldiers: 213, friendlyCombatants: 214 })
     expect(force.friendlySoldiers).toBe(highMeritCaptain.friendlyActorIds.length)
     expect(VETERAN_TOWN_DEFENSE_TEMPLATE).toMatchObject(force)
-    expect(getCaptainMissionDefinition(CAPTAIN_GATE_DEFENSE_ID)).toMatchObject(force)
+    expect(getCaptainMissionDefinition(CAPTAIN_GATE_DEFENSE_ID)).toBeNull()
+    expect(getCaptainMissionAvailability(commander(), CAPTAIN_GATE_DEFENSE_ID).unlocked).toBe(false)
+    expect(getCareerMissionTemplate(CAPTAIN_GATE_DEFENSE_ID)).toMatchObject(force)
     expect(highMeritCaptain.friendlyActorIds.filter(id => id.startsWith('watchtower-archer:'))).toHaveLength(5)
     expect(highMeritCaptain.officialSquad!.actorIds.some(id => id.startsWith('watchtower-archer:'))).toBe(false)
     const withCommander = [...residents, townCommanderSpec({ x: 0, z: 0, yaw: 0 })]

@@ -118,7 +118,7 @@ import { checkMountImpact, applyMountImpactDamage, applyMountImpactKnockback } f
 import { NavigationWorld } from '../navigation/NavigationWorld'
 import { DamageNumbers } from '../ui/DamageNumbers'
 import { acceptCaptainFrontline, acceptCaptainEagle, createCaptainFrontlineLaunch, createCaptainEagleLaunch, type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
-import { CAPTAIN_MISSION_CATALOG, CAPTAIN_PATROL_COMMAND_ID, CAPTAIN_CAVALRY_COMMAND_ID, CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_FRONTLINE_COMMAND_ID, CAPTAIN_SIEGE_COMMAND_ID, CAPTAIN_EAGLE_BATTLE_ID, getCaptainMissionDefinition, getCaptainMissionAvailability, createCaptainPatrolCommandMission, captainGateDefenseBriefing, createCaptainGateDefenseMission } from '../career/CaptainMissionCatalog'
+import { CAPTAIN_MISSION_CATALOG, CAPTAIN_PATROL_COMMAND_ID, CAPTAIN_CAVALRY_COMMAND_ID, CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_FRONTLINE_COMMAND_ID, CAPTAIN_SIEGE_COMMAND_ID, CAPTAIN_EAGLE_BATTLE_ID, getCaptainMissionDefinition, getCaptainMissionAvailability, createCaptainPatrolCommandMission } from '../career/CaptainMissionCatalog'
 import { CaptainPatrolCommandController } from '../career/CaptainPatrolCommandController'
 import { TownCommandSquadController, TOWN_COMMAND_RETURN_ID } from './TownCommandSquadController'
 import { snapshotCommandActor, restoreCommandActor } from '../career/CareerCommandActorCheckpoint'
@@ -146,8 +146,8 @@ import { applyCareerClass, careerClassOffer, CAREER_CLASSES_BY_FACTION, CAREER_C
 import { applyT4Class, isT4ClassId, t4ClassOffer, T4_CLASSES_BY_FACTION, T4_CLASS_FIRST_MERIT, type T4ClassId } from '../career/CareerT4Promotion'
 import { CAREER_CLASS_HERO, T4_CLASS_HERO } from '../career/CareerPlayerProfile'
 import { appendCareerPromotionCards, appendT4PromotionCards, careerClassConfirmation } from '../ui/CareerPromotionUI'
-import { MAX_BULK_PURCHASE_QUANTITY, CAREER_RANKS, CAREER_RANK_LABELS, CAREER_RANK_THRESHOLDS, careerMissionCompletionsForTier, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile, type CareerMountId, type CareerRank } from '../career/CareerProfile'
-import { availableRecruitMissions, availableCareerMissionsForPage, careerMissionTemplatesForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, getRecruitMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
+import { MAX_BULK_PURCHASE_QUANTITY, CAREER_RANKS, CAREER_RANK_LABELS, CAREER_RANK_THRESHOLDS, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile, type CareerMountId, type CareerRank } from '../career/CareerProfile'
+import { availableRecruitMissions, availableCareerMissionsForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, getRecruitMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
 import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission, createVeteranRoster, veteranTownCavalryReserveSlots } from '../career/VeteranMission'
 import { selectTownCavalryReserve } from './TownCavalryReserve'
 import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
@@ -168,7 +168,6 @@ import { DUEL_ARENA_RETURN_KEY } from '../arena/DuelArenaReturn'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { fieldMissionHud, missionPhaseLabel, personalSquadStateLabel, townCommandStateLabel } from '../career/CareerMissionPresentation'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
-import { acceptEnemyTownAssault, acceptCaptainSiegeCommand } from '../career/EnemyTownAssault'
 import { careerTownSceneRoster, isCareerEnemyTerritoryFieldMission, resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext'
 import { townWartimeHostile } from './TownWartime'
 import { TownDefenseController } from '../career/TownDefenseController'
@@ -177,7 +176,7 @@ import type { DamageableObstacle } from '../world/DamageableObstacle'
 import { CommanderTownMissionController } from '../career/CommanderTownMissionController'
 import { CareerMountController } from '../career/CareerMountController'
 import { preserveHpRatio, resolveCareerCharacterTier, resolveCareerOrdinaryTier, resolveCareerHeroAsset, resolveCareerPlayerMaxHp } from '../career/CareerPlayerProfile'
-import { createTownDefenseMission, type CareerMissionOutcome, type CareerMissionResult } from '../career/CareerMissionState'
+import { type CareerMissionOutcome, type CareerMissionResult } from '../career/CareerMissionState'
 import { VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from '../career/TownDefenseState'
 import { getAntiCavalryMultiplier } from '../combat/CombatBalance'
 import { calculatePlayerMeleeDamage } from '../combat/PlayerMeleeDamage'
@@ -2070,22 +2069,6 @@ export class TownScene {
       row.append(title, details, accept); panel.append(row)
     }
     this.appendHeavyFieldRows(panel, 'veteran')
-    const homeDefenseTemplate = careerMissionTemplatesForPage(this.profile, 'veteran')
-      .find(template => template.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)
-    if (!homeDefenseTemplate || homeDefenseTemplate.kind !== 'town-defense') return
-    const homeDefense = homeDefenseTemplate
-    const defenseForce = this.townDefenseBoardForce()
-    const veteranWins = careerMissionCompletionsForTier(this.profile, 3)
-    const unlocked = availableCareerMissionsForPage(this.profile, 'veteran').some(template => template.id === homeDefense.id)
-    const row = document.createElement('article'); row.className = 'town-product'
-    const title = document.createElement('strong'); title.textContent = homeDefense.name
-    const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
-    details.textContent = `${homeDefense.briefing}\n我方：${defenseForce.friendlyCombatants} 人（含你），守衛${townName(this.profile.faction)}\n敵方：${homeDefense.enemyCount} 人（T3 騎兵與 4 名 T4 隊長）\n平民死亡超過 ${homeDefense.maxCivilianDeaths} 人即失敗`
-    const accept = document.createElement('button'); accept.className = 'town-button'
-    accept.textContent = unlocked ? '接受守城任務' : `需完成 ${homeDefense.requiresCompletions} 次老兵任務（目前 ${Math.min(veteranWins, homeDefense.requiresCompletions)}/${homeDefense.requiresCompletions}）`
-    accept.disabled = !unlocked
-    accept.onclick = () => this.acceptMission(homeDefense.id)
-    row.append(title, details, accept); panel.append(row)
   }
   private appendCommandHowTo(panel: HTMLElement): void {
     const tip = document.createElement('p'); tip.className = 'town-summary'
@@ -2104,9 +2087,7 @@ export class TownScene {
       const state = definition.id === CAPTAIN_PATROL_COMMAND_ID && !patrol ? this.captainPatrol?.unavailableReason ?? '巡邏隊還沒有集合完畢，請稍後再接取任務。'
         : definition.id === CAPTAIN_EAGLE_BATTLE_ID ? `你目前有 ${this.profile.personalSquad?.members.length ?? 0} 名私兵會一同參戰（依原本裝備參加空戰或地面作戰）。`
         : '正式部隊與私兵可分別下令；兩者的有效戰績都會計入軍功。'
-      const briefing = definition.id === CAPTAIN_GATE_DEFENSE_ID
-        ? captainGateDefenseBriefing(this.residents.map(r => r.spec), this.unavailableTownCavalryActorIds(true))
-        : definition.briefing
+      const briefing = definition.briefing
       const force = definition.kind === 'town-defense'
         ? `\n我方：${defenseForce.friendlyCombatants} 人（含你）\n敵方：${definition.enemyCombatants} 人` : ''
       details.textContent = `${briefing}${force}\n${state}`
@@ -2186,6 +2167,10 @@ export class TownScene {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
     const fresh = this.store.loadChecked().profile, definition = getCaptainMissionDefinition(templateId)
     if (!fresh || !definition || this.player.dead || this.event.hostile) return
+    if (templateId === CAPTAIN_GATE_DEFENSE_ID || templateId === CAPTAIN_SIEGE_COMMAND_ID) {
+      this.openPanel('無法接受任務', '該任務已退休。')
+      return
+    }
     const availability = getCaptainMissionAvailability(fresh, templateId)
     if (!availability.unlocked) { this.openPanel('無法接受任務', availability.reason ?? '目前已有任務。'); return }
     let next: CareerProfile | null = null
@@ -2197,15 +2182,7 @@ export class TownScene {
       next = cloneCareerProfile(fresh); next.activeMission = mission
     } else if (templateId === CAPTAIN_CAVALRY_COMMAND_ID) next = acceptCaptainCavalryCommand(fresh, undefined,
       selectMissionCavalryActorIds(this.residents, 59, this.unavailableTownCavalryActorIds()))
-    else if (templateId === CAPTAIN_GATE_DEFENSE_ID) {
-      next = cloneCareerProfile(fresh)
-      const unavailable = new Set(this.unavailableTownCavalryActorIds(true))
-      if (fresh.rank === 'commander') for (const resident of this.residents) if (resident.npc.dead) unavailable.add(resident.spec.id)
-      next.activeMission = createCaptainGateDefenseMission(fresh,
-        townAssaultObjectiveRoster(this.residents.map(r => r.spec)).map(spec => spec.id),
-        this.residents.filter(r => r.spec.role === 'civilian').map(r => r.spec.id), this.residents.map(r => r.spec), undefined, unavailable)
-    } else if (templateId === CAPTAIN_FRONTLINE_COMMAND_ID) next = acceptCaptainFrontline(fresh)
-    else if (templateId === CAPTAIN_SIEGE_COMMAND_ID) next = acceptCaptainSiegeCommand(fresh)
+    else if (templateId === CAPTAIN_FRONTLINE_COMMAND_ID) next = acceptCaptainFrontline(fresh)
     else if (templateId === CAPTAIN_EAGLE_BATTLE_ID) {
       if (!this.careerMounts.list().find(mount => mount.id === 'xongkoro')?.available) {
         this.openPanel('巨鷹目前不可用', '需要玩家可使用且仍存活的自有 xongkoro；請檢查分配與本次出城的傷亡。'); return
@@ -2219,8 +2196,6 @@ export class TownScene {
       const launch = templateId === CAPTAIN_FRONTLINE_COMMAND_ID ? createCaptainFrontlineLaunch(this.profile) : createCaptainEagleLaunch(this.profile)
       this.dispose(true); this.onCampaign(launch); return
     }
-    if (templateId === CAPTAIN_SIEGE_COMMAND_ID) { this.dispose(); this.onRestart(this.profile); return }
-    if (templateId === CAPTAIN_GATE_DEFENSE_ID) { this.startHomeDefense(); return }
     const started = templateId === CAPTAIN_PATROL_COMMAND_ID ? this.captainPatrol!.resume(false)
       : this.mission.startActiveMission()
     if (!started) { this.openPanel('任務部署失敗', '任務及兵權交接已保存。重新載入可恢復同一支部隊。'); return }
@@ -2869,20 +2844,8 @@ export class TownScene {
       this.closePanel()
       return
     }
-    if (template.kind === 'enemy-town-assault') {
-      const next = acceptEnemyTownAssault(fresh)
-      if (!next) { this.openPanel('無法接受任務', '需先完成「騎兵救援」任務，且目前沒有其他任務或城鎮敵對事件。'); return }
-      if (!this.commit(next)) return
-      this.dispose(); this.onRestart(this.profile)
-      return
-    }
-    if (template.kind === 'town-defense') {
-      const defenders = townAssaultObjectiveRoster(this.residents.map(r => r.spec)).map(spec => spec.id)
-      const civilians = this.residents.filter(resident => resident.spec.role === 'civilian').map(resident => resident.spec.id)
-      const mission = createTownDefenseMission(defenders, civilians, undefined, template.id, fresh.rank)
-      const next = cloneCareerProfile(fresh); next.activeMission = mission
-      if (!this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始。請確認瀏覽器儲存空間後重試。'); return }
-      this.startHomeDefense()
+    if (template.kind === 'enemy-town-assault' || template.kind === 'town-defense' || template.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID) {
+      this.openPanel('無法接受任務', '該任務已退休。')
       return
     }
     const preferredCamp = template.kind === 'patrol' ? patrolPreferredCamp(template.routeId) : template.preferredCampIndex
@@ -2895,19 +2858,6 @@ export class TownScene {
     this.inventory.prepareForCombat()
     this.notice = `已接受「${template.name}」。順著畫面下方的箭頭前往集合點，再跟隨隊長出發。`
     this.playMissionVoice('missionAccepted')
-    this.closePanel()
-  }
-  private startHomeDefense(): void {
-    // Acceptance has already durably refitted the eligible command roster.
-    // Apply it in this scene before the defense controller borrows those actors.
-    if (this.profile.rank !== 'commander') this.townCommand?.applyRefit(this.profile.townCommandSquad)
-    this.siegeOpeningPending = !this.profile.activeMission?.siege?.rosterCreated
-    if (!this.defense.startActiveMission()) {
-      this.openPanel('任務部署失敗', '任務已保存，重新載入可恢復同一場守城。')
-      return
-    }
-    this.inventory.prepareForCombat()
-    this.synchronizeCommandActors()
     this.closePanel()
   }
   private unavailableTownCavalryActorIds(refitTownCommand = false): ReadonlySet<string> {

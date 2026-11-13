@@ -44,6 +44,20 @@ describe('Home mission prerequisites by mission tier', () => {
     expect(careerMissionCompletionsForTier(legacy, 1)).toBe(5)
     expect(careerMissionCompletionsForTier(legacy, 2)).toBe(1)
   })
+
+  it('allows recruits to independently access harder recruit missions without merit or completion gates', () => {
+    const rawRecruit = createCareerProfile('roman')
+    const list = availableRecruitMissions(rawRecruit).map(template => template.id)
+    expect(list).toContain('recruit-bandits-01')
+    expect(list).toContain('recruit-bandits-02')
+    expect(list).toContain('recruit-bandits-03')
+    expect(list).toContain('recruit-bandits-04')
+    expect(list).toContain('recruit-patrol-01')
+    expect(list).toContain('recruit-patrol-02')
+    expect(list).not.toContain('career-enemy-town-assault')
+    expect(list).not.toContain(SOLDIER_TOWN_DEFENSE_TEMPLATE_ID)
+    expect(list).not.toContain(TOWN_DEFENSE_TEMPLATE_ID)
+  })
 })
 
 // One qualification predicate: each requirement must be necessary, not an alternative.

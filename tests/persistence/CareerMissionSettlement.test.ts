@@ -23,8 +23,9 @@ import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { resolveTownActorEquipment } from '../../src/career/CareerTownEquipmentState'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
+import { createMissionCommandAuthority } from '../../src/career/CareerCommandAuthority'
 import { acceptCommanderMission, COMMANDER_FELINE_CAVALRY_ID, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_TOTAL } from '../../src/career/CommanderMissionCatalog'
-import { acceptCaptainSiegeCommand, acceptEnemyTownAssault, ENEMY_TOWN_ASSAULT_ID } from '../../src/career/EnemyTownAssault'
+import { createEnemyTownAssaultMission, ENEMY_TOWN_ASSAULT_ID, siegeCommandSquads } from '../../src/career/EnemyTownAssault'
 import { townAssaultRuntime } from '../helpers/townAssaultRuntime'
 
 /** Casualty input for settlement; no controller, combat, or result transition is simulated. */
@@ -46,7 +47,14 @@ function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'e
   if (kind === 'enemy-town-assault') {
     profile.rank = assaultTemplate === CAPTAIN_SIEGE_COMMAND_ID ? 'captain' : 'soldier'
     profile.completedOutpostRelief = true
-    profile = (assaultTemplate === CAPTAIN_SIEGE_COMMAND_ID ? acceptCaptainSiegeCommand(profile, 'settlement') : acceptEnemyTownAssault(profile, 'settlement'))!
+    const active = createEnemyTownAssaultMission('settlement')
+    active.templateId = assaultTemplate
+    if (assaultTemplate === CAPTAIN_SIEGE_COMMAND_ID) {
+      const squads = siegeCommandSquads(profile.faction, active.friendlyActorIds)
+      active.officialSquad = createMissionCommandAuthority('settlement', profile.faction, profile.rank, squads.find(squad => squad.squadId === 1)?.actorIds ?? [], squads)
+    }
+    active.personalSquad = snapshotPersonalMission(profile)
+    profile.activeMission = active
   } else if (kind !== 'commander-four-gate-defense') profile.activeMission = kind === 'captain-patrol-command'
     ? createCaptainPatrolCommandMission(profile, ['patrol:captain'], 'settlement')
     : kind === 'duel' ? createCareerDuelMission(profile, 'roman_archer', 1, 'resident', 'captain', 'settlement')!

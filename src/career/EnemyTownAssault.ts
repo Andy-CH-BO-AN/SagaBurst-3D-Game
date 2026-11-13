@@ -1,5 +1,5 @@
-import { CAPTAIN_SIEGE_COMMAND_ID, getCaptainMissionAvailability } from './CaptainMissionCatalog'
-import { createMissionCommandAuthority, type OfficialCommandSquad } from './CareerCommandAuthority'
+import { CAPTAIN_SIEGE_COMMAND_ID } from './CaptainMissionCatalog'
+import type { OfficialCommandSquad } from './CareerCommandAuthority'
 import { commandSquadsFromSlots } from './MissionCommandRoster'
 import { newTownSiegeState, siegeRoster, type SiegeRosterVersion } from './TownSiege'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
@@ -7,12 +7,10 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 import { townRoster, townAssaultObjectiveRoster } from '../town/TownRules'
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
 import { cloneCareerProfile, canonicalCareerMountId, type CareerProfile } from './CareerProfile'
-import { availableRecruitMissions } from './CareerMissionCatalog'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { canUseCareerEquipment } from '../town/TownEquipment'
 import { canUseCareerMount, careerMountTier, ownedCareerMountIds } from './CareerMountController'
 import { resolveCareerTownSceneContext } from './CareerFieldSceneContext'
-import { snapshotPersonalMission } from './CareerPersonalSquadMission'
 
 export const ENEMY_TOWN_ASSAULT_ID = 'career-enemy-town-assault'
 /** Deploy owned, usable shields and mounts at their highest tier. */
@@ -32,14 +30,9 @@ export function prepareEnemyTownAssaultEquipment(current: CareerProfile): Career
   if (mounts[0]) profile.selectedMountId = mounts[0]
   return profile
 }
-/** Recheck progression at the domain entry point, not just the deployment UI. */
-export function acceptEnemyTownAssault(current: CareerProfile, id?: string): CareerProfile | null {
-  if (current.activeOutpostMission || current.townEvent?.state === 'hostile'
-    || !availableRecruitMissions(current).some(template => template.id === ENEMY_TOWN_ASSAULT_ID)) return null
-  const profile = prepareEnemyTownAssaultEquipment(current)
-  profile.activeMission = createEnemyTownAssaultMission(id)
-  profile.activeMission.personalSquad = snapshotPersonalMission(profile)
-  return profile
+/** Retired mission; new acceptance is permanently rejected. */
+export function acceptEnemyTownAssault(_current: CareerProfile, _id?: string): CareerProfile | null {
+  return null
 }
 export function enemyTownFaction(faction: CharacterFaction): CharacterFaction { return faction === 'roman' ? 'viking' : 'roman' }
 export function careerTownFaction(profile: { faction: CharacterFaction; activeMission?: ActiveCareerMission }): CharacterFaction {
@@ -67,16 +60,7 @@ export function resolveAssaultOutcome(playerDead: boolean, militaryAlive: number
   return playerDead && assaultNpcAlive === 0 ? 'failure' : null
 }
 
-/** Captain Siege is independent of the original Soldier Relief prerequisite. */
-export function acceptCaptainSiegeCommand(current: CareerProfile, id = createCareerMissionId(CAPTAIN_SIEGE_COMMAND_ID)): CareerProfile | null {
-  if (!getCaptainMissionAvailability(current, CAPTAIN_SIEGE_COMMAND_ID).unlocked) return null
-  const profile = prepareEnemyTownAssaultEquipment(current)
-  const active = createEnemyTownAssaultMission(id)
-  active.templateId = CAPTAIN_SIEGE_COMMAND_ID
-  const squads = siegeCommandSquads(current.faction, active.friendlyActorIds)
-  active.officialSquad = createMissionCommandAuthority(id, current.faction, current.rank,
-    squads.find(squad => squad.squadId === 1)?.actorIds ?? [], squads)
-  active.personalSquad = snapshotPersonalMission(profile)
-  profile.activeMission = active
-  return profile
+/** Retired mission; new acceptance is permanently rejected. */
+export function acceptCaptainSiegeCommand(_current: CareerProfile, _id = createCareerMissionId(CAPTAIN_SIEGE_COMMAND_ID)): CareerProfile | null {
+  return null
 }

@@ -63,8 +63,8 @@ describe('Veteran Home Defense career mission', () => {
     const ready = clearCareerMission(duplicate.profile, restored.activeMission!.id)
     expect(ready.completedCareerMissionTemplateIds).toContain(VETERAN_TOWN_DEFENSE_TEMPLATE_ID)
     expect(availableCareerMissionsForPage(ready, 'veteran')
-      .some(mission => mission.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(true)
-    expect(availableRecruitMissions(ready).some(mission => mission.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(true)
+      .some(mission => mission.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(false)
+    expect(availableRecruitMissions(ready).some(mission => mission.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(false)
 
     const replay = acceptedHomeDefense(ready, 'home-defense-replay')
     expect(availableCareerMissionsForPage(replay, 'veteran')

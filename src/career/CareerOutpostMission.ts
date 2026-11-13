@@ -46,8 +46,8 @@ export interface CareerOutpostRecord extends CareerOutpostMission {
 export function isCareerOutpostStageId(value: unknown): value is CareerOutpostStageId {
   return CAREER_OUTPOST_STAGES.includes(value as CareerOutpostStageId)
 }
-export function isCareerOutpostUnlocked(profile: CareerProfile, stageId: CareerOutpostStageId): boolean {
-  return profile.rank !== 'recruit' && (stageId === 1 || Boolean(profile.completedOutpostStages?.includes((stageId - 1) as CareerOutpostStageId)))
+export function isCareerOutpostUnlocked(profile: CareerProfile, _stageId: CareerOutpostStageId): boolean {
+  return profile.rank !== 'recruit'
 }
 export function acceptCareerOutpost(current: CareerProfile, stageId: CareerOutpostStageId, id: string = crypto.randomUUID()): CareerProfile | null {
   if (!isCareerOutpostUnlocked(current, stageId) || current.activeRace || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null
@@ -160,7 +160,7 @@ export function clearCareerOutpost(current: CareerProfile): CareerProfile {
 }
 
 export function isCareerOutpostReliefUnlocked(profile: CareerProfile): boolean {
-  return profile.rank !== 'recruit' && CAREER_OUTPOST_STAGES.every(stage => profile.completedOutpostStages?.includes(stage))
+  return profile.rank !== 'recruit'
 }
 export function resolveCareerReliefMount(profile: CareerProfile): CareerMountId | undefined {
   if (profile.selectedMountId && canUseCareerMount(profile, profile.selectedMountId)) return canonicalCareerMountId(profile.selectedMountId)

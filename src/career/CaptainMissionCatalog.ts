@@ -44,11 +44,11 @@ const entry = (id: string, kind: CaptainMissionKind, name: string, briefing: str
 export const CAPTAIN_MISSION_CATALOG: readonly CaptainMissionDefinition[] = [
   entry(CAPTAIN_PATROL_COMMAND_ID, 'captain-patrol-command', 'Captain I · Patrol Command · 實習隊長巡邏', '目標：指揮 20 人巡邏隊，累積 30 次有效擊殺。', 21, 30),
   entry(CAPTAIN_CAVALRY_COMMAND_ID, 'cavalry-sweep', 'Captain II · Cavalry Command · 騎兵清剿', '目標：率領 29 人騎兵隊，與其他騎兵一同出城，消滅 40 名盜匪（我方共 60 騎，含你）。', 60, 40),
-  entry(CAPTAIN_GATE_DEFENSE_ID, 'town-defense', 'Captain III · Gate Defense · 城門防衛', '目標：指揮北門步兵守住城門，擊退來襲敵軍；其他城門由守軍自行防守。', townDefenseForceCounts().friendlyCombatants, 120),
-  entry(CAPTAIN_FRONTLINE_COMMAND_ID, 'captain-outpost-defense', 'Captain IV · Frontline Commander · 前線指揮官', '目標：守住前線營地。90 名守軍加上你，迎戰 200 名 T3 與 2 名 T4 敵軍；120 秒後有 50 名友軍騎兵增援。', 91, 202),
-  entry(CAPTAIN_SIEGE_COMMAND_ID, 'enemy-town-assault', 'Captain V · Siege Commander · 攻城隊長', '目標：率領 120 人（含你）從四門進攻敵城。你指揮北門 29 人，其餘三門由 AI 指揮；擊潰全部地面守軍並迫使空軍撤離。', 120, 0),
-  entry(CAPTAIN_EAGLE_BATTLE_ID, 'captain-eagle-battle', 'Captain VI · Eagle Battle · 巨鷹空戰', '目標：30 對 30 巨鷹空戰（我方含你）。已招募的私兵會額外參戰。', 30, 30),
+  entry(CAPTAIN_FRONTLINE_COMMAND_ID, 'captain-outpost-defense', 'Captain III · Frontline Commander · 前線指揮官', '目標：守住前線營地。90 名守軍加上你，迎戰 200 名 T3 與 2 名 T4 敵軍；120 秒後有 50 名友軍騎兵增援。', 91, 202),
+  entry(CAPTAIN_EAGLE_BATTLE_ID, 'captain-eagle-battle', 'Captain IV · Eagle Battle · 巨鷹空戰', '目標：30 對 30 巨鷹空戰（我方含你）。已招募的私兵會額外參戰。', 30, 30),
 ]
+export const RETIRED_CAPTAIN_GATE_DEFENSE_DEFINITION: CaptainMissionDefinition = entry(CAPTAIN_GATE_DEFENSE_ID, 'town-defense', 'Captain III · Gate Defense · 城門防衛', '目標：指揮北門步兵守住城門，擊退來襲敵軍；其他城門由守軍自行防守。', townDefenseForceCounts().friendlyCombatants, 120)
+export const RETIRED_CAPTAIN_SIEGE_COMMAND_DEFINITION: CaptainMissionDefinition = entry(CAPTAIN_SIEGE_COMMAND_ID, 'enemy-town-assault', 'Captain V · Siege Commander · 攻城隊長', '目標：率領 120 人（含你）從四門進攻敵城。你指揮北門 29 人，其餘三門由 AI 指揮；擊潰全部地面守軍並迫使空軍撤離。', 120, 0)
 export function getCaptainMissionDefinition(id: string): CaptainMissionDefinition | null {
   return CAPTAIN_MISSION_CATALOG.find(template => template.id === id) ?? null
 }
