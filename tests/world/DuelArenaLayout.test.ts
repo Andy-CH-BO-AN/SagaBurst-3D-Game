@@ -19,6 +19,26 @@ import {
 const PLAYER = { radius: 0.38, height: 1.9 }
 
 describe('duel arena layout collision', () => {
+  it('resumes a saved ground fall with its own apex, so a mid-air reload still lands for the full height', () => {
+    const fresh = new GroundFallTracker()
+    fresh.observe(18, true)
+    fresh.observe(18, false)
+    fresh.observe(2, false)
+    const saved = fresh.apex!
+    expect(saved).toBe(18)
+    const resumed = new GroundFallTracker()
+    resumed.restore(saved)
+    expect(resumed.observe(0, true)).toBe(18)
+    expect(groundFallDamage(150, 18, ARENA_GROUND_FALL_POLICY)).toBe(150)
+    // A scene reset without the saved fall is exactly what used to erase it.
+    const reset = new GroundFallTracker()
+    reset.reset()
+    expect(reset.observe(0, true)).toBeNull()
+    const cleared = new GroundFallTracker()
+    cleared.restore(Number.NaN)
+    expect(cleared.apex).toBeNull()
+  })
+
   it('lets a jump over the outer parapet complete a lethal fall to the outside ground without an invisible wall', () => {
     const obstacles = createColosseumObstacles()
     const theta = -Math.PI / 2 + 0.3

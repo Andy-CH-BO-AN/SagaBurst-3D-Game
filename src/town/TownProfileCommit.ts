@@ -73,7 +73,7 @@ export interface TownProfileCommitRuntime {
   townRefitOnReturn: boolean
   careerSaveFailures: number
   careerSkillsDirty: boolean
-  deploymentPage?: CareerMissionPage | 'duel'
+  deploymentPage?: CareerMissionPage | 'duel' | 'trial'
   notice: string
   clearCareerSkillSaveTimer(): void
   unavailableTownCavalryActorIds(includeReturning: boolean): ReadonlySet<string>
@@ -139,6 +139,8 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
     || runtime.profile.faction !== next.faction
   const civilianStateChanged = JSON.stringify(next.civilianCommandSquad) !== JSON.stringify(runtime.profile.civilianCommandSquad)
   if (!restoringResidents && change !== 'civilian-command' && !civilianStateChanged && runtime.civilianCommand) next.civilianCommandSquad = runtime.civilianCommand.checkpoint() ?? next.civilianCommandSquad
+  // An Arena Squad Trial takes no Town troops: it only captures the Town's current command checkpoint.
+  const arenaTrialStart = startsFormal && next.activeMission?.kind === 'arena-squad-trial'
   const startsDefense = startsFormal && (next.activeMission?.kind === 'town-defense' || next.activeMission?.kind === 'commander-four-gate-defense')
   if (startsFormal && next.activeMission?.kind === 'commander-four-gate-defense') {
     next.activeMission.mountState = runtime.careerMounts!.checkpoint()
@@ -148,9 +150,9 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   const respawning = Boolean(runtime.player?.dead && runtime.profile.activeMission && !next.activeMission)
   const returningFromDefense = Boolean((runtime.profile.activeMission?.kind === 'town-defense' || runtime.profile.activeMission?.kind === 'commander-four-gate-defense') && runtime.profile.activeMission.result && !next.activeMission)
   if ((startsDefense && next.rank !== 'commander' || respawning || returningFromDefense) && runtime.townCommand) next = runtime.townCommand.stageRefit(next, startsDefense)
-  else if (startsFormal && runtime.townCommand) next = runtime.townCommand.stageMissionHandoff(next)
+  else if (startsFormal && !arenaTrialStart && runtime.townCommand) next = runtime.townCommand.stageMissionHandoff(next)
   else if (!restoringResidents && !townStateChanged && next.faction === runtime.profile.faction && runtime.townCommand) next.townCommandSquad = runtime.townCommand.checkpoint() ?? next.townCommandSquad
-  if (startsFormal && next.activeMission && next.activeMission.kind !== 'commander-four-gate-defense' && next.townCommandSquad) {
+  if (startsFormal && !arenaTrialStart && next.activeMission && next.activeMission.kind !== 'commander-four-gate-defense' && next.townCommandSquad) {
     const returning = new Set(next.townCommandSquad.actorIds.filter(id => {
       const member = next.townCommandSquad!.members?.[id]
       return Boolean(next.townCommandSquad!.nativeReturnStates?.[id])
@@ -281,7 +283,9 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   const missionFinished = Boolean(next.activeMission?.result
     && next.activeMission.id === runtime.profile.activeMission?.id && !runtime.profile.activeMission.result)
   const active = next.activeMission ?? next.activeOutpostMission
-  if ((newMission || newOutpost) && next.activeMission?.kind !== 'duel') {
+  // An Arena Squad Trial never uses the private squad: it stays exactly as the Town last saved it.
+  const arenaTrial = next.activeMission?.kind === 'arena-squad-trial'
+  if ((newMission || newOutpost) && next.activeMission?.kind !== 'duel' && !arenaTrial) {
     const roster = snapshotPersonalMission(next)
     if (roster) active!.personalSquad = runtime.personalSquad?.captureForNewMission(roster) ?? roster
   } else if (active?.personalSquad) {
@@ -292,9 +296,9 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
     }
   }
   if (missionFinished && active?.personalSquad) active.personalSquad = followDeployedPersonalMission(active.personalSquad)
-  // A duel does not deploy the private squad: keep its Town checkpoint (wounds,
+  // A duel or an Arena Squad Trial does not deploy the private squad: keep its Town checkpoint (wounds,
   // casualties, mounts) so the return restores the same HR standby.
-  if (newMission || newOutpost) next.personalSquadRuntime = next.activeMission?.kind === 'duel'
+  if (newMission || newOutpost) next.personalSquadRuntime = next.activeMission?.kind === 'duel' || arenaTrial
     ? runtime.personalSquad?.checkpoint() ?? next.personalSquadRuntime : undefined
   const townClaimStateChanged = JSON.stringify([
     next.townCommandSquad?.commandedActorIds,
@@ -352,7 +356,7 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   if (newMission || newOutpost) {
     runtime.personalCommands?.close()
     if (next.activeMission?.kind === 'duel') runtime.personalSquad?.cleanup()
-    else runtime.personalSquad?.beginMission(active?.personalSquad)
+    else if (!arenaTrial) runtime.personalSquad?.beginMission(active?.personalSquad)
   }
   if (next.activeMission && next.activeMission.id !== runtime.profile.activeMission?.id) {
     runtime.player?.shield?.reset()

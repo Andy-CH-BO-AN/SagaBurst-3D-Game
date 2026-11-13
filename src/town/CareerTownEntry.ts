@@ -24,6 +24,8 @@ import { canStartCareerTutorial, commitCareerTutorial, startCareerTutorial } fro
 import type { CareerTutorialLaunch } from '../career/CareerTutorialLaunch'
 import { careerDuelArena } from '../career/CareerDuelState'
 import { CareerDuelArenaScene } from '../arena/CareerDuelArenaScene'
+import { CareerArenaTrialScene } from '../arena/CareerArenaTrialScene'
+import { careerArenaTrial } from '../career/CareerArenaTrials'
 import { DUEL_ARENA_LABELS } from '../arena/DuelArenaCatalog'
 import { DUEL_ARENA_RETURN_KEY } from '../arena/DuelArenaReturn'
 import { markCareerMissionReturnToSergeant } from './SergeantReturn'
@@ -115,6 +117,48 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
           if (!selection) { document.body.append(form); button('重試進入新兵教學', () => { void start(profile) }) }
           return false
         }
+      }
+    }
+    // An Arena Squad Trial is its own scene too: accepted, mid-fight and settled saves all load the arena.
+    const trial = careerArenaTrial(profile.activeMission)
+    if (trial) {
+      form.remove()
+      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      const overlay = document.createElement('div'); overlay.id = 'career-arena-trial-loading'
+      overlay.style.cssText = 'position:fixed;inset:0;display:grid;place-content:center;gap:12px;color:#eee;background:#171411;z-index:9998;font:16px system-ui;text-align:center'
+      overlay.setAttribute('role', 'status')
+      const text = document.createElement('p'); text.textContent = `正在前往${DUEL_ARENA_LABELS[trial.arenaId]}…`; overlay.append(text)
+      document.body.append(overlay)
+      try {
+        const arena = await CareerArenaTrialScene.create(container, {
+          returnToTown: () => {
+            if (!current()) return
+            sessionStorage.setItem(DUEL_ARENA_RETURN_KEY, '1')
+            void start(store.loadChecked().profile ?? profile)
+          },
+        }, message => { text.textContent = message })
+        if (!current()) { arena.dispose(); overlay.remove(); return false }
+        if (import.meta.env.DEV) (window as unknown as { arenaTrial: CareerArenaTrialScene }).arenaTrial = arena
+        overlay.remove()
+        arena.start()
+        return true
+      } catch (error) {
+        if (!current()) { overlay.remove(); return false }
+        console.error('[Career entry] Arena trial load failed', error)
+        // A technical failure is never a defeat: the saved trial stays resumable or can be cancelled without a result.
+        text.textContent = `${DUEL_ARENA_LABELS[trial.arenaId]}載入失敗；本場試煉尚未結算，存檔與獎勵均未變動。`
+        const retry = document.createElement('button'); retry.className = 'town-button'; retry.textContent = '重試載入試煉'
+        retry.onclick = () => { overlay.remove(); void start(store.loadChecked().profile ?? profile) }
+        const cancel = document.createElement('button'); cancel.className = 'town-button'; cancel.textContent = '取消本次試煉（不計勝負）'
+        cancel.onclick = () => {
+          const latest = store.loadChecked().profile ?? profile
+          const mission = latest.activeMission
+          const next = mission ? clearCareerMission(latest, mission.id) : latest
+          if (mission && !store.save(next)) { text.textContent = '取消尚未保存，請重試。'; return }
+          overlay.remove(); void start(next)
+        }
+        overlay.append(retry, cancel)
+        return false
       }
     }
     // A formal arena duel is its own scene: accepted, mid-fight and settled saves all load the arena.

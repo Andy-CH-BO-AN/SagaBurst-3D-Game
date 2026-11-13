@@ -53,6 +53,12 @@ export class GroundFallTracker {
     return height
   }
 
+  /** Highest support-free foot height of the fall in progress, or null when none is under way. */
+  get apex(): number | null { return this.apexY }
+
+  /** Resumes a saved fall exactly; a reload must not turn a lethal fall into a free landing. */
+  restore(apexY: number | null): void { this.apexY = apexY !== null && Number.isFinite(apexY) ? apexY : null }
+
   /** Teleports and scene resets must not turn into a landing. */
   reset(): void { this.apexY = null }
 

@@ -1,5 +1,6 @@
 import { CAREER_CLASSES_BY_FACTION, isCareerEliteClass, isRoadClass, T5_CLASS_ROAD, unlockedCareerClasses, type CareerClassRoad } from './CareerElitePromotion'
 import { parseDuelArenaId } from '../arena/DuelArenaCatalog'
+import { arenaTrialRoster, arenaTrialTierFromTemplateId, parseArenaTrialState } from './CareerArenaTrials'
 import { isT4ClassId, T4_CLASS_ROAD, T4_CLASSES_BY_FACTION, unlockedT4Classes } from './CareerT4Promotion'
 import { createCareerTutorialState, parseCareerTutorialState } from './CareerTutorialState'
 import { migrateCareerHealth } from './CareerHealthMigration'
@@ -326,6 +327,9 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
   const siege = parseSiege(raw.siege)
   if ((raw.kind === 'town-defense' || raw.kind === 'enemy-town-assault') && !siege) return undefined
   const duel = raw.kind === 'duel' && raw.templateId === CAREER_DUEL_TEMPLATE_ID
+  const trialTier = raw.kind === 'arena-squad-trial' ? arenaTrialTierFromTemplateId(raw.templateId) : null
+  const trialRoster = trialTier && typeof raw.id === 'string' && raw.id ? arenaTrialRoster(raw.id, trialTier) : null
+  if (raw.kind === 'arena-squad-trial' && !trialRoster) return undefined
   const duelOpponentActorId = typeof raw.duelOpponentActorId === 'string' ? raw.duelOpponentActorId.trim() : ''
   const duelCaptainActorId = typeof raw.duelCaptainActorId === 'string' ? raw.duelCaptainActorId.trim() : ''
   const duelRefereeActorId = typeof raw.duelRefereeActorId === 'string' ? raw.duelRefereeActorId.trim() : duelCaptainActorId
@@ -340,14 +344,14 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
   const migratedFieldMission = typeof template?.id === 'string' && isMigratedCareerFieldTemplate(template.id)
   if (
     typeof raw.id !== 'string' || !raw.id
-    || (!template && !duel)
-    || !Number.isInteger(raw.targetCampId) || ((duel || template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault' || outpostMission || captainStandalone || commanderMission || heavyMission)
+    || (!template && !duel && !trialRoster)
+    || !Number.isInteger(raw.targetCampId) || ((duel || trialRoster || template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault' || outpostMission || captainStandalone || commanderMission || heavyMission)
       ? raw.targetCampId !== -1
       : (raw.targetCampId as number) < 0 || (raw.targetCampId as number) > 4)
     || !MISSION_PHASES.includes(raw.phase as CareerMissionPhase) || raw.phase === 'SPAWNING' && !fourGateMission
   ) return undefined
-  const targetActorIds = duel ? [duelOpponentActorId] : uniqueStrings(raw.targetActorIds)
-  const friendlyActorIds = duel ? (duelRefereeActorId === duelOpponentActorId ? [] : [duelRefereeActorId]) : uniqueStrings(raw.friendlyActorIds)
+  const targetActorIds = duel ? [duelOpponentActorId] : trialRoster ? trialRoster.filter(e => e.team === 'enemy').map(e => e.actorId) : uniqueStrings(raw.targetActorIds)
+  const friendlyActorIds = duel ? (duelRefereeActorId === duelOpponentActorId ? [] : [duelRefereeActorId]) : trialRoster ? trialRoster.filter(e => e.team === 'friendly').map(e => e.actorId) : uniqueStrings(raw.friendlyActorIds)
   const reinforcementActorIds = uniqueStrings(raw.reinforcementActorIds)
   if (template?.kind === 'town-defense' && !friendlyActorIds.includes('ranger')) friendlyActorIds.push('ranger')
   if (template?.kind === 'town-defense' && !friendlyActorIds.includes('deployment')) friendlyActorIds.push('deployment')
@@ -358,6 +362,8 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
   const knownActorIds = new Set([...targetActorIds, ...allFriendlyActorIds,
     ...TOWN_WATCHTOWER_ARCHER_IDS, ...TOWN_WATCHTOWER_ARCHER_IDS.map(id => `enemy-town:${id}`), ...(siege || fourGateMission ? uniqueStrings(raw.civilianActorIds) : [])])
   const actorHealth = parseActorHealth(raw.actorHealth, knownActorIds)
+  const arenaTrial = trialRoster ? parseArenaTrialState(raw.arenaTrial, { friendlyActorIds, targetActorIds }) : undefined
+  if (trialRoster && (!arenaTrial || arenaTrial.tier !== trialTier)) return undefined
   const actorPositions = parseActorPositions(raw.actorPositions, knownActorIds)
   const engagedEnemySquadIds = parseEngagedEnemySquadIds(raw.engagedEnemySquadIds)
   const outpostBattleState = parseVeteranOutpostBattleState(raw.outpostBattleState)
@@ -538,8 +544,9 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     ...(felineBattle && (felineFamily || heavyMission || migratedFieldMission) ? { felineBattle } : {}),
     ...(bridgeDeployment && template?.kind === 'commander-bridgehead-battle' ? { bridgeDeployment } : {}),
     ...(eagleBattle && template?.kind === 'captain-eagle-battle' ? { eagleBattle } : {}),
-    templateId: duel ? CAREER_DUEL_TEMPLATE_ID : template!.id,
-    kind: duel ? 'duel' : template!.kind,
+    templateId: duel ? CAREER_DUEL_TEMPLATE_ID : trialRoster ? raw.templateId as string : template!.id,
+    kind: duel ? 'duel' : trialRoster ? 'arena-squad-trial' : template!.kind,
+    ...(arenaTrial ? { arenaTrial } : {}),
     targetCampId: raw.targetCampId as number,
     phase: raw.phase as CareerMissionPhase,
     targetActorIds,
