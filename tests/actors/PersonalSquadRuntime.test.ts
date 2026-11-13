@@ -34,7 +34,7 @@ it('keeps a newly recruited hero pending until assets load and propagates asset 
       actors: [], mounts: [], state: 'RESERVE', read: () => profile, spawn: spawnPersonalSquadActor,
       player: () => ({ dead: false, combatPosition: new Vector3(), group: { rotation: { y: 0 } } }),
       options: { scheduler }, muster: [{ x: 0, z: 0, yaw: 0 }], pending: new Map(), batches: [],
-      commandRevision: 0, eaglePads: new EaglePadReservations([]), reservedEagleOwners: new Set(), standbyIds: new Set(), standbyBatches: new Set(), homeArrivals: new Set(),
+      commandRevision: 0, eaglePads: new EaglePadReservations([]), reservedEagleOwners: new Set(), standbyIds: new Set(), standbyBatches: new Set(), homeArrivals: new Set(), standbyFailures: new Map(),
     }) as Pick<PersonalSquadRuntime, 'follow' | 'hudPendingIds' | 'ready' | 'error' | 'standbyError' | 'waitForSpawns' | 'cancelPendingSpawns' | 'actors'>
     try {
       expect(runtime.follow()).toBe(true)
@@ -74,7 +74,7 @@ it('restores a formal HR return without actors and queues the full equipped rese
       options: { scheduler }, muster: profile.personalSquad.members.map((_, index) => ({ x: index * 5, z: 0, yaw: 0 })),
       pending: new Map(), batches: [], commandRevision: 0, returnCommand: -1000,
       boarding: new Map(), returningOnFoot: new Set(), awaitingEaglePad: new Set(),
-      eaglePads: new EaglePadReservations([{ id: 'private-eagle-pad:1', x: 30, z: 0, yaw: 0 }]), reservedEagleOwners: new Set(), standbyIds: new Set(), standbyBatches: new Set(), homeArrivals: new Set(),
+      eaglePads: new EaglePadReservations([{ id: 'private-eagle-pad:1', x: 30, z: 0, yaw: 0 }]), reservedEagleOwners: new Set(), standbyIds: new Set(), standbyBatches: new Set(), homeArrivals: new Set(), standbyFailures: new Map(),
     }) as Pick<PersonalSquadRuntime, 'restoreMission' | 'follow' | 'checkpoint' | 'hudPendingIds' | 'cancelPendingSpawns' | 'actors' | 'mounts'>
     const equipment = structuredClone(profile.personalSquad)
     try {
@@ -104,7 +104,7 @@ it('returns a ground private soldier to the HR floor height on Dismiss', () => {
     const runtime = Object.assign(Object.create(PersonalSquadRuntime.prototype), {
       options: { hasHR: true }, state: 'ACTIVE', returnCommand: -1000, actors: [actor],
       slots: new Map([[actor, slot]]), pending: new Map(), boarding: new Map(), returningOnFoot: new Set(),
-      awaitingEaglePad: new Set(), reservedEagleOwners: new Set(), standbyIds: new Set(), standbyBatches: new Set(), homeArrivals: new Set(), checkpoint,
+      awaitingEaglePad: new Set(), reservedEagleOwners: new Set(), standbyIds: new Set(), standbyBatches: new Set(), homeArrivals: new Set(), standbyFailures: new Map(), checkpoint,
     }) as Pick<PersonalSquadRuntime, 'dismiss'>
     expect(runtime.dismiss()).toBe(true)
     expect(actor.assignFormationTarget.mock.lastCall![1].toArray()).toEqual([slot.x, slot.y, slot.z])
@@ -203,7 +203,7 @@ it('locks HR reserves and refit in the final stand without replacing casualties 
     player: () => ({ dead: false, combatPosition: new Vector3(), group: { rotation: { y: 0 } } }),
     options: { scheduler }, pending: new Map(), batches: [], commandRevision: 0,
     boarding: new Map(), returningOnFoot: new Set(), awaitingEaglePad: new Set(),
-    eaglePads: new EaglePadReservations([]), reservedEagleOwners: new Set(), standbyIds: new Set(), standbyBatches: new Set(), homeArrivals: new Set(),
+    eaglePads: new EaglePadReservations([]), reservedEagleOwners: new Set(), standbyIds: new Set(), standbyBatches: new Set(), homeArrivals: new Set(), standbyFailures: new Map(),
   })
   try {
     expect(runtime.canRefit).toBe(true)
@@ -406,9 +406,8 @@ it('finishes an eagle return at HR standby with the same rider and parked eagle,
   expect(h.actors).toHaveLength(2)
 })
 
-it('keeps the Town usable after an HR standby spawn failure and retries the same saved hire once without charging again', () => {
-  const h = standbyHarness([{ id: 'personal:ok' }, { id: 'personal:broken' }], { failOnce: ['personal:broken'] })
-  const merit = h.profile.availableMerit, roster = structuredClone(h.profile.personalSquad)
+it('pauses only a failed HR standby ID: the Town stays usable, a later hire still stands at HR, and retry adds the same ID once', () => {
+  const h = standbyHarness([{ id: 'personal:ok' }, { id: 'personal:a' }], { failOnce: ['personal:a'] })
   h.runtime.materializeStandby(); h.flush()
   expect(h.actors.map(actor => actor.combatantId)).toEqual(['personal:ok'])
   // A standby failure is not a deployment failure: no lock, Follow/refit readiness intact.
@@ -416,21 +415,74 @@ it('keeps the Town usable after an HR standby spawn failure and retries the same
   expect(h.runtime.error).toBeUndefined()
   expect(h.runtime.ready).toBe(true)
   expect(h.runtime.hudPendingIds).toEqual([])
-  // No automatic retry loop.
+  // No automatic retry loop for A.
   h.runtime.updateLifecycle(); h.runtime.materializeStandby()
   expect(h.scheduler.pending).toBe(0)
-  // Retry queues the same identity; a cancelled batch frees it for the next retry.
+  // Without retrying A, a later hire B still materializes at HR.
+  expect(recruitPersonalSquadMember(h.profile, 'soldier', next => { h.profile = next; return true }, () => 'personal:b').recruited).toBe(true)
+  const merit = h.profile.availableMerit, roster = structuredClone(h.profile.personalSquad)
+  h.runtime.materializeStandby(); h.flush()
+  expect(h.actors.map(actor => actor.combatantId)).toEqual(['personal:ok', 'personal:b'])
+  // Retry queues A's saved identity; a cancelled batch frees it for the next retry.
   h.runtime.retryStandby()
   expect(h.scheduler.pending).toBe(1)
   h.runtime.cancelPendingSpawns()
   h.runtime.retryStandby(); h.flush()
-  expect(h.actors.map(actor => actor.combatantId)).toEqual(['personal:ok', 'personal:broken'])
+  expect(h.actors.map(actor => actor.combatantId)).toEqual(['personal:ok', 'personal:b', 'personal:a'])
   expect(h.runtime.standbyError).toBeUndefined()
+  h.runtime.retryStandby(); h.runtime.updateLifecycle()
+  expect(h.scheduler.pending).toBe(0)
+  expect(new Set(h.spawned.map(spawn => `${spawn.slot.x},${spawn.slot.z}`)).size).toBe(3)
+  expect(h.profile.availableMerit).toBe(merit)
+  expect(h.profile.personalSquad).toEqual(roster)
+})
+
+it('keeps a hire still loading when the old squad reaches HR as HR standby, so its failure never blocks the Town', () => {
+  const h = standbyHarness([{ id: 'personal:old' }], { failOnce: ['personal:new'] })
+  h.runtime.materializeStandby(); h.flush()
+  const [old] = h.actors
+  expect(h.runtime.follow()).toBe(true)
+  expect(recruitPersonalSquadMember(h.profile, 'soldier', next => { h.profile = next; return true }, () => 'personal:new').recruited).toBe(true)
+  const merit = h.profile.availableMerit
+  h.runtime.materializeStandby()
+  expect(h.scheduler.pending).toBe(1)
+  // The old member arrives first; the hire's load fails only afterwards.
+  expect(h.runtime.dismiss()).toBe(true)
+  old.arrived = true; h.runtime.updateLifecycle()
+  expect(h.runtime.state).toBe('RESERVE')
+  h.flush()
+  expect(h.runtime.standbyError).toBeInstanceOf(Error)
+  expect([h.runtime.error, h.runtime.ready]).toEqual([undefined, true])
+  h.runtime.updateLifecycle()
+  expect(h.scheduler.pending).toBe(0)
+  h.runtime.retryStandby(); h.flush()
+  expect(h.actors.map(actor => actor.combatantId)).toEqual(['personal:old', 'personal:new'])
   h.runtime.retryStandby(); h.runtime.updateLifecycle()
   expect(h.scheduler.pending).toBe(0)
   expect(h.actors).toHaveLength(2)
   expect(h.profile.availableMerit).toBe(merit)
-  expect(h.profile.personalSquad).toEqual(roster)
+})
+
+it('keeps a squad dismissed to HR through an in-place mission return and reload without refit or revival', () => {
+  const h = standbyHarness([{ id: 'personal:a' }, { id: 'personal:b' }])
+  h.runtime.materializeStandby(); h.flush()
+  const [a, b] = h.actors
+  expect(h.runtime.follow()).toBe(true)
+  a.hp = 40; b.dead = true; b.hp = 0
+  expect(h.runtime.dismiss()).toBe(true)
+  a.arrived = true; h.runtime.updateLifecycle()
+  expect(h.runtime.state).toBe('RESERVE')
+  // Same-scene arrival: no cleanup, no new actor for the casualty, wounds unchanged.
+  h.runtime.endMission(false)
+  h.runtime.updateLifecycle(); h.runtime.materializeStandby()
+  expect([a.disposed, b.disposed, h.scheduler.pending, a.hp]).toEqual([false, false, 0, 40])
+  const saved = parsePersonalMission(JSON.parse(JSON.stringify(h.runtime.checkpoint())))!
+  expect(saved.members).toMatchObject({ 'personal:a': { status: 'deployed', hp: 40 }, 'personal:b': { status: 'dead', hp: 0 } })
+  const r = standbyHarness([{ id: 'personal:a' }, { id: 'personal:b' }], { saved })
+  r.runtime.restoreMission(saved); r.flush(); r.runtime.updateLifecycle()
+  expect(r.scheduler.pending).toBe(0)
+  expect(r.actors.map(actor => [actor.combatantId, actor.hp])).toEqual([['personal:a', 40]])
+  expect(r.runtime.checkpoint()?.members['personal:b']).toMatchObject({ status: 'dead', hp: 0 })
 })
 
 it('stands a hire made while the old squad follows at its own HR slot without changing deployed orders, then deploys it on the next Follow', () => {

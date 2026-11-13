@@ -127,7 +127,8 @@ export class PersonalSquadRuntime {
   private spawnFailed = false
   /** HR standby materialization is not a deployment: its batches and failure stay separate. */
   private readonly standbyBatches = new Set<NpcSpawnBatch>()
-  private standbyFailure?: { error: unknown }
+  /** Only the failed IDs pause; later hires and the rest of HR standby keep materializing. */
+  private readonly standbyFailures = new Map<string, unknown>()
   /** Members held at HR while the rest of the squad is deployed (later hires); not command recipients. */
   private readonly standbyIds = new Set<string>()
   /** Equipment each live actor materialized with; HR standby rebuilds an actor whose saved loadout changed. */
@@ -136,7 +137,7 @@ export class PersonalSquadRuntime {
   private readonly reservedEagleOwners = new Set<string>()
   /** Deployment failure only; an HR standby failure is `standbyError` and never blocks the Town. */
   get error(): unknown { return this.batches.find(batch => batch.status === 'failed')?.error }
-  get standbyError(): unknown { return this.standbyFailure?.error }
+  get standbyError(): unknown { return this.standbyFailures.values().next().value }
   get spawning(): boolean { return [...this.pending.values()].some(batch => batch.status === 'pending' && !this.standbyBatches.has(batch)) }
   get ready(): boolean { return !this.spawning && !this.spawnFailed }
   async waitForSpawns(): Promise<void> {
@@ -206,7 +207,7 @@ export class PersonalSquadRuntime {
       this.command = 'defend'; this.commandRevision++
       this.returningOnFoot.clear(); this.awaitingEaglePad.clear(); this.homeArrivals.clear()
       // A formal mission deploys the whole roster, including later HR hires.
-      this.releaseStandby()
+      this.deployStandby()
       for (const actor of this.actors) {
         this.releaseEagleApproach(actor)
         const saved = value.members[actor.combatantId]
@@ -303,7 +304,7 @@ export class PersonalSquadRuntime {
     if ((profile.activeMission || profile.activeOutpostMission) && !this.mission) return false
     this.mission ??= snapshotPersonalMission(profile, this.sceneKey)
     // Follow is the one order that deploys HR standby, including later hires.
-    this.releaseStandby()
+    this.deployStandby()
     const existing = new Set(this.actors.map(actor => actor.combatantId))
     const owned = new Map((profile.personalSquad?.members ?? []).map(member => [member.id, member]))
     if (this.mission && this.hasHR && !this.retirementResourcesLocked && !profile.activeMission && !profile.activeOutpostMission) {
@@ -435,7 +436,7 @@ export class PersonalSquadRuntime {
     }
     if (!this.spawning && !live.length && !this.read().activeMission && !this.read().activeOutpostMission && !this.battleWorn) {
       // At home the casualties stay on record until an HR refit; nothing respawns for free.
-      if (this.standbyAllowed && this.mission) { this.state = 'RESERVE'; this.battleWorn = true; this.releaseStandby(); this.checkpoint(); return }
+      if (this.standbyAllowed && this.mission) { this.state = 'RESERVE'; this.battleWorn = true; this.endMemberStandby(); this.checkpoint(); return }
       this.cleanup(); return
     }
     if (this.ready && !this.boarding.size && this.state === 'DEPLOYING' && live.length > 0 && live.every(actor => {
@@ -460,17 +461,19 @@ export class PersonalSquadRuntime {
    * never loops or duplicates actors.
    */
   materializeStandby(): void {
-    if (!this.standbyAllowed || this.standbyFailure) return
-    if (this.state !== 'RESERVE') { this.admitStandbyHires(); return }
+    if (!this.standbyAllowed) return
     const profile = this.read()
     const owned = (profile.personalSquad?.members ?? []).slice(0, PERSONAL_SQUAD_LIMIT)
     const ownedIds = new Set(owned.map(member => member.id))
+    // A failure ends once that member left or has an actor (e.g. a later Follow deployed it).
+    for (const id of this.standbyFailures.keys()) if (!ownedIds.has(id) || this.actors.some(actor => actor.combatantId === id)) this.standbyFailures.delete(id)
+    if (this.state !== 'RESERVE') { this.admitStandbyHires(); return }
     const departed = this.actors.filter(actor => !ownedIds.has(actor.combatantId))
     const changed = this.actors.filter(actor => {
       const member = owned.find(value => value.id === actor.combatantId)
       return member && !actor.dead && this.spawnedLoadouts.get(member.id) !== loadoutKey(member)
     })
-    const missing = owned.some(member => !this.pending.has(member.id) && !this.actors.some(actor => actor.combatantId === member.id)
+    const missing = owned.some(member => !this.pending.has(member.id) && !this.standbyFailures.has(member.id) && !this.actors.some(actor => actor.combatantId === member.id)
       && this.mission?.members[member.id]?.status !== 'dead' && this.mission?.members[member.id]?.hp !== 0)
     if (!departed.length && !changed.length && !missing && (!this.mission || this.mission.memberIds.length === owned.length)) return
     for (const actor of departed) this.removeActor(actor)
@@ -490,7 +493,7 @@ export class PersonalSquadRuntime {
     this.battleWorn = true
     this.syncEagleReservations()
     for (const [index, member] of owned.entries()) {
-      if (this.pending.has(member.id) || this.actors.some(actor => actor.combatantId === member.id)) continue
+      if (this.pending.has(member.id) || this.standbyFailures.has(member.id) || this.actors.some(actor => actor.combatantId === member.id)) continue
       const saved = this.mission.members[member.id]
       if (saved?.status === 'dead' || saved?.hp === 0) continue
       // Earlier HR arrivals and refits stored as `exited` are ordinary standby now.
@@ -507,7 +510,7 @@ export class PersonalSquadRuntime {
     if (!this.mission || this.retirementResourcesLocked) return
     const owned = (this.read().personalSquad?.members ?? []).slice(0, PERSONAL_SQUAD_LIMIT)
     for (const [index, member] of owned.entries()) {
-      if (this.pending.has(member.id) || this.actors.some(actor => actor.combatantId === member.id)) continue
+      if (this.pending.has(member.id) || this.standbyFailures.has(member.id) || this.actors.some(actor => actor.combatantId === member.id)) continue
       const saved = this.mission.members[member.id]
       // Deployed members without an actor (a failed deployment) and casualties are not new hires.
       if (saved && saved.status !== 'reserve' && saved.status !== 'exited' && !saved.standby || saved?.status === 'dead' || saved?.hp === 0) continue
@@ -524,9 +527,9 @@ export class PersonalSquadRuntime {
     }
   }
 
-  /** Clear the HR standby failure and queue the still-missing saved members once more (same IDs, no charge). */
+  /** Clear the paused HR standby IDs and queue those saved members once more (same IDs, no charge). */
   retryStandby(): void {
-    this.standbyFailure = undefined
+    this.standbyFailures.clear()
     this.materializeStandby()
   }
 
@@ -534,17 +537,23 @@ export class PersonalSquadRuntime {
     this.state = 'RESERVE'; this.battleWorn = true
     this.command = undefined; this.commandRevision++
     this.returningOnFoot.clear(); this.awaitingEaglePad.clear(); this.homeArrivals.clear()
-    this.releaseStandby()
+    // The whole squad is HR standby again: loading hires keep their HR classification.
+    this.endMemberStandby()
     for (const actor of live) { this.releaseEagleApproach(actor); this.holdAtMuster(actor) }
     this.checkpoint()
   }
 
-  /** The whole squad is either deployed (Follow/mission) or RESERVE: per-member standby ends. */
-  private releaseStandby(): void {
-    // Queued standby jobs now belong to the deployment and report its failures.
-    for (const batch of this.standbyBatches) if (batch.status === 'pending') this.batches.push(batch)
-    this.standbyIds.clear(); this.standbyBatches.clear()
+  /** RESERVE covers every member: per-member standby marks end, standby batches stay HR standby. */
+  private endMemberStandby(): void {
+    this.standbyIds.clear()
     if (this.mission) for (const saved of Object.values(this.mission.members)) delete saved.standby
+  }
+
+  /** Follow/mission deploys the whole roster: queued standby jobs now report as deployment. */
+  private deployStandby(): void {
+    for (const batch of this.standbyBatches) if (batch.status === 'pending') this.batches.push(batch)
+    this.standbyBatches.clear()
+    this.endMemberStandby()
   }
 
   /** Stand at the actor's own muster slot (on the HR floor) and defend it. */
@@ -619,7 +628,8 @@ export class PersonalSquadRuntime {
   }
 
   endMission(directReturn: boolean): void {
-    if (directReturn || this.state === 'RESERVE') this.cleanup()
+    // An in-place return keeps a squad already dismissed to HR: same actors, wounds and casualties.
+    if (directReturn || this.state === 'RESERVE' && !(this.hasHR && this.mission && this.actors.length)) this.cleanup()
     else this.battleWorn = Boolean(this.mission || this.actors.length)
   }
   cleanup(): void { this.disposeActors(); this.mission = undefined; this.battleWorn = false }
@@ -627,7 +637,7 @@ export class PersonalSquadRuntime {
   private disposeActors(): void {
     for (const batch of this.pending.values()) batch.cancel()
     this.pending.clear(); this.batches.length = 0; this.spawnFailed = false
-    this.standbyBatches.clear(); this.standbyIds.clear(); this.standbyFailure = undefined; this.homeArrivals.clear()
+    this.standbyBatches.clear(); this.standbyIds.clear(); this.standbyFailures.clear(); this.homeArrivals.clear()
     this.command = undefined; this.commandRevision++
     for (const actor of this.actors) {
       this.releaseEagleApproach(actor)
@@ -656,7 +666,7 @@ export class PersonalSquadRuntime {
       if (this.standbyBatches.delete(batch)) {
         // HR standby: only this member is affected. Free its identity so `retryStandby()`
         // can queue the same saved member again; the Town and deployments stay usable.
-        this.standbyFailure ??= { error: batch.error }
+        this.standbyFailures.set(member.id, batch.error)
         if (this.pending.get(member.id) === batch) this.pending.delete(member.id)
         this.releaseEaglePad(member.id)
         const npc = this.actors.find(actor => actor.combatantId === member.id)

@@ -49,7 +49,7 @@ describe('Personal Squad command lifecycle routing', () => {
       options: { scheduler }, muster: profile.personalSquad.members.map((_, index) => ({ x: index * 5, z: 0, yaw: 0 })),
       pending: new Map(), batches: [], commandRevision: 0, returnCommand: -1000,
       boarding: new Map(), returningOnFoot: new Set(), awaitingEaglePad: new Set(),
-      eaglePads: new EaglePadReservations([]), reservedEagleOwners: new Set(), standbyIds: new Set(), standbyBatches: new Set(), homeArrivals: new Set(),
+      eaglePads: new EaglePadReservations([]), reservedEagleOwners: new Set(), standbyIds: new Set(), standbyBatches: new Set(), homeArrivals: new Set(), standbyFailures: new Map(),
     }) as Pick<PersonalSquadRuntime, 'follow' | 'dismiss' | 'checkpoint' | 'hudPendingIds' | 'cancelPendingSpawns' | 'canRefit' | 'updateLifecycle'>
     const issue = vi.fn((order: string) => order === 'follow' ? runtime.follow() : runtime.dismiss()), npcs: CommandRecipientFixture[] = []
     const { controller, input } = controllerHarness(npcs, null, null, null, 'roman', 'squad', true, { issue, enabled: () => true })

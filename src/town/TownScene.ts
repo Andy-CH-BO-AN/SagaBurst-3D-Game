@@ -448,7 +448,9 @@ export class TownScene {
     if (import.meta.env.DEV) {
       const scene = this
       Object.assign(window, { __townScene: { world: this.world, player: this.player, orbit: this.orbit, camera: this.camera, input: this.input, residents: this.residents, stableHorses: this.stableHorses,
-        get personalSquad() { return scene.personalSquad }, get profile() { return scene.profile }, openRecruitmentPanel: () => scene.openRecruitmentPanel() } })
+        get personalSquad() { return scene.personalSquad }, get profile() { return scene.profile }, openRecruitmentPanel: () => scene.openRecruitmentPanel(),
+        /** Real command/save/return paths for scripted browser QA. */
+        get scene() { return scene } } })
     }
     this.navigation.sync(this.world.obstacles)
     this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,

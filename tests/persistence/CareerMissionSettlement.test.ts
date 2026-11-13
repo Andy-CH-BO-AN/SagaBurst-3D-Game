@@ -646,6 +646,18 @@ describe('Town mission settlement transactions', () => {
     expect(h.town.returnPersonalSquad).toHaveBeenCalledExactlyOnceWith(false)
   })
 
+  it('keeps a private squad already dismissed to HR on same-scene arrival instead of discarding its wounds', () => {
+    const h = fixture('bandit', true), profile = h.read()
+    profile.personalSquad = { members: [{ id: 'personal:wounded', type: 'soldier' }, { id: 'personal:dead', type: 'soldier' }] }
+    const standby = duelStandby()
+    profile.activeMission!.personalSquad = structuredClone(standby)
+    expect(h.settlement.returnToTown('arrived')).toEqual({ status: 'returned', kind: 'party' })
+    const stored = h.store.loadChecked().profile!
+    expect(stored.activeMission).toBeUndefined()
+    expect(stored.personalSquadRuntime).toEqual(standby)
+    expect(h.town.returnPersonalSquad).toHaveBeenCalledExactlyOnceWith(false)
+  })
+
   it('commits a grounded Captain return before resetting the airborne player and releasing the patrol once', () => {
     const h = fixture('captain-patrol-command', true)
     h.read().playerAerialState = { sceneKey: 'town-home', hp: 100, dead: false, position: { x: 50, y: 80, z: 70, yaw: 0 },

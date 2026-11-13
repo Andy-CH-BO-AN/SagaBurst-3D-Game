@@ -146,7 +146,9 @@ export class TownMissionSettlement {
       if (defense || pair.hp <= 0 || pair.mount.hp <= 0) pair.refitAllowed = true
     }
     // A duel never took the private squad: its saved Town checkpoint is restored unchanged.
-    if (active.kind !== 'duel') next.personalSquadRuntime = intent === 'arrived' && active.personalSquad?.state !== 'RESERVE' ? active.personalSquad : undefined
+    // Any other same-scene arrival keeps the squad as it is, including one already
+    // dismissed to HR (RESERVE): arrival is not a refit boundary.
+    if (active.kind !== 'duel') next.personalSquadRuntime = intent === 'arrived' ? active.personalSquad : undefined
     if (!this.profiles.commit(next, { kind: 'mission-return', destination: inPlace ? 'in-place' : 'restart', travel: intent })) return { status: 'save-failed', destination: inPlace ? 'party' : 'restart' }
     this.town.returnPersonalSquad?.(intent === 'direct')
     if (inPlace && active.kind === 'duel') this.town.restorePersonalSquad?.(next.personalSquadRuntime)
