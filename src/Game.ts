@@ -226,7 +226,7 @@ import { createBridgeheadRoster } from './career/CommanderMissionCatalog'
 import { createCaptainFrontlineSpawnPlan, createCaptainEagleSpawnPlan, applyCaptainFrontlineEnemyHeroes, captainFrontlineEnemyHeroAsset } from './career/CaptainBattleLaunch'
 import { CAPTAIN_FRONTLINE_COMMAND_ID, CAPTAIN_EAGLE_BATTLE_ID } from './career/CaptainMissionCatalog'
 import { snapshotCommandActor, restoreCommandActor } from './career/CareerCommandActorCheckpoint'
-import type { CaptainEagleCheckpoint } from './career/CaptainEagleCheckpoint'
+import { snapshotCheckpointMount, snapshotCheckpointPlayer, type CaptainEagleCheckpoint } from './career/CaptainEagleCheckpoint'
 import { CaptainEagleHUD } from './ui/CaptainEagleHUD'
 import {
   careerVeteranOutpostOwner,
@@ -387,7 +387,7 @@ export class Game {
     window.removeEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
     window.removeEventListener('pagehide', this.flushCareerSkillsOnPageHide)
     window.removeEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
-    window.removeEventListener('pagehide', this.flushCaptainOnPageHide)
+    window.removeEventListener('pagehide', this.flushCareerBattleOnPageHide)
     this.felineChargeUnsubscribe?.()
     this.felineChargeUnsubscribe = undefined
     this.sceneListeners.abort()
@@ -645,7 +645,17 @@ export class Game {
   private bridgeRuntime?: CareerBridgeBattleRuntime
   private bridgeDeploymentRetrySeconds = 0
   private get fieldMissionId(): string | null { return this.bridgeLaunch?.careerMissionId ?? this.felineMissionId ?? this.captainEagleMissionId }
-  private get fieldCheckpoint() { const mission = this.careerProfile?.activeMission; return this.bridgeLaunch ? mission?.bridgeBattle : this.felineMissionId ? mission?.felineBattle : mission?.eagleBattle }
+  /** Which saved checkpoint a field battle (Bridgehead, migrated field/Feline/Heavy, or Captain Eagle) reads and writes. */
+  private get fieldCheckpointKey(): 'bridgeBattle' | 'felineBattle' | 'eagleBattle' {
+    return this.bridgeLaunch ? 'bridgeBattle' : this.felineMissionId ? 'felineBattle' : 'eagleBattle'
+  }
+  private get fieldCheckpoint() { return this.careerProfile?.activeMission?.[this.fieldCheckpointKey] }
+  /** The Career mount ID the player's own starting mount is saved under for this battle. */
+  private get fieldPlayerMountId(): CareerMountId | undefined {
+    return (this.captainEagleMissionId ? 'xongkoro'
+      : this.felineMissionId ? this.startingHorseMountId ?? this.careerProfile?.selectedMountId
+      : this.bridgeLaunch?.battle.playerLoadout?.mountId ?? this.defenseCampaignConfig?.playerLoadout.mountId) as CareerMountId | undefined
+  }
   private readonly captainEagleMissionId: string | null
   private readonly felineMissionId: string | null
   private felineChargeUnsubscribe?: () => void
@@ -661,11 +671,11 @@ export class Game {
     return Boolean(mission && (isCareerHeavyFieldBattle(mission) || isCareerFieldNoCommandMission(mission)) && !mission.officialSquad && !mission.personalSquad)
   }
   private heavyGuide: MissionGuide | null = null
-  private captainEagleSpawnBatch?: NpcSpawnBatch
-  private captainEagleHud?: CaptainEagleHUD
-  private captainResultPending?: 'victory' | 'failure'
-  private captainCheckpoint?: CareerMissionCheckpoint
-  private readonly flushCaptainOnPageHide = (): void => { this._persistCaptainMission(true) }
+  private fieldRosterBatch?: NpcSpawnBatch
+  private fieldBattleHud?: CaptainEagleHUD
+  private fieldResultPending?: 'victory' | 'failure'
+  private careerBattleCheckpoint?: CareerMissionCheckpoint
+  private readonly flushCareerBattleOnPageHide = (): void => { this._persistCareerBattle(true) }
   private readonly flushPersonalOutpostOnPageHide = (): void => { this._persistPersonalOutpost(true) }
   private readonly careerVeteranActorMounts = new Map<string, Mount | null>()
   private damageNumbers!: DamageNumbers
@@ -835,8 +845,8 @@ export class Game {
           throw new Error('Captain battlefield launch does not match saved mission')
         }
         if (this.bridgeLaunch) this.bridgeRuntime = new CareerBridgeBattleRuntime(mission)
-        this.captainCheckpoint = new CareerMissionCheckpoint(() => this.careerStore.loadChecked().profile ?? this.careerProfile!,
-          profile => this._commitCaptainMissionCheckpoint(profile))
+        this.careerBattleCheckpoint = new CareerMissionCheckpoint(() => this.careerStore.loadChecked().profile ?? this.careerProfile!,
+          profile => this._commitCareerBattleCheckpoint(profile))
       } else if (campaignConfig?.careerVeteranOutpost || campaignConfig?.careerCommanderOutpost) {
         const careerOutpost = campaignConfig.careerVeteranOutpost ?? campaignConfig.careerCommanderOutpost!
         const mission = this.careerProfile?.activeMission
@@ -864,7 +874,7 @@ export class Game {
     }
     // Defense Campaign player-side units are defenders, so structure damage / breach
     // is not a valid performance statistic for them. Custom Battle remains generic.
-    const veteranMission = campaignConfig?.careerVeteranOutpost || campaignConfig?.careerCommanderOutpost || this.captainCheckpoint
+    const veteranMission = campaignConfig?.careerVeteranOutpost || campaignConfig?.careerCommanderOutpost || this.careerBattleCheckpoint
       ? this.careerProfile?.activeMission : undefined
     const outpostMission = this.careerProfile?.activeOutpostMission
     const trackStructureStats = !campaignConfig || campaignConfig.careerVeteranOutpost?.templateId === 'veteran-outpost-assault'
@@ -1409,20 +1419,20 @@ export class Game {
     } else if (this.modelStudio) {
       this.modelStudio.spawn()
     } else if (this.bridgeLaunch && battlePlan) {
-      this.captainEagleHud = new CaptainEagleHUD('bridgehead')
+      this.fieldBattleHud = new CaptainEagleHUD('bridgehead')
     } else if (this.felineMissionId && battlePlan) {
       const fieldMission = this.careerProfile?.activeMission
-      this.captainEagleHud = new CaptainEagleHUD('feline', this.careerFieldDeployment
+      this.fieldBattleHud = new CaptainEagleHUD('feline', this.careerFieldDeployment
         ? { title: this.careerFieldDeployment.title, force: this.careerFieldDeployment.forceLabel }
         : fieldMission?.templateId === COMMANDER_IRON_LEGION_ID
         ? { title: 'COMMANDER VII · 鐵甲軍團決戰', force: '正式六貓騎兵' }
         : isCareerHeavyFieldBattle(fieldMission) ? { title: getHeavyFieldMissionDefinition(fieldMission.templateId)?.name ?? '重騎兵戰場', force: '正式友軍' } : undefined)
       this._applyCareerPlayerHealthForCheckpoint()
-      this._declareCaptainEagleRoster(battlePlan)
+      this._declareFieldBattleRoster(battlePlan)
     } else if (this.captainEagleMissionId && battlePlan) {
-      this.captainEagleHud = new CaptainEagleHUD()
+      this.fieldBattleHud = new CaptainEagleHUD()
       this._applyCareerPlayerHealthForCheckpoint()
-      this._declareCaptainEagleRoster(battlePlan)
+      this._declareFieldBattleRoster(battlePlan)
     } else if (battleConfig && battlePlan) {
       await this._executeBattleSpawnPlan(battlePlan, progress)
       if (this.tutorialLaunch?.stage === 'captain') {
@@ -1555,7 +1565,7 @@ export class Game {
           return accepted
         },
       } : undefined,
-      this.hasCareerOfficialCommand ? this._captainCommandAuthority() : undefined,
+      this.hasCareerOfficialCommand ? this._officialCommandAuthority() : undefined,
       this.careerProfile && (this.hasCareerOfficialCommand || this.personalSquad) ? () => this._careerCommandHudRoster() : undefined,
       Boolean(campaignConfig || isRomanDefenseDevScenario || previewOutpostFaction || isBridgePreview) && !this.personalSquad && !this.hasCareerOfficialCommand,
       (_target, recipients) => {
@@ -1599,22 +1609,22 @@ export class Game {
     this._bindPlayerCombatCallbacks(campaignConfig)
 
     if (campaignConfig?.careerVeteranOutpost || campaignConfig?.careerCommanderOutpost) this._restoreCareerVeteranPlayerStateAndShowTerminalResult()
-    else if (this.captainEagleMissionId) this._restoreCaptainEaglePlayer()
+    else if (this.captainEagleMissionId) this._restoreFieldBattlePlayer()
     else if (this.bridgeLaunch || this.felineMissionId) { /* Restore after rider and orphan mounts materialize. */ }
     else this._restorePersonalOutpostPlayer()
     this.initializing = false
     if (!this.bridgeLaunch && !this.felineMissionId) this._persistPersonalOutpost(true)
-    if (this.captainCheckpoint) {
-      if (!this.bridgeLaunch && !this.felineMissionId && !this._persistCaptainMission(true)) throw new Error('Captain battlefield initial checkpoint could not be saved')
+    if (this.careerBattleCheckpoint) {
+      if (!this.bridgeLaunch && !this.felineMissionId && !this._persistCareerBattle(true)) throw new Error('Captain battlefield initial checkpoint could not be saved')
       if (this.fieldMissionId && battlePlan) {
-        if (this.bridgeLaunch) this._declareCaptainEagleRoster(battlePlan)
-        this._queueCaptainEagleRoster(battlePlan)
-        await gameplayNpcSpawns.wait(this.captainEagleSpawnBatch!,
+        if (this.bridgeLaunch) this._declareFieldBattleRoster(battlePlan)
+        this._queueFieldBattleRoster(battlePlan)
+        await gameplayNpcSpawns.wait(this.fieldRosterBatch!,
           (done, total) => progress(`${this.bridgeLaunch ? '部署橋頭部隊' : this.felineMissionId ? (this.careerFieldDeployment ? `部署${this.careerFieldDeployment.title}部隊` : isCareerHeavyFieldBattle(this.careerProfile?.activeMission) ? '部署鐵騎戰場部隊' : '部署六貓騎兵團') : '部署巨鷹部隊'} ${done} / ${total}…`))
-        if (this.bridgeLaunch || this.felineMissionId) this._restoreCaptainEaglePlayer()
-        if (!this._persistCaptainMission(true)) throw new Error('Career field initial deployment could not be saved')
+        if (this.bridgeLaunch || this.felineMissionId) this._restoreFieldBattlePlayer()
+        if (!this._persistCareerBattle(true)) throw new Error('Career field initial deployment could not be saved')
         if (this.bridgeRuntime?.deployment.phase === 'spawning'
-          && !this.bridgeRuntime.completeEnemyDeployment(this.captainEagleSpawnBatch?.ready === true, state => this._saveBridgeDeployment(state))) {
+          && !this.bridgeRuntime.completeEnemyDeployment(this.fieldRosterBatch?.ready === true, state => this._saveBridgeDeployment(state))) {
           throw new Error('Bridgehead enemy deployment could not be saved')
         }
       }
@@ -1643,7 +1653,7 @@ export class Game {
 
     if (this.bridgeLaunch) {
       const mission = this.careerProfile!.activeMission!
-      if (!this.captainEagleSpawnBatch?.ready || !mission.bridgeBattle?.ready) {
+      if (!this.fieldRosterBatch?.ready || !mission.bridgeBattle?.ready) {
         throw new Error('Bridgehead deployment did not complete')
       }
       this.player.group.visible = true
@@ -1654,7 +1664,7 @@ export class Game {
     if (this.felineMissionId) {
       const mission = this.careerProfile!.activeMission!
       validateFelineDeploymentReadiness({
-        spawnBatchReady: Boolean(this.captainEagleSpawnBatch?.ready),
+        spawnBatchReady: Boolean(this.fieldRosterBatch?.ready),
         battleReady: Boolean(mission.felineBattle?.ready),
         personalSquadReady: this.personalSquad ? Boolean(this.personalSquad.ready) : undefined,
       })
@@ -1698,7 +1708,7 @@ export class Game {
     if (this.veteranOutpostCheckpoint) window.addEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
     if (this.careerProfile) window.addEventListener('pagehide', this.flushCareerSkillsOnPageHide)
     if (this.personalSquad || this.hasCareerOfficialCommand) window.addEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
-    if (this.captainCheckpoint) window.addEventListener('pagehide', this.flushCaptainOnPageHide)
+    if (this.careerBattleCheckpoint) window.addEventListener('pagehide', this.flushCareerBattleOnPageHide)
 
     if (!isInitialSpectator) {
       this.hpBar.setFill(this.player.hpRatio)
@@ -1768,7 +1778,7 @@ export class Game {
     // Player Death notify & Spectator transition
     this.player.onPlayerDeath = () => {
       this._enterSpectatorMode('death')
-      if (this.captainCheckpoint) this._persistCaptainMission(true)
+      if (this.careerBattleCheckpoint) this._persistCareerBattle(true)
       if (campaignConfig?.careerVeteranOutpost || campaignConfig?.careerCommanderOutpost) {
         const mission = this.careerProfile?.activeMission
         if (mission) mission.playerDead = true
@@ -2286,7 +2296,7 @@ export class Game {
 
   private _updateMigratedFieldBattle(dt: number, mission: ActiveCareerMission): void {
     const deployment = this.careerFieldDeployment
-    const runtimeReady = this.captainEagleSpawnBatch?.ready === true && (!this.personalSquad || this.personalSquad.ready)
+    const runtimeReady = this.fieldRosterBatch?.ready === true && (!this.personalSquad || this.personalSquad.ready)
     if (!deployment || !runtimeReady || !isMigratedFieldDeploymentReady(mission, runtimeReady)) return
     this.careerFieldCheckClock += dt
     if (this.careerFieldCheckClock < .25) return
@@ -2380,7 +2390,7 @@ export class Game {
   }
 
   private _persistHeavyState(notify: string): void {
-    if (!this._persistCaptainMission(true)) this._showNotify(notify, 1800)
+    if (!this._persistCareerBattle(true)) this._showNotify(notify, 1800)
   }
 
   private _handleHeavyEnemyDamage(event: CombatEvent): void {
@@ -2514,7 +2524,7 @@ export class Game {
       ...(mission ? { missionId: mission.id } : {}),
       official,
       officialPending: Boolean(official && !this._careerCommandFinished() && !this.spawningStopped && (
-        !this.bridgeLaunch && this.captainEagleSpawnBatch && !this.captainEagleSpawnBatch.ready
+        !this.bridgeLaunch && this.fieldRosterBatch && !this.fieldRosterBatch.ready
         || this.defenseCampaignConfig?.careerCommanderOutpost && !this.commanderOutpostDeploymentBatch?.ready
         || this.defenseCampaignConfig?.careerMissionId && !this.defenseCampaignConfig.careerCommanderOutpost
           && !this.campaignReinforcementSpawned)),
@@ -2548,14 +2558,14 @@ export class Game {
     }
   }
 
-  private _acceptsCaptainCommand(npc: NPC): boolean {
+  private _acceptsOfficialCommand(npc: NPC): boolean {
     const mission = this._careerCommandMission(), authority = mission?.officialSquad
     return Boolean(mission && !this._careerCommandFinished() && authority?.missionId === mission.id
       && (authority.commandRank !== 'commander' || this.careerProfile?.rank === 'commander')
       && officialCommandAcceptsActor(authority, npc))
   }
 
-  private _prepareCaptainCommand(order: TacticalOrder | 'dismiss', participants: readonly NPC[], assignments?: readonly FormationCommandAssignment[]): boolean {
+  private _prepareOfficialCommand(order: TacticalOrder | 'dismiss', participants: readonly NPC[], assignments?: readonly FormationCommandAssignment[]): boolean {
     const next = this.careerProfile && stageOfficialCommandOrder(this.careerProfile, participants, order, assignments,
       npc => snapshotCommandActor(npc, this.careerVeteranActorMounts.get(npc.combatantId) ?? undefined))
     if (!next) return true
@@ -2564,14 +2574,14 @@ export class Game {
     return true
   }
 
-  private _captainCommandAuthority(): ArmyCommandAuthority {
+  private _officialCommandAuthority(): ArmyCommandAuthority {
     return {
-      accepts: npc => this._acceptsCaptainCommand(npc) || this.personalSquad?.owns(npc) === true,
+      accepts: npc => this._acceptsOfficialCommand(npc) || this.personalSquad?.owns(npc) === true,
       enabled: () => !this.player.dead && this.controlMode === 'player' && !this._careerCommandFinished(),
-      beforeIssue: (order, _target, participants, assignments) => this._prepareCaptainCommand(order, participants, assignments),
+      beforeIssue: (order, _target, participants, assignments) => this._prepareOfficialCommand(order, participants, assignments),
       issue: (order, target) => {
-        const actors = this.npcs.filter(npc => this._acceptsCaptainCommand(npc) && matchesArmyCommandTarget(npc, target))
-        if (!this._prepareCaptainCommand(order, actors)) return false
+        const actors = this.npcs.filter(npc => this._acceptsOfficialCommand(npc) && matchesArmyCommandTarget(npc, target))
+        if (!this._prepareOfficialCommand(order, actors)) return false
         let accepted = false
         if ((target === 'all' || target === 'squad:personal') && this.personalSquad) {
           accepted = order === 'follow' ? this.personalSquad.follow() : this.personalSquad.dismiss()
@@ -2608,7 +2618,7 @@ export class Game {
   }
 
   /** Save the entire declaration before the first scheduled actor may materialize. */
-  private _declareCaptainEagleRoster(plan: BattleSpawnPlan): void {
+  private _declareFieldBattleRoster(plan: BattleSpawnPlan): void {
     const next = cloneCareerProfile(this.careerProfile!)
     const mission = next.activeMission!
     if (this.fieldCheckpoint) return
@@ -2644,22 +2654,19 @@ export class Game {
       actors[spec.actorId] = { status: 'reserve', position: { x: spec.x, y: getTerrainHeight(spec.x, spec.z), z: spec.z,
         yaw: this.bridgeLaunch ? spec.faction === Faction.PLAYER ? 0 : Math.PI : spec.characterFaction === 'roman' ? 0 : Math.PI } }
     }
-    const checkpointKey = this.bridgeLaunch ? 'bridgeBattle' : this.felineMissionId ? 'felineBattle' : 'eagleBattle'
-    mission[checkpointKey] = { actors, ready: false, playerStats: this.battleStats.checkpoint(), player: {
-      hp: this.player.hp, stamina: this.player.staminaValue, dead: this.player.dead,
-      position: { x: this.player.position.x, y: this.player.position.y, z: this.player.position.z, yaw: this.player.group.rotation.y },
-      ammo: this.player.arrowCount, shieldImpact: this.player.shield.shieldImpactRemaining,
+    mission[this.fieldCheckpointKey] = { actors, ready: false, playerStats: this.battleStats.checkpoint(), player: {
+      ...snapshotCheckpointPlayer(this.player),
       ...(mission.mountState?.hp.xongkoro !== undefined ? { mountHp: mission.mountState.hp.xongkoro } : {}),
     } }
     if (!this.careerStore.save(next)) throw new Error('Captain Eagle roster declaration could not be saved')
     this.careerProfile = next
   }
 
-  private _queueCaptainEagleRoster(plan: BattleSpawnPlan, restoreOrphans = true): void {
+  private _queueFieldBattleRoster(plan: BattleSpawnPlan, restoreOrphans = true): void {
     const mission = this.careerProfile!.activeMission!
     const saved = this.fieldCheckpoint!
     const batch = this._newSpawnBatch()
-    this.captainEagleSpawnBatch = batch
+    this.fieldRosterBatch = batch
     for (const spec of plan.npcSpecs) {
       const actor = resolveFieldActorCheckpoint(mission, spec.actorId!, saved.actors[spec.actorId!])
       if (actor?.status === 'dead' || actor?.hp === 0) continue
@@ -2700,7 +2707,7 @@ export class Game {
           const index = mission.officialSquad?.actorIds.indexOf(npc.combatantId) ?? -1
           if (index >= 0) npc.assignFollowTarget(this.player, index, officialFollowLocalOffset(index, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length)))
         }
-        if (!this.bridgeLaunch && !this.felineMissionId && !this._persistCaptainMission(true)) throw new Error('Captain Eagle actor checkpoint could not be saved')
+        if (!this.bridgeLaunch && !this.felineMissionId && !this._persistCareerBattle(true)) throw new Error('Captain Eagle actor checkpoint could not be saved')
       })
     }
     if ((this.bridgeLaunch || this.felineMissionId) && restoreOrphans) for (const orphan of (this.bridgeLaunch
@@ -2722,13 +2729,13 @@ export class Game {
       })
     }
     batch.seal(() => {
-      if (!this.bridgeLaunch && !this.felineMissionId && !this._persistCaptainMission(true)) throw new Error('Career field deployment could not be saved')
+      if (!this.bridgeLaunch && !this.felineMissionId && !this._persistCareerBattle(true)) throw new Error('Career field deployment could not be saved')
     })
   }
 
-  private _buildCaptainMissionCheckpoint(): ActiveCareerMission | null {
+  private _buildCareerBattleCheckpoint(): ActiveCareerMission | null {
     const mission = cloneCareerProfile(this.careerProfile!).activeMission
-    if (!mission || !this.captainCheckpoint) return null
+    if (!mission || !this.careerBattleCheckpoint) return null
     mission.playerStats = this.battleStats.checkpoint()
     mission.playerDead = this.player.dead
     mission.playerHp = this.player.hp
@@ -2749,9 +2756,7 @@ export class Game {
     }
     const mount = this.startingHorse
     if (mount) {
-      const id = (this.captainEagleMissionId ? 'xongkoro'
-        : this.felineMissionId ? this.startingHorseMountId ?? this.careerProfile?.selectedMountId
-        : this.bridgeLaunch?.battle.playerLoadout?.mountId ?? this.defenseCampaignConfig?.playerLoadout.mountId) as CareerMountId | undefined
+      const id = this.fieldPlayerMountId
       if (id) mission.mountState = { ...mission.mountState, hp: { ...mission.mountState?.hp, [id]: mount.dead ? 0 : mount.currentHp },
         armorImpact: { ...mission.mountState?.armorImpact, [id]: mount.armorImpactRemaining },
         unavailable: [...new Set([...(mission.mountState?.unavailable ?? []), ...(mount.dead ? [id] : [])])],
@@ -2765,33 +2770,19 @@ export class Game {
         this.careerVeteranActorMounts.get(npc.combatantId) ?? undefined)
       if (this.bridgeLaunch || this.felineMissionId) for (const [id, homeMount] of this.careerVeteranActorMounts) {
         const saved = actors[id] ?? mission.personalSquad?.members[id]
-        if (homeMount && saved?.status === 'dead') saved.mount = {
-          hp: homeMount.dead ? 0 : homeMount.currentHp, armorImpactRemaining: homeMount.armorImpactRemaining, mounted: false,
-          position: { x: homeMount.group.position.x, y: homeMount.group.position.y, z: homeMount.group.position.z, yaw: homeMount.group.rotation.y },
-          ...(homeMount.flight ? { flight: homeMount.flight.snapshot() } : {}),
-        }
+        if (homeMount && saved?.status === 'dead') saved.mount = snapshotCheckpointMount(homeMount, false)
       }
       const playerMount = this.bridgeLaunch || this.felineMissionId ? this.player.currentMount ?? mount : mount
       const mountActorId = (this.bridgeLaunch || this.felineMissionId) && playerMount && playerMount !== mount
         ? [...this.careerVeteranActorMounts].find(([, owned]) => owned === playerMount)?.[0] : undefined
-      const ready = this.captainEagleSpawnBatch?.ready === true && (!this.personalSquad || this.personalSquad.ready)
-      const checkpointKey = this.bridgeLaunch ? 'bridgeBattle' : this.felineMissionId ? 'felineBattle' : 'eagleBattle'
-      mission[checkpointKey] = { actors, ready, playerStats: mission.playerStats, player: {
-        hp: this.player.hp, stamina: this.player.staminaValue, dead: this.player.dead,
-        position: { x: this.player.position.x, y: this.player.position.y, z: this.player.position.z, yaw: this.player.group.rotation.y },
-        ammo: this.player.arrowCount, shieldImpact: this.player.shield.shieldImpactRemaining,
+      const ready = this.fieldRosterBatch?.ready === true && (!this.personalSquad || this.personalSquad.ready)
+      mission[this.fieldCheckpointKey] = { actors, ready, playerStats: mission.playerStats, player: {
+        ...snapshotCheckpointPlayer(this.player),
         ...(this.player.isFalling ? { fall: this.player.fallSnapshot } : {}),
         ...(mountActorId ? { mountActorId } : {}),
-        ...((this.bridgeLaunch || this.felineMissionId) && mount && playerMount !== mount ? { homeMount: {
-          hp: mount.dead ? 0 : mount.currentHp, armorImpactRemaining: mount.armorImpactRemaining, mounted: false,
-          position: { x: mount.group.position.x, y: mount.group.position.y, z: mount.group.position.z, yaw: mount.group.rotation.y },
-          ...(mount.flight ? { flight: mount.flight.snapshot() } : {}),
-        } } : {}),
-        ...(playerMount ? { mountHp: playerMount.dead ? 0 : playerMount.currentHp, mount: {
-          hp: playerMount.dead ? 0 : playerMount.currentHp, armorImpactRemaining: playerMount.armorImpactRemaining, mounted: this.player.currentMount === playerMount,
-          position: { x: playerMount.group.position.x, y: playerMount.group.position.y, z: playerMount.group.position.z, yaw: playerMount.group.rotation.y },
-          ...(playerMount.flight ? { flight: playerMount.flight.snapshot() } : {}),
-        } } : {}),
+        ...((this.bridgeLaunch || this.felineMissionId) && mount && playerMount !== mount ? { homeMount: snapshotCheckpointMount(mount, false) } : {}),
+        ...(playerMount ? { mountHp: playerMount.dead ? 0 : playerMount.currentHp,
+          mount: snapshotCheckpointMount(playerMount, this.player.currentMount === playerMount) } : {}),
       } }
       if (this.felineMissionId && mission.commanderMission) mission.commanderMission.deploymentComplete = ready
       if (this.bridgeLaunch) {
@@ -2835,7 +2826,7 @@ export class Game {
     if (id && this.startingHorse?.armorImpactMax) profile.mountArmor = { ...profile.mountArmor, [id]: this.startingHorse.armorImpactRemaining }
   }
 
-  private _commitCaptainMissionCheckpoint(profile: CareerProfile): boolean {
+  private _commitCareerBattleCheckpoint(profile: CareerProfile): boolean {
     this._captureOwnedMountArmor(profile)
     if (!this.fieldMissionId && this.player) {
       profile.playerAerialState = captureCareerAerialState(this.player, `outpost:${this.defenseCampaignConfig?.careerMissionId}`)
@@ -2845,35 +2836,32 @@ export class Game {
     return saved
   }
 
-  private _persistCaptainMission(force = false, dt = 0): boolean {
-    if (this.initializing || this.spawningStopped || !this.captainCheckpoint || !this.careerProfile) return !this.captainCheckpoint
-    this.captainCheckpoint.advance(dt)
-    return this.captainCheckpoint.persist(() => this._buildCaptainMissionCheckpoint() ?? this.careerProfile!.activeMission!,
+  private _persistCareerBattle(force = false, dt = 0): boolean {
+    if (this.initializing || this.spawningStopped || !this.careerBattleCheckpoint || !this.careerProfile) return !this.careerBattleCheckpoint
+    this.careerBattleCheckpoint.advance(dt)
+    return this.careerBattleCheckpoint.persist(() => this._buildCareerBattleCheckpoint() ?? this.careerProfile!.activeMission!,
       { immediate: force, periodic: true }) || !force
   }
 
   /** Publish each deployment phase before allowing its spawn/combat side effects. */
   private _saveBridgeDeployment(state: BridgeBattleDeployment): boolean {
-    return this.captainCheckpoint!.persist(() => {
-      const mission = this._buildCaptainMissionCheckpoint()!
+    return this.careerBattleCheckpoint!.persist(() => {
+      const mission = this._buildCareerBattleCheckpoint()!
       mission.bridgeDeployment = { ...state }
-      mission.commanderMission!.deploymentComplete = state.phase === 'assault' && this.captainEagleSpawnBatch?.ready === true
+      mission.commanderMission!.deploymentComplete = state.phase === 'assault' && this.fieldRosterBatch?.ready === true
       mission.phase = state.phase === 'assault' ? 'ENGAGING' : 'ASSEMBLING'
       return mission
     }, { immediate: true })
   }
 
-  private _restoreCaptainEaglePlayer(): void {
+  private _restoreFieldBattlePlayer(): void {
     const saved = this.fieldCheckpoint?.player
     if (!saved) return
     const mount = saved.mountActorId ? this.careerVeteranActorMounts.get(saved.mountActorId) : this.startingHorse
     if (saved.mountActorId && !mount) throw new Error('Saved borrowed Career mount missing after field roster deployment')
-    const playerMountId = (this.captainEagleMissionId ? 'xongkoro'
-      : this.felineMissionId ? this.startingHorseMountId ?? this.careerProfile?.selectedMountId
-      : this.bridgeLaunch?.battle.playerLoadout?.mountId ?? this.defenseCampaignConfig?.playerLoadout.mountId) as CareerMountId | undefined
     const migratedMount = resolveMigratedPlayerMountState(
       this.careerProfile?.activeMission,
-      playerMountId,
+      this.fieldPlayerMountId,
       this.careerProfile?.mountArmor,
     )
     if (saved.mountActorId && this.startingHorse) {
@@ -2920,8 +2908,8 @@ export class Game {
     if (saved.dead) { this.player.detachFromMountOnDeath(); this.player.takeDamage(this.player.maxHp * 100, this.hpBar) }
   }
 
-  private _updateCaptainBattle(dt: number): void {
-    if (!this.captainCheckpoint) return
+  private _updateCareerBattle(dt: number): void {
+    if (!this.careerBattleCheckpoint) return
     const mission = this.careerProfile!.activeMission!
     if (this.player.dead) for (const npc of this.npcs) {
       if (!npc.dead && npc.tacticalOrder === 'follow' && mission.officialSquad?.actorIds.includes(npc.combatantId)) {
@@ -2931,15 +2919,15 @@ export class Game {
       }
     }
     if (!this.fieldMissionId) return
-    if (this.felineMissionId && isCareerHeavyFieldBattle(mission) && !this.captainResultPending && !mission.result) this._updateHeavyField(dt, mission)
-    if (this.felineMissionId && this.careerFieldDeployment && !this.captainResultPending && !mission.result) this._updateMigratedFieldBattle(dt, mission)
+    if (this.felineMissionId && isCareerHeavyFieldBattle(mission) && !this.fieldResultPending && !mission.result) this._updateHeavyField(dt, mission)
+    if (this.felineMissionId && this.careerFieldDeployment && !this.fieldResultPending && !mission.result) this._updateMigratedFieldBattle(dt, mission)
     if (this.bridgeRuntime) {
       const runtime = this.bridgeRuntime
       runtime.observe(mission, this.npcs)
-      this.captainEagleHud?.updateBridgehead(runtime.enemyAlive, runtime.deployment)
-      if (this.captainResultPending) return
+      this.fieldBattleHud?.updateBridgehead(runtime.enemyAlive, runtime.deployment)
+      if (this.fieldResultPending) return
       if (mission.result) {
-        if (!this.careerResultStats) this._showCaptainEagleResult(mission.result.outcome)
+        if (!this.careerResultStats) this._showFieldBattleResult(mission.result.outcome)
         return
       }
       runtime.advancePreparation(dt)
@@ -2947,22 +2935,22 @@ export class Game {
       if (this.bridgeDeploymentRetrySeconds === 0) {
         if (runtime.deployment.phase === 'preparing' && runtime.deployment.preparationRemainingSeconds === 0) {
           if (runtime.beginEnemyDeployment(state => this._saveBridgeDeployment(state))) {
-            this._queueCaptainEagleRoster(createCareerBridgeSpawnPlan(this.careerProfile!, 'attackers'), false)
+            this._queueFieldBattleRoster(createCareerBridgeSpawnPlan(this.careerProfile!, 'attackers'), false)
           } else {
             this.bridgeDeploymentRetrySeconds = 1
             this._showNotify('準備完成，等待存檔成功後敵軍才會出現', 1500)
           }
-        } else if (runtime.deployment.phase === 'spawning' && this.captainEagleSpawnBatch?.ready) {
-          if (!runtime.completeEnemyDeployment(this.captainEagleSpawnBatch.ready, state => this._saveBridgeDeployment(state))) {
+        } else if (runtime.deployment.phase === 'spawning' && this.fieldRosterBatch?.ready) {
+          if (!runtime.completeEnemyDeployment(this.fieldRosterBatch.ready, state => this._saveBridgeDeployment(state))) {
             this.bridgeDeploymentRetrySeconds = 1
             this._showNotify('敵軍部署完成，正在重試儲存戰場', 1500)
           }
         }
       }
       const result = runtime.outcome(this.player.dead,
-        this.captainEagleSpawnBatch?.ready === true && mission.commanderMission?.deploymentComplete === true,
+        this.fieldRosterBatch?.ready === true && mission.commanderMission?.deploymentComplete === true,
         this.personalSquad?.aliveCombatants ?? 0)
-      if (result) this._showCaptainEagleResult(result)
+      if (result) this._showFieldBattleResult(result)
       return
     }
     // Heavy-cavalry and migrated field battles are decided by the whole friendly force, never by the player alone.
@@ -2971,23 +2959,23 @@ export class Game {
     const enemyIds = new Set(mission.targetActorIds)
     const officialAlive = this.npcs.filter(npc => !npc.dead && officialIds.has(npc.combatantId)).length
     const enemyAlive = this.npcs.filter(npc => !npc.dead && enemyIds.has(npc.combatantId)).length
-    const pending = this.captainEagleSpawnBatch?.pending ?? 0
-    const ready = this.captainEagleSpawnBatch?.ready === true && (!this.personalSquad || this.personalSquad.ready)
+    const pending = this.fieldRosterBatch?.pending ?? 0
+    const ready = this.fieldRosterBatch?.ready === true && (!this.personalSquad || this.personalSquad.ready)
     const roster = this._careerCommandHudRoster()
     const officialCounts = roster && countArmyHudRoster(roster, 'squad:1')
     const personalCounts = roster && countArmyHudRoster(roster, 'squad:personal')
-    this.captainEagleHud?.update(ready, this.felineMissionId ? officialAlive : officialCounts?.alive ?? officialAlive,
+    this.fieldBattleHud?.update(ready, this.felineMissionId ? officialAlive : officialCounts?.alive ?? officialAlive,
       personalCounts?.alive ?? this.personalSquad?.aliveCombatants ?? 0, enemyAlive,
       pending + (personalCounts?.pending ?? 0),
       !this.felineMissionId && officialCounts && personalCounts ? { official: officialCounts, personal: personalCounts } : undefined)
     if (!ready) return
-    if (this.captainResultPending) return
+    if (this.fieldResultPending) return
     if (mission.result) {
-      if (!this.careerResultStats) this._showCaptainEagleResult(mission.result.outcome)
+      if (!this.careerResultStats) this._showFieldBattleResult(mission.result.outcome)
       return
     }
     if (mission.phase !== 'ENGAGING') {
-      if (!this._persistCaptainMission(true)) return
+      if (!this._persistCareerBattle(true)) return
       for (const npc of this.npcs) if (!npc.dead && npc.combatOwnership !== 'player-personal' && !officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) {
         if (this.felineMissionId && isCareerHeavyFieldBattle(mission)) this._applyHeavyFieldOrder(npc, mission)
         else npc.setTacticalOrder(this.felineMissionId
@@ -2995,18 +2983,18 @@ export class Game {
           : 'attack')
       }
     }
-    if (enemyAlive === 0) this._showCaptainEagleResult('victory')
-    else if (this.player.dead && officialAlive === 0 && (this.personalSquad?.aliveCombatants ?? 0) === 0) this._showCaptainEagleResult('failure')
+    if (enemyAlive === 0) this._showFieldBattleResult('victory')
+    else if (this.player.dead && officialAlive === 0 && (this.personalSquad?.aliveCombatants ?? 0) === 0) this._showFieldBattleResult('failure')
     void dt
   }
 
-  private _showCaptainEagleResult(outcome: 'victory' | 'failure'): void {
+  private _showFieldBattleResult(outcome: 'victory' | 'failure'): void {
     this.armyCommandUI?.setEnabled(false)
-    this.captainResultPending = outcome
+    this.fieldResultPending = outcome
     this.battleStats.freeze()
     const stats = this.careerResultStats ??= this.battleStats.snapshot(this.npcs, this.player)
-    const retry = () => this.captainEagleHud?.showSaveRetry(() => this._showCaptainEagleResult(outcome))
-    if (!this._flushCareerSkillProgression() || !this._persistCaptainMission(true)) { retry(); return }
+    const retry = () => this.fieldBattleHud?.showSaveRetry(() => this._showFieldBattleResult(outcome))
+    if (!this._flushCareerSkillProgression() || !this._persistCareerBattle(true)) { retry(); return }
     const fresh = this.careerStore.loadChecked().profile
     if (!fresh) { retry(); return }
     const claim = this.bridgeLaunch ? commitCareerBridgeBattleResult(this.careerStore, this.fieldMissionId!, stats)
@@ -3014,8 +3002,8 @@ export class Game {
     if (!claim) { retry(); return }
     if (!this.bridgeLaunch && !this.careerStore.save(claim.profile)) { retry(); return }
     this.careerProfile = claim.profile
-    this.captainResultPending = undefined
-    this.captainEagleHud?.showResult(outcome, claim.profile.activeMission!.result!.merit.total, stats, () => this._returnToCareerTown())
+    this.fieldResultPending = undefined
+    this.fieldBattleHud?.showResult(outcome, claim.profile.activeMission!.result!.merit.total, stats, () => this._returnToCareerTown())
   }
 
   private _identifyPersonalOutpostWave(plan: BattleSpawnPlan, wave: 'initial' | 'attackers' | 'reinforcement'): void {
@@ -3104,7 +3092,7 @@ export class Game {
 
   private _deployPersonalOutpost(): void {
     const campaign = this.defenseCampaignConfig
-    const mission = campaign?.careerVeteranOutpost || campaign?.careerCommanderOutpost || this.captainCheckpoint
+    const mission = campaign?.careerVeteranOutpost || campaign?.careerCommanderOutpost || this.careerBattleCheckpoint
       ? this.careerProfile?.activeMission : this.careerProfile?.activeOutpostMission
     if (campaign?.careerCommanderOutpost && (this.careerProfile?.activeMission?.result
       || campaign.careerCommanderOutpost.runtimeState.battleFinished)) return
@@ -3233,7 +3221,7 @@ export class Game {
 
   private _persistPersonalOutpost(force = false, dt = 0): boolean {
     if (this.initializing || this.spawningStopped) return true
-    if (this.captainCheckpoint) return this._persistCaptainMission(force, dt)
+    if (this.careerBattleCheckpoint) return this._persistCareerBattle(force, dt)
     if (!this.careerProfile || !this.defenseCampaignConfig?.careerMissionId) return true
     const personal = this.personalSquad?.checkpoint()
     this.personalCheckpointElapsed += dt
@@ -3762,12 +3750,12 @@ export class Game {
       if (!careerMissionOutpost && !this._persistPersonalOutpost(true)) { this._showCareerOutpostSaveRetry(result); return }
       const fresh = this.careerStore.loadChecked().profile
       if (!fresh) { this._showCareerOutpostSaveRetry(result); return }
-      const claim = careerMissionOutpost || this.captainCheckpoint
+      const claim = careerMissionOutpost || this.careerBattleCheckpoint
         ? claimCareerMission(fresh, campaign.careerMissionId, result === 'victory' ? 'victory' : 'failure', stats.player, stats.meritPlayer)
         : claimCareerOutpost(fresh, campaign.careerMissionId, result, stats)
       if (!this.careerStore.save(claim.profile)) { this._showCareerOutpostSaveRetry(result); return }
       this.careerProfile = claim.profile
-      this.careerMeritAwarded = careerMissionOutpost || this.captainCheckpoint
+      this.careerMeritAwarded = careerMissionOutpost || this.careerBattleCheckpoint
         ? claim.profile.activeMission?.result?.merit.total ?? 0
         : claim.profile.outpostBattleRecords?.find(record => record.id === campaign.careerMissionId)?.merit.total ?? 0
     }
@@ -3798,7 +3786,7 @@ export class Game {
   private _returnToCareerTown(): void {
     if (!this._flushCareerSkillProgression()) { this._showNotify('無法保存技能進度，請重試'); return }
     const profile = this.careerStore.loadChecked().profile
-    const activeMissionId = this.fieldMissionId ?? (this.captainCheckpoint
+    const activeMissionId = this.fieldMissionId ?? (this.careerBattleCheckpoint
       ? this.defenseCampaignConfig?.careerMissionId
       : this.defenseCampaignConfig?.careerVeteranOutpost?.missionId
         ?? this.defenseCampaignConfig?.careerCommanderOutpost?.missionId)
@@ -3818,7 +3806,7 @@ export class Game {
     window.removeEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
     window.removeEventListener('pagehide', this.flushCareerSkillsOnPageHide)
     window.removeEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
-    window.removeEventListener('pagehide', this.flushCaptainOnPageHide)
+    window.removeEventListener('pagehide', this.flushCareerBattleOnPageHide)
     sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
     sessionStorage.removeItem('sagaburst_campaign_config')
     sessionStorage.removeItem('sagaburst_battle_config')
@@ -3853,7 +3841,7 @@ export class Game {
     this.careerOutpostDefenseGuide = null
     this.careerVeteranActorMounts.clear()
     this.defenseCampaignHud?.destroy()
-    this.captainEagleHud?.destroy()
+    this.fieldBattleHud?.destroy()
   }
 
   private _returnToNextDefenseCampaignSetup(): void {
@@ -4222,7 +4210,7 @@ export class Game {
   }
 
   private _isCareerCommandFinished(): boolean {
-    return Boolean(this.captainResultPending || this.careerProfile?.activeMission?.result
+    return Boolean(this.fieldResultPending || this.careerProfile?.activeMission?.result
       || this.defenseCampaignConfig?.careerMissionId && this.defenseCampaignRuntime?.getSnapshot().battleFinished)
   }
 
@@ -5065,7 +5053,7 @@ export class Game {
     this.campaignSiegeAssault?.update(dt)
     this.personalSquad?.updateLifecycle()
     this._updateDefenseCampaign(dt)
-    this._updateCaptainBattle(dt)
+    this._updateCareerBattle(dt)
     this.battleController?.update(this.npcs, this.player)
 
     // Keep A* topology in sync with destroyed/opened/closed world obstacles.
@@ -5111,9 +5099,9 @@ export class Game {
         npcLoopIndex++
         continue
       }
-      if (this.fieldMissionId && (!this.bridgeLaunch && this.captainEagleSpawnBatch?.ready !== true
+      if (this.fieldMissionId && (!this.bridgeLaunch && this.fieldRosterBatch?.ready !== true
         || this.bridgeRuntime && npc.faction === Faction.ENEMY && this.bridgeRuntime.deployment.phase !== 'assault'
-        || this.personalSquad && !this.personalSquad.ready || this.careerProfile?.activeMission?.result || this.captainResultPending)
+        || this.personalSquad && !this.personalSquad.ready || this.careerProfile?.activeMission?.result || this.fieldResultPending)
         || this._commanderOutpostCombatLocked()
         || npc.combatOwnership === 'player-personal' && this.defenseCampaignRuntime?.getSnapshot().activePhase === 'deployment') {
         npc.updateTownTravel(dt, cameraDistance, this.npcGrid.getNearbyInto(npc.combatPosition, 8, this._nearbyNpcBuffer), this.obstacles, this.navigationWorld)
