@@ -1,5 +1,5 @@
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
-import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import { T4_UNIT_PROFILES, resolveT4UnitLoadout, t4EquipmentIdsForArmy } from '../battle/T4HeroCatalog'
 import { getT5ProfileForPreset, resolveT5UnitLoadout, t5EquipmentIdsForArmy } from '../battle/T5HeroCatalog'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import { UNIT_PRESETS, type BaseUnitTier } from '../battle/UnitPresetCatalog'
@@ -41,7 +41,10 @@ export function careerHeavyPreloadPlan(templateId: string, playerFaction: Charac
   const heroAssets = new Set<HeroAssetId>(), equipmentIds = new Set<string>()
   for (const { faction, roles, tiers } of groups) for (const role of new Set(roles)) {
     const presetId = heavyPresetId(faction, role)
-    if (tiers.includes(4)) heroAssets.add(T4_UNIT_PROFILES[presetId].visualAssetId)
+    if (tiers.includes(4)) {
+      heroAssets.add(T4_UNIT_PROFILES[presetId].visualAssetId)
+      for (const id of t4EquipmentIdsForArmy({ [presetId]: { 4: 1 } })) equipmentIds.add(id)
+    }
     if (tiers.includes(5)) {
       heroAssets.add(getT5ProfileForPreset(presetId, faction).visualAssetId)
       for (const id of t5EquipmentIdsForArmy({ [presetId]: { 5: 1 } })) equipmentIds.add(id)

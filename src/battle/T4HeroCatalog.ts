@@ -63,6 +63,21 @@ export function heavyT4Variant(profile: T4UnitProfile, faction: CharacterFaction
   return profile.combatProfileId === 'ranger' ? profile : { ...profile, ...HEAVY_T4_HERO[faction] }
 }
 
+/** Default shield of each T4 Heavy Cavalry preset; every other T4 preset keeps the faction's shared shield. */
+const HEAVY_CAVALRY_SHIELD: Partial<Record<UnitPresetId, string>> = {
+  roman_heavy_cavalry: 'centurion_aquila_shield_t4',
+  viking_heavy_cavalry: 'viking_dragonward_shield_t4',
+}
+
+/** Shield ids a T4 army must preload on demand (only the Heavy Cavalry signature shields are optional gear). */
+export function t4EquipmentIdsForArmy(counts: Record<string, { 4?: number }>): string[] {
+  return Object.entries(counts).flatMap(([presetId, tiers]) => {
+    if (!(tiers[4] ?? 0)) return []
+    const shieldId = HEAVY_CAVALRY_SHIELD[presetId as UnitPresetId]
+    return shieldId ? [shieldId] : []
+  })
+}
+
 /** Canonical hero equipment. Explicit runtime weapon swaps are never upgraded by character tier. */
 export function resolveT4UnitLoadout(presetId: UnitPresetId, mountOverride?: string | null): UnitLoadout {
   const profile = T4_UNIT_PROFILES[presetId]
@@ -75,8 +90,8 @@ export function resolveT4UnitLoadout(presetId: UnitPresetId, mountOverride?: str
         base[slot] = weapon.animationKind === 'axe' ? 'paladin_mace_t4' : 'paladin_sword_t4'
       }
     }
-    // Shield follows the army, not the body, so heavy cavalry keep their original Roman officer / paladin shield.
-    if (base.shieldId) base.shieldId = getUnitPreset(presetId).faction === 'roman' ? 'roman_officer_shield_t4' : 'paladin_shield_t4'
+    // Shield follows the army, not the body: only the two Heavy Cavalry presets carry their faction signature shield.
+    if (base.shieldId) base.shieldId = HEAVY_CAVALRY_SHIELD[presetId] ?? (getUnitPreset(presetId).faction === 'roman' ? 'roman_officer_shield_t4' : 'paladin_shield_t4')
   }
   return { ...base, mountId: profile.mountOverride ? (mountOverride ?? profile.mountOverride) : null,
     ...(profile.specialCombatProfile === 'maki-ranger'

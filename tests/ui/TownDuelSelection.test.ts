@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import { createCareerDuelMission, type CareerDuelTier } from '../../src/career/CareerDuelState'
-import { getUnitPresetsForFaction, type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
+import { createCareerDuelMission } from '../../src/career/CareerDuelState'
+import { getUnitPresetsForFaction } from '../../src/battle/UnitPresetCatalog'
 import { TownScene } from '../../src/town/TownScene'
+import { TownMissionBoard } from '../../src/town/TownMissionBoard'
+import type { DialogueContext } from '../../src/career/CareerTownDialogue'
 
 // Only the DOM boundary is a double; invoke the real UI methods without a TownScene constructor.
 class Element {
@@ -25,41 +27,23 @@ class Element {
 }
 const dom = (element: Element) => element as unknown as HTMLElement
 
-interface DuelSelectionEntry {
-  profile: CareerProfile
-  panel: HTMLElement
-  duelActivity: 'duel' | 'race' | 'review'
-  tutorial: { renderReviewContent(panel: HTMLElement): void }
-  openDuelPage(panel: HTMLElement): void
-  openDuelSelection(panel: HTMLElement): void
-  duelArenaSelector(): HTMLElement
-  duelArenaChoice: string | null
-  duelSubjectKey: string
-  openRacePage(panel: HTMLElement): void
-  button(parent: HTMLElement, label: string, action: () => void): HTMLButtonElement
-  acceptDuel(presetId: UnitPresetId | undefined, tier: CareerDuelTier, mode?: 'armed' | 'unarmed', classId?: string): void
-  acceptRace(id: string): void
-}
-
 function selection(profile: CareerProfile) {
   vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
   const root = new Element('div'), accept = vi.fn()
-  // One narrow adapter for the private UI entry points; no world, actors, or rendering fixtures.
-  const methods = TownScene.prototype as unknown as DuelSelectionEntry
-  const entry: DuelSelectionEntry = {
-    profile, panel: dom(root), duelActivity: 'duel', duelSubjectKey: 'unarmed', acceptDuel: accept, acceptRace: vi.fn(),
+  // The real board on a plain host: no Town scene, world, actors, or rendering fixtures.
+  const board = new TownMissionBoard({
+    profile, captainPatrol: undefined, defenseForce: () => ({ friendlyCombatants: 0 }), accept,
     tutorial: { renderReviewContent: panel => {
       const heading = document.createElement('h3'); heading.textContent = 'Review'; panel.append(heading)
     } },
-    openDuelPage: methods.openDuelPage, openDuelSelection: methods.openDuelSelection,
-    duelArenaSelector: methods.duelArenaSelector, duelArenaChoice: null,
-    openRacePage: methods.openRacePage, button: methods.button,
-  }
-  entry.openDuelPage(dom(root))
-  const content = root.children[1]
+  })
+  board.page = 'duel'
+  board.render(dom(root), { context: {} as DialogueContext, firstOutpost: false, reopen: () => {} })
+  // [rank tabs, 1v1 activity tabs, 1v1 content]
+  const content = root.children[2]
   const rows = () => content.descendants().filter(node => node.tag === 'article')
   const buttons = () => content.descendants().filter(node => node.tag === 'button')
-  return { root, content, rows, buttons, accept, entry, tabs: root.children[0].children }
+  return { root, content, rows, buttons, accept, board, tabs: root.children[1].children }
 }
 
 afterEach(() => { vi.unstubAllGlobals() })
@@ -76,18 +60,18 @@ describe('Career Duel selection pages', () => {
 
     // Unarmed T1-T5 states: T1 completed, T2 available, T3-T5 locked
     expect(tierRows(h).map(r => r.className.split(' ')[1])).toEqual(['duel-tier-completed', 'duel-tier-available', 'duel-tier-locked', 'duel-tier-locked', 'duel-tier-locked'])
-    actions(tierRows(h)[1])[0].click(); expect(h.accept).toHaveBeenCalledExactlyOnceWith(undefined, 2, 'unarmed'); h.accept.mockClear()
+    actions(tierRows(h)[1])[0].click(); expect(h.accept).toHaveBeenCalledExactlyOnceWith({ kind: 'duel', presetId: undefined, tier: 2, mode: 'unarmed' }); h.accept.mockClear()
     expect(actions(tierRows(h)[2])).toHaveLength(0) // Locked tier cannot be challenged
 
     // Switch to heavy infantry: T1-T3 completed, T4 available with special classes, T5 locked
     find(h, presets[0].nameZh).click()
     expect(tierRows(h).map(r => r.className.split(' ')[1])).toEqual(['duel-tier-completed', 'duel-tier-completed', 'duel-tier-completed', 'duel-tier-available', 'duel-tier-locked'])
-    actions(tierRows(h)[2])[0].click(); expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 3, 'armed'); h.accept.mockClear()
+    actions(tierRows(h)[2])[0].click(); expect(h.accept).toHaveBeenCalledExactlyOnceWith({ kind: 'duel', presetId: 'roman_heavy_infantry', tier: 3, mode: 'armed' }); h.accept.mockClear()
 
     // T4 offers Praetorian Captain and Centurion
     expect(actions(tierRows(h)[3]).map(b => b.textContent)).toEqual(['挑戰 禁衛軍隊長', '挑戰 百夫長'])
     actions(tierRows(h)[3])[1].click()
-    expect(h.accept).toHaveBeenCalledExactlyOnceWith('roman_heavy_infantry', 4, 'armed', 'centurion')
+    expect(h.accept).toHaveBeenCalledExactlyOnceWith({ kind: 'duel', presetId: 'roman_heavy_infantry', tier: 4, mode: 'armed', classId: 'centurion' })
     expect(actions(tierRows(h)[4])).toHaveLength(0) // T5 locked
   })
 })

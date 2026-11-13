@@ -145,13 +145,13 @@ describe('Custom Battle: Ground Battle Limits and Tiers', () => {
     const expectedHeavy = {
       roman: {
         presetId: 'roman_heavy_cavalry', mountId: 'armored-horse', mountType: MountType.ARMORED_HORSE,
-        shields: ['scutum_t1', 'scutum_t2', 'scutum_t3', 'roman_officer_shield_t4', 'byzantine_eagle_shield_t5'],
+        shields: ['scutum_t1', 'scutum_t2', 'scutum_t3', 'centurion_aquila_shield_t4', 'byzantine_eagle_shield_t5'],
         t5: { weapon: 'byzantine_standard_lance_t5', combat: 'byzantine-cataphract' },
         t4: { combat: 'centurion' },
       },
       viking: {
         presetId: 'viking_heavy_cavalry', mountId: 'snow-leopard', mountType: MountType.SNOW_LEOPARD,
-        shields: ['round_shield_t1', 'round_shield_t2', 'round_shield_t3', 'paladin_shield_t4', 'viking_berserker_shield_t5'],
+        shields: ['round_shield_t1', 'round_shield_t2', 'round_shield_t3', 'viking_dragonward_shield_t4', 'viking_berserker_shield_t5'],
         t5: { weapon: 'spear_t5', combat: 'ironblood-warlord' },
         t4: { combat: 'dragon-oathguard' },
       },
