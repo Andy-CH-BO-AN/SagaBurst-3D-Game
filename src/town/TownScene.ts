@@ -641,6 +641,7 @@ export class TownScene {
         clearCombatShots: () => this.clearMissionCombatShots(),
         restPlayer: options => this.restPlayerInTown(options),
         returnPersonalSquad: direct => this.personalSquad?.endMission(direct),
+        restorePersonalSquad: saved => this.restorePersonalSquad(saved),
         restart: p => { this.missionResultOpen = false; const reason = this.player.dead ? 'death-return' : undefined; this.dispose(); this.onRestart(p, reason) },
       },
     )
@@ -1584,7 +1585,8 @@ export class TownScene {
   private commandsEnabled(): boolean { return this.personalCommandsEnabled() || Boolean(!this.player?.dead && !isTownCommandRevokedByRetirement(this.profile) && (this.civilianCommand?.commandsEnabled || this.townAirCommand?.commandsEnabled || this.townCommand?.commandsEnabled || this.profile.activeMission?.officialSquad && !this.profile.activeMission.result)) }
   private isAuthorizedCommandActor(npc: NPC): boolean {
     if (isAutonomousTownGuard(npc.combatantId)) return false
-    if (this.personalSquad?.owns(npc)) return this.personalCommandsEnabled()
+    // HR standby members answer only Follow (issued through the squad owner), never tactical orders.
+    if (this.personalSquad?.owns(npc)) return this.personalCommandsEnabled() && this.personalSquad.acceptsCommand(npc)
     if (isTownCommandRevokedByRetirement(this.profile)) return false
     if (this.civilianCommand?.accepts(npc) || this.townAirCommand?.accepts(npc)) return true
     if (this.captainPatrol?.active?.officialSquad?.actorIds.includes(npc.combatantId)) return this.captainPatrol.accepts(npc)
@@ -1831,7 +1833,7 @@ export class TownScene {
       this.openRecruitmentPanel(repaired ? '私兵全隊已恢復完整戰力：士兵、坐騎、箭矢與盾牌皆已整補。' : this.notice || '目前無法整補私兵。')
     })
     refit.disabled = !this.personalSquad?.canRefit
-    if (this.personalSquad?.error) {
+    if (this.personalSquad?.standbyError) {
       const failed = document.createElement('p'); failed.className = 'town-summary'
       failed.textContent = '部分私兵尚未在人資中心就位（資源載入失敗）。重試不會重複扣款或重複生成。'
       panel.append(failed)

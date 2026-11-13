@@ -15,6 +15,8 @@ export interface PersonalActorCheckpoint {
   position?: PersonalActorPosition
   hp?: number
   boarding?: boolean
+  /** A later hire held at HR while the rest of the squad is deployed; it joins on the next Follow. */
+  standby?: boolean
   /** Stable private home identity; independent of full squad roster order. */
   eaglePadId?: string
   fall?: FallingRiderSnapshot
@@ -87,6 +89,8 @@ export function preparePersonalMissionAcceptance(value: PersonalSquadMission): P
     }
     delete member.order
     delete member.formation
+    // Formal acceptance deploys the whole roster, HR standby included.
+    delete member.standby
     if (member.status === 'deployed' || next.pendingMemberIds?.includes(id)) member.order = 'defend'
   }
   if (next.state === 'RETURNING') next.state = next.pendingMemberIds?.length ? 'DEPLOYING'
@@ -100,7 +104,7 @@ export function followDeployedPersonalMission(value: PersonalSquadMission): Pers
   let regrouped = false
   for (const id of next.memberIds) {
     const member = next.members[id]
-    if (!member || member.hp === 0 || !(member.status === 'deployed'
+    if (!member || member.hp === 0 || member.standby || !(member.status === 'deployed'
       || member.status === 'reserve' && next.pendingMemberIds?.includes(id))) continue
     member.order = 'follow'
     delete member.formation
@@ -141,6 +145,7 @@ export function parsePersonalMission(value: unknown): PersonalSquadMission | und
     const formationPosition = position(actor?.formation?.position)
     members[id] = { status,
       ...(actor?.boarding === true ? { boarding: true } : {}),
+      ...(actor?.standby === true ? { standby: true } : {}),
       ...(typeof actor?.eaglePadId === 'string' && actor.eaglePadId.length <= 100 ? { eaglePadId: actor.eaglePadId } : {}),
       ...(parseFallingRiderSnapshot(actor?.fall) ? { fall: parseFallingRiderSnapshot(actor?.fall) } : {}),
       ...(point ? { position: point } : {}),

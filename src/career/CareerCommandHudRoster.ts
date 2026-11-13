@@ -92,7 +92,8 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
     const saved = personal?.members[id]
     const state: ArmyHudMemberState = saved?.status === 'exited' ? 'exited'
       : saved?.status === 'dead' || saved?.hp === 0 || actor?.dead ? 'dead'
-      : actor ? returningPersonal.has(id) ? 'returning' : 'deployed'
+      // HR standby actors (a RESERVE squad, or later hires) are not deployed troops.
+      : actor ? returningPersonal.has(id) ? 'returning' : saved?.standby || personal?.state === 'RESERVE' ? 'reserve' : 'deployed'
       : pendingPersonal.has(id) ? 'pending'
       : saved?.status === 'reserve' || !saved ? 'reserve' : 'missing'
     members.push({ id, squadId: 'personal', state, order: actor ? actor.tacticalOrder : saved?.order,

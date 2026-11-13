@@ -58,6 +58,8 @@ interface TownReturnScene {
   clearCombatShots(): void
   restPlayer(options?: { persistMount?: boolean }): void
   returnPersonalSquad?(direct: boolean): void
+  /** Rebuild the saved private squad in place (a duel return; the squad never left Town). */
+  restorePersonalSquad?(saved: CareerProfile['personalSquadRuntime']): void
   preservesResident?(npc: NPC): boolean
   applyResidentReturn?(): void
   restart(profile: CareerProfile): void
@@ -143,9 +145,11 @@ export class TownMissionSettlement {
     if (inPlace && garrison) for (const pair of garrison.pairs) {
       if (defense || pair.hp <= 0 || pair.mount.hp <= 0) pair.refitAllowed = true
     }
-    next.personalSquadRuntime = intent === 'arrived' && active.personalSquad?.state !== 'RESERVE' ? active.personalSquad : undefined
+    // A duel never took the private squad: its saved Town checkpoint is restored unchanged.
+    if (active.kind !== 'duel') next.personalSquadRuntime = intent === 'arrived' && active.personalSquad?.state !== 'RESERVE' ? active.personalSquad : undefined
     if (!this.profiles.commit(next, { kind: 'mission-return', destination: inPlace ? 'in-place' : 'restart', travel: intent })) return { status: 'save-failed', destination: inPlace ? 'party' : 'restart' }
     this.town.returnPersonalSquad?.(intent === 'direct')
+    if (inPlace && active.kind === 'duel') this.town.restorePersonalSquad?.(next.personalSquadRuntime)
     if (captainPatrol) this.missions.patrol?.release()
 
     if (!inPlace) {

@@ -114,6 +114,8 @@ export class PersonalSquadRuntime {
   private readonly memberMounts = new Map<string, Mount>()
   private readonly boarding = new Map<NPC, { pad: PersonalSquadSpawnSlot; index: number }>()
   private readonly returningOnFoot = new Set<NPC>()
+  /** Eagle riders who walked home from the parked eagle during this return; never re-routed. */
+  private readonly homeArrivals = new Set<NPC>()
   private readonly awaitingEaglePad = new Set<NPC>()
   private readonly approachingEagles = new Set<NPC>()
   private lastPlayerPosition?: PersonalActorPosition
@@ -123,12 +125,19 @@ export class PersonalSquadRuntime {
   private command?: TacticalOrder
   private commandRevision = 0
   private spawnFailed = false
+  /** HR standby materialization is not a deployment: its batches and failure stay separate. */
+  private readonly standbyBatches = new Set<NpcSpawnBatch>()
+  private standbyFailure?: { error: unknown }
+  /** Members held at HR while the rest of the squad is deployed (later hires); not command recipients. */
+  private readonly standbyIds = new Set<string>()
   /** Equipment each live actor materialized with; HR standby rebuilds an actor whose saved loadout changed. */
   private readonly spawnedLoadouts = new Map<string, string>()
   private readonly eaglePads: EaglePadReservations
   private readonly reservedEagleOwners = new Set<string>()
+  /** Deployment failure only; an HR standby failure is `standbyError` and never blocks the Town. */
   get error(): unknown { return this.batches.find(batch => batch.status === 'failed')?.error }
-  get spawning(): boolean { return [...this.pending.values()].some(batch => batch.status === 'pending') }
+  get standbyError(): unknown { return this.standbyFailure?.error }
+  get spawning(): boolean { return [...this.pending.values()].some(batch => batch.status === 'pending' && !this.standbyBatches.has(batch)) }
   get ready(): boolean { return !this.spawning && !this.spawnFailed }
   async waitForSpawns(): Promise<void> {
     for (const batch of this.batches) if (batch.status === 'pending' || batch.status === 'failed')
@@ -144,13 +153,16 @@ export class PersonalSquadRuntime {
   }
 
   owns(actor: NPC): boolean { return this.actorSet.has(actor) }
+  /** HR standby (the whole RESERVE squad, or a later hire beside a deployed squad) only answers Follow. */
+  isStandby(id: string): boolean { return this.hasHR && this.state === 'RESERVE' || this.standbyIds.has(id) }
+  acceptsCommand(actor: NPC): boolean { return this.owns(actor) && !this.isStandby(actor.combatantId) }
   /** HUD-only views: expose the live accepted roster without checkpoint writes or spawning actors. */
   get hudMission(): Readonly<PersonalSquadMission> | undefined { return this.mission }
   get hudReturningIds(): readonly string[] {
-    return this.state === 'RETURNING' ? this.actors.filter(actor => !actor.dead).map(actor => actor.combatantId) : []
+    return this.state === 'RETURNING' ? this.actors.filter(actor => !actor.dead && !this.standbyIds.has(actor.combatantId)).map(actor => actor.combatantId) : []
   }
   get hudPendingIds(): readonly string[] {
-    return [...this.pending].filter(([, batch]) => batch.status === 'pending').map(([id]) => id)
+    return [...this.pending].filter(([, batch]) => batch.status === 'pending' && !this.standbyBatches.has(batch)).map(([id]) => id)
   }
   get aliveCombatants(): number {
     return this.actors.filter(actor => !actor.dead).length + [...this.pending.keys()].filter(id => {
@@ -192,7 +204,9 @@ export class PersonalSquadRuntime {
     if (value) {
       this.state = value.state
       this.command = 'defend'; this.commandRevision++
-      this.returningOnFoot.clear(); this.awaitingEaglePad.clear()
+      this.returningOnFoot.clear(); this.awaitingEaglePad.clear(); this.homeArrivals.clear()
+      // A formal mission deploys the whole roster, including later HR hires.
+      this.releaseStandby()
       for (const actor of this.actors) {
         this.releaseEagleApproach(actor)
         const saved = value.members[actor.combatantId]
@@ -233,12 +247,14 @@ export class PersonalSquadRuntime {
         ? this.eaglePads.get(id)
         : changedScene ? this.muster[index] : saved.position ?? this.muster[index]
       if (!slot) continue
+      const standby = !changedScene && this.hasHR && (this.state === 'RESERVE' || saved.standby === true)
+      if (standby && this.state !== 'RESERVE') this.standbyIds.add(id)
       this.queueMember(member, slot, index, npc => {
         this.restoreActor(npc, saved, changedScene, index)
-        if (!changedScene && saved.status === 'reserve' && !saved.order && !this.boarding.has(npc)) npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted))
         // A saved HR standby keeps its own wounds and simply resumes holding its slot.
-        else if (!changedScene && this.state === 'RESERVE' && this.hasHR && !this.boarding.has(npc)) this.holdAtMuster(npc)
-      })
+        if (!changedScene && this.hasHR && this.isStandby(id) && !this.boarding.has(npc)) this.holdAtMuster(npc)
+        else if (!changedScene && saved.status === 'reserve' && !saved.order && !this.boarding.has(npc)) npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted))
+      }, standby)
     }
     this.mission.sceneKey = this.sceneKey
     delete this.mission.returnToHR
@@ -286,6 +302,8 @@ export class PersonalSquadRuntime {
     if (profile.activeMission?.kind === 'duel') return false
     if ((profile.activeMission || profile.activeOutpostMission) && !this.mission) return false
     this.mission ??= snapshotPersonalMission(profile, this.sceneKey)
+    // Follow is the one order that deploys HR standby, including later hires.
+    this.releaseStandby()
     const existing = new Set(this.actors.map(actor => actor.combatantId))
     const owned = new Map((profile.personalSquad?.members ?? []).map(member => [member.id, member]))
     if (this.mission && this.hasHR && !this.retirementResourcesLocked && !profile.activeMission && !profile.activeOutpostMission) {
@@ -322,23 +340,28 @@ export class PersonalSquadRuntime {
     if (!this.spawning && !this.actors.some(actor => !actor.dead)) return
     this.resumeCommand('follow')
     const memberIds = this.mission?.memberIds ?? this.read().personalSquad?.members.map(member => member.id) ?? []
-    for (const actor of this.actors) if (!actor.dead) this.applyCommand(actor, memberIds.indexOf(actor.combatantId))
+    for (const actor of this.actors) if (!actor.dead && !this.standbyIds.has(actor.combatantId)) this.applyCommand(actor, memberIds.indexOf(actor.combatantId))
     this.checkpoint()
   }
 
-  cancelPendingSpawns(): void {
-    for (const [id, batch] of this.pending) { batch.cancel(); this.releaseEaglePad(id) }
-    this.pending.clear()
+  /** Scene teardown cancels everything; Dismiss keeps HR standby materialization running. */
+  cancelPendingSpawns(includeStandby = true): void {
+    for (const [id, batch] of this.pending) {
+      if (!includeStandby && this.standbyBatches.has(batch)) continue
+      batch.cancel(); this.releaseEaglePad(id); this.pending.delete(id); this.standbyBatches.delete(batch)
+    }
   }
 
   dismiss(): boolean {
     if (!this.hasHR || this.state === 'RESERVE' || this.state === 'RETURNING') return false
-    this.cancelPendingSpawns()
+    this.cancelPendingSpawns(false)
     this.state = 'RETURNING'; this.returnCommand--
-    this.boarding.clear(); this.returningOnFoot.clear(); this.awaitingEaglePad.clear()
+    this.boarding.clear(); this.returningOnFoot.clear(); this.awaitingEaglePad.clear(); this.homeArrivals.clear()
     // Reserve-only legacy owners have no physical mount occupying their assigned pad.
-    for (const id of this.reservedEagleOwners) if (!this.actors.some(actor => actor.combatantId === id)) this.releaseEaglePad(id)
+    for (const id of this.reservedEagleOwners) if (!this.actors.some(actor => actor.combatantId === id) && !this.pending.has(id)) this.releaseEaglePad(id)
     for (const actor of this.actors) {
+      // Later hires already stand at HR; Dismiss only returns the deployed members.
+      if (this.standbyIds.has(actor.combatantId)) continue
       if (actor.dead) { this.releaseEaglePad(actor.combatantId); continue }
       if (actor.mount?.isFlyingMount) this.orderEagleReturn(actor)
       else this.walkTo(actor, this.slots.get(actor)!)
@@ -348,8 +371,10 @@ export class PersonalSquadRuntime {
   }
 
   resumeCommand(order?: TacticalOrder): void {
+    // An undeployed HR squad has no recipients for a tactical order (ALL may still command others).
+    if (this.hasHR && this.state === 'RESERVE' && order !== 'follow') return
     if (this.state === 'RETURNING') {
-      this.state = 'ACTIVE'; this.awaitingEaglePad.clear()
+      this.state = 'ACTIVE'; this.awaitingEaglePad.clear(); this.homeArrivals.clear()
       for (const actor of this.actors) {
         this.releaseEagleApproach(actor)
         if (actor.mount?.isFlyingMount) actor.setEagleFlightOrder(null)
@@ -359,14 +384,14 @@ export class PersonalSquadRuntime {
       for (const actor of this.actors) actor.missionMovement = false
       this.command = order; this.commandRevision++
       const formation = order === 'formation' ? this.actors.find(actor => !actor.dead && actor.combatFormationCheckpoint)?.combatFormationCheckpoint : undefined
-      const ids = [...this.pending.keys()]
+      const ids = [...this.pending.keys()].filter(id => !this.standbyIds.has(id))
       const occupied = this.actors.flatMap(actor => actor.combatFormationCheckpoint ? [actor.combatFormationCheckpoint.position] : [])
       const reserved = formation ? this.options.formationSlots?.(formation.position, occupied, ids.length)
         ?? generateFormationSlots(new THREE.Vector3(formation.position.x, 0, formation.position.z)
           .addScaledVector(new THREE.Vector3(Math.sin(formation.position.yaw), 0, Math.cos(formation.position.yaw)), -8),
           new THREE.Vector3(Math.sin(formation.position.yaw), 0, Math.cos(formation.position.yaw)), ids.length, 6, 5, 5)
           .map(point => ({ x: point.x, z: point.z, yaw: formation.position.yaw })) : []
-      for (const id of this.pending.keys()) if (this.mission?.members[id]) {
+      for (const id of ids) if (this.mission?.members[id]) {
         this.mission.members[id].order = order
         if (formation) this.mission.members[id].formation = { ...formation, position: reserved[ids.indexOf(id)], reached: false }
         else delete this.mission.members[id].formation
@@ -385,8 +410,10 @@ export class PersonalSquadRuntime {
       const point = new THREE.Vector3(anchor.x, getTerrainHeight(anchor.x, anchor.z), anchor.z).add(offset)
       actor.assignFormationTarget(-2000 - index, point, new THREE.Vector3(Math.sin(anchor.yaw), 0, Math.cos(anchor.yaw)), undefined, 'defend')
     }
-    if (this.state === 'RESERVE') { this.materializeStandby(); return }
-    const live = this.actors.filter(actor => !actor.dead)
+    this.materializeStandby()
+    if (this.state === 'RESERVE') return
+    // Later hires standing at HR take no part in the deployed squad's lifecycle.
+    const live = this.actors.filter(actor => !actor.dead && !this.standbyIds.has(actor.combatantId))
     this.checkpoint()
     if (this.state === 'RETURNING' && live.every(actor => !actor.mount?.isFlyingMount && !actor.mount?.isAirborne && !actor.pendingFall?.active && actor.formationCommandId !== null && actor.isFormationTargetReached(actor.formationCommandId))) {
       if (this.retirementResourcesLocked) {
@@ -408,7 +435,7 @@ export class PersonalSquadRuntime {
     }
     if (!this.spawning && !live.length && !this.read().activeMission && !this.read().activeOutpostMission && !this.battleWorn) {
       // At home the casualties stay on record until an HR refit; nothing respawns for free.
-      if (this.standbyAllowed && this.mission) { this.state = 'RESERVE'; this.battleWorn = true; this.checkpoint(); return }
+      if (this.standbyAllowed && this.mission) { this.state = 'RESERVE'; this.battleWorn = true; this.releaseStandby(); this.checkpoint(); return }
       this.cleanup(); return
     }
     if (this.ready && !this.boarding.size && this.state === 'DEPLOYING' && live.length > 0 && live.every(actor => {
@@ -427,11 +454,14 @@ export class PersonalSquadRuntime {
    * Keep the HR standby in step with the saved roster: release actors whose
    * member left, rebuild an actor whose saved equipment changed (keeping its
    * wounds), and queue every living member without an actor at a free muster
-   * slot. Casualties wait for an HR refit. A failed batch is only retried by
-   * `retryStandby()`, so a broken asset never loops or duplicates actors.
+   * slot. Casualties wait for an HR refit. While the squad is deployed only
+   * later hires are admitted, one by one, without touching deployed orders.
+   * A failed batch is only retried by `retryStandby()`, so a broken asset
+   * never loops or duplicates actors.
    */
   materializeStandby(): void {
-    if (!this.standbyAllowed || this.state !== 'RESERVE' || this.spawnFailed) return
+    if (!this.standbyAllowed || this.standbyFailure) return
+    if (this.state !== 'RESERVE') { this.admitStandbyHires(); return }
     const profile = this.read()
     const owned = (profile.personalSquad?.members ?? []).slice(0, PERSONAL_SQUAD_LIMIT)
     const ownedIds = new Set(owned.map(member => member.id))
@@ -472,19 +502,49 @@ export class PersonalSquadRuntime {
     this.checkpoint()
   }
 
-  /** Clear a failed standby batch and queue the still-missing members once more. */
+  /** Deployed squad: a saved hire without an actor stands at its own HR slot, outside the formation. */
+  private admitStandbyHires(): void {
+    if (!this.mission || this.retirementResourcesLocked) return
+    const owned = (this.read().personalSquad?.members ?? []).slice(0, PERSONAL_SQUAD_LIMIT)
+    for (const [index, member] of owned.entries()) {
+      if (this.pending.has(member.id) || this.actors.some(actor => actor.combatantId === member.id)) continue
+      const saved = this.mission.members[member.id]
+      // Deployed members without an actor (a failed deployment) and casualties are not new hires.
+      if (saved && saved.status !== 'reserve' && saved.status !== 'exited' && !saved.standby || saved?.status === 'dead' || saved?.hp === 0) continue
+      const slot = this.freeMusterSlot(index)
+      if (!slot) continue
+      const standby: PersonalActorCheckpoint = { ...(saved && saved.status !== 'exited' ? saved : { status: 'reserve' as const,
+        ...(saved?.eaglePadId ? { eaglePadId: saved.eaglePadId } : {}) }), standby: true }
+      delete standby.order; delete standby.formation
+      if (!this.mission.memberIds.includes(member.id)) this.mission.memberIds.push(member.id)
+      this.mission.members[member.id] = standby
+      this.standbyIds.add(member.id)
+      this.syncEagleReservations()
+      this.queueMember(member, slot, index, npc => this.restoreStandby(npc, standby), true)
+    }
+  }
+
+  /** Clear the HR standby failure and queue the still-missing saved members once more (same IDs, no charge). */
   retryStandby(): void {
-    for (let i = this.batches.length - 1; i >= 0; i--) if (this.batches[i].status === 'failed') this.batches.splice(i, 1)
-    this.spawnFailed = false
+    this.standbyFailure = undefined
     this.materializeStandby()
   }
 
   private enterStandby(live: readonly NPC[]): void {
     this.state = 'RESERVE'; this.battleWorn = true
     this.command = undefined; this.commandRevision++
-    this.returningOnFoot.clear(); this.awaitingEaglePad.clear()
+    this.returningOnFoot.clear(); this.awaitingEaglePad.clear(); this.homeArrivals.clear()
+    this.releaseStandby()
     for (const actor of live) { this.releaseEagleApproach(actor); this.holdAtMuster(actor) }
     this.checkpoint()
+  }
+
+  /** The whole squad is either deployed (Follow/mission) or RESERVE: per-member standby ends. */
+  private releaseStandby(): void {
+    // Queued standby jobs now belong to the deployment and report its failures.
+    for (const batch of this.standbyBatches) if (batch.status === 'pending') this.batches.push(batch)
+    this.standbyIds.clear(); this.standbyBatches.clear()
+    if (this.mission) for (const saved of Object.values(this.mission.members)) delete saved.standby
   }
 
   /** Stand at the actor's own muster slot (on the HR floor) and defend it. */
@@ -528,7 +588,8 @@ export class PersonalSquadRuntime {
     if (mount) { mount.dispose(); this.mounts.splice(this.mounts.indexOf(mount), 1) }
     this.actors.splice(this.actors.indexOf(actor), 1)
     this.actorSet.delete(actor); this.slots.delete(actor); this.memberMounts.delete(actor.combatantId); this.spawnedLoadouts.delete(actor.combatantId)
-    this.boarding.delete(actor); this.returningOnFoot.delete(actor); this.awaitingEaglePad.delete(actor)
+    this.boarding.delete(actor); this.returningOnFoot.delete(actor); this.awaitingEaglePad.delete(actor); this.homeArrivals.delete(actor)
+    this.standbyIds.delete(actor.combatantId)
     this.releaseEaglePad(actor.combatantId)
   }
 
@@ -545,6 +606,7 @@ export class PersonalSquadRuntime {
         position: this.position(actor.combatPosition, actor.mount?.group.rotation.y ?? actor.group.rotation.y),
         ammo: actor.combatAmmo, shieldImpact: actor.shield.shieldImpactRemaining, order: actor.tacticalOrder,
         ...(this.boarding.has(actor) ? { boarding: true } : {}),
+        ...(this.standbyIds.has(actor.combatantId) ? { standby: true } : {}),
         ...(this.eaglePads.get(actor.combatantId) ? { eaglePadId: this.eaglePads.get(actor.combatantId)!.id } : {}),
         ...(actor.isFalling ? { fall: actor.fallSnapshot } : {}),
         ...(mount ? { mount: { armorImpactRemaining: mount.armorImpactRemaining, hp: mount.dead ? 0 : mount.currentHp, mounted: actor.mount === mount,
@@ -565,6 +627,7 @@ export class PersonalSquadRuntime {
   private disposeActors(): void {
     for (const batch of this.pending.values()) batch.cancel()
     this.pending.clear(); this.batches.length = 0; this.spawnFailed = false
+    this.standbyBatches.clear(); this.standbyIds.clear(); this.standbyFailure = undefined; this.homeArrivals.clear()
     this.command = undefined; this.commandRevision++
     for (const actor of this.actors) {
       this.releaseEagleApproach(actor)
@@ -590,9 +653,22 @@ export class PersonalSquadRuntime {
     if (eaglePad) this.reservedEagleOwners.add(member.id)
     const revision = this.commandRevision
     const batch = (this.options.scheduler ?? gameplayNpcSpawns).batch(() => {
+      if (this.standbyBatches.delete(batch)) {
+        // HR standby: only this member is affected. Free its identity so `retryStandby()`
+        // can queue the same saved member again; the Town and deployments stay usable.
+        this.standbyFailure ??= { error: batch.error }
+        if (this.pending.get(member.id) === batch) this.pending.delete(member.id)
+        this.releaseEaglePad(member.id)
+        const npc = this.actors.find(actor => actor.combatantId === member.id)
+        if (npc) this.removeActor(npc)
+        return
+      }
       this.spawnFailed = true
       // Retain missing identities in the checkpoint so reloading can retry the intended deployment.
-      for (const [id, pending] of this.pending) { pending.cancel(); this.releaseEaglePad(id) }
+      for (const [id, pending] of this.pending) {
+        if (this.standbyBatches.has(pending)) continue
+        pending.cancel(); this.releaseEaglePad(id)
+      }
       this.releaseEaglePad(member.id)
       const npc = this.actors.find(actor => actor.combatantId === member.id)
       if (npc) {
@@ -604,7 +680,9 @@ export class PersonalSquadRuntime {
         }
       }
     })
-    this.pending.set(member.id, batch); this.batches.push(batch)
+    this.pending.set(member.id, batch)
+    if (standby) this.standbyBatches.add(batch)
+    else this.batches.push(batch)
     if (!restore && this.mission) this.mission.members[member.id] = { ...this.mission.members[member.id],
       status: 'reserve', position: { ...slot }, order: 'follow' }
     const enqueue = () => {
@@ -617,11 +695,12 @@ export class PersonalSquadRuntime {
         const npc = standby ? this.spawnMember(member, slot, undefined, index, eaglePad)
           : this.spawnMember(member, deployment, boardAtHome ? eaglePad : undefined, index, returningHome ? eaglePad : undefined)
         restore?.(npc)
-        if (!restore || revision !== this.commandRevision) this.applyCommand(npc, index)
+        // HR standby holds its slot until Follow releases it; no other order reaches it.
+        if ((!restore || revision !== this.commandRevision) && !this.isStandby(member.id)) this.applyCommand(npc, index)
         this.holdDeadPlayerFollow(npc, index)
         // Publish only fully restored actors; common combat sees a complete rider/mount pair.
         this.options.onSpawn?.(npc, this.memberMounts.get(member.id))
-        this.pending.delete(member.id)
+        this.pending.delete(member.id); this.standbyBatches.delete(batch)
       })
       batch.seal()
     }
@@ -739,6 +818,8 @@ export class PersonalSquadRuntime {
   private finishEagleReturn(actor: NPC): void {
     if (this.retirementResourcesLocked) return
     this.returningOnFoot.delete(actor)
+    // Stays out of the transfer branch below: a new walk order would reset its arrival.
+    this.homeArrivals.add(actor)
   }
 
   private walkTo(actor: NPC, slot: PersonalSquadSpawnSlot): void {
@@ -778,7 +859,7 @@ export class PersonalSquadRuntime {
     }
     for (const actor of this.actors) {
       if (actor.dead) { this.releaseEagleApproach(actor); continue }
-      if (this.returningOnFoot.has(actor) || this.awaitingEaglePad.has(actor)) continue
+      if (this.returningOnFoot.has(actor) || this.awaitingEaglePad.has(actor) || this.homeArrivals.has(actor) || this.standbyIds.has(actor.combatantId)) continue
       const mount = this.memberMounts.get(actor.combatantId)
       if (mount?.dead) this.releaseEagleApproach(actor)
       if (mount?.isFlyingMount && actor.mount !== mount && !actor.isFalling) {

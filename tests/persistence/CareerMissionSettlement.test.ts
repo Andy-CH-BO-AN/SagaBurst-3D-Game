@@ -9,7 +9,7 @@ import { Vector3 } from 'three'
 import { describe,expect,it,vi } from 'vitest'
 import { CAPTAIN_SIEGE_COMMAND_ID, createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
 import { createActiveCareerMission,createTownDefenseMission,type ActiveCareerMission } from '../../src/career/CareerMissionState'
-import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
+import { snapshotPersonalMission, type PersonalSquadMission } from '../../src/career/CareerPersonalSquadMission'
 import { claimCareerMission,cloneCareerProfile,createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { TownMissionSettlement } from '../../src/town/TownMissionSettlement'
@@ -361,6 +361,63 @@ describe('Town mission settlement transactions', () => {
     expect(body.restoreOrdinaryTier).toHaveBeenCalledOnce()
     expect(h.resident.spec).toMatchObject({ id: spec.id, duty: 'training', garrison: spec.garrison })
     expect(h.read().activeMission).toBeUndefined()
+  })
+
+  function duelStandby(): PersonalSquadMission {
+    return { squadId: 'personal', sceneKey: 'town-home', state: 'RESERVE', memberIds: ['personal:wounded', 'personal:dead'],
+      contribution: emptyPersonalContribution(), members: {
+        'personal:wounded': { status: 'deployed', hp: 12, ammo: 3, order: 'defend', position: { x: -75, y: 2.1, z: 20, yaw: 0 },
+          mount: { hp: 40, mounted: true, position: { x: -75, y: 2.1, z: 20, yaw: 0 } } },
+        'personal:dead': { status: 'dead', hp: 0 } } }
+  }
+
+  it('keeps the unengaged private HR standby through Duel acceptance and restores its wounds, casualty and mount unchanged in place', () => {
+    const h = fixture()
+    Object.assign(h.player.shield, { reset: vi.fn() })
+    const peaceful = cloneCareerProfile(h.read())
+    delete peaceful.activeMission
+    peaceful.personalSquad = { members: [{ id: 'personal:wounded', type: 'soldier' }, { id: 'personal:dead', type: 'soldier' }] }
+    expect(h.store.save(peaceful)).toBe(true)
+    h.publish(peaceful)
+    const live = duelStandby()
+    const squad = { sceneKey: 'town-home', checkpoint: vi.fn(() => structuredClone(live)), cleanup: vi.fn(),
+      beginMission: vi.fn(), captureForNewMission: vi.fn(), regroupAfterMission: vi.fn() }
+    h.runtime.personalSquad = squad
+    const accepted = cloneCareerProfile(peaceful)
+    accepted.activeMission = createCareerDuelMission(accepted, 'roman_archer', 1, 'resident', 'captain', 'test:duel')!
+    expect(h.commit(accepted)).toBe(true)
+    let stored = h.store.loadChecked().profile!
+    // The squad is not taken into the duel, but its Town checkpoint survives acceptance.
+    expect(stored.activeMission?.personalSquad).toBeUndefined()
+    expect(stored.personalSquadRuntime).toEqual(live)
+    expect(squad.cleanup).toHaveBeenCalledOnce()
+    expect(squad.captureForNewMission).not.toHaveBeenCalled()
+    expect(squad.beginMission).not.toHaveBeenCalled()
+    const finished = claimCareerMission(h.read(), h.read().activeMission!.id, 'victory', h.stats).profile
+    finished.activeMission!.phase = 'RETURNING'
+    h.publish(finished)
+    const restorePersonalSquad = vi.fn()
+    Object.assign(h.town, { restorePersonalSquad })
+    expect(h.settlement.returnToTown('arrived')).toEqual({ status: 'returned', kind: 'party' })
+    stored = h.store.loadChecked().profile!
+    expect(stored.activeMission).toBeUndefined()
+    expect(stored.personalSquadRuntime).toEqual(live)
+    expect(h.town.returnPersonalSquad).toHaveBeenCalledExactlyOnceWith(false)
+    expect(restorePersonalSquad).toHaveBeenCalledOnce()
+    expect(restorePersonalSquad.mock.lastCall![0]).toEqual(live)
+  })
+
+  it('keeps the private HR standby checkpoint for the rebuilt Town after a direct Duel return', () => {
+    const h = fixture('duel', true)
+    const live = duelStandby()
+    h.read().personalSquad = { members: [{ id: 'personal:wounded', type: 'soldier' }, { id: 'personal:dead', type: 'soldier' }] }
+    h.read().personalSquadRuntime = structuredClone(live)
+    const restorePersonalSquad = vi.fn()
+    Object.assign(h.town, { restorePersonalSquad })
+    expect(h.settlement.returnToTown('direct')).toEqual({ status: 'restarted' })
+    expect(h.store.loadChecked().profile!.personalSquadRuntime).toEqual(live)
+    expect(h.town.restart.mock.lastCall![0].personalSquadRuntime).toEqual(live)
+    expect(restorePersonalSquad).not.toHaveBeenCalled()
   })
 
   function commanderVHomeReturnFixture() {
