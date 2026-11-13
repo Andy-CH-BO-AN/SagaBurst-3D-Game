@@ -1,4 +1,3 @@
-import * as THREE from 'three'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { showEquipmentLoadNotice } from '../../src/ui/EquipmentLoadNotice'
 import {
@@ -88,13 +87,13 @@ it('isolates concurrent and delayed GLB loader responses across generations with
     }
 
     const makeFakeGltf = (tag: string) => ({
-      scene: Object.assign(new (THREE as any).Group(), {
+      scene: {
         userData: { tag },
         updateMatrixWorld: vi.fn(),
         traverse: vi.fn(),
-        clone: vi.fn(function (this: any) { return this }),
-      }),
-    } as any)
+        clone() { return this },
+      },
+    })
 
     const gen1Deferreds = new Map<string, Deferred<any>>()
     const gen2Deferreds = new Map<string, Deferred<any>>()

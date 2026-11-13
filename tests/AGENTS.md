@@ -83,6 +83,13 @@
 - 使用型別清楚的介面；必要 unsafe cast 限縮在單一接縫。不得新增大量 `as any`、`@ts-ignore`、關閉 strict 或擴大 typecheck baseline。
 - 刪除／修正案例後同步移除失效 baseline 項目；保留原 ratchet，不重建整份 baseline 或更改 fingerprint 掩蓋新增錯誤。
 
+## Test Authoring Lint
+
+- 執行 `npm run lint:test`；CI 會在既有 logic gate 的 `npm ci` 後執行，不會新增測試案例或另一個 Full Test Job。
+- ESLint Error 會阻擋 focused／disabled／重複標題／條件式註冊、Unit Test 重型 3D constructor，以及直接的 Node test `.only`／`.skip`／`.todo`。
+- Test body 超過 120 行、`expect-expect`、真實 timer wait pattern、`any` 與 `@ts-ignore` 僅輸出 Warning；不可為了消除 Warning 刪除重要 assertions 或大規模改寫既有案例。
+- Owner 歸屬、failure mode 是否重複、正式 caller 覆蓋、Regression 是否能攔截 Bug、Legacy 格式及跨模組 Import 是否合理，仍須依本文件由人工 Review。
+
 ## 刪除政策與防規避
 
 - 低價值 getter／常數、文案／樣式、純外觀、淘汰功能與同 failure mode 重複案例可以直接刪，不必逐一補回，也不要求 test-only 清理新增人工 QA 場景。
