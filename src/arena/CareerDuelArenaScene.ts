@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { ArenaPanel, CareerArenaSession, type ArenaSettlement } from './CareerArenaSession'
 import { createDuelArena, type DuelArenaEnvironment } from './DuelArena'
 import { DUEL_ARENA_LABELS, type DuelArenaId } from './DuelArenaCatalog'
 import { ARENA_DUEL_REFEREE_SLOTS } from './DuelArenaVenue'
@@ -6,13 +7,12 @@ import { ArenaChaseRoute, ArenaSupportTracker, arenaStandingFeet } from './DuelA
 import { CareerDuelController, duelLoadout, type CareerDuelOpponentRequest, type CareerDuelResident } from '../career/CareerDuelController'
 import { resolveCareerDuelClass } from '../career/CareerDuelClasses'
 import { careerDuelArena, isCareerDuelPresetId, isCareerDuelTier, type CareerDuelTier } from '../career/CareerDuelState'
-import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
+import type { CareerProfile } from '../career/CareerProfile'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { CareerMountController } from '../career/CareerMountController'
 import { HERO_CLASS_NAMES } from '../career/CareerHeroClasses'
 import { resolveCareerHeroAsset, resolveCareerOrdinaryTier, resolveCareerPlayerMaxHp } from '../career/CareerPlayerProfile'
 import type { ActiveCareerMission, CareerMissionOutcome } from '../career/CareerMissionState'
-import type { PlayerBattleStats } from '../combat/BattleStatsTracker'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
 import { UNIT_PRESETS, type UnitLoadout, type UnitPresetId } from '../battle/UnitPresetCatalog'
@@ -31,7 +31,7 @@ import { NavigationWorld } from '../navigation/NavigationWorld'
 import { Player, DEFAULT_PLAYER_MAX_HP } from '../player/Player'
 import { PlayerInput } from '../player/PlayerInput'
 import { WeaponWheel } from '../player/WeaponWheel'
-import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
+import { resolveActivePlayerSkillProgressionAward, resolveCombatSkill } from '../rpg/CombatSkillProgression'
 import { SkillManager } from '../rpg/SkillManager'
 import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { TownEquipment } from '../town/TownEquipment'
@@ -103,13 +103,6 @@ export function arenaDuelPartyPlan(active: Pick<ActiveCareerMission, 'duelPreset
   }
 }
 
-/** A decided duel result and the stats it was decided with, held until its save succeeds. */
-interface PendingArenaSettlement {
-  readonly outcome: CareerMissionOutcome
-  readonly player: PlayerBattleStats
-  readonly merit: PlayerBattleStats | undefined
-}
-
 /**
  * Independent Career scene for a formal 1v1 duel. Duel rules (phases, countdown, timer,
  * outcome, illegal unarmed attacks, checkpoint cadence) stay in CareerDuelController; this
@@ -148,21 +141,32 @@ export class CareerDuelArenaScene {
   private raf = 0
   private last = 0
   private disposed = false
-  private panel: HTMLElement | null = null
-  private settled = false
-  /**
-   * The decided result whose save failed. Combat stays frozen on it — no clocks, AI, shots or
-   * player actions — and only the panel's retry button sends this same settlement again.
-   */
-  private pendingSettlement: PendingArenaSettlement | null = null
-  private skillsDirty = false
   private readonly aimPoint = new THREE.Vector3()
+  /**
+   * Profile commits, skill saves, the once-only claim and the Town return. A decided result whose
+   * save failed stays frozen there — no clocks, AI, shots or player actions — until the retry button.
+   */
+  private readonly session: CareerArenaSession<ArenaSettlement>
 
   private constructor(private readonly container: HTMLElement, private readonly renderer: THREE.WebGLRenderer,
-    private profile: CareerProfile, private readonly arenaId: DuelArenaId, private readonly callbacks: CareerDuelArenaCallbacks) {
+    profile: CareerProfile, private readonly arenaId: DuelArenaId, private readonly callbacks: CareerDuelArenaCallbacks) {
     // Built here: field initializers run before parameter properties are assigned.
     this.chaseRoute = new ArenaChaseRoute(arenaId)
+    this.session = new CareerArenaSession<ArenaSettlement>(profile, {
+      noun: '單挑', panel: new ArenaPanel('duel-arena-panel'), store: this.store, skills: this.skills, sound: this.sound, input: this.input,
+      player: () => this.player,
+      prepareReturn: (next, active) => {
+        // A finished duel returns the mount armour it borrowed for the fight.
+        if (active.result || this.profile.claimedBattleIds.includes(active.id)) delete next.mountArmor
+      },
+      openResult: result => this.openResult(result),
+      leave: () => this.leave(),
+    })
   }
+
+  private get profile(): CareerProfile { return this.session.profile }
+  private get panel(): boolean { return this.session.panel.isOpen }
+  private get pendingSettlement(): ArenaSettlement | null { return this.session.pendingSettlement }
 
   get activeMission(): ActiveCareerMission | undefined { return this.profile.activeMission }
 
@@ -186,11 +190,7 @@ export class CareerDuelArenaScene {
     }
   }
 
-  private commit(next: CareerProfile): boolean {
-    if (!this.store.save(next)) return false
-    this.profile = next
-    return true
-  }
+  private commit(next: CareerProfile): boolean { return this.session.commit(next) }
 
   private async initialize(progress: (text: string) => void): Promise<void> {
     const active = this.profile.activeMission!
@@ -220,7 +220,7 @@ export class CareerDuelArenaScene {
     this.player.setMaxHp(resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP), true)
     this.player.setDamageHud(this.hp)
     this.player.blockingLevel = this.skills.skillState.blocking.level
-    this.player.onShieldBlock = impact => this.awardSkillXp({ skill: 'blocking', xp: impact * SHIELD_CONFIG.xpPerBlockedImpact })
+    this.player.onShieldBlock = impact => this.session.awardSkillXp({ skill: 'blocking', xp: impact * SHIELD_CONFIG.xpPerBlockedImpact })
     this.player.onFireArrow = event => this.fire(event.origin, event.direction, event.speed, event.damage, 'arrow', undefined, event.visualKind)
     const spawn = this.arena.spawns.player
     this.player.resetForScene(spawn.x, spawn.y + PLAYER_HALF_HEIGHT, spawn.z)
@@ -383,7 +383,7 @@ export class CareerDuelArenaScene {
     this.duelHud.update(phase, this.duel.countdownRemaining, this.duel.combatRemaining, this.duel.combatElapsedSeconds)
     this.weaponWheelUI.update(this.inventory, !this.panel && !this.player.dead)
     this.hp.setFill(this.player.hpRatio)
-    if (this.skillsDirty && this.elapsed % 5 < dt) this.flushSkills()
+    this.session.tickSkillFlush(this.elapsed, dt)
   }
 
   /**
@@ -498,7 +498,7 @@ export class CareerDuelArenaScene {
     const weapon = event.type === 'damage_applied' && event.weaponId ? WEAPONS[event.weaponId] : this.inventory.activeMelee
     const award = resolveActivePlayerSkillProgressionAward(event, { dead: this.player.dead, spectatorOnly: this.player.spectatorOnly, observer: false },
       weapon, this.player.hasShield)
-    if (award) this.awardSkillXp(award)
+    if (award) this.session.awardSkillXp(award)
     this.duel.events.emit(event)
   }
 
@@ -611,30 +611,9 @@ export class CareerDuelArenaScene {
     }
   }
 
-  private awardSkillXp({ skill, xp }: SkillProgressionAward): void {
-    if (xp <= 0 || !canAwardPlayerSkillProgression({ dead: this.player.dead, spectatorOnly: this.player.spectatorOnly, observer: false })) return
-    const levels = this.skills.addXp(skill, xp, this.sound)
-    this.player.blockingLevel = this.skills.skillState.blocking.level
-    this.skillsDirty = true
-    if (levels > 0) {
-      this.flushSkills()
-      const before = this.player.hp
-      const maxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
-      this.player.setMaxHp(maxHp, false)
-      this.player.setHp(Math.min(maxHp, before + levels))
-    }
-  }
-
-  private flushSkills(): void {
-    if (!this.skillsDirty) return
-    const next = cloneCareerProfile(this.profile)
-    next.skills = this.skills.skillState
-    if (this.commit(next)) this.skillsDirty = false
-  }
-
   private persistNow(): void {
     if (this.disposed || !this.duel) return
-    this.flushSkills()
+    this.session.flushSkills()
     if (this.duel.active && !this.profile.activeMission?.result) this.duel.persistRuntimeProgress(true)
   }
 
@@ -643,64 +622,27 @@ export class CareerDuelArenaScene {
     if (outcome && !this.pendingSettlement) this.finish(outcome)
   }
 
-  private captureSettlement(outcome: CareerMissionOutcome): PendingArenaSettlement {
+  private captureSettlement(outcome: CareerMissionOutcome): ArenaSettlement {
     const stats = this.duel.snapshot()
     return { outcome, player: { ...stats.player }, merit: stats.meritPlayer && { ...stats.meritPlayer } }
   }
 
-  /** Saves the decided result, or the one already frozen by an earlier failed save. */
   private finish(outcome: CareerMissionOutcome): void {
-    if (this.settled) return
-    this.flushSkills()
-    const active = this.profile.activeMission
-    if (!active || active.result) return
-    const settlement = this.pendingSettlement ?? this.captureSettlement(outcome)
-    const claim = claimCareerMission(cloneCareerProfile(this.profile), active.id, settlement.outcome, settlement.player, settlement.merit)
-    if (!this.commit(claim.profile)) {
-      this.pendingSettlement = settlement
-      // Release the pointer and held keys so the retry button is clickable at once.
-      this.input.clear()
-      this.player.clearTownAction()
-      document.exitPointerLock?.()
-      this.openPanel('單挑結算尚未保存', '保存失敗；軍功尚未入帳，結果保留在競技場。')
-      this.button('重試保存結算', () => { this.closePanel(); this.finish(settlement.outcome) })
-      return
-    }
-    this.pendingSettlement = null
-    this.settled = true
-    this.input.clear()
-    this.player.clearTownAction()
-    document.exitPointerLock?.()
-    this.openResult(this.profile.activeMission!.result!)
+    this.session.finish(() => this.captureSettlement(outcome))
   }
 
   private openResult(result: NonNullable<ActiveCareerMission['result']>): void {
-    this.settled = true
+    this.session.markSettled()
     const active = this.profile.activeMission!
     const complete = result.outcome === 'victory'
     const merit = result.merit
     const illegal = active.duelFailureReason === 'illegal_attack' ? '\n\n失敗原因：空手對決中使用了拳擊以外的攻擊' : ''
     const label = active.duelClassId ? ` · ${HERO_CLASS_NAMES[active.duelClassId].zh}` : ''
-    this.openPanel(complete ? '單挑勝利' : '單挑失敗',
+    this.session.panel.show(complete ? '單挑勝利' : '單挑失敗',
       `${DUEL_ARENA_LABELS[this.arenaId]} · ${active.duelMode === 'unarmed' ? '空手' : UNIT_PRESETS[active.duelPresetId!].nameZh} T${active.duelTier}${label}\n\n`
       + `戰鬥表現（你）\n擊殺敵人：${result.stats.kills}\n造成傷害：${Math.round(result.stats.damageDealt)}\n是否存活：${result.stats.survived ? '存活' : '陣亡'}\n\n`
       + `軍功獎勵（每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功）\n傷害軍功：${merit.damage}\n擊殺軍功：${merit.kills}\n任務貢獻：${merit.contribution}\n本次總軍功：${merit.total}${illegal}${complete ? '' : '\n\n未能達成任務目標。'}`)
-    this.button(`返回 ${this.profile.faction === 'roman' ? 'vinum 村' : 'økse 村'}`, () => this.returnToTown())
-  }
-
-  /** Clears the claimed duel exactly like a Town return; a failed save keeps the arena for retry. */
-  private returnToTown(): void {
-    const active = this.profile.activeMission
-    if (!active) { this.leave(); return }
-    const completed = Boolean(active.result || this.profile.claimedBattleIds.includes(active.id))
-    const next = clearCareerMission(this.profile, active.id)
-    if (completed) delete next.mountArmor
-    if (!this.commit(next)) {
-      this.openPanel('返回狀態尚未保存', '單挑結算仍安全保留。請重試保存後返回小鎮。')
-      this.button('重試返回小鎮', () => this.returnToTown())
-      return
-    }
-    this.leave()
+    this.session.addReturnButton()
   }
 
   private leave(): void {
@@ -708,41 +650,13 @@ export class CareerDuelArenaScene {
     this.callbacks.returnToTown()
   }
 
-  private openPanel(title: string, text: string): void {
-    this.closePanel()
-    const panel = document.createElement('section')
-    panel.id = 'duel-arena-panel'
-    panel.className = 'town-panel'
-    panel.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10002;min-width:340px;max-width:560px;background:#1b1712f0;color:#f2eadb;border:1px solid #8a6f45;border-radius:10px;padding:20px 22px;font:15px/1.6 system-ui;white-space:pre-line'
-    const heading = document.createElement('h2')
-    heading.textContent = title
-    heading.style.margin = '0 0 10px'
-    const body = document.createElement('p')
-    body.textContent = text
-    panel.append(heading, body)
-    document.body.append(panel)
-    this.panel = panel
-  }
-
-  private button(label: string, action: () => void): void {
-    if (!this.panel) return
-    const button = document.createElement('button')
-    button.className = 'town-button'
-    button.textContent = label
-    button.style.marginRight = '8px'
-    button.onclick = action
-    this.panel.append(button)
-  }
-
-  private closePanel(): void { this.panel?.remove(); this.panel = null }
-
   dispose(): void {
     if (this.disposed) return
     this.persistNow()
     this.disposed = true
     cancelAnimationFrame(this.raf)
     this.listeners.abort()
-    this.closePanel()
+    this.session.panel.close()
     this.input.dispose()
     this.duelHud.dispose()
     this.targetHud.dispose()
