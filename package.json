@@ -6,6 +6,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "node tests/tooling/run.cjs",
+    "lint:test": "eslint \"tests/**/*.{test,spec}.?(c|m)[jt]s?(x)\"",
     "preview": "vite preview",
     "build:web": "npm run build",
     "build:desktop": "tsc && vite build --mode desktop",
@@ -23,13 +24,16 @@
   "devDependencies": {
     "@types/node": "^22.20.5",
     "@types/three": "^0.167.0",
+    "@vitest/eslint-plugin": "1.5.4",
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "eslint": "10.14.0",
     "meshoptimizer": "^0.18.1",
     "playwright": "^1.61.1",
     "typescript": "^5.5.3",
+    "typescript-eslint": "8.72.2",
     "vite": "^5.3.4",
-    "vitest": "^4.1.10",
-    "electron": "44.5.1",
-    "electron-builder": "26.15.3"
+    "vitest": "^4.1.10"
   },
   "description": "SagaBurst — Viking and Roman 3D battles",
   "author": "Andy-CH-BO-AN",
