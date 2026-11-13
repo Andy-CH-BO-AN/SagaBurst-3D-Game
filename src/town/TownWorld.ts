@@ -24,6 +24,7 @@ import { DamageableObstacle } from '../world/DamageableObstacle'
 import { getTerrainHeight, getWalkRampHeight, removeObstacleData, resetTerrainScenePolicy, setObstaclePathQuerySource, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
 import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_GROUND_SIZE, TOWN_BANDIT_CAMP_CENTERS, townSceneryPoint, nearTownBanditCamp } from './TownBounds'
 import type { CharacterFaction } from '../world/CharacterVisuals'
+import { civicHallFromPlan, type CivicHall } from '../navigation/CivicExitRoute'
 import { proceduralMaterial } from '../world/ProceduralMaterials'
 
 /** Resets battlefield-specific terrain policies before sampling Town watchtower or ground heights. */
@@ -41,6 +42,8 @@ export class TownWorld {
   readonly hr: TownHRLayout
   /** Indoor Town Center posts of the Captain, Sergeant and Commander (world XZ, floor Y). */
   private readonly serviceStations = new Map<TownCenterServiceRole, TownServiceStation>()
+  /** Doorways of enterable civic halls, derived from the same plan that builds their colliders. */
+  readonly civicHalls: CivicHall[] = []
   readonly eagleGarrison: TownEagleGarrisonLayout
   readonly eagleTraining: TownEagleTrainingGround
   readonly commandWatchtower: CommandWatchtowerLayout
@@ -328,6 +331,7 @@ export class TownWorld {
     const placed = placeArchitecture(this.architecture, kind, site, { statues: architectureStatues(), hrMuster: kind === 'hr-center' ? townHrLocalMuster(this.hr) : undefined })
     if (kind === 'town-center') for (const anchor of placed.anchors) if (anchor.role === 'service')
       this.serviceStations.set(anchor.id.slice('service:'.length) as TownCenterServiceRole, { x: anchor.x, y: anchor.y, z: anchor.z, yaw: anchor.yaw })
+    if (kind === 'town-center') this.civicHalls.push(civicHallFromPlan(id, placed.spec, site, placed.floorY))
     this.root.add(placed.root, placed.ruin)
     if (kind === 'hr-center') {
       for (const slot of this.hr.muster) slot.y = placed.floorY

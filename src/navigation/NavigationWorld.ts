@@ -12,6 +12,7 @@ import {
 } from '../world/Terrain'
 import { OutpostLayeredNavigation } from './OutpostLayeredNavigation'
 import type { OutpostWalkwayLayout } from '../campaign/CampaignOutpostWalkways'
+import type { CivicHall } from './CivicExitRoute'
 
 export type NavigationPathQueryResult =
   | { status: 'path'; path: NavigationCell[] }
@@ -48,6 +49,9 @@ export class NavigationWorld {
   private readonly sharedPathCache = new Map<string, NavigationCell[] | null>()
   private readonly pendingPathOwners = new Map<object, { start: { x: number; z: number }; goal: { x: number; z: number } }>()
   townNav: TownLayeredNavigation | null = null
+  /** Civic halls whose doorways mounted units leave through before ordinary pursuit. */
+  civicHalls: readonly CivicHall[] = []
+  setCivicHalls(halls: readonly CivicHall[]): void { this.civicHalls = halls }
   setTownRamparts(layout: TownRampartLayout): void { this.townNav = new TownLayeredNavigation(layout, (a, b) => this.areConnected(a, b)) }
 
   private _outpostNav: OutpostLayeredNavigation | null = null

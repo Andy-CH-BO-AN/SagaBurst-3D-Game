@@ -386,6 +386,7 @@ export class TownScene {
     this.navigation.setTownRamparts(this.world.fortifications.rampartLayout)
     this.navigation.townNav!.setSiegeGates(this.world.gates)
     this.navigation.townNav!.setWatchtower(this.world.commandWatchtower)
+    this.navigation.setCivicHalls(this.world.civicHalls)
     const population = townConquestRoster(this.world.hr, withTownCommandSquadRoster(context.residentFaction, townRoster()), this.world.eagleTraining, this.world.eagleGarrison)
     placeTownCenterServiceResidents(population, role => this.world.serviceStation(role))
     if (shouldSpawnTownCommander(profile)) {

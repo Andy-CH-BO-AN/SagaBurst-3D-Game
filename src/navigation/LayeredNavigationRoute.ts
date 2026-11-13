@@ -5,6 +5,7 @@ import type { TownGateId } from '../town/TownLayout'
 import { isRampartLayer, isStairLayer, type OutpostLayeredNavigation, type OutpostNavLayer } from './OutpostLayeredNavigation'
 import { NavigationPathFollower, type NavigationRouteKind } from './NavigationPathFollower'
 import type { NavigationWorld } from './NavigationWorld'
+import { CivicExitRoute } from './CivicExitRoute'
 
 export interface LayeredNavigationRequest {
   position: Vector3
@@ -43,6 +44,7 @@ export class LayeredNavigationRoute {
 
   private transitEntranceId: string | null = null
   private gateApproach: TownGateApproach | null = null
+  private readonly civicExit = new CivicExitRoute()
   private readonly breachStep: LayeredNavigationStep = { route: 'direct', confirmedLayeredStep: false, tower: false }
   get closedGateObstacle(): ObstacleData | null {
     return this.gateApproach?.gate.state === 'closed' ? this.gateApproach.gate.siegeObstacle : null
@@ -55,6 +57,18 @@ export class LayeredNavigationRoute {
    */
   resolve(request: LayeredNavigationRequest, obstacles: ObstacleData[], out: Vector3): LayeredNavigationStep | null {
     const { position, goal, world, outpost } = request
+    if (request.mounted && !request.flying && world?.civicHalls.length) {
+      // A mounted body inside a civic hall walks out of its real doorway first.
+      const exit = this.civicExit.resolve({ position, goal, halls: world.civicHalls, revision: world.revision,
+        radius: request.radius, height: request.height }, obstacles)
+      if (exit) {
+        const step = this.step
+        step.route = exit.kind === 'walk' ? 'path' : 'unreachable'
+        step.confirmedLayeredStep = false; step.tower = false
+        if (exit.kind === 'walk') out.copy(exit.target)
+        return step
+      }
+    }
     if (this.gateApproach && request.attackableGate) {
       const gate = world?.townNav?.selectClosedGateApproach(position, goal, request.attackableGate, request.sectorId, this.gateApproach.id)
       if (gate === this.gateApproach) return this.writeGateApproach(request, obstacles, out)
