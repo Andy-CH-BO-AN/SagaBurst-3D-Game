@@ -26,7 +26,7 @@ import { careerEaglePadOwners, EaglePadReservations, type EaglePad } from './Eag
 import { careerMountType } from './CareerMountController'
 import { PERSONAL_SQUAD_LIMIT, type CareerPersonalSquadMember } from './CareerPersonalSquad'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
-import { refitCommandActor, refitCommandCheckpoint } from './CareerCommandActorCheckpoint'
+import { refitCommandActor, refitCommandCheckpoint, restoreShieldDurability, savedShieldDurability } from './CareerCommandActorCheckpoint'
 import { snapshotPersonalMission, clonePersonalMission, preparePersonalMissionAcceptance, type PersonalActorCheckpoint, type PersonalActorPosition,
   type PersonalSquadMission, type PersonalSquadState } from './CareerPersonalSquadMission'
 
@@ -570,7 +570,7 @@ export class PersonalSquadRuntime {
     // Only resources the member already lost are carried over; a fresh hire has none.
     if (saved.hp !== undefined) npc.restoreCombatHealth(saved.hp)
     if (saved.ammo !== undefined) npc.restoreCombatAmmo(saved.ammo)
-    if (saved.shieldImpact !== undefined) npc.shield.shieldImpactRemaining = Math.min(npc.shield.shieldImpactMax, saved.shieldImpact)
+    if (saved.shieldImpact !== undefined) restoreShieldDurability(npc, saved.shieldImpact)
     const mount = this.memberMounts.get(npc.combatantId)
     if (mount && saved.mount) {
       mount.restoreArmor(saved.mount.armorImpactRemaining)
@@ -613,7 +613,7 @@ export class PersonalSquadRuntime {
       const mount = this.memberMounts.get(actor.combatantId)
       this.mission.members[actor.combatantId] = { status: actor.dead ? 'dead' : 'deployed', hp: actor.hp,
         position: this.position(actor.combatPosition, actor.mount?.group.rotation.y ?? actor.group.rotation.y),
-        ammo: actor.combatAmmo, shieldImpact: actor.shield.shieldImpactRemaining, order: actor.tacticalOrder,
+        ammo: actor.combatAmmo, shieldImpact: savedShieldDurability(actor), order: actor.tacticalOrder,
         ...(this.boarding.has(actor) ? { boarding: true } : {}),
         ...(this.standbyIds.has(actor.combatantId) ? { standby: true } : {}),
         ...(this.eaglePads.get(actor.combatantId) ? { eaglePadId: this.eaglePads.get(actor.combatantId)!.id } : {}),
@@ -903,7 +903,7 @@ export class PersonalSquadRuntime {
   private restoreActor(npc: NPC, saved: PersonalActorCheckpoint, changedScene: boolean, index: number): void {
     npc.restoreCombatHealth(saved.hp ?? npc.hp)
     if (saved.ammo !== undefined) npc.restoreCombatAmmo(saved.ammo)
-    if (saved.shieldImpact !== undefined) npc.shield.shieldImpactRemaining = Math.min(npc.shield.shieldImpactMax, saved.shieldImpact)
+    if (saved.shieldImpact !== undefined) restoreShieldDurability(npc, saved.shieldImpact)
     const mount = this.memberMounts.get(npc.combatantId)
     if (mount && saved.mount) {
       mount.restoreArmor(saved.mount.armorImpactRemaining)

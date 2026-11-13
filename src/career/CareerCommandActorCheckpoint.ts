@@ -12,7 +12,7 @@ function position(point: THREE.Vector3, yaw: number): PersonalActorPosition {
 
 /** Durability of the shield the actor was given. A shield whose model is still loading has no held state yet, so its
  * recorded durability (restored or never damaged) is read by id; the held value alone would save a loading shield as 0. */
-function savedShieldDurability(npc: NPC): number {
+export function savedShieldDurability(npc: NPC): number {
   const id = npc.requestedShieldId
   if (!id) return npc.shield.shieldImpactRemaining
   return npc.shield.captureDurability()[id] ?? ARMORS[id]?.shieldImpactMax ?? 0
@@ -25,7 +25,7 @@ function fullShieldDurability(npc: NPC): number {
 }
 
 /** Restores durability by the actor's requested shield id, so a shield that arrives later keeps the saved value. */
-function restoreShieldDurability(npc: NPC, value: number): void {
+export function restoreShieldDurability(npc: NPC, value: number): void {
   const id = npc.requestedShieldId
   if (!id) { npc.shield.shieldImpactRemaining = Math.min(npc.shield.shieldImpactMax, value); return }
   npc.shield.restoreDurability({ ...npc.shield.captureDurability(), [id]: value })

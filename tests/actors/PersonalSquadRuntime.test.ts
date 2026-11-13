@@ -17,6 +17,8 @@ import { migratePersonalTownLayout } from '../../src/town/TownLayoutMigration'
 import * as HighTierEquipment from '../../src/world/HighTierEquipment'
 import { HumanoidAssetRegistry } from '../../src/world/HumanoidAssetRegistry'
 import { MountType, type Mount } from '../../src/world/Mount'
+import { ShieldState } from '../../src/combat/ShieldBlocking'
+import { ARMORS } from '../../src/rpg/ArmorDatabase'
 import type { NPC } from '../../src/world/NPC'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import * as PaladinEquipment from '../../src/world/PaladinEquipment'
@@ -228,7 +230,9 @@ it('locks HR reserves and refit in the final stand without replacing casualties 
 interface StandbyActor {
   combatantId: string; dead: boolean; hp: number; maxHp: number; isMounted: boolean; isFalling: boolean
   mount?: Mount; tacticalOrder: string; missionMovement: boolean; formationCommandId: number | null; arrived: boolean
-  combatAmmo: number; shield: { shieldImpactRemaining: number; shieldImpactMax: number }
+  combatAmmo: number; shield: { shieldImpactRemaining: number; shieldImpactMax: number } & Partial<ShieldState>
+  /** The shield id the actor was given; its durability is keyed by this id while the model loads. */
+  requestedShieldId?: string | null; refitCombat?: () => void
   group: { position: Vector3; rotation: Euler }; combatPosition: Vector3; disposed: boolean
   setTacticalOrder(order: string): void; assignFormationTarget: ReturnType<typeof vi.fn<NPC['assignFormationTarget']>>
   assignFollowTarget: ReturnType<typeof vi.fn>; isFormationTargetReached(id: number): boolean
@@ -244,7 +248,7 @@ interface StandbyEagle {
   restoreArmor(): void; dispose(): void
 }
 /** Numeric actor double: only the private-squad lifecycle API; no scene, mesh or asset. */
-function standbyHarness(members: { id: string; mount?: 'xongkoro' }[], options: { saved?: PersonalSquadMission; failOnce?: string[]; queue?: EagleLandingQueue } = {}) {
+function standbyHarness(members: { id: string; mount?: 'xongkoro' }[], options: { saved?: PersonalSquadMission; failOnce?: string[]; queue?: EagleLandingQueue; loadingShields?: boolean } = {}) {
   let profile = createCareerProfile('roman')
   profile.rank = 'captain'; profile.availableMerit = 100_000
   // Real hires own their equipment; an eagle rider additionally owns its xongkoro.
@@ -259,12 +263,14 @@ function standbyHarness(members: { id: string; mount?: 'xongkoro' }[], options: 
   const spawned: { id: string; slot: { x: number; z: number }; pad?: { x: number; z: number } }[] = []
   const actors: StandbyActor[] = [], mounts: StandbyEagle[] = []
   const failures = new Set(options.failOnce)
-  const spawn = (_scene: unknown, member: { id: string; equipment?: { mount?: string | null } }, _faction: unknown, slot: { x: number; y?: number; z: number; yaw: number }, _emit: unknown, boardingPad?: { x: number; z: number }) => {
+  const spawn = (_scene: unknown, member: { id: string; equipment?: { mount?: string | null; shield?: string | null } }, _faction: unknown, slot: { x: number; y?: number; z: number; yaw: number }, _emit: unknown, boardingPad?: { x: number; z: number }) => {
     if (failures.delete(member.id)) throw new Error(`asset unavailable: ${member.id}`)
     const position = new Vector3(slot.x, slot.y ?? 0, slot.z)
     const actor: StandbyActor = { combatantId: member.id, dead: false, hp: 100, maxHp: 100, isMounted: false, isFalling: false,
       tacticalOrder: 'defend', missionMovement: false, formationCommandId: null, arrived: false, combatAmmo: 0,
-      shield: { shieldImpactRemaining: 0, shieldImpactMax: 0 }, group: { position, rotation: new Euler() }, combatPosition: position, disposed: false,
+      shield: options.loadingShields ? new ShieldState() : { shieldImpactRemaining: 0, shieldImpactMax: 0 },
+      requestedShieldId: options.loadingShields ? member.equipment?.shield ?? null : undefined,
+      refitCombat() {}, group: { position, rotation: new Euler() }, combatPosition: position, disposed: false,
       setTacticalOrder(order) { actor.tacticalOrder = order },
       // A new walk order clears the previous arrival, as on the real NPC.
       assignFormationTarget: vi.fn<NPC['assignFormationTarget']>((id: number) => { actor.formationCommandId = id; actor.tacticalOrder = 'formation'; actor.arrived = false }),
@@ -582,4 +588,35 @@ it('keeps an all-casualty HR squad through reload, in-place mission return and a
   again.runtime.restoreMission(saved); again.runtime.updateLifecycle(); again.flush()
   expect([again.actors.length, again.scheduler.pending]).toEqual([0, 0])
   expect(again.runtime.checkpoint()?.members).toEqual(fallen.members)
+})
+
+it('keeps HR shield durability by requested id through a refit, an autosave and a reload while the GLB is still loading', () => {
+  const probe = standbyHarness([{ id: 'personal:a' }])
+  const shieldId = probe.profile.personalSquad!.members[0].equipment!.shield!
+  const max = ARMORS[shieldId].shieldImpactMax
+  // A reload of a saved partial (17/48 of the catalogue max) or 0 keeps that value for the requested shield until the model is actually equipped.
+  const partial = Math.round(max * 17 / 48)
+  for (const saved of [partial, 0]) {
+    const mission: PersonalSquadMission = { squadId: 'personal', sceneKey: 'town-home', state: 'RESERVE',
+      memberIds: ['personal:a'], contribution: emptyPersonalContribution(),
+      members: { 'personal:a': { status: 'reserve', hp: 100, shieldImpact: saved } } }
+    const h = standbyHarness([{ id: 'personal:a' }], { saved: mission, loadingShields: true })
+    h.runtime.restoreMission(mission); h.runtime.updateLifecycle(); h.flush(); h.runtime.updateLifecycle()
+    const [a] = h.actors
+    expect(a.requestedShieldId).toBe(shieldId)
+    a.shield.equip?.(shieldId)
+    expect(a.shield.shieldImpactRemaining).toBe(saved)
+  }
+  // A refit while the shield is still loading saves and applies the full catalogue value, then survives autosave and reload.
+  const first = standbyHarness([{ id: 'personal:a' }], { loadingShields: true })
+  first.runtime.materializeStandby(); first.flush()
+  expect(first.actors[0].shield.shieldImpactMax).toBe(0)
+  expect(first.runtime.refit(() => true)).toBe(true)
+  const autosave = parsePersonalMission(JSON.parse(JSON.stringify(first.runtime.checkpoint())))!
+  expect(autosave.members['personal:a']).toMatchObject({ shieldImpact: max })
+  const reloaded = standbyHarness([{ id: 'personal:a' }], { saved: autosave, loadingShields: true })
+  reloaded.runtime.restoreMission(autosave); reloaded.runtime.updateLifecycle(); reloaded.flush(); reloaded.runtime.updateLifecycle()
+  const [after] = reloaded.actors
+  after.shield.equip?.(shieldId)
+  expect(after.shield.shieldImpactRemaining).toBe(max)
 })
