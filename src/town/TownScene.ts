@@ -165,6 +165,7 @@ import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { careerDuelSubjectRules, careerDuelMissionLabel, careerDuelProgressLabel, careerDuelTierEntries, type CareerDuelSubject } from '../career/CareerDuelSelection'
 import { type CareerDuelTier, isUnarmedDuelUnlocked, isCareerDuelUnlocked, duelFightBannerVisible } from '../career/CareerDuelState'
 import { DUEL_ARENA_IDS, DUEL_ARENA_LABELS, defaultDuelArenaForFaction, type DuelArenaId } from '../arena/DuelArenaCatalog'
+import { ARENA_TRIAL_DEFINITIONS, ARENA_TRIAL_TIERS, arenaTrialBlocker, arenaTrialGroupsLabel, arenaTrialTeamSizes, createArenaTrialMission, isArenaTrialUnlocked, type ArenaTrialTier } from '../career/CareerArenaTrials'
 import { consumeCareerMissionReturnFlag, findMountParkingPoint, planSergeantReturn, resolveNearestLegalPoint, resolveTownEntryFallbackPoint, sergeantReturnFromResidents, SergeantReturnIntent, settleCareerMissionReturn, type SergeantReturnPlan, type SergeantReturnPoint } from './SergeantReturn'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { fieldMissionHud, missionPhaseLabel, personalSquadStateLabel, townCommandStateLabel } from '../career/CareerMissionPresentation'
@@ -311,7 +312,8 @@ export class TownScene {
   private enemyEaglePatrol?: EnemyEaglePatrolController
   private outskirts?: TownOutskirtsWarfareController
   private missionResultOpen = false
-  private deploymentPage?: CareerMissionPage | 'duel'
+  private deploymentPage?: CareerMissionPage | 'duel' | 'trial'
+  private trialArenaChoice: DuelArenaId | null = null
   private duelActivity: 'duel' | 'race' | 'review' = 'duel'
   /** The Duel list entry kept across re-renders and returns: 'unarmed' or a unit preset ID. */
   private duelSubjectKey = 'unarmed'
@@ -2004,19 +2006,20 @@ export class TownScene {
     }
     const defaultPage = defaultCareerMissionPage(this.profile)
     const requestedPage = this.deploymentPage ?? defaultPage
-    const selectedPage = requestedPage !== 'duel' && !isCareerMissionPageUnlocked(this.profile, requestedPage) ? defaultPage : requestedPage
+    const selectedPage = requestedPage !== 'duel' && requestedPage !== 'trial' && !isCareerMissionPageUnlocked(this.profile, requestedPage) ? defaultPage : requestedPage
     this.deploymentPage = selectedPage
     const tabs = document.createElement('nav'); tabs.className = 'town-mission-tabs'; tabs.setAttribute('aria-label', '任務分類')
-    for (const [page, label] of [['recruit', '新兵任務'], ['soldier', '士兵任務'], ['veteran', '老兵任務'], ['captain', '隊長任務'], ['commander', '指揮官任務'], ['duel', '1v1 單挑']] as const) {
+    for (const [page, label] of [['recruit', '新兵任務'], ['soldier', '士兵任務'], ['veteran', '老兵任務'], ['captain', '隊長任務'], ['commander', '指揮官任務'], ['duel', '1v1 單挑'], ['trial', '競技場軍團試煉']] as const) {
       const tab = document.createElement('button'); tab.className = 'town-button'; tab.textContent = label
       tab.setAttribute('aria-pressed', String(page === selectedPage))
-      tab.disabled = page !== 'duel' && !isCareerMissionPageUnlocked(this.profile, page)
+      tab.disabled = page !== 'duel' && page !== 'trial' && !isCareerMissionPageUnlocked(this.profile, page)
       if (tab.disabled) tab.textContent += ` · 需晉升為${CAREER_RANK_LABELS[page as CareerRank]}`
       tab.onclick = () => { this.deploymentPage = page; this.openDeploymentPanel(greeting, context, firstOutpost) }
       tabs.append(tab)
     }
     panel.append(tabs)
     if (selectedPage === 'duel') { this.openDuelPage(panel); return }
+    if (selectedPage === 'trial') { this.openArenaTrialPage(panel); return }
     if (selectedPage === 'veteran') { this.openVeteranMissionPage(panel); return }
     if (selectedPage === 'captain') { this.openCaptainMissionPage(panel); return }
     if (selectedPage === 'commander') { this.openCommanderMissionPage(panel); return }
@@ -2640,6 +2643,53 @@ export class TownScene {
     this.inventory.prepareForCombat()
     this.notice = '跟隨實際隊長前往單挑場地；新兵切磋使用步戰，30 秒超時判負。'
     this.closePanel()
+  }
+  /** Independent of 1v1 and racing: its own board, its own saved mission, its own settlement. */
+  private openArenaTrialPage(panel: HTMLElement): void {
+    const content = document.createElement('section'); content.id = 'town-arena-trial-content'
+    const render = (): void => {
+      const arena = this.trialArenaChoice ?? defaultDuelArenaForFaction(this.profile.faction)
+      content.replaceChildren()
+      const intro = document.createElement('p'); intro.className = 'town-summary'
+      intro.textContent = '同陣營隊伍切磋：在競技場與己方軍團對陣另一支同文化部隊。倒地者只是退出本場，戰後恢復，不造成永久傷亡或戰俘；可重複挑戰並取得軍功。'
+      const arenas = document.createElement('div'); arenas.setAttribute('role', 'group'); arenas.setAttribute('aria-label', '試煉場地')
+      for (const id of DUEL_ARENA_IDS) {
+        const choice = document.createElement('button'); choice.className = 'town-button'; choice.textContent = DUEL_ARENA_LABELS[id]
+        choice.setAttribute('aria-pressed', String(id === arena))
+        choice.onclick = () => { this.trialArenaChoice = id; render() }
+        arenas.append(choice)
+      }
+      content.append(intro, arenas)
+      for (const tier of ARENA_TRIAL_TIERS) {
+        const definition = ARENA_TRIAL_DEFINITIONS[tier], sizes = arenaTrialTeamSizes(tier)
+        const row = document.createElement('article'); row.className = 'duel-tier'; row.dataset.trialTier = String(tier)
+        const head = document.createElement('div'); head.className = 'duel-tier-head'
+        const title = document.createElement('strong'); title.textContent = `T${tier} ${definition.label}`
+        const unlocked = isArenaTrialUnlocked(this.profile, tier)
+        const state = document.createElement('span'); state.className = 'duel-tier-state'; state.textContent = unlocked ? '可挑戰' : `🔒 需晉升為${CAREER_RANK_LABELS[definition.requiredRank]}`
+        head.append(title, state)
+        const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
+        details.textContent = `我方 ${sizes.friendly} 人（含你）：${arenaTrialGroupsLabel(definition.friendly)}\n對手 ${sizes.enemy} 人：${arenaTrialGroupsLabel(definition.enemy)}`
+        row.append(head, details)
+        if (unlocked) this.button(row, '接受試煉', () => this.acceptArenaTrial(tier, arena))
+        content.append(row)
+      }
+    }
+    panel.append(content); render()
+  }
+  private acceptArenaTrial(tier: ArenaTrialTier, arena: DuelArenaId): void {
+    if (this.player.dead || !this.serviceAvailable('deployment')) return
+    const fresh = this.store.load()
+    const blocker = fresh ? arenaTrialBlocker(fresh, tier) : '無法讀取 Career 存檔。'
+    const mission = fresh && !blocker ? createArenaTrialMission(fresh, tier, arena) : null
+    if (!fresh || !mission) { this.openPanel('無法接受試煉', blocker ?? '試煉資料建立失敗。'); return }
+    const next = cloneCareerProfile(fresh); next.activeMission = mission
+    // The trial leaves the private squad untouched: keep its latest live Town snapshot for the return.
+    next.personalSquadRuntime = this.personalSquad?.checkpoint() ?? next.personalSquadRuntime
+    if (!this.commit(next)) { this.openPanel('試煉保存失敗', '試煉尚未開始。請確認瀏覽器儲存空間後重試。'); return }
+    this.playMissionVoice('missionAccepted')
+    // The saved trial is loaded by its own arena scene; Town is released, not hidden.
+    this.dispose(); this.onRestart(this.profile)
   }
   private async acceptDuel(presetId: UnitPresetId | undefined, tier: CareerDuelTier, mode: 'armed' | 'unarmed' = 'armed', classId?: HeroCombatProfileId): Promise<void> {
     if (this.player.dead || !this.serviceAvailable('deployment')) return

@@ -829,6 +829,18 @@ export class Player {
     this.shieldCollider.refreshVisibility()
   }
 
+  /** The on-foot ordinary fall in progress (scene ground-fall rule): vertical speed, support state and fall apex. */
+  captureFootFall(): { velocityY: number; grounded: boolean; apexY: number | null } {
+    return { velocityY: this.velY, grounded: this.onGround, apexY: this.footGroundFall.apex }
+  }
+
+  /** Resumes a saved on-foot fall after resetForScene(); only the ordinary ground-fall state, never a mounted or aerial fall. */
+  restoreFootFall(saved: { velocityY: number; grounded: boolean; apexY: number | null }): void {
+    this.velY = Number.isFinite(saved.velocityY) ? saved.velocityY : 0
+    this.onGround = saved.grounded
+    this.footGroundFall.restore(saved.apexY)
+  }
+
   /** Scene reset cancels airborne detachment before restoring the ordinary player state. */
   resetForScene(x: number, y: number, z: number): void {
     this.dismountFromMount({ preserveWorldPosition: true })

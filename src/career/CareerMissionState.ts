@@ -11,6 +11,7 @@ import type { BattleStatsSnapshot, PlayerBattleStatsCheckpoint, PlayerCommandMer
 import type { CombatEvent } from '../combat/CombatAttribution'
 import type { UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { CareerMountId, CareerRank } from './CareerProfile'
+import type { ArenaTrialState } from './CareerArenaTrials'
 import { townDefenseEnemyCount, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
 import { personalMissionSourcePolicy, type PersonalSquadMission } from './CareerPersonalSquadMission'
 import { officialMissionSourcePolicy, officialCommandSquads } from './CareerCommandAuthority'
@@ -18,7 +19,7 @@ import type { BorrowedCharacterIdentities } from './CareerBorrowedIdentity'
 
 export type CareerMissionPhase = 'DEPLOYING' | 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' | 'RETURNING' | 'PREPARING' | 'SPAWNING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESET' | 'RESULT'
 export type CareerMissionOutcome = 'victory' | 'failure'
-export type CareerMissionKind = 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault' | 'cavalry-sweep' | 'duel' | 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault' | 'captain-patrol-command' | 'captain-outpost-defense' | 'captain-eagle-battle' | 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle' | 'commander-four-gate-defense' | 'commander-six-feline-cavalry' | 'commander-iron-legion' | 'heavy-cavalry-field'
+export type CareerMissionKind = 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault' | 'cavalry-sweep' | 'duel' | 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault' | 'captain-patrol-command' | 'captain-outpost-defense' | 'captain-eagle-battle' | 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle' | 'commander-four-gate-defense' | 'commander-six-feline-cavalry' | 'commander-iron-legion' | 'heavy-cavalry-field' | 'arena-squad-trial'
 export const BRIDGEHEAD_PREPARATION_SECONDS = 180
 export interface BridgeBattleDeployment {
   phase: 'preparing' | 'spawning' | 'assault'
@@ -89,6 +90,8 @@ export interface ActiveCareerMission {
   felineBattle?: CaptainEagleCheckpoint
   bridgeDeployment?: BridgeBattleDeployment
   eagleBattle?: CaptainEagleCheckpoint
+  /** Arena Squad Trial roster/knockout checkpoint; absent on every other mission kind. */
+  arenaTrial?: ArenaTrialState
   personalSquad?: PersonalSquadMission
   siege?: TownSiegeState
   id: string
