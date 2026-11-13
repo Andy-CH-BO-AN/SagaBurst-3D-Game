@@ -406,7 +406,10 @@ describe('Bridgehead official field battle', () => {
   })
 
   it('keeps Bridgehead victory unclaimed after a failed result save and retries it once', () => {
-    const profile = accepted(COMMANDER_BRIDGEHEAD_ID, 'roman', true, 'br'), mission = profile.activeMission!
+    const profile = accepted(COMMANDER_BRIDGEHEAD_ID, 'roman', true, 'b'), mission = profile.activeMission!
+    profile.commanderMeleeGranted = true
+    Object.assign(profile.personalSquad!.members[0], { characterFaction: 'roman', characterTier: 2,
+      recruitmentRole: 'swordsman', originalHirePrice: 50 })
     mission.personalSquad!.sceneKey = `bridge:${mission.id}`
     mission.personalSquad!.state = 'ACTIVE'
     mission.personalSquad!.members['personal:hr-1'] = { status: 'deployed', hp: 17, order: 'formation',
@@ -430,18 +433,30 @@ describe('Bridgehead official field battle', () => {
     expect(mission.result).toBeUndefined()
     expect(profile.claimedBattleIds).not.toContain(mission.id)
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
-    // Seed the existing pre-result save; the successful retry below uses the real CareerProfileStore.
+    // Seed the current persisted identities/receipts so loadChecked has no migration write to consume the failure.
     storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
     const unclaimedBytes = storage.getItem(CAREER_STORAGE_KEY)!
-    storage.writable = false
-    // Simulate the write rejection at the store boundary; the successful retry uses the real CareerProfileStore.
-    const failedAttemptStore = { loadChecked: () => ({ profile }), save: () => {
-      try { storage.setItem(CAREER_STORAGE_KEY, 'failed write'); return true } catch { return false }
-    } }
-    expect(commitCareerBridgeBattleResult(failedAttemptStore, mission.id, stats)).toBeNull()
+    const setItem = storage.setItem.bind(storage)
+    let rejectNextSettlementWrite = true, storageWriteAttempts = 0
+    let rejectedWrite: string | undefined
+    storage.setItem = (key, value) => {
+      if (key === CAREER_STORAGE_KEY) {
+        storageWriteAttempts++
+        if (rejectNextSettlementWrite) {
+          rejectNextSettlementWrite = false
+          rejectedWrite = value
+          throw new Error('Injected Bridgehead settlement write failure')
+        }
+      }
+      setItem(key, value)
+    }
+    expect(commitCareerBridgeBattleResult(store, mission.id, stats)).toBeNull()
+    expect(storageWriteAttempts).toBe(1)
+    expect(rejectedWrite).toContain('"claimed":true')
+    expect(rejectedWrite).toContain('"totalMerit":20100')
     expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(unclaimedBytes)
-    storage.writable = true
     const claimed = commitCareerBridgeBattleResult(store, mission.id, stats)!
+    expect(storageWriteAttempts).toBe(2)
     expect(claimed.profile.activeMission!.result!.merit.total).toBe(100)
     expect(claimed.profile.careerMissionCompletionsByTier?.[5]).toBe(1)
     expect(claimed.profile.totalMerit).toBe(20_100)
