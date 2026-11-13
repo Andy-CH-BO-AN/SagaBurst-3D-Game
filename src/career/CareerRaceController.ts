@@ -11,7 +11,7 @@ import { BlackCatVisual } from '../world/BlackCatVisual'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import type { CareerProfile } from './CareerProfile'
-import { findSergeantResident, sergeantReturnFromResidents, type SergeantResidentLike } from '../town/SergeantReturn'
+import { findSergeantResident, resolveTownEntryFallbackPoint, sergeantReturnFromResidents, type SergeantResidentLike } from '../town/SergeantReturn'
 import { townPlayerEntryPoint } from '../town/TownRules'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
@@ -239,7 +239,7 @@ export class CareerRaceController {
   }
 
   /** Restore uses the existing owned-mount adapter, never a selection-only free mount. */
-  restorePlayer(options: { preservePlacement?: boolean; dismount?: boolean } = {}): void {
+  restorePlayer(options: { preservePlacement?: boolean; dismount?: boolean; mountPark?: { x: number; z: number } } = {}): void {
     const r = this.session?.player ?? this.read().racePlayerState
     if (!r || this.read().activeMission || this.read().activeOutpostMission) return
     const p = this.player()
@@ -253,10 +253,12 @@ export class CareerRaceController {
           mount.group.rotation.y = p.group.rotation.y
           p.mountVehicle(mount)
         } else {
-          const nearby = findSafeCareerMountPosition(p.group.position, this.obstacles, [p.group.position])
-          const pos = nearby ?? p.group.position
-          mount.group.position.set(pos.x, getTerrainHeight(pos.x, pos.z), pos.z)
-          mount.group.rotation.y = p.group.rotation.y
+          // The planner already proved a legal parking spot; never fall back to the player's feet.
+          const pos = options.mountPark ?? findSafeCareerMountPosition(p.group.position, this.obstacles, [p.group.position])
+          if (pos) {
+            mount.group.position.set(pos.x, getTerrainHeight(pos.x, pos.z), pos.z)
+            mount.group.rotation.y = p.group.rotation.y
+          }
         }
       }
     } else {
@@ -459,12 +461,13 @@ export class CareerRaceController {
         terrainHeight: getTerrainHeight,
         isValid: point => this.legalSegment(point, point),
       })
-      const fallback = resolved ?? (() => {
-        const home = townPlayerEntryPoint()
-        const point = [0, 4, -4, 8, -8].flatMap(dx => [0, 4, -4].map(dz => ({ x: home.x + dx, z: home.z + dz })))
-          .find(candidate => this.legalSegment(candidate, candidate) && this.residents.every(r => r.npc.dead || Math.hypot(r.npc.combatPosition.x - candidate.x, r.npc.combatPosition.z - candidate.z) > 3))
-        return point ? { ...point, y: getTerrainHeight(point.x, point.z), yaw: home.yaw } : null
-      })()
+      const fallback = resolved ?? resolveTownEntryFallbackPoint(townPlayerEntryPoint(), {
+        clearanceRadius: player.mounted && !player.dead ? 1.25 : 0.75,
+        obstacles: this.obstacles,
+        blockers,
+        terrainHeight: getTerrainHeight,
+        isValid: point => this.legalSegment(point, point),
+      })
       if (!fallback) { this.error = '鎮內沒有合法返回位置，請稍後重試。'; return false }
       const ground = getTerrainHeight(fallback.x, fallback.z)
       target = { x: fallback.x, z: fallback.z, y: ground + (player.mounted && !player.dead ? 0 : .9), yaw: fallback.yaw }

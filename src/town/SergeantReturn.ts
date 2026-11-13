@@ -160,3 +160,71 @@ export function resolveTownEntryFallbackPoint(
   }
   return null
 }
+
+export function peekCareerMissionReturnFlag(storage: Pick<Storage, 'getItem'> | undefined = typeof sessionStorage !== 'undefined' ? sessionStorage : undefined): boolean {
+  return storage?.getItem(CAREER_MISSION_RETURN_KEY) === '1'
+}
+
+export interface SergeantReturnPlanInput {
+  /** Final-stance lookup: Sergeant point first, then the checked Town-entry backup. */
+  resolve(mounted: boolean): SergeantReturnPoint | null
+  /** The saved pose would put the player back on a mount. */
+  restoreMounted: boolean
+  /** A mount comes back with the player, so a walking arrival also needs a legal parking spot for it. */
+  hasMount: boolean
+  findMountPark(point: SergeantReturnPoint): { x: number; z: number } | null
+}
+
+export type SergeantReturnPlan =
+  | { status: 'placed'; point: SergeantReturnPoint; dismount: boolean; mountPark?: { x: number; z: number } }
+  | { status: 'blocked' }
+
+/**
+ * Every arrival stance (mounted point, walking point, mount parking) is checked; nothing falls back
+ * to an unchecked position. `blocked` means the caller must keep its return intent and retry.
+ */
+export function planSergeantReturn(input: SergeantReturnPlanInput): SergeantReturnPlan {
+  if (input.restoreMounted) {
+    const mounted = input.resolve(true)
+    if (mounted) return { status: 'placed', point: mounted, dismount: false }
+  }
+  const walking = input.resolve(false)
+  if (!walking) return { status: 'blocked' }
+  if (!input.hasMount) return { status: 'placed', point: walking, dismount: false }
+  const park = input.findMountPark(walking)
+  return park ? { status: 'placed', point: walking, dismount: input.restoreMounted, mountPark: park } : { status: 'blocked' }
+}
+
+/** The one-shot return flag is spent only by a legal placement; a blocked plan leaves it for the retry. */
+export function settleCareerMissionReturn(
+  storage: Pick<Storage, 'getItem' | 'removeItem'> | undefined,
+  plan: () => SergeantReturnPlan,
+): SergeantReturnPlan | null {
+  if (!peekCareerMissionReturnFlag(storage)) return null
+  const result = plan()
+  if (result.status === 'placed') consumeCareerMissionReturnFlag(storage)
+  return result
+}
+
+const RETURN_RETRY_SECONDS = 0.5
+const RETURN_RETRY_ABANDON_DISTANCE = 10
+
+/** A blocked return stays pending until a legal point opens or the player has clearly walked off. */
+export class SergeantReturnIntent {
+  private origin: { x: number; z: number } | null = null
+  private clock = 0
+  get pending(): boolean { return this.origin !== null }
+  begin(here: { x: number; z: number }): void { if (!this.origin) { this.origin = { x: here.x, z: here.z }; this.clock = 0 } }
+  cancel(): void { this.origin = null }
+  /** `attempt` returns true once the player was legally placed. */
+  tick(dt: number, here: { x: number; z: number }, attempt: () => boolean): 'idle' | 'waiting' | 'placed' | 'abandoned' {
+    if (!this.origin) return 'idle'
+    if (Math.hypot(here.x - this.origin.x, here.z - this.origin.z) > RETURN_RETRY_ABANDON_DISTANCE) { this.origin = null; return 'abandoned' }
+    this.clock += dt
+    if (this.clock < RETURN_RETRY_SECONDS) return 'waiting'
+    this.clock = 0
+    if (!attempt()) return 'waiting'
+    this.origin = null
+    return 'placed'
+  }
+}

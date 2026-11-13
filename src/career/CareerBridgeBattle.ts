@@ -26,6 +26,7 @@ import {
   createCareerFieldBattleLaunch,
   createCareerFieldDeployment,
   isMigratedCareerFieldMission,
+  resolveFieldActorCheckpoint,
 } from './CareerFieldBattle'
 import { heavyTacticalOrder } from './HeavyCavalryMissions'
 import { careerCombatPlayerLoadout } from './CaptainBattleLaunch'
@@ -156,10 +157,9 @@ export function createCareerFelineOrphanMountPlan(profile: CareerProfile) {
   if (!isCareerFelineBattle(mission) || !mission.felineBattle) return createCareerFieldPersonalOrphanMountPlan(profile)
   const riders = createCareerFelineSpawnPlan(profile).npcSpecs.flatMap(spec => {
     const actorId = spec.actorId!
-    const official = mission.officialSquad?.members?.[actorId]
     const field = mission.felineBattle?.actors[actorId]
-    const actor = official?.status !== 'reserve' ? official ?? field : field ?? official
-    const mount = actor?.mount ?? field?.mount ?? official?.mount
+    const actor = resolveFieldActorCheckpoint(mission, actorId, field)
+    const mount = actor?.mount ?? field?.mount
     const dead = actor?.status === 'dead' || actor?.hp === 0 || commanderActorConfirmedDead(mission, actorId)
     if (!dead || !mount || mount.hp <= 0 || !spec.loadout?.mountId) return []
     return [{ actorId, mountId: spec.loadout.mountId, stableKey: actorId, saved: mount }]

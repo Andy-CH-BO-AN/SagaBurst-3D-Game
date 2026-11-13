@@ -165,7 +165,8 @@ import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { careerDuelSubjectRules, careerDuelMissionLabel, careerDuelProgressLabel, careerDuelTierEntries, type CareerDuelSubject } from '../career/CareerDuelSelection'
 import { type CareerDuelTier, isUnarmedDuelUnlocked, isCareerDuelUnlocked, duelFightBannerVisible } from '../career/CareerDuelState'
 import { DUEL_ARENA_IDS, DUEL_ARENA_LABELS, defaultDuelArenaForFaction, type DuelArenaId } from '../arena/DuelArenaCatalog'
-import { consumeCareerMissionReturnFlag, resolveTownEntryFallbackPoint, sergeantReturnFromResidents, type SergeantReturnPoint } from './SergeantReturn'
+import { consumeCareerMissionReturnFlag, planSergeantReturn, resolveTownEntryFallbackPoint, sergeantReturnFromResidents, SergeantReturnIntent, settleCareerMissionReturn, type SergeantReturnPlan, type SergeantReturnPoint } from './SergeantReturn'
+import { findSafeCareerMountPosition } from '../career/CareerMountController'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { fieldMissionHud, missionPhaseLabel, personalSquadStateLabel, townCommandStateLabel } from '../career/CareerMissionPresentation'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
@@ -440,8 +441,9 @@ export class TownScene {
     this.player = new Player(this.scene, profile.faction, resolveCareerHeroAsset(profile), resolveCareerOrdinaryTier(profile))
     this.bindBlockingProgression()
     this.player.setMaxHp(resolveCareerPlayerMaxHp(profile, DEFAULT_PLAYER_MAX_HP), true)
-    const missionReturnEntry = this.consumeCareerMissionReturnPoint()
-    const townEntry = missionReturnEntry ?? townPlayerEntryPoint()
+    const missionReturn = this.settleCareerMissionReturnPlan()
+    const missionReturnPlan = missionReturn?.status === 'placed' ? missionReturn : null
+    const townEntry = missionReturnPlan?.point ?? townPlayerEntryPoint()
     this.player.group.position.set(townEntry.x, getTerrainHeight(townEntry.x, townEntry.z) + .9, townEntry.z)
     this.player.group.rotation.y = townEntry.yaw
     this.player.faceDirection(Math.sin(townEntry.yaw), Math.cos(townEntry.yaw))
@@ -638,6 +640,7 @@ export class TownScene {
         get player() { return town.player },
         get orbit() { return town.orbit },
         resolveSergeantReturnPoint: () => this.resolveSergeantReturnPoint(),
+        deferSergeantReturn: () => this.deferSergeantReturn(),
         clearCombatShots: () => this.clearMissionCombatShots(),
         restPlayer: options => this.restPlayerInTown(options),
         returnPersonalSquad: direct => this.personalSquad?.endMission(direct),
@@ -648,10 +651,12 @@ export class TownScene {
     await this.restoreActiveCareerMission()
     this.race.restore()
     await this.race.waitForDeployment()
-    this.race.restorePlayer({ preservePlacement: Boolean(missionReturnEntry), dismount: missionReturnEntry?.dismount })
-    if (missionReturnEntry) {
+    // Blocked: keep the saved race state and the one-shot flag untouched; the retry places everything legally.
+    if (missionReturn?.status === 'blocked') this.deferSergeantReturn()
+    else this.race.restorePlayer({ preservePlacement: Boolean(missionReturnPlan), dismount: missionReturnPlan?.dismount, mountPark: missionReturnPlan?.mountPark })
+    if (missionReturnPlan) {
       this.player.syncMountTransform()
-      this.orbit.setYaw(missionReturnEntry.yaw + Math.PI)
+      this.orbit.setYaw(missionReturnPlan.point.yaw + Math.PI)
     }
     if (this.player.dead && this.profile.activeRace) this.enterMissionObserver()
     await this.waitForInitialMissionDeployment(progress)
@@ -1074,6 +1079,7 @@ export class TownScene {
       get player() { return scene.player },
       get orbit() { return scene.orbit },
       resolveSergeantReturnPoint: () => scene.resolveSergeantReturnPoint(),
+      deferSergeantReturn: () => scene.deferSergeantReturn(),
       get profile() { return scene.profile },
       set profile(value) { scene.profile = value },
       get race() { return scene.race },
@@ -2311,17 +2317,52 @@ export class TownScene {
     return sergeantReturnFromResidents(this.residents ?? [], options)
       ?? resolveTownEntryFallbackPoint(townPlayerEntryPoint(), options)
   }
+  private readonly sergeantReturnIntent = new SergeantReturnIntent()
   /** After any formal Career mission, arena duel or race settles, place the player directly in front of the Sergeant. */
-  private consumeCareerMissionReturnPoint(): (SergeantReturnPoint & { dismount: boolean }) | null {
-    if (!consumeCareerMissionReturnFlag()) return null
-    if (this.profile.activeMission || this.profile.activeOutpostMission || this.sceneContext.missionOnlyResidents) return null
-    // A saved race pose may put the player back on a mount; the point must fit that final stance.
-    const race = this.profile.racePlayerState
-    const willMount = Boolean(race?.mounted && !race.dead)
-    const mounted = willMount ? this.resolveSergeantReturnPoint(true) : null
-    if (mounted) return { ...mounted, dismount: false }
-    const walking = this.resolveSergeantReturnPoint(false)
-    return walking ? { ...walking, dismount: willMount } : null
+  private settleCareerMissionReturnPlan(): SergeantReturnPlan | null {
+    if (this.profile.activeMission || this.profile.activeOutpostMission || this.sceneContext.missionOnlyResidents) {
+      consumeCareerMissionReturnFlag()
+      return null
+    }
+    return settleCareerMissionReturn(typeof sessionStorage !== 'undefined' ? sessionStorage : undefined, () => this.planSergeantReturn(true))
+  }
+  /** `useRace`: a saved race pose may put the player back on a mount; every stance and the mount's parking spot are checked. */
+  private planSergeantReturn(useRace: boolean): SergeantReturnPlan {
+    const race = useRace ? this.profile.racePlayerState : undefined
+    return planSergeantReturn({
+      resolve: mounted => this.resolveSergeantReturnPoint(mounted),
+      restoreMounted: Boolean(race?.mounted && !race.dead),
+      hasMount: Boolean(race),
+      findMountPark: point => findSafeCareerMountPosition(new THREE.Vector3(point.x, point.y, point.z), this.world?.obstacles ?? [], [
+        new THREE.Vector3(point.x, point.y, point.z),
+        ...(this.residents ?? []).filter(r => !r.npc.dead).map(r => new THREE.Vector3(r.npc.combatPosition.x, 0, r.npc.combatPosition.z)),
+        ...(this.mounts ?? []).filter(m => !m.dead && !m.disposed).map(m => m.group.position),
+      ]),
+    })
+  }
+  /** No legal Sergeant/backup point yet: keep the intent and retry instead of teleporting to an unchecked spot. */
+  private deferSergeantReturn(): void {
+    this.sergeantReturnIntent.begin(this.player?.group.position ?? townPlayerEntryPoint())
+    this.notice = '士官長前方暫無安全位置；清出空間後將自動重試返回。'
+  }
+  private updateSergeantReturnRetry(dt: number): void {
+    if (!this.sergeantReturnIntent.pending || this.disposed || !this.player) return
+    const here = this.player.group.position
+    const outcome = this.sergeantReturnIntent.tick(dt, here, () => {
+      if (this.profile.activeMission || this.profile.activeOutpostMission || this.player.dead) return false
+      const flagged = settleCareerMissionReturn(typeof sessionStorage !== 'undefined' ? sessionStorage : undefined, () => this.planSergeantReturn(true))
+      const plan = flagged ?? this.planSergeantReturn(false)
+      if (plan.status !== 'placed') return false
+      this.player.group.position.set(plan.point.x, getTerrainHeight(plan.point.x, plan.point.z) + .9, plan.point.z)
+      this.player.group.rotation.y = plan.point.yaw
+      this.player.faceDirection(Math.sin(plan.point.yaw), Math.cos(plan.point.yaw))
+      if (flagged) this.race?.restorePlayer({ preservePlacement: true, dismount: plan.dismount, mountPark: plan.mountPark })
+      this.player.syncMountTransform()
+      this.orbit.setYaw(plan.point.yaw + Math.PI)
+      this.notice = ''
+      return true
+    })
+    if (outcome === 'abandoned') { consumeCareerMissionReturnFlag(); this.notice = '' }
   }
 
   private openDuelPage(panel: HTMLElement): void {
@@ -4143,6 +4184,7 @@ export class TownScene {
       this.refreshCombatMounts()
     }
     this.updatePlayerCommands()
+    this.updateSergeantReturnRetry(dt)
     if (!this.spectator) this.orbit.update(this.input, dt, this.world.obstacles)
     if (!this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw,
       this.orbit.getAimPoint(new THREE.Vector3()), this.player.currentMount?.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles, this.stamina,

@@ -134,6 +134,8 @@ export interface ActiveCareerMission {
   mountedMarchPosition?: { x: number; z: number }
   followVoicePlayed?: boolean
   sweepAlerted?: boolean
+  /** Migrated field battles: the one-shot friendly charge (60m / bandit alert) has been ordered. Independent of deployment-ready and camp alert. */
+  fieldFriendlyCharge?: boolean
   routeStage?: number
   patrolStage?: number
   defenseElapsed?: number

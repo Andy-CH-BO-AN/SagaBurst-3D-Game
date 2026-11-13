@@ -4,9 +4,13 @@ import {
   CAREER_MISSION_RETURN_KEY,
   consumeCareerMissionReturnFlag,
   markCareerMissionReturnToSergeant,
+  planSergeantReturn,
+  peekCareerMissionReturnFlag,
   resolveSergeantReturnPoint,
   resolveTownEntryFallbackPoint,
+  SergeantReturnIntent,
   sergeantReturnFromResidents,
+  settleCareerMissionReturn,
 } from '../../src/town/SergeantReturn'
 import { DUEL_ARENA_RETURN_KEY } from '../../src/arena/DuelArenaReturn'
 import { townRoster, townSitePoint } from '../../src/town/TownRules'
@@ -126,5 +130,46 @@ describe('Sergeant return contract', () => {
       terrainHeight: () => 1.5,
     })
     expect(allBlocked).toBeNull()
+  })
+
+  it('keeps the return flag and intent while every point is blocked, then places once a legal point opens', () => {
+    const storage = memorySessionStorage()
+    markCareerMissionReturnToSergeant(storage)
+    let open = false
+    const point = { x: 60, y: 0, z: 1.5, yaw: Math.PI }
+    const plan = () => planSergeantReturn({
+      resolve: () => (open ? point : null), restoreMounted: false, hasMount: false, findMountPark: () => null,
+    })
+    expect(settleCareerMissionReturn(storage, plan)).toEqual({ status: 'blocked' })
+    expect(peekCareerMissionReturnFlag(storage)).toBe(true)
+
+    const intent = new SergeantReturnIntent()
+    intent.begin({ x: 60, z: 2 })
+    let attempts = 0
+    const attempt = () => { attempts++; return settleCareerMissionReturn(storage, plan)?.status === 'placed' }
+    expect(intent.tick(0.2, { x: 60, z: 2 }, attempt)).toBe('waiting')
+    expect(attempts).toBe(0)
+    expect(intent.tick(0.4, { x: 60, z: 2 }, attempt)).toBe('waiting')
+    open = true
+    expect(intent.tick(0.5, { x: 60, z: 2 }, attempt)).toBe('placed')
+    expect(peekCareerMissionReturnFlag(storage)).toBe(false)
+    expect(intent.pending).toBe(false)
+    expect(intent.tick(1, { x: 60, z: 2 }, attempt)).toBe('idle')
+    expect(attempts).toBe(2)
+  })
+
+  it('treats a walkable point with no legal mount parking as blocked instead of dropping the mount at the player', () => {
+    const walking = { x: 60, y: 0, z: 1.5, yaw: 0 }
+    const base = { resolve: (mounted: boolean) => (mounted ? null : walking), restoreMounted: true, hasMount: true }
+    expect(planSergeantReturn({ ...base, findMountPark: () => null })).toEqual({ status: 'blocked' })
+    expect(planSergeantReturn({ ...base, findMountPark: () => ({ x: 63, z: 1 }) })).toEqual({
+      status: 'placed', point: walking, dismount: true, mountPark: { x: 63, z: 1 } })
+  })
+
+  it('stops retrying and reports abandonment when the player walks away from the blocked spot', () => {
+    const intent = new SergeantReturnIntent()
+    intent.begin({ x: 0, z: 0 })
+    expect(intent.tick(1, { x: 30, z: 0 }, () => true)).toBe('abandoned')
+    expect(intent.pending).toBe(false)
   })
 })

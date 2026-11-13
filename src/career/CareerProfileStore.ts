@@ -581,6 +581,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     ...(mountedMarchPosition ? { mountedMarchPosition } : {}),
     followVoicePlayed: raw.followVoicePlayed === true,
     sweepAlerted: raw.sweepAlerted === true,
+    fieldFriendlyCharge: raw.fieldFriendlyCharge === true,
     routeStage: nonNegativeInteger(raw.routeStage),
     patrolStage: nonNegativeInteger(raw.patrolStage),
     defenseElapsed: nonNegativeNumber(raw.defenseElapsed),

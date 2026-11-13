@@ -3,7 +3,7 @@ import { createCareerProfile, claimCareerMission } from '../../src/career/Career
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { createActiveCareerMission, type CareerMissionKind } from '../../src/career/CareerMissionState'
 import { getRecruitMissionTemplate, RECRUIT_MISSION_CATALOG, RETIRED_RECRUIT_PATROL_IDS } from '../../src/career/CareerMissionCatalog'
-import { isCareerFelineBattle, createCareerFelineBattleLaunch, createCareerFelineSpawnPlan, careerFieldTacticalOrder } from '../../src/career/CareerBridgeBattle'
+import { isCareerFelineBattle, createCareerFelineBattleLaunch, createCareerFelineOrphanMountPlan, createCareerFelineSpawnPlan, careerFieldTacticalOrder } from '../../src/career/CareerBridgeBattle'
 import { acceptCavalrySweep, acceptCaptainCavalryCommand, CAVALRY_SWEEP_ID } from '../../src/career/CavalrySweep'
 import { CAPTAIN_PATROL_COMMAND_ID } from '../../src/career/CaptainMissionCatalog'
 import { COMMANDER_DECAPITATION_ID, COMMANDER_SKY_RAID_ID } from '../../src/career/CommanderMissionCatalog'
@@ -380,6 +380,46 @@ describe('Phase 2B migrated career field battles', () => {
     expect(seed.actors[deadId]).toMatchObject({ status: 'dead', hp: 0 })
     expect(seed.actors[untouchedId].status).toBe('reserve')
     expect(active.officialSquad!.actorIds).toHaveLength(29)
+  })
+
+  test('legacy Captain II orphan mount spawns at the field spawn from the migrated checkpoint on every reload', () => {
+    const captain = createCareerProfile('roman')
+    captain.rank = 'captain'
+    captain.ownedMounts = ['horse']
+    captain.selectedMountId = 'horse'
+    const accepted = acceptCaptainCavalryCommand(captain, 'cap-orphan', ['captain', ...Array.from({ length: 58 }, () => undefined)])!
+    const active = accepted.activeMission!
+    const riderId = active.officialSquad!.actorIds[2]
+    const townPoint = { x: 999, y: 7, z: 998, yaw: 2 }
+    active.officialSquad!.members = {
+      [riderId]: { status: 'dead', hp: 0, position: townPoint, mount: { hp: 61, armorImpactRemaining: 7, mounted: false, position: townPoint } },
+    }
+    const spec = createCareerFieldDeployment(accepted).plan.npcSpecs.find(entry => entry.actorId === riderId)!
+    active.felineBattle = createCareerFieldCheckpointSeed(active, createCareerFieldDeployment(accepted).plan, {
+      hp: 130, maxHp: 130, stamina: 100, x: 0, y: 0, z: 0, yaw: 0, ammo: 0, shieldImpact: 0,
+      stats: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
+    }, () => 0)
+    for (let reload = 0; reload < 2; reload++) {
+      const orphan = createCareerFelineOrphanMountPlan(accepted).find(entry => entry.actorId === riderId)
+      expect(orphan?.saved).toMatchObject({ hp: 61, armorImpactRemaining: 7, mounted: false, position: { x: spec.x, z: spec.z } })
+      expect(orphan?.saved.position.x).not.toBe(townPoint.x)
+    }
+  })
+
+  test('friendly charge follows the persisted one-shot flag, never deployment-ready ENGAGING phase', () => {
+    const captain = createCareerProfile('roman')
+    captain.rank = 'captain'
+    captain.ownedMounts = ['horse']
+    captain.selectedMountId = 'horse'
+    const captainMission = acceptCaptainCavalryCommand(captain, 'cap-charge', ['captain', ...Array.from({ length: 58 }, () => undefined)])!.activeMission!
+    expect(captainMission.kind).toBe('cavalry-sweep')
+    for (const mission of [createBanditActive('recruit-bandits-01'), captainMission]) {
+      mission.phase = 'ENGAGING'
+      mission.sweepAlerted = true
+      expect(careerFieldTacticalOrder(mission, Faction.PLAYER)).not.toBe('charge')
+      mission.fieldFriendlyCharge = true
+      expect(careerFieldTacticalOrder(mission, Faction.PLAYER)).toBe('charge')
+    }
   })
 
   test('first field checkpoint keeps the skill-adjusted HP pool and clamps legacy HP against it', () => {

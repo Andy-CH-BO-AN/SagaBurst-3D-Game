@@ -59,6 +59,8 @@ interface TownReturnScene {
   readonly player: Pick<Player, 'group'> & Partial<Pick<Player, 'faceDirection'>>
   orbit?: { setYaw(yaw: number): void }
   resolveSergeantReturnPoint?: () => SergeantReturnPoint | null
+  /** No legal return point: keep the intent and retry later. */
+  deferSergeantReturn?: () => void
   clearCombatShots(): void
   restPlayer(options?: { persistMount?: boolean }): void
   returnPersonalSquad?(direct: boolean): void
@@ -211,6 +213,7 @@ export class TownMissionSettlement {
     // spot they already stand on instead of teleporting to an unchecked fallback.
     const resolver = this.town.resolveSergeantReturnPoint
     const entry = resolver ? resolver.call(this.town) : sergeantReturnFromResidents(this.town.residents) ?? townPlayerEntryPoint()
+    if (!entry && completed) this.town.deferSergeantReturn?.()
     if (entry && (active.kind === 'cavalry-sweep' || veteranField || active.kind === 'captain-patrol-command')) {
       // Captain I walk-back (phase RETURNING) also ends in front of the Sergeant once saved.
       this.town.player.group.position.set(entry.x, getTerrainHeight(entry.x, entry.z) + .9, entry.z)

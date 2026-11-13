@@ -29,7 +29,7 @@ import { CorgiVisual } from './world/CorgiVisual'
 import { careerHeavyPreloadPlan } from './career/HeavyCavalrySpawn'
 import { COMMANDER_IRON_LEGION_ID } from './career/HeavyCavalryMissions'
 import { createHeavyFieldDeployment, getHeavyFieldMissionDefinition, isCareerHeavyFieldBattle, type HeavyFieldDeployment } from './career/HeavyFieldMission'
-import { createCareerFieldCheckpointSeed, createCareerFieldDeployment, FIELD_BANDIT_DETECTION_RANGE, FIELD_SWEEP_CHARGE_DISTANCE, findVeteranSquadsInRange, isCareerFieldNoCommandMission, isMigratedCareerFieldMission, isMigratedFieldDeploymentReady, resolveFieldDamagedTargetId, resolveMigratedPlayerMountState, shouldTriggerSweepAlert, type CareerFieldDeployment } from './career/CareerFieldBattle'
+import { createCareerFieldCheckpointSeed, createCareerFieldDeployment, FIELD_BANDIT_DETECTION_RANGE, FIELD_SWEEP_CHARGE_DISTANCE, findVeteranSquadsInRange, isCareerFieldNoCommandMission, isMigratedCareerFieldMission, isMigratedFieldDeploymentReady, resolveFieldActorCheckpoint, resolveFieldDamagedTargetId, resolveMigratedPlayerMountState, shouldTriggerSweepAlert, type CareerFieldDeployment } from './career/CareerFieldBattle'
 import { createCampfireVisual } from './world/EnvironmentVisuals'
 import { createCaltropBarrier } from './world/CaltropBarrier'
 import { HEAVY_FIELD_SPECS, VETERAN_IRON_TIDE_ID, heavyCommandPlan, isHeavyFormationComplete, heavyFrontlineDistance, planVeteranCaltropDefense, veteranCaltropWorldRects, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, type HeavyPoint } from './career/HeavyCavalryMissions'
@@ -2734,6 +2734,7 @@ export class Game {
         npc.setTacticalOrder('charge')
       }
     }
+    if (this.careerFieldDeployment?.kind === 'bandit') mission.fieldFriendlyCharge = true
   }
 
   private _activateMigratedVeteranSquad(mission: ActiveCareerMission, squadId: number): boolean {
@@ -2831,11 +2832,14 @@ export class Game {
 
   /** Charge is a state transition: only actors not already charging get the (path-resetting) order. */
   private _issueMigratedFieldCharge(mission: ActiveCareerMission, friendlyIds: ReadonlySet<string>): void {
+    if (mission.fieldFriendlyCharge) return
+    mission.fieldFriendlyCharge = true
     for (const npc of this.npcs) {
       if (npc.dead || !friendlyIds.has(npc.combatantId) || npc.tacticalOrder === 'charge') continue
       if (officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) continue
       npc.setTacticalOrder('charge')
     }
+    this._persistHeavyState('友軍已發動衝鋒；狀態將隨下次戰場存檔重試。')
   }
 
   /** The mission-wide order of one heavy-cavalry actor; formation holds use real formation targets. */
@@ -3143,10 +3147,7 @@ export class Game {
     const batch = this._newSpawnBatch()
     this.captainEagleSpawnBatch = batch
     for (const spec of plan.npcSpecs) {
-      // Migrated open-field battles own their roster in `felineBattle.actors` (seeded with the
-      // field spawn and carrying legacy resources); Town-space officialSquad.members must not win.
-      const official = this.careerFieldDeployment ? undefined : mission.officialSquad?.members?.[spec.actorId!]
-      const actor = official?.status !== 'reserve' ? official ?? saved.actors[spec.actorId!] : saved.actors[spec.actorId!] ?? official
+      const actor = resolveFieldActorCheckpoint(mission, spec.actorId!, saved.actors[spec.actorId!])
       if (actor?.status === 'dead' || actor?.hp === 0) continue
       batch.enqueue(spec.actorId!, () => {
         const npc = this._spawnNpc(spec)

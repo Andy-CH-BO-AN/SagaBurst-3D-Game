@@ -47,6 +47,8 @@ export interface TownProfileCommitRuntime {
   player?: Pick<Player, 'dead' | 'hp' | 'staminaValue' | 'shield'> & Partial<Pick<Player, 'faceDirection'>> & Parameters<typeof captureCareerAerialState>[0]
   orbit?: { setYaw(yaw: number): void }
   resolveSergeantReturnPoint?: () => SergeantReturnPoint | null
+  /** No legal return point: keep the intent and retry later. */
+  deferSergeantReturn?: () => void
   residents: readonly TownCombatResident[]
   world: { faction: CareerProfile['faction'] }
   sceneContext: { missionOnlyResidents: boolean }
@@ -325,6 +327,7 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
       } else {
         const here = runtime.player.group.position
         runtime.player.resetForScene(here.x, here.y, here.z)
+        runtime.deferSergeantReturn?.()
       }
     } else runtime.player.setHp(runtime.player.maxHp)
   }

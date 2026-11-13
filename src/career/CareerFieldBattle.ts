@@ -483,11 +483,11 @@ export function careerFieldInitialTacticalOrder(
   if (!isMigratedCareerFieldMission(mission)) return faction === Faction.PLAYER ? 'defend' : 'attack'
   if (mission.kind === 'bandit') {
     if (faction !== Faction.PLAYER) return 'defend'
-    return mission.phase === 'ENGAGING' ? 'charge' : 'defend'
+    return mission.fieldFriendlyCharge ? 'charge' : 'defend'
   }
   if (mission.kind === 'cavalry-sweep') {
     if (faction !== Faction.PLAYER) return mission.sweepAlerted ? 'charge' : 'defend'
-    return mission.phase === 'ENGAGING' ? 'charge' : 'attack'
+    return mission.fieldFriendlyCharge ? 'charge' : 'attack'
   }
   // Veteran field: friendly riders advance/attack; enemy squads hold ambush until engaged.
   return faction === Faction.PLAYER ? 'attack' : 'defend'
@@ -498,6 +498,20 @@ export function isCareerFieldTargetSpec(
   actorId: string | undefined,
 ): boolean {
   return Boolean(actorId && mission.targetActorIds.includes(actorId))
+}
+
+/**
+ * One actor record for riders and orphaned mounts alike. Migrated open-field battles own their
+ * spatial state in `felineBattle.actors` (seeded from the field spawn); Town-space
+ * `officialSquad.members` coordinates must never win, on first load or on any later reload.
+ */
+export function resolveFieldActorCheckpoint(
+  mission: Pick<ActiveCareerMission, 'templateId' | 'kind' | 'officialSquad' | 'felineBattle'>,
+  actorId: string,
+  field: CaptainEagleCheckpoint['actors'][string] | undefined = mission.felineBattle?.actors[actorId],
+): CaptainEagleCheckpoint['actors'][string] | undefined {
+  const official = isMigratedCareerFieldMission(mission) ? undefined : mission.officialSquad?.members?.[actorId]
+  return official?.status !== 'reserve' ? official ?? field : field ?? official
 }
 
 export function isMigratedFieldDeploymentReady(
