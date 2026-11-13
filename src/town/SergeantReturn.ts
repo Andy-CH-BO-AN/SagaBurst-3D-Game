@@ -231,27 +231,37 @@ export class SergeantReturnIntent {
 
 export interface MountParkingOptions {
   obstacles?: readonly ObstacleData[]
-  /** Everything that already stands there: residents, other mounts, the player's own arrival point. */
-  occupied?: readonly { x: number; z: number }[]
+  /** Everything that already stands there. `radius` is its body radius; omitted means a ground mount (1.05m). */
+  occupied?: readonly { x: number; z: number; radius?: number }[]
+  /** Body radius of the mount being parked; a large mount needs a correspondingly larger clear spot. */
+  radius?: number
   terrainHeight?: (x: number, z: number) => number
   isValid?: (point: { x: number; z: number }) => boolean
 }
 
+const DEFAULT_MOUNT_RADIUS = 1.05
+
+/** One clearance test for keeping a mount where it stands and for choosing a new spot: static obstacles plus every occupant's own radius. */
+export function isMountParkingClear(point: { x: number; z: number }, options: MountParkingOptions = {}): boolean {
+  const terrainHeight = options.terrainHeight ?? getTerrainHeight
+  const radius = options.radius ?? DEFAULT_MOUNT_RADIUS
+  if (Math.max(Math.abs(point.x), Math.abs(point.z)) > DEFAULT_WORLD_BOUND) return false
+  const y = terrainHeight(point.x, point.z)
+  const blocked = (options.obstacles ?? []).some(obstacle => !obstacle.navigationPassable
+    && obstacle.box.max.y > y + 0.35 && obstacle.box.min.y < y + 2.6
+    && point.x > obstacle.box.min.x - 1.05 && point.x < obstacle.box.max.x + 1.05 && point.z > obstacle.box.min.z - 1.05 && point.z < obstacle.box.max.z + 1.05)
+  if (blocked) return false
+  if ((options.occupied ?? []).some(other => Math.hypot(other.x - point.x, other.z - point.z) < (other.radius ?? DEFAULT_MOUNT_RADIUS) + radius)) return false
+  return !options.isValid || options.isValid(point)
+}
+
 /** A legal place to leave an unridden mount near `origin`; null when the surroundings leave none. */
 export function findMountParkingPoint(origin: { x: number; z: number }, options: MountParkingOptions = {}): { x: number; z: number } | null {
-  const terrainHeight = options.terrainHeight ?? getTerrainHeight
-  for (const radius of [2.4, 4.0, 5.6]) {
+  for (const ring of [2.4, 4.0, 5.6, 8.0, 11.0]) {
     for (let index = 0; index < 12; index++) {
       const angle = index / 12 * Math.PI * 2
-      const x = origin.x + Math.sin(angle) * radius, z = origin.z + Math.cos(angle) * radius
-      const y = terrainHeight(x, z)
-      if (Math.max(Math.abs(x), Math.abs(z)) > DEFAULT_WORLD_BOUND) continue
-      const blocked = (options.obstacles ?? []).some(obstacle => !obstacle.navigationPassable
-        && obstacle.box.max.y > y + 0.35 && obstacle.box.min.y < y + 2.6
-        && x > obstacle.box.min.x - 1.05 && x < obstacle.box.max.x + 1.05 && z > obstacle.box.min.z - 1.05 && z < obstacle.box.max.z + 1.05)
-      if (blocked || (options.occupied ?? []).some(other => Math.hypot(other.x - x, z - other.z) < 2.1)
-        || (options.isValid && !options.isValid({ x, z }))) continue
-      return { x, z }
+      const point = { x: origin.x + Math.sin(angle) * ring, z: origin.z + Math.cos(angle) * ring }
+      if (isMountParkingClear(point, options)) return point
     }
   }
   return null

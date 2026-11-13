@@ -589,7 +589,7 @@ export class TownScene {
     this.initializeCareerMounts()
     this.race = new CareerRaceController(this.scene, this.navigation, this.world.obstacles, this.residents,
       () => this.player, this.hp, this.careerMounts, () => this.profile, p => this.commit(p, this.player.dead && this.profile.activeRace && !p.activeRace ? 'grounded-return' : 'ordinary'))
-    this.race.parkedBlockers = () => this.townReturnBlockers()
+    this.race.parkedBlockers = except => [...this.townReturnBlockers(except)]
     this.missionCombat = new TownMissionCombat(
       { field: this.mission, duel: this.duel, defense: this.defense },
       {
@@ -2311,18 +2311,25 @@ export class TownScene {
       ?? resolveTownEntryFallbackPoint(townPlayerEntryPoint(), options)
   }
   /** Residents, unridden mounts and (DEV QA only) injected blockers all count as occupied floor. */
-  private townReturnBlockers(): { x: number; z: number; radius: number }[] {
+  private townReturnBlockers(except?: Mount | null): { x: number; z: number; radius: number }[] {
     return [
       ...(this.residents ?? []).filter(r => !r.npc.dead && r.spec.id !== 'deployment').map(r => ({
         x: r.npc.combatPosition.x, z: r.npc.combatPosition.z, radius: r.npc.mount ? 1.5 : 0.7,
       })),
-      ...this.townParkedMountBlockers(),
+      ...(except === undefined ? this.townParkedMountBlockers() : this.townParkedMountBlockers(except)),
       ...(import.meta.env.DEV ? (window as unknown as { __townQaBlockers?: () => { x: number; z: number; radius: number }[] }).__townQaBlockers?.() ?? [] : []),
     ]
   }
-  /** Unridden mounts stand on the floor and block arrivals; the player's own current mount is excluded. */
-  private townParkedMountBlockers(): { x: number; z: number; radius: number }[] {
-    return (this.mounts ?? []).filter(m => !m.dead && !m.disposed && !m.riderNpc && m !== this.player?.currentMount).map(m => ({
+  /**
+   * Every mount standing in Town, whoever owns it (stable, garrison eagles, personal squad, outskirts, patrols, temporary),
+   * by its own body radius. Only the one being planned is excluded, by identity.
+   */
+  private townParkedMountBlockers(except: Mount | null | undefined = this.player?.currentMount): { x: number; z: number; radius: number }[] {
+    const raceOwn = new Set<Mount>(this.race?.allMounts ?? [])
+    const all = new Set<Mount>([...(this.mounts ?? []), ...(this.combatMounts ?? []), ...(this.personalSquad?.mounts ?? []), ...(this.outskirts?.mounts ?? []),
+      ...(this.enemyEaglePatrol?.mounts ?? []), ...(this.defense?.enemyMounts ?? []), ...(this.temporaryMounts?.all ?? []),
+      ...(this.residents ?? []).flatMap(r => [r.homeMount, r.npc.mount].filter((m): m is Mount => Boolean(m)))])
+    return [...all].filter(m => !m.dead && !m.disposed && !m.riderNpc && m !== except && !raceOwn.has(m)).map(m => ({
       x: m.group.position.x, z: m.group.position.z, radius: m.combatRadius,
     }))
   }
@@ -2346,7 +2353,7 @@ export class TownScene {
       restoreMounted: Boolean(race?.mounted && !race.dead),
       hasMount: Boolean(race),
       findMountPark: point => findMountParkingPoint(point, { obstacles: this.world?.obstacles, terrainHeight: getTerrainHeight,
-        occupied: [point, ...(this.residents ?? []).filter(r => !r.npc.dead).map(r => r.npc.combatPosition), ...this.townReturnBlockers()] }),
+        occupied: [{ x: point.x, z: point.z, radius: 0.75 }, ...(this.residents ?? []).filter(r => !r.npc.dead).map(r => ({ x: r.npc.combatPosition.x, z: r.npc.combatPosition.z, radius: 1.0 })), ...this.townReturnBlockers()] }),
     })
   }
   /** No legal Sergeant/backup point yet: keep the intent and retry instead of teleporting to an unchecked spot. */
@@ -2550,6 +2557,7 @@ export class TownScene {
     if (!this.race?.clear(direct)) { this.notice = this.race?.error || '返回狀態保存失敗，請重試。'; return }
     if (pendingTownResult) { this.showTownResult(pendingTownResult); return }
     const saved = this.profile.racePlayerState!
+    const parked = this.player.currentMount ?? this.careerMounts.activeMount
     if (dead) {
       // Recover only the player, without rebuilding/refitting the Town or ending hostility.
       this.player.resetForScene(saved.position.x, saved.position.y, saved.position.z)
@@ -2562,15 +2570,14 @@ export class TownScene {
         mount.group.rotation.y = saved.mountPosition.yaw
         this.player.syncMountTransform()
       } else {
-        const parked = mount ?? this.careerMounts.activeMount
         if (mount) this.player.dismountFromMount({ preserveWorldPosition: true })
         this.player.setPosition(saved.position.x, saved.position.y, saved.position.z)
-        // The saved parking spot was proven legal before the save; the mount never stays under the player.
-        if (parked && !saved.mounted && saved.mountPosition) {
-          parked.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
-          parked.group.rotation.y = saved.mountPosition.yaw
-        }
       }
+    }
+    // Dead or alive, the proven parking spot reaches the live mount, so the next Town save reads the same place.
+    if (parked && !saved.mounted && saved.mountPosition) {
+      parked.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
+      parked.group.rotation.y = saved.mountPosition.yaw
     }
     this.player.faceDirection(Math.sin(saved.position.yaw), Math.cos(saved.position.yaw))
     this.orbit.setYaw(saved.position.yaw + Math.PI)
