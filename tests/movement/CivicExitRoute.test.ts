@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { civicHallFromPlan } from '../../src/navigation/CivicExitRoute'
+import { CIVIC_EXIT_STALL_FRAMES, civicHallFromPlan } from '../../src/navigation/CivicExitRoute'
 import { LayeredNavigationRoute, type LayeredNavigationRequest } from '../../src/navigation/LayeredNavigationRoute'
 import { NavigationPathFollower, type NavigationRouteKind } from '../../src/navigation/NavigationPathFollower'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
@@ -53,10 +53,10 @@ function civicObstacles(spec: BuildingSpec, groundY: number): ObstacleData[] {
 
 interface Rig { obstacles: ObstacleData[]; world: NavigationWorld; spec: BuildingSpec; groundY: number; threshold: THREE.Vector3; outward: THREE.Vector3 }
 
-function townCenterRig(faction: ArchitectureFaction, civicExit: boolean): Rig {
+function townCenterRig(faction: ArchitectureFaction, civicExit: boolean, extra: ObstacleData[] = []): Rig {
   const spec = architectureSpec(faction, 'town-center')
   const groundY = getTerrainHeight(SITE.x, SITE.z)
-  const obstacles = civicObstacles(spec, groundY)
+  const obstacles = [...civicObstacles(spec, groundY), ...extra]
   const world = new NavigationWorld({ minX: SITE.x - 60, maxX: SITE.x + 60, minZ: SITE.z - 60, maxZ: SITE.z + 60 })
   world.sync(obstacles)
   if (civicExit) world.setCivicHalls([civicHallFromPlan('town-center', spec, SITE, groundY + spec.floorY)])
@@ -140,11 +140,29 @@ describe('mounted civic exit from the Town Center', () => {
     }
   })
 
-  it('viking: a commander post enclosed for a radius-1 body reports blocked instead of pathing into a gap it cannot pass', () => {
+  it('viking: the commander post, in front of the front-row posts on the right, rides out the front door to enemies in front, beside and behind', () => {
     const rig = townCenterRig('viking', true)
+    const start = mountedAt(rig, 'service:commander')
+    for (const [name, goal] of Object.entries(outsideGoals(rig))) {
+      const trip = ride(rig, start, goal)
+      expect(trip.reached, `viking commander ${name}: stopped=${trip.stopped} frames=${trip.frames}`).toBe(true)
+      expect(trip.crossedDoor, `viking commander ${name}: must pass the threshold first`).toBe(true)
+    }
+  })
+
+  it('a sealed front doorway stops the exit as unreachable after the stall guard, so ordinary target fallback runs', () => {
+    const probe = townCenterRig('viking', true)
+    const e = probe.spec.entrance
+    const center = architectureLocalToWorld(SITE, e.x, e.z - .4)
+    const ground = getTerrainHeight(center.x, center.z)
+    const barricade: ObstacleData = { box: new THREE.Box3(new THREE.Vector3(center.x - e.doorWidth / 2 - .2, ground - .6, center.z - .8),
+      new THREE.Vector3(center.x + e.doorWidth / 2 + .2, ground + probe.spec.floorY + 3, center.z + .8)), isBarricade: true }
+    const rig = townCenterRig('viking', true, [barricade])
     const trip = ride(rig, mountedAt(rig, 'service:commander'), outsideGoals(rig).front)
     expect(trip.reached).toBe(false)
-    expect(trip.stopped, `frames=${trip.frames}`).toBe('unreachable')
     expect(trip.crossedDoor).toBe(false)
+    expect(trip.stopped, `frames=${trip.frames}`).toBe('unreachable')
+    // Planning succeeded; only the stall guard can stop it, after its frame budget.
+    expect(trip.frames).toBeGreaterThan(CIVIC_EXIT_STALL_FRAMES)
   })
 })

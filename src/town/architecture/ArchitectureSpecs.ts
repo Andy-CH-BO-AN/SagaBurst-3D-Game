@@ -405,7 +405,7 @@ function vikingTownCenter(): BuildingSpec {
     })
   }
   // The Sergeant stands before the long hearth; Captain and Commander between the post rows.
-  const service = serviceAnchors({ captain: [-6.3, -2.8], deployment: [0, -.8], commander: [6.3, -2.8] })
+  const service = serviceAnchors({ captain: [-6.3, -2.8], deployment: [0, -.8], commander: [2.7, 1.6] })
   const gathering: ArchitectureAnchor[] = []
   for (const side of [-1, 1]) for (const [x, z] of [[6.3, -2.8], [6.3, -6.8], [3.0, 1.2], [9.3, 1.3], [9.6, -2.8], [2.8, -6.6], [2.8, 5.5], [2.8, 7.6]] as const)
     gathering.push({ id: `hall-${side < 0 ? 'w' : 'e'}-${x}-${z}`, x: side * x, z, yaw: -side * Math.PI / 2, role: 'npc' })
