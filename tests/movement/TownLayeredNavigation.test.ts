@@ -2,10 +2,9 @@ import * as THREE from 'three'
 import { expect, it } from 'vitest'
 import { AvailableBreachEntrances, type BreachEntrance } from '../../src/navigation/AvailableBreachEntrances'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
+import { gatehousePoint } from '../../src/town/TownGatehouse'
 import { getTownRampartLayout, townRampartHeight, type TownRampartLayout } from '../../src/town/TownRamparts'
-import {
-  getTerrainHeight
-} from '../../src/world/Terrain'
+import { getTerrainHeight, getWalkRampHeight } from '../../src/world/Terrain'
 
 it('releases a descended Town actor to ground travel instead of recapturing the ramp entrance', () => {
   const layout = getTownRampartLayout(), nav = new TownLayeredNavigation(layout)
@@ -175,3 +174,33 @@ function eastRamp(id: string, z: number): BreachEntrance {
     exit: new THREE.Vector3(148, 10, z), surface, bridgeSurface: { ...surface, startX: 152, startY: 10, length: 4, landing: 0 },
     faction: null, walkable: true, mounted: true, connectionId: id }
 }
+
+it('從城牆走進門樓、跨過門洞上層，再從另一側回到城牆', () => {
+  const layout = getTownRampartLayout(), nav = new TownLayeredNavigation(layout), out = new THREE.Vector3()
+  for (const house of layout.gatehouses!) {
+    const [left, right] = house.links
+    const current = left.entry.clone(), goal = gatehousePoint(house.gate, 0, 2, house.floorY)
+    const support = [house.deck, ...house.links.map(link => link.surface)]
+    const walkTo = (target: THREE.Vector3) => {
+      for (let i = 0; i < 120 && current.distanceToSquared(target) > .0025; i++) {
+        expect(nav.resolveMoveTarget(current, target, out, null, true)?.ground, house.gate.id).toBe(false)
+        const distance = Math.hypot(out.x - current.x, out.z - current.z)
+        expect(distance, house.gate.id).toBeGreaterThan(.001)
+        current.lerp(out, Math.min(.4 / distance, 1))
+        const y = [...support.map(surface => getWalkRampHeight(surface, current.x, current.z)),
+          townRampartHeight(layout, current.x, current.z)].filter((value): value is number => value !== null)
+        expect(y.length, house.gate.id).toBeGreaterThan(0)
+        current.y = Math.max(...y)
+      }
+      expect(current.distanceTo(target), house.gate.id).toBeLessThanOrEqual(.05)
+    }
+    walkTo(goal)
+    nav.clampFollow(out, goal, 0, true)
+    expect(out.y).toBe(goal.y)
+    expect(nav.isElevated(out)).toBe(true)
+    walkTo(right.junction)
+    walkTo(right.entry)
+    const below = gatehousePoint(house.gate, 0, .5, house.groundY)
+    expect(nav.isElevated(below)).toBe(false)
+  }
+})

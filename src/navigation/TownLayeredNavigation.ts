@@ -5,6 +5,7 @@ import { crossingGateBreach, gateBreachLane, gateBreachProgress, hasClearedGateB
 import { AvailableBreachEntrances, type BreachEntrance } from './AvailableBreachEntrances'
 import { TOWN_CITY, TOWN_GATES, TOWN_GATE_ASSAULT_APPROACH, townGatePoint, type TownGateId } from '../town/TownLayout'
 import { getTerrainHeight, getWalkRampHeight, type ObstacleData } from '../world/Terrain'
+import { gatehouseLocal, gatehousePoint, gatehouseSection, TOWN_GATEHOUSE, type TownGatehouse } from '../town/TownGatehouse'
 import { townRampartHeight, type TownRamp, type TownRampartLayout } from '../town/TownRamparts'
 
 import type { CampaignGateController } from '../campaign/CampaignGate'
@@ -70,6 +71,7 @@ export class TownLayeredNavigation {
     return this.layout.ramps.find(r => { const y = getWalkRampHeight(r.surface, p.x, p.z); return y !== null && Math.abs(p.y - y) < 1.1 })
   }
   isElevated(p: THREE.Vector3): boolean {
+    if (this.gatehouseAt(p)) return true
     const y = townRampartHeight(this.layout, p.x, p.z)
     return y !== null && Math.abs(p.y - y) < 1.3
   }
@@ -104,12 +106,80 @@ export class TownLayeredNavigation {
     if (Math.hypot(a.point.x - current.x, a.point.z - current.z) > 1) { out.copy(a.point); return }
     out.copy(this.pointAt(a.distance + Math.sign(delta) * Math.min(3, Math.abs(delta))))
   }
+  private gatehouseAt(p: THREE.Vector3): { house: TownGatehouse; section: NonNullable<ReturnType<typeof gatehouseSection>> } | null {
+    for (const house of this.layout.gatehouses ?? []) {
+      const section = gatehouseSection(house, p)
+      if (section !== null) return { house, section }
+    }
+    return null
+  }
+  /** Leave a gallery via its real link, then reuse the existing ring to reach
+   * other gates, stairs or live siege docks. Keep ordinary ring travel on the ring. */
+  private alongElevated(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3): TownNavigationStep {
+    const from = this.gatehouseAt(current), to = this.gatehouseAt(goal)
+    if (!from && !to) { this.alongRing(current, goal, out); return { ground: false } }
+    const near = (a: THREE.Vector3, b: THREE.Vector3) => Math.hypot(a.x - b.x, a.z - b.z) <= .2
+    const nearest = (house: TownGatehouse, p: THREE.Vector3) =>
+      house.links[gatehouseLocal(house.gate, p).x < 0 ? 0 : 1]
+    if (from) {
+      const sameHouse = to?.house === from.house
+      if (from.section === 'gallery') {
+        const local = gatehouseLocal(from.house.gate, current)
+        const leaving = !sameHouse || to.section !== 'gallery'
+        const link = sameHouse && to.section !== 'gallery' ? from.house.links.find(l => l.side === to.section)! : nearest(from.house, goal)
+        const aligned = Math.abs(local.x - link.side * TOWN_GATEHOUSE.towerCenter) <= .2 && local.z <= TOWN_GATEHOUSE.galleryCenter + .2
+        const arrivalLink = nearest(from.house, current)
+        const inThreshold = local.z < 1.25 && Math.abs(local.x - arrivalLink.side * TOWN_GATEHOUSE.towerCenter) < 1.1
+        if (leaving && aligned) out.copy(sameHouse ? goal : link.entry)
+        else if (inThreshold && (!sameHouse || to.section !== 'gallery' ||
+          Math.abs(gatehouseLocal(from.house.gate, goal).x - arrivalLink.side * TOWN_GATEHOUSE.towerCenter) > 1.1)) out.copy(arrivalLink.junction)
+        else out.copy(leaving ? link.junction : goal)
+      } else if (sameHouse && from.section === to.section) {
+        out.copy(goal)
+      } else {
+        const link = from.house.links.find(l => l.side === from.section)!
+        out.copy(sameHouse ? link.junction : link.entry)
+      }
+    } else if (to) {
+      const link = to.section === 'gallery' ? nearest(to.house, current) : to.house.links.find(l => l.side === to.section)!
+      if (near(current, link.entry)) out.copy(to.section === 'gallery' ? link.junction : goal)
+      else this.alongRing(current, link.entry, out)
+    }
+    // NPC Follow/Formation caps movement at precise tower waypoints.
+    return { ground: false, tower: true }
+  }
+  private clampGatehouseFollow(out: THREE.Vector3, leader: THREE.Vector3, spacing: number): boolean {
+    const location = this.gatehouseAt(leader)
+    if (!location) return false
+    const { house, section } = location, [left, right] = house.links, G = TOWN_GATEHOUSE
+    const p = gatehouseLocal(house.gate, leader)
+    const galleryWidth = G.towerCenter * 2
+    const leftLength = left.surface.length + G.galleryCenter
+    const progress = section === -1 ? left.surface.length + p.z
+      : section === 1 ? leftLength + galleryWidth + G.galleryCenter - p.z
+      : leftLength + THREE.MathUtils.clamp(p.x + G.towerCenter, 0, galleryWidth)
+    const slot = progress - spacing
+    if (slot < 0) {
+      const a = this.projection(left.entry).distance, b = this.projection(right.entry).distance
+      const leftDirection = a < b ? -1 : 1
+      out.copy(this.pointAt(a - slot * leftDirection))
+    } else if (slot < leftLength || slot > leftLength + galleryWidth) {
+      const link = slot < leftLength ? left : right
+      const z = link === left ? slot - left.surface.length : leftLength + galleryWidth + G.galleryCenter - slot
+      const y = THREE.MathUtils.lerp(link.entry.y, house.floorY, THREE.MathUtils.clamp(1 + z / link.surface.length, 0, 1))
+      out.copy(gatehousePoint(house.gate, link.side * G.towerCenter, z, y))
+    } else {
+      out.copy(gatehousePoint(house.gate, slot - leftLength - G.towerCenter, G.galleryCenter, house.floorY))
+    }
+    return true
+  }
   clampFollow(out: THREE.Vector3, leader: THREE.Vector3, slot: number, mounted: boolean): void {
-    if (this.watchtower?.clampFollow(out, leader)) return
-    if (this.isElevated(leader)) { out.copy(this.pointAt(this.projection(leader).distance - (slot + 1) * (mounted ? 3.5 : 1.7))); return }
+    const spacing = (slot + 1) * (mounted ? 3.5 : 1.7)
+    if (this.watchtower?.clampFollow(out, leader) || this.clampGatehouseFollow(out, leader, spacing)) return
+    if (this.isElevated(leader)) { out.copy(this.pointAt(this.projection(leader).distance - spacing)); return }
     const ramp = this.rampAt(leader)
     if (!ramp) return
-    const s = ramp.surface, along = (leader.x - s.startX) * s.dirX + (leader.z - s.startZ) * s.dirZ - (slot + 1) * (mounted ? 3.5 : 1.7)
+    const s = ramp.surface, along = (leader.x - s.startX) * s.dirX + (leader.z - s.startZ) * s.dirZ - spacing
     if (along < 0) { out.copy(ramp.entrance).addScaledVector(new THREE.Vector3(s.dirX, 0, s.dirZ), along); return }
     out.set(s.startX + s.dirX * along, s.startY + (s.topY - s.startY) * Math.min(1, along / s.length), s.startZ + s.dirZ * along)
   }
@@ -161,7 +231,7 @@ export class TownLayeredNavigation {
     // friendly avoidance. Recapturing nearby ground movers here traps them in
     // the 0.3m entrance tolerance forever, even when their goal is on ground.
     if (!onDeck && !toDeck && !onRamp && !toRamp) return null
-    if (onDeck && toDeck && !onRamp) { this.alongRing(current, goal, out); return { ground: false } }
+    if (onDeck && toDeck && !onRamp) return this.alongElevated(current, goal, out)
     const ascending = toDeck || Boolean(toRamp)
     const carrier = entranceId ? this.siegeEntrances.entries.get(entranceId) : undefined
     const interiorTransfer = ascending && !onRamp && Boolean(carrier?.surface && goal.distanceToSquared(carrier.exit) < .01)
@@ -188,7 +258,7 @@ export class TownLayeredNavigation {
     if (onDeck) {
       const link = this.layout.decks.find(d => d.id === `landing:${ramp.gateId}`)!
       if (getWalkRampHeight(link.surface, current.x, current.z) !== null) out.copy(ramp.landing)
-      else this.alongRing(current, ramp.connection, out)
+      else return this.alongElevated(current, ramp.connection, out)
       return { ground: false }
     }
     const along = (current.x - s.startX) * s.dirX + (current.z - s.startZ) * s.dirZ
@@ -240,7 +310,7 @@ export class TownLayeredNavigation {
         }
       }
       if (!carrier) return null
-      if (current.distanceTo(carrier.exit) > .8) this.alongRing(current, carrier.exit, out)
+      if (current.distanceTo(carrier.exit) > .8) return this.alongElevated(current, carrier.exit, out)
       else out.copy(carrier.position)
       return { ground: false }
     }

@@ -28,6 +28,18 @@ describe('Town gate closure displacement transaction', () => {
     }
     expect(bodies[0].position.distanceTo(bodies[1].position)).toBeGreaterThanOrEqual(1.4)
   })
+  it('關閉地面城門時不移走正上方門樓的守軍', () => {
+    const current = gate(), sentry = body(0), ground = body(0)
+    sentry.position.y = current.collisionBox.max.y + 2
+    const overhead: ObstacleData = {
+      box: new Box3(new Vector3(-20, 6, -30), new Vector3(20, 7, 2)),
+      isBarricade: false, navigationPassable: true,
+    }
+    expect(closeSiegeGate('north', current as unknown as CampaignGateController, [sentry, ground], [overhead])).toBe(true)
+    expect(sentry.moveTo).not.toHaveBeenCalled()
+    expect(ground.position.z).toBe(-2)
+    expect(current.close).toHaveBeenCalledExactlyOnceWith(false)
+  })
   it('leaves every body and the gate unchanged when a later body has no legal destination', () => {
     const current = gate(-150, 150), bodies = [body(0), body(100)]
     const before = bodies.map(item => item.position.clone())
