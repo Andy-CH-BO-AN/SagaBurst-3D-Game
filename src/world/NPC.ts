@@ -1780,7 +1780,13 @@ export class NPC {
     }
   }
 
+  /** Changes only when the actor's command identity really changes (order, formation command, follow
+   * target or slot). Re-issued identical commands and enemy movement keep it, so civic exits can tell them apart. */
+  private _commandIdentity = 0
+  get commandIdentity(): number { return this._commandIdentity }
+
   setTacticalOrder(order: TacticalOrder): void {
+    if (this.tacticalOrder !== order) this._commandIdentity++
     this.pursuitBlockedTargets?.clear()
     this.layeredCombatMovement = false
     if (order !== 'attack' && order !== 'defend') this.releaseOutpostRampartGarrison()
@@ -1809,6 +1815,7 @@ export class NPC {
 
   assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number, arrivalOrder?: TacticalOrder, reached = false): void {
     if (this.dead) return
+    if (this.formationTarget?.commandId !== commandId) this._commandIdentity++
     this.pursuitBlockedTargets?.clear()
     this.releaseOutpostRampartGarrison()
     this._clearNavigationPath()
@@ -1853,6 +1860,7 @@ export class NPC {
   assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted), marchSpeed?: number,
     anchor?: { position: THREE.Vector3; yaw: number }): void {
     if (this.dead || target === this) return
+    if (this.followTarget !== target || this.followSlotIndex !== slotIndex) this._commandIdentity++
     this.pursuitBlockedTargets?.clear()
     this.releaseOutpostRampartGarrison()
     if (this.mount?.isFlyingMount) this.setEagleFlightOrder(null)
@@ -3267,7 +3275,7 @@ export class NPC {
         const targetLayer = layeredNav ? layeredNav.getNavLayer(targetInfo.position) : 'ground'
         const isCrossLayer = layeredNav ? (npcLayer !== targetLayer) : false
         const chaseNavigation = this._resolveChaseNavigation({
-          position: this.combatPosition, goal: targetInfo.position, world: navigationWorld, outpost: layeredNav ?? null,
+          position: this.combatPosition, goal: targetInfo.position, world: navigationWorld, outpost: layeredNav ?? null, commandIdentity: this._commandIdentity,
           currentLayer: npcLayer, targetLayer, differentLayer: isCrossLayer,
           mounted: this.isMounted, outpostMounted: Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
           flying: Boolean(this.mount?.isFlyingMount), radius: this._movementObstacleRadius(), height: this._movementObstacleHeight(),
@@ -4452,7 +4460,7 @@ export class NPC {
     let navigationGoal = target.position
 
     const layeredStep = this._layeredNavigationRoute.resolve({
-      position: this.combatPosition, goal: target.position, world: navigationWorld, outpost: layeredNav ?? null,
+      position: this.combatPosition, goal: target.position, world: navigationWorld, outpost: layeredNav ?? null, commandIdentity: this._commandIdentity,
       currentLayer: npcLayer, targetLayer, differentLayer: isDifferentLayer,
       mounted: this.isMounted, outpostMounted: Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
       flying: Boolean(this.mount?.isFlyingMount), radius: this._movementObstacleRadius(), height: this._movementObstacleHeight(),
@@ -4586,17 +4594,30 @@ export class NPC {
       }
     }
 
-    // Face the travel direction while moving so directional movement does not
-    // classify a distant slot behind the final formation facing as backward.
-    this._faceDirection(moveDir)
-    const followCatchUp = this.tacticalOrder === 'follow' && distance > FOLLOW_THRESHOLDS.runDistance
-    const followSprint = this.tacticalOrder === 'follow' && distance > FOLLOW_THRESHOLDS.regroupDistance
-    const baseSpeed = this.mount
-      ? Math.min(this.mount.baseSpeed, target.speedLimit ?? Infinity)
-      : target.speedLimit ?? FORMATION_MOVE_SPEED
-    this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.15 : baseSpeed, dt,
-      followSprint || this.missionMovement, layeredStep?.tower
-        ? Math.hypot(this._tmpNavigationTarget.x - this.combatPosition.x, this._tmpNavigationTarget.z - this.combatPosition.z) : distance)
+    if (this.mount && layeredStep?.civicExit && moveDir.lengthSq() > .0001) {
+      // A committed civic exit keeps narrow-doorway steering whatever the command: turn first,
+      // pace below mount speed, no catch-up or sprint, and stop at the waypoint.
+      const waypointDistance = Math.hypot(navigationGoal.x - this.combatPosition.x, navigationGoal.z - this.combatPosition.z)
+      const steer = steerCivicExitRider(this.mount.group.rotation.y, Math.atan2(moveDir.x, moveDir.z), waypointDistance, this.mount.baseSpeed, dt)
+      this.mount.group.rotation.y = steer.yaw; this.group.rotation.y = steer.yaw
+      this.chargeSprintLatched = false; this.isSprinting = false
+      if (steer.speed > 0) {
+        this.visualMovementSpeed = Math.max(this.visualMovementSpeed, steer.speed)
+        this.mount.addControlledMovement(moveDir, steer.speed, dt)
+      }
+    } else {
+      // Face the travel direction while moving so directional movement does not
+      // classify a distant slot behind the final formation facing as backward.
+      this._faceDirection(moveDir)
+      const followCatchUp = this.tacticalOrder === 'follow' && distance > FOLLOW_THRESHOLDS.runDistance
+      const followSprint = this.tacticalOrder === 'follow' && distance > FOLLOW_THRESHOLDS.regroupDistance
+      const baseSpeed = this.mount
+        ? Math.min(this.mount.baseSpeed, target.speedLimit ?? Infinity)
+        : target.speedLimit ?? FORMATION_MOVE_SPEED
+      this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.15 : baseSpeed, dt,
+        followSprint || this.missionMovement, layeredStep?.tower
+          ? Math.hypot(this._tmpNavigationTarget.x - this.combatPosition.x, this._tmpNavigationTarget.z - this.combatPosition.z) : distance)
+    }
     if (layeredNav && isStairLayer(npcLayer)) {
       const stair = layeredNav.getStair(layerSide(npcLayer)!)
       if (stair) {

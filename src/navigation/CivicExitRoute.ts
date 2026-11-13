@@ -102,6 +102,7 @@ interface CivicExitRequest {
   revision: number
   radius: number
   height: number
+  commandIdentity: number
 }
 
 function insideHall(hall: CivicHall, p: { x: number; z: number }, margin = 0): boolean {
@@ -117,6 +118,7 @@ export class CivicExitRoute {
   private waypoints: THREE.Vector3[] = []
   private index = 0
   private revision = -1
+  private identity = -1
   private stalledFrames = 0
   private progressAnchor = new THREE.Vector3()
   private failedRevision = -1
@@ -133,24 +135,27 @@ export class CivicExitRoute {
 
   /** null means the actor is not leaving a civic hall; ordinary routing owns the move. */
   resolve(request: CivicExitRequest, obstacles: readonly ObstacleData[]): CivicExitResult {
-    const { position: p, goal: g, halls, revision } = request
+    const { position: p, goal: g, halls, revision, commandIdentity } = request
     if (this.door && this.hall) {
-      // A goal inside the hall is a new order (indoor formation or follow): it replaces the exit intent.
-      // Enemy movement outside the hall keeps the exit, so it never forces a per-frame replan.
-      if (insideHall(this.hall, g, .5) || this.passedDoor(p)) { this.clear(); return null }
+      // Before the doorway, a real command change aimed indoors replaces the exit intent. Enemy movement
+      // never changes the identity, and once the body is at the threshold the exit is committed.
+      const beforeDoorway = (p.x - this.door.threshold.x) * this.door.outward.x + (p.z - this.door.threshold.z) * this.door.outward.z < 0
+      if (beforeDoorway && commandIdentity !== this.identity && insideHall(this.hall, g, .5)) { this.clear(); return null }
+      this.identity = commandIdentity
+      if (this.passedDoor(p)) { this.clear(); return null }
       // Topology changes (e.g. a wall breach) or a long jam replan from here through the same hall,
       // including on the ramp before the safety line, so ordinary chase never takes over early.
       if (revision !== this.revision || this.stalledFrames > CIVIC_EXIT_STALL_FRAMES) {
         const hall = this.hall
         this.clear()
-        if (!this.plan(hall, p, g, obstacles, revision, request.radius, request.height)) return this.reject(p, revision)
+        if (!this.plan(hall, p, g, obstacles, revision, request.radius, request.height, commandIdentity)) return this.reject(p, revision)
       }
     }
     if (!this.door) {
       const hall = halls.find(h => insideHall(h, p))
       if (!hall || insideHall(hall, g, .5)) return null
       if (this.failedRevision === revision && p.distanceToSquared(this.failedAt) < REPLAN_DISTANCE_SQ) return { kind: 'blocked' }
-      if (!this.plan(hall, p, g, obstacles, revision, request.radius, request.height)) return this.reject(p, revision)
+      if (!this.plan(hall, p, g, obstacles, revision, request.radius, request.height, commandIdentity)) return this.reject(p, revision)
     }
     return this.follow(p)
   }
@@ -168,7 +173,7 @@ export class CivicExitRoute {
     return along >= door.approach + OUTSIDE_CLEARANCE
   }
 
-  private plan(hall: CivicHall, p: THREE.Vector3, g: THREE.Vector3, obstacles: readonly ObstacleData[], revision: number, radius: number, height: number): boolean {
+  private plan(hall: CivicHall, p: THREE.Vector3, g: THREE.Vector3, obstacles: readonly ObstacleData[], revision: number, radius: number, height: number, identity: number): boolean {
     const grid = clearanceGrid(hall, obstacles, revision, radius, height)
     const doors = [...hall.doors].sort((a, b) => (p.distanceTo(a.inside) + a.inside.distanceTo(g)) - (p.distanceTo(b.inside) + b.inside.distanceTo(g)))
     for (const door of doors) {
@@ -179,6 +184,7 @@ export class CivicExitRoute {
       this.waypoints = route
       this.index = 0
       this.revision = revision
+      this.identity = identity
       this.stalledFrames = 0
       this.progressAnchor.copy(p)
       return true

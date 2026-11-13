@@ -24,6 +24,8 @@ export interface LayeredNavigationRequest {
   sectorId: TownGateId | null
   actorId: string
   skipGroundNavigation: boolean
+  /** Changes only with a real command change, never with enemy movement. */
+  commandIdentity?: number
   attackableGate?: (obstacle: ObstacleData) => boolean
 }
 
@@ -62,7 +64,7 @@ export class LayeredNavigationRoute {
     if (request.mounted && !request.flying && world?.civicHalls.length) {
       // A mounted body inside a civic hall walks out of its real doorway first.
       const exit = this.civicExit.resolve({ position, goal, halls: world.civicHalls, revision: world.revision,
-        radius: request.radius, height: request.height }, obstacles)
+        radius: request.radius, height: request.height, commandIdentity: request.commandIdentity ?? 0 }, obstacles)
       if (exit) {
         const step = this.step
         step.route = exit.kind === 'walk' ? 'path' : 'unreachable'
