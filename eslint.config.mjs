@@ -3,7 +3,7 @@ import vitest from '@vitest/eslint-plugin'
 
 const TEST_APIS = new Set(['it', 'test', 'specify'])
 const SUITE_APIS = new Set(['describe', 'suite'])
-const HEAVY_CONSTRUCTORS = [
+const HEAVY_CONSTRUCTORS = new Set([
   'Scene', 'Group', 'Object3D', 'Mesh', 'SkinnedMesh', 'InstancedMesh', 'Points', 'Line', 'LineSegments', 'Sprite',
   'Bone', 'Skeleton', 'SkeletonHelper', 'AnimationMixer',
   'Geometry', 'BufferGeometry', 'InstancedBufferGeometry',
@@ -20,7 +20,19 @@ const HEAVY_CONSTRUCTORS = [
   'Camera', 'PerspectiveCamera', 'OrthographicCamera', 'ArrayCamera', 'CubeCamera', 'StereoCamera',
   'Light', 'AmbientLight', 'DirectionalLight', 'PointLight', 'SpotLight', 'HemisphereLight', 'RectAreaLight',
   'LightProbe', 'CameraHelper', 'ArrowHelper', 'AxesHelper', 'GridHelper', 'BoxHelper', 'Box3Helper',
-].join('|')
+])
+const HEAVY_ACTOR_MODULES = new Map([
+  ['NPC', '/src/world/NPC'],
+  ['Player', '/src/player/Player'],
+  ['Mount', '/src/world/Mount'],
+  ['TownScene', '/src/town/TownScene'],
+  ['TownWorld', '/src/town/TownWorld'],
+  ['Game', '/src/Game'],
+])
+const HEAVY_ACTOR_NAMES = new Set(HEAVY_ACTOR_MODULES.keys())
+const NODE_TEST_APIS = new Set(['test', 'it', 'describe', 'suite'])
+const NODE_TEST_CASE_APIS = new Set(['test', 'it'])
+const NODE_TEST_SUITE_APIS = new Set(['describe', 'suite'])
 
 function isFunction(node) {
   return node?.type === 'ArrowFunctionExpression' || node?.type === 'FunctionExpression'
@@ -40,6 +52,147 @@ function hasApiExpression(node, apiNames) {
     current = current.type === 'CallExpression' ? current.callee : current.object
   }
   return current?.type === 'Identifier' && apiNames.has(current.name)
+}
+
+function unwrapExpression(node) {
+  while (['ChainExpression', 'ParenthesizedExpression', 'TSAsExpression', 'TSTypeAssertion',
+    'TSNonNullExpression', 'TSInstantiationExpression'].includes(node?.type)) {
+    node = node.expression
+  }
+  return node
+}
+
+function staticMemberName(node) {
+  if (node?.type === 'Property') {
+    if (node.key.type === 'Identifier') return node.key.name
+    if (node.key.type === 'Literal') return String(node.key.value)
+    return null
+  }
+  if (node?.type !== 'MemberExpression') return null
+  if (!node.computed && node.property.type === 'Identifier') return node.property.name
+  if (node.computed && node.property.type === 'Literal') return String(node.property.value)
+  return null
+}
+
+function variableInScope(scope, name) {
+  for (let current = scope; current; current = current.upper) {
+    const variable = current.set.get(name)
+    if (variable) return variable
+  }
+  return null
+}
+
+function externalImportFor(variable) {
+  for (const definition of variable?.defs ?? []) {
+    if (definition.type === 'ImportBinding') {
+      const specifier = definition.node
+      return {
+        source: definition.parent.source.value,
+        namespace: specifier.type === 'ImportNamespaceSpecifier',
+        imported: specifier.type === 'ImportSpecifier' ? specifier.imported.name : null,
+      }
+    }
+
+    if (definition.type !== 'Variable' || definition.node.type !== 'VariableDeclarator') continue
+    const declarator = definition.node
+    if (declarator.init?.type !== 'CallExpression' || declarator.init.callee?.name !== 'require' ||
+        declarator.init.arguments?.[0]?.type !== 'Literal') continue
+    const source = declarator.init.arguments[0].value
+    if (declarator.id.type === 'Identifier') return { source, namespace: true, imported: null }
+    if (declarator.id.type !== 'ObjectPattern') continue
+    const property = declarator.id.properties.find(item =>
+      item.type === 'Property' && item.value.type === 'Identifier' && item.value.name === variable.name)
+    if (property) return { source, namespace: false, imported: staticMemberName(property) ?? property.key.name }
+  }
+  return null
+}
+
+function importedBinding(sourceCode, identifier) {
+  if (identifier?.type !== 'Identifier') return null
+  return externalImportFor(variableInScope(sourceCode.getScope(identifier), identifier.name))
+}
+
+function moduleMatches(source, suffix) {
+  return Boolean(suffix && typeof source === 'string' &&
+    source.replaceAll('\\', '/').replace(/\.(?:[cm]?[jt]sx?)$/, '').endsWith(suffix))
+}
+
+function isHeavyImportedConstructor(sourceCode, node) {
+  const callee = unwrapExpression(node.callee)
+  if (callee.type === 'Identifier') {
+    if (!HEAVY_CONSTRUCTORS.has(callee.name) && !HEAVY_ACTOR_NAMES.has(callee.name)) return false
+    const binding = importedBinding(sourceCode, callee)
+    if (!binding) return false
+    if (binding.source === 'three') return !binding.namespace && HEAVY_CONSTRUCTORS.has(binding.imported)
+    return moduleMatches(binding.source, HEAVY_ACTOR_MODULES.get(binding.imported))
+  }
+
+  if (callee.type !== 'MemberExpression') return false
+  const member = staticMemberName(callee)
+  if (!member || !HEAVY_CONSTRUCTORS.has(member) && !HEAVY_ACTOR_NAMES.has(member)) return false
+  const object = unwrapExpression(callee.object)
+  const binding = importedBinding(sourceCode, object)
+  if (!binding) return false
+  if (binding.source === 'three') return binding.namespace && HEAVY_CONSTRUCTORS.has(member)
+  return binding.namespace && moduleMatches(binding.source, HEAVY_ACTOR_MODULES.get(member))
+}
+
+function nodeTestApiName(sourceCode, expression) {
+  const node = unwrapExpression(expression)
+  if (node.type === 'Identifier') {
+    const binding = importedBinding(sourceCode, node)
+    if (binding?.source !== 'node:test') return null
+    if (binding.namespace) return 'test'
+    return NODE_TEST_APIS.has(binding.imported) ? binding.imported : null
+  }
+  if (node.type !== 'MemberExpression') return null
+  const member = staticMemberName(node)
+  const object = unwrapExpression(node.object)
+  const binding = importedBinding(sourceCode, object)
+  if (binding?.source === 'node:test' && binding.namespace && NODE_TEST_APIS.has(member)) return member
+  const ownerApi = nodeTestCallbackOwner(sourceCode, node)
+  return NODE_TEST_APIS.has(member) && ownerApi ? member : null
+}
+
+function nodeTestCallbackOwner(sourceCode, memberExpression) {
+  const object = unwrapExpression(memberExpression.object)
+  if (object.type !== 'Identifier') return null
+  for (let current = memberExpression.parent; current; current = current.parent) {
+    if (!isFunction(current) || !current.params.some(parameter =>
+      unwrapExpression(parameter).type === 'Identifier' && unwrapExpression(parameter).name === object.name)) continue
+    const registration = current.parent
+    if (registration?.type !== 'CallExpression' || testCallback(registration) !== current) return null
+    const ownerApi = nodeTestApiName(sourceCode, registration.callee)
+    return NODE_TEST_CASE_APIS.has(ownerApi) || NODE_TEST_SUITE_APIS.has(ownerApi) ? ownerApi : null
+  }
+  return null
+}
+
+function nodeTestDisabledCall(sourceCode, node) {
+  const callee = unwrapExpression(node.callee)
+  if (callee.type === 'MemberExpression' && ['skip', 'todo'].includes(staticMemberName(callee)) &&
+      nodeTestApiName(sourceCode, callee.object)) return true
+
+  if (!NODE_TEST_CASE_APIS.has(nodeTestApiName(sourceCode, node.callee))) return false
+  const options = node.arguments[1]
+  if (options?.type !== 'ObjectExpression') return false
+  return options.properties.some(property => {
+    if (property.type !== 'Property' || !['skip', 'todo'].includes(staticMemberName(property) ?? property.key.name)) return false
+    return !(property.value.type === 'Literal' && property.value.value === false)
+  })
+}
+
+function literalTestTitle(node) {
+  if (node?.type === 'Literal' && typeof node.value === 'string') return node.value
+  if (node?.type === 'TemplateLiteral' && node.expressions.length === 0) return node.quasis[0]?.value.cooked
+  return null
+}
+
+function enclosingNodeTestSuite(sourceCode, node) {
+  for (let current = node.parent; current; current = current.parent) {
+    if (current.type === 'CallExpression' && NODE_TEST_APIS.has(nodeTestApiName(sourceCode, current.callee))) return current
+  }
+  return sourceCode.ast
 }
 
 function isTestCaseCall(node) {
@@ -116,12 +269,59 @@ const testAuthoring = {
         },
       },
       create(context) {
-        // Member selectors also catch namespace aliases (e.g. T3.Group). The repository has no renamed named imports from Three.js, so no import-resolution machinery is needed.
-        const memberSelector = `NewExpression[callee.type="MemberExpression"][callee.property.name=/^(${HEAVY_CONSTRUCTORS})$/]`
-        const directSelector = `NewExpression[callee.type="Identifier"][callee.name=/^(?:${HEAVY_CONSTRUCTORS}|NPC|Player|Mount|TownScene|TownWorld|Game)$/]`
         return {
-          [memberSelector](node) { context.report({ node, messageId: 'heavyweight' }) },
-          [directSelector](node) { context.report({ node, messageId: 'heavyweight' }) },
+          NewExpression(node) {
+            if (isHeavyImportedConstructor(context.sourceCode, node)) {
+              context.report({ node, messageId: 'heavyweight' })
+            }
+          },
+        }
+      },
+    },
+    'no-node-disabled-tests': {
+      meta: {
+        type: 'problem',
+        docs: { description: 'Disallow skipped and todo tests registered through node:test' },
+        schema: [],
+        messages: { disabled: 'Do not disable or mark a Node test as todo; remove it or make it runnable.' },
+      },
+      create(context) {
+        return {
+          CallExpression(node) {
+            if (nodeTestDisabledCall(context.sourceCode, node)) context.report({ node, messageId: 'disabled' })
+          },
+        }
+      },
+    },
+    'no-node-identical-title': {
+      meta: {
+        type: 'problem',
+        docs: { description: 'Disallow duplicate literal test and suite titles within one node:test suite' },
+        schema: [],
+        messages: {
+          duplicateTest: 'Duplicate Node test title "{{title}}" in the same suite.',
+          duplicateSuite: 'Duplicate Node suite title "{{title}}" in the same suite.',
+        },
+      },
+      create(context) {
+        const titlesBySuite = new Map()
+        return {
+          CallExpression(node) {
+            const api = nodeTestApiName(context.sourceCode, node.callee)
+            if (!NODE_TEST_CASE_APIS.has(api) && !NODE_TEST_SUITE_APIS.has(api)) return
+            const title = literalTestTitle(node.arguments[0])
+            if (title === null) return
+            const suite = enclosingNodeTestSuite(context.sourceCode, node)
+            let titles = titlesBySuite.get(suite)
+            if (!titles) {
+              titles = { tests: new Set(), suites: new Set() }
+              titlesBySuite.set(suite, titles)
+            }
+            const kind = NODE_TEST_SUITE_APIS.has(api) ? 'suites' : 'tests'
+            if (titles[kind].has(title)) {
+              context.report({ node, messageId: kind === 'tests' ? 'duplicateTest' : 'duplicateSuite', data: { title } })
+            } else titles[kind].add(title)
+          },
         }
       },
     },
@@ -226,6 +426,10 @@ export default [
     files: ['tests/**/*.test.cjs'],
     languageOptions: { sourceType: 'commonjs' },
     plugins: { vitest, 'test-authoring': testAuthoring },
-    rules: sharedTestRules,
+    rules: {
+      ...sharedTestRules,
+      'test-authoring/no-node-disabled-tests': 'error',
+      'test-authoring/no-node-identical-title': 'error',
+    },
   },
 ]
