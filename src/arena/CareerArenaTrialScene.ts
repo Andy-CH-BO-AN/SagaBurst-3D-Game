@@ -117,6 +117,8 @@ export class CareerArenaTrialScene {
   private shots: Shot[] = []
   private phase: 'countdown' | 'fight' | 'result' = 'countdown'
   private countdownRemaining = ARENA_TRIAL_COUNTDOWN_SECONDS
+  private resumeGrace = false
+  private lastPlayerSignature = ''
   private combatElapsed = 0
   private checkpointClock = 0
   private elapsed = 0
@@ -219,6 +221,8 @@ export class CareerArenaTrialScene {
     // A reload never skips the grace: positions and counts are restored exactly, then the fight resumes.
     this.countdownRemaining = engaged ? RESUME_GRACE_SECONDS : ARENA_TRIAL_COUNTDOWN_SECONDS
     this.phase = settled ? 'result' : 'countdown'
+    // Only a trial that was already fighting checkpoints during its resume grace; a first deployment countdown never turns `engaged`.
+    this.resumeGrace = engaged && !settled
     this.bindInput()
     progress('準備完成')
   }
@@ -327,23 +331,34 @@ export class CareerArenaTrialScene {
 
   private advancePhase(dt: number): void {
     if (this.phase === 'countdown') {
+      // The resume grace of an already-fighting trial still keeps the saved fight current: a landing, a knock-out or
+      // a fall under way must survive a second reload. The first deployment countdown saves nothing.
+      if (this.resumeGrace) this.checkpointFight(dt)
       this.countdownRemaining -= dt
       if (this.countdownRemaining > 0) return
       this.phase = 'fight'
+      this.resumeGrace = false
       for (const body of this.bodies) if (!body.npc.dead) body.npc.setTacticalOrder('attack')
       this.persistProgress()
       return
     }
     if (this.phase !== 'fight') return
     this.combatElapsed += dt
+    this.checkpointFight(dt)
+    const end = resolveArenaTrialEnd(this.counts(), this.combatElapsed)
+    if (end && !this.pendingSettlement) this.finish(end.outcome, end.reason)
+  }
+
+  /** Saves at once on any knock-out or change of the player's own state, and on a steady cadence (faster while falling). */
+  private checkpointFight(dt: number): void {
     let changed = false
     for (const body of this.bodies) if (body.npc.dead && !this.knocked.has(body.actorId)) { this.knocked.add(body.actorId); changed = true }
+    const signature = `${this.player.dead}|${Math.round(this.player.hp)}`
+    if (signature !== this.lastPlayerSignature) { this.lastPlayerSignature = signature; changed = true }
     // A knock-out is saved at once so a reload can never stand the body back up.
     this.checkpointClock += dt
     const airborne = !this.player.dead && !this.player.isGrounded && !this.player.currentMount
     if (changed || this.checkpointClock >= (airborne ? AIRBORNE_CHECKPOINT_SECONDS : CHECKPOINT_SECONDS)) this.persistProgress()
-    const end = resolveArenaTrialEnd(this.counts(), this.combatElapsed)
-    if (end && !this.pendingSettlement) this.finish(end.outcome, end.reason)
   }
 
   private updateBodies(dt: number): void {
@@ -544,7 +559,7 @@ export class CareerArenaTrialScene {
   private persistNow(): void {
     if (this.disposed || !this.tracker) return
     this.flushSkills()
-    if (this.phase === 'fight') this.persistProgress()
+    if (this.phase === 'fight' || this.resumeGrace) this.persistProgress()
   }
 
   private captureSettlement(outcome: CareerMissionOutcome, reason?: ArenaTrialEndReason): PendingSettlement {
