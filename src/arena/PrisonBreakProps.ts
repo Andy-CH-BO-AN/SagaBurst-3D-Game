@@ -1,4 +1,4 @@
-import { prisonExitPlan } from './PrisonBreakLayout'
+import { prisonExitPlan, prisonGateObstacle } from './PrisonBreakLayout'
 import * as THREE from 'three'
 import type { DuelArenaEnvironment } from './DuelArena'
 import { PRISON_SWORD_COUNT, PRISON_SWORD_ID, type PrisonBreakState } from '../career/CareerPrisonBreak'
@@ -27,7 +27,7 @@ export class PrisonBreakProps {
     for (let i = -4; i <= 4; i++) bar(.07, this.height, i * .31, this.height / 2)
     for (const y of [.4, 1.3, 2]) bar(2.8, .09, 0, y)
     this.gate.position.set(0, 0, z); this.gate.name = 'prison-iron-gate'; arena.root.add(this.gate)
-    this.blocker = { box: new THREE.Box3(new THREE.Vector3(-plan.halfWidth, 0, z - .18), new THREE.Vector3(plan.halfWidth, this.height, z + .18)), isBarricade: false }
+    this.blocker = prisonGateObstacle(arena.id)
     arena.obstacles.push(this.blocker)
     const ring = new THREE.TorusGeometry(.65, .07, 6, 24); this.ownedGeometry.push(ring)
     this.exit.add(new THREE.Mesh(ring, this.markerMaterial)); this.exit.position.set(0, 1.5, z + .4)

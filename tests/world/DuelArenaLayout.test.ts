@@ -1,6 +1,6 @@
 import { PLAYER_RADIUS } from '../../src/movement/MovementBalance'
 import { crossedPrisonExit, prisonOutcome } from '../../src/career/CareerPrisonBreak'
-import { prisonExitObstacles, prisonExitPlan, prisonFormation } from '../../src/arena/PrisonBreakLayout'
+import { prisonExitObstacles, prisonExitPlan, prisonFormation, prisonGateObstacle } from '../../src/arena/PrisonBreakLayout'
 import { arenaTrialSlotClear } from '../../src/arena/ArenaTrialFormation'
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
@@ -226,28 +226,30 @@ describe('duel arena layout collision', () => {
 })
 
 
-it('關押場景 36 個站位皆合法，移除門阻擋後兩個出口都有地面通道且側牆仍阻擋', () => {
+it('關押場景 36 個站位皆合法、側牆仍阻擋且不移除原場景碰撞資料', () => {
   for (const [id, shell] of [['roman-colosseum', createColosseumObstacles()], ['viking-valhalla', createValhallaObstacles()]] as const) {
     const originalLength = shell.length
     const obstacles = prisonExitObstacles(id, shell), formation = prisonFormation(id), gate = prisonExitPlan(id)
     for (const slot of [formation.player, ...formation.friendly, ...formation.enemy]) expect(arenaTrialSlotClear(slot.x, slot.z, 0, obstacles)).toBe(true)
-    for (const z of [gate.gateZ + 1, gate.gateZ, gate.crossingZ - .2]) expect(arenaTrialSlotClear(0, z, 0, obstacles)).toBe(true)
     expect(arenaTrialSlotClear(3, gate.gateZ - .3, 0, obstacles)).toBe(false)
     expect(shell).toHaveLength(originalLength)
   }
 })
 
 
-it('玩家貼門框以合法碰撞寬度穿過開門會逃脫，關門與門外繞行仍不結算', () => {
+it('兩場景開門後 ±1.05 可穿越並結算、±1.25 被門框擋住，關門時中央與門邊皆無法穿越', () => {
   for (const [id, shell] of [['roman-colosseum', createColosseumObstacles()], ['viking-valhalla', createValhallaObstacles()]] as const) {
     const gate = prisonExitPlan(id), obstacles = prisonExitObstacles(id, shell)
-    for (const x of [-1.05, 1.05]) {
+    for (const open of [true, false]) for (const x of [-1.25, -1.05, 0, 1.05, 1.25]) {
       const from = new THREE.Vector3(x, .95, gate.gateZ + 1), to = new THREE.Vector3(x, .95, gate.crossingZ - .2)
-      resolveObstacleCollision(to, from, 0, true, PLAYER_RADIUS, 1.9, .95, obstacles, { walkSurfaces: true })
-      expect(to.x).toBeCloseTo(x)
+      const collision = open ? obstacles : [...obstacles, prisonGateObstacle(id)]
+      resolveObstacleCollision(to, from, 0, true, PLAYER_RADIUS, 1.9, .95, collision, { walkSurfaces: true })
+      const passes = open && Math.abs(x) <= 1.05
+      if (passes) expect(to.x).toBeCloseTo(x)
+      else expect(to.z, `${id}: ${open ? '開門門框' : '關門'} x=${x}`).toBeGreaterThan(gate.crossingZ)
       const crossed = crossedPrisonExit(id, from, to)
-      expect(prisonOutcome(false, true, crossed)).toBe('victory')
-      expect(prisonOutcome(false, false, crossed)).toBeNull()
+      expect(crossed).toBe(passes)
+      expect(prisonOutcome(false, open, crossed)).toBe(passes ? 'victory' : null)
     }
     const outside = gate.halfWidth - PLAYER_RADIUS + .01
     expect(crossedPrisonExit(id, { x: outside, y: .95, z: gate.gateZ + 1 }, { x: outside, y: .95, z: gate.crossingZ - 1 })).toBe(false)
