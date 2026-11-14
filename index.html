@@ -547,6 +547,13 @@
         pointer-events: none;
       }
       #pickup-prompt.visible { opacity: 1; }
+      #pickup-feedback {
+        position: absolute; bottom: 125px; left: 50%; transform: translateX(-50%);
+        color: #e8c96a; background: rgba(14, 12, 10, 0.85); border-radius: 6px;
+        padding: 6px 16px; font-size: 15px; font-weight: 600; opacity: 0;
+        transition: opacity 0.2s; pointer-events: none;
+      }
+      #pickup-feedback.visible { opacity: 1; }
 
       /* ── RPG Character & Equipment Modal (Tab) ── */
       #character-modal {
@@ -969,6 +976,7 @@
 
       <!-- Pickup Prompt HUD -->
       <div id="pickup-prompt">[E] 拾取物品</div>
+      <div id="pickup-feedback" role="status"></div>
 
       <!-- Enemy HUD (Top center) -->
       <div id="enemy-hud" class="hidden">

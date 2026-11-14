@@ -5,6 +5,32 @@ import { BYZANTINE_EQUIPMENT_WAIT_MS, byzantineEquipmentStatus, isEquipmentDeman
 
 describe('Shared immediate weapon wheel', () => {
 
+  it('auto-equips only an actually empty melee slot and never replaces a sheathed or duplicate weapon', () => {
+    const inv = new InventoryManager({ meleeWeaponId: '', rangedWeaponId: '', shieldId: null })
+    expect(inv.pickupDisposition('gladius_rusty')).toBe('equip')
+    inv.addWeapon('gladius_rusty'); expect(inv.equipWeapon('gladius_rusty')).toBe(true)
+    expect(inv.activeMelee?.id).toBe('gladius_rusty')
+    inv.meleeEnabled = false
+    expect(inv.pickupDisposition('steel_lance')).toBe('backpack')
+    expect(inv.pickupDisposition('gladius_rusty')).toBe('backpack')
+    expect(inv.saveState.equippedMeleeId).toBe('gladius_rusty')
+    inv.dispose()
+  })
+
+  it('keeps bow and shield allocations intact even when they are currently sheathed', () => {
+    const shield = new InventoryManager({ meleeWeaponId: '', rangedWeaponId: '', shieldId: 'scutum_t1' })
+    shield.shieldEnabled = false
+    expect(shield.pickupDisposition('wooden_shortbow')).toBe('backpack')
+    shield.addWeapon('wooden_shortbow')
+    expect(shield.saveState.equippedShieldId).toBe('scutum_t1')
+    expect(shield.saveState.equippedRangedId).toBe('')
+    const bow = new InventoryManager({ meleeWeaponId: '', rangedWeaponId: 'wooden_shortbow', shieldId: null })
+    bow.rangedEnabled = false
+    expect(bow.pickupDisposition('scutum_t1')).toBe('backpack')
+    expect(bow.pickupDisposition('wooden_shortbow')).toBe('backpack')
+    shield.dispose(); bow.dispose()
+  })
+
   it('excludes a ranged weapon from shields through equip and save/load', () => {
     const ranged = 'wooden_shortbow'
     const inv = new InventoryManager({ meleeWeaponId: 'gladius_rusty', rangedWeaponId: ranged, shieldId: 'scutum_t1' }, 'maki-archer-t4', 'roman')
@@ -62,6 +88,7 @@ it('gives the player no combat effect until the lance loads, retries after a tim
 
     // Forever-pending load: selected and saved, but neither stats nor model apply. Other slots are untouched.
     expect(inventory.activeMelee).toBeUndefined()
+    expect(inventory.pickupDisposition('gladius_rusty')).toBe('backpack')
     expect(gltfLoads.count).toBe(1)
     expect(inventory.saveState.equippedMeleeId).toBe(LANCE)
     expect(inventory.equippedShield?.id).toBe('round_shield_t1')

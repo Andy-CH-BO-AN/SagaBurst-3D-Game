@@ -168,6 +168,16 @@ export class InventoryManager {
     }
   }
 
+  /** A pickup must not replace an allocated item, including a sheathed or still-loading one. */
+  pickupDisposition(id: string): 'equip' | 'backpack' {
+    if (this.items.some(item => item.id === id)) return 'backpack'
+    const weapon = WEAPONS[id]
+    if (weapon?.type === 'melee' && !this.equippedMeleeId) return 'equip'
+    if (weapon?.type === 'ranged' && !this.equippedRangedId && !this.equippedShieldId) return 'equip'
+    if (ARMORS[id]?.type === 'shield' && !this.equippedShieldId && !this.equippedRangedId) return 'equip'
+    return 'backpack'
+  }
+
   canEquipWeapon(id: string): boolean {
     const weapon = WEAPONS[id]
     const armor = ARMORS[id]

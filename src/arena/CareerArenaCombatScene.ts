@@ -5,6 +5,8 @@ import { townRoster } from '../town/TownRules'
 import { commitPrisonBreakReturn } from '../career/CareerMissionReturnRecovery'
 import * as THREE from 'three'
 import { PrisonBreakProps } from './PrisonBreakProps'
+import { InteractionFocus, type InteractionCandidate } from '../world/InteractionFocus'
+import { PickupPrompt } from '../ui/PickupPrompt'
 import { prisonRoster, prisonUnitSpec, claimPrisonSword, crossedPrisonExit, prisonOutcome, prisonTaunt, prisonResultDescription, settlePrisonBreak, PRISON_SWORD_ID } from '../career/CareerPrisonBreak'
 import { InventoryManager } from '../rpg/InventoryManager'
 
@@ -148,6 +150,8 @@ export class CareerArenaCombatScene {
   private skillsDirty = false
   private props?: PrisonBreakProps
   private prisonHud?: HTMLElement
+  private pickupHud?: PickupPrompt
+  private readonly pickupFocus = new InteractionFocus<THREE.Group>()
   private subtitle?: HTMLElement
   private dimmer?: HTMLElement
   private previousPlayerPosition = new THREE.Vector3()
@@ -256,6 +260,7 @@ export class CareerArenaCombatScene {
       this.inventory.meleeEnabled = this.inventory.rangedEnabled = this.inventory.shieldEnabled = false
       if (Object.values(this.prison.swords).includes('player')) { this.inventory.addWeapon(PRISON_SWORD_ID); this.inventory.equipWeapon(PRISON_SWORD_ID); this.inventory.meleeEnabled = true }
       this.props = new PrisonBreakProps(this.arena, this.prison)
+      this.pickupHud = new PickupPrompt()
       this.prisonHud = document.createElement('div'); this.prisonHud.id = 'prison-break-hud'
       this.prisonHud.setAttribute('role', 'status')
       this.prisonHud.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);color:#ffe1a0;font:700 23px/1.6 system-ui;text-align:center;text-shadow:0 2px 5px #000;z-index:9991;pointer-events:none'
@@ -378,7 +383,11 @@ export class CareerArenaCombatScene {
   /** One gameplay step (also used by DEV QA at a fixed rate). */
   update(dt: number): void {
     if (this.disposed) return
-    if (this.settlementPending || this.pickupRetry) { this.arena.update(dt); this.damageNumbers.update(dt, this.camera); return }
+    if (this.settlementPending || this.pickupRetry) {
+      if (this.prison) { this.clearPickupFocus(); this.input.consumeKeyE() }
+      this.arena.update(dt); this.damageNumbers.update(dt, this.camera); return
+    }
+    const pickupPressed = this.prison ? this.input.consumeKeyE() : false
     this.elapsed += dt
     const fighting = this.phase === 'fight'
     this.updateCamera(dt)
@@ -391,7 +400,7 @@ export class CareerArenaCombatScene {
     // The ground boundary holds living, supported bodies only; falls always complete.
     if (!this.player.dead && this.player.isGrounded) this.arena.constrainGroundedBody(this.player.group.position)
     this.updateBodies(dt)
-    if (fighting) { this.melee(); this.resolveBodies(); if (this.prison) this.pickupSwords() }
+    if (fighting) { this.melee(); this.resolveBodies(); if (this.prison) this.pickupSwords(pickupPressed) }
     if (this.pickupRetry) return
     // A living teammate who has already crossed wins before any in-flight shot
     // can hit them later in this frame. A rejected receipt freezes this same crossing.
@@ -400,6 +409,7 @@ export class CareerArenaCombatScene {
     this.arena.update(dt)
     this.props?.update(dt)
     this.advancePhase(dt)
+    if (this.prison) this.updatePickupFocus()
     this.previousPlayerPosition.copy(this.player.position)
     this.updateMarkers()
     this.damageNumbers.update(dt, this.camera)
@@ -410,7 +420,6 @@ export class CareerArenaCombatScene {
       this.prisonHud.textContent = this.prison?.gateOpen ? '鐵門已開，穿過出口　↓' : `看守剩餘 ${this.counts().enemyActive}／5`
       if (this.player.dead) this.prisonHud.textContent += '\n你已倒下，正在觀戰；友軍仍可逃脫（WASD 移動視角）'
       if (this.phase === 'countdown') this.prisonHud.textContent += ` · ${Math.ceil(this.countdownRemaining)}`
-      else if (!this.player.dead && !Object.values(this.prison!.swords).includes('player') && this.props?.swords.some(mesh => mesh.visible && mesh.position.distanceTo(this.player.position) < 2)) this.prisonHud.textContent += '\nE 拾取 T1 劍'
     }
     this.hud.update({
       phase: this.prison ? null : this.phase, countdown: this.countdownRemaining, label: ARENA_TRIAL_DEFINITIONS[this.trial.tier].label,
@@ -740,23 +749,47 @@ export class CareerArenaCombatScene {
 
   private pauseForPrisonSave(retry: () => void): void {
     this.pickupRetry = retry
+    this.clearPickupFocus()
     this.input.clear(); document.exitPointerLock?.()
     this.openPanel('進度尚未保存', '保存失敗；目前戰況保留，請重試。')
     this.button('重試保存進度', () => { this.pickupRetry = null; this.closePanel(); retry() })
   }
 
-  private pickupSwords(): void {
+  private prisonPickupCandidates(): InteractionCandidate<THREE.Group>[] {
+    const prison = this.prison
+    if (!prison || prison.gateOpen || this.phase !== 'fight' || this.pickupRetry || this.panelOpen
+      || this.player.dead || !this.input.isLocked || Object.values(prison.swords).includes('player')) return []
+    return this.props!.swords.filter(sword => sword.visible).map(sword => ({
+      target: sword, position: sword.position, range: 2, action: 'equip',
+      prompt: `[E] 拾起並裝備 · ${WEAPONS[PRISON_SWORD_ID].name}`,
+    }))
+  }
+
+  private clearPickupFocus(): void {
+    this.pickupFocus.clear()
+    this.pickupHud?.show(null)
+    this.props?.setSelectedSword(null)
+  }
+
+  private updatePickupFocus(): void {
+    const yaw = this.orbit.cameraYaw
+    const selected = this.pickupFocus.select(this.prisonPickupCandidates(), this.player.position,
+      { x: -Math.sin(yaw), z: -Math.cos(yaw) })
+    this.props!.setSelectedSword(selected ? this.props!.swords.indexOf(selected.target) : null)
+    this.pickupHud?.show(selected?.prompt ?? null)
+  }
+
+  private pickupSwords(pressed: boolean): void {
     const prison = this.prison
     if (!prison || this.pickupRetry || prison.gateOpen) return
+    const selected = this.pickupFocus.pressed(pressed, this.prisonPickupCandidates(), this.player.position)
+    // Preserve the existing sword order and player-before-NPC priority for each sword.
     for (let i = 0; i < this.props!.swords.length; i++) {
       const mesh = this.props!.swords[i]
       if (!mesh.visible) continue
-      let owner: string | undefined
-      if (!this.player.dead && !Object.values(prison.swords).includes('player') && mesh.position.distanceTo(this.player.position) < 2 && this.input.consumeKeyE()) owner = 'player'
       const npc = this.bodies.find(body => body.team === 'friendly' && !body.npc.dead && body.npc.battlefieldUnarmed && mesh.position.distanceTo(body.npc.combatPosition) < 1.4)
-      owner ??= npc?.actorId
-      if (!owner) continue
-      if (!this.equipPrisonSword(i, owner)) return
+      const owner = selected?.target === mesh ? 'player' : npc?.actorId
+      if (owner && !this.equipPrisonSword(i, owner)) return
     }
   }
 
@@ -768,6 +801,7 @@ export class CareerArenaCombatScene {
     this.props!.syncSwords(claimed)
     if (owner === 'player') {
       this.inventory.addWeapon(PRISON_SWORD_ID); this.inventory.equipWeapon(PRISON_SWORD_ID); this.inventory.meleeEnabled = true
+      this.pickupHud?.notify(`已裝備 · ${WEAPONS[PRISON_SWORD_ID].name}`)
     } else {
       const npc = this.bodies.find(body => body.actorId === owner)!.npc
       npc.battlefieldUnarmed = false
@@ -785,6 +819,7 @@ export class CareerArenaCombatScene {
     if (!staged) return
     const state = staged.activeMission!.prisonBreak!
     this.phase = 'result'
+    this.clearPickupFocus()
     this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
     if (firstAttempt && outcome === 'failure') {
       const line = prisonTaunt(state.captor, state.gateOpen, this.counts().enemyActive)
@@ -900,7 +935,7 @@ export class CareerArenaCombatScene {
     this.listeners.abort()
     this.closePanel()
     this.inventory?.dispose()
-    this.props?.dispose(); this.prisonHud?.remove(); this.subtitle?.remove(); this.dimmer?.remove()
+    this.pickupHud?.dispose(); this.props?.dispose(); this.prisonHud?.remove(); this.subtitle?.remove(); this.dimmer?.remove()
     this.input.dispose()
     this.hud.dispose(); this.targetHud.dispose(); this.weaponWheelUI.dispose(); this.damageNumbers.clear()
     for (const shot of this.shots) shot.arrow.destroy()

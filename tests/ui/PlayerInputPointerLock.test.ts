@@ -9,7 +9,7 @@ function harness(search = '') {
   const input = new PlayerInput()
   onTestFinished(() => input.dispose())
   const mouse = (type: string, button: number) => win.dispatchEvent(Object.assign(new Event(type), { button }))
-  const key = (code: string) => win.dispatchEvent(Object.assign(new Event('keydown'), { code }))
+  const key = (code: string, repeat = false) => win.dispatchEvent(Object.assign(new Event('keydown'), { code, repeat }))
   const keyUp = (code: string) => win.dispatchEvent(Object.assign(new Event('keyup'), { code }))
   const lock = (locked: boolean) => { doc.pointerLockElement = locked ? {} : null; doc.dispatchEvent(new Event('pointerlockchange')) }
   return { win, doc, input, mouse, key, keyUp, lock }
@@ -17,6 +17,17 @@ function harness(search = '') {
 
 afterEach(() => vi.unstubAllGlobals())
 describe('PlayerInput ownership', () => {
+  it('delivers one E edge per physical press and never revives it from keyboard repeat', () => {
+    const h = harness('?nolock')
+    h.key('KeyE'); expect(h.input.consumeKeyE()).toBe(true)
+    h.key('KeyE', true); h.key('KeyE', true)
+    expect(h.input.consumeKeyE()).toBe(false)
+    h.input.clear(); h.key('KeyE', true)
+    expect(h.input.consumeKeyE()).toBe(false)
+    h.keyUp('KeyE'); h.key('KeyE')
+    expect(h.input.consumeKeyE()).toBe(true)
+    expect(h.input.consumeKeyE()).toBe(false)
+  })
   it('ignores unlocked controls and clears held movement and combat input when lock is lost', () => {
     const h = harness()
     h.key('KeyW'); h.mouse('mousedown', 0); h.mouse('mousedown', 2)

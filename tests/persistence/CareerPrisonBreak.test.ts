@@ -3,6 +3,8 @@ import { commitPrisonBreakReturn } from '../../src/career/CareerMissionReturnRec
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { Vector3 } from 'three'
 import { CareerArenaCombatScene } from '../../src/arena/CareerArenaCombatScene'
+import { InteractionFocus } from '../../src/world/InteractionFocus'
+import { InventoryManager } from '../../src/rpg/InventoryManager'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { acceptHeavyFieldMission } from '../../src/career/HeavyFieldMission'
 import { createCareerProfile } from '../../src/career/CareerProfile'
@@ -32,6 +34,74 @@ function fixture(rank: 'captain' | 'commander' = 'captain') {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe('Prison encounter persistence', () => {
+  it('玩家拾劍先保存，失敗不裝備或顯示成功，重試後才取得臨時武器', () => {
+    const { profile, store, storage } = fixture()
+    const state = profile.activeMission!.prisonBreak!
+    state.swords = {}; state.gateOpen = false
+    expect(store.save(profile)).toBe(true)
+    const originalInventory = store.load()!.ownedWeapons
+    vi.stubGlobal('document', { exitPointerLock() {} })
+    const inventory = new InventoryManager({ meleeWeaponId: '', rangedWeaponId: '', shieldId: null })
+    const swords = [{ position: new Vector3(0, 0, 1), visible: true }]
+    const props = { swords, setSelectedSword: vi.fn(), syncSwords: (saved: typeof state) => { swords[0].visible = saved.swords[0] === undefined } }
+    const feedback = vi.fn(), show = vi.fn()
+    let retry = () => {}
+    const scene = Object.assign(Object.create(CareerArenaCombatScene.prototype) as {
+      updatePickupFocus(): void; pickupSwords(pressed: boolean): void
+    }, {
+      profile, store, inventory, props, pickupFocus: new InteractionFocus(), phase: 'fight', panel: null,
+      player: { position: new Vector3(), dead: false }, orbit: { cameraYaw: Math.PI }, bodies: [],
+      input: { isLocked: true, clear() {} }, pickupHud: { show, notify: feedback },
+      openPanel() {}, closePanel() {}, button: (_label: string, action: () => void) => { retry = action },
+    })
+    scene.updatePickupFocus()
+    expect(show).toHaveBeenLastCalledWith(expect.stringContaining('破舊羅馬短劍'))
+    storage.failWrites = true
+    scene.pickupSwords(true)
+    expect(store.load()!.activeMission!.prisonBreak!.swords).toEqual({})
+    expect(inventory.activeMelee).toBeUndefined()
+    expect(swords[0].visible).toBe(true)
+    expect(feedback).not.toHaveBeenCalled()
+    expect(show).toHaveBeenLastCalledWith(null)
+    storage.failWrites = false
+    retry()
+    expect(store.load()!.activeMission!.prisonBreak!.swords).toEqual({ 0: 'player' })
+    expect(inventory.activeMelee?.id).toBe('gladius_rusty')
+    expect(swords[0].visible).toBe(false)
+    expect(feedback).toHaveBeenCalledOnce()
+    expect(store.load()!.equipment).toEqual(profile.equipment)
+    expect(store.load()!.ownedWeapons).toEqual(originalInventory)
+    inventory.dispose()
+  })
+
+  it('隊友仍可拾劍，開門後玩家焦點與拾取皆關閉', () => {
+    const { profile, store } = fixture(), state = profile.activeMission!.prisonBreak!
+    state.swords = {}; state.gateOpen = false
+    expect(store.save(profile)).toBe(true)
+    const swords = [{ position: new Vector3(0, 0, 1), visible: true }, { position: new Vector3(0, 0, 1.5), visible: true }]
+    const props = { swords, setSelectedSword: vi.fn(), syncSwords: (saved: typeof state) => swords.forEach((sword, i) => { sword.visible = saved.swords[i] === undefined }) }
+    const npc = { dead: false, battlefieldUnarmed: true, combatPosition: new Vector3(0, 0, 1), applyCareerEquipment: vi.fn(), setTacticalOrder: vi.fn() }
+    const show = vi.fn()
+    const scene = Object.assign(Object.create(CareerArenaCombatScene.prototype) as {
+      profile: typeof profile; updatePickupFocus(): void; pickupSwords(pressed: boolean): void
+    }, {
+      profile, store, props, pickupFocus: new InteractionFocus(), phase: 'fight', panel: null,
+      player: { position: new Vector3(), dead: false }, orbit: { cameraYaw: Math.PI },
+      bodies: [{ team: 'friendly', actorId: 'original:prisoner:0', npc }],
+      input: { isLocked: true }, pickupHud: { show },
+    })
+    scene.updatePickupFocus()
+    scene.pickupSwords(false)
+    expect(store.load()!.activeMission!.prisonBreak!.swords).toEqual({ 0: 'original:prisoner:0' })
+    expect(npc.applyCareerEquipment).toHaveBeenCalledOnce()
+    scene.pickupSwords(true)
+    expect(store.load()!.activeMission!.prisonBreak!.swords).toEqual({ 0: 'original:prisoner:0' })
+    scene.profile.activeMission!.prisonBreak!.gateOpen = true
+    scene.updatePickupFocus(); scene.pickupSwords(true)
+    expect(show).toHaveBeenLastCalledWith(null)
+    expect(props.setSelectedSword).toHaveBeenLastCalledWith(null)
+    expect(swords[1].visible).toBe(true)
+  })
   it('重整保留玩家與 NPC 戰損、拾劍歸屬與已開門', () => {
     const { profile, store } = fixture()
     expect(store.save(profile)).toBe(true)
@@ -131,7 +201,7 @@ describe('Prison encounter persistence', () => {
         battlefieldUnarmed: entry.team === 'friendly', combatAmmo: 0, shield: { shieldImpactRemaining: 0 },
         update: vi.fn(), updateTownTravel: vi.fn(), assignFormationTarget: vi.fn() } }
     })
-    const spectator = { update: vi.fn() }, orbit = { update: vi.fn() }, props = { setOpen: vi.fn(), swords: [] }
+    const spectator = { update: vi.fn() }, orbit = { update: vi.fn() }, props = { setOpen: vi.fn(), setSelectedSword: vi.fn(), swords: [] }
     const scene = Object.assign(Object.create(CareerArenaCombatScene.prototype) as {
       advancePhase(dt: number): void; updateBodies(dt: number): void; updateCamera(dt: number): void;
       update(dt: number): void; finishPrison(outcome: 'victory' | 'failure', escapedBy?: string): void;
@@ -140,7 +210,7 @@ describe('Prison encounter persistence', () => {
       knocked: new Set(Object.keys(state.combat.actors).filter(id => state.combat.actors[id].status === 'knocked')),
       previousPlayerPosition: position.clone(), arenaId: state.combat.arenaId, camera: { position: new Vector3() },
       navigation: { sync() {}, beginFrame() {} }, arena: { obstacles: [], update() {} }, damageNumbers: { update() {} },
-      input: { clear() {} }, tracker: { snapshot: () => ({ player: stats }) }, openPanel() {}, button() {}, openPrisonResult: published,
+      input: { clear() {}, consumeKeyE: () => false }, pickupFocus: new InteractionFocus(), tracker: { snapshot: () => ({ player: stats }) }, openPanel() {}, button() {}, openPrisonResult: published,
     })
     scene.updateCamera(0)
     expect(spectator.update).toHaveBeenCalledOnce()
