@@ -1,5 +1,7 @@
 import { MountArmor } from '../../src/combat/MountArmor'
 import { CareerMountController } from '../../src/career/CareerMountController'
+import { CareerRaceController } from '../../src/career/CareerRaceController'
+import { acceptVeteranMission } from '../../src/career/VeteranMission'
 import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
 import { createDefaultSkillState } from '../../src/rpg/SkillManager'
 import type { TownActorSpec } from '../../src/town/TownRules'
@@ -337,6 +339,44 @@ describe('Town mission settlement transactions', () => {
     expect(h.events.indexOf('save')).toBeLessThan(h.events.indexOf('reset'))
   })
 
+  it('keeps the owned horse available after Scout defeat without replaying its death from the previous race', () => {
+    const h = fixture('veteran-field')
+    const home = cloneCareerProfile(h.read())
+    delete home.activeMission
+    home.rank = 'veteran'
+    home.totalMerit = 900
+    addCareerItem(home, 'horse', 1)
+    home.racePlayerState = raceHealth(80)
+    const accepted = acceptVeteranMission(home, 'veteran-tragedy-of-the-scouts', { missionId: 'scout-return' })!
+    accepted.activeMission!.phase = 'ENGAGING'
+    accepted.activeMission!.mountState = { activeMountId: 'horse', hp: { horse: 0 }, unavailable: ['horse'] }
+    h.publish(accepted)
+    Object.assign(h.runtime, { world: { faction: 'viking' }, sceneContext: { missionOnlyResidents: true } })
+    Object.assign(h.player, { hp: 0, dead: true, facingYaw: 0, setStamina: vi.fn() })
+    // Use the race controller's real capture and replay with data-only adapters.
+    const restoreRaceMount = vi.fn()
+    const battleMount = { currentHp: 0, armorImpactRemaining: 0,
+      group: { position: new Vector3(301, 0, 307), rotation: { y: 0 } } }
+    const mounts = { activeMountId: 'horse', activeMount: battleMount as typeof battleMount | null, restoreRaceMount }
+    const race = new CareerRaceController(
+      null!, null!, [], [], () => h.runtime.player!, null!,
+      mounts as unknown as CareerMountController, h.read, h.commit,
+    )
+    h.runtime.race = race
+
+    expect(h.settlement.finish('failure').status).toBe('saved')
+    expect(h.store.load()!.racePlayerState).toMatchObject({ mountId: 'horse', mountHp: 0 })
+    expect(h.settlement.returnToTown('direct').status).toBe('restarted')
+    h.reload()
+    mounts.activeMount = null
+    race.restorePlayer({ preservePlacement: true })
+
+    expect(restoreRaceMount).not.toHaveBeenCalled()
+    expect(h.read().racePlayerState).toBeUndefined()
+    const homeMounts = new CareerMountController(null!, () => h.runtime.player!, h.read, h.commit, () => [], () => [])
+    expect(homeMounts.list()).toContainEqual(expect.objectContaining({ id: 'horse', allocated: true, available: true }))
+  })
+
   it('preserves completed return recovery through rejected writes and a reentrant handoff save', () => {
     const h = fixture('bandit', true)
     h.resident.spec.id = 'merchant'; h.resident.spec.role = 'merchant'; h.resident.spec.duty = 'service'
@@ -481,7 +521,6 @@ describe('Town mission settlement transactions', () => {
     const h = fixture('commander-four-gate-defense', true), profile = h.read()
     profile.rank = 'commander'; profile.totalMerit = 20000
     profile.racePlayerState = raceHealth(23)
-    const previousRace = structuredClone(profile.racePlayerState)
     profile.personalSquad = { members: [{ id: 'personal:dead', type: 'soldier' }] }
     profile.activeMission!.personalSquad = snapshotPersonalMission(profile)!
     profile.activeMission!.personalSquad!.members['personal:dead'] = { status: 'dead', hp: 0 }
@@ -503,11 +542,11 @@ describe('Town mission settlement transactions', () => {
     profile.mountArmor = { 'armored-horse': 0, 'snow-leopard': 0 }
     h.town.preservesResident.mockReturnValue(true)
     h.storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
-    return { h, previousRace }
+    return h
   }
 
   it('leaves Commander V storage and runtime untouched when the home return save fails', () => {
-    const { h } = commanderVHomeReturnFixture()
+    const h = commanderVHomeReturnFixture()
     const beforeReturn = h.storage.getItem(CAREER_STORAGE_KEY)
     h.storage.writable = false
     expect(h.settlement.returnToTown('direct').status).toBe('save-failed')
@@ -519,7 +558,7 @@ describe('Town mission settlement transactions', () => {
   })
 
   it('atomically rebuilds Commander V at home without replaying four-gate checkpoints or rewards', () => {
-    const { h, previousRace } = commanderVHomeReturnFixture()
+    const h = commanderVHomeReturnFixture()
     expect(h.settlement.returnToTown('direct').status).toBe('restarted')
     expect(h.events).toEqual(['save', 'defense-cleanup'])
     expect(h.town.restart).toHaveBeenCalledExactlyOnceWith(h.read())
@@ -531,7 +570,7 @@ describe('Town mission settlement transactions', () => {
     const warhorse = new MountArmor('ARMORED_HORSE')
     warhorse.restore(saved.mountArmor?.['armored-horse'])
     expect(warhorse.remaining).toBe(50)
-    expect(saved.racePlayerState).toEqual({ ...previousRace, hp: 851, dead: false }) // 850 commander + 1 earned skill HP
+    expect(saved.racePlayerState).toBeUndefined()
     expect(saved.civilianCommandSquad?.actorIds).toHaveLength(21)
     expect(new Set(Object.values(saved.civilianCommandSquad!.owners))).toEqual(new Set(['daily']))
     expect(saved.civilianCommandSquad?.members.merchant).toEqual({ status: 'deployed', order: 'attack' })
