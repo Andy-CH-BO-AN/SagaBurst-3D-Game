@@ -1,6 +1,7 @@
 import { commitPrisonBreakReturn } from '../career/CareerMissionReturnRecovery'
 import { CareerPrisonBreakScene } from '../arena/CareerPrisonBreakScene'
 import { beginPrisonBreak } from '../career/CareerPrisonBreak'
+import { PRISON_CAPTURE_ACTION, PRISON_CAPTURE_DESCRIPTION, PRISON_CAPTURE_OBJECTIVE, PRISON_CAPTURE_TITLE } from '../ui/PrisonBreakBriefing'
 import { stageMissionReturnRebuild } from '../career/CareerMissionReturnRecovery'
 import { townRoster } from './TownRules'
 import { createCareerBridgeBattleLaunch, createCareerFelineBattleLaunch, isCareerBridgeBattle, isCareerFelineBattle } from '../career/CareerBridgeBattle'
@@ -117,11 +118,12 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       }
       if (prison.stage === 'captured') {
         const result = profile.activeMission!.result!
-        text.textContent = `戰役敗北\n原戰役軍功：${result.merit.total}\n你與友軍被敵軍俘虜了。`
-        action('繼續', () => {
+        const briefing = `${PRISON_CAPTURE_TITLE}\n原戰役軍功：${result.merit.total}\n${PRISON_CAPTURE_DESCRIPTION}\n${PRISON_CAPTURE_OBJECTIVE}`
+        text.textContent = briefing
+        action(PRISON_CAPTURE_ACTION, () => {
           const latest = store.loadChecked().profile
           const next = latest && beginPrisonBreak(latest, prison.missionId)
-          if (!next || !store.save(next)) { text.textContent = '被俘進度尚未保存，請重試。'; return }
+          if (!next || !store.save(next)) { text.textContent = `${briefing}\n越獄進度尚未保存，請重試。`; return }
           overlay.remove(); void start(next)
         })
         return true

@@ -11,6 +11,7 @@ import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { CaptainEagleHUD } from '../../src/ui/CaptainEagleHUD'
 
 interface CampaignSettlementEntry {
   _updateDefenseCampaign(dt: number): void
@@ -127,7 +128,14 @@ describe('Heavy field defeat capture at the production Game caller', () => {
       const profile = acceptHeavyFieldMission({ ...createCareerProfile('roman'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 'soldier-iron-encounter', `field-${outcome}`)!
       expect(store.save(profile)).toBe(true)
       const player = { damageDealt: 20, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
-      const hud = { showResult: vi.fn(), showSaveRetry: vi.fn() }
+      const elements: { innerHTML: string }[] = []
+      vi.stubGlobal('document', { pointerLockElement: null, body: { append: vi.fn() }, createElement: () => {
+        const el = { id: '', className: '', style: { cssText: '' }, innerHTML: '', remove: vi.fn(),
+          querySelector: () => ({ addEventListener: vi.fn() }) }
+        elements.push(el); return el
+      } })
+      const hud = new CaptainEagleHUD('feline')
+      const showResult = vi.spyOn(hud, 'showResult')
       const entry = Object.assign(Object.create(Game.prototype) as { _showFieldBattleResult(outcome: 'victory' | 'failure'): void }, {
         felineMissionId: profile.activeMission!.id, bridgeLaunch: undefined, careerStore: store,
         npcs: [{ faction: Faction.ENEMY, characterFaction: 'viking' }], player: { dead: true },
@@ -136,7 +144,7 @@ describe('Heavy field defeat capture at the production Game caller', () => {
       })
       storage.failWrites = true
       entry._showFieldBattleResult(outcome)
-      expect(hud.showResult).not.toHaveBeenCalled()
+      expect(showResult).not.toHaveBeenCalled()
       expect(store.load()!.activeMission!.result).toBeUndefined()
       expect(store.load()!.activeMission!.prisonBreak).toBeUndefined()
       storage.failWrites = false
@@ -145,7 +153,19 @@ describe('Heavy field defeat capture at the production Game caller', () => {
       expect(saved.activeMission!.result!.outcome).toBe(outcome)
       expect(saved.activeMission!.prisonBreak?.captor).toBe(outcome === 'failure' ? 'viking' : undefined)
       expect(saved.claimedBattleIds).toEqual([profile.activeMission!.id])
-      expect(hud.showResult.mock.lastCall?.[4]).toBe(outcome === 'failure' ? '繼續' : '返回小鎮')
+      expect(showResult.mock.lastCall?.[4]).toBe(outcome === 'failure')
+      expect(showResult.mock.lastCall?.[1]).toBe(saved.activeMission!.result!.merit.total)
+      const resultMarkup = elements.at(-1)!.innerHTML
+      expect(resultMarkup).toContain('戰鬥統計')
+      expect(resultMarkup).toContain(`Career 軍功 +${saved.activeMission!.result!.merit.total}`)
+      if (outcome === 'failure') {
+        expect(resultMarkup).toContain('你被俘虜了')
+        expect(resultMarkup).toContain('存活隊友穿過出口')
+        expect(resultMarkup).toContain('開始越獄')
+      } else {
+        expect(resultMarkup).not.toContain('你被俘虜了')
+        expect(resultMarkup).toContain('返回小鎮')
+      }
       entry._showFieldBattleResult(outcome)
       expect(store.load()).toEqual(saved)
     }
@@ -168,7 +188,7 @@ describe('Heavy field defeat capture at the production Game caller', () => {
     })
     entry._showFieldBattleResult('failure')
     const claimed = store.load()!
-    expect(hud.showResult.mock.lastCall?.[4]).toBe('繼續')
+    expect(hud.showResult.mock.lastCall?.[4]).toBe(true)
     const continueFromDefeat = hud.showResult.mock.lastCall![3] as () => void
     storage.failWrites = true
     continueFromDefeat()

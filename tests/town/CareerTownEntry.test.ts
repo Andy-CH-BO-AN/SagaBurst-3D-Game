@@ -14,6 +14,9 @@ import { CAREER_STORAGE_KEY } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { claimCareerMission, clearCareerMission } from '../../src/career/CareerProfile'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
+import { acceptHeavyFieldMission } from '../../src/career/HeavyFieldMission'
+import { claimCareerFieldResult } from '../../src/career/CareerPrisonBreak'
+import { CareerPrisonBreakScene } from '../../src/arena/CareerPrisonBreakScene'
 
 vi.mock('../../src/town/TownScene', () => ({ TownScene: { create: vi.fn() } }))
 vi.mock('../../src/town/TownUI', () => ({ installTownStyles: vi.fn() }))
@@ -321,6 +324,31 @@ describe('Town load failure recovery', () => {
 
 
 describe('Captain battlefield Career entry routing', () => {
+  it('重整被俘存檔保留逃脫說明，保存失敗可重試，成功後直接部署且不重發軍功', async () => {
+    const local = new MemoryStorage(), body = element()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
+    vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    const accepted = acceptHeavyFieldMission({ ...createCareerProfile('roman'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 'soldier-iron-encounter', 'capture-reload')!
+    const stats = { damageDealt: 20, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
+    const captured = claimCareerFieldResult(accepted, accepted.activeMission!.id, 'failure', stats, stats, 'viking').profile
+    const store = new CareerProfileStore(local); expect(store.save(captured)).toBe(true)
+    const saved = store.load()!, start = vi.fn()
+    const create = vi.spyOn(CareerPrisonBreakScene, 'create').mockResolvedValue({ start, dispose: vi.fn() } as unknown as CareerPrisonBreakScene)
+    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn())
+    const briefing = body.children.find(child => child.children.some(item => item.textContent.includes('你被俘虜了')))!
+    expect(briefing.children[0].textContent).toContain('武器已被沒收')
+    expect(briefing.children[0].textContent).toContain('存活隊友穿過出口')
+    expect(briefing.children[0].textContent).toContain(`原戰役軍功：${saved.activeMission!.result!.merit.total}`)
+    const begin = findText(body, '開始越獄')!
+    local.failWrites = true; begin.onclick!()
+    expect(store.load()).toEqual(saved); expect(create).not.toHaveBeenCalled()
+    expect(briefing.children[0].textContent).toContain('請重試')
+    local.failWrites = false; begin.onclick!(); await Promise.resolve()
+    expect(store.load()!.activeMission!.prisonBreak!.stage).toBe('escape')
+    expect(store.load()!.totalMerit).toBe(saved.totalMerit)
+    expect(create).toHaveBeenCalledOnce(); expect(start).toHaveBeenCalledOnce()
+  })
   it('saves completed battlefield resident recovery before rebuilding town and retries a refused write', async () => {
     const local = new MemoryStorage(), body = element()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
