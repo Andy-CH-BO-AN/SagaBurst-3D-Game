@@ -1,7 +1,7 @@
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import type { PlayerLoadoutConfig } from '../battle/BattleConfig'
-import { createDefaultDefensePlayerLoadout, positionDefenseCampaignAttackers, type CareerVeteranOutpostLaunchData, type DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
+import { createDefaultDefensePlayerLoadout, getStandardOutpostAttackerFrontlineZ, type CareerVeteranOutpostLaunchData, type DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
 import { getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
 import { DEFENSE_CAMPAIGN_REINFORCEMENT_STAGING } from '../campaign/CampaignConfig'
 import { allegianceFor, type BattleSpawnPlan, type NpcSpawnSpec } from '../battle/BattleSpawner'
@@ -80,7 +80,15 @@ export function createCareerVeteranOutpostLaunch(profile: CareerProfile): Defens
     mountId: mount === 'armored-horse' || mount === 'black-cat' || mount === 'white-cat' || mount === 'orange-cat' || mount === 'serval' || mount === 'caracal' || mount === 'corgi' || mount === 'snow-leopard' || mount === 'xongkoro' ? mount : 'horse',
   } as PlayerLoadoutConfig
   const missionKind = mission.kind
-  const runtimeState = mission.outpostBattleState ?? defaultOutpostBattleState()
+  const runtimeState = { ...(mission.outpostBattleState ?? defaultOutpostBattleState()) }
+  if (requiresMount && !runtimeState.playerPosition && mission.actorPositions) {
+    // Older assaults saved the army but always restored the player at the old spawn.
+    const { centerX, frontZ, backZ } = getCampaignOutpostPlacement(outpostFaction)
+    runtimeState.playerPosition = {
+      x: centerX, z: frontZ - Math.sign(backZ - frontZ) * 50,
+      yaw: outpostFaction === 'roman' ? Math.PI : 0,
+    }
+  }
 
   return {
     type: 'defense',
@@ -107,7 +115,7 @@ export function createCareerVeteranOutpostLaunch(profile: CareerProfile): Defens
       missionKind,
       playerFaction: profile.faction,
       outpostFaction,
-      runtimeState: { ...runtimeState },
+      runtimeState,
       reinforcementDelaySeconds: mission.templateId === 'veteran-dread-outpost' ? 90 : 0,
       assaultChargeDistanceMeters: 50,
     },
@@ -123,11 +131,10 @@ export function getCareerVeteranOutpostRoster(launch: DefenseCampaignLaunchConfi
 function positionVeteranOutpostRoster(
   entries: Array<{ spec: NpcSpawnSpec; unit: VeteranRosterUnit }>,
   outpostFaction: CampaignFaction,
-  playerFaction: CampaignFaction,
 ): void {
   const outpost = getCampaignOutpostPlacement(outpostFaction)
   const inward = Math.sign(outpost.backZ - outpost.frontZ)
-  const offense = playerFaction !== outpostFaction
+  const attackerFrontZ = getStandardOutpostAttackerFrontlineZ(outpostFaction)
   const squadIdsByFaction = new Map<CampaignFaction, number[]>()
   const slotBySquad = new Map<string, number>()
   for (const { spec, unit } of entries) {
@@ -151,8 +158,7 @@ function positionVeteranOutpostRoster(
     if (inside) {
       spec.z = outpost.frontZ + inward * (18 + row * 2.7)
     } else {
-      const outsideDistance = offense ? 65 : 24
-      spec.z = outpost.frontZ - inward * (outsideDistance + row * 1.2)
+      spec.z = attackerFrontZ - inward * row * 1.2
     }
   }
 }
@@ -188,21 +194,15 @@ export function createCareerVeteranOutpostSpawnPlan(
       ]
     : roster.reinforcements.map(unit => ({ unit, side: 'friendly' as const }))
   const planned = entries.map(({ unit, side }) => ({ unit, spec: toMissionSpec(unit, data.playerFaction, side) }))
+  const outpost = getCampaignOutpostPlacement(data.outpostFaction)
+  const inward = Math.sign(outpost.backZ - outpost.frontZ)
 
   if (wave === 'initial') {
-    positionVeteranOutpostRoster(planned, data.outpostFaction, data.playerFaction)
+    positionVeteranOutpostRoster(planned, data.outpostFaction)
     if (options.deployRampartGarrison !== false) {
       deployOutpostRampartGarrison(planned.map(({ spec }) => spec), data.outpostFaction)
     }
-    if (data.templateId === 'veteran-dread-outpost') {
-      const enemySpecs = planned
-        .filter(({ spec }) => spec.characterFaction !== data.playerFaction)
-        .map(({ spec }) => spec)
-      positionDefenseCampaignAttackers(enemySpecs, data.outpostFaction)
-    }
   } else {
-    const outpost = getCampaignOutpostPlacement(data.outpostFaction)
-    const inward = Math.sign(outpost.backZ - outpost.frontZ)
     planned.forEach(({ spec, unit }, index) => {
       const squadIndex = Math.max(0, unit.squadId - 1)
       const slot = index % 25
@@ -212,11 +212,13 @@ export function createCareerVeteranOutpostSpawnPlan(
     })
   }
 
-  const outpost = getCampaignOutpostPlacement(data.outpostFaction)
-  const inward = Math.sign(outpost.backZ - outpost.frontZ)
-  const playerSpawn = data.playerFaction === data.outpostFaction
-    ? { x: 0, z: outpost.frontZ + inward * 24 }
-    : { x: 0, z: outpost.frontZ - inward * 50 }
+  const playerSpawn = { x: outpost.centerX, z: outpost.frontZ + inward * 24 }
+  if (data.playerFaction !== data.outpostFaction) {
+    const rearZ = planned.reduce((rear, { spec }) =>
+      spec.characterFaction === data.playerFaction && (spec.z - rear) * inward < 0 ? spec.z : rear,
+    getStandardOutpostAttackerFrontlineZ(data.outpostFaction))
+    playerSpawn.z = rearZ - inward * 8
+  }
   return { playerSpawn, npcSpecs: planned.map(entry => entry.spec), horseSpecs: [], pickupSpecs: [] }
 }
 

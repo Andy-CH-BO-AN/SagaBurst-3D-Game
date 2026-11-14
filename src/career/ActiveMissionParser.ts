@@ -87,6 +87,7 @@ function parseVeteranOutpostBattleState(value: unknown): VeteranOutpostBattleSta
     || !['deployment', 'assault'].includes(raw.activePhase as string)) return undefined
   const gateState = ['closed', 'open', 'destroyed'].includes(raw.gateState as string)
     ? raw.gateState as VeteranOutpostBattleState['gateState'] : undefined
+  const position = raw.playerPosition as Partial<NonNullable<VeteranOutpostBattleState['playerPosition']>> | undefined
   return {
     phase: raw.phase as VeteranOutpostBattleState['phase'],
     activePhase: raw.activePhase as VeteranOutpostBattleState['activePhase'],
@@ -99,6 +100,11 @@ function parseVeteranOutpostBattleState(value: unknown): VeteranOutpostBattleSta
     battleFinished: raw.battleFinished === true,
     reinforcementQueueIndex: nonNegativeInteger(raw.reinforcementQueueIndex),
     assaultChargeTriggered: raw.assaultChargeTriggered === true,
+    ...(position && typeof position.x === 'number' && Number.isFinite(position.x)
+      && typeof position.z === 'number' && Number.isFinite(position.z)
+      && typeof position.yaw === 'number' && Number.isFinite(position.yaw)
+      ? { playerPosition: { x: position.x, z: position.z, yaw: position.yaw,
+        ...(typeof position.y === 'number' && Number.isFinite(position.y) ? { y: position.y } : {}) } } : {}),
     ...(typeof raw.gateHealth === 'number' && Number.isFinite(raw.gateHealth) && raw.gateHealth >= 0 ? { gateHealth: raw.gateHealth } : {}),
     ...(gateState ? { gateState } : {}),
   }

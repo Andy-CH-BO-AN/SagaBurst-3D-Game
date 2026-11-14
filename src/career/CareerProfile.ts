@@ -508,7 +508,11 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
       ...(profile.activeMission.actorPositions ? { actorPositions: Object.fromEntries(Object.entries(profile.activeMission.actorPositions).map(([actorId, position]) => [actorId, { ...position }])) } : {}),
       ...(profile.activeMission.engagedEnemySquadIds ? { engagedEnemySquadIds: [...profile.activeMission.engagedEnemySquadIds] } : {}),
       ...(profile.activeMission.outpostSiege ? { outpostSiege: structuredClone(profile.activeMission.outpostSiege) } : {}),
-      ...(profile.activeMission.outpostBattleState ? { outpostBattleState: { ...profile.activeMission.outpostBattleState } } : {}),
+      ...(profile.activeMission.outpostBattleState ? { outpostBattleState: {
+        ...profile.activeMission.outpostBattleState,
+        ...(profile.activeMission.outpostBattleState.playerPosition
+          ? { playerPosition: { ...profile.activeMission.outpostBattleState.playerPosition } } : {}),
+      } } : {}),
       ...(profile.activeMission.commanderMission ? { commanderMission: {
         ...profile.activeMission.commanderMission,
         ...(profile.activeMission.commanderMission.playerPosition

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
 import { claimCareerMission, clearCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { createCareerVeteranOutpostLaunch, createCareerVeteranOutpostSpawnPlan } from '../../src/career/CareerVeteranOutpost'
 import { acceptVeteranMission, createVeteranRoster, getVeteranMissionAvailability } from '../../src/career/VeteranMission'
 const first = 'veteran-dread-outpost', second = 'veteran-scout-hunters', village = 'veteran-village-intercept'
 const stats = { damageDealt: 50, damageTaken: 0, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
@@ -46,5 +48,35 @@ describe('Veteran progression and stable borrowed rosters', () => {
     expect(ordinary.filter(unit => unit.source === 'temporary')).toHaveLength(45)
     expect(roster.friendly.map(unit => unit.actorId)).toEqual(active.friendlyActorIds)
     expect(new Set(active.friendlyActorIds).size).toBe(active.friendlyActorIds.length)
+  })
+})
+
+function veteranOutpostDeployment(faction: CareerProfile['faction'], templateId: string) {
+  const profile = acceptVeteranMission({ ...veteran(), faction }, templateId, { missionId: 'outpost-deployment' })!
+  const launch = createCareerVeteranOutpostLaunch(profile)
+  const plan = createCareerVeteranOutpostSpawnPlan(launch, 'initial')
+  const gate = getCampaignOutpostPlacement(launch.defenderFaction)
+  const outsideDistance = (point: { z: number }) => (gate.frontZ - point.z) * Math.sign(gate.backZ - gate.frontZ)
+  return {
+    attackers: plan.npcSpecs.filter(spec => spec.characterFaction !== launch.defenderFaction).map(outsideDistance),
+    playerDistance: outsideDistance(plan.playerSpawn),
+    defending: launch.defenderFaction === faction,
+    chargeDistance: launch.careerVeteranOutpost!.assaultChargeDistanceMeters,
+  }
+}
+
+describe('Veteran Outpost deployment', () => {
+  it('starts the attacking wave at the Standard Outpost frontline on both sides of the map', () => {
+    for (const faction of ['roman', 'viking'] as const) {
+      for (const templateId of [first, 'veteran-outpost-assault']) {
+        const { attackers, playerDistance, defending, chargeDistance } = veteranOutpostDeployment(faction, templateId)
+        expect(Math.min(...attackers), `${templateId} (${faction})`).toBe(233)
+        expect(Math.max(...attackers)).toBeCloseTo(237.8)
+        if (!defending) {
+          expect(playerDistance).toBeGreaterThan(Math.max(...attackers))
+          expect(chargeDistance).toBe(50)
+        }
+      }
+    }
   })
 })
