@@ -4774,7 +4774,7 @@ export class Game {
     const pressed = this.input.consumeKeyE()
     for (const pickup of this.pickups) pickup.update(dt)
     if (this.player.dead || this.controlMode === 'spectator' || this.player.spectatorOnly || !this.input.isLocked
-      || this.equipmentUI.visible || this.interactionInputCaptured || this._commanderOutpostCombatLocked()
+      || this.equipmentUI.visible || this.interactionInputCaptured
       || this._isCareerCommandFinished() || this.isModelStudio) {
       this._clearPickupFocus()
       return

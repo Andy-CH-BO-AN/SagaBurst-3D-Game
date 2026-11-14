@@ -35,6 +35,34 @@ function harness(custom = true) {
 }
 
 describe('Game pickup caller', () => {
+  it('allows dismounting during Commander Last Stand preparation while the combat lock is active', () => {
+    const h = harness(false)
+    const registerMount = vi.fn(), hideMountHud = vi.fn()
+    Object.assign(h.player, {
+      isMounted: true, currentMount: h.mount,
+      dismountFromMount: () => { Object.assign(h.player, { isMounted: false, currentMount: null }) },
+    })
+    Object.assign(h.game, {
+      defenseCampaignConfig: { careerCommanderOutpost: {} },
+      defenseCampaignRuntime: { getSnapshot: () => ({ activePhase: 'deployment' }) },
+      commanderOutpostDeploymentBatch: { ready: true },
+      _aimTargetRegistry: { registerMount }, mountHud: { classList: { remove: hideMountHud } },
+    })
+    const combatLocked = () => (h.game as unknown as { _commanderOutpostCombatLocked(): boolean })._commanderOutpostCombatLocked()
+    expect(combatLocked()).toBe(true)
+    h.game._updateInteractions(0)
+    expect(h.prompt()).toBe('[E] 下騎')
+    h.press(); h.game._updateInteractions(0)
+    expect(h.player.isMounted).toBe(false)
+    expect(registerMount).toHaveBeenCalledWith(h.mount)
+    expect(hideMountHud).toHaveBeenCalledWith('visible')
+    expect(combatLocked()).toBe(true)
+    expect(h.prompt()).toBe('[E] 騎乘：馬')
+    h.press(); h.game._updateInteractions(0)
+    expect(h.mountPlayer).toHaveBeenCalledWith(h.mount)
+    h.inventory.dispose()
+  })
+
   it('uses the displayed target even beside a mount, and cancels when that target is gone', () => {
     const h = harness(), sword = pickup('gladius_rusty', 0, 1.2), lance = pickup('steel_lance', .4, 1.3)
     Object.assign(h.game, { pickups: [sword, lance] })
