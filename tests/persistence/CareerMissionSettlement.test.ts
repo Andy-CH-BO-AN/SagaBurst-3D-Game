@@ -46,6 +46,7 @@ function fourGateCasualties(mission: ActiveCareerMission, ids: readonly string[]
 function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'enemy-town-assault' | 'commander-four-gate-defense' | 'veteran-field' | 'duel' = 'bandit', completed = false, assaultTemplate = ENEMY_TOWN_ASSAULT_ID) {
   const events: string[] = []
   let profile = kind === 'commander-four-gate-defense' ? createFourGateDefenseProfile('ATTACKING') : createCareerProfile('roman')
+  if (kind === 'captain-patrol-command') profile.rank = 'captain'
   if (kind === 'enemy-town-assault') {
     profile.rank = assaultTemplate === CAPTAIN_SIEGE_COMMAND_ID ? 'captain' : 'soldier'
     profile.completedOutpostRelief = true
@@ -678,12 +679,14 @@ describe('Town mission settlement transactions', () => {
     expect(h.town.restPlayer).not.toHaveBeenCalled()
   })
 
-  it('preserves an already dismissed HR checkpoint on same-scene arrival without refilling or awarding merit', () => {
-    const h = fixture('bandit', true), profile = h.read()
+  it('preserves dismissed HR wounds on Captain I arrival and places the player at the Sergeant without awarding merit', () => {
+    const h = fixture('captain-patrol-command', true), profile = h.read()
     profile.personalSquad = { members: [{ id: 'personal:wounded', type: 'soldier' }, { id: 'personal:dead', type: 'soldier' }] }
     const standby = duelStandby()
     profile.activeMission!.personalSquad = structuredClone(standby)
-    const merit = profile.totalMerit, position = h.player.group.position.clone()
+    const merit = profile.totalMerit
+    const returnPoint = { x: 60, y: 12, z: 34, yaw: Math.PI }
+    Object.assign(h.town, { resolveSergeantReturnPoint: () => returnPoint })
     expect(h.settlement.returnToTown('arrived')).toEqual({ status: 'returned', kind: 'party' })
     const stored = h.store.loadChecked().profile!
     expect(stored.activeMission).toBeUndefined()
@@ -691,10 +694,16 @@ describe('Town mission settlement transactions', () => {
     expect(stored.personalSquadRuntime?.returnToHR).toBeUndefined()
     expect(stored.totalMerit).toBe(merit)
     expect(stored.personalSquad?.members.map(({ id }) => id)).toEqual(['personal:wounded', 'personal:dead'])
-    expect(h.player.group.position).toEqual(position)
+    expect(h.player.standOn).toHaveBeenCalledExactlyOnceWith(60, 12, 34)
+    expect(h.player.group.position).toEqual(new Vector3(60, standingPlayerY(12), 34))
+    expect(h.player.group.rotation.y).toBe(Math.PI)
+    expect(h.patrol.release).toHaveBeenCalledOnce()
     expect(h.player.resetForScene).not.toHaveBeenCalled()
     expect(h.town.returnPersonalSquad).toHaveBeenCalledExactlyOnceWith(false)
     expect(h.town.restart).not.toHaveBeenCalled()
+    expect(h.settlement.returnToTown('arrived')).toEqual({ status: 'ignored' })
+    expect(h.commit).toHaveBeenCalledOnce()
+    expect(h.read().totalMerit).toBe(merit)
   })
 
   it('keeps private wounds on a direct same-scene Veteran return: in place, not travel, decides the refit', () => {

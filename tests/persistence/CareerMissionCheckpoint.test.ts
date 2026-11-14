@@ -212,7 +212,12 @@ describe('CareerMissionCheckpoint', () => {
     expect(commit).toHaveBeenCalledTimes(3)
     expect(profile.activeMission!.fourGateDefense!.actors[actorId].hp).toBe(26)
     expect(profile.activeMission!.mountState).toEqual({ hp: { horse: 12 }, unavailable: [] })
-
+    // The controller must still let the checkpoint owner deduplicate ordinary dead-player updates.
+    controller.persistRuntimeProgress()
+    controller.updateFlow(1, 0)
+    controller.persistRuntimeProgress()
+    expect(snapshot).toHaveBeenCalledTimes(3)
+    expect(commit).toHaveBeenCalledTimes(3)
   })
 
   it('acknowledges fresh native deployment with the actual HR service resident without cancelling the mission', () => {
