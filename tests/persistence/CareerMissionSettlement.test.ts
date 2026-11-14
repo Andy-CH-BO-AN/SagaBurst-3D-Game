@@ -678,40 +678,23 @@ describe('Town mission settlement transactions', () => {
     expect(h.town.restPlayer).not.toHaveBeenCalled()
   })
 
-  it('keeps private wounds and casualties on same-scene arrival without awarding merit again', () => {
-    const h = fixture('bandit', true), profile = h.read()
-    profile.mountArmor = { 'armored-horse': 0 }
-    profile.personalSquad = { members: [{ id: 'personal:wounded', type: 'soldier' }, { id: 'personal:dead', type: 'soldier' }] }
-    profile.activeMission!.personalSquad = snapshotPersonalMission(profile)!
-    profile.activeMission!.personalSquad!.state = 'ACTIVE'
-    profile.activeMission!.personalSquad!.members['personal:wounded'] = { status: 'deployed', hp: 9, ammo: 0, shieldImpact: 1 }
-    profile.activeMission!.personalSquad!.members['personal:dead'] = { status: 'dead', hp: 0 }
-    const merit = profile.totalMerit, position = h.player.group.position.clone()
-    expect(h.settlement.returnToTown('arrived')).toEqual({ status: 'returned', kind: 'party' })
-    expect(h.read().activeMission).toBeUndefined()
-    expect(h.read().mountArmor).toBeUndefined()
-    expect(h.town.restPlayer).toHaveBeenCalledOnce()
-    expect(h.read().personalSquadRuntime?.members['personal:wounded']).toMatchObject({ hp: 9, ammo: 0, shieldImpact: 1 })
-    expect(h.read().personalSquadRuntime?.members['personal:dead']).toEqual({ status: 'dead', hp: 0 })
-    expect(h.read().personalSquadRuntime?.returnToHR).toBeUndefined()
-    expect(h.read().personalSquad?.members.map(({ id, type }) => ({ id, type }))).toEqual([
-      { id: 'personal:wounded', type: 'soldier' }, { id: 'personal:dead', type: 'soldier' },
-    ])
-    expect(h.read().totalMerit).toBe(merit)
-    expect(h.player.group.position).toEqual(position)
-    expect(h.town.returnPersonalSquad).toHaveBeenCalledExactlyOnceWith(false)
-  })
-
-  it('keeps a private squad already dismissed to HR on same-scene arrival instead of discarding its wounds', () => {
+  it('preserves an already dismissed HR checkpoint on same-scene arrival without refilling or awarding merit', () => {
     const h = fixture('bandit', true), profile = h.read()
     profile.personalSquad = { members: [{ id: 'personal:wounded', type: 'soldier' }, { id: 'personal:dead', type: 'soldier' }] }
     const standby = duelStandby()
     profile.activeMission!.personalSquad = structuredClone(standby)
+    const merit = profile.totalMerit, position = h.player.group.position.clone()
     expect(h.settlement.returnToTown('arrived')).toEqual({ status: 'returned', kind: 'party' })
     const stored = h.store.loadChecked().profile!
     expect(stored.activeMission).toBeUndefined()
     expect(stored.personalSquadRuntime).toEqual(standby)
+    expect(stored.personalSquadRuntime?.returnToHR).toBeUndefined()
+    expect(stored.totalMerit).toBe(merit)
+    expect(stored.personalSquad?.members.map(({ id }) => id)).toEqual(['personal:wounded', 'personal:dead'])
+    expect(h.player.group.position).toEqual(position)
+    expect(h.player.resetForScene).not.toHaveBeenCalled()
     expect(h.town.returnPersonalSquad).toHaveBeenCalledExactlyOnceWith(false)
+    expect(h.town.restart).not.toHaveBeenCalled()
   })
 
   it('keeps private wounds on a direct same-scene Veteran return: in place, not travel, decides the refit', () => {

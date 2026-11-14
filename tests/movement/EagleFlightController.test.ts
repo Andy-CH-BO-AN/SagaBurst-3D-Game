@@ -190,12 +190,13 @@ describe('Vertical pad takeoff and landing', () => {
       box: new Box3(new Vector3(pad.x - 3, 0, pad.z - 3), new Vector3(pad.x + 3, 4, pad.z + 3)) })
     const blockedAt = eagle.elapsed
     let lowest = Infinity
+    let invalidPhase: string | undefined
     while (eagle.elapsed - blockedAt < 20) {
       eagle.advance(order)
       lowest = Math.min(lowest, eagle.position.y)
-      expect(eagle.phase).not.toBe('grounded')
-      expect(eagle.phase).not.toBe('landing')
+      if (eagle.phase === 'grounded' || eagle.phase === 'landing') invalidPhase ??= `${eagle.phase} at ${eagle.elapsed}s`
     }
+    expect(invalidPhase).toBeUndefined()
     // It left the column under power instead of hovering over, or sinking into, the blockage.
     expect(lowest).toBeGreaterThan(15)
     expect(eagle.flight.speed).toBeGreaterThan(XONGKORO.minimumSpeed - .5)

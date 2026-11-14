@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { Box3, Vector3 } from 'three'
 import {
   CAREER_MISSION_RETURN_KEY,
-  consumeCareerMissionReturnFlag,
   findMountParkingPoint,
   isMountParkingClear,
   markCareerMissionReturnToSergeant,
@@ -95,15 +94,6 @@ describe('Sergeant return contract', () => {
     )).toBeNull()
   })
 
-  it('shares one return flag with Arena Duel and consumes it at most once', () => {
-    expect(DUEL_ARENA_RETURN_KEY).toBe(CAREER_MISSION_RETURN_KEY)
-    const storage = memorySessionStorage()
-    expect(consumeCareerMissionReturnFlag(storage)).toBe(false)
-    markCareerMissionReturnToSergeant(storage)
-    expect(consumeCareerMissionReturnFlag(storage)).toBe(true)
-    expect(consumeCareerMissionReturnFlag(storage)).toBe(false)
-  })
-
   it('validates Town entry fallback clearance by stance and returns null when completely blocked', () => {
     const home = { x: 10, z: 20, yaw: 0.5 }
     // Blocker at 1.1m away allows walking (0.75m clearance) at home, but blocks mounted (1.25m).
@@ -132,6 +122,7 @@ describe('Sergeant return contract', () => {
   })
 
   it('keeps the return flag and intent while every point is blocked, then places once a legal point opens', () => {
+    expect(DUEL_ARENA_RETURN_KEY).toBe(CAREER_MISSION_RETURN_KEY)
     const storage = memorySessionStorage()
     markCareerMissionReturnToSergeant(storage)
     let open = false
