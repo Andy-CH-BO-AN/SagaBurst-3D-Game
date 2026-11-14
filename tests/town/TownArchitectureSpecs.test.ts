@@ -9,6 +9,7 @@ import {
   architectureRuinCorridors,
   architectureSpec,
   CIVIC_BUILDING_KINDS,
+  DEEP,
   expandedHrCenter,
   SERVICE_ANCHOR_CLEARANCE,
   SERVICE_MOUNT_TURN_RADIUS,
@@ -23,6 +24,8 @@ import { rampNavigationSides, surfaceBox } from '../../src/town/TownRamparts'
 import { stableHorsePositions, TOWN_SITES } from '../../src/town/TownRules'
 import { MOUNT_MOVEMENT_RADIUS } from '../../src/world/Mount'
 import { findBlockingObstacleAlongPath, resolveObstacleCollision, type ObstacleData } from '../../src/world/Terrain'
+import { PLAYER_RADIUS } from '../../src/movement/MovementBalance'
+import { standingPlayerY, stepPlayerFootBody } from '../../src/player/PlayerFootBody'
 
 const FACTIONS: readonly ArchitectureFaction[] = ['roman', 'viking']
 const SPECS: readonly BuildingSpec[] = FACTIONS.flatMap(faction => CIVIC_BUILDING_KINDS.map(kind => architectureSpec(faction, kind)))
@@ -246,6 +249,65 @@ it('posts the Captain left, Sergeant centre and Commander right inside each Town
       const name = `${faction} ${post.id}`
       expect(solid.filter(c => overlaps(c, lane)).map(c => c.box), name).toEqual([])
       expect(spec.anchors.filter(a => a !== post && overlaps({ box: [a.x, 0, a.z, a.x, 0, a.z], role: 'prop' }, lane, .45)).map(a => a.id), name).toEqual([])
+    }
+  }
+})
+
+/** The plan's own colliders and floor slabs as building-local collision data (terrain at 0 under the plinth). */
+function localBuildingObstacles(spec: BuildingSpec): ObstacleData[] {
+  return [
+    ...spec.colliders.map(c => ({ isBarricade: false,
+      box: new Box3(new Vector3(c.box[0], c.box[1] <= DEEP ? DEEP : c.box[1], c.box[2]), new Vector3(c.box[3], c.box[4], c.box[5])) })),
+    ...spec.floor.map(r => ({ isBarricade: false, navigationPassable: true, solidBelow: DEEP,
+      box: new Box3(new Vector3(r.minX, DEEP, r.minZ), new Vector3(r.maxX, spec.floorY, r.maxZ)),
+      walkSurface: { startX: (r.minX + r.maxX) / 2, startZ: r.minZ, startY: spec.floorY, topY: spec.floorY, dirX: 0, dirZ: 1,
+        length: r.maxZ - r.minZ, landing: 0, halfWidth: (r.maxX - r.minX) / 2, mounted: true } })),
+  ]
+}
+/** Walks the real on-foot body toward each point at 8 m/s; returns the farthest miss and the feet's largest drift off the floor. */
+function walkOnFoot(position: Vector3, route: readonly (readonly [number, number])[], obstacles: ObstacleData[], floorY: number) {
+  let state = { velocityY: 0, onGround: true }, miss = 0, drift = 0
+  for (const [x, z] of route) {
+    for (let frame = 0; frame < 240 && Math.hypot(x - position.x, z - position.z) > .05; frame++) {
+      const previous = position.clone(), d = Math.hypot(x - position.x, z - position.z), step = Math.min(d, 8 / 30)
+      position.x += (x - position.x) / d * step; position.z += (z - position.z) / d * step
+      state = stepPlayerFootBody(position, previous, state, 1 / 30, obstacles, () => 0)
+      drift = Math.max(drift, Math.abs(position.y - standingPlayerY(floorY)))
+    }
+    miss = Math.max(miss, Math.hypot(x - position.x, z - position.z))
+  }
+  return { miss, drift }
+}
+
+it('walks from the Roman Town Center door through each wing arch to the back of both wing rooms and out again on one floor', () => {
+  const spec = architectureSpec('roman', 'town-center'), obstacles = localBuildingObstacles(spec), F = spec.floorY
+  for (const side of [-1, 1]) {
+    const into = [[0, 7.5], [0, 1], [side * 7.4, 0], [side * 10.6, 0], [side * 10.6, -11.8], [side * 16.6, -11.8]] as const
+    const position = new Vector3(0, standingPlayerY(F), 7.5)
+    const walk = walkOnFoot(position, [...into, ...[...into].reverse()], obstacles, F)
+    const name = side < 0 ? 'left council room' : 'right trophy hall'
+    expect(walk.miss, name).toBeLessThan(.06)
+    expect(walk.drift, name).toBeLessThan(1e-6)
+  }
+})
+
+it('keeps the Roman wing rooms sealed by their outer, back and front walls and the nave wall beside the arch', () => {
+  const spec = architectureSpec('roman', 'town-center'), obstacles = localBuildingObstacles(spec), F = spec.floorY
+  for (const side of [-1, 1]) {
+    // [start, push target, axis, limit]: the body stays on the room side of each wall face.
+    const probes = [
+      [[side * 16.6, -11.8], [side * 22, -11.8], 'x', 17.9 - PLAYER_RADIUS],
+      [[side * 10.6, -11.8], [side * 10.6, -18], 'z', 13.4 - PLAYER_RADIUS],
+      [[side * 10.6, 0], [side * 10.6, 8], 'z', 3 - PLAYER_RADIUS],
+      [[side * 10.6, -7], [side * 4, -7], 'x', -(9 + PLAYER_RADIUS)],
+    ] as const
+    for (const [[x, z], target, axis, limit] of probes) {
+      const position = new Vector3(x, standingPlayerY(F), z)
+      walkOnFoot(position, [target], obstacles, F)
+      const reach = axis === 'x' ? Math.abs(position.x) : Math.abs(position.z)
+      const name = `${side < 0 ? 'left' : 'right'} wing toward ${target}`
+      if (limit > 0) expect(reach, name).toBeLessThanOrEqual(limit + 1e-3)
+      else expect(reach, name).toBeGreaterThanOrEqual(-limit - 1e-3)
     }
   }
 })

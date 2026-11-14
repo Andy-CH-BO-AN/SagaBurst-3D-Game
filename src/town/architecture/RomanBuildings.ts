@@ -31,6 +31,18 @@ function pedimentFront(s: Sketch, x: number, base: number, z: number, width: num
     for (const side of [-1, 1]) { const l = at(side * width * .24, base + rise * .26, .1); s.laurel(l.x, l.y, l.z, yaw, Math.min(.5, rise * .16)) }
   } else { const l = at(0, base + rise * .36, .1); s.laurel(l.x, l.y, l.z, yaw, Math.min(.55, rise * .2)) }
 }
+/** Roman curule-style chair facing yaw (0 = +Z): seat, back and legs from shared kit parts. */
+function romanChair(s: Sketch, x: number, y0: number, z: number, yaw: number): void {
+  const face = V(Math.sin(yaw), 0, Math.cos(yaw)), right = V(Math.cos(yaw), 0, -Math.sin(yaw))
+  s.box('wood', x, y0 + .5, z, .62, .08, .58, PALETTE.timber, yaw)
+  const back = V(x, 0, z).addScaledVector(face, -.27)
+  s.box('wood', back.x, y0 + .95, back.z, .62, .9, .08, PALETTE.darkTimber, yaw)
+  s.box('cloth', x, y0 + .56, z, .5, .04, .46, PALETTE.red, yaw)
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const leg = V(x, 0, z).addScaledVector(right, sx * .25).addScaledVector(face, sz * .23)
+    s.box('wood', leg.x, y0 + .23, leg.z, .07, .46, .07, PALETTE.darkTimber, yaw)
+  }
+}
 /** Ridge tiles along a roof ridge. */
 function ridgeTiles(r: Sketch, a: THREE.Vector3, b: THREE.Vector3): void { r.beam('roof', a, b, .34, .34, 0xd08a64, true) }
 
@@ -50,10 +62,13 @@ export function buildRomanTownCenter(ctx: BuildContext): void {
     s.laurel(side * 6.05, F + 10.1, h.front + .05, 0, .42)
     s.box('stone', side * (h.halfX - .25), F + h.eave / 2, h.front + .1, .6, h.eave, .25, PALETTE.marble)
   }
-  const clerestory = [-14.5, -9.5, -4.5, 0]
+  const clerestory = [-14.5, -9.5, -4.5, 0], A = T.wingArch
   for (const side of [-1, 1]) {
     const x = side * (h.halfX - h.wall / 2)
-    s.wall('stone', x, F, cz, depth, h.eave, h.wall, clerestory.map(z => ({ x: side * (cz - z), y: 7.9, w: 1.4, h: 2.6, arch: .7 })), PALETTE.travertine, Math.PI / 2)
+    s.wall('stone', x, F, cz, depth, h.eave, h.wall, [...clerestory.map(z => ({ x: side * (cz - z), y: 7.9, w: 1.4, h: 2.6, arch: .7 })),
+      { x: cz - A.z, y: 0, w: A.half * 2, h: A.height, arch: A.half }], PALETTE.travertine, Math.PI / 2)
+    s.archRing('stone', x, F + A.height - A.half, A.z, A.half, A.half, .3, h.wall + .16, PALETTE.marble, Math.PI / 2)
+    for (const z of [A.z - A.half - .2, A.z + A.half + .2]) s.box('stone', x, F + (A.height - A.half) / 2, z, h.wall + .16, A.height - A.half, .4, PALETTE.marble)
     for (const z of clerestory) for (const face of [h.halfX + .02, innerX - .02]) s.window(side * face, F + 9.2, z, side * Math.PI / 2 * (face > innerX ? 1 : -1), 1.4, 2.6, 'stone', true)
     s.span('stone', side * (h.halfX + .25), top - .55, h.back - .25, side * (h.halfX - .1), top, h.front, PALETTE.marble)
   }
@@ -64,7 +79,7 @@ export function buildRomanTownCenter(ctx: BuildContext): void {
 
   // Interior: red dado and panels between pilasters, open trusses, runner, banners, council table and fires.
   for (const side of [-1, 1]) {
-    s.span('stone', side * (innerX - .03), F, innerBack, side * innerX, F + 6.2, innerFront, PALETTE.redPlaster)
+    for (const [z0, z1] of [[innerBack, A.z - A.half - .4], [A.z + A.half + .4, innerFront]]) s.span('stone', side * (innerX - .03), F, z0, side * innerX, F + 6.2, z1, PALETTE.redPlaster)
     s.span('stone', side * (innerX - .05), F + 6.2, innerBack, side * innerX, F + 6.45, innerFront, PALETTE.marble)
     for (const z of T.truss.z) s.box('stone', side * (innerX - .18), F + T.truss.bottom / 2, z, .36, T.truss.bottom, .7, PALETTE.marble)
   }
@@ -101,7 +116,8 @@ export function buildRomanTownCenter(ctx: BuildContext): void {
       for (let i = 0; i < 3; i++) { const a = i * Math.PI * 2 / 3; s.beam('metal', V(ring.x + Math.cos(a) * .9, ring.y, z + Math.sin(a) * .9), V(ring.x, F + T.truss.bottom, z), .03, .03, PALETTE.iron) }
       for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; s.add('glow', new THREE.SphereGeometry(.07, 5, 4).translate(ring.x + Math.cos(a) * .9, ring.y + .2, z + Math.sin(a) * .9), PALETTE.glow, null) }
     }
-    for (const z of [-17, -12, -7, -2]) s.lantern(side * (innerX - .45), F + 4.4, z + 2.5)
+    for (const z of [-17, -12, -7]) s.lantern(side * (innerX - .45), F + 4.4, z + 2.5)
+    for (const z of [A.z - A.half - .6, A.z + A.half + .6]) s.lantern(side * (innerX - .45), F + 3.6, z)
   }
   // Open leaves rest flat against the inner front wall, outside the 6m opening.
   for (const side of [-1, 1]) s.doorLeaf(side * T.door.half, F, innerFront - .1, T.door.half - .05, T.door.height - .9, side < 0 ? Math.PI : 0)
@@ -120,13 +136,20 @@ export function buildRomanTownCenter(ctx: BuildContext): void {
   ridgeTiles(r, V(0, ridgeY + .18, T.roof.back), V(0, ridgeY + .18, T.roof.front))
   r.add('metal', new THREE.ConeGeometry(.25, .8, 8).translate(0, ridgeY + .65, T.roof.front - .2), PALETTE.gold)
 
-  // Wings: lower red-panelled blocks with arched grille windows, both reading as one long front.
+  // Wings: lower red-panelled rooms with arched grille windows, both reading as one long front.
   const w = T.wing
   for (const side of [-1, 1]) {
     const x0 = side * w.inner, x1 = side * w.outer, lo = Math.min(x0, x1), hi = Math.max(x0, x1)
     const gy = lowGround(lo, w.back, hi, w.front)
-    s.span('stone', lo - .1, gy, w.back - .1, hi + .1, F + .9, w.front + .1, PALETTE.ashlar)
-    s.span('stone', lo, F + .9, w.back, hi, F + w.top, w.front, PALETTE.travertine)
+    const outerFace = side * (w.outer - w.wall), roomLo = Math.min(x0, outerFace), roomHi = Math.max(x0, outerFace)
+    const inFront = w.front - w.wall, inBack = w.back + w.wall
+    // Ashlar socle and travertine shell on the real front, back and outer walls; the room floor is the shared plinth.
+    const shellLo = Math.min(outerFace, x1), shellHi = Math.max(outerFace, x1)
+    s.span('stone', lo - .1, gy, inFront, hi + .1, F + .9, w.front + .1, PALETTE.ashlar)
+    s.span('stone', lo - .1, gy, w.back - .1, hi + .1, F + .9, inBack, PALETTE.ashlar)
+    s.span('stone', side > 0 ? shellLo : shellLo - .1, gy, w.back - .1, side > 0 ? shellHi + .1 : shellHi, F + .9, w.front + .1, PALETTE.ashlar)
+    for (const [x0w, z0w, x1w, z1w] of [[lo, inFront, hi, w.front], [lo, w.back, hi, inBack], [shellLo, w.back, shellHi, w.front]] as const)
+      s.span('stone', x0w, F + .9, z0w, x1w, F + w.top, z1w, PALETTE.travertine)
     s.span('stone', lo, F + .9, w.front, hi, F + 2.6, w.front + .04, PALETTE.redPlaster)
     s.span('stone', lo - .1, F + w.top - .35, w.back - .15, hi + .1, F + w.top, w.front + .2, PALETTE.marble)
     const bays = [w.inner + 1.6, (w.inner + w.outer) / 2, w.outer - 1.6]
@@ -139,9 +162,60 @@ export function buildRomanTownCenter(ctx: BuildContext): void {
     for (const z of [w.back + 2.5, (w.back + w.front) / 2, w.front - 2.5]) {
       s.window(x1 + side * .07, F + 4.5, z, side * Math.PI / 2, 1.1, 2.4, 'stone', true)
       s.span('stone', x1 + side * .02, F + .9, z - 1, x1 + side * .06, F + 2.6, z + 1, PALETTE.redPlaster)
+      // The same windows lit from inside the room.
+      s.window(outerFace - side * .03, F + 4.5, z, -side * Math.PI / 2, 1.1, 2.4, 'stone', true)
     }
+    for (const x of bays) s.window(side * x, F + 4.5, inFront - .03, Math.PI, 1.2, 2.6, 'stone', true)
     r.hipRoof('roof', lo - .4, hi + .4, w.back - .4, w.front + .4, F + w.top, w.rise)
+
+    // Room interior: red dado with a marble rail on every wall face, coffered timber ceiling, wall lanterns and a corner brazier.
+    s.span('stone', roomLo, F, inFront - .03, roomHi, F + 2.4, inFront, PALETTE.redPlaster)
+    s.span('stone', roomLo, F, inBack, roomHi, F + 2.4, inBack + .03, PALETTE.redPlaster)
+    s.span('stone', outerFace - side * .03, F, inBack, outerFace, F + 2.4, inFront, PALETTE.redPlaster)
+    s.span('stone', side * (h.halfX + .03), F, inBack, side * h.halfX, F + 2.4, A.z - A.half - .4, PALETTE.redPlaster)
+    s.span('stone', side * (h.halfX + .03), F, A.z + A.half + .4, side * h.halfX, F + 2.4, inFront, PALETTE.redPlaster)
+    for (const [a, b, c, d] of [[roomLo, inFront - .06, roomHi, inFront], [roomLo, inBack, roomHi, inBack + .06], [outerFace - side * .06, inBack, outerFace, inFront]] as const)
+      s.span('stone', Math.min(a, c), F + 2.4, Math.min(b, d), Math.max(a, c), F + 2.6, Math.max(b, d), PALETTE.marble)
+    for (const z of [inBack + 2, -9.5, -5, -.5]) s.beam('wood', V(roomLo, F + w.top - .5, z), V(roomHi, F + w.top - .5, z), .26, .3, PALETTE.darkTimber)
+    s.beam('wood', V(side * (w.inner + w.outer - w.wall) / 2, F + w.top - .5, inBack), V(side * (w.inner + w.outer - w.wall) / 2, F + w.top - .5, inFront), .26, .3, PALETTE.darkTimber)
+    for (const z of [-8.5, A.z - A.half - .6, A.z + A.half + .6]) s.lantern(side * (h.halfX + .45), F + 3.6, z)
+    for (const x of [w.inner + 2.2, w.outer - 2.4]) s.lantern(side * x, F + 4.6, inBack + .45)
+    const ring = V(side * (w.inner + w.outer - w.wall) / 2, F + 5.4, -5.2)
+    s.add('metal', new THREE.TorusGeometry(.75, .05, 6, 18).rotateX(Math.PI / 2).translate(ring.x, ring.y, ring.z), PALETTE.iron)
+    for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; s.add('glow', new THREE.SphereGeometry(.07, 5, 4).translate(ring.x + Math.cos(a) * .75, ring.y + .2, ring.z + Math.sin(a) * .75), PALETTE.glow, null) }
+    s.beam('metal', ring, V(ring.x, F + w.top - .65, ring.z), .03, .03, PALETTE.iron)
+    const br = T.wingBrazier
+    s.cylinder('stone', side * br.x, F, br.z, .3, .38, 1.0, PALETTE.marble)
+    s.bowlFire(side * br.x, F + 1.0, br.z, .8)
   }
+  // Left wing, war council: map table with benches, a head chair, and a banner and shields on the back wall.
+  const cl = T.council, cx = -cl.x
+  s.table(cx, F, cl.z, cl.halfX * 2, cl.halfZ * 2, cl.top)
+  s.span('cloth', cx - cl.halfX + .12, F + cl.top, cl.z - cl.halfZ + .15, cx + cl.halfX - .12, F + cl.top + .015, cl.z + cl.halfZ - .15, PALETTE.canvas)
+  for (const [mx, mz, color] of [[-.4, -1.1, PALETTE.red], [.35, -.3, PALETTE.red], [-.2, .6, PALETTE.iron], [.4, 1.2, PALETTE.iron], [0, -.1, PALETTE.gold]] as const)
+    s.box('metal', cx + mx, F + cl.top + .06, cl.z + mz, .12, .1, .12, color)
+  s.beam('cloth', V(cx - .5, F + cl.top + .02, cl.z - 1.4), V(cx + .3, F + cl.top + .02, cl.z + 1.3), .04, .01, PALETTE.darkRed)
+  for (const sx of [-1, 1]) s.bench(cx + sx * cl.bench, F, cl.z, cl.halfZ * 2 - .2, Math.PI / 2)
+  romanChair(s, cx, F, cl.z - cl.head, 0)
+  s.banner(cx, F + 6.2, w.back + w.wall + .05, 0, 1.6, 3.4)
+  for (const x of [-11.2, -17.2]) s.shield(x, F + 3.1, w.back + w.wall + .02, 0, .5)
+
+  // Right wing, standards and trophies: shields on the back wall, standards on the outer wall,
+  // a rack of formal blades at the front and a statue on its plinth in the middle of the room.
+  const tr = T.trophy
+  for (const [i, x] of [10.8, 12.6, 14.4, 16.2].entries()) {
+    if (i % 2 === 0) s.scutum(x, F + 2.8, w.back + w.wall + .02, 0, .1, i === 0 ? 'centurion_aquila_shield_t4' : 'roman_officer_shield_t4')
+    else s.shield(x, F + 2.9, w.back + w.wall + .02, 0, .55, undefined, 0, 'byzantine_eagle_shield_t5')
+  }
+  for (const z of tr.standards) s.bannerPole(tr.standardX, F, z, -Math.PI / 2, 6, 'metal')
+  s.banner(w.inner + .06, F + 6.4, -6, Math.PI / 2, 1.4, 3.2)
+  s.banner(w.inner + .06, F + 6.4, -11, Math.PI / 2, 1.4, 3.2)
+  s.weaponRack(tr.rack.x, F, tr.rack.z, tr.rack.half * 2, Math.PI, 'spear', ['paladin_sword_t4', 'sword_t5'])
+  const st = tr.statue, half = st.pedestal / 2
+  s.span('stone', st.x - half, F, st.z - half, st.x + half, F + st.top, st.z + half, PALETTE.marble)
+  s.span('stone', st.x - half - .1, F + st.top - .12, st.z - half - .1, st.x + half + .1, F + st.top, st.z + half + .1, PALETTE.marble)
+  s.laurel(st.x, F + st.top / 2, st.z + half + .03, 0, .28)
+  ctx.statue(st.x, F + st.top, st.z, -Math.PI / 2, st.height)
   // Tower at the right rear: red body, marble quoins, arched loggia, pyramid roof and finial.
   const t = T.tower, tx = (t.minX + t.maxX) / 2, tz = (t.minZ + t.maxZ) / 2, tw = t.maxX - t.minX, td = t.maxZ - t.minZ
   s.span('stone', t.minX, lowGround(t.minX, t.minZ, t.maxX, t.maxZ), t.minZ, t.maxX, F + t.top - 2.8, t.maxZ, PALETTE.redPlaster)
