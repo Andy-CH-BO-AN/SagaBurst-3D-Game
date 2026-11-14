@@ -2,6 +2,7 @@ import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { BridgeBattleDeployment, CareerMissionOutcome } from '../career/CareerMissionState'
 import type { ArmyHudCounts } from '../battle/ArmyCommandHudRoster'
 import { renderBattleStats } from './BattleStatsView'
+import { PRISON_CAPTURE_ACTION, PRISON_CAPTURE_DESCRIPTION, PRISON_CAPTURE_OBJECTIVE, PRISON_CAPTURE_TITLE } from './PrisonBreakBriefing'
 
 export class CaptainEagleHUD {
   private readonly root = document.createElement('div')
@@ -35,9 +36,10 @@ export class CaptainEagleHUD {
     this.root.textContent = `COMMANDER IV · BRIDGEHEAD BATTLE\n${status}\n目標：殲滅敵騎 · 剩餘 ${enemyAlive} / 200`
   }
 
-  showResult(outcome: CareerMissionOutcome, merit: number, stats: BattleStatsSnapshot, onReturn: () => void, action = '返回小鎮'): void {
-    this.showModal(`${outcome === 'victory' ? 'VICTORY · 勝利' : 'DEFEAT · 失敗'}`,
-      `Career 軍功 +${merit}（已保存）`, action, onReturn, stats)
+  showResult(outcome: CareerMissionOutcome, merit: number, stats: BattleStatsSnapshot, onReturn: () => void, captured = false): void {
+    const title = captured ? PRISON_CAPTURE_TITLE : outcome === 'victory' ? 'VICTORY · 勝利' : 'DEFEAT · 失敗'
+    const message = `Career 軍功 +${merit}（已保存）${captured ? `<br>${PRISON_CAPTURE_DESCRIPTION}<br>${PRISON_CAPTURE_OBJECTIVE}` : ''}`
+    this.showModal(title, message, captured ? PRISON_CAPTURE_ACTION : '返回小鎮', onReturn, stats)
   }
 
   showSaveRetry(onRetry: () => void): void {
