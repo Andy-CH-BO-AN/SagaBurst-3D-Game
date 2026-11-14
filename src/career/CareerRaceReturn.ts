@@ -1,5 +1,6 @@
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
-import type { CareerRaceSession, RaceRider } from './CareerRaceState'
+import { RACE_STORY_ID, type CareerRaceSession, type RaceRider } from './CareerRaceState'
+import { releaseCareerStoryEvent } from './CareerStoryEvents'
 import type { RacePosition } from './CareerRaceRoute'
 import { settleTown } from '../town/TownRules'
 
@@ -8,12 +9,16 @@ export function raceReturnAction(phase: CareerRaceSession['phase'] | undefined, 
   return requestedDirect || !canWalkBack ? 'direct' : arrived ? 'walked' : null
 }
 
-/** Stage one save: completed race, real resources and any deferred native Town settlement. */
+/** Stage one save: completed race or a technical story-race cancellation, with real Town resources. */
 export function raceReturnProfile(current: CareerProfile, player: RaceRider, destination: RacePosition | undefined, recoveryHp: number,
-  options: { dismount?: boolean; mountDestination?: RacePosition } = {}): CareerProfile | null {
+  options: { dismount?: boolean; mountDestination?: RacePosition; cancelStoryRace?: boolean } = {}): CareerProfile | null {
   const race = current.activeRace
-  if (!race || !['result', 'returning'].includes(race.phase) || !current.raceRecords?.some(r => r.sessionId === race.id)) return null
+  if (!race) return null
+  const recorded = Boolean(current.raceRecords?.some(r => r.sessionId === race.id))
+  if (options.cancelStoryRace ? race.story !== RACE_STORY_ID || race.result !== undefined || recorded
+    : !['result', 'returning'].includes(race.phase) || !recorded) return null
   let next = cloneCareerProfile(current)
+  if (options.cancelStoryRace) releaseCareerStoryEvent(next, RACE_STORY_ID, race.id)
   const event = next.townEvent
   if (event?.state === 'hostile' && event.pendingResult) {
     next = settleTown(next, event.id, event.pendingResult)

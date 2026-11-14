@@ -507,6 +507,38 @@ describe('Commander invitation race', () => {
     }
   })
 
+  it('cancels a failed Commander deployment only after saving, leaving the invitation open without a result', () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    const s: CareerRaceSession = { ...session(), scheduleVersion: 3, story: EVENT, deployed: false, phase: 'guiding' }
+    let current = pending(profile())
+    current.activeRace = s
+    current.careerStory!.events[EVENT] = { status: 'active', sourceId: s.id }
+    current.totalMerit = 150; current.availableMerit = 75
+    expect(store.save(current)).toBe(true)
+    const batch = { status: 'pending', ready: false, cancel: vi.fn() }
+    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
+    Object.assign(controller, { session: s, batch, read: () => current,
+      player: () => ({ currentMount: null, combatPosition: new Vector3(2, 1, -3), facingYaw: 0,
+        hp: 73, maxHp: 100, dead: false, staminaValue: 60 }), mounts: { activeMount: null },
+      commit: (next: CareerProfile) => { if (!store.save(next)) return false; current = next; return true } })
+    expect(controller.cancelFailedStoryRace()).toBe(false)
+    batch.status = 'failed'
+    storage.failWrites = true
+    expect(controller.canCancelFailedStoryRace).toBe(true)
+    expect(controller.cancelFailedStoryRace()).toBe(false)
+    expect(controller.session?.id).toBe(s.id)
+    expect(store.load()!.careerStory!.events[EVENT]).toEqual({ status: 'active', sourceId: s.id })
+    expect(batch.cancel).not.toHaveBeenCalled()
+    storage.failWrites = false
+    expect(controller.cancelFailedStoryRace()).toBe(true)
+    const saved = store.load()!
+    expect(saved.activeRace).toBeUndefined(); expect(controller.session).toBeUndefined()
+    expect(saved.careerStory!.events[EVENT]).toEqual({ status: 'pending' })
+    expect(saved.raceRecords).toBeUndefined(); expect([saved.availableMerit, saved.totalMerit]).toEqual([75, 150])
+    expect(saved.racePlayerState).toMatchObject({ hp: 73, position: { x: 2, y: 1, z: -3 } })
+    expect(batch.cancel).toHaveBeenCalledOnce()
+  })
+
   it('does not pay before the result is saved, and pays once after a retry and a reload', () => {
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
     const { p, s } = finished('win', true)

@@ -1301,7 +1301,9 @@ export class TownScene {
       this.button(panel, '取消新兵切磋 · 不結算獎勵', () => this.returnToTown('direct'))
     }
     const race = this.race
-    if (race && raceReturnAction(race.session?.phase, race.canWalkBack, race.returnComplete, true)) {
+    if (race?.canCancelFailedStoryRace) {
+      this.button(panel, '取消本次賽馬（不計勝負）', () => this.leaveRace(true, true))
+    } else if (race && raceReturnAction(race.session?.phase, race.canWalkBack, race.returnComplete, true)) {
       this.button(panel, '改為直接返回小鎮', () => this.leaveRace(true))
     }
     this.button(panel, '上一頁', () => this.returnHome())
@@ -1998,17 +2000,17 @@ export class TownScene {
     }
     this.button(panel, '重新整理', () => this.openSquadRefitPanel())
   }
-  private openDeploymentPanel(greeting: string, context: DialogueContext, firstOutpost: boolean): void {
+  private openDeploymentPanel(greeting: string, context: DialogueContext, firstOutpost: boolean, bypassIntro = this.tutorialBypass): void {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
     const active = this.profile.activeMission
     if (active?.result) { this.openMissionResult(active.result, true); return }
-    if (!this.tutorialBypass && this.story?.hasDialogue('deployment')) {
+    if (!bypassIntro && this.story?.hasDialogue('deployment')) {
       const panel = this.openPanel('士官長', '')
       panel.querySelector('.town-panel > button')?.remove()
       this.story.renderDialogue(panel, 'deployment')
       return
     }
-    if (!this.tutorialBypass && this.tutorial?.hasDialogue('deployment')) {
+    if (!bypassIntro && this.tutorial?.hasDialogue('deployment')) {
       const panel = this.openPanel('士官長', '')
       panel.querySelector('.town-panel > button')?.remove()
       this.tutorial.renderDialogue(panel, 'deployment')
@@ -2016,7 +2018,7 @@ export class TownScene {
     }
     const line = this.profile.tutorial?.town.step === 'weapon' ? '空手也可以接取任務；武器購買教學可稍後完成。' : greeting
     const panel = this.openPanel('士官長', line)
-    this.tutorial?.appendPanel(panel, 'deployment', this.tutorialBypass)
+    this.tutorial?.appendPanel(panel, 'deployment', bypassIntro)
     if (this.townCommand?.commandsEnabled) {
       this.button(panel, '城防部隊整補', () => this.openSquadRefitPanel())
     }
@@ -2028,7 +2030,7 @@ export class TownScene {
       const line = this.profile.faction === 'roman'
         ? '把箭袋張開。軍團不讓士兵空著手上前線——三十發，一發不少。讓敵人學會數數。'
         : '把箭袋拿來。三十支都給你塞滿——讓下一群蠢蛋替你數到零。'
-      this.openDeploymentPanel(line, context, firstOutpost)
+      this.openDeploymentPanel(line, context, firstOutpost, bypassIntro)
     })
     if (active) {
       const template = getCareerMissionTemplate(active.templateId)
@@ -2038,7 +2040,8 @@ export class TownScene {
       panel.append(badge)
       return
     }
-    this.missionBoard.render(panel, { context, firstOutpost, reopen: () => this.openDeploymentPanel(greeting, context, firstOutpost) })
+    // The board's later tab clicks outlive talk()'s temporary bypass. Keep this visit in the service panel.
+    this.missionBoard.render(panel, { context, firstOutpost, reopen: () => this.openDeploymentPanel(greeting, context, firstOutpost, bypassIntro) })
   }
   private missionBoardHost(): MissionBoardHost {
     const scene = this
@@ -2330,11 +2333,21 @@ export class TownScene {
       this.closePanel()
     })
   }
-  private leaveRace(direct = true): void {
+  private leaveRace(direct = true, cancelFailed = false): void {
     if (!this.checkpointRaceTownResult()) return
     const pendingTownResult = this.profile.townEvent?.pendingResult
     const dead = this.player.dead
-    if (!this.race?.clear(direct)) { this.notice = this.race?.error || '返回狀態保存失敗，請重試。'; return }
+    const left = cancelFailed ? this.race?.cancelFailedStoryRace() : this.race?.clear(direct)
+    if (!left) {
+      this.notice = this.race?.error || '返回狀態保存失敗，請重試。'
+      if (cancelFailed) {
+        const canRetry = this.race?.canCancelFailedStoryRace
+        const panel = this.openPanel('賽馬尚未取消', canRetry
+          ? `${this.notice}\n原賽事仍保留，沒有發放軍功。` : '對手已就緒，請繼續本場賽事。')
+        if (canRetry) this.button(panel, '重試取消（不計勝負）', () => this.leaveRace(true, true))
+      }
+      return
+    }
     if (pendingTownResult) { this.showTownResult(pendingTownResult); return }
     const saved = this.profile.racePlayerState!
     // Two different animals: `ridden` is what the player steps down from (it may be a borrowed stable horse),
@@ -2361,7 +2374,7 @@ export class TownScene {
     }
     this.player.faceDirection(Math.sin(saved.position.yaw), Math.cos(saved.position.yaw))
     this.orbit.setYaw(saved.position.yaw + Math.PI)
-    this.closePanel(); this.notice = '賽事已結束，已返回小鎮。'
+    this.closePanel(); this.notice = cancelFailed ? '本次賽馬已取消，不計勝負。仍可向指揮官接受邀請。' : '賽事已結束，已返回小鎮。'
   }
   private updateRaceHud(): void {
     const race = this.race
@@ -2369,7 +2382,7 @@ export class TownScene {
     const target = race?.guideTarget ?? null
     const distance = target ? Math.hypot(target.x - this.player.combatPosition.x, target.z - this.player.combatPosition.z) : null
     this.raceHud.update(session, { ready: race?.ready ?? false, resultSaved: race?.resultSaved ?? false,
-      saveFailed: race?.saveFailed ?? false, error: race?.error ?? '', distance })
+      saveFailed: race?.saveFailed ?? false, error: race?.error ?? '', canCancelFailedStoryRace: race?.canCancelFailedStoryRace ?? false, distance })
     if (!session) { this.raceGuide.hide(); return }
     this.raceGuide.updateRace(this.player.combatPosition, this.orbit.cameraYaw, target,
       session.phase === 'racing' || session.phase === 'finishing' ? `下一站：${RACE_LINES[session.player.checkpoint]?.label ?? '完成'}`

@@ -68,6 +68,10 @@ export class CareerRaceController {
   }
   owns(npc: NPC): boolean { return npc === this.racer || this.ownsCaptain && npc === this.captain?.npc }
   get ready(): boolean { return Boolean(this.racer && this.batch?.ready) }
+  get canCancelFailedStoryRace(): boolean {
+    return Boolean(this.session?.story === RACE_STORY_ID && !this.session.result && !this.ready
+      && (this.batch?.status === 'failed' || this.deploymentRetryPending))
+  }
   get resultSaved(): boolean { return Boolean(this.session?.result && this.session.phase !== 'finishing' && this.read().raceRecords?.some(r => r.sessionId === this.session!.id)) }
   get canWalkBack(): boolean { return !this.player().dead && Boolean(this.captain && !this.captain.npc.dead && !this.captain.npc.hostileToPlayer) }
   get returnComplete(): boolean {
@@ -461,7 +465,13 @@ export class CareerRaceController {
       ...(mount ? { mountHp: mount.currentHp, mountArmorImpact: mount.armorImpactRemaining, mountPosition: position(mount.group.position, mount.group.rotation.y) } : {}) }
   }
   clear(_direct = true): boolean {
-    if (!this.session || !this.resultSaved) return false
+    return this.resultSaved && this.finishReturn(false)
+  }
+  cancelFailedStoryRace(): boolean {
+    return this.canCancelFailedStoryRace && this.finishReturn(true)
+  }
+  private finishReturn(cancelStoryRace: boolean): boolean {
+    if (!this.session) return false
     this.snapshot()
     const current = cloneCareerProfile(this.read())
     if (this.borrowedCommander && !this.borrowedCommander.npc.dead) current.townCommanderRecovery = {
@@ -472,7 +482,8 @@ export class CareerRaceController {
     let target: RacePosition | undefined
     let mountTarget: RacePosition | undefined
     let dismount = false
-    if (!current.townEvent?.pendingResult) {
+    // A living player in Town can leave a failed deployment in place. Death still uses normal safe return.
+    if (!current.townEvent?.pendingResult && (!cancelStoryRace || player.dead)) {
       const sergeant = this.residents.filter((r): r is RaceResident & { spec: { id: string; role: string } } =>
         r.spec.id === 'deployment' && (!r.spec.role || r.spec.role === 'deployment'))
         .map(r => ({ ...r, spec: { ...r.spec, role: 'deployment' } }))
@@ -503,9 +514,12 @@ export class CareerRaceController {
       if (plan.mountPark) mountTarget = { x: plan.mountPark.x, z: plan.mountPark.z, y: groundAt(plan.mountPark.x, plan.mountPark.z), yaw: plan.point.yaw }
       dismount = plan.dismount || !standing && player.mounted
     }
-    const next = raceReturnProfile(current, player, target, this.player().maxHp, { dismount, mountDestination: mountTarget })
+    const next = raceReturnProfile(current, player, target, this.player().maxHp, { dismount, mountDestination: mountTarget, cancelStoryRace })
     if (!next) return false
-    if (!this.commit(next)) return false
+    if (!this.commit(next)) {
+      if (cancelStoryRace) this.error = '取消賽馬的存檔失敗，請重試。'
+      return false
+    }
     this.error = ''
     this.captainReturning = Boolean(this.captain && !this.captain.npc.dead && !this.captain.npc.hostileToPlayer)
     this.disposeRacer()
