@@ -340,7 +340,12 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
       try { for (let t = 0; t < seconds; t += 1 / 60) simulate(1 / 60) } finally { for (const code of held) input!.keys[code] = false }
     }
     Object.assign(window, { __townArchitecture: { faction, entries, report, padChecks, watchtowerPlacement, checkEntrances, residentClearance, goto, walkTo, teleport, advance, toggleRoofs, toggleGates,
-      overlays, camera, renderer, player, horse, fort, setMode: (m: 'player' | 'free') => { mode = m; free.enabled = m === 'free' }, frameInfo,
+      overlays, camera, renderer, player, horse, fort,
+      /** QA: a rideable mount of any preloaded type (e.g. SNOW_LEOPARD); only the riding Player moves it. */
+      spawnMount: (type: MountType, x: number, z: number, yaw = 0) => { const m = new Mount(scene, type, x, z); m.resetForScene(x, z, yaw); return m },
+      /** QA: free camera at an exact world position and target. */
+      look: (position: [number, number, number], target: [number, number, number]) => setFree(new THREE.Vector3(...target), new THREE.Vector3(...position)),
+      setMode: (m: 'player' | 'free') => { mode = m; free.enabled = m === 'free' }, frameInfo,
       cost: { meshes: totalMeshes, triangles: Math.round(totalTriangles) }, dispose: cleanup,
       /** QA: one synchronous frame (works while the tab is in the background). */
       render: () => { if (mode === 'free') free.update(); else orbit.update(input!, 0, obstacles); renderer.render(scene, camera); return renderer.domElement.toDataURL('image/jpeg', .9) } } })

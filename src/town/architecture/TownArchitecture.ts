@@ -159,6 +159,15 @@ export function placeArchitecture(kit: ArchitectureKit, kind: CivicBuildingKind,
     })
     spec = { ...spec, entrance: entrances[0], additionalEntrances: entrances.slice(1),
       envelope: { ...spec.envelope, maxZ: Math.max(spec.envelope.maxZ, ...entrances.map(e => e.z + e.approach)) } }
+  } else if (spec.entrance.gradient) {
+    // Gentle ramp sized from the real terrain step, never beyond its authored run (the envelope edge).
+    const e = spec.entrance, gradient = spec.entrance.gradient, floorTop = rootY + spec.floorY
+    let approach = e.approach
+    for (let run = Math.min(3, e.approach); run <= e.approach + 1e-6; run += .25) {
+      const foot = world(e.x + Math.sin(e.yaw) * run, e.z + Math.cos(e.yaw) * run)
+      if (Math.abs(floorTop - terrain(foot.x, foot.z) - .03) <= run * gradient) { approach = run; break }
+    }
+    spec = { ...spec, entrance: { ...e, approach } }
   }
   const plinthBottom = Math.min(low, 0) - lift - .6
   const ground = (x: number, z: number) => { const p = world(x, z); return terrain(p.x, p.z) - rootY }

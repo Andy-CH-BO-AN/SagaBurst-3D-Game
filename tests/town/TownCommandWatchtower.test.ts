@@ -9,7 +9,7 @@ import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { TownWatchtowerNavigation } from '../../src/navigation/TownWatchtowerNavigation'
 import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, getTownCommandWatchtowerUnderfill, getTownWatchtowerGuardStations, validateWatchtowerPlacement } from '../../src/town/TownCommandWatchtowerLayout'
-import { TOWN_CENTER, TOWN_CITY_ROADS, TOWN_HR_REGION, townHousing, type TownRoad } from '../../src/town/TownLayout'
+import { TOWN_CENTER_FRAME, TOWN_CITY_ROADS, TOWN_HR_REGION, townHousing, type TownRoad } from '../../src/town/TownLayout'
 import { TownProjectileObstacles } from '../../src/town/TownProjectileObstacles'
 import { getTownRampartLayout, surfaceBox } from '../../src/town/TownRamparts'
 import { NPC, RANGED_AI_LAUNCH_HEIGHT } from '../../src/world/NPC'
@@ -156,7 +156,8 @@ describe('Town command watchtower', () => {
       // Expanded hulls include foundations, eaves and the front-facing shop porches.
       const obstacles = [
         ...townHousing(faction).map(home => rectangle(home.x, home.z, home.width + 3, home.depth + 3, home.yaw)),
-        rectangle(TOWN_CENTER.x, TOWN_CENTER.z, 27, 27),
+        rectangle((TOWN_CENTER_FRAME.minX + TOWN_CENTER_FRAME.maxX) / 2, (TOWN_CENTER_FRAME.minZ + TOWN_CENTER_FRAME.maxZ) / 2,
+          TOWN_CENTER_FRAME.maxX - TOWN_CENTER_FRAME.minX + 3, TOWN_CENTER_FRAME.maxZ - TOWN_CENTER_FRAME.minZ + 3),
         rectangle(-6, -17, 14, 16, Math.PI / 2), rectangle(-5, -39, 16, 17, Math.PI / 2),
       ].map(box => ({ box, isBarricade: false }))
       bothFactionObstacles.push(...obstacles)

@@ -4,7 +4,7 @@ import { commanderGateDefenseSlots } from '../../src/career/CaptainMissionCatalo
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { hasCompleteRetirementMobilizationCheckpoint, retirementAssaultFormations, retirementGroundStaging, retirementMobilizationNeedsPreparation } from '../../src/career/CareerRetirementMobilization'
 import { townDefaultActorLoadout, townEquipmentActorSpecs } from '../../src/career/CareerTownEquipmentState'
-import { TOWN_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, townHousing } from '../../src/town/TownLayout'
+import { TOWN_CENTER_FRAME, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, townHousing } from '../../src/town/TownLayout'
 import { TOWN_WATCHTOWER_ARCHER_IDS } from '../../src/town/TownNativeGuardIdentity'
 import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
 import { getTerrainHeight } from '../../src/world/Terrain'
@@ -20,10 +20,11 @@ it('stages the complete army between the north gate and plaza with roads open', 
         : groundIds.filter(id => !TOWN_WATCHTOWER_ARCHER_IDS.includes(id)))
       expect(groundIds.filter(id => mounted.has(id))).toHaveLength(equipment === 'native' ? 105 : 227)
       // Conservative authored building envelopes; no world or mesh construction.
-      const obstacles = [...townHousing('viking'), TOWN_CENTER,
+      const hall = TOWN_CENTER_FRAME
+      const obstacles = [...townHousing('viking'),
+        { x: (hall.minX + hall.maxX) / 2, z: (hall.minZ + hall.maxZ) / 2, width: hall.maxX - hall.minX, depth: hall.maxZ - hall.minZ },
         { x: -6, z: -17, width: 10, depth: 11 }, { x: -5, z: -39, width: 11, depth: 14 },
         { x: 72, z: 30, width: 2.6, depth: 2.6 }, { x: -29, z: -41, width: 22.4, depth: 32.4 },
-        { x: 43, z: -10, width: 1, depth: 1 }, { x: 61, z: -10, width: 1, depth: 1 },
       ].map(box => ({ isBarricade: false, box: new Box3(new Vector3(box.x - box.width / 2 - .25, -10, box.z - box.depth / 2 - .25),
         new Vector3(box.x + box.width / 2 + .25, 50, box.z + box.depth / 2 + .25)) }))
       const destinations = retirementGroundStaging(formations, mounted, obstacles, { areConnected: () => true })

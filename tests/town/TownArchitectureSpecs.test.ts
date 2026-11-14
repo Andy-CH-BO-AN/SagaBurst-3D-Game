@@ -11,12 +11,14 @@ import {
   CIVIC_BUILDING_KINDS,
   expandedHrCenter,
   SERVICE_ANCHOR_CLEARANCE,
+  SERVICE_MOUNT_TURN_RADIUS,
   TOWN_CENTER_SERVICE_ROLES,
+  architectureLocalToWorld,
   hrFloorNavigationEdges,
   type ArchitectureCollider, type ArchitectureFaction, type BuildingSpec, type LocalRect,
 } from '../../src/town/architecture/ArchitectureSpecs'
 import { resolveTownHRLayout, townHrLocalMuster } from '../../src/town/TownHRLayout'
-import { TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, townRoadIntersectsBox } from '../../src/town/TownLayout'
+import { TOWN_CENTER, TOWN_CENTER_FRAME, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_PLAZA, townRoadIntersectsBox } from '../../src/town/TownLayout'
 import { rampNavigationSides, surfaceBox } from '../../src/town/TownRamparts'
 import { stableHorsePositions, TOWN_SITES } from '../../src/town/TownRules'
 import { MOUNT_MOVEMENT_RADIUS } from '../../src/world/Mount'
@@ -176,6 +178,45 @@ it('fits mounted HR reserves under the roof and leaves its public approach clear
   }
 })
 
+it('fits both Town Centers in the 40 × 36m frame with a centred 6m door, long front walls and a high clear walkway', () => {
+  const frame = TOWN_CENTER_FRAME
+  const frameBox = new Box3(new Vector3(frame.minX, -100, frame.minZ), new Vector3(frame.maxX, 100, frame.maxZ))
+  // The frame grows the hall left, right and back without touching any street or the plaza.
+  expect([...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS].filter(road => townRoadIntersectsBox(road, frameBox))).toEqual([])
+  expect(frame.maxZ).toBeLessThanOrEqual(TOWN_PLAZA.minZ)
+  for (const faction of FACTIONS) {
+    const spec = architectureSpec(faction, 'town-center'), F = spec.floorY, e = spec.entrance, env = spec.envelope
+    const name = faction
+    for (const [x, z] of [[env.minX, env.minZ], [env.maxX, env.maxZ]]) {
+      const p = architectureLocalToWorld(TOWN_CENTER, x, z)
+      expect(p.x >= frame.minX - 1e-6 && p.x <= frame.maxX + 1e-6 && p.z >= frame.minZ - 1e-6 && p.z <= frame.maxZ + 1e-6, name).toBe(true)
+    }
+    expect(e.z + e.approach, name).toBeLessThanOrEqual(env.maxZ + 1e-6)
+    expect([e.x, e.doorWidth, e.height], name).toEqual([0, 6, faction === 'roman' ? 6.5 : 5.5])
+    // The door head is the only overhead piece in the doorway; its wall plane anchors the long front.
+    const head = spec.colliders.filter(c => c.role === 'overhead' && c.box[0] <= -e.doorWidth / 2 && c.box[3] >= e.doorWidth / 2 && c.box[1] - F === e.height)
+    expect(head, name).toHaveLength(1)
+    const plane = head[0].box[5]
+    for (const side of [-1, 1]) {
+      // Tall walls on this side, no more than 3.5m behind the door plane, run unbroken from the jamb out past ±15m.
+      const spans = spec.colliders.filter(c => c.role === 'wall' && c.box[5] >= plane - 3.5 && c.box[4] - F >= e.height && Math.sign(c.box[0] + c.box[3]) === side)
+        .map(c => [Math.min(Math.abs(c.box[0]), Math.abs(c.box[3])), Math.max(Math.abs(c.box[0]), Math.abs(c.box[3]))]).sort((a, b) => a[0] - b[0])
+      let reach = e.doorWidth / 2
+      for (const [from, to] of spans) if (from <= reach + 1e-6) reach = Math.max(reach, to)
+      expect(reach, `${name} ${side < 0 ? 'left' : 'right'} wall`).toBeGreaterThanOrEqual(15)
+    }
+    // One continuous ≥6m walkway from the ramp foot through the door deep into the hall.
+    const aisle = spec.aisle!
+    expect(aisle.maxX - aisle.minX, name).toBeGreaterThanOrEqual(6)
+    expect(aisle.maxZ, name).toBeGreaterThanOrEqual(e.z + e.approach)
+    expect(aisle.minZ, name).toBeLessThan(spec.interior!.maxZ - 10)
+    // Beams, roof bands and lamps over it clear the hall height; only the door head itself is lower.
+    const headroom = faction === 'roman' ? 10 : 7.5
+    const low = spec.colliders.filter(c => (c.role === 'overhead' || c.role === 'roof') && overlaps(c, aisle) && c.box[1] - F < headroom)
+    expect(low, name).toEqual(head)
+  }
+})
+
 it('posts the Captain left, Sergeant centre and Commander right inside each Town Center, clear for a mounted officer', () => {
   for (const faction of ['roman', 'viking'] as const) {
     const spec = architectureSpec(faction, 'town-center'), solid = blocking(spec)
@@ -194,6 +235,17 @@ it('posts the Captain left, Sergeant centre and Commander right inside each Town
       for (const other of spec.anchors) if (other !== post) {
         expect(Math.hypot(other.x - post.x, other.z - post.z), `${name}/${other.id}`).toBeGreaterThanOrEqual(other.role === 'service' ? SERVICE_ANCHOR_CLEARANCE * 2 : 1.5)
       }
+    }
+    // The Sergeant is near the centre but off the door axis.
+    expect(Math.abs(sergeant.x), faction).toBeGreaterThanOrEqual(1.5)
+    expect(Math.abs(sergeant.x), faction).toBeLessThan(spec.aisle!.maxX)
+    // Mounted Captain/Commander can turn on the post and ride across to the door axis.
+    for (const post of [captain, commander]) {
+      const R = SERVICE_MOUNT_TURN_RADIUS
+      const lane: LocalRect = { minX: Math.min(post.x - R, 0), maxX: Math.max(post.x + R, 0), minZ: post.z - R, maxZ: post.z + R }
+      const name = `${faction} ${post.id}`
+      expect(solid.filter(c => overlaps(c, lane)).map(c => c.box), name).toEqual([])
+      expect(spec.anchors.filter(a => a !== post && overlaps({ box: [a.x, 0, a.z, a.x, 0, a.z], role: 'prop' }, lane, .45)).map(a => a.id), name).toEqual([])
     }
   }
 })
