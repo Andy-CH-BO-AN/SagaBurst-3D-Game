@@ -179,7 +179,7 @@ it('從城牆走上門洞上方的合併步道，進出兩座塔樓房間，再�
   const layout = getTownRampartLayout(), nav = new TownLayeredNavigation(layout), out = new THREE.Vector3()
   for (const house of layout.gatehouses!) {
     const ring = (x: number) => { const p = gatehousePoint(house.gate, x, -6.2, 0); p.y = townRampartHeight(layout, p.x, p.z)!; return p }
-    const current = ring(-24), room = (side: number) => gatehousePoint(house.gate, side * 11.3, 2, house.floorY)
+    const current = ring(-24), room = (side: number) => gatehousePoint(house.gate, side * 10.6, 2, house.floorY)
     const walkTo = (target: THREE.Vector3) => {
       for (let i = 0; i < 90 && current.distanceToSquared(target) > .0025; i++) {
         expect(nav.resolveMoveTarget(current, target, out, null, true)?.ground, house.gate.id).toBe(false)
@@ -191,7 +191,7 @@ it('從城牆走上門洞上方的合併步道，進出兩座塔樓房間，再�
         current.y = Math.max(...y)
         // Between the towers a mover never cuts through a tower partition.
         const local = gatehouseLocal(house.gate, current)
-        expect(Math.abs(local.x) > GATEHOUSE_SHELL.inner && local.z > GATEHOUSE_SHELL.back && local.z < GATEHOUSE_SHELL.partition, house.gate.id).toBe(false)
+        expect(Math.abs(local.x) > GATEHOUSE_SHELL.inner && local.z > GATEHOUSE_SHELL.wallBack && local.z < GATEHOUSE_SHELL.partition, house.gate.id).toBe(false)
       }
       expect(current.distanceTo(target), house.gate.id).toBeLessThanOrEqual(.05)
     }

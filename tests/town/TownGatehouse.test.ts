@@ -1,7 +1,7 @@
 import { Box3, Vector3 } from 'three'
 import { expect, it } from 'vitest'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
-import { GATEHOUSE_SHELL, TOWN_GATEHOUSE, gatehousePoint, townGatehouseObstacle, townGatehouseParts } from '../../src/town/TownGatehouse'
+import { GATEHOUSE_SHELL, TOWN_GATEHOUSE, gatehousePoint, gatehouseTowerWalk, townGatehouseObstacle, townGatehouseParts } from '../../src/town/TownGatehouse'
 import { getTownRampartLayout } from '../../src/town/TownRamparts'
 import { findBlockingObstacleAlongPath, findBlockingProjectileObstacleAlongPath, getTerrainHeight } from '../../src/world/Terrain'
 
@@ -37,23 +37,27 @@ it('讓門洞下方的地面路徑穿過門樓，但保留關門與上層投射�
   expect(findBlockingProjectileObstacleAlongPath(across(6, groundY + 1.7), across(-6, groundY + 1.7), solids)).toBeNull()
 })
 
-it('兩陣營門樓實體不佔用地面門洞、門樓上方合併步道、塔內與有頂城牆步道的騎乘淨空', () => {
+it('兩陣營嵌入城牆的門樓實體不佔用地面門洞、合併步道、塔房與穿塔環牆步道的騎乘淨空', () => {
   const G = TOWN_GATEHOUSE, S = GATEHOUSE_SHELL, intrusions: string[] = []
   for (const house of getTownRampartLayout().gatehouses!) {
-    const floor = house.floorY - house.groundY, roofEave = house.walkRoof.eaveY - house.groundY
-    const crown = Math.min(...house.crownY) - house.groundY
+    const floor = house.floorY - house.groundY
     const lanes: Record<string, Box3> = {
       portal: new Box3(new Vector3(-6, .2, -8), new Vector3(6, 3.4, 8)),
       // Rampart walk, joining strip and gallery between the towers: one open level.
       span: new Box3(new Vector3(-S.inner + .01, floor + .05, -10.85), new Vector3(S.inner - .01, floor + G.headroom - .05, G.deckFront - .26)),
-      gallery: new Box3(new Vector3(-(S.outer - S.skin) + .01, floor + .05, S.partition + .01), new Vector3(S.outer - S.skin - .01, floor + G.headroom - .05, G.deckFront - .26)),
+      rooms: new Box3(new Vector3(-(S.outer - S.skin) + .01, floor + .05, S.partition + .01), new Vector3(S.outer - S.skin - .01, floor + G.headroom - .05, G.deckFront - .26)),
     }
-    for (const side of [-1, 1]) {
-      const [x0, x1] = side < 0 ? [-S.outer, -S.inner] : [S.inner, S.outer]
-      lanes[`hall:${side}`] = new Box3(new Vector3(x0, crown + .05, -10.85), new Vector3(x1, roofEave - .05, S.back - .28))
+    // The rampart walk through each tower span over its real slope: a mount's
+    // 1m footprint, and body-solid tops kept 0.3m under its lowest walk point
+    // (a top just under the hooves on a slope stops the horse).
+    for (const side of [-1, 1] as const) for (let c = S.inner + .25; c < S.outer; c += .5) {
+      const walk = gatehouseTowerWalk(house, side, Math.max(S.inner, c - 1), Math.min(S.outer, c + 1)), [x0, x1] = side < 0 ? [-c - 1, -c + 1] : [c - 1, c + 1]
+      lanes[`tower:${side}:${c}`] = new Box3(new Vector3(x0, walk - .3, -10.85), new Vector3(x1, floor + G.headroom - .05, S.wallBack - .3))
     }
     for (const style of ['roman', 'viking'] as const) {
       for (const { role, box: [x0, y0, z0, x1, y1, z1] } of townGatehouseParts(house, style)) {
+        // Fill only stops shots; bodies keep the walk surface's own rules.
+        if (role === 'fill') continue
         const solid = new Box3(new Vector3(x0, y0, z0), new Vector3(x1, y1, z1))
         for (const [lane, envelope] of Object.entries(lanes)) if (solid.intersectsBox(envelope)) intrusions.push(`${house.gate.id}:${style}:${role} in ${lane}`)
       }

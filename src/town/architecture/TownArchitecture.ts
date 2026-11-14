@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { flameParts } from '../../arena/ArenaKit'
 import { getTerrainHeight, WALK_SURFACE_STEP_UP, type ObstacleData, type WalkRampSurface } from '../../world/Terrain'
 import { rampNavigationSides, slabGeometry, surfaceBox } from '../TownRamparts'
-import { GATEHOUSE_SHELL, GATEHOUSE_SIDES, GATEHOUSE_STATUE, GATEHOUSE_WING, TOWN_GATEHOUSE, VIKING_PORTAL_HEAD, gatehouseStatueSite, gatehouseWalkRoof, townGatehouseObstacle, townGatehouseParts, type GatehousePart, type TownGatehouse, type TownGatehouseSide } from '../TownGatehouse'
+import { GATEHOUSE_SHELL, GATEHOUSE_SIDES, GATEHOUSE_STATUE, GATEHOUSE_TOWN_WINDOWS, TOWN_GATEHOUSE, VIKING_PORTAL_HEAD, gatehouseStatueSite, townGatehouseObstacle, townGatehouseParts, type GatehousePart, type TownGatehouse, type TownGatehouseSide } from '../TownGatehouse'
 import type { CommandWatchtowerLayout } from '../TownCommandWatchtowerLayout'
 import { ArchitectureKit, PALETTE, Sketch, preloadArchitectureDecorations, tabletopDisplay, type BuildContext } from './ArchitectureKit'
 import { architectureLocalToWorld, architectureSpec, architectureRuinCorridors, expandedHrCenter, hrFloorNavigationEdges, DEEP, TOWN_PLAZA_MONUMENT, townPlazaLayout, type ArchitectureFaction, type BuildingSpec, type CivicBuildingKind, type LocalRect, type PlazaProp } from './ArchitectureSpecs'
@@ -399,19 +399,23 @@ function statueLod(kit: ArchitectureKit, statues: ArchitectureStatues, x: number
 export interface ArchitectureDressing { readonly root: THREE.Group; readonly obstacles: ObstacleData[] }
 
 /**
- * Twin-tower gatehouse straddling the curtain around the native arch/lintel. The
- * merged walk level and portal clearance come from TownGatehouse; every visible solid
- * here is one of its shared parts, so body/projectile collision matches it.
+ * Twin-tower gatehouse built into the curtain around the native arch/lintel.
+ * The towers replace the curtain over their spans, the rampart walk runs
+ * through them, and the gallery spans the portal on solid masonry/timber.
+ * Every visible solid here is one of TownGatehouse's shared parts, so
+ * body/projectile collision matches it.
  */
 export function dressTownGate(kit: ArchitectureKit, house: TownGatehouse, options: { statues?: ArchitectureStatues | null } = {}): ArchitectureDressing & { readonly airspace: readonly THREE.Box3[] } {
-  const { gate, groundY } = house, G = TOWN_GATEHOUSE
+  const { gate, groundY } = house, G = TOWN_GATEHOUSE, S = GATEHOUSE_SHELL
   const root = new THREE.Group(); root.name = `architecture-${kit.faction}-gatehouse`
   root.position.set(gate.x, groundY, gate.z); root.rotation.y = gate.yaw
   const s = new Sketch(kit), roman = kit.faction === 'roman', style = kit.faction, floor = house.floorY - groundY
   const slot = roman ? 'stone' : 'wood'
   const obstacles: ObstacleData[] = []
   const parts = townGatehouseParts(house, style)
-  for (const { box, overhead } of parts) obstacles.push(townGatehouseObstacle(house, box, overhead))
+  for (const { role, box, overhead } of parts) {
+    obstacles.push({ ...townGatehouseObstacle(house, box, overhead), ...(role === 'fill' ? { physicalPassable: true } : {}) })
+  }
   // The gallery floor and the strip joining it to the rampart walk: one level slab.
   const deck = house.deck
   s.add(slot, slabGeometry(deck, G.slab).translate(-gate.x, -groundY, -gate.z).rotateY(-gate.yaw), roman ? PALETTE.ashlar : PALETTE.timber)
@@ -421,20 +425,32 @@ export function dressTownGate(kit: ArchitectureKit, house: TownGatehouse, option
   else dressVikingGatehouse(ctx)
   s.build(root, root.name)
   root.updateMatrixWorld(true)
-  // Flight airspace follows the real parts: the tall gatehouse body, plus the
-  // covered rampart walk as its pitched-roof slices (matching its collision).
-  // One overall box would lift the tower roofs over the whole rampart walk.
-  const body = new THREE.Box3(), centre = new THREE.Vector3(), slices: THREE.Box3[] = []
-  for (const { local } of s.airspaceParts) if (local.getCenter(centre).z >= GATEHOUSE_SHELL.back - 1.3) body.union(local)
-  for (const { role, box: [x0, y0, z0, x1, y1, z1] } of parts) {
-    const box = new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1))
-    if (role === 'cover' || z1 < GATEHOUSE_SHELL.back - 1.3) slices.push(box)
+  // Flight airspace follows the real parts: the tall gatehouse body as one box,
+  // the low town-side walk storeys as their own parts. One overall box would
+  // lift the tower roofs over the whole rampart walk.
+  // The body is banded every 2m along the gate axis, so the tall outer roofs
+  // and finials do not lift the airspace over the town-side half.
+  const threshold = S.back - 1.3, bands = new Map<number, THREE.Box3>(), cells = new Map<string, THREE.Box3>(), centre = new THREE.Vector3(), low: THREE.Box3[] = []
+  const band = (z: number) => { const key = Math.floor((z - threshold) / 2); let box = bands.get(key); if (!box) bands.set(key, box = new THREE.Box3()); return box }
+  // Near the tall body's town face each part keeps its own box: the back gable
+  // must not borrow the reach of the lower lynx carving in front of it.
+  for (const { local } of s.airspaceParts) {
+    local.getCenter(centre)
+    if (centre.z >= S.back + 1.5) band(centre.z).union(local)
+    else {
+      // Coalesced on a 2m × 1m plan grid: tight, and a bounded number of boxes.
+      const key = `${Math.floor(centre.x / 2)}:${Math.floor(centre.z)}`
+      let cell = cells.get(key)
+      if (!cell) cells.set(key, cell = new THREE.Box3())
+      cell.union(local)
+    }
   }
+  low.push(...cells.values())
   for (const side of GATEHOUSE_SIDES) {
     const site = gatehouseStatueSite(house, side, style)
-    body.union(new THREE.Box3(new THREE.Vector3(site.x - 1, site.y, site.z - .6), new THREE.Vector3(site.x + 1, site.top, site.z + .6)))
+    band(site.z).union(new THREE.Box3(new THREE.Vector3(site.x - 1, site.y, site.z - .6), new THREE.Vector3(site.x + 1, site.top, site.z + .6)))
   }
-  const airspace = [body, ...slices].filter(box => !box.isEmpty()).map(box => box.applyMatrix4(root.matrixWorld))
+  const airspace = [...bands.values(), ...low].filter(box => !box.isEmpty()).map(box => box.applyMatrix4(root.matrixWorld))
   return { root, obstacles, airspace }
 }
 
@@ -447,30 +463,29 @@ interface GatehouseDressContext {
   readonly root: THREE.Object3D
 }
 
-/** Gate-local ring/wall heights for one tower: the curtain's own band lines continue around it. */
+/** Gate-local crown/walk heights for one tower: the curtain's own lines continue around it. */
 function gatehouseWallLines(house: TownGatehouse, side: TownGatehouseSide) {
   const ring = house.crownY[side < 0 ? 0 : 1] - house.groundY
   return { ring, crown: ring - .8, base: ring - 8.8 }
 }
 
-/** Faces of one tower footing that are visible from outside: front, outer side and the short return toward the portal. */
+/** Exposed exterior faces of one tower: front, outer side beyond the curtain, and the short return beside the portal. */
 function towerBand(s: Sketch, side: TownGatehouseSide, y0: number, y1: number, depth: number, slotName: 'stone' | 'wood', color: number, skip?: readonly [number, number]) {
-  const S = GATEHOUSE_SHELL, k = side
-  const span = (a: number, b: number): [number, number] => k < 0 ? [-b, -a] : [a, b]
+  const S = GATEHOUSE_SHELL
+  const span = (a: number, b: number): [number, number] => side < 0 ? [-b, -a] : [a, b]
   const front = (a: number, b: number) => { const [x0, x1] = span(a, b); if (x1 - x0 > .05) s.span(slotName, x0, y0, S.front, x1, y1, S.front + depth, color) }
-  if (skip) { front(S.inner - depth, skip[0]); front(skip[1], S.outer + depth) } else front(S.inner - depth, S.outer + depth)
+  if (skip) { front(S.inner, skip[0]); front(skip[1], S.outer + depth) } else front(S.inner, S.outer + depth)
   const [ox0, ox1] = span(S.outer, S.outer + depth); s.span(slotName, ox0, y0, .9, ox1, y1, S.front + depth, color)
-  const [ix0, ix1] = span(S.inner - depth, S.inner); s.span(slotName, ix0, y0, TOWN_GATEHOUSE.deckFront, ix1, y1, S.front + depth, color)
 }
 
-/** Town-side wing of one tower: lean-to roof and the gable fills over the walk openings. */
-function towerWing(s: Sketch, floor: number, side: TownGatehouseSide, slot: 'stone' | 'wood', roof: 'roof' | 'wood', fill: number, roofColor?: number) {
-  const S = GATEHOUSE_SHELL, W = GATEHOUSE_WING, eave = floor + W.eave, top = floor + W.top
-  const [x0, x1] = side < 0 ? [-S.footOuter, -(S.inner - .15)] : [S.inner - .15, S.footOuter]
-  s.shedRoof(roof, { axis: 'x', low: [W.townFace, eave + .05], high: [S.back, top], from: x0, to: x1, ...(roofColor ? { color: roofColor } : {}) })
-  for (const x of [S.inner + .15, S.outer - .15]) {
-    s.profile(slot, side * x, [[W.townFace, floor + W.lintel], [S.back, floor + W.lintel], [S.back, top], [W.townFace, eave]], .3, fill)
-  }
+/** Tower base, cut back a hair from the portal plane so the native jamb faces never flicker against it. */
+function towerBaseBox(s: Sketch, slotName: 'stone' | 'wood', box: readonly number[], side: TownGatehouseSide, color: number, y0 = box[1], y1 = box[4]) {
+  const S = GATEHOUSE_SHELL, [z0, z1] = [box[2], box[5]]
+  // Exterior faces stay on the shell line (bands and plinth wrap them); the
+  // collision envelope may reach a little further for trim.
+  const x0 = Math.max(box[0], -S.outer), x1 = Math.min(box[3], S.outer)
+  const a = side < 0 && Math.abs(x1 + S.inner) < 1e-6 ? x1 + .02 : x1, b = side > 0 && Math.abs(x0 - S.inner) < 1e-6 ? x0 - .02 : x0
+  if (y1 > y0) s.span(slotName, b, y0, z0, a, y1, z1, color)
 }
 
 /** The faction statue moved from the old ground pedestal onto its tower, facing out. */
@@ -480,13 +495,31 @@ function placeGatehouseStatue(ctx: GatehouseDressContext, side: TownGatehouseSid
   return site
 }
 
+/** Solid fill between the native portal and the gallery floor (Roman barrel and spandrels). */
+function romanPortalMasonry(s: Sketch, top: number): void {
+  const S = GATEHOUSE_SHELL, G = TOWN_GATEHOUSE
+  const barrel = () => {
+    const shape = new THREE.Shape()
+    shape.moveTo(-S.portal, top); shape.lineTo(-S.portal, 4); shape.absellipse(0, 4, S.portal, 3, Math.PI, 0, true, 0); shape.lineTo(S.portal, top); shape.closePath()
+    return shape
+  }
+  // The native arch already fills z ±1.2 with this same intrados; extend it outward and inward.
+  for (const [z0, z1] of [[1.19, G.deckFront], [S.baseBack, -1.19]]) {
+    s.add('stone', new THREE.ExtrudeGeometry(barrel(), { depth: z1 - z0, bevelEnabled: false, curveSegments: 24 }).translate(0, 0, z0), PALETTE.ashlar)
+  }
+  const spring = Math.acos(S.portal / 8.8), shape = new THREE.Shape()
+  shape.moveTo(-S.portal, top); shape.lineTo(-S.portal, 4 + 4.5 * Math.sin(spring))
+  shape.absellipse(0, 4, 8.8, 4.5, Math.PI - spring, spring, true, 0); shape.lineTo(S.portal, top); shape.closePath()
+  s.add('stone', new THREE.ExtrudeGeometry(shape, { depth: 2.38, bevelEnabled: false, curveSegments: 24 }).translate(0, 0, -1.19), PALETTE.ashlar)
+  for (const [z, yaw] of [[G.deckFront + .06, 0], [S.baseBack - .06, Math.PI]] as const) {
+    s.archRing('stone', 0, 4, z, S.portal, 3, .55, .12, PALETTE.marble, yaw)
+    s.span('stone', -.38, 7.02, z - .09, .38, 7.9, z + .09, PALETTE.marble)
+  }
+}
+
 function dressRomanGatehouse(ctx: GatehouseDressContext): void {
   const { s, parts, floor } = ctx, G = TOWN_GATEHOUSE, S = GATEHOUSE_SHELL
   const top = floor - .35
-  // Covered rampart walk: one hipped tile roof from tower to tower.
-  const cover = gatehouseWalkRoof(ctx.house, 'roman')
-  s.span('stone', cover.x0 + .2, cover.eave, cover.z0 + .15, cover.x1 - .2, cover.eave + .15, cover.z1 - .1, PALETTE.marble)
-  s.hipRoof('roof', cover.x0, cover.x1, cover.z0, cover.z1, cover.eave + .15, cover.rise - .15)
   for (const { role, box, side } of parts) {
     const [x0, y0, z0, x1, y1, z1] = box
     if (role === 'roof') {
@@ -503,45 +536,29 @@ function dressRomanGatehouse(ctx: GatehouseDressContext): void {
         s.eagle(0, y0 + 1.25, z1 - .08, 0, 1.6, PALETTE.bronze)
         for (const k of GATEHOUSE_SIDES) s.laurel(k * 3.3, y0 + .85, z1 - .06, 0, .42)
       } else {
+        // Gallery roof: part of the gatehouse's upper storey only.
         s.span('stone', x0, y0, z0, x1, y0 + .18, z1, PALETTE.marble)
         s.hipRoof('roof', x0, x1, z0, z1, y0 + .18, y1 - y0 - .18)
       }
-    } else if (role === 'beam') {
-      s.span('stone', ...box, PALETTE.marble)
-      s.span('stone', x0, y0 + .12, z0 - .02, x1, y0 + .2, z1 + .02, PALETTE.redPlaster)
     } else if (role === 'rail') {
       s.span('stone', ...box, PALETTE.travertine)
       s.span('stone', x0 - .03, y1, z0 - .03, x1 + .03, y1 + .1, z1 + .03, PALETTE.marble)
     } else if (role === 'post') {
       s.span('stone', ...box, PALETTE.travertine)
-      if (z0 > 1) s.span('stone', x0 - .04, y1 - .3, z0 - .02, x1 + .04, y1, z1, PALETTE.marble)
-      else if (z1 < -.5) s.span('stone', x0 - .05, y1 - .25, z0 - .05, x1 + .05, y1, z1 + .05, PALETTE.marble)
+      s.span('stone', x0 - .04, y1 - .3, z0 - .02, x1 + .04, y1, z1, PALETTE.marble)
     } else if (role === 'shell') {
       s.span('stone', ...box, PALETTE.ashlar)
+    } else if (role === 'fill' && side) {
+      towerBaseBox(s, 'stone', box, side, PALETTE.ashlar)
+    } else if (role === 'fill') {
+      // Portal fill is drawn by romanPortalMasonry.
     } else if (role === 'base' && side) {
-      const tower = Math.abs(x1 - x0) > 3
-      if (!tower) {
-        // Portal return: ashlar passage wall with a marble impost pilaster on its face.
-        s.span('stone', x0, y0, z0, x1, y1, z1 - .15, PALETTE.ashlar)
-        const px0 = side < 0 ? x0 + .15 : x0 + .1, px1 = side < 0 ? x1 - .1 : x1 - .15
-        s.span('stone', px0, 0, z1 - .15, px1, 3.8, z1, PALETTE.travertine)
-        s.span('stone', px0 - .05, 3.8, z1 - .2, px1 + .05, 4.05, z1 + .04, PALETTE.marble)
-        s.span('stone', px0, 4.05, z1 - .15, px1, top - 1, z1, PALETTE.ashlar)
-        continue
-      }
-      romanTower(ctx, side, y0)
+      if (z0 >= G.deckRear - 1e-6) romanTower(ctx, side, box)
+      else towerBaseBox(s, 'stone', box, side, PALETTE.ashlar)
     }
   }
-  // Solid masonry between the native arch and the gallery floor; the portal outline is unchanged.
-  const barrel = new THREE.Shape()
-  barrel.moveTo(-S.portal, top); barrel.lineTo(-S.portal, 4); barrel.absellipse(0, 4, S.portal, 3, Math.PI, 0, true, 0); barrel.lineTo(S.portal, top); barrel.closePath()
-  s.add('stone', new THREE.ExtrudeGeometry(barrel, { depth: G.deckFront - 1.19, bevelEnabled: false, curveSegments: 24 }).translate(0, 0, 1.19), PALETTE.ashlar)
-  const spandrel = new THREE.Shape()
-  spandrel.moveTo(-8.8, top); spandrel.lineTo(-8.8, 4); spandrel.absellipse(0, 4, 8.8, 4.5, Math.PI, 0, true, 0); spandrel.lineTo(8.8, top); spandrel.closePath()
-  s.add('stone', new THREE.ExtrudeGeometry(spandrel, { depth: 2.09, bevelEnabled: false, curveSegments: 24 }).translate(0, 0, -.9), PALETTE.ashlar)
-  s.archRing('stone', 0, 4, G.deckFront + .06, S.portal, 3, .55, .12, PALETTE.marble)
-  s.span('stone', -.38, 7.02, G.deckFront, .38, 7.9, G.deckFront + .18, PALETTE.marble)
-  // Red frieze and marble cornice carried over the portal and around both towers.
+  romanPortalMasonry(s, top)
+  // Red frieze and marble cornice carried over the portal between the towers.
   s.span('stone', -S.inner, floor - 1, G.deckFront, S.inner, floor - .68, G.deckFront + .08, PALETTE.redPlaster)
   s.span('stone', -S.inner, floor - .68, G.deckFront, S.inner, top, G.deckFront + .32, PALETTE.marble)
   for (const k of GATEHOUSE_SIDES) s.laurel(k * 4.6, floor - 1.55, G.deckFront + .05, 0, .38)
@@ -549,37 +566,37 @@ function dressRomanGatehouse(ctx: GatehouseDressContext): void {
   for (const k of GATEHOUSE_SIDES) s.banner(k * 2.92, floor + G.headroom - .05, G.deckFront - .12, 0, 2.3, 2)
 }
 
-function romanTower(ctx: GatehouseDressContext, side: TownGatehouseSide, bottom: number): void {
+function romanTower(ctx: GatehouseDressContext, side: TownGatehouseSide, base: readonly number[]): void {
   const { s, house, floor } = ctx, G = TOWN_GATEHOUSE, S = GATEHOUSE_SHELL
   const span = (a: number, b: number): [number, number] => side < 0 ? [-b, -a] : [a, b]
-  const cx = side * (S.inner + S.outer) / 2, top = floor - .4, eave = floor + S.eave
+  const cx = side * (S.inner + S.outer) / 2, top = floor - .4, eave = floor + S.eave, bottom = base[1]
   const site = placeGatehouseStatue(ctx, side), niche = GATEHOUSE_STATUE.roman.niche, recess = GATEHOUSE_STATUE.roman.recess
-  // Plinth and stepped base course, then the ashlar body with a statue niche facing out.
-  const [px0, px1] = span(S.inner - .15, S.footOuter)
-  s.span('stone', px0, bottom, .2, px1, 1.1, S.footFront, PALETTE.travertine)
-  s.span('stone', px0 + .05 * side, 1.1, .2, px1 - .05 * side, 1.35, S.footFront - .1, PALETTE.marble)
-  const [bx0, bx1] = span(S.inner, S.outer)
-  s.span('stone', bx0, 1.1, .2, bx1, top, S.front - recess, PALETTE.ashlar)
+  // Ashlar body: one mass from the portal to beyond the curtain, the niche cut in its outer face.
+  towerBaseBox(s, 'stone', [...base.slice(0, 5), S.front - recess], side, PALETTE.ashlar, 1.1)
+  towerBaseBox(s, 'stone', [base[0], bottom, base[2], base[3], 1.1, .9], side, PALETTE.ashlar)
+  // Plinth and base course wrap the projecting front and the outer side.
+  const [px0, px1] = span(S.inner, S.footOuter)
+  s.span('stone', px0, bottom, .9, px1, 1.1, S.footFront, PALETTE.travertine)
+  s.span('stone', px0 + (side < 0 ? .05 : 0), 1.1, .9, px1 - (side > 0 ? .05 : 0), 1.35, S.footFront - .1, PALETTE.marble)
   const holeY = site.y - 1.1, holeH = site.height + .55
   s.wall('stone', cx, 1.1, S.front - recess / 2, S.outer - S.inner, top - 1.1, recess, [{ x: 0, y: holeY, w: niche, h: holeH, arch: niche / 2 }], PALETTE.ashlar)
   s.span('stone', cx - niche / 2, site.y, S.front - recess, cx + niche / 2, site.y + site.height - .2, S.front - recess + .03, PALETTE.redPlaster)
   s.archRing('stone', cx, site.y + holeH - niche / 2, S.front + .04, niche / 2, niche / 2, .16, .08, PALETTE.marble)
-  // Corbelled marble ledge carrying the relocated statue.
   s.span('stone', cx - GATEHOUSE_STATUE.roman.ledge, site.y - .25, S.front - recess, cx + GATEHOUSE_STATUE.roman.ledge, site.y, S.front + .6, PALETTE.marble)
   for (const k of [-.6, .6]) s.span('stone', cx + k - .15, site.y - .7, S.front, cx + k + .15, site.y - .25, S.front + .45, PALETTE.travertine)
-  for (const k of [-1, 1]) s.banner(cx + k * 1.8, floor - 1.1, S.front, 0, 1.25, 3.6)
-  // The curtain's red band and coping turn around the tower shoulder.
+  for (const k of [-1, 1]) s.banner(cx + k * 2.05, floor - 1.1, S.front, 0, 1.25, 3.6)
+  // The curtain's red band and marble coping turn the tower shoulder and run on to the portal.
   const lines = gatehouseWallLines(house, side), skip = [Math.abs(cx) - niche / 2 - .12, Math.abs(cx) + niche / 2 + .12] as const
   if (lines.crown - 1.8 < floor - 1.2) towerBand(s, side, lines.crown - 2.3, lines.crown - 1.8, .08, 'stone', PALETTE.redPlaster, skip)
   if (lines.crown < floor - 1.1) towerBand(s, side, lines.crown - .3, lines.crown, .16, 'stone', PALETTE.marble, skip)
   towerBand(s, side, floor - 1, floor - .68, .08, 'stone', PALETTE.redPlaster)
   towerBand(s, side, floor - .68, floor - .35, .25, 'stone', PALETTE.marble)
-  // Upper storey: pilasters, window frames, laurel relief and eave cornice.
+  // Upper storey: corner pilasters, window frames, laurel relief and eave cornice.
   for (const x of [S.inner + .25, S.outer - .25]) {
     const px = side * x
     s.span('stone', px - .25, floor, S.front, px + .25, eave - .3, S.front + .08, PALETTE.travertine)
   }
-  for (const [a, b] of [[9.45, 10.65], [11.9, 13.1]]) {
+  for (const [a, b] of [[7.9, 9.6], [11.2, 12.9]]) {
     const [wx0, wx1] = span(a, b)
     s.span('stone', wx0 - .1, floor + G.railHeight - .1, S.front, wx1 + .1, floor + G.railHeight, S.front + .1, PALETTE.marble)
     s.span('stone', wx0 - .12, floor + S.windowHead, S.front, wx1 + .12, floor + S.windowHead + .22, S.front + .1, PALETTE.marble)
@@ -587,36 +604,31 @@ function romanTower(ctx: GatehouseDressContext, side: TownGatehouseSide, bottom:
   s.laurel(cx, floor + 2.05, S.front + .05, 0, .4)
   const [ex0, ex1] = span(S.inner - .15, S.outer + .15)
   s.span('stone', ex0, eave - .3, S.back - .15, ex1, eave, S.front + .15, PALETTE.marble)
-  // The partition faces the covered rampart walk: pilasters and a laurel relief.
-  for (const x of [S.inner + .3, S.outer - .3]) {
-    const px = side * x
-    s.span('stone', px - .25, Math.min(floor, lines.ring) - .3, S.back - .08, px + .25, eave - .3, S.back, PALETTE.travertine)
+  // Town side: marble cornice over the walk storey, bronze eagle on the tall body.
+  const walkTop = floor + S.walkCeiling
+  const [tx0, tx1] = span(S.inner, S.outer)
+  s.span('stone', tx0, walkTop, S.townFace - .1, tx1, walkTop + S.terrace, S.townFace, PALETTE.marble)
+  s.span('stone', tx0, walkTop - .35, S.townFace - .06, tx1, walkTop - .1, S.townFace, PALETTE.redPlaster)
+  s.eagle(cx, walkTop + S.terrace + 1.25, S.back - .12, Math.PI, 1.05, PALETTE.bronze)
+  for (const [a, b] of GATEHOUSE_TOWN_WINDOWS.windows) {
+    const [wx0, wx1] = span(a, b)
+    s.span('stone', wx0 - .1, floor + .9, S.townFace - .1, wx1 + .1, floor + 1, S.townFace, PALETTE.marble)
+    s.span('stone', wx0 - .12, floor + 2.8, S.townFace - .1, wx1 + .12, floor + 3.0, S.townFace, PALETTE.marble)
   }
-  // Bronze eagle on the tall half's town face, above the wing roof.
-  s.eagle(cx, floor + GATEHOUSE_WING.top + .95, S.back - .12, Math.PI, 1.05, PALETTE.bronze)
-  // Town-side wing: tile lean-to, marble cornice on the arcade lintel.
-  towerWing(s, floor, side, 'stone', 'roof', PALETTE.ashlar)
-  const W = GATEHOUSE_WING, [wx0, wx1] = span(S.inner, S.outer)
-  s.span('stone', wx0, floor + W.lintel, W.townFace - .08, wx1, floor + W.eave, W.townFace, PALETTE.marble)
-  s.laurel(cx, floor + 2.6, W.townFace - .04, Math.PI, .32)
+  // Under the walk: a marble band on the beam between the grounded corners.
+  const deckUnder = Math.min(lines.ring, floor) - G.slab - .45
+  s.span('stone', tx0, deckUnder - .35, S.townFace - .06, tx1, deckUnder - .1, S.townFace, PALETTE.marble)
 }
 
 function dressVikingGatehouse(ctx: GatehouseDressContext): void {
-  const { s, parts, floor } = ctx, G = TOWN_GATEHOUSE, S = GATEHOUSE_SHELL
+  const { s, parts, floor, house } = ctx, G = TOWN_GATEHOUSE, S = GATEHOUSE_SHELL
   const ceiling = floor + G.headroom, top = floor - .35
-  // Covered rampart walk: a long shingled gable with carved boards at both ends.
-  const cover = gatehouseWalkRoof(ctx.house, 'viking'), ridge = cover.ridge - .05
-  s.span('wood', cover.x0 + .2, cover.eave, cover.z0 + .2, cover.x1 - .2, cover.eave + .16, cover.z1 - .15, PALETTE.darkTimber)
-  s.gableRoof('wood', { cz: cover.cz, axis: 'x', halfSpan: cover.halfSpan, from: cover.x0, to: cover.x1, eave: cover.eave + .16, ridge, color: PALETTE.weathered })
-  s.snowOnGable({ cz: cover.cz, axis: 'x', halfSpan: cover.halfSpan, from: cover.x0 + .1, to: cover.x1 - .1, eave: cover.eave + .16, ridge })
-  for (const k of GATEHOUSE_SIDES) {
-    s.gable('wood', k * (cover.x1 - .25), cover.eave + .16, cover.cz, cover.halfSpan * 2 - .6, (ridge - cover.eave - .16) * .92, .16, PALETTE.timber, Math.PI / 2)
-  }
+  const footing = (side: TownGatehouseSide) => Math.max(1.1, gatehouseWallLines(house, side).base + 1.3)
   for (const { role, box, side } of parts) {
     const [x0, y0, z0, x1, y1, z1] = box
     if (role === 'roof') {
       if (side) {
-        // Steep shingled tower gables face out and in, each crowned by a carved lynx.
+        // Steep shingled tower gable facing out, crowned by a carved lynx.
         const cx = (x0 + x1) / 2, halfSpan = (x1 - x0) / 2, ridge = y1 - .1
         s.span('wood', x0 + .25, y0, z0 + .25, x1 - .25, y0 + .16, z1 - .25, PALETTE.darkTimber)
         s.gableRoof('wood', { cx, axis: 'z', halfSpan, from: z0, to: z1, eave: y0 + .16, ridge, color: PALETTE.weathered })
@@ -624,16 +636,15 @@ function dressVikingGatehouse(ctx: GatehouseDressContext): void {
         for (const [z, yaw] of [[S.front - .1, 0], [S.back + .1, Math.PI]] as const) {
           s.gable('wood', cx, y0 + .16, z, S.outer - S.inner, (ridge - y0 - .16) * .9, .2, PALETTE.timber)
           s.crossedGable(cx, ridge, yaw ? z0 : z1, halfSpan, ridge - y0 - .16, yaw, 1, false)
-          s.lynxHead(cx, ridge + .12, yaw ? z0 - .25 : z1 + .25, yaw, 1.3)
         }
-      } else {
+        s.lynxHead(cx, ridge + .12, z1 + .25, 0, 1.3)
+      } else if (z0 <= 0) {
+        // Gallery roof over the portal: part of the gatehouse's upper storey only.
         const cz = (z0 + z1) / 2, halfSpan = (z1 - z0) / 2
         s.span('wood', x0, y0, z0 + .2, x1, y0 + .16, z1 - .2, PALETTE.darkTimber)
         s.gableRoof('wood', { cz, axis: 'x', halfSpan, from: x0, to: x1, eave: y0 + .16, ridge: y1 - .05, color: PALETTE.weathered })
         s.snowOnGable({ cz, axis: 'x', halfSpan, from: x0 + .1, to: x1 - .1, eave: y0 + .16, ridge: y1 - .05 })
       }
-    } else if (role === 'beam') {
-      s.span('wood', ...box, PALETTE.carved)
     } else if (role === 'rail') {
       s.span('wood', ...box, PALETTE.weathered)
       s.span('wood', x0 - .03, y1 - .1, z0 - .03, x1 + .03, y1 + .05, z1 + .03, PALETTE.darkTimber)
@@ -641,95 +652,90 @@ function dressVikingGatehouse(ctx: GatehouseDressContext): void {
       s.span('wood', ...box, PALETTE.darkTimber)
     } else if (role === 'shell') {
       s.span('wood', ...box, PALETTE.weathered)
-    } else if (role === 'brace' && z0 > 0) {
+    } else if (role === 'fill' && side) {
+      towerBaseBox(s, 'wood', box, side, PALETTE.weathered)
+    } else if (role === 'brace') {
       const inner = side! < 0 ? x1 : x0, outer = side! < 0 ? x0 : x1, z = (z0 + z1) / 2
       s.beam('wood', new THREE.Vector3(outer, y0, z), new THREE.Vector3(inner, y1, z), .26, .26, PALETTE.darkTimber)
     } else if (role === 'base' && side) {
-      if (Math.abs(x1 - x0) > 3) { vikingTower(ctx, side, y0); continue }
-      // Portal return: plank wall on a rough footing, fronted by the heavy gate post.
-      s.span('stone', x0, y0, z0, x1, 1.2, z1, PALETTE.footing)
-      s.span('wood', x0, 1.2, z0, x1, y1, z1 - .15, PALETTE.weathered)
-      const p0 = side < 0 ? -S.portal - .6 : S.portal, p1 = side < 0 ? -S.portal : S.portal + .6
-      s.span('wood', p0, .4, z1 - .6, p1, top, z1 + .05, PALETTE.darkTimber)
-      for (const y of [1.6, 4.2]) s.span('metal', p0 - .02, y, z1 - .62, p1 + .02, y + .14, z1 + .07, PALETTE.iron)
+      // Low rough-stone footing under a timber tower; the footing wraps every face.
+      const foot = footing(side)
+      towerBaseBox(s, 'stone', box, side, PALETTE.footing, y0, Math.min(y1, foot))
+      towerBaseBox(s, 'wood', box, side, PALETTE.weathered, foot, y1)
+      if (z0 >= G.deckRear - 1e-6) vikingTower(ctx, side, foot)
     }
   }
-  // Plank infill and the main beams spanning the portal into both tower posts.
+  // Plank infill and the main beams spanning the portal from tower post to tower post.
   s.span('wood', -S.portal, VIKING_PORTAL_HEAD, 1.19, S.portal, top, G.deckFront, PALETTE.weathered)
-  s.span('wood', -8.8, 8.21, -.9, 8.8, top, 1.19, PALETTE.weathered)
-  s.span('wood', -S.inner, VIKING_PORTAL_HEAD, G.deckFront, S.inner, VIKING_PORTAL_HEAD + .8, G.deckFront + .35, PALETTE.darkTimber)
-  s.span('wood', -S.inner, floor - 1, G.deckFront, S.inner, top, G.deckFront + .35, PALETTE.darkTimber)
+  s.span('wood', -S.portal, VIKING_PORTAL_HEAD, S.baseBack, S.portal, top, -1.19, PALETTE.weathered)
+  s.span('wood', -S.portal, 8.21, -1.19, S.portal, top, 1.19, PALETTE.weathered)
+  for (const [z0, z1] of [[G.deckFront, G.deckFront + .35], [S.baseBack - .35, S.baseBack]]) {
+    s.span('wood', -S.inner, VIKING_PORTAL_HEAD, z0, S.inner, VIKING_PORTAL_HEAD + .8, z1, PALETTE.darkTimber)
+    s.span('wood', -S.inner, floor - 1, z0, S.inner, top, z1, PALETTE.darkTimber)
+  }
   for (const x of [-5.4, -2.2, 2.2, 5.4]) {
     s.span('metal', x - .09, VIKING_PORTAL_HEAD - .02, G.deckFront - .02, x + .09, VIKING_PORTAL_HEAD + .82, G.deckFront + .37, PALETTE.iron)
     s.add('metal', new THREE.SphereGeometry(.08, 6, 4).translate(x, floor - .67, G.deckFront + .37), PALETTE.iron)
   }
-  for (let x = -6.6; x <= 6.6; x += .9) s.span('wood', x - .05, VIKING_PORTAL_HEAD + .8, G.deckFront, x + .05, floor - 1, G.deckFront + .06, PALETTE.darkTimber)
-  // A shield row along the gallery parapet, the largest over the gate axis.
-  for (const x of [-7.3, -4.4, -2.9, 2.9, 4.4, 7.3]) s.shield(x, floor + .55, G.deckFront, 0, .42)
+  for (let x = -6.3; x <= 6.3; x += .9) s.span('wood', x - .05, VIKING_PORTAL_HEAD + .8, G.deckFront, x + .05, floor - 1, G.deckFront + .06, PALETTE.darkTimber)
+  // Shield row along the gallery parapet, the largest over the gate axis.
+  for (const x of [-4.4, -2.9, 2.9, 4.4]) s.shield(x, floor + .55, G.deckFront, 0, .42)
   s.shield(0, floor + .62, G.deckFront + .02, 0, .6)
-  // Carved boards across the gallery eave.
   s.span('wood', -S.inner, ceiling - .25, G.deckFront - .25, S.inner, ceiling + .05, G.deckFront + .12, PALETTE.carved)
 }
 
-function vikingTower(ctx: GatehouseDressContext, side: TownGatehouseSide, bottom: number): void {
+function vikingTower(ctx: GatehouseDressContext, side: TownGatehouseSide, footing: number): void {
   const { s, house, floor } = ctx, G = TOWN_GATEHOUSE, S = GATEHOUSE_SHELL
   const span = (a: number, b: number): [number, number] => side < 0 ? [-b, -a] : [a, b]
-  const cx = side * (S.inner + S.outer) / 2, top = floor - .4, eave = floor + S.eave
-  const lines = gatehouseWallLines(house, side), footing = Math.max(1.1, lines.base + 1.3)
-  // Low rough-stone footing only grounds the timber tower.
-  const [fx0, fx1] = span(S.inner - .15, S.footOuter)
-  s.span('stone', fx0, bottom, .2, fx1, footing, S.footFront, PALETTE.footing)
-  const [bx0, bx1] = span(S.inner, S.outer)
-  s.span('wood', bx0, footing, .2, bx1, top, S.front, PALETTE.weathered)
+  const cx = side * (S.inner + S.outer) / 2, eave = floor + S.eave, walkTop = floor + S.walkCeiling
+  const lines = gatehouseWallLines(house, side)
+  // Plank battens on the projecting front and the outer side.
   for (let x = S.inner + .45; x < S.outer - .3; x += .9) {
     const px = side * x
-    s.span('wood', px - .06, footing, S.front, px + .06, top - .7, S.front + .05, PALETTE.darkTimber)
+    s.span('wood', px - .06, footing, S.front, px + .06, floor - 1.1, S.front + .05, PALETTE.darkTimber)
   }
-  for (let z = 1.3; z < S.front - .3; z += .9) {
-    const px = side * (S.outer + .025)
-    s.span('wood', px - .025, footing, z - .06, px + .025, top - .7, z + .06, PALETTE.darkTimber)
+  // Tower posts: the portal posts carrying the main beam, the outer front corner,
+  // and the post at the palisade junction that receives its rails.
+  for (const [x0, x1, z0, z1, y1] of [[S.inner - .05, S.inner + .55, G.deckFront - .6, G.deckFront + .2, floor - .35],
+    [S.outer - .55, S.outer + .1, S.front - .55, S.front + .1, eave], [S.outer - .5, S.outer + .12, .55, 1.25, eave]] as const) {
+    const [px0, px1] = span(x0, x1)
+    s.span('wood', px0, footing - .2, z0, px1, y1, z1, PALETTE.darkTimber)
   }
-  // Corner tower posts from footing to eave.
-  for (const x of [S.inner + .28, S.outer - .28]) {
-    const px = side * x
-    s.span('wood', px - .3, footing - .2, S.front - .5, px + .3, eave, S.front + .1, PALETTE.darkTimber)
-  }
-  // Heavy palisade rails run on as beams around the tower, fixed with iron straps.
-  for (const y of [lines.base + 3.36, lines.base + 6.08, floor - 1]) {
-    if (y < footing + .3 || y > floor - .9) continue
+  // The palisade's heavy rails run on into the tower posts as beams round the tower.
+  for (const y of [lines.base + 3.36, lines.base + 6.08]) {
+    if (y < footing + .3 || y > floor - 1.2) continue
     towerBand(s, side, y - .18, y + .18, .15, 'wood', PALETTE.darkTimber)
     for (const x of [S.inner + .9, S.outer - .9]) {
       const px = side * x
       s.span('metal', px - .08, y - .2, S.front + .14, px + .08, y + .2, S.front + .18, PALETTE.iron)
     }
   }
-  towerBand(s, side, floor - 1, top + .05, .15, 'wood', PALETTE.darkTimber)
+  towerBand(s, side, floor - 1, floor - .35, .15, 'wood', PALETTE.darkTimber)
   // Bracketed corner platform carrying the relocated statue, flanked by the lynx war banners.
   const site = placeGatehouseStatue(ctx, side), ledge = GATEHOUSE_STATUE.viking.ledge
   s.span('wood', cx - ledge, site.y - .22, S.front, cx + ledge, site.y, S.front + .95, PALETTE.timber)
   s.span('wood', cx - ledge - .05, site.y - .3, S.front + .85, cx + ledge + .05, site.y + .05, S.front + .97, PALETTE.darkTimber)
   for (const k of [-.7, .7]) s.beam('wood', new THREE.Vector3(cx + k, site.y - 1.25, S.front + .05), new THREE.Vector3(cx + k, site.y - .2, S.front + .85), .16, .16, PALETTE.darkTimber)
   s.span('wood', cx - 1.0, site.y, S.front, cx + 1.0, site.top + .1, S.front + .1, PALETTE.carved)
-  for (const k of [-1, 1]) s.banner(cx + k * 1.8, floor - 1.1, S.front + .15, 0, 1.4, 3.6, 'wood')
-  // Upper storey trim and the rampart-side door with its carved lynx.
-  for (const [a, b] of [[9.45, 10.65], [11.9, 13.1]]) {
+  for (const k of [-1, 1]) s.banner(cx + k * 2.05, floor - 1.1, S.front + .15, 0, 1.4, 3.6, 'wood')
+  for (const [a, b] of [[7.9, 9.6], [11.2, 12.9]]) {
     const [wx0, wx1] = span(a, b)
     s.span('wood', wx0 - .1, floor + G.railHeight - .12, S.front, wx1 + .1, floor + G.railHeight, S.front + .1, PALETTE.darkTimber)
     s.span('wood', wx0 - .12, floor + S.windowHead, S.front, wx1 + .12, floor + S.windowHead + .2, S.front + .1, PALETTE.darkTimber)
   }
-  // The partition faces the covered rampart walk: a shield pair under a carved board.
-  for (const k of [-1, 1]) s.shield(cx + k * 1.2, floor + 1.9, S.back, Math.PI, .45)
-  const [px0, px1] = span(S.inner + .3, S.outer - .3)
-  s.span('wood', px0, floor + 3.0, S.back - .1, px1, floor + 3.3, S.back, PALETTE.carved)
-  s.lynxHead(cx, floor + GATEHOUSE_WING.top + .35, S.back - .3, Math.PI, .9)
-  // Town-side wing: shingled lean-to on an open timber frame with knee braces.
-  towerWing(s, floor, side, 'wood', 'wood', PALETTE.weathered, PALETTE.weathered)
-  const W = GATEHOUSE_WING
-  for (const x of [S.inner + .6, (S.inner + S.outer) / 2 - .3, (S.inner + S.outer) / 2 + .3, S.outer - .6]) {
-    const toward = x < (S.inner + S.outer) / 2 ? 1 : -1, z = W.townFace + W.face / 2
-    s.beam('wood', new THREE.Vector3(side * x, floor + W.lintel - .9, z), new THREE.Vector3(side * (x + toward * .9), floor + W.lintel, z), .2, .2, PALETTE.darkTimber)
+  // Town side: carved lintel over the walk storey and the lynx on the tall body.
+  const [tx0, tx1] = span(S.inner, S.outer)
+  s.span('wood', tx0, walkTop - .3, S.townFace - .1, tx1, walkTop + S.terrace, S.townFace, PALETTE.carved)
+  s.lynxHead(cx, walkTop + S.terrace + .4, S.back - .3, Math.PI, .9)
+  for (const [a, b] of GATEHOUSE_TOWN_WINDOWS.windows) {
+    const [wx0, wx1] = span(a, b)
+    s.span('wood', wx0 - .1, floor + .88, S.townFace - .1, wx1 + .1, floor + 1, S.townFace, PALETTE.darkTimber)
+    s.span('wood', wx0 - .12, floor + 2.8, S.townFace - .1, wx1 + .12, floor + 3.0, S.townFace, PALETTE.darkTimber)
   }
-  s.shield(cx, floor + 1.9, W.townFace, Math.PI, .4)
+  for (const x of [S.inner + .35, S.outer - .35]) {
+    const px = side * x
+    s.span('wood', px - .3, footing, S.townFace - .08, px + .3, walkTop + S.terrace, S.townFace + .62, PALETTE.darkTimber)
+  }
 }
 
 /** Adds faction detail to the existing gate leaves (they keep rotating with their hinges). */

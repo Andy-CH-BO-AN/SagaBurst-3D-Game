@@ -284,44 +284,52 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
       if (mounted) { player!.dismountFromMount({ preserveWorldPosition: true }); horse.visualHold = true }
       return result
     })
+    /** QA: steer the real Player (or ridden horse) through world waypoints; reports where the body stalls.
+     * `keep` leaves a stalled rider mounted in place for inspection. */
+    const runRoute = (points: readonly THREE.Vector3[], mounted: boolean, keep = false) => {
+      const start = points[0], next = points[1]
+      teleport(start.x, start.y + .05, start.z); mode = 'player'; free.enabled = false
+      const yawTo = (p: THREE.Vector3) => { const q = player!.position; return Math.atan2(-(p.x - q.x), -(p.z - q.z)) }
+      orbit.setYaw(yawTo(next)); player!.faceDirection(next.x - start.x, next.z - start.z)
+      if (mounted) { horse.resetForScene(start.x, start.z, Math.atan2(next.x - start.x, next.z - start.z)); horse.restoreForTown(start.x, start.z, Math.atan2(next.x - start.x, next.z - start.z), start.y); horse.visualHold = false; player!.mountVehicle(horse) }
+      advance(.3)
+      let reached = 0, stall: THREE.Vector3 | undefined
+      for (const target of points.slice(1)) {
+        let last = player!.position.clone(), idle = 0, ok = false
+        for (let t = 0; t < 40; t += 1 / 60) {
+          const p = player!.position
+          if (Math.hypot(p.x - target.x, p.z - target.z) < (mounted ? 1.4 : .7)) { ok = true; break }
+          orbit.setYaw(yawTo(target)); advance(1 / 60, ['KeyW'])
+          if ((idle = p.distanceTo(last) < .002 ? idle + 1 : 0) > 90) break
+          last = p.clone()
+        }
+        if (!ok) { stall = player!.position.clone(); break }
+        reached++
+      }
+      if (mounted && !(keep && stall)) { player!.dismountFromMount({ preserveWorldPosition: true }); horse.visualHold = true }
+      return { reached, of: points.length - 1, stall }
+    }
     /** QA: steer the real Player (or ridden horse) through every gatehouse:
      * rampart → open span → gallery → both tower rooms → rampart and back, the ring
      * walkway behind it, and the ground portal. Reports where a body stalls. */
-    const checkGatehouses = (mounted: boolean) => (fort.rampartLayout.gatehouses ?? []).map(house => {
+    const checkGatehouses = (mounted: boolean, only?: { gate?: string; route?: string }) => (fort.rampartLayout.gatehouses ?? []).filter(house => !only?.gate || house.gate.id === only.gate).map(house => {
       const at = (x: number, z: number, y: number) => gatehousePoint(house.gate, x, z, y)
       const ground = (z: number) => { const p = at(0, z, 0); p.y = getTerrainHeight(p.x, p.z); return p }
       const ring = (x: number, z = -8.5) => { const p = at(x, z, 0); p.y = fort.rampartLayout.decks.reduce<number | null>((y, d) => y ?? getWalkRampHeight(d.surface, p.x, p.z), null) ?? 0; return p }
-      const floor = house.floorY, room = (side: number) => at(side * 11.3, 1.8, floor)
+      const floor = house.floorY, room = (side: number) => at(side * 10.6, 1.8, floor)
       const routes: Record<string, THREE.Vector3[]> = {
         // Rampart walk → open span over the gate → gallery → each tower room → back onto the walk.
-        upper: [ring(-22, -5), at(-6, -3, floor), at(-6, 2, floor), room(-1), at(6, 2, floor), room(1), at(6, -3, floor), ring(22, -5)],
-        upperBack: [ring(22, -5), at(6, -3, floor), at(6, 2, floor), room(1), at(-6, 2, floor), room(-1), at(-6, -3, floor), ring(-22, -5)],
+        upper: [ring(-22, -5), at(-5, -3, floor), at(-5, 2, floor), room(-1), at(5, 2, floor), room(1), at(5, -3, floor), ring(22, -5)],
+        upperBack: [ring(22, -5), at(5, -3, floor), at(5, 2, floor), room(1), at(-5, 2, floor), room(-1), at(-5, -3, floor), ring(-22, -5)],
         ring: [ring(-22), ring(22)], ringBack: [ring(22), ring(-22)],
         portalIn: [ground(16), ground(-14)], portalOut: [ground(-14), ground(16)],
       }
       const result: Record<string, { reached: number; of: number; stall?: number[] }> = {}
       for (const [name, points] of Object.entries(routes)) {
-        const start = points[0], next = points[1]
-        teleport(start.x, start.y + .05, start.z); mode = 'player'; free.enabled = false
-        const yawTo = (p: THREE.Vector3) => { const q = player!.position; return Math.atan2(-(p.x - q.x), -(p.z - q.z)) }
-        orbit.setYaw(yawTo(next)); player!.faceDirection(next.x - start.x, next.z - start.z)
-        if (mounted) { horse.resetForScene(start.x, start.z, Math.atan2(next.x - start.x, next.z - start.z)); horse.restoreForTown(start.x, start.z, Math.atan2(next.x - start.x, next.z - start.z), start.y); horse.visualHold = false; player!.mountVehicle(horse) }
-        advance(.3)
-        let reached = 0, stall: number[] | undefined
-        for (const target of points.slice(1)) {
-          let last = player!.position.clone(), idle = 0, ok = false
-          for (let t = 0; t < 40; t += 1 / 60) {
-            const p = player!.position
-            if (Math.hypot(p.x - target.x, p.z - target.z) < (mounted ? 1.4 : .7)) { ok = true; break }
-            orbit.setYaw(yawTo(target)); advance(1 / 60, ['KeyW'])
-            if ((idle = p.distanceTo(last) < .002 ? idle + 1 : 0) > 90) break
-            last = p.clone()
-          }
-          if (!ok) { const p = gatehouseLocal(house.gate, player!.position); stall = [+p.x.toFixed(2), +(player!.position.y - house.groundY).toFixed(2), +p.z.toFixed(2)]; break }
-          reached++
-        }
-        result[name] = { reached, of: points.length - 1, ...(stall ? { stall } : {}) }
-        if (mounted) { player!.dismountFromMount({ preserveWorldPosition: true }); horse.visualHold = true }
+        if (only?.route && name !== only.route) continue
+        const run = runRoute(points, mounted, only?.route !== undefined)
+        const stall = run.stall && gatehouseLocal(house.gate, run.stall)
+        result[name] = { reached: run.reached, of: run.of, ...(stall ? { stall: [+stall.x.toFixed(2), +(run.stall!.y - house.groundY).toFixed(2), +stall.z.toFixed(2)] } : {}) }
       }
       return { gate: house.gate.id, mounted, ...result }
     })
@@ -381,8 +389,8 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
       for (const code of held) input!.keys[code] = true
       try { for (let t = 0; t < seconds; t += 1 / 60) simulate(1 / 60) } finally { for (const code of held) input!.keys[code] = false }
     }
-    Object.assign(window, { __townArchitecture: { faction, entries, report, padChecks, watchtowerPlacement, checkEntrances, checkGatehouses, residentClearance, goto, walkTo, teleport, advance, toggleRoofs, toggleGates,
-      overlays, camera, renderer, player, horse, fort,
+    Object.assign(window, { __townArchitecture: { faction, entries, report, padChecks, watchtowerPlacement, checkEntrances, checkGatehouses, runRoute, residentClearance, goto, walkTo, teleport, advance, toggleRoofs, toggleGates,
+      overlays, camera, renderer, player, horse, fort, obstacles,
       /** QA: a rideable mount of any preloaded type (e.g. SNOW_LEOPARD); only the riding Player moves it. */
       spawnMount: (type: MountType, x: number, z: number, yaw = 0) => { const m = new Mount(scene, type, x, z); m.resetForScene(x, z, yaw); return m },
       /** QA: free camera at an exact world position and target. */
