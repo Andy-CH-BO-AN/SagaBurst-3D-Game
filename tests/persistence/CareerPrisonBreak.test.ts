@@ -40,6 +40,7 @@ describe('Prison encounter persistence', () => {
     state.swords = {}; state.gateOpen = false
     expect(store.save(profile)).toBe(true)
     const originalInventory = store.load()!.ownedWeapons
+    const savedBeforeCountdown = storage.getItem(CAREER_STORAGE_KEY)
     vi.stubGlobal('document', { exitPointerLock() {} })
     const inventory = new InventoryManager({ meleeWeaponId: '', rangedWeaponId: '', shieldId: null })
     const swords = [{ position: new Vector3(0, 0, 1), visible: true }]
@@ -56,7 +57,7 @@ describe('Prison encounter persistence', () => {
     })
     scene.updatePickupFocus(); scene.pickupSwords(true)
     expect(show).toHaveBeenLastCalledWith(null)
-    expect(store.load()!.activeMission!.prisonBreak!.swords).toEqual({})
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(savedBeforeCountdown)
     expect(inventory.activeMelee).toBeUndefined()
     scene.phase = 'fight'
     scene.updatePickupFocus()
