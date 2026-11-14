@@ -82,7 +82,10 @@ export function stageMissionReturnRebuild(current: CareerProfile,
   if (next.townAirCommandSquad?.townFaction === next.faction) delete next.townAirCommandSquad
   // Reconstruct native riders at their pads; their existing patrol owner starts the next cycle.
   if (next.townEagleGarrisons) delete next.townEagleGarrisons[next.faction]
+  // Town return rest retires both transient replays. The race snapshot can
+  // contain the outgoing battle mount HP, armor and position, not just race state.
   delete next.playerAerialState
+  delete next.racePlayerState
   delete next.mountArmor
   // Return the whole owned roster, including reserves or members absent from this mission.
   const roster = snapshotPersonalMission(next)
@@ -91,7 +94,7 @@ export function stageMissionReturnRebuild(current: CareerProfile,
     if (padId) roster.members[id].eaglePadId = padId
   }
   next.personalSquadRuntime = returnPersonalMissionToHR(roster)
-  return stageMissionReturnPlayerHealth(next)
+  return next
 }
 
 /** Both prison exits return the original, already-claimed defeat through the normal formal rebuild.
