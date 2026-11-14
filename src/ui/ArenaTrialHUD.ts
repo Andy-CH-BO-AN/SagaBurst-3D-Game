@@ -1,6 +1,5 @@
 export interface ArenaTrialHudState {
-  phase: 'countdown' | 'fight' | 'result' | null
-  countdown: number
+  phase: 'waiting' | 'countdown' | 'paused' | 'fight' | 'result' | null
   label: string
   friendly: { active: number; total: number }
   enemy: { active: number; total: number }
@@ -8,7 +7,7 @@ export interface ArenaTrialHudState {
   playerKnocked: boolean
 }
 
-/** Team counts, countdown and knock-out notice of an Arena Squad Trial; plain DOM, no layout dependencies. */
+/** Team counts, remaining fight time and knock-out notice of an Arena Squad Trial. */
 export class ArenaTrialHUD {
   private readonly root = document.createElement('div')
   private readonly counts = document.createElement('div')
@@ -34,7 +33,7 @@ export class ArenaTrialHUD {
     this.root.hidden = state.phase === null || state.phase === 'result'
     if (this.root.hidden) return
     this.counts.textContent = `${state.label} · 我方 ${state.friendly.active}/${state.friendly.total}　敵方 ${state.enemy.active}/${state.enemy.total}`
-    this.banner.textContent = state.phase === 'countdown' ? String(Math.ceil(state.countdown)) : state.remainingSeconds > 60 ? '' : `${Math.ceil(state.remainingSeconds)}s`
+    this.banner.textContent = state.phase !== 'fight' || state.remainingSeconds > 60 ? '' : `${Math.ceil(state.remainingSeconds)}s`
     this.notice.textContent = state.playerKnocked ? '你已被擊倒，正在觀戰；友軍仍可取勝' : ''
   }
 

@@ -40,6 +40,7 @@ describe('Prison encounter persistence', () => {
     state.swords = {}; state.gateOpen = false
     expect(store.save(profile)).toBe(true)
     const originalInventory = store.load()!.ownedWeapons
+    const savedBeforeCountdown = storage.getItem(CAREER_STORAGE_KEY)
     vi.stubGlobal('document', { exitPointerLock() {} })
     const inventory = new InventoryManager({ meleeWeaponId: '', rangedWeaponId: '', shieldId: null })
     const swords = [{ position: new Vector3(0, 0, 1), visible: true }]
@@ -47,13 +48,18 @@ describe('Prison encounter persistence', () => {
     const feedback = vi.fn(), show = vi.fn()
     let retry = () => {}
     const scene = Object.assign(Object.create(CareerArenaCombatScene.prototype) as {
-      updatePickupFocus(): void; pickupSwords(pressed: boolean): void
+      phase: string; updatePickupFocus(): void; pickupSwords(pressed: boolean): void
     }, {
-      profile, store, inventory, props, pickupFocus: new InteractionFocus(), phase: 'fight', panel: null,
+      profile, store, inventory, props, pickupFocus: new InteractionFocus(), phase: 'countdown', panel: null,
       player: { position: new Vector3(), dead: false }, orbit: { cameraYaw: Math.PI }, bodies: [],
       input: { isLocked: true, clear() {} }, pickupHud: { show, notify: feedback },
       openPanel() {}, closePanel() {}, button: (_label: string, action: () => void) => { retry = action },
     })
+    scene.updatePickupFocus(); scene.pickupSwords(true)
+    expect(show).toHaveBeenLastCalledWith(null)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(savedBeforeCountdown)
+    expect(inventory.activeMelee).toBeUndefined()
+    scene.phase = 'fight'
     scene.updatePickupFocus()
     expect(show).toHaveBeenLastCalledWith(expect.stringContaining('破舊羅馬短劍'))
     storage.failWrites = true

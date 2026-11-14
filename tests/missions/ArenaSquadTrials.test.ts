@@ -13,6 +13,7 @@ import { createColosseumObstacles } from '../../src/arena/ColosseumLayout'
 import { createValhallaObstacles } from '../../src/arena/ValhallaLayout'
 import { Faction } from '../../src/world/NPC'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { PlayerInput } from '../../src/player/PlayerInput'
 
 const stats = { damageDealt: 400, damageTaken: 10, kills: 3, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
 
@@ -23,7 +24,122 @@ function profileAt(rank: CareerProfile['rank']): CareerProfile {
   return profile
 }
 
+/** Exercises the actual scene input and phase methods without constructing a rendered scene. */
+function openingHarness(search: string, seconds: number, prison = false) {
+  const win = Object.assign(new EventTarget(), { location: { search } })
+  const doc = Object.assign(new EventTarget(), { pointerLockElement: null as EventTarget | null })
+  const canvas = Object.assign(new EventTarget(), { requestPointerLock: vi.fn(() => Promise.reject(new Error('denied'))) })
+  vi.stubGlobal('window', win); vi.stubGlobal('location', win.location); vi.stubGlobal('document', doc)
+  const input = new PlayerInput(), listeners = new AbortController()
+  onTestFinished(() => { listeners.abort(); input.dispose(); vi.unstubAllGlobals() })
+  const attack = vi.fn(), save = vi.fn(), checkpoint = vi.fn(), openingHud = { update: vi.fn() }
+  const scene = Object.assign(Object.create(CareerArenaCombatScene.prototype) as {
+    bindInput(): void; advancePhase(dt: number): void; phase: string; countdownRemaining: number
+  }, {
+    renderer: { domElement: canvas }, input, listeners, camera: {}, sound: { unlockAudio() {} },
+    openingHud, started: true, panel: null, localProfile: { activeMission: prison ? { prisonBreak: {} } : {} },
+    phase: 'waiting', countdownRemaining: seconds, resumeGrace: prison, pickupRetry: null,
+    player: { dead: prison }, bodies: [{ npc: { dead: false, setTacticalOrder: attack } }],
+    resolvePrisonResult: () => false, checkpointFight: checkpoint, persistProgress: save, saveProgressWithRetry: save,
+  })
+  scene.bindInput()
+  return { scene, input, canvas, win, doc, attack, save, checkpoint, openingHud }
+}
+
 describe('Arena Squad Trials', () => {
+  it('waits for actual pointer lock and starts fighting only after the full opening countdown', () => {
+    const h = openingHarness('', 5)
+    h.scene.advancePhase(8)
+    h.canvas.dispatchEvent(new Event('click')) // A rejected request must not start the clock.
+    h.scene.advancePhase(8)
+    expect(h.canvas.requestPointerLock).toHaveBeenCalledOnce()
+    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['waiting', 5])
+    h.doc.pointerLockElement = new EventTarget(); h.doc.dispatchEvent(new Event('pointerlockchange'))
+    expect(h.scene.phase).toBe('waiting') // Lock held by a different element is not control of this arena.
+    h.canvas.dispatchEvent(new Event('click'))
+    expect(h.canvas.requestPointerLock).toHaveBeenCalledTimes(2)
+    h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
+    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['countdown', 5])
+    h.scene.advancePhase(1)
+    expect(h.scene.countdownRemaining).toBe(4)
+    h.doc.pointerLockElement = null; h.doc.dispatchEvent(new Event('pointerlockchange'))
+    expect(h.scene.phase).toBe('paused')
+    expect(h.openingHud.update).toHaveBeenLastCalledWith('paused', 4)
+    h.scene.advancePhase(8)
+    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['paused', 4])
+    expect(h.attack).not.toHaveBeenCalled(); expect(h.save).not.toHaveBeenCalled()
+    h.canvas.dispatchEvent(new Event('click')) // Another rejected lock does not consume the remaining seconds.
+    h.scene.advancePhase(8)
+    expect(h.scene.countdownRemaining).toBe(4)
+    h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
+    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['countdown', 4])
+    h.scene.advancePhase(1)
+    expect(h.scene.countdownRemaining).toBe(3)
+    h.doc.pointerLockElement = new EventTarget() // Recheck the canvas even before a change event arrives.
+    h.scene.advancePhase(8)
+    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['paused', 3])
+    h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
+    for (const expected of [2, 1]) { h.scene.advancePhase(1); expect(Math.ceil(h.scene.countdownRemaining)).toBe(expected) }
+    expect(h.attack).not.toHaveBeenCalled(); expect(h.save).not.toHaveBeenCalled()
+    h.scene.advancePhase(1)
+    expect(h.scene.phase).toBe('fight')
+    expect(h.attack).toHaveBeenCalledOnce(); expect(h.save).toHaveBeenCalledOnce()
+    h.doc.pointerLockElement = null; h.doc.dispatchEvent(new Event('pointerlockchange'))
+    h.canvas.dispatchEvent(new Event('click'))
+    expect(h.scene.phase).toBe('fight')
+  })
+
+  it('keeps a prison resume countdown paused after a checkpoint save fails and is retried', () => {
+    const h = openingHarness('', 3, true)
+    let retry: () => void = () => { throw new Error('retry not installed') }
+    Object.assign(h.doc, { exitPointerLock() { h.doc.pointerLockElement = null; h.doc.dispatchEvent(new Event('pointerlockchange')) } })
+    Object.assign(h.scene, {
+      knocked: new Set(), player: { dead: true, hp: 0, isGrounded: true, currentMount: null },
+      lastPlayerSignature: 'true|0', checkpointClock: 0,
+      clearPickupFocus() {}, openPanel() { Object.assign(h.scene, { panel: {} }) },
+      closePanel() { Object.assign(h.scene, { panel: null }) },
+      button(_label: string, action: () => void) { retry = action },
+    })
+    Reflect.deleteProperty(h.scene, 'checkpointFight')
+    Reflect.deleteProperty(h.scene, 'saveProgressWithRetry')
+    h.save.mockReturnValueOnce(false).mockReturnValue(true)
+    h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
+    h.scene.advancePhase(1)
+    expect(h.scene.countdownRemaining).toBe(2)
+    h.scene.advancePhase(1) // The real checkpoint caller fails its save and opens the retry panel.
+    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['paused', 2])
+    expect(h.save).toHaveBeenCalledTimes(1)
+    retry()
+    expect(h.save).toHaveBeenCalledTimes(2)
+    h.scene.advancePhase(8)
+    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['paused', 2])
+    expect(h.attack).not.toHaveBeenCalled()
+    h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
+    h.scene.advancePhase(1.9)
+    expect(h.scene.phase).toBe('countdown'); expect(h.attack).not.toHaveBeenCalled()
+    h.scene.advancePhase(0.11)
+    expect(h.scene.phase).toBe('fight'); expect(h.attack).toHaveBeenCalledOnce()
+  })
+
+  it('starts a fallen prisoner’s restored three-second grace in nolock without passing the click to combat', () => {
+    const h = openingHarness('?nolock', 3, true)
+    h.scene.advancePhase(8)
+    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['waiting', 3])
+    expect(h.checkpoint).toHaveBeenCalled() // Waiting does not remove the existing resume checkpoint path.
+    h.win.dispatchEvent(Object.assign(new Event('mousedown'), { button: 0 }))
+    h.canvas.dispatchEvent(new Event('click'))
+    expect(h.input.consumeLeftClick()).toBe(false)
+    expect(h.input.isLeftMouseDown).toBe(false)
+    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['countdown', 3])
+    h.scene.advancePhase(2.9)
+    expect(h.scene.phase).toBe('countdown'); expect(h.attack).not.toHaveBeenCalled()
+    h.scene.advancePhase(0.11)
+    expect(h.scene.phase).toBe('fight'); expect(h.attack).toHaveBeenCalledOnce()
+    expect(h.save).toHaveBeenCalledOnce()
+    h.canvas.dispatchEvent(new Event('click'))
+    expect(h.scene.phase).toBe('fight')
+  })
+
   it('fields the five agreed team sizes with same-culture bodies split only by team allegiance', () => {
     expect(ARENA_TRIAL_TIERS.map(tier => arenaTrialTeamSizes(tier))).toEqual([
       { friendly: 20, enemy: 10 }, { friendly: 15, enemy: 8 }, { friendly: 8, enemy: 20 }, { friendly: 20, enemy: 5 }, { friendly: 5, enemy: 20 }])
