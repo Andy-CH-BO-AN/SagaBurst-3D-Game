@@ -72,7 +72,8 @@ export interface HumanoidAnimationController {
   setPoseLayersEnabled?(enabled: boolean): void
   setBowLocomotion?(state: 'idle' | 'walk' | 'run', timeScale: number): void
   play(state: HumanoidAnimationState, options?: HumanoidAnimationPlayOptions): boolean
-  seek(state: HumanoidAnimationState, normalizedTime: number): boolean
+  /** `cameraDistance` lets a far repeated sample of the same state keep the last pose. */
+  seek(state: HumanoidAnimationState, normalizedTime: number, cameraDistance?: number): boolean
   has(state: HumanoidAnimationState): boolean
   getDuration(state: HumanoidAnimationState): number | undefined
   sampleInitialPose?(): void

@@ -8,6 +8,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { setHorseCorneaTransmission } from './HorseCorneaMaterial'
 import { shouldHorseCastShadow } from './HorseShadowPolicy'
+import { primeSkinnedTemplateBounds } from './SkinnedTemplateBounds'
 
 export type HorseAnimationState =
   | 'idle'
@@ -421,6 +422,7 @@ class HorseAnimationController {
 }
 
 export function createHorseInstance(template: HorseTemplate, initialVariant: HorseAppearanceVariant): HorseInstance {
+  primeSkinnedTemplateBounds(template.gltf.scene)
   const root = cloneSkeleton(template.gltf.scene) as THREE.Group
   root.name = 'horse-mount-v2'
   const skeleton = bindSingleSkeleton(root)

@@ -86,6 +86,8 @@ export class QuadrupedVisual {
         level.attach(unarmored)
         unarmored.visible = false
       }
+      // Match the horse policy: only the nearest level casts; far levels skip the shadow pass.
+      level.traverse(object => { if (object instanceof THREE.Mesh) object.castShadow = index === 0 })
       this.lod.attach(level)
       this.lod.addLevel(level, distance, .1)
       level.visible = index === 0

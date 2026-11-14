@@ -1,10 +1,11 @@
-import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
+import { CHARACTER_LOD_DISTANCES, HUMANOID_ANIMATION_THROTTLE_DISTANCE, deferFarHumanoidPose } from './CharacterLODPolicy'
 import type { ArticulatedFingerPoses } from './FingerContactPolicy'
 import { getOrdinarySoldierAssetId } from '../combat/OrdinarySoldierProfile'
 import { prepareSeatSupport } from './SkinnedSeatContact'
 import type { FittedHumanoidClothRig } from './FittedHumanoidCloth'
 import { prepareAuthoredBowContacts } from './BowDrawHand'
 import { configureMultiInfluenceSkinning, multiInfluenceSkinningPlugin } from './MultiInfluenceSkinning'
+import { primeSkinnedTemplateBounds } from './SkinnedTemplateBounds'
 import { prepareSelectedHumanoidSource, type SelectedHumanoidSource } from './SelectedHumanoidSource'
 import { shareSelectedLodPose, shareIdenticalSkinSkeletons, validateSelectedLodAnimations, optimizeSelectedAnimationClips } from './SelectedLodPose'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
@@ -69,7 +70,7 @@ export interface HumanoidAnimationBinding {
 }
 
 export const HUMANOID_LOD_DISTANCES = CHARACTER_LOD_DISTANCES
-export const HUMANOID_ANIMATION_THROTTLE_DISTANCE = 28
+export { HUMANOID_ANIMATION_THROTTLE_DISTANCE }
 
 export interface HumanoidAssetManifest {
   schemaVersion: 1
@@ -615,6 +616,9 @@ export class MixerController implements HumanoidAnimationController {
   private readonly punchTimings = new Map<HumanoidAnimationState, HumanoidPunchTiming>()
   private current: HumanoidAnimationState | null = null
   private farAccumulator = 0
+  /** Repeated explicit samples (bow draw, pilum) of the still-bound state share the far cadence. */
+  private seekedState: HumanoidAnimationState | null = null
+  private seekPending = Infinity
   private readonly bowMeshes: THREE.SkinnedMesh[] = []
   private readonly swordMeshes: THREE.SkinnedMesh[] = []
   private swordHandEnabled = false
@@ -739,6 +743,7 @@ export class MixerController implements HumanoidAnimationController {
   }
 
   play(state: HumanoidAnimationState, options: HumanoidAnimationPlayOptions = {}): boolean {
+    this.seekedState = null
     if (state === 'death') for (const action of this.hitReactions) action.stop()
     const bindings = this.poseLayersEnabled ? this.actions : this.rawActions
     const next = bindings.get(state) ?? []
@@ -804,7 +809,10 @@ export class MixerController implements HumanoidAnimationController {
     return true
   }
 
-  seek(state: HumanoidAnimationState, normalizedTime: number): boolean {
+  seek(state: HumanoidAnimationState, normalizedTime: number, cameraDistance = 0): boolean {
+    // A far repeat keeps the last all-level sample: its paused actions are still
+    // bound, and the caller's gameplay clock (draw/throw progress) is unaffected.
+    if (this.seekedState === state && this.current === state && deferFarHumanoidPose(cameraDistance, this.seekPending)) return true
     // A paused action may skip an unchanged PropertyMixer write. Never restore
     // last frame's overlay base AFTER evaluating the newly requested sample.
     if (!this.play(state, { fadeSeconds: this.current === state ? 0 : 0.12, loop: false })) return false
@@ -821,6 +829,8 @@ export class MixerController implements HumanoidAnimationController {
     this.relaxedHandTransitionStart = undefined
     for (const mixer of this.mixers) mixer.update(0)
     this.finishPose(true)
+    this.seekedState = state
+    this.seekPending = 0
     return true
   }
 
@@ -835,8 +845,9 @@ export class MixerController implements HumanoidAnimationController {
   update(dt: number, cameraDistance = 0): void {
     if (!Number.isFinite(dt) || dt < 0) return
     if (dt === 0) { this.restoreEquipment(); this.finishPose(); return }
+    this.seekPending += dt
     this.farAccumulator += dt
-    if (cameraDistance > HUMANOID_ANIMATION_THROTTLE_DISTANCE && this.farAccumulator < 1 / 12) return
+    if (deferFarHumanoidPose(cameraDistance, this.farAccumulator)) return
     // Returning near must consume the pending far time once, too.
     dt = this.farAccumulator
     this.farAccumulator = 0
@@ -862,6 +873,7 @@ export class MixerController implements HumanoidAnimationController {
     for (const mixer of this.mixers) mixer.stopAllAction()
     for (const mesh of this.bowMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.bowGrip] = 0
     this.current = null
+    this.seekedState = null
     this.bowLegState = null
     this.transitionRemaining = 0
     this.onPoseEvaluated?.()
@@ -1165,6 +1177,7 @@ export class HumanoidAssetRegistry {
     warmupGroup.name = 'humanoid-warmup-templates'
     for (const [faction, template] of this.templates) {
       template.levels.forEach((gltf, index) => {
+        primeSkinnedTemplateBounds(gltf.scene)
         const levelClone = cloneSkeleton(gltf.scene) as THREE.Group
         configureMultiInfluenceSkinning(levelClone)
         levelClone.name = `${faction}-warmup-lod${index}`
@@ -1214,6 +1227,7 @@ export class HumanoidAssetRegistry {
     let primaryScene: THREE.Group | null = null
     let skeleton: THREE.Skeleton | null = null
     template.levels.forEach((gltf, index) => {
+      primeSkinnedTemplateBounds(gltf.scene)
       const level = cloneSkeleton(gltf.scene) as THREE.Group
       configureMultiInfluenceSkinning(level)
       level.name = `${assetId ?? config.faction}-lod${index}`
