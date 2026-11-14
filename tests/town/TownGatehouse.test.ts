@@ -1,6 +1,7 @@
+import { Box3, Vector3 } from 'three'
 import { expect, it } from 'vitest'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
-import { gatehousePoint, townGatehouseObstacle, townGatehouseParts } from '../../src/town/TownGatehouse'
+import { GATEHOUSE_SHELL, TOWN_GATEHOUSE, gatehousePoint, gatehousePrismBoxes, townGatehouseObstacle, townGatehouseParts, townGatehousePrisms } from '../../src/town/TownGatehouse'
 import { getTownRampartLayout } from '../../src/town/TownRamparts'
 import { findBlockingObstacleAlongPath, findBlockingProjectileObstacleAlongPath, getTerrainHeight } from '../../src/world/Terrain'
 
@@ -34,4 +35,30 @@ it('讓門洞下方的地面路徑穿過門樓，但保留關門與上層投射�
   const roofHeight = floorY + 4
   expect(findBlockingProjectileObstacleAlongPath(across(6, roofHeight), across(-1, roofHeight), solids)).not.toBeNull()
   expect(findBlockingProjectileObstacleAlongPath(across(6, groundY + 1.7), across(-6, groundY + 1.7), solids)).toBeNull()
+})
+
+it('兩陣營門樓的塔殼、門洞實心與塔翼不佔用地面門洞、塔門與上層連廊的騎乘淨空', () => {
+  const G = TOWN_GATEHOUSE, S = GATEHOUSE_SHELL, intrusions: string[] = []
+  for (const house of getTownRampartLayout().gatehouses!) {
+    const floor = house.floorY - house.groundY
+    const doorIn = G.towerCenter - G.linkWidth / 2 + G.railThickness, doorOut = G.towerCenter + G.linkWidth / 2 - G.railThickness
+    const lanes: Record<string, Box3> = {
+      portal: new Box3(new Vector3(-6, .2, -8), new Vector3(6, 3.4, 8)),
+      gallery: new Box3(new Vector3(-G.towerCenter, floor + .05, G.deckBack + G.railThickness + .01), new Vector3(G.towerCenter, floor + G.headroom - .05, G.deckFront - .26)),
+    }
+    for (const side of [-1, 1]) {
+      const [x0, x1] = side < 0 ? [-doorOut, -doorIn] : [doorIn, doorOut]
+      lanes[`door:${side}`] = new Box3(new Vector3(x0 + .01, floor + .05, S.back), new Vector3(x1 - .01, floor + S.doorHead - .05, G.deckBack + G.railThickness))
+      lanes[`tower:${side}`] = new Box3(new Vector3(x0 + .01, floor + .05, G.deckBack + G.railThickness + .01), new Vector3(x1 - .01, floor + G.headroom, G.deckFront - .26))
+    }
+    for (const style of ['roman', 'viking'] as const) {
+      const solids = [...townGatehouseParts(house, style).map(part => ({ role: part.role, box: part.box })),
+        ...townGatehousePrisms(house).flatMap(prism => gatehousePrismBoxes(prism).map(box => ({ role: prism.kind, box })))]
+      for (const { role, box: [x0, y0, z0, x1, y1, z1] } of solids) {
+        const solid = new Box3(new Vector3(x0, y0, z0), new Vector3(x1, y1, z1))
+        for (const [lane, envelope] of Object.entries(lanes)) if (solid.intersectsBox(envelope)) intrusions.push(`${house.gate.id}:${style}:${role} in ${lane}`)
+      }
+    }
+  }
+  expect(intrusions).toEqual([])
 })

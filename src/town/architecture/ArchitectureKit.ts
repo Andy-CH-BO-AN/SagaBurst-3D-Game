@@ -564,7 +564,7 @@ export class Sketch {
     if (slot === 'metal') this.add('metal', new THREE.ConeGeometry(.12, .4, 8).translate(x, y0 + height + .2, z), PALETTE.gold)
   }
   /** Gold Roman eagle with spread wings on a plaque plane facing yaw. */
-  eagle(x: number, y: number, z: number, yaw: number, size = 1): void {
+  eagle(x: number, y: number, z: number, yaw: number, size = 1, color: number = PALETTE.gold): void {
     const s = new THREE.Shape()
     const pts: [number, number][] = [[0, .55], [.12, .42], [.18, .2], [.45, .42], [.95, .55], [.7, .25], [.92, .2], [.55, 0], [.32, -.05], [.2, -.35],
       [.3, -.62], [0, -.48], [-.3, -.62], [-.2, -.35], [-.32, -.05], [-.55, 0], [-.92, .2], [-.7, .25], [-.95, .55], [-.45, .42], [-.18, .2], [-.12, .42]]
@@ -572,7 +572,7 @@ export class Sketch {
     s.closePath()
     const g = new THREE.ExtrudeGeometry(s, { depth: .1 * size, bevelEnabled: true, bevelSize: .03 * size, bevelThickness: .03 * size, bevelSegments: 1 })
     g.rotateY(yaw).translate(x, y, z)
-    this.add('metal', g, PALETTE.gold)
+    this.add('metal', g, color)
   }
   /** Gold laurel wreath (two leaf arcs) facing yaw. */
   laurel(x: number, y: number, z: number, yaw: number, radius = .5): void {

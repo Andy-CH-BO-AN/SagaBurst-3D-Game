@@ -209,7 +209,7 @@ export class TownWorld {
       const gate = house.gate
       const dressing = dressTownGate(this.architecture, house, { statues })
       this.root.add(dressing.root); this.obstacles.push(...dressing.obstacles)
-      this.airspaceObstacles.push({ box: new THREE.Box3().setFromObject(dressing.root), isBarricade: false })
+      for (const box of dressing.airspace) this.airspaceObstacles.push({ box, isBarricade: false })
       const leaves = this.fortifications.root.getObjectByName(`town-${gate.id}-gate-leaves`)
       if (leaves) dressTownGateLeaves(this.architecture, leaves.children)
     }
