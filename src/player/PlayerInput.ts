@@ -52,10 +52,11 @@ export class PlayerInput {
       if (!this.isLocked) return
       // A modal, death or focus change cancels held keys until a new physical press.
       if (e.repeat && !this.keys[e.code]) return
-      if (!this.keys[e.code]) this._keyPresses.add(e.code)
+      const freshPress = !this.keys[e.code] && !e.repeat
+      if (freshPress) this._keyPresses.add(e.code)
       if (e.code === 'Space') e.preventDefault()
       this.keys[e.code] = true
-      if (e.code === 'KeyE') {
+      if (e.code === 'KeyE' && freshPress) {
         this._keyETriggered = true
       }
       if (e.code === 'KeyF') this._aimKeyDown = true

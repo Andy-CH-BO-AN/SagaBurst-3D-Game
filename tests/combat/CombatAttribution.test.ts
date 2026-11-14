@@ -143,6 +143,23 @@ function unarmedContactHarness(targetX: number, throughTime: number) {
 }
 
 describe('Combat attribution foundation', () => {
+  it('keeps the real player melee damage caller locked during Commander Last Stand preparation', () => {
+    const h = unarmedContactHarness(0, 1.6)
+    let phase: 'deployment' | 'assault' = 'deployment'
+    Object.assign(h.game, {
+      defenseCampaignConfig: { careerCommanderOutpost: {} },
+      defenseCampaignRuntime: { getSnapshot: () => ({ activePhase: phase }) },
+      commanderOutpostDeploymentBatch: { ready: true },
+    })
+    h.game._checkPlayerMeleeHits()
+    expect(h.hp()).toBe(100)
+    expect(h.events).toEqual([])
+    phase = 'assault'
+    h.game._checkPlayerMeleeHits()
+    expect(h.hp()).toBe(80)
+    expect(h.events.filter(event => event.type === 'damage_applied')).toHaveLength(4)
+  })
+
   it('拳頭沒有接觸時正式玩家命中流程不扣血，也不發傷害事件', () => {
     const h = unarmedContactHarness(2, .2)
     h.game._checkPlayerMeleeHits()

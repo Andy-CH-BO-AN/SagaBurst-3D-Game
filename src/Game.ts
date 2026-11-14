@@ -263,6 +263,8 @@ import {
 } from './combat/CombatBalance'
 import { calculatePlayerMeleeDamage } from './combat/PlayerMeleeDamage'
 import { WeaponPickup } from './world/WeaponPickup'
+import { InteractionFocus, type InteractionCandidate } from './world/InteractionFocus'
+import { PickupPrompt } from './ui/PickupPrompt'
 import { resolveMountImpacts } from './combat/MountImpact'
 import { RuntimeProfiler } from './debug/RuntimeProfiler'
 import { NpcSubphaseCollector, NpcSubphaseAggregator, SUBPHASE_COHORT } from './debug/NpcSubphaseProfiler'
@@ -739,9 +741,10 @@ export class Game {
   private mountNameEl!: HTMLElement
   private mountHpFill!: HTMLElement
 
-  private pickupPromptEl!: HTMLElement
-  // @ts-ignore
-  private activeNearbyPickup: WeaponPickup | null = null
+  private pickupHud!: PickupPrompt
+  private readonly pickupFocus = new InteractionFocus<WeaponPickup | Mount>()
+  private readonly customPickupPolicy: boolean
+  private interactionInputCaptured = false
 
   private lockOverlay!: HTMLElement
   private controlsHint!: HTMLElement
@@ -812,6 +815,7 @@ export class Game {
     private readonly tutorialLaunch?: CareerTutorialLaunch,
   ) {
     this.renderer = renderer
+    this.customPickupPolicy = Boolean(battleConfig && !campaignConfig && !bridgeLaunch && !battleConfig.careerEagleMissionId && !battleConfig.careerFelineMissionId && !tutorialLaunch && !isTrainingGround)
     if (isTrainingGround && (battleConfig || campaignConfig)) throw new Error('Training Ground cannot use a battle or Career launch')
     if (tutorialLaunch) {
       const profile = new CareerProfileStore().loadChecked().profile
@@ -1251,7 +1255,7 @@ export class Game {
     this.saveNotify     = document.getElementById('save-notify')!
     this.deathBanner    = document.getElementById('death-banner')
     this.spectatorBadge = document.getElementById('spectator-badge')
-    this.pickupPromptEl = document.getElementById('pickup-prompt')!
+    this.pickupHud = new PickupPrompt()
 
     this.enemyHud    = document.getElementById('enemy-hud')!
     this.enemyNameEl = document.getElementById('enemy-name')!
@@ -1889,6 +1893,7 @@ export class Game {
     this.equipmentUI.close(); this._disposeCareerOutpostBattleActors()
     this.trainingGround?.dispose(); this.player.dispose()
     this.inventoryManager?.dispose()
+    this.pickupHud?.dispose()
     for (const arrow of this.arrows) arrow.destroy()
     this._aimTargetRegistry.clear(); this.damageNumbers.clear(); this.weaponWheelUI.dispose()
     this.soundManager.updateHorseGallopLoops([])
@@ -1981,6 +1986,7 @@ export class Game {
     this.trainingGround.dispose()
     this.player.dispose()
     this.inventoryManager?.dispose()
+    this.pickupHud?.dispose()
     for (const arrow of this.arrows) arrow.destroy()
     this.arrows.length = 0
     this._aimTargetRegistry.clear()
@@ -4240,14 +4246,17 @@ export class Game {
 
   private _updatePlayerInputOwnership(): void {
     const careerEnded = this._isCareerCommandFinished()
+    this.interactionInputCaptured = false
     if (this.player.dead || this.controlMode !== 'player' || careerEnded) this.armyCommandUI?.setEnabled(false)
     if (this.equipmentUI.visible) {
       this.input.clear()
       this.player.clearTownAction()
       return
     }
-    if (!this.isModelStudio && !this.player.dead && this.controlMode === 'player' && !careerEnded
-      && this.armyCommandController.update()) this.player.clearTownAction()
+    if (!this.isModelStudio && !this.player.dead && this.controlMode === 'player' && !careerEnded) {
+      this.interactionInputCaptured = this.armyCommandController.update()
+      if (this.interactionInputCaptured) this.player.clearTownAction()
+    }
   }
 
   private _setupShortcuts(): void {
@@ -4565,7 +4574,7 @@ export class Game {
     }
 
     // 4. Hide player-only combat & interaction HUD
-    this.pickupPromptEl?.classList.remove('visible')
+    this._clearPickupFocus()
     this.mountHud?.classList.remove('visible')
     if (this.enemyHud) {
       this.enemyHud.classList.remove('visible')
@@ -4762,86 +4771,71 @@ export class Game {
     this.soundManager.updateHorseGallopLoops(gallopCandidates)
     updateEagleWingbeatAudio(this.soundManager, this.mounts, this.camera.position, this.player.currentMount)
 
-    if (this.player.dead || this.controlMode === 'spectator' || this.player.spectatorOnly) {
-      this.pickupPromptEl.classList.remove('visible')
+    const pressed = this.input.consumeKeyE()
+    for (const pickup of this.pickups) pickup.update(dt)
+    if (this.player.dead || this.controlMode === 'spectator' || this.player.spectatorOnly || !this.input.isLocked
+      || this.equipmentUI.visible || this.interactionInputCaptured
+      || this._isCareerCommandFinished() || this.isModelStudio) {
+      this._clearPickupFocus()
       return
     }
 
-    const isEPressed = this.input.consumeKeyE()
-
-    if (this.player.isMounted && this.player.currentMount) {
-      // Handle Dismount
-      this.pickupPromptEl.textContent = `[E] 下騎`
-      this.pickupPromptEl.classList.add('visible')
-
-      if (isEPressed) {
-        const prevMount = this.player.currentMount
-        this.player.dismountFromMount()
-        if (!this.player.isMounted && prevMount.type === MountType.HORSE && this.trainingGround?.mounts.includes(prevMount)) this.tutorialScene?.operation('dismounted')
-        if (prevMount) this._aimTargetRegistry.registerMount(prevMount)
-        this.pickupPromptEl.classList.remove('visible')
-        this.mountHud.classList.remove('visible')
+    // The press belongs to the target and action displayed in the preceding frame.
+    const action = this.pickupFocus.pressed(pressed, this._pickupCandidates(), this.player.position)
+    if (action?.action === 'dismount') {
+      const prevMount = this.player.currentMount!
+      this.player.dismountFromMount()
+      if (!this.player.isMounted && prevMount.type === MountType.HORSE && this.trainingGround?.mounts.includes(prevMount)) this.tutorialScene?.operation('dismounted')
+      this._aimTargetRegistry.registerMount(prevMount)
+      this.mountHud.classList.remove('visible')
+    } else if (action?.target instanceof WeaponPickup) {
+      const pickup = action.target
+      if (pickup.isArrowPack) {
+        this.player.setArrowCount(this.player.arrowCount + pickup.arrowQuantity)
+        this.quiverUI.setArrowCount(this.player.arrowCount)
+        this.pickupHud.notify(`已補充箭矢 · +${pickup.arrowQuantity}`)
+      } else {
+        this.inventoryManager.addWeapon(pickup.weaponId)
+        if (action.action === 'equip') this.inventoryManager.equipWeapon(pickup.weaponId)
+        this.pickupHud.notify(`${action.action === 'equip' ? '已裝備' : '已收進背包'} · ${pickup.name}`)
       }
-      return // Skip pickups while mounted
+      pickup.destroy()
+      const idx = this.pickups.indexOf(pickup)
+      if (idx !== -1) this.pickups.splice(idx, 1)
+    } else if (action?.action === 'mount') {
+      this._mountPlayer(action.target as Mount)
     }
 
-    let closestPickup: WeaponPickup | null = null
-    let closestMount: Mount | null = null
-    let closestDist = 2.5
+    const yaw = this.thirdPersonCamera.cameraYaw
+    const selected = this.pickupFocus.select(this._pickupCandidates(), this.player.position,
+      { x: -Math.sin(yaw), z: -Math.cos(yaw) })
+    for (const pickup of this.pickups) pickup.setSelected(selected?.target === pickup)
+    this.pickupHud.show(selected?.prompt ?? null)
+  }
 
-    for (let i = this.pickups.length - 1; i >= 0; i--) {
-      const pickup = this.pickups[i]
-      pickup.update(dt)
-
-      const dist = this.player.position.distanceTo(pickup.position)
-      if (dist < closestDist) {
-        closestPickup = pickup
-        closestMount = null
-        closestDist = dist
-      }
+  private _pickupCandidates(): InteractionCandidate<WeaponPickup | Mount>[] {
+    const position = this.player.position
+    if (this.player.isMounted && this.player.currentMount) return [{
+      target: this.player.currentMount, position, range: 2.5, action: 'dismount', prompt: '[E] 下騎',
+    }]
+    const items: InteractionCandidate<WeaponPickup | Mount>[] = []
+    for (const pickup of this.pickups) {
+      if (!pickup.isAlive) continue
+      const action = pickup.isArrowPack ? 'arrows' : this.customPickupPolicy ? this.inventoryManager.pickupDisposition(pickup.weaponId) : 'backpack'
+      const text = action === 'arrows' ? `補充箭矢 · +${pickup.arrowQuantity}`
+        : `${action === 'equip' ? '拾起並裝備' : '收進背包'} · ${pickup.name}`
+      items.push({ target: pickup, position: pickup.position, range: 2.5, action, prompt: `[E] ${text}` })
     }
+    for (const mount of this.mounts) if (mount.availableForPlayer) items.push({
+      target: mount, position: mount.group.position, range: 2.5, action: 'mount', prompt: `[E] 騎乘：${mount.displayName}`,
+    })
+    return items
+  }
 
-    for (const mount of this.mounts) {
-      if (!mount.availableForPlayer) continue
-      const dist = this.player.position.distanceTo(mount.group.position)
-      if (dist < closestDist) {
-        closestMount = mount
-        closestPickup = null
-        closestDist = dist
-      }
-    }
-
-    if (closestPickup) {
-      this.pickupPromptEl.textContent = `[E] 拾取：${closestPickup.name}`
-      this.pickupPromptEl.classList.add('visible')
-    } else if (closestMount) {
-      this.pickupPromptEl.textContent = `[E] 騎乘：${closestMount.displayName}`
-      this.pickupPromptEl.classList.add('visible')
-    } else {
-      this.pickupPromptEl.classList.remove('visible')
-    }
-
-    // Check if E key was pressed to pick up or mount
-    if (isEPressed) {
-      if (closestPickup) {
-        if (closestPickup.isArrowPack) {
-          this.player.setArrowCount(this.player.arrowCount + closestPickup.arrowQuantity)
-          this.quiverUI.setArrowCount(this.player.arrowCount)
-          this._showNotify(`🏹 拾取：箭矢 x${closestPickup.arrowQuantity}`)
-        } else {
-          const count = this.inventoryManager.addWeapon(closestPickup.weaponId)
-          this._showNotify(`🎒 拾取：${closestPickup.name} (數量: x${count})`)
-        }
-        closestPickup.destroy()
-        
-        const idx = this.pickups.indexOf(closestPickup)
-        if (idx !== -1) this.pickups.splice(idx, 1)
-
-      } else if (closestMount) {
-        this._mountPlayer(closestMount)
-      }
-      this.pickupPromptEl.classList.remove('visible')
-    }
+  private _clearPickupFocus(): void {
+    this.pickupFocus.clear()
+    this.pickupHud?.show(null)
+    for (const pickup of this.pickups) pickup.setSelected(false)
   }
 
   /** Prevent living people, NPCs, and mounts from occupying the same space. */
@@ -4984,6 +4978,7 @@ export class Game {
     if (this.trainingUI?.paused || this.isTrainingGround && this.equipmentUI.visible) {
       this.soundManager.updateEagleWingbeats([])
       this.input.clear()
+      this._clearPickupFocus()
       this.player.clearTownAction()
       this.commandSelectionMarker?.hide()
       this.renderer.render(this.scene, this.camera)

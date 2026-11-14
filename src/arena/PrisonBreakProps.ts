@@ -4,6 +4,7 @@ import type { DuelArenaEnvironment } from './DuelArena'
 import { PRISON_SWORD_COUNT, PRISON_SWORD_ID, type PrisonBreakState } from '../career/CareerPrisonBreak'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import type { ObstacleData } from '../world/Terrain'
+import { PickupRing } from '../world/PickupRing'
 
 /** Encounter-owned iron gate and six existing T1 sword meshes. Shared weapon resources are not disposed. */
 export class PrisonBreakProps {
@@ -14,6 +15,7 @@ export class PrisonBreakProps {
   private readonly ownedGeometry: THREE.BufferGeometry[] = []
   private readonly blocker: ObstacleData
   readonly swords: THREE.Group[] = []
+  private readonly swordRings: PickupRing[] = []
   private open = false
   private lift = 0
   private readonly height: number
@@ -39,6 +41,9 @@ export class PrisonBreakProps {
       sword.position.set([-1.3, -5, 5, -6, 6, 0][i], .22, [4, -1, -2, -8, -10, 10][i])
       sword.rotation.z = Math.PI / 2; sword.visible = state.swords[i] === undefined
       arena.root.add(sword); this.swords.push(sword)
+      const pickupRing = new PickupRing(0xf0cf72)
+      pickupRing.mesh.position.set(sword.position.x, .05, sword.position.z)
+      arena.root.add(pickupRing.mesh); this.swordRings.push(pickupRing)
     }
     this.setOpen(state.gateOpen, false)
   }
@@ -48,12 +53,16 @@ export class PrisonBreakProps {
     if (open && index >= 0) this.arena.obstacles.splice(index, 1)
     if (!animate) this.lift = open ? this.height + .2 : 0
     this.gate.position.y = this.lift
+    this.swordRings.forEach((ring, i) => { ring.mesh.visible = !open && this.swords[i].visible; ring.setSelected(false) })
   }
   update(dt: number): void {
     if (this.open) this.lift = Math.min(this.height + .2, this.lift + dt * 2.5)
     this.gate.position.y = this.lift
   }
-  syncSwords(state: PrisonBreakState): void { this.swords.forEach((mesh, i) => { mesh.visible = state.swords[i] === undefined }) }
+  syncSwords(state: PrisonBreakState): void {
+    this.swords.forEach((mesh, i) => { mesh.visible = state.swords[i] === undefined; this.swordRings[i].mesh.visible = mesh.visible && !state.gateOpen })
+  }
+  setSelectedSword(index: number | null): void { this.swordRings.forEach((ring, i) => ring.setSelected(i === index)) }
   dispose(): void {
     this.gate.removeFromParent(); this.exit.removeFromParent()
     for (const sword of this.swords) {
@@ -61,6 +70,7 @@ export class PrisonBreakProps {
       // T1 gladius construction creates instance geometry; its procedural materials remain shared.
       sword.traverse(node => { if (node instanceof THREE.Mesh) node.geometry.dispose() })
     }
+    this.swordRings.forEach(ring => ring.dispose())
     const index = this.arena.obstacles.indexOf(this.blocker)
     if (index >= 0) this.arena.obstacles.splice(index, 1)
     this.ownedGeometry.forEach(g => g.dispose()); this.iron.dispose(); this.markerMaterial.dispose()
