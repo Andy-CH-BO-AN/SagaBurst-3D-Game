@@ -40,6 +40,8 @@ export class SkinnedSeatContact {
   private readonly a = new THREE.Vector3()
   private readonly b = new THREE.Vector3()
   private readonly vertex = new THREE.Vector3()
+  /** Last measured mount-local lift, re-applied while neither pose is re-sampled. */
+  private correction: number | null = null
 
   constructor(private readonly rider: THREE.Object3D, private readonly mount: THREE.Object3D,
     private readonly saddle: THREE.SkinnedMesh, seat: THREE.Object3D) {
@@ -81,10 +83,24 @@ export class SkinnedSeatContact {
       this.mount.worldToLocal(readPoint(this.saddle, this.seatPoints[i], this.b, this.vertex))
       correction = Math.max(correction, this.b.y - this.a.y + .002)
     }
+    this.correction = correction
+    this.applyCorrection(correction)
+    this.rider.updateMatrixWorld(true)
+  }
+
+  /** Cheap far-distance path: reuse the last lift on the current mount/rider transforms. */
+  reapply(): boolean {
+    if (this.correction === null || !this.rider.parent) return false
+    this.mount.updateWorldMatrix(true, false)
+    this.rider.parent.updateWorldMatrix(true, false)
+    this.applyCorrection(this.correction)
+    return true
+  }
+
+  private applyCorrection(correction: number): void {
     this.mount.localToWorld(this.a.set(0, 0, 0))
     this.mount.localToWorld(this.b.set(0, correction, 0))
     this.rider.parent!.worldToLocal(this.a); this.rider.parent!.worldToLocal(this.b)
     this.rider.position.add(this.b.sub(this.a))
-    this.rider.updateMatrixWorld(true)
   }
 }
