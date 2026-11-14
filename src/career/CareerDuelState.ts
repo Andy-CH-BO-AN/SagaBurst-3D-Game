@@ -1,7 +1,7 @@
 import { getOrdinarySoldierHp } from '../combat/OrdinarySoldierProfile'
 import {
-  getUnitPresetsForFaction, UNIT_PRESETS,
-  type UnitPreset, type UnitPresetId, type UnitTier,
+  UNIT_PRESETS,
+  type UnitPresetId, type UnitTier,
 } from '../battle/UnitPresetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { CombatEvent } from '../combat/CombatAttribution'
@@ -88,11 +88,6 @@ export function isCareerDuelTier(value: unknown): value is CareerDuelTier {
 
 export function isCareerDuelPresetId(value: unknown): value is UnitPresetId {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(UNIT_PRESETS, value)
-}
-
-/** Keep selection tied to the authoritative faction catalog. */
-export function careerDuelPresets(faction: CharacterFaction): UnitPreset[] {
-  return getUnitPresetsForFaction(faction)
 }
 
 export function isCareerDuelUnlocked(

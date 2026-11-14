@@ -4,7 +4,7 @@ import { SkillManager } from '../../src/rpg/SkillManager'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   ARENA_TRIAL_DEFINITIONS, ARENA_TRIAL_TIERS, ARENA_TRIAL_TIME_LIMIT_SECONDS, arenaTrialBlocker, arenaTrialRestorablePlan, arenaTrialRoster,
-  acceptArenaStoryTrial, arenaTrialTeamSizes, arenaTrialUnitSpec, createArenaTrialMission, resolveArenaTrialEnd, resolveArenaTrialOutcome, type ArenaTrialTier,
+  acceptArenaStoryTrial, arenaTrialTeamSizes, arenaTrialUnitSpec, createArenaTrialMission, resolveArenaTrialEnd, type ArenaTrialTier,
 } from '../../src/career/CareerArenaTrials'
 import { claimCareerMission, createCareerProfile, promoteCareer, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -170,11 +170,9 @@ describe('Arena Squad Trials', () => {
   })
 
   it('ends only when a team is out: a fallen player alone does not lose while a friendly body stands', () => {
-    expect(resolveArenaTrialOutcome({ friendlyActive: 3, enemyActive: 4, playerKnocked: true }, 30)).toBeNull()
-    expect(resolveArenaTrialOutcome({ friendlyActive: 0, enemyActive: 4, playerKnocked: false }, 30)).toBeNull()
-    expect(resolveArenaTrialOutcome({ friendlyActive: 3, enemyActive: 0, playerKnocked: true }, 30)).toBe('victory')
-    expect(resolveArenaTrialOutcome({ friendlyActive: 0, enemyActive: 2, playerKnocked: true }, 30)).toBe('failure')
-    expect(resolveArenaTrialOutcome({ friendlyActive: 3, enemyActive: 2, playerKnocked: false }, ARENA_TRIAL_TIME_LIMIT_SECONDS)).toBe('failure')
+    expect(resolveArenaTrialEnd({ friendlyActive: 3, enemyActive: 4, playerKnocked: true }, 30)).toBeNull()
+    expect(resolveArenaTrialEnd({ friendlyActive: 0, enemyActive: 4, playerKnocked: false }, 30)).toBeNull()
+    expect(resolveArenaTrialEnd({ friendlyActive: 3, enemyActive: 0, playerKnocked: true }, 30)).toEqual({ outcome: 'victory' })
     // The loss keeps its reason, so a timeout with fighters standing is never reported as elimination.
     expect(resolveArenaTrialEnd({ friendlyActive: 3, enemyActive: 2, playerKnocked: false }, ARENA_TRIAL_TIME_LIMIT_SECONDS)).toEqual({ outcome: 'failure', reason: 'timeout' })
     expect(resolveArenaTrialEnd({ friendlyActive: 0, enemyActive: 2, playerKnocked: true }, 30)).toEqual({ outcome: 'failure', reason: 'eliminated' })
