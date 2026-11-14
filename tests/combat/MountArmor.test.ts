@@ -77,6 +77,35 @@ describe('Mount armor', () => {
       expect(route === 'npc-player' ? player.hp : target.hp).toBe(route === 'player-npc' ? 122 : 135)
     }
   })
+  it('lets a player charge hit a Career field bandit through the real damage route while sparing an ally in the same lane', () => {
+    const actor = (id: string, faction: Faction) => ({
+      combatantId: id, name: id, faction, characterFaction: 'roman' as const, hp: 200, maxHp: 200,
+      dead: false, isMounted: false, mount: null, currentMount: null, targetable: true, spectatorOnly: false,
+      group: { uuid: id, position: new Vector3() }, combatPosition: new Vector3(), position: new Vector3(),
+      get hpRatio() { return this.hp / this.maxHp },
+      takeDamage(amount: number) { this.hp -= amount; return true },
+    })
+    const player = actor('player', Faction.PLAYER) as unknown as Player
+    const bandit = actor('recruit-bandits-01:bandit:0', Faction.BANDIT) as unknown as NPC
+    const ally = actor('field-ally', Faction.PLAYER) as unknown as NPC
+    const mount = {
+      state: MountState.CONTROLLED, dead: false, isFlyingMount: false, skipImpactThisFrame: false,
+      movementSpeed: 12, isSprinting: false, impactMultiplier: 2.5,
+      group: { position: new Vector3(0, 0, 1) }, previousPosition: new Vector3(0, 0, -1),
+      impactTimes: new Map<object, number>(), canImpact: Mount.prototype.canImpact, riderFaction: Faction.PLAYER, riderNpc: null,
+    } as unknown as Mount
+    player.currentMount = mount
+    const events: { type: string; source: { actorId: string }; method: string }[] = []
+    const hits: string[] = []
+    resolveMountImpacts([mount], player, [ally, bandit], 0, { playerDamageMultiplier: 1.2,
+      onDamagePlayer: (amount, context) => damagePlayer(player, amount, { setFill() {} }, null, context),
+      combatEvents: event => events.push(event as never), onPlayerMountHitNpcAudio: (_damage, _mount, npc) => hits.push(npc.combatantId) })
+    expect(bandit.hp).toBe(122)
+    expect(ally.hp).toBe(200)
+    expect(hits).toEqual(['recruit-bandits-01:bandit:0'])
+    expect(events.find(event => event.type === 'damage_applied')).toMatchObject({ source: { actorId: 'player' }, method: 'mount-impact' })
+  })
+
   it('stops infantry impact displacement before the existing swept wall boundary', () => {
     const y = getTerrainHeight(0, 0), position = new Vector3(0, y, 0)
     const target = { dead: false, isMounted: false, group: { position } } as unknown as NPC
