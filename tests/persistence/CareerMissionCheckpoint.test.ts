@@ -93,6 +93,25 @@ describe('CareerMissionCheckpoint', () => {
     expect(h.checkpoint.persist(h.snapshot, reason)).toBe(true)
   })
 
+  it('acknowledges death only after save and renews that acknowledgement for a new mission or reset', () => {
+    const h = fixture()
+    h.setProfile({ ...h.profile, activeMission: { ...h.profile.activeMission!, playerDead: true, playerHp: 0 } })
+    const death = () => ({ immediate: false, deathMissionId: h.profile.activeMission!.id })
+    h.setSaving(false)
+    expect(h.checkpoint.persist(h.snapshot, death())).toBe(false)
+    h.setSaving(true)
+    expect(h.checkpoint.persist(h.snapshot, death())).toBe(true)
+    expect(h.checkpoint.persist(h.snapshot, death())).toBe(false)
+    expect(h.commit).toHaveBeenCalledTimes(2)
+    h.setProfile({ ...h.profile, activeMission: { ...h.profile.activeMission!, id: 'next-checkpoint' } })
+    expect(h.checkpoint.persist(h.snapshot, death())).toBe(true)
+    expect(h.checkpoint.persist(h.snapshot, death())).toBe(false)
+    h.checkpoint.reset()
+    expect(h.checkpoint.persist(h.snapshot, death())).toBe(true)
+    expect(h.checkpoint.persist(h.snapshot, death())).toBe(false)
+    expect(h.commit).toHaveBeenCalledTimes(4)
+  })
+
   it('lazily captures Commander Town death after combat and retries fresh state before returning to the periodic cadence', () => {
     const base = createCareerProfile('roman')
     base.rank = 'commander'; base.totalMerit = 20_000
@@ -151,7 +170,7 @@ describe('CareerMissionCheckpoint', () => {
     expect(commit).toHaveBeenCalledTimes(4)
   })
 
-  it('captures Four-gate death after an early save and keeps force, mission identity and reload independent of its acknowledgement', () => {
+  it('captures Four-gate death after an early save and forces a fresh exit snapshot without reviving the player', () => {
     let profile = createFourGateDefenseProfile('PREPARING')
     const state = structuredClone(profile.activeMission!.fourGateDefense!)
     const actorId = profile.activeMission!.friendlyActorIds[0]
@@ -160,7 +179,7 @@ describe('CareerMissionCheckpoint', () => {
     const player = { hp: 85, dead: false, staminaValue: 70, position: { x: 12, y: 10, z: 18 },
       facingYaw: .5, arrowCount: 7, shield: { shieldImpactRemaining: 2 }, currentMount: null }
     const commit = vi.fn((next: CareerProfile) => { profile = next; return true })
-    let checkpoint = new CareerMissionCheckpoint(() => profile, commit)
+    const checkpoint = new CareerMissionCheckpoint(() => profile, commit)
     const controller = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as
       Pick<CommanderFourGateDefenseController, 'updateFlow' | 'persistRuntimeProgress' | 'snapshotActiveMission'>, {
       readProfile: () => profile, player: () => player, state, startedMissionId: profile.activeMission!.id, friendlyReady: true,
@@ -193,31 +212,12 @@ describe('CareerMissionCheckpoint', () => {
     expect(commit).toHaveBeenCalledTimes(3)
     expect(profile.activeMission!.fourGateDefense!.actors[actorId].hp).toBe(26)
     expect(profile.activeMission!.mountState).toEqual({ hp: { horse: 12 }, unavailable: [] })
+    // The controller must still let the checkpoint owner deduplicate ordinary dead-player updates.
     controller.persistRuntimeProgress()
     controller.updateFlow(1, 0)
     controller.persistRuntimeProgress()
     expect(snapshot).toHaveBeenCalledTimes(3)
     expect(commit).toHaveBeenCalledTimes(3)
-    profile = { ...profile, activeMission: { ...profile.activeMission!, id: 'four-gate-next',
-      officialSquad: { ...profile.activeMission!.officialSquad!, missionId: 'four-gate-next' } } }
-    Object.assign(controller, { startedMissionId: 'four-gate-next' })
-    actor.hp = 18
-    controller.persistRuntimeProgress()
-    expect(commit).toHaveBeenCalledTimes(4)
-    expect(profile.activeMission!.fourGateDefense!.actors[actorId].hp).toBe(18)
-    checkpoint.reset()
-    actor.hp = 12
-    controller.persistRuntimeProgress()
-    expect(commit).toHaveBeenCalledTimes(5)
-    expect(profile.activeMission!.fourGateDefense!.actors[actorId].hp).toBe(12)
-    checkpoint = new CareerMissionCheckpoint(() => profile, commit)
-    Object.assign(controller, { checkpoint })
-    actor.hp = 7
-    controller.persistRuntimeProgress()
-    expect(commit).toHaveBeenCalledTimes(6)
-    expect(profile.activeMission!.fourGateDefense!.actors[actorId].hp).toBe(7)
-    controller.persistRuntimeProgress()
-    expect(commit).toHaveBeenCalledTimes(6)
   })
 
   it('acknowledges fresh native deployment with the actual HR service resident without cancelling the mission', () => {

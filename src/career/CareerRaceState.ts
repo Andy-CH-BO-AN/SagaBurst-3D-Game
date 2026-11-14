@@ -10,7 +10,6 @@ export type RaceId = 'race-1' | 'race-2' | 'race-3' | 'race-4' | 'race-5' | 'rac
 export type RaceScheduleVersion = 2 | 3
 export const RACE_SCHEDULE_VERSION = 3 as const
 export type RaceOutcome = 'win' | 'loss' | 'draw'
-export const RACE_PLAYER_CAN_SPRINT = true
 
 export const RACE_MOUNT_NAMES: Readonly<Record<RaceMountId, string>> = {
   horse: '戰馬',

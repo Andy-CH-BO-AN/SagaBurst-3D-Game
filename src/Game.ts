@@ -28,7 +28,7 @@ import { CorgiVisual } from './world/CorgiVisual'
 import { careerHeavyPreloadPlan } from './career/HeavyCavalrySpawn'
 import { COMMANDER_IRON_LEGION_ID } from './career/HeavyCavalryMissions'
 import { createHeavyFieldDeployment, getHeavyFieldMissionDefinition, isCareerHeavyFieldBattle, type HeavyFieldDeployment } from './career/HeavyFieldMission'
-import { createCareerFieldCheckpointSeed, createCareerFieldDeployment, FIELD_BANDIT_DETECTION_RANGE, FIELD_SWEEP_CHARGE_DISTANCE, findVeteranSquadsInRange, isCareerFieldNoCommandMission, isMigratedCareerFieldMission, isMigratedFieldDeploymentReady, resolveFieldActorCheckpoint, resolveFieldDamagedTargetId, resolveMigratedPlayerMountState, shouldTriggerSweepAlert, type CareerFieldDeployment } from './career/CareerFieldBattle'
+import { createCareerFieldCheckpointSeed, createCareerFieldDeployment, FIELD_BANDIT_DETECTION_RANGE, FIELD_SWEEP_CHARGE_DISTANCE, findVeteranSquadsInRange, isCareerFieldNoCommandMission, isMigratedCareerFieldMission, resolveFieldActorCheckpoint, resolveFieldDamagedTargetId, resolveMigratedPlayerMountState, shouldTriggerSweepAlert, type CareerFieldDeployment } from './career/CareerFieldBattle'
 import { createCampfireVisual } from './world/EnvironmentVisuals'
 import { createCaltropBarrier } from './world/CaltropBarrier'
 import { HEAVY_FIELD_SPECS, VETERAN_IRON_TIDE_ID, heavyCommandPlan, isHeavyFormationComplete, heavyFrontlineDistance, planVeteranCaltropDefense, veteranCaltropWorldRects, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, type HeavyPoint } from './career/HeavyCavalryMissions'
@@ -361,12 +361,6 @@ import {
   horseVariantForStableKey,
   horseVariantFromSave,
 } from './world/HorseAssetRegistry'
-
-export const MOUNTED_MELEE_HIT_TOLERANCE = 0.5
-
-export function resolveMeleeHitThreshold(baseRange: number, isMounted: boolean): number {
-  return isMounted ? baseRange + MOUNTED_MELEE_HIT_TOLERANCE : baseRange
-}
 
 export class Game {
   readonly combatEvents = new CombatEventStream()
@@ -2311,7 +2305,7 @@ export class Game {
   private _updateMigratedFieldBattle(dt: number, mission: ActiveCareerMission): void {
     const deployment = this.careerFieldDeployment
     const runtimeReady = this.fieldRosterBatch?.ready === true && (!this.personalSquad || this.personalSquad.ready)
-    if (!deployment || !runtimeReady || !isMigratedFieldDeploymentReady(mission, runtimeReady)) return
+    if (!deployment || !runtimeReady) return
     this.careerFieldCheckClock += dt
     if (this.careerFieldCheckClock < .25) return
     this.careerFieldCheckClock = 0

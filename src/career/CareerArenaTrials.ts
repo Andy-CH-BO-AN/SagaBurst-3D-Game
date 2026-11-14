@@ -242,14 +242,6 @@ export function careerArenaTrial(mission: Pick<ActiveCareerMission, 'kind' | 'ar
 
 export interface ArenaTrialCounts { friendlyActive: number; enemyActive: number; playerKnocked: boolean }
 
-/**
- * A knocked-out body is out of the fight and the count, never a casualty. The player falling does not end
- * the trial while any friendly NPC still stands; the trial is lost only when the whole friendly side is out.
- */
-export function resolveArenaTrialOutcome(counts: ArenaTrialCounts, combatElapsed: number): CareerMissionOutcome | null {
-  return resolveArenaTrialEnd(counts, combatElapsed)?.outcome ?? null
-}
-
 /** The outcome together with why a lost trial ended: the whole friendly side out, or the clock running out. */
 export function resolveArenaTrialEnd(counts: ArenaTrialCounts, combatElapsed: number): { outcome: CareerMissionOutcome; reason?: ArenaTrialEndReason } | null {
   if (counts.enemyActive <= 0) return { outcome: 'victory' }

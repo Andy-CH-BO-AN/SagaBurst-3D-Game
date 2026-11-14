@@ -3,13 +3,12 @@ export { commanderGateDefenseSlots } from './CommanderTownRoster'
 import { CAREER_RANKS, type CareerProfile } from './CareerProfile'
 import { careerItemTotal } from './CareerInventory'
 import { resolveCareerReliefMount } from './CareerOutpostMission'
-import { createCareerMissionId, createTownDefenseMission, type ActiveCareerMission } from './CareerMissionState'
+import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
 import { snapshotPersonalMission } from './CareerPersonalSquadMission'
 import { townDefenseForceCounts, type TownActorSpec } from '../town/TownRules'
 import type { TownGateId } from '../town/TownLayout'
 import { siegeDefensePlans, type SiegeDefensePlan } from './TownSiege'
 import { createMissionCommandAuthority, type OfficialCommandSquad } from './CareerCommandAuthority'
-import { townDefenseCommanderIds } from './TownDefenseRoster'
 
 export const CAPTAIN_PATROL_COMMAND_ID = 'captain-patrol-command'
 export const CAPTAIN_CAVALRY_COMMAND_ID = 'captain-cavalry-command'
@@ -73,26 +72,11 @@ export function captainGateDefenseActorIds(residents: readonly TownActorSpec[], 
   return (defensePlans.find(plan => plan.gateId === CAPTAIN_DEFENSE_GATE)?.infantry ?? [])
     .filter(id => residentIds.has(id) && !unavailableActorIds.has(id))
 }
-export function captainGateDefenseBriefing(residents: readonly TownActorSpec[], unavailableActorIds: ReadonlySet<string> = new Set()): string {
-  const count = captainGateDefenseActorIds(residents, unavailableActorIds).length
-  return `目標：指揮${CAPTAIN_DEFENSE_GATE_LABEL} ${count} 名步兵守住城門，擊退來襲敵軍；其他城門由守軍自行防守。`
-}
-
 export function commanderGateDefenseSquads(residents: readonly TownActorSpec[], friendlyActorIds: readonly string[], unavailableActorIds: ReadonlySet<string> = new Set()): OfficialCommandSquad[] {
   const residentIds = new Set(residents.map(actor => actor.id)), accepted = new Set(friendlyActorIds)
   return commanderGateDefenseSlots().map(squad => ({ ...squad,
     actorIds: squad.actorIds.filter(id => residentIds.has(id) && accepted.has(id) && !unavailableActorIds.has(id)),
   })).filter(squad => squad.actorIds.length > 0)
-}
-export function createCaptainGateDefenseMission(profile: CareerProfile, friendlyActorIds: string[], civilianActorIds: string[], residents: readonly TownActorSpec[], id = createCareerMissionId(CAPTAIN_GATE_DEFENSE_ID), unavailableActorIds: ReadonlySet<string> = new Set()): ActiveCareerMission {
-  const commanders = townDefenseCommanderIds(profile, residents, unavailableActorIds)
-  const defenders = commanders.length ? [...new Set([...friendlyActorIds, ...commanders])] : friendlyActorIds
-  const mission = createTownDefenseMission(defenders, civilianActorIds, id, CAPTAIN_GATE_DEFENSE_ID, profile.rank)
-  const actorIds = captainGateDefenseActorIds(residents, unavailableActorIds).filter(actorId => friendlyActorIds.includes(actorId))
-  mission.officialSquad = createMissionCommandAuthority(id, profile.faction, profile.rank, actorIds,
-    profile.rank === 'commander' ? commanderGateDefenseSquads(residents, defenders, unavailableActorIds) : [])
-  mission.personalSquad = snapshotPersonalMission(profile)
-  return mission
 }
 export function createCaptainPatrolCommandMission(profile: CareerProfile, patrolActorIds: readonly string[], id = createCareerMissionId(CAPTAIN_PATROL_COMMAND_ID)): ActiveCareerMission {
   const actorIds = [...new Set(patrolActorIds)].slice(0, 20)

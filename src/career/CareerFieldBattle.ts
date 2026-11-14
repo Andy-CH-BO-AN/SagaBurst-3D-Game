@@ -493,13 +493,6 @@ export function careerFieldInitialTacticalOrder(
   return faction === Faction.PLAYER ? 'attack' : 'defend'
 }
 
-export function isCareerFieldTargetSpec(
-  mission: Pick<ActiveCareerMission, 'targetActorIds'>,
-  actorId: string | undefined,
-): boolean {
-  return Boolean(actorId && mission.targetActorIds.includes(actorId))
-}
-
 /**
  * One actor record for riders and orphaned mounts alike. Migrated open-field battles own their
  * spatial state in `felineBattle.actors` (seeded from the field spawn); Town-space
@@ -512,13 +505,6 @@ export function resolveFieldActorCheckpoint(
 ): CaptainEagleCheckpoint['actors'][string] | undefined {
   const official = isMigratedCareerFieldMission(mission) ? undefined : mission.officialSquad?.members?.[actorId]
   return official?.status !== 'reserve' ? official ?? field : field ?? official
-}
-
-export function isMigratedFieldDeploymentReady(
-  mission: Pick<ActiveCareerMission, 'felineBattle' | 'commanderMission'>,
-  runtimeReady = false,
-): boolean {
-  return runtimeReady || mission.felineBattle?.ready === true || mission.commanderMission?.deploymentComplete === true
 }
 
 export function resolveMigratedPlayerMountState(

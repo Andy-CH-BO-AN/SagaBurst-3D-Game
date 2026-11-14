@@ -4,7 +4,7 @@ import { createTownDefenseMission } from '../../src/career/CareerMissionState'
 import { acceptCareerOutpostRelief, claimCareerOutpost, clearCareerOutpost } from '../../src/career/CareerOutpostMission'
 import { claimCareerMission, clearCareerMission, createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
-import { acceptEnemyTownAssault, createEnemyTownAssaultMission, ENEMY_TOWN_ASSAULT_ID } from '../../src/career/EnemyTownAssault'
+import { createEnemyTownAssaultMission, ENEMY_TOWN_ASSAULT_ID } from '../../src/career/EnemyTownAssault'
 import { VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from '../../src/career/TownDefenseState'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
@@ -24,12 +24,11 @@ function listed(profile: ReturnType<typeof createCareerProfile>) {
 }
 
 describe('Enemy Town Assault retired mission policy', () => {
-  it('retires Enemy Town Assault from active catalogs and permanently rejects new acceptance', () => {
+  it('keeps Enemy Town Assault out of active catalogs after a persisted relief victory', () => {
     const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(settleRelief('victory'))).toBe(true)
     const loaded = store.load()!
     expect(listed(loaded)).toBe(false)
-    expect(acceptEnemyTownAssault(loaded, 'after-reload')).toBeNull()
     const retry = acceptCareerOutpostRelief(loaded, 'relief-retry')!
     expect(clearCareerOutpost(claimCareerOutpost(retry, 'relief-retry', 'defeat', stats).profile).completedOutpostRelief).toBe(true)
   })

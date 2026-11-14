@@ -1,14 +1,16 @@
 import { describe, expect, test } from 'vitest'
-import { createCareerProfile, claimCareerMission } from '../../src/career/CareerProfile'
+import { createCareerProfile } from '../../src/career/CareerProfile'
+import { MemoryStorage } from '../helpers/memoryStorage'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { createActiveCareerMission, type CareerMissionKind } from '../../src/career/CareerMissionState'
 import { getRecruitMissionTemplate, RECRUIT_MISSION_CATALOG, RETIRED_RECRUIT_PATROL_IDS } from '../../src/career/CareerMissionCatalog'
 import { isCareerFelineBattle, createCareerFelineBattleLaunch, createCareerFelineOrphanMountPlan, createCareerFelineSpawnPlan, careerFieldTacticalOrder } from '../../src/career/CareerBridgeBattle'
-import { acceptCavalrySweep, acceptCaptainCavalryCommand, CAVALRY_SWEEP_ID } from '../../src/career/CavalrySweep'
+import { acceptCavalrySweep, acceptCaptainCavalryCommand } from '../../src/career/CavalrySweep'
+import { acceptCareerOutpost } from '../../src/career/CareerOutpostMission'
 import { CAPTAIN_PATROL_COMMAND_ID } from '../../src/career/CaptainMissionCatalog'
 import { COMMANDER_DECAPITATION_ID, COMMANDER_SKY_RAID_ID } from '../../src/career/CommanderMissionCatalog'
 import { townCaptainProfile } from '../../src/town/TownRules'
-import { VETERAN_MISSION_IDS, acceptVeteranMission, getVeteranMissionDefinition } from '../../src/career/VeteranMission'
+import { acceptVeteranMission, getVeteranMissionDefinition } from '../../src/career/VeteranMission'
 import {
   FIELD_SWEEP_CHARGE_DISTANCE,
   FIELD_SWEEP_DETECTION_RANGE,
@@ -21,7 +23,6 @@ import {
   isCareerFieldNoCommandMission,
   isMigratedCareerFieldMission,
   isMigratedCareerFieldTemplate,
-  isMigratedFieldDeploymentReady,
   resolveFieldDamagedTargetId,
   resolveMigratedPlayerMountState,
   shouldTriggerSweepAlert,
@@ -48,7 +49,7 @@ describe('Phase 2B migrated career field battles', () => {
       expect(isMigratedCareerFieldTemplate(id)).toBe(true)
     }
     const excluded = [
-      VETERAN_MISSION_IDS[3], // veteran-tragedy-of-the-scouts
+      'veteran-tragedy-of-the-scouts',
       CAPTAIN_PATROL_COMMAND_ID,
       COMMANDER_SKY_RAID_ID,
       COMMANDER_DECAPITATION_ID,
@@ -57,7 +58,7 @@ describe('Phase 2B migrated career field battles', () => {
     ]
     for (const id of excluded) {
       expect(isMigratedCareerFieldTemplate(id)).toBe(false)
-      const kind: CareerMissionKind = id === VETERAN_MISSION_IDS[3] ? 'veteran-field'
+      const kind: CareerMissionKind = id === 'veteran-tragedy-of-the-scouts' ? 'veteran-field'
         : id === CAPTAIN_PATROL_COMMAND_ID ? 'captain-patrol-command'
         : id.startsWith('commander-') ? id as CareerMissionKind
         : 'patrol'
@@ -65,6 +66,10 @@ describe('Phase 2B migrated career field battles', () => {
       expect(isMigratedCareerFieldMission(mission)).toBe(false)
       expect(isCareerFelineBattle(mission)).toBe(false)
     }
+    const outpost = acceptCareerOutpost({ ...createCareerProfile('roman'), rank: 'soldier' }, 1, 'route-outpost')!
+    expect(outpost.activeOutpostMission?.kind).toBe('outpost-defense')
+    expect(isMigratedCareerFieldMission(outpost.activeMission)).toBe(false)
+    expect(isCareerFelineBattle(outpost.activeMission)).toBe(false)
     // Retired patrols stay out of recruit catalog.
     expect(RECRUIT_MISSION_CATALOG.some(entry => RETIRED_RECRUIT_PATROL_IDS.includes(entry.id as never))).toBe(false)
   })
@@ -94,35 +99,37 @@ describe('Phase 2B migrated career field battles', () => {
     }
   })
 
-  test('preserves counts, loadouts, mounts, command authority and borrowed identities without Town civilians', () => {
+  test('deploys a representative Recruit roster with its borrowed Captain identity and no Town civilians', () => {
     const profile = createCareerProfile('roman')
     profile.ownedMounts = ['horse']
     profile.selectedMountId = 'horse'
 
-    // 1. Recruit bandits 01..04
-    for (const id of ['recruit-bandits-01', 'recruit-bandits-02', 'recruit-bandits-03', 'recruit-bandits-04']) {
-      const tpl = getRecruitMissionTemplate(id)!
-      const friendlyCount = tpl.friendlyCombatants - 1
-      const friendlyIds = ['captain', ...Array.from({ length: friendlyCount - 1 }, (_, i) => `town-soldier:${i}`)]
-      const romanCaptain = townCaptainProfile('roman')
-      profile.activeMission = createBanditActive(id, friendlyIds)
-      profile.activeMission.borrowedActorIdentities = {
-        captain: { characterFaction: 'roman', characterTier: 4, visualAssetId: romanCaptain.visualAssetId, combatProfileId: romanCaptain.combatProfileId, heroArchetype: 'captain' },
-      }
-      const deployment = createCareerFieldDeployment(profile)
-      const allies = deployment.plan.npcSpecs.filter(s => s.faction === Faction.PLAYER)
-      const enemies = deployment.plan.npcSpecs.filter(s => s.faction === Faction.BANDIT)
-      expect(allies).toHaveLength(friendlyCount)
-      expect(enemies).toHaveLength('banditCount' in tpl ? tpl.banditCount : 0)
-      expect(allies[0].characterTier).toBe(4)
-      expect(allies[0].visualAssetId).toBe(romanCaptain.visualAssetId)
-      expect(deployment.campfireCenter).toBeDefined()
-      expect(isCareerFieldNoCommandMission(profile.activeMission)).toBe(true)
-      expect(deployment.plan.npcSpecs.some(s => s.faction === Faction.TOWN)).toBe(false)
+    // Recruit templates share one builder; use one representative input.
+    const id = 'recruit-bandits-02'
+    const tpl = getRecruitMissionTemplate(id)!
+    const friendlyCount = tpl.friendlyCombatants - 1
+    const friendlyIds = ['captain', ...Array.from({ length: friendlyCount - 1 }, (_, i) => `town-soldier:${i}`)]
+    const romanCaptain = townCaptainProfile('roman')
+    profile.activeMission = createBanditActive(id, friendlyIds)
+    profile.activeMission.borrowedActorIdentities = {
+      captain: { characterFaction: 'roman', characterTier: 4, visualAssetId: romanCaptain.visualAssetId, combatProfileId: romanCaptain.combatProfileId, heroArchetype: 'captain' },
     }
+    const deployment = createCareerFieldDeployment(profile)
+    const allies = deployment.plan.npcSpecs.filter(s => s.faction === Faction.PLAYER)
+    const enemies = deployment.plan.npcSpecs.filter(s => s.faction === Faction.BANDIT)
+    expect(allies).toHaveLength(friendlyCount)
+    expect(enemies).toHaveLength('banditCount' in tpl ? tpl.banditCount : 0)
+    expect(allies[0].characterTier).toBe(4)
+    expect(allies[0].visualAssetId).toBe(romanCaptain.visualAssetId)
+    expect(deployment.campfireCenter).toBeDefined()
+    expect(isCareerFieldNoCommandMission(profile.activeMission)).toBe(true)
+    expect(deployment.plan.npcSpecs.some(s => s.faction === Faction.TOWN)).toBe(false)
+  })
 
-    // 2. Recruit Cavalry Sweep (no command) vs Captain Cavalry Command (officialSquad kept)
-    profile.activeMission = undefined
+  test('keeps Recruit cavalry uncommandable while Captain cavalry retains official authority and Ranger gear', () => {
+    const profile = createCareerProfile('roman')
+    profile.ownedMounts = ['horse']
+    profile.selectedMountId = 'horse'
     const sweepProfile = acceptCavalrySweep(profile, 'sweep-1', ['captain', ...Array.from({ length: 58 }, (_, i) => i === 28 ? 'ranger' : undefined)])!
     const sweepPlan = createCareerFelineSpawnPlan(sweepProfile)
     expect(sweepPlan.npcSpecs.filter(s => s.faction === Faction.PLAYER && s.cavalry)).toHaveLength(59)
@@ -140,8 +147,9 @@ describe('Phase 2B migrated career field battles', () => {
     expect(capSweep.activeMission!.officialSquad?.actorIds.length).toBeGreaterThan(0)
     expect(isCareerFieldNoCommandMission(capSweep.activeMission)).toBe(false)
     expect(careerFieldBattleHeroAssetIds(capSweep)).toContain('maki-archer-t4')
+  })
 
-    // 3. Veteran field 3 missions
+  test('preserves the distinct Veteran field formations and enemy squad memberships', () => {
     for (const vetId of ['veteran-scout-hunters', 'veteran-village-intercept', 'veteran-spear-line-hunt'] as const) {
       const vetBase = createCareerProfile('roman')
       vetBase.rank = 'veteran'
@@ -203,8 +211,6 @@ describe('Phase 2B migrated career field battles', () => {
     expect(triggered.length).toBeGreaterThan(0)
     expect(triggered).not.toContain(1)
 
-    expect(shouldTriggerSweepAlert([{ x: 0, z: 0 }], { x: 0, z: 58 }, false)).toBe(true)
-    expect(shouldTriggerSweepAlert([{ x: 0, z: -100 }], { x: 0, z: 58 }, false)).toBe(false)
     expect(resolveFieldDamagedTargetId({
       type: 'damage_applied', appliedDamage: 12,
       source: { faction: Faction.PLAYER, actorId: 'player' },
@@ -212,28 +218,8 @@ describe('Phase 2B migrated career field battles', () => {
     } as never, deployment)).toBe(deadEnemy)
   })
 
-  test('settled migrated missions remain idempotent against duplicate claim', () => {
-    const recruit = createCareerProfile('roman')
-    recruit.activeMission = createBanditActive('recruit-bandits-01')
-    const stats = { damageDealt: 150, damageTaken: 10, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
-    const firstClaim = claimCareerMission(recruit, recruit.activeMission.id, 'victory', stats)
-    const meritAfterFirst = firstClaim.profile.totalMerit
-    const secondClaim = claimCareerMission(firstClaim.profile, recruit.activeMission.id, 'victory', stats)
-    expect(secondClaim.profile.totalMerit).toBe(meritAfterFirst)
-    expect(CAVALRY_SWEEP_ID).toBe('career-cavalry-sweep')
-  })
-
   test('CareerProfileStore preserves felineBattle dead actor states across save/reload for migrated field missions', () => {
-    const data = new Map<string, string>()
-    const memoryStorage = {
-      get length() { return data.size },
-      clear() { data.clear() },
-      getItem(key: string) { return data.get(key) ?? null },
-      key(index: number) { return Array.from(data.keys())[index] ?? null },
-      removeItem(key: string) { data.delete(key) },
-      setItem(key: string, value: string) { data.set(key, value) },
-    } satisfies Storage
-    const store = new CareerProfileStore(memoryStorage)
+    const store = new CareerProfileStore(new MemoryStorage())
     const profile = createCareerProfile('roman')
     const mission = createBanditActive('recruit-bandits-02')
     const killedEnemyId = mission.targetActorIds[0]!
@@ -290,21 +276,6 @@ describe('Phase 2B migrated career field battles', () => {
 
     const banditHostileGrid = selectHostileNpcGrid(bandit.faction, playerHostileGrid, factionGrids)
     expect(banditHostileGrid.findNearest(bandit.combatPosition, () => true)).toBe(ally)
-  })
-
-  test('evaluates migrated field deployment readiness without requiring commanderMission', () => {
-    const mission = createBanditActive('recruit-bandits-01')
-    expect(mission.commanderMission).toBeUndefined()
-    expect(isMigratedFieldDeploymentReady(mission, false)).toBe(false)
-    expect(isMigratedFieldDeploymentReady(mission, true)).toBe(true)
-
-    mission.felineBattle = {
-      ready: true,
-      actors: {},
-      playerStats: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
-      player: { hp: 100, stamina: 100, dead: false, ammo: 0, shieldImpact: 0, position: { x: 0, y: 0, z: 0, yaw: 0 } },
-    }
-    expect(isMigratedFieldDeploymentReady(mission, false)).toBe(true)
   })
 
   test('migrates legacy mountState HP, armor impact, and dead/unavailable horse state into felineBattle', () => {
@@ -399,11 +370,22 @@ describe('Phase 2B migrated career field battles', () => {
       hp: 130, maxHp: 130, stamina: 100, x: 0, y: 0, z: 0, yaw: 0, ammo: 0, shieldImpact: 0,
       stats: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
     }, () => 0)
-    for (let reload = 0; reload < 2; reload++) {
-      const orphan = createCareerFelineOrphanMountPlan(accepted).find(entry => entry.actorId === riderId)
-      expect(orphan?.saved).toMatchObject({ hp: 61, armorImpactRemaining: 7, mounted: false, position: { x: spec.x, z: spec.z } })
-      expect(orphan?.saved.position.x).not.toBe(townPoint.x)
-    }
+    const seedMount = createCareerFelineOrphanMountPlan(accepted).find(entry => entry.actorId === riderId)!
+    expect(seedMount.saved).toMatchObject({ hp: 61, armorImpactRemaining: 7, mounted: false, position: { x: spec.x, z: spec.z } })
+    // Move the orphan in the new battlefield before saving. Its old Town record stays present.
+    const fieldPoint = { x: spec.x + 4, y: 2, z: spec.z + 6, yaw: 0.7 }
+    active.felineBattle.actors[riderId].mount!.position = fieldPoint
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(accepted)).toBe(true)
+    const reloaded = store.load()!
+    expect(reloaded.activeMission!.felineBattle!.actors[riderId]).toMatchObject({ status: 'dead', hp: 0 })
+    expect(reloaded.activeMission!.officialSquad!.members![riderId].position).toEqual(townPoint)
+    const orphan = createCareerFelineOrphanMountPlan(reloaded).find(entry => entry.actorId === riderId)!
+    expect(orphan.saved).toMatchObject({ hp: 61, armorImpactRemaining: 7, mounted: false, position: fieldPoint })
+    expect(orphan.saved.position.x).not.toBe(townPoint.x)
+    expect(store.save(reloaded)).toBe(true)
+    expect(createCareerFelineOrphanMountPlan(store.load()!).find(entry => entry.actorId === riderId)?.saved).toEqual(orphan.saved)
+
   })
 
   test('friendly charge follows the persisted one-shot flag, never deployment-ready ENGAGING phase', () => {

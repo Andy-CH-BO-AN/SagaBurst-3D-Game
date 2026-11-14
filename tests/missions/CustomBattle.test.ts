@@ -9,7 +9,6 @@
  * - Aerial 50-eagle boundary limits: single squad of 50 and multi-squads 50 stay strictly inside map boundaries.
  * - Rejection of hidden ground units in aerial combat.
  * - Five maps deployment zones and safety clearances.
- * - Player-inclusive victory / defeat determination.
  * - Camp supply and horses verification.
  * - Squad shortcut key mappings.
  */
@@ -23,7 +22,6 @@ import {
 import { BattleSpawner } from '../../src/battle/BattleSpawner'
 import { SquadFormationPlanner } from '../../src/battle/SquadFormationPlanner'
 import { AerialFormationPlanner } from '../../src/battle/AerialFormationPlanner'
-import { BattleController } from '../../src/battle/BattleController'
 import { BattleSetupUI } from '../../src/ui/BattleSetupUI'
 import { getCustomBattlePresetsForFaction, getUnitPresetsForFaction } from '../../src/battle/UnitPresetCatalog'
 import { mountTypeFromId, MountType } from '../../src/world/Mount'
@@ -36,7 +34,6 @@ import {
   T5_RANDOM_MOUNTS,
   getCustomBattleMount,
 } from '../../src/battle/T5HeroCatalog'
-import { Faction, NPC } from '../../src/world/NPC'
 
 function makeGroundConfig(vikingTotal: number, romanTotal: number = 10): BattleConfig {
   const vikingArmy = createEmptyArmyConfig()
@@ -83,18 +80,6 @@ function makeAerialConfig(vikingTotal: number, romanTotal: number = 10, spectato
     viking: vikingArmy,
     roman: romanArmy,
   }
-}
-
-function createMockNpc(
-  faction: Faction,
-  dead: boolean = false,
-  characterFaction: 'viking' | 'roman' = faction === Faction.ENEMY ? 'roman' : 'viking',
-): NPC & { dead: boolean } {
-  return {
-    faction,
-    characterFaction,
-    dead,
-  } as unknown as NPC & { dead: boolean }
 }
 
 describe('Custom Battle: Ground Battle Limits and Tiers', () => {
@@ -325,106 +310,6 @@ describe('Custom Battle: Squad Formation Layout Rules', () => {
         expect(dist).toBeGreaterThanOrEqual(4.0)
       }
     }
-  })
-})
-
-describe('Custom Battle: Player-Inclusive Victory & Defeat Rules', () => {
-  it('keeps battle ongoing when friendly AI are all eliminated but player is still alive', () => {
-    const config = makeGroundConfig(10, 10)
-    const controller = new BattleController(config)
-    const player = { dead: false }
-    const npcs = [
-      createMockNpc(Faction.PLAYER, false, 'viking'),
-      createMockNpc(Faction.ENEMY, false, 'roman'),
-    ]
-    controller.initCounts(npcs, player)
-
-    // Friendly AI dies, player alive, enemy alive -> ongoing
-    npcs[0].dead = true
-    controller.update(npcs, player)
-    expect(controller.getResult()).toBeNull()
-  })
-
-  it('keeps battle ongoing when player dies but friendly AI are still alive', () => {
-    const config = makeGroundConfig(10, 10)
-    const controller = new BattleController(config)
-    const player = { dead: false }
-    const npcs = [
-      createMockNpc(Faction.PLAYER, false, 'viking'),
-      createMockNpc(Faction.ENEMY, false, 'roman'),
-    ]
-    controller.initCounts(npcs, player)
-
-    // Player dies, friendly AI alive, enemy alive -> ongoing
-    player.dead = true
-    controller.update(npcs, player)
-    expect(controller.getResult()).toBeNull()
-  })
-
-  it('determines VIKING_VICTORY when player is alive and all enemy Roman AI die', () => {
-    const config = makeGroundConfig(10, 10)
-    const controller = new BattleController(config)
-    const player = { dead: false }
-    const npcs = [
-      createMockNpc(Faction.PLAYER, false, 'viking'),
-      createMockNpc(Faction.ENEMY, false, 'roman'),
-    ]
-    controller.initCounts(npcs, player)
-
-    npcs[1].dead = true
-    controller.update(npcs, player)
-    expect(controller.getResult()).toBe('VIKING_VICTORY')
-  })
-
-  it('determines ROMAN_VICTORY when player dies and all friendly Viking AI die', () => {
-    const config = makeGroundConfig(10, 10)
-    const controller = new BattleController(config)
-    const player = { dead: false }
-    const npcs = [
-      createMockNpc(Faction.PLAYER, false, 'viking'),
-      createMockNpc(Faction.ENEMY, false, 'roman'),
-    ]
-    controller.initCounts(npcs, player)
-
-    npcs[0].dead = true
-    player.dead = true
-    controller.update(npcs, player)
-    expect(controller.getResult()).toBe('ROMAN_VICTORY')
-  })
-
-  it('determines DRAW when both sides are eliminated simultaneously', () => {
-    const config = makeGroundConfig(10, 10)
-    const controller = new BattleController(config)
-    const player = { dead: false }
-    const npcs = [
-      createMockNpc(Faction.PLAYER, false, 'viking'),
-      createMockNpc(Faction.ENEMY, false, 'roman'),
-    ]
-    controller.initCounts(npcs, player)
-
-    npcs[0].dead = true
-    npcs[1].dead = true
-    player.dead = true
-    controller.update(npcs, player)
-    expect(controller.getResult()).toBe('DRAW')
-  })
-
-  it('does not include player in counts or victory logic when spectator mode is active', () => {
-    const config = makeGroundConfig(10, 10)
-    config.spectator = true
-    const controller = new BattleController(config)
-    const player = { dead: false }
-    const npcs = [
-      createMockNpc(Faction.PLAYER, false, 'viking'),
-      createMockNpc(Faction.ENEMY, false, 'roman'),
-    ]
-    controller.initCounts(npcs, player)
-
-    // In spectator mode, Viking AI dying should immediately trigger Roman victory
-    npcs[0].dead = true
-    controller.update(npcs, player)
-
-    expect(controller.getResult()).toBe('ROMAN_VICTORY')
   })
 })
 

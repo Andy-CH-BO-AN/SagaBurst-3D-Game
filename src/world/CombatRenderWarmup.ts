@@ -14,14 +14,6 @@ export class CombatRenderWarmup {
   }
 
   /**
-   * Test-only seam to reset warmup status across isolated test suites.
-   */
-  static _resetForTesting(): void {
-    this.warmed = false
-    this.warmedRenderers = new WeakSet<THREE.WebGLRenderer>()
-  }
-
-  /**
    * Performs an offscreen GPU warmup pass using a dedicated 16x16 WebGLRenderTarget.
    * Compiles all shaders and forces GPU texture/geometry uploads for:
    * - Humanoid Viking & Roman LOD0, LOD1, LOD2

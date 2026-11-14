@@ -1,3 +1,9 @@
+import { TownScene } from '../../src/town/TownScene'
+import { commanderGateDefenseSlots } from '../../src/career/CommanderTownRoster'
+import { createMissionCommandAuthority } from '../../src/career/CareerCommandAuthority'
+import { createActiveCareerMission } from '../../src/career/CareerMissionState'
+import type { CareerProfile } from '../../src/career/CareerProfile'
+import type { ArmyCommandTarget } from '../../src/battle/CommandTarget'
 import { Vector3 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
@@ -10,7 +16,47 @@ import { Faction } from '../../src/world/NPC'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { createArmyCommandHarness as controllerHarness, type CommandRecipientFixture } from '../helpers/armyCommandHarness'
 
+/** Only command ports are installed; no TownScene/actor constructor runs. */
+function nativeDismissFixture() {
+  const profile = createCareerProfile('roman')
+  profile.rank = 'commander'
+  const squads = commanderGateDefenseSlots()
+  const mission = { ...createActiveCareerMission('legacy-defense', 0, 0, 0, 'ground-defense'), kind: 'town-defense' as const }
+  mission.phase = 'ENGAGING'
+  mission.officialSquad = createMissionCommandAuthority(mission.id, 'roman', 'commander', [], squads)
+  mission.officialSquad.commandedSquadIds = [8]
+  profile.activeMission = mission
+  const actor = { combatantId: squads.find(squad => squad.squadId === 8)!.actorIds[0], dead: false,
+    squadId: 8, faction: Faction.TOWN, combatOwnership: 'mission-official' }
+  const returned = vi.fn(), commit = vi.fn((next: CareerProfile) => { scene.profile = next; return true })
+  const scene = Object.assign(Object.create(TownScene.prototype) as {
+    profile: CareerProfile
+    issuePartyOrder(order: 'dismiss', target: ArmyCommandTarget): boolean
+  }, { profile, commandActors: [] as typeof actor[], residents: [], world: { faction: 'roman' },
+    commit, snapshotOfficialActor: () => ({ status: 'deployed', hp: 60 }),
+    defense: { returnPlayerCommand: returned }, playMissionVoice: vi.fn(),
+  })
+  return { scene, actor, returned, commit, activate: () => Object.assign(scene, { commandActors: [actor] }) }
+}
+
 describe('Personal Squad command lifecycle routing', () => {
+
+  it('does not let an empty legacy air-slot Dismiss revoke the current west ground squad', () => {
+    const h = nativeDismissFixture()
+    expect(h.scene.issuePartyOrder('dismiss', 'squad:8')).toBe(false)
+    expect(h.scene.profile.activeMission!.officialSquad!.commandedSquadIds).toEqual([8])
+    expect(h.commit).not.toHaveBeenCalled()
+    expect(h.returned).not.toHaveBeenCalled()
+  })
+
+  it('hands a live west ground squad Dismiss back to its defense owner after the command save', () => {
+    const h = nativeDismissFixture(); h.activate()
+    expect(h.scene.issuePartyOrder('dismiss', 'squad:8')).toBe(true)
+    expect(h.scene.profile.activeMission!.officialSquad!.commandedSquadIds).toEqual([])
+    expect(h.commit).toHaveBeenCalledOnce()
+    expect(h.returned).toHaveBeenCalledExactlyOnceWith(h.actor)
+    expect(h.commit.mock.invocationCallOrder[0]).toBeLessThan(h.returned.mock.invocationCallOrder[0])
+  })
 
   it('keeps personal ALL identity and preserves its command when Dismiss through either selection is rejected', () => {
     const personal = { faction: Faction.PLAYER, presetId: 'roman_sword_cavalry', squadId: 'personal', dead: false,

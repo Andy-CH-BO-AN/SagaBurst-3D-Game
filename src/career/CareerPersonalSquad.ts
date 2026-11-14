@@ -1,10 +1,6 @@
-import { isCareerShopItemUseUnlocked } from './CareerShopCatalog'
-import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
-import { addCareerItem, normalizeCareerInventory, availableCareerItem, validPersonalEquipment, type PersonalEquipment, type PersonalEquipmentSlot } from './CareerInventory'
+import { addCareerItem, normalizeCareerInventory, type PersonalEquipment } from './CareerInventory'
 import { defaultPersonalRecruitmentChoice, inferLegacyPersonalRecruitmentRole, resolvePersonalRecruitment, type PersonalHeroVariantAssetId, type PersonalRecruitmentChoice, type PersonalRecruitmentRole } from './CareerRecruitmentCatalog'
 import type { CharacterIdentity, CharacterTier, HeroArchetype } from '../combat/CharacterIdentity'
-import { WEAPONS } from '../rpg/WeaponDatabase'
-import { ARMORS } from '../rpg/ArmorDatabase'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 
 export const PERSONAL_SQUAD_LIMIT = 30
@@ -124,31 +120,6 @@ export type PersonalManagementFailure = 'rank-locked' | 'not-reserve' | 'missing
 export function personalMemberRefund(profile: CareerProfile, member: CareerPersonalSquadMember): number {
   const price = member.originalHirePrice ?? PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)!.price
   return Math.floor(price * (profile.rank === 'commander' ? .9 : profile.rank === 'captain' ? .8 : 0))
-}
-export function changePersonalEquipment(read: () => CareerProfile, authority: PersonalSquadAuthority, memberId: string,
-  slot: PersonalEquipmentSlot, id: string | null, save: (profile: CareerProfile) => boolean) {
-  const current = read()
-  const fail = (reason: PersonalManagementFailure) => ({ changed: false, profile: current, reason })
-  if (!canRecruitPersonalSquad(current)) return fail('rank-locked')
-  if (authority.state !== 'RESERVE' || current.activeMission || current.activeOutpostMission) return fail('not-reserve')
-  const existing = current.personalSquad?.members.find(member => member.id === memberId)
-  if (!existing) return fail('missing-member')
-  if (!['melee', 'ranged', 'shield', 'mount'].includes(slot)) return fail('invalid-item')
-  if (id !== null && (typeof id !== 'string' || !id)) return fail('invalid-item')
-  const item = id ? WEAPONS[id] ?? ARMORS[id] : undefined
-  if (id && (slot === 'mount' ? !(PLAYER_MOUNT_IDS as readonly string[]).includes(id) :
-    !item || item.type !== (slot === 'shield' ? 'shield' : slot))) return fail('invalid-item')
-  const next = cloneCareerProfile(current)
-  normalizeCareerInventory(next)
-  const member = next.personalSquad!.members.find(member => member.id === memberId)!
-  const equipment = member.equipment!
-  if (id !== equipment[slot] && id && availableCareerItem(next, id) < 1) return fail('no-available-item')
-  if (id && !isCareerShopItemUseUnlocked(current, id)) return fail('rank-locked')
-  Object.assign(equipment, { [slot]: id })
-  if (!equipment.melee && !equipment.ranged) return fail('last-weapon')
-  if (!validPersonalEquipment(member.type, equipment)) return fail('invalid-item')
-  try { if (!save(next)) return fail('save-failed') } catch { return fail('save-failed') }
-  return { changed: true, profile: next, reason: undefined }
 }
 export function sellPersonalSquadMember(read: () => CareerProfile, authority: PersonalSquadAuthority, memberId: string,
   save: (profile: CareerProfile) => boolean) {

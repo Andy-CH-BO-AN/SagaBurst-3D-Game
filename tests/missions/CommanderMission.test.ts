@@ -615,7 +615,7 @@ describe('Commander VI Six Feline Cavalry', () => {
   })
 
   it('derives the exact 200-vs-300 roster from production formation slots and keeps all six feline mounts commandable', () => {
-    const profile = accepted(COMMANDER_FELINE_CAVALRY_ID), mission = profile.activeMission!
+    const profile = accepted(COMMANDER_FELINE_CAVALRY_ID, 'roman', true), mission = profile.activeMission!
     profile.ownedMounts.push('serval')
     profile.selectedMountId = 'serval'
     const launch = createCareerFelineBattleLaunch(profile)
@@ -631,10 +631,11 @@ describe('Commander VI Six Feline Cavalry', () => {
 
     expect(friendly).toHaveLength(FELINE_FRIENDLY_TOTAL)
     expect(enemy).toHaveLength(FELINE_ENEMY_TOTAL)
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':melee:'))).toHaveLength(60)
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':t4:lancer:'))).toHaveLength(60)
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':horse_archer:'))).toHaveLength(60)
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':t5:lancer:'))).toHaveLength(20)
+    // Historical role IDs are save identities, independently of the current Ranger appearance.
+    expect(friendly.filter(spec => spec.actorId?.includes(':melee:'))).toHaveLength(60)
+    expect(friendly.filter(spec => spec.actorId?.includes(':t4:lancer:'))).toHaveLength(60)
+    expect(friendly.filter(spec => spec.actorId?.includes(':horse_archer:'))).toHaveLength(60)
+    expect(friendly.filter(spec => spec.actorId?.includes(':t5:lancer:'))).toHaveLength(20)
     expect(enemy.filter(spec => spec.characterTier === 4)).toHaveLength(210)
     expect(enemy.filter(spec => spec.characterTier === 5)).toHaveLength(90)
     for (const role of ['melee', 'lancer', 'horse_archer']) {
@@ -771,14 +772,11 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(felineInitialTacticalOrder(Faction.ENEMY, false)).toBe('attack')
     expect(felineInitialTacticalOrder(Faction.ENEMY, true)).toBe('charge')
 
-    const withPrivateRoster = accepted(COMMANDER_FELINE_CAVALRY_ID, 'roman', true)
-    expect(withPrivateRoster.personalSquad?.members).toHaveLength(1)
-    expect(withPrivateRoster.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
-    expect(withPrivateRoster.activeMission?.officialSquad?.actorIds).toHaveLength(FELINE_FRIENDLY_TOTAL)
+    // HR identity uses the same accepted profile and does not require another 500-row plan.
+    expect(profile.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
     const privateStore = new CareerProfileStore(new MemoryStorage())
-    expect(privateStore.save(withPrivateRoster)).toBe(true)
+    expect(privateStore.save(profile)).toBe(true)
     expect(privateStore.load()!.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
-    expect(createCareerFelineSpawnPlan(withPrivateRoster).npcSpecs).toHaveLength(FELINE_FRIENDLY_TOTAL + FELINE_ENEMY_TOTAL)
   })
 
   it('persists orphaned official White Cat and enemy vanguard Horse mounts and a borrowed player mount', () => {
@@ -902,16 +900,13 @@ describe('Commander VII Iron Legion', () => {
     const profile = accepted(COMMANDER_IRON_LEGION_ID, faction)
     const mission = profile.activeMission!
     const plan = createCareerFelineSpawnPlan(profile)
-    const enemy = plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY), friendly = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
+    const enemy = plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY)
     expect(mission.kind).toBe('commander-iron-legion')
     expect(enemy).toHaveLength(300)
     expect(enemy.every(spec => spec.presetId === `${enemyFaction}_heavy_cavalry` && spec.cavalry && spec.loadout?.mountId === 'snow-leopard')).toBe(true)
     expect(enemy.filter(spec => spec.characterTier === 4)).toHaveLength(210)
     expect(enemy.filter(spec => spec.characterTier === 5)).toHaveLength(90)
-    expect(friendly).toHaveLength(FELINE_FRIENDLY_TOTAL)
-    expect(friendly.every(spec => spec.characterTier === 4 && spec.heroArchetype === 'ranger'
-      && spec.visualAssetId === 'maki-archer-t4' && spec.loadout?.rangedWeaponId === 'bow_t5')).toBe(true)
-    expect(mission.officialSquad?.squads?.map(squad => squad.actorIds.length)).toEqual([...FELINE_FRIENDLY_SQUAD_SIZES])
+    // Friendly roster/authority is shared with VI and covered by its common formation contract.
     expect(plan.npcSpecs.find(spec => spec.actorId === mission.commanderMission?.felineVanguardActorId)?.characterTier).toBe(5)
 
     profile.activeMission!.commanderMission!.felineChargeTriggered = true
