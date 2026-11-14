@@ -214,7 +214,10 @@ export class CareerRaceController {
   }
 
   private enqueueDeployment(s: CareerRaceSession, initial: boolean, restoring: boolean): void {
-    this.batch = gameplayNpcSpawns.batch(() => { this.disposeRacer(); this.error = '賽手部署失敗；重新載入可重試同場賽事。' })
+    this.batch = gameplayNpcSpawns.batch(() => {
+      this.disposeRacer()
+      this.error = s.story ? '賽手部署失敗；可取消本次賽馬（不計勝負），或重新載入重試同場賽事。' : '賽手部署失敗；重新載入可重試同場賽事。'
+    })
     this.batch.enqueue(s.opponent.actorId, () => {
       const presetId: UnitPresetId = this.read().faction === 'roman' ? 'roman_sword_cavalry' : 'viking_sword_cavalry'
       const loadout = { ...UNIT_PRESETS[presetId].tierLoadouts[1], mountId: s.opponent.mountId }

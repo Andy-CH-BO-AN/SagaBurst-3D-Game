@@ -1,6 +1,7 @@
 import { raceReturnAction, raceReturnProfile } from '../../src/career/CareerRaceReturn'
 import { CareerRaceController } from '../../src/career/CareerRaceController'
-import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
+import { TOWN_COMMANDER_ID } from '../../src/town/TownCommanderIdentity'
+import { gameplayNpcSpawns, NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { deferTownResult, TownEvent } from '../../src/town/TownRules'
 import { describe, expect, it, vi } from 'vitest'
 import { Box3, Vector3 } from 'three'
@@ -616,6 +617,42 @@ describe('Commander invitation race', () => {
     expect(saved.raceRecords).toBeUndefined(); expect([saved.availableMerit, saved.totalMerit]).toEqual([75, 150])
     expect(saved.racePlayerState).toMatchObject({ hp: 73, position: { x: 2, y: 1, z: -3 } })
     expect(batch.cancel).toHaveBeenCalledOnce()
+  })
+
+  it('reloads a saved unstarted story race whose racer has no legal spot, fails its deployment and still cancels without a result', async () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    // Saved before the start, with the race horse sunk under the hall floor; no legal spot is reachable around it.
+    const sunk = pos(5.4, 0)
+    const s: CareerRaceSession = { ...session(), scheduleVersion: 3, story: EVENT, deployed: true, phase: 'guiding', gameSeconds: 12,
+      opponentHome: { position: { ...sunk, y: 1.4 }, hp: 100, mounted: false },
+      opponent: { ...rider(TOWN_COMMANDER_ID), position: { ...sunk, y: .06 }, mountPosition: { ...sunk, y: .06 } } }
+    let current = pending(profile())
+    current.activeRace = s
+    current.careerStory!.events[EVENT] = { status: 'active', sourceId: s.id }
+    current.totalMerit = 150; current.availableMerit = 75
+    expect(store.save(current)).toBe(true)
+    const commander = { dead: false, hostileToPlayer: false, combatPosition: new Vector3(5.4, 1.4, 0), group: { position: new Vector3(), rotation: { y: 0 } },
+      setTacticalOrder: vi.fn(), dismountFromMount: vi.fn(), mountVehicle: vi.fn() }
+    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
+    Object.assign(controller, {
+      residents: [{ npc: commander, spec: { id: TOWN_COMMANDER_ID, x: 5.4, z: 0 } }], obstacles: [], commanded: new Map(),
+      navigation: { areConnected: () => false }, returnGroundHeight: () => 1.4, read: () => current,
+      player: () => ({ currentMount: null, combatPosition: new Vector3(2, 1, -3), facingYaw: 0, hp: 73, maxHp: 100, dead: false, staminaValue: 60 }),
+      mounts: { activeMount: null, activeMountId: 'horse' },
+      commit: (next: CareerProfile) => { if (!store.save(next)) return false; current = next; return true } })
+    controller.restore()
+    gameplayNpcSpawns.tick(performance.now() + 1e9)
+    await expect(controller.waitForDeployment()).rejects.toThrow('no legal spawn')
+    expect(controller.ready).toBe(false)
+    expect(controller.error).toContain('可取消本次賽馬')
+    expect(controller.canCancelFailedStoryRace).toBe(true)
+    expect(store.load()!.activeRace?.gameSeconds).toBe(12)
+    expect(controller.cancelFailedStoryRace()).toBe(true)
+    const saved = store.load()!
+    expect(saved.activeRace).toBeUndefined(); expect(controller.session).toBeUndefined()
+    expect(saved.careerStory!.events[EVENT]).toEqual({ status: 'pending' })
+    expect(saved.raceRecords).toBeUndefined(); expect([saved.availableMerit, saved.totalMerit]).toEqual([75, 150])
+    expect(saved.racePlayerState).toMatchObject({ hp: 73, position: { x: 2, y: 1, z: -3 } })
   })
 
   it('does not pay before the result is saved, and pays once after a retry and a reload', () => {

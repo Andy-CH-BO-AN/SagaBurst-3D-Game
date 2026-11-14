@@ -336,6 +336,8 @@ export class TownScene {
   private pointerWasLocked = false
   private careerSaveFailures = 0
   private spawnErrorShown = false
+  /** A saved race whose racer could not be deployed while loading; the first frame offers its no-result cancel. */
+  private raceDeployFailedOnLoad = false
   private residentSpawnBatch?: NpcSpawnBatch
   private commanderReturnPending = false
   private get deploymentReady(): boolean {
@@ -690,7 +692,10 @@ export class TownScene {
     this.player.onPlayerDeath = () => this.enterMissionObserver()
     await this.restoreActiveCareerMission()
     this.race.restore()
-    await this.race.waitForDeployment()
+    // A technical race deployment failure never blocks entering Town: the saved race stays intact and
+    // the first frame offers its no-result cancel, the same one Esc offers after a live failure.
+    try { await this.race.waitForDeployment() }
+    catch (error) { console.error('Race deployment failed while loading Town', error); this.raceDeployFailedOnLoad = true }
     // Blocked: keep the saved race state and the one-shot flag untouched; the retry places everything legally.
     if (missionReturn?.status === 'blocked') this.deferSergeantReturn()
     else this.race.restorePlayer({ preservePlacement: Boolean(missionReturnPlan), dismount: missionReturnPlan?.dismount, mountPark: missionReturnPlan?.mountPark })
@@ -2338,6 +2343,13 @@ export class TownScene {
       if (!race.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
       this.closePanel()
     })
+  }
+  /** Loading could not deploy the saved race's opponent: stay in Town and offer the saved, no-result cancel. */
+  private showRaceDeployFailure(): void {
+    const race = this.race
+    if (!race?.session || race.ready) return
+    const panel = this.openPanel('賽手部署失敗', `${race.error || '賽手部署失敗。'}\n本場賽事尚未開跑，不記勝負、不發軍功。`)
+    if (race.canCancelFailedStoryRace) this.button(panel, '取消本次賽馬（不計勝負）', () => this.leaveRace(true, true))
   }
   private leaveRace(direct = true, cancelFailed = false): void {
     if (!this.checkpointRaceTownResult()) return
@@ -4162,6 +4174,7 @@ export class TownScene {
     }
     gameplayNpcSpawns.tick(time)
     if (this.disposed) return
+    if (this.raceDeployFailedOnLoad && !this.panel && !this.result) { this.raceDeployFailedOnLoad = false; this.showRaceDeployFailure() }
     if (this.deploymentFailed && !this.spawnErrorShown) {
       this.spawnErrorShown = true
       const panel = this.openPanel('部隊建立失敗', '本次部署已停止，存檔仍保留完整名冊。請重試空軍部署或重新載入以恢復任務。')
