@@ -144,13 +144,23 @@ export class TownLayeredNavigation {
   private clampGatehouseFollow(out: THREE.Vector3, leader: THREE.Vector3, spacing: number): boolean {
     const house = this.gatehouseAt(leader)
     if (!house) return false
-    // Trail back along leader → open span → rampart walk.
-    const exit = this.galleryThreshold(house, leader, GALLERY_EXIT), toExit = Math.hypot(exit.x - leader.x, exit.z - leader.z)
-    if (spacing <= toExit) { out.copy(leader).lerp(exit, toExit > 0 ? spacing / toExit : 0); out.y = house.floorY; return true }
-    const along = this.projection(exit).distance, side = gatehouseLocal(house.gate, leader).x < 0 ? -1 : 1
+    // Trail back along the route a leader actually took: tower room → gallery
+    // lane (through the room's gallery opening) → open span → rampart walk.
+    // Never cut straight across a tower wall.
+    const route = [leader.clone()]
+    const lane = this.galleryThreshold(house, leader, TOWN_GATEHOUSE.galleryCenter)
+    if (Math.abs(gatehouseLocal(house.gate, leader).x) > GATEHOUSE_PASSAGE + .2) route.push(lane)
+    route.push(this.galleryThreshold(house, leader, GALLERY_EXIT))
+    let remaining = spacing
+    for (let i = 1; i < route.length; i++) {
+      const a = route[i - 1], b = route[i], length = Math.hypot(b.x - a.x, b.z - a.z)
+      if (remaining <= length) { out.copy(a).lerp(b, length > 0 ? remaining / length : 0); out.y = house.floorY; return true }
+      remaining -= length
+    }
+    const exit = route[route.length - 1], along = this.projection(exit).distance, side = gatehouseLocal(house.gate, leader).x < 0 ? -1 : 1
     const outward = this.projection(gatehousePoint(house.gate, side * 20, GALLERY_EXIT, house.floorY)).distance
     const sign = Math.sign(((outward - along + this.layout.perimeter * 1.5) % this.layout.perimeter) - this.layout.perimeter / 2) || 1
-    out.copy(this.pointAt(along + sign * (spacing - toExit)))
+    out.copy(this.pointAt(along + sign * remaining))
     return true
   }
   clampFollow(out: THREE.Vector3, leader: THREE.Vector3, slot: number, mounted: boolean): void {

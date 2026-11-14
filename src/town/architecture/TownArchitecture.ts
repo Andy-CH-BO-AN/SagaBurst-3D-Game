@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { flameParts } from '../../arena/ArenaKit'
 import { getTerrainHeight, WALK_SURFACE_STEP_UP, type ObstacleData, type WalkRampSurface } from '../../world/Terrain'
 import { rampNavigationSides, slabGeometry, surfaceBox } from '../TownRamparts'
-import { GATEHOUSE_SHELL, GATEHOUSE_SIDES, GATEHOUSE_STATUE, GATEHOUSE_TOWN_WINDOWS, TOWN_GATEHOUSE, VIKING_PORTAL_HEAD, gatehouseStatueSite, townGatehouseObstacle, townGatehouseParts, type GatehousePart, type TownGatehouse, type TownGatehouseSide } from '../TownGatehouse'
+import { GATEHOUSE_SHELL, GATEHOUSE_SIDES, GATEHOUSE_STATUE, TOWN_GATEHOUSE, VIKING_PORTAL_HEAD, gatehouseStatueSite, townGatehouseObstacle, townGatehouseParts, type GatehousePart, type TownGatehouse, type TownGatehouseSide } from '../TownGatehouse'
 import type { CommandWatchtowerLayout } from '../TownCommandWatchtowerLayout'
 import { ArchitectureKit, PALETTE, Sketch, preloadArchitectureDecorations, tabletopDisplay, type BuildContext } from './ArchitectureKit'
 import { architectureLocalToWorld, architectureSpec, architectureRuinCorridors, expandedHrCenter, hrFloorNavigationEdges, DEEP, TOWN_PLAZA_MONUMENT, townPlazaLayout, type ArchitectureFaction, type BuildingSpec, type CivicBuildingKind, type LocalRect, type PlazaProp } from './ArchitectureSpecs'
@@ -604,20 +604,11 @@ function romanTower(ctx: GatehouseDressContext, side: TownGatehouseSide, base: r
   s.laurel(cx, floor + 2.05, S.front + .05, 0, .4)
   const [ex0, ex1] = span(S.inner - .15, S.outer + .15)
   s.span('stone', ex0, eave - .3, S.back - .15, ex1, eave, S.front + .15, PALETTE.marble)
-  // Town side: marble cornice over the walk storey, bronze eagle on the tall body.
-  const walkTop = floor + S.walkCeiling
+  // Town side: the tall body faces the open rampart walk; red band and bronze
+  // eagle above the walk headroom.
   const [tx0, tx1] = span(S.inner, S.outer)
-  s.span('stone', tx0, walkTop, S.townFace - .1, tx1, walkTop + S.terrace, S.townFace, PALETTE.marble)
-  s.span('stone', tx0, walkTop - .35, S.townFace - .06, tx1, walkTop - .1, S.townFace, PALETTE.redPlaster)
-  s.eagle(cx, walkTop + S.terrace + 1.25, S.back - .12, Math.PI, 1.05, PALETTE.bronze)
-  for (const [a, b] of GATEHOUSE_TOWN_WINDOWS.windows) {
-    const [wx0, wx1] = span(a, b)
-    s.span('stone', wx0 - .1, floor + .9, S.townFace - .1, wx1 + .1, floor + 1, S.townFace, PALETTE.marble)
-    s.span('stone', wx0 - .12, floor + 2.8, S.townFace - .1, wx1 + .12, floor + 3.0, S.townFace, PALETTE.marble)
-  }
-  // Under the walk: a marble band on the beam between the grounded corners.
-  const deckUnder = Math.min(lines.ring, floor) - G.slab - .45
-  s.span('stone', tx0, deckUnder - .35, S.townFace - .06, tx1, deckUnder - .1, S.townFace, PALETTE.marble)
+  s.span('stone', tx0, floor + G.headroom + .1, S.back - .06, tx1, floor + G.headroom + .35, S.back, PALETTE.redPlaster)
+  s.eagle(cx, floor + G.headroom + 1.6, S.back - .12, Math.PI, 1.05, PALETTE.bronze)
 }
 
 function dressVikingGatehouse(ctx: GatehouseDressContext): void {
@@ -687,7 +678,7 @@ function dressVikingGatehouse(ctx: GatehouseDressContext): void {
 function vikingTower(ctx: GatehouseDressContext, side: TownGatehouseSide, footing: number): void {
   const { s, house, floor } = ctx, G = TOWN_GATEHOUSE, S = GATEHOUSE_SHELL
   const span = (a: number, b: number): [number, number] => side < 0 ? [-b, -a] : [a, b]
-  const cx = side * (S.inner + S.outer) / 2, eave = floor + S.eave, walkTop = floor + S.walkCeiling
+  const cx = side * (S.inner + S.outer) / 2, eave = floor + S.eave
   const lines = gatehouseWallLines(house, side)
   // Plank battens on the projecting front and the outer side.
   for (let x = S.inner + .45; x < S.outer - .3; x += .9) {
@@ -723,19 +714,10 @@ function vikingTower(ctx: GatehouseDressContext, side: TownGatehouseSide, footin
     s.span('wood', wx0 - .1, floor + G.railHeight - .12, S.front, wx1 + .1, floor + G.railHeight, S.front + .1, PALETTE.darkTimber)
     s.span('wood', wx0 - .12, floor + S.windowHead, S.front, wx1 + .12, floor + S.windowHead + .2, S.front + .1, PALETTE.darkTimber)
   }
-  // Town side: carved lintel over the walk storey and the lynx on the tall body.
+  // Town side: carved board and lynx on the tall body above the open rampart walk.
   const [tx0, tx1] = span(S.inner, S.outer)
-  s.span('wood', tx0, walkTop - .3, S.townFace - .1, tx1, walkTop + S.terrace, S.townFace, PALETTE.carved)
-  s.lynxHead(cx, walkTop + S.terrace + .4, S.back - .3, Math.PI, .9)
-  for (const [a, b] of GATEHOUSE_TOWN_WINDOWS.windows) {
-    const [wx0, wx1] = span(a, b)
-    s.span('wood', wx0 - .1, floor + .88, S.townFace - .1, wx1 + .1, floor + 1, S.townFace, PALETTE.darkTimber)
-    s.span('wood', wx0 - .12, floor + 2.8, S.townFace - .1, wx1 + .12, floor + 3.0, S.townFace, PALETTE.darkTimber)
-  }
-  for (const x of [S.inner + .35, S.outer - .35]) {
-    const px = side * x
-    s.span('wood', px - .3, footing, S.townFace - .08, px + .3, walkTop + S.terrace, S.townFace + .62, PALETTE.darkTimber)
-  }
+  s.span('wood', tx0, floor + G.headroom + .05, S.back - .1, tx1, floor + G.headroom + .3, S.back, PALETTE.carved)
+  s.lynxHead(cx, floor + G.headroom + .45, S.back - .3, Math.PI, .9)
 }
 
 /** Adds faction detail to the existing gate leaves (they keep rotating with their hinges). */
