@@ -36,91 +36,136 @@ function ridgeTiles(r: Sketch, a: THREE.Vector3, b: THREE.Vector3): void { r.bea
 
 /* ─────────────── Town Center (Principia) ─────────────── */
 export function buildRomanTownCenter(ctx: BuildContext): void {
-  const s = ctx.body, r = ctx.roof, T = ROMAN_TOWN_CENTER, F = T.F, h = T.hall, top = F + h.top
-  const innerX = h.halfX - h.wall, innerBack = h.back + h.wall
-  // Shell: front wall with the open arched doorway, sides and rear.
-  s.wall('stone', 0, F, h.front, h.halfX * 2, h.top, h.wall, [{ x: 0, y: 0, w: T.door.half * 2, h: T.door.height, arch: T.door.half }], PALETTE.marble)
-  s.archRing('stone', 0, F + T.door.height - T.door.half, h.front + .02, T.door.half, T.door.half, .42, h.wall + .16, PALETTE.travertine)
-  s.box('stone', 0, F + T.door.height + .15, h.front + .4, .55, .7, .2, PALETTE.marble)
+  const s = ctx.body, r = ctx.roof, T = ROMAN_TOWN_CENTER, F = T.F, h = T.hall, top = F + h.eave
+  const innerX = h.halfX - h.wall, innerBack = h.back + h.wall, wallZ = h.front - h.wall / 2, innerFront = h.front - h.wall
+  const depth = h.front - h.back, cz = (h.back + h.front) / 2, ridgeY = F + T.roof.ridge
+  const lowGround = (x0: number, z0: number, x1: number, z1: number) => Math.min(0, ...[x0, x1].flatMap(x => [z0, z1].map(z => ctx.ground(x, z)))) - .4
+
+  // Nave shell: the front wall carries the central high arch; sides have a clerestory above the wings.
+  s.wall('stone', 0, F, wallZ, h.halfX * 2, h.eave, h.wall, [{ x: 0, y: 0, w: T.door.half * 2, h: T.door.height, arch: T.door.half }], PALETTE.travertine)
+  s.archRing('stone', 0, F + T.door.height - T.door.half, h.front + .02, T.door.half, T.door.half, .55, h.wall + .2, PALETTE.marble)
+  s.box('stone', 0, F + T.door.height + .3, h.front + .12, .7, .9, .3, PALETTE.marble)
   for (const side of [-1, 1]) {
-    s.wall('stone', side * (h.halfX - h.wall / 2), F, (h.back + h.front) / 2, h.front - h.back, h.top, h.wall, [], PALETTE.marble, Math.PI / 2)
-    // Pilasters framing the doorway on the front face.
-    s.box('stone', side * 3.3, F + h.top / 2, h.front + .42, .7, h.top, .18, PALETTE.travertine)
+    s.box('stone', side * (T.door.half + .45), F + (T.door.height - T.door.half) / 2, h.front + .1, .5, T.door.height - T.door.half, .2, PALETTE.marble)
+    s.laurel(side * 6.05, F + 10.1, h.front + .05, 0, .42)
+    s.box('stone', side * (h.halfX - .25), F + h.eave / 2, h.front + .1, .6, h.eave, .25, PALETTE.marble)
   }
-  s.wall('stone', 0, F, h.back + h.wall / 2, h.halfX * 2, h.top, h.wall, [], PALETTE.marble)
-  // Interior: red dado, carpet, columns, beams, rear eagle, banners, table, braziers, chandelier.
-  for (const side of [-1, 1]) s.span('stone', side * (innerX - .03), F, innerBack, side * innerX, F + 1.3, h.front - h.wall / 2, PALETTE.redPlaster)
-  s.span('stone', -innerX, F, innerBack, innerX, F + 1.3, innerBack + .03, PALETTE.redPlaster)
-  s.span('cloth', -1.15, F + .005, T.table.front + .1, 1.15, F + .025, h.front + h.wall / 2, PALETTE.red)
-  for (const side of [-1, 1]) s.span('metal', side * 1.15 - .06, F + .006, T.table.front + .1, side * 1.15 + .06, F + .03, h.front + h.wall / 2, PALETTE.gold)
-  for (const side of [-1, 1]) for (const z of T.interiorColumns.z) s.column(side * T.interiorColumns.x, F, z, h.top, T.interiorColumns.r)
-  for (let z = h.back + 1.5; z < h.front; z += 3) s.box('wood', 0, top - .25, z, innerX * 2, .35, .3, PALETTE.darkTimber)
-  s.eagle(0, F + 5.4, innerBack + .08, 0, 1.3)
-  for (const side of [-1, 1]) s.banner(side * 3.8, F + 6.6, innerBack + .05, 0, 1.4, 3.6)
-  s.table(0, F, (T.table.back + T.table.front) / 2, T.table.half * 2, T.table.front - T.table.back, 1.05)
-  s.span('cloth', -T.table.half, F + .5, T.table.front - .01, T.table.half, F + 1.05, T.table.front + .01, PALETTE.red)
-  s.laurel(0, F + .8, T.table.front + .03, 0, .25)
-  for (const side of [-1, 1]) { s.cylinder('stone', side * 6.3, F, -7.6, .3, .38, .9, PALETTE.marble); s.bowlFire(side * 6.3, F + .9, -7.6, .9) }
-  const ring = V(0, F + 5.4, -1.2)
-  s.add('metal', new THREE.TorusGeometry(1.3, .06, 6, 24).rotateX(Math.PI / 2).translate(ring.x, ring.y, ring.z), PALETTE.iron)
-  for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2; s.beam('metal', V(Math.cos(a) * 1.3, ring.y, ring.z + Math.sin(a) * 1.3), V(0, top - .4, ring.z), .03, .03, PALETTE.iron) }
-  for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; s.cylinder('cloth', Math.cos(a) * 1.3, ring.y, ring.z + Math.sin(a) * 1.3, .04, .04, .18, PALETTE.cream, 5); s.add('glow', new THREE.SphereGeometry(.06, 5, 4).translate(Math.cos(a) * 1.3, ring.y + .26, ring.z + Math.sin(a) * 1.3), PALETTE.glow, null) }
-  // Open door leaves rest against the inner front wall, clear of the passage.
-  for (const side of [-1, 1]) s.doorLeaf(side * T.door.half, F, h.front - h.wall / 2 - .1, T.door.half - .05, T.door.height - T.door.half * .5, side < 0 ? Math.PI : 0)
-  // Portico: columns, entablature, dentils, pediment.
-  for (const side of [-1, 1]) for (const x of T.portico.columnX) s.column(side * x, F, T.portico.columnZ, h.top, T.portico.columnR)
-  s.span('stone', -h.halfX - .3, top, T.portico.columnZ - .6, h.halfX + .3, top + .6, T.portico.columnZ + .6, PALETTE.marble)
-  s.span('stone', -h.halfX - .3, top + .1, h.front, h.halfX + .3, top + .6, T.portico.columnZ, PALETTE.marble)
-  s.span('stone', -T.roof.halfSpan, top + .6, T.roof.back, T.roof.halfSpan, top + .78, T.roof.front, PALETTE.marble)
-  dentils(s, -h.halfX, h.halfX, top + .48, T.portico.columnZ + .7)
-  s.span('stone', -h.halfX - .3, top + .22, T.portico.columnZ + .6, h.halfX + .3, top + .36, T.portico.columnZ + .62, PALETTE.redPlaster)
-  pedimentFront(s, 0, F + T.roof.eave, T.roof.front - .05, T.roof.halfSpan * 2, T.roof.rise)
-  s.gable('stone', 0, F + T.roof.eave, T.roof.back + .2, T.roof.halfSpan * 2, T.roof.rise, .4, PALETTE.marble)
-  for (const side of [-1, 1]) s.span('stone', side * h.halfX - .3, top, h.back, side * h.halfX + .3, F + T.roof.eave, h.front, PALETTE.marble)
-  // Main tile roof (damageable).
-  r.gableRoof('roof', { axis: 'z', halfSpan: T.roof.halfSpan, from: T.roof.back, to: T.roof.front, eave: F + T.roof.eave, ridge: F + T.roof.eave + T.roof.rise })
-  ridgeTiles(r, V(0, F + T.roof.eave + T.roof.rise + .18, T.roof.back), V(0, F + T.roof.eave + T.roof.rise + .18, T.roof.front))
-  r.add('metal', new THREE.ConeGeometry(.22, .7, 8).translate(0, F + T.roof.eave + T.roof.rise + .6, T.roof.front - .2), PALETTE.gold)
-  // Wings: red plaster blocks with marble base, pilasters, arched windows and hip roofs.
+  const clerestory = [-14.5, -9.5, -4.5, 0]
+  for (const side of [-1, 1]) {
+    const x = side * (h.halfX - h.wall / 2)
+    s.wall('stone', x, F, cz, depth, h.eave, h.wall, clerestory.map(z => ({ x: side * (cz - z), y: 7.9, w: 1.4, h: 2.6, arch: .7 })), PALETTE.travertine, Math.PI / 2)
+    for (const z of clerestory) for (const face of [h.halfX + .02, innerX - .02]) s.window(side * face, F + 9.2, z, side * Math.PI / 2 * (face > innerX ? 1 : -1), 1.4, 2.6, 'stone', true)
+    s.span('stone', side * (h.halfX + .25), top - .55, h.back - .25, side * (h.halfX - .1), top, h.front, PALETTE.marble)
+  }
+  s.wall('stone', 0, F, h.back + h.wall / 2, h.halfX * 2, h.eave, h.wall, [], PALETTE.travertine)
+  for (const x of [-6, -2, 2, 6]) s.box('stone', x, F + h.eave / 2, h.back - .12, .6, h.eave, .25, PALETTE.marble)
+  s.gable('stone', 0, top, h.back + .2, T.roof.halfSpan * 2, T.roof.ridge - T.roof.eave, .4, PALETTE.travertine)
+  s.span('stone', -T.roof.halfSpan, top - .1, h.back - .3, T.roof.halfSpan, top + .2, h.back + .2, PALETTE.marble)
+
+  // Interior: red dado and panels between pilasters, open trusses, runner, banners, council table and fires.
+  for (const side of [-1, 1]) {
+    s.span('stone', side * (innerX - .03), F, innerBack, side * innerX, F + 6.2, innerFront, PALETTE.redPlaster)
+    s.span('stone', side * (innerX - .05), F + 6.2, innerBack, side * innerX, F + 6.45, innerFront, PALETTE.marble)
+    for (const z of T.truss.z) s.box('stone', side * (innerX - .18), F + T.truss.bottom / 2, z, .36, T.truss.bottom, .7, PALETTE.marble)
+  }
+  s.span('stone', -innerX, F, innerBack, innerX, F + 1.4, innerBack + .03, PALETTE.redPlaster)
+  s.span('stone', -3.2, F + 1.4, innerBack, 3.2, F + 9.2, innerBack + .04, PALETTE.redPlaster)
+  s.eagle(0, F + 6.4, innerBack + .1, 0, 1.6)
+  s.laurel(0, F + 3.9, innerBack + .1, 0, .6)
+  for (const side of [-1, 1]) s.banner(side * 5, F + 9.4, innerBack + .05, 0, 1.8, 5)
+  for (const side of [-1, 1]) for (const z of [-14.5, -4.5]) s.banner(side * (innerX - .05), F + 7.4, z, -side * Math.PI / 2, 1.3, 3.8)
+  for (const z of T.truss.z) {
+    const tie = F + T.truss.bottom
+    s.span('wood', -innerX, tie, z - .2, innerX, tie + T.truss.depth, z + .2, PALETTE.darkTimber)
+    s.beam('wood', V(0, tie + T.truss.depth, z), V(0, ridgeY - .4, z), .3, .3, PALETTE.darkTimber)
+    for (const side of [-1, 1]) {
+      s.beam('wood', V(side * (innerX + .1), top - .1, z), V(0, ridgeY - .3, z), .3, .3, PALETTE.darkTimber)
+      s.beam('wood', V(0, tie + 1.4, z), V(side * 4.2, top + 2.3, z), .2, .2, PALETTE.timber)
+    }
+  }
+  for (const side of [-1, 1]) s.beam('wood', V(side * 4.6, ridgeY - (T.roof.ridge - T.roof.eave) * 4.6 / T.roof.halfSpan - .45, h.back), V(side * 4.6, ridgeY - (T.roof.ridge - T.roof.eave) * 4.6 / T.roof.halfSpan - .45, T.roof.front), .25, .25, PALETTE.timber)
+  s.span('cloth', -1.6, F + .005, T.table.front + .3, 1.6, F + .025, innerFront, PALETTE.red)
+  for (const side of [-1, 1]) s.span('metal', side * 1.6 - .07, F + .006, T.table.front + .3, side * 1.6 + .07, F + .03, innerFront, PALETTE.gold)
+  const tb = T.table, tableZ = (tb.back + tb.front) / 2
+  s.table(0, F, tableZ, tb.half * 2, tb.front - tb.back, tb.top)
+  s.span('cloth', -tb.half, F + .55, tb.front - .01, tb.half, F + tb.top, tb.front + .01, PALETTE.red)
+  s.laurel(0, F + .82, tb.front + .03, 0, .25)
+  for (const side of [-1, 1]) {
+    const b = T.braziers
+    s.cylinder('stone', side * b.x, F, b.z, .3, .38, 1.0, PALETTE.marble)
+    s.bowlFire(side * b.x, F + 1.0, b.z, .9)
+    // Chandeliers hang over the side bays from the tie beams, never over the walkway.
+    for (const z of [-7, 2]) {
+      const ring = V(side * 5.6, F + 7.6, z)
+      s.add('metal', new THREE.TorusGeometry(.9, .05, 6, 20).rotateX(Math.PI / 2).translate(ring.x, ring.y, ring.z), PALETTE.iron)
+      for (let i = 0; i < 3; i++) { const a = i * Math.PI * 2 / 3; s.beam('metal', V(ring.x + Math.cos(a) * .9, ring.y, z + Math.sin(a) * .9), V(ring.x, F + T.truss.bottom, z), .03, .03, PALETTE.iron) }
+      for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; s.add('glow', new THREE.SphereGeometry(.07, 5, 4).translate(ring.x + Math.cos(a) * .9, ring.y + .2, z + Math.sin(a) * .9), PALETTE.glow, null) }
+    }
+    for (const z of [-17, -12, -7, -2]) s.lantern(side * (innerX - .45), F + 4.4, z + 2.5)
+  }
+  // Open leaves rest flat against the inner front wall, outside the 6m opening.
+  for (const side of [-1, 1]) s.doorLeaf(side * T.door.half, F, innerFront - .1, T.door.half - .05, T.door.height - .9, side < 0 ? Math.PI : 0)
+
+  // Portico: four columns, entablature, soffit, dentils and the laurel pediment.
+  const p = T.portico
+  for (const side of [-1, 1]) for (const x of p.columnX) s.column(side * x, F, p.columnZ, p.columnTop, p.columnR)
+  for (const side of [-1, 1]) s.banner(side * (p.columnX[0] + p.columnX[1]) / 2, F + 9.2, h.front + .05, 0, 2.3, 6.0)
+  s.span('stone', -T.roof.halfSpan, F + p.columnTop, p.columnZ - .8, T.roof.halfSpan, F + p.entablature, p.front, PALETTE.marble)
+  s.span('stone', -T.roof.halfSpan, F + p.columnTop + .3, p.front - .02, T.roof.halfSpan, F + p.columnTop + .55, p.front + .02, PALETTE.redPlaster)
+  s.span('stone', -T.roof.halfSpan, top - .3, h.front, T.roof.halfSpan, top, p.columnZ - .8, PALETTE.marble)
+  dentils(s, -T.roof.halfSpan, T.roof.halfSpan, top - .1, p.front + .12)
+  pedimentFront(s, 0, top, T.roof.front - .05, T.roof.halfSpan * 2, T.roof.ridge - T.roof.eave, 0, false)
+  for (const side of [-1, 1]) s.laurel(side * 3.2, top + 1.0, T.roof.front + .1, 0, .38)
+  r.gableRoof('roof', { axis: 'z', halfSpan: T.roof.halfSpan, from: T.roof.back, to: T.roof.front, eave: top, ridge: ridgeY })
+  ridgeTiles(r, V(0, ridgeY + .18, T.roof.back), V(0, ridgeY + .18, T.roof.front))
+  r.add('metal', new THREE.ConeGeometry(.25, .8, 8).translate(0, ridgeY + .65, T.roof.front - .2), PALETTE.gold)
+
+  // Wings: lower red-panelled blocks with arched grille windows, both reading as one long front.
   const w = T.wing
   for (const side of [-1, 1]) {
-    const x0 = side * w.inner, x1 = side * w.outer, cx = side * (w.inner + w.outer) / 2
-    s.span('stone', x0, F, w.back, x1, F + w.top, w.front, PALETTE.redPlaster)
-    s.span('stone', x0, F - .05, w.back - .06, x1 + side * .08, F + .9, w.front + .08, PALETTE.marble)
-    s.span('stone', x0, F + w.top - .25, w.back - .12, x1 + side * .15, F + w.top + .1, w.front + .15, PALETTE.marble)
-    for (const x of [w.inner + .25, (w.inner + w.outer) / 2, w.outer - .2]) s.box('stone', side * x, F + w.top / 2, w.front + .06, .45, w.top, .14, PALETTE.marble)
-    for (const x of [w.inner + 1.1, w.outer - 1.05]) {
-      s.window(side * x, F + 2.9, w.front + .07, 0, .95, 1.9, 'stone', true)
-      s.archRing('stone', side * x, F + 3.38, w.front + .08, .52, .45, .14, .1, PALETTE.marble)
+    const x0 = side * w.inner, x1 = side * w.outer, lo = Math.min(x0, x1), hi = Math.max(x0, x1)
+    const gy = lowGround(lo, w.back, hi, w.front)
+    s.span('stone', lo - .1, gy, w.back - .1, hi + .1, F + .9, w.front + .1, PALETTE.ashlar)
+    s.span('stone', lo, F + .9, w.back, hi, F + w.top, w.front, PALETTE.travertine)
+    s.span('stone', lo, F + .9, w.front, hi, F + 2.6, w.front + .04, PALETTE.redPlaster)
+    s.span('stone', lo - .1, F + w.top - .35, w.back - .15, hi + .1, F + w.top, w.front + .2, PALETTE.marble)
+    const bays = [w.inner + 1.6, (w.inner + w.outer) / 2, w.outer - 1.6]
+    for (const x of [w.inner + .3, (bays[0] + bays[1]) / 2, (bays[1] + bays[2]) / 2, w.outer - .3]) s.box('stone', side * x, F + w.top / 2, w.front + .1, .5, w.top, .2, PALETTE.marble)
+    for (const x of bays) {
+      s.span('stone', side * x - .95, F + 2.7, w.front, side * x + .95, F + 6.4, w.front + .04, PALETTE.redPlaster)
+      s.window(side * x, F + 4.5, w.front + .07, 0, 1.2, 2.6, 'stone', true)
+      s.archRing('stone', side * x, F + 4.6, w.front + .08, .62, .6, .14, .1, PALETTE.marble)
     }
-    for (let z = w.back + 1.6; z < w.front - .8; z += 3.1) {
-      s.window(x1 + side * .07, F + 2.9, z, side * Math.PI / 2, .9, 1.8, 'stone', true)
-      s.box('stone', x1 + side * .05, F + w.top / 2, z + 1.55, .14, w.top, .4, PALETTE.marble)
+    for (const z of [w.back + 2.5, (w.back + w.front) / 2, w.front - 2.5]) {
+      s.window(x1 + side * .07, F + 4.5, z, side * Math.PI / 2, 1.1, 2.4, 'stone', true)
+      s.span('stone', x1 + side * .02, F + .9, z - 1, x1 + side * .06, F + 2.6, z + 1, PALETTE.redPlaster)
     }
-    s.banner(cx, F + w.top - .4, w.front + .2, 0, 1.1, 3.0)
-    r.hipRoof('roof', Math.min(x0, x1) - .25, Math.max(x0, x1) + .3, w.back - .3, w.front + .3, F + w.top + .1, 1.5)
+    r.hipRoof('roof', lo - .4, hi + .4, w.back - .4, w.front + .4, F + w.top, w.rise)
   }
-  // Tower above the east wing: loggia with arches, pyramid roof, gold finial and flag.
+  // Tower at the right rear: red body, marble quoins, arched loggia, pyramid roof and finial.
   const t = T.tower, tx = (t.minX + t.maxX) / 2, tz = (t.minZ + t.maxZ) / 2, tw = t.maxX - t.minX, td = t.maxZ - t.minZ
-  s.span('stone', t.minX, F + w.top, t.minZ, t.maxX, F + 8.4, t.maxZ, PALETTE.redPlaster)
-  for (const [qx, qz] of [[t.minX, t.minZ], [t.maxX, t.minZ], [t.minX, t.maxZ], [t.maxX, t.maxZ]]) s.box('stone', qx, F + (w.top + t.top) / 2, qz, .5, t.top - w.top, .5, PALETTE.marble)
-  s.span('stone', t.minX - .15, F + 8.4, t.minZ - .15, t.maxX + .15, F + 8.7, t.maxZ + .15, PALETTE.marble)
+  s.span('stone', t.minX, lowGround(t.minX, t.minZ, t.maxX, t.maxZ), t.minZ, t.maxX, F + t.top - 2.8, t.maxZ, PALETTE.redPlaster)
+  for (const [qx, qz] of [[t.minX, t.minZ], [t.maxX, t.minZ], [t.minX, t.maxZ], [t.maxX, t.maxZ]]) s.box('stone', qx, F + (t.top - 2.8) / 2, qz, .6, t.top - 2.8, .6, PALETTE.marble)
+  for (const y of [w.top + 2.4, t.top - 2.8]) s.span('stone', t.minX - .15, F + y - .3, t.minZ - .15, t.maxX + .15, F + y, t.maxZ + .15, PALETTE.marble)
   for (const [yaw, fx, fz, width] of [[0, tx, t.maxZ - .15, tw], [Math.PI, tx, t.minZ + .15, tw], [Math.PI / 2, t.maxX - .15, tz, td], [-Math.PI / 2, t.minX + .15, tz, td]] as const) {
-    s.wall('stone', fx, F + 8.7, fz, width, 2.5, .3, [{ x: -.8, y: .35, w: 1.0, h: 1.9, arch: .5 }, { x: .8, y: .35, w: 1.0, h: 1.9, arch: .5 }], PALETTE.marble, yaw)
+    s.wall('stone', fx, F + t.top - 2.8, fz, width, 2.8, .3, [{ x: -1.3, y: .35, w: 1.4, h: 2.1, arch: .7 }, { x: 1.3, y: .35, w: 1.4, h: 2.1, arch: .7 }], PALETTE.marble, yaw)
   }
-  s.span('stone', t.minX - .2, F + t.top - .1, t.minZ - .2, t.maxX + .2, F + t.top + .1, t.maxZ + .2, PALETTE.marble)
-  r.hipRoof('roof', t.minX - .35, t.maxX + .35, t.minZ - .35, t.maxZ + .35, F + t.top + .1, 1.8)
-  r.add('metal', new THREE.SphereGeometry(.2, 8, 6).translate(tx, F + t.top + 2.05, tz), PALETTE.gold)
-  // Steps' cheek blocks with bronze fire bowls, statue pedestals and statues.
+  s.window(tx, F + w.top + 4.4, t.maxZ + .05, 0, .9, 1.9, 'stone', true)
+  s.window(t.maxX + .05, F + w.top + 4.4, tz, Math.PI / 2, .9, 1.9, 'stone', true)
+  s.span('stone', t.minX - .25, F + t.top - .15, t.minZ - .25, t.maxX + .25, F + t.top + .1, t.maxZ + .25, PALETTE.marble)
+  r.hipRoof('roof', t.minX - .4, t.maxX + .4, t.minZ - .4, t.maxZ + .4, F + t.top + .1, t.rise)
+  r.add('metal', new THREE.SphereGeometry(.22, 8, 6).translate(tx, F + t.top + t.rise + .3, tz), PALETTE.gold)
+
+  // Ramp cheeks with bronze fire bowls; statues on pedestals flank the colonnade.
   for (const side of [-1, 1]) {
-    const cx = side * (T.steps.half + T.steps.cheek / 2)
-    s.span('stone', cx - T.steps.cheek / 2, Math.min(ctx.ground(cx, T.steps.front), 0) - .4, T.portico.front, cx + T.steps.cheek / 2, F + .5, T.steps.front, PALETTE.marble)
-    s.bowlFire(cx, F + .5, T.steps.front - .45, .8)
-    const st = T.statues, gy = Math.min(ctx.ground(side * st.x, st.z), 0) - .4
-    s.span('stone', side * st.x - st.pedestal / 2, gy, st.z - st.pedestal / 2, side * st.x + st.pedestal / 2, st.pedestalTop, st.z + st.pedestal / 2, PALETTE.marble)
-    s.span('stone', side * st.x - st.pedestal / 2 - .08, st.pedestalTop - .15, st.z - st.pedestal / 2 - .08, side * st.x + st.pedestal / 2 + .08, st.pedestalTop, st.z + st.pedestal / 2 + .08, PALETTE.marble)
-    s.laurel(side * st.x, (gy + st.pedestalTop) / 2 + .2, st.z + st.pedestal / 2 + .03, 0, .28)
-    ctx.statue(side * st.x, st.pedestalTop, st.z, 0, 2.6)
+    const cx = side * (T.ramp.half + T.ramp.cheek / 2), front = T.ramp.cheekFront
+    s.span('stone', cx - T.ramp.cheek / 2, Math.min(ctx.ground(cx, front), 0) - .4, p.front, cx + T.ramp.cheek / 2, F + .5, front, PALETTE.marble)
+    s.bowlFire(cx, F + .5, front - .4, .8)
+    const st = T.statues, gy = Math.min(ctx.ground(side * st.x, st.z), 0) - .4, half = st.pedestal / 2
+    s.span('stone', side * st.x - half, gy, st.z - half, side * st.x + half, F + st.pedestalTop, st.z + half, PALETTE.marble)
+    s.span('stone', side * st.x - half - .1, F + st.pedestalTop - .15, st.z - half - .1, side * st.x + half + .1, F + st.pedestalTop, st.z + half + .1, PALETTE.marble)
+    s.laurel(side * st.x, F + st.pedestalTop / 2, st.z + half + .03, 0, .3)
+    ctx.statue(side * st.x, F + st.pedestalTop, st.z, 0, st.height)
   }
 }
 

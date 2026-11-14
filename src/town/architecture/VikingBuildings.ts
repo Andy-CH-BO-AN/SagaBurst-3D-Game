@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { flameParts } from '../../arena/ArenaKit'
 import { PALETTE, tabletopDisplayRow, buildHrHallDetails, type BuildContext, type Sketch } from './ArchitectureKit'
-import { VIKING_HOMES, VIKING_HR_CENTER, VIKING_STABLE, VIKING_TOWN_CENTER, VIKING_WEAPONS } from './ArchitectureSpecs'
+import { VIKING_HOMES, VIKING_HR_CENTER, VIKING_STABLE, VIKING_TOWN_CENTER, VIKING_WEAPONS, vikingTownCenterRoofCut } from './ArchitectureSpecs'
 
 /* Viking vocabulary: stone footings, vertical plank and log walls, steep
  * thatch/turf/shingle roofs, crossed bargeboards ending in beast heads,
@@ -47,80 +47,114 @@ function runeDisc(s: Sketch, x: number, y: number, z: number, yaw: number, radiu
 /* ─────────────── Lord's longhouse ─────────────── */
 export function buildVikingTownCenter(ctx: BuildContext): void {
   const s = ctx.body, r = ctx.roof, T = VIKING_TOWN_CENTER, F = T.F, h = T.hall, p = T.porch, top = F + h.top
-  const cz = (h.back + h.front) / 2, half = (h.front - h.back) / 2
-  // Main hall walls (front wall split around the entrance hall).
-  plankWall(s, -h.halfX, h.back, h.halfX, h.back + h.wall, F, h.top)
-  for (const side of [-1, 1]) {
-    plankWall(s, side * h.halfX, h.back, side * (h.halfX - h.wall), h.front, F, h.top)
-    plankWall(s, side * p.halfX, h.front - h.wall, side * h.halfX, h.front, F, h.top)
-    battens(s, V(side * p.halfX, 0, h.front), V(side * h.halfX, 0, h.front), F, h.top, V(0, 0, 1))
-    battens(s, V(side * h.halfX, 0, h.back), V(side * h.halfX, 0, h.front), F, h.top, V(side, 0, 0))
-    // Leaning outer posts along the long walls.
-    for (let x = -h.halfX + 1.4; x < h.halfX; x += 2.8) if (Math.abs(x) > p.halfX + .6) s.carvedPost(x, F, h.front + .25, h.top + .2, .2)
-  }
+  const cut = vikingTownCenterRoofCut(), innerX = h.halfX - h.wall, innerBack = h.back + h.wall
+  const half = (h.front - h.back) / 2, pIn = p.halfX - h.wall, pBack = p.front - h.wall
+  // Thick timber shell; the long front wall runs unbroken on both sides of the porch.
+  plankWall(s, -h.halfX, h.back, h.halfX, innerBack, F, h.top)
   battens(s, V(-h.halfX, 0, h.back), V(h.halfX, 0, h.back), F, h.top, V(0, 0, -1))
-  for (const side of [-1, 1]) s.gable('wood', side * (h.halfX - h.wall / 2), top, cz, half * 2 + .3, T.roof.ridge - h.top, .3, PALETTE.weathered, Math.PI / 2)
-  // Steep thatch roof and carved end gables.
-  // Back slope whole; the front slope is cut over the entrance hall so its eave
-  // never drops into the doorway junction (the porch roof covers that span).
-  const span = half + T.roof.overhang, eaveY = top - .55, ridgeY = F + T.roof.ridge, x0 = -h.halfX - .7, x1 = h.halfX + .7, px = p.halfX + 1.2
-  const cutY = F + T.roof.frontCut, cutZ = cz + (ridgeY - cutY) / (ridgeY - eaveY) * span
-  r.shedRoof('roof', { axis: 'x', low: [cz - span, eaveY], high: [cz, ridgeY], from: x0, to: x1, thickness: THATCH })
-  for (const [from, to] of [[x0, -px], [px, x1]]) r.shedRoof('roof', { axis: 'x', low: [cz + span, eaveY], high: [cz, ridgeY], from, to, thickness: THATCH })
-  r.shedRoof('roof', { axis: 'x', low: [cutZ, cutY], high: [cz, ridgeY], from: -px, to: px, thickness: THATCH })
-  if (ctx.snow) r.snowOnGable({ axis: 'x', cz, halfSpan: span, from: x0, to: x1, eave: eaveY, ridge: ridgeY, coverage: .5, thickness: THATCH })
-  ridge(r, V(-h.halfX - .7, F + T.roof.ridge + .45, cz), V(h.halfX + .7, F + T.roof.ridge + .45, cz))
-  for (const side of [-1, 1]) r.crossedGable(side * (h.halfX + .75), F + T.roof.ridge + .45, cz, half + T.roof.overhang, T.roof.ridge - h.top + .55, side * Math.PI / 2, 1.25)
-  // Entrance hall: plank walls, door posts, carved gable, rune disc and shield.
+  const frontPosts: number[] = []
+  for (let x = p.halfX + .8; x <= h.halfX - .3; x += (h.halfX - p.halfX - 1.1) / 4) frontPosts.push(x)
   for (const side of [-1, 1]) {
-    plankWall(s, side * (p.halfX - h.wall), h.front, side * p.halfX, p.front, F, p.top)
+    plankWall(s, side * h.halfX, h.back, side * innerX, h.front, F, h.top)
+    battens(s, V(side * h.halfX, 0, h.back), V(side * h.halfX, 0, h.front), F, h.top, V(side, 0, 0))
+    plankWall(s, side * p.halfX, h.front - h.wall, side * h.halfX, h.front, F, h.top)
+    s.span('wood', side * p.halfX, top - .45, h.front, side * h.halfX, top - .1, h.front + .2, PALETTE.darkTimber)
+    s.span('wood', side * p.halfX, F + .35, h.front, side * h.halfX, F + .6, h.front + .2, PALETTE.darkTimber)
+    for (const x of frontPosts) s.carvedPost(side * x, F, h.front + .2, h.top - .1, .24)
+    for (let i = 1; i < frontPosts.length; i++) for (const k of [0, 1]) {
+      const a = frontPosts[i - 1] + .25, b = frontPosts[i] - .25
+      s.beam('wood', V(side * a, F + (k ? h.top - .7 : .8), h.front + .14), V(side * b, F + (k ? .8 : h.top - .7), h.front + .14), .2, .12, PALETTE.darkTimber)
+    }
+    s.gable('wood', side * (h.halfX - h.wall / 2), top, cut.cz, half * 2 + .3, T.roof.ridge - h.top, .3, PALETTE.weathered, Math.PI / 2)
+  }
+  // Long transverse thatch roof; its front slope is cut over the porch, whose gable roof runs back into it.
+  const x0 = -h.halfX - .7, x1 = h.halfX + .7, px = cut.px
+  r.shedRoof('roof', { axis: 'x', low: [cut.cz - cut.span, cut.eaveY], high: [cut.cz, cut.ridgeY], from: x0, to: x1, thickness: THATCH })
+  for (const [from, to] of [[x0, -px], [px, x1]]) r.shedRoof('roof', { axis: 'x', low: [cut.cz + cut.span, cut.eaveY], high: [cut.cz, cut.ridgeY], from, to, thickness: THATCH })
+  r.shedRoof('roof', { axis: 'x', low: [cut.cutZ, cut.cutY], high: [cut.cz, cut.ridgeY], from: -px, to: px, thickness: THATCH })
+  if (ctx.snow) r.snowOnGable({ axis: 'x', cz: cut.cz, halfSpan: cut.span, from: x0, to: x1, eave: cut.eaveY, ridge: cut.ridgeY, coverage: .32, thickness: THATCH })
+  ridge(r, V(x0, cut.ridgeY + .45, cut.cz), V(x1, cut.ridgeY + .45, cut.cz))
+  for (let x = x0 + 1.5; x < x1 - 1; x += 3) r.cylinder('wood', x, cut.ridgeY + .3, cut.cz, .07, .09, 1.3, PALETTE.darkTimber, 6)
+  for (const side of [-1, 1]) r.crossedGable(side * (h.halfX + .75), cut.ridgeY + .45, cut.cz, cut.span, cut.ridgeY - cut.eaveY + .55, side * Math.PI / 2, 1.25)
+  // Fill the valley between the porch eave and the cut edge of the main roof.
+  const porchEave = F + p.eave
+  for (const side of [-1, 1]) s.profile('wood', side * (px - .15), [[cut.cutZ - .3, cut.cutY + .2], [cut.cutZ - .3, porchEave], [cut.zAt(porchEave), porchEave]], .3, PALETTE.weathered)
+
+  // Cross-gable porch: tall plank walls, carved posts and lintel, the open leaves, rune disc and shield.
+  for (const side of [-1, 1]) {
+    plankWall(s, side * pIn, h.front - h.wall, side * p.halfX, p.front, F, p.top)
     battens(s, V(side * p.halfX, 0, h.front), V(side * p.halfX, 0, p.front), F, p.top, V(side, 0, 0))
-    plankWall(s, side * T.door.half, p.front - h.wall, side * p.halfX, p.front, F, p.top)
-    s.carvedPost(side * (T.door.half + .25), F, p.front + .18, T.door.height + .4, .24)
-    s.doorLeaf(side * T.door.half, F, p.front - h.wall - .1, T.door.half - .05, T.door.height - .05, side < 0 ? Math.PI : 0)
+    plankWall(s, side * T.door.half, pBack, side * p.halfX, p.front, F, p.top)
+    battens(s, V(side * T.door.half, 0, p.front), V(side * p.halfX, 0, p.front), F, p.top, V(0, 0, 1), 1.2)
+    s.carvedPost(side * T.doorPosts.x, F, p.front - .15, T.doorPosts.height, T.doorPosts.r)
+    s.doorLeaf(side * T.door.half, F, pBack - .1, T.door.half - .05, T.door.height - .1, side < 0 ? Math.PI : 0)
+    s.banner(side * 4.85, F + 7.4, p.front + .3, 0, 1.6, 4.4, 'wood')
+    // Paired carved lynx heads guard the porch at its high eave corners.
+    s.lynxHead(side * (p.halfX + .2), F + p.eave - .2, p.front + .35, side * .25, 2.1)
   }
-  s.span('wood', -p.halfX, F + T.door.height, p.front - h.wall, p.halfX, F + p.top, p.front, PALETTE.weathered)
-  s.span('wood', -T.door.half - .5, F + T.door.height, p.front, T.door.half + .5, F + T.door.height + .4, p.front + .35, PALETTE.carved)
-  for (let x = -T.door.half - .2; x <= T.door.half + .2; x += .45) s.add('wood', new THREE.TorusGeometry(.14, .035, 4, 8).translate(x, F + T.door.height + .2, p.front + .37), PALETTE.darkTimber)
-  s.gable('wood', 0, F + p.top, p.front - h.wall / 2, p.halfX * 2, p.ridge - p.top, .3, PALETTE.weathered)
-  battens(s, V(-p.halfX + .4, 0, p.front), V(p.halfX - .4, 0, p.front), F + p.top, 1.8, V(0, 0, 1), 1.1)
-  runeDisc(s, 0, F + p.top + 2.6, p.front + .05, 0, .85)
-  s.shield(0, F + p.top + .95, p.front + .08, 0, .55)
-  const porchRoof = { axis: 'z' as const, halfSpan: p.halfX + .6, from: h.front - 2, to: p.front + .45, eave: F + p.top - .45, ridge: F + p.ridge }
+  s.span('wood', -T.door.half, F + T.door.height, pBack, T.door.half, F + p.top, p.front, PALETTE.weathered)
+  s.span('wood', -T.door.half - .6, F + T.door.height, p.front, T.door.half + .6, F + T.door.height + .5, p.front + .35, PALETTE.carved)
+  for (let x = -T.door.half - .3; x <= T.door.half + .3; x += .45) s.add('wood', new THREE.TorusGeometry(.15, .035, 4, 8).translate(x, F + T.door.height + .25, p.front + .37), PALETTE.darkTimber)
+  s.gable('wood', 0, F + p.top, pBack + h.wall / 2, p.halfX * 2, p.ridge - p.top - .3, .3, PALETTE.weathered)
+  battens(s, V(-p.halfX + .6, 0, p.front), V(p.halfX - .6, 0, p.front), F + p.top, 2.4, V(0, 0, 1), 1.1)
+  runeDisc(s, 0, F + p.top + 2.3, p.front + .05, 0, .95)
+  s.shield(0, F + T.door.height + 1.4, p.front + .08, 0, .6)
+  const porchRoof = { axis: 'z' as const, halfSpan: px, from: cut.porchBack, to: p.front + p.overhang, eave: porchEave, ridge: F + p.ridge }
   r.gableRoof('roof', { ...porchRoof, thickness: THATCH })
-  if (ctx.snow) r.snowOnGable({ ...porchRoof, coverage: .5, thickness: THATCH })
-  ridge(r, V(0, F + p.ridge + .45, h.front - 1), V(0, F + p.ridge + .45, p.front + .45))
-  r.crossedGable(0, F + p.ridge + .45, p.front + .5, p.halfX + .6, p.ridge - p.top + 1.0, 0, 1.35)
-  // Stair rails, fire baskets, berserker carvings and shields.
+  if (ctx.snow) r.snowOnGable({ ...porchRoof, coverage: .32, thickness: THATCH })
+  ridge(r, V(0, F + p.ridge + .45, cut.zAt(F + p.ridge + .45)), V(0, F + p.ridge + .45, p.front + p.overhang))
+  r.crossedGable(0, F + p.ridge + .45, p.front + p.overhang + .05, px, p.ridge - p.eave + 1.0, 0, 1.35, false)
+
+  // Forecourt: stone ramp curbs, fire baskets and berserker carvings flanking the porch.
   for (const side of [-1, 1]) {
-    const x = side * (T.stairs.half + .12)
-    for (const z of [p.front + .1, T.stairs.front - .1]) s.cylinder('wood', x, ctx.ground(x, z) - .2, z, .09, .1, F + 1.1 - ctx.ground(x, z) + .2, PALETTE.carved, 6)
-    s.beam('wood', V(x, F + 1.05, p.front + .1), V(x, ctx.ground(x, T.stairs.front) + 1.0, T.stairs.front - .1), .12, .12, PALETTE.carved)
-    const bx = side * T.baskets.x, by = ctx.ground(bx, T.baskets.z)
-    s.brazier(bx, by, T.baskets.z, 1.15)
-    const sx = side * T.statues.x, sy = ctx.ground(sx, T.statues.z)
-    s.cylinder('wood', sx, sy - .3, T.statues.z, .42, .46, F + .2 - sy + .3, PALETTE.darkTimber, 10)
-    ctx.statue(sx, F + .2, T.statues.z, 0, 2.5)
-    for (const x of [6.4, 9.2]) s.shield(side * x, F + 1.9, h.front + .1, 0, .5, side < 0 ? [PALETTE.red, PALETTE.cream] : [PALETTE.cream, 0x2f4a6a])
-    s.banner(side * (p.halfX + .9), top - .1, h.front + .45, 0, .95, 2.4, 'wood')
+    const cx = side * (T.ramp.half + T.ramp.curb / 2)
+    s.span('stone', cx - T.ramp.curb / 2, Math.min(ctx.ground(cx, T.ramp.curbFront), 0) - .4, p.front, cx + T.ramp.curb / 2, F + .45, T.ramp.curbFront, PALETTE.footing)
+    const b = T.braziers
+    s.brazier(side * b.x, ctx.ground(side * b.x, b.z), b.z, 1.2)
+    const st = T.statues, sx = side * st.x, sy = Math.min(ctx.ground(sx, st.z), 0)
+    s.cylinder('wood', sx, sy - .3, st.z, st.base / 2 - .04, st.base / 2, F + .2 - sy + .3, PALETTE.darkTimber, 10)
+    ctx.statue(sx, F + .2, st.z, 0, st.height)
   }
-  // Interior: posts, long hearth with fire, high seat, benches, shields and lamps.
-  for (const x of T.posts.x) for (const z of T.posts.z) s.carvedPost(x, F, z, h.top + .2, T.posts.r)
-  for (const x of T.posts.x) s.beam('wood', V(x, top + .1, T.posts.z[0]), V(x, top + .1, T.posts.z[1]), .26, .26, PALETTE.darkTimber)
-  for (const z of T.posts.z) s.beam('wood', V(-h.halfX + .3, top + .1, z), V(h.halfX - .3, top + .1, z), .26, .26, PALETTE.darkTimber)
-  const hs = T.hearth
-  s.span('stone', -hs.half, F, hs.back, hs.half, F + .3, hs.front, PALETTE.footing)
-  s.span('stone', -hs.half + .2, F + .3, hs.back + .2, hs.half - .2, F + .36, hs.front - .2, 0x3d3530)
-  for (const x of [-1.6, -.3, 1.0, 2.0]) for (const g of flameParts(x, F + .34, (hs.back + hs.front) / 2, 1.0, Math.round(x * 10 + 40))) s.add('flame', g)
-  for (let x = -hs.half + .5; x < hs.half - .3; x += .45) s.add('glow', new THREE.BoxGeometry(.3, .06, .5).translate(x, F + .38, (hs.back + hs.front) / 2), 0xff7a2a, null)
-  s.span('wood', -T.seat.half, F, T.seat.back, T.seat.half, F + .6, T.seat.front, PALETTE.carved)
-  s.span('wood', -T.seat.half, F + .6, T.seat.back, T.seat.half, F + 1.6, T.seat.back + .2, PALETTE.carved)
-  for (const side of [-1, 1]) { s.lynxHead(side * T.seat.half, F + .6, T.seat.back + .1, 0, .35); s.span('wood', side < 0 ? -9 : 3, F, h.back + h.wall, side < 0 ? -3 : 9, F + .5, h.back + h.wall + .55, PALETTE.timber) }
-  s.span('cloth', -T.seat.half + .1, F + .62, T.seat.back + .2, T.seat.half - .1, F + .7, T.seat.front, PALETTE.fur)
-  for (const side of [-1, 1]) for (const x of [2.5, 5.5, 8.5]) s.shield(side * x, F + 2.2, h.back + h.wall + .06, 0, .45, x === 5.5 ? [PALETTE.cream, PALETTE.red] : [PALETTE.red, PALETTE.cream])
-  for (const x of [-6, 6]) s.banner(x, top - .1, h.back + h.wall + .05, 0, 1.0, 2.2, 'wood')
-  for (const x of [-6.3, 6.3]) for (const z of [-5.6, 0]) s.lantern(x, top - .4, z)
-  s.span('cloth', -1.2, F + .005, hs.front + .2, 1.2, F + .02, p.front - .5, PALETTE.darkRed)
+
+  // Interior: carved posts carrying high beams, rafters, two off-axis hearths, side tables and the high seat.
+  for (const x of T.posts.x) for (const z of T.posts.z) s.carvedPost(x, F, z, T.beams.bottom, T.posts.r)
+  const beamY = F + T.beams.bottom
+  for (const z of T.posts.z) s.span('wood', -innerX, beamY, z - .18, innerX, beamY + T.beams.depth, z + .18, PALETTE.darkTimber)
+  s.span('wood', -pIn, beamY, h.front + .9, pIn, beamY + T.beams.depth, h.front + 1.3, PALETTE.darkTimber)
+  const roofY = (z: number) => cut.ridgeY - (cut.ridgeY - cut.eaveY) * Math.abs(z - cut.cz) / cut.span - THATCH - .1
+  for (const x of T.posts.x) {
+    s.beam('wood', V(x, beamY + T.beams.depth, T.posts.z[0]), V(x, beamY + T.beams.depth, T.posts.z[1]), .26, .26, PALETTE.darkTimber)
+    for (const z of T.posts.z) s.beam('wood', V(x, beamY + T.beams.depth, z), V(x, roofY(cut.cz) - .2, cut.cz), .22, .22, PALETTE.timber)
+  }
+  s.beam('wood', V(-innerX, roofY(cut.cz), cut.cz), V(innerX, roofY(cut.cz), cut.cz), .34, .34, PALETTE.darkTimber, true)
+  for (let x = -innerX + 1; x < innerX; x += 2.6) for (const z of [innerBack, h.front - h.wall]) {
+    if (z > cut.cz && Math.abs(x) < px) continue
+    s.beam('wood', V(x, top - .2, z), V(x, roofY(cut.cz) - .05, cut.cz), .16, .2, PALETTE.timber)
+  }
+  const hs = T.hearths
+  for (const side of [-1, 1]) {
+    const a = side * hs.inner, b = side * hs.outer, cx = (a + b) / 2, hz = (hs.back + hs.front) / 2
+    s.span('stone', Math.min(a, b), F, hs.back, Math.max(a, b), F + .3, hs.front, PALETTE.footing)
+    s.span('stone', Math.min(a, b) + .2, F + .3, hs.back + .2, Math.max(a, b) - .2, F + .36, hs.front - .2, 0x3d3530)
+    for (const dz of [-.7, 0, .7]) for (const g of flameParts(cx, F + .34, hz + dz, 1.0, Math.round(cx * 10 + dz * 7 + 40))) s.add('flame', g)
+    s.add('glow', new THREE.BoxGeometry(Math.abs(b - a) - .6, .06, hs.front - hs.back - .6).translate(cx, F + .38, hz), 0xff7a2a, null)
+    const tb = T.tables, tx = side * (tb.inner + tb.outer) / 2 + side * .35, tz = (tb.back + tb.front) / 2
+    s.table(tx, F, tz, tb.outer - tb.inner - .7, tb.front - tb.back, .9)
+    s.bench(side * (tb.inner + .3), F, tz, tb.front - tb.back - .4, Math.PI / 2)
+    for (const z of [-15, -10.5, -6]) s.shield(side * (innerX - .06), F + 2.6, z, -side * Math.PI / 2, .5)
+    s.banner(side * (innerX - .05), F + 5.6, -8.4, -side * Math.PI / 2, 1.1, 3.0, 'wood')
+    s.banner(side * 4.6, top - .2, innerBack + .05, 0, 1.4, 3.6, 'wood')
+    for (const x of [8.5, 13]) s.shield(side * x, F + 2.4, innerBack + .06, 0, .5)
+    for (const z of T.posts.z) for (const x of [4.6, 13.4]) s.lantern(side * x, F + 3.4, z + .4)
+  }
+  const st = T.seat
+  s.span('wood', -st.half - .6, F, st.back, st.half + .6, F + .25, st.front + .5, PALETTE.darkTimber)
+  s.span('wood', -st.half, F + .25, st.back, st.half, F + .75, st.front, PALETTE.carved)
+  s.span('wood', -st.half, F + .75, st.back, st.half, F + st.top, st.back + .25, PALETTE.carved)
+  for (const side of [-1, 1]) s.lynxHead(side * st.half, F + .9, st.back + .5, 0, .45)
+  s.span('cloth', -st.half + .1, F + .76, st.back + .25, st.half - .1, F + .84, st.front, PALETTE.fur)
+  runeDisc(s, 0, F + 4.2, innerBack + .1, 0, .9)
+  s.span('cloth', -1.3, F + .005, st.front + .6, 1.3, F + .02, pBack - .2, PALETTE.darkRed)
 }
 
 /* ─────────────── Warrior recruitment hall ─────────────── */

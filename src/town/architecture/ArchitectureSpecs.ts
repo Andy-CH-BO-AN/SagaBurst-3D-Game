@@ -31,6 +31,8 @@ export type TownCenterServiceRole = 'captain' | 'deployment' | 'commander'
 export const TOWN_CENTER_SERVICE_ROLES: readonly TownCenterServiceRole[] = ['captain', 'deployment', 'commander']
 /** Body radius a mounted service officer needs on its anchor (mount collision radius plus margin). */
 export const SERVICE_ANCHOR_CLEARANCE = 1.2
+/** Free radius a mounted Town Center officer (Captain, Commander) needs to turn in place on its post. */
+export const SERVICE_MOUNT_TURN_RADIUS = 2.4
 
 /** Building-local (side = x, forward = z) → world, the same mapping as TownRules.townSitePoint. */
 export function architectureLocalToWorld(site: { x: number; z: number; yaw: number }, x: number, z: number): { x: number; z: number } {
@@ -52,6 +54,9 @@ export interface ArchitectureEntrance {
   readonly width: number; readonly doorWidth: number; readonly height: number
   /** Horizontal run of the steps/ramp outward from the threshold to the ground. */
   readonly approach: number
+  /** Gentle ramp: placement shortens `approach` (the authored maximum run) to the
+   * shortest run whose rise over the real terrain stays within this rise/run. */
+  readonly gradient?: number
 }
 export interface BuildingSpec {
   readonly faction: ArchitectureFaction
@@ -101,19 +106,27 @@ const mirrored = <T>(make: (side: number) => T[]): T[] => [...make(-1), ...make(
 
 /* ───────────────────────────── Roman ───────────────────────────── */
 
-/** Principia/forum hall: pedimented portico, open arched door, columned interior, wings and a tower. */
+/**
+ * Principia/forum hall inside the shared 40 × 36m Town Center frame (local X ±20,
+ * Z -22…14 incl. the ramp). One storey: a tall nave behind a central high arch
+ * and four-column pedimented portico, lower red wings on both sides of the front,
+ * a tower at the right rear and the council table at the far end of the nave.
+ */
 export const ROMAN_TOWN_CENTER = {
   F: .6,
-  hall: { halfX: 8, back: -9.5, front: 6, wall: .7, top: 7.4 },
-  door: { half: 2.4, height: 5.6 },
-  portico: { front: 10.2, columnZ: 8.6, columnX: [3.4, 6.6], columnR: .48 },
-  roof: { eave: 8.0, rise: 3.0, back: -10, front: 10.6, halfSpan: 8.6 },
-  wing: { inner: 8, outer: 12, back: -9.5, front: 4.2, top: 5.4 },
-  tower: { minX: 8.4, maxX: 11.8, minZ: -9.4, maxZ: -6, top: 11.2 },
-  steps: { half: 5, front: 12.4, cheek: .7 },
-  statues: { x: 7, z: 11.3, pedestal: 1.3, pedestalTop: 1.5 },
-  interiorColumns: { x: 4.6, z: [-5.2, -1.2, 2.6], r: .42 },
-  table: { half: 3, back: -7.2, front: -6.2 },
+  /** Nave: 18m wide, front wall face at z = 4. `eave` is the wall top above the floor. */
+  hall: { halfX: 9, back: -20, front: 4, wall: .8, eave: 11.4 },
+  door: { half: 3, height: 6.5 },
+  portico: { front: 8, columnZ: 7.2, columnX: [4.3, 7.8], columnR: .6, columnTop: 10.6, entablature: 11.4 },
+  roof: { eave: 11.4, ridge: 16, back: -20.4, front: 8.9, halfSpan: 9.4 },
+  /** Tie beams of the open timber trusses; their underside is the nave's lowest clearance. */
+  truss: { z: [-17, -12, -7, -2, 2], bottom: 10.2, depth: .35 },
+  wing: { inner: 9, outer: 18.5, back: -14, front: 3.6, top: 7.3, rise: 2.4 },
+  tower: { minX: 9, maxX: 15, minZ: -20, maxZ: -14, top: 17, rise: 2.6 },
+  ramp: { half: 4.5, cheek: .7, cheekFront: 10.5, maxApproach: 6 },
+  statues: { x: 10.6, z: 6.4, pedestal: 1.4, pedestalTop: .9, height: 2.8 },
+  table: { half: 3.6, back: -17.4, front: -16.2, top: 1.05 },
+  braziers: { x: 5.2, z: -16.8 },
 } as const
 
 export const ROMAN_HR_CENTER = {
@@ -163,19 +176,28 @@ export const ROMAN_HOMES = {
 
 /* ───────────────────────────── Viking ───────────────────────────── */
 
-/** Lord's longhouse: long thatched hall along X with a carved cross-gable entrance hall. */
+/**
+ * Lord's longhouse inside the shared 40 × 36m frame: a 36m hall under one long
+ * transverse thatch ridge, with a barely projecting cross-gable porch at the
+ * centre of the long front wall. One storey; the porch and the lowest beams are
+ * raised together so the hall reads tall from the doorway.
+ */
 export const VIKING_TOWN_CENTER = {
-  F: .45,
-  hall: { halfX: 11.4, back: -8.6, front: 2.6, wall: .45, top: 3.0 },
-  roof: { ridge: 10, overhang: .6, frontCut: 4.4 },
-  porch: { halfX: 4.6, front: 9.6, top: 3.6, ridge: 9.8 },
-  door: { half: 2, height: 3.2 },
-  stairs: { half: 2.6, front: 11.4 },
-  posts: { x: [-8.4, -4.2, 4.2, 8.4], z: [-5.6, 0], r: .32 },
-  hearth: { half: 2.6, back: -3.4, front: -2.2 },
-  seat: { half: 1.2, back: -8.15, front: -7.2 },
-  statues: { x: 3.5, z: 10.4, base: .9 },
-  baskets: { x: 5.2, z: 10.8 },
+  F: .5,
+  hall: { halfX: 17.4, back: -20, front: 1.6, wall: .6, top: 6.2 },
+  roof: { ridge: 16.6, overhang: 1.0, frontCut: 12.4 },
+  porch: { halfX: 6.6, front: 5, top: 8, eave: 7.7, ridge: 13, overhang: .6 },
+  door: { half: 3, height: 5.5 },
+  doorPosts: { x: 3.35, r: .32, height: 6.1 },
+  /** Lowest timber over the walkway: porch tie beam and the two post-row beams. */
+  beams: { bottom: 7.8, depth: .35 },
+  ramp: { half: 4.5, curb: .5, curbFront: 7.5, maxApproach: 9 },
+  posts: { x: [-13.4, -9, -4.6, 4.6, 9, 13.4], z: [-14, -4.4], r: .34 },
+  hearths: { inner: 9.6, outer: 12.6, back: -10.4, front: -8 },
+  tables: { inner: 14.2, outer: 16.2, back: -17, front: -3 },
+  seat: { half: 1.6, back: -19.4, front: -18, top: 2.2 },
+  statues: { x: 10, z: 3, base: 1.0, height: 2.6 },
+  braziers: { x: 5.5, z: 6.8 },
 } as const
 
 export const VIKING_HR_CENTER = {
@@ -222,37 +244,64 @@ export const VIKING_HOMES = {
 
 /* ───────────────────────────── Plans ───────────────────────────── */
 
-function romanTownCenter(): BuildingSpec {
-  const c = ROMAN_TOWN_CENTER, h = c.hall, top = c.F + h.top
-  const innerX = h.halfX - h.wall, innerBack = h.back + h.wall, innerFront = h.front - h.wall / 2
-  const colliders: ArchitectureCollider[] = [
-    ...mirrored(side => [solid(side < 0 ? -h.halfX : c.door.half, h.front - h.wall / 2, side < 0 ? -c.door.half : h.halfX, h.front + h.wall / 2, top)]),
-    above(-c.door.half, c.F + c.door.height, h.front - h.wall / 2, c.door.half, top, h.front + h.wall / 2),
-    ...mirrored(side => [solid(side < 0 ? -h.halfX : innerX, h.back, side < 0 ? -innerX : h.halfX, h.front + h.wall / 2, top)]),
-    solid(-h.halfX, h.back, h.halfX, innerBack, top),
-    ...mirrored(side => [solid(side < 0 ? -c.wing.outer : c.wing.inner, c.wing.back, side < 0 ? -c.wing.inner : c.wing.outer, c.wing.front, c.F + c.wing.top)]),
-    solid(c.tower.minX, c.tower.minZ, c.tower.maxX, c.tower.maxZ, c.F + c.tower.top),
-    ...mirrored(side => c.portico.columnX.map(x => post(side * x, c.portico.columnZ, c.portico.columnR, c.F + h.top))),
-    ...mirrored(side => c.interiorColumns.z.map(z => post(side * c.interiorColumns.x, z, c.interiorColumns.r, c.F + h.top))),
-    ...mirrored(side => [solid(side < 0 ? -c.steps.half - c.steps.cheek : c.steps.half, c.portico.front, side < 0 ? -c.steps.half : c.steps.half + c.steps.cheek, c.steps.front, c.F + .5, 'prop')]),
-    ...mirrored(side => [post(side * c.statues.x, c.statues.z, c.statues.pedestal / 2, c.statues.pedestalTop + 2.7, 'statue')]),
-    solid(-c.table.half, c.table.back, c.table.half, c.table.front, c.F + 1.05, 'prop'),
-    ...mirrored(side => [post(side * 6.3, -7.6, .38, c.F + 1.4, 'prop')]),
-    above(-c.roof.halfSpan, top, c.roof.back, c.roof.halfSpan, c.F + c.roof.eave + c.roof.rise, c.roof.front, 'roof'),
-  ]
-  const service = serviceAnchors({ captain: [-3.4, -3.0], deployment: [0, -4.4], commander: [3.4, -3.0] })
+/** Local Town Center frame shared by both factions: 40 × 36m including the entrance ramp. */
+export const TOWN_CENTER_ENVELOPE: LocalRect = rect(-20, 20, -22, 14)
+
+/**
+ * Town Center anchors: the three service officers, the hall officer and gathering
+ * NPCs. Gathering spots keep clear of the officers, of the mounted officers'
+ * turning circles and of the main aisle.
+ */
+function townCenterAnchors(officer: readonly [number, number], service: readonly ArchitectureAnchor[], candidates: readonly (readonly [number, number])[],
+  aisleHalf: number): ArchitectureAnchor[] {
+  const mounted = service.filter(a => a.id !== 'service:deployment')
   const gathering: ArchitectureAnchor[] = []
-  for (const side of [-1, 1]) for (const [x, zs] of [[2.8, [-4, -1, 2, 3.8]], [6.3, [-4.5, -.5, 1.2, 3]]] as const) for (const z of zs)
-    gathering.push({ id: `hall-${side < 0 ? 'w' : 'e'}-${x}-${z}`, x: side * x, z, yaw: -side * Math.PI / 2, role: 'npc' })
-  const anchors: ArchitectureAnchor[] = [{ id: 'hall-officer', x: 0, z: -8.1, yaw: 0, role: 'officer' }, ...service, ...apartFrom(service, gathering)]
+  for (const [x, z] of candidates) for (const side of [-1, 1]) {
+    const px = side * x
+    if (Math.abs(px) - .45 < aisleHalf) continue
+    if (mounted.some(m => Math.hypot(m.x - px, m.z - z) < SERVICE_MOUNT_TURN_RADIUS + .45)) continue
+    gathering.push({ id: `hall-${side < 0 ? 'w' : 'e'}-${x}-${z}`, x: px, z, yaw: -side * Math.PI / 2, role: 'npc' })
+  }
+  return [{ id: 'hall-officer', x: officer[0], z: officer[1], yaw: 0, role: 'officer' }, ...service, ...apartFrom(service, gathering)]
+}
+
+function romanTownCenter(): BuildingSpec {
+  const c = ROMAN_TOWN_CENTER, h = c.hall, top = c.F + h.eave, F = c.F
+  const innerX = h.halfX - h.wall, innerBack = h.back + h.wall, wallBack = h.front - h.wall
+  const colliders: ArchitectureCollider[] = [
+    // Long front: nave wall either side of the arch, then the lower wings out to ±18.5m.
+    ...mirrored(side => [solid(side < 0 ? -h.halfX : c.door.half, wallBack, side < 0 ? -c.door.half : h.halfX, h.front, top)]),
+    above(-c.door.half, F + c.door.height, wallBack, c.door.half, top, h.front),
+    ...mirrored(side => [solid(side < 0 ? -h.halfX : innerX, h.back, side < 0 ? -innerX : h.halfX, h.front, top)]),
+    solid(-h.halfX, h.back, h.halfX, innerBack, top),
+    ...mirrored(side => [solid(side < 0 ? -c.wing.outer : c.wing.inner, c.wing.back, side < 0 ? -c.wing.inner : c.wing.outer, c.wing.front, F + c.wing.top)]),
+    solid(c.tower.minX, c.tower.minZ, c.tower.maxX, c.tower.maxZ, F + c.tower.top),
+    ...mirrored(side => c.portico.columnX.map(x => post(side * x, c.portico.columnZ, c.portico.columnR, F + c.portico.columnTop))),
+    above(-c.roof.halfSpan, F + c.portico.columnTop, c.portico.columnZ - .8, c.roof.halfSpan, F + c.portico.entablature, c.portico.front),
+    ...c.truss.z.map(z => above(-innerX, F + c.truss.bottom, z - .2, innerX, F + c.truss.bottom + c.truss.depth, z + .2)),
+    ...mirrored(side => [solid(side < 0 ? -c.ramp.half - c.ramp.cheek : c.ramp.half, c.portico.front, side < 0 ? -c.ramp.half : c.ramp.half + c.ramp.cheek, c.ramp.cheekFront, F + .5, 'prop')]),
+    ...mirrored(side => [post(side * c.statues.x, c.statues.z, c.statues.pedestal / 2, F + c.statues.pedestalTop + c.statues.height, 'statue')]),
+    solid(-c.table.half, c.table.back, c.table.half, c.table.front, F + c.table.top, 'prop'),
+    ...mirrored(side => [post(side * c.braziers.x, c.braziers.z, .38, F + 1.4, 'prop')]),
+    ...pitchedRoof('z', 0, c.roof.back, c.roof.front, c.roof.halfSpan, F + c.roof.eave, F + c.roof.ridge),
+    ...mirrored(side => [above(side < 0 ? -c.wing.outer - .4 : c.wing.inner, F + c.wing.top, c.wing.back - .4,
+      side < 0 ? -c.wing.inner : c.wing.outer + .4, F + c.wing.top + c.wing.rise, c.wing.front + .4, 'roof')]),
+    above(c.tower.minX - .4, F + c.tower.top, c.tower.minZ - .4, c.tower.maxX + .4, F + c.tower.top + c.tower.rise, c.tower.maxZ + .4, 'roof'),
+  ]
+  // Walking in, Captain left, Sergeant just right of the door axis before the council table, Commander right.
+  const service = serviceAnchors({ captain: [-5.4, -9.5], deployment: [1.8, -12.8], commander: [5.4, -9.5] })
+  const sergeant = service.find(a => a.id === 'service:deployment')!
+  const anchors = townCenterAnchors([0, -18.3], service, [4.4, 7.0].flatMap(x => [-14.6, -4.6, -1.4, 1.6].map(z => [x, z] as const)), c.door.half)
   return {
     faction: 'roman', kind: 'town-center', label: '羅馬城鎮中心 · Principia',
-    envelope: rect(-12.2, 12.2, -10.2, 12.6), floorY: c.F,
+    envelope: TOWN_CENTER_ENVELOPE, floorY: F,
     floor: [rect(-h.halfX, h.halfX, h.back, c.portico.front)],
-    entrance: { x: 0, z: c.portico.front, yaw: 0, width: c.steps.half * 2, doorWidth: c.door.half * 2, height: c.door.height, approach: c.steps.front - c.portico.front },
-    // The aisle runs from the door to the Sergeant standing in front of the table.
-    interior: rect(-innerX, innerX, innerBack, innerFront), aisle: rect(-1.6, 1.6, -4.4 + SERVICE_ANCHOR_CLEARANCE + .2, c.portico.front),
-    anchors, colliders, height: c.tower.top + 1.8, maxHp: 900,
+    entrance: { x: 0, z: c.portico.front, yaw: 0, width: c.ramp.half * 2, doorWidth: c.door.half * 2, height: c.door.height,
+      approach: c.ramp.maxApproach, gradient: .1 },
+    interior: rect(-innerX, innerX, innerBack, wallBack),
+    // Continuous 6m walkway from the ramp foot through the arch to the Sergeant.
+    aisle: rect(-c.door.half, c.door.half, sergeant.z + SERVICE_ANCHOR_CLEARANCE + .2, c.portico.front + c.ramp.maxApproach),
+    anchors, colliders, height: c.tower.top + c.tower.rise + .4, maxHp: 900,
   }
 }
 
@@ -375,47 +424,64 @@ function romanHome(kind: 'home-a' | 'home-b' | 'home-c'): BuildingSpec {
     envelope: rect(-4.8, 4.8, -4.4, 4.4), floorY: F, floor: [floor], entrance, anchors: [], colliders, height, maxHp: 300 }
 }
 
+/** Front-slope cut of the longhouse roof over the porch, shared by the plan and the builder. */
+export function vikingTownCenterRoofCut() {
+  const c = VIKING_TOWN_CENTER, h = c.hall, p = c.porch
+  const cz = (h.back + h.front) / 2, span = (h.front - h.back) / 2 + c.roof.overhang
+  const ridgeY = c.F + c.roof.ridge, eaveY = c.F + h.top - .5, cutY = c.F + c.roof.frontCut
+  /** Front-slope z at a given height. */
+  const zAt = (y: number) => cz + (ridgeY - y) / (ridgeY - eaveY) * span
+  // The porch roof runs back until its ridge is buried in the main slope, leaving no open valley.
+  return { cz, span, ridgeY, eaveY, cutY, cutZ: zAt(cutY), porchBack: zAt(c.F + p.ridge + .6), px: p.halfX + p.overhang, zAt }
+}
+
 function vikingTownCenter(): BuildingSpec {
-  const c = VIKING_TOWN_CENTER, h = c.hall, p = c.porch, top = c.F + h.top
-  const innerX = h.halfX - h.wall, innerBack = h.back + h.wall, pIn = p.halfX - h.wall, pFront = p.front - h.wall
+  const c = VIKING_TOWN_CENTER, h = c.hall, p = c.porch, F = c.F, top = F + h.top
+  const innerX = h.halfX - h.wall, innerBack = h.back + h.wall, pIn = p.halfX - h.wall, pBack = p.front - h.wall
+  const cut = vikingTownCenterRoofCut()
   const colliders: ArchitectureCollider[] = [
     solid(-h.halfX, h.back, h.halfX, innerBack, top),
     ...mirrored(side => [solid(side < 0 ? -h.halfX : innerX, h.back, side < 0 ? -innerX : h.halfX, h.front, top)]),
+    // Long front wall either side of the porch.
     ...mirrored(side => [solid(side < 0 ? -h.halfX : p.halfX, h.front - h.wall, side < 0 ? -p.halfX : h.halfX, h.front, top)]),
-    ...mirrored(side => [solid(side < 0 ? -p.halfX : pIn, h.front - h.wall, side < 0 ? -pIn : p.halfX, p.front, c.F + p.top)]),
-    ...mirrored(side => [solid(side < 0 ? -p.halfX : c.door.half, pFront, side < 0 ? -c.door.half : p.halfX, p.front, c.F + p.top)]),
-    above(-c.door.half, c.F + c.door.height, pFront, c.door.half, c.F + p.top, p.front),
-    ...c.posts.x.flatMap(x => c.posts.z.map(z => post(x, z, c.posts.r, top, 'post'))),
-    solid(-c.hearth.half, c.hearth.back, c.hearth.half, c.hearth.front, c.F + .55, 'prop'),
-    solid(-c.seat.half, c.seat.back, c.seat.half, c.seat.front, c.F + 1.6, 'prop'),
-    ...mirrored(side => [solid(side < 0 ? -9 : 3, innerBack, side < 0 ? -3 : 9, innerBack + .55, c.F + .5, 'prop')]),
-    ...mirrored(side => [solid(side < 0 ? -c.stairs.half - .25 : c.stairs.half, p.front, side < 0 ? -c.stairs.half : c.stairs.half + .25, c.stairs.front, c.F + 1.1, 'prop')]),
-    ...mirrored(side => [post(side * c.statues.x, c.statues.z, c.statues.base / 2, c.F + 2.9, 'statue')]),
-    ...mirrored(side => [post(side * c.baskets.x, c.baskets.z, .4, c.F + 1.5, 'prop')]),
+    ...mirrored(side => [solid(side < 0 ? -p.halfX : pIn, h.front - h.wall, side < 0 ? -pIn : p.halfX, p.front, F + p.top)]),
+    ...mirrored(side => [solid(side < 0 ? -p.halfX : c.door.half, pBack, side < 0 ? -c.door.half : p.halfX, p.front, F + p.top)]),
+    above(-c.door.half, F + c.door.height, pBack, c.door.half, F + p.top, p.front),
+    // Carved door posts stand in the wall face, just outside the 6m opening.
+    ...mirrored(side => [post(side * c.doorPosts.x, p.front - .15, c.doorPosts.r, F + c.doorPosts.height)]),
+    // Porch tie beam and the two post-row beams: the walkway's lowest timber.
+    above(-pIn, F + c.beams.bottom, h.front + .9, pIn, F + c.beams.bottom + c.beams.depth, h.front + 1.3),
+    ...c.posts.z.map(z => above(-innerX, F + c.beams.bottom, z - .18, innerX, F + c.beams.bottom + c.beams.depth, z + .18)),
+    ...c.posts.x.flatMap(x => c.posts.z.map(z => post(x, z, c.posts.r, F + c.beams.bottom, 'post'))),
+    ...mirrored(side => [solid(side < 0 ? -c.hearths.outer : c.hearths.inner, c.hearths.back, side < 0 ? -c.hearths.inner : c.hearths.outer, c.hearths.front, F + .55, 'prop')]),
+    ...mirrored(side => [solid(side < 0 ? -c.tables.outer : c.tables.inner, c.tables.back, side < 0 ? -c.tables.inner : c.tables.outer, c.tables.front, F + .95, 'prop')]),
+    solid(-c.seat.half, c.seat.back, c.seat.half, c.seat.front, F + c.seat.top, 'prop'),
+    ...mirrored(side => [solid(side < 0 ? -c.ramp.half - c.ramp.curb : c.ramp.half, p.front, side < 0 ? -c.ramp.half : c.ramp.half + c.ramp.curb, c.ramp.curbFront, F + .45, 'prop')]),
+    ...mirrored(side => [post(side * c.braziers.x, c.braziers.z, .45, F + 1.6, 'prop')]),
+    ...mirrored(side => [post(side * c.statues.x, c.statues.z, c.statues.base / 2, F + .2 + c.statues.height, 'statue')]),
     ...longhouseRoof(),
-    ...pitchedRoof('z', 0, h.front - 2, p.front + .45, p.halfX + .6, c.F + p.top - .45, c.F + p.ridge),
+    ...pitchedRoof('z', 0, cut.porchBack, p.front + p.overhang, cut.px, F + p.eave, F + p.ridge),
   ]
-  /** Main roof bands; over the entrance hall the front slope stops at roofCut, matching the drawn roof. */
+  /** Main roof bands; over the porch the front slope stops at the cut, matching the drawn roof. */
   function longhouseRoof(): ArchitectureCollider[] {
-    const cz = (h.back + h.front) / 2, px = p.halfX + 1.2, cut = c.F + c.roof.frontCut
-    return pitchedRoof('x', cz, -h.halfX - .7, h.halfX + .7, (h.front - h.back) / 2 + c.roof.overhang, top - .55, c.F + c.roof.ridge).flatMap(band => {
+    return pitchedRoof('x', cut.cz, -h.halfX - .7, h.halfX + .7, cut.span, cut.eaveY, cut.ridgeY).flatMap(band => {
       const [x0, y0, z0, x1, y1, z1] = band.box
-      if (z0 < cz || y0 >= cut) return [band]
-      return [above(x0, y0, z0, -px, y1, z1, 'roof'), above(px, y0, z0, x1, y1, z1, 'roof'), above(-px, cut, z0, px, y1, z1, 'roof')]
+      if (z0 < cut.cz || y0 >= cut.cutY) return [band]
+      return [above(x0, y0, z0, -cut.px, y1, z1, 'roof'), above(cut.px, y0, z0, x1, y1, z1, 'roof'), above(-cut.px, cut.cutY, z0, cut.px, y1, z1, 'roof')]
     })
   }
-  // The Sergeant stands before the long hearth; Captain and Commander between the post rows.
-  const service = serviceAnchors({ captain: [-6.3, -2.8], deployment: [0, -.8], commander: [6.3, -2.8] })
-  const gathering: ArchitectureAnchor[] = []
-  for (const side of [-1, 1]) for (const [x, z] of [[6.3, -2.8], [6.3, -6.8], [3.0, 1.2], [9.3, 1.3], [9.6, -2.8], [2.8, -6.6], [2.8, 5.5], [2.8, 7.6]] as const)
-    gathering.push({ id: `hall-${side < 0 ? 'w' : 'e'}-${x}-${z}`, x: side * x, z, yaw: -side * Math.PI / 2, role: 'npc' })
-  const anchors: ArchitectureAnchor[] = [{ id: 'hall-officer', x: 0, z: -6.7, yaw: 0, role: 'officer' }, ...service, ...apartFrom(service, gathering)]
+  // Captain and Commander stand in the bays between the post rows; the Sergeant just right of the door axis.
+  const service = serviceAnchors({ captain: [-6.2, -9.2], deployment: [1.8, -12.4], commander: [6.2, -9.2] })
+  const sergeant = service.find(a => a.id === 'service:deployment')!
+  const anchors = townCenterAnchors([0, -17.2], service, [[7, -16.4], [11.2, -16.4], [7, -2.2], [11.2, -2.2], [11.2, -6.4], [11.2, -12.2]], c.door.half)
   return {
-    faction: 'viking', kind: 'town-center', label: '維京領主長屋 · Longhouse', envelope: rect(-12.2, 12.2, -10.2, 12.6), floorY: c.F,
+    faction: 'viking', kind: 'town-center', label: '維京領主長屋 · Longhouse', envelope: TOWN_CENTER_ENVELOPE, floorY: F,
     floor: [rect(-h.halfX, h.halfX, h.back, h.front), rect(-p.halfX, p.halfX, h.front, p.front)],
-    entrance: { x: 0, z: p.front, yaw: 0, width: c.stairs.half * 2, doorWidth: c.door.half * 2, height: c.door.height, approach: c.stairs.front - p.front },
-    interior: rect(-innerX, innerX, innerBack, h.front), aisle: rect(-1.4, 1.4, -.8 + SERVICE_ANCHOR_CLEARANCE + .2, p.front),
-    anchors, colliders, height: p.ridge + 1.8, maxHp: 900,
+    entrance: { x: 0, z: p.front, yaw: 0, width: c.ramp.half * 2, doorWidth: c.door.half * 2, height: c.door.height,
+      approach: c.ramp.maxApproach, gradient: .1 },
+    interior: rect(-innerX, innerX, innerBack, h.front - h.wall),
+    aisle: rect(-c.door.half, c.door.half, sergeant.z + SERVICE_ANCHOR_CLEARANCE + .2, p.front + c.ramp.maxApproach),
+    anchors, colliders, height: c.roof.ridge + 1.8, maxHp: 900,
   }
 }
 

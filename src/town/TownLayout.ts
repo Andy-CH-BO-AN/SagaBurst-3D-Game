@@ -108,7 +108,10 @@ export function townHousing(faction: 'roman' | 'viking') {
       yaw: i < 5 || z < -50 ? 0 : Math.PI }))
 }
 
-export const TOWN_CENTER = { x: 52, z: -22, width: 24, depth: 20, yaw: 0 } as const
+/** Town Center anchor (plan origin, door facing +Z toward the plaza). */
+export const TOWN_CENTER = { x: 52, z: -22, yaw: 0 } as const
+/** World frame of either faction's Town Center, entrance ramp included (40 × 36m north of the plaza). */
+export const TOWN_CENTER_FRAME = { minX: 32, maxX: 72, minZ: -44, maxZ: -8 } as const
 export const TOWN_WELL = { x: 72, z: 30, radius: 1.35 } as const
 
 export interface CivicClearanceShape {
