@@ -9,7 +9,7 @@ import {
   resolveTownActorEquipment, townNativeItems,
   type TownEquipmentContext
 } from '../../src/career/CareerTownEquipment'
-import { sellTownNativeEquipment, sellTownNativeProducts, townNativeSaleStock, type TownNativeSaleContext } from '../../src/career/CareerTownNativeResale'
+import { sellTownNativeProducts, townNativeSaleStock, type TownNativeSaleContext } from '../../src/career/CareerTownNativeResale'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 /** Real domain and JSON storage; zero NPC/Mount/TownWorld/asset construction. */
@@ -48,7 +48,7 @@ describe('Town equipment domain, canonical ownership and persisted native source
     expect(careerItemTotal(loaded, 'roman_officer_shield_t4')).toBe(0)
     h.context.safeActorIds = new Set(['cavalry-training:melee_cavalry:0'])
     expect(h.change('cavalry-training:melee_cavalry:0', 'shield', null).changed).toBe(true)
-    const sale = sellTownNativeEquipment(h.read, () => ({ townFaction: 'roman', peaceful: true, playerAlive: true, merchantAvailable: true }), [token], h.save)
+    const sale = sellTownNativeProducts(h.read, () => ({ townFaction: 'roman', peaceful: true, playerAlive: true, merchantAvailable: true }), [{ itemId: 'paladin_shield_t4', quantity: 1 }], h.save)
     expect(sale).toMatchObject({ sold: true, earnedMerit: 1296 })
     const sold = h.reload()
     expect(sold.townEquipment!.roman!.soldNativeIds).toContain(token)
@@ -215,7 +215,7 @@ describe('Town equipment domain, canonical ownership and persisted native source
     expect(townNativeSaleStock(h.read(), 'roman').find(item => item.nativeIds.includes(token))).toMatchObject({
       product: { id: 'paladin_shield_t4' }, price: 1296,
     })
-    const sale = sellTownNativeEquipment(h.read, () => ({ townFaction: 'roman', peaceful: true, playerAlive: true, merchantAvailable: true }), [token], h.save)
+    const sale = sellTownNativeProducts(h.read, () => ({ townFaction: 'roman', peaceful: true, playerAlive: true, merchantAvailable: true }), [{ itemId: 'paladin_shield_t4', quantity: 1 }], h.save)
     expect(sale).toMatchObject({ sold: true, soldCount: 1, earnedMerit: 1296 })
     const sold = h.reload()
     expect(sold.townEquipment!.roman!.soldNativeIds).toContain(token)
@@ -355,7 +355,7 @@ function resaleHarness(faction: CareerProfile['faction'] = 'roman') {
   const h = harness(faction)
   const context: TownNativeSaleContext = { townFaction: faction, peaceful: true, playerAlive: true, merchantAvailable: true }
   return { ...h, saleContext: context,
-    sell: (ids: string[], save = h.save) => sellTownNativeEquipment(h.read, () => context, ids, save),
+    sell: (itemId: string, quantity = 1, save = h.save) => sellTownNativeProducts(h.read, () => context, [{ itemId, quantity }], save),
     retire(actor = 'gate:north:0') {
       const token = resolveTownActorEquipment(h.read(), faction, actor).refs.melee!
       h.buy('paladin_sword_t4'); expect(h.change(actor, 'melee', 'paladin_sword_t4').changed).toBe(true)
@@ -382,21 +382,21 @@ function unloadedNorthSwords() {
 describe('Commander native equipment resale and permanent token ownership', () => {
   it('sells unloaded native sword for merit, rejecting overflow, invalid holders and save failure', () => {
     const h = resaleHarness(), id = h.retire(), before = cloneCareerProfile(h.read())
-    const result = h.sell([id])
+    const result = h.sell('gladius_standard')
     expect(result).toMatchObject({ sold: true, soldCount: 1, earnedMerit: 360 })
     expect(h.read().availableMerit).toBe(before.availableMerit + 360)
     expect(h.read().totalMerit).toBe(before.totalMerit)
     expect(h.read().townEquipment!.roman!.nativeReserve).not.toContain(id)
     expect(h.read().townEquipment!.roman!.soldNativeIds).toEqual([id])
     expect(careerItemTotal(h.read(), 'gladius_standard')).toBe(0)
-    expect(h.sell([id])).toMatchObject({ sold: false, earnedMerit: 0 })
+    expect(h.sell('gladius_standard')).toMatchObject({ sold: false, earnedMerit: 0 })
     expect(h.reload().availableMerit).toBe(before.availableMerit + 360)
 
     // Overflow rejection
-    const overflowH = resaleHarness(), overflowId = overflowH.retire()
+    const overflowH = resaleHarness(); overflowH.retire()
     overflowH.read().availableMerit = Number.MAX_SAFE_INTEGER
     const overflowBefore = cloneCareerProfile(overflowH.read())
-    expect(overflowH.sell([overflowId])).toMatchObject({ sold: false, reason: 'invalid-quantity' })
+    expect(overflowH.sell('gladius_standard')).toMatchObject({ sold: false, reason: 'invalid-quantity' })
     expect(overflowH.read()).toEqual(overflowBefore)
 
     // Rejection of held native sword
@@ -412,17 +412,30 @@ describe('Commander native equipment resale and permanent token ownership', () =
       nativeReserve: ['roman/gate:north:7/melee'],
     } }
     h.set(transferred)
-    expect(h.sell(['roman/gate:north:0/melee'])).toMatchObject({ sold: false, reason: 'invalid-token', earnedMerit: 0 })
+    const selected = h.sell('gladius_standard')
+    expect(selected).toMatchObject({ sold: false, reason: 'invalid-token', earnedMerit: 0 })
 
     // Rollback on save failure
     const { h: failH, ids } = unloadedNorthSwords()
     const failBefore = cloneCareerProfile(failH.read()), disk = failH.saved()
     failH.storage.failWrites = true
-    expect(failH.sell(ids)).toMatchObject({ sold: false, reason: 'save-failed', earnedMerit: 0, soldCount: 0 })
+    expect(failH.sell('gladius_standard', ids.length)).toMatchObject({ sold: false, reason: 'save-failed', earnedMerit: 0, soldCount: 0 })
     expect(failH.read()).toEqual(failBefore); expect(failH.saved()).toBe(disk)
     failH.storage.failWrites = false
-    expect(failH.sell(ids)).toMatchObject({ sold: true, soldCount: 2, earnedMerit: 720 })
+    expect(failH.sell('gladius_standard', ids.length)).toMatchObject({ sold: true, soldCount: 2, earnedMerit: 720 })
     expect(failH.read().availableMerit).toBe(failBefore.availableMerit + 720)
+  })
+  it('selects one canonical token for a product and rejects a stale whole-batch quantity without a partial sale', () => {
+    const { h, ids } = unloadedNorthSwords(), expected = [...ids].sort()
+    const first = h.sell('gladius_standard')
+    expect(first).toMatchObject({ sold: true, soldCount: 1, earnedMerit: 360 })
+    expect(h.reload().townEquipment!.roman!.soldNativeIds).toEqual([expected[0]])
+    expect(h.read().townEquipment!.roman!.nativeReserve).toContain(expected[1])
+    const before = cloneCareerProfile(h.read()), disk = h.saved()
+    expect(h.sell('gladius_standard', 2)).toMatchObject({ sold: false, soldCount: 0, earnedMerit: 0 })
+    expect(h.read()).toEqual(before)
+    expect(h.saved()).toBe(disk)
+    expect(resolveTownActorEquipment(h.reload(), 'roman', 'gate:north:0').refs.melee?.source).toBe('inventory')
   })
   it('excludes Ranger native weapons and rejects invalid bulk requests without selling valid tokens', () => {
     const h = resaleHarness(); h.retire(); h.buy('steel_sword')
@@ -520,11 +533,11 @@ describe('Resident native equipment and military horse ownership', () => {
     const id = 'roman/civilian-0/melee'
     expect(h.reload().townEquipment!.roman!.nativeReserve).toContain(id)
     expect(resolveTownActorEquipment(h.read(), 'roman', 'civilian-0').refs.melee).toBeNull()
-    expect(h.sell([id]).sold).toBe(true)
+    expect(h.sell('gladius_rusty').sold).toBe(true)
     expect(resolveTownActorEquipment(h.reload(), 'roman', 'civilian-0').refs.melee).toBeNull()
     expect(h.read().townEquipment!.roman!.nativeReserve).not.toContain(id)
     expect(h.read().townEquipment!.roman!.soldNativeIds).toEqual([id])
-    expect(h.sell(['roman/merchant/melee']).sold).toBe(false)
+    expect(h.sell('sword_t5').sold).toBe(false)
   })
 })
 

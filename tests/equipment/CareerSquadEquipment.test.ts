@@ -1,8 +1,9 @@
+import { changeTownEquipment, type TownEquipmentContext } from '../../src/career/CareerTownEquipment'
 import { canUseCareerMount, ownedCareerMountIds } from '../../src/career/CareerMountController'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { describe, expect, it, vi } from 'vitest'
 import { availableCareerItem, careerItemAllocated, careerItemTotal, careerItemTotals, type PersonalEquipmentSlot } from '../../src/career/CareerInventory'
-import { changePersonalEquipment, personalMemberRefund, recruitPersonalSquadMember, sellPersonalSquadMember, sellPersonalSquadMembers, type PersonalSquadAuthority, type PersonalSquadMemberType } from '../../src/career/CareerPersonalSquad'
+import { personalMemberRefund, recruitPersonalSquadMember, sellPersonalSquadMember, sellPersonalSquadMembers, type PersonalSquadAuthority, type PersonalSquadMemberType } from '../../src/career/CareerPersonalSquad'
 import { cloneCareerProfile, createCareerProfile, purchaseCareerContent, type CareerPurchaseRequest, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
@@ -17,12 +18,13 @@ function harness(rank: CareerRank = 'captain', faction: CareerProfile['faction']
   const storage = new MemoryStorage()
   const store = new CareerProfileStore(storage)
   const authority: PersonalSquadAuthority = { state: 'RESERVE' }
+  const context: TownEquipmentContext = { townFaction: faction, peaceful: true, personalState: 'RESERVE', safeActorIds: new Set() }
   const read = () => profile
   const save = (next: CareerProfile) => { if (!store.save(next)) return false; profile = next; return true }
-  return { read, save, store, authority, fail: () => { storage.failWrites = true }, set: (next: CareerProfile) => { profile = next },
-    hire(type: PersonalSquadMemberType = 'soldier') { const result = recruitPersonalSquadMember(profile, type, save); expect(result.recruited).toBe(true); return profile.personalSquad!.members.at(-1)!.id },
+  return { read, save, store, authority, context, fail: () => { storage.failWrites = true }, set: (next: CareerProfile) => { profile = next },
+    hire(type: PersonalSquadMemberType = 'soldier') { const result = recruitPersonalSquadMember(profile, type, save); expect(result.recruited).toBe(true); const id = profile.personalSquad!.members.at(-1)!.id; context.safeActorIds = new Set([...context.safeActorIds, id]); return id },
     buy(id: string) { const result = ['horse', 'corgi', 'black-cat', 'snow-leopard', 'xongkoro'].includes(id) ? purchaseTownMount(profile, id) : purchaseTownEquipment(profile, id); expect(result.purchased).toBe(true); expect(save(result.profile)).toBe(true) },
-    change(id: string, slot: PersonalEquipmentSlot, item: string | null) { return changePersonalEquipment(read, authority, id, slot, item, save) },
+    change(id: string, slot: PersonalEquipmentSlot, item: string | null) { return changeTownEquipment(read, { ...context, personalState: authority.state, safeActorIds: context.safeActorIds }, id, slot, item, save) },
     sell(id: string) { return sellPersonalSquadMember(read, authority, id, save) },
     sellMany(ids: string[]) { return sellPersonalSquadMembers(read, authority, ids, save) },
   }
@@ -219,6 +221,16 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     const h = harness(), id = h.hire(); h.buy('heavy_lance'); h.buy('recurve_longbow'); const before = cloneCareerProfile(h.read()), disk = h.store.load()
     h.fail(); expect(h.change(id, 'melee', 'heavy_lance').reason).toBe('save-failed'); expect(h.change(id, 'ranged', 'recurve_longbow').reason).toBe('save-failed')
     expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(disk)
+  })
+  it('rejects HR equipment changes outside a safe peaceful home-town context', () => {
+    const h = harness(), id = h.hire(), before = cloneCareerProfile(h.read())
+    h.context.townFaction = 'viking'
+    expect(h.change(id, 'mount', null).reason).toBe('enemy-town')
+    h.context.townFaction = 'roman'; h.context.peaceful = false
+    expect(h.change(id, 'mount', null).reason).toBe('not-safe')
+    h.context.peaceful = true; h.context.safeActorIds = new Set()
+    expect(h.change(id, 'mount', null).reason).toBe('not-safe')
+    expect(h.read()).toEqual(before)
   })
   it('rejects equipment and sale while the squad is active', () => {
     const state = 'ACTIVE' as const

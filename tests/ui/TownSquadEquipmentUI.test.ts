@@ -1,7 +1,8 @@
 import { afterEach,describe,expect,it,vi } from 'vitest'
+import { changeTownEquipment } from '../../src/career/CareerTownEquipment'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { acceptCareerOutpost } from '../../src/career/CareerOutpostMission'
-import { changePersonalEquipment,recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
+import { recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
 import { createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import type { PersonalSquadState } from '../../src/town/TownPersonalSquadController'
@@ -51,7 +52,7 @@ function harness(type: 'captain' | 'ranger' = 'captain') {
   expect(save(purchase.profile)).toBe(true)
   const state: { state: PersonalSquadState } = { state: 'RESERVE' }
   const adapter = squadEquipmentUI(() => profile, () => state.state, (id, slot, item) =>
-    changePersonalEquipment(() => profile, state, id, slot, item, save).changed ? '裝備已更新。' : '換裝失敗。')
+    changeTownEquipment(() => profile, { townFaction: profile.faction, peaceful: true, personalState: state.state, safeActorIds: new Set(profile.personalSquad!.members.map(member => member.id)) }, id, slot, item, save).changed ? '裝備已更新。' : '換裝失敗。')
   let root: Element
   function render() {
     root = new Element('div')

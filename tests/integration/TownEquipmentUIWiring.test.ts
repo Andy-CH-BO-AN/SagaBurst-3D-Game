@@ -35,7 +35,7 @@ function fixture() {
     return 0
   })
   createTownCareerEquipmentUI(() => profile, () => context, () => [], save, apply)
-  return { read: () => profile, store, storage, events, apply, bulk: () => bindings.bulk('personal', 'sword') }
+  return { read: () => profile, store, storage, events, apply, bulk: () => bindings.bulk('personal', 'sword'), change: () => bindings.change('personal', 'personal:ui-soldier', 'melee', 'paladin_sword_t4') }
 }
 describe('Town equipment caller transaction ordering', () => {
   it('serializes a bulk loadout before applying its runtime side effect once', () => {
@@ -46,6 +46,20 @@ describe('Town equipment caller transaction ordering', () => {
     const saved = h.store.load()!
     expect(saved.personalSquad!.members[0].equipment?.melee).toBe('paladin_sword_t4')
     expect(saved.inventory!.quantities.paladin_sword_t4).toBe(1)
+  })
+  it('retries a rejected single-member UI change without publishing equipment before the save', () => {
+    const h = fixture(), previous = h.read(), stored = h.store.load()
+    h.storage.failWrites = true
+    h.change()
+    expect(h.events).toEqual(['save'])
+    expect(h.apply).not.toHaveBeenCalled()
+    expect(h.read()).toBe(previous)
+    expect(h.store.load()).toEqual(stored)
+    h.storage.failWrites = false; h.events.length = 0
+    h.change()
+    expect(h.events).toEqual(['save', 'apply'])
+    expect(h.apply).toHaveBeenCalledExactlyOnceWith(previous, h.read(), ['personal:ui-soldier'])
+    expect(h.store.load()!.personalSquad!.members[0].equipment?.melee).toBe('paladin_sword_t4')
   })
   it('leaves profile and runtime unchanged when the bulk save fails', () => {
     const h = fixture(), previous = h.read(), stored = h.store.load()

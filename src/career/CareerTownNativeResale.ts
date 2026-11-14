@@ -88,12 +88,6 @@ function transact(read: () => CareerProfile, context: () => TownNativeSaleContex
   return { sold: true, profile: next, soldCount: ids.length, earnedMerit }
 }
 
-/** Explicit token requests reject duplicates, foreign tokens, active holders, and partial batches. */
-export function sellTownNativeEquipment(read: () => CareerProfile, context: () => TownNativeSaleContext,
-  nativeIds: readonly string[], save: (profile: CareerProfile) => boolean): TownNativeSaleResult {
-  return transact(read, context, () => nativeIds, save)
-}
-
 /** Select canonical native IDs in stable order, rechecking quantity at the moment of sale. */
 export function sellTownNativeProducts(read: () => CareerProfile, context: () => TownNativeSaleContext,
   requests: readonly TownNativeSaleRequest[], save: (profile: CareerProfile) => boolean): TownNativeSaleResult {
