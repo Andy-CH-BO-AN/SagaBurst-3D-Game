@@ -16,7 +16,6 @@ import {
   settleCareerMissionReturn,
 } from '../../src/town/SergeantReturn'
 import { DUEL_ARENA_RETURN_KEY } from '../../src/arena/DuelArenaReturn'
-import { townRoster, townSitePoint } from '../../src/town/TownRules'
 import { getTerrainHeight } from '../../src/world/Terrain'
 
 function memorySessionStorage(): Storage {
@@ -33,28 +32,25 @@ function memorySessionStorage(): Storage {
 
 describe('Sergeant return contract', () => {
   it('places the player 3–4m in front of the live Sergeant facing him with terrain height', () => {
-    const base = townSitePoint('hall', 8, 20)
-    const livePoint = resolveSergeantReturnPoint(
-      { x: base.x + 12, z: base.z - 5, yaw: Math.PI / 3 },
-      { terrainHeight: getTerrainHeight },
-    )!
-    expect(livePoint).not.toBeNull()
-    const dist = Math.hypot(livePoint.x - (base.x + 12), livePoint.z - (base.z - 5))
-    expect(dist).toBeGreaterThanOrEqual(3.0)
-    expect(dist).toBeLessThanOrEqual(4.0)
-    expect(livePoint.y).toBeCloseTo(getTerrainHeight(livePoint.x, livePoint.z), 4)
-    const expectedYaw = Math.atan2((base.x + 12) - livePoint.x, (base.z - 5) - livePoint.z)
-    expect(livePoint.yaw).toBeCloseTo(expectedYaw, 4)
-
-    // Resolves the deployment role specifically (not captain) from the authored town roster.
-    const roster = townRoster()
-    const captain = roster.find(actor => actor.id === 'captain')!
-    const sergeant = roster.find(actor => actor.id === 'deployment')!
-    expect(sergeant.role).toBe('deployment')
-    const resolved = sergeantReturnFromResidents(roster.map(spec => ({ spec })), { terrainHeight: getTerrainHeight })!
-    expect(Math.hypot(resolved.x - sergeant.x, resolved.z - sergeant.z)).toBeGreaterThanOrEqual(3.0)
-    expect(Math.hypot(resolved.x - sergeant.x, resolved.z - sergeant.z)).toBeLessThanOrEqual(4.0)
-    expect(Math.hypot(resolved.x - captain.x, resolved.z - captain.z)).toBeGreaterThan(10)
+    const sergeant = { x: 60, z: -2 }
+    const heading = Math.PI / 3
+    const point = sergeantReturnFromResidents([
+      { spec: { id: 'captain', role: 'captain', x: 25, z: 18 } },
+      { spec: { id: 'reserve-officer', role: 'deployment', x: 35, z: 18 } },
+      {
+        spec: { id: 'deployment', role: 'deployment', x: 48, z: 3, yaw: 0 },
+        npc: { combatPosition: sergeant, group: { rotation: { y: heading } } },
+      },
+    ], { terrainHeight: getTerrainHeight })!
+    expect(point).not.toBeNull()
+    const dx = point.x - sergeant.x
+    const dz = point.z - sergeant.z
+    const distance = Math.hypot(dx, dz)
+    expect(distance).toBeGreaterThanOrEqual(3)
+    expect(distance).toBeLessThanOrEqual(4)
+    expect(Math.atan2(dx, dz)).toBeCloseTo(heading, 3)
+    expect(point.y).toBeCloseTo(getTerrainHeight(point.x, point.z), 4)
+    expect(point.yaw).toBeCloseTo(Math.atan2(-dx, -dz), 4)
   })
 
   it('avoids blocking walls, mounts, and nearby NPCs around the Sergeant', () => {

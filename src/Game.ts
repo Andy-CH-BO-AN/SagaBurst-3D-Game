@@ -1469,8 +1469,10 @@ export class Game {
       const ownedMountId = activeBattleConfig?.playerLoadout?.mountId
       this.startingHorseMountId = ownedMountId
       if (this.careerProfile && ownedMountId) startingHorse.restoreArmor(this.careerProfile.activeMission?.mountState?.armorImpact?.[ownedMountId] ?? this.careerProfile.mountArmor?.[ownedMountId])
-      const reliefHeading = isBridgePreview || this.bridgeLaunch ? 0 : campaignConfig?.careerMissionKind === 'outpost-relief' ? (isRoman ? Math.PI : 0) : undefined
-      const mountHeading = reliefHeading ?? (isRoman ? 0 : Math.PI)
+      const missionHeading = isBridgePreview || this.bridgeLaunch ? 0
+        : campaignConfig?.careerMissionKind === 'veteran-outpost-assault' || campaignConfig?.careerMissionKind === 'outpost-relief'
+          ? (campaignConfig.defenderFaction === 'roman' ? Math.PI : 0) : undefined
+      const mountHeading = missionHeading ?? (isRoman ? 0 : Math.PI)
       if (startingHorse.isFlyingMount) {
         if (activeBattleConfig?.battleType === 'aerial') {
           startingHorse.group.position.set(playerSpawn.x, 35, playerSpawn.z)
@@ -1482,8 +1484,8 @@ export class Game {
       }
       this.mounts.push(startingHorse)
       this.player.faceDirection(0, isBridgePreview || this.bridgeLaunch ? 1 : (isRoman ? 1 : -1))
-      this._mountPlayer(startingHorse, startingHorse.isFlyingMount ? mountHeading : reliefHeading)
-      if (reliefHeading !== undefined) this.thirdPersonCamera.setYaw(isBridgePreview || this.bridgeLaunch ? Math.PI : (isRoman ? 0 : Math.PI))
+      this._mountPlayer(startingHorse, startingHorse.isFlyingMount ? mountHeading : missionHeading)
+      if (missionHeading !== undefined) this.thirdPersonCamera.setYaw(missionHeading + Math.PI)
     }
     
     this.damageNumbers = new DamageNumbers()
@@ -3545,6 +3547,8 @@ export class Game {
       if (this.startingHorse.dead && !mountState.unavailable.includes(mountId as never)) mountState.unavailable.push(mountId as never)
     }
     active.mountState = mountState as ActiveCareerMission['mountState']
+    const playerPosition = { x: this.player.combatPosition.x, z: this.player.combatPosition.z,
+      yaw: this.player.currentMount?.group.rotation.y ?? this.player.group.rotation.y }
     active.outpostBattleState = {
       phase: runtime.phase,
       activePhase: runtime.activePhase,
@@ -3557,14 +3561,18 @@ export class Game {
       reinforcementQueueIndex: Math.max(previousState.reinforcementQueueIndex, this.campaignSpawnQueueIndex),
       assaultChargeTriggered: previousState.assaultChargeTriggered,
       battleFinished: runtime.battleFinished,
+      ...(campaign.careerVeteranOutpost?.templateId === 'veteran-outpost-assault' ? {
+        playerPosition: { ...playerPosition,
+          y: this.player.currentMount?.group.position.y ?? this.player.group.position.y - .95,
+          yaw: this.player.currentMount?.group.rotation.y ?? this.player.facingYaw },
+      } : {}),
       ...(gateHealth !== undefined ? { gateHealth } : {}),
       ...(gateState ? { gateState } : {}),
     }
     if (active.commanderMission) {
       active.commanderMission.deploymentComplete = Boolean(active.commanderMission.deploymentComplete
         || (this.commanderOutpostDeploymentBatch?.ready && (!this.personalSquad || this.personalSquad.ready)))
-      active.commanderMission.playerPosition = { x: this.player.combatPosition.x, z: this.player.combatPosition.z,
-        yaw: this.player.currentMount?.group.rotation.y ?? this.player.group.rotation.y }
+      active.commanderMission.playerPosition = playerPosition
     }
     if (!active.result) active.phase = runtime.activePhase === 'deployment' ? 'PREPARING' : 'ENGAGING'
     return active
@@ -3575,15 +3583,18 @@ export class Game {
     const campaign = this.defenseCampaignConfig
     const data = campaign?.careerVeteranOutpost ?? campaign?.careerCommanderOutpost
     if (!mission || !campaign || !data || mission.id !== data.missionId) return
-    const position = mission.commanderMission?.playerPosition
+    const veteranPosition = campaign.careerVeteranOutpost?.runtimeState.playerPosition
+    const position = mission.commanderMission?.playerPosition ?? veteranPosition
     if (position) {
+      const y = veteranPosition?.y ?? getTerrainHeight(position.x, position.z)
       if (this.player.currentMount) {
-        this.player.currentMount.group.position.set(position.x, getTerrainHeight(position.x, position.z), position.z)
+        this.player.currentMount.group.position.set(position.x, y, position.z)
         this.player.currentMount.group.rotation.y = position.yaw
       }
-      this.player.group.position.set(position.x, getTerrainHeight(position.x, position.z) + .95, position.z)
+      this.player.group.position.set(position.x, y + .95, position.z)
       this.player.faceDirection(Math.sin(position.yaw), Math.cos(position.yaw))
       if (this.player.currentMount) this.player.syncMountTransform()
+      if (campaign.careerVeteranOutpost) this.thirdPersonCamera.setYaw(position.yaw + Math.PI)
     }
     const savedMountHp = mission.mountState?.hp[campaign.playerLoadout.mountId as keyof NonNullable<ActiveCareerMission['mountState']>['hp']]
     this.player.currentMount?.restoreArmor(mission.mountState?.armorImpact?.[campaign.playerLoadout.mountId!] ?? this.careerProfile?.mountArmor?.[campaign.playerLoadout.mountId!])

@@ -14,7 +14,7 @@ import {
   type UnitTierCounts,
 } from '../battle/BattleConfig'
 import type { HorseAppearanceVariant } from '../world/HorseAssetRegistry'
-import type { NpcSpawnSpec } from '../battle/BattleSpawner'
+import { BATTLE_FRONTLINE_Z, type NpcSpawnSpec } from '../battle/BattleSpawner'
 import {
   MAX_COMMAND_SQUAD_SIZE,
   MAX_COMMAND_SQUADS,
@@ -626,12 +626,18 @@ export function positionDefenseCampaignDefenders(
   return rampart
 }
 
-/** Shared front line for both the roster and its mobile siege vehicles. */
+/** Standard Defense uses the battle formation line on the opposite side of the map. */
+export function getStandardOutpostAttackerFrontlineZ(outpostFaction: CampaignFaction): number {
+  const { frontZ, backZ } = getCampaignOutpostPlacement(outpostFaction)
+  return -Math.sign(backZ - frontZ) * BATTLE_FRONTLINE_Z
+}
+
+/** Fallback staging line for a siege vehicle without a roster to anchor it. */
 export function getDefenseCampaignStagingZ(frontZ: number, inwardSign: number): number {
   return frontZ - inwardSign * 100
 }
 
-/** Keep an attacker wave at least 100m beyond the owning Outpost's front gate. */
+/** Enforce a minimum gate distance, not the Standard Outpost starting line. */
 export function positionDefenseCampaignAttackers(
   specs: NpcSpawnSpec[],
   outpostFaction: CampaignFaction,

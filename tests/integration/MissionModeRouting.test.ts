@@ -6,6 +6,9 @@ import { Game } from '../../src/Game'
 import { getDefenseCampaignUnlockedStage } from '../../src/campaign/CampaignProgress'
 import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
+import { createCareerVeteranOutpostLaunch } from '../../src/career/CareerVeteranOutpost'
+import { CareerMissionCheckpoint } from '../../src/career/CareerMissionCheckpoint'
+import { acceptVeteranMission } from '../../src/career/VeteranMission'
 import { acceptCareerOutpost } from '../../src/career/CareerOutpostMission'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -93,6 +96,42 @@ describe('Game routes Campaign and Career separately', () => {
 })
 
 describe('Career reload routing', () => {
+  it('restores the Veteran assault player at the checkpoint instead of the new frontline', () => {
+    const store = new CareerProfileStore(new MemoryStorage())
+    const profile = acceptVeteranMission({
+      ...createCareerProfile('roman'), rank: 'veteran', totalMerit: 900, ownedMounts: ['horse'],
+    }, 'veteran-outpost-assault', { missionId: 'assault' })!
+    const leaderId = profile.activeMission!.friendlyActorIds![0]
+    profile.activeMission!.actorPositions = { [leaderId]: { x: 8, z: 63, yaw: 0 } }
+    expect(store.save(profile)).toBe(true)
+    const legacy = store.load()!
+    const launch = createCareerVeteranOutpostLaunch(legacy)
+    const player = { ...careerCheckpointPlayer(), hp: 83, facingYaw: Math.PI / 2, faceDirection: vi.fn(), setStamina: vi.fn(), setHp: vi.fn() }
+    const game = Object.assign(Object.create(Game.prototype) as {
+      _persistCareerVeteranOutpostCheckpoint(): boolean
+      _restoreCareerVeteranPlayerStateAndShowTerminalResult(): void
+    }, {
+      careerProfile: legacy, defenseCampaignConfig: launch,
+      defenseCampaignRuntime: new DefenseCampaignRuntime({ deploymentSeconds: 0 }),
+      veteranOutpostCheckpoint: new CareerMissionCheckpoint(() => legacy, next => store.save(next)),
+      battleStats: { checkpoint: () => undefined },
+      npcs: [], player, hpBar: { setFill: vi.fn() }, staminaBar: { setFill: vi.fn() }, thirdPersonCamera: { setYaw: vi.fn() },
+    })
+    game._restoreCareerVeteranPlayerStateAndShowTerminalResult()
+    expect(player.group.position).toMatchObject({ x: 0, z: 58 })
+    player.group.position.set(4, 12, -42)
+    expect(game._persistCareerVeteranOutpostCheckpoint()).toBe(true)
+    const saved = store.load()!
+    game.careerProfile = saved
+    game.defenseCampaignConfig = createCareerVeteranOutpostLaunch(saved)
+    player.group.position.set(0, 0, -138)
+    game._restoreCareerVeteranPlayerStateAndShowTerminalResult()
+    expect(player.group.position).toMatchObject({ x: 4, y: 12, z: -42 })
+    expect(player.faceDirection).toHaveBeenCalledWith(1, expect.closeTo(0))
+    expect(player.setHp).toHaveBeenCalledWith(83)
+    expect(saved.activeMission?.actorPositions).toEqual(legacy.activeMission?.actorPositions)
+  })
+
   it('keeps a completed ending out of automatic recovery even with stale town intent and hostility', () => {
     const profile = createCareerProfile('roman')
     profile.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 1, combatElapsedSeconds: 42, outcome: 'escaped' }
