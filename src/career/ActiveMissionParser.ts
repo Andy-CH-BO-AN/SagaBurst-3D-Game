@@ -482,7 +482,8 @@ export function parseActiveMission(value: unknown, faction: CareerProfile['facti
   if ((raw.kind === 'town-defense' || raw.kind === 'enemy-town-assault') && !siege) return undefined
   const duel = raw.kind === 'duel' && raw.templateId === CAREER_DUEL_TEMPLATE_ID
   const trialTier = raw.kind === 'arena-squad-trial' ? arenaTrialTierFromTemplateId(raw.templateId) : null
-  const trialRoster = trialTier && typeof raw.id === 'string' && raw.id ? arenaTrialRoster(raw.id, trialTier) : null
+  const trialRosterVersion = (raw.arenaTrial as { rosterVersion?: unknown } | undefined)?.rosterVersion === 2 ? 2 : 1
+  const trialRoster = trialTier && typeof raw.id === 'string' && raw.id ? arenaTrialRoster(raw.id, trialTier, trialRosterVersion) : null
   if (raw.kind === 'arena-squad-trial' && !trialRoster) return undefined
   const duelIdentity = duel ? parseDuelIdentity(raw, faction) : undefined
   if (duel && !duelIdentity) return undefined

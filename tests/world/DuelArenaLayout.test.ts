@@ -227,11 +227,21 @@ describe('duel arena layout collision', () => {
 })
 
 
-it('關押場景 36 個站位皆合法、側牆仍阻擋且不移除原場景碰撞資料', () => {
+it('關押場景可分開部署 5 或 10 名看守，側牆仍阻擋且不移除原場景碰撞資料', () => {
   for (const [id, shell] of [['roman-colosseum', createColosseumObstacles()], ['viking-valhalla', createValhallaObstacles()]] as const) {
     const originalLength = shell.length
-    const obstacles = prisonExitObstacles(id, shell), formation = prisonFormation(id), gate = prisonExitPlan(id)
-    for (const slot of [formation.player, ...formation.friendly, ...formation.enemy]) expect(arenaTrialSlotClear(slot.x, slot.z, 0, obstacles)).toBe(true)
+    const obstacles = prisonExitObstacles(id, shell), gate = prisonExitPlan(id)
+    const blocked = [...obstacles, prisonGateObstacle(id)]
+    for (const count of [5, 10] as const) {
+      const formation = prisonFormation(id, count)
+      expect(formation.enemy).toHaveLength(count)
+      const slots = [formation.player, ...formation.friendly, ...formation.enemy]
+      expect(slots.filter(slot => !arenaTrialSlotClear(slot.x, slot.z, 0, blocked)), id).toEqual([])
+      let closest = Infinity
+      for (let i = 0; i < slots.length; i++) for (let j = i + 1; j < slots.length; j++)
+        closest = Math.min(closest, Math.hypot(slots[i].x - slots[j].x, slots[i].z - slots[j].z))
+      expect(closest, `${id} ${count} guards`).toBeGreaterThan(2)
+    }
     expect(arenaTrialSlotClear(3, gate.gateZ - .3, 0, obstacles)).toBe(false)
     expect(shell).toHaveLength(originalLength)
   }

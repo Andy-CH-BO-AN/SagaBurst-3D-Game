@@ -220,7 +220,7 @@ import { personalOutpostDeployment, personalRearDeployment } from './career/Pers
 import { planPersonalOutpostGround } from './career/PersonalOutpostGroundPlan'
 import { careerOutpostCommandMeritPolicy } from './career/CareerOutpostMission'
 import { careerOutpostActorId } from './career/CareerOutpostRoster'
-import { claimCareerFieldResult, beginPrisonBreak } from './career/CareerPrisonBreak'
+import { claimCareerFieldResult, beginPrisonBreak, prisonGuardCount } from './career/CareerPrisonBreak'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerMountId, type CareerProfile } from './career/CareerProfile'
 import { CareerMissionCheckpoint, type CareerMissionCheckpointReason } from './career/CareerMissionCheckpoint'
 import type { ActiveCareerMission, BridgeBattleDeployment } from './career/CareerMissionState'
@@ -3011,8 +3011,10 @@ export class Game {
     if (!this.bridgeLaunch && !this.careerStore.save(claim.profile)) { retry(); return }
     this.careerProfile = claim.profile
     this.fieldResultPending = undefined
-    this.fieldBattleHud?.showResult(outcome, claim.profile.activeMission!.result!.merit.total, stats, () => this._returnToCareerTown(),
-      outcome === 'failure' && claim.profile.activeMission?.id === this.fieldMissionId && claim.profile.activeMission.prisonBreak?.stage === 'captured')
+    const mission = claim.profile.activeMission!
+    const prison = mission.prisonBreak
+    this.fieldBattleHud?.showResult(outcome, mission.result!.merit.total, stats, () => this._returnToCareerTown(),
+      outcome === 'failure' && mission.id === this.fieldMissionId && prison?.stage === 'captured' ? prisonGuardCount(prison) : undefined)
   }
 
   private _identifyPersonalOutpostWave(plan: BattleSpawnPlan, wave: 'initial' | 'attackers' | 'reinforcement'): void {

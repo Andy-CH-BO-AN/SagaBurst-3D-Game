@@ -44,10 +44,10 @@ describe('Prison encounter persistence', () => {
       localProfile: profile, prisonHud: hud, player, phase: 'fight', knocked: new Set(guards.slice(0, 2)), bodies,
     })
     scene.updatePrisonHud()
-    expect(hud.textContent).toBe('越獄目標｜擊倒看守 2／5')
+    expect(hud.textContent).toBe('越獄目標｜擊倒看守 2／10')
     bodies.push({ actorId: guards[2], npc: { dead: true } })
     scene.updatePrisonHud()
-    expect(hud.textContent).toBe('越獄目標｜擊倒看守 3／5')
+    expect(hud.textContent).toBe('越獄目標｜擊倒看守 3／10')
     state.gateOpen = true; player.dead = true; scene.updatePrisonHud()
     expect(hud.textContent).toContain('鐵門已開｜穿過出口')
     expect(hud.textContent).toContain('正在觀戰；友軍仍可逃脫')
@@ -150,9 +150,14 @@ describe('Prison encounter persistence', () => {
   it('舊存檔不回推被俘，未完成越獄沿新規則恢復，已保存的舊結果不重開', () => {
     const { profile, store, storage } = fixture()
     const legacy = structuredClone(profile)
-    legacy.activeMission!.prisonBreak!.version = 1
+    const checkpoint = legacy.activeMission!.prisonBreak!
+    delete checkpoint.rosterVersion
+    for (let i = 5; i < 10; i++) delete checkpoint.combat.actors[`original:guard:${i}`]
     storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacy))
-    expect(store.load()!.activeMission!.prisonBreak).toEqual(profile.activeMission!.prisonBreak)
+    expect(store.load()!.activeMission!.prisonBreak).toEqual(checkpoint)
+    checkpoint.version = 1
+    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacy))
+    expect(store.load()!.activeMission!.prisonBreak).toEqual({ ...checkpoint, version: 2 })
     const sealed = legacy.activeMission!.prisonBreak!
     sealed.stage = 'result'; sealed.combat.player!.knocked = true; sealed.combat.player!.hp = 0
     sealed.result = { outcome: 'failure', merit: 0 }
@@ -244,7 +249,12 @@ describe('Prison encounter persistence', () => {
     expect(bodies[0].npc.update).toHaveBeenCalledOnce()
     expect(published).not.toHaveBeenCalled()
     expect(store.load()!.activeMission!.prisonBreak!.result).toBeUndefined()
-    for (const body of bodies.filter(body => body.team === 'enemy')) body.npc.dead = true
+    const guards = bodies.filter(body => body.team === 'enemy')
+    for (const guard of guards.slice(0, 9)) guard.npc.dead = true
+    scene.advancePhase(0)
+    expect(props.setOpen).not.toHaveBeenCalled()
+    expect(store.load()!.activeMission!.prisonBreak!.gateOpen).toBe(false)
+    guards[9].npc.dead = true
     const meritBeforeGate = store.load()!.totalMerit
     scene.advancePhase(0)
     expect(props.setOpen).toHaveBeenCalledWith(true, true)

@@ -142,7 +142,7 @@ describe('Arena Squad Trials', () => {
 
   it('fields the five agreed team sizes with same-culture bodies split only by team allegiance', () => {
     expect(ARENA_TRIAL_TIERS.map(tier => arenaTrialTeamSizes(tier))).toEqual([
-      { friendly: 20, enemy: 10 }, { friendly: 15, enemy: 8 }, { friendly: 8, enemy: 20 }, { friendly: 20, enemy: 5 }, { friendly: 5, enemy: 20 }])
+      { friendly: 20, enemy: 15 }, { friendly: 20, enemy: 15 }, { friendly: 12, enemy: 20 }, { friendly: 20, enemy: 10 }, { friendly: 8, enemy: 20 }])
     for (const tier of ARENA_TRIAL_TIERS) for (const entry of arenaTrialRoster('m', tier)) {
       const spec = arenaTrialUnitSpec(entry.actorId, 'viking', entry.team === 'friendly' ? Faction.PLAYER : Faction.ENEMY, entry.group)
       expect([spec.faction, spec.characterFaction, spec.characterTier, spec.cavalry, spec.loadout?.mountId]).toEqual([
@@ -158,15 +158,34 @@ describe('Arena Squad Trials', () => {
       const formation = planArenaTrialFormation(arenaId, obstacles, 19, 20)!
       expect(formation).not.toBeNull()
       const all = [formation.player, ...formation.friendly, ...formation.enemy]
-      for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
-        expect(Math.hypot(all[i].x - all[j].x, all[i].z - all[j].z)).toBeGreaterThan(2)
-      }
+      let closest = Infinity
+      for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++)
+        closest = Math.min(closest, Math.hypot(all[i].x - all[j].x, all[i].z - all[j].z))
+      expect(closest, arenaId).toBeGreaterThan(2)
       expect(Math.min(...formation.enemy.map(s => s.z)) - Math.max(...formation.friendly.map(s => s.z))).toBeGreaterThan(8)
       const roster = arenaTrialRoster('m', 1)
-      const slots = assignArenaTrialSlots(roster, planArenaTrialFormation(arenaId, obstacles, 19, 10)!)
+      const slots = assignArenaTrialSlots(roster, planArenaTrialFormation(arenaId, obstacles, 19, 15)!)
       const frontZ = (role: string) => Math.max(...roster.filter(e => e.team === 'friendly' && e.group.role === role).map(e => slots.get(e.actorId)!.z))
       expect(frontZ('archer')).toBeLessThan(frontZ('melee'))
     }
+  })
+
+  it('restores the original actor identities and knockouts in an already accepted pre-rebalance trial', () => {
+    const profile = profileAt('commander')
+    const mission = createArenaTrialMission(profile, 5, 'viking-valhalla', 'legacy-trial')!
+    mission.friendlyActorIds = Array.from({ length: 4 }, (_, i) => `legacy-trial:friendly:${i}`)
+    delete mission.arenaTrial!.rosterVersion
+    Object.assign(mission.arenaTrial!, { stage: 'engaged', combatElapsed: 12, actors: {
+      'legacy-trial:friendly:2': { status: 'knocked', hp: 0, x: 1, z: 2, yaw: 0 },
+    } })
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    expect(store.save({ ...profile, activeMission: mission })).toBe(true)
+    const restored = store.load()!.activeMission!, state = restored.arenaTrial!
+    expect(restored.friendlyActorIds).toEqual(mission.friendlyActorIds)
+    expect(state.rosterVersion).toBeUndefined()
+    const friendly = arenaTrialRoster(restored.id, 5, state.rosterVersion ?? 1).filter(entry => entry.team === 'friendly')
+    expect(friendly.map(entry => Boolean(entry.group.heavy))).toEqual([true, true, false, false])
+    expect(arenaTrialRestorablePlan(restored, state).map(entry => entry.actorId)).not.toContain('legacy-trial:friendly:2')
   })
 
   it('ends only when a team is out: a fallen player alone does not lose while a friendly body stands', () => {
