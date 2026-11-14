@@ -619,6 +619,11 @@ export class TownScene {
       () => this.player, this.hp, this.careerMounts, () => this.profile, p => this.commit(p, this.player.dead && this.profile.activeRace && !p.activeRace ? 'grounded-return' : 'ordinary'))
     this.race.parkedBlockers = except => [...this.townReturnBlockers(except)]
     this.race.returnGroundHeight = (x, z) => this.sergeantReturnGroundHeight(x, z)
+    this.race.spawnBlockers = rider => [
+      ...(this.residents ?? []).filter(r => !r.npc.dead && r.npc !== rider).map(r => ({ x: r.npc.combatPosition.x, z: r.npc.combatPosition.z, radius: r.npc.mount ? 1.5 : .7 })),
+      ...this.townParkedMountBlockers(null),
+      ...(this.player && !this.player.dead ? [{ x: this.player.combatPosition.x, z: this.player.combatPosition.z, radius: this.player.currentMount ? 1.5 : .75 }] : []),
+    ]
     this.missionCombat = new TownMissionCombat(
       { field: this.mission, duel: this.duel, defense: this.defense },
       {

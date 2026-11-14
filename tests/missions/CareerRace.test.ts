@@ -11,6 +11,8 @@ import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { canEnterRace, finalizeRaceDeployment, advanceRaceClock, advanceRaceRider, parseRaceSession, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
 import { RACE_START_SLOTS, RACE_LINES, raceWaypoints, raceMovementIsLegal, illegalTownCrossing, type RacePosition } from '../../src/career/CareerRaceRoute'
+import { collideMountBody, settleMountOnTerrain } from '../../src/world/MountGroundBody'
+import type { ObstacleData } from '../../src/world/Terrain'
 import { findSergeantResident } from '../../src/town/SergeantReturn'
 import { PLAYER_FOOT_OFFSET } from '../../src/player/PlayerFootBody'
 import { townRoster } from '../../src/town/TownRules'
@@ -418,7 +420,58 @@ describe('Race persistence independent of hostility and Duel', () => {
 })
 
 
+/** Town Center-like hall: a solid plinth whose floor stands 1.4m above the terrain, and a side wall at x 8.2–9. */
+function raisedHallRace(phase: CareerRaceSession['phase'], saved: RacePosition) {
+  const floor = 1.4
+  const obstacles: ObstacleData[] = [
+    { isBarricade: false, navigationPassable: true, solidBelow: -.2, box: new Box3(new Vector3(-9, -.2, -12), new Vector3(9, floor, 12)),
+      walkSurface: { startX: 0, startZ: -12, startY: floor, topY: floor, dirX: 0, dirZ: 1, length: 24, landing: 0, halfWidth: 9, mounted: true } },
+    { isBarricade: false, box: new Box3(new Vector3(8.2, -.2, -12), new Vector3(9, floor + 11, 12)) },
+  ]
+  // The Commander stood on his home mount at (5.4, 0); it stays there while he switches to the race horse.
+  const homeMount = { dead: false, combatRadius: 2, group: { position: new Vector3(5.4, floor, 0) } }
+  const rider = { dead: false, combatPosition: new Vector3(5.4, floor, 0), mount: homeMount }
+  const controller = Object.assign(Object.create(CareerRaceController.prototype), {
+    obstacles, residents: [{ npc: rider, homeMount, spec: { id: 'commander', x: 5.4, z: 0 } }], borrowedCommander: { npc: rider, homeMount },
+    navigation: { areConnected: () => true }, returnGroundHeight: (x: number, z: number) => Math.abs(x) <= 9 && Math.abs(z) <= 12 ? floor : 0,
+  }) as { raceMountSpawn(s: CareerRaceSession, rider: unknown, initial: boolean): RacePosition | null }
+  const session = { phase, opponent: { mountId: 'horse', mounted: true, mountPosition: { ...saved }, position: { ...saved } } } as CareerRaceSession
+  return { obstacles, controller, rider, session }
+}
+/** One real ground-mount frame: gravity and the terrain heightmap, then obstacle and walk-surface collision. */
+function firstMountStep(spawn: RacePosition, obstacles: ObstacleData[]) {
+  const position = new Vector3(spawn.x, spawn.y, spawn.z), previous = position.clone()
+  const state = collideMountBody(position, previous, settleMountOnTerrain(position, 0, .2, () => 0), obstacles)
+  return { position, state }
+}
+
 describe('Commander invitation race', () => {
+  it('spawns the Commander race horse on the raised hall floor beside his home mount and keeps it there through the first collision step', () => {
+    const h = raisedHallRace('guiding', { x: 5.4, y: 1.4, z: 0, yaw: .3 })
+    const spawn = h.controller.raceMountSpawn(h.session, h.rider, true)!
+    expect(spawn.y).toBe(1.4)
+    expect(spawn.yaw).toBe(.3)
+    expect(Math.hypot(spawn.x - 5.4, spawn.z)).toBeGreaterThanOrEqual(4)
+    expect(spawn.x + 1.05).toBeLessThanOrEqual(8.2)
+    expect(h.session.opponent.mountPosition).toEqual(spawn)
+    expect(h.session.opponent.position).toEqual(spawn)
+    const step = firstMountStep(spawn, h.obstacles)
+    expect(step.state.onGround).toBe(true)
+    expect(step.position.toArray().map(v => +v.toFixed(6))).toEqual([spawn.x, 1.4, spawn.z].map(v => +v.toFixed(6)))
+    // The old spawn left Y undefined: the horse appeared at terrain height inside the plinth and was shoved sideways.
+    const legacy = firstMountStep({ ...spawn, y: 0 }, h.obstacles)
+    expect(Math.hypot(legacy.position.x - spawn.x, legacy.position.z - spawn.z) > .5 || legacy.position.y < 1.4 - .25).toBe(true)
+  })
+  it('restores a saved pre-start race mount from under the hall floor to a legal floor spot, but keeps legal or running poses', () => {
+    const legal = raisedHallRace('guiding', { x: 0, y: 1.4, z: 6, yaw: 0 })
+    expect(legal.controller.raceMountSpawn(legal.session, legal.rider, false)).toBe(legal.session.opponent.mountPosition)
+    const sunk = raisedHallRace('countdown', { x: 0, y: .06, z: 6, yaw: 0 })
+    expect(sunk.controller.raceMountSpawn(sunk.session, sunk.rider, false)).toEqual({ x: 0, y: 1.4, z: 6, yaw: 0 })
+    expect(sunk.session.opponent.mountPosition.y).toBe(1.4)
+    // Once racing, the saved progress pose is restored exactly as played.
+    const running = raisedHallRace('racing', { x: 0, y: .06, z: 6, yaw: 0 })
+    expect(running.controller.raceMountSpawn(running.session, running.rider, false)).toEqual({ x: 0, y: .06, z: 6, yaw: 0 })
+  })
   const EVENT = 'commander-circuit-race' as const
   const pending = (p: CareerProfile): CareerProfile => { p.careerStory = { version: 1, events: { [EVENT]: { status: 'pending' } } }; return p }
   /** A settled Race I session, as the live controller would persist it. */

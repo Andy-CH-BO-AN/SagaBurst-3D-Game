@@ -3,6 +3,7 @@ import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
 import { townPatrolRoute } from '../town/TownPatrolRoute'
 import { Vector3 } from 'three'
 import { isObstaclePathClear, type ObstacleData } from '../world/Terrain'
+import { findMountParkingPoint, isMountParkingClear, type MountParkingOptions } from '../town/SergeantReturn'
 
 export interface RacePoint { x: number; z: number }
 export interface RacePosition extends RacePoint { y: number; yaw: number }
@@ -79,4 +80,35 @@ export function raceWaypoints(): RacePoint[] {
   return [{ x: north.x + 3, z: north.z - offset }, ...ring.slice(split), ...ring.slice(0, split),
     { x: north.x, z: north.z - offset }, { x: north.x, z: north.z + 9 }]
     .filter(p => Math.max(Math.abs(p.x), Math.abs(p.z)) < TOWN_PLAYABLE_WORLD_BOUND - 2)
+}
+
+/** Where a race-owned mount may stand: the real walk surface (Town Center floor indoors, terrain outside) and body clearance. */
+export interface RaceMountSpawnOptions {
+  /** Height of the walkable surface under a point; a raised hall floor, never the terrain under its plinth. */
+  groundAt(x: number, z: number): number
+  obstacles: readonly ObstacleData[]
+  /** Riders, NPCs and other mounts already standing there, including the rider's own home mount. */
+  occupied?: readonly { x: number; z: number; radius?: number }[]
+  /** Body radius of the mount being placed. */
+  radius?: number
+  isValid?: (point: RacePoint) => boolean
+}
+const RACE_MOUNT_SURFACE_TOLERANCE = .25
+function parkingOptions(options: RaceMountSpawnOptions, occupied = true): MountParkingOptions {
+  return { obstacles: options.obstacles, terrainHeight: (x, z) => options.groundAt(x, z), radius: options.radius,
+    occupied: occupied ? options.occupied : [], isValid: options.isValid }
+}
+/** A saved race-mount pose is restorable as-is only on its walk surface and outside solid walls or furniture. */
+export function raceMountPoseLegal(pose: RacePosition, options: RaceMountSpawnOptions): boolean {
+  return Math.abs(pose.y - options.groundAt(pose.x, pose.z)) <= RACE_MOUNT_SURFACE_TOLERANCE
+    && isMountParkingClear(pose, parkingOptions(options, false))
+}
+/**
+ * The race mount's spawn for its rider: the rider's own spot when its mount body is clear there, otherwise the
+ * nearest clear ring point. Y always comes from the walk surface at the chosen point; null means no legal spot.
+ */
+export function resolveRaceMountSpawn(origin: RacePosition, options: RaceMountSpawnOptions): RacePosition | null {
+  const parking = parkingOptions(options)
+  const spot = isMountParkingClear(origin, parking) ? origin : findMountParkingPoint(origin, parking)
+  return spot ? { x: spot.x, y: options.groundAt(spot.x, spot.z), z: spot.z, yaw: origin.yaw } : null
 }

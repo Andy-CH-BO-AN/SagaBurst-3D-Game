@@ -7,7 +7,7 @@ import type { HpBar } from '../ui/HpBar'
 import type { Player } from '../player/Player'
 import { standingPlayerY } from '../player/PlayerFootBody'
 import { AIType, Faction, NPC } from '../world/NPC'
-import { Mount, mountTypeFromId, felineVariantFromMountId } from '../world/Mount'
+import { Mount, mountCombatRadius, mountTypeFromId, felineVariantFromMountId } from '../world/Mount'
 import { BlackCatVisual } from '../world/BlackCatVisual'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
@@ -20,7 +20,7 @@ import { CAREER_MOUNT_INTERACTION_DISTANCE, canUseCareerMount, findSafeCareerMou
 import { activateCareerStoryEvent, careerStoryPending } from './CareerStoryEvents'
 import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, pickRaceOpponentMount, RACE_SCHEDULE_VERSION, RACE_STORY_ID, RACE_STORY_RACE_ID, raceOpponentCanSprint, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceId, type RaceRider, type RaceReferee, type RaceMountId } from './CareerRaceState'
-import { legalRaceStart, RACE_START, RACE_START_SLOTS, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, type RacePoint, type RacePosition } from './CareerRaceRoute'
+import { legalRaceStart, RACE_START, RACE_START_SLOTS, raceMountPoseLegal, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, resolveRaceMountSpawn, type RacePoint, type RacePosition, type RaceMountSpawnOptions } from './CareerRaceRoute'
 
 interface RaceResident { npc: NPC; homeMount?: Mount; spec: { id: string; role?: string; x: number; z: number; yaw?: number } }
 const commandId = -7400
@@ -55,6 +55,8 @@ export class CareerRaceController {
   parkedBlockers?: (except?: Mount | null) => { x: number; z: number; radius: number }[]
   /** Town return candidates may stand on the Town Center floor instead of terrain. */
   returnGroundHeight?: (x: number, z: number) => number
+  /** Everyone and every mount already standing in Town except `rider` itself; the race mount must not overlap them. */
+  spawnBlockers?: (rider: NPC) => { x: number; z: number; radius: number }[]
 
   constructor(private readonly scene: THREE.Scene, private readonly navigation: NavigationWorld,
     private readonly obstacles: readonly ObstacleData[], private readonly residents: readonly RaceResident[],
@@ -222,6 +224,9 @@ export class CareerRaceController {
       const npc = this.borrowedCommander?.npc ?? trackNpcSpawn(new NPC(this.scene, s.opponent.position.x, s.opponent.position.z, Faction.TOWN,
         this.read().faction, AIType.MELEE, 'Circuit Rider', 1, true, loadout, presetId, undefined, s.opponent.actorId))
       this.racer = npc
+      // Resolve the race mount on the real walk surface before anything moves, so it never appears in a plinth.
+      const spawn = this.raceMountSpawn(s, npc, initial)
+      if (!spawn) throw new Error('Race mount has no legal spawn point')
       if (this.borrowedCommander) {
         const home = this.borrowedCommander.homeMount
         if (home && s.opponentHome?.mountPosition) {
@@ -236,7 +241,8 @@ export class CareerRaceController {
         }
         npc.dismountFromMount()
       } else npc.setTownPeaceful()
-      const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(s.opponent.mountId), s.opponent.mountPosition.x, s.opponent.mountPosition.z, undefined, horseVariantForStableKey(`town:${this.read().faction}:${s.opponent.actorId}`)))
+      const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(s.opponent.mountId), spawn.x, spawn.z, spawn.y, horseVariantForStableKey(`town:${this.read().faction}:${s.opponent.actorId}`)))
+      mount.group.rotation.y = spawn.yaw
       mount.reservedForTown = true; this.mount = mount
       if (!npc.dead) npc.mountVehicle(mount)
       if (initial) {
@@ -262,6 +268,31 @@ export class CareerRaceController {
       if (!restoring) this.snapshot()
       finalizeRaceDeployment(s, () => this.persist())
     })
+  }
+
+  /**
+   * New and not-yet-deployed sessions always resolve the race mount from the rider's spot; a deployed pre-start session
+   * keeps its saved pose unless that pose sits under the walk surface or inside a wall. Progress is never reset here.
+   */
+  private raceMountSpawn(s: CareerRaceSession, rider: NPC, initial: boolean): RacePosition | null {
+    const saved = s.opponent.mountPosition, home = this.borrowedCommander?.homeMount
+    const options: RaceMountSpawnOptions = {
+      groundAt: this.returnGroundHeight ?? getTerrainHeight, obstacles: this.obstacles,
+      radius: mountCombatRadius(mountTypeFromId(s.opponent.mountId)),
+      occupied: [
+        ...(this.spawnBlockers?.(rider) ?? this.residents.filter(r => r.npc !== rider && !r.npc.dead)
+          .map(r => ({ x: r.npc.combatPosition.x, z: r.npc.combatPosition.z, radius: r.npc.mount ? 1.5 : .7 }))),
+        ...(home && !home.dead ? [{ x: home.group.position.x, z: home.group.position.z, radius: home.combatRadius }] : []),
+      ],
+      isValid: point => this.navigation.areConnected(point, RACE_START),
+    }
+    const preStart = s.phase === 'guiding' || s.phase === 'countdown'
+    if (!initial && (!preStart || raceMountPoseLegal(saved, options))) return saved
+    const spawn = resolveRaceMountSpawn(saved, options)
+    if (!spawn) return null
+    s.opponent.mountPosition = { ...spawn }
+    if (s.opponent.mounted) s.opponent.position = { ...spawn }
+    return spawn
   }
 
   /** Restore uses the existing owned-mount adapter, never a selection-only free mount. */
