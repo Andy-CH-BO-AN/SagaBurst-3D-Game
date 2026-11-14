@@ -111,6 +111,9 @@ const mirrored = <T>(make: (side: number) => T[]): T[] => [...make(-1), ...make(
  * Z -22…14 incl. the ramp). One storey: a tall nave behind a central high arch
  * and four-column pedimented portico, lower red wings on both sides of the front,
  * a tower at the right rear and the council table at the far end of the nave.
+ * Each wing is a room on the nave floor, entered through an inner arch in the
+ * nave side wall: the left wing is the war council room, the right wing the
+ * standards and trophy hall.
  */
 export const ROMAN_TOWN_CENTER = {
   F: .6,
@@ -121,7 +124,16 @@ export const ROMAN_TOWN_CENTER = {
   roof: { eave: 11.4, ridge: 16, back: -20.4, front: 8.9, halfSpan: 9.4 },
   /** Tie beams of the open timber trusses; their underside is the nave's lowest clearance. */
   truss: { z: [-17, -12, -7, -2, 2], bottom: 10.2, depth: .35 },
-  wing: { inner: 9, outer: 18.5, back: -14, front: 3.6, top: 7.3, rise: 2.4 },
+  /** Wing rooms: outer shell `wall` thick on the front, back and outer sides; the nave side wall is the inner wall. */
+  wing: { inner: 9, outer: 18.5, back: -14, front: 3.6, top: 7.3, rise: 2.4, wall: .6 },
+  /** Inner arch through each nave side wall (|x| 8.2–9) into its wing, between the z = ±2 trusses. */
+  wingArch: { z: 0, half: 1.5, height: 4.2 },
+  /** Left wing war council: map table with benches on both long sides and a chair at the head (|x| values). */
+  council: { x: 14.2, z: -6.5, halfX: 1.2, halfZ: 2, top: .95, bench: 1.9, head: 2.9, footprint: { minX: 12, maxX: 16.4, minZ: -9.8, maxZ: -4.3 } },
+  /** Right wing trophy hall: weapon rack along the front wall, standards along the outer wall, statue at the centre. */
+  trophy: { rack: { x: 13.6, half: 2.1, z: 2.55 }, standards: [-8.4, -2], standardX: 17.2, statue: { x: 14.2, z: -6.5, pedestal: 1.2, top: .9, height: 2.6 } },
+  /** Free-standing bronze braziers in each wing's outer front corner. */
+  wingBrazier: { x: 17.1, z: 2.2 },
   tower: { minX: 9, maxX: 15, minZ: -20, maxZ: -14, top: 17, rise: 2.6 },
   ramp: { half: 4.5, cheek: .7, cheekFront: 10.5, maxApproach: 6 },
   statues: { x: 10.6, z: 6.4, pedestal: 1.4, pedestalTop: .9, height: 2.8 },
@@ -266,15 +278,34 @@ function townCenterAnchors(officer: readonly [number, number], service: readonly
 }
 
 function romanTownCenter(): BuildingSpec {
-  const c = ROMAN_TOWN_CENTER, h = c.hall, top = c.F + h.eave, F = c.F
+  const c = ROMAN_TOWN_CENTER, h = c.hall, top = c.F + h.eave, F = c.F, w = c.wing, arch = c.wingArch
   const innerX = h.halfX - h.wall, innerBack = h.back + h.wall, wallBack = h.front - h.wall
   const colliders: ArchitectureCollider[] = [
     // Long front: nave wall either side of the arch, then the lower wings out to ±18.5m.
     ...mirrored(side => [solid(side < 0 ? -h.halfX : c.door.half, wallBack, side < 0 ? -c.door.half : h.halfX, h.front, top)]),
     above(-c.door.half, F + c.door.height, wallBack, c.door.half, top, h.front),
-    ...mirrored(side => [solid(side < 0 ? -h.halfX : innerX, h.back, side < 0 ? -innerX : h.halfX, h.front, top)]),
+    // Nave side walls, opened by the inner wing arch (jambs either side, lintel above).
+    ...mirrored(side => [
+      solid(side < 0 ? -h.halfX : innerX, h.back, side < 0 ? -innerX : h.halfX, arch.z - arch.half, top),
+      solid(side < 0 ? -h.halfX : innerX, arch.z + arch.half, side < 0 ? -innerX : h.halfX, h.front, top),
+      above(side < 0 ? -h.halfX : innerX, F + arch.height, arch.z - arch.half, side < 0 ? -innerX : h.halfX, top, arch.z + arch.half),
+    ]),
     solid(-h.halfX, h.back, h.halfX, innerBack, top),
-    ...mirrored(side => [solid(side < 0 ? -c.wing.outer : c.wing.inner, c.wing.back, side < 0 ? -c.wing.inner : c.wing.outer, c.wing.front, F + c.wing.top)]),
+    // Wing rooms: only their real front, back and outer walls, so the room itself stays open floor.
+    ...mirrored(side => {
+      const x0 = side * w.inner, x1 = side * w.outer, lo = Math.min(x0, x1), hi = Math.max(x0, x1), outerWall = side * (w.outer - w.wall)
+      return [
+        solid(lo, w.front - w.wall, hi, w.front, F + w.top),
+        solid(lo, w.back, hi, w.back + w.wall, F + w.top),
+        solid(Math.min(outerWall, x1), w.back, Math.max(outerWall, x1), w.front, F + w.top),
+        post(side * c.wingBrazier.x, c.wingBrazier.z, .38, F + 1.4, 'prop'),
+      ]
+    }),
+    // Council table, its benches and the head chair stand as one piece of furniture.
+    solid(-c.council.footprint.maxX, c.council.footprint.minZ, -c.council.footprint.minX, c.council.footprint.maxZ, F + 1.1, 'prop'),
+    solid(c.trophy.rack.x - c.trophy.rack.half, c.trophy.rack.z - .45, c.trophy.rack.x + c.trophy.rack.half, w.front - w.wall, F + 2.2, 'prop'),
+    ...c.trophy.standards.map(z => post(c.trophy.standardX, z, .2, F + 6, 'prop')),
+    post(c.trophy.statue.x, c.trophy.statue.z, c.trophy.statue.pedestal / 2, F + c.trophy.statue.top + c.trophy.statue.height, 'statue'),
     solid(c.tower.minX, c.tower.minZ, c.tower.maxX, c.tower.maxZ, F + c.tower.top),
     ...mirrored(side => c.portico.columnX.map(x => post(side * x, c.portico.columnZ, c.portico.columnR, F + c.portico.columnTop))),
     above(-c.roof.halfSpan, F + c.portico.columnTop, c.portico.columnZ - .8, c.roof.halfSpan, F + c.portico.entablature, c.portico.front),
@@ -291,11 +322,15 @@ function romanTownCenter(): BuildingSpec {
   // Walking in, Captain left, Sergeant just right of the door axis before the council table, Commander right.
   const service = serviceAnchors({ captain: [-5.4, -9.5], deployment: [1.8, -12.8], commander: [5.4, -9.5] })
   const sergeant = service.find(a => a.id === 'service:deployment')!
-  const anchors = townCenterAnchors([0, -18.3], service, [4.4, 7.0].flatMap(x => [-14.6, -4.6, -1.4, 1.6].map(z => [x, z] as const)), c.door.half)
+  // Gathering spots beside the side walls keep clear of the wing arches' approach.
+  const gathering = [4.4, 7.0].flatMap(x => [-14.6, -4.6, -1.4, 1.6].map(z => [x, z] as const))
+    .filter(([x, z]) => x < innerX - 2 || Math.abs(z - arch.z) > arch.half + 1.2)
+  const anchors = townCenterAnchors([0, -18.3], service, gathering, c.door.half)
   return {
     faction: 'roman', kind: 'town-center', label: '羅馬城鎮中心 · Principia',
     envelope: TOWN_CENTER_ENVELOPE, floorY: F,
-    floor: [rect(-h.halfX, h.halfX, h.back, c.portico.front)],
+    // Nave and portico, plus each wing room on the same floor level.
+    floor: [rect(-h.halfX, h.halfX, h.back, c.portico.front), rect(-w.outer, -w.inner, w.back, w.front), rect(w.inner, w.outer, w.back, w.front)],
     entrance: { x: 0, z: c.portico.front, yaw: 0, width: c.ramp.half * 2, doorWidth: c.door.half * 2, height: c.door.height,
       approach: c.ramp.maxApproach, gradient: .1 },
     interior: rect(-innerX, innerX, innerBack, wallBack),

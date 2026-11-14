@@ -31,6 +31,7 @@ import type { BanditMissionController } from '../career/BanditMissionController'
 import type { TownDefenseController } from '../career/TownDefenseController'
 import type { TownRetirementMobilizationController } from './TownRetirementMobilizationController'
 import type { Player } from '../player/Player'
+import { standingPlayerY } from '../player/PlayerFootBody'
 import type { CareerMissionPage } from '../career/CareerMissionCatalog'
 import type { ArmyCommandController } from '../battle/ArmyCommandController'
 import type { SkillManager } from '../rpg/SkillManager'
@@ -334,7 +335,7 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
       const entry = resolver ? resolver.call(runtime) : sergeantReturnFromResidents(runtime.residents) ?? townPlayerEntryPoint()
       if (entry) {
         const ground = 'y' in entry && typeof entry.y === 'number' ? entry.y : getTerrainHeight(entry.x, entry.z)
-        runtime.player.resetForScene(entry.x, ground + .9, entry.z)
+        runtime.player.resetForScene(entry.x, standingPlayerY(ground), entry.z)
         runtime.player.group.rotation.y = entry.yaw
         runtime.player.faceDirection?.(Math.sin(entry.yaw), Math.cos(entry.yaw))
         runtime.orbit?.setYaw(entry.yaw + Math.PI)

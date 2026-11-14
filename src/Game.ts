@@ -165,7 +165,7 @@ import { t4EquipmentIdsForArmy } from './battle/T4HeroCatalog'
 import type { UnitPresetId } from './battle/UnitPresetCatalog'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
-import { populateNpcFactionGrids, selectHostileNpcGrid } from './world/HostileNpcGrid'
+import { isPlayerHostileNpc, populateNpcFactionGrids, selectHostileNpcGrid } from './world/HostileNpcGrid'
 import { EntityCollisionBroadPhase } from './world/EntityCollisionBroadPhase'
 import { ArrowProjectile } from './world/ArrowProjectile'
 import { DEFAULT_MOUNT_TYPE, Mount, MountState, MountType, mountTypeFromId, mountTypeFromSave, felineVariantFromMountId } from './world/Mount'
@@ -4665,6 +4665,12 @@ export class Game {
     return false
   }
 
+  /** Weapon and unarmed melee share the Player's hostility rule, so Career field bandits are struck like enemies. */
+  private _playerMeleeNpcTargets(radius: number): NPC[] {
+    return this.npcGrid.getNearbyInto(this.player.combatPosition, radius, this._nearbyNpcBuffer)
+      .filter(npc => !npc.dead && isPlayerHostileNpc(npc))
+  }
+
   // ── Melee Combat Hit Detection (Player Sword -> Enemies / Damageable Obstacles) ──
   private _checkPlayerMeleeHits(): void {
     // Some focused contact owners borrow this method without constructing Game;
@@ -4693,8 +4699,7 @@ export class Game {
     const equippedMelee = this.inventoryManager.activeMelee
     if (!equippedMelee) {
       const strikes = this.player.consumeFistStrikes()
-      const targets = [...this.npcGrid.getNearbyInto(this.player.combatPosition, 4, this._nearbyNpcBuffer)
-        .filter(npc => !npc.dead && npc.faction === Faction.ENEMY), ...this.trainingGround?.dummies ?? [],
+      const targets = [...this._playerMeleeNpcTargets(4), ...this.trainingGround?.dummies ?? [],
         ...this.combatMountGrid.getNearbyInto(this.player.combatPosition, 4, this.meleeMountCandidates).filter(mount => !mount.dead && mount !== this.player.currentMount)]
       for (const strike of strikes) {
         const contact = traceFistStrike(strike, this.player.position, targets, this.obstacles)
@@ -4735,8 +4740,7 @@ export class Game {
       heroAssetId: this.player.heroAssetId ?? undefined,
     })
 
-    const targets = [...this.npcGrid.getNearbyInto(this.player.combatPosition, 8, this._nearbyNpcBuffer)
-      .filter(npc => !npc.dead && npc.faction === Faction.ENEMY), ...this.trainingGround?.dummies ?? []]
+    const targets = [...this._playerMeleeNpcTargets(8), ...this.trainingGround?.dummies ?? []]
     const mounts = this.combatMountGrid.getNearbyInto(this.player.combatPosition, 8, this.meleeMountCandidates)
     const contact = this.player.weaponSweep.traceFirst(targets, mounts, this.player.currentMount)
     if (contact) {

@@ -82,6 +82,7 @@ import * as THREE from 'three'
 import { acceptCavalrySweep, acceptCaptainCavalryCommand, sweepPlayerSpawn, SWEEP_YAW, CAVALRY_SWEEP_BANDITS } from '../career/CavalrySweep'
 import { Player, PLAYER_ARROW_CAPACITY, DEFAULT_PLAYER_MAX_HP } from '../player/Player'
 import { PlayerInput } from '../player/PlayerInput'
+import { standingPlayerY } from '../player/PlayerFootBody'
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
 import { CompassUI } from '../ui/CompassUI'
 import { SpectatorCameraController } from '../camera/SpectatorCameraController'
@@ -335,6 +336,8 @@ export class TownScene {
   private pointerWasLocked = false
   private careerSaveFailures = 0
   private spawnErrorShown = false
+  /** A saved race whose racer could not be deployed while loading; the first frame offers its no-result cancel. */
+  private raceDeployFailedOnLoad = false
   private residentSpawnBatch?: NpcSpawnBatch
   private commanderReturnPending = false
   private get deploymentReady(): boolean {
@@ -454,7 +457,7 @@ export class TownScene {
     if (missionReturn?.status === 'blocked' && !heldAt) throw new Error('鎮內沒有合法的返回落點，請稍後重試。')
     const townEntry = missionReturnPlan?.point ?? heldAt ?? townPlayerEntryPoint()
     const entryGround = missionReturnPlan?.point.y ?? heldAt?.y ?? getTerrainHeight(townEntry.x, townEntry.z)
-    this.player.group.position.set(townEntry.x, entryGround + .9, townEntry.z)
+    this.player.standOn(townEntry.x, entryGround, townEntry.z)
     this.player.group.rotation.y = townEntry.yaw
     this.player.faceDirection(Math.sin(townEntry.yaw), Math.cos(townEntry.yaw))
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
@@ -618,6 +621,11 @@ export class TownScene {
       () => this.player, this.hp, this.careerMounts, () => this.profile, p => this.commit(p, this.player.dead && this.profile.activeRace && !p.activeRace ? 'grounded-return' : 'ordinary'))
     this.race.parkedBlockers = except => [...this.townReturnBlockers(except)]
     this.race.returnGroundHeight = (x, z) => this.sergeantReturnGroundHeight(x, z)
+    this.race.spawnBlockers = rider => [
+      ...(this.residents ?? []).filter(r => !r.npc.dead && r.npc !== rider).map(r => ({ x: r.npc.combatPosition.x, z: r.npc.combatPosition.z, radius: r.npc.mount ? 1.5 : .7 })),
+      ...this.townParkedMountBlockers(null),
+      ...(this.player && !this.player.dead ? [{ x: this.player.combatPosition.x, z: this.player.combatPosition.z, radius: this.player.currentMount ? 1.5 : .75 }] : []),
+    ]
     this.missionCombat = new TownMissionCombat(
       { field: this.mission, duel: this.duel, defense: this.defense },
       {
@@ -684,7 +692,10 @@ export class TownScene {
     this.player.onPlayerDeath = () => this.enterMissionObserver()
     await this.restoreActiveCareerMission()
     this.race.restore()
-    await this.race.waitForDeployment()
+    // A technical race deployment failure never blocks entering Town: the saved race stays intact and
+    // the first frame offers its no-result cancel, the same one Esc offers after a live failure.
+    try { await this.race.waitForDeployment() }
+    catch (error) { console.error('Race deployment failed while loading Town', error); this.raceDeployFailedOnLoad = true }
     // Blocked: keep the saved race state and the one-shot flag untouched; the retry places everything legally.
     if (missionReturn?.status === 'blocked') this.deferSergeantReturn()
     else this.race.restorePlayer({ preservePlacement: Boolean(missionReturnPlan), dismount: missionReturnPlan?.dismount, mountPark: missionReturnPlan?.mountPark })
@@ -2294,7 +2305,7 @@ export class TownScene {
       const flagged = settleCareerMissionReturn(typeof sessionStorage !== 'undefined' ? sessionStorage : undefined, () => this.planSergeantReturn(true))
       const plan = flagged ?? this.planSergeantReturn(false)
       if (plan.status !== 'placed') return false
-      this.player.group.position.set(plan.point.x, plan.point.y + .9, plan.point.z)
+      this.player.standOn(plan.point.x, plan.point.y, plan.point.z)
       this.player.group.rotation.y = plan.point.yaw
       this.player.faceDirection(Math.sin(plan.point.yaw), Math.cos(plan.point.yaw))
       if (flagged) this.race?.restorePlayer({ preservePlacement: true, dismount: plan.dismount, mountPark: plan.mountPark })
@@ -2332,6 +2343,13 @@ export class TownScene {
       if (!race.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
       this.closePanel()
     })
+  }
+  /** Loading could not deploy the saved race's opponent: stay in Town and offer the saved, no-result cancel. */
+  private showRaceDeployFailure(): void {
+    const race = this.race
+    if (!race?.session || race.ready) return
+    const panel = this.openPanel('賽手部署失敗', `${race.error || '賽手部署失敗。'}\n本場賽事尚未開跑，不記勝負、不發軍功。`)
+    if (race.canCancelFailedStoryRace) this.button(panel, '取消本次賽馬（不計勝負）', () => this.leaveRace(true, true))
   }
   private leaveRace(direct = true, cancelFailed = false): void {
     if (!this.checkpointRaceTownResult()) return
@@ -2641,7 +2659,7 @@ export class TownScene {
         const saved = profile.activeMission.mountedMarchPosition
         const anchor = saved ? new THREE.Vector3(saved.x, 0, saved.z) : undefined
         const position = profile.activeMission.kind === 'veteran-field' ? veteranPlayerSpawn(profile.activeMission.templateId, anchor) : sweepPlayerSpawn(anchor)
-        position.y = getTerrainHeight(position.x, position.z) + .9
+        position.y = standingPlayerY(getTerrainHeight(position.x, position.z))
         this.player.group.position.copy(position)
         const yaw = profile.activeMission.kind === 'veteran-field' ? veteranPlayerYaw(profile.activeMission.templateId) : SWEEP_YAW
         this.player.faceDirection(Math.sin(yaw), Math.cos(yaw))
@@ -3662,7 +3680,7 @@ export class TownScene {
     }
     for (const mount of this.townServiceMounts) if (!mount.dead && mount !== this.player.currentMount) resolveEntityCollision(playerBody, { position: mount.group.position, radius: .85, height: 2, bottomOffset: 0, anchored: true }, this.world.obstacles)
     for (const npc of [...this.mission.fieldNpcs, ...this.defense.fieldNpcs, ...(this.duel?.fieldNpcs ?? []), ...(this.race?.actors ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? [])]) if (!npc.dead && npc.combatPosition.distanceTo(this.player.combatPosition) < 3) resolveEntityCollision(playerBody, { position: npc.combatPosition, radius: .42, height: 1.8, bottomOffset: 0, anchored: false }, this.world.obstacles)
-    this.player.group.position.y = Math.max(this.player.group.position.y, getTerrainHeight(this.player.group.position.x, this.player.group.position.z) + .9)
+    this.player.group.position.y = Math.max(this.player.group.position.y, standingPlayerY(getTerrainHeight(this.player.group.position.x, this.player.group.position.z)))
   }
   private updateAmbient(): void {
     if (this.retirementFinale?.active || this.sceneContext.missionOnlyResidents || this.event.hostile || this.defense.active || this.panel || this.equipment.visible || this.result) { this.ambientLabel.hidden = true; return }
@@ -4156,6 +4174,7 @@ export class TownScene {
     }
     gameplayNpcSpawns.tick(time)
     if (this.disposed) return
+    if (this.raceDeployFailedOnLoad && !this.panel && !this.result) { this.raceDeployFailedOnLoad = false; this.showRaceDeployFailure() }
     if (this.deploymentFailed && !this.spawnErrorShown) {
       this.spawnErrorShown = true
       const panel = this.openPanel('部隊建立失敗', '本次部署已停止，存檔仍保留完整名冊。請重試空軍部署或重新載入以恢復任務。')

@@ -7,6 +7,11 @@ export interface FactionGridEntry extends SpatialEntity {
   hostileToPlayer?: boolean
 }
 
+/** Actors the Player fights: enemies, bandits and Town residents turned hostile; allies and peaceful Town stay excluded. */
+export function isPlayerHostileNpc(npc: Pick<FactionGridEntry, 'faction' | 'hostileToPlayer'>): boolean {
+  return npc.faction === Faction.ENEMY || npc.faction === Faction.BANDIT || (npc.faction === Faction.TOWN && npc.hostileToPlayer === true)
+}
+
 /**
  * Populates the shared, per-faction, and player-hostile spatial grids.
  * Keeps `Faction.BANDIT` intact while letting `Faction.PLAYER` allies acquire
@@ -28,7 +33,7 @@ export function populateNpcFactionGrids<T extends FactionGridEntry>(
     onLivingNpc?.(npc)
     npcGrid.insert(npc)
     factionGrids[npc.faction].insert(npc)
-    if (npc.faction === Faction.ENEMY || npc.faction === Faction.BANDIT || (npc.faction === Faction.TOWN && npc.hostileToPlayer)) {
+    if (isPlayerHostileNpc(npc)) {
       playerHostileGrid.insert(npc)
     }
   }

@@ -1,6 +1,7 @@
 import { raceReturnAction, raceReturnProfile } from '../../src/career/CareerRaceReturn'
 import { CareerRaceController } from '../../src/career/CareerRaceController'
-import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
+import { TOWN_COMMANDER_ID } from '../../src/town/TownCommanderIdentity'
+import { gameplayNpcSpawns, NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { deferTownResult, TownEvent } from '../../src/town/TownRules'
 import { describe, expect, it, vi } from 'vitest'
 import { Box3, Vector3 } from 'three'
@@ -10,8 +11,12 @@ import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../.
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { canEnterRace, finalizeRaceDeployment, advanceRaceClock, advanceRaceRider, parseRaceSession, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
-import { RACE_START_SLOTS, RACE_LINES, raceWaypoints, raceMovementIsLegal, illegalTownCrossing, type RacePosition } from '../../src/career/CareerRaceRoute'
+import { RACE_START_SLOTS, RACE_LINES, raceWaypoints, raceMovementIsLegal, illegalTownCrossing, raceMountPoseLegal, resolveRaceMountSpawn, type RacePosition } from '../../src/career/CareerRaceRoute'
+import { collideMountBody, settleMountOnTerrain } from '../../src/world/MountGroundBody'
+import { architectureSpec, DEEP } from '../../src/town/architecture/ArchitectureSpecs'
+import type { ObstacleData } from '../../src/world/Terrain'
 import { findSergeantResident } from '../../src/town/SergeantReturn'
+import { PLAYER_FOOT_OFFSET } from '../../src/player/PlayerFootBody'
 import { townRoster } from '../../src/town/TownRules'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
@@ -417,7 +422,82 @@ describe('Race persistence independent of hostility and Duel', () => {
 })
 
 
+/** Town Center-like hall: a solid plinth whose floor stands 1.4m above the terrain, and a side wall at x 8.2–9. */
+function raisedHallRace(phase: CareerRaceSession['phase'], saved: RacePosition) {
+  const floor = 1.4
+  const obstacles: ObstacleData[] = [
+    { isBarricade: false, navigationPassable: true, solidBelow: -.2, box: new Box3(new Vector3(-9, -.2, -12), new Vector3(9, floor, 12)),
+      walkSurface: { startX: 0, startZ: -12, startY: floor, topY: floor, dirX: 0, dirZ: 1, length: 24, landing: 0, halfWidth: 9, mounted: true } },
+    { isBarricade: false, box: new Box3(new Vector3(8.2, -.2, -12), new Vector3(9, floor + 11, 12)) },
+  ]
+  // The Commander stood on his home mount at (5.4, 0); it stays there while he switches to the race horse.
+  const homeMount = { dead: false, combatRadius: 2, group: { position: new Vector3(5.4, floor, 0) } }
+  const rider = { dead: false, combatPosition: new Vector3(5.4, floor, 0), mount: homeMount }
+  const controller = Object.assign(Object.create(CareerRaceController.prototype), {
+    obstacles, residents: [{ npc: rider, homeMount, spec: { id: 'commander', x: 5.4, z: 0 } }], borrowedCommander: { npc: rider, homeMount },
+    navigation: { areConnected: () => true }, returnGroundHeight: (x: number, z: number) => Math.abs(x) <= 9 && Math.abs(z) <= 12 ? floor : 0,
+  }) as { raceMountSpawn(s: CareerRaceSession, rider: unknown, initial: boolean): RacePosition | null }
+  const session = { phase, opponent: { mountId: 'horse', mounted: true, mountPosition: { ...saved }, position: { ...saved } } } as CareerRaceSession
+  return { obstacles, controller, rider, session }
+}
+/** One real ground-mount frame: gravity and the terrain heightmap, then obstacle and walk-surface collision. */
+function firstMountStep(spawn: RacePosition, obstacles: ObstacleData[]) {
+  const position = new Vector3(spawn.x, spawn.y, spawn.z), previous = position.clone()
+  const state = collideMountBody(position, previous, settleMountOnTerrain(position, 0, .2, () => 0), obstacles)
+  return { position, state }
+}
+
 describe('Commander invitation race', () => {
+  it('spawns the Commander race horse on the raised hall floor beside his home mount and keeps it there through the first collision step', () => {
+    const h = raisedHallRace('guiding', { x: 5.4, y: 1.4, z: 0, yaw: .3 })
+    const spawn = h.controller.raceMountSpawn(h.session, h.rider, true)!
+    expect(spawn.y).toBe(1.4)
+    expect(spawn.yaw).toBe(.3)
+    expect(Math.hypot(spawn.x - 5.4, spawn.z)).toBeGreaterThanOrEqual(4)
+    expect(spawn.x + 1.05).toBeLessThanOrEqual(8.2)
+    expect(h.session.opponent.mountPosition).toEqual(spawn)
+    expect(h.session.opponent.position).toEqual(spawn)
+    const step = firstMountStep(spawn, h.obstacles)
+    expect(step.state.onGround).toBe(true)
+    expect(step.position.toArray().map(v => +v.toFixed(6))).toEqual([spawn.x, 1.4, spawn.z].map(v => +v.toFixed(6)))
+    // The old spawn left Y undefined: the horse appeared at terrain height inside the plinth and was shoved sideways.
+    const legacy = firstMountStep({ ...spawn, y: 0 }, h.obstacles)
+    expect(Math.hypot(legacy.position.x - spawn.x, legacy.position.z - spawn.z) > .5 || legacy.position.y < 1.4 - .25).toBe(true)
+  })
+  it('keeps the race horse clear of the Viking longhouse posts that only navigation treats as passable', () => {
+    // The real longhouse plan, flagged the way placement flags it: thin posts are navigation-passable yet still solid.
+    const spec = architectureSpec('viking', 'town-center'), F = spec.floorY
+    const obstacles: ObstacleData[] = [
+      ...spec.colliders.map(c => ({ isBarricade: false, ...(c.role === 'post' || c.role === 'roof' || c.role === 'overhead' ? { navigationPassable: true } : {}),
+        box: new Box3(new Vector3(c.box[0], c.box[1] <= DEEP ? DEEP : c.box[1], c.box[2]), new Vector3(c.box[3], c.box[4], c.box[5])) })),
+      ...spec.floor.map(r => ({ isBarricade: false, navigationPassable: true, solidBelow: DEEP, box: new Box3(new Vector3(r.minX, DEEP, r.minZ), new Vector3(r.maxX, F, r.maxZ)),
+        walkSurface: { startX: (r.minX + r.maxX) / 2, startZ: r.minZ, startY: F, topY: F, dirX: 0, dirZ: 1, length: r.maxZ - r.minZ, landing: 0, halfWidth: (r.maxX - r.minX) / 2, mounted: true } })),
+    ]
+    const posts = spec.colliders.filter(c => c.role === 'post')
+    const options = { obstacles, radius: 2, terrainHeight: () => 0,
+      groundAt: (x: number, z: number) => spec.floor.some(r => x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ) ? F : 0 }
+    const besidePost: RacePosition = { x: 5.5, y: F, z: -4.4, yaw: 0 }
+    expect(raceMountPoseLegal(besidePost, options)).toBe(false)
+    const spawn = resolveRaceMountSpawn(besidePost, options)!
+    expect(spawn.y).toBe(F)
+    for (const post of posts) {
+      const gap = Math.hypot(Math.max(post.box[0] - spawn.x, 0, spawn.x - post.box[3]), Math.max(post.box[2] - spawn.z, 0, spawn.z - post.box[5]))
+      expect(gap, `post ${post.box[0]},${post.box[2]}`).toBeGreaterThanOrEqual(1.05)
+    }
+    const step = firstMountStep(spawn, obstacles)
+    expect(step.state.onGround).toBe(true)
+    expect(step.position.toArray().map(v => +v.toFixed(6))).toEqual([spawn.x, F, spawn.z].map(v => +v.toFixed(6)))
+  })
+  it('restores a saved pre-start race mount from under the hall floor to a legal floor spot, but keeps legal or running poses', () => {
+    const legal = raisedHallRace('guiding', { x: 0, y: 1.4, z: 6, yaw: 0 })
+    expect(legal.controller.raceMountSpawn(legal.session, legal.rider, false)).toBe(legal.session.opponent.mountPosition)
+    const sunk = raisedHallRace('countdown', { x: 0, y: .06, z: 6, yaw: 0 })
+    expect(sunk.controller.raceMountSpawn(sunk.session, sunk.rider, false)).toEqual({ x: 0, y: 1.4, z: 6, yaw: 0 })
+    expect(sunk.session.opponent.mountPosition.y).toBe(1.4)
+    // Once racing, the saved progress pose is restored exactly as played.
+    const running = raisedHallRace('racing', { x: 0, y: .06, z: 6, yaw: 0 })
+    expect(running.controller.raceMountSpawn(running.session, running.rider, false)).toEqual({ x: 0, y: .06, z: 6, yaw: 0 })
+  })
   const EVENT = 'commander-circuit-race' as const
   const pending = (p: CareerProfile): CareerProfile => { p.careerStory = { version: 1, events: { [EVENT]: { status: 'pending' } } }; return p }
   /** A settled Race I session, as the live controller would persist it. */
@@ -537,6 +617,42 @@ describe('Commander invitation race', () => {
     expect(saved.raceRecords).toBeUndefined(); expect([saved.availableMerit, saved.totalMerit]).toEqual([75, 150])
     expect(saved.racePlayerState).toMatchObject({ hp: 73, position: { x: 2, y: 1, z: -3 } })
     expect(batch.cancel).toHaveBeenCalledOnce()
+  })
+
+  it('reloads a saved unstarted story race whose racer has no legal spot, fails its deployment and still cancels without a result', async () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    // Saved before the start, with the race horse sunk under the hall floor; no legal spot is reachable around it.
+    const sunk = pos(5.4, 0)
+    const s: CareerRaceSession = { ...session(), scheduleVersion: 3, story: EVENT, deployed: true, phase: 'guiding', gameSeconds: 12,
+      opponentHome: { position: { ...sunk, y: 1.4 }, hp: 100, mounted: false },
+      opponent: { ...rider(TOWN_COMMANDER_ID), position: { ...sunk, y: .06 }, mountPosition: { ...sunk, y: .06 } } }
+    let current = pending(profile())
+    current.activeRace = s
+    current.careerStory!.events[EVENT] = { status: 'active', sourceId: s.id }
+    current.totalMerit = 150; current.availableMerit = 75
+    expect(store.save(current)).toBe(true)
+    const commander = { dead: false, hostileToPlayer: false, combatPosition: new Vector3(5.4, 1.4, 0), group: { position: new Vector3(), rotation: { y: 0 } },
+      setTacticalOrder: vi.fn(), dismountFromMount: vi.fn(), mountVehicle: vi.fn() }
+    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
+    Object.assign(controller, {
+      residents: [{ npc: commander, spec: { id: TOWN_COMMANDER_ID, x: 5.4, z: 0 } }], obstacles: [], commanded: new Map(),
+      navigation: { areConnected: () => false }, returnGroundHeight: () => 1.4, read: () => current,
+      player: () => ({ currentMount: null, combatPosition: new Vector3(2, 1, -3), facingYaw: 0, hp: 73, maxHp: 100, dead: false, staminaValue: 60 }),
+      mounts: { activeMount: null, activeMountId: 'horse' },
+      commit: (next: CareerProfile) => { if (!store.save(next)) return false; current = next; return true } })
+    controller.restore()
+    gameplayNpcSpawns.tick(performance.now() + 1e9)
+    await expect(controller.waitForDeployment()).rejects.toThrow('no legal spawn')
+    expect(controller.ready).toBe(false)
+    expect(controller.error).toContain('可取消本次賽馬')
+    expect(controller.canCancelFailedStoryRace).toBe(true)
+    expect(store.load()!.activeRace?.gameSeconds).toBe(12)
+    expect(controller.cancelFailedStoryRace()).toBe(true)
+    const saved = store.load()!
+    expect(saved.activeRace).toBeUndefined(); expect(controller.session).toBeUndefined()
+    expect(saved.careerStory!.events[EVENT]).toEqual({ status: 'pending' })
+    expect(saved.raceRecords).toBeUndefined(); expect([saved.availableMerit, saved.totalMerit]).toEqual([75, 150])
+    expect(saved.racePlayerState).toMatchObject({ hp: 73, position: { x: 2, y: 1, z: -3 } })
   })
 
   it('does not pay before the result is saved, and pays once after a retry and a reload', () => {
@@ -698,7 +814,7 @@ describe('Race return and deferred native Town outcomes', () => {
     expect(walkController.returnComplete).toBe(true)
     expect(walkController.clear(false)).toBe(true)
     const settledPos = committedProfile.racePlayerState!.position
-    expect(settledPos.y).toBeCloseTo(4.9)
+    expect(settledPos.y).toBeCloseTo(4 + PLAYER_FOOT_OFFSET)
     expect(Math.hypot(settledPos.x - sergeantSpec.x, settledPos.z - sergeantSpec.z)).toBeGreaterThanOrEqual(3.0)
     expect(Math.hypot(settledPos.x - sergeantSpec.x, settledPos.z - sergeantSpec.z)).toBeLessThanOrEqual(4.1)
     expect(Math.hypot(settledPos.x - captainSpec.x, settledPos.z - captainSpec.z)).toBeGreaterThan(10)

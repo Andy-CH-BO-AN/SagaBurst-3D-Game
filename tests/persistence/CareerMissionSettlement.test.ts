@@ -18,6 +18,7 @@ import { NPC } from '../../src/world/NPC'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { townStationSpec } from '../../src/town/TownGarrison'
 import { getTerrainHeight } from '../../src/world/Terrain'
+import { standingPlayerY } from '../../src/player/PlayerFootBody'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { townRoster } from '../../src/town/TownRules'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
@@ -85,7 +86,8 @@ function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'e
   const patrol = { actors: [resident.npc], statsSnapshot: { player: stats, squads: [] }, release: vi.fn(() => events.push('release')) }
   const player = { ...careerCheckpointPlayer(), maxHp: 437,
     fallSnapshot: undefined as { active: boolean; highestFeetY: number; velocity: { x: number; y: number; z: number } } | undefined,
-    setHp: vi.fn((hp: number) => { player.hp = hp }), group: { position: new Vector3(50, 80, 70), rotation: { y: 0 } }, resetForScene: vi.fn((x: number, y: number, z: number) => {
+    setHp: vi.fn((hp: number) => { player.hp = hp }), group: { position: new Vector3(50, 80, 70), rotation: { y: 0 } },
+    standOn: vi.fn((x: number, floorY: number, z: number) => { player.group.position.set(x, standingPlayerY(floorY), z) }), resetForScene: vi.fn((x: number, y: number, z: number) => {
     expect(store.load()!.playerAerialState).toBeUndefined()
     player.group.position.set(x, y, z); player.hp = player.maxHp; player.dead = false; player.isFalling = false; events.push('reset')
   }) }
@@ -849,7 +851,7 @@ describe('Town mission settlement transactions', () => {
     expect(h.settlement.returnToTown('arrived').status).toBe('returned')
     expect(h.player.group.position.x).toBe(entry.x)
     expect(h.player.group.position.z).toBe(entry.z)
-    expect(h.player.group.position.y).toBeCloseTo(entry.y + .9)
+    expect(h.player.standOn).toHaveBeenCalledWith(entry.x, entry.y, entry.z)
     expect(h.player.group.rotation.y).toBe(entry.yaw)
   })
 

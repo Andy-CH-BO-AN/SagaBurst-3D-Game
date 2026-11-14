@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { getScenePlayableWorldBound, clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
+import { getScenePlayableWorldBound, clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData } from './Terrain'
+import { collideMountBody, MOUNT_MOVEMENT_RADIUS, settleMountOnTerrain } from './MountGroundBody'
 import type { Faction, NPC } from './NPC'
 import {
   HorseAssetRegistry,
@@ -76,7 +77,7 @@ export function felineVariantFromMountId(value: string | null | undefined): Feli
 
 /** Shared physical footprint for live mounts and equipment preflight without materialization. */
 export function mountCombatRadius(type: MountType): number { return type === MountType.XONGKORO ? 7 : 2 }
-export const MOUNT_MOVEMENT_RADIUS = 1
+export { MOUNT_MOVEMENT_RADIUS }
 export const DEFAULT_MOUNT_TYPE = MountType.HORSE
 
 /**
@@ -629,30 +630,13 @@ export class Mount {
       return
     }
     if (import.meta.env.DEV && collector) { var _tPhysics = performance.now() }
-    const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
-    this.velY += -22 * dt
-    this.group.position.y += this.velY * dt
-    if (this.group.position.y <= terrainY) {
-      this.group.position.y = terrainY
-      this.velY = 0
-      this.onGround = true
-    } else {
-      this.onGround = false
-    }
+    const settled = settleMountOnTerrain(this.group.position, this.velY, dt)
+    this.velY = settled.velocityY
+    this.onGround = settled.onGround
     if (import.meta.env.DEV && collector) { collector.endPhase('mountPhysics', _tPhysics!) }
 
     if (import.meta.env.DEV && collector) { var _tObstacle = performance.now() }
-    const collision = resolveObstacleCollision(
-      this.group.position,
-      this.previousPosition,
-      this.velY,
-      this.onGround,
-      MOUNT_MOVEMENT_RADIUS,
-      2.6,
-      0,
-      obstacles,
-      { mountedSurfaces: true },
-    )
+    const collision = collideMountBody(this.group.position, this.previousPosition, { velocityY: this.velY, onGround: this.onGround }, obstacles)
     this.velY = collision.velocityY
     this.onGround = collision.onGround
     if (import.meta.env.DEV && collector) { collector.endPhase('mountObstacleCollision', _tObstacle!) }

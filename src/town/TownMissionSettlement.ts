@@ -56,7 +56,7 @@ interface TownReturnScene {
   world: Pick<TownWorld, 'restoreTownDamage' | 'obstacles'>
   navigation: Pick<NavigationWorld, 'sync'>
   inventory: Pick<TownEquipment, 'sheathAll'>
-  readonly player: Pick<Player, 'group'> & Partial<Pick<Player, 'faceDirection'>>
+  readonly player: Pick<Player, 'group' | 'standOn'> & Partial<Pick<Player, 'faceDirection'>>
   orbit?: { setYaw(yaw: number): void }
   resolveSergeantReturnPoint?: () => SergeantReturnPoint | null
   /** No legal return point: keep the intent and retry later. */
@@ -225,7 +225,7 @@ export class TownMissionSettlement {
     if (entry && (active.kind === 'cavalry-sweep' || veteranField || active.kind === 'captain-patrol-command')) {
       // Captain I walk-back (phase RETURNING) also ends in front of the Sergeant once saved.
       const ground = 'y' in entry && typeof entry.y === 'number' ? entry.y : getTerrainHeight(entry.x, entry.z)
-      this.town.player.group.position.set(entry.x, ground + .9, entry.z)
+      this.town.player.standOn(entry.x, ground, entry.z)
       this.town.player.group.rotation.y = entry.yaw
       this.town.player.faceDirection?.(Math.sin(entry.yaw), Math.cos(entry.yaw))
       this.town.orbit?.setYaw(entry.yaw + Math.PI)
