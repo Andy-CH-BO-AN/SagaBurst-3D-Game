@@ -10,7 +10,6 @@ import type { Player } from '../../src/player/Player'
 import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
 import { TownScene } from '../../src/town/TownScene'
 import { NPC, AIState } from '../../src/world/NPC'
-import { SpatialGrid } from '../../src/world/SpatialGrid'
 import { townDefenseThreatInRange, townDefenseThreatResponse } from '../../src/town/TownGarrison'
 import { Vector3 } from 'three'
 
@@ -56,65 +55,13 @@ function borrowedTownCombat(phase: ActiveCareerMission['phase'], kind: ActiveCar
 }
 
 describe('Borrowed Town mission target permission', () => {
-  it('acquires the formal bandit target for the Captain and borrowed soldier after engagement releases their home leash', () => {
-    const { spec, captain, soldier, bandit, mission, player } = borrowedTownCombat('MARCHING')
-    expect(townDefenseThreatResponse(spec, soldier, bandit.combatPosition, 20)).toBe('ignore')
-    mission.engageFormalMission()
-    expect(mission.phase).toBe('ENGAGING')
-    for (const friendly of [captain, soldier]) {
-      expect(friendly.tacticalOrder).toBe('charge')
-      expect(friendly['state']).toBe(AIState.CHASE)
-      expect(friendly.combatTargetAllowed?.(bandit)).toBe(true)
-      expect(friendly['_findTarget'](player, mission.combatPeersFor(friendly))?.npc).toBe(bandit)
-    }
-  })
-
-  it('keeps unrelated hostile actors and inactive or marching residents outside pursuit permission', () => {
-    const { actor, soldier, scene, spec, player, bandit } = borrowedTownCombat('ENGAGING')
-    const unrelated = actor('unrelated-bandit', Faction.BANDIT, 111)
-    expect(scene['residentCombatTargetAllowed'](spec, soldier, unrelated)).toBe(false)
-    expect(soldier['_findTarget'](player, [unrelated])).toBeNull()
-
-    // Resident outside friendly roster retains home leash
-    const resident = actor('native-resident')
-    resident.combatTargetAllowed = target => scene['residentCombatTargetAllowed'](spec, resident, target)
-    expect(resident.combatTargetAllowed(bandit)).toBe(false)
-    expect(resident['_findTarget'](player, [bandit])).toBeNull()
-
-    // Marching phase does not release pursuit
-    const marching = borrowedTownCombat('MARCHING')
-    expect(marching.soldier.combatTargetAllowed?.(marching.bandit)).toBe(false)
-    expect(marching.soldier['_findTarget'](marching.player, marching.mission.combatPeersFor(marching.soldier))).toBeNull()
-    expect(marching.soldier.tacticalOrder).toBe('follow')
-    expect(marching.mission.phase).toBe('MARCHING')
-  })
-
-  it('acquires the engaged mission target beyond a borrowed actor\'s station across mission templates', () => {
-    const cases = [
-      { kind: 'cavalry-sweep', templateId: 'career-cavalry-sweep' },
-      { kind: 'veteran-field', templateId: 'veteran-tragedy-of-the-scouts' },
-    ] as const
-    for (const { kind, templateId } of cases) {
-      const { soldier, bandit, profile, mission, player } = borrowedTownCombat('ENGAGING', kind)
-      profile.activeMission.templateId = templateId
-      soldier.setTacticalOrder('charge')
-      expect(soldier.combatTargetAllowed?.(bandit)).toBe(true)
-      expect(soldier['_findTarget'](player, mission.combatPeersFor(soldier))?.npc).toBe(bandit)
-      expect(soldier['state']).toBe(AIState.CHASE)
-    }
-  })
-
-  it('acquires only a veteran enemy in the live engaged squad roster before formal engagement', () => {
-    const { actor, soldier, bandit, mission, combat, player } = borrowedTownCombat('MARCHING', 'veteran-field')
-    const held = actor('held-veteran-enemy', Faction.BANDIT, 111)
-    mission['veteranEnemies'].push(held)
-    mission['veteranTargetActorIds'].add(held.combatantId)
-    expect(soldier['_findTarget'](player, [held, bandit])).toBeNull()
-    // The combat owner has activated this squad and uses this same set for its hostile grid.
-    combat['engagedVeteranEnemies'].add(bandit)
-    expect(soldier.combatTargetAllowed?.(held)).toBe(false)
-    expect(soldier['_findTarget'](player, [held, bandit])?.npc).toBe(bandit)
-    expect(mission.phase).toBe('MARCHING')
+  it('acquires the scout survival target beyond a borrowed actor\'s station', () => {
+    const { soldier, bandit, profile, mission, player } = borrowedTownCombat('ENGAGING', 'veteran-field')
+    profile.activeMission.templateId = 'veteran-tragedy-of-the-scouts'
+    soldier.setTacticalOrder('charge')
+    expect(soldier.combatTargetAllowed?.(bandit)).toBe(true)
+    expect(soldier['_findTarget'](player, mission.combatPeersFor(soldier))?.npc).toBe(bandit)
+    expect(soldier['state']).toBe(AIState.CHASE)
   })
 
   it('limits scout survival native targets to the exact hostile Town combat roster', () => {
@@ -127,34 +74,6 @@ describe('Borrowed Town mission target permission', () => {
     expect(soldier.combatTargetAllowed?.(unrelated)).toBe(false)
     expect(soldier.combatTargetAllowed?.(friendly)).toBe(false)
     expect(soldier['_findTarget'](player, [unrelated, friendly, guard])?.npc).toBe(guard)
-  })
-
-  it('acquires only live travel encounter threats during MARCHING and RETURNING and releases permission when they leave', () => {
-    for (const phase of ['MARCHING', 'RETURNING'] as const) {
-      const { actor, soldier, profile, mission, travelEncounter, player } = borrowedTownCombat(phase, 'cavalry-sweep')
-      if (phase === 'RETURNING') profile.activeMission.result = {
-        outcome: 'victory', claimed: false, merit: { damage: 0, kills: 0, contribution: 0, total: 0 },
-        stats: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true },
-      }
-      const roaming = actor('roaming-hostile', Faction.BANDIT, 112)
-      const unrelated = actor('unrelated-roaming-hostile', Faction.BANDIT, 111)
-      const runtime = { owns: (npc: NPC) => npc === roaming }
-      const grid = new SpatialGrid<NPC>(8)
-      grid.insert(roaming)
-      expect(soldier.combatTargetAllowed?.(roaming)).toBe(false)
-      expect(mission.noteTravelHit(soldier, roaming, runtime)).toBe(true)
-      travelEncounter.prepareFrame(.01, mission.friendlies, player, grid, runtime)
-      expect(soldier.tacticalOrder).toBe('charge')
-      expect(soldier.combatTargetAllowed?.(unrelated)).toBe(false)
-      expect(soldier['_findTarget'](player, [unrelated, roaming])?.npc).toBe(roaming)
-      expect(mission.phase).toBe(phase)
-      // Clearing the real live encounter must revoke its extra target permission.
-      roaming.combatPosition.set(200, 0, 0)
-      travelEncounter.prepareFrame(.01, mission.friendlies, player, grid, runtime)
-      expect(travelEncounter.active).toBe(false)
-      expect(soldier.combatTargetAllowed?.(roaming)).toBe(false)
-      expect(soldier['_findTarget'](player, [roaming])).toBeNull()
-    }
   })
 })
 

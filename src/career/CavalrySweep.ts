@@ -30,9 +30,6 @@ export type SweepGarrisonActorIds = readonly (string | undefined)[]
 export function sweepPlayerSpawn(captain = SWEEP_CAPTAIN_START, yaw = SWEEP_YAW): THREE.Vector3 {
   return followSlotWorldPosition(captain, yaw, returnFollowLocalOffset(0, 29, true, 5))
 }
-export function sweepBanditPosition(index: number): THREE.Vector3 {
-  return SWEEP_CENTER.clone().add(new THREE.Vector3((Math.floor(index / 8) - 2) * 4, 0, (index % 8 - 3.5) * 3))
-}
 export function acceptCavalrySweep(current: CareerProfile, id = createCareerMissionId(CAVALRY_SWEEP_ID), garrisonActorIds: SweepGarrisonActorIds = []): CareerProfile | null {
   const mount = resolveCareerReliefMount(current)
   if (!mount || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null

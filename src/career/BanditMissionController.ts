@@ -16,7 +16,7 @@ import { combatAllegiancesHostile } from '../combat/CombatFaction'
 import { CombatEventStream, type CombatEvent } from '../combat/CombatAttribution'
 import { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
-import { PLAYABLE_WORLD_BOUND, getTerrainHeight, isObstaclePathClear } from '../world/Terrain'
+import { PLAYABLE_WORLD_BOUND, getTerrainHeight } from '../world/Terrain'
 import { AIType, Faction, NPC } from '../world/NPC'
 import { snapshotPersonalMission } from './CareerPersonalSquadMission'
 import type { TownWorld } from '../town/TownWorld'
@@ -33,7 +33,7 @@ import {
   isRetiredRecruitPatrolMission,
   type RecruitBanditMissionTemplate,
 } from './CareerMissionCatalog'
-import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy, createActiveCareerMission, resolveCareerMissionOutcome, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
+import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy, createActiveCareerMission, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
 import { MissionGuide } from './MissionGuide'
 import { followLocalOffset, officialFollowLocalOffset, returnFollowLocalOffset } from '../battle/FollowOrder'
 import { createVeteranRoster, createVeteranSpawnSpec, getVeteranMissionDefinition, restoreVeteranTownCavalryReserveRoster, type VeteranMissionTemplateId, type VeteranRosterUnit } from './VeteranMission'
@@ -486,56 +486,7 @@ export class BanditMissionController {
       if (!started) this.disposeMissionEntities()
       return started
     }
-    const template = getBanditFieldMissionTemplate(active.templateId)
-    const camp = this.camps[active.targetCampId]
-    if (!template || template.kind !== 'bandit' || !camp) return false
-
-    this.disposeMissionEntities()
-    this.beginSpawning(active.id)
-    this.ambientBatches.get(camp.id)?.cancel()
-    // The mission owns this camp now, so superseded ambient work is no longer
-    // a deployment prerequisite when restoring an active mission.
-    this.ambientBatches.delete(camp.id)
-    this.disposeCamp(camp.ambient)
-    camp.ambient = []
-    const deadTargets = new Set(active.deadTargetActorIds ?? [])
-    active.targetActorIds.forEach((actorId, index) => {
-      if (active.result) return
-      if (!deadTargets.has(actorId)) this.missionBatch!.enqueue(actorId, () => camp.mission.push(this.spawnBandit(camp, actorId, index)))
-    })
-    this.missionBatch!.seal(() => {
-      this.spawnFriendlyParty(active)
-      this.tracker = new BattleStatsTracker(this.events, false, event => this.acceptMissionEvent(active, event), active.playerStats,
-        careerMissionCommandMeritPolicy(active, () => this.active ?? active))
-      for (const friendly of this.friendlies) this.tracker.registerNpc(friendly)
-      const routeStage = active.routeStage ?? 0
-      if (active.phase === 'RETURNING') {
-        const departure = this.marchObjective(camp.center)
-        this.setRoute(this.buildRoute(departure, this.assemblyPoint()), departure, routeStage)
-        this.positionPartyForReload(routeStage)
-        this.assignLeader(this.assemblyPoint())
-        this.assignFollowers()
-      } else if (active.phase === 'RESULT' && active.result) {
-        const objective = this.marchObjective(camp.center)
-        this.setRoute(this.buildRoute(objective, this.assemblyPoint()), objective)
-        this.positionPartyForReload(0)
-      } else {
-        const objective = this.marchObjective(camp.center)
-        const segmentStart = this.assemblyPoint()
-        this.setRoute(this.buildRoute(segmentStart, objective), segmentStart, routeStage)
-        if (active.phase === 'ASSEMBLING') this.assignAssembly()
-        else if (active.phase === 'MARCHING') {
-          this.positionPartyForReload(routeStage)
-          this.assignLeader(objective)
-          this.assignFollowers()
-        } else if (active.phase === 'ENGAGING') {
-          this.positionPartyForReload(this.route.length - 1)
-          for (const friendly of this.friendlies) if (!friendly.dead && !this.isPlayerCommanded(friendly)) friendly.setTacticalOrder('charge')
-        }
-      }
-      this.restoreOfficialActors(active)
-    })
-    return true
+    return false
   }
 
   private updateGuide(...args: Parameters<MissionGuide['update']>): void {
@@ -564,44 +515,7 @@ export class BanditMissionController {
       this.perceptionElapsed = 0
       this.detectCampProximity()
     }
-    const active = this.active
-    if (!active || active.phase === 'RESULT' || isRetiredRecruitPatrolMission(active)) { this.guide.hide(); return }
-    const camp = this.camps[active.targetCampId]
-    const template = getBanditFieldMissionTemplate(active.templateId)
-    if (!camp || !template || template.kind !== 'bandit') return
-    this.checkpoint.advance(dt)
-    const hasLeader = this.ensureLivingLeader() && Boolean(this.leader)
-    const leader = this.leader
-    const objective = this.marchObjective(camp.center)
-
-    if (!hasLeader && !this.player().dead && active.phase === 'ASSEMBLING') this.setPhase('MARCHING')
-    if (leader && active.phase === 'ASSEMBLING' && (this.player().dead || this.player().combatPosition.distanceTo(leader.combatPosition) <= 12)) {
-      if (this.setPhase('MARCHING')) {
-        this.assignLeader(objective)
-        this.assignFollowers()
-        this.onMarchStarted?.()
-      }
-    }
-    if (leader && this.phase === 'MARCHING') {
-      if (!this.travelEncounter.active) this.advanceRoute(leader)
-      const campAlerted = camp.mission.some(npc => npc.encounterIsAlerted)
-      if (campAlerted || leader.combatPosition.distanceTo(objective) < 8 && this.partyRegrouped(objective)) {
-        if (this.setPhase('ENGAGING')) {
-          for (const bandit of camp.mission) if (!bandit.dead) bandit.triggerEncounterAlert()
-          for (const friendly of this.friendlies) if (!friendly.dead && !this.isPlayerCommanded(friendly)) friendly.setTacticalOrder('charge')
-        }
-      }
-    }
-    if (this.phase === 'ENGAGING') {
-      for (const friendly of this.friendlies) {
-        if (!friendly.dead && !this.isPlayerCommanded(friendly) && friendly.tacticalOrder !== 'charge') friendly.setTacticalOrder('charge')
-      }
-    }
-
-    this.persistRuntimeProgress()
-    const current = this.active ?? active
-    const target = this.guideTarget(current, camp.center)
-    this.updateGuide(current.phase, this.player().combatPosition, cameraYaw, target, this.remainingEnemies, false, false)
+    this.guide.hide()
   }
 
   evaluate(playerDead: boolean, personalAlive = 0): CareerMissionOutcome | null {
@@ -618,14 +532,7 @@ export class BanditMissionController {
       const friendlyAlive = this.friendlies.reduce((alive, npc) => alive + Number(!npc.dead), 0)
       return resolveVeteranFieldMissionOutcome(current.templateId, playerDead || Boolean(current.playerDead), registrationComplete, this.remainingEnemies, friendlyAlive + personalAlive, this.survivalElapsedSeconds)
     }
-    const accountedIds = new Set([
-      ...this.missionBandits.map(npc => npc.combatantId),
-      ...(active.deadTargetActorIds ?? []),
-    ])
-    const registrationComplete = active.targetActorIds.length > 0 && active.targetActorIds.every(id => accountedIds.has(id))
-    const friendlyIds = new Set(active.friendlyActorIds)
-    const friendlyAlive = this.friendlies.filter(npc => friendlyIds.has(npc.combatantId) && !npc.dead).length
-    return resolveCareerMissionOutcome(playerDead, registrationComplete, this.remainingEnemies, friendlyAlive + personalAlive, true)
+    return null
   }
 
   snapshot(): BattleStatsSnapshot {
@@ -755,19 +662,6 @@ export class BanditMissionController {
     const origin = encounterCenter ?? camp.center
     npc.configureBanditEncounter(origin, this.banditPatrolRoute(origin, camp.id, index))
     return npc
-  }
-
-  private spawnFriendlyParty(active: ActiveCareerMission): void {
-    const residentsById = new Map(this.residents.map(resident => [resident.npc.combatantId, resident.npc]))
-    for (const actorId of active.friendlyActorIds) {
-      const npc = residentsById.get(actorId)
-      if (npc) { this.bindOfficialActor(npc, active); this.friendlies.push(npc) }
-    }
-    const deadFriendlies = new Set(active.deadFriendlyActorIds ?? [])
-    for (const friendly of this.friendlies) if (deadFriendlies.has(friendly.combatantId) && !friendly.dead) friendly.takeDamage(999999)
-    this.leader = this.friendlies.find(npc => npc.combatantId === this.missionCaptain.combatantId && !npc.dead)
-      ?? this.friendlies.find(npc => !npc.dead)
-      ?? null
   }
 
   private acceptMissionEvent(active: ActiveCareerMission, event: CombatEvent): boolean {
@@ -901,11 +795,6 @@ export class BanditMissionController {
     if (leader.combatPosition.distanceToSquared(target) > 16 || this.routeIndex >= this.route.length - 1) return
     this.routeIndex++
     this.assignLeader(this.route[this.routeIndex])
-  }
-
-  private guideTarget(active: ActiveCareerMission, camp: THREE.Vector3): THREE.Vector3 | null {
-    if (active.phase === 'ASSEMBLING' || active.phase === 'RETURNING') return this.assemblyPoint()
-    return camp
   }
 
   private disposeCamp(group: NPC[]): void { for (const npc of group) npc.dispose() }
@@ -1466,34 +1355,6 @@ export class BanditMissionController {
     }
     stage.y = getTerrainHeight(stage.x, stage.z)
     return stage
-  }
-
-  private partyRegrouped(stage: THREE.Vector3): boolean {
-    const living = this.friendlies.filter(friendly => !friendly.dead)
-    if (living.length === 0) return true
-    const nearStage = living.filter(friendly => friendly.combatPosition.distanceTo(stage) <= 18).length
-    return nearStage >= Math.ceil(living.length * .75)
-  }
-
-  private positionPartyForReload(stage: number): void {
-    if (!this.leader || this.friendlies.length === 0) return
-    const anchor = this.route[Math.min(Math.max(0, stage), Math.max(0, this.route.length - 1))] ?? this.assemblyPoint()
-    let slot = 0
-    for (const friendly of this.friendlies) {
-      if (friendly.dead) continue
-      const offset = friendly === this.leader ? new THREE.Vector3() : new THREE.Vector3((slot++ % 3 - 1) * 1.8, 0, Math.floor(slot / 3) * 1.8)
-      const point = anchor.clone().add(offset)
-      point.y = getTerrainHeight(point.x, point.z)
-      // A saved waypoint index resumes on the rebuilt route. Snap formation
-      // offsets out of new scenery without changing phase, casualties or campId.
-      if (!isObstaclePathClear(point, point, friendly.mount ? 1 : .4, 2.6, 0, this.world.obstacles)) {
-        const cell = this.navigation.grid.findNearestWalkableCell(point, 4)
-        if (cell) point.copy(this.navigation.grid.cellToWorld(cell))
-      }
-      point.y = getTerrainHeight(point.x, point.z)
-      if (friendly.mount && !friendly.mount.dead) friendly.mount.group.position.copy(point)
-      else friendly.group.position.copy(point)
-    }
   }
 
   persistRuntimeProgress(forceStats = false): boolean {
