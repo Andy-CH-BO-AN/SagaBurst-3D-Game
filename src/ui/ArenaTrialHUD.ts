@@ -1,5 +1,5 @@
 export interface ArenaTrialHudState {
-  phase: 'waiting' | 'countdown' | 'fight' | 'result' | null
+  phase: 'waiting' | 'countdown' | 'paused' | 'fight' | 'result' | null
   label: string
   friendly: { active: number; total: number }
   enemy: { active: number; total: number }

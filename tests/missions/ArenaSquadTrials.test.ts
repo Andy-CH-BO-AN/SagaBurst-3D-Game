@@ -32,18 +32,18 @@ function openingHarness(search: string, seconds: number, prison = false) {
   vi.stubGlobal('window', win); vi.stubGlobal('location', win.location); vi.stubGlobal('document', doc)
   const input = new PlayerInput(), listeners = new AbortController()
   onTestFinished(() => { listeners.abort(); input.dispose(); vi.unstubAllGlobals() })
-  const attack = vi.fn(), save = vi.fn(), checkpoint = vi.fn()
+  const attack = vi.fn(), save = vi.fn(), checkpoint = vi.fn(), openingHud = { update: vi.fn() }
   const scene = Object.assign(Object.create(CareerArenaCombatScene.prototype) as {
     bindInput(): void; advancePhase(dt: number): void; phase: string; countdownRemaining: number
   }, {
     renderer: { domElement: canvas }, input, listeners, camera: {}, sound: { unlockAudio() {} },
-    openingHud: { update() {} }, started: true, panel: null, localProfile: { activeMission: prison ? { prisonBreak: {} } : {} },
+    openingHud, started: true, panel: null, localProfile: { activeMission: prison ? { prisonBreak: {} } : {} },
     phase: 'waiting', countdownRemaining: seconds, resumeGrace: prison, pickupRetry: null,
     player: { dead: prison }, bodies: [{ npc: { dead: false, setTacticalOrder: attack } }],
     resolvePrisonResult: () => false, checkpointFight: checkpoint, persistProgress: save, saveProgressWithRetry: save,
   })
   scene.bindInput()
-  return { scene, input, canvas, win, doc, attack, save, checkpoint }
+  return { scene, input, canvas, win, doc, attack, save, checkpoint, openingHud }
 }
 
 describe('Arena Squad Trials', () => {
@@ -60,7 +60,26 @@ describe('Arena Squad Trials', () => {
     expect(h.canvas.requestPointerLock).toHaveBeenCalledTimes(2)
     h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
     expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['countdown', 5])
-    for (const expected of [4, 3, 2, 1]) { h.scene.advancePhase(1); expect(Math.ceil(h.scene.countdownRemaining)).toBe(expected) }
+    h.scene.advancePhase(1)
+    expect(h.scene.countdownRemaining).toBe(4)
+    h.doc.pointerLockElement = null; h.doc.dispatchEvent(new Event('pointerlockchange'))
+    expect(h.scene.phase).toBe('paused')
+    expect(h.openingHud.update).toHaveBeenLastCalledWith('paused', 4)
+    h.scene.advancePhase(8)
+    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['paused', 4])
+    expect(h.attack).not.toHaveBeenCalled(); expect(h.save).not.toHaveBeenCalled()
+    h.canvas.dispatchEvent(new Event('click')) // Another rejected lock does not consume the remaining seconds.
+    h.scene.advancePhase(8)
+    expect(h.scene.countdownRemaining).toBe(4)
+    h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
+    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['countdown', 4])
+    h.scene.advancePhase(1)
+    expect(h.scene.countdownRemaining).toBe(3)
+    h.doc.pointerLockElement = new EventTarget() // Recheck the canvas even before a change event arrives.
+    h.scene.advancePhase(8)
+    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['paused', 3])
+    h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
+    for (const expected of [2, 1]) { h.scene.advancePhase(1); expect(Math.ceil(h.scene.countdownRemaining)).toBe(expected) }
     expect(h.attack).not.toHaveBeenCalled(); expect(h.save).not.toHaveBeenCalled()
     h.scene.advancePhase(1)
     expect(h.scene.phase).toBe('fight')
@@ -68,6 +87,38 @@ describe('Arena Squad Trials', () => {
     h.doc.pointerLockElement = null; h.doc.dispatchEvent(new Event('pointerlockchange'))
     h.canvas.dispatchEvent(new Event('click'))
     expect(h.scene.phase).toBe('fight')
+  })
+
+  it('keeps a prison resume countdown paused after a checkpoint save fails and is retried', () => {
+    const h = openingHarness('', 3, true)
+    let retry: () => void = () => { throw new Error('retry not installed') }
+    Object.assign(h.doc, { exitPointerLock() { h.doc.pointerLockElement = null; h.doc.dispatchEvent(new Event('pointerlockchange')) } })
+    Object.assign(h.scene, {
+      knocked: new Set(), player: { dead: true, hp: 0, isGrounded: true, currentMount: null },
+      lastPlayerSignature: 'true|0', checkpointClock: 0,
+      clearPickupFocus() {}, openPanel() { Object.assign(h.scene, { panel: {} }) },
+      closePanel() { Object.assign(h.scene, { panel: null }) },
+      button(_label: string, action: () => void) { retry = action },
+    })
+    Reflect.deleteProperty(h.scene, 'checkpointFight')
+    Reflect.deleteProperty(h.scene, 'saveProgressWithRetry')
+    h.save.mockReturnValueOnce(false).mockReturnValue(true)
+    h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
+    h.scene.advancePhase(1)
+    expect(h.scene.countdownRemaining).toBe(2)
+    h.scene.advancePhase(1) // The real checkpoint caller fails its save and opens the retry panel.
+    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['paused', 2])
+    expect(h.save).toHaveBeenCalledTimes(1)
+    retry()
+    expect(h.save).toHaveBeenCalledTimes(2)
+    h.scene.advancePhase(8)
+    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['paused', 2])
+    expect(h.attack).not.toHaveBeenCalled()
+    h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
+    h.scene.advancePhase(1.9)
+    expect(h.scene.phase).toBe('countdown'); expect(h.attack).not.toHaveBeenCalled()
+    h.scene.advancePhase(0.11)
+    expect(h.scene.phase).toBe('fight'); expect(h.attack).toHaveBeenCalledOnce()
   })
 
   it('starts a fallen prisoner’s restored three-second grace in nolock without passing the click to combat', () => {

@@ -134,7 +134,7 @@ export class CareerArenaCombatScene {
   /** Everyone out of the fight, including bodies knocked before a reload (those are never rebuilt). */
   private readonly knocked = new Set<string>()
   private shots: Shot[] = []
-  private phase: 'waiting' | 'countdown' | 'fight' | 'result' = 'waiting'
+  private phase: 'waiting' | 'countdown' | 'paused' | 'fight' | 'result' = 'waiting'
   private countdownRemaining = ARENA_TRIAL_COUNTDOWN_SECONDS
   private resumeGrace = false
   private started = false
@@ -363,7 +363,7 @@ export class CareerArenaCombatScene {
     this.renderer.domElement.addEventListener('click', () => {
       if (!this.started || this.panelOpen) return
       this.sound.unlockAudio()
-      if (this.phase === 'waiting') {
+      if (this.phase === 'waiting' || this.phase === 'paused') {
         // This gesture belongs to the opening, including in the unlocked QA path.
         this.input.consumeLeftGesture()
         if (location.search.includes('nolock') || document.pointerLockElement === this.renderer.domElement) this.beginCountdown()
@@ -372,6 +372,7 @@ export class CareerArenaCombatScene {
     }, { signal })
     document.addEventListener('pointerlockchange', () => {
       // A request is not proof of control. Rejected requests leave the prompt available to retry.
+      this.pauseOpeningIfUnlocked()
       if (document.pointerLockElement === this.renderer.domElement) this.beginCountdown()
     }, { signal })
     bindWindowResize(this.camera, this.renderer, signal)
@@ -379,10 +380,17 @@ export class CareerArenaCombatScene {
   }
 
   private beginCountdown(): void {
-    if (!this.started || this.panelOpen || this.phase !== 'waiting') return
+    if (!this.started || this.panelOpen || this.phase !== 'waiting' && this.phase !== 'paused') return
     this.input.clear()
     this.phase = 'countdown'
     this.last = performance.now()
+    this.openingHud.update(this.phase, this.countdownRemaining)
+  }
+
+  private pauseOpeningIfUnlocked(): void {
+    if (this.phase !== 'countdown' || location.search.includes('nolock') || document.pointerLockElement === this.renderer.domElement) return
+    this.phase = 'paused'
+    this.input.clear()
     this.openingHud.update(this.phase, this.countdownRemaining)
   }
 
@@ -410,8 +418,9 @@ export class CareerArenaCombatScene {
       if (this.prison) { this.clearPickupFocus(); this.input.consumeKeyE() }
       this.arena.update(dt); this.damageNumbers.update(dt, this.camera); return
     }
+    this.pauseOpeningIfUnlocked()
     // In ?nolock input is normally active even without pointer lock; the opening still owns it.
-    if (this.phase === 'waiting') this.input.clear()
+    if (this.phase === 'waiting' || this.phase === 'paused') this.input.clear()
     const pickupPressed = this.prison ? this.input.consumeKeyE() : false
     this.elapsed += dt
     const fighting = this.phase === 'fight'
@@ -486,12 +495,14 @@ export class CareerArenaCombatScene {
 
   private advancePhase(dt: number): void {
     if (this.resolvePrisonResult()) return
-    if (this.phase === 'waiting' || this.phase === 'countdown') {
+    this.pauseOpeningIfUnlocked()
+    if (this.phase === 'waiting' || this.phase === 'paused' || this.phase === 'countdown') {
       // The resume grace of an already-fighting trial still keeps the saved fight current: a landing, a knock-out or
       // a fall under way must survive a second reload. The first deployment countdown saves nothing.
       if (this.resumeGrace) this.checkpointFight(dt)
       if (this.pickupRetry) return
-      if (this.phase === 'waiting') return
+      this.pauseOpeningIfUnlocked()
+      if (this.phase !== 'countdown') return
       this.countdownRemaining -= dt
       if (this.countdownRemaining > 0) return
       this.phase = 'fight'

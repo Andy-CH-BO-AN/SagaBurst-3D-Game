@@ -10,9 +10,9 @@ export class ArenaOpeningHUD {
     document.body.append(this.root)
   }
 
-  update(phase: 'waiting' | 'countdown' | 'fight' | 'result', remaining: number): void {
-    const hidden = phase !== 'waiting' && phase !== 'countdown'
-    const text = phase === 'waiting' ? '點擊畫面開始' : phase === 'countdown' ? String(Math.ceil(remaining)) : ''
+  update(phase: 'waiting' | 'countdown' | 'paused' | 'fight' | 'result', remaining: number): void {
+    const hidden = phase !== 'waiting' && phase !== 'paused' && phase !== 'countdown'
+    const text = phase === 'waiting' ? '點擊畫面開始' : phase === 'paused' ? '點擊畫面繼續' : phase === 'countdown' ? String(Math.ceil(remaining)) : ''
     if (this.root.hidden !== hidden) this.root.hidden = hidden
     if (this.root.textContent !== text) this.root.textContent = text
   }
