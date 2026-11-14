@@ -24,7 +24,8 @@ import type { QuiverUI } from '../ui/QuiverUI'
 import type { SoundManager } from '../audio/SoundManager'
 import type { InventoryManager } from '../rpg/InventoryManager'
 import { WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
-import { getScenePlayableWorldBound, clampToPlayableWorld, getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
+import { getScenePlayableWorldBound, clampToPlayableWorld, getTerrainHeight, ObstacleData } from '../world/Terrain'
+import { PLAYER_FOOT_OFFSET, standingPlayerY, stepPlayerFootBody } from './PlayerFootBody'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
@@ -57,7 +58,6 @@ import {
   getBerserkerModifiers,
 } from '../combat/CombatBalance'
 import {
-  PLAYER_RADIUS,
   MAX_STAMINA,
   SPRINT_MULTIPLIER,
   STAMINA_DRAIN,
@@ -70,8 +70,7 @@ export { positionArrowCenterFromNock, sampleBowBodyLocal } from '../world/Charac
 // ── Tuning constants ──
 const MOVE_SPEED        = 8    // units/s walk
 const JUMP_VELOCITY     = 9    // units/s upward
-const GRAVITY           = -22  // units/s²
-const PLAYER_HALF_HEIGHT = 0.95
+const PLAYER_HALF_HEIGHT = PLAYER_FOOT_OFFSET
 const PLAYER_VISUAL_GROUND_OFFSET = -0.15
 
 export const DEFAULT_PLAYER_MAX_HP = COMBAT_BALANCE.hp.playerDefault
@@ -841,6 +840,17 @@ export class Player {
     this.footGroundFall.restore(saved.apexY)
   }
 
+  /**
+   * Stands the on-foot body on a verified floor (walk surface or terrain) with the shared foot
+   * offset and a grounded start, so the first physics step keeps it on that floor.
+   */
+  standOn(x: number, floorY: number, z: number): void {
+    this.group.position.set(x, standingPlayerY(floorY), z)
+    this.velY = 0
+    this.onGround = true
+    this.footGroundFall?.reset()
+  }
+
   /** Scene reset cancels airborne detachment before restoring the ordinary player state. */
   resetForScene(x: number, y: number, z: number): void {
     this.dismountFromMount({ preserveWorldPosition: true })
@@ -1229,31 +1239,9 @@ export class Player {
         this.onGround = false
       }
 
-      // Gravity
-      this.velY += GRAVITY * dt
-      this.group.position.y += this.velY * dt
-
-      // Dynamic Heightmap Ground Collision
-      const currentGroundY = getTerrainHeight(this.group.position.x, this.group.position.z)
-      const footY = currentGroundY + PLAYER_HALF_HEIGHT
-      if (this.group.position.y <= footY) {
-        this.group.position.y = footY
-        this.velY = 0
-        this.onGround = true
-      }
-
-      // Block against obstacle sides and land on obstacle tops.
-      const playerCollision = resolveObstacleCollision(
-        this.group.position,
-        previousPlayerPosition,
-        this.velY,
-        this.onGround,
-        PLAYER_RADIUS,
-        PLAYER_HALF_HEIGHT * 2,
-        PLAYER_HALF_HEIGHT,
-        obstacles,
-        { walkSurfaces: true },
-      )
+      // Gravity, heightmap ground, then obstacle sides and walk-surface tops.
+      const playerCollision = stepPlayerFootBody(this.group.position, previousPlayerPosition,
+        { velocityY: this.velY, onGround: this.onGround }, dt, obstacles)
       this.velY = playerCollision.velocityY
       this.onGround = playerCollision.onGround
 

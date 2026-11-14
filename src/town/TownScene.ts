@@ -82,6 +82,7 @@ import * as THREE from 'three'
 import { acceptCavalrySweep, acceptCaptainCavalryCommand, sweepPlayerSpawn, SWEEP_YAW, CAVALRY_SWEEP_BANDITS } from '../career/CavalrySweep'
 import { Player, PLAYER_ARROW_CAPACITY, DEFAULT_PLAYER_MAX_HP } from '../player/Player'
 import { PlayerInput } from '../player/PlayerInput'
+import { standingPlayerY } from '../player/PlayerFootBody'
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
 import { CompassUI } from '../ui/CompassUI'
 import { SpectatorCameraController } from '../camera/SpectatorCameraController'
@@ -454,7 +455,7 @@ export class TownScene {
     if (missionReturn?.status === 'blocked' && !heldAt) throw new Error('鎮內沒有合法的返回落點，請稍後重試。')
     const townEntry = missionReturnPlan?.point ?? heldAt ?? townPlayerEntryPoint()
     const entryGround = missionReturnPlan?.point.y ?? heldAt?.y ?? getTerrainHeight(townEntry.x, townEntry.z)
-    this.player.group.position.set(townEntry.x, entryGround + .9, townEntry.z)
+    this.player.standOn(townEntry.x, entryGround, townEntry.z)
     this.player.group.rotation.y = townEntry.yaw
     this.player.faceDirection(Math.sin(townEntry.yaw), Math.cos(townEntry.yaw))
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
@@ -2294,7 +2295,7 @@ export class TownScene {
       const flagged = settleCareerMissionReturn(typeof sessionStorage !== 'undefined' ? sessionStorage : undefined, () => this.planSergeantReturn(true))
       const plan = flagged ?? this.planSergeantReturn(false)
       if (plan.status !== 'placed') return false
-      this.player.group.position.set(plan.point.x, plan.point.y + .9, plan.point.z)
+      this.player.standOn(plan.point.x, plan.point.y, plan.point.z)
       this.player.group.rotation.y = plan.point.yaw
       this.player.faceDirection(Math.sin(plan.point.yaw), Math.cos(plan.point.yaw))
       if (flagged) this.race?.restorePlayer({ preservePlacement: true, dismount: plan.dismount, mountPark: plan.mountPark })
@@ -2641,7 +2642,7 @@ export class TownScene {
         const saved = profile.activeMission.mountedMarchPosition
         const anchor = saved ? new THREE.Vector3(saved.x, 0, saved.z) : undefined
         const position = profile.activeMission.kind === 'veteran-field' ? veteranPlayerSpawn(profile.activeMission.templateId, anchor) : sweepPlayerSpawn(anchor)
-        position.y = getTerrainHeight(position.x, position.z) + .9
+        position.y = standingPlayerY(getTerrainHeight(position.x, position.z))
         this.player.group.position.copy(position)
         const yaw = profile.activeMission.kind === 'veteran-field' ? veteranPlayerYaw(profile.activeMission.templateId) : SWEEP_YAW
         this.player.faceDirection(Math.sin(yaw), Math.cos(yaw))
@@ -3662,7 +3663,7 @@ export class TownScene {
     }
     for (const mount of this.townServiceMounts) if (!mount.dead && mount !== this.player.currentMount) resolveEntityCollision(playerBody, { position: mount.group.position, radius: .85, height: 2, bottomOffset: 0, anchored: true }, this.world.obstacles)
     for (const npc of [...this.mission.fieldNpcs, ...this.defense.fieldNpcs, ...(this.duel?.fieldNpcs ?? []), ...(this.race?.actors ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? [])]) if (!npc.dead && npc.combatPosition.distanceTo(this.player.combatPosition) < 3) resolveEntityCollision(playerBody, { position: npc.combatPosition, radius: .42, height: 1.8, bottomOffset: 0, anchored: false }, this.world.obstacles)
-    this.player.group.position.y = Math.max(this.player.group.position.y, getTerrainHeight(this.player.group.position.x, this.player.group.position.z) + .9)
+    this.player.group.position.y = Math.max(this.player.group.position.y, standingPlayerY(getTerrainHeight(this.player.group.position.x, this.player.group.position.z)))
   }
   private updateAmbient(): void {
     if (this.retirementFinale?.active || this.sceneContext.missionOnlyResidents || this.event.hostile || this.defense.active || this.panel || this.equipment.visible || this.result) { this.ambientLabel.hidden = true; return }

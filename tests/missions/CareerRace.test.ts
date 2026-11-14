@@ -12,6 +12,7 @@ import { canEnterRace, finalizeRaceDeployment, advanceRaceClock, advanceRaceRide
   type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
 import { RACE_START_SLOTS, RACE_LINES, raceWaypoints, raceMovementIsLegal, illegalTownCrossing, type RacePosition } from '../../src/career/CareerRaceRoute'
 import { findSergeantResident } from '../../src/town/SergeantReturn'
+import { PLAYER_FOOT_OFFSET } from '../../src/player/PlayerFootBody'
 import { townRoster } from '../../src/town/TownRules'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
@@ -698,7 +699,7 @@ describe('Race return and deferred native Town outcomes', () => {
     expect(walkController.returnComplete).toBe(true)
     expect(walkController.clear(false)).toBe(true)
     const settledPos = committedProfile.racePlayerState!.position
-    expect(settledPos.y).toBeCloseTo(4.9)
+    expect(settledPos.y).toBeCloseTo(4 + PLAYER_FOOT_OFFSET)
     expect(Math.hypot(settledPos.x - sergeantSpec.x, settledPos.z - sergeantSpec.z)).toBeGreaterThanOrEqual(3.0)
     expect(Math.hypot(settledPos.x - sergeantSpec.x, settledPos.z - sergeantSpec.z)).toBeLessThanOrEqual(4.1)
     expect(Math.hypot(settledPos.x - captainSpec.x, settledPos.z - captainSpec.z)).toBeGreaterThan(10)

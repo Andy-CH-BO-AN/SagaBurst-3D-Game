@@ -5,6 +5,7 @@ import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { HpBar } from '../ui/HpBar'
 import type { Player } from '../player/Player'
+import { standingPlayerY } from '../player/PlayerFootBody'
 import { AIType, Faction, NPC } from '../world/NPC'
 import { Mount, mountTypeFromId, felineVariantFromMountId } from '../world/Mount'
 import { BlackCatVisual } from '../world/BlackCatVisual'
@@ -510,7 +511,7 @@ export class CareerRaceController {
       })
       if (plan.status === 'blocked') { this.error = '鎮內沒有合法返回位置（含停馬位），請稍後重試。'; return false }
       const standing = player.mounted && !player.dead && !plan.dismount
-      target = { x: plan.point.x, z: plan.point.z, y: plan.point.y + (standing ? 0 : .9), yaw: plan.point.yaw }
+      target = { x: plan.point.x, z: plan.point.z, y: standing ? plan.point.y : standingPlayerY(plan.point.y), yaw: plan.point.yaw }
       if (plan.mountPark) mountTarget = { x: plan.mountPark.x, z: plan.mountPark.z, y: groundAt(plan.mountPark.x, plan.mountPark.z), yaw: plan.point.yaw }
       dismount = plan.dismount || !standing && player.mounted
     }

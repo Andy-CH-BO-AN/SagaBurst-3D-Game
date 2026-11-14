@@ -4,6 +4,7 @@ import { resolveCameraDistance } from '../../src/camera/ThirdPersonCamera'
 import { FallingRider, riderFallDamage } from '../../src/movement/FallingRider'
 import { getTownRampartLayout, townRampFoundation } from '../../src/town/TownRamparts'
 import { ObstacleCollisionSpatialIndex } from '../../src/world/ObstacleCollisionSpatialIndex'
+import { PLAYER_FOOT_OFFSET, standingPlayerY, stepPlayerFootBody } from '../../src/player/PlayerFootBody'
 import {
   findBlockingObstacleAlongPath,
   getTerrainHeight,
@@ -218,6 +219,20 @@ describe('obstacle walk-surface collision', () => {
       .5, 2, 0, [wall, deck(6)], { walkSurfaces: true })
     expect(position.toArray()).toEqual([2.5, 5.98, 5])
     expect(collision).toEqual({ velocityY: -1, onGround: false })
+  })
+
+  it('keeps a player stood on a raised hall floor on that floor through a long first foot step', () => {
+    // Town hall slab: solid plinth from the ground up to a floor well above one step.
+    const floor: ObstacleData = { isBarricade: false, navigationPassable: true, solidBelow: -.2,
+      box: new THREE.Box3(new THREE.Vector3(-10, -.2, -10), new THREE.Vector3(10, 1.4, 10)),
+      walkSurface: { startX: 0, startZ: -10, startY: 1.4, topY: 1.4, dirX: 0, dirZ: 1, length: 20, landing: 0, halfWidth: 10, mounted: true } }
+    const position = new THREE.Vector3(2, standingPlayerY(1.4), 3)
+    // Scene load advances the first frame with the clamped 0.2s step.
+    const step = stepPlayerFootBody(position, position.clone(), { velocityY: 0, onGround: true }, .2, [floor], () => 0)
+    expect(step).toEqual({ velocityY: 0, onGround: true })
+    expect(position.x).toBe(2)
+    expect(position.z).toBe(3)
+    expect(position.y).toBeCloseTo(1.4 + PLAYER_FOOT_OFFSET)
   })
 
   it('lands an existing falling rider on the actual slope and preserves height-based damage', () => {
