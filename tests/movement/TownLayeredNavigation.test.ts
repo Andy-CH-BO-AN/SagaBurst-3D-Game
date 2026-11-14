@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { expect, it } from 'vitest'
 import { AvailableBreachEntrances, type BreachEntrance } from '../../src/navigation/AvailableBreachEntrances'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
-import { gatehousePoint } from '../../src/town/TownGatehouse'
+import { GATEHOUSE_SHELL, gatehouseLocal, gatehousePoint, townGatehouseParts } from '../../src/town/TownGatehouse'
 import { getTownRampartLayout, townRampartHeight, type TownRampartLayout } from '../../src/town/TownRamparts'
 import { getTerrainHeight, getWalkRampHeight } from '../../src/world/Terrain'
 
@@ -175,32 +175,61 @@ function eastRamp(id: string, z: number): BreachEntrance {
     faction: null, walkable: true, mounted: true, connectionId: id }
 }
 
-it('從城牆走進門樓、跨過門洞上層，再從另一側回到城牆', () => {
+it('從城牆走上門洞上方的合併步道，進出兩座塔樓房間，再從另一側回到城牆', () => {
   const layout = getTownRampartLayout(), nav = new TownLayeredNavigation(layout), out = new THREE.Vector3()
   for (const house of layout.gatehouses!) {
-    const [left, right] = house.links
-    const current = left.entry.clone(), goal = gatehousePoint(house.gate, 0, 2, house.floorY)
-    const support = [house.deck, ...house.links.map(link => link.surface)]
+    const ring = (x: number) => { const p = gatehousePoint(house.gate, x, -6.2, 0); p.y = townRampartHeight(layout, p.x, p.z)!; return p }
+    const current = ring(-24), room = (side: number) => gatehousePoint(house.gate, side * 10.6, 2, house.floorY)
     const walkTo = (target: THREE.Vector3) => {
-      for (let i = 0; i < 120 && current.distanceToSquared(target) > .0025; i++) {
+      for (let i = 0; i < 90 && current.distanceToSquared(target) > .0025; i++) {
         expect(nav.resolveMoveTarget(current, target, out, null, true)?.ground, house.gate.id).toBe(false)
         const distance = Math.hypot(out.x - current.x, out.z - current.z)
         expect(distance, house.gate.id).toBeGreaterThan(.001)
-        current.lerp(out, Math.min(.4 / distance, 1))
-        const y = [...support.map(surface => getWalkRampHeight(surface, current.x, current.z)),
-          townRampartHeight(layout, current.x, current.z)].filter((value): value is number => value !== null)
+        current.lerp(out, Math.min(.8 / distance, 1))
+        const y = [getWalkRampHeight(house.deck, current.x, current.z), townRampartHeight(layout, current.x, current.z)].filter((value): value is number => value !== null)
         expect(y.length, house.gate.id).toBeGreaterThan(0)
         current.y = Math.max(...y)
+        // Between the towers a mover never cuts through a tower partition.
+        const local = gatehouseLocal(house.gate, current)
+        expect(Math.abs(local.x) > GATEHOUSE_SHELL.inner && local.z > GATEHOUSE_SHELL.wallBack && local.z < GATEHOUSE_SHELL.partition, house.gate.id).toBe(false)
       }
       expect(current.distanceTo(target), house.gate.id).toBeLessThanOrEqual(.05)
     }
-    walkTo(goal)
-    nav.clampFollow(out, goal, 0, true)
-    expect(out.y).toBe(goal.y)
+    const centre = gatehousePoint(house.gate, 0, 2, house.floorY)
+    walkTo(centre)
+    expect(current.y).toBe(house.floorY)
+    walkTo(room(-1))
+    walkTo(room(1))
+    nav.clampFollow(out, room(1), 0, true)
     expect(nav.isElevated(out)).toBe(true)
-    walkTo(right.junction)
-    walkTo(right.entry)
-    const below = gatehousePoint(house.gate, 0, .5, house.groundY)
-    expect(nav.isElevated(below)).toBe(false)
+    walkTo(ring(24))
+    expect(nav.isElevated(gatehousePoint(house.gate, 0, .5, house.groundY))).toBe(false)
+  }
+})
+
+it('領隊停在塔房時，第一名騎兵的跟隨站位沿塔房開口排在可通行處，並可從城牆抵達', () => {
+  const layout = getTownRampartLayout(), nav = new TownLayeredNavigation(layout), out = new THREE.Vector3(), step = new THREE.Vector3()
+  for (const house of layout.gatehouses!) for (const side of [-1, 1]) {
+    const id = `${house.gate.id}:${side}`, leader = gatehousePoint(house.gate, side * 10.6, 1.8, house.floorY)
+    nav.clampFollow(out, leader, 0, true)
+    // A mount's 1m footprint and 2.6m body at the slot must touch no gatehouse solid.
+    const local = gatehouseLocal(house.gate, out), feet = out.y - house.groundY
+    const body = new THREE.Box3(new THREE.Vector3(local.x - 1, feet + .05, local.z - 1), new THREE.Vector3(local.x + 1, feet + 2.6, local.z + 1))
+    for (const style of ['roman', 'viking'] as const) for (const part of townGatehouseParts(house, style)) {
+      if (part.role === 'fill') continue
+      const [x0, y0, z0, x1, y1, z1] = part.box
+      expect(body.intersectsBox(new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1))), `${id}:${style}:${part.role}`).toBe(false)
+    }
+    // Reachable from the rampart walk through the real layered navigation.
+    const current = gatehousePoint(house.gate, side * 24, -6.2, 0)
+    current.y = townRampartHeight(layout, current.x, current.z)!
+    for (let i = 0; i < 90 && current.distanceToSquared(out) > .0025; i++) {
+      expect(nav.resolveMoveTarget(current, out, step, null, true)?.ground, id).toBe(false)
+      const distance = Math.hypot(step.x - current.x, step.z - current.z)
+      current.lerp(step, Math.min(.8 / distance, 1))
+      const y = [getWalkRampHeight(house.deck, current.x, current.z), townRampartHeight(layout, current.x, current.z)].filter((value): value is number => value !== null)
+      current.y = Math.max(...y)
+    }
+    expect(current.distanceTo(out), id).toBeLessThanOrEqual(.05)
   }
 })
