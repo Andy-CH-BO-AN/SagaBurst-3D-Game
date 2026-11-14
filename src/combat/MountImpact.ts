@@ -2,7 +2,7 @@
  * MountImpact.ts
  * Centralised swept-sphere mount impact detection and damage resolution.
  * Handles:
- *  1. Player-owned mount -> Enemy NPCs (spawns damage numbers, HUD, sound)
+ *  1. Player-owned mount -> player-hostile NPCs (enemies, bandits, hostile Town; spawns damage numbers, HUD, sound)
  *  2. NPC-owned mount -> Player (routes through onDamagePlayer / damagePlayer + shield + HP bar)
  *  3. NPC-owned mount -> Hostile NPCs (no floating damage numbers, friendly fire strictly prohibited)
  */
@@ -15,6 +15,7 @@ import { COMBAT_BALANCE, calculateMountImpactDamage } from './CombatBalance'
 import { damageNpc, damageReceiver, type DamageResult } from './DamageRouter'
 import type { DamageReceiver } from './DamageReceiver'
 import type { SpatialGrid } from '../world/SpatialGrid'
+import { isPlayerHostileNpc } from '../world/HostileNpcGrid'
 import {
   createNpcCombatActorRef,
   createPlayerCombatActorRef,
@@ -138,7 +139,8 @@ export function resolveMountImpacts(
       }
 
       for (const targetNpc of candidates) {
-        if (targetNpc.dead || targetNpc.faction !== Faction.ENEMY) continue
+        // The same hostility rule as player melee: enemies, Career field bandits and hostile Town actors.
+        if (targetNpc.dead || !isPlayerHostileNpc(targetNpc)) continue
 
         if (checkMountImpact(mount, targetNpc.combatPosition, 0.5)) {
           applyMountImpactDamage(mount, targetNpc, targetNpc.combatPosition, now, (damage) => {

@@ -98,7 +98,7 @@ Career 城鎮劇情事件（`CareerStoryEvents`／`CareerStoryGuidance`／`TownS
 - Black Cat／Corgi 使用 `idle`、`walk`、`run`、`death`，保留遊戲會呼叫的 `jump`／`land`／`hit`；`QuadrupedMountAnimation` 定義種類與速度遲滯，Horse 保留原步態。各實例的全部 LOD 共用一套 skeleton／mixer，死亡單次播放後停在末幀；一次性受擊／落地結束後恢復最新請求的步態與播放速度。
 - 騎士骨盆對準解剖 seat socket，腿姿遵循各 rig 的 `forwardBendSign`。Black Cat／Snow Leopard／Corgi 的座面接觸由 `RiderSeatContactCache` 依騎手 visual child 身分快取；換裝重建模型時失效，不能沿用已脫離 mesh 的世界高度。Corgi 的 `CorgiSeatContact` 修正座面貼合；DEV 校準是否適用正式 Player/NPC 必須依實際呼叫端確認。
 - Custom Battle／Defense Campaign 的 Player 可選坐騎；一般戰場騎兵與營地預設 Horse。Career 的駐軍、英雄與商人坐騎由城鎮規則決定。
-- Game 玩家武器與徒手近戰的 NPC 目標共用 `isPlayerHostileNpc`（ENEMY、BANDIT 與敵對 Town），與 player-hostile grid 同一規則；友軍與死亡目標排除。
+- Game 玩家武器、徒手近戰與騎乘衝撞（`resolveMountImpacts` 玩家坐騎分支）的 NPC 目標共用 `isPlayerHostileNpc`（ENEMY、BANDIT 與敵對 Town），與 player-hostile grid 同一規則；友軍與死亡目標排除。
 - 近戰與投射物沿用 `WeaponSweep`／`traceCombatSegment`，比較 shield、人物 body 與 mount 的 first contact。Mount collider 使用 aim proxy 的 local box，隨完整 world transform 旋轉／縮放；所有存活坐騎都是獨立 physical target，無 rider 或同陣營仍阻擋並承受武器命中，NPC 不主動選無騎士坐騎為目標。攻擊者自己的坐騎排除於自己的武器查詢。
 - `CombatContact.mount` 指向真正命中的坐騎。body／盾牌 overflow 只傷人物，mount 只傷坐騎；兩者死亡獨立、正常 release rider。`mount-impact` 是明確例外：目標騎乘存活坐騎時傷坐騎，否则傷人物，不判 first contact、不吃盾。未帶 contact 的 scripted damage 傷指定人物，不因 mounted 轉移。長槍 charge 與 mount impact 避免同次重複傷害；死亡坐騎仍需完成動畫更新。
 - 戰場坐騎 HP 傷害與 NPC HP 傷害皆沿用 CombatEvent offensive XP；傷害數字只顯示 actual appliedDamage，HUD 對應實際命中對象。Player 的 mount HUD 由仍然 mounted 且 currentMount 存活決定，不由上一擊 isMountHit 決定。
