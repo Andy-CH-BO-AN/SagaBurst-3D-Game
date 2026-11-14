@@ -6,6 +6,9 @@ import { startCareerTutorial } from '../../src/career/CareerTutorial'
 import { TownTutorialController, type TownTutorialHost } from '../../src/town/TownTutorialController'
 import { getTownCommandWatchtowerLayout } from '../../src/town/TownCommandWatchtowerLayout'
 import { townAuthoredRoster } from '../../src/town/TownRules'
+import { TownScene } from '../../src/town/TownScene'
+import { TownMissionBoard } from '../../src/town/TownMissionBoard'
+import { storyDialogueOpen } from '../../src/career/CareerStoryGuidance'
 
 class MockElement {
   id = ''
@@ -179,6 +182,28 @@ describe('TownTutorialUX', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it('keeps Sergeant mission tabs in normal services after bypassing a pending story invitation', () => {
+    const profile = createCareerProfile('roman'); profile.rank = 'soldier'
+    profile.careerStory!.events['veteran-squad-spar'] = { status: 'pending' }
+    let panel = new MockElement('div')
+    const board = new TownMissionBoard({ profile, tutorial: undefined, captainPatrol: undefined,
+      defenseForce: () => ({ friendlyCombatants: 0 }), accept: vi.fn() })
+    const scene = Object.create(TownScene.prototype) as TownScene
+    const invitation = vi.fn()
+    Object.assign(scene, { profile, missionBoard: board, player: { dead: false }, serviceAvailable: () => true,
+      story: { hasDialogue: (id: string) => storyDialogueOpen(profile, id), renderDialogue: invitation },
+      openPanel: () => { panel = new MockElement('div'); return panel }, tutorialBypass: true })
+    const context = { townFaction: 'roman', npcRole: 'deployment', playerRank: 'soldier', firstMeet: false, promotionEligible: false } as const
+    scene['openDeploymentPanel']('正式任務', context, false)
+    Object.assign(scene, { tutorialBypass: false }) // The one-shot talk() bypass has ended before the next click.
+    panel.querySelectorAll('button').find(button => button.textContent === '新兵任務')!.onclick!()
+    expect(board.page).toBe('recruit')
+    expect(panel.querySelectorAll('button').some(button => button.textContent === '士兵任務')).toBe(true)
+    expect(invitation).not.toHaveBeenCalled()
+    scene['openDeploymentPanel']('正式任務', context, false)
+    expect(invitation).toHaveBeenCalledOnce()
   })
 
   it('可延後買武器直接開任務服務，日後實際購買仍只領一次獎勵', () => {
@@ -435,6 +460,34 @@ describe('TownTutorialUX', () => {
     expect(dom.elements.find(el => el.id === 'career-tutorial-notification')?.textContent).toContain('軍功')
 
     ctrl.dispose()
+  })
+
+  it('lets a story invitation take the arrow from a passive wait, but never from an accepted tutorial step', () => {
+    const hint = () => dom.elements.find(el => el.id === 'career-tutorial-hint')!
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController({ ...harness.host, storyGuiding: () => true })
+    // Accepted first step ("report to the Sergeant"): the tutorial keeps the arrow and the Sergeant's dialogue.
+    ctrl.update()
+    expect(ctrl.occupiesGuidance()).toBe(true)
+    expect(hint().hidden).toBe(false); expect(hint().textContent).toContain('向士官長報到')
+    // Waiting for the first two real missions asks for nothing now, so the story may speak instead.
+    const profile = harness.getProfile()
+    recordCareerTutorialOperation(profile, 'town', 'report')
+    recordCareerTutorialPurchase(profile, 'weapon', 'roman_sword_t1')
+    recordCareerTutorialOperation(profile, 'town', 'weapon')
+    recordCareerTutorialOperation(profile, 'town', 'duel-intro')
+    profile.tutorial!.duelOutcome = 'victory'
+    ctrl.update() // Commits a clone: read the live profile again, not the one captured above.
+    recordCareerTutorialOperation(harness.getProfile(), 'town', 'missions')
+    expect(harness.getProfile().tutorial!.town.step).toBe('horse-intro')
+    ctrl.update()
+    expect(ctrl.occupiesGuidance()).toBe(false); expect(ctrl.hasDialogue('deployment')).toBe(false)
+    expect(hint().hidden).toBe(true)
+    const quiet = new TownTutorialController(harness.host)
+    const quietHint = dom.elements.filter(el => el.id === 'career-tutorial-hint').at(-1)!
+    quiet.update()
+    expect(quietHint.hidden).toBe(false); expect(quietHint.textContent).toContain('完成正式戰鬥任務')
+    quiet.dispose(); ctrl.dispose()
   })
 
   const dialoguePanel = () => {

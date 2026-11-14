@@ -1,5 +1,6 @@
 import type { CareerRaceSession, RaceRider } from '../career/CareerRaceState'
-import { RACE_MOUNT_NAMES, raceDefinitionForSchedule } from '../career/CareerRaceState'
+import { RACE_MOUNT_NAMES, raceDefinitionForSchedule, raceOpponentCanSprint } from '../career/CareerRaceState'
+import { CAREER_STORY_REWARDS } from '../career/CareerStoryEvents'
 import { RACE_LINES, legalRaceStart } from '../career/CareerRaceRoute'
 
 interface RaceHUDOptions {
@@ -7,6 +8,7 @@ interface RaceHUDOptions {
   resultSaved: boolean
   saveFailed: boolean
   error: string
+  canCancelFailedStoryRace: boolean
   distance: number | null
 }
 
@@ -79,7 +81,8 @@ export class CareerRaceHUD {
     const announced = Boolean(session.result && options.resultSaved)
     if (root.dataset.phase !== session.phase) root.dataset.phase = session.phase
     setText(this.title, `${definition.name} · 繞城賽馬`)
-    setText(this.phase, !options.ready ? '賽手準備中'
+    const deploymentPhase = options.canCancelFailedStoryRace ? '賽手部署失敗' : '賽手準備中'
+    setText(this.phase, !options.ready ? deploymentPhase
       : session.phase === 'returning' ? '返回小鎮'
       : finishing ? '等待完賽'
       : session.result ? announced ? { win: '勝利 VICTORY', loss: '失敗 DEFEAT', draw: '平手 DRAW' }[session.result] : '結果保存中'
@@ -96,9 +99,13 @@ export class CareerRaceHUD {
       : countdown ? '留在北門內側起跑區' : `下一站：${RACE_LINES[session.player.checkpoint]?.label ?? '完成'}`
     const distance = (!session.result || finishing) && !observing && options.distance !== null ? ` · ${Math.round(options.distance)} m` : ''
     setText(this.objective, target + distance)
-    setText(this.mode, `${session.opponent.actorId === 'commander' ? '指揮官' : '對手'}：${RACE_MOUNT_NAMES[session.opponent.mountId]} · ${definition.sprint ? '衝刺賽' : '一般速度'} · 勝利 ${definition.merit} 軍功 · 玩家可 Shift 衝刺`)
+    const storyRewards = session.story ? CAREER_STORY_REWARDS[session.story] : undefined
+    const pace = raceOpponentCanSprint(session) ? '衝刺賽' : '一般速度'
+    const rewards = storyRewards ? `勝利 +${storyRewards.victory}／敗北 +${storyRewards.defeat} 軍功` : `勝利 ${definition.merit} 軍功`
+    setText(this.mode, `${session.opponent.actorId === 'commander' ? '指揮官' : '對手'}：${RACE_MOUNT_NAMES[session.opponent.mountId]} · ${pace} · ${rewards} · 玩家可 Shift 衝刺`)
     this.updateRider(session.player, 0); this.updateRider(session.opponent, 1)
-    const warning = options.saveFailed && !options.ready ? '部署保存失敗；請重新載入以重試同場賽事。'
+    const warning = options.canCancelFailedStoryRace ? '按 Esc 可取消本次賽馬，不計勝負。'
+      : options.saveFailed && !options.ready ? '部署保存失敗；請重新載入以重試同場賽事。'
       : options.saveFailed ? '保存失敗，將重試；結果保存成功後才公布。'
       : countdown && !observing && !legalRaceStart(session.player.position) ? '搶跑！倒數結束前返回北門內側，否則判負。'
       : session.guideFallback && session.phase === 'guiding' && !observing ? 'Captain 無法引導，請依箭頭前往北門。'

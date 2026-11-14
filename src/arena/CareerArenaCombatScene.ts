@@ -22,6 +22,7 @@ import { clearCareerMission, cloneCareerProfile, type CareerProfile } from '../c
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { resolveCareerHeroAsset, resolveCareerOrdinaryTier, resolveCareerPlayerMaxHp } from '../career/CareerPlayerProfile'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
+import { careerStorySettlement } from '../career/CareerStoryEvents'
 import type { ActiveCareerMission, CareerMissionOutcome } from '../career/CareerMissionState'
 import { BattleStatsTracker, type PlayerBattleStats } from '../combat/BattleStatsTracker'
 import { CombatEventStream, createNpcCombatActorRef, createPlayerCombatActorRef, type CombatDamageMethod, type CombatEvent } from '../combat/CombatAttribution'
@@ -911,10 +912,13 @@ export class CareerArenaCombatScene {
     this.phase = 'result'
     const trial = this.trial, merit = result.merit
     const complete = result.outcome === 'victory'
+    const saved = this.session!.profile
+    const story = careerStorySettlement(saved, 'veteran-squad-spar', saved.activeMission?.id ?? '')
     this.session!.panel.show(complete ? '試煉勝利' : '試煉失敗',
       `${DUEL_ARENA_LABELS[this.arenaId]} · ${ARENA_TRIAL_DEFINITIONS[trial.tier].label}\n\n`
       + `戰鬥表現（你）\n擊倒敵人：${result.stats.kills}\n造成傷害：${Math.round(result.stats.damageDealt)}\n結束時狀態：${result.stats.survived ? '仍站立' : '被擊倒'}\n\n`
-      + `軍功獎勵（每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功）\n傷害軍功：${merit.damage}\n擊倒軍功：${merit.kills}\n任務貢獻：${merit.contribution}\n本次總軍功：${merit.total}`
+      + (story ? `軍功獎勵（老兵邀請的小隊切磋：首場固定獎勵，取代傷害與擊倒軍功）\n本次總軍功：${merit.total}`
+        : `軍功獎勵（每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功）\n傷害軍功：${merit.damage}\n擊倒軍功：${merit.kills}\n任務貢獻：${merit.contribution}\n本次總軍功：${merit.total}`)
       + `${complete ? '' : trial.endReason === 'timeout' ? '\n\n試煉逾時：時限內未分出勝負，本場計為失敗；不造成永久傷亡或裝備損失。' : '\n\n我方全員被擊倒；試煉不造成永久傷亡或裝備損失。'}`)
     this.session!.addReturnButton()
   }

@@ -2,6 +2,7 @@ import type { CareerProfile, CareerMountId, LegacyRaceProgress } from './CareerP
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
 import { canAllocateCareerItemToPlayer } from './CareerInventory'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
+import { releaseCareerStoryEvent, settleCareerStoryEvent } from './CareerStoryEvents'
 import { insideRaceTown, illegalTownCrossing, legalRaceStart, lineCrossing, RACE_LINES, type RacePosition } from './CareerRaceRoute'
 
 export type RaceMountId = 'horse' | 'armored-horse' | 'corgi' | 'black-cat' | 'white-cat' | 'orange-cat' | 'serval' | 'caracal' | 'snow-leopard'
@@ -106,6 +107,10 @@ export interface RaceReferee {
   mountPosition?: RacePosition
   mounted: boolean
 }
+export type RaceStoryId = 'commander-circuit-race'
+export const RACE_STORY_ID: RaceStoryId = 'commander-circuit-race'
+/** The invitation runs the first circuit as a sprint race. */
+export const RACE_STORY_RACE_ID: RaceId = 'race-1'
 export interface CareerRaceSession {
   version: 1
   deployed: boolean
@@ -113,6 +118,8 @@ export interface CareerRaceSession {
   raceId: RaceId
   /** Absent for original six-race sessions; captured on acceptance, not on reload. */
   scheduleVersion?: RaceScheduleVersion
+  /** Set only when the invitation was accepted at the Commander; ordinary entries never carry it. */
+  story?: RaceStoryId
   phase: 'guiding' | 'countdown' | 'racing' | 'finishing' | 'result' | 'returning'
   countdownSeconds: number
   elapsedSeconds: number
@@ -130,10 +137,16 @@ export interface CareerRaceSession {
   reason?: string
   guideFallback?: string
 }
+/** Story races are sprint-enabled. Ordinary races retain their saved schedule's sprint rule. */
+export function raceOpponentCanSprint(session: Pick<CareerRaceSession, 'raceId' | 'scheduleVersion' | 'story'>): boolean {
+  return session.story === RACE_STORY_ID || Boolean(raceDefinitionForSchedule(session.raceId, session.scheduleVersion)?.sprint)
+}
+
 export interface CareerRaceRecord {
   sessionId: string
   raceId: RaceId
   scheduleVersion?: RaceScheduleVersion
+  story?: RaceStoryId
   result: RaceOutcome
   legalFinish: boolean
   playerSeconds?: number
@@ -180,8 +193,18 @@ export function raceRecordProfile(profile: CareerProfile, session: CareerRaceSes
   const next = cloneCareerProfile(profile)
   next.activeRace = structuredClone(session)
   if (!session.result || session.phase === 'finishing' || next.raceRecords?.some(record => record.sessionId === session.id)) return next
-  const merit = session.result === 'win' ? raceDefinitionForSchedule(session.raceId, session.scheduleVersion)!.merit : 0
+  let merit = session.result === 'win' ? raceDefinitionForSchedule(session.raceId, session.scheduleVersion)!.merit : 0
+  // The invitation's fixed award replaces the ordinary one in this same save. A draw returns the invitation unused.
+  let story: RaceStoryId | undefined
+  if (session.story && session.raceId === RACE_STORY_RACE_ID) {
+    if (session.result === 'draw') releaseCareerStoryEvent(next, session.story, session.id)
+    else {
+      const fixed = settleCareerStoryEvent(next, session.story, session.id, session.result === 'win' ? 'victory' : 'defeat')
+      if (fixed !== null) { merit = fixed; story = session.story }
+    }
+  }
   const record: CareerRaceRecord = { sessionId: session.id, raceId: session.raceId, result: session.result, merit,
+    ...(story ? { story } : {}),
     ...(session.scheduleVersion ? { scheduleVersion: session.scheduleVersion } : {}),
     legalFinish: session.player.finishSeconds !== undefined,
     ...(session.player.finishSeconds !== undefined ? { playerSeconds: session.player.finishSeconds } : {}),
@@ -319,6 +342,7 @@ export function parseRaceSession(value: unknown): CareerRaceSession | null {
     || (s.referee !== undefined && !isRaceReferee(s.referee))
     || (s.opponentHome !== undefined && !isRaceReferee(s.opponentHome))
     || (s.opponentAmmo !== undefined && !nonnegative(s.opponentAmmo))
+    || (s.story !== undefined && (s.story !== RACE_STORY_ID || s.raceId !== RACE_STORY_RACE_ID))
     || (s.reason !== undefined && typeof s.reason !== 'string')
     || (s.guideFallback !== undefined && typeof s.guideFallback !== 'string')
     || (s.phase === 'finishing' || s.phase === 'result' || s.phase === 'returning') !== (s.result !== undefined)
@@ -341,6 +365,7 @@ export function parseRaceRecords(value: unknown): CareerRaceRecord[] | null {
     if (!r || typeof r.sessionId !== 'string' || !r.sessionId || !raceDefinitionForSchedule(r.raceId, r.scheduleVersion) || !outcome(r.result)
       || typeof r.legalFinish !== 'boolean' || (r.playerSeconds !== undefined && !nonnegative(r.playerSeconds))
       || (r.opponentSeconds !== undefined && !nonnegative(r.opponentSeconds)) || r.legalFinish !== (r.playerSeconds !== undefined)
+      || (r.story !== undefined && (r.story !== RACE_STORY_ID || r.raceId !== RACE_STORY_RACE_ID))
       || (r.merit !== undefined && (!nonnegative(r.merit) || !Number.isInteger(r.merit)))) return null
     if (!ids.has(r.sessionId)) { ids.add(r.sessionId); records.push(structuredClone(r) as unknown as CareerRaceRecord) }
   }

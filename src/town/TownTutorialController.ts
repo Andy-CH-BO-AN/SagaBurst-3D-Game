@@ -26,6 +26,8 @@ export interface TownTutorialHost {
   launch(stage: 'recruit' | 'captain', replay: boolean): boolean
   duel(): void
   closePanel(): void
+  /** True while the Town story arrow is showing; passive or deferred tutorial hints then stay quiet. */
+  storyGuiding?(): boolean
   openRecruitmentPanel?(): void
   /** Opens a service's original panel, bypassing the optional tutorial dialogue. */
   openServices?(serviceId: string): void
@@ -86,6 +88,16 @@ export class TownTutorialController {
   }
 
   /**
+   * An accepted stage that asks the player to do something now owns the arrow and the NPC dialogue. Waiting for the
+   * first two real missions or for enough merit to buy a horse is passive, and so is a skipped stage's reminder.
+   */
+  occupiesGuidance(): boolean {
+    const t = this.host.profile().tutorial, stage = this.activeStage()
+    if (!t || !stage) return false
+    return !(stage === 'town' && t.town.step === 'horse-intro' && !this.townDialogueReady())
+  }
+
+  /**
    * A stage the player skipped, with its progress kept. Legacy saves that never started a stage stay opt-in:
    * migration marks them deferred, and that must not nag veterans with a tutorial they never chose to begin.
    */
@@ -106,6 +118,8 @@ export class TownTutorialController {
     if (t.town.status === 'deferred' && t.purchases.weaponIds.length && t.rewards.weapon === undefined && !t.town.replay) {
       this.change(profile => { claimCareerTutorialReward(profile, 'weapon') })
     }
+    // One guide at a time: a passive wait or a skipped stage's reminder gives way to a story invitation.
+    if (!this.occupiesGuidance() && h.storyGuiding?.()) { this.guide.hide(); this.hud.render('', '', this.saveError, false); return }
     const stage = this.activeStage()
     const deferred = stage ? null : this.guidedDeferred()
     let target: Vector3 | null = null, label = '', interact = true, text = ''

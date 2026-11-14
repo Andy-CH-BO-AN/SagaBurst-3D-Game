@@ -31,6 +31,7 @@ Commander 新正式八隊為 26／26／26／26／25／26／25／26，共 206 人
 
 - Soldier Enemy Town Assault 與 Veteran Home Defense 共用四門、120 人 Siege；Recruit／Soldier 舊守城下架。新攻城地圖預先部署後直接開打，主城防守只等存活巡邏騎兵進城便關門開戰，其他單位邊作戰邊完成部署；破門即解除該門步兵與騎兵的部署命令投入戰鬥，同場 reload 保留戰損，詳細契約見 ARCHITECTURE。
 
+- Career 城鎮劇情事件已接入：首次買普通戰馬 → 指揮官繞城賽馬邀請（Race I，勝 +500／敗 +29）、首次正式任務勝利 → 士官長小隊切磋邀請（T1 試煉，勝 +1,000／敗 +100），另有任命與首隻巨鷹的單一箭頭引導。契約見 [ARCHITECTURE.md](ARCHITECTURE.md) 的「Career 城鎮劇情事件」段；單元測試涵蓋觸發、結算、重試去重與舊檔，瀏覽器已走過接受流程，完整跑完賽馬與競技場實戰尚未實機驗收。
 - 正式入口提供 Custom Battle、Defense Campaign 與 Career Town；有效存檔／session 可恢復對應流程。人物含 Viking／Roman 與 T4 英雄；Horse、Black Cat、Corgi 均已有模型載入路徑。
 - 近期開發集中在 Career Town：剿匪、巡邏、守城、騎兵清剿、Outpost 任務、敵城進攻，以及最新 1v1 Duel。任務結算、恢復與借用駐軍是主要交接區域，入口見 [ARCHITECTURE.md](ARCHITECTURE.md)。
 - Captain／Commander 的所有 Town runtime 已接入城外 6 隊 Bandit、3 隊 T2 Horse cavalry。騎兵屬當前城鎮的敵對 faction，進入敵境可能是玩家友軍；自然交火可影響正式任務角色的傷亡及結果，roaming 自身保持獨立名單與歸因。
