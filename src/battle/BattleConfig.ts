@@ -899,6 +899,19 @@ export const PRESET_SCENARIO_I: BattleConfig = definePreset({
   rules: { respawnEnabled: false, includeCamps: false },
 })
 
+/** Developer performance scenario K: 300v300 Heavy Cavalry (armored horse vs snow leopard), Formation, Initial Spectator; both armies charge. */
+export const PRESET_SCENARIO_K: BattleConfig = definePreset({
+  mode: 'formation',
+  spectator: true,
+  viking: {
+    viking_heavy_cavalry: { 1: 90, 2: 120, 3: 90 },
+  },
+  roman: {
+    roman_heavy_cavalry: { 1: 90, 2: 120, 3: 90 },
+  },
+  rules: { respawnEnabled: false, includeCamps: false },
+})
+
 /** Developer siege scenario J: Roman player + 50 defenders vs 100 Viking attackers. */
 export const PRESET_SCENARIO_J: BattleConfig = definePreset({
   mode: 'formation',

@@ -25,8 +25,9 @@ description: 用固定瀏覽器、warm-up、取樣窗口與 JSON 輸出，量測
 | G | 200v200 步兵，Formation | 400／0 |
 | H | 200v200 混編，Formation；每方 60 步兵、60 遠程、40 近戰騎兵、40 騎射 | 400／160 |
 | I | 200v200 混合騎兵，Scattered | 400／400 |
+| K | 300v300 重騎兵（羅馬鎧甲戰馬 vs 維京雪豹），Formation，雙方 Charge | 600／300（Horse Count 只計 horse registry 的鎧甲戰馬） |
 
-E/F/G/H/I 使用 initial spectator；D–I 均 no respawn、no camps。配置以 `src/battle/BattleConfig.ts` 的 `PRESET_SCENARIO_*` 與 runner 的 scenario 表為準。J 已有遊戲診斷場景，但目前此 runner 未支援，不直接傳 `--scenario=J`。
+E/F/G/H/I/K 使用 initial spectator；D–K 均 no respawn、no camps。其他 devcombat 場景的 NPC 預設 Defend，Formation 場景兩軍不會自行接戰；K 例外，雙方一開場即 Charge，before-contact 量衝鋒接近、during-combat 量混戰。K 有 600 名角色，只在明確指定時執行（不含於 `all`），生成較久，需加 `--initial-timeout-ms=120000`。配置以 `src/battle/BattleConfig.ts` 的 `PRESET_SCENARIO_*` 與 runner 的 scenario 表為準。J 已有遊戲診斷場景，但目前此 runner 未支援，不直接傳 `--scenario=J`。
 
 - 一般窗口預設 warm-up 3 秒、觀察 20 秒。注意：目前 before-contact 從 recorder 啟動後收集所有接戰前合格樣本，含 warm-up；during-combat 才按 observationStart 過濾。比較必須使用相同 runner 版本與實際樣本範圍，不能把 before-contact 說成純 warm-up 後 20 秒。
 - **before-contact**：預設 3 runs 取 median。只採 `Alive=該場景 NPC 總數`、`Dead=0` 且未出現攻擊／投射物證據的 samples。解析端保留 spawn-plan provisional 標記，但目前啟動 gate 仍要求初始 Alive/Dead 及 Horse 數正確；缺這些 HUD 的舊版會失敗，不可宣稱自動相容。歷史 provisional 報表不能等同存活數驗證。

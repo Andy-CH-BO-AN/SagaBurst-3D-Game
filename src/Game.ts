@@ -148,6 +148,7 @@ import {
   PRESET_SCENARIO_G,
   PRESET_SCENARIO_H,
   PRESET_SCENARIO_I,
+  PRESET_SCENARIO_K,
   PRESET_SCENARIO_J,
 } from './battle/BattleConfig'
 import {
@@ -1190,6 +1191,8 @@ export class Game {
         scenarioConfig = PRESET_SCENARIO_I
       } else if (devVal === 'j' || devVal === 'scenarioj') {
         scenarioConfig = PRESET_SCENARIO_J
+      } else if (devVal === 'k' || devVal === 'scenariok') {
+        scenarioConfig = PRESET_SCENARIO_K
       }
       activeBattleConfig = scenarioConfig
       battlePlan = BattleSpawner.createSpawnPlan(scenarioConfig)
@@ -1415,8 +1418,10 @@ export class Game {
           attackerFaction: 'viking',
         })
       } else {
-        // Other DEV combat scenarios remain controllable test battlefields.
-        for (const npc of this.npcs) npc.setTacticalOrder('defend')
+        // Scenario K charges both armies so its benchmark covers the approach and the melee;
+        // other DEV combat scenarios remain controllable test battlefields.
+        const devOrder = startupDevCombat === 'k' || startupDevCombat === 'scenariok' ? 'charge' : 'defend'
+        for (const npc of this.npcs) npc.setTacticalOrder(devOrder)
       }
       if (this.activeRenderProbe === 'simple-material') {
         applyDevSimpleMaterials(this.npcs, this.mounts)

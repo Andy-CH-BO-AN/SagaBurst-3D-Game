@@ -14,7 +14,7 @@ if (args.has('--help')) {
 SagaBurst 標準效能量測
 
 選項：
-  --scenario=D|E|F|G|H|I|all       預設 all
+  --scenario=D|E|F|G|H|I|K|all     預設 all
   --phase=before-contact|during-combat
   --runs=N                 Before Contact 預設 3，Combat 預設 1
   --tag=NAME               輸出檔名 tag
@@ -23,6 +23,7 @@ SagaBurst 標準效能量測
   --warmup-ms=N            預設 3000
   --observation-ms=N       預設 20000
   --timeout-ms=N            預設 25000
+  --initial-timeout-ms=N    等待完整生成的時限，預設 15000（K 建議 120000）
   --out=PATH               指定輸出 JSON 路徑
 `)
   process.exit(0)
@@ -41,9 +42,12 @@ const allScenarios = [
   { id: 'G', query: 'devcombat=g', sideCount: 200, horseCount: 0 },
   { id: 'H', query: 'devcombat=h', sideCount: 200, horseCount: 160 },
   { id: 'I', query: 'devcombat=i', sideCount: 200, horseCount: 400 },
+  // K is heavy (600 actors) and only runs when named explicitly. Horse Count only counts
+  // horse-registry mounts: the 300 Roman armored horses, not the 300 Viking snow leopards.
+  { id: 'K', query: 'devcombat=k', sideCount: 300, horseCount: 300, explicitOnly: true },
 ]
 const scenarios = scenarioArg === 'ALL'
-  ? allScenarios
+  ? allScenarios.filter((scenario) => !scenario.explicitOnly)
   : allScenarios.filter((scenario) => scenario.id === scenarioArg)
 if (scenarios.length === 0) throw new Error(`未知 scenario: ${scenarioArg}`)
 
@@ -63,7 +67,7 @@ const host = valueOf('host', '127.0.0.1:5173')
 const warmupMs = Number(valueOf('warmup-ms', '3000'))
 const observationMs = Number(valueOf('observation-ms', '20000'))
 const timeoutMs = Number(valueOf('timeout-ms', '25000'))
-const initialBattleStateTimeoutMs = 15_000
+const initialBattleStateTimeoutMs = Number(valueOf('initial-timeout-ms', '15000'))
 const tag = valueOf('tag', `${scenarioArg.toLowerCase()}-${phase}`)
 const requireSubphase = !args.has('--no-subphase')
 const chromePath = process.env.SAGABURST_CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
