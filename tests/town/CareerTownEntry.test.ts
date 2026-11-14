@@ -338,6 +338,7 @@ describe('Captain battlefield Career entry routing', () => {
     enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn())
     const briefing = body.children.find(child => child.children.some(item => item.textContent.includes('你被俘虜了')))!
     expect(briefing.children[0].textContent).toContain('武器已被沒收')
+    expect(briefing.children[0].textContent).toContain('擊倒 10 名看守')
     expect(briefing.children[0].textContent).toContain('存活隊友穿過出口')
     expect(briefing.children[0].textContent).toContain(`原戰役軍功：${saved.activeMission!.result!.merit.total}`)
     const begin = findText(body, '開始越獄')!

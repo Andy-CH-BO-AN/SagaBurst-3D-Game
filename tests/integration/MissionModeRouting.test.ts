@@ -192,13 +192,14 @@ describe('Heavy field defeat capture at the production Game caller', () => {
       expect(saved.activeMission!.result!.outcome).toBe(outcome)
       expect(saved.activeMission!.prisonBreak?.captor).toBe(outcome === 'failure' ? 'viking' : undefined)
       expect(saved.claimedBattleIds).toEqual([profile.activeMission!.id])
-      expect(showResult.mock.lastCall?.[4]).toBe(outcome === 'failure')
+      expect(showResult.mock.lastCall?.[4]).toBe(outcome === 'failure' ? 10 : undefined)
       expect(showResult.mock.lastCall?.[1]).toBe(saved.activeMission!.result!.merit.total)
       const resultMarkup = elements.at(-1)!.innerHTML
       expect(resultMarkup).toContain('戰鬥統計')
       expect(resultMarkup).toContain(`Career 軍功 +${saved.activeMission!.result!.merit.total}`)
       if (outcome === 'failure') {
         expect(resultMarkup).toContain('你被俘虜了')
+        expect(resultMarkup).toContain('擊倒 10 名看守')
         expect(resultMarkup).toContain('存活隊友穿過出口')
         expect(resultMarkup).toContain('開始越獄')
       } else {
@@ -227,7 +228,7 @@ describe('Heavy field defeat capture at the production Game caller', () => {
     })
     entry._showFieldBattleResult('failure')
     const claimed = store.load()!
-    expect(hud.showResult.mock.lastCall?.[4]).toBe(true)
+    expect(hud.showResult.mock.lastCall?.[4]).toBe(10)
     const continueFromDefeat = hud.showResult.mock.lastCall![3] as () => void
     storage.failWrites = true
     continueFromDefeat()

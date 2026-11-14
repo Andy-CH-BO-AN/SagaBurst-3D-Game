@@ -13,15 +13,16 @@ function captured(templateId: PrisonBattleId, faction: 'roman' | 'viking', capto
 }
 
 describe('Career prison break decisions', () => {
-  it('三關與兩文化皆為玩家另加 30 名徒手戰俘，以及俘虜方的五名實際兵種看守', () => {
-    const rows = [ ['soldier-iron-encounter', 3, 2], ['veteran-iron-tide', 4, 3], ['commander-iron-legion', 5, 4] ] as const
-    for (const [id, tier, basic] of rows) for (const captor of ['roman', 'viking'] as const) {
+  it('三關皆為玩家另加 30 名徒手戰俘，士兵關有 10 名 T3 看守，另兩關維持 5 名', () => {
+    const rows = [ ['soldier-iron-encounter', 3, 2, 2], ['veteran-iron-tide', 4, 3, 1], ['commander-iron-legion', 5, 4, 1] ] as const
+    for (const [id, tier, basic, guardGroups] of rows) for (const captor of ['roman', 'viking'] as const) {
       const faction = captor === 'roman' ? 'viking' : 'roman'
       const state = captured(id, faction, captor).activeMission!.prisonBreak!
       expect(state.combat.arenaId).toBe(captor === 'roman' ? 'roman-colosseum' : 'viking-valhalla')
       const roster = prisonRoster(state), friends = roster.filter(e => e.team === 'friendly'), guards = roster.filter(e => e.team === 'enemy')
       expect(friends.map(e => e.tier)).toEqual([tier, ...Array(29).fill(basic)])
-      expect(guards.map(e => [e.tier, e.role])).toEqual([[tier, 'melee'], [tier, 'melee'], [tier, 'spear'], [tier, 'archer'], [tier, captor === 'roman' ? 'javelin' : 'archer']])
+      const roles = ['melee', 'melee', 'spear', 'archer', captor === 'roman' ? 'javelin' : 'archer']
+      expect(guards.map(e => [e.tier, e.role])).toEqual(Array.from({ length: guardGroups }).flatMap(() => roles.map(role => [tier, role])))
       for (const entry of roster) {
         const spec = prisonUnitSpec(state, entry, faction)
         expect(spec.cavalry).toBe(false)

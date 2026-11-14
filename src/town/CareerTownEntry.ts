@@ -1,7 +1,7 @@
 import { commitPrisonBreakReturn } from '../career/CareerMissionReturnRecovery'
 import { CareerPrisonBreakScene } from '../arena/CareerPrisonBreakScene'
-import { beginPrisonBreak } from '../career/CareerPrisonBreak'
-import { PRISON_CAPTURE_ACTION, PRISON_CAPTURE_DESCRIPTION, PRISON_CAPTURE_OBJECTIVE, PRISON_CAPTURE_TITLE } from '../ui/PrisonBreakBriefing'
+import { beginPrisonBreak, prisonGuardCount } from '../career/CareerPrisonBreak'
+import { PRISON_CAPTURE_ACTION, PRISON_CAPTURE_DESCRIPTION, PRISON_CAPTURE_TITLE, prisonCaptureObjective } from '../ui/PrisonBreakBriefing'
 import { stageMissionReturnRebuild } from '../career/CareerMissionReturnRecovery'
 import { townRoster } from './TownRules'
 import { createCareerBridgeBattleLaunch, createCareerFelineBattleLaunch, isCareerBridgeBattle, isCareerFelineBattle } from '../career/CareerBridgeBattle'
@@ -118,7 +118,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       }
       if (prison.stage === 'captured') {
         const result = profile.activeMission!.result!
-        const briefing = `${PRISON_CAPTURE_TITLE}\n原戰役軍功：${result.merit.total}\n${PRISON_CAPTURE_DESCRIPTION}\n${PRISON_CAPTURE_OBJECTIVE}`
+        const briefing = `${PRISON_CAPTURE_TITLE}\n原戰役軍功：${result.merit.total}\n${PRISON_CAPTURE_DESCRIPTION}\n${prisonCaptureObjective(prisonGuardCount(prison))}`
         text.textContent = briefing
         action(PRISON_CAPTURE_ACTION, () => {
           const latest = store.loadChecked().profile

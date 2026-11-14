@@ -47,20 +47,29 @@ const sum = (groups: readonly ArenaTrialGroup[]): number => groups.reduce((total
 export const ARENA_TRIAL_DEFINITIONS: Readonly<Record<ArenaTrialTier, ArenaTrialDefinition>> = Object.freeze({
   1: { tier: 1, label: '新兵試煉', requiredRank: 'recruit',
     friendly: [{ role: 'melee', tier: 1, count: 10 }, { role: 'spear', tier: 1, count: 5 }, { role: 'archer', tier: 1, count: 4 }],
-    enemy: [{ role: 'melee', tier: 2, count: 5 }, { role: 'spear', tier: 2, count: 3 }, { role: 'archer', tier: 2, count: 2 }] },
+    enemy: [{ role: 'melee', tier: 2, count: 8 }, { role: 'spear', tier: 2, count: 4 }, { role: 'archer', tier: 2, count: 3 }] },
   2: { tier: 2, label: '士兵試煉', requiredRank: 'soldier',
-    friendly: [{ role: 'melee', tier: 2, count: 7 }, { role: 'spear', tier: 2, count: 4 }, { role: 'archer', tier: 2, count: 3 }],
-    enemy: [{ role: 'melee', tier: 3, count: 4 }, { role: 'spear', tier: 3, count: 2 }, { role: 'archer', tier: 3, count: 2 }] },
+    friendly: [{ role: 'melee', tier: 2, count: 10 }, { role: 'spear', tier: 2, count: 5 }, { role: 'archer', tier: 2, count: 4 }],
+    enemy: [{ role: 'melee', tier: 3, count: 7 }, { role: 'spear', tier: 3, count: 4 }, { role: 'archer', tier: 3, count: 4 }] },
   3: { tier: 3, label: '老兵試煉', requiredRank: 'veteran',
-    friendly: [{ role: 'melee', tier: 3, count: 4 }, { role: 'spear', tier: 3, count: 2 }, { role: 'archer', tier: 3, count: 1 }],
+    friendly: [{ role: 'melee', tier: 3, count: 6 }, { role: 'spear', tier: 3, count: 3 }, { role: 'archer', tier: 3, count: 2 }],
     enemy: [{ role: 'melee', tier: 2, count: 10 }, { role: 'spear', tier: 2, count: 6 }, { role: 'archer', tier: 2, count: 4 }] },
   4: { tier: 4, label: '隊長試煉', requiredRank: 'captain',
     friendly: [{ role: 'melee', tier: 4, heavy: true, count: 4 }, { role: 'melee', tier: 4, count: 6 }, { role: 'spear', tier: 4, count: 5 }, { role: 'archer', tier: 4, count: 4 }],
-    enemy: [{ role: 'melee', tier: 5, heavy: true, count: 2 }, { role: 'melee', tier: 5, count: 3 }] },
+    enemy: [{ role: 'melee', tier: 5, heavy: true, count: 4 }, { role: 'melee', tier: 5, count: 6 }] },
   5: { tier: 5, label: '指揮官試煉', requiredRank: 'commander',
-    friendly: [{ role: 'melee', tier: 5, heavy: true, count: 2 }, { role: 'melee', tier: 5, count: 2 }],
+    friendly: [{ role: 'melee', tier: 5, heavy: true, count: 3 }, { role: 'melee', tier: 5, count: 4 }],
     enemy: [{ role: 'melee', tier: 4, heavy: true, count: 4 }, { role: 'melee', tier: 4, count: 6 }, { role: 'spear', tier: 4, count: 6 }, { role: 'archer', tier: 4, count: 4 }] },
 })
+
+/** Counts for already accepted trials. Group order, identities and actor IDs must stay intact on reload. */
+const LEGACY_TRIAL_COUNTS: Readonly<Record<ArenaTrialTier, Partial<Record<'friendly' | 'enemy', readonly number[]>>>> = {
+  1: { enemy: [5, 3, 2] },
+  2: { friendly: [7, 4, 3], enemy: [4, 2, 2] },
+  3: { friendly: [4, 2, 1] },
+  4: { enemy: [2, 3] },
+  5: { friendly: [2, 2] },
+}
 
 const ROLE_LABELS: Record<ArenaTrialRole, string> = { melee: '近戰', spear: '長矛', archer: '弓手' }
 /** One line per team for the Sergeant's trial board, e.g. `T1 近戰 ×10、T1 長矛 ×5`. */
@@ -122,6 +131,8 @@ export interface ArenaTrialPlayerState {
 }
 export interface ArenaTrialState {
   version: 1
+  /** Absent for trials accepted under the original team sizes. */
+  rosterVersion?: 2
   tier: ArenaTrialTier
   arenaId: DuelArenaId
   /** deploying: no blow has landed, a reload simply re-forms the lines. engaged: `actors` is authoritative. */
@@ -139,12 +150,14 @@ export type ArenaTrialEndReason = 'timeout' | 'eliminated'
 export interface ArenaTrialRosterEntry { actorId: string; team: 'friendly' | 'enemy'; group: ArenaTrialGroup }
 
 /** Stable per-mission identities: heavy and ordinary groups interleave exactly as the definition lists them. */
-export function arenaTrialRoster(missionId: string, tier: ArenaTrialTier): ArenaTrialRosterEntry[] {
+export function arenaTrialRoster(missionId: string, tier: ArenaTrialTier, rosterVersion: 1 | 2 = 2): ArenaTrialRosterEntry[] {
   const definition = ARENA_TRIAL_DEFINITIONS[tier]
   const entries: ArenaTrialRosterEntry[] = []
   for (const team of ['friendly', 'enemy'] as const) {
     let index = 0
-    for (const group of definition[team]) {
+    for (const [groupIndex, current] of definition[team].entries()) {
+      const count = rosterVersion === 1 ? LEGACY_TRIAL_COUNTS[tier][team]?.[groupIndex] : undefined
+      const group = count === undefined ? current : { ...current, count }
       for (let i = 0; i < group.count; i++) entries.push({ actorId: `${missionId}:${team}:${index++}`, team, group })
     }
   }
@@ -191,9 +204,9 @@ export function arenaTrialUnitSpec(actorId: string, faction: CharacterFaction, a
 }
 
 /** Assets a trial must have loaded before its first body is built. */
-export function arenaTrialPreloadPlan(tier: ArenaTrialTier, faction: CharacterFaction): { heroAssets: NonNullable<NpcSpawnSpec['visualAssetId']>[]; equipmentIds: string[] } {
+export function arenaTrialPreloadPlan(tier: ArenaTrialTier, faction: CharacterFaction, rosterVersion: 1 | 2): { heroAssets: NonNullable<NpcSpawnSpec['visualAssetId']>[]; equipmentIds: string[] } {
   const heroAssets = new Set<NonNullable<NpcSpawnSpec['visualAssetId']>>(), equipmentIds = new Set<string>()
-  for (const { actorId, group } of arenaTrialRoster('preload', tier)) {
+  for (const { actorId, group } of arenaTrialRoster('preload', tier, rosterVersion)) {
     const spec = arenaTrialUnitSpec(actorId, faction, Faction.PLAYER, group)
     if (spec.visualAssetId) heroAssets.add(spec.visualAssetId)
     for (const id of [spec.loadout?.meleeWeaponId, spec.loadout?.secondaryMeleeWeaponId, spec.loadout?.shieldId]) if (id) equipmentIds.add(id)
@@ -211,7 +224,7 @@ export function createArenaTrialMission(profile: CareerProfile, tier: ArenaTrial
     id: id.trim(), templateId: arenaTrialTemplateId(tier), kind: 'arena-squad-trial', targetCampId: -1, phase: 'ASSEMBLING',
     targetActorIds: roster.filter(entry => entry.team === 'enemy').map(entry => entry.actorId),
     friendlyActorIds: roster.filter(entry => entry.team === 'friendly').map(entry => entry.actorId),
-    arenaTrial: { version: 1, tier, arenaId, stage: 'deploying', combatElapsed: 0, actors: {} },
+    arenaTrial: { version: 1, rosterVersion: 2, tier, arenaId, stage: 'deploying', combatElapsed: 0, actors: {} },
     acceptedAt: Date.now(),
   }
 }
@@ -278,7 +291,8 @@ export function parseArenaTrialState(value: unknown, mission: { friendlyActorIds
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Record<string, unknown>
   const arenaId = parseDuelArenaId(raw.arenaId)
-  if (raw.version !== 1 || !isArenaTrialTier(raw.tier) || !arenaId || (raw.stage !== 'deploying' && raw.stage !== 'engaged')
+  if (raw.version !== 1 || raw.rosterVersion !== undefined && raw.rosterVersion !== 2
+    || !isArenaTrialTier(raw.tier) || !arenaId || (raw.stage !== 'deploying' && raw.stage !== 'engaged')
     || !finite(raw.combatElapsed) || raw.combatElapsed < 0 || !raw.actors || typeof raw.actors !== 'object') return undefined
   const known = new Set([...mission.friendlyActorIds, ...mission.targetActorIds])
   const actors: Record<string, ArenaTrialActorState> = {}
@@ -312,6 +326,7 @@ export function parseArenaTrialState(value: unknown, mission: { friendlyActorIds
       ...(p.shieldImpact !== undefined ? { shieldImpact: p.shieldImpact as number } : {}), ...(shieldDurability ? { shieldDurability } : {}), ...(fall ? { fall } : {}) }
   }
   if (raw.endReason !== undefined && raw.endReason !== 'timeout' && raw.endReason !== 'eliminated') return undefined
-  return { version: 1, tier: raw.tier, arenaId, stage: raw.stage, combatElapsed: raw.combatElapsed, actors, ...(player ? { player } : {}),
+  return { version: 1, ...(raw.rosterVersion === 2 ? { rosterVersion: 2 } : {}),
+    tier: raw.tier, arenaId, stage: raw.stage, combatElapsed: raw.combatElapsed, actors, ...(player ? { player } : {}),
     ...(raw.endReason ? { endReason: raw.endReason } : {}) }
 }

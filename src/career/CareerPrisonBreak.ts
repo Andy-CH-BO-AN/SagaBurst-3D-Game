@@ -12,9 +12,9 @@ import { getT5ProfileForFaction } from '../battle/T5HeroCatalog'
 import { UNIT_PRESETS } from '../battle/UnitPresetCatalog'
 
 export const PRISON_BREAK_DEFINITIONS = {
-  'soldier-iron-encounter': { tier: 3, prisonerTier: 2, merit: 100, kind: 'heavy-cavalry-field' },
-  'veteran-iron-tide': { tier: 4, prisonerTier: 3, merit: 200, kind: 'heavy-cavalry-field' },
-  'commander-iron-legion': { tier: 5, prisonerTier: 4, merit: 400, kind: 'commander-iron-legion' },
+  'soldier-iron-encounter': { tier: 3, prisonerTier: 2, guardCount: 10, merit: 100, kind: 'heavy-cavalry-field' },
+  'veteran-iron-tide': { tier: 4, prisonerTier: 3, guardCount: 5, merit: 200, kind: 'heavy-cavalry-field' },
+  'commander-iron-legion': { tier: 5, prisonerTier: 4, guardCount: 5, merit: 400, kind: 'commander-iron-legion' },
 } as const
 export type PrisonBattleId = keyof typeof PRISON_BREAK_DEFINITIONS
 export type PrisonRole = 'melee' | 'spear' | 'archer' | 'javelin'
@@ -22,6 +22,8 @@ export const PRISON_SWORD_ID = 'gladius_rusty'
 export const PRISON_SWORD_COUNT = 6
 export interface PrisonBreakState {
   version: 1 | 2
+  /** Absent for captures that already committed to the original five guards. */
+  rosterVersion?: 2
   missionId: string
   templateId: PrisonBattleId
   captor: CharacterFaction
@@ -36,12 +38,17 @@ export interface PrisonRosterEntry {
   actorId: string; team: 'friendly' | 'enemy'; tier: 2 | 3 | 4 | 5; role: PrisonRole
 }
 function definition(id: string) { return Object.prototype.hasOwnProperty.call(PRISON_BREAK_DEFINITIONS, id) ? PRISON_BREAK_DEFINITIONS[id as PrisonBattleId] : undefined }
-export function prisonRoster(state: Pick<PrisonBreakState, 'missionId' | 'templateId' | 'captor'>): PrisonRosterEntry[] {
+export function prisonGuardCount(state: Pick<PrisonBreakState, 'templateId' | 'rosterVersion'>): 5 | 10 {
+  return state.rosterVersion === 2 ? PRISON_BREAK_DEFINITIONS[state.templateId].guardCount : 5
+}
+export function prisonRoster(state: Pick<PrisonBreakState, 'missionId' | 'templateId' | 'captor' | 'rosterVersion'>): PrisonRosterEntry[] {
   const spec = definition(state.templateId)!
   const guardRoles: PrisonRole[] = ['melee', 'melee', 'spear', 'archer', state.captor === 'roman' ? 'javelin' : 'archer']
   return [
     ...Array.from({ length: 30 }, (_, i): PrisonRosterEntry => ({ actorId: `${state.missionId}:prisoner:${i}`, team: 'friendly', tier: i === 0 ? spec.tier : spec.prisonerTier, role: 'melee' })),
-    ...guardRoles.map((role, i): PrisonRosterEntry => ({ actorId: `${state.missionId}:guard:${i}`, team: 'enemy', tier: spec.tier, role })),
+    ...Array.from({ length: prisonGuardCount(state) }, (_, i): PrisonRosterEntry => ({
+      actorId: `${state.missionId}:guard:${i}`, team: 'enemy', tier: spec.tier, role: guardRoles[i % guardRoles.length],
+    })),
   ]
 }
 /** Identity comes from Tier factories; equipment is independently confiscated, even for hero bodies. */
@@ -78,7 +85,7 @@ export function claimCareerFieldResult(current: CareerProfile, missionId: string
   const spec = mission && definition(mission.templateId)
   if (!claim.alreadyClaimed && spec && mission.id === missionId && mission.kind === spec.kind && outcome === 'failure'
     && mission.result?.outcome === 'failure' && mission.result.claimed && captor) {
-    mission.prisonBreak = { version: 2, missionId, templateId: mission.templateId as PrisonBattleId, captor, stage: 'captured',
+    mission.prisonBreak = { version: 2, rosterVersion: 2, missionId, templateId: mission.templateId as PrisonBattleId, captor, stage: 'captured',
       combat: { version: 1, tier: spec.tier, arenaId: captor === 'roman' ? 'roman-colosseum' : 'viking-valhalla', stage: 'deploying', combatElapsed: 0, actors: {} },
       swords: {}, gateOpen: false }
   }
@@ -149,7 +156,8 @@ export function parsePrisonBreakState(value: unknown, mission: ActiveCareerMissi
   const raw = value as PrisonBreakState
   const spec = definition(mission.templateId)
   if (!spec || mission.kind !== spec.kind || mission.result?.outcome !== 'failure' || !mission.result.claimed
-    || raw.version !== 1 && raw.version !== 2 || raw.missionId !== mission.id || raw.templateId !== mission.templateId
+    || raw.version !== 1 && raw.version !== 2 || raw.rosterVersion !== undefined && (raw.rosterVersion !== 2 || raw.version !== 2)
+    || raw.missionId !== mission.id || raw.templateId !== mission.templateId
     || !['roman', 'viking'].includes(raw.captor) || !['captured', 'escape', 'result'].includes(raw.stage)
     || typeof raw.gateOpen !== 'boolean' || !raw.swords || typeof raw.swords !== 'object' || Array.isArray(raw.swords)) return undefined
   const roster = prisonRoster(raw), friendlyActorIds = roster.filter(e => e.team === 'friendly').map(e => e.actorId)
@@ -175,7 +183,8 @@ export function parsePrisonBreakState(value: unknown, mission: ActiveCareerMissi
       || raw.result.outcome === 'failure' && raw.result.escapedBy !== undefined) return undefined
   } else if (raw.result) return undefined
   // Unfinished v1 encounters adopt team escape. Sealed legacy receipts are never replayed or changed.
-  return { version: raw.version === 1 && raw.stage === 'result' ? 1 : 2, missionId: raw.missionId, templateId: raw.templateId, captor: raw.captor, stage: raw.stage,
+  return { version: raw.version === 1 && raw.stage === 'result' ? 1 : 2, ...(raw.rosterVersion === 2 ? { rosterVersion: 2 } : {}),
+    missionId: raw.missionId, templateId: raw.templateId, captor: raw.captor, stage: raw.stage,
     combat, swords: Object.fromEntries(swords), gateOpen: raw.gateOpen, ...(raw.result ? { result: {
       outcome: raw.result.outcome, merit: raw.result.merit,
       ...(raw.version === 2 && raw.result.escapedBy ? { escapedBy: raw.result.escapedBy } : {}),

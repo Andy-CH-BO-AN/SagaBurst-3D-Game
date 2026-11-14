@@ -7,7 +7,7 @@ import * as THREE from 'three'
 import { PrisonBreakProps } from './PrisonBreakProps'
 import { InteractionFocus, type InteractionCandidate } from '../world/InteractionFocus'
 import { PickupPrompt } from '../ui/PickupPrompt'
-import { prisonRoster, prisonUnitSpec, claimPrisonSword, crossedPrisonExit, prisonOutcome, prisonTaunt, prisonResultDescription, settlePrisonBreak, PRISON_SWORD_ID } from '../career/CareerPrisonBreak'
+import { prisonGuardCount, prisonRoster, prisonUnitSpec, claimPrisonSword, crossedPrisonExit, prisonOutcome, prisonTaunt, prisonResultDescription, settlePrisonBreak, PRISON_SWORD_ID } from '../career/CareerPrisonBreak'
 import { InventoryManager } from '../rpg/InventoryManager'
 
 import { createDuelArena, type DuelArenaEnvironment } from './DuelArena'
@@ -221,7 +221,7 @@ export class CareerArenaCombatScene {
 
   /** Wait only for equipment that the encounter actually uses; ordinary trials keep their original barrier. */
   private async preloadCombatAssets(): Promise<void> {
-    const plan = arenaTrialPreloadPlan(this.trial.tier, this.profile.faction)
+    const plan = arenaTrialPreloadPlan(this.trial.tier, this.profile.faction, this.trial.rosterVersion ?? 1)
     if (this.prison) {
       const specs = prisonRoster(this.prison).filter(entry => !this.prison!.result && this.prison!.combat.actors[entry.actorId]?.status !== 'knocked')
         .map(entry => prisonUnitSpec(this.prison!, entry, this.profile.faction))
@@ -254,7 +254,7 @@ export class CareerArenaCombatScene {
     this.arena = createDuelArena(this.arenaId, this.scene, Boolean(this.prison))
     this.navigation.sync(this.arena.obstacles)
     const sizes = { friendly: mission.friendlyActorIds.length, enemy: mission.targetActorIds.length }
-    const formation = this.prison ? prisonFormation(this.arenaId) : planArenaTrialFormation(this.arenaId, this.arena.obstacles, sizes.friendly, sizes.enemy)
+    const formation = this.prison ? prisonFormation(this.arenaId, prisonGuardCount(this.prison)) : planArenaTrialFormation(this.arenaId, this.arena.obstacles, sizes.friendly, sizes.enemy)
     if (!formation) throw new Error(`${DUEL_ARENA_LABELS[this.arenaId]}沒有足夠空間部署雙方部隊`)
     this.formation = formation
     this.skills.setSkillState(this.profile.skills ?? {})
@@ -323,7 +323,8 @@ export class CareerArenaCombatScene {
   /** Builds only the bodies still standing: knocked-out actors of a saved fight are never recreated. */
   private async buildBodies(trial: ArenaTrialState, progress: (text: string) => void): Promise<void> {
     const mission = this.mission, faction = this.profile.faction
-    const roster = this.prison ? prisonRoster(this.prison).map(entry => ({ ...entry, group: { role: entry.role === 'javelin' ? 'archer' as const : entry.role, tier: entry.tier, count: 1 } })) : arenaTrialRoster(mission.id, trial.tier)
+    const roster = this.prison ? prisonRoster(this.prison).map(entry => ({ ...entry, group: { role: entry.role === 'javelin' ? 'archer' as const : entry.role, tier: entry.tier, count: 1 } }))
+      : arenaTrialRoster(mission.id, trial.tier, trial.rosterVersion ?? 1)
     const slots = assignArenaTrialSlots(roster, this.formation)
     const standing = arenaTrialRestorablePlan(mission, trial)
     for (const [actorId, state] of Object.entries(trial.actors)) if (state.status === 'knocked') this.knocked.add(actorId)

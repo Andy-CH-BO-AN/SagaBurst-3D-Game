@@ -22,12 +22,15 @@ export function prisonGateObstacle(id: DuelArenaId): ObstacleData {
 export function prisonExitDestination(id: DuelArenaId): Vector3 {
   return new Vector3(0, 0, prisonExitPlan(id).crossingZ - 2)
 }
-export function prisonFormation(id: DuelArenaId): ArenaTrialFormation {
+export function prisonFormation(id: DuelArenaId, guardCount: 5 | 10): ArenaTrialFormation {
   const gateZ = id === 'roman-colosseum' ? -20 : -38
+  const guardSlots = guardCount === 10
+    ? [[-5, 7.5], [-2, 7.5], [2, 7.5], [5, 7.5], [-4, 4.5], [0, 4.5], [4, 4.5], [-3, 2], [0, 2], [3, 2]]
+    : [[-4, 6], [4, 6], [0, 4], [-3, 2], [3, 2]]
   return {
     player: { x: 0, z: 4, yaw: Math.PI },
     friendly: Array.from({ length: 30 }, (_, i) => ({ x: [-8, -5, -2, 2, 5, 8][i % 6], z: -8 + Math.floor(i / 6) * 5, yaw: Math.PI })),
-    enemy: Array.from({ length: 5 }, (_, i) => ({ x: [-4, 4, 0, -3, 3][i], z: gateZ + [6, 6, 4, 2, 2][i], yaw: 0 })),
+    enemy: guardSlots.map(([x, offsetZ]) => ({ x, z: gateZ + offsetZ, yaw: 0 })),
   }
 }
 /** Open only the floor passage belonging to this encounter; ordinary arenas retain their complete shell. */
