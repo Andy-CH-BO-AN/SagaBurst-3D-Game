@@ -8,10 +8,11 @@ import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
 import { CombatEventStream, type CombatDamageContext, type CombatEventSink } from '../../src/combat/CombatAttribution'
 import { damageMount, damageNpc, damageObstacle, damagePlayer } from '../../src/combat/DamageRouter'
 import { MountArmor } from '../../src/combat/MountArmor'
-import { ShieldCollider, ShieldState } from '../../src/combat/ShieldBlocking'
+import { ShieldCollider, ShieldState, WeaponSweep } from '../../src/combat/ShieldBlocking'
 import { punchEventsBetween, traceFistStrike } from '../../src/combat/UnarmedCombat'
 import { Player } from '../../src/player/Player'
 import { SkillManager } from '../../src/rpg/SkillManager'
+import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { TownEquipment } from '../../src/town/TownEquipment'
 import { TownScene } from '../../src/town/TownScene'
 import { registerTownCombatDisplayName } from '../../src/ui/CombatTargetDisplayName'
@@ -142,6 +143,30 @@ function unarmedContactHarness(targetX: number, throughTime: number) {
   return { game, hp: () => hp, events }
 }
 
+/** Career field fight: an ally stands in the same strike lane in front of a bandit; only the real Game caller decides targets. */
+function careerBanditMeleeHarness() {
+  const ally = mockNpc({ id: 'field-ally', faction: Faction.PLAYER, hp: 200, position: new THREE.Vector3(0, 0, 1) })
+  const bandit = mockNpc({ id: 'recruit-bandit-1', faction: Faction.BANDIT, hp: 40, position: new THREE.Vector3(0, 0, 1) })
+  const player = Object.assign(Object.create(Player.prototype), {
+    group: { position: new THREE.Vector3(), matrixWorld: new THREE.Matrix4(), updateWorldMatrix() {} },
+    isDead: false, spectatorOnly: false, visualFaction: 'roman', isMounted: false, currentMount: null, heroAssetId: null,
+    currentShieldId: null, shield: { shieldBroken: false }, attackHitProcessed: false, animator: { isLanceThrustActive: true },
+    weaponSweep: new WeaponSweep(), updatePrevLanceTip: vi.fn(),
+    pendingFistStrikes: punchEventsBetween(0, 1.6, false).map(() => ({ from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) })),
+  })
+  const inventoryManager: { activeMelee: (typeof WEAPONS)[string] | undefined } = { activeMelee: undefined }
+  const { stream, events } = eventHarness()
+  const hud = vi.fn()
+  const game = Object.assign(Object.create(Game.prototype) as { _checkPlayerMeleeHits(): void }, {
+    player, controlMode: 'player', inventoryManager, felineMissionId: 'recruit-bandits-01',
+    careerProfile: { activeMission: { phase: 'ENGAGING' } },
+    npcGrid: { getNearbyInto: () => [ally, bandit] }, combatMountGrid: { getNearbyInto: () => [] },
+    obstacles: [], skillManager: new SkillManager(), combatEvents: stream, damageNumbers: { spawn: vi.fn() }, _showEnemyHud: hud,
+    soundManager: { playPunchHit() {}, playLanceImpact: vi.fn(), playSwordHit: vi.fn() },
+  })
+  return { game, player, inventoryManager, ally, bandit, events, hud }
+}
+
 describe('Combat attribution foundation', () => {
   it('keeps the real player melee damage caller locked during Commander Last Stand preparation', () => {
     const h = unarmedContactHarness(0, 1.6)
@@ -158,6 +183,25 @@ describe('Combat attribution foundation', () => {
     h.game._checkPlayerMeleeHits()
     expect(h.hp()).toBe(80)
     expect(h.events.filter(event => event.type === 'damage_applied')).toHaveLength(4)
+  })
+
+  it('Career field unarmed and Hunting Spear melee damage and kill a bandit behind an unharmed ally', () => {
+    const h = careerBanditMeleeHarness()
+    h.game._checkPlayerMeleeHits()
+    expect(h.bandit.hp).toBe(20)
+    expect(h.ally.hp).toBe(200)
+    expect(h.hud).toHaveBeenLastCalledWith(expect.any(String), .5)
+
+    h.inventoryManager.activeMelee = WEAPONS.hunting_spear
+    h.player.weaponSweep.capture(new THREE.Vector3(0, 1, .2), new THREE.Vector3(0, 1, .6))
+    h.player.weaponSweep.capture(new THREE.Vector3(0, 1, .6), new THREE.Vector3(0, 1, 1.4))
+    h.game._checkPlayerMeleeHits()
+    expect(h.bandit.dead).toBe(true)
+    expect(h.ally.hp).toBe(200)
+    const hits = h.events.filter(event => event.type === 'damage_applied' || event.type === 'actor_killed')
+    expect(hits.every(event => event.source.actorType === 'player' && event.target.targetId === 'recruit-bandit-1')).toBe(true)
+    expect(hits.filter(event => event.type === 'damage_applied')).toHaveLength(5)
+    expect(hits.filter(event => event.type === 'actor_killed')).toHaveLength(1)
   })
 
   it('拳頭沒有接觸時正式玩家命中流程不扣血，也不發傷害事件', () => {
