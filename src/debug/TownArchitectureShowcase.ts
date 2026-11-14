@@ -285,16 +285,17 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
       return result
     })
     /** QA: steer the real Player (or ridden horse) through every gatehouse:
-     * rampart → tower → gallery → other tower → rampart and back, the ring
+     * rampart → open span → gallery → both tower rooms → rampart and back, the ring
      * walkway behind it, and the ground portal. Reports where a body stalls. */
     const checkGatehouses = (mounted: boolean) => (fort.rampartLayout.gatehouses ?? []).map(house => {
       const at = (x: number, z: number, y: number) => gatehousePoint(house.gate, x, z, y)
-      const [left, right] = house.links
       const ground = (z: number) => { const p = at(0, z, 0); p.y = getTerrainHeight(p.x, p.z); return p }
-      const ring = (x: number) => { const p = at(x, -8.5, 0); p.y = fort.rampartLayout.decks.reduce<number | null>((y, d) => y ?? getWalkRampHeight(d.surface, p.x, p.z), null) ?? 0; return p }
+      const ring = (x: number, z = -8.5) => { const p = at(x, z, 0); p.y = fort.rampartLayout.decks.reduce<number | null>((y, d) => y ?? getWalkRampHeight(d.surface, p.x, p.z), null) ?? 0; return p }
+      const floor = house.floorY, room = (side: number) => at(side * 11.3, 1.8, floor)
       const routes: Record<string, THREE.Vector3[]> = {
-        upper: [left.entry, left.junction, at(0, 2, house.floorY), right.junction, right.entry],
-        upperBack: [right.entry, right.junction, at(0, 2, house.floorY), left.junction, left.entry],
+        // Rampart walk → open span over the gate → gallery → each tower room → back onto the walk.
+        upper: [ring(-22, -5), at(-6, -3, floor), at(-6, 2, floor), room(-1), at(6, 2, floor), room(1), at(6, -3, floor), ring(22, -5)],
+        upperBack: [ring(22, -5), at(6, -3, floor), at(6, 2, floor), room(1), at(-6, 2, floor), room(-1), at(-6, -3, floor), ring(-22, -5)],
         ring: [ring(-22), ring(22)], ringBack: [ring(22), ring(-22)],
         portalIn: [ground(16), ground(-14)], portalOut: [ground(-14), ground(16)],
       }
