@@ -55,7 +55,6 @@ interface CampRuntime {
   id: number
   center: THREE.Vector3
   ambient: NPC[]
-  mission: NPC[]
 }
 
 const BANDIT_LOADOUT = { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: null, mountId: null } as const
@@ -315,7 +314,6 @@ export class BanditMissionController {
       id,
       center: camp.spawnPoints.reduce((sum, point) => sum.add(point), new THREE.Vector3()).multiplyScalar(1 / camp.spawnPoints.length),
       ambient: [],
-      mission: [],
     }))
     const foreignVeteranField = this.active?.kind === 'veteran-field'
       && this.active.templateId === 'veteran-tragedy-of-the-scouts'
@@ -373,10 +371,10 @@ export class BanditMissionController {
   get active(): ActiveCareerMission | undefined { return this.readProfile().activeMission }
   get phase(): CareerMissionPhase | null { return this.active?.phase ?? null }
   get missionLeader(): NPC | null { return this.leader }
-  get missionBandits(): NPC[] { return this.active?.kind === 'veteran-field' ? this.veteranEnemies : this.camps.flatMap(camp => camp.mission) }
+  get missionBandits(): NPC[] { return this.active?.kind === 'veteran-field' ? this.veteranEnemies : [] }
   get veteranEnemySquads(): readonly VeteranMissionEnemySquad[] { return this.veteranEnemySquadList }
   get ambientBandits(): NPC[] { return this.camps.flatMap(camp => camp.ambient) }
-  get fieldNpcs(): NPC[] { return this.active?.kind === 'veteran-field' ? [...this.missionBandits, ...this.friendlies] : [...this.ambientBandits, ...this.missionBandits, ...this.friendlies] }
+  get fieldNpcs(): NPC[] { return this.active?.kind === 'veteran-field' ? [...this.missionBandits, ...this.friendlies] : [...this.ambientBandits, ...this.friendlies] }
   get survivalElapsedSeconds(): number {
     const definition = this.active?.kind === 'veteran-field' ? getVeteranMissionDefinition(this.active.templateId) : null
     return definition?.objective.kind === 'survive' ? Math.min(definition.objective.seconds, Math.max(0, this.veteranSurvivalElapsed)) : 0
@@ -569,21 +567,21 @@ export class BanditMissionController {
   }
 
   alertGroupFor(target: NPC): void {
-    const camp = this.camps.find(candidate => candidate.ambient.includes(target) || candidate.mission.includes(target))
+    const camp = this.camps.find(candidate => candidate.ambient.includes(target))
     if (!camp) return
-    for (const bandit of [...camp.ambient, ...camp.mission]) bandit.triggerEncounterAlert()
+    for (const bandit of camp.ambient) bandit.triggerEncounterAlert()
   }
 
   provokeGroupFor(target: NPC): void {
     if (this.active?.kind === 'cavalry-sweep') { this.alertGroupFor(target); return }
-    const camp = this.camps.find(candidate => candidate.ambient.includes(target) || candidate.mission.includes(target))
+    const camp = this.camps.find(candidate => candidate.ambient.includes(target))
     if (camp) this.provokeCamp(camp.id)
   }
 
   provokeCamp(campId: number): void {
     const camp = this.camps[campId]
     if (!camp) return
-    for (const bandit of [...camp.ambient, ...camp.mission]) bandit.provokeEncounter()
+    for (const bandit of camp.ambient) bandit.provokeEncounter()
   }
 
   isMissionTarget(npc: NPC): boolean {
@@ -609,11 +607,11 @@ export class BanditMissionController {
       ? [...this.friendlies, ...this.missionBandits] : [...this.missionBandits, ...this.friendlies]
     if (this.friendlies.includes(npc)) return [
       ...this.friendlies,
-      ...(this.phase === 'ENGAGING' ? this.missionBandits : [...this.ambientBandits, ...this.missionBandits]),
+      ...(this.phase === 'ENGAGING' ? [] : this.ambientBandits),
     ]
-    const camp = this.camps.find(candidate => candidate.ambient.includes(npc) || candidate.mission.includes(npc))
+    const camp = this.camps.find(candidate => candidate.ambient.includes(npc))
     if (!camp) return this.fieldNpcs
-    return [...camp.ambient, ...camp.mission, ...this.friendlies]
+    return [...camp.ambient, ...this.friendlies]
   }
 
   cleanupMission(campId = this.active?.targetCampId, departTemporaryCavalry = false): void {
@@ -673,7 +671,7 @@ export class BanditMissionController {
     const observers = [...(player.dead ? [] : [player.combatPosition]), ...this.friendlies.filter(npc => !npc.dead).map(npc => npc.combatPosition)]
     if (observers.length === 0) return
     for (const camp of this.camps) {
-      const bandits = [...camp.ambient, ...camp.mission].filter(npc => !npc.dead)
+      const bandits = camp.ambient.filter(npc => !npc.dead)
       if (bandits.length === 0) continue
       const detected = bandits.some(bandit => observers.some(observer => (
         observer.distanceTo(bandit.combatPosition) <= DETECTION_RANGE && this.hasLineOfSight(observer, bandit.combatPosition)
@@ -1303,7 +1301,6 @@ export class BanditMissionController {
     this.veteranDamageActivationUnsubscribe = null
     this.tracker?.dispose()
     this.tracker = null
-    for (const camp of this.camps) { this.disposeCamp(camp.mission); camp.mission = [] }
     for (const { npc, mount } of this.borrowedTemporaryMounts) {
       if (npc.mount === mount) npc.dismountFromMount()
       mount.dispose()

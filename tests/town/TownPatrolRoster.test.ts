@@ -35,7 +35,7 @@ function borrowedTownCombat(phase: ActiveCareerMission['phase'], kind: ActiveCar
   } }
   const travelEncounter = new MissionTravelEncounter()
   const mission = modelFreePrototype<BanditMissionController>(BanditMissionController.prototype, {
-    readProfile: () => profile, player: () => player, friendlies: [captain, soldier], camps: [{ ambient: [], mission: [bandit] }],
+    readProfile: () => profile, player: () => player, friendlies: [captain, soldier], camps: [{ ambient: [] }],
     veteranEnemies: [bandit], veteranTargetActorIds: new Set([bandit.combatantId]),
     veteranFriendlyActorIds: new Set([captain.combatantId, soldier.combatantId]),
     routeIndex: 0, travelEncounter,
