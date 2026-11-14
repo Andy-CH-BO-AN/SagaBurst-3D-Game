@@ -116,6 +116,9 @@ import {
   CAVALRY_PASSTHROUGH_DURATION,
 } from '../movement/ContinuousCavalryCharge'
 
+/** What a state handler knows about the current target: where it is, whether it is gone, and who it is. */
+type NpcTargetInfo = { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC }
+
 export enum AIState {
   IDLE = 'IDLE',
   ALERT = 'ALERT',
@@ -2876,61 +2879,7 @@ export class NPC {
     }
     if (this.campaignEntranceId && navigationWorld?.outpostNav
       && isRampartLayer(navigationWorld.outpostNav.getNavLayer(this.combatPosition))) this.campaignBreachCompleted = true
-    this.fallObstacles = obstacles
-    if (this.pendingFall.active) {
-      this._updateRiderFall(dt, obstacles)
-      this.animator.update(dt, cameraDistance)
-      return
-    }
-    if (this.state === AIState.DEAD) {
-      if (import.meta.env.DEV && _collector) { var _tDead = performance.now() }
-      const hidden = this.deathFade.update(this.group, dt)
-      if (!hidden) this.animator.update(dt, cameraDistance)
-      if (this.respawnEnabled) {
-        this.respawnTimer -= dt
-        if (this.respawnTimer <= 0) {
-          this.respawn()
-        }
-      }
-      if (import.meta.env.DEV && _collector) { _collector.endPhase('deadUpdate', _tDead!) }
-      return
-    }
-
-    if (this.battlefieldUnarmed) {
-      const target = this._findTarget(player, allNPCs, hostileNpcGrid)
-      this.updateUnarmedDuel(dt, target?.isPlayer ? player : target?.npc ?? null, obstacles, cameraDistance, onHitEntity, navigationWorld)
-      return
-    }
-    if (this.duelUnarmed && this.duelHostile) {
-      this.updateUnarmedDuel(dt, player, obstacles, cameraDistance, onHitEntity, navigationWorld)
-      return
-    }
-
-    if (this.selectedMeleeWeaponId !== this.heldMeleeWeaponId || this.selectedShieldId !== this.heldShieldId) this._adoptLoadedEquipment()
-
-    if (this.siegeTransport) {
-      this.animator.setLocomotion(this.siegeTransportSpeed, false)
-      this.velY = 0
-      this.onGround = true
-      this.animator.update(dt, cameraDistance)
-      this.group.updateWorldMatrix(true, true)
-      return
-    }
-    if (this.siegeEvacuation) {
-      const previous = this._tmpPreviousPosition.copy(this.position)
-      const target = this.siegeEvacuation
-      const direction = this._tmpMoveDir.copy(target).sub(this.position).setY(0)
-      if (direction.length() < .45) this.siegeEvacuation = null
-      else { this._faceDirection(direction.normalize()); this._moveByDirection(direction, 2, dt) }
-      this._updateFootPhysics(previous, dt, obstacles)
-      this.animator.update(dt, cameraDistance)
-      return
-    }
-
-    if (this.mount?.flight && !this.mount.dead) {
-      this._updateEagleCombat(dt, player, allNPCs, nearbyNPCs, obstacles, onHitEntity, onFireArrow, cameraDistance, hostileNpcGrid)
-      return
-    }
+    if (this._updateExclusiveMode(dt, player, allNPCs, nearbyNPCs, obstacles, onHitEntity, onFireArrow, cameraDistance, _collector, hostileNpcGrid, navigationWorld)) return
 
     this.playerHitFocus = Math.max(0, this.playerHitFocus - dt)
 
@@ -3146,886 +3095,18 @@ export class NPC {
         this.state = AIState.CHASE
       }
     } else switch (this.state) {
-      case AIState.IDLE: {
-        this.alertSprite.visible = false
-        // Personal Attack holds its actual position when no hostile is available;
-        // constructor patrol waypoints belong to Town/field NPCs, not the Player's party.
-        const personalAttack = this.tacticalOrder === 'attack' && (this.combatOwnership === 'player-personal'
-          || this.battlefieldEngagementRangeSq !== null && !this.encounterOrigin)
-        if (!personalAttack && !this.holdsRampartPosition && this.tacticalOrder !== 'defend' && this.tacticalOrder !== 'charge') {
-          this._updatePatrol(dt, obstacles, skipBoidsAndObstacles, navigationWorld, nearbyNPCs)
-        }
-
-        if ((!this.encounterOrigin || this.encounterAggro === 'alerted' || this.encounterAggro === 'provoked') && targetInfo && !targetInfo.isDead) {
-          if (this._isTargetWithinEngagementRange(targetInfo.position, false)) {
-            if (this.encounterOrigin) {
-              // Awareness was already announced by idle -> alerted/provoked.
-              this.state = AIState.CHASE
-            } else {
-              this.state = AIState.ALERT
-              this.alertTimer = 0.6
-              this.alertSprite.visible = true
-            }
-          }
-        }
+      case AIState.IDLE:
+        this._updateIdleState(dt, nearbyNPCs, obstacles, skipBoidsAndObstacles, navigationWorld, targetInfo)
         break
-      }
-
-      case AIState.ALERT: {
-        this.alertTimer -= dt
-        if (!this.hasActiveRangedWeapon) this.attackTimer = Math.max(0, this.attackTimer - dt)
-        if (targetInfo) this._faceTarget(targetInfo.position)
-
-        if (this.alertTimer <= 0) {
-          this.alertSprite.visible = false
-          if (this.tacticalOrder === 'defend' || this.holdsRampartPosition) {
-            this.state = targetInfo && this._isTargetInDefendRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0) ? AIState.ATTACK : AIState.ALERT
-            if (this.hasActiveRangedWeapon) this.attackTimer = 0
-          } else {
-            this.state = AIState.CHASE
-          }
-        }
+      case AIState.ALERT:
+        this._updateAlertState(dt, targetInfo, playerBodyBaseOffset)
         break
-      }
-
-      case AIState.CHASE: {
-        this.alertSprite.visible = false
-        if (!this.hasActiveRangedWeapon) this.attackTimer = Math.max(0, this.attackTimer - dt)
-        const eligibleCavalry = isEligibleMeleeCavalry(
-          this.isMounted,
-          this.mount,
-          this.hasActiveRangedWeapon,
-          this.tacticalOrder,
-          this.hasSiegeObstacle,
-          this.holdsRampartPosition,
-        )
-        const eligibleCharge = eligibleCavalry && !this.layeredCombatMovement
-        if (targetInfo && !targetInfo.isDead && eligibleCharge && this.cavalryPassthroughTimer > 0) {
-          const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
-          if (!isTargetInForwardCone(this.combatPosition, currentYaw, targetInfo.position)) {
-            targetInfo = null
-            this._cachedTargetNpc = null
-            this._cachedTargetIsPlayer = false
-          }
-        }
-        if (!targetInfo || targetInfo.isDead) {
-          if (eligibleCharge && this.cavalryPassthroughTimer > 0) {
-            const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
-            const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
-            const moveDir = this._tmpMoveDir.set(Math.sin(currentYaw), 0, Math.cos(currentYaw))
-            const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(moveDir, speed * (dt + 0.15))
-            if (!findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
-              this._moveByDirection(
-                moveDir,
-                speed,
-                dt,
-                this.tacticalOrder === 'charge',
-              )
-              break
-            }
-            this.cavalryPassthroughTimer = 0
-          }
-          this._clearObstacleDetour()
-          this._clearNavigationPath()
-          this._clearSiegeFallback()
-          this.state = AIState.IDLE
-          break
-        }
-
-        if (this.tacticalOrder === 'defend' || this.holdsRampartPosition) {
-          this._clearObstacleDetour()
-          this._clearNavigationPath()
-          this._clearSiegeFallback()
-          this.animator.cancel()
-          this.state = this._isTargetInDefendRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
-            ? AIState.ATTACK
-            : AIState.ALERT
-          break
-        }
-
-        const distSq = this.combatPosition.distanceToSquared(targetInfo.position)
-        if (!this._isTargetWithinEngagementRange(targetInfo.position, true)) {
-          this._clearObstacleDetour()
-          this._clearNavigationPath()
-          this._clearSiegeFallback()
-          this.state = AIState.IDLE
-          break
-        }
-
-        // Ranged fast path: if the current target is already shootable, attack
-        // immediately and skip blocker/pathfinding work for this CHASE frame.
-        if (this.hasActiveRangedWeapon) {
-          const maxRange = this.maxRangedAttackDistance
-          if (
-            distSq <= maxRange * maxRange
-            && distSq >= RANGED_ATTACK_MIN * RANGED_ATTACK_MIN
-            && this._findRangedTrajectoryBlocker(targetInfo.position, obstacles) === null
-          ) {
-            this._clearObstacleDetour()
-            this._clearNavigationPath()
-            this._clearSiegeFallback()
-            this.state = AIState.ATTACK
-            this.attackTimer = 0
-            break
-          }
-        }
-
-        const dist = Math.sqrt(distSq)
-        const layeredNav = navigationWorld?.outpostNav ?? this._activeNavigationWorld?.outpostNav
-        const npcLayer = layeredNav ? layeredNav.getNavLayer(this.combatPosition) : 'ground'
-        const targetLayer = layeredNav ? layeredNav.getNavLayer(targetInfo.position) : 'ground'
-        const isCrossLayer = layeredNav ? (npcLayer !== targetLayer) : false
-        const chaseNavigation = this._resolveChaseNavigation({
-          position: this.combatPosition, goal: targetInfo.position, world: navigationWorld, outpost: layeredNav ?? null,
-          currentLayer: npcLayer, targetLayer, differentLayer: isCrossLayer,
-          mounted: this.isMounted, outpostMounted: Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
-          flying: Boolean(this.mount?.isFlyingMount), radius: this._movementObstacleRadius(), height: this._movementObstacleHeight(),
-          entranceId: this.combatTargetPriority && this.priorityCombatTarget
-            && this.combatTargetPriority(this.priorityCombatTarget) === 1 && navigationWorld?.townNav?.isElevated(targetInfo.position)
-              ? null : this.campaignEntranceId,
-          sectorId: this.townSiegeGateId, actorId: this.combatantId,
-          skipGroundNavigation: skipBoidsAndObstacles,
-        }, obstacles)
-        const layeredStep = chaseNavigation.step
-        let navigationRoute = chaseNavigation.route
-        this.layeredCombatMovement = Boolean(layeredStep?.confirmedLayeredStep)
-
-        // A normal walkable route always wins over obstacle combat.
-        if (navigationRoute !== 'unreachable') {
-          this._clearSiegeFallback()
-        }
-        const pursuitGate = this._readyPursuitGate(layeredStep, obstacles)
-        let siegeObstacle = pursuitGate ?? (navigationRoute === 'unreachable'
-          ? (this._getActiveSiegeObstacle(targetInfo.position, obstacles)
-             ?? (layeredNav && isCrossLayer ? this._getActiveSiegeObstacle(this._tmpNavigationTarget, obstacles) : null))
-          : null)
-        if (pursuitGate) this._activateDirectObstacle(pursuitGate)
-
-        // Ranged units only draw melee against a genuinely close human target.
-        // A wall between them and that human remains a navigation/siege problem.
-        if (!siegeObstacle && this.hasActiveRangedWeapon && !this._usesReversibleRangedSwitch() && dist < RANGED_ATTACK_MIN) {
-          if (this.equipmentRequiredForCombat && !this.meleeWeaponId) { this.state = AIState.ALERT; break }
-          this._switchToMelee()
-        }
-
-        // A* gets first refusal. Existing obstacle combat is only the
-        // temporary fallback when the blocked grid has no walkable route.
-        if (
-          !skipBoidsAndObstacles
-          && navigationRoute === 'unreachable'
-          && !siegeObstacle
-          && !this.hasActiveRangedWeapon
-        ) {
-          const directObstacle = this._findDirectDamageableBlocker(
-            targetInfo.position,
-            obstacles,
-          ) ?? (layeredNav && isCrossLayer ? this._findDirectDamageableBlocker(this._tmpNavigationTarget, obstacles) : null)
-          if (directObstacle && this._activateDirectObstacle(directObstacle)) {
-            siegeObstacle = directObstacle
-          }
-        }
-
-        if (navigationRoute === 'unreachable' && !siegeObstacle && !this.missionMovement
-          && (this.tacticalOrder === 'attack' || this.tacticalOrder === 'charge')) {
-          const target = targetInfo.isPlayer ? player : targetInfo.npc
-          if (target) this._deferUnreachableTarget(target)
-          // No direct/local detour through a sealed wall. The next sensor decision
-          // can acquire another target, or wait for a live topology/position change.
-          this._targetReacquireFramesRemaining = 0
-          break
-        }
-        const moveDir = this._tmpMoveDir
-        const movementTarget = siegeObstacle
-          ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
-          : navigationRoute === 'unreachable'
-            ? targetInfo.position
-            : this._tmpNavigationTarget
-
-        if (siegeObstacle) {
-          const obstacleDistance = this._distanceToObstacleXZ(siegeObstacle)
-          if (this.hasActiveRangedWeapon) {
-            if (obstacleDistance <= this.maxRangedAttackDistance) {
-              this._clearObstacleDetour()
-              this.state = AIState.ATTACK
-              this.attackTimer = 0
-              break
-            }
-          } else if (this._isObstacleInMeleeRange(siegeObstacle, 0.35)) {
-            this._clearObstacleDetour()
-            this.state = AIState.ATTACK
-            this.attackTimer = 0
-            this.attackHitProcessed = false
-            break
-          }
-
-          moveDir.copy(movementTarget).sub(this.combatPosition)
-        } else if (this.hasActiveRangedWeapon) {
-          if (dist <= this.maxRangedAttackDistance && dist >= RANGED_ATTACK_MIN) {
-            const rangedBlocker = this._findRangedTrajectoryBlocker(targetInfo.position, obstacles)
-            if (rangedBlocker === null) {
-              // Enemy first: if the current human is actually shootable, never
-              // spend an arrow on a wall/tree instead.
-              this._clearObstacleDetour()
-              this._clearSiegeFallback()
-              this.state = AIState.ATTACK
-              this.attackTimer = 0
-              break
-            }
-
-            // Current human is blocked. Prefer another visible human before any
-            // structure becomes a fallback target.
-            if (
-              this._trySwitchToVisibleRangedTarget(
-                player,
-                allNPCs,
-                hostileNpcGrid,
-                obstacles,
-              )
-            ) {
-              this.state = AIState.CHASE
-              break
-            }
-
-            if (
-              navigationRoute === 'unreachable'
-              && this._isAttackableObstacle(rangedBlocker)
-            ) {
-              this._activateDirectObstacle(rangedBlocker)
-              siegeObstacle = rangedBlocker
-              const obstacleDistance = this._distanceToObstacleXZ(rangedBlocker)
-              if (obstacleDistance <= this.maxRangedAttackDistance) {
-                this.state = AIState.ATTACK
-                this.attackTimer = 0
-                break
-              }
-              moveDir.copy(
-                this._getObstacleAttackPoint(rangedBlocker, this._tmpSiegeTarget),
-              ).sub(this.combatPosition)
-            } else {
-              moveDir.copy(movementTarget).sub(this.combatPosition)
-            }
-          } else {
-            moveDir.copy(movementTarget).sub(this.combatPosition)
-          }
-        } else {
-          if (
-            navigationRoute === 'direct'
-            && this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
-          ) {
-            const targetInFront = !eligibleCharge || isTargetInForwardCone(
-              this.combatPosition,
-              this.mount ? this.mount.group.rotation.y : this.group.rotation.y,
-              targetInfo.position,
-            )
-            if (targetInFront) {
-              this._clearObstacleDetour()
-              this._clearSiegeFallback()
-              this.state = AIState.ATTACK
-              this.attackHitProcessed = false
-              if (this.isMounted && this.isUsingLance) {
-                this.pendingLanceChargeSpeed = previousMountSpeed
-              }
-              break
-            }
-          }
-          moveDir.copy(movementTarget).sub(this.combatPosition)
-        }
-
-        moveDir.y = 0
-        if (moveDir.lengthSq() > 0.0001) moveDir.normalize()
-
-        // A* path following replaces corner detours whenever a global route exists.
-        // Keep the old local detour only as a no-route fallback until breach A*
-        // is introduced in the next PR.
-        if (!skipBoidsAndObstacles) {
-          if (
-            !siegeObstacle
-            && (navigationRoute === 'unreachable' || navigationRoute === 'pending')
-          ) {
-            if (import.meta.env.DEV && _collector) { var _tObs = performance.now() }
-            this._applyPersistentObstacleDetour(moveDir, targetInfo.position, dt, obstacles)
-            if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObs!) }
-            const shouldPauseMovement =
-              navigationRoute === 'pending'
-              || this.followTarget !== null
-              || this.tacticalOrder === 'follow'
-              || Boolean(layeredNav && isCrossLayer)
-            if (!this._detourActive && shouldPauseMovement) {
-              moveDir.set(0, 0, 0)
-            }
-          } else if (navigationRoute !== 'unreachable') {
-            this._clearObstacleDetour()
-          }
-
-          if (import.meta.env.DEV && _collector) { var _tSep = performance.now() }
-          this._tmpSep.set(0, 0, 0)
-          let sepCount = 0
-          for (const other of nearbyNPCs) {
-            if (other === this || other.dead) continue
-            // The physical body solver keeps combatants apart. Boids must not
-            // repel the chosen melee opponent before our weapon can reach them.
-            if (!this.hasActiveRangedWeapon && other === targetInfo.npc) continue
-            const d = this.group.position.distanceTo(other.position)
-            if (d < NPC_SEPARATION_RADIUS) {
-              this._tmpPush.copy(this.group.position).sub(other.position)
-              this._tmpPush.y = 0
-              this._tmpSep.add(this._tmpPush.normalize().multiplyScalar(1.5 / Math.max(0.1, d)))
-              sepCount++
-            }
-          }
-          if (sepCount > 0) {
-            this._tmpSep.divideScalar(sepCount)
-            moveDir.add(this._tmpSep).normalize()
-          }
-          if (import.meta.env.DEV && _collector) { _collector.endPhase('separation', _tSep!) }
-
-          // Once a structure has become the explicit fallback target, do not
-          // steer away from that same structure. Collision keeps the attacker at
-          // its edge and the next frame transitions into melee/ranged attack.
-          if (
-            !siegeObstacle
-            && (navigationRoute === 'unreachable' || navigationRoute === 'pending')
-          ) {
-            moveDir.copy(getObstacleAvoidanceDirection(
-              this.combatPosition,
-              moveDir,
-              this._movementObstacleRadius(),
-              this._movementObstacleHeight(),
-              0,
-              obstacles,
-            ))
-          }
-        }
-
-        if (import.meta.env.DEV && _collector) { var _tMvF = performance.now() }
-        if (wasOrbiting && this.mount && !this.mount.isFlyingMount && this.hasActiveRangedWeapon
-          && this.rangedCombatKind === 'bow' && !siegeObstacle && !this.siegeBypassTarget
-          && !layeredStep && navigationRoute === 'direct') {
-          // A moving/switched target may leave range. Acquire it through a
-          // forward turn, preserving the orbit's heading across CHASE frames.
-          this.mountedOrbitActive = true
-          if (moveDir.lengthSq() > .0001) {
-            moveDir.y = 0
-            this.mount.group.rotation.y = steerOrbitForward(moveDir, this.mount.group.rotation.y, Math.atan2(moveDir.x, moveDir.z), this.mount.baseSpeed, dt)
-            this.group.rotation.y = this.mount.group.rotation.y
-            const endpoint = this._tmpFaceDir.copy(this.mount.group.position).addScaledVector(moveDir, this.mount.baseSpeed * (dt + .15))
-            if (findBlockingObstacleAlongPath(this.mount.group.position, endpoint, NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) moveDir.set(0, 0, 0)
-          }
-        } else if (eligibleCavalry && !siegeObstacle && !this.siegeBypassTarget && !layeredStep?.confirmedLayeredStep) {
-          const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
-          const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
-          const maxDist = layeredStep?.tower
-            ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z)
-            : Infinity
-
-          if (moveDir.lengthSq() > 0.0001) {
-            const desiredYaw = Math.atan2(moveDir.x, moveDir.z)
-            const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
-            this.group.rotation.y = newYaw
-            if (this.mount) this.mount.group.rotation.y = newYaw
-            moveDir.set(Math.sin(newYaw), 0, Math.cos(newYaw))
-
-            const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(moveDir, speed * (dt + 0.15))
-            if (findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
-              moveDir.set(0, 0, 0)
-            }
-          }
-
-          this._moveByDirection(
-            moveDir,
-            speed,
-            dt,
-            this.tacticalOrder === 'charge',
-            maxDist,
-          )
-        } else {
-          if (this.isMounted && layeredStep?.confirmedLayeredStep && moveDir.lengthSq() > .0001) {
-            // Turn within the landing instead of driving a wide charge arc off
-            // a narrow ramp. Keep the existing turn budget and waypoint cap.
-            const desiredYaw = Math.atan2(moveDir.x, moveDir.z)
-            const yaw = steerCavalryHeading(this.mount!.group.rotation.y, desiredYaw, this.mount!.baseSpeed, dt)
-            this.mount!.group.rotation.y = yaw; this.group.rotation.y = yaw
-            if (Math.abs(angleDifference(desiredYaw, yaw)) > .25) moveDir.set(0, 0, 0)
-          } else this._faceTarget(movementTarget)
-          this._moveByDirection(
-            moveDir,
-            this.mount ? this.mount.baseSpeed : CHASE_SPEED,
-            dt,
-            this.tacticalOrder === 'charge' && !siegeObstacle,
-            layeredStep?.confirmedLayeredStep
-              ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z) : Infinity,
-          )
-        }
-        if (layeredNav && isStairLayer(npcLayer)) {
-          const stair = layeredNav.getStair(layerSide(npcLayer)!)
-          if (stair) {
-            this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, stair.ramp.startX - 0.55, stair.ramp.startX + 0.55)
-          }
-        }
-
-        clampToPlayableWorld(this.group.position, this.playableWorldBound)
-        if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tMvF!) }
+      case AIState.CHASE:
+        this._updateChaseState(dt, player, allNPCs, nearbyNPCs, obstacles, skipBoidsAndObstacles, _collector, hostileNpcGrid, navigationWorld, targetInfo, playerBodyBaseOffset, previousMountSpeed, wasOrbiting)
         break
-      }
-
-      case AIState.ATTACK: {
-        const eligibleCharge = !this.layeredCombatMovement && isEligibleMeleeCavalry(
-          this.isMounted,
-          this.mount,
-          this.hasActiveRangedWeapon,
-          this.tacticalOrder,
-          this.hasSiegeObstacle,
-          this.holdsRampartPosition,
-        )
-        if (targetInfo && !targetInfo.isDead && eligibleCharge && this.cavalryPassthroughTimer > 0) {
-          const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
-          if (!isTargetInForwardCone(this.combatPosition, currentYaw, targetInfo.position)) {
-            targetInfo = null
-            this._cachedTargetNpc = null
-            this._cachedTargetIsPlayer = false
-          }
-        }
-
-        if (!targetInfo || targetInfo.isDead) {
-          this._clearSiegeFallback()
-          this.state = AIState.CHASE
-          this.pendingLanceChargeSpeed = 0
-          if (eligibleCharge) {
-            this.cavalryPassthroughTimer = Math.max(this.cavalryPassthroughTimer, CAVALRY_PASSTHROUGH_DURATION)
-            this._cachedTargetNpc = null
-            this._cachedTargetIsPlayer = false
-            this._targetReacquireFramesRemaining = 0
-          }
-          break
-        }
-
-        let siegeObstacle: ObstacleData | null = this.holdsRampartFirePosition ? this.rampartThreat : null
-        if (!siegeObstacle && this._siegeTargetObstacle) {
-          const navigationRoute = this.hasSiegeObstacle ? 'unreachable' : !skipBoidsAndObstacles
-            ? this._resolveNavigationMoveTarget(
-              targetInfo.position,
-              obstacles,
-              navigationWorld,
-            )
-            : 'unreachable'
-          if (navigationRoute === 'unreachable') {
-            siegeObstacle = this._getActiveSiegeObstacle(targetInfo.position, obstacles)
-          } else {
-            // Another unit may have opened a route while this NPC was attacking.
-            // Stop hitting the obstacle and return to chase/path following.
-            this._clearSiegeFallback()
-            this.animator.cancel()
-            this.state = AIState.CHASE
-            break
-          }
-        }
-
-        const attackTargetPosition = siegeObstacle
-          ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
-          : targetInfo.position
-        const dist = siegeObstacle
-          ? this.hasActiveRangedWeapon ? this._rangedObstacleDistance(attackTargetPosition) : this._distanceToObstacleXZ(siegeObstacle)
-          : this.combatPosition.distanceTo(targetInfo.position)
-
-        if (
-          !siegeObstacle
-          && this.tacticalOrder === 'defend'
-          && !this._isTargetInDefendRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
-        ) {
-          this.animator.cancel()
-          this.pendingLanceChargeSpeed = 0
-          this.state = AIState.ALERT
-          break
-        }
-
-        // Human target got too close: ranged units draw melee as before.
-        if (!siegeObstacle && this.hasActiveRangedWeapon && !this._usesReversibleRangedSwitch() && dist < RANGED_ATTACK_MIN) {
-          if (this.equipmentRequiredForCombat && !this.meleeWeaponId) { this.animator.cancel(); this.state = AIState.ALERT; break }
-          this._switchToMelee()
-          this.state = AIState.CHASE
-          break
-        }
-
-        if (this.hasActiveRangedWeapon && dist > this.maxRangedAttackDistance) {
-          this.animator.cancel()
-          this.state = this.tacticalOrder === 'defend' ? AIState.ALERT : AIState.CHASE
-          break
-        }
-
-        // A human that becomes blocked again is no longer a viable shot.
-        if (
-          !siegeObstacle
-          && this.hasActiveRangedWeapon
-          && this._findRangedTrajectoryBlocker(targetInfo.position, obstacles) !== null
-        ) {
-          this.animator.cancel()
-          this.state = AIState.CHASE
-          break
-        }
-
-        if (import.meta.env.DEV && _collector) { var _tFaceAtk = performance.now() }
-        // Keep attacking at full weapon range; start circling only inside 90%.
-        // At 90–100% the mounted bow continues a forward approach while shooting.
-        const mountedBowForward = !siegeObstacle && this._updateMountedBowForwardCombat(
-          attackTargetPosition, dt, nearbyNPCs, obstacles, skipBoidsAndObstacles,
-        )
-        if (!mountedBowForward && !eligibleCharge) this._faceTarget(attackTargetPosition)
-        const initialYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
-        const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
-        const maxTurnBudget = cavalryTurnRate(speed) * dt
-
-        if (eligibleCharge && !siegeObstacle) {
-          const inFront = this.cavalryPassthroughTimer <= 0
-            && isTargetInForwardCone(this.combatPosition, initialYaw, attackTargetPosition)
-          const targetDirX = attackTargetPosition.x - this.combatPosition.x
-          const targetDirZ = attackTargetPosition.z - this.combatPosition.z
-          const desiredYaw = (inFront && targetDirX * targetDirX + targetDirZ * targetDirZ > 0.001)
-            ? Math.atan2(targetDirX, targetDirZ)
-            : initialYaw
-          const newYaw = steerCavalryHeading(initialYaw, desiredYaw, speed, dt)
-          this.group.rotation.y = newYaw
-          if (this.mount) this.mount.group.rotation.y = newYaw
-        }
-        if (!siegeObstacle && !this.hasActiveRangedWeapon && this.isUsingLance) {
-          // The authored spear is held beside the torso. Aim its actual forward
-          // tip at the opponent rather than sending a parallel thrust past them.
-          const currentYaw = this.group.rotation.y
-          const inFront = !eligibleCharge || (this.cavalryPassthroughTimer <= 0
-            && isTargetInForwardCone(this.combatPosition, currentYaw, attackTargetPosition))
-          if (inFront) {
-            const tip = this.getWeaponTipPosition()
-            const dx = tip.x - this.group.position.x, dz = tip.z - this.group.position.z
-            const localX = dx * Math.cos(currentYaw) - dz * Math.sin(currentYaw)
-            const localZ = dx * Math.sin(currentYaw) + dz * Math.cos(currentYaw)
-            if (localZ > 0.1) {
-              const tipYawOffset = Math.atan2(localX, localZ)
-              if (eligibleCharge) {
-                // Share the single-frame turn budget with heading steering:
-                // The net difference between initialYaw and final yaw must not exceed maxTurnBudget.
-                const unconstrainedYaw = this.group.rotation.y - tipYawOffset
-                const totalDiff = angleDifference(unconstrainedYaw, initialYaw)
-                const clampedDiff = Math.max(-maxTurnBudget, Math.min(maxTurnBudget, totalDiff))
-                this.group.rotation.y = initialYaw + clampedDiff
-              } else {
-                this.group.rotation.y -= tipYawOffset
-              }
-              if (this.mount) this.mount.group.rotation.y = this.group.rotation.y
-            }
-          }
-        }
-        if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tFaceAtk!) }
-
-        // Forward Orbit only replaces ground bows. Keep the existing mounted
-        // javelin movement; its combat and directional speed policies are unchanged.
-        if (!siegeObstacle && this.isMounted && this.hasActiveRangedWeapon
-          && this.rangedCombatKind !== 'bow' && this.tacticalOrder !== 'defend' && !this.holdsRampartPosition) {
-          const moveDir = this._tmpMoveDir
-          moveDir.copy(targetInfo.position).sub(this.group.position).cross(NPC._UP)
-          moveDir.y = 0
-          if (moveDir.lengthSq() > .001) {
-            moveDir.normalize()
-            if (!skipBoidsAndObstacles) {
-              if (import.meta.env.DEV && _collector) { var _tObsOrbit = performance.now() }
-              moveDir.copy(getObstacleAvoidanceDirection(this.combatPosition, moveDir,
-                this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles))
-              if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObsOrbit!) }
-            }
-            if (import.meta.env.DEV && _collector) { var _tOrbitMove = performance.now() }
-            this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
-            if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tOrbitMove!) }
-          }
-        }
-
-        if (import.meta.env.DEV && _collector) { var _tCombat = performance.now() }
-        if (this.hasActiveRangedWeapon) {
-          const rangedKind = this.rangedCombatKind ?? 'bow'
-          const cooldown = getRangedCooldown(rangedKind) / (getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
-          const isBow = rangedKind === 'bow'
-          const windup = isBow ? 0.04 : (this.rig.animation?.getDuration('pilumThrow') ?? 0.45)
-
-          this.attackTimer += dt
-          const progress = Math.min(1, this.attackTimer / cooldown)
-
-          if (isBow) {
-            if (!this.animator.busy) {
-              this.bowArrowReleased = false
-              this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18))
-            }
-            if (this.attackTimer >= cooldown - windup && this.animator.currentAction === 'bowAim') {
-              // A moving rider can fire forward, to either side, or behind.
-              // The ballistic target/LoS remains authoritative, not a shaft pose.
-              this.animator.start('bowRelease', getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
-            }
-          } else {
-            if (!this.animator.busy && this.attackTimer >= cooldown - windup) {
-              this.pendingPilumTarget.copy(this._getElevatedRangedAimPoint(targetInfo.position))
-              if (this.animator.start('pilumThrow', getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)) this.bowPivot.visible = true
-            }
-          }
-
-          if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
-          if (import.meta.env.DEV && _collector) { var _tAnimAtk = performance.now() }
-          const rangedEvents = this.animator.update(dt, cameraDistance)
-          if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimAtk!) }
-          if (isBow) this._updateBowVisual(progress, attackTargetPosition)
-          animationAdvanced = true
-          const shouldFire = rangedEvents.projectileRelease
-          if (shouldFire) {
-            const origin = this._tmpRangedOrigin
-            const dir = this._tmpRangedDirection
-            const aimPoint = this._getElevatedRangedAimPoint(attackTargetPosition)
-            if (isBow && this.bowVisual) {
-              this.bowVisual.writeLaunch(origin, dir, aimPoint)
-            } else {
-              origin.copy(this.bowGripPivot.getWorldPosition(origin))
-              dir.copy(aimPoint).sub(origin).normalize()
-            }
-            // Do not suppress the projectile for a rider's relative yaw or
-            // imperfect imported bow-pose contacts. The actual ballistic aim,
-            // range and line-of-sight checks still own legitimate fire validity.
-            const accepted = onFireArrow(origin, dir, isBow ? 'arrow' : 'pilum')
-            this.arrows = projectileAmmoAfterLaunch(this.arrows, accepted)
-            this.bowVisual?.hideArrow()
-            this.attackTimer = 0
-            if (!isBow) this.bowPivot.visible = false
-            if (isBow && !rangedEvents.actionCompleted) this.bowArrowReleased = true
-          }
-          if (!isBow && rangedEvents.actionCompleted) {
-            if (this.arrows === 0) this._switchToMelee()
-            this.state = AIState.CHASE
-          }
-        } else {
-          // A target can leave physical reach during recovery. Recheck before
-          // starting the next swing rather than attacking at the old data range.
-          if (!eligibleCharge && !siegeObstacle && !this.animator.busy && !this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
-            this.state = this.tacticalOrder === 'defend' ? AIState.ALERT : AIState.CHASE
-            this.pendingLanceChargeSpeed = 0
-            break
-          }
-          const berserker = getBerserkerModifiers(
-            this.characterFaction,
-            this.isMounted,
-            this.activeCombatKind,
-            this.hasActiveShield,
-          )
-          if (!this.animator.busy && this.attackTimer <= 0) {
-            this.animator.start(this._meleeAction(), meleeActionTimeScale(this._meleeAction(), WEAPONS[this.meleeWeaponId ?? ''], heroMeleeAttackSpeed(this.combatProfileId)))
-            this.attackHitProcessed = false
-          }
-
-          if (eligibleCharge && !siegeObstacle) {
-            const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
-            const chargeDir = this._tmpMoveDir.set(Math.sin(currentYaw), 0, Math.cos(currentYaw))
-            const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
-            const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(chargeDir, speed * (dt + 0.15))
-            if (!findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
-              this._moveByDirection(
-                chargeDir,
-                speed,
-                dt,
-                this.tacticalOrder === 'charge',
-              )
-              if (this.isMounted) {
-                this._syncToMount(_collector)
-                this.group.updateMatrixWorld(true)
-              }
-            }
-          }
-
-          this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
-          if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
-          if (import.meta.env.DEV && _collector) { var _tAnimMelee = performance.now() }
-          const attackSpeed = heroMeleeAttackSpeed(this.combatProfileId)
-          this.weaponSweep.capture(this.getWeaponGripPosition(this.sweepGrip), this.getWeaponTipPosition())
-          const meleeEvents = this.animator.update(
-            dt * berserker.meleeAttackRateMultiplier,
-            cameraDistance,
-          )
-          if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimMelee!) }
-          animationAdvanced = true
-
-          this.weaponSweep.capture(this.getWeaponGripPosition(this.sweepGrip), this.getWeaponTipPosition())
-          if ((meleeEvents.hitActiveStarted || this.animator.meleeHitActive) && !this.attackHitProcessed) {
-            if (siegeObstacle) {
-              if (this._isObstacleInMeleeRange(siegeObstacle, 0.4)) {
-                this.attackHitProcessed = true
-                const finalDamage = applyHeroMeleeDamage(
-                  Math.round(this.meleeDamage * berserker.meleeDamageMultiplier),
-                  this.combatProfileId,
-                )
-                const result = damageObstacle(siegeObstacle.damageable!, finalDamage, {
-                  source: createNpcCombatActorRef(this),
-                  method: 'siege',
-                  weaponId: this.meleeWeaponId ?? undefined,
-                  emit: this.combatEventSink,
-                })
-                if (result.destroyed) {
-                  this._clearSiegeFallback()
-                  this.state = AIState.CHASE
-                  this.pendingLanceChargeSpeed = 0
-                }
-              }
-            } else if (eligibleCharge) {
-              const rawMounts = this.combatMountGrid?.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 4, this.combatMountCandidates) ?? []
-              NPC._cavalryHostileMounts.length = 0
-              for (let i = 0; i < rawMounts.length; i++) {
-                const m = rawMounts[i]
-                if (isHostileCombatMount(this, m, player)) {
-                  NPC._cavalryHostileMounts.push(m)
-                }
-              }
-
-              NPC._cavalrySweepTargets.length = 0
-              if (targetInfo.isPlayer && player.targetable && !player.dead && this.combatTargetAllowed?.(player) !== false) {
-                NPC._cavalrySweepTargets.push(player)
-              } else if (targetInfo.npc && !targetInfo.npc.dead && this.combatTargetAllowed?.(targetInfo.npc) !== false) {
-                NPC._cavalrySweepTargets.push(targetInfo.npc)
-              }
-              if (hostileNpcGrid) {
-                hostileNpcGrid.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 3, NPC._cavalryCandidates)
-                for (let i = 0; i < NPC._cavalryCandidates.length; i++) {
-                  const candidate = NPC._cavalryCandidates[i]
-                  if (candidate.dead || candidate === this || !combatAllegiancesHostile(this, candidate)
-                    || candidate.mount?.isFlyingMount || this.combatTargetAllowed?.(candidate) === false) continue
-                  if (!NPC._cavalrySweepTargets.includes(candidate)) {
-                    NPC._cavalrySweepTargets.push(candidate)
-                  }
-                }
-              } else if (nearbyNPCs) {
-                for (let i = 0; i < nearbyNPCs.length; i++) {
-                  const candidate = nearbyNPCs[i]
-                  if (candidate.dead || candidate === this || !combatAllegiancesHostile(this, candidate)
-                    || candidate.mount?.isFlyingMount || this.combatTargetAllowed?.(candidate) === false) continue
-                  if (!NPC._cavalrySweepTargets.includes(candidate)) {
-                    NPC._cavalrySweepTargets.push(candidate)
-                  }
-                }
-              }
-              if (this.targetsPlayer && player.targetable && !player.dead
-                && !player.currentMount?.isFlyingMount && this.combatTargetAllowed?.(player) !== false
-                && !NPC._cavalrySweepTargets.includes(player)) {
-                NPC._cavalrySweepTargets.push(player)
-              }
-
-              const contact = (NPC._cavalrySweepTargets.length > 0 || NPC._cavalryHostileMounts.length > 0)
-                ? this.weaponSweep.traceFirst(NPC._cavalrySweepTargets, NPC._cavalryHostileMounts, this.mount)
-                : undefined
-
-              if (contact) {
-                let hitIsPlayer = false
-                let hitNpc: NPC | undefined = undefined
-                let hitMount: Mount | undefined = undefined
-
-                if (contact.kind === 'body' || contact.kind === 'shield') {
-                  if (contact.target === player) {
-                    hitIsPlayer = true
-                  } else if (contact.target instanceof NPC) {
-                    hitNpc = contact.target
-                  }
-                } else if (contact.kind === 'mount') {
-                  hitMount = contact.mount
-                  if (contact.mount?.riderNpc) {
-                    hitNpc = contact.mount.riderNpc
-                  } else if (contact.mount?.riderPlayer) {
-                    hitIsPlayer = true
-                  }
-                }
-
-                if (hitIsPlayer || hitNpc || hitMount) {
-                  const targetIsMounted = hitIsPlayer
-                    ? Boolean(player?.isMounted)
-                    : hitNpc
-                      ? Boolean(hitNpc.isMounted)
-                      : Boolean(hitMount)
-
-                  const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted || contact.kind === 'mount')
-                  this.attackHitProcessed = true
-                  onHitEntity(finalDamage, hitIsPlayer, hitNpc, hitMount)
-                  this.cavalryPassthroughTimer = CAVALRY_PASSTHROUGH_DURATION
-                  this.cavalryContactPoint.copy(this.combatPosition)
-                  this._cachedTargetNpc = null
-                  this._cachedTargetIsPlayer = false
-                  this._targetReacquireFramesRemaining = 0
-                }
-              }
-            } else if (this._isTargetInMeleeRange(targetInfo.position, 0.4, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
-              const physicalTarget = targetInfo.isPlayer ? player : targetInfo.npc
-              const rawMounts = this.combatMountGrid?.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 4, this.combatMountCandidates) ?? []
-              NPC._cavalryHostileMounts.length = 0
-              for (let i = 0; i < rawMounts.length; i++) {
-                const m = rawMounts[i]
-                if (isHostileCombatMount(this, m, player)) {
-                  NPC._cavalryHostileMounts.push(m)
-                }
-              }
-              const contact = physicalTarget && this.weaponSweep.traceFirst([physicalTarget], NPC._cavalryHostileMounts, this.mount)
-              if (contact) {
-                let hitIsPlayer = false
-                let hitNpc: NPC | undefined = undefined
-                let hitMount: Mount | undefined = undefined
-
-                if (contact.kind === 'body' || contact.kind === 'shield') {
-                  if (contact.target === player) hitIsPlayer = true
-                  else if (contact.target instanceof NPC) hitNpc = contact.target
-                } else if (contact.kind === 'mount') {
-                  hitMount = contact.mount
-                  if (contact.mount?.riderNpc) hitNpc = contact.mount.riderNpc
-                  else if (contact.mount?.riderPlayer) hitIsPlayer = true
-                }
-
-                if (hitIsPlayer || hitNpc || hitMount) {
-                  const targetIsMounted = hitIsPlayer ? Boolean(player?.isMounted) : hitNpc ? Boolean(hitNpc.isMounted) : Boolean(hitMount)
-                  const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted || contact.kind === 'mount')
-                  this.attackHitProcessed = true
-                  onHitEntity(finalDamage, hitIsPlayer, hitNpc, hitMount)
-                }
-              }
-            }
-          }
-
-          if (meleeEvents.actionCompleted) {
-            this.attackTimer = AI_ATTACK_GAP / (berserker.meleeAttackRateMultiplier * attackSpeed)
-            this.pendingLanceChargeSpeed = 0
-            if (eligibleCharge) {
-              this.cavalryPassthroughTimer = Math.max(this.cavalryPassthroughTimer, CAVALRY_PASSTHROUGH_DURATION)
-              this._cachedTargetNpc = null
-              this._cachedTargetIsPlayer = false
-              this._targetReacquireFramesRemaining = 0
-              this.state = AIState.CHASE
-            } else if (!siegeObstacle && !this.attackHitProcessed) {
-              // Weapon length is only an initial estimate: actual arcs, shields
-              // and hand offsets can require a closer position. A complete miss
-              // must make progress instead of repeating the same stationary swing.
-              if (this._isTargetInMeleeRange(targetInfo.position, 0, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
-                this.meleeApproachLimit = Math.max(this._meleeBodySpacing(), Math.min(
-                  this._meleeApproachDistance(),
-                  Math.hypot(
-                    targetInfo.position.x - this.combatPosition.x,
-                    targetInfo.position.z - this.combatPosition.z,
-                  ),
-                ) - MELEE_MISS_APPROACH_STEP)
-              }
-              this.state = this.tacticalOrder === 'defend' ? AIState.ALERT : AIState.CHASE
-            }
-          }
-
-          if (!meleeEvents.actionCompleted && !this.animator.busy && this.attackTimer > 0) {
-            this.attackTimer -= dt
-            if (eligibleCharge) {
-              this.state = AIState.CHASE
-            } else {
-              const stillInRange = siegeObstacle
-                ? this._isObstacleInMeleeRange(siegeObstacle)
-                : this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
-              if (this.attackTimer <= 0 && !stillInRange) {
-                this.state = AIState.CHASE
-                this.pendingLanceChargeSpeed = 0
-              }
-            }
-          }
-        }
+      case AIState.ATTACK:
+        animationAdvanced = this._updateAttackState(dt, player, nearbyNPCs, obstacles, onHitEntity, onFireArrow, skipBoidsAndObstacles, cameraDistance, _collector, hostileNpcGrid, navigationWorld, targetInfo, playerBodyBaseOffset)
         break
-      }
       }
     }
 
@@ -4060,6 +3141,999 @@ export class NPC {
       this._updateFootPhysics(previousPosition, dt, obstacles)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('footPhysics', _tFoot!) }
     }
+  }
+
+  /**
+   * Frames owned by one exclusive mode end here: a falling rider, the dead, unarmed duels, siege
+   * transport or evacuation, and eagle flight. Returns true when the frame was fully handled.
+   */
+  private _updateExclusiveMode(
+    dt: number,
+    player: Player,
+    allNPCs: NPC[],
+    nearbyNPCs: NPC[],
+    obstacles: ObstacleData[],
+    onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC, targetMount?: Mount) => void,
+    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => ProjectileLaunchResult,
+    cameraDistance: number,
+    _collector: NpcSubphaseCollector | null,
+    hostileNpcGrid: SpatialGrid<NPC> | null,
+    navigationWorld: NavigationWorld | null,
+  ): boolean {
+    this.fallObstacles = obstacles
+    if (this.pendingFall.active) {
+      this._updateRiderFall(dt, obstacles)
+      this.animator.update(dt, cameraDistance)
+      return true
+    }
+    if (this.state === AIState.DEAD) {
+      if (import.meta.env.DEV && _collector) { var _tDead = performance.now() }
+      const hidden = this.deathFade.update(this.group, dt)
+      if (!hidden) this.animator.update(dt, cameraDistance)
+      if (this.respawnEnabled) {
+        this.respawnTimer -= dt
+        if (this.respawnTimer <= 0) {
+          this.respawn()
+        }
+      }
+      if (import.meta.env.DEV && _collector) { _collector.endPhase('deadUpdate', _tDead!) }
+      return true
+    }
+
+    if (this.battlefieldUnarmed) {
+      const target = this._findTarget(player, allNPCs, hostileNpcGrid)
+      this.updateUnarmedDuel(dt, target?.isPlayer ? player : target?.npc ?? null, obstacles, cameraDistance, onHitEntity, navigationWorld)
+      return true
+    }
+    if (this.duelUnarmed && this.duelHostile) {
+      this.updateUnarmedDuel(dt, player, obstacles, cameraDistance, onHitEntity, navigationWorld)
+      return true
+    }
+
+    if (this.selectedMeleeWeaponId !== this.heldMeleeWeaponId || this.selectedShieldId !== this.heldShieldId) this._adoptLoadedEquipment()
+
+    if (this.siegeTransport) {
+      this.animator.setLocomotion(this.siegeTransportSpeed, false)
+      this.velY = 0
+      this.onGround = true
+      this.animator.update(dt, cameraDistance)
+      this.group.updateWorldMatrix(true, true)
+      return true
+    }
+    if (this.siegeEvacuation) {
+      const previous = this._tmpPreviousPosition.copy(this.position)
+      const target = this.siegeEvacuation
+      const direction = this._tmpMoveDir.copy(target).sub(this.position).setY(0)
+      if (direction.length() < .45) this.siegeEvacuation = null
+      else { this._faceDirection(direction.normalize()); this._moveByDirection(direction, 2, dt) }
+      this._updateFootPhysics(previous, dt, obstacles)
+      this.animator.update(dt, cameraDistance)
+      return true
+    }
+
+    if (this.mount?.flight && !this.mount.dead) {
+      this._updateEagleCombat(dt, player, allNPCs, nearbyNPCs, obstacles, onHitEntity, onFireArrow, cameraDistance, hostileNpcGrid)
+      return true
+    }
+    return false
+  }
+
+  /** IDLE: patrol unless holding position, and become ALERT/CHASE once a hostile is within engagement range. */
+  private _updateIdleState(
+    dt: number,
+    nearbyNPCs: NPC[],
+    obstacles: ObstacleData[],
+    skipBoidsAndObstacles: boolean,
+    navigationWorld: NavigationWorld | null,
+    targetInfo: NpcTargetInfo | null,
+  ): void {
+    this.alertSprite.visible = false
+    // Personal Attack holds its actual position when no hostile is available;
+    // constructor patrol waypoints belong to Town/field NPCs, not the Player's party.
+    const personalAttack = this.tacticalOrder === 'attack' && (this.combatOwnership === 'player-personal'
+      || this.battlefieldEngagementRangeSq !== null && !this.encounterOrigin)
+    if (!personalAttack && !this.holdsRampartPosition && this.tacticalOrder !== 'defend' && this.tacticalOrder !== 'charge') {
+      this._updatePatrol(dt, obstacles, skipBoidsAndObstacles, navigationWorld, nearbyNPCs)
+    }
+
+    if ((!this.encounterOrigin || this.encounterAggro === 'alerted' || this.encounterAggro === 'provoked') && targetInfo && !targetInfo.isDead) {
+      if (this._isTargetWithinEngagementRange(targetInfo.position, false)) {
+        if (this.encounterOrigin) {
+          // Awareness was already announced by idle -> alerted/provoked.
+          this.state = AIState.CHASE
+        } else {
+          this.state = AIState.ALERT
+          this.alertTimer = 0.6
+          this.alertSprite.visible = true
+        }
+      }
+    }
+  }
+
+  /** ALERT: face the target for the alert beat, then chase it (defenders attack in range or keep holding). */
+  private _updateAlertState(dt: number, targetInfo: NpcTargetInfo | null, playerBodyBaseOffset: number): void {
+    this.alertTimer -= dt
+    if (!this.hasActiveRangedWeapon) this.attackTimer = Math.max(0, this.attackTimer - dt)
+    if (targetInfo) this._faceTarget(targetInfo.position)
+
+    if (this.alertTimer <= 0) {
+      this.alertSprite.visible = false
+      if (this.tacticalOrder === 'defend' || this.holdsRampartPosition) {
+        this.state = targetInfo && this._isTargetInDefendRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0) ? AIState.ATTACK : AIState.ALERT
+        if (this.hasActiveRangedWeapon) this.attackTimer = 0
+      } else {
+        this.state = AIState.CHASE
+      }
+    }
+  }
+
+  /** CHASE: approach the target (formation, charge, pathing, detours and mounted orbits) until it is in attack range. */
+  private _updateChaseState(
+    dt: number,
+    player: Player,
+    allNPCs: NPC[],
+    nearbyNPCs: NPC[],
+    obstacles: ObstacleData[],
+    skipBoidsAndObstacles: boolean,
+    _collector: NpcSubphaseCollector | null,
+    hostileNpcGrid: SpatialGrid<NPC> | null,
+    navigationWorld: NavigationWorld | null,
+    targetInfo: NpcTargetInfo | null,
+    playerBodyBaseOffset: number,
+    previousMountSpeed: number,
+    wasOrbiting: boolean,
+  ): void {
+    this.alertSprite.visible = false
+    if (!this.hasActiveRangedWeapon) this.attackTimer = Math.max(0, this.attackTimer - dt)
+    const eligibleCavalry = isEligibleMeleeCavalry(
+      this.isMounted,
+      this.mount,
+      this.hasActiveRangedWeapon,
+      this.tacticalOrder,
+      this.hasSiegeObstacle,
+      this.holdsRampartPosition,
+    )
+    const eligibleCharge = eligibleCavalry && !this.layeredCombatMovement
+    if (targetInfo && !targetInfo.isDead && eligibleCharge && this.cavalryPassthroughTimer > 0) {
+      const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+      if (!isTargetInForwardCone(this.combatPosition, currentYaw, targetInfo.position)) {
+        targetInfo = null
+        this._cachedTargetNpc = null
+        this._cachedTargetIsPlayer = false
+      }
+    }
+    if (!targetInfo || targetInfo.isDead) {
+      if (eligibleCharge && this.cavalryPassthroughTimer > 0) {
+        const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+        const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
+        const moveDir = this._tmpMoveDir.set(Math.sin(currentYaw), 0, Math.cos(currentYaw))
+        const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(moveDir, speed * (dt + 0.15))
+        if (!findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
+          this._moveByDirection(
+            moveDir,
+            speed,
+            dt,
+            this.tacticalOrder === 'charge',
+          )
+          return
+        }
+        this.cavalryPassthroughTimer = 0
+      }
+      this._clearObstacleDetour()
+      this._clearNavigationPath()
+      this._clearSiegeFallback()
+      this.state = AIState.IDLE
+      return
+    }
+
+    if (this.tacticalOrder === 'defend' || this.holdsRampartPosition) {
+      this._clearObstacleDetour()
+      this._clearNavigationPath()
+      this._clearSiegeFallback()
+      this.animator.cancel()
+      this.state = this._isTargetInDefendRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
+        ? AIState.ATTACK
+        : AIState.ALERT
+      return
+    }
+
+    const distSq = this.combatPosition.distanceToSquared(targetInfo.position)
+    if (!this._isTargetWithinEngagementRange(targetInfo.position, true)) {
+      this._clearObstacleDetour()
+      this._clearNavigationPath()
+      this._clearSiegeFallback()
+      this.state = AIState.IDLE
+      return
+    }
+
+    // Ranged fast path: if the current target is already shootable, attack
+    // immediately and skip blocker/pathfinding work for this CHASE frame.
+    if (this.hasActiveRangedWeapon) {
+      const maxRange = this.maxRangedAttackDistance
+      if (
+        distSq <= maxRange * maxRange
+        && distSq >= RANGED_ATTACK_MIN * RANGED_ATTACK_MIN
+        && this._findRangedTrajectoryBlocker(targetInfo.position, obstacles) === null
+      ) {
+        this._clearObstacleDetour()
+        this._clearNavigationPath()
+        this._clearSiegeFallback()
+        this.state = AIState.ATTACK
+        this.attackTimer = 0
+        return
+      }
+    }
+
+    const dist = Math.sqrt(distSq)
+    const layeredNav = navigationWorld?.outpostNav ?? this._activeNavigationWorld?.outpostNav
+    const npcLayer = layeredNav ? layeredNav.getNavLayer(this.combatPosition) : 'ground'
+    const targetLayer = layeredNav ? layeredNav.getNavLayer(targetInfo.position) : 'ground'
+    const isCrossLayer = layeredNav ? (npcLayer !== targetLayer) : false
+    const chaseNavigation = this._resolveChaseNavigation({
+      position: this.combatPosition, goal: targetInfo.position, world: navigationWorld, outpost: layeredNav ?? null,
+      currentLayer: npcLayer, targetLayer, differentLayer: isCrossLayer,
+      mounted: this.isMounted, outpostMounted: Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
+      flying: Boolean(this.mount?.isFlyingMount), radius: this._movementObstacleRadius(), height: this._movementObstacleHeight(),
+      entranceId: this.combatTargetPriority && this.priorityCombatTarget
+        && this.combatTargetPriority(this.priorityCombatTarget) === 1 && navigationWorld?.townNav?.isElevated(targetInfo.position)
+          ? null : this.campaignEntranceId,
+      sectorId: this.townSiegeGateId, actorId: this.combatantId,
+      skipGroundNavigation: skipBoidsAndObstacles,
+    }, obstacles)
+    const layeredStep = chaseNavigation.step
+    let navigationRoute = chaseNavigation.route
+    this.layeredCombatMovement = Boolean(layeredStep?.confirmedLayeredStep)
+
+    // A normal walkable route always wins over obstacle combat.
+    if (navigationRoute !== 'unreachable') {
+      this._clearSiegeFallback()
+    }
+    const pursuitGate = this._readyPursuitGate(layeredStep, obstacles)
+    let siegeObstacle = pursuitGate ?? (navigationRoute === 'unreachable'
+      ? (this._getActiveSiegeObstacle(targetInfo.position, obstacles)
+         ?? (layeredNav && isCrossLayer ? this._getActiveSiegeObstacle(this._tmpNavigationTarget, obstacles) : null))
+      : null)
+    if (pursuitGate) this._activateDirectObstacle(pursuitGate)
+
+    // Ranged units only draw melee against a genuinely close human target.
+    // A wall between them and that human remains a navigation/siege problem.
+    if (!siegeObstacle && this.hasActiveRangedWeapon && !this._usesReversibleRangedSwitch() && dist < RANGED_ATTACK_MIN) {
+      if (this.equipmentRequiredForCombat && !this.meleeWeaponId) { this.state = AIState.ALERT; return }
+      this._switchToMelee()
+    }
+
+    // A* gets first refusal. Existing obstacle combat is only the
+    // temporary fallback when the blocked grid has no walkable route.
+    if (
+      !skipBoidsAndObstacles
+      && navigationRoute === 'unreachable'
+      && !siegeObstacle
+      && !this.hasActiveRangedWeapon
+    ) {
+      const directObstacle = this._findDirectDamageableBlocker(
+        targetInfo.position,
+        obstacles,
+      ) ?? (layeredNav && isCrossLayer ? this._findDirectDamageableBlocker(this._tmpNavigationTarget, obstacles) : null)
+      if (directObstacle && this._activateDirectObstacle(directObstacle)) {
+        siegeObstacle = directObstacle
+      }
+    }
+
+    if (navigationRoute === 'unreachable' && !siegeObstacle && !this.missionMovement
+      && (this.tacticalOrder === 'attack' || this.tacticalOrder === 'charge')) {
+      const target = targetInfo.isPlayer ? player : targetInfo.npc
+      if (target) this._deferUnreachableTarget(target)
+      // No direct/local detour through a sealed wall. The next sensor decision
+      // can acquire another target, or wait for a live topology/position change.
+      this._targetReacquireFramesRemaining = 0
+      return
+    }
+    const moveDir = this._tmpMoveDir
+    const movementTarget = siegeObstacle
+      ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
+      : navigationRoute === 'unreachable'
+        ? targetInfo.position
+        : this._tmpNavigationTarget
+
+    if (siegeObstacle) {
+      const obstacleDistance = this._distanceToObstacleXZ(siegeObstacle)
+      if (this.hasActiveRangedWeapon) {
+        if (obstacleDistance <= this.maxRangedAttackDistance) {
+          this._clearObstacleDetour()
+          this.state = AIState.ATTACK
+          this.attackTimer = 0
+          return
+        }
+      } else if (this._isObstacleInMeleeRange(siegeObstacle, 0.35)) {
+        this._clearObstacleDetour()
+        this.state = AIState.ATTACK
+        this.attackTimer = 0
+        this.attackHitProcessed = false
+        return
+      }
+
+      moveDir.copy(movementTarget).sub(this.combatPosition)
+    } else if (this.hasActiveRangedWeapon) {
+      if (dist <= this.maxRangedAttackDistance && dist >= RANGED_ATTACK_MIN) {
+        const rangedBlocker = this._findRangedTrajectoryBlocker(targetInfo.position, obstacles)
+        if (rangedBlocker === null) {
+          // Enemy first: if the current human is actually shootable, never
+          // spend an arrow on a wall/tree instead.
+          this._clearObstacleDetour()
+          this._clearSiegeFallback()
+          this.state = AIState.ATTACK
+          this.attackTimer = 0
+          return
+        }
+
+        // Current human is blocked. Prefer another visible human before any
+        // structure becomes a fallback target.
+        if (
+          this._trySwitchToVisibleRangedTarget(
+            player,
+            allNPCs,
+            hostileNpcGrid,
+            obstacles,
+          )
+        ) {
+          this.state = AIState.CHASE
+          return
+        }
+
+        if (
+          navigationRoute === 'unreachable'
+          && this._isAttackableObstacle(rangedBlocker)
+        ) {
+          this._activateDirectObstacle(rangedBlocker)
+          siegeObstacle = rangedBlocker
+          const obstacleDistance = this._distanceToObstacleXZ(rangedBlocker)
+          if (obstacleDistance <= this.maxRangedAttackDistance) {
+            this.state = AIState.ATTACK
+            this.attackTimer = 0
+            return
+          }
+          moveDir.copy(
+            this._getObstacleAttackPoint(rangedBlocker, this._tmpSiegeTarget),
+          ).sub(this.combatPosition)
+        } else {
+          moveDir.copy(movementTarget).sub(this.combatPosition)
+        }
+      } else {
+        moveDir.copy(movementTarget).sub(this.combatPosition)
+      }
+    } else {
+      if (
+        navigationRoute === 'direct'
+        && this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
+      ) {
+        const targetInFront = !eligibleCharge || isTargetInForwardCone(
+          this.combatPosition,
+          this.mount ? this.mount.group.rotation.y : this.group.rotation.y,
+          targetInfo.position,
+        )
+        if (targetInFront) {
+          this._clearObstacleDetour()
+          this._clearSiegeFallback()
+          this.state = AIState.ATTACK
+          this.attackHitProcessed = false
+          if (this.isMounted && this.isUsingLance) {
+            this.pendingLanceChargeSpeed = previousMountSpeed
+          }
+          return
+        }
+      }
+      moveDir.copy(movementTarget).sub(this.combatPosition)
+    }
+
+    moveDir.y = 0
+    if (moveDir.lengthSq() > 0.0001) moveDir.normalize()
+
+    // A* path following replaces corner detours whenever a global route exists.
+    // Keep the old local detour only as a no-route fallback until breach A*
+    // is introduced in the next PR.
+    if (!skipBoidsAndObstacles) {
+      if (
+        !siegeObstacle
+        && (navigationRoute === 'unreachable' || navigationRoute === 'pending')
+      ) {
+        if (import.meta.env.DEV && _collector) { var _tObs = performance.now() }
+        this._applyPersistentObstacleDetour(moveDir, targetInfo.position, dt, obstacles)
+        if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObs!) }
+        const shouldPauseMovement =
+          navigationRoute === 'pending'
+          || this.followTarget !== null
+          || this.tacticalOrder === 'follow'
+          || Boolean(layeredNav && isCrossLayer)
+        if (!this._detourActive && shouldPauseMovement) {
+          moveDir.set(0, 0, 0)
+        }
+      } else if (navigationRoute !== 'unreachable') {
+        this._clearObstacleDetour()
+      }
+
+      if (import.meta.env.DEV && _collector) { var _tSep = performance.now() }
+      this._tmpSep.set(0, 0, 0)
+      let sepCount = 0
+      for (const other of nearbyNPCs) {
+        if (other === this || other.dead) continue
+        // The physical body solver keeps combatants apart. Boids must not
+        // repel the chosen melee opponent before our weapon can reach them.
+        if (!this.hasActiveRangedWeapon && other === targetInfo.npc) continue
+        const d = this.group.position.distanceTo(other.position)
+        if (d < NPC_SEPARATION_RADIUS) {
+          this._tmpPush.copy(this.group.position).sub(other.position)
+          this._tmpPush.y = 0
+          this._tmpSep.add(this._tmpPush.normalize().multiplyScalar(1.5 / Math.max(0.1, d)))
+          sepCount++
+        }
+      }
+      if (sepCount > 0) {
+        this._tmpSep.divideScalar(sepCount)
+        moveDir.add(this._tmpSep).normalize()
+      }
+      if (import.meta.env.DEV && _collector) { _collector.endPhase('separation', _tSep!) }
+
+      // Once a structure has become the explicit fallback target, do not
+      // steer away from that same structure. Collision keeps the attacker at
+      // its edge and the next frame transitions into melee/ranged attack.
+      if (
+        !siegeObstacle
+        && (navigationRoute === 'unreachable' || navigationRoute === 'pending')
+      ) {
+        moveDir.copy(getObstacleAvoidanceDirection(
+          this.combatPosition,
+          moveDir,
+          this._movementObstacleRadius(),
+          this._movementObstacleHeight(),
+          0,
+          obstacles,
+        ))
+      }
+    }
+
+    if (import.meta.env.DEV && _collector) { var _tMvF = performance.now() }
+    if (wasOrbiting && this.mount && !this.mount.isFlyingMount && this.hasActiveRangedWeapon
+      && this.rangedCombatKind === 'bow' && !siegeObstacle && !this.siegeBypassTarget
+      && !layeredStep && navigationRoute === 'direct') {
+      // A moving/switched target may leave range. Acquire it through a
+      // forward turn, preserving the orbit's heading across CHASE frames.
+      this.mountedOrbitActive = true
+      if (moveDir.lengthSq() > .0001) {
+        moveDir.y = 0
+        this.mount.group.rotation.y = steerOrbitForward(moveDir, this.mount.group.rotation.y, Math.atan2(moveDir.x, moveDir.z), this.mount.baseSpeed, dt)
+        this.group.rotation.y = this.mount.group.rotation.y
+        const endpoint = this._tmpFaceDir.copy(this.mount.group.position).addScaledVector(moveDir, this.mount.baseSpeed * (dt + .15))
+        if (findBlockingObstacleAlongPath(this.mount.group.position, endpoint, NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) moveDir.set(0, 0, 0)
+      }
+    } else if (eligibleCavalry && !siegeObstacle && !this.siegeBypassTarget && !layeredStep?.confirmedLayeredStep) {
+      const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+      const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
+      const maxDist = layeredStep?.tower
+        ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z)
+        : Infinity
+
+      if (moveDir.lengthSq() > 0.0001) {
+        const desiredYaw = Math.atan2(moveDir.x, moveDir.z)
+        const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
+        this.group.rotation.y = newYaw
+        if (this.mount) this.mount.group.rotation.y = newYaw
+        moveDir.set(Math.sin(newYaw), 0, Math.cos(newYaw))
+
+        const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(moveDir, speed * (dt + 0.15))
+        if (findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
+          moveDir.set(0, 0, 0)
+        }
+      }
+
+      this._moveByDirection(
+        moveDir,
+        speed,
+        dt,
+        this.tacticalOrder === 'charge',
+        maxDist,
+      )
+    } else {
+      if (this.isMounted && layeredStep?.confirmedLayeredStep && moveDir.lengthSq() > .0001) {
+        // Turn within the landing instead of driving a wide charge arc off
+        // a narrow ramp. Keep the existing turn budget and waypoint cap.
+        const desiredYaw = Math.atan2(moveDir.x, moveDir.z)
+        const yaw = steerCavalryHeading(this.mount!.group.rotation.y, desiredYaw, this.mount!.baseSpeed, dt)
+        this.mount!.group.rotation.y = yaw; this.group.rotation.y = yaw
+        if (Math.abs(angleDifference(desiredYaw, yaw)) > .25) moveDir.set(0, 0, 0)
+      } else this._faceTarget(movementTarget)
+      this._moveByDirection(
+        moveDir,
+        this.mount ? this.mount.baseSpeed : CHASE_SPEED,
+        dt,
+        this.tacticalOrder === 'charge' && !siegeObstacle,
+        layeredStep?.confirmedLayeredStep
+          ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z) : Infinity,
+      )
+    }
+    if (layeredNav && isStairLayer(npcLayer)) {
+      const stair = layeredNav.getStair(layerSide(npcLayer)!)
+      if (stair) {
+        this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, stair.ramp.startX - 0.55, stair.ramp.startX + 0.55)
+      }
+    }
+
+    clampToPlayableWorld(this.group.position, this.playableWorldBound)
+    if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tMvF!) }
+  }
+
+  /** ATTACK: melee, ranged and obstacle attacks at the current target. Returns whether the animator already advanced this frame. */
+  private _updateAttackState(
+    dt: number,
+    player: Player,
+    nearbyNPCs: NPC[],
+    obstacles: ObstacleData[],
+    onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC, targetMount?: Mount) => void,
+    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => ProjectileLaunchResult,
+    skipBoidsAndObstacles: boolean,
+    cameraDistance: number,
+    _collector: NpcSubphaseCollector | null,
+    hostileNpcGrid: SpatialGrid<NPC> | null,
+    navigationWorld: NavigationWorld | null,
+    targetInfo: NpcTargetInfo | null,
+    playerBodyBaseOffset: number,
+  ): boolean {
+    let animationAdvanced = false
+    const eligibleCharge = !this.layeredCombatMovement && isEligibleMeleeCavalry(
+      this.isMounted,
+      this.mount,
+      this.hasActiveRangedWeapon,
+      this.tacticalOrder,
+      this.hasSiegeObstacle,
+      this.holdsRampartPosition,
+    )
+    if (targetInfo && !targetInfo.isDead && eligibleCharge && this.cavalryPassthroughTimer > 0) {
+      const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+      if (!isTargetInForwardCone(this.combatPosition, currentYaw, targetInfo.position)) {
+        targetInfo = null
+        this._cachedTargetNpc = null
+        this._cachedTargetIsPlayer = false
+      }
+    }
+
+    if (!targetInfo || targetInfo.isDead) {
+      this._clearSiegeFallback()
+      this.state = AIState.CHASE
+      this.pendingLanceChargeSpeed = 0
+      if (eligibleCharge) {
+        this.cavalryPassthroughTimer = Math.max(this.cavalryPassthroughTimer, CAVALRY_PASSTHROUGH_DURATION)
+        this._cachedTargetNpc = null
+        this._cachedTargetIsPlayer = false
+        this._targetReacquireFramesRemaining = 0
+      }
+      return animationAdvanced
+    }
+
+    let siegeObstacle: ObstacleData | null = this.holdsRampartFirePosition ? this.rampartThreat : null
+    if (!siegeObstacle && this._siegeTargetObstacle) {
+      const navigationRoute = this.hasSiegeObstacle ? 'unreachable' : !skipBoidsAndObstacles
+        ? this._resolveNavigationMoveTarget(
+          targetInfo.position,
+          obstacles,
+          navigationWorld,
+        )
+        : 'unreachable'
+      if (navigationRoute === 'unreachable') {
+        siegeObstacle = this._getActiveSiegeObstacle(targetInfo.position, obstacles)
+      } else {
+        // Another unit may have opened a route while this NPC was attacking.
+        // Stop hitting the obstacle and return to chase/path following.
+        this._clearSiegeFallback()
+        this.animator.cancel()
+        this.state = AIState.CHASE
+        return animationAdvanced
+      }
+    }
+
+    const attackTargetPosition = siegeObstacle
+      ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
+      : targetInfo.position
+    const dist = siegeObstacle
+      ? this.hasActiveRangedWeapon ? this._rangedObstacleDistance(attackTargetPosition) : this._distanceToObstacleXZ(siegeObstacle)
+      : this.combatPosition.distanceTo(targetInfo.position)
+
+    if (
+      !siegeObstacle
+      && this.tacticalOrder === 'defend'
+      && !this._isTargetInDefendRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
+    ) {
+      this.animator.cancel()
+      this.pendingLanceChargeSpeed = 0
+      this.state = AIState.ALERT
+      return animationAdvanced
+    }
+
+    // Human target got too close: ranged units draw melee as before.
+    if (!siegeObstacle && this.hasActiveRangedWeapon && !this._usesReversibleRangedSwitch() && dist < RANGED_ATTACK_MIN) {
+      if (this.equipmentRequiredForCombat && !this.meleeWeaponId) { this.animator.cancel(); this.state = AIState.ALERT; return animationAdvanced }
+      this._switchToMelee()
+      this.state = AIState.CHASE
+      return animationAdvanced
+    }
+
+    if (this.hasActiveRangedWeapon && dist > this.maxRangedAttackDistance) {
+      this.animator.cancel()
+      this.state = this.tacticalOrder === 'defend' ? AIState.ALERT : AIState.CHASE
+      return animationAdvanced
+    }
+
+    // A human that becomes blocked again is no longer a viable shot.
+    if (
+      !siegeObstacle
+      && this.hasActiveRangedWeapon
+      && this._findRangedTrajectoryBlocker(targetInfo.position, obstacles) !== null
+    ) {
+      this.animator.cancel()
+      this.state = AIState.CHASE
+      return animationAdvanced
+    }
+
+    if (import.meta.env.DEV && _collector) { var _tFaceAtk = performance.now() }
+    // Keep attacking at full weapon range; start circling only inside 90%.
+    // At 90–100% the mounted bow continues a forward approach while shooting.
+    const mountedBowForward = !siegeObstacle && this._updateMountedBowForwardCombat(
+      attackTargetPosition, dt, nearbyNPCs, obstacles, skipBoidsAndObstacles,
+    )
+    if (!mountedBowForward && !eligibleCharge) this._faceTarget(attackTargetPosition)
+    const initialYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+    const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
+    const maxTurnBudget = cavalryTurnRate(speed) * dt
+
+    if (eligibleCharge && !siegeObstacle) {
+      const inFront = this.cavalryPassthroughTimer <= 0
+        && isTargetInForwardCone(this.combatPosition, initialYaw, attackTargetPosition)
+      const targetDirX = attackTargetPosition.x - this.combatPosition.x
+      const targetDirZ = attackTargetPosition.z - this.combatPosition.z
+      const desiredYaw = (inFront && targetDirX * targetDirX + targetDirZ * targetDirZ > 0.001)
+        ? Math.atan2(targetDirX, targetDirZ)
+        : initialYaw
+      const newYaw = steerCavalryHeading(initialYaw, desiredYaw, speed, dt)
+      this.group.rotation.y = newYaw
+      if (this.mount) this.mount.group.rotation.y = newYaw
+    }
+    if (!siegeObstacle && !this.hasActiveRangedWeapon && this.isUsingLance) {
+      // The authored spear is held beside the torso. Aim its actual forward
+      // tip at the opponent rather than sending a parallel thrust past them.
+      const currentYaw = this.group.rotation.y
+      const inFront = !eligibleCharge || (this.cavalryPassthroughTimer <= 0
+        && isTargetInForwardCone(this.combatPosition, currentYaw, attackTargetPosition))
+      if (inFront) {
+        const tip = this.getWeaponTipPosition()
+        const dx = tip.x - this.group.position.x, dz = tip.z - this.group.position.z
+        const localX = dx * Math.cos(currentYaw) - dz * Math.sin(currentYaw)
+        const localZ = dx * Math.sin(currentYaw) + dz * Math.cos(currentYaw)
+        if (localZ > 0.1) {
+          const tipYawOffset = Math.atan2(localX, localZ)
+          if (eligibleCharge) {
+            // Share the single-frame turn budget with heading steering:
+            // The net difference between initialYaw and final yaw must not exceed maxTurnBudget.
+            const unconstrainedYaw = this.group.rotation.y - tipYawOffset
+            const totalDiff = angleDifference(unconstrainedYaw, initialYaw)
+            const clampedDiff = Math.max(-maxTurnBudget, Math.min(maxTurnBudget, totalDiff))
+            this.group.rotation.y = initialYaw + clampedDiff
+          } else {
+            this.group.rotation.y -= tipYawOffset
+          }
+          if (this.mount) this.mount.group.rotation.y = this.group.rotation.y
+        }
+      }
+    }
+    if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tFaceAtk!) }
+
+    // Forward Orbit only replaces ground bows. Keep the existing mounted
+    // javelin movement; its combat and directional speed policies are unchanged.
+    if (!siegeObstacle && this.isMounted && this.hasActiveRangedWeapon
+      && this.rangedCombatKind !== 'bow' && this.tacticalOrder !== 'defend' && !this.holdsRampartPosition) {
+      const moveDir = this._tmpMoveDir
+      moveDir.copy(targetInfo.position).sub(this.group.position).cross(NPC._UP)
+      moveDir.y = 0
+      if (moveDir.lengthSq() > .001) {
+        moveDir.normalize()
+        if (!skipBoidsAndObstacles) {
+          if (import.meta.env.DEV && _collector) { var _tObsOrbit = performance.now() }
+          moveDir.copy(getObstacleAvoidanceDirection(this.combatPosition, moveDir,
+            this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles))
+          if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObsOrbit!) }
+        }
+        if (import.meta.env.DEV && _collector) { var _tOrbitMove = performance.now() }
+        this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
+        if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tOrbitMove!) }
+      }
+    }
+
+    if (import.meta.env.DEV && _collector) { var _tCombat = performance.now() }
+    if (this.hasActiveRangedWeapon) {
+      const rangedKind = this.rangedCombatKind ?? 'bow'
+      const cooldown = getRangedCooldown(rangedKind) / (getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
+      const isBow = rangedKind === 'bow'
+      const windup = isBow ? 0.04 : (this.rig.animation?.getDuration('pilumThrow') ?? 0.45)
+
+      this.attackTimer += dt
+      const progress = Math.min(1, this.attackTimer / cooldown)
+
+      if (isBow) {
+        if (!this.animator.busy) {
+          this.bowArrowReleased = false
+          this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18))
+        }
+        if (this.attackTimer >= cooldown - windup && this.animator.currentAction === 'bowAim') {
+          // A moving rider can fire forward, to either side, or behind.
+          // The ballistic target/LoS remains authoritative, not a shaft pose.
+          this.animator.start('bowRelease', getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
+        }
+      } else {
+        if (!this.animator.busy && this.attackTimer >= cooldown - windup) {
+          this.pendingPilumTarget.copy(this._getElevatedRangedAimPoint(targetInfo.position))
+          if (this.animator.start('pilumThrow', getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)) this.bowPivot.visible = true
+        }
+      }
+
+      if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
+      if (import.meta.env.DEV && _collector) { var _tAnimAtk = performance.now() }
+      const rangedEvents = this.animator.update(dt, cameraDistance)
+      if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimAtk!) }
+      if (isBow) this._updateBowVisual(progress, attackTargetPosition)
+      animationAdvanced = true
+      const shouldFire = rangedEvents.projectileRelease
+      if (shouldFire) {
+        const origin = this._tmpRangedOrigin
+        const dir = this._tmpRangedDirection
+        const aimPoint = this._getElevatedRangedAimPoint(attackTargetPosition)
+        if (isBow && this.bowVisual) {
+          this.bowVisual.writeLaunch(origin, dir, aimPoint)
+        } else {
+          origin.copy(this.bowGripPivot.getWorldPosition(origin))
+          dir.copy(aimPoint).sub(origin).normalize()
+        }
+        // Do not suppress the projectile for a rider's relative yaw or
+        // imperfect imported bow-pose contacts. The actual ballistic aim,
+        // range and line-of-sight checks still own legitimate fire validity.
+        const accepted = onFireArrow(origin, dir, isBow ? 'arrow' : 'pilum')
+        this.arrows = projectileAmmoAfterLaunch(this.arrows, accepted)
+        this.bowVisual?.hideArrow()
+        this.attackTimer = 0
+        if (!isBow) this.bowPivot.visible = false
+        if (isBow && !rangedEvents.actionCompleted) this.bowArrowReleased = true
+      }
+      if (!isBow && rangedEvents.actionCompleted) {
+        if (this.arrows === 0) this._switchToMelee()
+        this.state = AIState.CHASE
+      }
+    } else {
+      // A target can leave physical reach during recovery. Recheck before
+      // starting the next swing rather than attacking at the old data range.
+      if (!eligibleCharge && !siegeObstacle && !this.animator.busy && !this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
+        this.state = this.tacticalOrder === 'defend' ? AIState.ALERT : AIState.CHASE
+        this.pendingLanceChargeSpeed = 0
+        return animationAdvanced
+      }
+      const berserker = getBerserkerModifiers(
+        this.characterFaction,
+        this.isMounted,
+        this.activeCombatKind,
+        this.hasActiveShield,
+      )
+      if (!this.animator.busy && this.attackTimer <= 0) {
+        this.animator.start(this._meleeAction(), meleeActionTimeScale(this._meleeAction(), WEAPONS[this.meleeWeaponId ?? ''], heroMeleeAttackSpeed(this.combatProfileId)))
+        this.attackHitProcessed = false
+      }
+
+      if (eligibleCharge && !siegeObstacle) {
+        const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+        const chargeDir = this._tmpMoveDir.set(Math.sin(currentYaw), 0, Math.cos(currentYaw))
+        const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
+        const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(chargeDir, speed * (dt + 0.15))
+        if (!findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
+          this._moveByDirection(
+            chargeDir,
+            speed,
+            dt,
+            this.tacticalOrder === 'charge',
+          )
+          if (this.isMounted) {
+            this._syncToMount(_collector)
+            this.group.updateMatrixWorld(true)
+          }
+        }
+      }
+
+      this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
+      if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
+      if (import.meta.env.DEV && _collector) { var _tAnimMelee = performance.now() }
+      const attackSpeed = heroMeleeAttackSpeed(this.combatProfileId)
+      this.weaponSweep.capture(this.getWeaponGripPosition(this.sweepGrip), this.getWeaponTipPosition())
+      const meleeEvents = this.animator.update(
+        dt * berserker.meleeAttackRateMultiplier,
+        cameraDistance,
+      )
+      if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimMelee!) }
+      animationAdvanced = true
+
+      this.weaponSweep.capture(this.getWeaponGripPosition(this.sweepGrip), this.getWeaponTipPosition())
+      if ((meleeEvents.hitActiveStarted || this.animator.meleeHitActive) && !this.attackHitProcessed) {
+        if (siegeObstacle) {
+          if (this._isObstacleInMeleeRange(siegeObstacle, 0.4)) {
+            this.attackHitProcessed = true
+            const finalDamage = applyHeroMeleeDamage(
+              Math.round(this.meleeDamage * berserker.meleeDamageMultiplier),
+              this.combatProfileId,
+            )
+            const result = damageObstacle(siegeObstacle.damageable!, finalDamage, {
+              source: createNpcCombatActorRef(this),
+              method: 'siege',
+              weaponId: this.meleeWeaponId ?? undefined,
+              emit: this.combatEventSink,
+            })
+            if (result.destroyed) {
+              this._clearSiegeFallback()
+              this.state = AIState.CHASE
+              this.pendingLanceChargeSpeed = 0
+            }
+          }
+        } else if (eligibleCharge) {
+          const rawMounts = this.combatMountGrid?.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 4, this.combatMountCandidates) ?? []
+          NPC._cavalryHostileMounts.length = 0
+          for (let i = 0; i < rawMounts.length; i++) {
+            const m = rawMounts[i]
+            if (isHostileCombatMount(this, m, player)) {
+              NPC._cavalryHostileMounts.push(m)
+            }
+          }
+
+          NPC._cavalrySweepTargets.length = 0
+          if (targetInfo.isPlayer && player.targetable && !player.dead && this.combatTargetAllowed?.(player) !== false) {
+            NPC._cavalrySweepTargets.push(player)
+          } else if (targetInfo.npc && !targetInfo.npc.dead && this.combatTargetAllowed?.(targetInfo.npc) !== false) {
+            NPC._cavalrySweepTargets.push(targetInfo.npc)
+          }
+          if (hostileNpcGrid) {
+            hostileNpcGrid.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 3, NPC._cavalryCandidates)
+            for (let i = 0; i < NPC._cavalryCandidates.length; i++) {
+              const candidate = NPC._cavalryCandidates[i]
+              if (candidate.dead || candidate === this || !combatAllegiancesHostile(this, candidate)
+                || candidate.mount?.isFlyingMount || this.combatTargetAllowed?.(candidate) === false) continue
+              if (!NPC._cavalrySweepTargets.includes(candidate)) {
+                NPC._cavalrySweepTargets.push(candidate)
+              }
+            }
+          } else if (nearbyNPCs) {
+            for (let i = 0; i < nearbyNPCs.length; i++) {
+              const candidate = nearbyNPCs[i]
+              if (candidate.dead || candidate === this || !combatAllegiancesHostile(this, candidate)
+                || candidate.mount?.isFlyingMount || this.combatTargetAllowed?.(candidate) === false) continue
+              if (!NPC._cavalrySweepTargets.includes(candidate)) {
+                NPC._cavalrySweepTargets.push(candidate)
+              }
+            }
+          }
+          if (this.targetsPlayer && player.targetable && !player.dead
+            && !player.currentMount?.isFlyingMount && this.combatTargetAllowed?.(player) !== false
+            && !NPC._cavalrySweepTargets.includes(player)) {
+            NPC._cavalrySweepTargets.push(player)
+          }
+
+          const contact = (NPC._cavalrySweepTargets.length > 0 || NPC._cavalryHostileMounts.length > 0)
+            ? this.weaponSweep.traceFirst(NPC._cavalrySweepTargets, NPC._cavalryHostileMounts, this.mount)
+            : undefined
+
+          if (contact) {
+            let hitIsPlayer = false
+            let hitNpc: NPC | undefined = undefined
+            let hitMount: Mount | undefined = undefined
+
+            if (contact.kind === 'body' || contact.kind === 'shield') {
+              if (contact.target === player) {
+                hitIsPlayer = true
+              } else if (contact.target instanceof NPC) {
+                hitNpc = contact.target
+              }
+            } else if (contact.kind === 'mount') {
+              hitMount = contact.mount
+              if (contact.mount?.riderNpc) {
+                hitNpc = contact.mount.riderNpc
+              } else if (contact.mount?.riderPlayer) {
+                hitIsPlayer = true
+              }
+            }
+
+            if (hitIsPlayer || hitNpc || hitMount) {
+              const targetIsMounted = hitIsPlayer
+                ? Boolean(player?.isMounted)
+                : hitNpc
+                  ? Boolean(hitNpc.isMounted)
+                  : Boolean(hitMount)
+
+              const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted || contact.kind === 'mount')
+              this.attackHitProcessed = true
+              onHitEntity(finalDamage, hitIsPlayer, hitNpc, hitMount)
+              this.cavalryPassthroughTimer = CAVALRY_PASSTHROUGH_DURATION
+              this.cavalryContactPoint.copy(this.combatPosition)
+              this._cachedTargetNpc = null
+              this._cachedTargetIsPlayer = false
+              this._targetReacquireFramesRemaining = 0
+            }
+          }
+        } else if (this._isTargetInMeleeRange(targetInfo.position, 0.4, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
+          const physicalTarget = targetInfo.isPlayer ? player : targetInfo.npc
+          const rawMounts = this.combatMountGrid?.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 4, this.combatMountCandidates) ?? []
+          NPC._cavalryHostileMounts.length = 0
+          for (let i = 0; i < rawMounts.length; i++) {
+            const m = rawMounts[i]
+            if (isHostileCombatMount(this, m, player)) {
+              NPC._cavalryHostileMounts.push(m)
+            }
+          }
+          const contact = physicalTarget && this.weaponSweep.traceFirst([physicalTarget], NPC._cavalryHostileMounts, this.mount)
+          if (contact) {
+            let hitIsPlayer = false
+            let hitNpc: NPC | undefined = undefined
+            let hitMount: Mount | undefined = undefined
+
+            if (contact.kind === 'body' || contact.kind === 'shield') {
+              if (contact.target === player) hitIsPlayer = true
+              else if (contact.target instanceof NPC) hitNpc = contact.target
+            } else if (contact.kind === 'mount') {
+              hitMount = contact.mount
+              if (contact.mount?.riderNpc) hitNpc = contact.mount.riderNpc
+              else if (contact.mount?.riderPlayer) hitIsPlayer = true
+            }
+
+            if (hitIsPlayer || hitNpc || hitMount) {
+              const targetIsMounted = hitIsPlayer ? Boolean(player?.isMounted) : hitNpc ? Boolean(hitNpc.isMounted) : Boolean(hitMount)
+              const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted || contact.kind === 'mount')
+              this.attackHitProcessed = true
+              onHitEntity(finalDamage, hitIsPlayer, hitNpc, hitMount)
+            }
+          }
+        }
+      }
+
+      if (meleeEvents.actionCompleted) {
+        this.attackTimer = AI_ATTACK_GAP / (berserker.meleeAttackRateMultiplier * attackSpeed)
+        this.pendingLanceChargeSpeed = 0
+        if (eligibleCharge) {
+          this.cavalryPassthroughTimer = Math.max(this.cavalryPassthroughTimer, CAVALRY_PASSTHROUGH_DURATION)
+          this._cachedTargetNpc = null
+          this._cachedTargetIsPlayer = false
+          this._targetReacquireFramesRemaining = 0
+          this.state = AIState.CHASE
+        } else if (!siegeObstacle && !this.attackHitProcessed) {
+          // Weapon length is only an initial estimate: actual arcs, shields
+          // and hand offsets can require a closer position. A complete miss
+          // must make progress instead of repeating the same stationary swing.
+          if (this._isTargetInMeleeRange(targetInfo.position, 0, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
+            this.meleeApproachLimit = Math.max(this._meleeBodySpacing(), Math.min(
+              this._meleeApproachDistance(),
+              Math.hypot(
+                targetInfo.position.x - this.combatPosition.x,
+                targetInfo.position.z - this.combatPosition.z,
+              ),
+            ) - MELEE_MISS_APPROACH_STEP)
+          }
+          this.state = this.tacticalOrder === 'defend' ? AIState.ALERT : AIState.CHASE
+        }
+      }
+
+      if (!meleeEvents.actionCompleted && !this.animator.busy && this.attackTimer > 0) {
+        this.attackTimer -= dt
+        if (eligibleCharge) {
+          this.state = AIState.CHASE
+        } else {
+          const stillInRange = siegeObstacle
+            ? this._isObstacleInMeleeRange(siegeObstacle)
+            : this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
+          if (this.attackTimer <= 0 && !stillInRange) {
+            this.state = AIState.CHASE
+            this.pendingLanceChargeSpeed = 0
+          }
+        }
+      }
+    }
+    return animationAdvanced
   }
 
   /** Presentation after movement; never cancels an actual attack or its recovery. */
