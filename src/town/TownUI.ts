@@ -97,18 +97,19 @@ export class TownTutorialHUD {
   private layoutState = ''
   private disposed = false
 
-  constructor() {
+  /** `idPrefix` keeps element IDs unique when a second guidance card (Town story) exists beside the tutorial's. */
+  constructor(idPrefix = 'career-tutorial') {
     this.root.className = 'career-tutorial-hud'
     this.root.hidden = true
-    this.objective.id = 'career-tutorial-hint'
+    this.objective.id = `${idPrefix}-hint`
     this.objective.className = 'career-tutorial-card'
     this.title.className = 'career-tutorial-title'
     this.detail.className = 'career-tutorial-detail'
     this.objective.append(this.title, this.detail)
-    this.notification.id = 'career-tutorial-notification'
+    this.notification.id = `${idPrefix}-notification`
     this.notification.className = 'career-tutorial-card career-tutorial-notification'
     this.notification.setAttribute('role', 'status')
-    this.error.id = 'career-tutorial-error'
+    this.error.id = `${idPrefix}-error`
     this.error.className = 'career-tutorial-card career-tutorial-error'
     this.error.setAttribute('role', 'alert')
     this.root.append(this.objective, this.notification, this.error)

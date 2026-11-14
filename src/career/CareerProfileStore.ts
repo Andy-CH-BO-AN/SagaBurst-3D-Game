@@ -22,7 +22,8 @@ import { parseTownPatrolCheckpoint } from '../town/TownPatrolCheckpoint'
 import { parseOfficialCommandAuthority, parseTownCommandSquad } from './CareerCommandAuthority'
 import { parseTownEagleGarrisons } from '../town/TownEagleGarrisonState'
 import { parseCareerAerialState } from './CareerAerialState'
-import { canonicalInventoryId, normalizeCareerInventory, type CareerInventory } from './CareerInventory'
+import { canonicalInventoryId, careerItemTotal, normalizeCareerInventory, type CareerInventory } from './CareerInventory'
+import { hasFormalVictoryEvidence, parseCareerStoryState } from './CareerStoryEvents'
 import { parsePersonalSquad } from './CareerPersonalSquad'
 import { isCareerOutpostStageId, parseCareerOutpostCheckpoint, type CareerOutpostMission, type CareerOutpostRecord } from './CareerOutpostMission'
 import { emptyPersonalContribution, parsePersonalMission } from './CareerPersonalSquadMission'
@@ -36,6 +37,7 @@ import { isHeroAssetId, type HeroAssetId } from '../world/HeroAssetCatalog'
 import {
   cloneCareerProfile,
   canonicalCareerMountId,
+  ownsCareerHorse,
   CAREER_RANKS,
   resolveCareerRank,
   type CareerLifetimeStats,
@@ -465,6 +467,13 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   retireNativeTownAirCommand(profile, townCommandSquad)
   try { grantCommanderMelee(profile); normalizeCareerInventory(profile) } catch { return null }
   migrateCareerHealth(profile)
+  const careerStory = parseCareerStoryState(raw.careerStory, {
+    horseOwned: ownsCareerHorse(profile) || tutorial.purchases.horse,
+    formalVictory: hasFormalVictoryEvidence(profile),
+    eagleOwned: careerItemTotal(profile, 'xongkoro') > 0 || profile.ownedMounts.includes('xongkoro'),
+    ...(activeRace ? { activeRaceId: activeRace.id } : {}), ...(activeMission ? { activeMissionId: activeMission.id } : {}),
+  })
+  if (careerStory) profile.careerStory = careerStory
   return profile
 }
 

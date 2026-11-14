@@ -16,7 +16,8 @@ import { townPlayerEntryPoint } from '../town/TownRules'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
 import { CAREER_MOUNT_INTERACTION_DISTANCE, canUseCareerMount, findSafeCareerMountPosition, type CareerMountController } from './CareerMountController'
-import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, pickRaceOpponentMount, RACE_SCHEDULE_VERSION, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
+import { activateCareerStoryEvent, careerStoryPending } from './CareerStoryEvents'
+import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, pickRaceOpponentMount, RACE_SCHEDULE_VERSION, RACE_STORY_ID, RACE_STORY_RACE_ID, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceId, type RaceRider, type RaceReferee, type RaceMountId } from './CareerRaceState'
 import { legalRaceStart, RACE_START, RACE_START_SLOTS, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, type RacePoint, type RacePosition } from './CareerRaceRoute'
 
@@ -87,13 +88,27 @@ export class CareerRaceController {
     return raceRiderDone(s.player) || !target ? null : vector(target)
   }
 
-  accept(id: RaceId, fresh: CareerProfile): boolean {
-    const definition = MOUNTED_RACES.find(race => race.id === id), p = this.player(), mount = p.currentMount
-    if (!definition || p.dead || !mount || !canEnterRace(fresh, {
+  /** The ordinary entry rules, shared by every way into a race: an owned, usable, ridden ground mount and no other activity. */
+  private canEnter(fresh: CareerProfile): boolean {
+    const p = this.player(), mount = p.currentMount
+    return !p.dead && Boolean(mount) && canEnterRace(fresh, {
       id: this.mounts.activeMountId, ownedActive: this.mounts.activeMount === mount,
-      mounted: p.isMounted, dead: mount.dead, hp: mount.currentHp, airborne: mount.isAirborne,
+      mounted: p.isMounted, dead: mount!.dead, hp: mount!.currentHp, airborne: mount!.isAirborne,
       legal: Boolean(this.mounts.activeMountId && canUseCareerMount(fresh, this.mounts.activeMountId)),
-    })) { this.error = '需實際騎乘自己持有、可用的地面坐騎，且沒有其他任務或賽馬。'; return false }
+    })
+  }
+  /** The Commander's invitation is about the ordinary military horse, ridden under the ordinary entry rules. */
+  canEnterStoryRace(fresh: CareerProfile): boolean {
+    return careerStoryPending(fresh, RACE_STORY_ID) && this.canEnter(fresh)
+      && this.mounts.activeMountId !== null && canonicalCareerMountId(this.mounts.activeMountId) === 'horse'
+  }
+
+  accept(id: RaceId, fresh: CareerProfile, options: { story?: boolean } = {}): boolean {
+    const definition = MOUNTED_RACES.find(race => race.id === id), p = this.player(), mount = p.currentMount
+    if (!definition || !mount || !this.canEnter(fresh)) { this.error = '需實際騎乘自己持有、可用的地面坐騎，且沒有其他任務或賽馬。'; return false }
+    if (options.story && (id !== RACE_STORY_RACE_ID || !this.canEnterStoryRace(fresh))) {
+      this.error = '指揮官的邀請需要騎乘你自己持有的普通軍用戰馬，並且沒有其他任務或賽馬。'; return false
+    }
     this.navigation.sync(this.obstacles)
     const captain = this.residents.find(r => r.spec.id === 'captain' && !r.npc.dead && !r.npc.hostileToPlayer)
     const commander = selectRaceCommander(this.residents)
@@ -110,7 +125,7 @@ export class CareerRaceController {
     const spawn = commander.npc.combatPosition
     if (!this.legalSegment(spawn, spawn)) { this.error = '指揮官所在位置沒有足夠坐騎空間。'; return false }
     const opponentMount = pickRaceOpponentMount(definition)
-    const session: CareerRaceSession = { version: 1, scheduleVersion: RACE_SCHEDULE_VERSION, deployed: false, id: sessionId, raceId: id, phase: 'guiding', countdownSeconds: 10,
+    const session: CareerRaceSession = { version: 1, scheduleVersion: RACE_SCHEDULE_VERSION, ...(options.story ? { story: RACE_STORY_ID } : {}), deployed: false, id: sessionId, raceId: id, phase: 'guiding', countdownSeconds: 10,
       elapsedSeconds: 0, gameSeconds: 0, phaseSeconds: 0, waypoint: 0,
       referee: this.captureReferee(captain),
       opponentHome: this.captureReferee(commander), opponentAmmo: commander.npc.combatAmmo,
@@ -118,6 +133,8 @@ export class CareerRaceController {
       // The mount is race-owned; the actual native Commander and his equipment are borrowed intact.
       opponent: { ...makeRider(TOWN_COMMANDER_ID, opponentMount, position(spawn, commander.npc.group.rotation.y), commander.npc.hp, 1), stamina: commander.npc.staminaValue } }
     const next = cloneCareerProfile(fresh); next.activeRace = session
+    // The accepted invitation and the session it may settle are saved together, or not at all.
+    if (options.story && !activateCareerStoryEvent(next, RACE_STORY_ID, sessionId)) { this.error = '指揮官的邀請已不可用。'; return false }
     if (!this.commit(next)) { this.error = '參賽狀態保存失敗，比賽尚未部署。請重試。'; return false }
     this.session = structuredClone(session); this.captain = captain; this.captainHp = captain.npc.hp
     this.lastPlayerMount = p.currentMount
@@ -323,7 +340,7 @@ export class CareerRaceController {
       const facing = nextGoal
         ? new THREE.Vector3(nextGoal.x - goal.x, 0, nextGoal.z - goal.z).normalize()
         : new THREE.Vector3(0, 0, -1)
-      this.order(npc, goal, definition.sprint, undefined, facing)
+      this.order(npc, goal, definition.sprint && !s.story, undefined, facing)
     }
   }
   private order(npc: NPC, point: RacePoint, sprint: boolean, speed?: number, facing = new THREE.Vector3(0, 0, -1)): void {

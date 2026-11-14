@@ -94,6 +94,8 @@ export interface ActiveCareerMission {
   eagleBattle?: CaptainEagleCheckpoint
   /** Arena Squad Trial roster/knockout checkpoint; absent on every other mission kind. */
   arenaTrial?: ArenaTrialState
+  /** Set only on a T1 Arena Squad Trial accepted from the veteran's invitation; replaces that one result's ordinary merit. */
+  storyEventId?: import('./CareerStoryEvents').CareerStoryEventId
   personalSquad?: PersonalSquadMission
   siege?: TownSiegeState
   id: string

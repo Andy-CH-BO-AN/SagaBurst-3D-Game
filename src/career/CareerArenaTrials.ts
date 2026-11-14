@@ -6,7 +6,8 @@ import { parseDuelArenaId, type DuelArenaId } from '../arena/DuelArenaCatalog'
 import type { CharacterTier } from '../combat/CharacterIdentity'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { AIType, Faction } from '../world/NPC'
-import { CAREER_RANKS, type CareerProfile, type CareerRank } from './CareerProfile'
+import { CAREER_RANKS, cloneCareerProfile, type CareerProfile, type CareerRank } from './CareerProfile'
+import { activateCareerStoryEvent, careerStoryPending } from './CareerStoryEvents'
 import { createCareerMissionId, type ActiveCareerMission, type CareerMissionOutcome } from './CareerMissionState'
 
 /**
@@ -213,6 +214,24 @@ export function createArenaTrialMission(profile: CareerProfile, tier: ArenaTrial
     arenaTrial: { version: 1, tier, arenaId, stage: 'deploying', combatElapsed: 0, actors: {} },
     acceptedAt: Date.now(),
   }
+}
+
+export const ARENA_STORY_EVENT_ID = 'veteran-squad-spar' as const
+export const ARENA_STORY_TRIAL_TIER: ArenaTrialTier = 1
+
+/**
+ * The veteran's invitation: the ordinary T1 trial, marked with the event and saved together with the event's
+ * activation. Null when the invitation is not open or the ordinary trial could not be accepted right now.
+ */
+export function acceptArenaStoryTrial(profile: CareerProfile, arenaId: DuelArenaId,
+  id = createCareerMissionId(arenaTrialTemplateId(ARENA_STORY_TRIAL_TIER))): CareerProfile | null {
+  if (!careerStoryPending(profile, ARENA_STORY_EVENT_ID)) return null
+  const mission = createArenaTrialMission(profile, ARENA_STORY_TRIAL_TIER, arenaId, id)
+  if (!mission) return null
+  const next = cloneCareerProfile(profile)
+  if (!activateCareerStoryEvent(next, ARENA_STORY_EVENT_ID, mission.id)) return null
+  next.activeMission = { ...mission, storyEventId: ARENA_STORY_EVENT_ID }
+  return next
 }
 
 export function careerArenaTrial(mission: Pick<ActiveCareerMission, 'kind' | 'arenaTrial'> | undefined): ArenaTrialState | null {

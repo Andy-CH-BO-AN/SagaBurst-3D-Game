@@ -1,5 +1,6 @@
 import { createCareerTutorialState, recordCareerTutorialPurchase, recordCareerTutorialMissionSettlement, recordCareerTutorialAppointment, claimCareerTutorialReward, recordCareerTutorialOperation } from './CareerTutorialState'
 import { careerShopProduct } from './CareerShopCatalog'
+import { hasFormalVictoryEvidence, recordCareerStoryFormalVictory, recordCareerStoryPurchase, settleCareerStoryEvent } from './CareerStoryEvents'
 import { grantCommanderMelee } from './CareerCommanderEquipment'
 import { cloneTownEquipment } from './CareerTownEquipmentState'
 import { cloneTownAirCommandSquad } from './TownAirCommandAuthority'
@@ -69,6 +70,7 @@ export function createCareerProfile(faction: CharacterFaction): CareerProfile {
     commanderHealthVersion: 1,
     faction,
     tutorial: createCareerTutorialState(),
+    careerStory: { version: 1, events: {} },
     totalMerit: 0,
     availableMerit: 0,
     rank: 'recruit',
@@ -204,6 +206,10 @@ export function claimCareerMission(
   }
 
   const contribution = { ...meritStats, damageTaken: stats.damageTaken, survived: stats.survived }
+  const profile = cloneCareerProfile(current)
+  // The veteran's invitation settles in this same claim: its fixed award replaces the damage/kill reward of this one trial.
+  const storyMerit = active.storyEventId && active.kind === 'arena-squad-trial'
+    ? settleCareerStoryEvent(profile, active.storyEventId, missionId, outcome === 'victory' ? 'victory' : 'defeat') : null
   const offense = active.kind === 'enemy-town-assault' || active.kind === 'cavalry-sweep' || active.kind === 'veteran-outpost-assault' || active.kind === 'captain-eagle-battle'
     || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation' || active.kind === 'commander-six-feline-cavalry' || active.kind === 'commander-iron-legion' || active.kind === 'heavy-cavalry-field'
     ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense', 'mission') : null
@@ -211,8 +217,8 @@ export function claimCareerMission(
     || active.kind === 'commander-four-gate-defense'
     ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'defense', 'mission') : null
   const battleMerit = offense ?? defense
-  const merit = battleMerit ? { damage: battleMerit.characterDamage + battleMerit.structureDamage, kills: battleMerit.kills, contribution: battleMerit.victory + battleMerit.survival + battleMerit.gateBreaches, total: battleMerit.total } : calculateRecruitMissionMerit(contribution, outcome)
-  const profile = cloneCareerProfile(current)
+  const merit = storyMerit !== null ? { damage: 0, kills: 0, contribution: storyMerit, total: storyMerit }
+    : battleMerit ? { damage: battleMerit.characterDamage + battleMerit.structureDamage, kills: battleMerit.kills, contribution: battleMerit.victory + battleMerit.survival + battleMerit.gateBreaches, total: battleMerit.total } : calculateRecruitMissionMerit(contribution, outcome)
   profile.totalMerit += merit.total
   profile.availableMerit += merit.total
   profile.claimedBattleIds.push(missionId)
@@ -288,6 +294,8 @@ export function careerMissionCompletionsForTier(profile: CareerProfile, tier: Ca
 }
 
 export function recordCareerMissionCompletion(profile: CareerProfile, tier: CareerMissionTier): void {
+  // The canonical formal-victory counter is also the first-victory story trigger; evidence is read before counting.
+  recordCareerStoryFormalVictory(profile, hasFormalVictoryEvidence(profile))
   const counts: Partial<Record<CareerMissionTier, number>> = {
     1: careerMissionCompletionsForTier(profile, 1),
     2: careerMissionCompletionsForTier(profile, 2),
@@ -384,10 +392,12 @@ export function purchaseCareerContent(
   if (request.kind !== 'hero' && !Number.isSafeInteger(careerItemTotal(profile, id) + quantity)) {
     return { profile, purchased: false, spentMerit: 0, reason: 'invalid-quantity' }
   }
+  const hadHorse = ownsCareerHorse(profile) || profile.tutorial?.purchases.horse === true
   profile.availableMerit -= totalCost
   if (request.kind === 'hero') target.push(id)
   else { normalizeCareerInventory(profile); addCareerItem(profile, id, quantity) }
   recordCareerTutorialPurchase(profile, request.kind, id)
+  recordCareerStoryPurchase(profile, request.kind, id, hadHorse)
 
   return {
     profile,
@@ -402,6 +412,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.unlockedCareerClasses ? { unlockedCareerClasses: [...profile.unlockedCareerClasses] } : {}),
     ...(profile.unlockedT4Classes ? { unlockedT4Classes: [...profile.unlockedT4Classes] } : {}),
     ...(profile.tutorial ? { tutorial: structuredClone(profile.tutorial) } : {}),
+    ...(profile.careerStory ? { careerStory: structuredClone(profile.careerStory) } : {}),
     ...(profile.retirementTowerGuards ? { retirementTowerGuards: structuredClone(profile.retirementTowerGuards) } : {}),
     ...(profile.retirementRuntime ? { retirementRuntime: structuredClone(profile.retirementRuntime) } : {}),
     ...(profile.careerRetirement ? { careerRetirement: { ...profile.careerRetirement, ...(profile.careerRetirement.mobilization ? { mobilization: { ...profile.careerRetirement.mobilization } } : {}) } } : {}),

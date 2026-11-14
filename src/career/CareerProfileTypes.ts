@@ -1,6 +1,7 @@
 // Career profile data model. Type-only: this module must not declare or import runtime values,
 // so it emits no JavaScript and a model change never re-selects tests that only ran Career logic.
 import type { CareerTutorialState } from './CareerTutorialState'
+import type { CareerStoryState } from './CareerStoryEvents'
 import type { CareerRetirementRuntime, CareerRetirementState } from './CareerRetirementState'
 import type { CareerTownEquipment } from './CareerTownEquipmentState'
 import type { TownAirCommandSquadState } from './TownAirCommandAuthority'
@@ -58,6 +59,8 @@ export interface CareerProfile {
   commanderHealthVersion?: 1
   faction: CharacterFaction
   tutorial?: CareerTutorialState
+  /** Deferrable Town story events and their receipts. Absent on saves that predate it; see parseCareerStoryState. */
+  careerStory?: CareerStoryState
 
   /** Lifetime earned merit. Never decreases; appointments use merit earned during this enlistment. */
   totalMerit: number

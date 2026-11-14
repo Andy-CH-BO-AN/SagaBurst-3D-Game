@@ -437,6 +437,34 @@ describe('TownTutorialUX', () => {
     ctrl.dispose()
   })
 
+  it('lets a story invitation take the arrow from a passive wait, but never from an accepted tutorial step', () => {
+    const hint = () => dom.elements.find(el => el.id === 'career-tutorial-hint')!
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController({ ...harness.host, storyGuiding: () => true })
+    // Accepted first step ("report to the Sergeant"): the tutorial keeps the arrow and the Sergeant's dialogue.
+    ctrl.update()
+    expect(ctrl.occupiesGuidance()).toBe(true)
+    expect(hint().hidden).toBe(false); expect(hint().textContent).toContain('向士官長報到')
+    // Waiting for the first two real missions asks for nothing now, so the story may speak instead.
+    const profile = harness.getProfile()
+    recordCareerTutorialOperation(profile, 'town', 'report')
+    recordCareerTutorialPurchase(profile, 'weapon', 'roman_sword_t1')
+    recordCareerTutorialOperation(profile, 'town', 'weapon')
+    recordCareerTutorialOperation(profile, 'town', 'duel-intro')
+    profile.tutorial!.duelOutcome = 'victory'
+    ctrl.update() // Commits a clone: read the live profile again, not the one captured above.
+    recordCareerTutorialOperation(harness.getProfile(), 'town', 'missions')
+    expect(harness.getProfile().tutorial!.town.step).toBe('horse-intro')
+    ctrl.update()
+    expect(ctrl.occupiesGuidance()).toBe(false); expect(ctrl.hasDialogue('deployment')).toBe(false)
+    expect(hint().hidden).toBe(true)
+    const quiet = new TownTutorialController(harness.host)
+    const quietHint = dom.elements.filter(el => el.id === 'career-tutorial-hint').at(-1)!
+    quiet.update()
+    expect(quietHint.hidden).toBe(false); expect(quietHint.textContent).toContain('完成正式戰鬥任務')
+    quiet.dispose(); ctrl.dispose()
+  })
+
   const dialoguePanel = () => {
     const panel = new MockElement('div')
     const body = new MockElement('p')

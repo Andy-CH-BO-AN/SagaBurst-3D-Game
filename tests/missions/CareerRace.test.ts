@@ -417,6 +417,99 @@ describe('Race persistence independent of hostility and Duel', () => {
 })
 
 
+describe('Commander invitation race', () => {
+  const EVENT = 'commander-circuit-race' as const
+  const pending = (p: CareerProfile): CareerProfile => { p.careerStory = { version: 1, events: { [EVENT]: { status: 'pending' } } }; return p }
+  /** A settled Race I session, as the live controller would persist it. */
+  function finished(result: 'win' | 'loss' | 'draw', story: boolean, sourceId = 'test-race'): { p: CareerProfile; s: CareerRaceSession } {
+    const s = session(); s.scheduleVersion = 3; if (story) s.story = EVENT
+    s.player.checkpoint = 5; s.opponent.checkpoint = 5
+    s.player.finishSeconds = result === 'loss' ? 90 : result === 'draw' ? 70 : 70
+    s.opponent.finishSeconds = result === 'win' ? 90 : 70
+    resolveRace(s)
+    const p = pending(profile())
+    p.careerStory!.events[EVENT] = { status: 'active', sourceId }
+    p.activeRace = s
+    return { p, s }
+  }
+
+  it('saves the accepted invitation with its race session, and stays open after a failed save or a non-military mount', () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    let current = pending(profile()); addCareerItem(current, 'armored-horse', 1)
+    expect(store.save(current)).toBe(true)
+    const point = new Vector3(25, 0, -20)
+    const groundMount = { group: { position: point, rotation: { y: 0 } }, currentHp: 100, dead: false, isAirborne: false }
+    const player = { currentMount: groundMount, isMounted: true, dead: false, hp: 80, staminaValue: 70 }
+    const residents = ['captain', 'commander'].map(id => ({ spec: { id }, npc: {
+      combatPosition: point, group: { rotation: { y: 0 } }, hp: 100, staminaValue: 60, combatAmmo: 7,
+      dead: false, hostileToPlayer: false, isFalling: false,
+    } }))
+    const enter = (mountId: string): CareerRaceController => {
+      const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
+      Object.assign(controller, { player: () => player, mounts: { activeMountId: mountId, activeMount: groundMount },
+        navigation: { sync: vi.fn(), areConnected: () => true }, obstacles: [], residents, waypoints: raceWaypoints(),
+        commit: (next: CareerProfile) => { if (!store.save(next)) return false; current = store.load()!; return true }, deploy: vi.fn() })
+      return controller
+    }
+    const stillOpen = () => { const saved = store.load()!; return !saved.activeRace && saved.careerStory!.events[EVENT]!.status === 'pending' }
+    expect(enter('armored-horse').accept('race-1', current, { story: true })).toBe(false)
+    expect(enter('horse').accept('race-2', current, { story: true })).toBe(false)
+    expect(stillOpen()).toBe(true)
+    storage.failWrites = true
+    expect(enter('horse').accept('race-1', current, { story: true })).toBe(false)
+    storage.failWrites = false
+    expect(stillOpen()).toBe(true)
+    // The ordinary entry never consumes it, and never carries the marker.
+    expect(enter('horse').accept('race-1', current)).toBe(true)
+    expect(store.load()!.activeRace!.story).toBeUndefined()
+    expect(store.load()!.careerStory!.events[EVENT]).toEqual({ status: 'pending' })
+    delete current.activeRace; store.save(current)
+    expect(enter('horse').accept('race-1', current, { story: true })).toBe(true)
+    const saved = store.load()!
+    expect(saved.activeRace).toMatchObject({ raceId: 'race-1', story: EVENT })
+    expect(saved.careerStory!.events[EVENT]).toEqual({ status: 'active', sourceId: saved.activeRace!.id })
+  })
+
+  it('pays 500 for a win and 29 for a defeat instead of the ordinary award, returns a draw unused, and leaves other entries alone', () => {
+    const win = finished('win', true), loss = finished('loss', true), draw = finished('draw', true)
+    const won = raceRecordProfile(win.p, win.s)
+    expect(won.raceRecords).toEqual([expect.objectContaining({ raceId: 'race-1', result: 'win', merit: 500, story: EVENT, playerSeconds: 70 })])
+    expect([won.totalMerit, won.availableMerit]).toEqual([win.p.totalMerit + 500, win.p.availableMerit + 500])
+    expect(won.completedRaceIds).toEqual(['race-1']); expect(won.raceBestSeconds).toEqual({ 'race-1': 70 })
+    expect(won.careerStory!.events[EVENT]).toEqual({ status: 'settled', sourceId: 'test-race', outcome: 'victory', merit: 500 })
+    const lost = raceRecordProfile(loss.p, loss.s)
+    expect([lost.totalMerit, lost.availableMerit]).toEqual([loss.p.totalMerit + 29, loss.p.availableMerit + 29])
+    expect(lost.completedRaceIds).toBeUndefined()
+    expect(lost.careerStory!.events[EVENT]).toMatchObject({ status: 'settled', outcome: 'defeat', merit: 29 })
+    const drawn = raceRecordProfile(draw.p, draw.s)
+    expect(drawn.totalMerit).toBe(draw.p.totalMerit)
+    expect(drawn.careerStory!.events[EVENT]).toEqual({ status: 'pending' })
+    // Ordinary Race I keeps its +100 and leaves an open invitation; a stale marker is not a receipt either.
+    for (const { p, s } of [finished('win', false), finished('win', true, 'another-session')]) {
+      const ordinary = raceRecordProfile(p, s)
+      expect(ordinary.raceRecords![0]).toMatchObject({ merit: 100 }); expect(ordinary.raceRecords![0].story).toBeUndefined()
+      expect(ordinary.totalMerit).toBe(p.totalMerit + 100)
+      expect(ordinary.careerStory!.events[EVENT]).toEqual(p.careerStory!.events[EVENT])
+    }
+  })
+
+  it('does not pay before the result is saved, and pays once after a retry and a reload', () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    const { p, s } = finished('win', true)
+    expect(store.save(p)).toBe(true)
+    const result = raceRecordProfile(p, s)
+    storage.failWrites = true; expect(store.save(result)).toBe(false)
+    const unsaved = store.load()!
+    expect(unsaved.availableMerit).toBe(p.availableMerit); expect(unsaved.careerStory!.events[EVENT]!.status).toBe('active')
+    storage.failWrites = false; expect(store.save(raceRecordProfile(store.load()!, s))).toBe(true)
+    expect(store.save(raceRecordProfile(store.load()!, s))).toBe(true)
+    const saved = store.load()!
+    expect(saved.raceRecords).toHaveLength(1); expect(saved.availableMerit).toBe(p.availableMerit + 500)
+    expect(saved.careerStory!.events[EVENT]).toMatchObject({ status: 'settled', outcome: 'victory', merit: 500 })
+  })
+})
+
+
 describe('Race return and deferred native Town outcomes', () => {
   it('keeps hostile player defeat through spectating/reload and applies the penalty once on saved return', () => {
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage), s = session(), p = profile()

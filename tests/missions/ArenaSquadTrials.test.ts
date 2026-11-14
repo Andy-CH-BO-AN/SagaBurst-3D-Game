@@ -4,7 +4,7 @@ import { SkillManager } from '../../src/rpg/SkillManager'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   ARENA_TRIAL_DEFINITIONS, ARENA_TRIAL_TIERS, ARENA_TRIAL_TIME_LIMIT_SECONDS, arenaTrialBlocker, arenaTrialRestorablePlan, arenaTrialRoster,
-  arenaTrialTeamSizes, arenaTrialUnitSpec, createArenaTrialMission, resolveArenaTrialEnd, resolveArenaTrialOutcome, type ArenaTrialTier,
+  acceptArenaStoryTrial, arenaTrialTeamSizes, arenaTrialUnitSpec, createArenaTrialMission, resolveArenaTrialEnd, resolveArenaTrialOutcome, type ArenaTrialTier,
 } from '../../src/career/CareerArenaTrials'
 import { claimCareerMission, createCareerProfile, promoteCareer, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -251,6 +251,31 @@ describe('Arena Squad Trials', () => {
     expect(again).toMatchObject({ alreadyClaimed: true, meritAwarded: 0 })
     expect(again.profile.totalMerit).toBe(first.profile.totalMerit)
     expect(arenaTrialBlocker(profileAt('commander'), 5 as ArenaTrialTier)).toBeNull()
+  })
+
+  it('settles the veteran invitation at a fixed 1,000 or 100 in the same claim, once, and leaves ordinary trials and formal counts alone', () => {
+    const base = profileAt('recruit')
+    base.careerStory = { version: 1, events: { 'veteran-squad-spar': { status: 'pending' } } }
+    const ordinary = { ...base, activeMission: createArenaTrialMission(base, 1, 'roman-colosseum', 'plain')! }
+    const plain = claimCareerMission(ordinary, 'plain', 'victory', stats)
+    expect(plain.meritAwarded).not.toBe(1000)
+    expect(plain.profile.careerStory!.events['veteran-squad-spar']).toEqual({ status: 'pending' })
+    const accepted = acceptArenaStoryTrial(base, 'viking-valhalla', 'spar')!
+    expect(accepted.activeMission).toMatchObject({ templateId: 'career-arena-trial-t1', arenaTrial: { tier: 1, arenaId: 'viking-valhalla' } })
+    expect(accepted.careerStory!.events['veteran-squad-spar']).toEqual({ status: 'active', sourceId: 'spar' })
+    expect(acceptArenaStoryTrial(accepted, 'roman-colosseum', 'again')).toBeNull()
+    const win = claimCareerMission(accepted, 'spar', 'victory', stats)
+    expect(win.meritAwarded).toBe(1000)
+    expect(win.profile.activeMission!.result!.merit).toEqual({ damage: 0, kills: 0, contribution: 1000, total: 1000 })
+    expect([win.profile.totalMerit, win.profile.availableMerit]).toEqual([base.totalMerit + 1000, base.availableMerit + 1000])
+    expect(win.profile.careerMissionCompletions).toBeUndefined()
+    expect(win.profile.careerStory!.events['veteran-squad-spar']).toEqual({ status: 'settled', sourceId: 'spar', outcome: 'victory', merit: 1000 })
+    expect(claimCareerMission(win.profile, 'spar', 'victory', stats)).toMatchObject({ alreadyClaimed: true, meritAwarded: 0 })
+    const loss = claimCareerMission(accepted, 'spar', 'failure', { ...stats, survived: false })
+    expect(loss.meritAwarded).toBe(100)
+    expect([loss.profile.totalMerit, loss.profile.availableMerit]).toEqual([base.totalMerit + 100, base.availableMerit + 100])
+    expect(loss.profile.lifetimeStats.deaths).toBe(base.lifetimeStats.deaths)
+    expect(loss.profile.careerStory!.events['veteran-squad-spar']).toMatchObject({ status: 'settled', outcome: 'defeat', merit: 100 })
   })
 
   it('正式試煉場景沿共用 Session 凍結保存失敗的結算，重試不換結果也不重發軍功', () => {

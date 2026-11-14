@@ -564,6 +564,7 @@ export function parseActiveMission(value: unknown, faction: CareerProfile['facti
     templateId: duel ? CAREER_DUEL_TEMPLATE_ID : trialRoster ? raw.templateId as string : template!.id,
     kind: duel ? 'duel' : trialRoster ? 'arena-squad-trial' : template!.kind,
     ...(arenaTrial ? { arenaTrial } : {}),
+    ...(arenaTrial?.tier === 1 && raw.storyEventId === 'veteran-squad-spar' ? { storyEventId: 'veteran-squad-spar' as const } : {}),
     targetCampId: raw.targetCampId as number,
     phase: raw.phase as CareerMissionPhase,
     targetActorIds,
