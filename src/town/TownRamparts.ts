@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import type { TownDockPassages } from './TownDockPassages'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { getTerrainHeight, getWalkRampHeight, TERRAIN_MIN_HEIGHT, WALK_SURFACE_STEP_UP, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
-import { gatehouseLocal, gatehouseRailOpenings, getTownGatehouse, type TownGatehouse } from './TownGatehouse'
+import { GATEHOUSE_SHELL, gatehouseFloorY, gatehouseLocal, gatehouseRailOpenings, getTownGatehouse, type TownGatehouse } from './TownGatehouse'
 import { TOWN_CITY, TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
 
 export const TOWN_RAMPART = { width: 10, inward: 6.2, rampWidth: 6, slope: .4, landing: 8 } as const
@@ -12,7 +12,7 @@ export interface TownRampartLayout {
   decks: TownWalkway[]; ramps: TownRamp[]; corners: THREE.Vector3[]; lengths: number[]; perimeter: number
   /** Original wall spans keep garrison station sampling independent of mesh subdivision. */
   wallSpans: Pick<TownWalkway, 'gateId' | 'surface'>[]
-  /** Upper gatehouse links are not perimeter or siege-dock surfaces. */
+  /** Gatehouse galleries continue the walk over each gate; not siege-dock surfaces. */
   gatehouses?: readonly TownGatehouse[]
 }
 const C = TOWN_CITY, W = TOWN_RAMPART
@@ -56,6 +56,7 @@ export function getTownRampartLayout(): TownRampartLayout {
   const decks: TownWalkway[] = [], lengths: number[] = []
   const wallSpans: TownRampartLayout['wallSpans'] = []
   const ids: TownGateId[] = ['north', 'east', 'south', 'west']
+  const floors = new Map<TownGateId, number>()
   for (let side = 0; side < 4; side++) {
     const a = corners[side], b = corners[(side + 1) % 4], gateId = ids[side]
     const length = Math.hypot(b.x - a.x, b.z - a.z); lengths.push(length)
@@ -75,6 +76,23 @@ export function getTownRampartLayout(): TownRampartLayout {
     const connection = townGatePoint(gate, RAMP_ANCHORS[gateId], W.inward)
     const connectionDistance = Math.hypot(connection.x - a.x, connection.z - a.z)
     const connectionY = sampledHeight(connectionDistance)
+    // Over the gate the walk is one level with the gatehouse gallery; inside
+    // each tower span it ramps back to the native crown, so the walk beyond
+    // the towers (siege docks, stations, stairs) keeps its exact height.
+    const centre = townGatePoint(gate, 0, W.inward)
+    const gateDistance = (centre.x - a.x) * (b.x - a.x) / length + (centre.z - a.z) * (b.z - a.z) / length
+    const span = GATEHOUSE_SHELL.outer, core = GATEHOUSE_SHELL.inner
+    let crownMax = -Infinity
+    for (let d = -span; d <= span + 1e-6; d += .5) crownMax = Math.max(crownMax, sampledHeight(gateDistance + d))
+    const floorY = gatehouseFloorY(getTerrainHeight(gate.x, gate.z), crownMax)
+    floors.set(gateId, floorY)
+    const ends = [sampledHeight(gateDistance - span), sampledHeight(gateDistance + span)]
+    const gatehouseHeight = (distance: number): number | null => {
+      const offset = distance - gateDistance, reach = Math.abs(offset)
+      if (reach > span) return null
+      if (reach <= core) return floorY
+      return THREE.MathUtils.lerp(floorY, ends[offset < 0 ? 0 : 1], (reach - core) / (span - core))
+    }
     // A transverse flat landing needs a level opening across its full width.
     // The square corner pads likewise share their complete overlap with both walls.
     const plateaus = [
@@ -82,10 +100,13 @@ export function getTownRampartLayout(): TownRampartLayout {
       { from: connectionDistance - W.rampWidth / 2, to: connectionDistance + W.rampWidth / 2, y: connectionY },
       { from: length - W.width / 2, to: length, y: b.y },
     ]
-    const distances = [...new Set([...samples.map((_, i) => length * i / count), ...plateaus.flatMap(p => [p.from, p.to])])].sort((a, b) => a - b)
+    const gateCuts = [-span, -core, core, span].map(d => gateDistance + d)
+    // Breakpoints closer than 1cm would make zero-length deck segments.
+    const distances = [...samples.map((_, i) => length * i / count), ...plateaus.flatMap(p => [p.from, p.to]), ...gateCuts]
+      .sort((a, b) => a - b).filter((d, i, all) => i === 0 || d - all[i - 1] > .01)
     const points = distances.map(distance => {
       const p = a.clone().lerp(b, distance / length)
-      p.y = plateaus.find(p => distance >= p.from && distance <= p.to)?.y ?? sampledHeight(distance)
+      p.y = plateaus.find(p => distance >= p.from && distance <= p.to)?.y ?? gatehouseHeight(distance) ?? sampledHeight(distance)
       return p
     })
     for (let i = 0; i < points.length - 1; i++) {
@@ -119,7 +140,7 @@ export function getTownRampartLayout(): TownRampartLayout {
     layout.ramps.push({ gateId: gate.id, surface: s, box: surfaceBox(s), landing, connection: end,
       entrance: new THREE.Vector3(startX - dirX * 2.5, getTerrainHeight(startX - dirX * 2.5, startZ - dirZ * 2.5), startZ - dirZ * 2.5) })
   }
-  layout.gatehouses = TOWN_GATES.map(gate => getTownGatehouse(gate, W.inward, (x, z) => townRampartHeight(layout, x, z)))
+  layout.gatehouses = TOWN_GATES.map(gate => getTownGatehouse(gate, floors.get(gate.id)!, (x, z) => townRampartHeight(layout, x, z)))
   return layout
 }
 export function townRampartHeight(layout: Pick<TownRampartLayout, 'decks'>, x: number, z: number): number | null {
@@ -190,7 +211,8 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
     obstacles.push({ box: b, isBarricade: false, navigationPassable })
   }
   const rail = (s: WalkRampSurface, lateral: number, from: number, to: number, low: number, high: number, halfThickness = .16, dockGateId?: TownGateId) => {
-    if (to <= from) return
+    // Cuts at deck breakpoints can leave sub-millimetre slivers with no direction.
+    if (to - from < 1e-3) return
     const a = new THREE.Vector3(s.startX + s.dirX * from - s.dirZ * lateral, s.startY + (s.topY - s.startY) * Math.min(1, from / s.length), s.startZ + s.dirZ * from + s.dirX * lateral)
     const b = new THREE.Vector3(s.startX + s.dirX * to - s.dirZ * lateral, s.startY + (s.topY - s.startY) * Math.min(1, to / s.length), s.startZ + s.dirZ * to + s.dirX * lateral)
     // Keep the rail sloped, rather than a staircase of horizontal AABBs.

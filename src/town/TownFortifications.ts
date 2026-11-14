@@ -7,6 +7,7 @@ import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import { createPalisadeSegment, createPalisadeStakeGeometry } from '../world/PalisadeSegment'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { TOWN_CITY, TOWN_GATES, type TownGateId } from './TownLayout'
+import { GATEHOUSE_SHELL } from './TownGatehouse'
 
 /** All obstacles share TownWorld's live array, also used by mounts, navigation and shots. */
 export function createTownFortifications(faction: CharacterFaction, obstacles: ObstacleData[], materials: {
@@ -28,7 +29,10 @@ export function createTownFortifications(faction: CharacterFaction, obstacles: O
     const start = horizontal ? TOWN_CITY.minX : TOWN_CITY.minZ
     const end = horizontal ? TOWN_CITY.maxX : TOWN_CITY.maxZ
     const center = horizontal ? gate.x : gate.z
-    for (const [low, high] of [[start, center - TOWN_CITY.gateWidth / 2], [center + TOWN_CITY.gateWidth / 2, end]]) {
+    // The gatehouse towers replace the curtain over |x| <= towerOuter; the wall
+    // runs into their outer faces (TownGatehouse owns that span's solids).
+    const towers = GATEHOUSE_SHELL.outer
+    for (const [low, high] of [[start, center - towers], [center + towers, end]]) {
       const count = Math.ceil((high - low) / 5), span = (high - low) / count
       for (let i = 0; i < count; i++) {
         const along = low + span * (i + .5), x = horizontal ? along : gate.x, z = horizontal ? gate.z : along

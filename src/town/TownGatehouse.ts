@@ -2,35 +2,65 @@ import { Box3, Matrix4, Vector3 } from 'three'
 import { getTerrainHeight, getWalkRampHeight, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
 import { townGatePoint, type TownGateSpec } from './TownLayout'
 
-// Gate-local +Z faces out. Leave the siege dock approaches (|x| >= 17m)
-// outside these permanent rampart openings.
+// Gate-local +Z faces out. The rampart walk (z -11.2..-1.2) runs straight into
+// the gallery over the gate; siege dock approaches (|x| >= 17m) stay outside.
 export const TOWN_GATEHOUSE = {
-  towerCenter: 11.25, towerInner: 8.8, towerOuter: 13.8,
-  linkWidth: 4.4, linkRailStart: -2.85, deckBack: 0, deckFront: 4.1, galleryCenter: 2,
+  towerCenter: 10.4, towerInner: 7, towerOuter: 13.8,
+  /** Merged walk: rampart outer edge to gallery front. */
+  deckRear: -1.2, deckBack: 0, deckFront: 4.1, galleryCenter: 2,
   railThickness: .24, railHeight: 1.05, headroom: 3.7, slab: .35,
 } as const
+
+/** Each tower replaces the curtain over |x| 7..13.8: its base is the portal's
+ * side wall, carries the curtain's outer contour and projects outward; the
+ * rampart walk passes behind it in the open. The curtain itself now stops at the
+ * tower's outer face (TownFortifications). The outer face stays at towerOuter
+ * so the siege docks (|x|>=17, half width 3) keep their clearance. */
+export const GATEHOUSE_SHELL = {
+  inner: 7, outer: TOWN_GATEHOUSE.towerOuter, portal: 7, skin: .35,
+  /** Exterior face, the tall body's town face (the rampart walk's outer edge)
+   * and the ground base's town face under the walk. */
+  front: 4.9, back: -1.25, baseBack: -3,
+  /** Wall between the walk passage and the gallery-level front room. */
+  wallBack: -1.25, partition: -.5,
+  /** Tower eave and window head above the walk floor. */
+  eave: TOWN_GATEHOUSE.headroom + 3.3, windowHead: 3.3,
+  /** Exterior collision envelope of the tower footing, including plinth and trim. */
+  footFront: 5.15, footOuter: 13.95,
+} as const
+export const GATEHOUSE_STATUE = {
+  roman: { height: 2.7, belowFloor: 1.75, niche: 1.9, recess: .45, ledge: 1 },
+  viking: { height: 2.5, belowFloor: 1.45, niche: 0, recess: 0, ledge: .95 },
+} as const
+export type TownGatehouseStyle = keyof typeof GATEHOUSE_STATUE
 
 export const GATEHOUSE_SIDES = [-1, 1] as const
 export type TownGatehouseSide = (typeof GATEHOUSE_SIDES)[number]
 
-interface GatehouseLink {
-  readonly side: TownGatehouseSide
-  readonly surface: WalkRampSurface
-  readonly entry: Vector3
-  readonly junction: Vector3
-}
+/** Above the original Roman arch (8.5m) with a solid slab, and never below the
+ * native crown anywhere across the towers: the walk only rises onto it. */
+export function gatehouseFloorY(groundY: number, crownMax: number): number { return Math.max(groundY + 9.25, crownMax) }
 
+/** Local x samples of the walk inside each tower span. */
+const WALK_SAMPLE_STEP = .5
 export interface TownGatehouse {
   readonly gate: TownGateSpec
   readonly groundY: number
   readonly floorY: number
+  /** Gallery and the strip joining it to the rampart walk, one level at floorY. */
   readonly deck: WalkRampSurface
-  readonly links: readonly GatehouseLink[]
+  /** Native crown where the walk leaves each tower span ([-x side, +x side]). */
+  readonly crownY: readonly [number, number]
+  /** Real walk height every 0.5m across each tower span, from its portal face out. */
+  readonly towerWalkY: readonly [readonly number[], readonly number[]]
 }
 
 type Point = { x: number; y: number; z: number }
 type GatehouseBox = [x0: number, y0: number, z0: number, x1: number, y1: number, z1: number]
-type GatehousePart = { role: 'base' | 'rail' | 'post' | 'roof'; box: GatehouseBox; overhead: boolean }
+/** 'fill' is solid to projectiles and sight only: it closes masonry under a
+ * walk surface where a body-solid top would catch hooves on the slope. */
+export type GatehouseRole = 'base' | 'rail' | 'post' | 'roof' | 'vault' | 'shell' | 'perch' | 'brace' | 'trim' | 'fill'
+export type GatehousePart = { role: GatehouseRole; box: GatehouseBox; overhead: boolean; side?: TownGatehouseSide }
 
 export function gatehousePoint(gate: TownGateSpec, x: number, z: number, y: number): Vector3 {
   const p = townGatePoint(gate, x, -z)
@@ -48,83 +78,141 @@ function walkSurface(a: Vector3, b: Vector3, width: number): WalkRampSurface {
     dirZ: (b.z - a.z) / length, length, halfWidth: width / 2, landing: 0, mounted: true }
 }
 
-/** The lower portal keeps its original clearance; both upper approaches inherit their real ring height. */
-export function getTownGatehouse(gate: TownGateSpec, ringInward: number, ringHeight: (x: number, z: number) => number | null): TownGatehouse {
-  const G = TOWN_GATEHOUSE, groundY = getTerrainHeight(gate.x, gate.z)
-  const entries = GATEHOUSE_SIDES.map(side => {
-    const entry = gatehousePoint(gate, side * G.towerCenter, -ringInward, 0)
-    const y = ringHeight(entry.x, entry.z)
-    if (y === null) throw new Error(`Missing gatehouse rampart at ${gate.id}:${side}`)
-    entry.y = y
-    return { side, entry }
-  })
-  // Above the original Roman arch (8.5m), including a solid structural slab.
-  const floorY = Math.max(groundY + 9.25, ...entries.map(({ entry }) => entry.y))
-  const deck = walkSurface(gatehousePoint(gate, -G.towerOuter, (G.deckBack + G.deckFront) / 2, floorY),
-    gatehousePoint(gate, G.towerOuter, (G.deckBack + G.deckFront) / 2, floorY), G.deckFront - G.deckBack)
-  const links = entries.map(({ side, entry }) => {
-    const x = side * G.towerCenter, top = gatehousePoint(gate, x, G.deckBack, floorY)
-    return { side, entry, junction: gatehousePoint(gate, x, G.galleryCenter, floorY), surface: walkSurface(entry, top, G.linkWidth) }
-  })
-  return { gate, groundY, floorY, deck, links }
-}
-
-/** Only actual elevated points qualify. The portal underneath never enters this layer. */
-export function gatehouseSection(house: TownGatehouse, p: Point): 'gallery' | TownGatehouseSide | null {
-  if (Math.max(Math.abs(p.x - house.gate.x), Math.abs(p.z - house.gate.z)) > TOWN_GATEHOUSE.towerOuter + .02) return null
-  const local = gatehouseLocal(house.gate, p)
-  if (Math.abs(local.x) > TOWN_GATEHOUSE.towerOuter + .01 || local.z < -7 || local.z > TOWN_GATEHOUSE.deckFront + .01) return null
-  const on = (surface: WalkRampSurface) => {
-    const y = getWalkRampHeight(surface, p.x, p.z)
-    return y !== null && Math.abs(y - p.y) < 1.3
+/** The lower portal keeps its original clearance; the rampart walk already rises to floorY over the gate. */
+export function getTownGatehouse(gate: TownGateSpec, floorY: number, ringHeight: (x: number, z: number) => number | null): TownGatehouse {
+  const G = TOWN_GATEHOUSE, S = GATEHOUSE_SHELL, groundY = getTerrainHeight(gate.x, gate.z)
+  const mid = (G.deckRear + G.deckFront) / 2
+  const deck = walkSurface(gatehousePoint(gate, -G.towerOuter, mid, floorY), gatehousePoint(gate, G.towerOuter, mid, floorY), G.deckFront - G.deckRear)
+  const sample = (x: number) => {
+    const p = gatehousePoint(gate, x, -6.2, 0), y = ringHeight(p.x, p.z)
+    if (y === null) throw new Error(`Missing gatehouse rampart at ${gate.id}:${x}`)
+    return y
   }
-  if (on(house.deck)) return 'gallery'
-  return house.links.find(link => local.z > gatehouseLocal(house.gate, link.entry).z + .12 && on(link.surface))?.side ?? null
+  const crownY = [sample(-G.towerOuter), sample(G.towerOuter)] as const
+  const count = Math.ceil((S.footOuter - S.inner) / WALK_SAMPLE_STEP)
+  const towerWalkY = GATEHOUSE_SIDES.map(side => Array.from({ length: count + 1 }, (_, i) => sample(side * Math.min(S.footOuter, S.inner + i * WALK_SAMPLE_STEP)))) as unknown as TownGatehouse['towerWalkY']
+  return { gate, groundY, floorY, deck, crownY, towerWalkY }
 }
 
-/** Permanent openings, in local X. The exact same width is used by the approach surfaces. */
+/** Only actual elevated gallery points qualify; the portal underneath never enters this layer. */
+export function gatehouseSection(house: TownGatehouse, p: Point): 'gallery' | null {
+  if (Math.max(Math.abs(p.x - house.gate.x), Math.abs(p.z - house.gate.z)) > TOWN_GATEHOUSE.towerOuter + 5) return null
+  const y = getWalkRampHeight(house.deck, p.x, p.z)
+  return y !== null && Math.abs(y - p.y) < 1.3 ? 'gallery' : null
+}
+
+/** The rampart's outer parapet is replaced across the whole gatehouse: open
+ * over the gate, the towers' own walls over their spans. Local X. */
 export function gatehouseRailOpenings(): readonly (readonly [number, number])[] {
-  return GATEHOUSE_SIDES.map(side => {
-    const center = side * TOWN_GATEHOUSE.towerCenter, half = TOWN_GATEHOUSE.linkWidth / 2
-    return [center - half, center + half] as const
-  })
+  return [[-GATEHOUSE_SHELL.outer, GATEHOUSE_SHELL.outer]]
+}
+
+/** Roman arch intrados (TownFortifications): springs at 4m, 7m half span, 3m rise. */
+export function romanPortalIntrados(x: number): number {
+  return 4 + 3 * Math.sqrt(Math.max(0, 1 - Math.min(1, (x / GATEHOUSE_SHELL.portal) ** 2)))
+}
+/** Viking lintel underside; the leaves and opening stay at their native height. */
+export const VIKING_PORTAL_HEAD = 7.15
+
+/** Tower roof rise above the shell eave. */
+export function gatehouseRoofRise(style: TownGatehouseStyle): number { return style === 'roman' ? 2.9 : 3.9 }
+
+/** Statue perch on each tower's exterior face, shared by visuals and collision. */
+export function gatehouseStatueSite(house: TownGatehouse, side: TownGatehouseSide, style: TownGatehouseStyle) {
+  const S = GATEHOUSE_STATUE[style], floor = house.floorY - house.groundY
+  const top = floor - S.belowFloor, y = top - S.height
+  const x = side * (GATEHOUSE_SHELL.inner + GATEHOUSE_SHELL.outer) / 2
+  const z = style === 'roman' ? GATEHOUSE_SHELL.front - S.recess + .45 : GATEHOUSE_SHELL.front + .48
+  return { x, y, z, top, height: S.height }
+}
+
+/** Lowest walk height (gate-local) over one tower-span slice [|x0|, |x1|]. */
+export function gatehouseTowerWalk(house: TownGatehouse, side: TownGatehouseSide, x0: number, x1: number): number {
+  const S = GATEHOUSE_SHELL, walk = house.towerWalkY[side < 0 ? 0 : 1]
+  const index = (x: number) => Math.max(0, Math.min(walk.length - 1, Math.round((x - S.inner) / WALK_SAMPLE_STEP)))
+  let y = Infinity
+  for (let i = index(x0); i <= index(x1); i++) y = Math.min(y, walk[i])
+  return y - house.groundY
 }
 
 /** Local solids shared by the visual dressing and real body/projectile collision.
- * Only the two existing outer tower foundations block the ground grid. */
-export function townGatehouseParts(house: TownGatehouse): GatehousePart[] {
-  const G = TOWN_GATEHOUSE, floor = house.floorY - house.groundY
+ * Only the tower bases block the ground grid (and are the portal's side walls);
+ * the portal keeps the native arch/lintel clearance and the upper parts never
+ * project into ground A*. */
+export function townGatehouseParts(house: TownGatehouse, style: TownGatehouseStyle = 'roman'): GatehousePart[] {
+  const G = TOWN_GATEHOUSE, S = GATEHOUSE_SHELL, floor = house.floorY - house.groundY
   const parts: GatehousePart[] = []
-  const add = (role: GatehousePart['role'], box: GatehouseBox) => parts.push({ role, box, overhead: role !== 'base' })
-  const openings = gatehouseRailOpenings(), rail = G.railThickness
+  const add = (role: GatehouseRole, box: GatehouseBox, side?: TownGatehouseSide) => parts.push({ role, box, overhead: role !== 'base', ...(side ? { side } : {}) })
+  const rail = G.railThickness, frontZ = G.deckFront - rail
+  const ceiling = floor + G.headroom, eave = floor + S.eave, rise = gatehouseRoofRise(style)
   for (const side of GATEHOUSE_SIDES) {
-    const x0 = side < 0 ? -G.towerOuter : G.towerInner, x1 = side < 0 ? -G.towerInner : G.towerOuter
-    const low = gatehousePoint(house.gate, (x0 + x1) / 2, -.9, 0), high = gatehousePoint(house.gate, (x0 + x1) / 2, G.deckFront, 0)
-    const bottom = Math.min(0, getTerrainHeight(low.x, low.z) - house.groundY, getTerrainHeight(high.x, high.z) - house.groundY) - .8
-    // The ramp approaches from behind, above this base. It is not a solid tower core.
-    add('base', [x0, bottom, .2, x1, floor - .4, G.deckFront])
+    const span = (a: number, b: number): [number, number] => side < 0 ? [-b, -a] : [a, b]
+    const shell = (a: number, b: number, y0: number, y1: number, z0: number, z1: number) => { const [x0, x1] = span(a, b); add('shell', [x0, y0, z0, x1, y1, z1], side) }
+    const terrain = [S.baseBack, 0, S.footFront].flatMap(z => [S.inner, S.footOuter].map(x => {
+      const p = gatehousePoint(house.gate, side * x, z, 0); return getTerrainHeight(p.x, p.z) - house.groundY
+    }))
+    const bottom = Math.min(0, ...terrain) - .8, crown = house.crownY[side < 0 ? 0 : 1] - house.groundY
+    // Tower base: the portal's side wall, the curtain's own line and the outward projection.
+    const [fx0, fx1] = span(S.inner, S.footOuter)
+    add('base', [fx0, bottom, G.deckRear, fx1, floor - .4, S.footFront], side)
+    // Town-side part of the base under the walk, stepped to the walk's real
+    // height. The body-solid steps stay a mounted radius' rise below the slope.
+    for (let x = S.inner; x < S.footOuter - 1e-6; x += .5) {
+      const x1 = Math.min(S.footOuter, x + .5), [bx0, bx1] = span(x, x1), walk = gatehouseTowerWalk(house, side, x, x1)
+      add('base', [bx0, bottom, S.baseBack, bx1, walk - 1.2, G.deckRear], side)
+      add('fill', [bx0, walk - 1.2, S.baseBack, bx1, walk - G.slab, G.deckRear], side)
+    }
+    // The tall body's town face stands at the rampart walk's outer edge; the
+    // walk passes behind it in the open (the rampart bypass).
+    shell(S.inner, S.outer, Math.min(crown, floor) - 1.1, eave, S.wallBack, S.partition)
     const end = side * G.towerOuter
-    add('rail', [end - (side > 0 ? rail : 0), floor, G.deckBack, end + (side < 0 ? rail : 0), floor + G.railHeight, G.deckFront])
+    add('rail', [end - (side > 0 ? rail : 0), floor, S.partition, end + (side < 0 ? rail : 0), floor + G.railHeight, G.deckFront], side)
+    const outerSkin = S.outer - S.skin
+    shell(outerSkin, S.outer, floor, floor + G.railHeight, S.partition, frontZ)
+    shell(outerSkin, S.outer, floor + S.windowHead, eave, S.partition, frontZ)
+    for (const [z0, z1] of [[S.partition, .5], [1.6, 2.5], [3.6, frontZ]]) shell(outerSkin, S.outer, floor, eave, z0, z1)
+    shell(S.inner, S.outer, floor, floor + G.railHeight, frontZ, S.front)
+    shell(S.inner, S.outer, floor + S.windowHead, eave, frontZ, S.front)
+    for (const [x0, x1] of [[S.inner, 7.9], [9.6, 11.2], [12.9, S.outer]]) shell(x0, x1, floor, eave, frontZ, S.front)
+    // Gallery-side opening into the front room: the head matches the gallery ceiling.
+    shell(S.inner, S.inner + .3, ceiling, eave, S.partition, frontZ)
+    const [rx0, rx1] = span(S.inner - .3, G.towerOuter + .35)
+    add('roof', [rx0, eave, S.back - .3, rx1, eave + rise, S.front + .3], side)
+    const statue = gatehouseStatueSite(house, side, style)
+    const ledge = GATEHOUSE_STATUE[style].ledge
+    add('perch', [statue.x - ledge, statue.y - (style === 'roman' ? .7 : 1.3), S.front, statue.x + ledge, statue.top + .1,
+      style === 'roman' ? S.front + .6 : S.front + .95], side)
+    const cx = side * (S.inner + S.outer) / 2
+    if (style === 'viking') {
+      // Lynx finial on the outward gable, and carved lynx on the town face above the walk headroom.
+      add('trim', [cx - .5, eave + rise - .25, S.front, cx + .5, eave + rise + 1.9, S.front + 1.1], side)
+      add('trim', [cx - .5, floor + G.headroom + .3, S.back - .8, cx + .5, eave - .2, S.back], side)
+      // Knee braces from the timber portal posts to the main beam.
+      const [bx0, bx1] = span(5.5, S.portal)
+      add('brace', [bx0, 5.5, G.deckFront, bx1, VIKING_PORTAL_HEAD, G.deckFront + .3], side)
+    }
   }
-  add('rail', [-G.towerOuter, floor, G.deckFront - rail, G.towerOuter, floor + G.railHeight, G.deckFront])
-  for (const [x0, x1] of [[-G.towerOuter, openings[0][0]], [openings[0][1], openings[1][0]], [openings[1][1], G.towerOuter]]) {
-    add('rail', [x0, floor, G.deckBack, x1, floor + G.railHeight, G.deckBack + rail])
+  // Gallery between the towers: front parapet, posts and its own roof only.
+  add('rail', [-S.inner, floor, frontZ, S.inner, floor + G.railHeight, G.deckFront])
+  for (const x of [-5.85, 0, 5.85]) add('post', [x - .12, floor, G.deckFront - .25, x + .12, ceiling, G.deckFront - .01])
+  add('roof', [-S.inner, ceiling, G.deckBack - .6, S.inner, ceiling + 1.6, G.deckFront + .38])
+  // Solid structure between the native portal and the gallery floor, plus the
+  // entablature/main beam carried across it. The portal clearance is unchanged.
+  const top = floor - .35
+  // Body-solid masonry stays well below the walk, where riders come up the
+  // tower-span slopes onto this level; the rest up to the slab is fill.
+  const solidTop = floor - 1.2
+  if (style === 'roman') {
+    for (let x = -S.portal; x < S.portal - 1e-6; x += .5) {
+      const intrados = Math.max(romanPortalIntrados(x), romanPortalIntrados(x + .5))
+      add('vault', [x, intrados, S.baseBack, x + .5, Math.max(intrados + .1, solidTop), G.deckFront + .15])
+    }
+    add('roof', [-6.2, ceiling, 1.9, 6.2, ceiling + 3.2, G.deckFront + .6])
+  } else {
+    add('vault', [-S.portal, VIKING_PORTAL_HEAD, S.baseBack, S.portal, Math.max(VIKING_PORTAL_HEAD + .1, solidTop), G.deckFront + .35])
   }
-  for (const x of [-13.5, -9.03, -5.85, 0, 5.85, 9.03, 13.5]) {
-    const y = Math.abs(x) > G.towerInner ? floor + G.headroom + 1.05 : floor + G.headroom
-    add('post', [x - .12, floor, G.deckFront - .25, x + .12, y, G.deckFront - .01])
-  }
-  for (const x of [-13.7, -8.91, -5.85, 0, 5.85, 8.91, 13.7]) {
-    const y = Math.abs(x) > G.towerInner ? floor + G.headroom + 1.05 : floor + G.headroom
-    add('post', [x - .06, floor, G.deckBack, x + .06, y, G.deckBack + .18])
-  }
-  // The roofs' solid lower planes sit above the complete mounted corridor.
-  const ceiling = floor + G.headroom
-  add('roof', [-G.towerInner, ceiling, -.28, G.towerInner, ceiling + 1.6, G.deckFront + .38])
-  for (const side of GATEHOUSE_SIDES) {
-    add('roof', [side < 0 ? -G.towerOuter - .35 : G.towerInner, ceiling + 1.05, -.45,
-      side < 0 ? -G.towerInner : G.towerOuter + .35, ceiling + 3.7, G.deckFront + .45])
-  }
+  add('fill', [-S.portal, solidTop, S.baseBack, S.portal, top, G.deckFront + .15])
+  add('trim', [-S.inner, floor - 1, G.deckFront, S.inner, top, G.deckFront + .35])
   return parts
 }
 

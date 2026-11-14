@@ -5,10 +5,14 @@ import { crossingGateBreach, gateBreachLane, gateBreachProgress, hasClearedGateB
 import { AvailableBreachEntrances, type BreachEntrance } from './AvailableBreachEntrances'
 import { TOWN_CITY, TOWN_GATES, TOWN_GATE_ASSAULT_APPROACH, townGatePoint, type TownGateId } from '../town/TownLayout'
 import { getTerrainHeight, getWalkRampHeight, type ObstacleData } from '../world/Terrain'
-import { gatehouseLocal, gatehousePoint, gatehouseSection, TOWN_GATEHOUSE, type TownGatehouse } from '../town/TownGatehouse'
+import { GATEHOUSE_SHELL, gatehouseLocal, gatehousePoint, gatehouseSection, TOWN_GATEHOUSE, type TownGatehouse } from '../town/TownGatehouse'
 import { townRampartHeight, type TownRamp, type TownRampartLayout } from '../town/TownRamparts'
 
 import type { CampaignGateController } from '../campaign/CampaignGate'
+
+/** Open span between the towers (mounted body radius kept clear) and the rampart point just behind a gallery. */
+const GATEHOUSE_PASSAGE = GATEHOUSE_SHELL.inner - 1.2
+const GALLERY_EXIT = TOWN_GATEHOUSE.deckRear - 1.6
 
 export interface TownNavigationStep {
   ground: boolean
@@ -106,71 +110,57 @@ export class TownLayeredNavigation {
     if (Math.hypot(a.point.x - current.x, a.point.z - current.z) > 1) { out.copy(a.point); return }
     out.copy(this.pointAt(a.distance + Math.sign(delta) * Math.min(3, Math.abs(delta))))
   }
-  private gatehouseAt(p: THREE.Vector3): { house: TownGatehouse; section: NonNullable<ReturnType<typeof gatehouseSection>> } | null {
-    for (const house of this.layout.gatehouses ?? []) {
-      const section = gatehouseSection(house, p)
-      if (section !== null) return { house, section }
-    }
-    return null
+  private gatehouseAt(p: THREE.Vector3): TownGatehouse | null {
+    return this.layout.gatehouses?.find(house => gatehouseSection(house, p) !== null) ?? null
   }
-  /** Leave a gallery via its real link, then reuse the existing ring to reach
-   * other gates, stairs or live siege docks. Keep ordinary ring travel on the ring. */
+  /** The rampart walk runs level into each gallery between the towers. Leave a
+   * gallery through that open span, then reuse the existing ring. */
+  private galleryThreshold(house: TownGatehouse, p: THREE.Vector3, z: number): THREE.Vector3 {
+    const local = gatehouseLocal(house.gate, p)
+    return gatehousePoint(house.gate, THREE.MathUtils.clamp(local.x, -GATEHOUSE_PASSAGE, GATEHOUSE_PASSAGE), z, house.floorY)
+  }
   private alongElevated(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3): TownNavigationStep {
     const from = this.gatehouseAt(current), to = this.gatehouseAt(goal)
     if (!from && !to) { this.alongRing(current, goal, out); return { ground: false } }
-    const near = (a: THREE.Vector3, b: THREE.Vector3) => Math.hypot(a.x - b.x, a.z - b.z) <= .2
-    const nearest = (house: TownGatehouse, p: THREE.Vector3) =>
-      house.links[gatehouseLocal(house.gate, p).x < 0 ? 0 : 1]
-    if (from) {
-      const sameHouse = to?.house === from.house
-      if (from.section === 'gallery') {
-        const local = gatehouseLocal(from.house.gate, current)
-        const leaving = !sameHouse || to.section !== 'gallery'
-        const link = sameHouse && to.section !== 'gallery' ? from.house.links.find(l => l.side === to.section)! : nearest(from.house, goal)
-        const aligned = Math.abs(local.x - link.side * TOWN_GATEHOUSE.towerCenter) <= .2 && local.z <= TOWN_GATEHOUSE.galleryCenter + .2
-        const arrivalLink = nearest(from.house, current)
-        const inThreshold = local.z < 1.25 && Math.abs(local.x - arrivalLink.side * TOWN_GATEHOUSE.towerCenter) < 1.1
-        if (leaving && aligned) out.copy(sameHouse ? goal : link.entry)
-        else if (inThreshold && (!sameHouse || to.section !== 'gallery' ||
-          Math.abs(gatehouseLocal(from.house.gate, goal).x - arrivalLink.side * TOWN_GATEHOUSE.towerCenter) > 1.1)) out.copy(arrivalLink.junction)
-        else out.copy(leaving ? link.junction : goal)
-      } else if (sameHouse && from.section === to.section) {
-        out.copy(goal)
-      } else {
-        const link = from.house.links.find(l => l.side === from.section)!
-        out.copy(sameHouse ? link.junction : link.entry)
-      }
+    const near = (a: THREE.Vector3, b: THREE.Vector3) => Math.hypot(a.x - b.x, a.z - b.z) <= .3
+    if (from && from === to) {
+      // One open level: gallery corridor, tower rooms and the joining strip.
+      const lane = this.galleryThreshold(from, current, TOWN_GATEHOUSE.galleryCenter)
+      const crossing = (gatehouseLocal(from.gate, current).z < TOWN_GATEHOUSE.deckBack + .2) !== (gatehouseLocal(from.gate, goal).z < TOWN_GATEHOUSE.deckBack + .2)
+      out.copy(crossing && Math.abs(gatehouseLocal(from.gate, goal).x) > GATEHOUSE_PASSAGE && !near(current, lane) ? lane : goal)
+    } else if (from) {
+      const lane = this.galleryThreshold(from, current, TOWN_GATEHOUSE.galleryCenter), exit = this.galleryThreshold(from, current, GALLERY_EXIT)
+      out.copy(Math.abs(gatehouseLocal(from.gate, current).x) > GATEHOUSE_PASSAGE + .2 && !near(current, lane) ? lane : exit)
     } else if (to) {
-      const link = to.section === 'gallery' ? nearest(to.house, current) : to.house.links.find(l => l.side === to.section)!
-      if (near(current, link.entry)) out.copy(to.section === 'gallery' ? link.junction : goal)
-      else this.alongRing(current, link.entry, out)
+      const entry = this.galleryThreshold(to, goal, GALLERY_EXIT), local = gatehouseLocal(to.gate, current)
+      // Once in the open span behind the gallery, keep heading in; the ring would pull back to its entry point.
+      const inSpan = Math.abs(local.x) <= GATEHOUSE_PASSAGE + .3 && local.z >= GALLERY_EXIT - .3 && local.z <= TOWN_GATEHOUSE.deckRear + .3
+      if (inSpan || near(current, entry)) out.copy(Math.abs(gatehouseLocal(to.gate, goal).x) > GATEHOUSE_PASSAGE ? this.galleryThreshold(to, goal, TOWN_GATEHOUSE.galleryCenter) : goal)
+      else this.alongRing(current, entry, out)
     }
     // NPC Follow/Formation caps movement at precise tower waypoints.
     return { ground: false, tower: true }
   }
   private clampGatehouseFollow(out: THREE.Vector3, leader: THREE.Vector3, spacing: number): boolean {
-    const location = this.gatehouseAt(leader)
-    if (!location) return false
-    const { house, section } = location, [left, right] = house.links, G = TOWN_GATEHOUSE
-    const p = gatehouseLocal(house.gate, leader)
-    const galleryWidth = G.towerCenter * 2
-    const leftLength = left.surface.length + G.galleryCenter
-    const progress = section === -1 ? left.surface.length + p.z
-      : section === 1 ? leftLength + galleryWidth + G.galleryCenter - p.z
-      : leftLength + THREE.MathUtils.clamp(p.x + G.towerCenter, 0, galleryWidth)
-    const slot = progress - spacing
-    if (slot < 0) {
-      const a = this.projection(left.entry).distance, b = this.projection(right.entry).distance
-      const leftDirection = a < b ? -1 : 1
-      out.copy(this.pointAt(a - slot * leftDirection))
-    } else if (slot < leftLength || slot > leftLength + galleryWidth) {
-      const link = slot < leftLength ? left : right
-      const z = link === left ? slot - left.surface.length : leftLength + galleryWidth + G.galleryCenter - slot
-      const y = THREE.MathUtils.lerp(link.entry.y, house.floorY, THREE.MathUtils.clamp(1 + z / link.surface.length, 0, 1))
-      out.copy(gatehousePoint(house.gate, link.side * G.towerCenter, z, y))
-    } else {
-      out.copy(gatehousePoint(house.gate, slot - leftLength - G.towerCenter, G.galleryCenter, house.floorY))
+    const house = this.gatehouseAt(leader)
+    if (!house) return false
+    // Trail back along the route a leader actually took: tower room → gallery
+    // lane (through the room's gallery opening) → open span → rampart walk.
+    // Never cut straight across a tower wall.
+    const route = [leader.clone()]
+    const lane = this.galleryThreshold(house, leader, TOWN_GATEHOUSE.galleryCenter)
+    if (Math.abs(gatehouseLocal(house.gate, leader).x) > GATEHOUSE_PASSAGE + .2) route.push(lane)
+    route.push(this.galleryThreshold(house, leader, GALLERY_EXIT))
+    let remaining = spacing
+    for (let i = 1; i < route.length; i++) {
+      const a = route[i - 1], b = route[i], length = Math.hypot(b.x - a.x, b.z - a.z)
+      if (remaining <= length) { out.copy(a).lerp(b, length > 0 ? remaining / length : 0); out.y = house.floorY; return true }
+      remaining -= length
     }
+    const exit = route[route.length - 1], along = this.projection(exit).distance, side = gatehouseLocal(house.gate, leader).x < 0 ? -1 : 1
+    const outward = this.projection(gatehousePoint(house.gate, side * 20, GALLERY_EXIT, house.floorY)).distance
+    const sign = Math.sign(((outward - along + this.layout.perimeter * 1.5) % this.layout.perimeter) - this.layout.perimeter / 2) || 1
+    out.copy(this.pointAt(along + sign * remaining))
     return true
   }
   clampFollow(out: THREE.Vector3, leader: THREE.Vector3, slot: number, mounted: boolean): void {

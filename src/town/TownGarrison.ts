@@ -3,6 +3,7 @@ import type { NPC } from '../world/NPC'
 import { TOWN_EAGLE_ALERT_RADIUS } from './TownEagleGarrison'
 import { siegeDefensePlans } from '../career/TownDefenseRoster'
 import { getTerrainHeight } from '../world/Terrain'
+import { GATEHOUSE_SHELL, gatehouseLocal } from './TownGatehouse'
 import { TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
 import { getTownRampartLayout, townRampartHeight, TOWN_RAMPART } from './TownRamparts'
 import { isTownMilitary, type TownActorSpec } from './TownRules'
@@ -67,7 +68,8 @@ export function assignTownGarrison(roster: TownActorSpec[]): TownActorSpec[] {
               return [.4, 2.55, 4.65].filter(along => along < s.length - .25).map(along => ({
                 x: s.startX + s.dirX * along + s.dirZ * (TOWN_RAMPART.width / 2 - 1.2), z: s.startZ + s.dirZ * along - s.dirX * (TOWN_RAMPART.width / 2 - 1.2), yaw: gate.yaw,
               }))
-            }).filter(q => Math.hypot(q.x - gate.x, q.z - gate.z) > 12),
+            // Archers stay outside the gatehouse towers, where the parapet is open to the field.
+            }).filter(q => Math.hypot(q.x - gate.x, q.z - gate.z) > 12 && Math.abs(gatehouseLocal(gate, q).x) > GATEHOUSE_SHELL.footOuter + .5),
             checkedOccupancy: 0,
           }
           rampartCandidates.set(gate.id, available)
