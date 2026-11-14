@@ -92,6 +92,7 @@ Career 城鎮劇情事件（`CareerStoryEvents`／`CareerStoryGuidance`／`TownS
 - `Mount` 是 HP、移動、碰撞、跳躍、衝撞、死亡／下馬與存檔的權威；`HorseAssetRegistry`、`BlackCatVisual`、`SnowLeopardVisual`、`CorgiVisual`、`XongkoroVisual` 負責資產與動畫，保留原 save IDs。
 - `QuadrupedAssetPreload` 集中 Black Cat／Snow Leopard／Corgi 的 manifest／GLB 驗證、並行預載共用與失敗重試；各 Visual 提供路徑、body 前綴與模板發布。全部必要 clips／LOD／seat 通過後才發布模板，失敗後下次預載重新讀取，Black Cat 與 Snow Leopard 的實例、LOD 及動畫共用 `QuadrupedVisual`；Snow Leopard 必須具備完整七段 baked clips。
 - 地面坐騎只有 LOD0 投射陰影：戰馬依 `HorseShadowPolicy` 名單，Black Cat／Snow Leopard 由 `QuadrupedVisual` 依 LOD level 設定（LOD1/2 不投影）。
+- 戰馬與 Black Cat／Snow Leopard 共用 `CharacterLODPolicy` 的遠距坐騎節奏（>35m 以 15Hz 推進 mixer）；`QuadrupedVisual` 不再強制更新整棵世界矩陣。遠距騎士在坐騎姿勢未推進時，由 `SkinnedSeatContact.reapply` 沿用上次量得的座位修正。
 - `ARMORED_HORSE`／Career ID `armored-horse` 是獨立重甲戰馬，使用 `HorseAssetRegistry` 的獨立模板、原戰馬 70 骨架／九動畫與三層 LOD；不替換普通馬。10.5 m/s、HP 600、售價 8,000 軍功，重甲馬的加速／轉向限制在既有 `Mount` controlled movement owner 處理，Player／NPC 共用。
 - `MountArmor` 以獨立 `ShieldState` 重用 `absorb()` 和 `weaponShieldImpact()`：重甲馬／雪豹 50 Impact，其餘 0。`DamageRouter.damageMount` 只對武器 melee／projectile 消耗護甲；自然鷹擊、墜落、地形與 mount-impact 沿原 HP 路徑。騎士 body／盾接觸不消耗馬甲，也不受馬甲保護。Game 與 Town 所有武器命中坐騎的 caller 都須保留武器 ID／攻擊者騎乘狀態。
 - 玩家馬甲耐久在 `CareerProfile.mountArmor`、任務 `mountState.armorImpact` 與 mounted RPG save 保存；NPC／借用角色在既有 mount resource checkpoint 保存 `armorImpactRemaining`，決鬥、賽馬的既有資源快照亦保留。缺值的舊雪豹以 50 初始化，已存 0 必須保留；只有 respawn／正式 refit／rest 重設。純護甲受擊也須觸發資源 checkpoint。

@@ -1,4 +1,4 @@
-import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
+import { CHARACTER_LOD_DISTANCES, MOUNT_ANIMATION_THROTTLE_DISTANCE, MOUNT_FAR_ANIMATION_INTERVAL } from './CharacterLODPolicy'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -385,9 +385,9 @@ class HorseAnimationController {
   update(dt: number, cameraDistance = 0): void {
     if (!Number.isFinite(dt) || dt <= 0 || this.paused) return
     let step = dt
-    if (cameraDistance > 35) {
+    if (cameraDistance > MOUNT_ANIMATION_THROTTLE_DISTANCE) {
       this.farAccumulator += dt
-      if (this.farAccumulator < 1 / 15) return
+      if (this.farAccumulator < MOUNT_FAR_ANIMATION_INTERVAL) return
       step = this.farAccumulator
       this.farAccumulator = 0
     }

@@ -1,4 +1,4 @@
-import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
+import { CHARACTER_LOD_DISTANCES, MOUNT_ANIMATION_THROTTLE_DISTANCE, MOUNT_FAR_ANIMATION_INTERVAL } from './CharacterLODPolicy'
 import * as THREE from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
@@ -38,8 +38,15 @@ export class QuadrupedVisual {
   })
 
   fitRider(rider: THREE.Object3D): void {
-    this.riderContacts.get(rider).align()
+    const contact = this.riderContacts.get(rider)
+    // A far mount whose pose did not step keeps the last measured seat correction.
+    if (!this.poseChanged && this.cameraDistance > MOUNT_ANIMATION_THROTTLE_DISTANCE && contact.reapply()) return
+    contact.align()
+    this.poseChanged = false
   }
+  private cameraDistance = 0
+  private farAccumulator = 0
+  private poseChanged = true
   readonly skeleton: THREE.Skeleton
   readonly mixer: THREE.AnimationMixer
   readonly lod = new THREE.LOD()
@@ -179,8 +186,17 @@ export class QuadrupedVisual {
     }
   }
 
-  update(dt: number): void {
+  /** Matches the horse cadence: beyond the far distance the mixer steps at 15 Hz.
+   * World matrices are left to the renderer and to seat contact, which update their own chains. */
+  update(dt: number, cameraDistance = 0): void {
     if (this.paused || !Number.isFinite(dt) || dt < 0) return
+    this.cameraDistance = cameraDistance
+    this.farAccumulator += dt
+    if (cameraDistance > MOUNT_ANIMATION_THROTTLE_DISTANCE && this.farAccumulator < MOUNT_FAR_ANIMATION_INTERVAL) return
+    // Returning near consumes any pending far time once.
+    dt = this.farAccumulator
+    this.farAccumulator = 0
+    this.poseChanged = true
     this.elapsed += dt
     this.mixer.update(dt)
     // Jump stays tucked until physics sends land; death stays fallen.
@@ -192,7 +208,6 @@ export class QuadrupedVisual {
         this.play(this.locomotion)
       }
     }
-    this.root.updateMatrixWorld(true)
   }
 
   debugState() {
