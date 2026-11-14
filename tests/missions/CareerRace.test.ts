@@ -10,8 +10,9 @@ import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../.
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { canEnterRace, finalizeRaceDeployment, advanceRaceClock, advanceRaceRider, parseRaceSession, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
-import { RACE_START_SLOTS, RACE_LINES, raceWaypoints, raceMovementIsLegal, illegalTownCrossing, type RacePosition } from '../../src/career/CareerRaceRoute'
+import { RACE_START_SLOTS, RACE_LINES, raceWaypoints, raceMovementIsLegal, illegalTownCrossing, raceMountPoseLegal, resolveRaceMountSpawn, type RacePosition } from '../../src/career/CareerRaceRoute'
 import { collideMountBody, settleMountOnTerrain } from '../../src/world/MountGroundBody'
+import { architectureSpec, DEEP } from '../../src/town/architecture/ArchitectureSpecs'
 import type { ObstacleData } from '../../src/world/Terrain'
 import { findSergeantResident } from '../../src/town/SergeantReturn'
 import { PLAYER_FOOT_OFFSET } from '../../src/player/PlayerFootBody'
@@ -461,6 +462,30 @@ describe('Commander invitation race', () => {
     // The old spawn left Y undefined: the horse appeared at terrain height inside the plinth and was shoved sideways.
     const legacy = firstMountStep({ ...spawn, y: 0 }, h.obstacles)
     expect(Math.hypot(legacy.position.x - spawn.x, legacy.position.z - spawn.z) > .5 || legacy.position.y < 1.4 - .25).toBe(true)
+  })
+  it('keeps the race horse clear of the Viking longhouse posts that only navigation treats as passable', () => {
+    // The real longhouse plan, flagged the way placement flags it: thin posts are navigation-passable yet still solid.
+    const spec = architectureSpec('viking', 'town-center'), F = spec.floorY
+    const obstacles: ObstacleData[] = [
+      ...spec.colliders.map(c => ({ isBarricade: false, ...(c.role === 'post' || c.role === 'roof' || c.role === 'overhead' ? { navigationPassable: true } : {}),
+        box: new Box3(new Vector3(c.box[0], c.box[1] <= DEEP ? DEEP : c.box[1], c.box[2]), new Vector3(c.box[3], c.box[4], c.box[5])) })),
+      ...spec.floor.map(r => ({ isBarricade: false, navigationPassable: true, solidBelow: DEEP, box: new Box3(new Vector3(r.minX, DEEP, r.minZ), new Vector3(r.maxX, F, r.maxZ)),
+        walkSurface: { startX: (r.minX + r.maxX) / 2, startZ: r.minZ, startY: F, topY: F, dirX: 0, dirZ: 1, length: r.maxZ - r.minZ, landing: 0, halfWidth: (r.maxX - r.minX) / 2, mounted: true } })),
+    ]
+    const posts = spec.colliders.filter(c => c.role === 'post')
+    const options = { obstacles, radius: 2, terrainHeight: () => 0,
+      groundAt: (x: number, z: number) => spec.floor.some(r => x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ) ? F : 0 }
+    const besidePost: RacePosition = { x: 5.5, y: F, z: -4.4, yaw: 0 }
+    expect(raceMountPoseLegal(besidePost, options)).toBe(false)
+    const spawn = resolveRaceMountSpawn(besidePost, options)!
+    expect(spawn.y).toBe(F)
+    for (const post of posts) {
+      const gap = Math.hypot(Math.max(post.box[0] - spawn.x, 0, spawn.x - post.box[3]), Math.max(post.box[2] - spawn.z, 0, spawn.z - post.box[5]))
+      expect(gap, `post ${post.box[0]},${post.box[2]}`).toBeGreaterThanOrEqual(1.05)
+    }
+    const step = firstMountStep(spawn, obstacles)
+    expect(step.state.onGround).toBe(true)
+    expect(step.position.toArray().map(v => +v.toFixed(6))).toEqual([spawn.x, F, spawn.z].map(v => +v.toFixed(6)))
   })
   it('restores a saved pre-start race mount from under the hall floor to a legal floor spot, but keeps legal or running poses', () => {
     const legal = raisedHallRace('guiding', { x: 0, y: 1.4, z: 6, yaw: 0 })

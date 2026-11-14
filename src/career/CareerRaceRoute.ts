@@ -2,8 +2,8 @@ import { TOWN_CITY, TOWN_GATES, TOWN_PATROL_WALL_OFFSET } from '../town/TownLayo
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
 import { townPatrolRoute } from '../town/TownPatrolRoute'
 import { Vector3 } from 'three'
-import { isObstaclePathClear, type ObstacleData } from '../world/Terrain'
-import { findMountParkingPoint, isMountParkingClear, type MountParkingOptions } from '../town/SergeantReturn'
+import { getWalkRampHeight, isObstaclePathClear, type ObstacleData } from '../world/Terrain'
+import { collideMountBody, MOUNT_BODY_HEIGHT, settleMountOnTerrain } from '../world/MountGroundBody'
 
 export interface RacePoint { x: number; z: number }
 export interface RacePosition extends RacePoint { y: number; yaw: number }
@@ -89,26 +89,59 @@ export interface RaceMountSpawnOptions {
   obstacles: readonly ObstacleData[]
   /** Riders, NPCs and other mounts already standing there, including the rider's own home mount. */
   occupied?: readonly { x: number; z: number; radius?: number }[]
-  /** Body radius of the mount being placed. */
+  /** Body radius of the mount being placed, for spacing from other occupants. */
   radius?: number
   isValid?: (point: RacePoint) => boolean
+  /** Terrain heightmap the live Mount clamps to every frame (defaults to the scene terrain). */
+  terrainHeight?: (x: number, z: number) => number
 }
 const RACE_MOUNT_SURFACE_TOLERANCE = .25
-function parkingOptions(options: RaceMountSpawnOptions, occupied = true): MountParkingOptions {
-  return { obstacles: options.obstacles, terrainHeight: (x, z) => options.groundAt(x, z), radius: options.radius,
-    occupied: occupied ? options.occupied : [], isValid: options.isValid }
+/** Horizontal clearance from any solid that still collides with the mount body (posts, walls, furniture). */
+const RACE_MOUNT_SOLID_MARGIN = 1.05
+const RACE_MOUNT_STEP = .35
+const RACE_MOUNT_RINGS = [2.4, 4.0, 5.6, 8.0, 11.0] as const
+
+/**
+ * Physical body rule, not navigation flags: anything that is not `physicalPassable` and overlaps the mount's height band
+ * blocks it, except a walk surface (floor slab, ramp) the body is standing on. Then the real first ground-mount frame
+ * (gravity, terrain, obstacle and walk-surface collision) must leave the body exactly where it was placed.
+ */
+function raceMountBodyFits(point: RacePoint, y: number, options: RaceMountSpawnOptions): boolean {
+  if (Math.max(Math.abs(point.x), Math.abs(point.z)) > TOWN_PLAYABLE_WORLD_BOUND - 2) return false
+  for (const obstacle of options.obstacles) {
+    if (obstacle.physicalPassable) continue
+    const box = obstacle.box
+    if (box.max.y <= y + RACE_MOUNT_STEP || box.min.y >= y + MOUNT_BODY_HEIGHT) continue
+    const surface = obstacle.walkSurface?.mounted ? getWalkRampHeight(obstacle.walkSurface, point.x, point.z) : null
+    if (surface !== null && surface <= y + RACE_MOUNT_STEP) continue
+    if (point.x > box.min.x - RACE_MOUNT_SOLID_MARGIN && point.x < box.max.x + RACE_MOUNT_SOLID_MARGIN
+      && point.z > box.min.z - RACE_MOUNT_SOLID_MARGIN && point.z < box.max.z + RACE_MOUNT_SOLID_MARGIN) return false
+  }
+  const position = new Vector3(point.x, y, point.z), previous = position.clone()
+  const state = collideMountBody(position, previous, settleMountOnTerrain(position, 0, 1 / 60, options.terrainHeight), options.obstacles as ObstacleData[])
+  return state.onGround && Math.abs(position.x - point.x) < 1e-3 && Math.abs(position.z - point.z) < 1e-3 && Math.abs(position.y - y) < 1e-3
 }
-/** A saved race-mount pose is restorable as-is only on its walk surface and outside solid walls or furniture. */
+function raceMountSpotClear(point: RacePoint, options: RaceMountSpawnOptions, withOccupants: boolean): boolean {
+  if (withOccupants && (options.occupied ?? []).some(other =>
+    Math.hypot(other.x - point.x, other.z - point.z) < (other.radius ?? RACE_MOUNT_SOLID_MARGIN) + (options.radius ?? RACE_MOUNT_SOLID_MARGIN))) return false
+  if (options.isValid && !options.isValid(point)) return false
+  return raceMountBodyFits(point, options.groundAt(point.x, point.z), options)
+}
+/** A saved race-mount pose is restorable as-is only on its walk surface and clear of every solid the mount body hits. */
 export function raceMountPoseLegal(pose: RacePosition, options: RaceMountSpawnOptions): boolean {
-  return Math.abs(pose.y - options.groundAt(pose.x, pose.z)) <= RACE_MOUNT_SURFACE_TOLERANCE
-    && isMountParkingClear(pose, parkingOptions(options, false))
+  return Math.abs(pose.y - options.groundAt(pose.x, pose.z)) <= RACE_MOUNT_SURFACE_TOLERANCE && raceMountSpotClear(pose, options, false)
 }
 /**
  * The race mount's spawn for its rider: the rider's own spot when its mount body is clear there, otherwise the
  * nearest clear ring point. Y always comes from the walk surface at the chosen point; null means no legal spot.
  */
 export function resolveRaceMountSpawn(origin: RacePosition, options: RaceMountSpawnOptions): RacePosition | null {
-  const parking = parkingOptions(options)
-  const spot = isMountParkingClear(origin, parking) ? origin : findMountParkingPoint(origin, parking)
-  return spot ? { x: spot.x, y: options.groundAt(spot.x, spot.z), z: spot.z, yaw: origin.yaw } : null
+  const at = (p: RacePoint): RacePosition => ({ x: p.x, y: options.groundAt(p.x, p.z), z: p.z, yaw: origin.yaw })
+  if (raceMountSpotClear(origin, options, true)) return at(origin)
+  for (const ring of RACE_MOUNT_RINGS) for (let index = 0; index < 12; index++) {
+    const angle = index / 12 * Math.PI * 2
+    const point = { x: origin.x + Math.sin(angle) * ring, z: origin.z + Math.cos(angle) * ring }
+    if (raceMountSpotClear(point, options, true)) return at(point)
+  }
+  return null
 }
