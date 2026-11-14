@@ -34,6 +34,24 @@ function fixture(rank: 'captain' | 'commander' = 'captain') {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe('Prison encounter persistence', () => {
+  it('越獄目標反映恢復與戰中倒下的看守，開門後提示出口並保留倒下觀戰說明', () => {
+    const { profile } = fixture(), state = profile.activeMission!.prisonBreak!
+    state.gateOpen = false
+    const guards = prisonRoster(state).filter(entry => entry.team === 'enemy').map(entry => entry.actorId)
+    const hud = { hidden: false, textContent: '' }, player = { dead: false }
+    const bodies: { actorId: string; npc: { dead: boolean } }[] = []
+    const scene = Object.assign(Object.create(CareerArenaCombatScene.prototype) as { updatePrisonHud(): void }, {
+      localProfile: profile, prisonHud: hud, player, phase: 'fight', knocked: new Set(guards.slice(0, 2)), bodies,
+    })
+    scene.updatePrisonHud()
+    expect(hud.textContent).toBe('越獄目標｜擊倒看守 2／5')
+    bodies.push({ actorId: guards[2], npc: { dead: true } })
+    scene.updatePrisonHud()
+    expect(hud.textContent).toBe('越獄目標｜擊倒看守 3／5')
+    state.gateOpen = true; player.dead = true; scene.updatePrisonHud()
+    expect(hud.textContent).toContain('鐵門已開｜穿過出口')
+    expect(hud.textContent).toContain('正在觀戰；友軍仍可逃脫')
+  })
   it('玩家拾劍先保存，失敗不裝備或顯示成功，重試後才取得臨時武器', () => {
     const { profile, store, storage } = fixture()
     const state = profile.activeMission!.prisonBreak!

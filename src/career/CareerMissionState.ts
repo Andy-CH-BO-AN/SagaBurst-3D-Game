@@ -49,6 +49,8 @@ export interface VeteranOutpostBattleState {
   battleFinished?: boolean
   reinforcementQueueIndex: number
   assaultChargeTriggered: boolean
+  /** Support height (feet or mount origin), not the player's body center. */
+  playerPosition?: { x: number; y?: number; z: number; yaw: number }
   gateHealth?: number
   gateState?: 'closed' | 'open' | 'destroyed'
 }

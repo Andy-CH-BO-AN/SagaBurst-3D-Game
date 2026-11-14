@@ -267,7 +267,7 @@ export class CareerArenaCombatScene {
       this.pickupHud = new PickupPrompt()
       this.prisonHud = document.createElement('div'); this.prisonHud.id = 'prison-break-hud'
       this.prisonHud.setAttribute('role', 'status')
-      this.prisonHud.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);color:#ffe1a0;font:700 23px/1.6 system-ui;text-align:center;text-shadow:0 2px 5px #000;z-index:9991;pointer-events:none'
+      this.prisonHud.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);color:#ffe1a0;font:700 23px/1.6 system-ui;text-align:center;white-space:pre-line;text-shadow:0 2px 5px #000;z-index:9991;pointer-events:none'
       document.body.append(this.prisonHud)
     }
     this.player = new Player(this.scene, faction, resolveCareerHeroAsset(this.profile), resolveCareerOrdinaryTier(this.profile))
@@ -450,11 +450,7 @@ export class CareerArenaCombatScene {
     this.damageNumbers.update(dt, this.camera)
     this.weaponWheelUI.update(this.inventory, !this.panelOpen && !this.player.dead)
     this.hp.setFill(this.player.hpRatio)
-    if (this.prisonHud) {
-      this.prisonHud.hidden = this.phase === 'result'
-      this.prisonHud.textContent = this.prison?.gateOpen ? '鐵門已開，穿過出口　↓' : `看守剩餘 ${this.counts().enemyActive}／5`
-      if (this.player.dead) this.prisonHud.textContent += '\n你已倒下，正在觀戰；友軍仍可逃脫（WASD 移動視角）'
-    }
+    this.updatePrisonHud()
     this.openingHud.update(this.phase, this.countdownRemaining)
     this.hud.update({
       phase: this.prison ? null : this.phase, label: ARENA_TRIAL_DEFINITIONS[this.trial.tier].label,
@@ -479,6 +475,14 @@ export class CareerArenaCombatScene {
   private counts() {
     return arenaTrialCounts(this.mission, { actors: {}, player: { knocked: this.player.dead } as ArenaTrialState['player'] },
       new Set([...this.knocked, ...this.bodies.filter(body => body.npc.dead).map(body => body.actorId)]))
+  }
+
+  private updatePrisonHud(): void {
+    if (!this.prisonHud || !this.prison) return
+    this.prisonHud.hidden = this.phase === 'result'
+    const total = this.mission.targetActorIds.length
+    this.prisonHud.textContent = this.prison.gateOpen ? '鐵門已開｜穿過出口' : `越獄目標｜擊倒看守 ${total - this.counts().enemyActive}／${total}`
+    if (this.player.dead) this.prisonHud.textContent += '\n你已倒下，正在觀戰；友軍仍可逃脫（WASD 移動視角）'
   }
 
   private resolvePrisonResult(): boolean {
