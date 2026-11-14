@@ -101,10 +101,12 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       form.remove()
       sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
       sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
-      const overlay = document.createElement('section'); overlay.id = 'career-prison-loading'; overlay.className = 'town-panel'
-      overlay.style.cssText = 'position:fixed;inset:0;display:grid;place-content:center;gap:12px;color:#eee;background:#171411;z-index:9998;font:16px system-ui;text-align:center'
-      const text = document.createElement('p'); overlay.append(text); document.body.append(overlay)
-      const action = (label: string, run: () => void) => { const b = document.createElement('button'); b.className = 'town-button'; b.textContent = label; b.onclick = () => { if (current()) run() }; overlay.append(b); return b }
+      const overlay = document.createElement('section'); overlay.id = 'career-prison-loading'
+      overlay.style.cssText = 'position:fixed;inset:0;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;color:#eee;background:#171411;z-index:9998;font:16px/1.6 system-ui;text-align:center;overflow-y:auto'
+      const text = document.createElement('p'); text.setAttribute('role', 'status')
+      text.style.cssText = 'width:min(600px,100%);margin:0;white-space:pre-line;overflow-wrap:anywhere'
+      overlay.append(text); document.body.append(overlay)
+      const action = (label: string, run: () => void) => { const b = document.createElement('button'); b.className = 'town-button'; b.textContent = label; b.style.cssText = 'max-width:100%;margin:0;white-space:normal'; b.onclick = () => { if (current()) run() }; overlay.append(b); return b }
       const returnAfterLoadFailure = () => {
         const latest = store.loadChecked().profile
         if (!latest || latest.activeMission?.id !== prison.missionId) { text.textContent = '任務存檔已更新，請重新載入。'; return }

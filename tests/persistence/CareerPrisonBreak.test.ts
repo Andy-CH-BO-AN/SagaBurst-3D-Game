@@ -47,13 +47,18 @@ describe('Prison encounter persistence', () => {
     const feedback = vi.fn(), show = vi.fn()
     let retry = () => {}
     const scene = Object.assign(Object.create(CareerArenaCombatScene.prototype) as {
-      updatePickupFocus(): void; pickupSwords(pressed: boolean): void
+      phase: string; updatePickupFocus(): void; pickupSwords(pressed: boolean): void
     }, {
-      profile, store, inventory, props, pickupFocus: new InteractionFocus(), phase: 'fight', panel: null,
+      profile, store, inventory, props, pickupFocus: new InteractionFocus(), phase: 'countdown', panel: null,
       player: { position: new Vector3(), dead: false }, orbit: { cameraYaw: Math.PI }, bodies: [],
       input: { isLocked: true, clear() {} }, pickupHud: { show, notify: feedback },
       openPanel() {}, closePanel() {}, button: (_label: string, action: () => void) => { retry = action },
     })
+    scene.updatePickupFocus(); scene.pickupSwords(true)
+    expect(show).toHaveBeenLastCalledWith(null)
+    expect(store.load()!.activeMission!.prisonBreak!.swords).toEqual({})
+    expect(inventory.activeMelee).toBeUndefined()
+    scene.phase = 'fight'
     scene.updatePickupFocus()
     expect(show).toHaveBeenLastCalledWith(expect.stringContaining('破舊羅馬短劍'))
     storage.failWrites = true
