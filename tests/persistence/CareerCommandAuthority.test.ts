@@ -19,7 +19,6 @@ import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { MountArmor } from '../../src/combat/MountArmor'
 import type { Player } from '../../src/player/Player'
 import { CivilianCommandSquadController, type CivilianCommandResident } from '../../src/town/CivilianCommandSquadController'
-import { TownAirCommandSquadController } from '../../src/town/TownAirCommandSquadController'
 import { TOWN_AUTONOMOUS_GUARD_IDS } from '../../src/town/TownNativeGuardIdentity'
 import { townRoster } from '../../src/town/TownRules'
 import { MountType } from '../../src/world/Mount'
@@ -101,13 +100,8 @@ describe('Commander saved command grant', () => {
     legacy.commandedSquadIds = [8]
     expect(officialCommandIsPlayerControlled(legacy, 'town-eagle-rider:1')).toBe(false)
     const roster = careerCommandHudRoster({ sceneKey: 'town:roman', faction: 'roman', missionId: 'legacy', official: legacy,
-      townAirActorIds: TOWN_AUTONOMOUS_GUARD_IDS, actors: [] })
+      actors: [] })
     expect(roster.members.some(member => TOWN_AUTONOMOUS_GUARD_IDS.includes(member.id))).toBe(false)
-    // Compatibility adapter cannot authorize an empty or populated air squad.
-    const air = new TownAirCommandSquadController([], () => { throw new Error('No Player required') },
-      () => createCareerProfile('roman'), {} as ConstructorParameters<typeof TownAirCommandSquadController>[3], 'roman')
-    expect(air.commandsEnabled).toBe(false)
-    expect(air.stageCommand(createCareerProfile('roman'), 'charge', 'all', [])).toBeUndefined()
     const sky = createMissionCommandAuthority('sky', 'roman', 'commander', [], [{ squadId: 1, actorIds: ['sky:ranger:1'] }])
     sky.commandedSquadIds = [1]
     expect(officialCommandIsPlayerControlled(sky, 'sky:ranger:1')).toBe(true)

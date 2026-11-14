@@ -501,7 +501,7 @@ export class TownScene {
         restoreNativeReturn: (actorId, state) => this.patrol!.restoreMissionReturn(actorId, state, true),
       })
     this.townCommand.restore()
-    this.townAirCommand = new TownAirCommandSquadController(this.residents, () => this.player,
+    this.townAirCommand = new TownAirCommandSquadController(this.residents,
       () => this.profile, this.eagleGarrison!, context.worldFaction)
     this.captainPatrol = new CaptainPatrolCommandController(this.residents, this.patrol, () => this.player, () => this.profile, p => this.commit(p),
       { personalActors: () => this.personalSquad?.actors ?? [],
@@ -639,7 +639,7 @@ export class TownScene {
         raceActors: () => this.race?.actors ?? [],
         raceMounts: () => this.race?.allMounts ?? [],
         onActorMoved: npc => this.race?.observeActorMovement(npc),
-        commandActors: () => [...(this.captainPatrol?.fieldNpcs ?? []), ...(this.townCommand?.combatActors ?? []), ...(this.civilianCommand?.combatActors ?? []), ...(this.townAirCommand?.combatActors ?? []),
+        commandActors: () => [...(this.captainPatrol?.fieldNpcs ?? []), ...(this.townCommand?.combatActors ?? []), ...(this.civilianCommand?.combatActors ?? []),
           ...this.commandActors.filter(npc => {
             const authority = this.profile.activeMission?.officialSquad
             return authority && !this.profile.activeMission?.result && officialCommandIsPlayerControlled(authority, npc.combatantId) && this.isAuthorizedCommandActor(npc)
@@ -1649,13 +1649,13 @@ export class TownScene {
     return Boolean(!this.player?.dead && !this.profile.activeMission?.result && this.profile.activeMission?.kind !== 'duel'
       && (!active || active.personalSquad) && this.profile.personalSquad?.members.length)
   }
-  private commandsEnabled(): boolean { return this.personalCommandsEnabled() || Boolean(!this.player?.dead && !isTownCommandRevokedByRetirement(this.profile) && (this.civilianCommand?.commandsEnabled || this.townAirCommand?.commandsEnabled || this.townCommand?.commandsEnabled || this.profile.activeMission?.officialSquad && !this.profile.activeMission.result)) }
+  private commandsEnabled(): boolean { return this.personalCommandsEnabled() || Boolean(!this.player?.dead && !isTownCommandRevokedByRetirement(this.profile) && (this.civilianCommand?.commandsEnabled || this.townCommand?.commandsEnabled || this.profile.activeMission?.officialSquad && !this.profile.activeMission.result)) }
   private isAuthorizedCommandActor(npc: NPC): boolean {
     if (isAutonomousTownGuard(npc.combatantId)) return false
     // HR standby members answer only Follow (issued through the squad owner), never tactical orders.
     if (this.personalSquad?.owns(npc)) return this.personalCommandsEnabled() && this.personalSquad.acceptsCommand(npc)
     if (isTownCommandRevokedByRetirement(this.profile)) return false
-    if (this.civilianCommand?.accepts(npc) || this.townAirCommand?.accepts(npc)) return true
+    if (this.civilianCommand?.accepts(npc)) return true
     if (this.captainPatrol?.active?.officialSquad?.actorIds.includes(npc.combatantId)) return this.captainPatrol.accepts(npc)
     const mission = this.profile.activeMission, authority = mission?.officialSquad
     if (authority && mission && !mission.result && mission.phase !== 'RETURNING' && authority.missionId === mission.id
@@ -1692,7 +1692,6 @@ export class TownScene {
       faction: this.profile.faction,
       ...(active ? { missionId: active.id } : {}),
       official,
-      townAirActorIds: this.townAirCommand?.hudActorIds,
       civilians: this.civilianCommand?.commandsEnabled ? this.civilianCommand.hudState : undefined,
       civilianReturningIds: this.civilianCommand?.returningActorIds,
       officialReturningIds: mission?.kind === 'captain-patrol-command' ? this.captainPatrol?.returningActorIds
@@ -1720,30 +1719,10 @@ export class TownScene {
 
   /** One transaction grants every selected official/civilian owner before the shared controller mutates actors. */
   private preparePlayerCommand(order: TacticalOrder | 'dismiss', target: ArmyCommandTarget, participants: readonly NPC[], assignments?: readonly FormationCommandAssignment[]): boolean {
-    let official = stageOfficialCommandOrder(this.profile, participants, order, assignments, npc => this.snapshotOfficialActor(npc))
-    const mission = this.profile.activeMission, authority = mission?.officialSquad
-    // A completely fallen air squad still needs Dismiss to release its suspended native lifecycle.
-    if (!isTownCommandRevokedByRetirement(this.profile) && order === 'dismiss' && (target === 'all' || target === 'squad:8') && this.profile.rank === 'commander'
-      && (mission?.kind === 'town-defense' || mission?.kind === 'commander-four-gate-defense') && !mission.result && authority?.commandRank === 'commander'
-      && authority.missionId === mission.id && authority.townFaction === this.profile.faction
-      && authority.commandedSquadIds?.includes(8)) {
-      official ??= cloneCareerProfile(this.profile)
-      const staged = official.activeMission!.officialSquad!
-      staged.commandedSquadIds = staged.commandedSquadIds?.filter(id => id !== 8)
-      for (const npc of this.commandActors ?? []) if (TOWN_AIR_COMMAND_IDS.includes(npc.combatantId)
-        && authority.squads?.find(squad => squad.squadId === 8)?.actorIds.includes(npc.combatantId)) {
-        const checkpoint = this.snapshotOfficialActor(npc)
-        ;(staged.members ??= {})[npc.combatantId] = checkpoint
-        const fourGateDefense = official.activeMission!.fourGateDefense
-        if (fourGateDefense) fourGateDefense.actors[npc.combatantId] = structuredClone(checkpoint)
-        const battle = official.activeMission!.battle?.actors[npc.combatantId]
-        if (battle) battle.checkpoint = checkpoint
-      }
-    }
+    const official = stageOfficialCommandOrder(this.profile, participants, order, assignments, npc => this.snapshotOfficialActor(npc))
     const civilian = this.civilianCommand?.stageCommand(official ?? this.profile, order, target, participants)
     const town = this.townCommand?.stageCommand(civilian ?? official ?? this.profile, order, target, participants, assignments)
-    const air = this.townAirCommand?.stageCommand(town ?? civilian ?? official ?? this.profile, order, target, participants, assignments)
-    const next = air ?? town ?? civilian ?? official
+    const next = town ?? civilian ?? official
     if (!next) return true
     if (order === 'formation' && civilian?.civilianCommandSquad) for (const assignment of assignments ?? []) {
       const member = next.civilianCommandSquad?.members[assignment.npc.combatantId]
@@ -1751,7 +1730,6 @@ export class TownScene {
     }
     if (!this.commit(next)) return false
     if (civilian) this.civilianCommand?.applySavedState(this.profile.civilianCommandSquad)
-    if (air) this.townAirCommand?.applySavedState(this.profile.townAirCommandSquad)
     return true
   }
 
@@ -1779,7 +1757,7 @@ export class TownScene {
     const participants = (this.commandActors ?? []).filter(npc => !npc.dead && this.isAuthorizedCommandActor(npc) && matchesArmyCommandTarget(npc, target))
     if (!this.preparePlayerCommand(order, target, participants)) return false
     let accepted = ownedAirBefore.some(npc => !this.playerOwnsEagleCommand(npc))
-      || participants.some(npc => this.civilianCommand?.owns(npc) || this.townAirCommand?.actors.includes(npc)
+      || participants.some(npc => this.civilianCommand?.owns(npc)
         || this.townCommand?.owns(npc))
       || order === 'dismiss' && townCommandedBefore
     if (target === 'all' || target === 'squad:personal') {
