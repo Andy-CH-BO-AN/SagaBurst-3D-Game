@@ -109,7 +109,7 @@ export interface RaceReferee {
 }
 export type RaceStoryId = 'commander-circuit-race'
 export const RACE_STORY_ID: RaceStoryId = 'commander-circuit-race'
-/** The invitation runs the first circuit; its opponent never sprints, whatever the ordinary schedule says. */
+/** The invitation runs the first circuit as a sprint race. */
 export const RACE_STORY_RACE_ID: RaceId = 'race-1'
 export interface CareerRaceSession {
   version: 1
@@ -137,6 +137,11 @@ export interface CareerRaceSession {
   reason?: string
   guideFallback?: string
 }
+/** Story races are sprint-enabled. Ordinary races retain their saved schedule's sprint rule. */
+export function raceOpponentCanSprint(session: Pick<CareerRaceSession, 'raceId' | 'scheduleVersion' | 'story'>): boolean {
+  return session.story === RACE_STORY_ID || Boolean(raceDefinitionForSchedule(session.raceId, session.scheduleVersion)?.sprint)
+}
+
 export interface CareerRaceRecord {
   sessionId: string
   raceId: RaceId

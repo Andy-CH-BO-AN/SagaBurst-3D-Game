@@ -470,6 +470,20 @@ describe('Commander invitation race', () => {
     expect(saved.careerStory!.events[EVENT]).toEqual({ status: 'active', sourceId: saved.activeRace!.id })
   })
 
+  it('lets the Commander sprint in the invitation race only after the start', () => {
+    const s: CareerRaceSession = { ...session(), scheduleVersion: 3, story: EVENT,
+      opponent: rider('commander') }
+    const npc = { combatPosition: new Vector3(), missionMovement: false, assignFormationTarget: vi.fn() }
+    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
+    Object.assign(controller, { session: s, racer: npc, batch: { ready: true },
+      commanded: new Map(), waypoints: [RACE_START_SLOTS[1]] })
+    controller.prepare()
+    expect(npc.missionMovement).toBe(false)
+    s.phase = 'racing'
+    controller.prepare()
+    expect(npc.missionMovement).toBe(true)
+  })
+
   it('pays 500 for a win and 29 for a defeat instead of the ordinary award, returns a draw unused, and leaves other entries alone', () => {
     const win = finished('win', true), loss = finished('loss', true), draw = finished('draw', true)
     const won = raceRecordProfile(win.p, win.s)

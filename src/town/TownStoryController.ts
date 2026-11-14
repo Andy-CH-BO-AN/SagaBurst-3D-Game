@@ -114,7 +114,7 @@ export class TownStoryController {
     if (serviceId === 'commander') {
       if (title) title.textContent = h.profile().faction === 'roman' ? '羅馬指揮官' : '維京指揮官'
       const ready = h.raceHorseReady()
-      if (body) body.textContent = '「聽說你買了戰馬。光有馬不夠，我想看看你騎得怎樣。\n\n沿著城牆繞一圈：隊長會帶你到北門，倒數後起跑，我騎馬與你同場。你可以按 Shift 衝刺，我不會。首場邀請賽有特別獎勵：勝利 +500 軍功，就算輸了也有 +29。」'
+      if (body) body.textContent = '「聽說你買了戰馬。光有馬不夠，我想看看你騎得怎樣。\n\n沿著城牆繞一圈：隊長會帶你到北門，倒數後起跑，我騎馬與你同場。我會衝刺，你也可以按 Shift 加速。首場邀請賽有特別獎勵：勝利 +500 軍功，就算輸了也有 +29。」'
         + (ready ? '' : '\n\n（請先按 Tab → 坐騎，召喚並騎乘你的戰馬，再來找我。）')
       const accept = this.button(panel, '接受繞城賽馬', () => {
         if (this.busy) return

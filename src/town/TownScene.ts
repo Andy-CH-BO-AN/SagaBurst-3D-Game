@@ -2413,7 +2413,7 @@ export class TownScene {
       this.openPanel('無法接受賽馬', this.race?.error || '無法讀取生涯存檔。'); return
     }
     this.closePanel()
-    this.notice = '跟隨隊長前往北門。你可以按 Shift 衝刺，指揮官不會。'
+    this.notice = '跟隨隊長前往北門。指揮官會衝刺，你也可以按 Shift 加速。'
   }
   private acceptArenaTrial(tier: ArenaTrialTier, arena: DuelArenaId, story = false): void {
     if (this.player.dead || !this.serviceAvailable('deployment')) return

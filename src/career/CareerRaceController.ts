@@ -17,7 +17,7 @@ import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
 import { CAREER_MOUNT_INTERACTION_DISTANCE, canUseCareerMount, findSafeCareerMountPosition, type CareerMountController } from './CareerMountController'
 import { activateCareerStoryEvent, careerStoryPending } from './CareerStoryEvents'
-import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, pickRaceOpponentMount, RACE_SCHEDULE_VERSION, RACE_STORY_ID, RACE_STORY_RACE_ID, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
+import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, pickRaceOpponentMount, RACE_SCHEDULE_VERSION, RACE_STORY_ID, RACE_STORY_RACE_ID, raceOpponentCanSprint, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceId, type RaceRider, type RaceReferee, type RaceMountId } from './CareerRaceState'
 import { legalRaceStart, RACE_START, RACE_START_SLOTS, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, type RacePoint, type RacePosition } from './CareerRaceRoute'
 
@@ -308,7 +308,6 @@ export class CareerRaceController {
       }
       return
     }
-    const definition = raceDefinitionForSchedule(s.raceId, s.scheduleVersion)!
     if (this.ownsCaptain && this.captain) {
       const home = s.phase === 'returning' || this.captainReturning
       this.order(this.captain.npc, home ? this.captain.spec : { x: RACE_START.x, z: RACE_START.z + 7 }, false, 5)
@@ -340,7 +339,7 @@ export class CareerRaceController {
       const facing = nextGoal
         ? new THREE.Vector3(nextGoal.x - goal.x, 0, nextGoal.z - goal.z).normalize()
         : new THREE.Vector3(0, 0, -1)
-      this.order(npc, goal, definition.sprint && !s.story, undefined, facing)
+      this.order(npc, goal, raceOpponentCanSprint(s), undefined, facing)
     }
   }
   private order(npc: NPC, point: RacePoint, sprint: boolean, speed?: number, facing = new THREE.Vector3(0, 0, -1)): void {
