@@ -424,8 +424,8 @@ export class Sketch {
     this.box('wood', x, y - .12 * scale, z, .46 * scale, .3 * scale, .42 * scale, color, yaw)
   }
 
-  /** Crossed Viking bargeboards meeting at a gable apex, with a single carved lynx finial. */
-  crossedGable(x: number, apexY: number, z: number, halfSpan: number, rise: number, alongYaw: number, scale = 1): void {
+  /** Crossed Viking bargeboards meeting at a gable apex, with a single carved lynx finial unless `finial` is false. */
+  crossedGable(x: number, apexY: number, z: number, halfSpan: number, rise: number, alongYaw: number, scale = 1, finial = true): void {
     // alongYaw: direction the gable faces (0 = +Z). Boards lie in the gable plane.
     const right = new THREE.Vector3(Math.cos(alongYaw), 0, -Math.sin(alongYaw))
     const face = new THREE.Vector3(Math.sin(alongYaw), 0, Math.cos(alongYaw))
@@ -442,7 +442,7 @@ export class Sketch {
 
     }
     const template = ornaments.get('carved-lynx-head')
-    if (!template) return
+    if (!template || !finial) return
     const publicHall = this.buildingKind === 'town-center' || this.buildingKind === 'hr-center'
     const home = this.buildingKind?.startsWith('home')
     const height = Math.min(publicHall ? 3.2 : home ? 1.4 : 2.0,

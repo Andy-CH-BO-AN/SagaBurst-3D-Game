@@ -1,5 +1,5 @@
 import { cloneCivilianCommandSquad, type CivilianCommandSquadState } from '../career/CivilianCommandAuthority'
-import { TOWN_CENTER, TOWN_WELL, TOWN_CITY, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_DUEL_CENTER, TOWN_DUEL_HALF_SIZE, townHousing, TOWN_PRIVATE_EAGLE_SITES, TOWN_GARRISON_EAGLE_SITES } from './TownLayout'
+import { TOWN_CENTER, TOWN_CENTER_FRAME, TOWN_WELL, TOWN_CITY, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_DUEL_CENTER, TOWN_DUEL_HALF_SIZE, townHousing, TOWN_PRIVATE_EAGLE_SITES, TOWN_GARRISON_EAGLE_SITES } from './TownLayout'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { TownActorSpec } from './TownRules'
@@ -25,7 +25,8 @@ export function civilianPointLegal(point: Point, occupied: readonly Point[] = []
   if (x < TOWN_CITY.minX + 10 || x > TOWN_CITY.maxX - 10 || z < TOWN_CITY.minZ + 10 || z > TOWN_CITY.maxZ - 3) return false
   // Viking houses have the larger footprint; the same home anchors work for both towns.
   if (civilianHousing.some(h => Math.abs(x - h.x) < h.width / 2 + r && Math.abs(z - h.z) < h.depth / 2 + r)) return false
-  if (Math.abs(x - TOWN_CENTER.x) < TOWN_CENTER.width / 2 + 1 + r && Math.abs(z - TOWN_CENTER.z) < TOWN_CENTER.depth / 2 + 1 + r) return false
+  const hall = TOWN_CENTER_FRAME
+  if (x > hall.minX - 1 - r && x < hall.maxX + 1 + r && z > hall.minZ - 1 - r && z < hall.maxZ + 1 + r) return false
   // Keep both service-side Commander candidates and the Captain's mounted approach open.
   if (Math.abs(x - (TOWN_CENTER.x - 8)) < 13 && z > TOWN_CENTER.z + 13 && z < TOWN_CENTER.z + 28) return false
   if (Math.hypot(x - TOWN_WELL.x, z - TOWN_WELL.z) < TOWN_WELL.radius + 1.35) return false

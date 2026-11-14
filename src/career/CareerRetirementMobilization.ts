@@ -29,9 +29,9 @@ export interface RetirementAssaultFormation {
  * membership remain untouched. Wider ranks also accommodate reassigned horses. */
 const RETIREMENT_MOUNTED_BANKS = [
   { x: 20, z: -90, columns: 6 }, { x: 43, z: -90, columns: 6 }, { x: 69, z: -85, columns: 7 },
-  { x: 35.5, z: -43, columns: 6 }, { x: 57.1, z: -43, columns: 6 },
-  { x: 37.4, z: 3.6, columns: 7 }, { x: 62.6, z: 3.6, columns: 7 },
-  { x: 37.4, z: 20.4, columns: 7 }, { x: 62.6, z: 20.4, columns: 7 },
+  { x: 52, z: -49, columns: 13 },
+  { x: 62.6, z: 19.8, columns: 7 }, { x: 37.4, z: 19.8, columns: 7 },
+  { x: 62.6, z: 3.6, columns: 7 }, { x: 37.4, z: 3.6, columns: 7 },
 ] as const
 const RETIREMENT_FOOT_BANKS = [3, 13, 23].flatMap(z => [42, 64].map(x => ({ x, z, columns: 10 })))
 
