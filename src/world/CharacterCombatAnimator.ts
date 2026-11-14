@@ -94,6 +94,8 @@ export class CharacterCombatAnimator {
   private locomotion: 'idle' | 'walk' | 'run' | 'mounted' = 'idle'
   private mountKind: MountedPoseKind = 'HORSE'
   private locomotionTimeScale = 1
+  /** Last update's camera distance, so explicit draw/throw samples share the far cadence. */
+  private cameraDistance = 0
   /** Imported-clip fists: contact times and recent palm positions (clip seconds), never seeking the live mixer. */
   private punchTiming: HumanoidPunchTiming | undefined
   private punchNext = 0
@@ -301,6 +303,7 @@ export class CharacterCombatAnimator {
     this.events.fists.length = 0
 
     if (!Number.isFinite(dt) || dt < 0) return this.events
+    this.cameraDistance = cameraDistance
     const actionDt = dt * this.actionTimeScale
     const mounted = this.locomotion === 'mounted'
     const canceledPose = this.hasCanceledAxePose
@@ -491,7 +494,7 @@ export class CharacterCombatAnimator {
     this.ownership = imported ? 'clip' : 'procedural'
     if (imported) {
       if (chargeRatio >= 1) this.rig.animation!.play('bowHold', { fadeSeconds: 0.08, loop: true })
-      else this.rig.animation!.seek('bowLoad', chargeRatio)
+      else this.rig.animation!.seek('bowLoad', chargeRatio, this.cameraDistance)
       return
     }
     this.applyBowPose(chargeRatio, aimBlend)
@@ -553,7 +556,7 @@ export class CharacterCombatAnimator {
   posePilum(progress: number): void {
     if (this.busy) return
     if (this.rig.animation?.has('pilumThrow')) {
-      this.rig.animation.seek('pilumThrow', progress)
+      this.rig.animation.seek('pilumThrow', progress, this.cameraDistance)
       return
     }
     this.posePilumFrame(progress)

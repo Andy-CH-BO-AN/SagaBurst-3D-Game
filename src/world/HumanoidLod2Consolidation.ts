@@ -161,6 +161,8 @@ function mergeInstancePair(root: THREE.Object3D, template: ConsolidationTemplate
   assert(!Array.isArray(first.material), `${pair.first} unexpectedly has material groups`)
   const merged = new THREE.SkinnedMesh(template.mergedGeometry, first.material)
   merged.bind(first.skeleton, first.bindMatrix)
+  // Keep the inherited template bounds so the first frustum test never CPU-skins the merge.
+  if (first.boundingSphere && second.boundingSphere) merged.boundingSphere = first.boundingSphere.clone().union(second.boundingSphere)
   copyRenderableState(first, merged, [pair.first, pair.second])
   first.parent.add(merged)
   return { first, second, merged }
