@@ -11,8 +11,10 @@ export class ArenaOpeningHUD {
   }
 
   update(phase: 'waiting' | 'countdown' | 'fight' | 'result', remaining: number): void {
-    this.root.hidden = phase !== 'waiting' && phase !== 'countdown'
-    this.root.textContent = phase === 'waiting' ? '點擊畫面開始' : phase === 'countdown' ? String(Math.ceil(remaining)) : ''
+    const hidden = phase !== 'waiting' && phase !== 'countdown'
+    const text = phase === 'waiting' ? '點擊畫面開始' : phase === 'countdown' ? String(Math.ceil(remaining)) : ''
+    if (this.root.hidden !== hidden) this.root.hidden = hidden
+    if (this.root.textContent !== text) this.root.textContent = text
   }
 
   dispose(): void { this.root.remove() }
