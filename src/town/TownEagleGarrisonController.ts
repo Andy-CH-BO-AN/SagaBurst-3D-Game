@@ -1,18 +1,17 @@
 import * as THREE from 'three'
-import type { NavigationWorld } from '../navigation/NavigationWorld'
-import type { NPC } from '../world/NPC'
-import type { Mount } from '../world/Mount'
 import { Faction } from '../combat/CombatFaction'
-import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
+import type { NavigationWorld } from '../navigation/NavigationWorld'
 import { isEagleLandingClearOfMounts } from '../world/EagleLandingOccupants'
-import { isEaglePadArrived } from '../world/EaglePadArrival'
 import { EagleLandingQueue } from '../world/EagleLandingQueue'
+import { isEaglePadArrived } from '../world/EaglePadArrival'
+import type { Mount } from '../world/Mount'
+import type { NPC } from '../world/NPC'
+import { getTerrainHeight,type ObstacleData } from '../world/Terrain'
 import { TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
-import type { TownActorSpec } from './TownRules'
-import type { TownEagleDuty, TownEagleGarrisonState, TownEaglePairState } from './TownEagleGarrisonState'
-import { townEaglePatrolRoute, TOWN_EAGLE_PAIRS, TOWN_EAGLE_PATROL_SECONDS, TOWN_EAGLE_REST_SECONDS, TOWN_EAGLE_REPLACEMENT_SECONDS, TOWN_EAGLE_WAYPOINT_RADIUS } from './TownEagleGarrison'
+import { TOWN_EAGLE_PAIRS,TOWN_EAGLE_PATROL_SECONDS,TOWN_EAGLE_REPLACEMENT_SECONDS,TOWN_EAGLE_REST_SECONDS,TOWN_EAGLE_WAYPOINT_RADIUS,townEaglePatrolRoute } from './TownEagleGarrison'
+import type { TownEagleDuty,TownEagleGarrisonState,TownEaglePairState } from './TownEagleGarrisonState'
 import { TOWN_LAYOUT_VERSION } from './TownLayout'
-import { migrateTownEagleGarrisonLayout } from './TownLayoutMigration'
+import type { TownActorSpec } from './TownRules'
 
 interface Resident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
 interface Pair {
@@ -468,9 +467,6 @@ export class TownEagleGarrisonController {
     })) }
   }
   restore(saved: TownEagleGarrisonState | undefined, sceneKey: string, preserveActors = false): void {
-    saved = migrateTownEagleGarrisonLayout(saved, sceneKey, [...this.pairs.values()].map(({ resident: { spec } }) => ({
-      id: spec.eagle!.homePadId, ...spec.eagle!.home,
-    })))
     if (!saved || saved.sceneKey !== sceneKey) return
     this.nextTakeoff = this.time + (saved.nextTakeoffRemaining ?? 0)
     for (const pair of this.pairs.values()) {

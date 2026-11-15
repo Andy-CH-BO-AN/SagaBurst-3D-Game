@@ -1,20 +1,20 @@
 import * as THREE from 'three'
 import { followLocalOffset } from '../battle/FollowOrder'
 import { FollowTrail } from '../battle/FollowTrail'
+import { restoreCommandActor,snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
+import type { PersonalActorCheckpoint } from '../career/CareerPersonalSquadMission'
+import { Faction } from '../combat/CombatFaction'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
+import type { Player } from '../player/Player'
 import type { Mount } from '../world/Mount'
 import type { NPC } from '../world/NPC'
 import { SpatialGrid } from '../world/SpatialGrid'
 import type { ObstacleData } from '../world/Terrain'
-import { townPatrolRefitPoint, type TownActorSpec, type TownPatrolId } from './TownRules'
-import { townPatrolDeparture, townPatrolRoute, TOWN_PATROL_SPEED } from './TownPatrolRoute'
-import { OUTSKIRTS_ALERT_RANGE, OUTSKIRTS_ENCOUNTER_LEASH, OUTSKIRTS_SENSOR_INTERVAL } from './TownOutskirtsRules'
+import { OUTSKIRTS_ALERT_RANGE,OUTSKIRTS_ENCOUNTER_LEASH,OUTSKIRTS_SENSOR_INTERVAL } from './TownOutskirtsRules'
+import type { TownPatrolCheckpoint,TownPatrolTravelCheckpoint } from './TownPatrolCheckpoint'
+import { TOWN_PATROL_SPEED,townPatrolDeparture,townPatrolRoute } from './TownPatrolRoute'
+import { townPatrolRefitPoint,type TownActorSpec,type TownPatrolId } from './TownRules'
 import { townWartimeHostile } from './TownWartime'
-import { restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
-import type { PersonalActorCheckpoint } from '../career/CareerPersonalSquadMission'
-import { Faction } from '../combat/CombatFaction'
-import type { TownPatrolCheckpoint, TownPatrolTravelCheckpoint } from './TownPatrolCheckpoint'
-import type { Player } from '../player/Player'
 
 export interface PatrolResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
 export interface AvailableTownPatrolSquad { patrolId: TownPatrolId; actorIds: string[] }
@@ -611,7 +611,7 @@ export class TownCavalryPatrolController {
         for (const resident of squad.members) if (!resident.npc.dead) resident.npc.restoreCombatHealth(0)
         squad.state = 'RESPAWN_COOLDOWN'; squad.respawnRemaining = checkpoint.respawnRemaining
       } else {
-        if (checkpoint.travel || !checkpoint.returning?.length) this.restoreTravel(squad, checkpoint.travel)
+        if (checkpoint.travel) this.restoreTravel(squad, checkpoint.travel)
         for (const id of checkpoint.returning ?? []) {
           const resident = squad.members.find(r => r.spec.id === id || r.spec.id.replace(/^enemy-town:/, '') === id.replace(/^enemy-town:/, ''))
           if (resident) this.beginPatrolReturn(resident.spec.id, false, true)
@@ -620,23 +620,11 @@ export class TownCavalryPatrolController {
     }
   }
 
-  private restoreTravel(squad: PatrolSquad, travel?: TownPatrolTravelCheckpoint): void {
+  private restoreTravel(squad: PatrolSquad, travel: TownPatrolTravelCheckpoint): void {
     const leader = squad.members.find(r => r.spec.id === travel?.leaderActorId && !r.npc.dead)
       ?? squad.members.find(r => r.spec.patrolLeader && !r.npc.dead) ?? squad.members.find(r => !r.npc.dead)
     if (!leader) return
-    if (travel) {
-      squad.state = travel.state; squad.waypoint = travel.waypoint; squad.departureIndex = travel.departureIndex
-    } else {
-      // Legacy snapshots kept positions but not travel progress. Resume the nearest authored leg.
-      const nearest = (points: readonly THREE.Vector3[]) => points.reduce((best, point, index) =>
-        this.distance(leader.npc.combatPosition, point) < this.distance(leader.npc.combatPosition, points[best]) ? index : best, 0)
-      const departureIndex = nearest(squad.departure.waypoints), waypoint = nearest(this.route)
-      const onRoute = this.distance(leader.npc.combatPosition, this.route[waypoint])
-        <= this.distance(leader.npc.combatPosition, squad.departure.waypoints[departureIndex])
-      squad.state = onRoute ? 'PATROLLING' : 'MOVING_TO_ROUTE'
-      squad.waypoint = onRoute ? waypoint : squad.departure.phase
-      squad.departureIndex = onRoute ? squad.departure.waypoints.length : departureIndex
-    }
+    squad.state = travel.state; squad.waypoint = travel.waypoint; squad.departureIndex = travel.departureIndex
     squad.activeLeaderActorId = leader.spec.id
     squad.trail.reset(leader.npc.combatPosition, leader.npc.group.rotation.y)
   }

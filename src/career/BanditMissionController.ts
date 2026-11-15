@@ -1,44 +1,43 @@
-import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
-import type { TownGarrisonStation } from '../town/TownGarrison'
-import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
-import { officialActorSquadId, officialCommandIsPlayerControlled } from './CareerCommandAuthority'
-import { CAPTAIN_CAVALRY_COMMAND_ID } from './CaptainMissionCatalog'
-import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import * as THREE from 'three'
-import { Mount, mountTypeFromId } from '../world/Mount'
-import { MountedMissionMarchController } from './MountedMissionMarch'
-import { MissionTravelEncounter, type MissionTravelThreats } from './MissionTravelEncounter'
-import type { SpatialGrid } from '../world/SpatialGrid'
-import { findSafeCareerMountPosition } from './CareerMountController'
-import { createSweepRoster, sweepPlayerSpawn, SWEEP_CHARGE_DISTANCE } from './CavalrySweep'
-import { BattleStatsTracker, type BattleStatsSnapshot } from '../combat/BattleStatsTracker'
+import type { NpcSpawnSpec } from '../battle/BattleSpawner'
+import { followLocalOffset,officialFollowLocalOffset,returnFollowLocalOffset } from '../battle/FollowOrder'
+import { BattleStatsTracker,type BattleStatsSnapshot } from '../combat/BattleStatsTracker'
+import { CombatEventStream,type CombatEvent } from '../combat/CombatAttribution'
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
-import { CombatEventStream, type CombatEvent } from '../combat/CombatAttribution'
 import { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
-import { PLAYABLE_WORLD_BOUND, getTerrainHeight } from '../world/Terrain'
-import { AIType, Faction, NPC } from '../world/NPC'
-import { snapshotPersonalMission } from './CareerPersonalSquadMission'
-import type { TownWorld } from '../town/TownWorld'
-import { isCivilian, townSitePoint, type TownActorSpec } from '../town/TownRules'
+import { TOWN_PLAYABLE_WORLD_BOUND,TOWN_RETIREMENT_EXIT_LINE,townRetirementExitPoint } from '../town/TownBounds'
+import { selectTownCavalryReserve,type TownCavalryMissionSlot } from '../town/TownCavalryReserve'
+import type { TownGarrisonStation } from '../town/TownGarrison'
 import { TOWN_MOUNTED_MISSION_MUSTER } from '../town/TownLayout'
-import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_RETIREMENT_EXIT_LINE, townRetirementExitPoint } from '../town/TownBounds'
-import { selectTownCavalryReserve, type TownCavalryMissionSlot } from '../town/TownCavalryReserve'
-import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { isCivilian,townSitePoint,type TownActorSpec } from '../town/TownRules'
+import type { TownWorld } from '../town/TownWorld'
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
+import { Mount,mountTypeFromId } from '../world/Mount'
+import { AIType,Faction,NPC } from '../world/NPC'
+import { assertNpcSpawnJob,gameplayNpcSpawns,trackNpcSpawn,type NpcSpawnBatch,type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
+import type { SpatialGrid } from '../world/SpatialGrid'
+import { PLAYABLE_WORLD_BOUND,getTerrainHeight } from '../world/Terrain'
+import { CAPTAIN_CAVALRY_COMMAND_ID } from './CaptainMissionCatalog'
 import { captureBorrowedCharacterIdentities } from './CareerBorrowedIdentity'
+import { restoreCommandActor,snapshotCommandActor } from './CareerCommandActorCheckpoint'
+import { officialActorSquadId,officialCommandIsPlayerControlled } from './CareerCommandAuthority'
 import { isMigratedCareerFieldMission } from './CareerFieldBattle'
-import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import {
-  getRecruitMissionTemplate,
-  isRetiredRecruitPatrolMission,
-  type RecruitBanditMissionTemplate,
+getRecruitMissionTemplate,
+type RecruitBanditMissionTemplate
 } from './CareerMissionCatalog'
-import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy, createActiveCareerMission, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
+import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
+import { acceptsCareerMissionStat,careerMissionCommandMeritPolicy,createActiveCareerMission,type ActiveCareerMission,type CareerMissionOutcome,type CareerMissionPhase } from './CareerMissionState'
+import { findSafeCareerMountPosition } from './CareerMountController'
+import { snapshotPersonalMission } from './CareerPersonalSquadMission'
+import { cloneCareerProfile,type CareerProfile } from './CareerProfile'
+import { SWEEP_CHARGE_DISTANCE,createSweepRoster,sweepPlayerSpawn } from './CavalrySweep'
 import { MissionGuide } from './MissionGuide'
-import { followLocalOffset, officialFollowLocalOffset, returnFollowLocalOffset } from '../battle/FollowOrder'
-import { createVeteranRoster, createVeteranSpawnSpec, getVeteranMissionDefinition, restoreVeteranTownCavalryReserveRoster, type VeteranMissionTemplateId, type VeteranRosterUnit } from './VeteranMission'
+import { MissionTravelEncounter,type MissionTravelThreats } from './MissionTravelEncounter'
 import type { MountedMissionSquad } from './MountedMissionMarch'
-import type { NpcSpawnSpec } from '../battle/BattleSpawner'
+import { MountedMissionMarchController } from './MountedMissionMarch'
+import { createVeteranRoster,createVeteranSpawnSpec,getVeteranMissionDefinition,restoreVeteranTownCavalryReserveRoster,type VeteranMissionTemplateId,type VeteranRosterUnit } from './VeteranMission'
 
 export interface VeteranFieldActorFactories {
   createNpc?: (spec: NpcSpawnSpec, actorId: string) => NPC
@@ -230,8 +229,7 @@ export class BanditMissionController {
       if (this.mountedMarch) this.mountedMarch.resumeActor(npc)
       else {
         const active = this.active!, template = getBanditFieldMissionTemplate(active.templateId), camp = this.camps[active.targetCampId]
-        if (this.ensureLivingLeader() && template && camp && template.kind !== 'town-defense'
-          && template.kind !== 'enemy-town-assault' && template.kind !== 'cavalry-sweep') {
+        if (this.ensureLivingLeader() && template && camp && template.kind !== 'cavalry-sweep') {
           this.assignLeader(this.route[this.routeIndex] ?? camp.center)
           this.assignFollowers()
         }
@@ -464,7 +462,7 @@ export class BanditMissionController {
   startActiveMission(): boolean {
     if (this.readProfile().careerRetirement) return false
     const pending = this.active
-    if (!pending || isRetiredRecruitPatrolMission(pending) || isMigratedCareerFieldMission(pending)) return false
+    if (!pending || isMigratedCareerFieldMission(pending)) return false
     let active: ActiveCareerMission = pending
     if (this.startedMissionId === active.id) return this.missionBatch?.status !== 'failed'
     const borrowedActorIdentities = captureBorrowedCharacterIdentities(this.residents.map(resident => resident.npc),
@@ -519,7 +517,7 @@ export class BanditMissionController {
   evaluate(playerDead: boolean, personalAlive = 0): CareerMissionOutcome | null {
     if (!this.ready) return null
     const active = this.active
-    if (!active || active.phase === 'RESULT' || active.result || isRetiredRecruitPatrolMission(active)) return null
+    if (!active || active.phase === 'RESULT' || active.result) return null
     if (active.kind === 'veteran-field') {
       const definition = getVeteranMissionDefinition(active.templateId)
       if (definition?.objective.kind === 'survive' && this.survivalElapsedSeconds >= definition.objective.seconds
@@ -547,7 +545,7 @@ export class BanditMissionController {
       && getVeteranMissionDefinition(active.templateId)?.objective.kind === 'eliminate-all'
     const template = active ? getBanditFieldMissionTemplate(active.templateId) : null
     const camp = active ? this.camps[active.targetCampId] : null
-    if (!active || (!veteranField && (!template || template.kind === 'town-defense' || template.kind === 'enemy-town-assault' || !camp))) return false
+    if (!active || (!veteranField && (!template || !camp))) return false
     if (veteranField && (active.result?.outcome !== 'victory' || !active.result.stats.survived || this.player().dead)) return false
     if (!this.setPhase('RETURNING', 0)) return false
     this.travelEncounter.clear()
@@ -593,7 +591,7 @@ export class BanditMissionController {
   /** Formal field combat borrows residents beyond their home station's pursuit leash. */
   allowsMissionCombatTarget(npc: NPC, target: NPC): boolean {
     const active = this.active
-    return Boolean(active && !active.result && !isRetiredRecruitPatrolMission(active) && ['bandit', 'cavalry-sweep', 'veteran-field'].includes(active.kind ?? 'bandit')
+    return Boolean(active && !active.result && ['bandit', 'cavalry-sweep', 'veteran-field'].includes(active.kind ?? 'bandit')
       && active.phase === 'ENGAGING'
       && this.friendlies.includes(npc) && this.missionBandits.includes(target)
       && this.isMissionTarget(target) && combatAllegiancesHostile(npc, target))
@@ -802,7 +800,7 @@ export class BanditMissionController {
     if (!definition || definition.kind !== 'veteran-field') return false
     const templateId = active.templateId as VeteranMissionTemplateId
     const faction = this.readProfile().faction
-    const roster = createVeteranRoster(templateId, faction, active.id, active.veteranRosterVersion ?? 1, active.borrowedActorIds)
+    const roster = createVeteranRoster(templateId, faction, active.id, active.veteranRosterVersion ?? 2, active.borrowedActorIds)
     restoreVeteranTownCavalryReserveRoster(roster, active)
     if (roster.friendlyTotal !== definition.friendlyCombatants
       || roster.enemyTotal !== definition.enemyCombatants
@@ -840,15 +838,7 @@ export class BanditMissionController {
       }
     }
     const squadCount = roster.squadSizes.length
-    const legacyMarchAnchor = !survival && !active.actorPositions && active.phase !== 'ASSEMBLING' && active.mountedMarchPosition
-      ? new THREE.Vector3(
-        THREE.MathUtils.clamp(active.mountedMarchPosition.x, -PLAYABLE_WORLD_BOUND + 100, PLAYABLE_WORLD_BOUND - 100),
-        0,
-        THREE.MathUtils.clamp(active.mountedMarchPosition.z, -PLAYABLE_WORLD_BOUND + 100, PLAYABLE_WORLD_BOUND - 100),
-      )
-      : null
     const friendlyAnchor = survival ? VETERAN_FIELD_LAYOUT.scoutRally.clone()
-      : legacyMarchAnchor ? legacyMarchAnchor.clone().sub(veteranSquadOffset(0, squadCount))
         : VETERAN_FIELD_LAYOUT.rally.clone()
     const enemyAnchor = survival ? VETERAN_FIELD_LAYOUT.scoutEnemyApproach.clone() : VETERAN_FIELD_LAYOUT.enemy.clone()
     this.veteranPlayerAnchor = friendlyAnchor.clone().add(veteranSquadOffset(0, squadCount))
@@ -884,7 +874,7 @@ export class BanditMissionController {
       const homePosition = resident?.npc.combatPosition.clone()
       const savedSupportPassedEntry = Boolean(saved && supportEntry && saved.position.x >= supportEntry.x - VETERAN_ASSEMBLY_RADIUS)
       const initialPosition = saved?.position
-        ?? (legacyMarchAnchor ? muster : resident && !survival ? homePosition! : survival
+        ?? (resident && !survival ? homePosition! : survival
           ? this.safeMountedMissionSlot(veteranFieldPosition(VETERAN_FIELD_LAYOUT.scoutRally, unit, slot, 'friendly', friendlySquadCount), occupiedSupportApproach)
           : supportApproach ?? muster)
       this.plannedFriendlyPositions.push(initialPosition.clone())
@@ -900,7 +890,7 @@ export class BanditMissionController {
         if (resident && mount && mount !== resident.homeMount && mount !== previousMount) {
           this.borrowedTemporaryMounts.push({ npc, mount })
         }
-        if (saved || legacyMarchAnchor || !resident || survival) this.positionVeteranActor(npc, mount, initialPosition, saved?.yaw ?? friendlyYaw)
+        if (saved || !resident || survival) this.positionVeteranActor(npc, mount, initialPosition, saved?.yaw ?? friendlyYaw)
         else if (mount && npc.mount !== mount) {
           const current = npc.group.position.clone()
           current.y = getTerrainHeight(current.x, current.z)

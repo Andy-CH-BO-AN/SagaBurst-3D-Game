@@ -1,29 +1,29 @@
-import { townRampGroundExcluded } from './TownGroundStation'
-import { activateTownResidentHome, townResidentAtHome } from './TownResidentHome'
-import { townDefenseThreatInRange, townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
-import type { ProjectileFlightBudget } from '../combat/ProjectileBallistics'
-import type { TownPersonalSquadController } from './TownPersonalSquadController'
 import * as THREE from 'three'
-import type { BanditMissionController, VeteranMissionEnemySquad } from '../career/BanditMissionController'
+import type { BanditMissionController,VeteranMissionEnemySquad } from '../career/BanditMissionController'
 import type { CareerDuelController } from '../career/CareerDuelController'
-import type { TownDefenseController } from '../career/TownDefenseController'
 import type { CareerMountController } from '../career/CareerMountController'
-import type { CombatDamageMethod, CombatEvent } from '../combat/CombatAttribution'
-import { checkMountImpact, applyMountImpactDamage } from '../combat/MountImpact'
+import type { CommanderTownMissionController } from '../career/CommanderTownMissionController'
+import type { CombatDamageMethod,CombatEvent } from '../combat/CombatAttribution'
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
+import { applyMountImpactDamage,checkMountImpact } from '../combat/MountImpact'
+import type { ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
 import type { Mount } from '../world/Mount'
-import { Faction, type NPC } from '../world/NPC'
+import { Faction,type NPC } from '../world/NPC'
 import { SpatialGrid } from '../world/SpatialGrid'
-import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
-import { isTownMilitary, type TownActorSpec } from './TownRules'
-import { civilianWartimeWeapon, townWartimeHostile } from './TownWartime'
-import { TOWN_EAGLE_ALERT_RADIUS } from './TownEagleGarrison'
+import { getTerrainHeight,type ObstacleData } from '../world/Terrain'
+import { TownActorUpdates,type TownActorUpdate } from './TownActorUpdates'
 import { TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
 import type { TownCavalryPatrolController } from './TownCavalryPatrolController'
-import { TownActorUpdates, type TownActorUpdate } from './TownActorUpdates'
+import { TOWN_EAGLE_ALERT_RADIUS } from './TownEagleGarrison'
+import { townDefenseThreatInRange,townExternalThreatAlertRange,townStationSpec } from './TownGarrison'
+import { townRampGroundExcluded } from './TownGroundStation'
+import type { TownPersonalSquadController } from './TownPersonalSquadController'
+import { activateTownResidentHome,townResidentAtHome } from './TownResidentHome'
+import { isTownMilitary,type TownActorSpec } from './TownRules'
+import { civilianWartimeWeapon,townWartimeHostile } from './TownWartime'
 
 export interface TownCombatResident {
   spec: TownActorSpec
@@ -37,7 +37,7 @@ export interface TownCombatResident {
 interface MissionControllers {
   field: Pick<BanditMissionController, 'active' | 'fieldNpcs' | 'friendlies' | 'ambientBandits' | 'missionBandits' | 'combatPeersFor' | 'updateFlow' | 'updateDepartingCavalry' | 'departingNpcs' | 'cavalryMounts' | 'veteranEnemySquads' | 'markVeteranEnemySquadEngaged' | 'travelEncounter' | 'prepareTravelEncounter' | 'noteTravelHit' | 'engageFormalMission' | 'isMissionTarget' | 'allowsMissionCombatTarget' | 'prepareRetirementEvacuation' | 'isRetirementEvacuating' | 'updateRetirementTravel'>
   duel: Pick<CareerDuelController, 'active' | 'phase' | 'update' | 'isMissionActor' | 'fieldNpcs' | 'allMounts' | 'opponent' | 'isParkedResident' | 'combatEnabled' | 'persistRuntimeProgress' | 'setExternalCombat'>
-  defense: Pick<TownDefenseController, 'active' | 'phase' | 'assault' | 'updateFlow' | 'fieldNpcs' | 'peersFor' | 'updateCivilianOrder' | 'waitingEnemies' | 'enemyMounts'> & {
+  defense: Pick<CommanderTownMissionController, 'active' | 'phase' | 'assault' | 'updateFlow' | 'fieldNpcs' | 'peersFor' | 'updateCivilianOrder' | 'waitingEnemies' | 'enemyMounts'> & {
     readonly combatEnabled?: boolean
     updateSiege?(dt: number, grid: SpatialGrid<NPC>): void
     isEscorting?(npc: NPC): boolean

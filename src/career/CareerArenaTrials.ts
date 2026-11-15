@@ -1,14 +1,14 @@
+import { parseDuelArenaId,type DuelArenaId } from '../arena/DuelArenaCatalog'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
-import { HEAVY_T4_HERO, T4_UNIT_PROFILES, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
-import { getT5ProfileForFaction, getT5ProfileForPreset, resolveT5UnitLoadout } from '../battle/T5HeroCatalog'
-import { UNIT_PRESETS, type BaseUnitTier, type UnitLoadout, type UnitPresetId, type UnitTier } from '../battle/UnitPresetCatalog'
-import { parseDuelArenaId, type DuelArenaId } from '../arena/DuelArenaCatalog'
+import { HEAVY_T4_HERO,T4_UNIT_PROFILES,resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import { getT5ProfileForFaction,getT5ProfileForPreset,resolveT5UnitLoadout } from '../battle/T5HeroCatalog'
+import { UNIT_PRESETS,type BaseUnitTier,type UnitLoadout,type UnitPresetId,type UnitTier } from '../battle/UnitPresetCatalog'
 import type { CharacterTier } from '../combat/CharacterIdentity'
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import { AIType, Faction } from '../world/NPC'
-import { CAREER_RANKS, cloneCareerProfile, type CareerProfile, type CareerRank } from './CareerProfile'
-import { activateCareerStoryEvent, careerStoryPending } from './CareerStoryEvents'
-import { createCareerMissionId, type ActiveCareerMission, type CareerMissionOutcome } from './CareerMissionState'
+import { AIType,Faction } from '../world/NPC'
+import { createCareerMissionId,type ActiveCareerMission,type CareerMissionOutcome } from './CareerMissionState'
+import { CAREER_RANKS,cloneCareerProfile,type CareerProfile,type CareerRank } from './CareerProfile'
+import { activateCareerStoryEvent,careerStoryPending } from './CareerStoryEvents'
 
 /**
  * Arena Squad Trials: same-culture team skirmishes in a Duel arena. A trial is an ordinary Career
@@ -61,15 +61,6 @@ export const ARENA_TRIAL_DEFINITIONS: Readonly<Record<ArenaTrialTier, ArenaTrial
     friendly: [{ role: 'melee', tier: 5, heavy: true, count: 3 }, { role: 'melee', tier: 5, count: 4 }],
     enemy: [{ role: 'melee', tier: 4, heavy: true, count: 4 }, { role: 'melee', tier: 4, count: 6 }, { role: 'spear', tier: 4, count: 6 }, { role: 'archer', tier: 4, count: 4 }] },
 })
-
-/** Counts for already accepted trials. Group order, identities and actor IDs must stay intact on reload. */
-const LEGACY_TRIAL_COUNTS: Readonly<Record<ArenaTrialTier, Partial<Record<'friendly' | 'enemy', readonly number[]>>>> = {
-  1: { enemy: [5, 3, 2] },
-  2: { friendly: [7, 4, 3], enemy: [4, 2, 2] },
-  3: { friendly: [4, 2, 1] },
-  4: { enemy: [2, 3] },
-  5: { friendly: [2, 2] },
-}
 
 const ROLE_LABELS: Record<ArenaTrialRole, string> = { melee: '近戰', spear: '長矛', archer: '弓手' }
 /** One line per team for the Sergeant's trial board, e.g. `T1 近戰 ×10、T1 長矛 ×5`. */
@@ -132,7 +123,7 @@ export interface ArenaTrialPlayerState {
 export interface ArenaTrialState {
   version: 1
   /** Absent for trials accepted under the original team sizes. */
-  rosterVersion?: 2
+  rosterVersion: 2
   tier: ArenaTrialTier
   arenaId: DuelArenaId
   /** deploying: no blow has landed, a reload simply re-forms the lines. engaged: `actors` is authoritative. */
@@ -150,14 +141,12 @@ export type ArenaTrialEndReason = 'timeout' | 'eliminated'
 export interface ArenaTrialRosterEntry { actorId: string; team: 'friendly' | 'enemy'; group: ArenaTrialGroup }
 
 /** Stable per-mission identities: heavy and ordinary groups interleave exactly as the definition lists them. */
-export function arenaTrialRoster(missionId: string, tier: ArenaTrialTier, rosterVersion: 1 | 2 = 2): ArenaTrialRosterEntry[] {
+export function arenaTrialRoster(missionId: string, tier: ArenaTrialTier, _rosterVersion: 2 = 2): ArenaTrialRosterEntry[] {
   const definition = ARENA_TRIAL_DEFINITIONS[tier]
   const entries: ArenaTrialRosterEntry[] = []
   for (const team of ['friendly', 'enemy'] as const) {
     let index = 0
-    for (const [groupIndex, current] of definition[team].entries()) {
-      const count = rosterVersion === 1 ? LEGACY_TRIAL_COUNTS[tier][team]?.[groupIndex] : undefined
-      const group = count === undefined ? current : { ...current, count }
+    for (const group of definition[team]) {
       for (let i = 0; i < group.count; i++) entries.push({ actorId: `${missionId}:${team}:${index++}`, team, group })
     }
   }
@@ -204,7 +193,7 @@ export function arenaTrialUnitSpec(actorId: string, faction: CharacterFaction, a
 }
 
 /** Assets a trial must have loaded before its first body is built. */
-export function arenaTrialPreloadPlan(tier: ArenaTrialTier, faction: CharacterFaction, rosterVersion: 1 | 2): { heroAssets: NonNullable<NpcSpawnSpec['visualAssetId']>[]; equipmentIds: string[] } {
+export function arenaTrialPreloadPlan(tier: ArenaTrialTier, faction: CharacterFaction, rosterVersion: 2): { heroAssets: NonNullable<NpcSpawnSpec['visualAssetId']>[]; equipmentIds: string[] } {
   const heroAssets = new Set<NonNullable<NpcSpawnSpec['visualAssetId']>>(), equipmentIds = new Set<string>()
   for (const { actorId, group } of arenaTrialRoster('preload', tier, rosterVersion)) {
     const spec = arenaTrialUnitSpec(actorId, faction, Faction.PLAYER, group)
@@ -291,7 +280,7 @@ export function parseArenaTrialState(value: unknown, mission: { friendlyActorIds
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Record<string, unknown>
   const arenaId = parseDuelArenaId(raw.arenaId)
-  if (raw.version !== 1 || raw.rosterVersion !== undefined && raw.rosterVersion !== 2
+  if (raw.version !== 1 || raw.rosterVersion !== 2
     || !isArenaTrialTier(raw.tier) || !arenaId || (raw.stage !== 'deploying' && raw.stage !== 'engaged')
     || !finite(raw.combatElapsed) || raw.combatElapsed < 0 || !raw.actors || typeof raw.actors !== 'object') return undefined
   const known = new Set([...mission.friendlyActorIds, ...mission.targetActorIds])
@@ -326,7 +315,7 @@ export function parseArenaTrialState(value: unknown, mission: { friendlyActorIds
       ...(p.shieldImpact !== undefined ? { shieldImpact: p.shieldImpact as number } : {}), ...(shieldDurability ? { shieldDurability } : {}), ...(fall ? { fall } : {}) }
   }
   if (raw.endReason !== undefined && raw.endReason !== 'timeout' && raw.endReason !== 'eliminated') return undefined
-  return { version: 1, ...(raw.rosterVersion === 2 ? { rosterVersion: 2 } : {}),
+  return { version: 1, rosterVersion: 2,
     tier: raw.tier, arenaId, stage: raw.stage, combatElapsed: raw.combatElapsed, actors, ...(player ? { player } : {}),
     ...(raw.endReason ? { endReason: raw.endReason } : {}) }
 }

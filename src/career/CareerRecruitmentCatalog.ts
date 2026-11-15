@@ -1,8 +1,7 @@
-import { characterIdentityMaxHp, resolveCharacterIdentity, type CharacterIdentity, type CharacterTier, type HeroArchetype } from '../combat/CharacterIdentity'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import { characterIdentityMaxHp,resolveCharacterIdentity,type CharacterIdentity,type CharacterTier,type HeroArchetype } from '../combat/CharacterIdentity'
+import { careerHeroClasses,heroClassLabel } from './CareerHeroClasses'
 import type { PersonalEquipment } from './CareerInventory'
 import type { PersonalSquadMemberType } from './CareerPersonalSquad'
-import { careerHeroClasses, heroClassLabel } from './CareerHeroClasses'
 
 export const PERSONAL_RECRUITMENT_ROLES = ['archer', 'swordsman', 'javelin', 'axeman', 'spearman'] as const
 export type PersonalRecruitmentRole = typeof PERSONAL_RECRUITMENT_ROLES[number]
@@ -78,17 +77,4 @@ export function defaultPersonalRecruitmentChoice(type: PersonalSquadMemberType, 
   const recruitmentRole = type === 'ranger' ? 'archer' : faction === 'roman' ? 'swordsman' : 'axeman'
   return type === 'soldier' ? { characterTier: 2, recruitmentRole }
     : { characterTier: type === 'commander' ? 5 : 4, heroArchetype: type, recruitmentRole }
-}
-
-/** One-time migration estimate: old saves never recorded the original recruitment choice. */
-export function inferLegacyPersonalRecruitmentRole(equipment: PersonalEquipment | undefined, type: PersonalSquadMemberType,
-  faction: CharacterIdentity['characterFaction']): PersonalRecruitmentRole {
-  const ranged = equipment?.ranged ? WEAPONS[equipment.ranged] : undefined
-  if (ranged?.combatKind === 'javelin') return 'javelin'
-  if (ranged?.combatKind === 'bow') return 'archer'
-  const melee = equipment?.melee ? WEAPONS[equipment.melee] : undefined
-  if (melee?.combatKind === 'lance') return 'spearman'
-  if (melee?.animationKind === 'axe') return 'axeman'
-  if (melee) return 'swordsman'
-  return defaultPersonalRecruitmentChoice(type, faction).recruitmentRole
 }

@@ -1,28 +1,28 @@
 // Career profile data model. Type-only: this module must not declare or import runtime values,
 // so it emits no JavaScript and a model change never re-selects tests that only ran Career logic.
-import type { CareerTutorialState } from './CareerTutorialState'
-import type { CareerStoryState } from './CareerStoryEvents'
-import type { CareerRetirementRuntime, CareerRetirementState } from './CareerRetirementState'
-import type { CareerTownEquipment } from './CareerTownEquipmentState'
-import type { TownAirCommandSquadState } from './TownAirCommandAuthority'
-import type { CivilianCommandSquadState } from './CivilianCommandAuthority'
-import type { EnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
-import type { CareerDuelTier, CareerDuelCommanderHome } from './CareerDuelState'
-import type { TownCommandSquadState } from './CareerCommandAuthority'
-import type { TownEagleGarrisons } from '../town/TownEagleGarrisonState'
-import type { CareerAerialState } from './CareerAerialState'
-import type { CareerInventory } from './CareerInventory'
-import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
-import type { CareerOutpostMission, CareerOutpostRecord, CareerOutpostStageId } from './CareerOutpostMission'
-import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { PlayerMountId } from '../battle/BattleConfig'
-import type { HeroAssetId } from '../world/HeroAssetCatalog'
-import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { UnitPresetId } from '../battle/UnitPresetCatalog'
+import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { SkillState } from '../rpg/SkillManager'
-import type { CareerMissionTier } from './CareerMissionTier'
+import type { EnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
+import type { TownEagleGarrisons } from '../town/TownEagleGarrisonState'
+import type { CharacterFaction } from '../world/CharacterVisuals'
+import type { HeroAssetId } from '../world/HeroAssetCatalog'
+import type { CareerAerialState } from './CareerAerialState'
+import type { TownCommandSquadState } from './CareerCommandAuthority'
+import type { CareerDuelCommanderHome,CareerDuelTier } from './CareerDuelState'
+import type { CareerInventory } from './CareerInventory'
 import type { ActiveCareerMission } from './CareerMissionState'
-import type { CareerBattleOutcome, CareerBattleRole, MeritBreakdown } from './MeritCalculator'
+import type { CareerMissionTier } from './CareerMissionTier'
+import type { CareerOutpostMission,CareerOutpostRecord,CareerOutpostStageId } from './CareerOutpostMission'
+import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
+import type { CareerRetirementRuntime,CareerRetirementState } from './CareerRetirementState'
+import type { CareerStoryState } from './CareerStoryEvents'
+import type { CareerTownEquipment } from './CareerTownEquipmentState'
+import type { CareerTutorialState } from './CareerTutorialState'
+import type { CivilianCommandSquadState } from './CivilianCommandAuthority'
+import type { CareerBattleOutcome,CareerBattleRole,MeritBreakdown } from './MeritCalculator'
+import type { TownAirCommandSquadState } from './TownAirCommandAuthority'
 
 export type { CareerMissionTier } from './CareerMissionTier'
 
@@ -32,8 +32,7 @@ export type CareerPurchaseKind = 'weapon' | 'armor' | 'mount' | 'hero'
 
 export type CareerPurchaseTier = 1 | 2 | 3 | 4 | 5
 
-// Tier-specific horse IDs are retained only for legacy saves.
-export type CareerMountId = PlayerMountId | 'horse-t1' | 'horse-t2' | 'horse-t3'
+export type CareerMountId = PlayerMountId
 
 export interface CareerLifetimeStats {
   battles: number
@@ -45,18 +44,8 @@ export interface CareerLifetimeStats {
   breaches: number
 }
 
-export interface LegacyRaceProgress {
-  readonly scheduleVersion: number
-  readonly completedRaceIds: import('./CareerRaceState').RaceId[]
-  readonly raceBestSeconds?: Partial<Record<import('./CareerRaceState').RaceId, number>>
-}
-
 export interface CareerProfile {
-  version: 1
-  /** One-time ordinary-soldier HP migration receipt, independent of equipment migrations. */
-  healthRulesVersion?: 1
-  /** Viking Commander 950→900 health conversion, independent of ordinary HP rules. */
-  commanderHealthVersion?: 1
+  version: 2
   faction: CharacterFaction
   tutorial?: CareerTutorialState
   /** Deferrable Town story events and their receipts. Absent on saves that predate it; see parseCareerStoryState. */
@@ -96,8 +85,6 @@ export interface CareerProfile {
   personalSquad?: { members: CareerPersonalSquadMember[] }
   /** Wounded deployed members after a slow mission return, until actual HR arrival. */
   personalSquadRuntime?: import('./CareerPersonalSquadMission').PersonalSquadMission
-  /** Legacy purchases; any owned tier grants the single military horse. */
-  ownedHorseTiers?: (1 | 2 | 3)[]
   /** Cosmetic only; missing legacy values use the original grey coat. */
   horseAppearanceVariant?: import('../world/HorseAssetRegistry').HorseAppearanceVariant
   mountArmor?: Partial<Record<CareerMountId, number>>
@@ -112,7 +99,6 @@ export interface CareerProfile {
   racePlayerState?: import('./CareerRaceState').RaceRider
   activeRace?: import('./CareerRaceState').CareerRaceSession
   raceRecords?: import('./CareerRaceState').CareerRaceRecord[]
-  legacyRaceProgress?: LegacyRaceProgress[]
   raceScheduleVersion?: import('./CareerRaceState').RaceScheduleVersion
   completedRaceIds?: import('./CareerRaceState').RaceId[]
   raceBestSeconds?: Partial<Record<import('./CareerRaceState').RaceId, number>>

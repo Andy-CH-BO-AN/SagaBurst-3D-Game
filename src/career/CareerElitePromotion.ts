@@ -1,5 +1,5 @@
-import { cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile, type CareerRank } from './CareerProfile'
-import type { CharacterFaction } from '../world/CharacterVisuals'
+import type { CharacterFaction } from '../world/CharacterVisuals';
+import { cloneCareerProfile,enlistmentMerit,promoteCareer,type CareerProfile,type CareerRank } from './CareerProfile';
 
 export type CareerClassOfferKind = 'current' | 'appoint' | 'merit-locked' | 'purchase' | 'insufficient-merit' | 'switch' | 'unavailable'
 export interface CareerClassOffer { kind: CareerClassOfferKind; cost: number; shortfall: number }
@@ -88,7 +88,7 @@ export function currentCareerClass(profile: Pick<CareerProfile, 'faction' | 'ran
 export function unlockedCareerClasses(profile: ClassProfile): readonly CareerClassId[] {
   const current = currentCareerClass(profile)
   if (!current) return []
-  return profile.unlockedCareerClasses ?? [current]
+  return profile.unlockedCareerClasses ?? []
 }
 
 export const T5_CLASS_ROAD: CareerClassRoad<CareerClassId> = {

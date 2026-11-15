@@ -1,15 +1,15 @@
-import { PLAYER_RADIUS } from '../movement/MovementBalance'
 import { prisonExitPlan } from '../arena/PrisonBreakLayout'
-import { arenaTrialUnitSpec, parseArenaTrialState, type ArenaTrialState } from './CareerArenaTrials'
-import { claimCareerMission, cloneCareerProfile, type CareerProfile } from './CareerProfile'
-import type { ActiveCareerMission, CareerMissionOutcome } from './CareerMissionState'
-import type { PlayerBattleStats } from '../combat/BattleStatsTracker'
-import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
-import { AIType, Faction } from '../world/NPC'
-import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import { T4_UNIT_PROFILES,resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
 import { getT5ProfileForFaction } from '../battle/T5HeroCatalog'
 import { UNIT_PRESETS } from '../battle/UnitPresetCatalog'
+import type { PlayerBattleStats } from '../combat/BattleStatsTracker'
+import { PLAYER_RADIUS } from '../movement/MovementBalance'
+import type { CharacterFaction } from '../world/CharacterVisuals'
+import { AIType,Faction } from '../world/NPC'
+import { arenaTrialUnitSpec,parseArenaTrialState,type ArenaTrialState } from './CareerArenaTrials'
+import type { ActiveCareerMission,CareerMissionOutcome } from './CareerMissionState'
+import { claimCareerMission,cloneCareerProfile,type CareerProfile } from './CareerProfile'
 
 export const PRISON_BREAK_DEFINITIONS = {
   'soldier-iron-encounter': { tier: 3, prisonerTier: 2, guardCount: 10, merit: 100, kind: 'heavy-cavalry-field' },
@@ -21,9 +21,9 @@ export type PrisonRole = 'melee' | 'spear' | 'archer' | 'javelin'
 export const PRISON_SWORD_ID = 'gladius_rusty'
 export const PRISON_SWORD_COUNT = 6
 export interface PrisonBreakState {
-  version: 1 | 2
+  version: 2
   /** Absent for captures that already committed to the original five guards. */
-  rosterVersion?: 2
+  rosterVersion: 2
   missionId: string
   templateId: PrisonBattleId
   captor: CharacterFaction
@@ -39,7 +39,7 @@ export interface PrisonRosterEntry {
 }
 function definition(id: string) { return Object.prototype.hasOwnProperty.call(PRISON_BREAK_DEFINITIONS, id) ? PRISON_BREAK_DEFINITIONS[id as PrisonBattleId] : undefined }
 export function prisonGuardCount(state: Pick<PrisonBreakState, 'templateId' | 'rosterVersion'>): 5 | 10 {
-  return state.rosterVersion === 2 ? PRISON_BREAK_DEFINITIONS[state.templateId].guardCount : 5
+  return PRISON_BREAK_DEFINITIONS[state.templateId].guardCount
 }
 export function prisonRoster(state: Pick<PrisonBreakState, 'missionId' | 'templateId' | 'captor' | 'rosterVersion'>): PrisonRosterEntry[] {
   const spec = definition(state.templateId)!
@@ -86,7 +86,7 @@ export function claimCareerFieldResult(current: CareerProfile, missionId: string
   if (!claim.alreadyClaimed && spec && mission.id === missionId && mission.kind === spec.kind && outcome === 'failure'
     && mission.result?.outcome === 'failure' && mission.result.claimed && captor) {
     mission.prisonBreak = { version: 2, rosterVersion: 2, missionId, templateId: mission.templateId as PrisonBattleId, captor, stage: 'captured',
-      combat: { version: 1, tier: spec.tier, arenaId: captor === 'roman' ? 'roman-colosseum' : 'viking-valhalla', stage: 'deploying', combatElapsed: 0, actors: {} },
+      combat: { version: 1, rosterVersion: 2, tier: spec.tier, arenaId: captor === 'roman' ? 'roman-colosseum' : 'viking-valhalla', stage: 'deploying', combatElapsed: 0, actors: {} },
       swords: {}, gateOpen: false }
   }
   return claim
@@ -128,7 +128,7 @@ function prisonTeamDown(state: PrisonBreakState): boolean {
     .every(entry => state.combat.actors[entry.actorId]?.status === 'knocked')
 }
 export function prisonResultDescription(state: PrisonBreakState): string {
-  if (state.result?.outcome !== 'victory') return state.version === 1 ? '你在穿過鐵門前倒下了。' : '你與所有友軍戰俘都在穿過鐵門前倒下了。'
+  if (state.result?.outcome !== 'victory') return '你與所有友軍戰俘都在穿過鐵門前倒下了。'
   if (state.result.escapedBy && state.result.escapedBy !== 'player') return state.combat.player?.knocked
     ? '隊友成功逃脫，你未能逃出' : '隊友穿過了敵軍的鐵門。'
   return '你穿過了敵軍的鐵門。'
@@ -156,7 +156,7 @@ export function parsePrisonBreakState(value: unknown, mission: ActiveCareerMissi
   const raw = value as PrisonBreakState
   const spec = definition(mission.templateId)
   if (!spec || mission.kind !== spec.kind || mission.result?.outcome !== 'failure' || !mission.result.claimed
-    || raw.version !== 1 && raw.version !== 2 || raw.rosterVersion !== undefined && (raw.rosterVersion !== 2 || raw.version !== 2)
+    || raw.version !== 2 || raw.rosterVersion !== 2
     || raw.missionId !== mission.id || raw.templateId !== mission.templateId
     || !['roman', 'viking'].includes(raw.captor) || !['captured', 'escape', 'result'].includes(raw.stage)
     || typeof raw.gateOpen !== 'boolean' || !raw.swords || typeof raw.swords !== 'object' || Array.isArray(raw.swords)) return undefined
@@ -174,16 +174,14 @@ export function parsePrisonBreakState(value: unknown, mission: ActiveCareerMissi
   const allGuardsDown = targetActorIds.every(id => combat.actors[id]?.status === 'knocked')
   if (raw.gateOpen && !allGuardsDown) return undefined
   if (raw.stage === 'result') {
-    const legacy = raw.version === 1
     if (!raw.result || !['victory', 'failure'].includes(raw.result.outcome)
-      || !legacy && (combat.stage !== 'engaged' || !combat.player)
+      || (combat.stage !== 'engaged' || !combat.player)
       || raw.result.merit !== (raw.result.outcome === 'victory' ? spec.merit : 0)
-      || raw.result.outcome === 'victory' && (!raw.gateOpen || (legacy ? combat.player?.knocked : !livingPrisonEscaper({ ...raw, combat }, raw.result.escapedBy)))
-      || raw.result.outcome === 'failure' && (legacy ? !combat.player?.knocked : !prisonTeamDown({ ...raw, combat }))
+      || raw.result.outcome === 'victory' && (!raw.gateOpen || !livingPrisonEscaper({ ...raw, combat }, raw.result.escapedBy))
+      || raw.result.outcome === 'failure' && !prisonTeamDown({ ...raw, combat })
       || raw.result.outcome === 'failure' && raw.result.escapedBy !== undefined) return undefined
   } else if (raw.result) return undefined
-  // Unfinished v1 encounters adopt team escape. Sealed legacy receipts are never replayed or changed.
-  return { version: raw.version === 1 && raw.stage === 'result' ? 1 : 2, ...(raw.rosterVersion === 2 ? { rosterVersion: 2 } : {}),
+  return { version: 2, rosterVersion: 2,
     missionId: raw.missionId, templateId: raw.templateId, captor: raw.captor, stage: raw.stage,
     combat, swords: Object.fromEntries(swords), gateOpen: raw.gateOpen, ...(raw.result ? { result: {
       outcome: raw.result.outcome, merit: raw.result.merit,

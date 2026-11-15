@@ -1,24 +1,23 @@
-import type { TownTutorialController } from './TownTutorialController'
-import { MOUNTED_RACES, raceStageOpponentLabel, type RaceId } from '../career/CareerRaceState'
-import { HEAVY_FIELD_MISSION_CATALOG, getHeavyFieldMissionAvailability } from '../career/HeavyFieldMission'
-import { HERO_COMBAT_PROFILES, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
-import { townAssaultObjectiveRoster, townRoster, townName } from './TownRules'
-import { CAVALRY_SWEEP_BANDITS } from '../career/CavalrySweep'
-import { CAPTAIN_MISSION_CATALOG, CAPTAIN_PATROL_COMMAND_ID, CAPTAIN_EAGLE_BATTLE_ID, getCaptainMissionAvailability } from '../career/CaptainMissionCatalog'
-import type { CaptainPatrolCommandController } from '../career/CaptainPatrolCommandController'
+import { DUEL_ARENA_IDS,DUEL_ARENA_LABELS,defaultDuelArenaForFaction,type DuelArenaId } from '../arena/DuelArenaCatalog'
+import { HERO_COMBAT_PROFILES,type HeroCombatProfileId } from '../battle/HeroCombatProfile'
+import { getUnitPresetsForFaction,type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { getDefenseCampaignStage } from '../campaign/CampaignConfig'
-import { isCareerOutpostReliefUnlocked, resolveCareerReliefMount, isCareerOutpostUnlocked, CAREER_OUTPOST_STAGES, type CareerOutpostStageId } from '../career/CareerOutpostMission'
-import { selectTownDialogue, type DialogueContext } from '../career/CareerTownDialogue'
-import { CAREER_RANKS, CAREER_RANK_LABELS, type CareerProfile, type CareerRank } from '../career/CareerProfile'
-import { availableCareerMissionsForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getRecruitMissionTemplate, type CareerMissionPage } from '../career/CareerMissionCatalog'
-import { VETERAN_MISSION_CATALOG, getVeteranMissionAvailability } from '../career/VeteranMission'
-import { COMMANDER_MISSION_CATALOG, getCommanderMissionAvailability } from '../career/CommanderMissionCatalog'
-import { HERO_CLASS_NAMES } from '../career/CareerHeroClasses'
-import { careerDuelSubjectRules, careerDuelProgressLabel, careerDuelTierEntries, type CareerDuelSubject } from '../career/CareerDuelSelection'
+import { CAPTAIN_EAGLE_BATTLE_ID,CAPTAIN_MISSION_CATALOG,CAPTAIN_PATROL_COMMAND_ID,getCaptainMissionAvailability } from '../career/CaptainMissionCatalog'
+import type { CaptainPatrolCommandController } from '../career/CaptainPatrolCommandController'
+import { ARENA_TRIAL_DEFINITIONS,ARENA_TRIAL_TIERS,arenaTrialGroupsLabel,arenaTrialTeamSizes,isArenaTrialUnlocked,type ArenaTrialTier } from '../career/CareerArenaTrials'
+import { careerDuelProgressLabel,careerDuelSubjectRules,careerDuelTierEntries,type CareerDuelSubject } from '../career/CareerDuelSelection'
 import type { CareerDuelTier } from '../career/CareerDuelState'
-import { DUEL_ARENA_IDS, DUEL_ARENA_LABELS, defaultDuelArenaForFaction, type DuelArenaId } from '../arena/DuelArenaCatalog'
-import { ARENA_TRIAL_DEFINITIONS, ARENA_TRIAL_TIERS, arenaTrialGroupsLabel, arenaTrialTeamSizes, isArenaTrialUnlocked, type ArenaTrialTier } from '../career/CareerArenaTrials'
-import { getUnitPresetsForFaction, type UnitPresetId } from '../battle/UnitPresetCatalog'
+import { HERO_CLASS_NAMES } from '../career/CareerHeroClasses'
+import { availableCareerMissionsForPage,defaultCareerMissionPage,getRecruitMissionTemplate,isCareerMissionPageUnlocked,type CareerMissionPage } from '../career/CareerMissionCatalog'
+import { CAREER_OUTPOST_STAGES,isCareerOutpostReliefUnlocked,isCareerOutpostUnlocked,resolveCareerReliefMount,type CareerOutpostStageId } from '../career/CareerOutpostMission'
+import { CAREER_RANKS,CAREER_RANK_LABELS,type CareerProfile,type CareerRank } from '../career/CareerProfile'
+import { MOUNTED_RACES,raceStageOpponentLabel,type RaceId } from '../career/CareerRaceState'
+import { selectTownDialogue,type DialogueContext } from '../career/CareerTownDialogue'
+import { CAVALRY_SWEEP_BANDITS } from '../career/CavalrySweep'
+import { COMMANDER_MISSION_CATALOG,getCommanderMissionAvailability } from '../career/CommanderMissionCatalog'
+import { HEAVY_FIELD_MISSION_CATALOG,getHeavyFieldMissionAvailability } from '../career/HeavyFieldMission'
+import { VETERAN_MISSION_CATALOG,getVeteranMissionAvailability } from '../career/VeteranMission'
+import type { TownTutorialController } from './TownTutorialController'
 
 /** A mission the player chose on the board; the scene runs the matching accept transaction. */
 export type MissionBoardRequest =
@@ -127,7 +126,6 @@ export class TownMissionBoard {
       panel.append(relief)
     }
     const missions = availableCareerMissionsForPage(this.host.profile, selectedPage)
-    const defenseForce = this.host.defenseForce()
     if (selectedPage === 'recruit' && !resolveCareerReliefMount(this.host.profile)) {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = '騎兵清剿'
@@ -146,10 +144,6 @@ export class TownMissionBoard {
       const force = (friendly: number, enemy: string) => `我方：${friendly} 人（含你）\n敵方：${enemy}`
       details.textContent = template.kind === 'cavalry-sweep'
         ? `${template.briefing}\n${force(template.friendlyCombatants, `${CAVALRY_SWEEP_BANDITS} 名盜匪`)}\n你只能跟隨騎兵隊行動，無指揮權。`
-        : template.kind === 'enemy-town-assault'
-        ? `${template.briefing}\n我方：${template.friendlyCombatants} 人（含你）\n敵方：${townName(this.host.profile.faction === 'roman' ? 'viking' : 'roman')}全體守軍（${townAssaultObjectiveRoster(townRoster()).length} 人）\n你無指揮權。`
-        : template.kind === 'town-defense'
-        ? `${template.briefing}\n我方：${defenseForce.friendlyCombatants} 人（含你），守衛${townName(this.host.profile.faction)}\n敵方：${template.enemyCount} 人（T3 騎兵與 4 名 T4 隊長）\n平民死亡超過 ${template.maxCivilianDeaths} 人即失敗 · 風險：${template.risk}`
         : template.kind === 'bandit' ? `${template.briefing}\n${force(template.friendlyCombatants, `${template.banditCount} 名盜匪`)}\n風險：${template.risk}` : template.briefing
       details.style.whiteSpace = 'pre-line'
       row.append(title, details)
@@ -184,7 +178,6 @@ export class TownMissionBoard {
   }
   private renderCaptainPage(panel: HTMLElement): void {
     this.appendCommandHowTo(panel)
-    const defenseForce = this.host.defenseForce()
     for (const definition of CAPTAIN_MISSION_CATALOG) {
       const availability = getCaptainMissionAvailability(this.host.profile, definition.id)
       const patrol = definition.id === CAPTAIN_PATROL_COMMAND_ID ? this.host.captainPatrol?.selectAvailableSquad() : null
@@ -195,8 +188,7 @@ export class TownMissionBoard {
         : definition.id === CAPTAIN_EAGLE_BATTLE_ID ? `你目前有 ${this.host.profile.personalSquad?.members.length ?? 0} 名私兵會一同參戰（依原本裝備參加空戰或地面作戰）。`
         : '正式部隊與私兵可分別下令；兩者的有效戰績都會計入軍功。'
       const briefing = definition.briefing
-      const force = definition.kind === 'town-defense'
-        ? `\n我方：${defenseForce.friendlyCombatants} 人（含你）\n敵方：${definition.enemyCombatants} 人` : ''
+      const force = ''
       details.textContent = `${briefing}${force}\n${state}`
       const accept = document.createElement('button'); accept.className = 'town-button'
       accept.disabled = !availability.unlocked || definition.id === CAPTAIN_PATROL_COMMAND_ID && !patrol

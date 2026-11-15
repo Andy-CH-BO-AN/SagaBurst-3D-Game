@@ -1,7 +1,7 @@
-import { cloneCivilianCommandSquad, type CivilianCommandSquadState } from '../career/CivilianCommandAuthority'
-import { TOWN_CENTER, TOWN_CENTER_FRAME, TOWN_WELL, TOWN_CITY, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_DUEL_CENTER, TOWN_DUEL_HALF_SIZE, townHousing, TOWN_PRIVATE_EAGLE_SITES, TOWN_GARRISON_EAGLE_SITES } from './TownLayout'
-import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
+import { cloneCivilianCommandSquad,type CivilianCommandSquadState } from '../career/CivilianCommandAuthority'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
+import { getTerrainHeight,type ObstacleData } from '../world/Terrain'
+import { TOWN_CENTER,TOWN_CENTER_FRAME,TOWN_CITY,TOWN_CITY_ROADS,TOWN_DUEL_CENTER,TOWN_DUEL_HALF_SIZE,TOWN_GARRISON_EAGLE_SITES,TOWN_LOCAL_ROADS,TOWN_PRIVATE_EAGLE_SITES,TOWN_WELL,townHousing } from './TownLayout'
 import type { TownActorSpec } from './TownRules'
 
 export type CivilianDistrict = 'plaza' | 'housing' | 'street'
@@ -147,13 +147,11 @@ export class TownCivilianLife {
 
 export const CIVILIAN_HOME_LAYOUT_VERSION = 4
 /** Upgrade only native home intent. Never move commanded actors, revive deaths or reset wartime shelter. */
-export function migrateCivilianHomes(saved: CivilianCommandSquadState,
+export function restoreCivilianMountClearance(saved: CivilianCommandSquadState,
   homes: readonly { id: string; x: number; y?: number; z: number; yaw?: number }[],
   canPlaceMountedCivilian?: (point: Point, actorId: string) => boolean,
   hasMountedCivilianClearance?: (point: Point, actorId: string) => boolean): CivilianCommandSquadState {
-  const upgrade = (saved.homeLayoutVersion ?? 0) < CIVILIAN_HOME_LAYOUT_VERSION
-  let next = upgrade ? cloneCivilianCommandSquad(saved) : undefined
-  if (next) next.homeLayoutVersion = CIVILIAN_HOME_LAYOUT_VERSION
+  let next: CivilianCommandSquadState | undefined
   for (const home of homes) {
     const member = saved.members[home.id], owner = saved.owners[home.id]
     if (!member || owner !== 'daily' || member.status === 'dead' || member.status === 'exited'
@@ -162,7 +160,7 @@ export function migrateCivilianHomes(saved: CivilianCommandSquadState,
     const repairMount = member.mount && member.mount.hp > 0 && hasMountedCivilianClearance
       && (!hasMountedCivilianClearance(member.mount.position, home.id)
         || member.mount.mounted && member.position && !hasMountedCivilianClearance(member.position, home.id))
-    if (!upgrade && !repairMount) continue
+    if (!repairMount) continue
     // A temporary occupant must not permanently complete a partial upgrade. Retry on reload.
     // Stage all changes before saving/applying any pose, including foot-only daily residents.
     if (canPlaceMountedCivilian && !canPlaceMountedCivilian(home, home.id)) return saved

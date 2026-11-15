@@ -1,43 +1,42 @@
 import * as THREE from 'three'
-import type { BattleSpawnPlan, NpcSpawnSpec } from '../battle/BattleSpawner'
+import type { BattleSpawnPlan,NpcSpawnSpec } from '../battle/BattleSpawner'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
-import { UNIT_PRESETS, type UnitLoadout, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
-import type { CombatEvent } from '../combat/CombatAttribution'
 import type { TacticalOrder } from '../battle/TacticalOrder'
-import { T4_RANGER_BOW_RANGED_ID, defaultRangerMeleeWeaponId } from '../rpg/WeaponDatabase'
-import { AIType, Faction } from '../world/NPC'
+import { UNIT_PRESETS,type UnitLoadout,type UnitPresetId } from '../battle/UnitPresetCatalog'
+import type { CombatEvent } from '../combat/CombatAttribution'
+import { T4_RANGER_BOW_RANGED_ID,defaultRangerMeleeWeaponId } from '../rpg/WeaponDatabase'
+import {
+townActorHeroProfile,
+townMilitaryEquipment,
+townRoster,
+type TownActorSpec,
+} from '../town/TownRules'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
+import { AIType,Faction } from '../world/NPC'
 import { careerCombatPlayerLoadout } from './CaptainBattleLaunch'
+import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
+import { CAPTAIN_CAVALRY_COMMAND_ID } from './CaptainMissionCatalog'
 import { resolveBorrowedCharacterIdentity } from './CareerBorrowedIdentity'
 import type { CareerFelineBattleLaunch } from './CareerBridgeBattle'
-import {
-  CAVALRY_SWEEP_ID,
-  SWEEP_CHARGE_DISTANCE,
-  SWEEP_DETECTION_RANGE,
-  createSweepRoster,
-} from './CavalrySweep'
-import { CAPTAIN_CAVALRY_COMMAND_ID } from './CaptainMissionCatalog'
-import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
-import type { ActiveCareerMission } from './CareerMissionState'
 import { getCareerMissionTemplate } from './CareerMissionCatalog'
+import type { ActiveCareerMission } from './CareerMissionState'
 import { resolveCareerHeroAsset } from './CareerPlayerProfile'
-import { canonicalCareerMountId, type CareerMountId, type CareerProfile } from './CareerProfile'
-import { resolveTownActorEquipment, townEquipmentActorSpecs } from './CareerTownEquipmentState'
+import { type CareerMountId,type CareerProfile } from './CareerProfile'
+import { resolveTownActorEquipment,townEquipmentActorSpecs } from './CareerTownEquipmentState'
 import {
-  VETERAN_MISSION_IDS,
-  createVeteranRoster,
-  createVeteranSpawnSpec,
-  restoreVeteranTownCavalryReserveRoster,
-  type VeteranMissionTemplateId,
+CAVALRY_SWEEP_ID,
+SWEEP_CHARGE_DISTANCE,
+SWEEP_DETECTION_RANGE,
+createSweepRoster,
+} from './CavalrySweep'
+import {
+VETERAN_MISSION_IDS,
+createVeteranRoster,
+createVeteranSpawnSpec,
+restoreVeteranTownCavalryReserveRoster,
+type VeteranMissionTemplateId,
 } from './VeteranMission'
-import {
-  townActorHeroProfile,
-  townMilitaryEquipment,
-  townRoster,
-  type TownActorSpec,
-} from '../town/TownRules'
-import { isRetiredRecruitPatrolMission } from './CareerMissionCatalog'
 
 export const MIGRATED_RECRUIT_BANDIT_IDS = [
   'recruit-bandits-01',
@@ -103,7 +102,7 @@ export function isMigratedCareerFieldTemplate(templateId: string | undefined): b
 export function isMigratedCareerFieldMission(
   mission: Pick<ActiveCareerMission, 'templateId' | 'kind'> | undefined,
 ): boolean {
-  if (!mission || isRetiredRecruitPatrolMission(mission)) return false
+  if (!mission) return false
   if (!isMigratedCareerFieldTemplate(mission.templateId)) return false
   return mission.kind === 'bandit' || mission.kind === 'cavalry-sweep' || mission.kind === 'veteran-field'
 }
@@ -391,7 +390,7 @@ function buildVeteranFieldDeployment(profile: CareerProfile, mission: ActiveCare
     templateId,
     profile.faction,
     mission.id,
-    mission.veteranRosterVersion ?? 1,
+    mission.veteranRosterVersion ?? 2,
     mission.borrowedActorIds,
   )
   restoreVeteranTownCavalryReserveRoster(roster, mission)
@@ -507,39 +506,9 @@ export function resolveFieldActorCheckpoint(
   return official?.status !== 'reserve' ? official ?? field : field ?? official
 }
 
-export function resolveMigratedPlayerMountState(
-  mission: Pick<ActiveCareerMission, 'mountState'> | undefined,
-  mountId?: CareerMountId | null,
-  profileMountArmor?: Partial<Record<CareerMountId, number>>,
-): { mountId?: CareerMountId; hp?: number; armorImpact?: number; unavailable: boolean } {
-  const effectiveId = mountId ?? mission?.mountState?.activeMountId
-  if (!effectiveId) return { unavailable: false }
-  const canonicalId = canonicalCareerMountId(effectiveId)
-  const mountState = mission?.mountState
-  const unavailable = Boolean(
-    mountState?.unavailable?.includes(effectiveId) || mountState?.unavailable?.includes(canonicalId),
-  )
-  const savedHp = mountState?.hp?.[effectiveId] ?? mountState?.hp?.[canonicalId]
-  const armorImpact = mountState?.armorImpact?.[effectiveId]
-    ?? mountState?.armorImpact?.[canonicalId]
-    ?? profileMountArmor?.[effectiveId]
-    ?? profileMountArmor?.[canonicalId]
-  return {
-    mountId: effectiveId,
-    hp: unavailable ? 0 : savedHp,
-    armorImpact,
-    unavailable,
-  }
-}
-
-/**
- * Builds the initial open-field `felineBattle` declaration when launching or migrating
- * an in-flight mission save onto the standalone field runtime.
- * Dead actors from pre-migration saves stay dead (never respawned), stale Town coordinates
- * are ignored, and pre-existing HP/stamina/mount values are preserved.
- */
+/** Declare a new field roster before any actor can spawn. */
 export function createCareerFieldCheckpointSeed(
-  mission: ActiveCareerMission,
+  _mission: ActiveCareerMission,
   plan: BattleSpawnPlan,
   fallbackPlayer: {
     hp: number
@@ -562,55 +531,22 @@ export function createCareerFieldCheckpointSeed(
   },
   terrainHeightAt: (x: number, z: number) => number,
 ): CaptainEagleCheckpoint {
-  const deadTargets = new Set(mission.deadTargetActorIds ?? [])
-  const deadFriendlies = new Set(mission.deadFriendlyActorIds ?? [])
   const actors: CaptainEagleCheckpoint['actors'] = {}
   for (const spec of plan.npcSpecs) {
     if (!spec.actorId) throw new Error('Career field actor missing identity')
-    const savedHealth = mission.actorHealth?.[spec.actorId]
-    // Pre-migration Town saves keep per-actor resources in officialSquad.members. Only
-    // resources carry over; every spatial field (position, formation, fall) is Town-space.
-    const legacy = mission.officialSquad?.members?.[spec.actorId]
-    const dead = deadTargets.has(spec.actorId) || deadFriendlies.has(spec.actorId) || savedHealth?.hp === 0
-      || legacy?.status === 'dead' || legacy?.hp === 0
     const y = terrainHeightAt(spec.x, spec.z)
     const yaw = spec.faction === Faction.PLAYER ? fallbackPlayer.yaw : fallbackPlayer.yaw + Math.PI
-    const hp = dead ? 0 : savedHealth?.hp ?? legacy?.hp
-    const mountHp = savedHealth?.mountHp ?? legacy?.mount?.hp
     const spawn = { x: spec.x, y, z: spec.z, yaw }
     actors[spec.actorId] = {
-      status: dead ? 'dead' : 'reserve',
-      ...(hp !== undefined ? { hp } : {}),
-      ...(legacy?.ammo !== undefined ? { ammo: legacy.ammo } : {}),
-      ...(legacy?.shieldImpact !== undefined ? { shieldImpact: legacy.shieldImpact } : {}),
-      ...(legacy?.order ? { order: legacy.order } : {}),
+      status: 'reserve',
       position: spawn,
-      ...(mountHp !== undefined && spec.cavalry ? {
-        mount: {
-          hp: mountHp,
-          armorImpactRemaining: savedHealth?.mountArmorImpact ?? legacy?.mount?.armorImpactRemaining ?? 0,
-          mounted: !dead && mountHp > 0 && (legacy?.mount?.mounted ?? true),
-          position: spawn,
-        },
-      } : {}),
     }
   }
-  const deadPlayer = Boolean(mission.playerDead)
-  const playerHp = deadPlayer ? 0
-    : mission.playerHp !== undefined ? Math.min(fallbackPlayer.maxHp, mission.playerHp) : fallbackPlayer.hp
-  const migratedMount = resolveMigratedPlayerMountState(
-    mission,
-    fallbackPlayer.mount?.mountId,
-    fallbackPlayer.profileMountArmor,
-  )
-  const resolvedMountHp = migratedMount.hp ?? fallbackPlayer.mount?.hp
-  const resolvedMountArmor = migratedMount.armorImpact ?? fallbackPlayer.mount?.armorImpactRemaining ?? 0
-  const mountDead = migratedMount.unavailable || (resolvedMountHp !== undefined && resolvedMountHp <= 0)
-  const finalMountHp = resolvedMountHp === undefined ? undefined : (mountDead ? 0 : resolvedMountHp)
-  const mountIdMatchesActive = !mission.mountState?.activeMountId
-    || !migratedMount.mountId
-    || mission.mountState.activeMountId === migratedMount.mountId
-  const mounted = !deadPlayer && !mountDead && (fallbackPlayer.mount?.mounted ?? mountIdMatchesActive)
+  const deadPlayer = fallbackPlayer.hp <= 0
+  const playerHp = fallbackPlayer.hp
+  const finalMountHp = fallbackPlayer.mount?.hp
+  const resolvedMountArmor = fallbackPlayer.mount?.armorImpactRemaining ?? 0
+  const mounted = !deadPlayer && (fallbackPlayer.mount?.mounted ?? false)
   const playerPosition = {
     x: fallbackPlayer.x,
     y: fallbackPlayer.y,
@@ -620,10 +556,10 @@ export function createCareerFieldCheckpointSeed(
   return {
     actors,
     ready: false,
-    playerStats: mission.playerStats ?? fallbackPlayer.stats,
+    playerStats: fallbackPlayer.stats,
     player: {
       hp: playerHp,
-      stamina: mission.playerStamina ?? fallbackPlayer.stamina,
+      stamina: fallbackPlayer.stamina,
       dead: deadPlayer,
       position: playerPosition,
       ammo: fallbackPlayer.ammo,

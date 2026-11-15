@@ -1,15 +1,15 @@
 import * as THREE from 'three'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
-import { resolveT4UnitLoadout, T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
-import { AIType, Faction } from '../world/NPC'
-import type { CharacterFaction } from '../world/CharacterVisuals'
-import { getTerrainHeight, getWalkRampHeight, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
-import { SIEGE_RAMP, siegeRampDeckHeightAt, siegeRampRearHeightAt, type SiegeRampAssignment, type SiegeRampPlacement, type TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
-import { TOWN_CITY, TOWN_GATES, townGatePoint, type TownGateId } from '../town/TownLayout'
+import { resolveT4UnitLoadout,T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { SIEGE_RAMP,siegeRampDeckHeightAt,siegeRampRearHeightAt,type SiegeRampAssignment,type SiegeRampPlacement,type TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
-import { townRampartHeight, TOWN_RAMPART, type TownRampartLayout } from '../town/TownRamparts'
 import type { TownDockSite } from '../town/TownDockPassages'
+import { TOWN_CITY,TOWN_GATES,townGatePoint,type TownGateId } from '../town/TownLayout'
+import { TOWN_RAMPART,townRampartHeight,type TownRampartLayout } from '../town/TownRamparts'
+import type { CharacterFaction } from '../world/CharacterVisuals'
+import { AIType,Faction } from '../world/NPC'
+import { getTerrainHeight,getWalkRampHeight,type ObstacleData,type WalkRampSurface } from '../world/Terrain'
 
 export const TOWN_SIEGE_DOCK_INWARD = TOWN_RAMPART.inward - TOWN_RAMPART.width / 2 + .9
 export type TownSiegeApproach = 'near-wall' | 'world-edge'
@@ -38,12 +38,11 @@ export interface TownSiegeCrewSlot { gateId: TownGateId; side: -1 | 1; role: 'pu
 export function townSiegeSectorReceiptsMatch(
   sector: { gateId: TownGateId; wallActorIds: readonly string[]; cavalryActorIds: readonly string[] } | undefined,
   saved: { gateId: TownGateId; releasedWallActorIds: readonly string[]; releasedCavalryActorIds: readonly string[] },
-  historicalRoles = false,
 ): boolean {
   if (!sector) return saved.releasedWallActorIds.length === 0 && saved.releasedCavalryActorIds.length === 0
   return sector.gateId === saved.gateId
-    && saved.releasedWallActorIds.every(id => sector.wallActorIds.includes(id) || historicalRoles && sector.cavalryActorIds.includes(id))
-    && saved.releasedCavalryActorIds.every(id => sector.cavalryActorIds.includes(id) || historicalRoles && sector.wallActorIds.includes(id))
+    && saved.releasedWallActorIds.every(id => sector.wallActorIds.includes(id))
+    && saved.releasedCavalryActorIds.every(id => sector.cavalryActorIds.includes(id))
 }
 
 /** A bounded overlap across the authored Voronoi sector, not a moving chase leash.

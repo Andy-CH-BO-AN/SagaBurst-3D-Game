@@ -1,20 +1,17 @@
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
-import { resolveT4UnitLoadout, T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
-import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
-import { AIType, Faction } from '../world/NPC'
-import type { CharacterFaction } from '../world/CharacterVisuals'
-import { TOWN_GATES, townGatePoint, type TownGateId } from '../town/TownLayout'
+import { resolveT4UnitLoadout,T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { UNIT_PRESETS,type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
+import { TOWN_GATES,townGatePoint,type TownGateId } from '../town/TownLayout'
+import type { CharacterFaction } from '../world/CharacterVisuals'
 import { XONGKORO_LANDING } from '../world/EagleLanding'
-import { createTownSiegeCrewSlots, type TownSiegeCrewSlot } from './TownFourGateSiegePolicy'
+import { AIType,Faction } from '../world/NPC'
+import { createTownSiegeCrewSlots,type TownSiegeCrewSlot } from './TownFourGateSiegePolicy'
 
 export const COMMANDER_FOUR_GATE_DEFENSE_ID = 'commander-four-gate-defense'
 /** Current accepted enemy army: 80 crew, 60 lancers, 60 archers and 80 T3 siege-escort infantry. */
 export const COMMANDER_FOUR_GATE_DEFENSE_ENEMIES = 280
-/** Accepted before the infantry escort: the same army with 30 Giant Eagle Rangers and no infantry. */
-export const COMMANDER_FOUR_GATE_DEFENSE_LEGACY_ENEMIES = 230
-/** Independent of the defender `rosterVersion`. Absent in a save means the legacy 230 enemy army. */
-export type CommanderEnemyRosterVersion = 1 | 2
+export type CommanderEnemyRosterVersion = 2
 export const COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION: CommanderEnemyRosterVersion = 2
 export const COMMANDER_FOUR_GATE_DEFENSE_INFANTRY_PER_RAMP = 10
 export const COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS = 180
@@ -31,7 +28,7 @@ export interface CommanderFourGateDefenseSlot {
 
 /** Saved identity is named by gate, vehicle, role and authored slot. Array reordering is harmless. */
 export function commanderFourGateDefenseSlots(missionId: string,
-  enemyVersion: CommanderEnemyRosterVersion = COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION): CommanderFourGateDefenseSlot[] {
+  _enemyVersion: CommanderEnemyRosterVersion = COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION): CommanderFourGateDefenseSlot[] {
   const slots: CommanderFourGateDefenseSlot[] = []
   for (const gate of TOWN_GATES) {
     for (const side of [-1, 1] as const) {
@@ -40,7 +37,7 @@ export function commanderFourGateDefenseSlots(missionId: string,
       for (let slot = 1; slot <= 5; slot++) slots.push({ actorId: `${prefix}:assault:t4:${slot}`, gateId: gate.id, side, role: 'assault', tier: 4, slot })
       slots.push({ actorId: `${prefix}:assault:t5:leader`, gateId: gate.id, side, role: 'assault', tier: 5, slot: 1 })
       // Rear guard of this exact vehicle; never Crew. Identity is faction-neutral.
-      if (enemyVersion === 2) for (let slot = 1; slot <= COMMANDER_FOUR_GATE_DEFENSE_INFANTRY_PER_RAMP; slot++) {
+      for (let slot = 1; slot <= COMMANDER_FOUR_GATE_DEFENSE_INFANTRY_PER_RAMP; slot++) {
         slots.push({ actorId: `${prefix}:escort:infantry:${slot}`, gateId: gate.id, side, role: 'infantry', tier: 3, slot })
       }
     }
@@ -49,9 +46,6 @@ export function commanderFourGateDefenseSlots(missionId: string,
       slots.push({ actorId: `${missionId}:${gate.id}:${role}:t4:leader`, gateId: gate.id, role, tier: 4, slot: 15 })
     }
   }
-  // Legacy 230-man missions keep their Giant Eagle Rangers; new missions have none.
-  if (enemyVersion === 1) for (let slot = 1; slot <= 30; slot++) slots.push({ actorId: `${missionId}:air:ranger:${slot}`,
-    gateId: TOWN_GATES[(slot - 1) % TOWN_GATES.length].id, role: 'ranger', tier: 4, slot })
   return slots
 }
 

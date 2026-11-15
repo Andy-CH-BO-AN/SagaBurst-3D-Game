@@ -1,5 +1,5 @@
-import { canonicalCareerMountId, type CareerMountId } from './CareerProfile'
 import type { ActiveCareerMission } from './CareerMissionState'
+import { canonicalCareerMountId,type CareerMountId } from './CareerProfile'
 
 /** Primitive save-field parsers shared by the Career profile and mission parsers. */
 
@@ -32,7 +32,7 @@ export function parseMissionPlayerStats(value: unknown): ActiveCareerMission['pl
   return Object.values(stats).some(value => value > 0) ? stats : undefined
 }
 
-export const CAREER_MOUNT_IDS: CareerMountId[] = ['horse', 'armored-horse', 'horse-t1', 'horse-t2', 'horse-t3', 'black-cat', 'white-cat', 'orange-cat', 'serval', 'caracal', 'corgi', 'snow-leopard', 'xongkoro']
+export const CAREER_MOUNT_IDS: CareerMountId[] = ['horse', 'armored-horse', 'black-cat', 'white-cat', 'orange-cat', 'serval', 'caracal', 'corgi', 'snow-leopard', 'xongkoro']
 
 export function parseMountArmor(value: unknown): Partial<Record<CareerMountId, number>> {
   const result: Partial<Record<CareerMountId, number>> = {}

@@ -1,34 +1,37 @@
-import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
-import { generateFormationSlots } from '../battle/FormationMath'
-import { registerPersonalCombatDisplayName } from '../ui/CombatTargetDisplayName'
-import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
-import type { TacticalOrder } from '../battle/TacticalOrder'
 import * as THREE from 'three'
 import { PERSONAL_SQUAD_ID } from '../battle/CommandTarget'
 import { followLocalOffset } from '../battle/FollowOrder'
-import { resolveCharacterIdentity } from '../combat/CharacterIdentity'
-import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
-import { HERO_ASSETS } from '../world/HeroAssetCatalog'
-import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
-import { prepareByzantineEquipment, preloadHighTierEquipment } from '../world/HighTierEquipment'
-import { preloadPaladinEquipment } from '../world/PaladinEquipment'
+import { generateFormationSlots } from '../battle/FormationMath'
+import type { TacticalOrder } from '../battle/TacticalOrder'
 import type { UnitPresetId } from '../battle/UnitPresetCatalog'
+import { resolveCharacterIdentity } from '../combat/CharacterIdentity'
 import type { CombatEventSink } from '../combat/CombatAttribution'
 import type { Player } from '../player/Player'
-import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
-import { Mount } from '../world/Mount'
-import { NPC, AIType, Faction } from '../world/NPC'
-import { getTerrainHeight } from '../world/Terrain'
+import { T4_RANGER_BOW_RANGED_ID,WEAPONS } from '../rpg/WeaponDatabase'
+import { registerPersonalCombatDisplayName } from '../ui/CombatTargetDisplayName'
 import type { EagleLandingQueue } from '../world/EagleLandingQueue'
 import { isEaglePadArrived } from '../world/EaglePadArrival'
-import { legacyPersonalEquipment } from './CareerInventory'
-import { careerEaglePadOwners, EaglePadReservations, type EaglePad } from './EaglePadReservations'
+import { HERO_ASSETS } from '../world/HeroAssetCatalog'
+import { preloadHighTierEquipment,prepareByzantineEquipment } from '../world/HighTierEquipment'
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
+import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
+import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
+import { Mount } from '../world/Mount'
+import { AIType,Faction,NPC } from '../world/NPC'
+import { assertNpcSpawnJob,gameplayNpcSpawns,trackNpcSpawn,type NpcSpawnBatch,type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
+import { preloadPaladinEquipment } from '../world/PaladinEquipment'
+import { getTerrainHeight } from '../world/Terrain'
+import { refitCommandActor,refitCommandCheckpoint,restoreShieldDurability,savedShieldDurability } from './CareerCommandActorCheckpoint'
 import { careerMountType } from './CareerMountController'
-import { PERSONAL_SQUAD_LIMIT, type CareerPersonalSquadMember } from './CareerPersonalSquad'
-import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
-import { refitCommandActor, refitCommandCheckpoint, restoreShieldDurability, savedShieldDurability } from './CareerCommandActorCheckpoint'
-import { snapshotPersonalMission, clonePersonalMission, preparePersonalMissionAcceptance, type PersonalActorCheckpoint, type PersonalActorPosition,
-  type PersonalSquadMission, type PersonalSquadState } from './CareerPersonalSquadMission'
+import { PERSONAL_SQUAD_LIMIT,type CareerPersonalSquadMember } from './CareerPersonalSquad'
+import {
+clonePersonalMission,preparePersonalMissionAcceptance,
+snapshotPersonalMission,
+type PersonalActorCheckpoint,type PersonalActorPosition,
+type PersonalSquadMission,type PersonalSquadState
+} from './CareerPersonalSquadMission'
+import { cloneCareerProfile,type CareerProfile } from './CareerProfile'
+import { careerEaglePadOwners,EaglePadReservations,type EaglePad } from './EaglePadReservations'
 
 export type PersonalSquadSpawnSlot = PersonalActorPosition
 export function personalMemberLoadout(member: CareerPersonalSquadMember, faction: CareerProfile['faction']) {
@@ -37,7 +40,7 @@ export function personalMemberLoadout(member: CareerPersonalSquadMember, faction
   const identity = resolveCharacterIdentity({ characterFaction, characterTier,
     heroArchetype: member.heroArchetype ?? (member.type === 'soldier' ? undefined : member.type), visualAssetId: member.visualAssetId })
   if (member.type === 'ranger' && !member.equipment) throw new Error('Ranger equipment must be migrated and saved before deployment')
-  const equipment = member.equipment ?? legacyPersonalEquipment(member.type, characterFaction)
+  const equipment = member.equipment!
   const primaryWeapon = WEAPONS[equipment.ranged ?? equipment.melee ?? '']
   // Select valid catalog metadata from actual equipment; the hero is always resolved from identity.
   const presets = characterFaction === 'roman'

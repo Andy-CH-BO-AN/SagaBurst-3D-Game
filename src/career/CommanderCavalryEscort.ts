@@ -1,14 +1,14 @@
 import type { MobileSiegeRampState } from '../campaign/MobileSiegeRampController'
 import type { TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
-import { TOWN_GATES, townGatePoint, type TownGateId } from '../town/TownLayout'
+import { TOWN_GATES,townGatePoint,type TownGateId } from '../town/TownLayout'
 import { commanderFourGateDefenseSlots } from './CommanderFourGateDefenseRoster'
 
 /** Mission-only ground escort geometry; mounted movement/collision remains with the actor. */
 export const COMMANDER_CAVALRY_ESCORT = {
   /** Distance to the owning gate at which the lancers leave the vehicle and charge. */
   releaseDistance: 100,
-  /** Missions accepted with the 230-man army keep their original release radius and geometry. */
-  legacyReleaseDistance: 50,
+  /** Vehicle corridor clipping is separate from the combat release radius. */
+  clearanceEndDistance: 50,
   stallSeconds: 20,
   progressDistance: .5,
   columnSpacing: 4,
@@ -60,9 +60,6 @@ export interface CommanderCavalryEscortRampFrame {
   alivePushers: number
 }
 
-export const commanderCavalryReleaseDistance = (enemyVersion: 1 | 2): number =>
-  enemyVersion === 1 ? COMMANDER_CAVALRY_ESCORT.legacyReleaseDistance : COMMANDER_CAVALRY_ESCORT.releaseDistance
-
 const rampId = (gateId: TownGateId, side: -1 | 1): TownSiegeRampId => `town-siege-ramp:${gateId}:${side < 0 ? 'left' : 'right'}`
 
 /** Authored lancer identities are independent of NPC array order and restored casualties. */
@@ -82,7 +79,7 @@ export function createCommanderCavalryEscort(missionId: string): CommanderCavalr
   }
 }
 
-/** Undefined is the released legacy ATTACKING path; never create a new group during restore. */
+/** Absent before attacker deployment; restore never creates or releases escort groups. */
 export function isCommanderCavalryEscorting(checkpoint: CommanderCavalryEscortCheckpoint | undefined, actorId: string): boolean {
   return checkpoint?.actors[actorId]?.mode === 'escort'
 }

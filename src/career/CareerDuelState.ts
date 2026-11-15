@@ -1,15 +1,15 @@
-import { getOrdinarySoldierHp } from '../combat/OrdinarySoldierProfile'
-import {
-  UNIT_PRESETS,
-  type UnitPresetId, type UnitTier,
-} from '../battle/UnitPresetCatalog'
-import type { CharacterFaction } from '../world/CharacterVisuals'
-import type { CombatEvent } from '../combat/CombatAttribution'
+import { parseDuelArenaId,type DuelArenaId } from '../arena/DuelArenaCatalog'
 import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
-import type { CareerProfile } from './CareerProfile'
+import {
+UNIT_PRESETS,
+type UnitPresetId,type UnitTier,
+} from '../battle/UnitPresetCatalog'
+import type { CombatEvent } from '../combat/CombatAttribution'
+import { getOrdinarySoldierHp } from '../combat/OrdinarySoldierProfile'
+import type { CharacterFaction } from '../world/CharacterVisuals'
 import { careerDuelClassOptions } from './CareerDuelClasses'
-import { createCareerMissionId, type ActiveCareerMission, type CareerMissionOutcome } from './CareerMissionState'
-import { parseDuelArenaId, type DuelArenaId } from '../arena/DuelArenaCatalog'
+import { createCareerMissionId,type ActiveCareerMission,type CareerMissionOutcome } from './CareerMissionState'
+import type { CareerProfile } from './CareerProfile'
 
 export const CAREER_DUEL_TEMPLATE_ID = 'career-duel'
 export const DUEL_COUNTDOWN_SECONDS = 5
@@ -110,7 +110,7 @@ export function createCareerDuelMission(
   refereeActorId = captainActorId,
   mode: CareerDuelMode = 'armed',
   classId?: HeroCombatProfileId,
-  arenaId?: DuelArenaId,
+  arenaId: DuelArenaId = profile.faction === 'roman' ? 'roman-colosseum' : 'viking-valhalla',
 ): ActiveCareerMission | null {
   // A requested arena must be a saved, known ID; omitting it keeps the legacy Town forecourt.
   if (arenaId !== undefined && !parseDuelArenaId(arenaId)) return null

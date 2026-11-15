@@ -1,22 +1,16 @@
+import { type TownActorSpec } from '../town/TownRules'
+import { createMissionCommandAuthority,type OfficialCommandSquad } from './CareerCommandAuthority'
+import { careerItemTotal } from './CareerInventory'
+import { createCareerMissionId,type ActiveCareerMission } from './CareerMissionState'
+import { resolveCareerReliefMount } from './CareerOutpostMission'
+import { snapshotPersonalMission } from './CareerPersonalSquadMission'
+import { CAREER_RANKS,type CareerProfile } from './CareerProfile'
 import { commanderGateDefenseSlots } from './CommanderTownRoster'
 export { commanderGateDefenseSlots } from './CommanderTownRoster'
-import { CAREER_RANKS, type CareerProfile } from './CareerProfile'
-import { careerItemTotal } from './CareerInventory'
-import { resolveCareerReliefMount } from './CareerOutpostMission'
-import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
-import { snapshotPersonalMission } from './CareerPersonalSquadMission'
-import { townDefenseForceCounts, type TownActorSpec } from '../town/TownRules'
-import type { TownGateId } from '../town/TownLayout'
-import { siegeDefensePlans, type SiegeDefensePlan } from './TownSiege'
-import { createMissionCommandAuthority, type OfficialCommandSquad } from './CareerCommandAuthority'
 
 export const CAPTAIN_PATROL_COMMAND_ID = 'captain-patrol-command'
 export const CAPTAIN_CAVALRY_COMMAND_ID = 'captain-cavalry-command'
-export const CAPTAIN_GATE_DEFENSE_ID = 'captain-gate-defense'
-export const CAPTAIN_DEFENSE_GATE: TownGateId = 'north'
-export const CAPTAIN_DEFENSE_GATE_LABEL = '北門'
 export const CAPTAIN_FRONTLINE_COMMAND_ID = 'captain-frontline-command'
-export const CAPTAIN_SIEGE_COMMAND_ID = 'captain-siege-command'
 export const CAPTAIN_EAGLE_BATTLE_ID = 'captain-eagle-battle'
 
 interface CaptainMissionCommon {
@@ -31,14 +25,11 @@ interface CaptainMissionCommon {
   requiresEnlistmentMerit: 0
   storyOnce: false
 }
-export type CaptainMissionKind = 'captain-patrol-command' | 'cavalry-sweep' | 'town-defense' | 'captain-outpost-defense' | 'enemy-town-assault' | 'captain-eagle-battle'
-export type CaptainMissionDefinition = CaptainMissionCommon & (
-  | { kind: 'town-defense'; targetArea: 'career-town'; friendlySoldiers: number; enemyCount: number; civilianCount: number; maxCivilianDeaths: number }
-  | { kind: Exclude<CaptainMissionKind, 'town-defense'> }
-)
+export type CaptainMissionKind = 'captain-patrol-command' | 'cavalry-sweep' | 'captain-outpost-defense' | 'captain-eagle-battle'
+export type CaptainMissionDefinition = CaptainMissionCommon & { kind: CaptainMissionKind }
 const entry = (id: string, kind: CaptainMissionKind, name: string, briefing: string, friendlyCombatants: number, enemyCombatants: number): CaptainMissionDefinition => {
   const common: CaptainMissionCommon = { id, name, briefing, friendlyCombatants, enemyCombatants, risk: '高', minRank: 'captain', requiresCompletions: 0, requiresEnlistmentMerit: 0, storyOnce: false }
-  return kind === 'town-defense' ? { ...common, kind, targetArea: 'career-town', friendlySoldiers: friendlyCombatants - 1, enemyCount: enemyCombatants, civilianCount: 20, maxCivilianDeaths: 10 } : { ...common, kind }
+  return { ...common, kind }
 }
 export const CAPTAIN_MISSION_CATALOG: readonly CaptainMissionDefinition[] = [
   entry(CAPTAIN_PATROL_COMMAND_ID, 'captain-patrol-command', 'Captain I · Patrol Command · 實習隊長巡邏', '目標：指揮 20 人巡邏隊，累積 30 次有效擊殺。', 21, 30),
@@ -46,8 +37,6 @@ export const CAPTAIN_MISSION_CATALOG: readonly CaptainMissionDefinition[] = [
   entry(CAPTAIN_FRONTLINE_COMMAND_ID, 'captain-outpost-defense', 'Captain III · Frontline Commander · 前線指揮官', '目標：守住前線營地。90 名守軍加上你，迎戰 200 名 T3 與 2 名 T4 敵軍；120 秒後有 50 名友軍騎兵增援。', 91, 202),
   entry(CAPTAIN_EAGLE_BATTLE_ID, 'captain-eagle-battle', 'Captain IV · Eagle Battle · 巨鷹空戰', '目標：30 對 30 巨鷹空戰（我方含你）。已招募的私兵會額外參戰。', 30, 30),
 ]
-export const RETIRED_CAPTAIN_GATE_DEFENSE_DEFINITION: CaptainMissionDefinition = entry(CAPTAIN_GATE_DEFENSE_ID, 'town-defense', 'Captain III · Gate Defense · 城門防衛', '目標：指揮北門步兵守住城門，擊退來襲敵軍；其他城門由守軍自行防守。', townDefenseForceCounts().friendlyCombatants, 120)
-export const RETIRED_CAPTAIN_SIEGE_COMMAND_DEFINITION: CaptainMissionDefinition = entry(CAPTAIN_SIEGE_COMMAND_ID, 'enemy-town-assault', 'Captain V · Siege Commander · 攻城隊長', '目標：率領 120 人（含你）從四門進攻敵城。你指揮北門 29 人，其餘三門由 AI 指揮；擊潰全部地面守軍並迫使空軍撤離。', 120, 0)
 export function getCaptainMissionDefinition(id: string): CaptainMissionDefinition | null {
   return CAPTAIN_MISSION_CATALOG.find(template => template.id === id) ?? null
 }
@@ -65,12 +54,6 @@ export function getCaptainMissionAvailability(profile: CareerProfile, templateId
 }
 export function availableCaptainMissions(profile: CareerProfile): CaptainMissionDefinition[] {
   return CAPTAIN_MISSION_CATALOG.filter(template => getCaptainMissionAvailability(profile, template.id).unlocked)
-}
-/** The complete gate infantry plan owns authorization, including ranged infantry and officers. */
-export function captainGateDefenseActorIds(residents: readonly TownActorSpec[], unavailableActorIds: ReadonlySet<string> = new Set(), defensePlans: readonly SiegeDefensePlan[] = siegeDefensePlans(residents)): string[] {
-  const residentIds = new Set(residents.map(actor => actor.id))
-  return (defensePlans.find(plan => plan.gateId === CAPTAIN_DEFENSE_GATE)?.infantry ?? [])
-    .filter(id => residentIds.has(id) && !unavailableActorIds.has(id))
 }
 export function commanderGateDefenseSquads(residents: readonly TownActorSpec[], friendlyActorIds: readonly string[], unavailableActorIds: ReadonlySet<string> = new Set()): OfficialCommandSquad[] {
   const residentIds = new Set(residents.map(actor => actor.id)), accepted = new Set(friendlyActorIds)

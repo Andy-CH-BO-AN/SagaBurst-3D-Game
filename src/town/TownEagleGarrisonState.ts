@@ -1,5 +1,5 @@
-import { parseEagleFlightSnapshot, type EagleFlightSnapshot } from '../movement/EagleFlightController'
-import { parseFallingRiderSnapshot, type FallingRiderSnapshot } from '../movement/FallingRider'
+import { parseEagleFlightSnapshot,type EagleFlightSnapshot } from '../movement/EagleFlightController';
+import { parseFallingRiderSnapshot,type FallingRiderSnapshot } from '../movement/FallingRider';
 
 export const EAGLE_DUTIES = ['standby', 'walking-to-mount', 'mounted-waiting', 'sortie', 'patrolling', 'resting', 'return-queue', 'returning', 'walking-to-standby', 'casualty'] as const
 export type TownEagleDuty = typeof EAGLE_DUTIES[number]
@@ -63,12 +63,11 @@ export function parseTownEagleGarrisonState(value: unknown): TownEagleGarrisonSt
 }
 
 export type TownEagleGarrisons = Partial<Record<'roman' | 'viking', TownEagleGarrisonState>>
-export function parseTownEagleGarrisons(value: unknown, legacy?: unknown): TownEagleGarrisons | undefined {
+export function parseTownEagleGarrisons(value: unknown): TownEagleGarrisons | undefined {
   const result: TownEagleGarrisons = {}
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
-  const old = parseTownEagleGarrisonState(legacy)
   for (const faction of ['roman', 'viking'] as const) {
-    const state = parseTownEagleGarrisonState(raw[faction]) ?? (old?.sceneKey === `town:${faction}` ? old : undefined)
+    const state = parseTownEagleGarrisonState(raw[faction])
     if (state?.sceneKey === `town:${faction}`) result[faction] = state
   }
   return Object.keys(result).length ? result : undefined

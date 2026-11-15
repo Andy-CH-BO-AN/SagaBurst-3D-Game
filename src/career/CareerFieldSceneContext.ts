@@ -1,8 +1,8 @@
 import { Faction } from '../combat/CombatFaction'
+import { townRoster,type TownActorSpec } from '../town/TownRules'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { ActiveCareerMission } from './CareerMissionState'
 import type { CareerProfile } from './CareerProfile'
-import { townRoster, type TownActorSpec } from '../town/TownRules'
 import { VETERAN_MISSION_IDS } from './VeteranMission'
 
 export interface CareerTownSceneContext {
@@ -23,8 +23,7 @@ function opposingFaction(faction: CharacterFaction): CharacterFaction {
 export function resolveCareerTownSceneContext(
   profile: Pick<CareerProfile, 'faction' | 'activeMission'>,
 ): CareerTownSceneContext {
-  const enemyTownAssault = profile.activeMission?.kind === 'enemy-town-assault'
-    || profile.activeMission?.kind === 'commander-sky-raid'
+  const enemyTownAssault = profile.activeMission?.kind === 'commander-sky-raid'
     || profile.activeMission?.kind === 'commander-decapitation'
   const enemyTerritoryField = isCareerEnemyTerritoryFieldMission(profile.activeMission)
   const foreignTownFaction = enemyTownAssault || enemyTerritoryField
@@ -105,8 +104,7 @@ export function careerTownSceneRoster(
   const context = resolveCareerTownSceneContext(profile)
   const commanderTown = activeMission?.kind === 'commander-sky-raid'
     || activeMission?.kind === 'commander-decapitation'
-  const allegiance = activeMission?.kind === 'enemy-town-assault'
-    || commanderTown ? Faction.ENEMY : Faction.TOWN
+  const allegiance = commanderTown ? Faction.ENEMY : Faction.TOWN
   return nativeSpecs.map(spec => ({
     spec: { ...spec },
     characterFaction: townResidentCharacterFaction(spec, context.residentFaction),

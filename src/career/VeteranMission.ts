@@ -1,14 +1,14 @@
-import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
-import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
-import { AIType, Faction } from '../world/NPC'
-import type { CharacterFaction } from '../world/CharacterVisuals'
-import { cloneCareerProfile, CAREER_RANKS, type CareerProfile } from './CareerProfile'
-import { resolveCareerReliefMount } from './CareerOutpostMission'
-import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
-import { townRoster } from '../town/TownRules'
+import { T4_UNIT_PROFILES,resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import { UNIT_PRESETS,type UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { TownCavalryMissionSlot } from '../town/TownCavalryReserve'
+import { townRoster } from '../town/TownRules'
+import type { CharacterFaction } from '../world/CharacterVisuals'
+import { AIType,Faction } from '../world/NPC'
+import { createCareerMissionId,type ActiveCareerMission } from './CareerMissionState'
+import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { snapshotPersonalMission } from './CareerPersonalSquadMission'
+import { CAREER_RANKS,cloneCareerProfile,type CareerProfile } from './CareerProfile'
 
 export const VETERAN_MISSION_IDS = [
   'veteran-dread-outpost',
@@ -19,7 +19,7 @@ export const VETERAN_MISSION_IDS = [
   'veteran-tragedy-of-the-scouts',
 ] as const
 export type VeteranMissionTemplateId = typeof VETERAN_MISSION_IDS[number]
-export type VeteranRosterVersion = 1 | 2 | 3
+export type VeteranRosterVersion = 2 | 3
 export type VeteranMissionKind = 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault'
 export type VeteranTownRole = 'captain' | 'ranger' | 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry'
 export type VeteranMissionObjective = { kind: 'eliminate-all' } | { kind: 'survive'; seconds: 120 }
@@ -83,10 +83,7 @@ function reusesAllTownCavalry(templateId: string): boolean {
 /** Persist resident identities while changing only their mission equipment. */
 function equipExistingTownCavalry(roster: VeteranMissionRoster, missionId: string, actorIds?: readonly string[]): void {
   const requested = new Set(actorIds ?? TOWN_CAVALRY.map(actor => actor.id))
-  // Accepted missions may retain pre-expansion IDs whose peaceful slots are now infantry.
-  // Only explicit saved borrowing can temporarily re-equip those actors as mounted mission units.
-  const legacySlots = townRoster().filter(actor => actor.defenseGroup === 'E' || actor.defenseGroup === 'F')
-  const available = [...TOWN_CAVALRY, ...legacySlots].filter(actor => requested.has(actor.id))
+  const available = TOWN_CAVALRY.filter(actor => requested.has(actor.id))
   roster.friendly.filter(unit => unit.tier === 3).forEach((unit, index) => {
     const resident = available[index]
     unit.source = resident ? 'town' : 'temporary'
@@ -299,7 +296,7 @@ function makeEnemyGroups(missionId: string, faction: CharacterFaction, groups: r
   return output
 }
 
-function buildVeteranRoster(templateId: VeteranMissionTemplateId, faction: CharacterFaction, missionId: string, rosterVersion: VeteranRosterVersion): VeteranMissionRoster {
+function buildVeteranRoster(templateId: VeteranMissionTemplateId, faction: CharacterFaction, missionId: string, _rosterVersion: VeteranRosterVersion): VeteranMissionRoster {
   const opposing = oppositeFaction(faction)
   let friendly: VeteranRosterUnit[] = []
   let enemy: VeteranRosterUnit[] = []
@@ -390,16 +387,7 @@ function buildVeteranRoster(templateId: VeteranMissionTemplateId, faction: Chara
     }
     case 'veteran-tragedy-of-the-scouts': {
       squadSizes = [10, 10]
-      friendly = rosterVersion === 1
-        ? makeFriendlyArmy(missionId, faction, squadSizes, [
-          { presetId: capt, heroRole: 'captain', source: 'town', townRole: 'captain' },
-          { presetId: maki, heroRole: 'ranger', source: 'town', townRole: 'ranger' },
-        ], [
-          { role: 'lancer', count: 8, borrowRole: 'lancer_cavalry', borrowCount: 5 },
-          { role: 'sword_cavalry', count: 5, borrowRole: 'melee_cavalry', borrowCount: 5 },
-          { role: 'horse_archer', count: 4, borrowRole: 'ranged_cavalry', borrowCount: 4 },
-        ])
-        : makeVeteranScoutHeroParty(missionId, faction, capt, maki)
+      friendly = makeVeteranScoutHeroParty(missionId, faction, capt, maki)
       enemy = makeEnemyGroups(missionId, opposing, [
         { leaderRole: 'lancer', leaderHeroRole: 'captain', count: 25, blocks: [{ role: 'lancer', tier: 3, count: 24 }] },
         { leaderRole: 'sword_cavalry', leaderHeroRole: 'captain', count: 25, blocks: [{ role: 'lancer', tier: 3, count: 22 }, { role: 'sword_cavalry', tier: 3, count: 2 }] },

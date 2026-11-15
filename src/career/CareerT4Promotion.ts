@@ -1,6 +1,6 @@
-import type { CareerProfile } from './CareerProfile'
-import { applyClassRoad, classRoadOffer, type CareerClassOffer, type CareerClassRoad } from './CareerElitePromotion'
 import type { CharacterFaction } from '../world/CharacterVisuals'
+import { applyClassRoad,classRoadOffer,type CareerClassOffer,type CareerClassRoad } from './CareerElitePromotion'
+import type { CareerProfile } from './CareerProfile'
 
 /** T4 Captain classes. Independent of the T5 eliteClass/unlockedCareerClasses records; same road rules (CareerElitePromotion). */
 export type T4ClassId = 'paladin' | 'centurion' | 'varangian' | 'dragon-oathguard'
@@ -27,9 +27,7 @@ export function currentT4Class(profile: Pick<CareerProfile, 'faction' | 'rank' |
 /** Unlocked is distinct from current. A legacy Captain unlocks only its default; a Commander keeps only an explicit record. */
 export function unlockedT4Classes(profile: T4Profile): readonly T4ClassId[] {
   if (profile.rank !== 'captain' && profile.rank !== 'commander') return []
-  if (profile.unlockedT4Classes) return profile.unlockedT4Classes
-  const current = currentT4Class(profile)
-  return current ? [current] : []
+  return profile.unlockedT4Classes ?? []
 }
 
 export const T4_CLASS_ROAD: CareerClassRoad<T4ClassId> = {

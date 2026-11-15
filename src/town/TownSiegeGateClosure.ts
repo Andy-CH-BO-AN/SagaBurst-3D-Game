@@ -1,9 +1,9 @@
 import * as THREE from 'three'
 import type { CampaignGateController } from '../campaign/CampaignGate'
-import type { TownGateId } from './TownLayout'
+import { siegeOutward } from '../career/TownSiegeGeometry'
 import type { ObstacleData } from '../world/Terrain'
 import { getTerrainHeight } from '../world/Terrain'
-import { siegeOutward } from '../career/TownSiege'
+import type { TownGateId } from './TownLayout'
 
 export interface GateClosureBody {
   position: THREE.Vector3
