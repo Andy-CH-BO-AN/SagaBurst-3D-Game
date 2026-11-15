@@ -5,6 +5,8 @@ import { ProjectileAdmission, projectileAmmoAfterLaunch } from '../../src/combat
 import { findBlockingProjectileObstacleAlongPath, getTerrainHeight, setObstaclePathQuerySource, type ObstacleData } from '../../src/world/Terrain'
 import { TownProjectileObstacles } from '../../src/town/TownProjectileObstacles'
 import { ProjectileContactQuery } from '../../src/combat/ProjectileContactQuery'
+import { RANGED_SIGHT_REUSE_SECONDS, RangedSightReuse } from '../../src/combat/RangedSightReuse'
+import { markObstacleTopologyChanged } from '../../src/world/ObstacleTopology'
 import type { PhysicalCombatTarget } from '../../src/combat/ShieldBlocking'
 import type { DamageableObstacle } from '../../src/world/DamageableObstacle'
 
@@ -286,6 +288,30 @@ describe('registered-source ballistic broad phase', () => {
     } finally {
       setObstaclePathQuerySource(source, false)
     }
+  })
+})
+
+describe('ranged sight reuse', () => {
+  it('reuses one target\'s trace briefly and retraces on target, movement, time or topology change', () => {
+    const sight = new RangedSightReuse(), obstacles: ObstacleData[] = []
+    const archer = { x: 0, y: 5, z: 0 }, enemy = {}, other = {}, at = { x: 30, y: 0, z: 0 }
+    let traces = 0, clear = true
+    const ask = (now: number, target: object | null = enemy, shooter = archer, position = at) =>
+      sight.isClear(now, target, shooter, position, obstacles, () => { traces++; return clear })
+    expect(ask(0)).toBe(true)
+    clear = false
+    // Same pair inside the window and movement limit keeps the first answer.
+    expect(ask(RANGED_SIGHT_REUSE_SECONDS * .9, enemy, archer, { x: 30.3, y: 0, z: .2 })).toBe(true)
+    expect(traces).toBe(1)
+    expect(ask(.1, other)).toBe(false); expect(traces).toBe(2)
+    expect(ask(.11, other, { x: 0, y: 5, z: .6 })).toBe(false); expect(traces).toBe(3)
+    clear = true
+    expect(ask(.11 + RANGED_SIGHT_REUSE_SECONDS, other, { x: 0, y: 5, z: .6 })).toBe(true); expect(traces).toBe(4)
+    clear = false
+    markObstacleTopologyChanged(obstacles)
+    expect(ask(.4, other, { x: 0, y: 5, z: .6 })).toBe(false); expect(traces).toBe(5)
+    // Position-only targets are never reused.
+    expect(ask(.4, null)).toBe(false); expect(ask(.4, null)).toBe(false); expect(traces).toBe(7)
   })
 })
 

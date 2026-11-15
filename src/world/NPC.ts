@@ -1,3 +1,4 @@
+import { RangedSightReuse } from '../combat/RangedSightReuse'
 import { traceFistStrike, UNARMED_ATTACK_DISTANCE, UNARMED_DAMAGE, UNARMED_RANGE, UNARMED_STOP_DISTANCE } from '../combat/UnarmedCombat'
 import { resolveOrdinaryNpcHp } from '../combat/OrdinarySoldierProfile'
 import { resolveCharacterIdentity, type CharacterIdentity, type CharacterTier, type HeroArchetype } from '../combat/CharacterIdentity'
@@ -760,6 +761,14 @@ export class NPC {
   private readonly _tmpRangedArcPoint = new THREE.Vector3()
   private readonly _rangedPathBounds = new THREE.Box3()
   private readonly _rangedPathObstacles: ObstacleData[] = []
+  /** Simulation seconds for short-lived ranged sight reuse (marching contact, rampart shot). */
+  private _sightClock = 0
+  private readonly _missionSight = new RangedSightReuse()
+  private readonly _rampartSight = new RangedSightReuse()
+  private readonly _rampartThreatSight = new RangedSightReuse()
+  private readonly _rampScanCandidates: ObstacleData[] = []
+  private readonly _rampScanDistances: number[] = []
+  private readonly _rampScanOrder: number[] = []
   private readonly _rangedTargetCandidates: NPC[] = []
   private readonly _rangedTargetEligible: NPC[] = []
   private readonly _rangedTargetEligibleDistSq: number[] = []
@@ -2880,6 +2889,7 @@ export class NPC {
     chaseTargetCoordinator: ChaseTargetCoordinator | null = null,
   ): void {
     this._activeNavigationWorld = navigationWorld
+    if (Number.isFinite(dt) && dt > 0) this._sightClock += dt
     if (this.cavalryPassthroughTimer > 0) {
       this.cavalryPassthroughTimer = Math.max(0, this.cavalryPassthroughTimer - dt)
     }
@@ -2974,7 +2984,9 @@ export class NPC {
       ? this.maxRangedAttackDistance : Math.min(20, this.maxRangedAttackDistance)
     const missionContact = missionTarget && !missionTarget.isDead
       && (this.hasActiveRangedWeapon ? this.combatPosition.distanceToSquared(missionTarget.position) <= missionRangedRange ** 2 : this._isTargetInDefendRange(missionTarget.position, missionTarget.isPlayer ? playerBodyBaseOffset : 0))
-      && this._findRangedTrajectoryBlocker(missionTarget.position, obstacles) === null
+      && this._missionSight.isClear(this._sightClock, missionTarget.isPlayer ? player : missionTarget.npc ?? null,
+        this.combatPosition, missionTarget.position, obstacles,
+        () => this._findRangedTrajectoryBlocker(missionTarget.position, obstacles) === null)
     if (missionContact) {
       this.tacticalOrder = 'defend'
       if (this.state !== AIState.ATTACK) this.state = AIState.ATTACK
@@ -3017,7 +3029,9 @@ export class NPC {
       if (this.holdsRampartFirePosition && this.hasActiveRangedWeapon) {
         const shootable = targetInfo && !targetInfo.isDead
           && this._isTargetInDefendRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
-          && this._findRangedTrajectoryBlocker(targetInfo.position, obstacles) === null
+          && this._rampartSight.isClear(this._sightClock, targetInfo.isPlayer ? player : targetInfo.npc ?? null,
+            this.combatPosition, targetInfo.position, obstacles,
+            () => this._findRangedTrajectoryBlocker(targetInfo!.position, obstacles) === null)
         if (shootable) {
           this.rampartThreat = null
           this._rangedVisibleTargetHoldFrames = NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES
@@ -3029,27 +3043,41 @@ export class NPC {
             if (this._trySwitchToVisibleRangedTarget(player, allNPCs, hostileNpcGrid, obstacles)) {
               targetInfo = this._getTarget(dt, player, allNPCs, hostileNpcGrid, chaseTargetCoordinator)
             } else {
-              let nearest = Infinity
+              // The nearest hittable enemy carrier (ties keep source order), traced nearest-first
+              // so the first acceptable one ends the scan instead of tracing every closer record.
+              const ramps = this._rampScanCandidates, distances = this._rampScanDistances, order = this._rampScanOrder
+              ramps.length = 0; distances.length = 0
               for (const obstacle of obstacles) {
                 const damageable = obstacle.damageable
                 if (!damageable || damageable.kind !== 'siege_ramp' || damageable.destroyed
                   || damageable.ownerFaction === this.characterFaction) continue
-                const point = this._getObstacleAttackPoint(obstacle, this._tmpSiegeTarget)
-                const distance = this._rangedObstacleDistance(point) ** 2
-                if (distance > DETECTION_RADIUS ** 2 || distance >= nearest) continue
-                const blocker = this._findRangedTrajectoryBlocker(point, obstacles)
-                if (blocker && blocker.damageable !== damageable) continue
-                nearest = distance
-                this.rampartThreat = obstacle
+                const distance = this._rangedObstacleDistance(this._getObstacleAttackPoint(obstacle, this._tmpSiegeTarget)) ** 2
+                if (distance > DETECTION_RADIUS ** 2) continue
+                ramps.push(obstacle); distances.push(distance)
               }
+              order.length = ramps.length
+              for (let i = 0; i < order.length; i++) order[i] = i
+              order.sort((a, b) => distances[a] - distances[b] || a - b)
+              for (const i of order) {
+                const point = this._getObstacleAttackPoint(ramps[i], this._tmpSiegeTarget)
+                const blocker = this._findRangedTrajectoryBlocker(point, obstacles)
+                if (blocker && blocker.damageable !== ramps[i].damageable) continue
+                this.rampartThreat = ramps[i]
+                break
+              }
+              ramps.length = 0
               targetInfo = null
             }
           } else targetInfo = null
           if (this.rampartThreat?.damageable?.destroyed) this.rampartThreat = null
           if (this.rampartThreat) {
-            const point = this._getObstacleAttackPoint(this.rampartThreat, this._tmpSiegeTarget)
-            const blocker = this._findRangedTrajectoryBlocker(point, obstacles)
-            if (!blocker || blocker.damageable === this.rampartThreat.damageable) {
+            const threat = this.rampartThreat
+            const point = this._getObstacleAttackPoint(threat, this._tmpSiegeTarget)
+            // A slowly moving carrier keeps its hit/blocked answer for a few frames.
+            if (this._rampartThreatSight.isClear(this._sightClock, threat, this.combatPosition, point, obstacles, () => {
+              const blocker = this._findRangedTrajectoryBlocker(point, obstacles)
+              return !blocker || blocker.damageable === threat.damageable
+            })) {
               targetInfo = { position: point, isDead: false, isPlayer: false }
             }
           }
