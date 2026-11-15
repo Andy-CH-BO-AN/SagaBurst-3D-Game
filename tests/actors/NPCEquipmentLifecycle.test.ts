@@ -6,6 +6,9 @@ import { AIState, AIType, Faction, NPC } from '../../src/world/NPC'
 vi.mock('../../src/ui/EquipmentLoadNotice', () => ({ showEquipmentLoadNotice: vi.fn() }))
 vi.mock('three/examples/jsm/loaders/GLTFLoader.js', () => ({
   GLTFLoader: class {
+    // Real loader configuration is chainable; these doubles only own loading.
+    setKTX2Loader() { return this }
+    setMeshoptDecoder() { return this }
     async parseAsync() { return { scene: { traverse() { } } } }
   }
 }))

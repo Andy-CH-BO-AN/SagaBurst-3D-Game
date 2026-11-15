@@ -33,7 +33,7 @@
   "lods": [
     {
       "lod": "lod0",
-      "sha256": "07d4eb559a6a5377f71fcf0f73b15930e92287bf74271649fd4cfc1d4c6a2e94",
+      "sha256": "f32a9a5668c6939eca9eaacc777eb7d5d6f83d939f3ded85ba66cdb50e61ffc3",
       "vertices": 18449,
       "fingerWeightedUniquePositions": 1099,
       "handSurfaceSha256": "edae6e03df81f6ba08db2652a067455d622d3bb2b5672cf2fe78edd2f4825bf7",
@@ -163,7 +163,7 @@
     },
     {
       "lod": "lod1",
-      "sha256": "a18851f4efe1f56585e563cfc3b20f4505564a89263507724d7c2c32c0837f82",
+      "sha256": "88ffab133a19909e8712c1f6fa3c345731f367e4b8d4708c5bc110a939785c2f",
       "vertices": 15851,
       "fingerWeightedUniquePositions": 1099,
       "handSurfaceSha256": "edae6e03df81f6ba08db2652a067455d622d3bb2b5672cf2fe78edd2f4825bf7",
@@ -293,7 +293,7 @@
     },
     {
       "lod": "lod2",
-      "sha256": "2e4e7d612fd29ec0986d08da4b528d845aa8e3acc847c01d4cc9a1aa96d5dab2",
+      "sha256": "2a04f043ce7af02587b50dc4e75ac6ab64ba4ba94db7d191d4c661b01bdef3b3",
       "vertices": 12689,
       "fingerWeightedUniquePositions": 1099,
       "handSurfaceSha256": "edae6e03df81f6ba08db2652a067455d622d3bb2b5672cf2fe78edd2f4825bf7",

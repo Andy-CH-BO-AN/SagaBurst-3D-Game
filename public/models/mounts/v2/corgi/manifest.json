@@ -13,7 +13,7 @@
     "sourceFile": "Meshy_AI_Saddled_Corgi_Knight_1017070214_texture.glb",
     "sourceSha256": "0d0a7925220ef045b7c70ed7071248565b742d76ea3d356d64b19f49a90175df"
   },
-  "attribution": "Model created with Meshy \u2013 CC BY 4.0 License. Modified for SagaBurst.",
+  "attribution": "Model created with Meshy – CC BY 4.0 License. Modified for SagaBurst.",
   "modifications": [
     "Uniform 1.65 scale with source paw-ground normalization and +Z heading",
     "Source-measured short-legged 21-joint rig, shared body/equipment border weights and actual saddle-center socket",
@@ -22,7 +22,8 @@
     "Seven accepted donor clips retargeted through measured rest bases; death-only visual settle",
     "Three index-only Meshopt LODs with locked borders; conservative LOD2 preserves atlas and silhouette",
     "2048 base-color JPEG, 1024 normal PNG and 1024 metallic-roughness PNG; byte-exact Meshopt buffer compression",
-    "Idle limb first-frame reference normalization preserves idle motion and removes persistent donor front-paw lift"
+    "Idle limb first-frame reference normalization preserves idle motion and removes persistent donor front-paw lift",
+    "Runtime budget pass: KTX2 (KHR_texture_basisu) textures within the runtime size cap; see tools/data/runtime-glb-budget-audit.json"
   ],
   "metrics": {
     "triangles": {
@@ -71,7 +72,7 @@
         "mimeType": "image/png"
       }
     ],
-    "packageBytes": 7815968,
+    "packageBytes": 6553360,
     "saddleHeightM": 1.3804707527160645,
     "sourceBytes": 20182548,
     "sourceTriangles": 10336,
@@ -166,7 +167,7 @@
     "socket_saddle_seat",
     "socket_camera"
   ],
-  "sha256": "f05ed47e6c038ee2dfc0be053212328ecbf49673608846c1afbbbba1fafa5a6e",
+  "sha256": "27e6ed5ae0cff7628e96e38dbfe819a66ce3693f9a484db381692ae8f516e209",
   "animationSource": "animation-source.json",
   "validation": {
     "assetContract": "pass; standalone exact-file mesh/skin/bind/seven-clip audit",

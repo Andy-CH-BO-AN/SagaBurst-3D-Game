@@ -25,12 +25,12 @@
     "lod2": "lod2.glb"
   },
   "fileSha256": {
-    "lod0": "8ed249372b939cb8fb088aafc976ad52256f7ec1d7e98350743bbfaf63d0e2aa",
-    "lod1": "f106036bfe3528f7335d5c49e048b0d765047910b0278ed9b3ddb37ec3577ae5",
-    "lod2": "d57d62afaa0f2284203dba8784e67e2b911025f6b7466a8efce84eb28b3849e2"
+    "lod0": "e22776b9de3abd3e7f6b54051e50a63046baf67e72d6635bfb99894887de4a3b",
+    "lod1": "4c859a8a47c41d71e3629cc6cc19edd31412cce87641cdce5faed6c729a7ac82",
+    "lod2": "f08a6b1a3957adc60d87040787fc6d6a944a3ef92006e073fa8008774b38493c"
   },
   "boneMap": "bone-map.json",
-  "audit": "finger-anatomy-audit.json",
+  "audit": "lod-publication-audit.json",
   "metrics": {
     "heightM": 1.95,
     "overallHeightM": 1.95,

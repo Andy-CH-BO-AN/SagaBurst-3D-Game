@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "id": "serval",
-  "sha256": "311f17ff311204010c25826fcb8faa11dcc8c2a479f9a9d76f39c7df7da82d7f",
+  "sha256": "df4142aa49a3f58e849236dd90238fc8c338c2339e86932469251da164be505d",
   "sourceSha256": "e213aefe3d6ade578cf0510b5a0a1fecd19fa84e378b4810e8234dfdcc82a9cf",
   "sourceContract": {
     "sourceTriangles": 31091,

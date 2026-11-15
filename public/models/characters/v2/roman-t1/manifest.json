@@ -387,7 +387,7 @@
     }
   },
   "boneMap": "bone-map.json",
-  "audit": "audit.json",
+  "audit": "lod-publication-audit.json",
   "animationRetarget": {
     "sourceAsset": "roman/lod0.glb",
     "groundContact": {
@@ -985,9 +985,9 @@
     ]
   },
   "fileSha256": {
-    "lod0": "60cf4897949174e1638e9c64dd1be6e3384bf4c228053869050ccc231c97876a",
-    "lod1": "3b713ea936ddfdc25647f657e3c73a27932102eef2de0e773ceb0975429a9dff",
-    "lod2": "db486a12ed8cbc4566d90af11a0485eb509cd8dd215d32d0f609eb4c01e79e92"
+    "lod0": "d25e114bf326c74c52ab48145ae72d886e05cda1190cac964a3686b9b856ffca",
+    "lod1": "14642e4c2a67de0ae50ef3aa5efef03eea957d988ab4046b88858697b8b5816f",
+    "lod2": "4511bad81db5a69f1527b6ff00004f0edf73878c002c9a444cbb6dc9229a769a"
   },
   "animations": {
     "embedded": [

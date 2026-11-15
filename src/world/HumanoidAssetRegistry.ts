@@ -18,9 +18,8 @@ import { InertialPoseTransition } from './InertialPoseTransition'
 import { calibrateEquipmentFrames, calibrateLanceIdleAttachment, LANCE_RADIUS, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { prepareEquipmentHandShape } from './EquipmentHandShape'
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
-import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import type { GLTF, GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { createRuntimeGltfLoader } from './RuntimeGltfLoader'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { createEquipmentSocketProxies } from './HumanoidEquipmentSockets'
@@ -1042,7 +1041,7 @@ export class HumanoidAssetRegistry {
   }
 
   private static async loadTemplate(faction: CharacterFaction, assetId: string, descriptor?: HumanoidAssetDescriptor): Promise<HumanoidTemplate> {
-    const loader = new GLTFLoader()
+    const loader = createRuntimeGltfLoader()
     const query = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
     const expGroup = query?.get('expGroup')?.toLowerCase()
     const base = publicAssetUrl(`models/characters/v2/${assetId}`)
@@ -1050,7 +1049,6 @@ export class HumanoidAssetRegistry {
     if (!response.ok) throw new Error(`Cannot load ${faction} humanoid manifest (${response.status})`)
     const manifest = await response.json() as HumanoidAssetManifest
     validateHumanoidManifest(faction, manifest, descriptor)
-    if (manifest.bufferCompression === 'EXT_meshopt_compression') loader.setMeshoptDecoder(MeshoptDecoder)
     if (manifest.selectedSource?.rig === 'mixamo66' || manifest.skinInfluenceSets === 4) loader.register(multiInfluenceSkinningPlugin)
     const files = manifest.files!
     const lod0File = (!descriptor && expGroup && ['g0', 'g1', 'g2', 'g3'].includes(expGroup))

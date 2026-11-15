@@ -15,11 +15,11 @@
     "sourceVertexCount": 5072,
     "retainedOriginalVertexPositions": true,
     "unchangedNonHandTopologyAndUvs": true,
-    "normalizedPositionMaxDifferenceM": 1.666000468656264e-08,
+    "normalizedPositionMaxDifferenceM": 1.666000468656264e-8,
     "unchangedWeightVertices": 4949,
     "changedHandWeightVertices": 123,
     "insertedHandSurfaceVertices": 972,
-    "newVertexSourceSurfaceMaxDistanceM": 1.365714012990793e-07,
+    "newVertexSourceSurfaceMaxDistanceM": 1.365714012990793e-7,
     "changedOutsideSourceHandOwnership": 0,
     "method": "Coordinate-matched original source versus pre-LOD finger rig. Every original position retained. Weight edits restricted to original hand>=0.45 vertices. New vertices confined to original faces with hand-owned subdivision edges; all unaffected face topology/UV corners retained."
   },
@@ -27,13 +27,13 @@
   "handSurfacePreservation": {
     "status": "passed",
     "method": "Bidirectional finger-weighted rest position and named-weight correspondence, independent of indices or UV seam duplication.",
-    "positionToleranceM": 1e-06,
-    "weightTolerance": 1e-05
+    "positionToleranceM": 0.000001,
+    "weightTolerance": 0.00001
   },
   "lods": [
     {
       "lod": "lod0",
-      "sha256": "610a6c99f32e08b1359e46b7d737ad779e34504b5ad18b3716487fad0eb11987",
+      "sha256": "5e979e03a1fd5192b0403b84194880a5cd33c1810737ec2002e2ae9d3882bbdd",
       "vertices": 21218,
       "fingerWeightedUniquePositions": 1056,
       "handSurfaceSha256": "03b67e453fa27b2a35f1c388f8d3d88a71053e42cf04defeb9a37b219acb21f0",
@@ -41,7 +41,7 @@
       "maxInfluences": 9,
       "minFirstFourWeightSum": 0.795247882604599,
       "verticesWithAdditionalInfluences": 8006,
-      "maxWeightSumError": 1.4994293451309204e-07,
+      "maxWeightSumError": 1.4994293451309204e-7,
       "fingerInfluences": {
         "thumb_02_l": 157,
         "thumb_01_l": 70,
@@ -163,7 +163,7 @@
     },
     {
       "lod": "lod1",
-      "sha256": "8c0f051b18182955538c9a4ca9a989f404dca4dbbde097ab4244eba705e94bde",
+      "sha256": "5f8dc1521de3d6507c6e62aca803aa483d03e490b51faa87225af2f6deab2bb6",
       "vertices": 20163,
       "fingerWeightedUniquePositions": 1056,
       "handSurfaceSha256": "03b67e453fa27b2a35f1c388f8d3d88a71053e42cf04defeb9a37b219acb21f0",
@@ -171,7 +171,7 @@
       "maxInfluences": 9,
       "minFirstFourWeightSum": 0.7984131425619125,
       "verticesWithAdditionalInfluences": 7548,
-      "maxWeightSumError": 1.4994293451309204e-07,
+      "maxWeightSumError": 1.4994293451309204e-7,
       "fingerInfluences": {
         "thumb_02_l": 157,
         "thumb_01_l": 70,
@@ -293,7 +293,7 @@
     },
     {
       "lod": "lod2",
-      "sha256": "d9de3c619eccdbd01883e8d18ef84ed5d3464f08e34103ebf65d30b3eeb35d00",
+      "sha256": "8e6cd8b201eafca8935f960e935d2e5437b7b551005fceec9d755185fbeebbd7",
       "vertices": 18937,
       "fingerWeightedUniquePositions": 1056,
       "handSurfaceSha256": "03b67e453fa27b2a35f1c388f8d3d88a71053e42cf04defeb9a37b219acb21f0",
@@ -301,7 +301,7 @@
       "maxInfluences": 9,
       "minFirstFourWeightSum": 0.7968684658408165,
       "verticesWithAdditionalInfluences": 6935,
-      "maxWeightSumError": 1.4994293451309204e-07,
+      "maxWeightSumError": 1.4994293451309204e-7,
       "fingerInfluences": {
         "thumb_02_l": 157,
         "thumb_01_l": 70,

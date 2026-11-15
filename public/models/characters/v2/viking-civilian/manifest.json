@@ -2169,9 +2169,9 @@
     "Corrected right-hand skin changes authored non-sword fingertips. Coarse one-handed axe haft overlap remains and can be deeper than the original; this repair does not claim zero weapon/hand penetration."
   ],
   "fileSha256": {
-    "lod0": "34b3578aae0cb97b5a0e6fc4dcf3d6beaef575ddf17fdf0fc503d08d17448765",
-    "lod1": "2e14136e71031f2ae71a1b9379eca74c993d05b6c88fda63711e216ea2c816ca",
-    "lod2": "691dd04a06919187c37269a0578451269e8c30c26f6e7b404e910f440bc96607"
+    "lod0": "541fcfa98eb2b0b086fdcb60b853a73bd92d68882ab4b99d6571a23bdf01be95",
+    "lod1": "1d305076ae02fcabf7bebd2ad92cebf32bc5952cb25bdd15c3976a06d19a1a24",
+    "lod2": "82c02af55407b1830f22d59cdec96d8886be1923fbd7ae2af0deb2dced541532"
   },
   "animations": {
     "embedded": [

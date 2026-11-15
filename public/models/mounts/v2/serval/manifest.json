@@ -19,7 +19,8 @@
     "Original 47-bone skeleton retained with natural 4-foot grounded standing Idle pose",
     "Real production Black Cat saddle fitted to back contour with rigid seat/stirrup and flexible chest-strap weights",
     "Seven pinned production Black Cat donor clips retargeted offline at 60Hz with analytic limb IK",
-    "Independent LOD1/LOD2 simplification; lossless Meshopt compression without LOD0 quantization"
+    "Independent LOD1/LOD2 simplification; lossless Meshopt compression without LOD0 quantization",
+    "Runtime budget pass: KTX2 (KHR_texture_basisu) textures within the runtime size cap; see tools/data/runtime-glb-budget-audit.json"
   ],
   "metrics": {
     "triangles": {
@@ -27,21 +28,21 @@
       "cat_saddle_leather": 2285,
       "cat_body_lod1": 14293,
       "cat_equipment_lod1": 1051,
-      "cat_body_lod2": 4015,
+      "cat_body_lod2": 3141,
       "cat_equipment_lod2": 297
     },
     "visibleEquippedTriangles": [
       33376,
       15344,
-      4312
+      3438
     ],
     "residentTrianglesByLod": [
       33376,
       15344,
-      4312
+      3438
     ],
     "textureMaxSize": 2048,
-    "packageBytes": 20408096,
+    "packageBytes": 9977376,
     "saddleHeightM": 1.778,
     "materials": 2,
     "storedMeshPrimitives": 6,
@@ -73,7 +74,7 @@
     "socket_saddle_seat",
     "socket_camera"
   ],
-  "sha256": "311f17ff311204010c25826fcb8faa11dcc8c2a479f9a9d76f39c7df7da82d7f",
+  "sha256": "df4142aa49a3f58e849236dd90238fc8c338c2339e86932469251da164be505d",
   "animationSource": "animation-source.json",
   "validation": {
     "structuralAudit": "passed: source body triangle/UV/normal/image preservation and fitted saddle checks",

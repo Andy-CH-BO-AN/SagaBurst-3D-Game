@@ -23,6 +23,9 @@ vi.mock('three', async importOriginal => {
 
 vi.mock('three/examples/jsm/loaders/GLTFLoader.js', () => ({
   GLTFLoader: class {
+    // Real loader configuration is chainable; these doubles only own loading.
+    setKTX2Loader() { return this }
+    setMeshoptDecoder() { return this }
     async loadAsync(path: string) {
       if (bowError.current && path.includes('bow.glb')) {
         return {

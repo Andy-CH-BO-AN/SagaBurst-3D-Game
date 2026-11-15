@@ -9,7 +9,7 @@
     "sourceEntry": "Varangian_Captain_11Clips.glb",
     "sourceSha256": "300c9f894cd4c1f8f0cb1da392768a5078f0363d294fcde153c29c135abd224c",
     "license": "User-supplied Meshy model and derived animation; mixed animation-source licenses retained in source-readme.txt",
-    "licenseEvidence": "source-readme.txt"
+    "licenseEvidence": "attribution-evidence.json"
   },
   "attribution": "Blue-Cloaked Varangian Captain: user-provided Meshy model/derivative. Core animations: Kevin Iglesias (Unity Asset Store EULA), Quaternius (CC0); axe attacks: user-provided Meshy source. See source-readme.txt. Local hand surface derivative: Kevin Iglesias, Human Melee Animations FREE (Unity Asset Store EULA); complete source model excluded.",
   "selectedSource": {
@@ -195,9 +195,9 @@
     ]
   },
   "fileSha256": {
-    "lod0": "92931f8a657546fde36e42b778dc2f237128a5a56f19d4d90880d7008b2fc50c",
-    "lod1": "3f7f3e51b473e7a790d10cc530f039ca67162eea42d74ca5d533b4edba0459b5",
-    "lod2": "89d396361f28725013a049b906462ca58c11f81a4dc9699c12753a08767866d4"
+    "lod0": "e1b7a73bfb5bf087841d334486d389d1fb7ef8355e2d8331f5a6aefa4517324d",
+    "lod1": "42cfacf7f00834dac599a10c6dbefe4291be416f956219d8811b96eaf1a99841",
+    "lod2": "ee0397320f276c25a981bd63720ac7f3e725af88aa6ab406fbb8a737dda8a3cd"
   },
   "visualAcceptance": "Pending current browser review; numeric/structural checks do not establish appearance.",
   "knownLimitations": [
@@ -1768,5 +1768,6 @@
       }
     }
   },
-  "audit": "finger-anatomy-audit.json"
+  "audit": "lod-publication-audit.json",
+  "boneMap": "bone-map.json"
 }

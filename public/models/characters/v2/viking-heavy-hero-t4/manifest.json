@@ -35,9 +35,9 @@
     "lod2": "lod2.glb"
   },
   "fileSha256": {
-    "lod0": "d1667d6cbce2be348e5d200cec67e797024ad014909b8f6a0bbde2a290cff486",
-    "lod1": "488e500f36262f33fefd8b07aeecdb0dd7c51c792586a48240bafceb3aaf0ca6",
-    "lod2": "ebad2ce3b32510a648b60fc87b525caa057a7e1cd5443479ed42f4af5d2bad45"
+    "lod0": "481d31a1ae1bbe3356ecea4672fa030d3392d02669803bbab8c1bd708d7a8d24",
+    "lod1": "7345564b9e37d84ca57ad3a1f8de2edd0a23fa2a17bd2fd477aa1383752b40d5",
+    "lod2": "009070324f94acdf555b682110a876b7e6e5a2bd785dbbeb80e1c5616781ffdd"
   },
   "boneMap": "bone-map.json",
   "audit": "audit.json",

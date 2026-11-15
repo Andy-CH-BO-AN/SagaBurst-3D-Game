@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "animal": "snow-leopard",
-  "sha256": "e020c8c90fa24bae19d79d9291a58249336718ee1640a21e289856a04b32319a",
+  "sha256": "2db93ad9b906a34f0db06629227040b5c63f198bf1e7915643f597d5ab54af18",
   "donor": {
     "path": "public/models/mounts/v2/black-cat/black-cat.glb",
     "sha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",

@@ -13,7 +13,7 @@
     "permissionEvidence": "Supplying user explicitly stated: 我擁有模型並有權提交修改後資產",
     "selection": "User explicitly selected this rigged GLB in place of the earlier raw FBX source"
   },
-  "sha256": "e020c8c90fa24bae19d79d9291a58249336718ee1640a21e289856a04b32319a",
+  "sha256": "2db93ad9b906a34f0db06629227040b5c63f198bf1e7915643f597d5ab54af18",
   "animationSource": "animation-source.json",
   "rigMapping": "rig-mapping.json",
   "metrics": {
@@ -23,9 +23,9 @@
       "snow_leopard_body_lod2": 2741
     },
     "visibleEquippedTriangles": [
-      17532,
-      6476,
-      2741
+      0,
+      0,
+      0
     ],
     "textureMaxSize": 2048,
     "textures": [
@@ -42,7 +42,7 @@
         "mimeType": "image/png"
       }
     ],
-    "packageBytes": 5742856,
+    "packageBytes": 4837908,
     "saddleHeightM": 1.5374562740325928,
     "materials": 1,
     "storedMeshPrimitives": 3,

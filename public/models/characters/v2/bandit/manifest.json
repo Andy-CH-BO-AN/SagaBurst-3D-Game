@@ -12,7 +12,8 @@
     "plan": "Free, confirmed by owner",
     "license": "CC BY 4.0",
     "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
-    "url": "https://www.meshy.ai/"
+    "url": "https://www.meshy.ai/",
+    "licenseEvidence": "attribution-evidence.json"
   },
   "attribution": "Body: user-supplied Meshy AI generation, CC BY 4.0. Animations and original hammer: Fantasy Bandit by tokeshi / CGTrader, original incorporated-game-use license retained.",
   "modifications": [
@@ -104,7 +105,7 @@
         "lastFrame": 32,
         "sourceFps": 30,
         "loop": false,
-        "duration": 1.0
+        "duration": 1
       },
       {
         "clip": "death",
@@ -123,9 +124,9 @@
   "boneMap": "bone-map.json",
   "audit": "audit.json",
   "fileSha256": {
-    "lod0": "ead0fbaf590d2f2cdf92a2b18474332a3dd417d6716bf22ab2b5a45e020dbf73",
-    "lod1": "5a5849c8c09195f742216b31b577e9929397088a79560457b027e9c04acbf27a",
-    "lod2": "173274702a597f48a5d22744cf1ae13ef0077e30ce358e59a303164166b93e13"
+    "lod0": "44dbac8484e8d99ebbaa0d79f38d1206423d8eaead4771bd0eb0984e3a25b94e",
+    "lod1": "2c7cbdc276e935971ac31a23a52b853f86e087ce5b60b04c229d09c53d52d841",
+    "lod2": "854468c8a5dae1d5ab2972650c6e53363c872e2bc97a5bbae2b6d301138b9fa9"
   },
   "attackRetiming": {
     "sourceContactFrame": 30,
@@ -234,7 +235,7 @@
   "lodPolicy": {
     "lod0": "Original body topology",
     "lod1": "Approximately 6K body triangles",
-    "lod2": "Approximately 4K body triangles, deliberately above 1.5K\u20132.5K suggestion: 2K candidates visibly collapsed face/hands; preserve facial/hand features and boot endpoints"
+    "lod2": "Approximately 4K body triangles, deliberately above 1.5K–2.5K suggestion: 2K candidates visibly collapsed face/hands; preserve facial/hand features and boot endpoints"
   },
   "visualAcceptance": {
     "offline": "See PR evidence; structural audit is not art acceptance",
@@ -254,13 +255,13 @@
     "shaftCenterAtLocalZ0": [
       0.036141,
       0.115502,
-      0.0
+      0
     ],
     "modifiedVertices": 210,
     "thumbUnchanged": true,
     "maxVertexDisplacementM": 0.03377716176363764,
     "maxRadialClearanceCorrectionM": 0.010854139733063326,
-    "maxSampledClearanceWorseningM": 0.0,
+    "maxSampledClearanceWorseningM": 0,
     "triangleSamplesPerFace": 45,
     "normals": "Affected source face-corner normals transformed by actual surface inverse transpose; other normals retained",
     "preserved": [
