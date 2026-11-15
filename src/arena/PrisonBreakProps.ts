@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import type { DuelArenaEnvironment } from './DuelArena'
 import { PRISON_SWORD_COUNT, PRISON_SWORD_ID, type PrisonBreakState } from '../career/CareerPrisonBreak'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
+import { isSharedEquipmentGeometry } from '../world/EquipmentGeometryRegistry'
 import type { ObstacleData } from '../world/Terrain'
 import { PickupRing } from '../world/PickupRing'
 
@@ -67,8 +68,8 @@ export class PrisonBreakProps {
     this.gate.removeFromParent(); this.exit.removeFromParent()
     for (const sword of this.swords) {
       sword.removeFromParent()
-      // T1 gladius construction creates instance geometry; its procedural materials remain shared.
-      sword.traverse(node => { if (node instanceof THREE.Mesh) node.geometry.dispose() })
+      // Gladius geometry is shared equipment geometry; only unshared pieces belong to these props.
+      sword.traverse(node => { if (node instanceof THREE.Mesh && !isSharedEquipmentGeometry(node.geometry)) node.geometry.dispose() })
     }
     this.swordRings.forEach(ring => ring.dispose())
     const index = this.arena.obstacles.indexOf(this.blocker)

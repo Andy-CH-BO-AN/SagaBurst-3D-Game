@@ -15,7 +15,7 @@ import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
  */
 import * as THREE from 'three'
 import { ShieldState, ShieldCollider, WeaponSweep } from '../combat/ShieldBlocking'
-import { DeathFadeController } from './DeathFade'
+import { DeathFadeController, skipHiddenCorpseMatrices } from './DeathFade'
 import type { Player } from '../player/Player'
 import type { SpatialGrid } from './SpatialGrid'
 import type { HpBar } from '../ui/HpBar'
@@ -995,6 +995,7 @@ export class NPC {
 
     this.group = new THREE.Group()
     this.group.name = `npc_${faction}_${aiType}`
+    skipHiddenCorpseMatrices(this.group, () => this.deathPresentationComplete)
 
     this.characterVisualGroup = new THREE.Group()
     this.characterVisualGroup.rotation.y = 0 // Shared +Z gameplay heading; no per-faction flip.

@@ -4,6 +4,7 @@ import { T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
 import { createMakiRangerBowInstance } from './MakiRangerEquipment'
 import { createT5Bow } from './HighTierEquipment'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
+import { shareEquipmentGeometry } from './EquipmentGeometryRegistry'
 import { equipmentShadowUntil } from './EquipmentVisualLODController'
 import { BOW_STRING_CONTACT, BOW_ARROW_REST } from './BowDrawHand'
 import {
@@ -136,6 +137,8 @@ export class CharacterBowVisual {
     fin.position.z = 0.4
     this.nockedArrow.add(fin)
     this.gripPivot.add(this.nockedArrow)
+    // Strings and the nocked arrow are rigid (moved by transforms only); share their geometry.
+    shareEquipmentGeometry(this.gripPivot)
 
     polishWeaponMaterials(this.actionPivot)
     if (this.actionPivot.parent) {
