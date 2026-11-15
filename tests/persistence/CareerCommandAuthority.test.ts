@@ -67,7 +67,7 @@ describe('official squad lookup cache', () => {
     // First listed squad wins; listed-but-unassigned and unlisted actors have no squad.
     expect(['a', 'b', 'c', 'x'].map(id => officialActorSquadId(authority, id))).toEqual([1, 2, undefined, undefined])
     expect(officialCommandIsPlayerControlled(authority, 'b')).toBe(true)
-    // Saved edits replace arrays on the same object (TownProfileCommit, TownDefenseController).
+    // Saved edits replace arrays on the same object (TownProfileCommit, CommanderFourGateDefenseController).
     authority.squads = [{ squadId: 3, actorIds: ['c', 'b'] }]
     authority.actorIds = authority.actorIds.filter(id => id !== 'a')
     expect(['a', 'b', 'c'].map(id => officialActorSquadId(authority, id))).toEqual([undefined, 3, 3])

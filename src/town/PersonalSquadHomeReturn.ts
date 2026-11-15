@@ -20,4 +20,3 @@ export function placePersonalMissionAtHR(saved: PersonalSquadMission, layout: Pe
   next.layoutVersion = TOWN_LAYOUT_VERSION
   return next
 }
-

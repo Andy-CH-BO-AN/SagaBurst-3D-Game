@@ -9,4 +9,3 @@ export function civilianShelterSlots(count = 20): THREE.Vector3[] {
     return new THREE.Vector3(center.x + column * 2, 0, center.z + (row - (rows - 1) / 2) * 2)
   })
 }
-

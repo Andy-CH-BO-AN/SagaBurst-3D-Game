@@ -38,4 +38,3 @@ export function resolveOrdinaryPlayerBaseHp(faction: SoldierFaction, tier: Ordin
   return config?.playerHp !== undefined && config.playerHpSource === 'custom'
     ? config.playerHp : getOrdinarySoldierHp(faction, tier)
 }
-
