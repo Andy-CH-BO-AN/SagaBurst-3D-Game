@@ -21,17 +21,6 @@ export type NavigationPathQueryResult =
 export const NAV_PATH_REQUESTS_PER_FRAME = 10
 export const NAV_PATH_GROUP_CELLS = 2
 
-const COMPONENT_NEIGHBORS: readonly [number, number][] = [
-  [1, 0],
-  [-1, 0],
-  [0, 1],
-  [0, -1],
-  [1, 1],
-  [1, -1],
-  [-1, 1],
-  [-1, -1],
-]
-
 export class NavigationWorld {
   readonly grid: NavigationGrid
 
@@ -41,6 +30,7 @@ export class NavigationWorld {
   private obstacleSource: readonly ObstacleData[] | undefined
   private readonly dynamicFootprints = new Map<ObstacleData, string>()
   private componentIds: Int32Array
+  private readonly componentQueue: Int32Array
   private pathRequestsThisFrame = 0
   private pathSearchesDeferred = false
   /** A production default with a per-world override for tests and platform profiles. */
@@ -71,6 +61,7 @@ export class NavigationWorld {
     this.grid = new NavigationGrid(bounds)
     this.componentIds = new Int32Array(this.grid.cellCount)
     this.componentIds.fill(-1)
+    this.componentQueue = new Int32Array(this.grid.cellCount)
   }
 
   get revision(): number {
@@ -241,58 +232,6 @@ export class NavigationWorld {
   }
 
   private _rebuildComponents(): void {
-    this.componentIds.fill(-1)
-    const queue = new Int32Array(this.grid.cellCount)
-    let nextComponentId = 0
-
-    for (let z = 0; z < this.grid.height; z++) {
-      for (let x = 0; x < this.grid.width; x++) {
-        const startIndex = z * this.grid.width + x
-        if (this.grid.isBlockedXZ(x, z) || this.componentIds[startIndex] >= 0) continue
-
-        let read = 0
-        let write = 0
-        queue[write++] = startIndex
-        this.componentIds[startIndex] = nextComponentId
-
-        while (read < write) {
-          const index = queue[read++]
-          const currentX = index % this.grid.width
-          const currentZ = Math.floor(index / this.grid.width)
-
-          for (const [dx, dz] of COMPONENT_NEIGHBORS) {
-            const nextX = currentX + dx
-            const nextZ = currentZ + dz
-            if (
-              nextX < 0
-              || nextX >= this.grid.width
-              || nextZ < 0
-              || nextZ >= this.grid.height
-            ) continue
-
-            if (this.grid.isBlockedXZ(nextX, nextZ)) continue
-
-            if (
-              dx !== 0
-              && dz !== 0
-              && (
-                this.grid.isBlockedXZ(currentX + dx, currentZ)
-                || this.grid.isBlockedXZ(currentX, currentZ + dz)
-              )
-            ) {
-              continue
-            }
-
-            const nextIndex = nextZ * this.grid.width + nextX
-            if (this.componentIds[nextIndex] >= 0) continue
-
-            this.componentIds[nextIndex] = nextComponentId
-            queue[write++] = nextIndex
-          }
-        }
-
-        nextComponentId++
-      }
-    }
+    this.grid.labelComponents(this.componentIds, this.componentQueue)
   }
 }

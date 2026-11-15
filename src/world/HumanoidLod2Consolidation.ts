@@ -118,8 +118,8 @@ function assertMergeCompatible(first: THREE.SkinnedMesh, second: THREE.SkinnedMe
     `${expected.first}/${expected.second} index coverage differs`)
 }
 
-function copyRenderableState(source: THREE.SkinnedMesh, target: THREE.SkinnedMesh, names: readonly string[]): void {
-  target.name = `roman-lod2-consolidated-${names.join('-')}`
+function copyRenderableState(source: THREE.SkinnedMesh, target: THREE.SkinnedMesh, names: readonly string[], prefix = 'roman'): void {
+  target.name = `${prefix}-lod2-consolidated-${names.join('-')}`
   target.castShadow = source.castShadow
   target.receiveShadow = source.receiveShadow
   target.frustumCulled = source.frustumCulled
@@ -143,7 +143,7 @@ function createTemplateRecord(root: THREE.Object3D, pair: ConsolidationPair): Co
   return { pair, firstGeometry: first.geometry, secondGeometry: second.geometry, mergedGeometry }
 }
 
-function mergeInstancePair(root: THREE.Object3D, template: ConsolidationTemplateRecord): ConsolidationRecord {
+function mergeInstancePair(root: THREE.Object3D, template: ConsolidationTemplateRecord, prefix = 'roman'): ConsolidationRecord {
   const { pair } = template
   const first = findSkinnedMesh(root, pair.first)
   const second = findSkinnedMesh(root, pair.second)
@@ -163,7 +163,7 @@ function mergeInstancePair(root: THREE.Object3D, template: ConsolidationTemplate
   merged.bind(first.skeleton, first.bindMatrix)
   // Keep the inherited template bounds so the first frustum test never CPU-skins the merge.
   if (first.boundingSphere && second.boundingSphere) merged.boundingSphere = first.boundingSphere.clone().union(second.boundingSphere)
-  copyRenderableState(first, merged, [pair.first, pair.second])
+  copyRenderableState(first, merged, [pair.first, pair.second], prefix)
   first.parent.add(merged)
   return { first, second, merged }
 }
@@ -225,4 +225,50 @@ export function consolidateRomanLod2(
     return undefined
   }
   return { setOptimized, getOptimized: () => optimized }
+}
+
+/* ── Blue-Cloaked Varangian Captain (viking-hero-t4) ──────────────────────────
+ * Its LOD2 keeps the source's 7 skinned primitives (5 materials) at every
+ * distance. Two same-material pairs become one renderable each, and three
+ * sub-100-triangle fill parts are hidden at LOD2 (>30 m), like Roman eyes. */
+// Re-audited after the runtime budget pass: accessor data and scene/skin/animation JSON are identical
+// to the previously audited 89d39636…; only embedded images became KTX2.
+export const AUDITED_VIKING_CAPTAIN_LOD2_SHA256 = 'ee0397320f276c25a981bd63720ac7f3e725af88aa6ab406fbb8a737dda8a3cd'
+export const VIKING_CAPTAIN_LOD2_CULLED_TINY_DETAIL_NAMES = ['Restored_hidden_torso', 'Restored_neck', 'Tailored_inner_neckline'] as const
+const VIKING_CAPTAIN_PALM_MATERIAL = 'Original atlas skin patch, new digit normals'
+const VIKING_CAPTAIN_LOD2_PAIRS: readonly ConsolidationPair[] = [
+  { first: 'Coherent_Skirt_Support', second: 'Varangian_Captain', firstMaterial: 'BakedMaterial.001', secondMaterial: 'BakedMaterial.001' },
+  { first: 'Rebuilt_Hand_l', second: 'Rebuilt_Hand_r', firstMaterial: VIKING_CAPTAIN_PALM_MATERIAL, secondMaterial: VIKING_CAPTAIN_PALM_MATERIAL },
+]
+
+export function isVikingCaptainLod2AssetAudited(actualSha256: string | undefined): boolean {
+  return actualSha256 === AUDITED_VIKING_CAPTAIN_LOD2_SHA256
+}
+
+/** Each pair is optional: one that fails validation (for example a hand that gained
+ * morph targets) keeps its original meshes while the others still merge. */
+export function tryCreateVikingCaptainLod2ConsolidationTemplate(
+  root: THREE.Object3D,
+  onUnavailable: (message: string, error: unknown) => void = (message, error) => console.warn(message, error),
+): RomanLod2ConsolidationTemplate {
+  const records: ConsolidationTemplateRecord[] = []
+  for (const pair of VIKING_CAPTAIN_LOD2_PAIRS) {
+    try { records.push(createTemplateRecord(root, pair)) }
+    catch (error) { onUnavailable(`Viking captain LOD2 pair ${pair.first}/${pair.second} kept separate`, error) }
+  }
+  return { records }
+}
+
+/** Instance side: merge the validated pairs, drop their originals and hide the fill parts. */
+export function consolidateVikingCaptainLod2(root: THREE.Object3D, template: RomanLod2ConsolidationTemplate): void {
+  for (const record of template.records) {
+    const { first, second } = mergeInstancePair(root, record, 'viking-captain')
+    first.parent!.remove(first)
+    second.parent!.remove(second)
+  }
+  root.traverse(object => {
+    if (object instanceof THREE.Mesh && VIKING_CAPTAIN_LOD2_CULLED_TINY_DETAIL_NAMES.includes(object.name as typeof VIKING_CAPTAIN_LOD2_CULLED_TINY_DETAIL_NAMES[number])) {
+      object.visible = false
+    }
+  })
 }

@@ -414,6 +414,37 @@ export class NavigationGrid {
     return x >= 0 && x < this.width && z >= 0 && z < this.height
   }
 
+  /**
+   * Label 8-connected walkable regions (a diagonal step needs both orthogonal
+   * neighbours walkable, like path search). Regions are numbered in row-major
+   * order of their first cell; `queue` is caller scratch of at least cellCount.
+   */
+  labelComponents(out: Int32Array, queue: Int32Array): void {
+    const width = this.width, height = this.height, blocked = this.blocked
+    out.fill(-1)
+    let component = 0
+    for (let start = 0; start < blocked.length; start++) {
+      if (blocked[start] !== 0 || out[start] >= 0) continue
+      let read = 0, write = 0
+      queue[write++] = start
+      out[start] = component
+      while (read < write) {
+        const index = queue[read++], x = index % width, z = (index - x) / width
+        const west = x > 0 && blocked[index - 1] === 0, east = x < width - 1 && blocked[index + 1] === 0
+        const north = z > 0 && blocked[index - width] === 0, south = z < height - 1 && blocked[index + width] === 0
+        if (east && out[index + 1] < 0) { out[index + 1] = component; queue[write++] = index + 1 }
+        if (west && out[index - 1] < 0) { out[index - 1] = component; queue[write++] = index - 1 }
+        if (south && out[index + width] < 0) { out[index + width] = component; queue[write++] = index + width }
+        if (north && out[index - width] < 0) { out[index - width] = component; queue[write++] = index - width }
+        if (east && south) { const n = index + width + 1; if (blocked[n] === 0 && out[n] < 0) { out[n] = component; queue[write++] = n } }
+        if (east && north) { const n = index - width + 1; if (blocked[n] === 0 && out[n] < 0) { out[n] = component; queue[write++] = n } }
+        if (west && south) { const n = index + width - 1; if (blocked[n] === 0 && out[n] < 0) { out[n] = component; queue[write++] = n } }
+        if (west && north) { const n = index - width - 1; if (blocked[n] === 0 && out[n] < 0) { out[n] = component; queue[write++] = n } }
+      }
+      component++
+    }
+  }
+
   private _index(x: number, z: number): number {
     return z * this.width + x
   }

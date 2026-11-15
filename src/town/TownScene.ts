@@ -88,7 +88,7 @@ import { mountStats } from '../combat/MountStats'
 import { calculatePlayerMeleeDamage } from '../combat/PlayerMeleeDamage'
 import { ProjectileAdmission } from '../combat/ProjectileAdmission'
 import { playerEagleProjectileBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
-import { ProjectileContactQuery } from '../combat/ProjectileContactQuery'
+import { ProjectileContactQuery, type ProjectileTargetGroups } from '../combat/ProjectileContactQuery'
 import { SHIELD_CONFIG, type CombatContact } from '../combat/ShieldBlocking'
 import { traceFistStrike, unarmedDamage } from '../combat/UnarmedCombat'
 import { XONGKORO } from '../movement/XongkoroConfig'
@@ -119,6 +119,7 @@ import { QuiverUI } from '../ui/QuiverUI'
 import { StaminaBar } from '../ui/StaminaBar'
 import { personalUnitDisplayName } from '../ui/UnitDisplayName'
 import { WeaponWheelUI } from '../ui/WeaponWheelUI'
+import { registerTextureRenderer } from '../world/RuntimeGltfLoader'
 import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
 import { BlackCatVisual } from '../world/BlackCatVisual'
 import { CorgiVisual } from '../world/CorgiVisual'
@@ -185,6 +186,8 @@ import { TownWorld } from './TownWorld'
 let sound: SoundManager
 interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; readonly sourceRef?: CombatActorRef; age: number; maxLifetimeSeconds?: number }
 const NAMES: Record<string, string> = { captain: '騎兵隊長', commander: '指揮官', deployment: '士官長', merchant: '武器店主', ranger: '遊俠 Shadow Warden', cat: '黑貓店主', civilian: '平民 Civilian', 'hr-officer': '人力資源官 HR Officer', 'eagle-trainer': 'xongkoro 遊俠場主' }
+const EMPTY_SHOT_ACTORS: readonly NPC[] = []
+
 export class TownScene {
   private eagleGarrison?: TownEagleGarrisonController
   private readonly eagleLandingQueue = new EagleLandingQueue()
@@ -335,6 +338,7 @@ export class TownScene {
 
   static async create(container: HTMLElement, profile: CareerProfile, onCampaign: (config?: CareerCombatLaunch) => void, onRestart: (p: CareerProfile, reason?: 'death-return') => void, onHome: () => void, progress: (text: string) => void = () => {}, onTutorialLaunch?: (stage: 'recruit' | 'captain', replay?: boolean) => boolean): Promise<TownScene> {
     const renderer = new THREE.WebGLRenderer({ antialias: true })
+    registerTextureRenderer(renderer)
     try {
       progress('載入人物、坐騎與動畫…')
       const playerHero = resolveCareerHeroAsset(profile)
@@ -3356,7 +3360,7 @@ export class TownScene {
         world: { kind: 'town', practiceTargets: this.world.targets,
           traceSiege: (start, end, maximum) => this.traceSiegeContact(start, end, maximum) },
         obstacles: this.projectileObstacles.query(from, to, this.world.obstacles),
-        targets: this.shotTargets(s, runtimeActors, externalDefenders),
+        targets: runtimeActors ? this.runtimeShotTargets(s, runtimeActors) : this.shotTargets(s, externalDefenders),
         acceptsTarget: target => {
           if (target instanceof Mount && (target.disposed || target.riderNpc === s.source || target.riderPlayer === this.player && s.player)) return false
           if (target.dead) return false
@@ -3395,36 +3399,41 @@ export class TownScene {
     }
     this.shots = this.shots.filter(s => s.arrow.isAlive)
   }
-  private *shotTargets(s: Shot, runtimeActors: readonly NPC[] | null, externalDefenders: readonly NPC[]): Iterable<Player | NPC | Mount> {
-    if (runtimeActors) {
-      // Preserve prefix, snapshot membership order, then independent mounts.
-      if (!s.player && (!s.source || s.source.hostileToPlayer)) yield this.player
-      if (s.player || s.source) yield* runtimeActors
-      yield* this.combatMounts
-    } else {
-      const targets: Array<Player | NPC | Mount> = s.player
-        ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies,
-          ...[...this.residents.map(r => r.npc), ...this.townServiceMounts].filter(target => !this.isProtectedTownAlly(target))]
-        : s.source && externalDefenders.includes(s.source)
-          ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...(this.missionCombat?.enemyTownHostiles ?? [])]
-            .filter(npc => townWartimeHostile(s.source!, npc))
-        : s.source && (this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) || this.mission.friendlies.includes(s.source) || this.missionCombat?.enemyTownHostiles?.includes(s.source))
-          ? [...(s.source.hostileToPlayer || this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) ? [this.player] : []),
-            ...[...this.mission.combatPeersFor(s.source), ...(this.missionCombat?.enemyTownHostiles ?? []), ...externalDefenders].filter(npc => npc.faction !== s.source!.faction)]
-          : this.defense.active && s.source
-            ? [...(s.source.hostileToPlayer ? [this.player] : []), ...this.defense.peersFor(s.source),
-              ...externalDefenders.filter(npc => townWartimeHostile(s.source!, npc)),
-              ...(!this.defense.assault && s.source.faction === Faction.ENEMY && this.cat && !this.cat.dead ? [this.cat] : [])]
-          : s.source?.faction === Faction.TOWN
-            ? s.source.hostileToPlayer
-              ? [this.player]
-              : this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
-          : s.source?.faction === Faction.PLAYER
-            ? this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
-            : [this.player]
-      targets.push(...this.combatMounts.filter(mount => this.canHitTownMount(mount, s.source)))
-      yield* targets
-    }
+  private readonly shotPlayerTarget: Player[] = []
+  private readonly shotTargetGroups: (readonly (Player | NPC | Mount)[])[] = [this.shotPlayerTarget, [], []]
+  private readonly shotTargetInput: ProjectileTargetGroups<Player | NPC | Mount> = { groups: this.shotTargetGroups }
+  /** Runtime snapshot order, visited in place: player prefix, actor membership order, then independent mounts. */
+  private runtimeShotTargets(s: Shot, runtimeActors: readonly NPC[]): ProjectileTargetGroups<Player | NPC | Mount> {
+    this.shotPlayerTarget.length = 0
+    if (!s.player && (!s.source || s.source.hostileToPlayer)) this.shotPlayerTarget.push(this.player)
+    this.shotTargetGroups[1] = s.player || s.source ? runtimeActors : EMPTY_SHOT_ACTORS
+    this.shotTargetGroups[2] = this.combatMounts
+    return this.shotTargetInput
+  }
+  /** Mission-local targets when no runtime actor snapshot owns the shot. */
+  private shotTargets(s: Shot, externalDefenders: readonly NPC[]): Array<Player | NPC | Mount> {
+    const targets: Array<Player | NPC | Mount> = s.player
+      ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies,
+        ...[...this.residents.map(r => r.npc), ...this.townServiceMounts].filter(target => !this.isProtectedTownAlly(target))]
+      : s.source && externalDefenders.includes(s.source)
+        ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...(this.missionCombat?.enemyTownHostiles ?? [])]
+          .filter(npc => townWartimeHostile(s.source!, npc))
+      : s.source && (this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) || this.mission.friendlies.includes(s.source) || this.missionCombat?.enemyTownHostiles?.includes(s.source))
+        ? [...(s.source.hostileToPlayer || this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) ? [this.player] : []),
+          ...[...this.mission.combatPeersFor(s.source), ...(this.missionCombat?.enemyTownHostiles ?? []), ...externalDefenders].filter(npc => npc.faction !== s.source!.faction)]
+        : this.defense.active && s.source
+          ? [...(s.source.hostileToPlayer ? [this.player] : []), ...this.defense.peersFor(s.source),
+            ...externalDefenders.filter(npc => townWartimeHostile(s.source!, npc)),
+            ...(!this.defense.assault && s.source.faction === Faction.ENEMY && this.cat && !this.cat.dead ? [this.cat] : [])]
+        : s.source?.faction === Faction.TOWN
+          ? s.source.hostileToPlayer
+            ? [this.player]
+            : this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
+        : s.source?.faction === Faction.PLAYER
+          ? this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
+          : [this.player]
+    targets.push(...this.combatMounts.filter(mount => this.canHitTownMount(mount, s.source)))
+    return targets
   }
 
   private traceSiegeContact(from: THREE.Vector3, to: THREE.Vector3, maximum = from.distanceTo(to)):

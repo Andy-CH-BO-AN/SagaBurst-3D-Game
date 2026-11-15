@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "animal": "orange-cat",
-  "sha256": "d4f95540ba93825de247b00f7daacbcf2d94571d6db03f2caee6e0a04b3e84a6",
+  "sha256": "92975eab295c1c27a59891d95ac232d8df4511ed4a4b8a24363a6a4264847e81",
   "acceptedDonor": {
     "commit": "ea18eff8ceab74e88afc738019127792ea03e311",
     "path": "public/models/mounts/v2/black-cat/black-cat.glb",

@@ -1,0 +1,3444 @@
+{
+  "schemaVersion": 1,
+  "tool": "tools/apply-runtime-glb-budget.mjs",
+  "basisu": "Basis Universal LDR/HDR GPU Texture Supercompression System v2.50.0",
+  "files": [
+    {
+      "file": "models/architecture/carved-lynx-head.glb",
+      "beforeSha256": "2f4de4103fcbe7ca11311a229a6750e756c1fabd181ced01539d90dc1464599a",
+      "beforeBytes": 430800,
+      "trianglesBefore": {
+        "geometry_0": 3181
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 284421,
+          "bytesAfter": 252491
+        }
+      ],
+      "afterSha256": "77f8648f9a83cbccc1156ec257f5d9851418982a169534e665741bfdf6f2ba50",
+      "afterBytes": 398976,
+      "trianglesAfter": {
+        "geometry_0": 3181
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/architecture/roman-legion-banner.glb",
+      "beforeSha256": "2c1284cc389eac1d5671f8f6d544d4d7222ad4fb97fbc79c02df17503a1a4230",
+      "beforeBytes": 378524,
+      "trianglesBefore": {
+        "BannerCloth": 723,
+        "Crossbar": 292
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 225408,
+          "bytesAfter": 223051
+        }
+      ],
+      "afterSha256": "a1ec4eb904653c7c008d94e1315663e095bf358249761c105b6abfd2d80d5d99",
+      "afterBytes": 322380,
+      "trianglesAfter": {
+        "BannerCloth": 723,
+        "Crossbar": 292
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/architecture/viking-cat-banner.glb",
+      "beforeSha256": "310488b2dac214223f4efb8140d118c75bec90ba42332441de7fe4e1e6b1346f",
+      "beforeBytes": 325628,
+      "trianglesBefore": {
+        "geometry_0": 895
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 270128,
+          "bytesAfter": 248677
+        }
+      ],
+      "afterSha256": "3825bcee5e2f6c0ba6e4c31379bde3bc852f8936ed9b6546907b6cf124a622e3",
+      "afterBytes": 304288,
+      "trianglesAfter": {
+        "geometry_0": 895
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/bandit/lod0.glb",
+      "beforeSha256": "ead0fbaf590d2f2cdf92a2b18474332a3dd417d6716bf22ab2b5a45e020dbf73",
+      "beforeBytes": 8957388,
+      "trianglesBefore": {
+        "MeshyBanditSourceSurface.002": 15273,
+        "Weapon_Low.004": 1652
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1316674,
+          "bytesAfter": 866244
+        },
+        {
+          "image": 1,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 2877577,
+          "bytesAfter": 5048933
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1692147,
+          "bytesAfter": 3560906
+        },
+        {
+          "image": 3,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1056852,
+          "bytesAfter": 771213
+        }
+      ],
+      "afterSha256": "44dbac8484e8d99ebbaa0d79f38d1206423d8eaead4771bd0eb0984e3a25b94e",
+      "afterBytes": 12261620,
+      "trianglesAfter": {
+        "MeshyBanditSourceSurface.002": 15273,
+        "Weapon_Low.004": 1652
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/bandit/lod1.glb",
+      "beforeSha256": "5a5849c8c09195f742216b31b577e9929397088a79560457b027e9c04acbf27a",
+      "beforeBytes": 2719716,
+      "trianglesBefore": {
+        "MeshyBanditSourceSurface.003": 5962,
+        "Weapon_Low.010": 858
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 393365,
+          "bytesAfter": 250152
+        },
+        {
+          "image": 1,
+          "role": "normal",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 715537,
+          "bytesAfter": 1307086
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 429668,
+          "bytesAfter": 1028490
+        },
+        {
+          "image": 3,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 295056,
+          "bytesAfter": 227450
+        }
+      ],
+      "afterSha256": "2c7cbdc276e935971ac31a23a52b853f86e087ce5b60b04c229d09c53d52d841",
+      "afterBytes": 3699308,
+      "trianglesAfter": {
+        "MeshyBanditSourceSurface.003": 5962,
+        "Weapon_Low.010": 858
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/bandit/lod2.glb",
+      "beforeSha256": "173274702a597f48a5d22744cf1ae13ef0077e30ce358e59a303164166b93e13",
+      "beforeBytes": 1173972,
+      "trianglesBefore": {
+        "MeshyBanditSourceSurface.004": 3970,
+        "Weapon_Low.013": 264
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 116174,
+          "bytesAfter": 88512
+        },
+        {
+          "image": 1,
+          "role": "normal",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 172832,
+          "bytesAfter": 332660
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 110487,
+          "bytesAfter": 274445
+        },
+        {
+          "image": 3,
+          "role": "color",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 85876,
+          "bytesAfter": 83909
+        }
+      ],
+      "afterSha256": "854468c8a5dae1d5ab2972650c6e53363c872e2bc97a5bbae2b6d301138b9fa9",
+      "afterBytes": 1468220,
+      "trianglesAfter": {
+        "MeshyBanditSourceSurface.004": 3970,
+        "Weapon_Low.013": 264
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/byzantine-cataphract-t5/lod0.glb",
+      "beforeSha256": "6cecb0a900fb53dde42dd97343835f2e4187fd05617e080495179da80fb0fcbe",
+      "beforeBytes": 5727372,
+      "trianglesBefore": {
+        "Mesh_0": 9914
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1077579,
+          "bytesAfter": 3376146
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1999910,
+          "bytesAfter": 921163
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 799454,
+          "bytesAfter": 2790713
+        }
+      ],
+      "afterSha256": "d9053b6ded3dd62ae1df63dc2aed3d5157048a2117ab4eef5425811c7a6bcdf8",
+      "afterBytes": 8938512,
+      "trianglesAfter": {
+        "Mesh_0": 9914
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/byzantine-cataphract-t5/lod1.glb",
+      "beforeSha256": "e91a22917344583e15a769e76317f381e14271c62f9d21a6be3162a217146699",
+      "beforeBytes": 2942308,
+      "trianglesBefore": {
+        "Mesh_0": 9914
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 235609,
+          "bytesAfter": 781416
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 572855,
+          "bytesAfter": 272512
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 283420,
+          "bytesAfter": 851326
+        }
+      ],
+      "afterSha256": "43c0012f5b3b8422ba2019f8158a1834c2fbc837703f3a95cddc793f238b2c7c",
+      "afterBytes": 3755740,
+      "trianglesAfter": {
+        "Mesh_0": 9914
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/byzantine-cataphract-t5/lod2.glb",
+      "beforeSha256": "e8bcd245db88326f6526afb5b153411f7a9520dd1811973a2befd3c622483cfc",
+      "beforeBytes": 2156464,
+      "trianglesBefore": {
+        "Mesh_0": 9914
+      },
+      "lod": [
+        {
+          "mesh": "Mesh_0",
+          "from": 9914,
+          "to": 6000,
+          "relativeError": 0.00324
+        }
+      ],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 46693,
+          "bytesAfter": 157282
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 163885,
+          "bytesAfter": 96359
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 95473,
+          "bytesAfter": 241971
+        }
+      ],
+      "afterSha256": "8b07501e85f9fc9f9d2565c0837a3b234678dd919f51dd98570c80491774bc0a",
+      "afterBytes": 2170976,
+      "trianglesAfter": {
+        "Mesh_0": 6000
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/maki-archer-t4/lod0.glb",
+      "beforeSha256": "6620a37517b026e0f7f22142bf842abe20e9c2db47da251cb626f8cf9575e60e",
+      "beforeBytes": 9794656,
+      "trianglesBefore": {
+        "SourceMeshySurface_SeparatedCloth.002": 10933
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 4161404,
+          "bytesAfter": 3779809
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1095431,
+          "bytesAfter": 638172
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 2546091,
+          "bytesAfter": 1988726
+        }
+      ],
+      "afterSha256": "66adc785d957e753b931995e2f45a3581fa953937d239329a0589b6098f680fe",
+      "afterBytes": 8397732,
+      "trianglesAfter": {
+        "SourceMeshySurface_SeparatedCloth.002": 10933
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/maki-archer-t4/lod1.glb",
+      "beforeSha256": "da4275e6eb1e577afb76264004457ba9240b8b642f67f405bcf7c9e8d68086fd",
+      "beforeBytes": 4346240,
+      "trianglesBefore": {
+        "SourceMeshySurface_SeparatedCloth.003": 5001
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1449224,
+          "bytesAfter": 1097767
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 348847,
+          "bytesAfter": 202694
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 867545,
+          "bytesAfter": 605027
+        }
+      ],
+      "afterSha256": "52a23736e7bd95443fddef8ca44e918b1505e41b2da26095f6824c5ccdd4eb70",
+      "afterBytes": 3585408,
+      "trianglesAfter": {
+        "SourceMeshySurface_SeparatedCloth.003": 5001
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/maki-archer-t4/lod2.glb",
+      "beforeSha256": "545a1bde52d92d9ddea33e6d23987bbe8e9753aeeb66f7b350f0374466d18c46",
+      "beforeBytes": 2351584,
+      "trianglesBefore": {
+        "SourceMeshySurface_SeparatedCloth.004": 2325
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 424197,
+          "bytesAfter": 302977
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 104258,
+          "bytesAfter": 76505
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 275116,
+          "bytesAfter": 186848
+        }
+      ],
+      "afterSha256": "e9b9a6654dd54acb9c25e3b0b7e9f0cb09881ce31b08428c0da78bac86e91e5e",
+      "afterBytes": 2113752,
+      "trianglesAfter": {
+        "SourceMeshySurface_SeparatedCloth.004": 2325
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/roman-centurion-t4/lod0.glb",
+      "beforeSha256": "fcb47223c02380a62610748b83710322a1fcede62eaf050b634bc3211365cf56",
+      "beforeBytes": 4854736,
+      "trianglesBefore": {
+        "Mesh_0": 9994
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 976974,
+          "bytesAfter": 3271934
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1866376,
+          "bytesAfter": 939519
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 799523,
+          "bytesAfter": 2881887
+        }
+      ],
+      "afterSha256": "578a9b3dd8cfefb200a34ec8c4b18bcb3073b09ef4b78a8298cea83059a55e4c",
+      "afterBytes": 8305360,
+      "trianglesAfter": {
+        "Mesh_0": 9994
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/roman-centurion-t4/lod1.glb",
+      "beforeSha256": "8c12726d7883f8e4bb8e49438e5f2bc462f1d739d22c56ca1fdadebf5b39dfdb",
+      "beforeBytes": 2104068,
+      "trianglesBefore": {
+        "Mesh_0": 6000
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 206845,
+          "bytesAfter": 716722
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 533094,
+          "bytesAfter": 273211
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 279992,
+          "bytesAfter": 857991
+        }
+      ],
+      "afterSha256": "4b3c3e642b9692e2f78fff7507fc32cdc01345acba5650cf5017381eb3ea0b1d",
+      "afterBytes": 2932216,
+      "trianglesAfter": {
+        "Mesh_0": 6000
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/roman-centurion-t4/lod2.glb",
+      "beforeSha256": "6a6b2f0a53556f148ddb5ce3aee030a43a6e82f47b26420701cdd620044decf2",
+      "beforeBytes": 1225104,
+      "trianglesBefore": {
+        "Mesh_0": 2500
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 39905,
+          "bytesAfter": 134373
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 153750,
+          "bytesAfter": 95719
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 92154,
+          "bytesAfter": 240676
+        }
+      ],
+      "afterSha256": "e3171f6ae44bd7153af6d6dfe69999ad352991fe6d79e22c0e5af77211540fc7",
+      "afterBytes": 1410220,
+      "trianglesAfter": {
+        "Mesh_0": 2500
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/roman-civilian/lod0.glb",
+      "beforeSha256": "2d4d5f05f05c84691ed58ae37bfa8c9f14e41d86ca94e5d56507df068079254e",
+      "beforeBytes": 11393748,
+      "trianglesBefore": {
+        "SourceMeshySurface.002": 10300
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 5277954,
+          "bytesAfter": 4320589
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1769033,
+          "bytesAfter": 840522
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 2469088,
+          "bytesAfter": 2036682
+        }
+      ],
+      "afterSha256": "deff90df05ddc4f350072a121ebe30f8c3b732b01c88e4522585dec5e430f43e",
+      "afterBytes": 9003696,
+      "trianglesAfter": {
+        "SourceMeshySurface.002": 10300
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/roman-civilian/lod1.glb",
+      "beforeSha256": "08576b92e0c932bcbd54d20a2c08e0e8fa9374118e3c2c2d9caef14e451cd37b",
+      "beforeBytes": 4677912,
+      "trianglesBefore": {
+        "SourceMeshySurface.003": 4498
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1733764,
+          "bytesAfter": 1211456
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 601782,
+          "bytesAfter": 259617
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 856157,
+          "bytesAfter": 612396
+        }
+      ],
+      "afterSha256": "84f15ca0b9cb75a8cc9dd99fde090ad5302de4cbcad5518bb6d609552de20043",
+      "afterBytes": 3498428,
+      "trianglesAfter": {
+        "SourceMeshySurface.003": 4498
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/roman-civilian/lod2.glb",
+      "beforeSha256": "63a4e3cd5ffd2f9d38824ef752697ea3631350e1494cfb90c07bff5d3f78d4ef",
+      "beforeBytes": 2320912,
+      "trianglesBefore": {
+        "SourceMeshySurface.004": 1797
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 496881,
+          "bytesAfter": 324683
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 193680,
+          "bytesAfter": 92352
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 275863,
+          "bytesAfter": 187676
+        }
+      ],
+      "afterSha256": "382b7654d4193c0d92a11e56f82e104bdb11f670a3d51e68d22f53978d5af490",
+      "afterBytes": 1887772,
+      "trianglesAfter": {
+        "SourceMeshySurface.004": 1797
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/roman-hero-t4/lod0.glb",
+      "beforeSha256": "8ed249372b939cb8fb088aafc976ad52256f7ec1d7e98350743bbfaf63d0e2aa",
+      "beforeBytes": 11501684,
+      "trianglesBefore": {
+        "output_unwrapped": 31105
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 5658238,
+          "bytesAfter": 828264
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 3305778,
+          "bytesAfter": 2826659
+        }
+      ],
+      "afterSha256": "e22776b9de3abd3e7f6b54051e50a63046baf67e72d6635bfb99894887de4a3b",
+      "afterBytes": 6191868,
+      "trianglesAfter": {
+        "output_unwrapped": 31105
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/roman-hero-t4/lod1.glb",
+      "beforeSha256": "f106036bfe3528f7335d5c49e048b0d765047910b0278ed9b3ddb37ec3577ae5",
+      "beforeBytes": 4925192,
+      "trianglesBefore": {
+        "output_unwrapped": 10822
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1951437,
+          "bytesAfter": 248632
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1359534,
+          "bytesAfter": 897554
+        }
+      ],
+      "afterSha256": "4c859a8a47c41d71e3629cc6cc19edd31412cce87641cdce5faed6c729a7ac82",
+      "afterBytes": 2760520,
+      "trianglesAfter": {
+        "output_unwrapped": 10822
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/roman-hero-t4/lod2.glb",
+      "beforeSha256": "d57d62afaa0f2284203dba8784e67e2b911025f6b7466a8efce84eb28b3849e2",
+      "beforeBytes": 2276724,
+      "trianglesBefore": {
+        "output_unwrapped": 4160
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 531292,
+          "bytesAfter": 88920
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 422554,
+          "bytesAfter": 268906
+        }
+      ],
+      "afterSha256": "f08a6b1a3957adc60d87040787fc6d6a944a3ef92006e073fa8008774b38493c",
+      "afterBytes": 1679976,
+      "trianglesAfter": {
+        "output_unwrapped": 4160
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/roman-hero-t5/lod0.glb",
+      "beforeSha256": "bab75f634a834be5b5013abeb31e74296edd139f22d304787a554e9a018660cf",
+      "beforeBytes": 26796884,
+      "trianglesBefore": {
+        "output_unwrapped": 10317
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 5289451,
+          "bytesAfter": 4246354
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 5878670,
+          "bytesAfter": 767834
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "4096x4096 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 11981815,
+          "bytesAfter": 3119045
+        }
+      ],
+      "afterSha256": "2c96d3f5c720ac85c5536f5f3a91b41e52d6700a1c1a08ebd686ef1a993e866e",
+      "afterBytes": 11636244,
+      "trianglesAfter": {
+        "output_unwrapped": 10317
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/roman-hero-t5/lod1.glb",
+      "beforeSha256": "10d3c4d48456e982cc295a84d23cf898da890d9f5122712dfd3a27db2b589cef",
+      "beforeBytes": 8677604,
+      "trianglesBefore": {
+        "output_unwrapped": 9739
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1812912,
+          "bytesAfter": 1199405
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1742488,
+          "bytesAfter": 244144
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1431817,
+          "bytesAfter": 959646
+        }
+      ],
+      "afterSha256": "b569d7adfbd66a18d69c73090fbf0fe5cc76d6281c3c5db9aeba71d5eb0e35d1",
+      "afterBytes": 6093784,
+      "trianglesAfter": {
+        "output_unwrapped": 9739
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/roman-hero-t5/lod2.glb",
+      "beforeSha256": "4c8e10e112a6ff45f5ed47db4b8d228f54ce6a29dacdbcfa9dfd8ed693e78cf7",
+      "beforeBytes": 5128588,
+      "trianglesBefore": {
+        "output_unwrapped": 9375
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 520268,
+          "bytesAfter": 323724
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 518598,
+          "bytesAfter": 90218
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 442362,
+          "bytesAfter": 281574
+        }
+      ],
+      "afterSha256": "dedc6966f3bccd9e7a6a75e3e9f5c73aedc14509a3b5d42912c2f1b7af091b2b",
+      "afterBytes": 4343076,
+      "trianglesAfter": {
+        "output_unwrapped": 9375
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/roman-t1/lod0.glb",
+      "beforeSha256": "60cf4897949174e1638e9c64dd1be6e3384bf4c228053869050ccc231c97876a",
+      "beforeBytes": 11607492,
+      "trianglesBefore": {
+        "char1.002": 14728
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 6942853,
+          "bytesAfter": 813086
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 2969870,
+          "bytesAfter": 2074678
+        }
+      ],
+      "afterSha256": "d25e114bf326c74c52ab48145ae72d886e05cda1190cac964a3686b9b856ffca",
+      "afterBytes": 4581632,
+      "trianglesAfter": {
+        "char1.002": 14728
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/roman-t1/lod1.glb",
+      "beforeSha256": "3b713ea936ddfdc25647f657e3c73a27932102eef2de0e773ceb0975429a9dff",
+      "beforeBytes": 4564512,
+      "trianglesBefore": {
+        "char1.003": 12515
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2011201,
+          "bytesAfter": 245355
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 974578,
+          "bytesAfter": 617773
+        }
+      ],
+      "afterSha256": "14642e4c2a67de0ae50ef3aa5efef03eea957d988ab4046b88858697b8b5816f",
+      "afterBytes": 2441520,
+      "trianglesAfter": {
+        "char1.003": 12515
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/roman-t1/lod2.glb",
+      "beforeSha256": "db486a12ed8cbc4566d90af11a0485eb509cd8dd215d32d0f609eb4c01e79e92",
+      "beforeBytes": 2319120,
+      "trianglesBefore": {
+        "char1.004": 10304
+      },
+      "lod": [
+        {
+          "mesh": "char1.004",
+          "from": 10304,
+          "to": 6000,
+          "relativeError": 0.00395
+        }
+      ],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 553309,
+          "bytesAfter": 87800
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 300748,
+          "bytesAfter": 189083
+        }
+      ],
+      "afterSha256": "4511bad81db5a69f1527b6ff00004f0edf73878c002c9a444cbb6dc9229a769a",
+      "afterBytes": 1617256,
+      "trianglesAfter": {
+        "char1.004": 6000
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/roman-t2/lod0.glb",
+      "beforeSha256": "b3a53db6257b73124ce61b0cbb77ab207c04269c21c8d7a1daf588e9668a2665",
+      "beforeBytes": 12099792,
+      "trianglesBefore": {
+        "char1.002": 13991
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 7163647,
+          "bytesAfter": 830483
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 3259646,
+          "bytesAfter": 2103985
+        }
+      ],
+      "afterSha256": "e4e38d246396922314b26dca43ab07d818755036417dba7db2c7fc2b4ae9f424",
+      "afterBytes": 4610044,
+      "trianglesAfter": {
+        "char1.002": 13991
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/roman-t2/lod1.glb",
+      "beforeSha256": "dc2c0086695eaefaa5068cefef66cd5f26f1112a6e4a32018cbce7661f36ce7b",
+      "beforeBytes": 4561984,
+      "trianglesBefore": {
+        "char1.003": 11889
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2092875,
+          "bytesAfter": 253555
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1052344,
+          "bytesAfter": 636939
+        }
+      ],
+      "afterSha256": "ae9b89a9d62df4cd58970c2f11a5486db1329461edf5e62e139cb6e00050cae6",
+      "afterBytes": 2306856,
+      "trianglesAfter": {
+        "char1.003": 11889
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/roman-t2/lod2.glb",
+      "beforeSha256": "afd4a964e702c89c601e0428f0cd8b0ec2993651e5ea396052039b2d43487044",
+      "beforeBytes": 2236584,
+      "trianglesBefore": {
+        "char1.004": 9790
+      },
+      "lod": [
+        {
+          "mesh": "char1.004",
+          "from": 9790,
+          "to": 6000,
+          "relativeError": 0.00218
+        }
+      ],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 566417,
+          "bytesAfter": 90706
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 316485,
+          "bytesAfter": 196936
+        }
+      ],
+      "afterSha256": "da2820107c4839062cdd6c681658868cad7bf574bee7b94ac33c3168dd6853d2",
+      "afterBytes": 1542468,
+      "trianglesAfter": {
+        "char1.004": 6000
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/roman/lod0.glb",
+      "beforeSha256": "142102c670dcbbffae0527d732d6f139db6f8aa61b83cbdfb2b76bba632c6b34",
+      "beforeBytes": 16867260,
+      "trianglesBefore": {
+        "Mesh_0": 11117
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 5631534,
+          "bytesAfter": 4559121
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 4723245,
+          "bytesAfter": 773207
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 3982586,
+          "bytesAfter": 2806557
+        }
+      ],
+      "afterSha256": "edf89a41365e5979840d681cb8c422f105ad24802ac9fefe306b92a61aaa8b99",
+      "afterBytes": 10668640,
+      "trianglesAfter": {
+        "Mesh_0": 11117
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/roman/lod1.glb",
+      "beforeSha256": "85c3e79a0ccf6d4c59c606cd71ac72dd8a0d86f0308913ed349ddcd442651e27",
+      "beforeBytes": 6828228,
+      "trianglesBefore": {
+        "Mesh_0": 4446
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1891415,
+          "bytesAfter": 1273803
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1588211,
+          "bytesAfter": 244836
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1225059,
+          "bytesAfter": 841898
+        }
+      ],
+      "afterSha256": "eec7a8cd84df29418413517ca0dcc4c8f5a91823959d64dd115ec25c0dd45a82",
+      "afterBytes": 4484280,
+      "trianglesAfter": {
+        "Mesh_0": 4446
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/roman/lod2.glb",
+      "beforeSha256": "606b1f5858cf8f67c63b2be30e11014a22b5b8bb59722bf3b0e74b8f5fbd4ae8",
+      "beforeBytes": 3229528,
+      "trianglesBefore": {
+        "Mesh_0": 1555
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 521004,
+          "bytesAfter": 331767
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 463412,
+          "bytesAfter": 89352
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 365241,
+          "bytesAfter": 250064
+        }
+      ],
+      "afterSha256": "c84d52dcb96b41468981fe6c0887f9ca1a96bcc9566ff25a2b7fbcf277585071",
+      "afterBytes": 2551252,
+      "trianglesAfter": {
+        "Mesh_0": 1555
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/viking-civilian/lod0.glb",
+      "beforeSha256": "34b3578aae0cb97b5a0e6fc4dcf3d6beaef575ddf17fdf0fc503d08d17448765",
+      "beforeBytes": 11286512,
+      "trianglesBefore": {
+        "SourceMeshySurface_SeparatedCloth.002": 11704
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 5096234,
+          "bytesAfter": 4289532
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1554104,
+          "bytesAfter": 785314
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 2682497,
+          "bytesAfter": 2141108
+        }
+      ],
+      "afterSha256": "541fcfa98eb2b0b086fdcb60b853a73bd92d68882ab4b99d6571a23bdf01be95",
+      "afterBytes": 9095936,
+      "trianglesAfter": {
+        "SourceMeshySurface_SeparatedCloth.002": 11704
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/viking-civilian/lod1.glb",
+      "beforeSha256": "2e14136e71031f2ae71a1b9379eca74c993d05b6c88fda63711e216ea2c816ca",
+      "beforeBytes": 4681744,
+      "trianglesBefore": {
+        "SourceMeshySurface_SeparatedCloth.003": 4321
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1672319,
+          "bytesAfter": 1194261
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 505767,
+          "bytesAfter": 240054
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 907173,
+          "bytesAfter": 647787
+        }
+      ],
+      "afterSha256": "1d305076ae02fcabf7bebd2ad92cebf32bc5952cb25bdd15c3976a06d19a1a24",
+      "afterBytes": 3605436,
+      "trianglesAfter": {
+        "SourceMeshySurface_SeparatedCloth.003": 4321
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/viking-civilian/lod2.glb",
+      "beforeSha256": "691dd04a06919187c37269a0578451269e8c30c26f6e7b404e910f440bc96607",
+      "beforeBytes": 2370168,
+      "trianglesBefore": {
+        "SourceMeshySurface_SeparatedCloth.004": 1645
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 473049,
+          "bytesAfter": 316439
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 151440,
+          "bytesAfter": 86755
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 285325,
+          "bytesAfter": 199886
+        }
+      ],
+      "afterSha256": "82c02af55407b1830f22d59cdec96d8886be1923fbd7ae2af0deb2dced541532",
+      "afterBytes": 1990204,
+      "trianglesAfter": {
+        "SourceMeshySurface_SeparatedCloth.004": 1645
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/viking-heavy-hero-t4/lod0.glb",
+      "beforeSha256": "d1667d6cbce2be348e5d200cec67e797024ad014909b8f6a0bbde2a290cff486",
+      "beforeBytes": 6802180,
+      "trianglesBefore": {
+        "Mesh_0": 29726
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 958649,
+          "bytesAfter": 3121817
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1791460,
+          "bytesAfter": 856078
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 719100,
+          "bytesAfter": 2418021
+        }
+      ],
+      "afterSha256": "481d31a1ae1bbe3356ecea4672fa030d3392d02669803bbab8c1bd708d7a8d24",
+      "afterBytes": 9729092,
+      "trianglesAfter": {
+        "Mesh_0": 29726
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/viking-heavy-hero-t4/lod1.glb",
+      "beforeSha256": "488e500f36262f33fefd8b07aeecdb0dd7c51c792586a48240bafceb3aaf0ca6",
+      "beforeBytes": 3292928,
+      "trianglesBefore": {
+        "Mesh_0": 15000
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 190083,
+          "bytesAfter": 622850
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 484882,
+          "bytesAfter": 246945
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 243087,
+          "bytesAfter": 724238
+        }
+      ],
+      "afterSha256": "7345564b9e37d84ca57ad3a1f8de2edd0a23fa2a17bd2fd477aa1383752b40d5",
+      "afterBytes": 3969112,
+      "trianglesAfter": {
+        "Mesh_0": 15000
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/viking-heavy-hero-t4/lod2.glb",
+      "beforeSha256": "ebad2ce3b32510a648b60fc87b525caa057a7e1cd5443479ed42f4af5d2bad45",
+      "beforeBytes": 2016368,
+      "trianglesBefore": {
+        "Mesh_0": 6000
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 31794,
+          "bytesAfter": 102456
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 131372,
+          "bytesAfter": 87726
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 78837,
+          "bytesAfter": 202324
+        }
+      ],
+      "afterSha256": "009070324f94acdf555b682110a876b7e6e5a2bd785dbbeb80e1c5616781ffdd",
+      "afterBytes": 2166896,
+      "trianglesAfter": {
+        "Mesh_0": 6000
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/viking-heavy-hero-t5/lod0.glb",
+      "beforeSha256": "af3d47cc7a7f7e15a900ac135b3fe638d2770964f69fe66da9ae9fbd66daf1b7",
+      "beforeBytes": 8501688,
+      "trianglesBefore": {
+        "output_unwrapped": 30595
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1752874,
+          "bytesAfter": 874618
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1041067,
+          "bytesAfter": 2822473
+        }
+      ],
+      "afterSha256": "c7348e29d12281dab2e742b5e3271b67bedbeb5e4e05cecc1b50eb535fa0a970",
+      "afterBytes": 9405000,
+      "trianglesAfter": {
+        "output_unwrapped": 30595
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/viking-heavy-hero-t5/lod1.glb",
+      "beforeSha256": "114635498b4a8a0929b1c31091f8f41287e5dfa4c77abfd35a68aa96c5ad2f69",
+      "beforeBytes": 3766576,
+      "trianglesBefore": {
+        "output_unwrapped": 15000
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 476393,
+          "bytesAfter": 250581
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 328989,
+          "bytesAfter": 824203
+        }
+      ],
+      "afterSha256": "2e49352d62295ca03b290a955423b3787cc2a4bb8dab45320fca01d94efe5b2c",
+      "afterBytes": 4036136,
+      "trianglesAfter": {
+        "output_unwrapped": 15000
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/viking-heavy-hero-t5/lod2.glb",
+      "beforeSha256": "3e66d685bcbd0f53ee320f1512903803631e75840e9da12ad492e39ac3e2e858",
+      "beforeBytes": 2236964,
+      "trianglesBefore": {
+        "output_unwrapped": 6000
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 135420,
+          "bytesAfter": 88475
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 106394,
+          "bytesAfter": 235972
+        }
+      ],
+      "afterSha256": "966fafc69674078fdada0167f68366a6f48437e7aea243f866482a237219244f",
+      "afterBytes": 2319716,
+      "trianglesAfter": {
+        "output_unwrapped": 6000
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/viking-hero-t4/lod0.glb",
+      "beforeSha256": "92931f8a657546fde36e42b778dc2f237128a5a56f19d4d90880d7008b2fc50c",
+      "beforeBytes": 18489552,
+      "trianglesBefore": {
+        "Original_Mail_With_Fitted_Lining": 2464,
+        "Captain_Semantically_Separated_Surface": 11411,
+        "Restored_hidden_torso": 196,
+        "Restored_neck": 116,
+        "Tailored_inner_neckline": 380,
+        "Rebuilt_UpperPalm_l.001": 3703,
+        "Rebuilt_UpperPalm_r.001": 3702
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 5090953,
+          "bytesAfter": 4240567
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 5468906,
+          "bytesAfter": 843180
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 3110322,
+          "bytesAfter": 2368633
+        },
+        {
+          "image": 3,
+          "role": "color",
+          "from": "128x128 image/png",
+          "to": "128x128 image/ktx2",
+          "bytesBefore": 24720,
+          "bytesAfter": 5759
+        }
+      ],
+      "afterSha256": "e1b7a73bfb5bf087841d334486d389d1fb7ef8355e2d8331f5a6aefa4517324d",
+      "afterBytes": 12252220,
+      "trianglesAfter": {
+        "Original_Mail_With_Fitted_Lining": 2464,
+        "Captain_Semantically_Separated_Surface": 11411,
+        "Restored_hidden_torso": 196,
+        "Restored_neck": 116,
+        "Tailored_inner_neckline": 380,
+        "Rebuilt_UpperPalm_l.001": 3703,
+        "Rebuilt_UpperPalm_r.001": 3702
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/viking-hero-t4/lod1.glb",
+      "beforeSha256": "3f7f3e51b473e7a790d10cc530f039ca67162eea42d74ca5d533b4edba0459b5",
+      "beforeBytes": 8123064,
+      "trianglesBefore": {
+        "Original_Mail_With_Fitted_Lining": 984,
+        "Captain_Semantically_Separated_Surface": 4578,
+        "Restored_hidden_torso": 78,
+        "Restored_neck": 46,
+        "Tailored_inner_neckline": 152,
+        "Rebuilt_UpperPalm_l.001": 799,
+        "Rebuilt_UpperPalm_r.001": 799
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1663990,
+          "bytesAfter": 1195696
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1744439,
+          "bytesAfter": 259282
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1043055,
+          "bytesAfter": 722100
+        },
+        {
+          "image": 3,
+          "role": "color",
+          "from": "128x128 image/png",
+          "to": "128x128 image/ktx2",
+          "bytesBefore": 24720,
+          "bytesAfter": 5759
+        }
+      ],
+      "afterSha256": "42cfacf7f00834dac599a10c6dbefe4291be416f956219d8811b96eaf1a99841",
+      "afterBytes": 5830008,
+      "trianglesAfter": {
+        "Original_Mail_With_Fitted_Lining": 984,
+        "Captain_Semantically_Separated_Surface": 4578,
+        "Restored_hidden_torso": 78,
+        "Restored_neck": 46,
+        "Tailored_inner_neckline": 152,
+        "Rebuilt_UpperPalm_l.001": 799,
+        "Rebuilt_UpperPalm_r.001": 799
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/viking-hero-t4/lod2.glb",
+      "beforeSha256": "89d396361f28725013a049b906462ca58c11f81a4dc9699c12753a08767866d4",
+      "beforeBytes": 4450928,
+      "trianglesBefore": {
+        "Original_Mail_With_Fitted_Lining": 294,
+        "Captain_Semantically_Separated_Surface": 1384,
+        "Restored_hidden_torso": 22,
+        "Restored_neck": 12,
+        "Tailored_inner_neckline": 44,
+        "Rebuilt_UpperPalm_l.001": 499,
+        "Rebuilt_UpperPalm_r.001": 499
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 467173,
+          "bytesAfter": 318006
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 489621,
+          "bytesAfter": 93753
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 324996,
+          "bytesAfter": 218391
+        },
+        {
+          "image": 3,
+          "role": "color",
+          "from": "128x128 image/png",
+          "to": "128x128 image/ktx2",
+          "bytesBefore": 24720,
+          "bytesAfter": 5759
+        }
+      ],
+      "afterSha256": "ee0397320f276c25a981bd63720ac7f3e725af88aa6ab406fbb8a737dda8a3cd",
+      "afterBytes": 3780640,
+      "trianglesAfter": {
+        "Original_Mail_With_Fitted_Lining": 294,
+        "Captain_Semantically_Separated_Surface": 1384,
+        "Restored_hidden_torso": 22,
+        "Restored_neck": 12,
+        "Tailored_inner_neckline": 44,
+        "Rebuilt_UpperPalm_l.001": 499,
+        "Rebuilt_UpperPalm_r.001": 499
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/viking-hero-t5/lod0.glb",
+      "beforeSha256": "d5e24b409bf5d9e793e5f82b0468071ce94839d72a1aa5771593568f4f923c5f",
+      "beforeBytes": 12666580,
+      "trianglesBefore": {
+        "output_unwrapped": 31256
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 5934489,
+          "bytesAfter": 901156
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 3224591,
+          "bytesAfter": 2349677
+        }
+      ],
+      "afterSha256": "2b8dcd76898ca682d8de1c4dcec325846d5c3156e45c32fcf7e4a7dd4a4e21e6",
+      "afterBytes": 6757668,
+      "trianglesAfter": {
+        "output_unwrapped": 31256
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/viking-hero-t5/lod1.glb",
+      "beforeSha256": "f873a8b71e57793dcfb233d826587558a585e5137a4372cc05660093127789f3",
+      "beforeBytes": 5397680,
+      "trianglesBefore": {
+        "output_unwrapped": 10807
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1995137,
+          "bytesAfter": 260074
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1169102,
+          "bytesAfter": 702297
+        }
+      ],
+      "afterSha256": "e6be4ebb26eae8553a59b720f6980ea9a59869a4f1b3cfed01b1eafe66692200",
+      "afterBytes": 3195928,
+      "trianglesAfter": {
+        "output_unwrapped": 10807
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/viking-hero-t5/lod2.glb",
+      "beforeSha256": "d43d5799012b79e6172a51ca9937c0ad07d03a4df0a85eba8d1f77225b229348",
+      "beforeBytes": 2627712,
+      "trianglesBefore": {
+        "output_unwrapped": 4062
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 536025,
+          "bytesAfter": 90466
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 339899,
+          "bytesAfter": 210222
+        }
+      ],
+      "afterSha256": "212c03f2d10c4e9fc98b455843b0511a3e2eb2aef1a2a7a2492f282c7e0dd200",
+      "afterBytes": 2052592,
+      "trianglesAfter": {
+        "output_unwrapped": 4062
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/viking-t1/lod0.glb",
+      "beforeSha256": "610a6c99f32e08b1359e46b7d737ad779e34504b5ad18b3716487fad0eb11987",
+      "beforeBytes": 11698352,
+      "trianglesBefore": {
+        "char1.002": 12094
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 7316311,
+          "bytesAfter": 846665
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 2886118,
+          "bytesAfter": 1847591
+        }
+      ],
+      "afterSha256": "5e979e03a1fd5192b0403b84194880a5cd33c1810737ec2002e2ae9d3882bbdd",
+      "afterBytes": 4189192,
+      "trianglesAfter": {
+        "char1.002": 12094
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/viking-t1/lod1.glb",
+      "beforeSha256": "8c0f051b18182955538c9a4ca9a989f404dca4dbbde097ab4244eba705e94bde",
+      "beforeBytes": 4448672,
+      "trianglesBefore": {
+        "char1.003": 11487
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2070303,
+          "bytesAfter": 246348
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 918002,
+          "bytesAfter": 532783
+        }
+      ],
+      "afterSha256": "5f8dc1521de3d6507c6e62aca803aa483d03e490b51faa87225af2f6deab2bb6",
+      "afterBytes": 2239136,
+      "trianglesAfter": {
+        "char1.003": 11487
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/viking-t1/lod2.glb",
+      "beforeSha256": "d9de3c619eccdbd01883e8d18ef84ed5d3464f08e34103ebf65d30b3eeb35d00",
+      "beforeBytes": 2242172,
+      "trianglesBefore": {
+        "char1.004": 10882
+      },
+      "lod": [
+        {
+          "mesh": "char1.004",
+          "from": 10882,
+          "to": 8982,
+          "relativeError": 0.00881
+        }
+      ],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 551859,
+          "bytesAfter": 87482
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 269576,
+          "bytesAfter": 161463
+        }
+      ],
+      "afterSha256": "8e6cd8b201eafca8935f960e935d2e5437b7b551005fceec9d755185fbeebbd7",
+      "afterBytes": 1610880,
+      "trianglesAfter": {
+        "char1.004": 8982
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/viking-t2/lod0.glb",
+      "beforeSha256": "07d4eb559a6a5377f71fcf0f73b15930e92287bf74271649fd4cfc1d4c6a2e94",
+      "beforeBytes": 11980304,
+      "trianglesBefore": {
+        "char1.002": 12380
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 7001675,
+          "bytesAfter": 799542
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 3559260,
+          "bytesAfter": 2362095
+        }
+      ],
+      "afterSha256": "f32a9a5668c6939eca9eaacc777eb7d5d6f83d939f3ded85ba66cdb50e61ffc3",
+      "afterBytes": 4579964,
+      "trianglesAfter": {
+        "char1.002": 12380
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/viking-t2/lod1.glb",
+      "beforeSha256": "a18851f4efe1f56585e563cfc3b20f4505564a89263507724d7c2c32c0837f82",
+      "beforeBytes": 4514808,
+      "trianglesBefore": {
+        "char1.003": 10521
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2034529,
+          "bytesAfter": 243892
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1154090,
+          "bytesAfter": 715304
+        }
+      ],
+      "afterSha256": "88ffab133a19909e8712c1f6fa3c345731f367e4b8d4708c5bc110a939785c2f",
+      "afterBytes": 2284912,
+      "trianglesAfter": {
+        "char1.003": 10521
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/viking-t2/lod2.glb",
+      "beforeSha256": "2e4e7d612fd29ec0986d08da4b528d845aa8e3acc847c01d4cc9a1aa96d5dab2",
+      "beforeBytes": 2118060,
+      "trianglesBefore": {
+        "char1.004": 8664
+      },
+      "lod": [
+        {
+          "mesh": "char1.004",
+          "from": 8664,
+          "to": 6428,
+          "relativeError": 0.00931
+        }
+      ],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 544802,
+          "bytesAfter": 87960
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 351635,
+          "bytesAfter": 219113
+        }
+      ],
+      "afterSha256": "2a04f043ce7af02587b50dc4e75ac6ab64ba4ba94db7d191d4c661b01bdef3b3",
+      "afterBytes": 1459064,
+      "trianglesAfter": {
+        "char1.004": 6428
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/characters/v2/viking/lod0.glb",
+      "beforeSha256": "ae80de4d2c8f4792f343f63255bc9e286aad729a7d339fa0c3f813ab498424e2",
+      "beforeBytes": 14730584,
+      "trianglesBefore": {
+        "Mesh_0": 10290
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 5601137,
+          "bytesAfter": 4533872
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 5061210,
+          "bytesAfter": 786092
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 3055177,
+          "bytesAfter": 1854212
+        }
+      ],
+      "afterSha256": "a3d3754a397cbd521a27302947c664f6aac72d5da68241d8576dd5b49755f11a",
+      "afterBytes": 8187244,
+      "trianglesAfter": {
+        "Mesh_0": 10290
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/characters/v2/viking/lod1.glb",
+      "beforeSha256": "1cac7f16300bccca2894f483d8cc7c83f8eb83a99effa3d2da503c9b272ba1d5",
+      "beforeBytes": 5400692,
+      "trianglesBefore": {
+        "Mesh_0": 4668
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1790649,
+          "bytesAfter": 1247403
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1694679,
+          "bytesAfter": 242640
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 908138,
+          "bytesAfter": 534310
+        }
+      ],
+      "afterSha256": "54663a1845fc97884301128d665e33a19d4f87c62f702467f7f26c75cc16e308",
+      "afterBytes": 3031684,
+      "trianglesAfter": {
+        "Mesh_0": 4668
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/characters/v2/viking/lod2.glb",
+      "beforeSha256": "ee0e79f131f4c87e3cf02857894fa5f057b29f36b84c2cde64c24c6b2ac78126",
+      "beforeBytes": 2193856,
+      "trianglesBefore": {
+        "Mesh_0": 3600
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 480719,
+          "bytesAfter": 323784
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 463470,
+          "bytesAfter": 87601
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 255261,
+          "bytesAfter": 153671
+        }
+      ],
+      "afterSha256": "3147cdbaf90455ff3c9151b0f25e7bd0a8f4eba5d7974f3250deca2d49d8a173",
+      "afterBytes": 1559572,
+      "trianglesAfter": {
+        "Mesh_0": 3600
+      },
+      "textureMaxSize": 512
+    },
+    {
+      "file": "models/mounts/v2/black-cat/black-cat.glb",
+      "beforeSha256": "55e9a8eb0b633523e347c120c2b8775ebf49e0caac103d88644ea53f77a5b3da",
+      "beforeBytes": 23948876,
+      "trianglesBefore": {
+        "cat_body_lod0": 19391,
+        "cat_saddle_leather": 10875,
+        "cat_body_lod1": 8919,
+        "cat_equipment_lod1": 5002,
+        "cat_body_lod2": 2520,
+        "cat_equipment_lod2": 1412
+      },
+      "lod": [
+        {
+          "mesh": "cat_body_lod2",
+          "from": 2520,
+          "to": 2068,
+          "relativeError": 0.01427
+        }
+      ],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "4096x4096 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 8027998,
+          "bytesAfter": 2067286
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "4096x4096 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 11762098,
+          "bytesAfter": 728316
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1711196,
+          "bytesAfter": 1903249
+        }
+      ],
+      "afterSha256": "8c4785d037c86761689e0051d0025532adca30eb81c46f5b706998ce32e71550",
+      "afterBytes": 7120612,
+      "trianglesAfter": {
+        "cat_body_lod0": 19391,
+        "cat_saddle_leather": 10875,
+        "cat_body_lod1": 8919,
+        "cat_equipment_lod1": 5002,
+        "cat_body_lod2": 2068,
+        "cat_equipment_lod2": 1412
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/mounts/v2/caracal/caracal.glb",
+      "beforeSha256": "acf9ec6b17e91593e646a38d075411b62188a41beb14e30d0560f748c1af09ac",
+      "beforeBytes": 19904912,
+      "trianglesBefore": {
+        "cat_body_lod0": 31201,
+        "cat_saddle_leather": 2285,
+        "cat_body_lod1": 14347,
+        "cat_equipment_lod1": 1051,
+        "cat_body_lod2": 4038,
+        "cat_equipment_lod2": 297
+      },
+      "lod": [
+        {
+          "mesh": "cat_body_lod2",
+          "from": 4038,
+          "to": 3524,
+          "relativeError": 0.01424
+        }
+      ],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 7014188,
+          "bytesAfter": 908850
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "4096x4096 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 8103866,
+          "bytesAfter": 1905522
+        },
+        {
+          "image": 2,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 795022,
+          "bytesAfter": 669582
+        },
+        {
+          "image": 3,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 388284,
+          "bytesAfter": 1990313
+        },
+        {
+          "image": 4,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 317213,
+          "bytesAfter": 1715669
+        }
+      ],
+      "afterSha256": "3faa894001529d709907bbd7d8a76fc674e131a463ac0a9a40124c03d6cd9e4d",
+      "afterBytes": 10464684,
+      "trianglesAfter": {
+        "cat_body_lod0": 31201,
+        "cat_saddle_leather": 2285,
+        "cat_body_lod1": 14347,
+        "cat_equipment_lod1": 1051,
+        "cat_body_lod2": 3524,
+        "cat_equipment_lod2": 297
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/mounts/v2/corgi/corgi.glb",
+      "beforeSha256": "f05ed47e6c038ee2dfc0be053212328ecbf49673608846c1afbbbba1fafa5a6e",
+      "beforeBytes": 7815968,
+      "trianglesBefore": {
+        "corgi_visible_source": 2644,
+        "corgi_body_lod1": 1454,
+        "corgi_body_lod2": 846,
+        "corgi_equipment_lod1": 4522,
+        "corgi_equipment_lod2": 3708,
+        "corgi_saddle_leather": 8224,
+        "corgi_saddle_leather.002": 15160,
+        "corgi_unarmored_lod1": 8337,
+        "corgi_unarmored_lod2": 4851
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1352174,
+          "bytesAfter": 984502
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1372242,
+          "bytesAfter": 711137
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 777673,
+          "bytesAfter": 543704
+        }
+      ],
+      "afterSha256": "27e6ed5ae0cff7628e96e38dbfe819a66ce3693f9a484db381692ae8f516e209",
+      "afterBytes": 6553360,
+      "trianglesAfter": {
+        "corgi_visible_source": 2644,
+        "corgi_body_lod1": 1454,
+        "corgi_body_lod2": 846,
+        "corgi_equipment_lod1": 4522,
+        "corgi_equipment_lod2": 3708,
+        "corgi_saddle_leather": 8224,
+        "corgi_saddle_leather.002": 15160,
+        "corgi_unarmored_lod1": 8337,
+        "corgi_unarmored_lod2": 4851
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/mounts/v2/orange-cat/orange-cat.glb",
+      "beforeSha256": "d4f95540ba93825de247b00f7daacbcf2d94571d6db03f2caee6e0a04b3e84a6",
+      "beforeBytes": 23024588,
+      "trianglesBefore": {
+        "cat_body_lod0": 31335,
+        "cat_saddle_leather": 10348,
+        "cat_body_lod1": 14409,
+        "cat_equipment_lod1": 4759,
+        "cat_body_lod2": 4072,
+        "cat_equipment_lod2": 1344
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 7049380,
+          "bytesAfter": 903792
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "4096x4096 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 9498142,
+          "bytesAfter": 1806416
+        },
+        {
+          "image": 2,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 795022,
+          "bytesAfter": 669582
+        },
+        {
+          "image": 3,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 388284,
+          "bytesAfter": 1990313
+        },
+        {
+          "image": 4,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 317213,
+          "bytesAfter": 1715669
+        }
+      ],
+      "afterSha256": "92975eab295c1c27a59891d95ac232d8df4511ed4a4b8a24363a6a4264847e81",
+      "afterBytes": 12090824,
+      "trianglesAfter": {
+        "cat_body_lod0": 31335,
+        "cat_saddle_leather": 10348,
+        "cat_body_lod1": 14409,
+        "cat_equipment_lod1": 4759,
+        "cat_body_lod2": 4072,
+        "cat_equipment_lod2": 1344
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/mounts/v2/serval/serval.glb",
+      "beforeSha256": "311f17ff311204010c25826fcb8faa11dcc8c2a479f9a9d76f39c7df7da82d7f",
+      "beforeBytes": 20408096,
+      "trianglesBefore": {
+        "cat_body_lod0": 31091,
+        "cat_saddle_leather": 2285,
+        "cat_body_lod1": 14293,
+        "cat_equipment_lod1": 1051,
+        "cat_body_lod2": 4015,
+        "cat_equipment_lod2": 297
+      },
+      "lod": [
+        {
+          "mesh": "cat_body_lod2",
+          "from": 4015,
+          "to": 3141,
+          "relativeError": 0.0134
+        }
+      ],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 7397185,
+          "bytesAfter": 977349
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "4096x4096 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 8613080,
+          "bytesAfter": 1757743
+        },
+        {
+          "image": 2,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 795022,
+          "bytesAfter": 669582
+        },
+        {
+          "image": 3,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 388284,
+          "bytesAfter": 1990313
+        },
+        {
+          "image": 4,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 317213,
+          "bytesAfter": 1715669
+        }
+      ],
+      "afterSha256": "df4142aa49a3f58e849236dd90238fc8c338c2339e86932469251da164be505d",
+      "afterBytes": 9977376,
+      "trianglesAfter": {
+        "cat_body_lod0": 31091,
+        "cat_saddle_leather": 2285,
+        "cat_body_lod1": 14293,
+        "cat_equipment_lod1": 1051,
+        "cat_body_lod2": 3141,
+        "cat_equipment_lod2": 297
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/mounts/v2/snow-leopard/snow-leopard.glb",
+      "beforeSha256": "e020c8c90fa24bae19d79d9291a58249336718ee1640a21e289856a04b32319a",
+      "beforeBytes": 5742856,
+      "trianglesBefore": {
+        "output_unwrapped": 17532,
+        "output_unwrapped.001": 6476,
+        "output_unwrapped.002": 2741
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 1164888,
+          "bytesAfter": 866030
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1603942,
+          "bytesAfter": 974682
+        }
+      ],
+      "afterSha256": "2db93ad9b906a34f0db06629227040b5c63f198bf1e7915643f597d5ab54af18",
+      "afterBytes": 4837908,
+      "trianglesAfter": {
+        "output_unwrapped": 17532,
+        "output_unwrapped.001": 6476,
+        "output_unwrapped.002": 2741
+      },
+      "textureMaxSize": 2048
+    },
+    {
+      "file": "models/mounts/v2/white-cat/white-cat.glb",
+      "beforeSha256": "1b7a0a59d32440efa01a9373a97271284aa85280ac9bd51bc3795e7ade00c78e",
+      "beforeBytes": 19288608,
+      "trianglesBefore": {
+        "cat_body_lod0": 31285,
+        "cat_saddle_leather": 10348,
+        "cat_body_lod1": 14390,
+        "cat_equipment_lod1": 4758,
+        "cat_body_lod2": 4053,
+        "cat_equipment_lod2": 1345
+      },
+      "lod": [
+        {
+          "mesh": "cat_body_lod2",
+          "from": 4053,
+          "to": 3301,
+          "relativeError": 0.01451
+        },
+        {
+          "mesh": "cat_body_lod2",
+          "from": 3301,
+          "to": 3293,
+          "relativeError": 0.01239
+        }
+      ],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 5736888,
+          "bytesAfter": 700567
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "4096x4096 image/png",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 8536238,
+          "bytesAfter": 1797093
+        },
+        {
+          "image": 2,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 795022,
+          "bytesAfter": 669582
+        },
+        {
+          "image": 3,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 388284,
+          "bytesAfter": 1990313
+        },
+        {
+          "image": 4,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "2048x2048 image/ktx2",
+          "bytesBefore": 317213,
+          "bytesAfter": 1715669
+        }
+      ],
+      "afterSha256": "40f0117429ef05a861bdd3a690825bf86c58e7578d207a5cf36c44e70c31294a",
+      "afterBytes": 10355612,
+      "trianglesAfter": {
+        "cat_body_lod0": 31285,
+        "cat_saddle_leather": 10348,
+        "cat_body_lod1": 14390,
+        "cat_equipment_lod1": 4758,
+        "cat_body_lod2": 3293,
+        "cat_equipment_lod2": 1345
+      },
+      "textureMaxSize": 0
+    },
+    {
+      "file": "models/weapons/byzantine/standard-lance.glb",
+      "beforeSha256": "b9c75e7b8cfc6eb0664e9f5835681b23b9334bdbf3afb7a0af9f91c1244bd8c6",
+      "beforeBytes": 7087536,
+      "trianglesBefore": {
+        "undefined": 2815
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 3190904,
+          "bytesAfter": 245491
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1368219,
+          "bytesAfter": 604714
+        },
+        {
+          "image": 2,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2386501,
+          "bytesAfter": 791397
+        }
+      ],
+      "afterSha256": "660e274dbff44a44fe6017bcf8e136573448f1013a400195f6b1af5df5fb4ec9",
+      "afterBytes": 1783632,
+      "trianglesAfter": {
+        "undefined": 2815
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/faction-shields/byzantine-eagle.glb",
+      "beforeSha256": "a10cd8d98499575b1f3f3a5c7d513707868ccd15a44897ec9b77b3de3c5f5066",
+      "beforeBytes": 9312792,
+      "trianglesBefore": {
+        "undefined": 2789
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 4105343,
+          "bytesAfter": 260988
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2193644,
+          "bytesAfter": 861914
+        },
+        {
+          "image": 2,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2880462,
+          "bytesAfter": 982940
+        }
+      ],
+      "afterSha256": "80fb916bd78e9fa48ccb703a0203044af1bc7ca2b25ef98f04a84834a1b49f69",
+      "afterBytes": 2239316,
+      "trianglesAfter": {
+        "undefined": 2789
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/faction-shields/centurion-aquila.glb",
+      "beforeSha256": "7184a20ab5d0c00d26307d134ec01f0d0906df55afbe944fe48030598b8eb572",
+      "beforeBytes": 8640632,
+      "trianglesBefore": {
+        "undefined": 2710
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 3808418,
+          "bytesAfter": 274181
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1985525,
+          "bytesAfter": 833640
+        },
+        {
+          "image": 2,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2711335,
+          "bytesAfter": 974661
+        }
+      ],
+      "afterSha256": "b1e6613864672a7c4f2dc39a6180d8b1d7506fe5a5ef8648e6e0a89b1fb6b419",
+      "afterBytes": 2217960,
+      "trianglesAfter": {
+        "undefined": 2710
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/faction-shields/roman-officer.glb",
+      "beforeSha256": "21e9d9ffffff43f6d1f04f38fcb3a79d29e989a284ca8305b28dca64afbac559",
+      "beforeBytes": 11925396,
+      "trianglesBefore": {
+        "Mesh_0": 2894
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 5837763,
+          "bytesAfter": 1221982
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 3708112,
+          "bytesAfter": 240553
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2248848,
+          "bytesAfter": 856984
+        }
+      ],
+      "afterSha256": "7e79fddcdd2c34d65aa2604bfa35183e352a9ac4561c484e0fb0374303fcda84",
+      "afterBytes": 2450344,
+      "trianglesAfter": {
+        "Mesh_0": 2894
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/faction-shields/viking-berserker.glb",
+      "beforeSha256": "d61d43ec61240d6b927885dc4d8cd2df36f361518a2403aaf8ed2db22c9b3855",
+      "beforeBytes": 13644056,
+      "trianglesBefore": {
+        "Mesh_0": 2866
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 6545036,
+          "bytesAfter": 1296200
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 4748179,
+          "bytesAfter": 272118
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2225835,
+          "bytesAfter": 720351
+        }
+      ],
+      "afterSha256": "de3a239b1088bbc90b3e4ca9df36c2359f99157bdc64335037e978dc5d7524d0",
+      "afterBytes": 2413828,
+      "trianglesAfter": {
+        "Mesh_0": 2866
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/faction-shields/viking-dragonward.glb",
+      "beforeSha256": "f4f149982fe75e319a733b27a2534670df37e41213b9716535926e05c6c7fd44",
+      "beforeBytes": 9671892,
+      "trianglesBefore": {
+        "undefined": 2785
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 4232399,
+          "bytesAfter": 269060
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2049678,
+          "bytesAfter": 865618
+        },
+        {
+          "image": 2,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 3263831,
+          "bytesAfter": 1086211
+        }
+      ],
+      "afterSha256": "ea235468e4c65b4e21ef1f6ade15ea12262ac547230cadf89683377aeadf42a5",
+      "afterBytes": 2347008,
+      "trianglesAfter": {
+        "undefined": 2785
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/high-tier/bow.glb",
+      "beforeSha256": "e911c3cb1de196ee197927f9eea48856d4dc2cc79639a59f552c8abb4179f9bf",
+      "beforeBytes": 1221212,
+      "trianglesBefore": {
+        "bow_low_fixed_bow_mat_0": 1874
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "1024x1024 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1089820,
+          "bytesAfter": 238731
+        }
+      ],
+      "afterSha256": "a5f6b0fa4287ca23cf6052875f6ac06d1d92cf48fa943ba8d429120f1f8c6241",
+      "afterBytes": 370232,
+      "trianglesAfter": {
+        "bow_low_fixed_bow_mat_0": 1874
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/high-tier/spear.glb",
+      "beforeSha256": "b40fde07904b4d8746460f1091f6ecbc19551dbad3df3c4f075c360afda229dc",
+      "beforeBytes": 9266940,
+      "trianglesBefore": {
+        "Mesh_0": 3040
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 4603891,
+          "bytesAfter": 1117544
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 3205976,
+          "bytesAfter": 246050
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1340385,
+          "bytesAfter": 684877
+        }
+      ],
+      "afterSha256": "8eae8d92d2fe5d1e3e3cd41d97f732b92200dd98e16ce4838941280534df04ed",
+      "afterBytes": 2165320,
+      "trianglesAfter": {
+        "Mesh_0": 3040
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/maki-ranger-bow/bow.glb",
+      "beforeSha256": "1cb82efbb3f4032e4d98d90190890745873b10ffad207eecc10c75f80085b029",
+      "beforeBytes": 6339888,
+      "trianglesBefore": {
+        "undefined": 3020,
+        "bow-string-top": 33,
+        "bow-string-bottom": 49
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2770038,
+          "bytesAfter": 222797
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1247994,
+          "bytesAfter": 573536
+        },
+        {
+          "image": 2,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2125594,
+          "bytesAfter": 667987
+        }
+      ],
+      "afterSha256": "6d598e5cca47632ec1f26514d9dac85f28422c2c249193bf5c975c231262bf2d",
+      "afterBytes": 1623760,
+      "trianglesAfter": {
+        "undefined": 3020,
+        "bow-string-top": 33,
+        "bow-string-bottom": 49
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/paladin/axe.glb",
+      "beforeSha256": "4c93c222c6f46c582cc51766490de83591727e9a45900d6614dad7eb2fd3ec62",
+      "beforeBytes": 7363712,
+      "trianglesBefore": {
+        "undefined": 3150
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 3252091,
+          "bytesAfter": 238674
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1586352,
+          "bytesAfter": 733497
+        },
+        {
+          "image": 2,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2396131,
+          "bytesAfter": 740257
+        }
+      ],
+      "afterSha256": "09ff9cdf9e3c5666746a098c32510f0e1cc3b9b33c7a8639f83e5b7da6a5b492",
+      "afterBytes": 1841748,
+      "trianglesAfter": {
+        "undefined": 3150
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/paladin/shield.glb",
+      "beforeSha256": "93d856231267ec70e88fb818c711c708756e8bc5ab217e250cfd8e30c2aeb6cd",
+      "beforeBytes": 1932844,
+      "trianglesBefore": {
+        "defaultMaterial.002": 1912,
+        "defaultMaterial.004": 1256
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 129238,
+          "bytesAfter": 673653
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 112893,
+          "bytesAfter": 740162
+        },
+        {
+          "image": 2,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 518032,
+          "bytesAfter": 189726
+        },
+        {
+          "image": 3,
+          "role": "normal",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 150094,
+          "bytesAfter": 756793
+        },
+        {
+          "image": 4,
+          "role": "linear",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 140768,
+          "bytesAfter": 924252
+        },
+        {
+          "image": 5,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 789470,
+          "bytesAfter": 234714
+        }
+      ],
+      "afterSha256": "79fcab6a4881d176513924c905d62b6e01d96187be66832db53504a7ab556cca",
+      "afterBytes": 3611960,
+      "trianglesAfter": {
+        "defaultMaterial.002": 1912,
+        "defaultMaterial.004": 1256
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/paladin/sword.glb",
+      "beforeSha256": "9e2437cdb8e0b7ea8e1920110ab5a6e41eacfd056ccfa98e89d51f12310d9e03",
+      "beforeBytes": 378552,
+      "trianglesBefore": {
+        "bastardsword_weapons_0": 790
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 144244,
+          "bytesAfter": 874526
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 74250,
+          "bytesAfter": 149226
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "1024x1024 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 118287,
+          "bytesAfter": 799638
+        }
+      ],
+      "afterSha256": "a907bafeef7dfc8a6a593d1596e3ce402434ed707d9ed2003b72571090e0088e",
+      "afterBytes": 1865364,
+      "trianglesAfter": {
+        "bastardsword_weapons_0": 790
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/t5/axe.glb",
+      "beforeSha256": "2f07fbef19da9cdba91e69bf4d8986f2667f849b8c307ae67fe4e3edae1c361c",
+      "beforeBytes": 16153772,
+      "trianglesBefore": {
+        "output_unwrapped": 3110
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 6208736,
+          "bytesAfter": 1277595
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 6027494,
+          "bytesAfter": 261492
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "2048x2048 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 3681990,
+          "bytesAfter": 796243
+        }
+      ],
+      "afterSha256": "24285c5c9e56565a6f43497e4fc859e3cc59cbd747f2945593ffe11a1c5a916e",
+      "afterBytes": 2571036,
+      "trianglesAfter": {
+        "output_unwrapped": 3110
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/t5/lance.glb",
+      "beforeSha256": "46164c9f1ab44144d75daecfa3d97f810e87acf3a844f4aff51335de2f1b810b",
+      "beforeBytes": 18170604,
+      "trianglesBefore": {
+        "output_unwrapped": 2994
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "normal",
+          "from": "2048x2048 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 4316388,
+          "bytesAfter": 986426
+        },
+        {
+          "image": 1,
+          "role": "color",
+          "from": "2048x2048 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 5554379,
+          "bytesAfter": 229211
+        },
+        {
+          "image": 2,
+          "role": "linear",
+          "from": "4096x4096 image/png",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 8140936,
+          "bytesAfter": 701999
+        }
+      ],
+      "afterSha256": "4efbac4e9d5b411154b2aff2e2f05ebb81317b61873c2e6dbfe74791ed86a306",
+      "afterBytes": 2076704,
+      "trianglesAfter": {
+        "output_unwrapped": 2994
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/t5/shield.glb",
+      "beforeSha256": "d60d5b7cb75ffc286b2c5e4ce81e459b737487d4dfb43a660295dfd020715f50",
+      "beforeBytes": 7134472,
+      "trianglesBefore": {
+        "undefined": 4111
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 3084305,
+          "bytesAfter": 227552
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 1562799,
+          "bytesAfter": 660588
+        },
+        {
+          "image": 2,
+          "role": "normal",
+          "from": "2048x2048 image/jpeg",
+          "to": "1024x1024 image/ktx2",
+          "bytesBefore": 2247759,
+          "bytesAfter": 750829
+        }
+      ],
+      "afterSha256": "31e8174b4c7184fa7e92a41a96df1e3660fc9db17a8b6e264a91de99d182a191",
+      "afterBytes": 1878716,
+      "trianglesAfter": {
+        "undefined": 4111
+      },
+      "textureMaxSize": 1024
+    },
+    {
+      "file": "models/weapons/t5/sword.glb",
+      "beforeSha256": "0583cc3165d6fff92e8de43d254db43aac13d77cd8c8a3b32c8e691462df4251",
+      "beforeBytes": 1744648,
+      "trianglesBefore": {
+        "defaultMaterial": 1168
+      },
+      "lod": [],
+      "textures": [
+        {
+          "image": 0,
+          "role": "color",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 50826,
+          "bytesAfter": 48367
+        },
+        {
+          "image": 1,
+          "role": "linear",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 46577,
+          "bytesAfter": 181386
+        },
+        {
+          "image": 2,
+          "role": "normal",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 137392,
+          "bytesAfter": 150469
+        },
+        {
+          "image": 3,
+          "role": "color",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 58173,
+          "bytesAfter": 69689
+        },
+        {
+          "image": 4,
+          "role": "linear",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 88385,
+          "bytesAfter": 238082
+        },
+        {
+          "image": 5,
+          "role": "normal",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 313065,
+          "bytesAfter": 238921
+        },
+        {
+          "image": 6,
+          "role": "color",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 115570,
+          "bytesAfter": 79091
+        },
+        {
+          "image": 7,
+          "role": "linear",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 90881,
+          "bytesAfter": 227601
+        },
+        {
+          "image": 8,
+          "role": "normal",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 400384,
+          "bytesAfter": 271346
+        },
+        {
+          "image": 9,
+          "role": "color",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 64329,
+          "bytesAfter": 71271
+        },
+        {
+          "image": 10,
+          "role": "linear",
+          "from": "512x512 image/jpeg",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 68051,
+          "bytesAfter": 213902
+        },
+        {
+          "image": 11,
+          "role": "normal",
+          "from": "512x512 image/png",
+          "to": "512x512 image/ktx2",
+          "bytesBefore": 121846,
+          "bytesAfter": 146830
+        }
+      ],
+      "afterSha256": "f92a04546a53991e93375329a9a8f17544743eb4eadfd5c282f06fcabe888303",
+      "afterBytes": 2126200,
+      "trianglesAfter": {
+        "defaultMaterial": 1168
+      },
+      "textureMaxSize": 512
+    }
+  ]
+}

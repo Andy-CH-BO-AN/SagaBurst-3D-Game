@@ -90,8 +90,8 @@
     "title": "Paladin Longsword [Free Download]",
     "sourceFile": "paladin_longsword_free_download.glb",
     "final": {
-      "bytes": 1744648,
-      "sha256": "0583cc3165d6fff92e8de43d254db43aac13d77cd8c8a3b32c8e691462df4251",
+      "bytes": 2126200,
+      "sha256": "f92a04546a53991e93375329a9a8f17544743eb4eadfd5c282f06fcabe888303",
       "triangles": 3544,
       "meshes": 4,
       "primitives": 4,
@@ -260,8 +260,8 @@
     "title": "Decorative Double-Bladed Battle Axe",
     "sourceFile": "decorative_double-bladed_battle_axe.glb",
     "final": {
-      "bytes": 1321016,
-      "sha256": "c10b672189f9b4447c08fa17342db16e5e56b71ea1ad5062b5e08941cdd628bd",
+      "bytes": 2571036,
+      "sha256": "24285c5c9e56565a6f43497e4fc859e3cc59cbd747f2945593ffe11a1c5a916e",
       "triangles": 5433,
       "meshes": 3,
       "primitives": 3,
@@ -376,20 +376,20 @@
       "sourceToAttachmentMatrix": [
         0.621933439274771,
         -1.3434189004051724,
-        0.0,
-        0.0,
+        0,
+        0,
         1.3434189004051724,
         0.621933439274771,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
+        0,
+        0,
+        0,
+        0,
         1.480397090261254,
-        0.0,
+        0,
         -0.009390991452889977,
         1.0349511151900277,
         0.0007890839478932321,
-        1.0
+        1
       ],
       "uniformScale": 1.480397090261254,
       "rotationZRadians": -1.137226952656822,
@@ -400,7 +400,7 @@
       ]
     },
     "geometryPolicy": "No decimation. Original body accessors and all embedded texture bytes preserved. Bow string split only for existing draw animation.",
-    "finalSha256": "46164c9f1ab44144d75daecfa3d97f810e87acf3a844f4aff51335de2f1b810b",
+    "finalSha256": "4efbac4e9d5b411154b2aff2e2f05ebb81317b61873c2e6dbfe74791ed86a306",
     "triangles": 2994,
     "bytes": 18170604,
     "weapon": "lance"
@@ -423,7 +423,7 @@
     },
     "final": {
       "path": "models/weapons/t5/shield.glb",
-      "byteIdenticalToSource": true,
+      "byteIdenticalToSource": false,
       "heightMeters": 1.2,
       "widthMeters": 0.574448,
       "bounds": {
@@ -438,7 +438,9 @@
           0.15608
         ]
       },
-      "preserved": "Original geometry, UV, normals, embedded base color, metallic/roughness and normal textures; no rebake or rescale"
+      "preserved": "Original geometry, UV, normals, embedded base color, metallic/roughness and normal textures; no rebake or rescale",
+      "sha256": "31e8174b4c7184fa7e92a41a96df1e3660fc9db17a8b6e264a91de99d182a191",
+      "bytes": 1878716
     },
     "attachmentSpace": {
       "longAxis": "+Y",

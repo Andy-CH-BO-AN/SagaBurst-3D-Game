@@ -5,7 +5,7 @@ import { createMakiRangerBowInstance } from './MakiRangerEquipment'
 import { createT5Bow } from './HighTierEquipment'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { shareEquipmentGeometry } from './EquipmentGeometryRegistry'
-import { equipmentShadowUntil } from './EquipmentVisualLODController'
+import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODController'
 import { BOW_STRING_CONTACT, BOW_ARROW_REST } from './BowDrawHand'
 import {
   applyBowAttachment,
@@ -16,6 +16,28 @@ import {
 
 const ARROW_LOCAL_FORWARD = new THREE.Vector3(0, 0, -1)
 const ARROW_CENTER_FROM_NOCK = 0.45
+
+type ArrowStyle = 'normal' | 'elven'
+/** Constant presentation materials shared by every bow instance (created on first bow, never
+ * mutated or disposed per bow). */
+let sharedBowMaterials: {
+  string: THREE.MeshBasicMaterial
+  shaft: THREE.MeshLambertMaterial
+  tip: Record<ArrowStyle, THREE.MeshStandardMaterial>
+  fin: Record<ArrowStyle, THREE.MeshBasicMaterial>
+} | undefined
+const bowMaterials = () => sharedBowMaterials ??= {
+  string: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+  shaft: new THREE.MeshLambertMaterial({ color: 0x5c3a1e }),
+  tip: {
+    normal: new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.9 }),
+    elven: new THREE.MeshStandardMaterial({ color: 0x00f0ff, metalness: 0.9 }),
+  },
+  fin: {
+    normal: new THREE.MeshBasicMaterial({ color: 0xdddddd }),
+    elven: new THREE.MeshBasicMaterial({ color: 0x00d2ff }),
+  },
+}
 
 export const positionArrowCenterFromNock = (
   target: THREE.Vector3,
@@ -105,35 +127,40 @@ export class CharacterBowVisual {
     this.bottomTip.copy(parts.botTip)
     this.stringLength = strings ? 1 : parts.stringLength
 
-    const stringMat = strings ? undefined : new THREE.MeshBasicMaterial({ color: 0xffffff })
+    const materials = bowMaterials()
+    const stringMat = strings ? undefined : materials.string
     this.stringTop = equipmentShadowUntil(strings?.top ?? new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
     this.stringBottom = equipmentShadowUntil(strings?.bottom ?? new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
     this.stringTop.name = 'bow-string-top'
     this.stringBottom.name = 'bow-string-bottom'
+    // 1.5 mm strings are sub-pixel at LOD2; NPC equipment LOD hides them there (two draws per bow).
+    equipmentDetail(this.stringTop, 1)
+    equipmentDetail(this.stringBottom, 1)
     this.gripPivot.add(this.stringTop, this.stringBottom)
 
     this.nockedArrow = new THREE.Group()
     equipmentShadowUntil(this.nockedArrow, -1)
     const shaft = equipmentShadowUntil(new THREE.Mesh(
       new THREE.CylinderGeometry(0.004, 0.004, 0.95, 6),
-      new THREE.MeshLambertMaterial({ color: 0x5c3a1e }),
+      materials.shaft,
     ), -1)
     shaft.rotation.x = Math.PI / 2
     this.nockedArrow.add(shaft)
 
-    const elven = weaponId === 'elven_runebow'
-    const tip = equipmentShadowUntil(new THREE.Mesh(
+    const arrowStyle: ArrowStyle = weaponId === 'elven_runebow' ? 'elven' : 'normal'
+    // The 9 cm tip and 3.5 cm fletching are sub-pixel at LOD2 like the strings; the shaft stays.
+    const tip = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(
       new THREE.ConeGeometry(0.014, 0.09, 6),
-      new THREE.MeshStandardMaterial({ color: elven ? 0x00f0ff : 0xaaaaaa, metalness: 0.9 }),
-    ), -1)
+      materials.tip[arrowStyle],
+    ), -1), 1)
     tip.rotation.x = -Math.PI / 2
     tip.position.z = -0.52
     this.nockedArrow.add(tip)
 
-    const fin = equipmentShadowUntil(new THREE.Mesh(
+    const fin = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(
       new THREE.BoxGeometry(0.003, 0.035, 0.09),
-      new THREE.MeshBasicMaterial({ color: elven ? 0x00d2ff : 0xdddddd }),
-    ), -1)
+      materials.fin[arrowStyle],
+    ), -1), 1)
     fin.position.z = 0.4
     this.nockedArrow.add(fin)
     this.gripPivot.add(this.nockedArrow)

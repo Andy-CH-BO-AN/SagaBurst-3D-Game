@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Index of this package's existing source and licence evidence; no new claims.",
+  "source": {
+    "title": "Meshy medieval outlaw (user supplied)",
+    "author": "Meshy AI / user-supplied generation",
+    "filename": "Meshy_AI_ragged_warrior_rerigg_All_Animations.glb",
+    "sourceSha256": "fcc975506d11b7ecd2e3eaadee55f0b28ae280e05bb814bafa5e75e8588cef64",
+    "tool": "Meshy AI",
+    "plan": "Free, confirmed by owner",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "url": "https://www.meshy.ai/"
+  },
+  "attribution": "Body: user-supplied Meshy AI generation, CC BY 4.0. Animations and original hammer: Fantasy Bandit by tokeshi / CGTrader, original incorporated-game-use license retained.",
+  "evidenceFiles": [
+    {
+      "file": "ATTRIBUTION.md",
+      "sha256": "c553bfd666ebd98bcd9352f6bb8e4c689b190a9b95aa1a2bb61eb40b018e958a"
+    }
+  ]
+}

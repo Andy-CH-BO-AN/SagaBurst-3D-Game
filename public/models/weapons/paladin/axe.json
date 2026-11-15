@@ -37,9 +37,9 @@
     "uniformScale": 0.4533398832631729,
     "rotationZDegrees": 90
   },
-  "geometryPolicy": "All source geometry/accessor and embedded texture bytes unchanged; no decimation or image re-encoding.",
-  "finalSha256": "4c93c222c6f46c582cc51766490de83591727e9a45900d6614dad7eb2fd3ec62",
-  "bytes": 7363712,
+  "geometryPolicy": "All source geometry/accessor and embedded texture bytes unchanged; no decimation or image re-encoding. Runtime budget pass later re-encoded embedded textures as KTX2 (tools/data/runtime-glb-budget-audit.json).",
+  "finalSha256": "09ff9cdf9e3c5666746a098c32510f0e1cc3b9b33c7a8639f83e5b7da6a5b492",
+  "bytes": 1841748,
   "triangles": 3150,
   "measuredBounds": {
     "min": [

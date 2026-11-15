@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Shipped LOD identity for CI; build history stays in the package's other audits.",
+  "lods": [
+    {
+      "level": 0,
+      "file": "lod0.glb",
+      "sha256": "e22776b9de3abd3e7f6b54051e50a63046baf67e72d6635bfb99894887de4a3b",
+      "bytes": 6191868,
+      "triangles": 31105,
+      "textureEncoding": "KTX2 (KHR_texture_basisu)"
+    },
+    {
+      "level": 1,
+      "file": "lod1.glb",
+      "sha256": "4c859a8a47c41d71e3629cc6cc19edd31412cce87641cdce5faed6c729a7ac82",
+      "bytes": 2760520,
+      "triangles": 10822,
+      "textureEncoding": "KTX2 (KHR_texture_basisu)"
+    },
+    {
+      "level": 2,
+      "file": "lod2.glb",
+      "sha256": "f08a6b1a3957adc60d87040787fc6d6a944a3ef92006e073fa8008774b38493c",
+      "bytes": 1679976,
+      "triangles": 4160,
+      "textureEncoding": "KTX2 (KHR_texture_basisu)"
+    }
+  ]
+}

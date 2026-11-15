@@ -36,7 +36,7 @@
     }
   },
   "boneMap": "bone-map.json",
-  "audit": "finger-anatomy-audit.json",
+  "audit": "lod-publication-audit.json",
   "handGripFrames": {
     "left": {
       "palmContactCenter": [
@@ -2164,9 +2164,9 @@
     "Coarse LOD2 final death contact can retain about 3.7–7.5 mm of surface-floor penetration under the shared identical animation."
   ],
   "fileSha256": {
-    "lod0": "6620a37517b026e0f7f22142bf842abe20e9c2db47da251cb626f8cf9575e60e",
-    "lod1": "da4275e6eb1e577afb76264004457ba9240b8b642f67f405bcf7c9e8d68086fd",
-    "lod2": "545a1bde52d92d9ddea33e6d23987bbe8e9753aeeb66f7b350f0374466d18c46"
+    "lod0": "66adc785d957e753b931995e2f45a3581fa953937d239329a0589b6098f680fe",
+    "lod1": "52a23736e7bd95443fddef8ca44e918b1505e41b2da26095f6824c5ccdd4eb70",
+    "lod2": "e9b9a6654dd54acb9c25e3b0b7e9f0cb09881ce31b08428c0da78bac86e91e5e"
   },
   "animations": {
     "embedded": [

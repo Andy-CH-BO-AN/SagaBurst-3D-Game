@@ -9,7 +9,7 @@
     "sourceEntry": "Roman/Models/Roman_Infantry_LOD0_Rebuilt_GripAndWeaponAdjusted_11Clips.glb",
     "sourceSha256": "de47db53ff2f3dadeb4b6ff3e89f1b8ff85830c25eb321f508ef3850ff9ae80d",
     "license": "User-supplied Meshy model and derived animation; mixed animation-source licenses retained in source-readme.txt",
-    "licenseEvidence": "source-readme.txt"
+    "licenseEvidence": "attribution-evidence.json"
   },
   "attribution": "Ordinary Roman Infantry: user-provided Meshy model/derivative. Core animations: Kevin Iglesias (Unity Asset Store EULA), Quaternius (CC0); axe attacks: user-provided Meshy source. See source-readme.txt.",
   "selectedSource": {
@@ -194,9 +194,9 @@
     ]
   },
   "fileSha256": {
-    "lod0": "142102c670dcbbffae0527d732d6f139db6f8aa61b83cbdfb2b76bba632c6b34",
-    "lod1": "85c3e79a0ccf6d4c59c606cd71ac72dd8a0d86f0308913ed349ddcd442651e27",
-    "lod2": "606b1f5858cf8f67c63b2be30e11014a22b5b8bb59722bf3b0e74b8f5fbd4ae8"
+    "lod0": "edf89a41365e5979840d681cb8c422f105ad24802ac9fefe306b92a61aaa8b99",
+    "lod1": "eec7a8cd84df29418413517ca0dcc4c8f5a91823959d64dd115ec25c0dd45a82",
+    "lod2": "c84d52dcb96b41468981fe6c0887f9ca1a96bcc9566ff25a2b7fbcf277585071"
   },
   "visualAcceptance": "Runtime visual integration pending; structural LOD generation is not gameplay acceptance.",
   "knownLimitations": [
@@ -603,5 +603,7 @@
     ],
     "preservation": "Only axeAttack2H channels and their referenced samples are replaced. Geometry, skin, textures, other animation payloads and runtime attack cycles are unchanged.",
     "validation": "Animation/asset and production-controller trajectory checks; live browser gameplay, visual contact/clearance and mounted aesthetic acceptance remain unverified."
-  }
+  },
+  "boneMap": "bone-map.json",
+  "audit": "lod-publication-audit.json"
 }

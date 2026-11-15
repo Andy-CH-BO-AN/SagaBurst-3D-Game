@@ -1,7 +1,7 @@
 {
   "id": "corgi",
   "residentGeometryBytes": 6456472,
-  "sha256": "f05ed47e6c038ee2dfc0be053212328ecbf49673608846c1afbbbba1fafa5a6e",
+  "sha256": "27e6ed5ae0cff7628e96e38dbfe819a66ce3693f9a484db381692ae8f516e209",
   "packageBytes": 7815968,
   "sourceSha256": "0d0a7925220ef045b7c70ed7071248565b742d76ea3d356d64b19f49a90175df",
   "lods": [
@@ -37,8 +37,8 @@
   "meshes": 9,
   "materials": 1,
   "textures": 3,
-  "maximumWeightError": 4.022149369120598e-08,
-  "maximumRestError": 4.058303650804831e-07,
+  "maximumWeightError": 4.022149369120598e-8,
+  "maximumRestError": 4.058303650804831e-7,
   "clips": [
     {
       "name": "idle",

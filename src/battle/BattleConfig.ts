@@ -790,6 +790,25 @@ export const PRESET_SCENARIO_K: BattleConfig = definePreset({
   rules: { respawnEnabled: false, includeCamps: false },
 })
 
+/** Developer performance scenario L: 300v300 Six Feline Ranger horse archers, Formation, Initial Spectator; both armies charge.
+ * These T3 buckets only lay out the formation slots; `createRangerHorseArcherScenarioPlan` turns every slot into
+ * a Commander VI Ranger (T4 maki body, T5 bow) on the Six Feline mount mix, scaled 1.5x per side. */
+export const PRESET_SCENARIO_L: BattleConfig = definePreset({
+  mode: 'formation',
+  spectator: true,
+  viking: {
+    viking_sword_cavalry: { 1: 0, 2: 0, 3: 90 },
+    viking_lancer: { 1: 0, 2: 0, 3: 120 },
+    viking_horse_archer: { 1: 0, 2: 0, 3: 90 },
+  },
+  roman: {
+    roman_sword_cavalry: { 1: 0, 2: 0, 3: 90 },
+    roman_lancer: { 1: 0, 2: 0, 3: 120 },
+    roman_horse_archer: { 1: 0, 2: 0, 3: 90 },
+  },
+  rules: { respawnEnabled: false, includeCamps: false },
+})
+
 /** Developer siege scenario J: Roman player + 50 defenders vs 100 Viking attackers. */
 export const PRESET_SCENARIO_J: BattleConfig = definePreset({
   mode: 'formation',

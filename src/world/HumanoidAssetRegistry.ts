@@ -7,6 +7,7 @@ import { prepareAuthoredBowContacts } from './BowDrawHand'
 import { configureMultiInfluenceSkinning, multiInfluenceSkinningPlugin } from './MultiInfluenceSkinning'
 import { primeSkinnedTemplateBounds } from './SkinnedTemplateBounds'
 import { stopBoneEulerSync } from './BoneEulerSync'
+import { hideBoneOnlySubtrees } from './BoneRenderTraversal'
 import { prepareSelectedHumanoidSource, type SelectedHumanoidSource } from './SelectedHumanoidSource'
 import { shareSelectedLodPose, shareIdenticalSkinSkeletons, validateSelectedLodAnimations, optimizeSelectedAnimationClips } from './SelectedLodPose'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
@@ -17,9 +18,8 @@ import { InertialPoseTransition } from './InertialPoseTransition'
 import { calibrateEquipmentFrames, calibrateLanceIdleAttachment, LANCE_RADIUS, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { prepareEquipmentHandShape } from './EquipmentHandShape'
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
-import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import type { GLTF, GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { createRuntimeGltfLoader } from './RuntimeGltfLoader'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { createEquipmentSocketProxies } from './HumanoidEquipmentSockets'
@@ -32,8 +32,11 @@ import {
   AUDITED_ROMAN_LOD2_SHA256,
   cullRomanLod2TinyDetails,
   consolidateRomanLod2,
+  consolidateVikingCaptainLod2,
   isRomanLod2ConsolidationAssetAudited,
+  isVikingCaptainLod2AssetAudited,
   tryCreateRomanLod2ConsolidationTemplate,
+  tryCreateVikingCaptainLod2ConsolidationTemplate,
   type RomanLod2ConsolidationTemplate,
 } from './HumanoidLod2Consolidation'
 import { shouldRomanHumanoidCastShadow } from './RomanHumanoidShadowPolicy'
@@ -237,6 +240,8 @@ interface HumanoidTemplate {
   animationClips?: THREE.AnimationClip[][]
   bowClips?: THREE.AnimationClip[][]
   romanLod2Consolidation?: RomanLod2ConsolidationTemplate
+  /** viking-hero-t4 only; empty or absent keeps the original LOD2 structure. */
+  vikingCaptainLod2Consolidation?: RomanLod2ConsolidationTemplate
 }
 
 const LOD0_MOTION_CLIP_NAMES = new Set(['pilumThrow'])
@@ -1036,7 +1041,7 @@ export class HumanoidAssetRegistry {
   }
 
   private static async loadTemplate(faction: CharacterFaction, assetId: string, descriptor?: HumanoidAssetDescriptor): Promise<HumanoidTemplate> {
-    const loader = new GLTFLoader()
+    const loader = createRuntimeGltfLoader()
     const query = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
     const expGroup = query?.get('expGroup')?.toLowerCase()
     const base = publicAssetUrl(`models/characters/v2/${assetId}`)
@@ -1044,14 +1049,13 @@ export class HumanoidAssetRegistry {
     if (!response.ok) throw new Error(`Cannot load ${faction} humanoid manifest (${response.status})`)
     const manifest = await response.json() as HumanoidAssetManifest
     validateHumanoidManifest(faction, manifest, descriptor)
-    if (manifest.bufferCompression === 'EXT_meshopt_compression') loader.setMeshoptDecoder(MeshoptDecoder)
     if (manifest.selectedSource?.rig === 'mixamo66' || manifest.skinInfluenceSets === 4) loader.register(multiInfluenceSkinningPlugin)
     const files = manifest.files!
     const lod0File = (!descriptor && expGroup && ['g0', 'g1', 'g2', 'g3'].includes(expGroup))
       ? `lod0.${expGroup}.glb`
       : files.lod0
     const lod2Url = `${base}/${files.lod2}`
-    const lod2Promise: Promise<LoadedGltfWithSha256> = faction === 'roman' && !descriptor
+    const lod2Promise: Promise<LoadedGltfWithSha256> = faction === 'roman' && !descriptor || assetId === 'viking-hero-t4'
       ? loadGltfWithSha256(loader, lod2Url, `${base}/`)
       : loader.loadAsync(lod2Url).then(gltf => ({ gltf }))
     const [lod0, lod1, lod2Loaded] = await Promise.all([
@@ -1157,7 +1161,12 @@ export class HumanoidAssetRegistry {
         )
       }
     }
-    return { manifest, levels, animationClips, bowClips, romanLod2Consolidation }
+    let vikingCaptainLod2Consolidation: RomanLod2ConsolidationTemplate | undefined
+    if (assetId === 'viking-hero-t4') {
+      if (isVikingCaptainLod2AssetAudited(lod2Loaded.sha256)) vikingCaptainLod2Consolidation = tryCreateVikingCaptainLod2ConsolidationTemplate(levels[2].scene)
+      else console.warn(`Viking captain LOD2 consolidation disabled: asset SHA-256 ${lod2Loaded.sha256 ?? 'unavailable'} is not the audited LOD2`)
+    }
+    return { manifest, levels, animationClips, bowClips, romanLod2Consolidation, vikingCaptainLod2Consolidation }
   }
 
   private static async loadAll(): Promise<void> {
@@ -1254,6 +1263,8 @@ export class HumanoidAssetRegistry {
       }
       if (index === 0 && ['ordinary22', 'roman54', 'varangian63'].includes(template.manifest.selectedSource?.rig ?? '')) shareIdenticalSkinSkeletons(level)
       if (sharedLodPose && primaryScene) shareSelectedLodPose(primaryScene, level)
+      // After LOD2 meshes share the primary skeleton, so merged pairs bind to it directly.
+      if (index === 2 && !preserveOriginalLod2 && template.vikingCaptainLod2Consolidation) consolidateVikingCaptainLod2(level, template.vikingCaptainLod2Consolidation)
       lod.addLevel(level, HUMANOID_LOD_DISTANCES[index])
       if (sharedLodPose && index > 0) return
       mixers.push(new THREE.AnimationMixer(level))
@@ -1347,6 +1358,7 @@ export class HumanoidAssetRegistry {
       animation.setVisibleLOD(lod.getCurrentLevel())
     }
     stopBoneEulerSync(root)
+    hideBoneOnlySubtrees(root)
     return {
       root,
       skeleton,

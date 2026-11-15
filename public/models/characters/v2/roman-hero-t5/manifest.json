@@ -9,7 +9,7 @@
     "sourceEntry": "Roman/Masked_Roman_Selected_11Clips.glb",
     "sourceSha256": "9bc9dc10a52df00a5caaabe600d48e6164b0a1a619a05dfc5aeec27116652ca8",
     "license": "Meshy account/service/input terms; project animation sources retain their original terms",
-    "licenseEvidence": "source-readme.txt"
+    "licenseEvidence": "attribution-evidence.json"
   },
   "attribution": "Masked Roman: user-supplied Meshy model, textures and selected axe animations. Core clips: project-licensed Kevin Iglesias and Quaternius; see source-readme.txt.",
   "selectedSource": {
@@ -334,9 +334,9 @@
     }
   },
   "fileSha256": {
-    "lod0": "bab75f634a834be5b5013abeb31e74296edd139f22d304787a554e9a018660cf",
-    "lod1": "10d3c4d48456e982cc295a84d23cf898da890d9f5122712dfd3a27db2b589cef",
-    "lod2": "4c8e10e112a6ff45f5ed47db4b8d228f54ce6a29dacdbcfa9dfd8ed693e78cf7"
+    "lod0": "2c96d3f5c720ac85c5536f5f3a91b41e52d6700a1c1a08ebd686ef1a993e866e",
+    "lod1": "b569d7adfbd66a18d69c73090fbf0fe5cc76d6281c3c5db9aeba71d5eb0e35d1",
+    "lod2": "dedc6966f3bccd9e7a6a75e3e9f5c73aedc14509a3b5d42912c2f1b7af091b2b"
   },
   "sourceRepairs": {
     "kind": "retain-authored-cupped-fingers",
@@ -480,5 +480,7 @@
     "attackTransition": "inertial",
     "preservation": "Only axeAttack2H channels and their referenced samples are replaced. Geometry, skin, textures, other animation payloads and runtime attack cycles are unchanged.",
     "validation": "Animation/asset and production-controller trajectory checks; live browser gameplay, visual contact/clearance and mounted aesthetic acceptance remain unverified."
-  }
+  },
+  "boneMap": "bone-map.json",
+  "audit": "lod-publication-audit.json"
 }

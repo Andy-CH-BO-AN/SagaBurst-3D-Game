@@ -6,6 +6,9 @@
 
 開發使用 `dev`，正式部署與 tag 來源使用預設分支 `main`；功能 PR 先進 `dev`，驗證後再以 PR 推進 `main`。Web 與 Electron 共用 `src/`，`vite.config.ts` 分別輸出 Pages 的 `dist/`（`/SagaBurst-3D-Game/`）與桌面版的 `dist-desktop/`（`/`）。Public runtime 資產透過 `src/assets/publicAssetUrl.ts` 使用 Vite base，音效／語音由 `SoundManager` 集中播放：既有錄音使用 Vite URL，尚未錄製的 Dismiss 使用可選的 `public/audio/career/{roman,viking}/dismiss.wav`，缺檔安靜略過，下次命令重試；新增音檔無須修改命令接線，打包版本需重建。Electron 僅以 `sagaburst://game/` 提供打包內容與安全視窗，沿用原本 Web storage 與存檔格式。發版與 GitHub 一次性設定見 [RELEASING.md](../docs/RELEASING.md)。
 
+所有發布 GLB 由 `src/world/RuntimeGltfLoader.ts` 的 `createRuntimeGltfLoader()` 載入：共用一個 KTX2Loader（`KHR_texture_basisu`，transcoder 沿用 `models/mounts/v1/horse/basis/` 的 Three 隨附版本）與 MeshoptDecoder；外部 `.ktx2` 貼圖用 `sharedKtx2Loader()`。GPU 格式偵測延到第一張 KTX2 貼圖載入時，取自第一個呼叫 `registerTextureRenderer` 的 renderer（`createSceneRenderer`、Town、晉升頭像），建立 loader 本身不需 WebGL。貼圖預算與 LOD 縮減由 `tools/apply-runtime-glb-budget.mjs` 依 `tools/data/runtime-glb-budget.json` 套用：LOD0／坐騎上限 2K、武器盾牌 1K；底色 ETC1S（sRGB），金屬粗糙度／AO／法線 UASTC（linear）並含完整 mip；LOD 只做 index-only、保留 UV 縫線的縮減。人物 manifest 只改 `fileSha256`，實際面數與貼圖記在 audit 列與 `tools/data/runtime-glb-budget-audit.json`。Xongkoro 因 render-bounds 以來源雜湊把關而維持原 PNG。瓦良格隊長 LOD2 合併的稽核雜湊已在證明 accessor 與場景／蒙皮／動畫 JSON 不變後更新；羅馬 LOD2 合併的稽核雜湊在 `dev` 已不符（LOD2 動畫修剪後未重審），此 pass 維持停用。
+CI 資產驗證（`tests/tooling/ci-assets.cjs`）接受只經必要 `KHR_texture_basisu` 參照的 `image/ktx2`；除人物與登錄武器外，另驗證坐騎包（`mounts/v2`：manifest 雜湊、clips、LOD 節點、證據 JSON；`sha256`／`metrics`／`modifications` 視為非執行期欄位）、建築裝飾（`ornaments-sources.json` 雜湊）與聖騎士／Maki 弓（單檔 final 雜湊）。舊格式人物包以 `tools/normalize-humanoid-records.mjs` 補齊 CI 紀錄（ATTRIBUTION、JSON 授權證據、bone map、`lod-publication-audit.json`），內容只取自既有 manifest 與證據。
+
 ## 程式入口
 
 | 區域 | 入口與職責 |
@@ -79,22 +82,25 @@ Career 城鎮劇情事件（`CareerStoryEvents`／`CareerStoryGuidance`／`TownS
 - T5 selected-source 騎乘弓姿由 `CharacterEquipmentPose` 將就座移除的來源骨盆 world rotation 等分轉移到 torso chain，保留肩手與固定弓握點的朝向；`MixerController` 依實際 bow clip 權重維持淡出到 idle 期間的補償。巨鷹衝刺仍保留下胸俯身，但瞄準時維持上胸 world orientation。站立、T4、actor／mount heading、來源 clips 與 projectile direction 不由此 adapter 改寫。
 - T4 Ranger 的正式預設 loadout 經 `resolveT4UnitLoadout` 使用 `maki-ranger-bow-ranged`；缺少正常近戰的預設配置由陣營提供 `viking_axe_t3`／`centurion_blade`，不覆寫合法既有裝備。所有 NPC 只要實際持有遠程與近戰武器便使用原 NPC 狀態機雙向切換，舊 `reversibleRangedSwitch` metadata 仍可讀取但不再是資格限制；暫時任務裝備結束時恢復永久 loadout。遠程傷害／箭速由 WeaponDatabase 實際裝備決定；角色 tier 不會自動升級明確指定的低階弓。
 - `EagleRangedCombat` 只覆寫 NPC + xongkoro + bow 的 3D 開火距離，依當前武器 tier 為 200／300／400／500m，不再疊加 Ranger 射程倍率。`ProjectileBallistics` 有界求解真實重力與移動目標攔截，發射前重驗彈道遮擋；發射後投射物不追蹤。NPC 驗證過的空軍射擊及 Player 自由瞄準空軍弓各自產生有界 flight budget，Game／Town 都傳入 ArrowProjectile。Town 非空軍保留五秒政策；共用箭矢使用 scene 方形世界界線與獨立 age／travel cap，不再依世界原點 400m 球體裁切。
-- `ProjectileContactQuery` 統一 Game／Town 的單段 first-contact 幾何、broad phase 與同距順序；場景提供有序目標及當下敵意／任務保護資格，再依結果執行原傷害歸因。Battle 保留 0.12m 出弦世界碰撞清距，Town 保留攻城 mesh 的 1mm 接觸優先容差及靶球超出箭段末端 1cm 的原判定；Town obstacle 候選逐箭讀取當下 bounds，傷害造成的摧毀／恢復立即影響下一箭。飛行壽命、Town 五秒上限、battle 插地衰退與場景傷害效果仍由原 owner 管理。
+- `ProjectileContactQuery` 統一 Game／Town 的單段 first-contact 幾何、broad phase 與同距順序；場景提供有序目標及當下敵意／任務保護資格，再依結果執行原傷害歸因。Battle 保留 0.12m 出弦世界碰撞清距，Town 保留攻城 mesh 的 1mm 接觸優先容差及靶球超出箭段末端 1cm 的原判定；Town obstacle 候選逐箭讀取當下 bounds，傷害造成的摧毀／恢復立即影響下一箭。actor broad phase 以箭段為軸的膠囊判定（目標原點距整段 ≤4m，坐騎再加 `combatRadius`），可命中部位（身體、肢體、盾、座騎）都在此範圍內；`ArrowProjectile` 以 `{ groups }` 原地依序走訪 Player→NPC→Mount→Receiver，不逐箭建立 generator。飛行壽命、Town 五秒上限、battle 插地衰退與場景傷害效果仍由原 owner 管理。
 - 箭模型沿 local `-Z`，投射物朝向須顯式對齊速度。飛行箭／pilum 共用不可變 render resources，移除實例不能銷毀模板或每發遺留資源。
 - `HighTierEquipment` 預載唯一共用 T4 槍與 T5 弓 GLB；槍共享 render resources，弓以 SkeletonUtils 複製每位持有者的骨架／mixer。來源拉弓 take 的前半段映射至既有 normalized charge，`CharacterBowVisual` 保留弦、搭箭與發射座標 ownership，換裝／銷毀只釋放實例骨架。`NPC` 依實際雙武器 loadout 使用現有 target／nearby 結果、6m／9m 遲滯及原 CHASE／ATTACK 狀態，不擴充搜尋頻率；模式切換保留箭矢與永久裝備。城牆沿原 threat boundary，巨鷹另尊重飛行 pilot 的近戰窗口及可接觸高度，開火仍由原彈道驗證授權。
 - `EquipmentVisualLODController` 跟隨人物 Three.LOD 的當幀 level，不另算距離。只切已標记的靜態細節，保留 socket、弓弦與搭箭的動態 ownership。
 - NPC 持有裝備在 LOD2 關閉 castShadow，LOD0/1 還原第一次登記的原值；重建盾牌立即沿用目前 level。Player、飛行物、掉落物、人物與坐騎不屬於此 policy。
 - `WeaponMeshFactory` 的公開 builder 與 `CharacterBowVisual` 完成後由 `EquipmentGeometryRegistry` 把剛性 mesh 指向內容逐位元相同的共用 geometry（skinned、morph、interleaved 與非 static attribute 除外）。共用 geometry 不可修改，也不可當作實例資源 dispose；自行銷毀零件的 owner 先檢查 `isSharedEquipmentGeometry`。
+- 遠景 LOD2 只保留輪廓：瓦良格隊長（`viking-hero-t4`）的 LOD2 在 SHA-256 稽核相符時，於共用 LOD0 骨架後合併兩組同材質 skinned mesh（鎖甲＋外衣、左右手掌；任一組驗證失敗就保留原樣），並隱藏三個少於 100 面的填補零件；戰馬 LOD2 隱藏韁繩、半透明鬃尾與馬鞍；NPC 弓弦與搭箭的箭頭／箭羽標為 LOD≤1 的裝備細節，由 `EquipmentVisualLODController` 在 LOD2 隱藏（箭桿保留）。`CharacterBowVisual` 的程序弓弦與搭箭材質為全實例共用常數，不可逐實例修改或 dispose。
 - 人物與戰馬的共享 GLB 模板在第一次 clone 前由 `primeSkinnedTemplateBounds` 以完整蒙皮算一次 `SkinnedMesh.boundingSphere`（rest pose，半徑 ×1.2），實例與 Roman LOD2 合併 mesh 沿用；clone 與 `configureMultiInfluenceSkinning` 不再逐實例 CPU 蒙皮重算。四足坐騎與巨鷹仍用各自的固定 bounds。
 - 人物取樣節奏由 `CharacterLODPolicy.humanoidPoseInterval` 決定：≤28m 每幀、>28m 12Hz、>55m 6Hz；近戰動作傳入距離 0，永不降頻。explicit `seek`（拉弓 `bowLoad`、`pilumThrow`）共用同一節奏：同一 state 仍綁定時沿用上次全 level 取樣；蓄力／投擲進度仍由 gameplay 計時。
 - 人物、戰馬與四足坐騎實例的 `THREE.Bone` 由 `stopBoneEulerSync` 停止 quaternion→Euler 同步：骨骼只能讀寫 `.quaternion`；整組寫入 `.rotation.set(x, y, z)`（`setRigRotation`）仍會更新 quaternion，但不可單軸寫入或讀取骨骼 `.rotation`。
+- 同一批實例建立點再由 `hideBoneOnlySubtrees` 把「整棵只含 Bone」的子樹設為 `visible = false`：Three 的 main 投影與 shadow pass 在不可見節點停止下探，而世界矩陣、`Skeleton.update` 蒙皮與 world 查詢不看 visible，因此姿勢與畫面不變、只省下每幀走訪數萬根骨骼。契約：不可直接把可繪製物件掛在 Bone 下；裝備一律經非 Bone 的 socket，socket 會讓其所有 Bone 祖先保持可見。
+- NPC 實際持有遠程武器（`hasActiveRangedWeapon`）時由拉弓姿勢擁有雙臂，不再每幀套用持槍預備姿勢；否則持槍 Ranger 會每幀取消 `bowAim` 並重新淡入 `bowLoad`。切回近戰由 `_cancelEquipmentCombatState` 結束 `bowAim`。
 
 ## 坐騎
 
 - `Mount` 是 HP、移動、碰撞、跳躍、衝撞、死亡／下馬與存檔的權威；`HorseAssetRegistry`、`BlackCatVisual`、`SnowLeopardVisual`、`CorgiVisual`、`XongkoroVisual` 負責資產與動畫，保留原 save IDs。
 - `QuadrupedAssetPreload` 集中 Black Cat／Snow Leopard／Corgi 的 manifest／GLB 驗證、並行預載共用與失敗重試；各 Visual 提供路徑、body 前綴與模板發布。全部必要 clips／LOD／seat 通過後才發布模板，失敗後下次預載重新讀取，Black Cat 與 Snow Leopard 的實例、LOD 及動畫共用 `QuadrupedVisual`；Snow Leopard 必須具備完整七段 baked clips。
 - 地面坐騎只有 LOD0 投射陰影：戰馬依 `HorseShadowPolicy` 名單，Black Cat／Snow Leopard 由 `QuadrupedVisual` 依 LOD level 設定（LOD1/2 不投影）。
-- 戰馬與 Black Cat／Snow Leopard 共用 `CharacterLODPolicy.mountAnimationInterval`（>35m 15Hz、>55m 6Hz 推進 mixer）；`QuadrupedVisual` 不再強制更新整棵世界矩陣。遠距騎士在坐騎姿勢未推進時，由 `SkinnedSeatContact.reapply` 沿用上次量得的座位修正。
+- 戰馬與 Black Cat／Snow Leopard 共用 `CharacterLODPolicy.mountAnimationInterval`（>35m 15Hz、>55m 6Hz 推進 mixer）；`QuadrupedVisual` 不再強制更新整棵世界矩陣。遠距騎士在坐騎姿勢未推進時，由 `SkinnedSeatContact.reapply` 沿用上次量得的座位修正。近距離的 `align` 只更新取樣頂點所用的骨鏈（attached bind 的世界座標不需要 mesh 矩陣）；`Game` 主迴圈在算繪前以 `fitMountedSeat(false)` 略過騎士子樹刷新，其他呼叫者照常立即刷新。`CharacterEquipmentPose.apply` 每次結束都會整棵刷新角色；中途只有直接讀取子孫 `.matrixWorld`／`localToWorld`／`worldToLocal` 的分支才需要先整棵刷新。
 - `ARMORED_HORSE`／Career ID `armored-horse` 是獨立重甲戰馬，使用 `HorseAssetRegistry` 的獨立模板、原戰馬 70 骨架／九動畫與三層 LOD；不替換普通馬。10.5 m/s、HP 600、售價 8,000 軍功，重甲馬的加速／轉向限制在既有 `Mount` controlled movement owner 處理，Player／NPC 共用。
 - `MountArmor` 以獨立 `ShieldState` 重用 `absorb()` 和 `weaponShieldImpact()`：重甲馬／雪豹 50 Impact，其餘 0。`DamageRouter.damageMount` 只對武器 melee／projectile 消耗護甲；自然鷹擊、墜落、地形與 mount-impact 沿原 HP 路徑。騎士 body／盾接觸不消耗馬甲，也不受馬甲保護。Game 與 Town 所有武器命中坐騎的 caller 都須保留武器 ID／攻擊者騎乘狀態。
 - 玩家馬甲耐久在 `CareerProfile.mountArmor`、任務 `mountState.armorImpact` 與 mounted RPG save 保存；NPC／借用角色在既有 mount resource checkpoint 保存 `armorImpactRemaining`，決鬥、賽馬的既有資源快照亦保留。現行耐久狀態按 writer 保存，已存 0 必須保留；只有 respawn／正式 refit／rest 重設。純護甲受擊也須觸發資源 checkpoint。

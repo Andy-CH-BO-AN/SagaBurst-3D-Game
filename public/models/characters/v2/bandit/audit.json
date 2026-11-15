@@ -3,8 +3,8 @@
   "lods": [
     {
       "level": 0,
-      "sha256": "ead0fbaf590d2f2cdf92a2b18474332a3dd417d6716bf22ab2b5a45e020dbf73",
-      "bytes": 8957388,
+      "sha256": "44dbac8484e8d99ebbaa0d79f38d1206423d8eaead4771bd0eb0984e3a25b94e",
+      "bytes": 12261620,
       "triangles": 16925,
       "drawCalls": 2,
       "skinJoints": 23,
@@ -480,12 +480,18 @@
             }
           ]
         }
+      },
+      "runtimeBudget": {
+        "triangles": 16925,
+        "textureMaxSize": 2048,
+        "textureEncoding": "KTX2 (KHR_texture_basisu)",
+        "audit": "tools/data/runtime-glb-budget-audit.json"
       }
     },
     {
       "level": 1,
-      "sha256": "5a5849c8c09195f742216b31b577e9929397088a79560457b027e9c04acbf27a",
-      "bytes": 2719716,
+      "sha256": "2c7cbdc276e935971ac31a23a52b853f86e087ce5b60b04c229d09c53d52d841",
+      "bytes": 3699308,
       "triangles": 6820,
       "drawCalls": 2,
       "skinJoints": 23,
@@ -961,12 +967,18 @@
             }
           ]
         }
+      },
+      "runtimeBudget": {
+        "triangles": 6820,
+        "textureMaxSize": 1024,
+        "textureEncoding": "KTX2 (KHR_texture_basisu)",
+        "audit": "tools/data/runtime-glb-budget-audit.json"
       }
     },
     {
       "level": 2,
-      "sha256": "173274702a597f48a5d22744cf1ae13ef0077e30ce358e59a303164166b93e13",
-      "bytes": 1173972,
+      "sha256": "854468c8a5dae1d5ab2972650c6e53363c872e2bc97a5bbae2b6d301138b9fa9",
+      "bytes": 1468220,
       "triangles": 4234,
       "drawCalls": 2,
       "skinJoints": 23,
@@ -1442,6 +1454,12 @@
             }
           ]
         }
+      },
+      "runtimeBudget": {
+        "triangles": 4234,
+        "textureMaxSize": 512,
+        "textureEncoding": "KTX2 (KHR_texture_basisu)",
+        "audit": "tools/data/runtime-glb-budget-audit.json"
       }
     }
   ],

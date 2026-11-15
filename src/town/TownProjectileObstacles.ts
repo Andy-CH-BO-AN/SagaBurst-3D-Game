@@ -1,5 +1,5 @@
 import type { Vector3 } from 'three'
-import type { ObstacleData } from '../world/Terrain'
+import { queryProjectilePathObstacles, type ObstacleData } from '../world/Terrain'
 
 /** Town live shots only. Read the current source and bounds on every arrow,
  * including changes made by the preceding hit. No array/topology cache: ballistic
@@ -25,7 +25,10 @@ export class TownProjectileObstacles {
     const lowX = minX - 1e-6, highX = maxX + 1e-6
     const lowY = minY - 1e-6, highY = maxY + 1e-6
     const lowZ = minZ - 1e-6, highZ = maxZ + 1e-6
-    for (const obstacle of obstacles) {
+    // The registered Town source prefilters through its projectile-mode grid: a source-ordered
+    // superset that keeps unculled projectile envelopes and live dynamic bounds. Others scan all.
+    const source = queryProjectilePathObstacles(obstacles, lowX, lowZ, highX, highZ) ?? obstacles
+    for (const obstacle of source) {
       if (obstacle.projectilePassable) continue
       // A transformed slab can protrude beyond its body/navigation box. Only
       // an explicit complete projectile bound may exclude it. Dynamic records

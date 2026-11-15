@@ -15,8 +15,8 @@
   "lods": [
     {
       "level": 0,
-      "sha256": "fe95e98a50581906bb306cfcb13a5fe219c904eccfbe2ca2c17427a385de3652",
-      "bytes": 11769868,
+      "sha256": "541fcfa98eb2b0b086fdcb60b853a73bd92d68882ab4b99d6571a23bdf01be95",
+      "bytes": 9095936,
       "triangles": 11704,
       "vertices": 16634,
       "verifiedShellPairs": 0,
@@ -81,12 +81,18 @@
         "decodedBufferViewsByteExact": 816,
         "imagesDecodedRgbaIdentical": 3,
         "jpegPayloadUnchanged": true
+      },
+      "runtimeBudget": {
+        "triangles": 11704,
+        "textureMaxSize": 2048,
+        "textureEncoding": "KTX2 (KHR_texture_basisu)",
+        "audit": "tools/data/runtime-glb-budget-audit.json"
       }
     },
     {
       "level": 1,
-      "sha256": "9536629eda6300193197c5388246eccfda01b14d13a1c860e83fa90f43bb0a74",
-      "bytes": 5165108,
+      "sha256": "1d305076ae02fcabf7bebd2ad92cebf32bc5952cb25bdd15c3976a06d19a1a24",
+      "bytes": 3605436,
       "triangles": 4321,
       "vertices": 7756,
       "verifiedShellPairs": 119,
@@ -151,12 +157,18 @@
         "decodedBufferViewsByteExact": 816,
         "imagesDecodedRgbaIdentical": 3,
         "jpegPayloadUnchanged": true
+      },
+      "runtimeBudget": {
+        "triangles": 4321,
+        "textureMaxSize": 1024,
+        "textureEncoding": "KTX2 (KHR_texture_basisu)",
+        "audit": "tools/data/runtime-glb-budget-audit.json"
       }
     },
     {
       "level": 2,
-      "sha256": "b3f8eead0b088e05b2bfa1550d8ba6d52570808c26dfe1597a3abc50421dcb45",
-      "bytes": 2853532,
+      "sha256": "82c02af55407b1830f22d59cdec96d8886be1923fbd7ae2af0deb2dced541532",
+      "bytes": 1990204,
       "triangles": 1645,
       "vertices": 3514,
       "verifiedShellPairs": 64,
@@ -221,6 +233,12 @@
         "decodedBufferViewsByteExact": 816,
         "imagesDecodedRgbaIdentical": 3,
         "jpegPayloadUnchanged": true
+      },
+      "runtimeBudget": {
+        "triangles": 1645,
+        "textureMaxSize": 512,
+        "textureEncoding": "KTX2 (KHR_texture_basisu)",
+        "audit": "tools/data/runtime-glb-budget-audit.json"
       }
     }
   ],

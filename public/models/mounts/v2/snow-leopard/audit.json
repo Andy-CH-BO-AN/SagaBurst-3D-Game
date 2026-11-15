@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sha256": "e020c8c90fa24bae19d79d9291a58249336718ee1640a21e289856a04b32319a",
+  "sha256": "2db93ad9b906a34f0db06629227040b5c63f198bf1e7915643f597d5ab54af18",
   "source": {
     "file": "Meshy_AI_Character_output.glb",
     "sourceSha256": "a149122f5ec78ad5573fb5591f4993867bae29b56a75b4979fa4b3592e8d674c",
@@ -11,7 +11,7 @@
     "selection": "User explicitly selected this rigged GLB in place of the earlier raw FBX source"
   },
   "package": {
-    "sha256": "e020c8c90fa24bae19d79d9291a58249336718ee1640a21e289856a04b32319a",
+    "sha256": "2db93ad9b906a34f0db06629227040b5c63f198bf1e7915643f597d5ab54af18",
     "packageBytes": 5742856,
     "triangles": [
       17532,
@@ -281,14 +281,14 @@
   },
   "independentChecks": {
     "assetSha256": "e020c8c90fa24bae19d79d9291a58249336718ee1640a21e289856a04b32319a",
-    "maximumRestInverseBindError": 9.393271416247018e-07,
+    "maximumRestInverseBindError": 9.393271416247018e-7,
     "lods": [
       {
         "lod": 0,
         "vertices": 33186,
         "triangles": 17532,
         "weightedVertices": 33186,
-        "maximumWeightSumError": 1.341104507446289e-07,
+        "maximumWeightSumError": 1.341104507446289e-7,
         "maximumCoincidentWeightError": 0
       },
       {
@@ -296,7 +296,7 @@
         "vertices": 9762,
         "triangles": 6476,
         "weightedVertices": 9762,
-        "maximumWeightSumError": 1.2479722499847412e-07,
+        "maximumWeightSumError": 1.2479722499847412e-7,
         "maximumCoincidentWeightError": 0
       },
       {
@@ -304,7 +304,7 @@
         "vertices": 3287,
         "triangles": 2741,
         "weightedVertices": 3287,
-        "maximumWeightSumError": 1.1827796697616577e-07,
+        "maximumWeightSumError": 1.1827796697616577e-7,
         "maximumCoincidentWeightError": 0
       }
     ],
@@ -320,6 +320,28 @@
   "limbRootDiagnosis": {
     "cause": "Overlapping torso/belly-strap field overwrote native proximal limb weights with Bone_001, with sharp transitions into rigid plate controls. This was a local attachment issue, not globally absent thigh weights or a native bind-pose mismatch.",
     "sourcePointExamples": {
+      "4737": {
+        "sourcePosition": [
+          0.1388537883758545,
+          -0.408732146024704,
+          0.6395289301872253
+        ],
+        "native": {
+          "Bone_017": 0.4159698784351349,
+          "Bone_029": 0.3225908875465393,
+          "Bone_030": 0.2606366276741028,
+          "Bone_016": 0.0008026832365430892
+        },
+        "before": {
+          "Bone_001": 1
+        },
+        "after": {
+          "Bone_001": 0.42102906107902527,
+          "Bone_030": 0.2862377464771271,
+          "Bone_017": 0.18664658069610596,
+          "Bone_036": 0.1060866191983223
+        }
+      },
       "8427": {
         "sourcePosition": [
           -0.1649748533964157,
@@ -344,28 +366,6 @@
           "Bone_012": 0.12061835825443268,
           "plate_hip_r": 0.10334175080060959
         }
-      },
-      "4737": {
-        "sourcePosition": [
-          0.1388537883758545,
-          -0.408732146024704,
-          0.6395289301872253
-        ],
-        "native": {
-          "Bone_017": 0.4159698784351349,
-          "Bone_029": 0.3225908875465393,
-          "Bone_030": 0.2606366276741028,
-          "Bone_016": 0.0008026832365430892
-        },
-        "before": {
-          "Bone_001": 1.0
-        },
-        "after": {
-          "Bone_001": 0.42102906107902527,
-          "Bone_030": 0.2862377464771271,
-          "Bone_017": 0.18664658069610596,
-          "Bone_036": 0.1060866191983223
-        }
       }
     },
     "edgeComparisonAtRunSeconds": 0.06666666666666667,
@@ -374,7 +374,7 @@
         "asset": "original_pr",
         "edge": "left_hip_long",
         "time": 0.06666666666666667,
-        "sourceMatchError": 7.920075813483186e-08,
+        "sourceMatchError": 7.920075813483186e-8,
         "restLength": 0.06690915838268996,
         "posedLength": 0.6025640091288652,
         "ratio": 9.005703011274974,
@@ -393,7 +393,7 @@
         "asset": "original_pr",
         "edge": "left_hip_short",
         "time": 0.06666666666666667,
-        "sourceMatchError": 8.429369702178807e-08,
+        "sourceMatchError": 8.429369702178807e-8,
         "restLength": 0.023857493404852596,
         "posedLength": 0.5335374056814033,
         "ratio": 22.363514751004068,
@@ -412,7 +412,7 @@
         "asset": "same_bake_before_fix",
         "edge": "left_hip_long",
         "time": 0.06666666666666667,
-        "sourceMatchError": 7.920075813483186e-08,
+        "sourceMatchError": 7.920075813483186e-8,
         "restLength": 0.06690915838268996,
         "posedLength": 0.3968789119818937,
         "ratio": 5.931608191989604,
@@ -432,7 +432,7 @@
         "asset": "same_bake_before_fix",
         "edge": "left_hip_short",
         "time": 0.06666666666666667,
-        "sourceMatchError": 8.429369702178807e-08,
+        "sourceMatchError": 8.429369702178807e-8,
         "restLength": 0.023857493404852596,
         "posedLength": 0.46378150176310046,
         "ratio": 19.43965754880048,
@@ -451,7 +451,7 @@
         "asset": "final",
         "edge": "left_hip_long",
         "time": 0.06666666666666667,
-        "sourceMatchError": 7.920075813483186e-08,
+        "sourceMatchError": 7.920075813483186e-8,
         "restLength": 0.06690915838268996,
         "posedLength": 0.23856351971241,
         "ratio": 3.5654837914405553,
@@ -472,7 +472,7 @@
         "asset": "final",
         "edge": "left_hip_short",
         "time": 0.06666666666666667,
-        "sourceMatchError": 8.429369702178807e-08,
+        "sourceMatchError": 8.429369702178807e-8,
         "restLength": 0.023857493404852596,
         "posedLength": 0.1382134093762126,
         "ratio": 5.793291316517774,
@@ -493,7 +493,7 @@
         "asset": "final_packed",
         "edge": "left_hip_short",
         "time": 0.06666666666666667,
-        "sourceMatchError": 8.429369702178807e-08,
+        "sourceMatchError": 8.429369702178807e-8,
         "restLength": 0.023857493404852596,
         "posedLength": 0.1382134093762126,
         "ratio": 5.793291316517774,
@@ -585,7 +585,7 @@
     ]
   },
   "productionLoaderChecks": {
-    "sha256": "e020c8c90fa24bae19d79d9291a58249336718ee1640a21e289856a04b32319a",
+    "sha256": "2db93ad9b906a34f0db06629227040b5c63f198bf1e7915643f597d5ab54af18",
     "sourcePath": "src/world/SnowLeopardVisual.ts -> src/world/QuadrupedAssetPreload.ts -> actual GLTFLoader/MeshoptDecoder -> QuadrupedVisual",
     "boundaries": {
       "fetch": "Local file-backed fetch only; blob image fetch uses Node native fetch",

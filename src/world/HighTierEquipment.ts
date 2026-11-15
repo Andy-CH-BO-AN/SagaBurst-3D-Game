@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { createRuntimeGltfLoader } from './RuntimeGltfLoader'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import { AssetLoadTimeout, OnDemandAssets, type OnDemandAssetStatus } from '../assets/OnDemandAssets'
@@ -53,7 +54,7 @@ export class HighTierEquipmentService {
       const url = publicAssetUrl(BYZANTINE_EQUIPMENT_ASSETS[id])
       const response = await fetch(url, { signal })
       if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`)
-      const gltf = await new GLTFLoader().parseAsync(await response.arrayBuffer(), THREE.LoaderUtils.extractUrlBase(url))
+      const gltf = await createRuntimeGltfLoader().parseAsync(await response.arrayBuffer(), THREE.LoaderUtils.extractUrlBase(url))
       gltf.scene.traverse(object => {
         if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true }
       })
@@ -171,7 +172,7 @@ export class HighTierEquipmentService {
     const stagingTemplates = new Map<string, GLTF>()
     let stagingBowBody: THREE.Group | undefined
 
-    const loader = loaderInstance ?? new GLTFLoader()
+    const loader = loaderInstance ?? createRuntimeGltfLoader()
 
     this.pendingPreload = Promise.all(
       [...new Set(Object.values(HIGH_TIER_WEAPON_ASSETS))].map(async path => {

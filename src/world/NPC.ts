@@ -2385,6 +2385,8 @@ export class NPC {
         )
         pathObstacles = collectBallisticPathObstacles(origin, point, verticalSpeed,
           endTime, obstacles, this._rangedPathBounds, this._rangedPathObstacles)
+        // The whole-arc candidate set is exhaustive: with none, no segment can be blocked.
+        if (pathObstacles.length === 0) return null
       }
       for (let index = 1; index <= segmentCount; index++) {
         const t = flightTime * index / segmentCount
@@ -2940,7 +2942,9 @@ export class NPC {
     this.animator.setEquipment(this.isUsingLance, this.shield.active, this.mount?.type as MountedPoseKind | undefined, true)
     this.animator.setShieldRaised(this.shield.shieldRaised)
     this.rig.animation?.setEquipmentState?.({ mounted: this.isMounted })
-    if (!this.animator.busy && this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
+    // A drawn bow owns the arms while ranged is active (the lance is hidden). Lance-ready
+    // would cancel that bowAim each frame and restart its fade; the melee switch cancels it.
+    if (!this.animator.busy && this.isUsingLance && !this.hasActiveRangedWeapon) this.animator.poseLanceReady(this.isMounted)
 
     if (this.tacticalOrder === 'follow') {
       const contact = nearbyNPCs.some(other => other !== this && !other.dead && combatAllegiancesHostile(this, other) && other.combatPosition.distanceToSquared(this.combatPosition) <= 64
@@ -4852,11 +4856,12 @@ export class NPC {
   }
 
   /** Run after the mount animation, before render; keeps the contact on this frame's seat. */
-  fitMountedSeat(): void {
+  /** `publish = false` only when the renderer refreshes the scene immediately afterwards. */
+  fitMountedSeat(publish = true): void {
     if (!this.mount || this.dead) return
     this.mount.corgiVisual?.fitRider(this.characterVisualGroup)
-    this.mount.catVisual?.fitRider(this.characterVisualGroup)
-    this.mount.snowLeopardVisual?.fitRider(this.characterVisualGroup)
+    this.mount.catVisual?.fitRider(this.characterVisualGroup, publish)
+    this.mount.snowLeopardVisual?.fitRider(this.characterVisualGroup, publish)
   }
 
   private _alignExternalVisualToMount(mounted: boolean): void {

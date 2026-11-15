@@ -7,7 +7,7 @@ import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
 import { getScenePlayableWorldBound, type ObstacleData } from './Terrain'
 import { PROJECTILE_GRAVITY, createProjectileFlightBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
-import { ProjectileContactQuery } from '../combat/ProjectileContactQuery'
+import { ProjectileContactQuery, type ProjectileTargetGroups } from '../combat/ProjectileContactQuery'
 import { damageMount, damageNpc, damageObstacle, damageReceiver, type DamageResult } from '../combat/DamageRouter'
 import { isDamageReceiver, type DamageReceiver } from '../combat/DamageReceiver'
 import { Mount } from './Mount'
@@ -119,6 +119,9 @@ export class ArrowProjectile {
   private readonly _tmpTargetPos = new THREE.Vector3()
   private readonly previousPosition = new THREE.Vector3()
   private readonly contacts = new ProjectileContactQuery()
+  private readonly playerTarget: Player[] = []
+  private readonly targetGroups: (readonly (Player | NPC | Mount | DamageReceiver)[])[] = [this.playerTarget, [], [], []]
+  private readonly targetGroupsInput: ProjectileTargetGroups<Player | NPC | Mount | DamageReceiver> = { groups: this.targetGroups }
 
   readonly damage: number
   readonly shooterFaction: Faction
@@ -339,12 +342,13 @@ export class ArrowProjectile {
 
   }
 
-  private *orderedTargets(player: Player, npcs: readonly NPC[], mounts: readonly Mount[], receivers: readonly DamageReceiver[]):
-    Iterable<Player | NPC | Mount | DamageReceiver> {
-    yield player
-    yield* npcs
-    yield* mounts
-    yield* receivers
+  /** Player, NPCs, mounts, then receivers: the order that breaks equal contacts. Reused per shot. */
+  private orderedTargets(player: Player, npcs: readonly NPC[], mounts: readonly Mount[], receivers: readonly DamageReceiver[]):
+    ProjectileTargetGroups<Player | NPC | Mount | DamageReceiver> {
+    const groups = this.targetGroups
+    this.playerTarget[0] = player
+    groups[1] = npcs; groups[2] = mounts; groups[3] = receivers
+    return this.targetGroupsInput
   }
 
   private _damageContext(): CombatDamageContext | undefined {

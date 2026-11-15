@@ -1,6 +1,6 @@
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { createRuntimeGltfLoader } from './RuntimeGltfLoader'
 import { DEFAULT_BOW_GRIP_PROFILE, type BowGripProfile } from './BowAttachmentContract'
 import { HERO_ASSETS } from './HeroAssetCatalog'
 
@@ -41,7 +41,7 @@ export async function loadMakiRangerBow(): Promise<MakiBowAsset> {
   bowTemplate ??= (async () => {
     const base = publicAssetUrl('models/weapons/maki-ranger-bow')
     const [gltf, metadata] = await Promise.all([
-      new GLTFLoader().loadAsync(`${base}/bow.glb`),
+      createRuntimeGltfLoader().loadAsync(`${base}/bow.glb`),
       fetch(`${base}/attachment.json`).then(r => { if (!r.ok) throw new Error('Missing Maki bow calibration'); return r.json() }),
     ])
     const profile: BowGripProfile = {

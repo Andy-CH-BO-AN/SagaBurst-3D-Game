@@ -9,7 +9,7 @@
     "sourceEntry": "Viking/Viking_Infantry_LOD0_GripAndWeaponAdjusted_DERIVED_11Clips.glb",
     "sourceSha256": "a66917fffe0b2ab9b682e14675993ddf0f184420a585e9951e629d35a40b8c0c",
     "license": "User-supplied Meshy model and derived animation; mixed animation-source licenses retained in source-readme.txt",
-    "licenseEvidence": "source-readme.txt"
+    "licenseEvidence": "attribution-evidence.json"
   },
   "attribution": "Ordinary Viking Infantry: user-provided Meshy model/derivative. Core animations: Kevin Iglesias (Unity Asset Store EULA), Quaternius (CC0); axe attacks: user-provided Meshy source. See source-readme.txt.",
   "selectedSource": {
@@ -194,9 +194,9 @@
     ]
   },
   "fileSha256": {
-    "lod0": "ae80de4d2c8f4792f343f63255bc9e286aad729a7d339fa0c3f813ab498424e2",
-    "lod1": "1cac7f16300bccca2894f483d8cc7c83f8eb83a99effa3d2da503c9b272ba1d5",
-    "lod2": "ee0e79f131f4c87e3cf02857894fa5f057b29f36b84c2cde64c24c6b2ac78126"
+    "lod0": "a3d3754a397cbd521a27302947c664f6aac72d5da68241d8576dd5b49755f11a",
+    "lod1": "54663a1845fc97884301128d665e33a19d4f87c62f702467f7f26c75cc16e308",
+    "lod2": "3147cdbaf90455ff3c9151b0f25e7bd0a8f4eba5d7974f3250deca2d49d8a173"
   },
   "visualAcceptance": "Runtime visual integration pending; structural LOD generation is not gameplay acceptance.",
   "knownLimitations": [
@@ -499,5 +499,7 @@
     ],
     "preservation": "Only axeAttack2H channels and their referenced samples are replaced. Geometry, skin, textures, other animation payloads and runtime attack cycles are unchanged.",
     "validation": "Animation/asset and production-controller trajectory checks; live browser gameplay, visual contact/clearance and mounted aesthetic acceptance remain unverified."
-  }
+  },
+  "boneMap": "bone-map.json",
+  "audit": "lod-publication-audit.json"
 }

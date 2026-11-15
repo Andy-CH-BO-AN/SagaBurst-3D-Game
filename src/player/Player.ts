@@ -1272,11 +1272,12 @@ export class Player {
   }
 
   /** Run after the mount animation, before render; keeps the contact on this frame's seat. */
-  fitMountedSeat(): void {
+  /** `publish = false` only when the renderer refreshes the scene immediately afterwards. */
+  fitMountedSeat(publish = true): void {
     if (!this.currentMount || this.dead) return
     this.currentMount.corgiVisual?.fitRider(this.characterVisualGroup)
-    this.currentMount.catVisual?.fitRider(this.characterVisualGroup)
-    this.currentMount.snowLeopardVisual?.fitRider(this.characterVisualGroup)
+    this.currentMount.catVisual?.fitRider(this.characterVisualGroup, publish)
+    this.currentMount.snowLeopardVisual?.fitRider(this.characterVisualGroup, publish)
   }
 
   private _alignExternalVisualToMount(mounted: boolean): void {

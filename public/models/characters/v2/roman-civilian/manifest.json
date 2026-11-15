@@ -786,9 +786,9 @@
     "Coarse LOD2 final death contact can retain about 3.7–7.5 mm of surface-floor penetration under the shared identical animation."
   ],
   "fileSha256": {
-    "lod0": "2d4d5f05f05c84691ed58ae37bfa8c9f14e41d86ca94e5d56507df068079254e",
-    "lod1": "08576b92e0c932bcbd54d20a2c08e0e8fa9374118e3c2c2d9caef14e451cd37b",
-    "lod2": "63a4e3cd5ffd2f9d38824ef752697ea3631350e1494cfb90c07bff5d3f78d4ef"
+    "lod0": "deff90df05ddc4f350072a121ebe30f8c3b732b01c88e4522585dec5e430f43e",
+    "lod1": "84f15ca0b9cb75a8cc9dd99fde090ad5302de4cbcad5518bb6d609552de20043",
+    "lod2": "382b7654d4193c0d92a11e56f82e104bdb11f670a3d51e68d22f53978d5af490"
   },
   "animations": {
     "embedded": [

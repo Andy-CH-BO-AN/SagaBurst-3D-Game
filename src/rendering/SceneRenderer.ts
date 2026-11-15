@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { registerTextureRenderer } from '../world/RuntimeGltfLoader'
 
 /** Pixel-ratio cap for Town and Career arena scenes. */
 export const GAMEPLAY_SCENE_MAX_PIXEL_RATIO = 1.5
@@ -33,6 +34,7 @@ export function configureSceneRenderer(renderer: THREE.WebGLRenderer, options: S
 /** Creates an antialiased renderer configured with {@link configureSceneRenderer}. */
 export function createSceneRenderer(options: SceneRendererOptions): THREE.WebGLRenderer {
   const renderer = new THREE.WebGLRenderer({ antialias: true })
+  registerTextureRenderer(renderer)
   configureSceneRenderer(renderer, options)
   return renderer
 }
