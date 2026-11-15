@@ -577,6 +577,7 @@ describe('Reversible NPC weapon choice', () => {
       targetsPlayer: false, missionCombatTarget: undefined, _cachedTargetIsPlayer: false,
       _pursuitTargetAllowed: NPC.prototype['_pursuitTargetAllowed'],
       _cachedTargetNpc: below, _rangedTargetCandidates: [] as NPC[],
+      _rangedTargetEligible: [] as NPC[], _rangedTargetEligibleDistSq: [] as number[], _rangedTargetEligibleOrder: [] as number[],
       _clearObstacleDetour() {}, _clearNavigationPath() {}, _clearSiegeFallback() {},
     })
     Object.defineProperties(actor, Object.fromEntries([

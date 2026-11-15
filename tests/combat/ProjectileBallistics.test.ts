@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { BallisticIntercept, collectBallisticPathObstacles, projectileTerrainContactTime } from '../../src/combat/ProjectileBallistics'
 import { ProjectileAdmission, projectileAmmoAfterLaunch } from '../../src/combat/ProjectileAdmission'
-import { findBlockingProjectileObstacleAlongPath, getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
+import { findBlockingProjectileObstacleAlongPath, getTerrainHeight, setObstaclePathQuerySource, type ObstacleData } from '../../src/world/Terrain'
 import { TownProjectileObstacles } from '../../src/town/TownProjectileObstacles'
 import { ProjectileContactQuery } from '../../src/combat/ProjectileContactQuery'
 import type { PhysicalCombatTarget } from '../../src/combat/ShieldBlocking'
@@ -252,6 +252,34 @@ function contactBody(x: number) {
   return { group: { position } as PhysicalCombatTarget['group'], combatPosition: position,
     isMounted: false, available: true }
 }
+
+describe('registered-source ballistic broad phase', () => {
+  it('returns the linear scan result for a stable source, including unculled projectile envelopes and live passability', () => {
+    const box = (x: number, z: number) => new THREE.Box3(new THREE.Vector3(x, 0, z), new THREE.Vector3(x + 1, 3, z + 1))
+    // 80 scattered static walls keep the source above the indexed-source threshold.
+    const source: ObstacleData[] = Array.from({ length: 80 }, (_, i) => ({ isBarricade: false, box: box((i % 10) * 9 - 40, Math.floor(i / 10) * 9 - 40) }))
+    // Its collision box is remote, but its complete projectile bounds cross the arc.
+    source.push({ isBarricade: false, box: box(90, 90),
+      projectileBounds: new THREE.Box3(new THREE.Vector3(3, 0, -1), new THREE.Vector3(4, 4, 1)) })
+    source.push({ isBarricade: false, box: box(60, 60), projectileWorldToLocal: new THREE.Matrix4() })
+    source.push({ isBarricade: false, dynamic: true, box: box(5, -0.5) })
+    const origin = new THREE.Vector3(-30, 1, 0.5), end = new THREE.Vector3(20, 1, 0.5)
+    const collect = (obstacles: ObstacleData[]) => [...collectBallisticPathObstacles(origin, end, 5, 2, obstacles, new THREE.Box3(), [])]
+    const linear = collect(source.slice())
+    setObstaclePathQuerySource(source, true)
+    try {
+      expect(collect(source)).toEqual(linear)
+      expect(linear).toContain(source[80]); expect(linear).toContain(source[81]); expect(linear).toContain(source[82])
+      // Dynamic bounds and passability are read live, after the grid prefilter.
+      source[82].box.translate(new THREE.Vector3(0, 0, 20))
+      expect(collect(source)).toEqual(collect(source.slice()))
+      source[81].projectilePassable = true
+      expect(collect(source)).not.toContain(source[81])
+    } finally {
+      setObstaclePathQuerySource(source, false)
+    }
+  })
+})
 
 describe('shared live projectile first contact', () => {
   it('keeps nock clearance exclusive to world geometry and reads target eligibility before the next shot', () => {
