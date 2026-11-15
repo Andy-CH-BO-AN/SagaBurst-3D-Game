@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Index of this package's existing source and licence evidence; no new claims.",
+  "source": {
+    "title": "Byzantine Warrior (Mixamo-rigged)",
+    "sourceFile": "Meshy_AI_Byzantine_Warrior_Rigged_20261106_animated_mixamo_All_animation.glb",
+    "sourceSha256": "421accf24280fa37bff2a61051f73294ed70b2b5bdb6c235a5661f0d034c1691",
+    "license": "Owner-supplied Meshy model; project animation sources retain their original terms",
+    "licenseEvidence": "ATTRIBUTION.md"
+  },
+  "attribution": "Byzantine Warrior: user-supplied Meshy model, textures and Walking / Running / Left_Slash / Punch_Combo_1. Idle, bow, pilum and axe clips are retargeted from roman-hero-t5 (project-licensed Kevin Iglesias and Quaternius sources; see that asset).",
+  "evidenceFiles": [
+    {
+      "file": "ATTRIBUTION.md",
+      "sha256": "0a87d1475976e68c15665e4f6ace9845f75786f0d09d5197131fa12093ab8bfd"
+    }
+  ]
+}

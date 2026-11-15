@@ -95,7 +95,7 @@ async function run(inputs, evidence) {
   for (const input of assets.filter(i => i.status === 'M' && i.file.endsWith('/manifest.json'))) {
     const old = JSON.parse(execFileSync('git', ['show', evidence.baseSha + ':' + input.file], { cwd: root, encoding: 'utf8' }))
     const next = JSON.parse(host.read(input.file).toString('utf8'))
-    requireStaticManifestChange(old, next)
+    requireStaticManifestChange(old, next, input.asset?.family)
   }
   const result = assets.length ? validateAssets(assets, host, runtimeContracts()) : { result: 'not-needed', files: [] }
   if (host.glbs?.some(a => a.document.extensionsUsed?.includes('EXT_meshopt_compression'))) {

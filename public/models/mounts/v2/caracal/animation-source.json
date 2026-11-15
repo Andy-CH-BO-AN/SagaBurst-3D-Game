@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "animal": "caracal",
-  "sha256": "acf9ec6b17e91593e646a38d075411b62188a41beb14e30d0560f748c1af09ac",
+  "sha256": "3faa894001529d709907bbd7d8a76fc674e131a463ac0a9a40124c03d6cd9e4d",
   "acceptedDonor": {
     "commit": "ea18eff8ceab74e88afc738019127792ea03e311",
     "path": "public/models/mounts/v2/black-cat/black-cat.glb",

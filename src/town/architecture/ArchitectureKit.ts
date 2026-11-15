@@ -1,7 +1,7 @@
 import type { HRHallLayout } from './ArchitectureSpecs'
 import * as THREE from 'three'
 import { ArenaResources, arenaRandom, brazierParts, createFlameMaterial, flameParts, mergedMesh, paintedTexture, speckle, tint } from '../../arena/ArenaKit'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { createRuntimeGltfLoader } from '../../world/RuntimeGltfLoader'
 import { WeaponMeshFactory } from '../../world/WeaponMeshFactory'
 import { preloadHighTierEquipment, createT5Melee, createByzantineEquipment, requestByzantineEquipment, isByzantineEquipmentId } from '../../world/HighTierEquipment'
 import { preloadPaladinEquipment, createPaladinEquipment } from '../../world/PaladinEquipment'
@@ -806,7 +806,7 @@ export function preloadArchitectureDecorations(): Promise<void> {
     ...['roman-legion-banner', 'viking-cat-banner', 'carved-lynx-head'].map(async id => {
       if (ornaments.has(id)) return
       const url = publicAssetUrl(`models/architecture/${id}.glb`)
-      const gltf = await new GLTFLoader().loadAsync(url)
+      const gltf = await createRuntimeGltfLoader().loadAsync(url)
       gltf.scene.traverse(o => { if (o instanceof THREE.Mesh) { o.castShadow = false; o.receiveShadow = true } })
       ornaments.set(id, gltf.scene)
     }),

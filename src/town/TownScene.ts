@@ -78,6 +78,7 @@ import { ProjectileContactQuery } from '../combat/ProjectileContactQuery'
 import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { WeaponWheelUI } from '../ui/WeaponWheelUI'
+import { registerTextureRenderer } from '../world/RuntimeGltfLoader'
 import * as THREE from 'three'
 import { acceptCavalrySweep, acceptCaptainCavalryCommand, sweepPlayerSpawn, SWEEP_YAW, CAVALRY_SWEEP_BANDITS } from '../career/CavalrySweep'
 import { Player, PLAYER_ARROW_CAPACITY, DEFAULT_PLAYER_MAX_HP } from '../player/Player'
@@ -351,6 +352,7 @@ export class TownScene {
 
   static async create(container: HTMLElement, profile: CareerProfile, onCampaign: (config?: CareerCombatLaunch) => void, onRestart: (p: CareerProfile, reason?: 'death-return') => void, onHome: () => void, progress: (text: string) => void = () => {}, onTutorialLaunch?: (stage: 'recruit' | 'captain', replay?: boolean) => boolean): Promise<TownScene> {
     const renderer = new THREE.WebGLRenderer({ antialias: true })
+    registerTextureRenderer(renderer)
     try {
       progress('載入人物、坐騎與動畫…')
       const playerHero = resolveCareerHeroAsset(profile)

@@ -31,7 +31,7 @@ function parseGlb(bytes) {
   const required = document.extensionsRequired ?? []
   const used = document.extensionsUsed ?? []
   check(Array.isArray(required) && Array.isArray(used) && required.every(name => used.includes(name) &&
-    ['EXT_meshopt_compression', 'KHR_mesh_quantization', 'KHR_materials_unlit', 'KHR_texture_transform'].includes(name)), 'Unsupported required extension')
+    ['EXT_meshopt_compression', 'KHR_mesh_quantization', 'KHR_materials_unlit', 'KHR_texture_transform', 'KHR_texture_basisu'].includes(name)), 'Unsupported required extension')
   for (const [i, buffer] of buffers.entries()) {
     check(integer(buffer.byteLength) && !buffer.uri, 'External buffer URI or invalid length')
     if (i === 0) check(buffer.byteLength <= binary.length && binary.length - buffer.byteLength <= 3, 'Embedded buffer length')
@@ -65,15 +65,28 @@ function parseGlb(bytes) {
     check(view && integer(accessor.byteOffset ?? 0) && stride >= width &&
       (accessor.byteOffset ?? 0) + (accessor.count - 1) * stride + width <= view.byteLength, 'Accessor bounds')
   }
-  for (const image of document.images ?? []) {
-    check(!image.uri && views[image.bufferView] && ['image/png', 'image/jpeg', 'image/webp'].includes(image.mimeType), 'External or invalid image resource')
+  // KTX2 images are admitted only behind a required KHR_texture_basisu and only via that extension.
+  const basisuSources = new Set(), plainSources = new Set()
+  for (const texture of document.textures ?? []) {
+    const basisu = texture.extensions?.KHR_texture_basisu
+    if (basisu) basisuSources.add(basisu.source)
+    if (texture.source !== undefined) plainSources.add(texture.source)
+  }
+  for (const [index, image] of (document.images ?? []).entries()) {
+    const ktx2 = image.mimeType === 'image/ktx2'
+    check(!image.uri && views[image.bufferView] && (ktx2 ? required.includes('KHR_texture_basisu') && basisuSources.has(index) && !plainSources.has(index)
+      : ['image/png', 'image/jpeg', 'image/webp'].includes(image.mimeType)), 'External or invalid image resource')
   }
   return { document, binary }
 }
 // Unknown/new manifest fields are runtime-sensitive by default. Each admitted
 // metadata field is validated by the family contract below.
-function requireStaticManifestChange(before, after) {
-  const safe = new Set(['source', 'attribution', 'files', 'fileSha256', 'boneMap', 'audit', 'visualAcceptance', 'knownLimitations'])
+// Mount manifests: the runtime reads only status/source/forward/file (QuadrupedAssetPreload); the
+// published hash, measured metrics and modification notes are package metadata.
+const MOUNT_STATIC_FIELDS = ['sha256', 'metrics', 'modifications']
+function requireStaticManifestChange(before, after, family) {
+  const safe = new Set(['source', 'attribution', 'files', 'fileSha256', 'boneMap', 'audit', 'visualAcceptance', 'knownLimitations',
+    ...(family === 'mount' ? MOUNT_STATIC_FIELDS : [])])
   const canonical = value => JSON.stringify(value, (_, v) => v && !Array.isArray(v) && typeof v === 'object'
     ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v)
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
@@ -184,6 +197,52 @@ function validateShields(ids, host, contracts, checked) {
     host.glbs.push(asset)
   }
 }
+/** Mount package: ready manifest, published hash, required clips/LOD nodes, evidence JSON. */
+function validateMount(root, host, checked) {
+  const read = file => { checked.add(file); return host.read(file) }
+  const m = JSON.parse(read(root + '/manifest.json').toString('utf8')), id = root.split('/').at(-1)
+  check(m.schemaVersion === 1 && m.status === 'ready' && m.forward === '+Z' && typeof m.id === 'string' && m.id.startsWith(id), 'Mount manifest schema/id/status/forward')
+  check(m.source && digest(m.source.sourceSha256) && m.source.license, 'Missing mount source/license evidence')
+  const glb = localReference(root, m.file), bytes = read(glb)
+  check(digest(m.sha256) && hash(bytes) === m.sha256, 'SHA256 mismatch: ' + glb)
+  const asset = parseGlb(bytes), names = new Set((asset.document.nodes ?? []).map(n => n.name))
+  const clips = new Set((asset.document.animations ?? []).map(a => a.name))
+  check(Array.isArray(m.clips) && m.clips.every(c => clips.has(typeof c === 'string' ? c : c.name)), 'Mount clip inventory differs from manifest')
+  check((m.lodNodes ?? []).every(n => names.has(n)) && (m.equipmentLodNodes ?? []).every(n => names.has(n)), 'Mount LOD node missing')
+  read(root + '/CREDITS.md')
+  // Package evidence (rig/animation/audit reports) must stay parseable, non-empty JSON.
+  for (const name of ['audit.json', 'asset-report.json', 'animation-source.json', 'bone-map.json', 'rig-mapping.json']) {
+    let text
+    try { text = host.read(root + '/' + name) } catch { continue }
+    checked.add(root + '/' + name)
+    check(Object.keys(JSON.parse(text.toString('utf8'))).length, 'Empty mount evidence: ' + name)
+  }
+  host.glbs.push(asset)
+}
+/** Architecture ornaments: every sourced asset's published hash. */
+function validateOrnaments(host, checked) {
+  const root = 'public/models/architecture', read = file => { checked.add(file); return host.read(file) }
+  const rows = JSON.parse(read(root + '/ornaments-sources.json').toString('utf8'))
+  check(Array.isArray(rows) && rows.length && new Set(rows.map(r => r.asset)).size === rows.length, 'Ornament source inventory')
+  for (const row of rows) {
+    check(digest(row.sourceSha256) && row.permission, 'Missing ornament source/permission record')
+    const bytes = read(localReference(root, row.asset))
+    check(digest(row.sha256) && hash(bytes) === row.sha256, 'SHA256 mismatch: ' + root + '/' + row.asset)
+    host.glbs.push(parseGlb(bytes))
+  }
+}
+/** Paladin and Maki bow: attribution plus a per-file final hash where the folder records one. */
+function validateProvenanceWeapon(input, host, checked) {
+  const root = input.asset.root, read = file => { checked.add(file); return host.read(file) }
+  check(read(root + '/ATTRIBUTION.md').toString('utf8').trim(), 'Missing weapon attribution')
+  if (!input.file.endsWith('.glb')) return
+  const bytes = read(input.file), name = input.file.split('/').at(-1).replace('.glb', '')
+  const records = [root + '/' + name + '.json', root + '/source.json'].filter(file => { try { host.read(file); return true } catch { return false } })
+  const finals = records.map(file => JSON.parse(read(file).toString('utf8'))).filter(r => digest(r.finalSha256))
+  if (finals.length) check(finals.some(r => r.finalSha256 === hash(bytes)), 'Weapon final SHA256 mismatch: ' + input.file)
+  else check(JSON.parse(read(root + '/sources.json').toString('utf8')).length, 'Missing weapon source inventory')
+  host.glbs.push(parseGlb(bytes))
+}
 // Host injection lets contracts use tiny in-memory files, never shipped GLBs.
 function validateAssets(inputs, host, contracts) {
   const checked = new Set(), roots = new Set(), shields = new Set()
@@ -192,7 +251,7 @@ function validateAssets(inputs, host, contracts) {
     if (input.kind === 'asset') {
       if (input.asset.family === 'humanoid') roots.add(input.asset.root)
       else if (input.asset.family === 'weapon') validateWeapon(input, host, contracts, checked)
-      else shields.add(input.asset.id)
+      else if (input.asset.family === 'shield') shields.add(input.asset.id)
     } else if (input.kind === 'builder') {
       const spec = BUILDERS[input.file]
       check(spec, 'Unknown offline builder')
@@ -208,6 +267,10 @@ function validateAssets(inputs, host, contracts) {
       }
     }
   }
+  const mountRoots = new Set(inputs.filter(i => i.kind === 'asset' && i.asset.family === 'mount').map(i => i.asset.root))
+  for (const root of mountRoots) validateMount(root, host, checked)
+  if (inputs.some(i => i.kind === 'asset' && i.asset.family === 'ornament')) validateOrnaments(host, checked)
+  for (const input of inputs.filter(i => i.kind === 'asset' && i.asset.family === 'provenance-weapon')) validateProvenanceWeapon(input, host, checked)
   for (const root of roots) validateHumanoid(root, host, contracts, checked)
   if (shields.size) validateShields([...shields], host, contracts, checked)
   for (const input of inputs.filter(i => i.kind === 'asset')) {

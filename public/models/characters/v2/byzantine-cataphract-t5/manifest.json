@@ -8,7 +8,7 @@
     "sourceFile": "Meshy_AI_Byzantine_Warrior_Rigged_20261106_animated_mixamo_All_animation.glb",
     "sourceSha256": "421accf24280fa37bff2a61051f73294ed70b2b5bdb6c235a5661f0d034c1691",
     "license": "Owner-supplied Meshy model; project animation sources retain their original terms",
-    "licenseEvidence": "ATTRIBUTION.md"
+    "licenseEvidence": "attribution-evidence.json"
   },
   "attribution": "Byzantine Warrior: user-supplied Meshy model, textures and Walking / Running / Left_Slash / Punch_Combo_1. Idle, bow, pilum and axe clips are retargeted from roman-hero-t5 (project-licensed Kevin Iglesias and Quaternius sources; see that asset).",
   "selectedSource": {
@@ -35,9 +35,9 @@
     "lod2": "lod2.glb"
   },
   "fileSha256": {
-    "lod0": "6cecb0a900fb53dde42dd97343835f2e4187fd05617e080495179da80fb0fcbe",
-    "lod1": "e91a22917344583e15a769e76317f381e14271c62f9d21a6be3162a217146699",
-    "lod2": "e8bcd245db88326f6526afb5b153411f7a9520dd1811973a2befd3c622483cfc"
+    "lod0": "d9053b6ded3dd62ae1df63dc2aed3d5157048a2117ab4eef5425811c7a6bcdf8",
+    "lod1": "43c0012f5b3b8422ba2019f8158a1834c2fbc837703f3a95cddc793f238b2c7c",
+    "lod2": "8b07501e85f9fc9f9d2565c0837a3b234678dd919f51dd98570c80491774bc0a"
   },
   "metrics": {
     "heightM": 1.9410765866341708,
@@ -404,5 +404,7 @@
     "Source rig has no finger bones: runtime morphs (MittenHandShape) curl the mitten hands.",
     "Idle / bow / pilum / axe clips are direction-retargeted from roman-hero-t5.",
     "Shield stance punchRight is composed from right-fist segments of Punch_Combo_1."
-  ]
+  ],
+  "boneMap": "bone-map.json",
+  "audit": "lod-publication-audit.json"
 }

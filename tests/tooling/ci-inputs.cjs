@@ -2,6 +2,11 @@
 // Classification only. Asset admission still requires the independent validator.
 const CHARACTER_ROOT = /^public\/models\/characters\/v2\/([a-z0-9-]+)\/([^/]+)$/
 const SHIELD_ROOT = 'public/models/weapons/faction-shields/'
+// Mount packages, architecture ornaments and per-file-provenance weapons (paladin, Maki bow).
+const MOUNT_ROOT = /^public\/models\/mounts\/v2\/([a-z0-9-]+)\/([^/]+)$/
+const MOUNT_FILES = /^(?:[a-z0-9-]+\.glb|manifest\.json|(?:audit|asset-report|animation-source|bone-map|rig-mapping)\.json|CREDITS\.md)$/
+const ORNAMENT_FILE = /^public\/models\/architecture\/(?:[a-z0-9-]+\.glb|ornaments-sources\.json)$/
+const PROVENANCE_WEAPON = /^public\/models\/weapons\/(paladin|maki-ranger-bow)\/(?:[a-z0-9-]+\.(?:glb|json)|ATTRIBUTION\.md)$/
 const CHARACTER_FILES = /^(lod[012]\.glb|manifest\.json|(?:[a-z0-9-]*audit|bone-map|attribution-evidence|animation-donor-manifest)\.json|ATTRIBUTION\.md|[a-z0-9-]+-attribution\.txt|[a-z0-9._-]+\.(?:png|jpe?g|webp))$/
 // Reviewed offline entry points; never execute them in CI. The Python shield
 // builders also emit FactionShieldGeometry.ts, checked against shipped metadata.
@@ -14,6 +19,11 @@ const BUILDERS = {
 function assetInput(file) {
   const character = CHARACTER_ROOT.exec(file)
   if (character && CHARACTER_FILES.test(character[2])) return { family: 'humanoid', id: character[1], root: file.slice(0, file.lastIndexOf('/')) }
+  const mount = MOUNT_ROOT.exec(file)
+  if (mount && MOUNT_FILES.test(mount[2])) return { family: 'mount', id: mount[1], root: file.slice(0, file.lastIndexOf('/')) }
+  if (ORNAMENT_FILE.test(file)) return { family: 'ornament', id: 'architecture', root: 'public/models/architecture' }
+  const weapon = PROVENANCE_WEAPON.exec(file)
+  if (weapon) return { family: 'provenance-weapon', id: weapon[1], root: 'public/models/weapons/' + weapon[1] }
   if (/^public\/models\/weapons\/(?:faction-shields|high-tier|t5|byzantine)\/[a-z0-9-]+\.glb$/.test(file) ||
       /^public\/models\/weapons\/(?:faction-shields|high-tier|t5|byzantine)\/(?:sources\.json|ATTRIBUTION\.md)$/.test(file)) {
     return { family: file.startsWith(SHIELD_ROOT) ? 'shield' : 'weapon', id: file.slice('public/'.length), root: SHIELD_ROOT.slice(0, -1) }

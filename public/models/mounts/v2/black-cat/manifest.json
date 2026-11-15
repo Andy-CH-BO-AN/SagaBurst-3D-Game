@@ -18,7 +18,8 @@
     "Original 53-bone skeleton and inverse binds retained; continuous source-surface weights repair saddle attachments and tail base",
     "Seven pinned production donor clips retargeted offline at 60Hz; walk/run contact phases adapted to source limb lengths with analytic IK",
     "Independent LOD1/LOD2 simplification; lossless Meshopt compression without LOD0 quantization",
-    "Original saddle retained with source-space rider/camera sockets; equipped appearance is always shown"
+    "Original saddle retained with source-space rider/camera sockets; equipped appearance is always shown",
+    "Runtime budget pass: KTX2 (KHR_texture_basisu) textures within the runtime size cap; see tools/data/runtime-glb-budget-audit.json"
   ],
   "metrics": {
     "triangles": {
@@ -26,21 +27,21 @@
       "cat_saddle_leather": 10875,
       "cat_body_lod1": 8919,
       "cat_equipment_lod1": 5002,
-      "cat_body_lod2": 2520,
+      "cat_body_lod2": 2068,
       "cat_equipment_lod2": 1412
     },
     "visibleEquippedTriangles": [
       30266,
       13921,
-      3932
+      3480
     ],
     "residentTrianglesByLod": [
       30266,
       13921,
-      3932
+      3480
     ],
-    "textureMaxSize": 4096,
-    "packageBytes": 23948876,
+    "textureMaxSize": 2048,
+    "packageBytes": 7120612,
     "saddleHeightM": 1.266,
     "materials": 1,
     "storedMeshPrimitives": 6,
@@ -72,7 +73,7 @@
     "socket_saddle_seat",
     "socket_camera"
   ],
-  "sha256": "55e9a8eb0b633523e347c120c2b8775ebf49e0caac103d88644ea53f77a5b3da",
+  "sha256": "8c4785d037c86761689e0051d0025532adca30eb81c46f5b706998ce32e71550",
   "animationSource": "animation-source.json",
   "validation": {
     "structuralAudit": "passed: independent source-face geometry/UV/normal/image equivalence and posed saddle/seam checks",

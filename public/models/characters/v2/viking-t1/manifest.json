@@ -386,7 +386,7 @@
     }
   },
   "boneMap": "bone-map.json",
-  "audit": "audit.json",
+  "audit": "lod-publication-audit.json",
   "animationRetarget": {
     "sourceAsset": "viking/lod0.glb",
     "groundContact": {
@@ -997,9 +997,9 @@
     "additionalReview": "Viking T1 bow-release thumb MCP self-fold corrected with post-release bind relaxation; pre-event hook unchanged."
   },
   "fileSha256": {
-    "lod0": "610a6c99f32e08b1359e46b7d737ad779e34504b5ad18b3716487fad0eb11987",
-    "lod1": "8c0f051b18182955538c9a4ca9a989f404dca4dbbde097ab4244eba705e94bde",
-    "lod2": "d9de3c619eccdbd01883e8d18ef84ed5d3464f08e34103ebf65d30b3eeb35d00"
+    "lod0": "5e979e03a1fd5192b0403b84194880a5cd33c1810737ec2002e2ae9d3882bbdd",
+    "lod1": "5f8dc1521de3d6507c6e62aca803aa483d03e490b51faa87225af2f6deab2bb6",
+    "lod2": "8e6cd8b201eafca8935f960e935d2e5437b7b551005fceec9d755185fbeebbd7"
   },
   "animations": {
     "embedded": [
@@ -1142,7 +1142,7 @@
   },
   "knownLimitations": [
     "Raw source-mode bow poses may hover: gameplay retains the bow pelvis while replacing leg tracks with locomotion legs, and the fitted contact bake preserves that composed stance.",
-    "The inherited short early two-handed-axe runtime transition can briefly dip feet about 2\u20134 cm; the shared blend and body/root behavior are unchanged."
+    "The inherited short early two-handed-axe runtime transition can briefly dip feet about 2–4 cm; the shared blend and body/root behavior are unchanged."
   ],
   "skinInfluenceSets": 4,
   "bufferCompression": "EXT_meshopt_compression"

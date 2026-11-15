@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "sha256": "55e9a8eb0b633523e347c120c2b8775ebf49e0caac103d88644ea53f77a5b3da",
+  "sha256": "8c4785d037c86761689e0051d0025532adca30eb81c46f5b706998ce32e71550",
   "sourceSha256": "59c10fb0582b5dd90d3e281a73ad4b522ef33213506b315470b1382f6d521c4b",
   "sourceContract": {
     "sourceTriangles": 30266,
@@ -11,9 +11,9 @@
     "maximumUvError": 0,
     "maximumNormalError": 0,
     "tolerances": {
-      "positionInSourceUnits": 2e-06,
-      "uv": 1e-06,
-      "normalVector": 2e-05
+      "positionInSourceUnits": 0.000002,
+      "uv": 0.000001,
+      "normalVector": 0.00002
     }
   },
   "sourceToAsset": [
@@ -82,7 +82,7 @@
       "tail": 3066
     },
     "iterations": 283,
-    "residual": 9.728825098864746e-07,
+    "residual": 9.728825098864746e-7,
     "maxDroppedWeight": 0.15462405939065005
   },
   "equipment": {
@@ -91,7 +91,7 @@
     "flexibleTack": "Front chest harness and its low return bend with the source body; complete saddle, bags and stirrups remain rigid.",
     "sharedBoundaryPairs": 837,
     "maximumSharedBoundarySeparationMeters": 0,
-    "maximumRigidDistanceErrorMeters": 7.423439940534848e-08
+    "maximumRigidDistanceErrorMeters": 7.423439940534848e-8
   },
   "sockets": {
     "socket_saddle_seat": [

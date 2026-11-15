@@ -23,7 +23,7 @@
       "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
       "licenseEvidenceUrl": "https://api.sketchfab.com/v3/models/5cc0075d0aa645c398c51316236ff156",
       "used": "corgi Run poses/foot trajectories",
-      "sourceMember": "source/\u041a\u043e\u0440\u0433\u0438_bake.blend"
+      "sourceMember": "source/Корги_bake.blend"
     }
   },
   "acceptedDonor": {
@@ -324,7 +324,7 @@
   "clips": [
     {
       "name": "idle",
-      "duration": 10.0,
+      "duration": 10,
       "loop": true,
       "provenance": "donor bake",
       "samples": 601
@@ -373,7 +373,7 @@
     }
   ],
   "verification": {
-    "sha256": "f05ed47e6c038ee2dfc0be053212328ecbf49673608846c1afbbbba1fafa5a6e",
+    "sha256": "27e6ed5ae0cff7628e96e38dbfe819a66ce3693f9a484db381692ae8f516e209",
     "status": "Exact-file structural audit and offline packed-GLB Blender review passed. Browser gameplay and GPU performance remain pending.",
     "idleFrontPawMinimumHeightM": [
       0.005446404610103841,

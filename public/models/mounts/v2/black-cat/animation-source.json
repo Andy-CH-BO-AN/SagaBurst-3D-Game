@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "animal": "black-cat",
-  "sha256": "55e9a8eb0b633523e347c120c2b8775ebf49e0caac103d88644ea53f77a5b3da",
+  "sha256": "8c4785d037c86761689e0051d0025532adca30eb81c46f5b706998ce32e71550",
   "sources": {
     "doginx": {
       "file": "Doginx fbx + unity.zip",

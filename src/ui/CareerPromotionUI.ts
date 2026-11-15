@@ -6,6 +6,7 @@ import { CAREER_CLASS_HERO, T4_CLASS_HERO } from '../career/CareerPlayerProfile'
 import { HERO_COMBAT_PROFILE_BY_ASSET, HERO_COMBAT_PROFILES } from '../battle/HeroCombatProfile'
 import { HERO_ASSETS, type HeroAssetId } from '../world/HeroAssetCatalog'
 import { HumanoidAssetRegistry, disposeHumanoidInstanceSkeletons } from '../world/HumanoidAssetRegistry'
+import { registerTextureRenderer } from '../world/RuntimeGltfLoader'
 
 export type CareerRoadId = CareerClassId | T4ClassId
 const CLASS_NAMES: Record<CareerRoadId, string> = { 'roman-commander': '羅馬軍團統帥 Roman Legate · T5', 'byzantine-cataphract': '拜占庭鐵甲重騎兵 · T5+',
@@ -70,6 +71,7 @@ function portrait(parent: HTMLElement): { select(heroId: HeroAssetId): void; dis
   const initialize = () => {
     if (renderer) return
     renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true })
+    registerTextureRenderer(renderer)
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); renderer.setSize(360, 200)
     const canvas = renderer.domElement
     canvas.style.cssText = 'width:100%;height:200px;object-fit:contain;touch-action:none;cursor:grab'

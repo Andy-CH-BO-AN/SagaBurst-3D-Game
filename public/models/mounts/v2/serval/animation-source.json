@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "animal": "serval",
-  "sha256": "311f17ff311204010c25826fcb8faa11dcc8c2a479f9a9d76f39c7df7da82d7f",
+  "sha256": "df4142aa49a3f58e849236dd90238fc8c338c2339e86932469251da164be505d",
   "acceptedDonor": {
     "commit": "ea18eff8ceab74e88afc738019127792ea03e311",
     "path": "public/models/mounts/v2/black-cat/black-cat.glb",

@@ -69,5 +69,6 @@
     "sole_r": "foot_r",
     "bow_string_contact": "hand_r",
     "bow_arrow_rest": "hand_l"
-  }
+  },
+  "skeleton": "project-humanoid-v1"
 }

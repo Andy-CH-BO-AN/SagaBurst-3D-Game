@@ -231,7 +231,9 @@ export function consolidateRomanLod2(
  * Its LOD2 keeps the source's 7 skinned primitives (5 materials) at every
  * distance. Two same-material pairs become one renderable each, and three
  * sub-100-triangle fill parts are hidden at LOD2 (>30 m), like Roman eyes. */
-export const AUDITED_VIKING_CAPTAIN_LOD2_SHA256 = '89d396361f28725013a049b906462ca58c11f81a4dc9699c12753a08767866d4'
+// Re-audited after the runtime budget pass: accessor data and scene/skin/animation JSON are identical
+// to the previously audited 89d39636…; only embedded images became KTX2.
+export const AUDITED_VIKING_CAPTAIN_LOD2_SHA256 = 'ee0397320f276c25a981bd63720ac7f3e725af88aa6ab406fbb8a737dda8a3cd'
 export const VIKING_CAPTAIN_LOD2_CULLED_TINY_DETAIL_NAMES = ['Restored_hidden_torso', 'Restored_neck', 'Tailored_inner_neckline'] as const
 const VIKING_CAPTAIN_PALM_MATERIAL = 'Original atlas skin patch, new digit normals'
 const VIKING_CAPTAIN_LOD2_PAIRS: readonly ConsolidationPair[] = [

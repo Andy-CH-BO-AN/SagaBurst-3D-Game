@@ -1,0 +1,107 @@
+{
+  "description": "Runtime GLB budget pass: texture caps, KTX2 (KHR_texture_basisu) encoding and UV-exact LOD reductions. Applied by tools/apply-runtime-glb-budget.mjs; results in runtime-glb-budget-audit.json.",
+  "textures": {
+    "defaultMaxSize": 2048,
+    "rules": [
+      {
+        "match": "^models/weapons/",
+        "maxSize": 1024
+      }
+    ],
+    "encoding": {
+      "color": [
+        "-etc1s",
+        "-quality",
+        "90",
+        "-effort",
+        "5",
+        "-mipmap"
+      ],
+      "linear": [
+        "-uastc",
+        "-uastc_level",
+        "2",
+        "-uastc_rdo_l",
+        "1.0",
+        "-linear",
+        "-mipmap",
+        "-ktx2_zstandard_level",
+        "18"
+      ],
+      "normal": [
+        "-uastc",
+        "-uastc_level",
+        "2",
+        "-uastc_rdo_l",
+        "0.5",
+        "-normal_map",
+        "-mipmap",
+        "-ktx2_zstandard_level",
+        "18"
+      ]
+    }
+  },
+  "skip": [
+    "models/mounts/v1/horse/horse_runtime.glb",
+    "models/mounts/v1/armored-horse/armored-horse.glb",
+    "models/architecture/viking-berserker-statue.glb",
+    "models/architecture/roman-byzantine-statue.glb",
+    "models/mounts/v2/xongkoro/xongkoro.glb"
+  ],
+  "lod": [
+    {
+      "file": "models/characters/v2/roman-t1/lod2.glb",
+      "mesh": ".",
+      "targetTriangles": 6000,
+      "maxError": 0.01
+    },
+    {
+      "file": "models/characters/v2/roman-t2/lod2.glb",
+      "mesh": ".",
+      "targetTriangles": 6000,
+      "maxError": 0.01
+    },
+    {
+      "file": "models/characters/v2/viking-t1/lod2.glb",
+      "mesh": ".",
+      "targetTriangles": 6000,
+      "maxError": 0.01
+    },
+    {
+      "file": "models/characters/v2/viking-t2/lod2.glb",
+      "mesh": ".",
+      "targetTriangles": 6000,
+      "maxError": 0.01
+    },
+    {
+      "file": "models/characters/v2/byzantine-cataphract-t5/lod2.glb",
+      "mesh": ".",
+      "targetTriangles": 6000,
+      "maxError": 0.01
+    },
+    {
+      "file": "models/mounts/v2/black-cat/black-cat.glb",
+      "mesh": "^cat_body_lod2$",
+      "targetTriangles": 1500,
+      "maxError": 0.015
+    },
+    {
+      "file": "models/mounts/v2/white-cat/white-cat.glb",
+      "mesh": "^cat_body_lod2$",
+      "targetTriangles": 1500,
+      "maxError": 0.015
+    },
+    {
+      "file": "models/mounts/v2/serval/serval.glb",
+      "mesh": "^cat_body_lod2$",
+      "targetTriangles": 1500,
+      "maxError": 0.015
+    },
+    {
+      "file": "models/mounts/v2/caracal/caracal.glb",
+      "mesh": "^cat_body_lod2$",
+      "targetTriangles": 1500,
+      "maxError": 0.015
+    }
+  ]
+}
