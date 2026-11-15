@@ -365,18 +365,18 @@ class ArmSolver {
       this.swing.setFromUnitVectors(this.x, this.y)
       this.q.premultiply(this.swing).slerp(this.upperRotation, 0.35)
     }
+    // Each parent read below refreshes its own ancestor chain, so one subtree pass
+    // after the last joint leaves exactly the matrices the old per-joint passes did.
     this.arm.shoulder.parent!.getWorldQuaternion(this.parentQ).invert()
     this.arm.shoulder.quaternion.copy(this.parentQ).multiply(this.rootQ).multiply(this.q)
-    this.arm.shoulder.updateWorldMatrix(false, true)
     // Match forearm roll to the anatomical hand frame, then swing its long axis
     // to the wrist. This leaves flexion at the wrist without a 180-degree twist.
     this.q.copy(this.lowerRotation)
     this.arm.elbow.parent!.getWorldQuaternion(this.parentQ).invert()
     this.arm.elbow.quaternion.copy(this.parentQ).multiply(this.rootQ).multiply(this.q)
-    this.arm.elbow.updateWorldMatrix(false, true)
     this.arm.wrist.parent!.getWorldQuaternion(this.parentQ).invert()
     this.arm.wrist.quaternion.copy(this.parentQ).multiply(this.rootQ).multiply(handRotation)
-    this.arm.wrist.updateWorldMatrix(false, true)
+    this.arm.shoulder.updateWorldMatrix(false, true)
   }
 
 }
@@ -698,6 +698,11 @@ export class CharacterEquipmentPose {
     return cached
   }
 
+  /** One pass from the top seated joint (spine → chest → upper_chest) after a torso loop. */
+  private updateTorsoSubtree(): void {
+    this.seatedTorso[0]?.updateWorldMatrix(false, true)
+  }
+
   private rotateArm(node: THREE.Object3D, angle: number, updateSubtree = true): void {
     node.getWorldQuaternion(this.boneWorld)
     node.parent!.getWorldQuaternion(this.parentInverse).invert()
@@ -774,7 +779,8 @@ export class CharacterEquipmentPose {
         if (this.attackAxis.lengthSq() > 1e-12) {
           const angle = 2 * Math.acos(THREE.MathUtils.clamp(this.seatedRotation.w, -1, 1))
           this.attackAxis.normalize()
-          for (const joint of this.seatedTorso) this.rotateArm(joint, angle / this.seatedTorso.length)
+          for (const joint of this.seatedTorso) this.rotateArm(joint, angle / this.seatedTorso.length, false)
+          this.updateTorsoSubtree()
         }
       } else if (state.action === 'axeAttack2H' && this.seatedTorso.length) {
         // Seating removes the foot clip's pelvis rotation. Carry that rotation
@@ -788,7 +794,8 @@ export class CharacterEquipmentPose {
         const blend = smooth(state.elapsed / .08) * (1 - smooth((state.elapsed - .42) / .06))
         if (this.attackAxis.lengthSq() > 1e-12) {
           this.attackAxis.normalize()
-          for (const joint of this.seatedTorso) this.rotateArm(joint, angle * blend / this.seatedTorso.length)
+          for (const joint of this.seatedTorso) this.rotateArm(joint, angle * blend / this.seatedTorso.length, false)
+          this.updateTorsoSubtree()
         }
       } else if (state.action === 'swordSlash' && this.seatedTorso.length) {
         this.seatedHips.getWorldQuaternion(this.parentInverse).invert()
@@ -801,7 +808,8 @@ export class CharacterEquipmentPose {
         const release = 1 - smooth((state.elapsed - windup - active) / recovery)
         const turn = THREE.MathUtils.clamp(yaw, -Math.PI / 4, Math.PI / 4) * release
         this.attackAxis.set(0, 1, 0).applyQuaternion(this.rootWorld)
-        for (const joint of this.seatedTorso) this.rotateArm(joint, turn / this.seatedTorso.length)
+        for (const joint of this.seatedTorso) this.rotateArm(joint, turn / this.seatedTorso.length, false)
+        this.updateTorsoSubtree()
       }
     }
     if (live && state.mounted) {
@@ -902,7 +910,8 @@ export class CharacterEquipmentPose {
       this.root.getWorldQuaternion(this.rootWorld)
       this.attackAxis.set(0, 1, 0).applyQuaternion(this.rootWorld)
       if (state.mounted && this.seatedTorso.length) {
-        for (const joint of this.seatedTorso) this.rotateArm(joint, facing * weight / this.seatedTorso.length)
+        for (const joint of this.seatedTorso) this.rotateArm(joint, facing * weight / this.seatedTorso.length, false)
+        this.updateTorsoSubtree()
       } else this.rotateArm(this.seatedHips, facing * weight)
     }
     // Corgi thighs sit wider and higher than the horse's. Carry the right hand
