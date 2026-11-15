@@ -85,6 +85,7 @@ Career 城鎮劇情事件（`CareerStoryEvents`／`CareerStoryGuidance`／`TownS
 - `EquipmentVisualLODController` 跟隨人物 Three.LOD 的當幀 level，不另算距離。只切已標记的靜態細節，保留 socket、弓弦與搭箭的動態 ownership。
 - NPC 持有裝備在 LOD2 關閉 castShadow，LOD0/1 還原第一次登記的原值；重建盾牌立即沿用目前 level。Player、飛行物、掉落物、人物與坐騎不屬於此 policy。
 - `WeaponMeshFactory` 的公開 builder 與 `CharacterBowVisual` 完成後由 `EquipmentGeometryRegistry` 把剛性 mesh 指向內容逐位元相同的共用 geometry（skinned、morph、interleaved 與非 static attribute 除外）。共用 geometry 不可修改，也不可當作實例資源 dispose；自行銷毀零件的 owner 先檢查 `isSharedEquipmentGeometry`。
+- 遠景 LOD2 只保留輪廓：瓦良格隊長（`viking-hero-t4`）的 LOD2 在 SHA-256 稽核相符時，於共用 LOD0 骨架後合併兩組同材質 skinned mesh（鎖甲＋外衣、左右手掌；任一組驗證失敗就保留原樣），並隱藏三個少於 100 面的填補零件；戰馬 LOD2 隱藏韁繩、半透明鬃尾與馬鞍；NPC 弓弦標為 LOD≤1 的裝備細節，由 `EquipmentVisualLODController` 在 LOD2 隱藏。
 - 人物與戰馬的共享 GLB 模板在第一次 clone 前由 `primeSkinnedTemplateBounds` 以完整蒙皮算一次 `SkinnedMesh.boundingSphere`（rest pose，半徑 ×1.2），實例與 Roman LOD2 合併 mesh 沿用；clone 與 `configureMultiInfluenceSkinning` 不再逐實例 CPU 蒙皮重算。四足坐騎與巨鷹仍用各自的固定 bounds。
 - 人物取樣節奏由 `CharacterLODPolicy.humanoidPoseInterval` 決定：≤28m 每幀、>28m 12Hz、>55m 6Hz；近戰動作傳入距離 0，永不降頻。explicit `seek`（拉弓 `bowLoad`、`pilumThrow`）共用同一節奏：同一 state 仍綁定時沿用上次全 level 取樣；蓄力／投擲進度仍由 gameplay 計時。
 - 人物、戰馬與四足坐騎實例的 `THREE.Bone` 由 `stopBoneEulerSync` 停止 quaternion→Euler 同步：骨骼只能讀寫 `.quaternion`；整組寫入 `.rotation.set(x, y, z)`（`setRigRotation`）仍會更新 quaternion，但不可單軸寫入或讀取骨骼 `.rotation`。

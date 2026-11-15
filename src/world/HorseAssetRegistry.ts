@@ -144,6 +144,10 @@ const MAX_PACKAGE_BYTES = 30 * 1024 * 1024
 export const HORSE_LOD2_CULLED_TINY_DETAIL_NAMES = [
   'bridle_4F_Leather_Brown_Worn_mqm_lod2',
   'bridle_body_4F_Leather_Brown_Worn_mqm_lod2',
+  // Beyond 30 m each draw costs more than it shows: the blended mane/tail cards
+  // need a sorted transparent pass and the saddle sits under the rider.
+  'horse_groom_tail_lod2',
+  'horse_saddle_lod2',
 ] as const
 const HORSE_GAIT_REFERENCE_SPEEDS: Partial<Record<HorseAnimationState, number>> = {
   walk: 2.4,
@@ -183,7 +187,7 @@ function requireMesh(root: THREE.Object3D, name: string): THREE.Mesh {
   return object
 }
 
-/** Far LOD keeps the horse silhouette and saddle, but not sub-pixel bridle meshes. */
+/** Far LOD keeps the body silhouette only: bridle, blended mane/tail and saddle are hidden. */
 export function cullHorseLod2TinyDetails(root: THREE.Object3D): void {
   for (const name of HORSE_LOD2_CULLED_TINY_DETAIL_NAMES) {
     const detail = root.getObjectByName(name)
