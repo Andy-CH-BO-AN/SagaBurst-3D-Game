@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it } from 'vitest'
 import { acceptCareerOutpost, acceptCareerOutpostRelief, claimCareerOutpost, clearCareerOutpost, isCareerOutpostReliefUnlocked, isCareerOutpostUnlocked, type CareerOutpostStageId } from '../../src/career/CareerOutpostMission'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -6,7 +7,7 @@ import { MemoryStorage } from '../helpers/memoryStorage'
 
 const stats = { player: { damageDealt: 250, damageTaken: 10, kills: 3, structureDamage: 500, structuresDestroyed: 1, gateBreaches: 1, survived: true }, squads: [] }
 function soldier(): CareerProfile {
-  return { ...createCareerProfile('roman'), totalMerit: 300, availableMerit: 300, rank: 'soldier', starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'] }
+  return { ...createCareerProfile('roman'), totalMerit: 300, availableMerit: 300, ...careerRankFixture('roman', 'soldier'), rank: 'soldier', starterWeaponId: 'gladius_rusty', inventory: { version: 1 as const, quantities: Object.fromEntries(['gladius_rusty'].map(id => [id, 1])) }, ownedWeapons: ['gladius_rusty'] }
 }
 function mission(stageId: CareerOutpostStageId = 1): CareerProfile {
   return acceptCareerOutpost({ ...soldier(), completedOutpostStages: stageId === 1 ? [] : stageId === 2 ? [1] : [1, 2] }, stageId, 'outpost-battle')!
@@ -26,7 +27,7 @@ describe('Career Outpost unlocks and results', () => {
     const unmounted = soldier()
     expect(isCareerOutpostReliefUnlocked(unmounted)).toBe(true)
     expect(acceptCareerOutpostRelief(unmounted)).toBeNull()
-    const mounted: CareerProfile = { ...unmounted, ownedMounts: ['horse'], selectedMountId: 'horse-t1' }
+    const mounted: CareerProfile = { ...unmounted, inventory: { version: 1 as const, quantities: Object.fromEntries(['horse'].map(id => [id, 1])) }, ownedMounts: ['horse'], selectedMountId: 'horse' }
     expect(acceptCareerOutpostRelief(mounted)).not.toBeNull()
   })
   it('awards battle-policy merit once, including after persistence and reload', () => {
@@ -55,8 +56,8 @@ describe('Career Outpost unlocks and results', () => {
   })
   it('rejects malformed persisted stage ids and copies progression and records independently', () => {
     const raw = { ...soldier(), activeOutpostMission: { id: 'bad', kind: 'outpost-defense', stageId: 9 }, completedOutpostStages: [1, 1, 9, '2'], outpostBattleRecords: [{ id: 'bad' }] }
-    const parsed = parseCareerProfile(raw)!
-    expect(parsed.activeOutpostMission).toBeUndefined()
+    expect(parseCareerProfile(raw)).toBeNull()
+    const parsed = parseCareerProfile({ ...raw, activeOutpostMission: undefined })!
     expect(parsed.completedOutpostStages).toEqual([1])
     expect(parsed.outpostBattleRecords).toEqual([])
   })

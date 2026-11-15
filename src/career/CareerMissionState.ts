@@ -1,25 +1,23 @@
-import type { CommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
+import type { UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { CampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
-import type { CareerDuelTier, CareerDuelCommanderHome, CareerDuelTravelCheckpoint } from './CareerDuelState'
-import type { TownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
-import type { TownPatrolReturnState } from '../town/TownCavalryPatrolController'
-import type { OfficialCommandAuthority } from './CareerCommandAuthority'
-import type { CareerOutpostCheckpoint } from './CareerOutpostMission'
-import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
-import { newTownSiegeState, type TownSiegeState } from './TownSiege'
 import type { BattleStatsSnapshot, PlayerBattleStatsCheckpoint, PlayerCommandMeritPolicy } from '../combat/BattleStatsTracker'
 import type { CombatEvent } from '../combat/CombatAttribution'
-import type { UnitPresetId } from '../battle/UnitPresetCatalog'
-import type { CareerMountId, CareerRank } from './CareerProfile'
+import type { TownPatrolReturnState } from '../town/TownCavalryPatrolController'
+import type { TownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
+import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import type { ArenaTrialState } from './CareerArenaTrials'
-import { townDefenseEnemyCount, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
-import { personalMissionSourcePolicy, type PersonalSquadMission } from './CareerPersonalSquadMission'
-import { officialMissionSourcePolicy, officialCommandSquads } from './CareerCommandAuthority'
 import type { BorrowedCharacterIdentities } from './CareerBorrowedIdentity'
+import type { OfficialCommandAuthority } from './CareerCommandAuthority'
+import { officialCommandSquads, officialMissionSourcePolicy } from './CareerCommandAuthority'
+import type { CareerDuelCommanderHome, CareerDuelTier, CareerDuelTravelCheckpoint } from './CareerDuelState'
+import type { CareerOutpostCheckpoint } from './CareerOutpostMission'
+import { personalMissionSourcePolicy, type PersonalSquadMission } from './CareerPersonalSquadMission'
+import type { CareerMountId } from './CareerProfile'
+import type { CommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
 
 export type CareerMissionPhase = 'DEPLOYING' | 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' | 'RETURNING' | 'PREPARING' | 'SPAWNING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESET' | 'RESULT'
 export type CareerMissionOutcome = 'victory' | 'failure'
-export type CareerMissionKind = 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault' | 'cavalry-sweep' | 'duel' | 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault' | 'captain-patrol-command' | 'captain-outpost-defense' | 'captain-eagle-battle' | 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle' | 'commander-four-gate-defense' | 'commander-six-feline-cavalry' | 'commander-iron-legion' | 'heavy-cavalry-field' | 'arena-squad-trial'
+export type CareerMissionKind = 'bandit' | 'cavalry-sweep' | 'duel' | 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault' | 'captain-patrol-command' | 'captain-outpost-defense' | 'captain-eagle-battle' | 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle' | 'commander-four-gate-defense' | 'commander-six-feline-cavalry' | 'commander-iron-legion' | 'heavy-cavalry-field' | 'arena-squad-trial'
 export const BRIDGEHEAD_PREPARATION_SECONDS = 180
 export interface BridgeBattleDeployment {
   phase: 'preparing' | 'spawning' | 'assault'
@@ -99,7 +97,6 @@ export interface ActiveCareerMission {
   /** Set only on a T1 Arena Squad Trial accepted from the veteran's invitation; replaces that one result's ordinary merit. */
   storyEventId?: import('./CareerStoryEvents').CareerStoryEventId
   personalSquad?: PersonalSquadMission
-  siege?: TownSiegeState
   id: string
   templateId: string
   kind?: CareerMissionKind
@@ -121,7 +118,7 @@ export interface ActiveCareerMission {
   duelPlayerWasMounted?: boolean
   duelPlayerHomeMountActorId?: string
   duelTier?: CareerDuelTier
-  /** Formal duels fight in an independent arena scene; absent on legacy/tutorial duels = the Town forecourt. */
+  /** Formal duels require an arena ID; tutorial sparring uses the Town forecourt. */
   duelArenaId?: import('../arena/DuelArenaCatalog').DuelArenaId
   duelPresetId?: UnitPresetId
   /** Hero class of a T4/T5 armed duel opponent; absent in older saves = the resident's original class. */
@@ -160,7 +157,7 @@ export interface ActiveCareerMission {
   borrowedActorIds?: string[]
   /** Native identity receipts survive scene reconstruction independently of loaned equipment. */
   borrowedActorIdentities?: BorrowedCharacterIdentities
-  veteranRosterVersion?: 1 | 2 | 3
+  veteranRosterVersion?: 2 | 3
   actorHealth?: Record<string, { hp: number; mountHp?: number; mountArmorImpact?: number }>
   actorPositions?: Record<string, { x: number; y?: number; z: number; yaw: number; outpostRampartGarrison?: boolean; townRampartGarrison?: boolean }>
   engagedEnemySquadIds?: number[]
@@ -184,7 +181,7 @@ export function createActiveCareerMission(
   enemyCount: number,
   friendlySoldierCount: number,
   id = createCareerMissionId(templateId),
-  kind: 'bandit' | 'patrol' = 'bandit',
+  kind: 'bandit' = 'bandit',
   leaderActorId = `${id}:leader`,
 ): ActiveCareerMission {
   return {
@@ -202,28 +199,6 @@ export function createActiveCareerMission(
   }
 }
 
-export function createTownDefenseMission(
-  friendlyActorIds: string[],
-  civilianActorIds: string[],
-  id?: string,
-  templateId = VETERAN_TOWN_DEFENSE_TEMPLATE_ID,
-  rank: CareerRank = 'soldier',
-): ActiveCareerMission {
-  const missionId = id ?? createCareerMissionId(templateId)
-  return {
-    id: missionId,
-    templateId,
-    kind: 'town-defense',
-    siege: newTownSiegeState(),
-    targetCampId: -1,
-    phase: 'PREPARING',
-    targetActorIds: Array.from({ length: townDefenseEnemyCount(templateId, rank) }, (_, index) => `${missionId}:attacker:${index}`),
-    friendlyActorIds: [...friendlyActorIds],
-    civilianActorIds: [...civilianActorIds],
-    acceptedAt: Date.now(),
-  }
-}
-
 export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: CombatEvent): boolean {
   if (mission.result || (mission.personalSquad || mission.officialSquad) && (mission.phase === 'RESULT' || mission.phase === 'RETURNING')) return false
   if (mission.kind === 'duel') {
@@ -234,11 +209,11 @@ export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: Co
       || (event.type === 'damage_applied' && event.target.ownerActorId === mission.duelOpponentActorId))
   }
   if (event.type === 'structure_damaged' || event.type === 'structure_destroyed') {
-    if ((mission.kind !== 'enemy-town-assault' && mission.kind !== 'veteran-outpost-assault'
+    if ((mission.kind !== 'veteran-outpost-assault'
       && mission.kind !== 'commander-sky-raid' && mission.kind !== 'commander-decapitation')
       || !isCareerMissionMeritSource(mission, event.source)) return false
     // Structures identify their owning army. A saved official's visual faction can differ
-    // (legacy Rangers can retain their shared visual faction), so use the accepted army's faction for hostility.
+    // (Rangers use their shared visual faction), so use the accepted army's faction for hostility.
     const sourceFaction = isOfficialMissionMeritSource(mission, event.source)
       ? mission.officialSquad!.townFaction : event.source.characterFaction
     return event.target.characterFaction !== undefined
@@ -264,7 +239,6 @@ export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: Co
       && event.target.allegiance === 'ENEMY'
   }
   if (mission.targetActorIds.includes(event.target.targetId)) return true
-  if (mission.kind === 'enemy-town-assault' && mission.civilianActorIds?.includes(event.target.targetId)) return true
   return event.type === 'damage_applied'
     && Boolean(event.target.ownerActorId && mission.targetActorIds.includes(event.target.ownerActorId))
 }

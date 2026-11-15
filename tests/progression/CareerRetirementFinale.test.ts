@@ -1,13 +1,11 @@
+import { personalSquadFixture } from '../helpers/personalSquadFixture'
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { Vector3 } from 'three'
 import { beforeEach, expect, it, onTestFinished, vi } from 'vitest'
 import type { TacticalOrder } from '../../src/battle/TacticalOrder'
 import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
 import { cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import {
-  advanceCommanderRetirementFinalStand, areAllRetirementEnemiesDefeated, atCommanderRetirementRally,
-  beginCommanderRetirementFinalStand, CareerRetirementFinaleOwner,
-  completeCommanderRetirement,
-} from '../../src/career/CareerRetirementFinale'
+import { advanceCommanderRetirementFinalStand, areAllRetirementEnemiesDefeated, atCommanderRetirementRally, beginCommanderRetirementFinalStand, CareerRetirementFinaleOwner, completeCommanderRetirement } from '../../src/career/CareerRetirementFinale'
 import { hasCompleteRetirementMobilizationCheckpoint, retirementAssaultFormations, retirementGroundStaging, retirementMobilizationNeedsPreparation } from '../../src/career/CareerRetirementMobilization'
 import type { CombatActorRef, CombatEvent, CombatTargetRef } from '../../src/combat/CombatAttribution'
 import { Faction } from '../../src/combat/CombatFaction'
@@ -33,8 +31,8 @@ beforeEach(() => {
 
 function finaleProfile(phase: 'mobilizing' | 'final-stand', combatElapsedSeconds = 0): CareerProfile {
   const profile = createCareerProfile('roman')
-  profile.rank = 'commander'; profile.totalMerit = 20000
-  profile.personalSquad = { members: [] }
+  Object.assign(profile, careerRankFixture(profile.faction, 'commander')); profile.totalMerit = 20000
+  profile.personalSquad = personalSquadFixture(profile, [])
   profile.careerRetirement = { version: 1, phase, acceptedAt: 123, combatElapsedSeconds,
     mobilization: { version: 1, commandRevoked: true, refillCompleted: true, formationPrepared: true } }
   return profile
@@ -43,7 +41,7 @@ function finaleProfile(phase: 'mobilizing' | 'final-stand', combatElapsedSeconds
 it('starts only a complete mobilization without changing the admitted checkpoint', () => {
   const ready = finaleProfile('mobilizing')
   const original = JSON.stringify(ready)
-  expect(beginCommanderRetirementFinalStand({ ...ready, rank: 'captain' })).toBeNull()
+  expect(beginCommanderRetirementFinalStand({ ...ready, ...careerRankFixture((ready).faction, 'captain'), rank: 'captain' })).toBeNull()
   expect(beginCommanderRetirementFinalStand({ ...ready, activeMission: {
     id: 'mission', templateId: 'recruit-bandits-01', targetCampId: 0,
     phase: 'RETURNING', targetActorIds: [], friendlyActorIds: [], acceptedAt: 123,
@@ -113,7 +111,7 @@ it('requires every canonical enemy to be observed dead without counting unrelate
 
 it('keeps only finale-owned counters across admission, checkpoint reload and a frozen completion retry', () => {
   let profile = finaleProfile('mobilizing')
-  profile.personalSquad = { members: [{ id: 'personal:owned', type: 'soldier' }] }
+  profile.personalSquad = personalSquadFixture(profile, [{ id: 'personal:owned', type: 'soldier' }])
   profile.personalSquadRuntime = { squadId: 'personal', memberIds: ['personal:owned', 'personal:unowned'],
     sceneKey: 'town-home', state: 'ACTIVE', members: { 'personal:owned': { status: 'deployed', hp: 10 } },
     contribution: { ...emptyPersonalContribution(), kills: 99 } }
@@ -247,33 +245,6 @@ function mobilizationFixture(phase: 'mobilizing' | 'final-stand', checkpoints: R
   return { actors, save, patrol, eagles, read: () => profile, allowSave: (allowed: boolean) => { allowSave = allowed },
     create: () => new TownRetirementMobilizationController(dependencies as unknown as MobilizationDependencies) }
 }
-
-it('saves a legacy ground-order migration before restoring actors and preserves resources through retry and reached-marker reload', () => {
-  const guard: PersonalActorCheckpoint = { status: 'deployed', hp: 17, ammo: 3, shieldImpact: 8,
-    position: { x: -29, y: 33.5, z: -41, yaw: 1 }, order: 'defend', townRampartGarrison: true }
-  const casualty: PersonalActorCheckpoint = { ...guard, status: 'dead', hp: 0 }
-  const fixture = mobilizationFixture('mobilizing', { tower: guard, casualty })
-  const original = cloneCareerProfile(fixture.read()), controller = fixture.create()
-  fixture.allowSave(false)
-  expect(controller.reconcile()).toBe(false)
-  expect(fixture.read()).toEqual(original)
-  expect(fixture.patrol.reconcileRetirementMobilization).not.toHaveBeenCalled()
-  expect(fixture.actors[0].actor.restoreCombatHealth).not.toHaveBeenCalled()
-  expect(fixture.actors[0].actor.assignFormationTarget).not.toHaveBeenCalled()
-  fixture.allowSave(true)
-  expect(controller.reconcile()).toBe(true)
-  expect(fixture.read().retirementTowerGuards!.tower).toEqual({ ...guard, order: 'formation', townRampartGarrison: undefined,
-    formation: { commandId: -4900, position: { x: 10, y: 0, z: -30, yaw: 0 }, reached: false } })
-  expect(fixture.read().retirementTowerGuards!.casualty).toEqual(casualty)
-  expect(fixture.actors[0].actor.combatPosition).toEqual(new Vector3(-29, 33.5, -41))
-  expect(fixture.actors[0].actor.hp).toBe(17)
-  expect(fixture.actors[0].actor.combatAmmo).toBe(3)
-  expect(fixture.eagles.stageRetirementRefill).not.toHaveBeenCalled()
-  fixture.read().retirementTowerGuards!.tower.formation!.reached = true
-  expect(fixture.create().reconcile()).toBe(true)
-  expect(fixture.save).toHaveBeenCalledTimes(2)
-  expect(fixture.read().retirementTowerGuards!.tower.formation!.reached).toBe(true)
-})
 
 it('finishes elevated final-stand travel before issuing one charge and leaves grounded actors to native combat', () => {
   const guard: PersonalActorCheckpoint = { status: 'deployed', hp: 17, ammo: 3, shieldImpact: 8,

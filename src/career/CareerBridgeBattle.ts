@@ -1,53 +1,30 @@
-import { BRIDGEHEAD_FRIENDLIES, isBridgeheadEnemyCount } from '../battle/BridgeheadRosterConfig'
 import { createEmptyRomanArmyConfig, createEmptyVikingArmyConfig, type BattleConfig, type RomanArmyConfig, type VikingArmyConfig } from '../battle/BattleConfig'
 import { BATTLE_FRONTLINE_Z, BattleSpawner, type BattleSpawnPlan, type NpcSpawnSpec } from '../battle/BattleSpawner'
+import { BRIDGEHEAD_FRIENDLIES, isBridgeheadEnemyCount } from '../battle/BridgeheadRosterConfig'
 import { MAX_COMMAND_SQUAD_SIZE } from '../battle/CommandTarget'
-import {
-  COMMANDER_BRIDGEHEAD_ID,
-  COMMANDER_FELINE_CAVALRY_ID,
-  COMMANDER_FELINE_CAVALRY_KIND,
-  COMMANDER_IRON_LEGION_ID,
-  COMMANDER_IRON_LEGION_KIND,
-  FELINE_ENEMY_GROUPS,
-  FELINE_ENEMY_TOTAL,
-  FELINE_FRIENDLY_GROUPS,
-  FELINE_FRIENDLY_TOTAL,
-  FELINE_FRIENDLY_SQUAD_SIZES,
-  FELINE_VANGUARD_ADVANCE_METERS,
-  createBridgeheadRoster,
-  type FelineCavalryRole,
-} from './CommanderMissionCatalog'
-import { IRON_LEGION_ENEMY_GROUPS } from './HeavyCavalryMissions'
-import { heavyUnitSpec } from './HeavyCavalrySpawn'
-import { createCareerHeavyBattleLaunch, createCareerHeavySpawnPlan, isCareerHeavyFieldBattle } from './HeavyFieldMission'
-import {
-  careerFieldBattleHeroAssetIds,
-  careerFieldInitialTacticalOrder,
-  createCareerFieldBattleLaunch,
-  createCareerFieldDeployment,
-  isMigratedCareerFieldMission,
-  resolveFieldActorCheckpoint,
-} from './CareerFieldBattle'
-import { heavyTacticalOrder } from './HeavyCavalryMissions'
+import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
+import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import type { TacticalOrder } from '../battle/TacticalOrder'
+import type { UnitLoadout, UnitPresetId } from '../battle/UnitPresetCatalog'
+import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
+import type { CombatEvent } from '../combat/CombatAttribution'
+import { townCommanderHeroAsset } from '../town/TownCommander'
+import { townRoster } from '../town/TownRules'
+import type { HeroAssetId } from '../world/HeroAssetCatalog'
+import { AIType, Faction } from '../world/NPC'
 import { careerCombatPlayerLoadout } from './CaptainBattleLaunch'
+import { careerCommanderLoadout } from './CareerCommanderEquipment'
+import { careerFieldBattleHeroAssetIds, careerFieldInitialTacticalOrder, createCareerFieldBattleLaunch, createCareerFieldDeployment, isMigratedCareerFieldMission, resolveFieldActorCheckpoint } from './CareerFieldBattle'
+import { stageMissionReturnRebuild } from './CareerMissionReturnRecovery'
+import { BRIDGEHEAD_PREPARATION_SECONDS, resolveCareerMissionOutcome, type ActiveCareerMission, type BridgeBattleDeployment } from './CareerMissionState'
 import { resolveCareerHeroAsset } from './CareerPlayerProfile'
 import { claimCareerMission, clearCareerMission, type CareerProfile } from './CareerProfile'
 import type { CareerProfileStore } from './CareerProfileStore'
-import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
-import { BRIDGEHEAD_PREPARATION_SECONDS, resolveCareerMissionOutcome, type ActiveCareerMission, type BridgeBattleDeployment } from './CareerMissionState'
+import { COMMANDER_BRIDGEHEAD_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_FELINE_CAVALRY_KIND, COMMANDER_IRON_LEGION_ID, COMMANDER_IRON_LEGION_KIND, FELINE_ENEMY_GROUPS, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_GROUPS, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_FRIENDLY_TOTAL, FELINE_VANGUARD_ADVANCE_METERS, createBridgeheadRoster, type FelineCavalryRole } from './CommanderMissionCatalog'
 import { commanderActorConfirmedDead } from './CommanderOutpost'
-import { stageMissionReturnRebuild } from './CareerMissionReturnRecovery'
-import { townRoster } from '../town/TownRules'
-import { legacyPersonalEquipment } from './CareerInventory'
-import { AIType, Faction } from '../world/NPC'
-import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
-import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
-import type { HeroAssetId } from '../world/HeroAssetCatalog'
-import type { UnitLoadout, UnitPresetId } from '../battle/UnitPresetCatalog'
-import type { CombatEvent } from '../combat/CombatAttribution'
-import type { TacticalOrder } from '../battle/TacticalOrder'
-import { careerCommanderLoadout } from './CareerCommanderEquipment'
-import { townCommanderHeroAsset } from '../town/TownCommander'
+import { IRON_LEGION_ENEMY_GROUPS, heavyTacticalOrder } from './HeavyCavalryMissions'
+import { heavyUnitSpec } from './HeavyCavalrySpawn'
+import { createCareerHeavyBattleLaunch, createCareerHeavySpawnPlan, isCareerHeavyFieldBattle } from './HeavyFieldMission'
 
 /** A trusted Career launch, separate from Campaign stages and untrusted free battle config. */
 export interface CareerBridgeBattleLaunch {
@@ -135,7 +112,7 @@ export function createCareerFieldPersonalOrphanMountPlan(profile: CareerProfile)
   return (profile.personalSquad?.members ?? []).flatMap(member => {
     if (!mission.personalSquad?.memberIds.includes(member.id)) return []
     const actor = mission.personalSquad.members[member.id]
-    const mountId = (member.equipment ?? legacyPersonalEquipment(member.type, profile.faction)).mount
+    const mountId = (member.equipment!).mount
     return mountId && actor?.status === 'dead' && actor.mount && actor.mount.hp > 0
       ? [{ actorId: member.id, mountId, stableKey: `personal:${member.id}`, saved: actor.mount }] : []
   })
@@ -144,13 +121,8 @@ export function createCareerFieldPersonalOrphanMountPlan(profile: CareerProfile)
 /**
  * Restore surviving orphan mounts from both Commander VI armies, without respawning
  * their deceased riders. The personal squad remains a separately owned roster.
- *
- * Migration Note: Prior check-pointed saves serialized physical mount status (hp, position,
- * yaw/pitch) under actor records without persisting redundant species strings. Surviving
- * orphan mounts reconstruct their species deterministically from createCareerFelineSpawnPlan(profile).
- * As a result, older in-flight saves safely migrate to the refined role-to-mount assignment
- * (e.g. deceased T4 melee rider mount migrating from earlier white-cat to caracal) while
- * preserving health points, coordinates, orientation, living status, and player mount borrowing.
+ * Species come from the current accepted roster; actor checkpoints own HP,
+ * position, orientation and borrowing state.
  */
 export function createCareerFelineOrphanMountPlan(profile: CareerProfile) {
   const mission = profile.activeMission

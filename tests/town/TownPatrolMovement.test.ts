@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { Vector3, type Scene } from 'three'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
@@ -370,7 +371,7 @@ describe('Town patrol travel and ownership decisions', () => {
 
   it('keeps a partially deployed external generation traveling while retirement cancels refill and reload materialization', () => {
     const profile = createCareerProfile('roman')
-    profile.rank = 'commander'
+    Object.assign(profile, careerRankFixture(profile.faction, 'commander'));
     const scheduler = new NpcSpawnScheduler()
     const navigation = new NavigationWorld({ minX: -350, maxX: 350, minZ: -350, maxZ: 350, cellSize: 20 })
     const position = new Vector3()

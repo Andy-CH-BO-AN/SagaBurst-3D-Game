@@ -1,39 +1,39 @@
-import { isAutonomousTownGuard } from '../town/TownNativeGuardIdentity'
-import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
-import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, commanderCavalryReleaseDistance, createCommanderCavalryEscort, isCommanderCavalryEscorting, COMMANDER_CAVALRY_ESCORT } from './CommanderCavalryEscort'
-import { advanceCommanderInfantryEscort, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, isCommanderInfantryEscorting, COMMANDER_INFANTRY_ESCORT } from './CommanderInfantryEscort'
 import * as THREE from 'three'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import { officialFollowLocalOffset } from '../battle/FollowOrder'
 import { BattleStatsTracker, type BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import { CombatEventStream } from '../combat/CombatAttribution'
+import { XONGKORO } from '../movement/XongkoroConfig'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import { WEAPONS } from '../rpg/WeaponDatabase'
-import type { TownWorld } from '../town/TownWorld'
 import type { TownCavalryPatrolController } from '../town/TownCavalryPatrolController'
+import { TOWN_GATES } from '../town/TownLayout'
+import { isAutonomousTownGuard } from '../town/TownNativeGuardIdentity'
 import type { TownOutskirtsWarfareController } from '../town/TownOutskirtsWarfareController'
 import { civilianShouldFight, civilianWartimeWeapon, townWartimePeers } from '../town/TownWartime'
-import { TOWN_GATES } from '../town/TownLayout'
-import { NPC } from '../world/NPC'
+import type { TownWorld } from '../town/TownWorld'
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import { Mount, mountTypeFromId } from '../world/Mount'
+import { NPC } from '../world/NPC'
+import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import { SpatialGrid } from '../world/SpatialGrid'
 import { getTerrainHeight, type EntityCollisionBody } from '../world/Terrain'
-import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
-import { XONGKORO } from '../movement/XongkoroConfig'
-import type { CareerProfile } from './CareerProfile'
+import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
+import { restoreCommandActor, snapshotCommandActor } from './CareerCommandActorCheckpoint'
+import { officialActorSquadId, officialCommandIsPlayerControlled } from './CareerCommandAuthority'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy, type ActiveCareerMission, type CareerMissionOutcome } from './CareerMissionState'
-import { officialActorSquadId, officialCommandIsPlayerControlled } from './CareerCommandAuthority'
-import { restoreCommandActor, snapshotCommandActor } from './CareerCommandActorCheckpoint'
 import type { PersonalActorCheckpoint } from './CareerPersonalSquadMission'
-import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
-import type { TownDefenseResident } from './TownDefenseController'
-import { civilianShelterSlots } from './TownDefenseState'
-import { TownFourGateSiege, type TownFourGateSiegeOptions } from './TownFourGateSiege'
+import type { CareerProfile } from './CareerProfile'
+import { advanceCommanderCavalryEscort, COMMANDER_CAVALRY_ESCORT, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, createCommanderCavalryEscort, isCommanderCavalryEscorting } from './CommanderCavalryEscort'
 import { planCommanderFourGateDefenseDeployment } from './CommanderFourGateDefenseDeployment'
-import { recordNativeTownGuardCombat, advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, resolveCommanderFourGateDefenseOutcome } from './CommanderFourGateDefenseState'
 import { COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, createCommanderFourGateDefenseRoster } from './CommanderFourGateDefenseRoster'
+import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, recordNativeTownGuardCombat, resolveCommanderFourGateDefenseOutcome } from './CommanderFourGateDefenseState'
+import { advanceCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, isCommanderInfantryEscorting } from './CommanderInfantryEscort'
+import type { CommanderTownResident } from './CommanderTownMissionController'
+import { civilianShelterSlots } from './TownCivilianShelter'
+import { TownFourGateSiege, type TownFourGateSiegeOptions } from './TownFourGateSiege'
 
 export interface CommanderFourGateDefenseContext {
   world: TownWorld
@@ -78,7 +78,7 @@ export class CommanderFourGateDefenseController {
   private pendingEscortReleases?: readonly string[]
   private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
 
-  constructor(private readonly scene: THREE.Scene, private readonly residents: readonly TownDefenseResident[],
+  constructor(private readonly scene: THREE.Scene, private readonly residents: readonly CommanderTownResident[],
     private readonly player: () => Player, private readonly readProfile: () => CareerProfile,
     private readonly commit: (profile: CareerProfile) => boolean, private readonly navigation: NavigationWorld,
     private readonly context: CommanderFourGateDefenseContext, private readonly scheduler: NpcSpawnScheduler = gameplayNpcSpawns) {}
@@ -108,20 +108,15 @@ export class CommanderFourGateDefenseController {
   get playerEnemies(): NPC[] { return this.enemies }
   get civilianDeaths(): number { return this.civilians.filter(npc => npc.dead).length }
   get civilianSurvived(): number { return this.civilians.length - this.civilianDeaths }
-  /** 1 = accepted legacy 230 (eagle rangers); 2 = 280 with the T3 siege-escort infantry. */
-  get enemyRosterVersion(): 1 | 2 { return (this.state ?? this.active?.fourGateDefense)?.enemyRosterVersion === 2 ? 2 : 1 }
+  /** Current 280-person attacker roster with both siege escort groups. */
+  get enemyRosterVersion(): 2 { return 2 }
   get enemyTotal(): number { return this.active?.targetActorIds.length ?? COMMANDER_FOUR_GATE_DEFENSE_ENEMIES }
   get remainingEnemies(): number {
     const dead = new Set(this.active?.deadTargetActorIds ?? [])
     for (const npc of this.enemies) if (npc.dead) dead.add(npc.combatantId)
     return (this.active?.targetActorIds ?? []).filter(id => !dead.has(id)).length
   }
-  get remainingAirborneEnemies(): number {
-    const dead = new Set(this.active?.deadTargetActorIds ?? [])
-    const ids = this.roster?.air.map(spec => spec.actorId!) ?? this.active?.targetActorIds.filter(id => id.startsWith(`${this.active!.id}:air:ranger:`)) ?? []
-    return ids.filter(id => !dead.has(id) && !this.actorsById.get(id)?.dead).length
-  }
-  get remainingAirAttackers(): number { return this.remainingAirborneEnemies }
+  get remainingAirAttackers(): number { return 0 }
   get reserveHasCharged(): boolean { return [...this.fourGateSiege?.policy.gates.values() ?? []].some(gate => gate.cavalryEventHandled) }
   get servicesLocked(): boolean { return Boolean(this.active && !this.active.result) }
   get deploymentPositions(): readonly THREE.Vector3[] { return [...this.fieldNpcs.filter(n => !n.dead).map(n => n.combatPosition), ...this.plannedPositions] }
@@ -138,10 +133,10 @@ export class CommanderFourGateDefenseController {
     if (!this.state.attackStarted && !this.state.siege && this.state.registeredTargetActorIds.length === 0
       && !this.state.cavalryEscort) {
       this.state.cavalryEscort = createCommanderCavalryEscort(active.id)
-      if (this.state.enemyRosterVersion === 2) this.state.infantryEscort = createCommanderInfantryEscort(active.id)
+      this.state.infantryEscort = createCommanderInfantryEscort(active.id)
     }
     this.escortAssignments = commanderCavalryEscortAssignments(active.id)
-    this.infantryAssignments = this.state.enemyRosterVersion === 2 ? commanderInfantryEscortAssignments(active.id) : []
+    this.infantryAssignments = commanderInfantryEscortAssignments(active.id)
     const native = this.residents.filter(r => active.friendlyActorIds.includes(r.spec.id))
     // A missing native member is a recoverable deployment error, never permission to shrink the army.
     if (new Set(native.map(r => r.spec.id)).size !== active.friendlyActorIds.length) return false
@@ -153,7 +148,7 @@ export class CommanderFourGateDefenseController {
         return { mounted: saved?.mount ? saved.mount.mounted && saved.mount.hp > 0 : npc.isMounted, ranged: npc.hasActiveRangedWeapon,
           spear: npc.meleeWeaponId ? WEAPONS[npc.meleeWeaponId]?.combatKind === 'lance' : false,
           flying: Boolean(npc.mount?.isFlyingMount || spec.duty === 'eagle_garrison') }
-      }, this.state.rosterVersion ?? 1)
+      }, this.state.rosterVersion)
     this.roster = createCommanderFourGateDefenseRoster(active.id, this.readProfile().faction === 'roman' ? 'viking' : 'roman',
       this.enemyRosterVersion)
     const targetIds = new Set(active.targetActorIds)
@@ -194,26 +189,20 @@ export class CommanderFourGateDefenseController {
     const crewIds = new Set(this.roster!.crew.map(slot => slot.spec.actorId!))
     const cavalryIds = new Set(this.roster!.cavalry.map(spec => spec.actorId!))
     const rangedIds = new Set(this.roster!.archers.map(spec => spec.actorId!))
-    const v2 = this.enemyRosterVersion === 2
-    const airIds = new Set(this.roster!.air.map(spec => spec.actorId!))
     const sectors = this.deployment!.sectors.map(sector => ({ ...sector,
       attackerActorIds: this.roster!.ground.filter(spec => this.roster!.gateByActorId.get(spec.actorId!) === sector.gateId).map(spec => spec.actorId!) }))
     this.fourGateSiege = new TownFourGateSiege({ scene: this.scene, world: this.context.world,
       navigation: this.navigation, grid: new SpatialGrid<NPC>(), actors: () => this.fieldNpcs,
       sectors, acceptsOrders: npc => !this.playerIssuedCommands.has(npc.combatantId) && !this.civilianCommandOwns(npc),
-      attackerRole: npc => airIds.has(npc.combatantId) ? 'air' : cavalryIds.has(npc.combatantId) ? 'gate-cavalry'
-        : rangedIds.has(npc.combatantId) ? 'ranged' : 'siege-infantry', allowMountedRamps: true, approach: 'world-edge', historicalSectorReceipts: true,
-      // 280-man army: extra rear room for the infantry rows. The swept corridor keeps the proven legacy
+      attackerRole: npc => cavalryIds.has(npc.combatantId) ? 'gate-cavalry'
+        : rangedIds.has(npc.combatantId) ? 'ranged' : 'siege-infantry', allowMountedRamps: true, approach: 'world-edge',
+      // 280-man army: extra rear room for the infantry rows. The swept corridor keeps the existing
       // 50m clip near the wall (a full sweep proved illegal against real Town obstacles at west:left).
-      ...(v2 ? { escortClearance: {
+      escortClearance: {
         rear: COMMANDER_INFANTRY_ESCORT.requiredRearClearance, halfWidth: COMMANDER_CAVALRY_ESCORT.halfWidth,
-        releaseDistance: commanderCavalryReleaseDistance(1), bodyRadius: COMMANDER_CAVALRY_ESCORT.bodyRadius,
+        releaseDistance: COMMANDER_CAVALRY_ESCORT.clearanceEndDistance, bodyRadius: COMMANDER_CAVALRY_ESCORT.bodyRadius,
         lateralOffset: COMMANDER_CAVALRY_ESCORT.lateralOffset,
-      } } : this.state.cavalryEscort ? { escortClearance: {
-        rear: COMMANDER_CAVALRY_ESCORT.requiredRearClearance, halfWidth: COMMANDER_CAVALRY_ESCORT.halfWidth,
-        releaseDistance: commanderCavalryReleaseDistance(1), bodyRadius: COMMANDER_CAVALRY_ESCORT.bodyRadius,
-        lateralOffset: COMMANDER_CAVALRY_ESCORT.lateralOffset,
-      } } : {}),
+      },
       externalMovementOwns: npc => this.isEscorting(npc),
       registerHit: this.context.registerHit, unregisterHit: this.context.unregisterHit, blockers: this.context.blockers,
     }, this.state!.siege)
@@ -480,7 +469,7 @@ export class CommanderFourGateDefenseController {
     const ramps = new Map([...this.fourGateSiege.ramps].map(([id, ramp]) => [id, {
       state: ramp.controller.state, position: ramp.position,
       distance: ramp.controller.distance, alivePushers: ramp.controller.alivePushers }]))
-    const advanced = advanceCommanderCavalryEscort(previous, dt, actors, ramps, commanderCavalryReleaseDistance(this.enemyRosterVersion))
+    const advanced = advanceCommanderCavalryEscort(previous, dt, actors, ramps, COMMANDER_CAVALRY_ESCORT.releaseDistance)
     this.state!.cavalryEscort = advanced.checkpoint
     if (advanced.releasedActorIds.length) {
       // Stage the one-shot receipt and gate orders together before changing live AI.

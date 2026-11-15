@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it } from 'vitest'
 import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
 import { claimCareerMission, clearCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -6,12 +7,12 @@ import { createCareerVeteranOutpostLaunch, createCareerVeteranOutpostSpawnPlan }
 import { acceptVeteranMission, createVeteranRoster, getVeteranMissionAvailability } from '../../src/career/VeteranMission'
 const first = 'veteran-dread-outpost', second = 'veteran-scout-hunters', village = 'veteran-village-intercept'
 const stats = { damageDealt: 50, damageTaken: 0, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
-const veteran = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'veteran', totalMerit: 900, availableMerit: 900, ownedMounts: ['horse'] })
+const veteran = (): CareerProfile => ({ ...createCareerProfile('roman'), ...careerRankFixture('roman', 'veteran'), rank: 'veteran', totalMerit: 900, availableMerit: 900, inventory: { version: 1 as const, quantities: Object.fromEntries(['horse'].map(id => [id, 1])) }, ownedMounts: ['horse'] })
 describe('Veteran progression and stable borrowed rosters', () => {
   it('permits independent Veteran mission selection while enforcing rank, mount and race mutual exclusion', () => {
-    const soldier = { ...veteran(), rank: 'soldier' as const }
+    const soldier = { ...veteran(), ...careerRankFixture((veteran()).faction, 'soldier' as const), rank: 'soldier' as const }
     expect(getVeteranMissionAvailability(soldier, second).unlocked).toBe(false)
-    const unmounted = { ...veteran(), ownedMounts: [] }
+    const unmounted = { ...veteran(), inventory: { version: 1 as const, quantities: Object.fromEntries([].map(id => [id, 1])) }, ownedMounts: [] }
     expect(getVeteranMissionAvailability(unmounted, second).unlocked).toBe(false)
     expect(getVeteranMissionAvailability(unmounted, first).unlocked).toBe(true) // first doesn't require mount
     const racing = { ...veteran(), activeRace: { id: 'test-race', raceId: 'cavalry-sprint', laps: 1, currentLap: 1, checkpoints: [] } as any }

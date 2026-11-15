@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { acceptCaptainEagle, acceptCaptainFrontline, type CareerCombatLaunch } from '../../src/career/CaptainBattleLaunch'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
@@ -60,11 +61,11 @@ function findText(root: EntryElement, text: string): EntryElement | undefined {
 
 function settledTownDefeatProfile(): CareerProfile {
   const profile = createCareerProfile('roman')
-  profile.starterWeaponId = 'gladius_rusty'; profile.ownedWeapons = ['gladius_rusty']
-  profile.rank = 'veteran'; profile.totalMerit = 13426; profile.availableMerit = 2659
+  profile.starterWeaponId = 'gladius_rusty'; Object.assign(profile.inventory!.quantities, Object.fromEntries(['gladius_rusty'].map(id => [id, 1]))); profile.ownedWeapons = ['gladius_rusty'];
+  Object.assign(profile, careerRankFixture(profile.faction, 'veteran')); profile.totalMerit = 13426; profile.availableMerit = 2659
   profile.claimedBattleIds = ['completed-battle']
   profile.townEvent = { id: 'patrol-hostility', state: 'settled', result: 'player_defeated', penalty: 100 }
-  profile.raceRecords = [{ sessionId: 'earlier-race', raceId: 'race-1', result: 'win', legalFinish: true, playerSeconds: 75, merit: 100 }]
+  profile.raceRecords = [{ sessionId: 'earlier-race', raceId: 'race-1', scheduleVersion: 3, result: 'win', legalFinish: true, playerSeconds: 75, merit: 100 }]
   profile.racePlayerState = {
     actorId: 'player', mountId: 'horse', position: { x: -120, y: .9, z: -50, yaw: 0 },
     mountPosition: { x: -120, y: 0, z: -50, yaw: 0 }, hp: 0, mountHp: 80,
@@ -85,8 +86,8 @@ describe('Town load failure recovery', () => {
     vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
     vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const profile = acceptCareerOutpostRelief({ ...createCareerProfile('roman'), rank: 'captain', totalMerit: 20000,
-      completedOutpostStages: [1, 2, 3], starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'], ownedHorseTiers: [1] }, 'horse-retry')!
+    const profile = acceptCareerOutpostRelief({ ...createCareerProfile('roman'), ...careerRankFixture('roman', 'captain'), rank: 'captain', totalMerit: 20000,
+      completedOutpostStages: [1, 2, 3], starterWeaponId: 'gladius_rusty', inventory: { version: 1 as const, quantities: Object.fromEntries(['gladius_rusty', 'horse'].map(id => [id, 1])) }, ownedWeapons: ['gladius_rusty'], ownedMounts: ['horse'] }, 'horse-retry')!
     const store = new CareerProfileStore(local); expect(store.save(profile)).toBe(true)
     const saved = local.getItem(CAREER_STORAGE_KEY), start = vi.fn(), recover = vi.fn()
     vi.mocked(TownScene.create).mockRejectedValueOnce(new HorseAssetLoadError('重甲戰馬載入逾時（30 秒），請重試。'))
@@ -111,8 +112,8 @@ describe('Town load failure recovery', () => {
     vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
     vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
     const profile = createCareerProfile('roman')
-    profile.starterWeaponId = 'gladius_rusty'; profile.ownedWeapons = ['gladius_rusty']
-    profile.rank = 'commander'; profile.totalMerit = profile.availableMerit = 20000
+    profile.starterWeaponId = 'gladius_rusty'; Object.assign(profile.inventory!.quantities, Object.fromEntries(['gladius_rusty'].map(id => [id, 1]))); profile.ownedWeapons = ['gladius_rusty'];
+    Object.assign(profile, careerRankFixture(profile.faction, 'commander')); profile.totalMerit = profile.availableMerit = 20000
     profile.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 123, combatElapsedSeconds: 42, outcome: 'fallen' }
     const store = new CareerProfileStore(local)
     expect(store.save(profile)).toBe(true)
@@ -232,7 +233,7 @@ describe('Town load failure recovery', () => {
     vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
     vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
     const previous = createCareerProfile('roman')
-    previous.rank = 'commander'; previous.totalMerit = previous.availableMerit = 20000
+    Object.assign(previous, careerRankFixture(previous.faction, 'commander')); previous.totalMerit = previous.availableMerit = 20000
     previous.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 123, combatElapsedSeconds: 42, outcome: 'fallen' }
     const store = new CareerProfileStore(local)
     expect(store.save(previous)).toBe(true)
@@ -260,8 +261,8 @@ describe('Town load failure recovery', () => {
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
     vi.stubGlobal('document', { body, createElement: () => element() })
     vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
-    const profile = { ...createCareerProfile('roman'), rank: 'captain' as const, totalMerit: 20000,
-      starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'], completedOutpostStages: [1, 2, 3] as (1 | 2 | 3)[], ownedHorseTiers: [1] as (1 | 2 | 3)[] }
+    const profile = { ...createCareerProfile('roman'), ...careerRankFixture('roman', 'captain' as const), rank: 'captain' as const, totalMerit: 20000,
+      starterWeaponId: 'gladius_rusty', inventory: { version: 1 as const, quantities: Object.fromEntries(['gladius_rusty', 'horse' as const].map(id => [id, 1])) }, ownedWeapons: ['gladius_rusty'], completedOutpostStages: [1, 2, 3] as (1 | 2 | 3)[], ownedMounts: ['horse' as const] }
     profile.townCommandSquad = { type: 'town-command', squadId: 1, actorIds: ['guard'], townFaction: 'roman', sceneKey: 'town-home',
       state: 'FOLLOWING', authorized: true, contribution: emptyPersonalContribution(), members: { guard: { status: 'dead', hp: 0 } } }
     const store = new CareerProfileStore(local); store.save(profile)
@@ -329,7 +330,7 @@ describe('Captain battlefield Career entry routing', () => {
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
     vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
     vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
-    const accepted = acceptHeavyFieldMission({ ...createCareerProfile('roman'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 'soldier-iron-encounter', 'capture-reload')!
+    const accepted = acceptHeavyFieldMission({ ...createCareerProfile('roman'), ...careerRankFixture('roman', 'soldier'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 'soldier-iron-encounter', 'capture-reload')!
     const stats = { damageDealt: 20, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
     const captured = claimCareerFieldResult(accepted, accepted.activeMission!.id, 'failure', stats, stats, 'viking').profile
     const store = new CareerProfileStore(local); expect(store.save(captured)).toBe(true)
@@ -355,8 +356,8 @@ describe('Captain battlefield Career entry routing', () => {
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
     vi.stubGlobal('document', { body, createElement: () => element() })
     vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
-    const fresh = { ...createCareerProfile('roman'), rank: 'commander' as const, totalMerit: 20000,
-      starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'] }
+    const fresh = { ...createCareerProfile('roman'), ...careerRankFixture('roman', 'commander' as const), rank: 'commander' as const, totalMerit: 20000,
+      starterWeaponId: 'gladius_rusty', inventory: { version: 1 as const, quantities: Object.fromEntries(['gladius_rusty'].map(id => [id, 1])) }, ownedWeapons: ['gladius_rusty'] }
     const accepted = acceptCaptainFrontline(fresh, 'completed-return')!
     const profile = claimCareerMission(accepted, accepted.activeMission!.id, 'victory', {
       damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true,
@@ -388,7 +389,7 @@ describe('Captain battlefield Career entry routing', () => {
 
   it('marks Sergeant return when recovering claimed field/outpost missions on startup reload and stays atomic if save fails', () => {
     const local = new MemoryStorage(), session = new MemoryStorage()
-    const base = { ...createCareerProfile('roman'), totalMerit: 4000, availableMerit: 4000, starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'] }
+    const base = { ...createCareerProfile('roman'), totalMerit: 4000, availableMerit: 4000, starterWeaponId: 'gladius_rusty', inventory: { version: 1 as const, quantities: Object.fromEntries(['gladius_rusty'].map(id => [id, 1])) }, ownedWeapons: ['gladius_rusty'] }
     const mission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0, 'settled-bandit-reload', 'bandit', 'captain')
     mission.friendlyActorIds = ['captain', 'soldier-1', 'soldier-2', 'soldier-3']
     const accepted = { ...base, activeMission: mission }
@@ -418,8 +419,8 @@ describe('Captain battlefield Career entry routing', () => {
       vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
       vi.stubGlobal('document', { body, createElement: () => element() })
       vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
-      const fresh = { ...createCareerProfile('roman'), rank: 'captain' as const, totalMerit: 5000, availableMerit: 5000,
-        starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'], ownedMounts: ['xongkoro' as const] }
+      const fresh = { ...createCareerProfile('roman'), ...careerRankFixture('roman', 'captain' as const), rank: 'captain' as const, totalMerit: 5000, availableMerit: 5000,
+        starterWeaponId: 'gladius_rusty', inventory: { version: 1 as const, quantities: Object.fromEntries(['gladius_rusty', 'xongkoro' as const].map(id => [id, 1])) }, ownedWeapons: ['gladius_rusty'], ownedMounts: ['xongkoro' as const] }
       const accepted = kind === 'eagle' ? acceptCaptainEagle(fresh, 'resume-eagle')! : acceptCaptainFrontline(fresh, 'resume-frontline')!
       expect(new CareerProfileStore(local).save(accepted)).toBe(true)
       const launch = vi.fn(async (_config: CareerCombatLaunch) => {})

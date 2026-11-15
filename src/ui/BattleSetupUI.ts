@@ -1,52 +1,51 @@
-import { needsPlayerHpConfirmation, resolveOrdinaryPlayerBaseHp, resolveOrdinarySoldierTier } from '../combat/OrdinarySoldierProfile'
+import { resolveOrdinaryPlayerBaseHp,resolveOrdinarySoldierTier } from '../combat/OrdinarySoldierProfile'
 /**
  * BattleSetupUI.ts
  * Lightweight, dependency-free DOM interface for Custom Battle configuration.
  * Immediate rendering without waiting for 3D GLB assets.
  */
-import { applyLoadoutCard, BATTLE_SETUP_MELEE_GROUPS, BATTLE_SETUP_SHIELD_GROUPS } from './BattleSetupLoadoutCards'
-import './battle-setup.css'
 import {
-  BattleConfig,
-  PlayerMountId,
-  UnitTier,
-  UnitTierCounts,
-  ArmyConfig,
-  createEmptyArmyConfig,
-  MAX_CUSTOM_ARMY_SIZE,
-  MAX_GROUND_CUSTOM_ARMY_SIZE,
-  CustomBattleMapId,
-  CUSTOM_BATTLE_UNIT_TIERS,
-  PRESET_10V10,
-  PRESET_25V25,
-  PRESET_50V50,
-  PRESET_100V100,
-  PRESET_200V200,
-  calculateArmyTotal,
-  validateBattleConfig,
-  validateBattleSquadAssignments,
-  getDefaultBattleConfig,
-  createEmptyBattleConfig,
-  createDefaultPlayerLoadout,
-  attachArmyAliases,
+ArmyConfig,
+BattleConfig,
+calculateArmyTotal,
+createDefaultPlayerLoadout,
+createEmptyArmyConfig,
+createEmptyBattleConfig,
+CUSTOM_BATTLE_UNIT_TIERS,
+CustomBattleMapId,
+getDefaultBattleConfig,
+MAX_CUSTOM_ARMY_SIZE,
+MAX_GROUND_CUSTOM_ARMY_SIZE,
+PlayerMountId,
+PRESET_100V100,
+PRESET_10V10,
+PRESET_200V200,
+PRESET_25V25,
+PRESET_50V50,
+UnitTier,
+UnitTierCounts,
+validateBattleConfig,
+validateBattleSquadAssignments,
 } from '../battle/BattleConfig'
-import { COMBAT_BALANCE } from '../combat/CombatBalance'
-import { WEAPONS } from '../rpg/WeaponDatabase'
-import { ARMORS } from '../rpg/ArmorDatabase'
 import {
-  getCustomBattlePresetsForFaction,
-  BASE_UNIT_TIERS,
-  type BaseUnitTier,
-  type UnitPresetId,
-} from '../battle/UnitPresetCatalog'
-import { SETUP_PLAYER_HERO_IDS, HERO_ASSETS, isSetupPlayerHeroId } from '../world/HeroAssetCatalog'
-import { HERO_COMBAT_PROFILE_BY_ASSET, getT4HeroCombatModifiers } from '../battle/T4HeroCatalog'
-import {
-  MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE,
-  MAX_CUSTOM_BATTLE_COMMAND_SQUADS,
-  type SquadAssignment,
-  type SquadId,
+MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE,
+MAX_CUSTOM_BATTLE_COMMAND_SQUADS,
+type SquadAssignment,
+type SquadId,
 } from '../battle/CommandTarget'
+import { getT4HeroCombatModifiers,HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/T4HeroCatalog'
+import {
+BASE_UNIT_TIERS,
+getCustomBattlePresetsForFaction,
+type BaseUnitTier,
+type UnitPresetId,
+} from '../battle/UnitPresetCatalog'
+import { COMBAT_BALANCE } from '../combat/CombatBalance'
+import { ARMORS } from '../rpg/ArmorDatabase'
+import { WEAPONS } from '../rpg/WeaponDatabase'
+import { HERO_ASSETS,isSetupPlayerHeroId,SETUP_PLAYER_HERO_IDS } from '../world/HeroAssetCatalog'
+import { applyLoadoutCard,BATTLE_SETUP_MELEE_GROUPS,BATTLE_SETUP_SHIELD_GROUPS } from './BattleSetupLoadoutCards'
+import './battle-setup.css'
 
 function getUnitRoleLabel(presetId: UnitPresetId, isAerial: boolean): { tag: string; icon: string } {
   if (isAerial) return { tag: '巨鷹騎射手', icon: '🦅' }
@@ -91,8 +90,8 @@ export class BattleSetupUI {
     this.config = initialConfig
       ? JSON.parse(JSON.stringify(initialConfig))
       : getDefaultBattleConfig()
-    attachArmyAliases(this.config.viking, 'viking')
-    attachArmyAliases(this.config.roman, 'roman')
+
+
     if (!this.config.playerLoadout) {
       this.config.playerLoadout = createDefaultPlayerLoadout()
     }
@@ -165,8 +164,8 @@ export class BattleSetupUI {
         this.config.playerLoadout.mountId = this._savedGroundMountId ?? 'horse'
         this.config.playerLoadout.startMounted = this._savedGroundStartMounted ?? true
       }
-      attachArmyAliases(this.config.viking, 'viking')
-      attachArmyAliases(this.config.roman, 'roman')
+
+
       this.config.squadAssignments = undefined
       this._renderSetup()
     } else {
@@ -188,21 +187,21 @@ export class BattleSetupUI {
       } else {
         const vArmy = createEmptyArmyConfig('viking')
         const rArmy = createEmptyArmyConfig('roman')
-        attachArmyAliases(vArmy, 'viking')
-        attachArmyAliases(rArmy, 'roman')
+
+
         const vMax = this._getMaxArmyForFaction('viking')
         const rMax = this._getMaxArmyForFaction('roman')
         for (const t of CUSTOM_BATTLE_UNIT_TIERS) {
-          vArmy.viking_archer[t] = Math.min(vMax, (this.config.viking as any).viking_archer?.[t] ?? (this.config.viking as any).archer?.[t] ?? 0)
-          rArmy.roman_archer[t] = Math.min(rMax, (this.config.roman as any).roman_archer?.[t] ?? (this.config.roman as any).archer?.[t] ?? 0)
+          vArmy.viking_archer[t] = Math.min(vMax, (this.config.viking as any).viking_archer?.[t] ?? 0)
+          rArmy.roman_archer[t] = Math.min(rMax, (this.config.roman as any).roman_archer?.[t] ?? 0)
         }
         if (calculateArmyTotal(vArmy) === 0) vArmy.viking_archer[3] = Math.min(10, vMax)
         if (calculateArmyTotal(rArmy) === 0) rArmy.roman_archer[3] = Math.min(10, rMax)
         this.config.viking = vArmy
         this.config.roman = rArmy
       }
-      attachArmyAliases(this.config.viking, 'viking')
-      attachArmyAliases(this.config.roman, 'roman')
+
+
       this._clampAerialArmies()
       this.config.squadAssignments = undefined
       this._renderSetup()
@@ -859,7 +858,6 @@ export class BattleSetupUI {
                 </label>
                 <div class="player-hp-control">
                   <select id="player-hp-source" class="setting-select">
-                    ${needsPlayerHpConfirmation(this.config) ? '<option value="" selected>舊設定未記錄來源，請確認</option>' : ''}
                     <option value="default" ${this.config.playerHpSource === 'default' ? 'selected' : ''}>依陣營／角色 Tier 自動決定</option>
                     <option value="custom" ${this.config.playerHpSource === 'custom' ? 'selected' : ''}>保留自訂生命值</option>
                   </select>
@@ -1199,8 +1197,8 @@ export class BattleSetupUI {
 
         const vArmy = createEmptyArmyConfig('viking')
         const rArmy = createEmptyArmyConfig('roman')
-        attachArmyAliases(vArmy, 'viking')
-        attachArmyAliases(rArmy, 'roman')
+
+
         vArmy.viking_archer[3] = vCount
         rArmy.roman_archer[3] = rCount
         this.config.viking = vArmy
@@ -1209,8 +1207,7 @@ export class BattleSetupUI {
         this.config = JSON.parse(JSON.stringify(preset))
       }
 
-      attachArmyAliases(this.config.viking, 'viking')
-      attachArmyAliases(this.config.roman, 'roman')
+
       this.config.mode = currentMode
       this.config.commandGrouping = currentCommandGrouping
       this.config.spectator = currentSpectator
@@ -1248,8 +1245,8 @@ export class BattleSetupUI {
       const currentMapId = currentBattleType === 'aerial' ? (this._savedGroundMapId ?? 'original') : (this.config.mapId ?? 'original')
       const currentSeed = this.config.seed
       this.config = createEmptyBattleConfig()
-      attachArmyAliases(this.config.viking, 'viking')
-      attachArmyAliases(this.config.roman, 'roman')
+
+
       this.config.mode = currentMode
       this.config.commandGrouping = currentCommandGrouping
       this.config.spectator = currentSpectator
@@ -1278,7 +1275,7 @@ export class BattleSetupUI {
     // Start battle button
     document.getElementById('btn-start-battle')?.addEventListener('click', () => {
       const validation = validateBattleConfig(this.config)
-      if (!validation.valid || needsPlayerHpConfirmation(this.config) || !this.onStartCallback) return
+      if (!validation.valid || !this.onStartCallback) return
 
       if (this.config.commandGrouping === 'squad') {
         this.config.squadAssignments ??= []
@@ -1517,7 +1514,7 @@ export class BattleSetupUI {
   }
 
   private _launchBattle(config: BattleConfig): void {
-    if (!this.onStartCallback || needsPlayerHpConfirmation(this.config)) return
+    if (!this.onStartCallback) return
     config.battleType ??= 'ground'
     config.mapId ??= 'original'
     config.seed ??= Math.floor(Math.random() * 0x7fffffff)
@@ -1738,14 +1735,10 @@ export class BattleSetupUI {
     const validation = validateBattleConfig(this.config)
     const msgEl = document.getElementById('validation-msg')
     const startBtn = document.getElementById('btn-start-battle') as HTMLButtonElement | null
-    const hpConfirmed = !needsPlayerHpConfirmation(this.config)
 
     if (msgEl) {
       if (!validation.valid) {
         msgEl.innerHTML = `<span class="validation-icon">⚠️</span> <span class="validation-text">無法開始戰鬥：${validation.errors.join(' ｜ ')}</span>`
-        msgEl.className = 'setup-validation-msg invalid'
-      } else if (!hpConfirmed) {
-        msgEl.innerHTML = `<span class="validation-icon">⚠️</span> <span class="validation-text">舊設定未記錄來源，請先確認下方玩家生命值設定</span>`
         msgEl.className = 'setup-validation-msg invalid'
       } else {
         msgEl.innerHTML = `<span class="validation-icon">✓</span> <span class="validation-text">戰鬥配置就緒，可隨時展開戰役 BATTLE READY</span>`
@@ -1754,7 +1747,7 @@ export class BattleSetupUI {
     }
 
     if (startBtn) {
-      startBtn.disabled = !validation.valid || !hpConfirmed
+      startBtn.disabled = !validation.valid
     }
     const startLabel = document.getElementById('btn-start-battle-label')
     const startSubtitle = document.getElementById('btn-start-battle-subtitle')

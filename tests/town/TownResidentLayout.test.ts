@@ -2,7 +2,7 @@ import { Box3, Matrix4, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
 import { architectureLocalToWorld, architectureSpec, townPlazaLayout } from '../../src/town/architecture/ArchitectureSpecs'
-import { CIVILIAN_HOME_LAYOUT_VERSION, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes, civilianBodyClear, civilianHomeAnchor, civilianMountsClear, civilianPointLegal, migrateCivilianHomes } from '../../src/town/TownCivilianLife'
+import { CIVILIAN_HOME_LAYOUT_VERSION, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes, civilianBodyClear, civilianHomeAnchor, civilianMountsClear, civilianPointLegal, restoreCivilianMountClearance } from '../../src/town/TownCivilianLife'
 import { placeTownCenterServiceResidents, resolveTownCommanderPosition, townCommanderSpec } from '../../src/town/TownCommander'
 import { getTownCommandWatchtowerLayout, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
 import { resolveTownEagleGarrison } from '../../src/town/TownEagleGarrison'
@@ -30,26 +30,6 @@ function rectangle(point: { x: number; z: number; yaw: number }, width: number, 
 }
 
 describe('Town resident layout ownership', () => {
-  it('migrates living daily homes and mounted positions without healing or moving other owners', () => {
-    const ids = Array.from({ length: 5 }, (_, i) => `civilian-${i}`)
-    const saved: CivilianCommandSquadState = { type: 'civilian-command', squadId: 'civilians', townFaction: 'viking',
-      sceneKey: 'town:viking', homeLayoutVersion: 3, actorIds: ids,
-      owners: { 'civilian-0': 'daily', 'civilian-1': 'daily', 'civilian-2': 'player', 'civilian-3': 'evacuation', 'civilian-4': 'returning' },
-      members: Object.fromEntries(ids.map((id, i) => [id, { status: i === 1 ? 'dead' : 'deployed', hp: i === 1 ? 0 : 13,
-        position: { x: 50, y: 0, z: 12, yaw: 1 }, order: 'formation',
-        formation: { commandId: 7, position: { x: 2, z: 3, yaw: 1 }, reached: false },
-        mount: { hp: 17, mounted: true, position: { x: 50, y: 0, z: 12, yaw: 1 } } }])) }
-    const original = structuredClone(saved)
-    const homes = ids.map((id, i) => ({ id, x: 100 + i * 3, y: 2, z: 70, yaw: 0 }))
-    const next = migrateCivilianHomes(saved, homes)
-    expect(next.homeLayoutVersion).toBe(CIVILIAN_HOME_LAYOUT_VERSION)
-    expect(next.members['civilian-0']).toMatchObject({ hp: 13, position: { x: 100, y: 2, z: 70 },
-      mount: { hp: 17, mounted: true, position: { x: 100, y: 2, z: 70 } } })
-    expect(next.members['civilian-0'].formation).toBeUndefined()
-    for (const id of ids.slice(1)) expect(next.members[id]).toEqual(original.members[id])
-    expect(next.owners).toEqual(original.owners); expect(saved).toEqual(original)
-    expect(migrateCivilianHomes(next, homes)).toBe(next)
-  })
 
   it('repairs an unsafe mounted pose on current-layout reload without changing health or mount ownership', () => {
     const saved: CivilianCommandSquadState = { type: 'civilian-command', squadId: 'civilians', townFaction: 'roman',
@@ -57,30 +37,11 @@ describe('Town resident layout ownership', () => {
       owners: { 'civilian-0': 'daily' }, members: { 'civilian-0': { status: 'deployed', hp: 13,
         position: { x: 1, z: 1, yaw: 0 }, mount: { hp: 17, mounted: true, position: { x: 1, z: 1, yaw: 0 } } } } }
     const home = civilianHomeAnchor(0)
-    const next = migrateCivilianHomes(saved, [{ id: 'civilian-0', ...home }], () => true, point => point.x > 50)
+    const next = restoreCivilianMountClearance(saved, [{ id: 'civilian-0', ...home }], () => true, point => point.x > 50)
     expect(next.members['civilian-0']).toMatchObject({ status: 'deployed', hp: 13,
       position: { x: home.x, z: home.z }, mount: { hp: 17, mounted: true, position: { x: home.x, z: home.z } } })
     expect(next.actorIds).toEqual(saved.actorIds); expect(next.owners).toEqual(saved.owners)
     expect(saved.members['civilian-0'].mount!.position.x).toBe(1)
-  })
-
-  it.each([1])('retries a v%i foot home migration after a temporary occupant leaves', version => {
-    const saved: CivilianCommandSquadState = { type: 'civilian-command', squadId: 'civilians', townFaction: 'roman',
-      sceneKey: 'town:roman', homeLayoutVersion: version, actorIds: ['civilian-0', 'civilian-1'],
-      owners: { 'civilian-0': 'daily', 'civilian-1': 'daily' }, members: {
-        'civilian-0': { status: 'deployed', hp: 13, position: { x: 50, z: 12, yaw: 0 } },
-        'civilian-1': { status: 'deployed', hp: 17, position: { x: 54, z: 12, yaw: 0 } },
-      } }
-    const homes = [{ id: 'civilian-0', x: 90, z: 70 }, { id: 'civilian-1', x: 100, z: 70 }]
-    const blocked = migrateCivilianHomes(saved, homes, point => point.x !== 100)
-    expect(blocked).toBe(saved)
-    expect(blocked.homeLayoutVersion).toBe(version)
-    expect(blocked.members['civilian-0'].position).toEqual({ x: 50, z: 12, yaw: 0 })
-    const retried = migrateCivilianHomes(blocked, homes, () => true)
-    expect(retried.homeLayoutVersion).toBe(CIVILIAN_HOME_LAYOUT_VERSION)
-    expect(retried.members['civilian-0']).toMatchObject({ hp: 13, position: { x: 90, z: 70 } })
-    expect(retried.members['civilian-1']).toMatchObject({ hp: 17, position: { x: 100, z: 70 } })
-    expect(retried.owners).toEqual(saved.owners)
   })
 
   it('validates civilian mount clearance for parked, dead, and nonresident mounts', () => {

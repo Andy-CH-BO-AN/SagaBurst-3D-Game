@@ -21,7 +21,8 @@ export function createCommanderRetirementQaProfile(faction: CharacterFaction = '
   })) addCareerItem(profile, id, quantity)
   profile.personalSquad = { members: Array.from({ length: 30 }, (_, index) => ({
     id: `personal:retirement-qa-${index + 1}`,
-    type: 'commander',
+    type: 'commander', characterFaction: faction, characterTier: 5, heroArchetype: 'commander',
+    recruitmentRole: index < 15 ? 'axeman' : 'spearman',
     originalHirePrice: 2000,
     equipment: {
       melee: index < 15 ? 'axe_t5' : 'spear_t5',

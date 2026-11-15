@@ -1,14 +1,16 @@
-import { careerShopProduct } from '../career/CareerShopCatalog'
-import type { CareerProfile } from '../career/CareerProfile'
-import { availableCareerItem, careerItemTotals, legacyPersonalEquipment, type PersonalEquipmentSlot } from '../career/CareerInventory'
 import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
-import { bulkCareerEquipment, canManageCareerEquipment, careerEquipmentCategory, changeTownEquipment, resolveTownActorEquipment, townEquipmentSquads,
-  type BulkEquipmentCategory, type TownEquipmentContext, type TownEquipmentSquadId } from '../career/CareerTownEquipment'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import { availableCareerItem,careerItemTotals,type PersonalEquipmentSlot } from '../career/CareerInventory'
+import type { CareerProfile } from '../career/CareerProfile'
+import { careerShopProduct } from '../career/CareerShopCatalog'
+import {
+bulkCareerEquipment,canManageCareerEquipment,careerEquipmentCategory,changeTownEquipment,resolveTownActorEquipment,townEquipmentSquads,
+type BulkEquipmentCategory,type TownEquipmentContext,type TownEquipmentSquadId
+} from '../career/CareerTownEquipment'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { squadEquipmentUI, townEquipmentUI, bulkEquipmentMessage, type TownEquipmentMemberView, type TownEquipmentUIBindings } from './TownSquadEquipmentUI'
+import { WEAPONS } from '../rpg/WeaponDatabase'
+import { townUnitDisplayNames,townUnitDisplayTier } from '../ui/UnitDisplayName'
 import type { TownCombatResident } from './TownMissionCombat'
-import { townUnitDisplayNames, townUnitDisplayTier } from '../ui/UnitDisplayName'
+import { bulkEquipmentMessage,squadEquipmentUI,townEquipmentUI,type TownEquipmentMemberView,type TownEquipmentUIBindings } from './TownSquadEquipmentUI'
 
 export interface TownEquipmentUIResident {
   spec: Pick<TownCombatResident['spec'], 'id'>
@@ -80,8 +82,7 @@ export function createTownCareerEquipmentUI(read: () => CareerProfile, context: 
     },
     options(target, actorId, slot) {
       const profile = read()
-      const current = target === 'personal' ? (profile.personalSquad?.members.find(member => member.id === actorId)?.equipment
-        ?? legacyPersonalEquipment('soldier', profile.faction))[slot] : (() => {
+      const current = target === 'personal' ? (profile.personalSquad?.members.find(member => member.id === actorId)?.equipment)?.[slot] : (() => {
         const loadout = resolveTownActorEquipment(profile, profile.faction, actorId).loadout
         return slot === 'melee' ? loadout.meleeWeaponId : slot === 'ranged' ? loadout.rangedWeaponId : slot === 'shield' ? loadout.shieldId : loadout.mountId
       })()

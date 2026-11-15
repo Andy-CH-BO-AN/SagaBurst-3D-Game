@@ -35,7 +35,7 @@ export interface PersonalSquadMission {
   squadId: typeof PERSONAL_SQUAD_ID
   memberIds: string[]
   sceneKey: string
-  /** The town geometry last used by these checkpoints; absent in legacy saves. */
+  /** The town geometry last used by these checkpoints. */
   layoutVersion?: number
   state: PersonalSquadState
   /** A saved formal return; the home scene resolves HR muster/pads before spawning. */
@@ -129,7 +129,7 @@ function position(value: unknown): PersonalActorPosition | undefined {
   return raw && finite(raw.x) && finite(raw.z) && finite(raw.yaw) ? { x: raw.x, z: raw.z, yaw: raw.yaw, ...(finite(raw.y) ? { y: raw.y } : {}) } : undefined
 }
 
-/** Missing mission membership is a legacy empty roster, never inferred from today's owned members. */
+/** No membership means this mission brought no private squad; never infer one from today's owned members. */
 export function parsePersonalMission(value: unknown): PersonalSquadMission | undefined {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Partial<PersonalSquadMission>

@@ -18,7 +18,7 @@ export const CAREER_STORY_REWARDS: Readonly<Record<CareerStoryEventId, Readonly<
 /**
  * pending: offered, waiting for the player to accept it at the NPC.
  * active: accepted; `sourceId` names the one race session / mission that may settle it.
- * settled: used. A settled event that carries `outcome`/`merit` was rewarded; one without was closed by a legacy save.
+ * settled: rewarded once with the owning activity, outcome and merit receipt.
  * "Not yet triggered" is the absence of the event.
  */
 export type CareerStoryStatus = 'pending' | 'active' | 'settled'
@@ -58,7 +58,7 @@ function offer(profile: CareerProfile, id: CareerStoryEventId): boolean {
   return true
 }
 
-/** Saved legacy facts that prove the first formal victory already happened. */
+/** Current completion receipts used by the first-victory writer. */
 export function hasFormalVictoryEvidence(profile: Pick<CareerProfile, 'careerMissionCompletions' | 'careerMissionCompletionsByTier'
   | 'completedCareerMissionTemplateIds' | 'outpostBattleRecords'>): boolean {
   return (profile.careerMissionCompletions ?? 0) > 0
@@ -69,7 +69,7 @@ export function hasFormalVictoryEvidence(profile: Pick<CareerProfile, 'careerMis
 
 /**
  * Call from the canonical shop transaction, on the same staged clone as the purchase. `hadHorse` is the ownership
- * before this purchase (including the old tutorial receipt) so a second or repeat purchase never offers it again.
+ * before this purchase (including the current tutorial purchase receipt) so a second or repeat purchase never offers it again.
  */
 export function recordCareerStoryPurchase(profile: CareerProfile, kind: string, id: string, hadHorse: boolean): void {
   if (kind !== 'mount') return
@@ -123,10 +123,6 @@ export function careerStoryPurchaseLine(before: CareerProfile, after: CareerProf
 }
 
 export interface CareerStoryLoadFacts {
-  /** The horse is owned now or was bought before (including the old tutorial receipt). */
-  horseOwned: boolean
-  formalVictory: boolean
-  eagleOwned: boolean
   activeRaceId?: string
   activeMissionId?: string
 }
@@ -142,27 +138,20 @@ function parseEvent(id: CareerStoryEventId, value: unknown): CareerStoryEvent | 
   if (raw.status === 'active') return sourceId ? { status: 'active', sourceId } : { status: 'pending' }
   const outcome = raw.outcome === 'victory' || raw.outcome === 'defeat' ? raw.outcome : undefined
   return sourceId && outcome && raw.merit === CAREER_STORY_REWARDS[id][outcome]
-    ? { status: 'settled', sourceId, outcome, merit: raw.merit } : { status: 'settled' }
+    ? { status: 'settled', sourceId, outcome, merit: raw.merit } : null
 }
 
-/**
- * Load-time normalization. A save with no state predates this feature: the milestones it already passed are closed
- * without a reward and without replaying the offer. A save that has state is authoritative and is never re-derived.
- * An accepted event whose activity no longer exists was cancelled or failed to load, so it is offered again instead of
- * being consumed. Returns undefined only for an old save with nothing to keep.
- */
-export function parseCareerStoryState(value: unknown, facts: CareerStoryLoadFacts): CareerStoryState | undefined {
+/** Current receipts are authoritative; cancelled invitation launches remain retryable. */
+export function parseCareerStoryState(value: unknown, facts: CareerStoryLoadFacts): CareerStoryState | null {
   const raw = objectOf(value)
-  const known = raw?.version === 1
-  const rawEvents = known ? objectOf(raw.events) ?? {} : {}
+  if (!raw || raw.version !== 1 || !objectOf(raw.events)) return null
+  const rawEvents = objectOf(raw.events)!
   const events: CareerStoryState['events'] = {}
   for (const id of CAREER_STORY_EVENT_IDS) {
-    const parsed = known ? parseEvent(id, rawEvents[id]) : null
-    if (parsed) events[id] = parsed
-  }
-  if (!known) {
-    if (facts.horseOwned) events['commander-circuit-race'] = { status: 'settled' }
-    if (facts.formalVictory) events['veteran-squad-spar'] = { status: 'settled' }
+    if (rawEvents[id] === undefined) continue
+    const parsed = parseEvent(id, rawEvents[id])
+    if (!parsed) return null
+    events[id] = parsed
   }
   const live = (id: CareerStoryEventId, sourceId: string): boolean => id === 'commander-circuit-race'
     ? facts.activeRaceId === sourceId : facts.activeMissionId === sourceId
@@ -170,9 +159,8 @@ export function parseCareerStoryState(value: unknown, facts: CareerStoryLoadFact
     const event = events[id]
     if (event?.status === 'active' && !live(id, event.sourceId!)) events[id] = { status: 'pending' }
   }
-  const eaglePurchased = known ? raw.eaglePurchased === true : facts.eagleOwned
-  const eagleIntroSeen = known && raw.eagleIntroSeen === true
-  if (!known && !Object.keys(events).length && !eaglePurchased) return undefined
+  const eaglePurchased = raw.eaglePurchased === true
+  const eagleIntroSeen = raw.eagleIntroSeen === true
   return { version: 1, events, ...(eaglePurchased ? { eaglePurchased: true as const } : {}),
     ...(eagleIntroSeen ? { eagleIntroSeen: true as const } : {}) }
 }

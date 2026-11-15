@@ -1,202 +1,187 @@
-import { playAppliedPunchHit } from '../audio/SoundManager'
-import { traceFistStrike, unarmedDamage } from '../combat/UnarmedCombat'
-import { TownTutorialController } from './TownTutorialController'
-import { TownStoryController } from './TownStoryController'
-import { careerStoryPurchaseLine } from '../career/CareerStoryEvents'
-import { canStartCareerTutorial } from '../career/CareerTutorial'
-import { commitTownProfile, type TownProfileChange } from './TownProfileCommit'
-import { TownRetirementFinaleController } from './TownRetirementFinaleController'
-import { appendCommanderRetirementOption } from './TownRetirementUI'
-import { TownRetirementMobilizationController } from './TownRetirementMobilizationController'
-import { isTownCommandRevokedByRetirement } from '../career/CareerRetirementCommand'
-import { isAutonomousTownGuard } from './TownNativeGuardIdentity'
-import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
-import { ActiveMissionClock } from '../career/ActiveMissionClock'
-import { raceReturnAction } from '../career/CareerRaceReturn'
-import { CareerRaceHUD } from '../ui/CareerRaceHUD'
-import { CareerRaceController } from '../career/CareerRaceController'
-import { RACE_STORY_RACE_ID, raceDefinitionForSchedule, type RaceId } from '../career/CareerRaceState'
-import { RACE_LINES } from '../career/CareerRaceRoute'
-import { CareerCommandHudTypes } from '../career/CareerCommandHudTypes'
-import { createCareerBridgeBattleLaunch, createCareerFelineBattleLaunch } from '../career/CareerBridgeBattle'
-import { acceptHeavyFieldMission, createCareerHeavyBattleLaunch, getHeavyFieldMissionAvailability, getHeavyFieldMissionDefinition } from '../career/HeavyFieldMission'
-import { COMMANDER_BRIDGEHEAD_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_IRON_LEGION_ID } from '../career/CommanderMissionCatalog'
-import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
-import { ARMORS } from '../rpg/ArmorDatabase'
-import { compareEquipment, equipmentDetails, equipmentTraits } from '../rpg/EquipmentComparison'
-import { compareMounts, mountComparisonText, mountDetails, mountTraits } from '../rpg/MountComparison'
-import { mountStats } from '../combat/MountStats'
-import { prepareByzantineEquipment, preloadHighTierEquipment } from '../world/HighTierEquipment'
-import { assignTownCivilianHomes, civilianBodyClear, civilianMountsClear, CIVILIAN_MOUNT_CLEARANCE, TownCivilianLife } from './TownCivilianLife'
-import { townDefenseThreatResponse, townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
-import { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
-import { SquadRefitSafety } from '../career/SquadRefit'
-import { preloadPaladinEquipment } from '../world/PaladinEquipment'
-import { playerEagleProjectileBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
-import { ProjectileAdmission } from '../combat/ProjectileAdmission'
-import { TOWN_AIR_COMMAND_IDS } from '../career/TownAirCommandAuthority'
-import { TownAirCommandSquadController } from './TownAirCommandSquadController'
-import { TownEagleGarrisonController } from './TownEagleGarrisonController'
-import { EaglePadReservations, PLAYER_EAGLE_PAD_OWNER } from '../career/EaglePadReservations'
-import { AerialViewPolicy, usesAerialView } from '../camera/AerialViewPolicy'
-import { captureCareerAerialState, restoreCareerAerialState } from '../career/CareerAerialState'
-import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
-import { availableCareerItem, careerItemTotal, MAX_PLAYER_OWNED_XONGKORO } from '../career/CareerInventory'
-import { createTownCareerEquipmentUI } from './TownCareerEquipmentUI'
-import { updateTownEquipmentVisibleStatus } from './TownSquadEquipmentUI'
-import { applyTownEquipmentRuntime, registerTownNativeMount, findTownNativeMount } from './TownEquipmentRuntime'
-import { resolveTownActorEquipment, townEquipmentSquads, type TownEquipmentContext } from '../career/CareerTownEquipment'
-import { officialCommandHudLabel } from '../career/CommanderTownSquadLabels'
-import { townDefaultActorLoadout } from '../career/CareerTownEquipmentState'
-import { townMerchantLoadout } from './TownMerchantEquipment'
-import { CAREER_MOUNT_INTERACTION_DISTANCE, careerMountType } from '../career/CareerMountController'
-import { personalMemberRefund, sellPersonalSquadMembers } from '../career/CareerPersonalSquad'
-import { appendTownSaleDropdown } from './TownSaleUI'
-import { sellTownNativeProducts, townNativeSaleGate, townNativeSaleStock, type TownNativeSaleContext, type TownNativeSaleRequest } from '../career/CareerTownNativeResale'
+import * as THREE from 'three'
+import { defaultDuelArenaForFaction, type DuelArenaId } from '../arena/DuelArenaCatalog'
+import { updateEagleWingbeatAudio } from '../audio/EagleWingbeatAudio'
+import { playAppliedPunchHit, SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
 import { ArmyCommandController } from '../battle/ArmyCommandController'
 import { ArmyCommandSelectionMarker } from '../battle/ArmyCommandSelectionMarker'
-import { CivilianCommandSquadController } from './CivilianCommandSquadController'
-import { officialCommandAcceptsActor, officialCommandIsPlayerControlled } from '../career/CareerCommandAuthority'
-import { stageOfficialCommandOrder } from '../career/CareerOfficialCommandOrder'
-import { careerCommandHudRoster } from '../career/CareerCommandHudRoster'
-import type { PersonalSquadMission } from '../career/CareerPersonalSquadMission'
-import { ArmyCommandUI } from '../ui/ArmyCommandUI'
+import { matchesArmyCommandTarget, type ArmyCommandTarget } from '../battle/CommandTarget'
+import { officialFollowLocalOffset } from '../battle/FollowOrder'
 import { FormationController, type FormationCommandAssignment } from '../battle/FormationController'
-import { canRecruitPersonalSquad, personalSquadGreeting, recruitPersonalSquadMember, PERSONAL_RECRUIT_DIALOGUE } from '../career/CareerPersonalSquad'
-import { townConquestRoster } from './TownHRLayout'
-import { TownPersonalSquadController, personalMemberLoadout } from './TownPersonalSquadController'
-import { snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
-import { siegeMuster } from '../career/TownSiege'
-import { personalTownDeployment, personalTownEagleDeployment } from '../career/PersonalSquadDeployment'
-import { placeTownCenterServiceResidents, shouldSpawnTownCommander, townCommanderHeroAsset, resolveTownCommanderPosition, townCommanderSpec } from './TownCommander'
 import { HERO_COMBAT_PROFILE_BY_ASSET, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
-import { townRoster, townName, type TownActorSpec } from './TownRules'
-import { townDefenseForceCountsForProfile } from '../career/TownDefenseRoster'
-import { obstacleTopologyRevision } from '../world/ObstacleTopology'
-import { TownProjectileObstacles } from './TownProjectileObstacles'
-import { ProjectileContactQuery, type ProjectileTargetGroups } from '../combat/ProjectileContactQuery'
+import type { TacticalOrder } from '../battle/TacticalOrder'
+import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
+import { AerialViewPolicy, usesAerialView } from '../camera/AerialViewPolicy'
+import { SpectatorCameraController } from '../camera/SpectatorCameraController'
+import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
+import { ActiveMissionClock } from '../career/ActiveMissionClock'
+import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
+import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
+import { CAPTAIN_CAVALRY_COMMAND_ID, CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID, CAPTAIN_PATROL_COMMAND_ID, createCaptainPatrolCommandMission, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../career/CaptainMissionCatalog'
+import { CaptainPatrolCommandController } from '../career/CaptainPatrolCommandController'
+import { captureCareerAerialState, restoreCareerAerialState } from '../career/CareerAerialState'
+import { acceptArenaStoryTrial, arenaTrialBlocker, createArenaTrialMission, type ArenaTrialTier } from '../career/CareerArenaTrials'
+import { createCareerBridgeBattleLaunch, createCareerFelineBattleLaunch } from '../career/CareerBridgeBattle'
+import { restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
+import { officialCommandAcceptsActor, officialCommandIsPlayerControlled } from '../career/CareerCommandAuthority'
+import { careerCommandHudRoster } from '../career/CareerCommandHudRoster'
+import { CareerCommandHudTypes } from '../career/CareerCommandHudTypes'
+import { resolveCareerDuelClass } from '../career/CareerDuelClasses'
+import { CareerDuelController, duelLoadout, restoreCareerDuelCommander, type CareerDuelOpponentRequest } from '../career/CareerDuelController'
+import { careerDuelMissionLabel } from '../career/CareerDuelSelection'
+import { duelFightBannerVisible, isCareerDuelUnlocked, isUnarmedDuelUnlocked, type CareerDuelTier } from '../career/CareerDuelState'
+import { applyCareerClass, CAREER_CLASS_FIRST_MERIT, CAREER_CLASSES_BY_FACTION, careerClassOffer, type CareerClassId } from '../career/CareerElitePromotion'
+import { createCareerFieldBattleLaunch, isMigratedCareerFieldMission } from '../career/CareerFieldBattle'
+import { careerTownSceneRoster, isCareerEnemyTerritoryFieldMission, resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext'
+import { HERO_CLASS_NAMES } from '../career/CareerHeroClasses'
+import { availableCareerItem, careerItemTotal, MAX_PLAYER_OWNED_XONGKORO } from '../career/CareerInventory'
+import { availableRecruitMissions, getCareerMissionTemplate } from '../career/CareerMissionCatalog'
+import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
+import { fieldMissionHud, missionPhaseLabel, personalSquadStateLabel, townCommandStateLabel } from '../career/CareerMissionPresentation'
+import { type CareerMissionOutcome, type CareerMissionResult } from '../career/CareerMissionState'
+import { CAREER_MOUNT_INTERACTION_DISTANCE, careerFelineVariants, CareerMountController, careerMountType } from '../career/CareerMountController'
+import { stageOfficialCommandOrder } from '../career/CareerOfficialCommandOrder'
+import { createCareerOutpostLaunch } from '../career/CareerOutpostLaunch'
+import { acceptCareerOutpost, acceptCareerOutpostRelief, type CareerOutpostStageId } from '../career/CareerOutpostMission'
+import { canRecruitPersonalSquad, PERSONAL_RECRUIT_DIALOGUE, personalMemberRefund, personalSquadGreeting, recruitPersonalSquadMember, sellPersonalSquadMembers } from '../career/CareerPersonalSquad'
+import type { PersonalSquadMission } from '../career/CareerPersonalSquadMission'
+import { snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
+import { CAREER_CLASS_HERO, preserveHpRatio, resolveCareerCharacterTier, resolveCareerHeroAsset, resolveCareerOrdinaryTier, resolveCareerPlayerMaxHp, T4_CLASS_HERO } from '../career/CareerPlayerProfile'
+import { CAREER_RANK_LABELS, CAREER_RANK_THRESHOLDS, CAREER_RANKS, clearCareerMission, cloneCareerProfile, MAX_BULK_PURCHASE_QUANTITY, promoteCareer, type CareerMountId, type CareerProfile } from '../career/CareerProfile'
+import { CareerProfileStore } from '../career/CareerProfileStore'
+import { canAppointCareerRank, type CareerAppointingRole } from '../career/CareerPromotionAuthority'
+import { CareerRaceController } from '../career/CareerRaceController'
+import { raceReturnAction } from '../career/CareerRaceReturn'
+import { RACE_LINES } from '../career/CareerRaceRoute'
+import { RACE_STORY_RACE_ID, raceDefinitionForSchedule, type RaceId } from '../career/CareerRaceState'
+import { resolvePersonalRecruitment, type PersonalRecruitmentChoice } from '../career/CareerRecruitmentCatalog'
+import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, startCommanderRetirement } from '../career/CareerRetirement'
+import { isTownCommandRevokedByRetirement } from '../career/CareerRetirementCommand'
+import { XONGKORO_PRODUCT } from '../career/CareerShopCatalog'
+import { careerStoryPurchaseLine } from '../career/CareerStoryEvents'
+import { applyT4Class, isT4ClassId, T4_CLASS_FIRST_MERIT, T4_CLASSES_BY_FACTION, t4ClassOffer, type T4ClassId } from '../career/CareerT4Promotion'
+import { formatTownDialogue, promotionDetails, selectTownDialogue, TownAmbientDialogue, type DialogueContext, type DialogueRole } from '../career/CareerTownDialogue'
+import { resolveTownActorEquipment, townEquipmentSquads, type TownEquipmentContext } from '../career/CareerTownEquipment'
+import { townDefaultActorLoadout } from '../career/CareerTownEquipmentState'
+import { sellTownNativeProducts, townNativeSaleGate, townNativeSaleStock, type TownNativeSaleContext, type TownNativeSaleRequest } from '../career/CareerTownNativeResale'
+import { canStartCareerTutorial } from '../career/CareerTutorial'
+import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
+import { acceptCaptainCavalryCommand, acceptCavalrySweep, CAVALRY_SWEEP_BANDITS, SWEEP_YAW, sweepPlayerSpawn } from '../career/CavalrySweep'
+import { CommanderFourGateDefenseController } from '../career/CommanderFourGateDefenseController'
+import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_BRIDGEHEAD_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_IRON_LEGION_ID, COMMANDER_LAST_STAND_ID, getCommanderMissionAvailability, getCommanderMissionDefinition, isCommanderTownMission } from '../career/CommanderMissionCatalog'
+import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
+import { CommanderTownMissionController } from '../career/CommanderTownMissionController'
+import { officialCommandHudLabel } from '../career/CommanderTownSquadLabels'
+import { EaglePadReservations, PLAYER_EAGLE_PAD_OWNER } from '../career/EaglePadReservations'
+import { acceptHeavyFieldMission, createCareerHeavyBattleLaunch, getHeavyFieldMissionAvailability, getHeavyFieldMissionDefinition } from '../career/HeavyFieldMission'
+import { MissionGuide } from '../career/MissionGuide'
+import { personalTownDeployment, personalTownEagleDeployment } from '../career/PersonalSquadDeployment'
+import { SquadRefitSafety } from '../career/SquadRefit'
 import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts'
+import { townDefenseForceCountsForProfile } from '../career/TownDefenseRoster'
+import { siegeMuster } from '../career/TownSiegeGeometry'
+import { acceptVeteranMission, createVeteranRoster, getVeteranMissionAvailability, getVeteranMissionDefinition, veteranTownCavalryReserveSlots } from '../career/VeteranMission'
+import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatActorRef, type CombatDamageMethod, type CombatEvent } from '../combat/CombatAttribution'
+import { getAntiCavalryMultiplier } from '../combat/CombatBalance'
+import { damageMount, damageNpc, damageObstacle, damagePlayer } from '../combat/DamageRouter'
+import { applyMountImpactDamage, applyMountImpactKnockback, checkMountImpact } from '../combat/MountImpact'
+import { mountStats } from '../combat/MountStats'
+import { calculatePlayerMeleeDamage } from '../combat/PlayerMeleeDamage'
+import { ProjectileAdmission } from '../combat/ProjectileAdmission'
+import { playerEagleProjectileBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
+import { ProjectileContactQuery, type ProjectileTargetGroups } from '../combat/ProjectileContactQuery'
+import { SHIELD_CONFIG, type CombatContact } from '../combat/ShieldBlocking'
+import { traceFistStrike, unarmedDamage } from '../combat/UnarmedCombat'
+import { XONGKORO } from '../movement/XongkoroConfig'
+import { NavigationWorld } from '../navigation/NavigationWorld'
+import { DEFAULT_PLAYER_MAX_HP, Player, PLAYER_ARROW_CAPACITY } from '../player/Player'
+import { standingPlayerY } from '../player/PlayerFootBody'
+import { PlayerInput } from '../player/PlayerInput'
 import { WeaponWheel } from '../player/WeaponWheel'
+import { bindWindowResize, configureSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO } from '../rendering/SceneRenderer'
+import { ARMORS } from '../rpg/ArmorDatabase'
+import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, skillStatesEqual, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
+import { EQUIPMENT_CATEGORIES, equipmentSections, type EquipmentCategory } from '../rpg/EquipmentCatalog'
+import { compareEquipment, equipmentDetails, equipmentTraits } from '../rpg/EquipmentComparison'
+import { compareMounts, mountComparisonText, mountDetails, mountTraits } from '../rpg/MountComparison'
+import { SkillManager } from '../rpg/SkillManager'
+import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
+import { ArmyCommandUI } from '../ui/ArmyCommandUI'
+import { CareerDuelHUD } from '../ui/CareerDuelHUD'
+import { appendCareerPromotionCards, appendT4PromotionCards, careerClassConfirmation } from '../ui/CareerPromotionUI'
+import { CareerRaceHUD } from '../ui/CareerRaceHUD'
+import { registerTownCombatDisplayName } from '../ui/CombatTargetDisplayName'
+import { CombatTargetHud } from '../ui/CombatTargetHud'
+import { CompassUI } from '../ui/CompassUI'
+import { DamageNumbers } from '../ui/DamageNumbers'
+import { EquipmentUI } from '../ui/EquipmentUI'
+import { HpBar } from '../ui/HpBar'
+import { QuiverUI } from '../ui/QuiverUI'
+import { StaminaBar } from '../ui/StaminaBar'
+import { personalUnitDisplayName } from '../ui/UnitDisplayName'
 import { WeaponWheelUI } from '../ui/WeaponWheelUI'
 import { registerTextureRenderer } from '../world/RuntimeGltfLoader'
-import * as THREE from 'three'
-import { acceptCavalrySweep, acceptCaptainCavalryCommand, sweepPlayerSpawn, SWEEP_YAW, CAVALRY_SWEEP_BANDITS } from '../career/CavalrySweep'
-import { Player, PLAYER_ARROW_CAPACITY, DEFAULT_PLAYER_MAX_HP } from '../player/Player'
-import { PlayerInput } from '../player/PlayerInput'
-import { standingPlayerY } from '../player/PlayerFootBody'
-import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
-import { CompassUI } from '../ui/CompassUI'
-import { SpectatorCameraController } from '../camera/SpectatorCameraController'
-import { NPC, AIType, Faction } from '../world/NPC'
-import { Mount, MountType, felineVariantFromMountId, felineVariantForMountType, isFelineMountType } from '../world/Mount'
-import { XongkoroVisual } from '../world/XongkoroVisual'
-import { preloadArchitectureStatues } from './architecture/TownArchitecture'
+import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
+import { BlackCatVisual } from '../world/BlackCatVisual'
+import { CorgiVisual } from '../world/CorgiVisual'
+import type { DamageableObstacle } from '../world/DamageableObstacle'
 import { eagleLandingFootprint } from '../world/EagleLanding'
 import { isEagleLandingClearOfMounts } from '../world/EagleLandingOccupants'
 import { EagleLandingQueue } from '../world/EagleLandingQueue'
-import { TOWN_LAYOUT_VERSION } from './TownLayout'
-import { migratePersonalTownLayout, placePersonalMissionAtHR } from './TownLayoutMigration'
-import { XONGKORO } from '../movement/XongkoroConfig'
-import { CIVILIAN_HUMANOID_ASSETS, HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
-import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
-import { BlackCatVisual } from '../world/BlackCatVisual'
-import { careerFelineVariants } from '../career/CareerMountController'
-import { CorgiVisual } from '../world/CorgiVisual'
-import { SnowLeopardVisual } from '../world/SnowLeopardVisual'
 import { HERO_ASSETS, type HeroAssetId } from '../world/HeroAssetCatalog'
+import { preloadHighTierEquipment, prepareByzantineEquipment } from '../world/HighTierEquipment'
+import { HorseAssetRegistry, horseVariantForStableKey } from '../world/HorseAssetRegistry'
+import { CIVILIAN_HUMANOID_ASSETS, HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
 import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
-import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
-import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
-import { warmTownRenderResources } from './TownRenderWarmup'
-import { getScenePlayableWorldBound, getTerrainHeight, setScenePlayableWorldBound, resolveEntityCollision, type ObstacleData } from '../world/Terrain'
-import { damageMount, damageNpc, damagePlayer, damageObstacle } from '../combat/DamageRouter'
-import { registerTownCombatDisplayName } from '../ui/CombatTargetDisplayName'
-import { personalUnitDisplayName } from '../ui/UnitDisplayName'
-import { appendPersonalRecruitmentConfigurator } from './TownRecruitmentPanel'
-import { XONGKORO_PRODUCT } from '../career/CareerShopCatalog'
-import { resolvePersonalRecruitment, type PersonalRecruitmentChoice } from '../career/CareerRecruitmentCatalog'
-import { CombatTargetHud } from '../ui/CombatTargetHud'
-import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatDamageMethod, type CombatActorRef, type CombatEvent } from '../combat/CombatAttribution'
+import { felineVariantForMountType, felineVariantFromMountId, isFelineMountType, Mount, MountType } from '../world/Mount'
+import { AIType, Faction, NPC } from '../world/NPC'
+import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
+import { obstacleTopologyRevision } from '../world/ObstacleTopology'
+import { preloadPaladinEquipment } from '../world/PaladinEquipment'
+import { SnowLeopardVisual } from '../world/SnowLeopardVisual'
 import { SpatialGrid } from '../world/SpatialGrid'
-import { checkMountImpact, applyMountImpactDamage, applyMountImpactKnockback } from '../combat/MountImpact'
-import { NavigationWorld } from '../navigation/NavigationWorld'
-import { DamageNumbers } from '../ui/DamageNumbers'
-import { acceptCaptainFrontline, acceptCaptainEagle, createCaptainFrontlineLaunch, createCaptainEagleLaunch, type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
-import { CAPTAIN_PATROL_COMMAND_ID, CAPTAIN_CAVALRY_COMMAND_ID, CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_FRONTLINE_COMMAND_ID, CAPTAIN_SIEGE_COMMAND_ID, CAPTAIN_EAGLE_BATTLE_ID, getCaptainMissionDefinition, getCaptainMissionAvailability, createCaptainPatrolCommandMission } from '../career/CaptainMissionCatalog'
-import { CaptainPatrolCommandController } from '../career/CaptainPatrolCommandController'
-import { TownCommandSquadController, TOWN_COMMAND_RETURN_ID } from './TownCommandSquadController'
-import { snapshotCommandActor, restoreCommandActor } from '../career/CareerCommandActorCheckpoint'
-import { matchesArmyCommandTarget, type ArmyCommandTarget } from '../battle/CommandTarget'
-import { officialFollowLocalOffset } from '../battle/FollowOrder'
-import type { TacticalOrder } from '../battle/TacticalOrder'
-import { acceptCareerOutpostRelief, acceptCareerOutpost, type CareerOutpostStageId } from '../career/CareerOutpostMission'
-import { createCareerOutpostLaunch } from '../career/CareerOutpostLaunch'
-import { selectTownDialogue, formatTownDialogue, promotionDetails, TownAmbientDialogue, type DialogueContext, type DialogueRole } from '../career/CareerTownDialogue'
-import { installTownStyles } from './TownUI'
-import { isTownProductOwned, purchaseTownMount, purchaseTownEquipment, sellTownProduct, sellTownProducts, townResalePrice, townSaleStatus, townProductUnit, townHoldingText, TOWN_RESALE_PERCENT } from './TownRules'
-import { HpBar } from '../ui/HpBar'
-import { StaminaBar } from '../ui/StaminaBar'
-import { QuiverUI } from '../ui/QuiverUI'
-import { EquipmentUI } from '../ui/EquipmentUI'
-import { SkillManager } from '../rpg/SkillManager'
-import { SHIELD_CONFIG, type CombatContact } from '../combat/ShieldBlocking'
-import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, skillStatesEqual, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
-import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
-import { updateEagleWingbeatAudio } from '../audio/EagleWingbeatAudio'
-import { CareerProfileStore } from '../career/CareerProfileStore'
-import { canAppointCareerRank, type CareerAppointingRole } from '../career/CareerPromotionAuthority'
-import { applyCareerClass, careerClassOffer, CAREER_CLASSES_BY_FACTION, CAREER_CLASS_FIRST_MERIT, type CareerClassId } from '../career/CareerElitePromotion'
-import { applyT4Class, isT4ClassId, t4ClassOffer, T4_CLASSES_BY_FACTION, T4_CLASS_FIRST_MERIT, type T4ClassId } from '../career/CareerT4Promotion'
-import { CAREER_CLASS_HERO, T4_CLASS_HERO } from '../career/CareerPlayerProfile'
-import { appendCareerPromotionCards, appendT4PromotionCards, careerClassConfirmation } from '../ui/CareerPromotionUI'
-import { MAX_BULK_PURCHASE_QUANTITY, CAREER_RANKS, CAREER_RANK_LABELS, CAREER_RANK_THRESHOLDS, clearCareerMission, cloneCareerProfile, promoteCareer, type CareerProfile, type CareerMountId } from '../career/CareerProfile'
-import { availableRecruitMissions, getCareerMissionTemplate, getRetiredCareerMissionTemplate, isRetiredRecruitPatrolMission } from '../career/CareerMissionCatalog'
-import { getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission, createVeteranRoster, veteranTownCavalryReserveSlots } from '../career/VeteranMission'
-import { selectTownCavalryReserve } from './TownCavalryReserve'
-import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
-import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
-import { createCareerFieldBattleLaunch, isMigratedCareerFieldMission } from '../career/CareerFieldBattle'
-import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_LAST_STAND_ID, getCommanderMissionAvailability, getCommanderMissionDefinition, isCommanderTownMission } from '../career/CommanderMissionCatalog'
-import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
-import { CareerDuelController, duelLoadout, restoreCareerDuelCommander, type CareerDuelOpponentRequest } from '../career/CareerDuelController'
-import { resolveCareerDuelClass } from '../career/CareerDuelClasses'
-import { HERO_CLASS_NAMES } from '../career/CareerHeroClasses'
-import { MissionGuide } from '../career/MissionGuide'
-import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, startCommanderRetirement } from '../career/CareerRetirement'
-import { townRetirementRallyTarget } from './TownBounds'
-import { CareerDuelHUD } from '../ui/CareerDuelHUD'
-import { careerDuelMissionLabel } from '../career/CareerDuelSelection'
-import { type CareerDuelTier, isUnarmedDuelUnlocked, isCareerDuelUnlocked, duelFightBannerVisible } from '../career/CareerDuelState'
-import { defaultDuelArenaForFaction, type DuelArenaId } from '../arena/DuelArenaCatalog'
-import { acceptArenaStoryTrial, arenaTrialBlocker, createArenaTrialMission, type ArenaTrialTier } from '../career/CareerArenaTrials'
+import { getScenePlayableWorldBound, getTerrainHeight, resolveEntityCollision, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
+import { XongkoroVisual } from '../world/XongkoroVisual'
+import { preloadArchitectureStatues } from './architecture/TownArchitecture'
+import { CivilianCommandSquadController } from './CivilianCommandSquadController'
+import { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
+import { placePersonalMissionAtHR } from './PersonalSquadHomeReturn'
 import { consumeCareerMissionReturnFlag, findMountParkingPoint, planSergeantReturn, resolveNearestLegalPoint, resolveTownEntryFallbackPoint, sergeantReturnFromResidents, SergeantReturnIntent, settleCareerMissionReturn, type SergeantReturnPlan, type SergeantReturnPoint } from './SergeantReturn'
-import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
-import { fieldMissionHud, missionPhaseLabel, personalSquadStateLabel, townCommandStateLabel } from '../career/CareerMissionPresentation'
-import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
-import { careerTownSceneRoster, isCareerEnemyTerritoryFieldMission, resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext'
-import { townWartimeHostile } from './TownWartime'
-import { TownDefenseController } from '../career/TownDefenseController'
-import { CommanderFourGateDefenseController } from '../career/CommanderFourGateDefenseController'
-import type { DamageableObstacle } from '../world/DamageableObstacle'
-import { CommanderTownMissionController } from '../career/CommanderTownMissionController'
-import { CareerMountController } from '../career/CareerMountController'
-import { preserveHpRatio, resolveCareerCharacterTier, resolveCareerOrdinaryTier, resolveCareerHeroAsset, resolveCareerPlayerMaxHp } from '../career/CareerPlayerProfile'
-import { type CareerMissionOutcome, type CareerMissionResult } from '../career/CareerMissionState'
-import { VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from '../career/TownDefenseState'
-import { getAntiCavalryMultiplier } from '../combat/CombatBalance'
-import { calculatePlayerMeleeDamage } from '../combat/PlayerMeleeDamage'
-import { townMeleeBuildingContact } from './TownCombat'
-import { TownWorld } from './TownWorld'
-import { TOWN_NAVIGATION_BOUNDS, TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
-import { TownEquipment } from './TownEquipment'
-import { TownMissionSettlement, restoreMissionReturnResident } from './TownMissionSettlement'
-import { TownMissionCombat, type TownCombatResident as Resident } from './TownMissionCombat'
+import { TOWN_NAVIGATION_BOUNDS, TOWN_PLAYABLE_WORLD_BOUND, townRetirementRallyTarget } from './TownBounds'
+import { createTownCareerEquipmentUI } from './TownCareerEquipmentUI'
 import { TownCavalryPatrolController } from './TownCavalryPatrolController'
-import { withTownCommandSquadRoster } from './TownRules'
-import { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController'
+import { selectTownCavalryReserve } from './TownCavalryReserve'
+import { assignTownCivilianHomes, CIVILIAN_MOUNT_CLEARANCE, civilianBodyClear, civilianMountsClear, TownCivilianLife } from './TownCivilianLife'
+import { townMeleeBuildingContact } from './TownCombat'
+import { placeTownCenterServiceResidents, resolveTownCommanderPosition, shouldSpawnTownCommander, townCommanderHeroAsset, townCommanderSpec } from './TownCommander'
+import { TOWN_COMMAND_RETURN_ID, TownCommandSquadController } from './TownCommandSquadController'
+import { TownEagleGarrisonController } from './TownEagleGarrisonController'
+import { TownEquipment } from './TownEquipment'
+import { applyTownEquipmentRuntime, findTownNativeMount, registerTownNativeMount } from './TownEquipmentRuntime'
+import { townDefenseThreatResponse, townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
+import { townConquestRoster } from './TownHRLayout'
+import { TOWN_LAYOUT_VERSION } from './TownLayout'
+import { townMerchantLoadout } from './TownMerchantEquipment'
 import { TownMissionBoard, type MissionBoardHost, type MissionBoardRequest } from './TownMissionBoard'
-import { bindWindowResize, configureSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO } from '../rendering/SceneRenderer'
-import { TOWN_RULES, townActorHeroProfile, TownEvent, townCaptainProfile, townMilitaryEquipment, townOfficerPreload, stableHorsePositions, townSitePoint, townPlayerEntryPoint, isCivilian, productStatus, townShopProducts, deferTownResult, settleTown, updateRangerMount, type TownResult } from './TownRules'
+import { TownMissionCombat, type TownCombatResident as Resident } from './TownMissionCombat'
+import { restoreMissionReturnResident, TownMissionSettlement } from './TownMissionSettlement'
+import { isAutonomousTownGuard } from './TownNativeGuardIdentity'
+import { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController'
+import { personalMemberLoadout, TownPersonalSquadController } from './TownPersonalSquadController'
+import { commitTownProfile, type TownProfileChange } from './TownProfileCommit'
+import { TownProjectileObstacles } from './TownProjectileObstacles'
+import { appendPersonalRecruitmentConfigurator } from './TownRecruitmentPanel'
+import { warmTownRenderResources } from './TownRenderWarmup'
+import { TownRetirementFinaleController } from './TownRetirementFinaleController'
+import { TownRetirementMobilizationController } from './TownRetirementMobilizationController'
+import { appendCommanderRetirementOption } from './TownRetirementUI'
+import { deferTownResult, isCivilian, isTownProductOwned, productStatus, purchaseTownEquipment, purchaseTownMount, sellTownProduct, sellTownProducts, settleTown, stableHorsePositions, TOWN_RESALE_PERCENT, TOWN_RULES, townActorHeroProfile, townCaptainProfile, TownEvent, townHoldingText, townMilitaryEquipment, townName, townOfficerPreload, townPlayerEntryPoint, townProductUnit, townResalePrice, townRoster, townSaleStatus, townShopProducts, townSitePoint, updateRangerMount, withTownCommandSquadRoster, type TownActorSpec, type TownResult } from './TownRules'
+import { appendTownSaleDropdown } from './TownSaleUI'
+import { updateTownEquipmentVisibleStatus } from './TownSquadEquipmentUI'
+import { TownStoryController } from './TownStoryController'
+import { TownTutorialController } from './TownTutorialController'
+import { installTownStyles } from './TownUI'
+import { townWartimeHostile } from './TownWartime'
+import { TownWorld } from './TownWorld'
 
 let sound: SoundManager
 interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; readonly sourceRef?: CombatActorRef; age: number; maxLifetimeSeconds?: number }
@@ -293,14 +278,13 @@ export class TownScene {
   private careerSkillSaveTimer: number | null = null
   private mission!: BanditMissionController
   private duel!: CareerDuelController
-  private defense!: TownDefenseController | CommanderTownMissionController | CommanderFourGateDefenseController
+  private defense!: CommanderTownMissionController | CommanderFourGateDefenseController
   private careerMounts!: CareerMountController
   private missionSettlement!: TownMissionSettlement
   private patrol!: TownCavalryPatrolController
   private squadRefitSafety = new SquadRefitSafety()
   private townCommand?: TownCommandSquadController
   private civilianCommand?: CivilianCommandSquadController
-  private townAirCommand?: TownAirCommandSquadController
   private race?: CareerRaceController
   private readonly raceGuide = new MissionGuide('career-race-guide')
   private readonly raceHud = new CareerRaceHUD()
@@ -428,7 +412,7 @@ export class TownScene {
     await this.initializeResidents(roster, context, progress)
     this.patrol = new TownCavalryPatrolController(this.residents)
     const patrolBorrower = this.profile.activeMission
-    const patrolOwned = new Set(patrolBorrower?.kind === 'town-defense' || patrolBorrower?.kind === 'commander-four-gate-defense' || patrolBorrower?.kind === 'enemy-town-assault'
+    const patrolOwned = new Set(patrolBorrower?.kind === 'commander-four-gate-defense'
       ? this.residents.filter(r => r.spec.duty === 'patrol').map(r => r.spec.id)
       : [...(patrolBorrower?.officialSquad?.actorIds ?? []), ...(patrolBorrower?.borrowedActorIds ?? []),
         ...(this.profile.townCommandSquad?.commandedActorIds ?? []), ...(this.profile.townCommandSquad?.refittingActorIds ?? []),
@@ -475,9 +459,9 @@ export class TownScene {
     }
     this.navigation.sync(this.world.obstacles)
     this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,
-      () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds,
-      undefined, this.profile.activeMission?.siege?.attackerIds,
-      this.profile.activeMission?.kind === 'town-defense' || this.profile.activeMission?.kind === 'enemy-town-assault',
+      () => this.profile, this.world.obstacles, this.navigation, undefined, undefined,
+      undefined, undefined,
+      false,
       this.profile.activeMission?.kind === 'commander-four-gate-defense')
     this.outskirts.synchronizeRank()
     this.restoreOutskirtsCheckpoint()
@@ -505,8 +489,6 @@ export class TownScene {
         restoreNativeReturn: (actorId, state) => this.patrol!.restoreMissionReturn(actorId, state, true),
       })
     this.townCommand.restore()
-    this.townAirCommand = new TownAirCommandSquadController(this.residents,
-      () => this.profile, this.eagleGarrison!, context.worldFaction)
     this.captainPatrol = new CaptainPatrolCommandController(this.residents, this.patrol, () => this.player, () => this.profile, p => this.commit(p),
       { personalActors: () => this.personalSquad?.actors ?? [],
         resumeFormation: (npc, reference) => this.personalFormation?.joinCommand(npc, reference) ?? false })
@@ -598,17 +580,11 @@ export class TownScene {
               ramp.surface.topY - ramp.surface.startY) + ramp.bridgeSurface.length + 8)
           },
           unregisterHit: ramp => { this.siegeHitTargets.delete(ramp.damageable) } })
-      : isCommanderTownMission(this.profile.activeMission)
-      ? new CommanderTownMissionController(this.scene, this.residents, () => this.player, () => this.profile,
+      : new CommanderTownMissionController(this.scene, this.residents, () => this.player, () => this.profile,
         p => this.commit(p), this.navigation, undefined, { obstacles: this.world.obstacles,
           otherThreats: () => [...this.mission.ambientBandits, ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? [])]
             .filter(npc => !npc.dead && (npc.faction === Faction.ENEMY || npc.faction === Faction.BANDIT))
             .map(npc => ({ x: npc.combatPosition.x, z: npc.combatPosition.z, range: npc.maxRangedAttackDistance })) })
-      : new TownDefenseController(this.scene, this.residents, () => this.player, () => this.profile, p => this.commit(p), this.cat, this.navigation, {
-        gates: this.world.gates, obstacles: this.world.obstacles, patrol: this.patrol, outskirts: this.outskirts,
-        closureBodies: () => this.siegeClosureBodies(),
-        ambientEnemies: () => this.mission.ambientBandits,
-      })
     this.defense.personalActors = () => this.personalSquad?.actors ?? []
     this.civilianCommand = new CivilianCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p, 'civilian-command'), {
       sceneKey: `town:${context.worldFaction}`, townFaction: context.worldFaction,
@@ -658,7 +634,6 @@ export class TownScene {
         ownsPeacefulTravel: npc => this.retirementMobilization?.owns(npc) || this.civilianCommand?.ownsPeacefulTravel(npc) || this.townCommand?.ownsPeacefulTravel(npc) || this.patrol.returnStateFor(npc.combatantId) !== null && !this.patrol.combatEnabled(npc) && !this.captainPatrol?.owns(npc),
         peaceResident: (resident, dt) => this.updatePeace(resident, dt),
         updateEagleDuty: (npc, dt, combat) => this.updateEagleDuty(npc, dt, combat),
-        playerOwnsEagleCommand: npc => this.playerOwnsEagleCommand(npc),
         updateCommandCue: () => this.updateCareerCommandCue(),
         clearCombatShots: () => this.clearMissionCombatShots(),
         hitNpc: (target, damage, method, source) => this.hitFieldNpc(target, damage, method, source),
@@ -738,7 +713,7 @@ export class TownScene {
     renderer.render(this.scene, this.camera); await yieldFrame()
     this.input.clear()
     if (!context.missionOnlyResidents) this.event.complete()
-    this.restoreEagleCommandState()
+    this.restoreEagleGarrison()
     this.restoreTownCasualties()
     this.civilianCommand.restore()
     this.townCommand.resumeRefits()
@@ -758,7 +733,6 @@ export class TownScene {
         revoke: () => {
           this.personalCommands?.close()
           this.townCommand?.applySavedState(this.profile.townCommandSquad)
-          this.townAirCommand?.applySavedState(this.profile.townAirCommandSquad)
           this.civilianCommand?.applySavedState(this.profile.civilianCommandSquad)
           this.synchronizeCommandActors()
           this.notice = '城鎮指揮權已解除。你現在只能指揮私人部隊。\n私人隊長：廣場上的部隊全副武裝。長官……那不是歡送隊形。'
@@ -832,7 +806,7 @@ export class TownScene {
   }
   private residentCombatTargetAllowed(spec: TownActorSpec, npc: NPC, target: NPC | Player): boolean | 'defend' {
     const active = this.defense?.active
-    const siege = active?.kind === 'town-defense' || active?.kind === 'commander-four-gate-defense' || active?.kind === 'enemy-town-assault'
+    const siege = active?.kind === 'commander-four-gate-defense'
     if (this.retirementFinale?.active || this.event.hostile || this.duel?.isMissionActor(npc) || this.race?.owns(npc)
       || npc.combatOwnership && (!siege || npc.combatOwnership !== 'mission-official')
       || active?.officialSquad && officialCommandIsPlayerControlled(active.officialSquad, npc.combatantId)) return true
@@ -1141,9 +1115,7 @@ export class TownScene {
       get skills() { return scene.skills },
       get store() { return scene.store },
       synchronizeCommandActors: () => scene.synchronizeCommandActors(),
-      synchronizeEagleCommandOwnership: () => scene.synchronizeEagleCommandOwnership(),
       synchronizeEaglePatrolPolicy: () => scene.synchronizeEaglePatrolPolicy(),
-      get townAirCommand() { return scene.townAirCommand },
       get townCommand() { return scene.townCommand },
       get townRefitOnReturn() { return scene.townRefitOnReturn },
       set townRefitOnReturn(value) { scene.townRefitOnReturn = value },
@@ -1757,11 +1729,9 @@ export class TownScene {
 
   private issuePartyOrder(order: TacticalOrder | 'dismiss', target: ArmyCommandTarget): boolean {
     const townCommandedBefore = this.townCommand?.hasPlayerCommand(target) ?? false
-    const ownedAirBefore = order === 'dismiss' ? (this.commandActors ?? []).filter(npc => this.playerOwnsEagleCommand(npc)) : []
     const participants = (this.commandActors ?? []).filter(npc => !npc.dead && this.isAuthorizedCommandActor(npc) && matchesArmyCommandTarget(npc, target))
     if (!this.preparePlayerCommand(order, target, participants)) return false
-    let accepted = ownedAirBefore.some(npc => !this.playerOwnsEagleCommand(npc))
-      || participants.some(npc => this.civilianCommand?.owns(npc)
+    let accepted = participants.some(npc => this.civilianCommand?.owns(npc)
         || this.townCommand?.owns(npc))
       || order === 'dismiss' && townCommandedBefore
     if (target === 'all' || target === 'squad:personal') {
@@ -2028,7 +1998,7 @@ export class TownScene {
     if (active) {
       const template = getCareerMissionTemplate(active.templateId)
       const badge = document.createElement('p'); badge.className = 'town-summary'
-      badge.textContent = `任務進行中：${active.kind === 'duel' ? '1v1 單挑' : template?.name ?? active.templateId}\n目前：${missionPhaseLabel(active.phase)}${active.kind === 'duel' ? ` · ${careerDuelMissionLabel(active, id => UNIT_PRESETS[id as UnitPresetId].nameZh)}${active.duelClassId ? ` · ${HERO_CLASS_NAMES[active.duelClassId].zh}` : ''}` : active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense' ? ' · 守住所屬城鎮' : active.kind === 'veteran-field' ? ' · 野戰任務' : active.kind === 'bandit' ? ' · 目標：盜匪營地' : ''}\n請先完成目前的任務，才能接取新任務。`
+      badge.textContent = `任務進行中：${active.kind === 'duel' ? '1v1 單挑' : template?.name ?? active.templateId}\n目前：${missionPhaseLabel(active.phase)}${active.kind === 'duel' ? ` · ${careerDuelMissionLabel(active, id => UNIT_PRESETS[id as UnitPresetId].nameZh)}${active.duelClassId ? ` · ${HERO_CLASS_NAMES[active.duelClassId].zh}` : ''}` : active.kind === 'commander-four-gate-defense' ? ' · 守住所屬城鎮' : active.kind === 'veteran-field' ? ' · 野戰任務' : active.kind === 'bandit' ? ' · 目標：盜匪營地' : ''}\n請先完成目前的任務，才能接取新任務。`
       badge.style.whiteSpace = 'pre-line'
       panel.append(badge)
       return
@@ -2103,10 +2073,6 @@ export class TownScene {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
     const fresh = this.store.loadChecked().profile, definition = getCaptainMissionDefinition(templateId)
     if (!fresh || !definition || this.player.dead || this.event.hostile) return
-    if (templateId === CAPTAIN_GATE_DEFENSE_ID || templateId === CAPTAIN_SIEGE_COMMAND_ID) {
-      this.openPanel('無法接受任務', '該任務已退休。')
-      return
-    }
     const availability = getCaptainMissionAvailability(fresh, templateId)
     if (!availability.unlocked) { this.openPanel('無法接受任務', availability.reason ?? '目前已有任務。'); return }
     let next: CareerProfile | null = null
@@ -2505,33 +2471,6 @@ export class TownScene {
     return bodies
   }
 
-  private siegeClosureBodies() {
-    const bodies: import('./TownSiegeGateClosure').GateClosureBody[] = []
-    const mounts = new Set<Mount>()
-    const addMount = (mount: Mount) => {
-      if (mounts.has(mount) || mount.dead) return
-      mounts.add(mount)
-      bodies.push({ position: mount.group.position, radius: 1.5, moveTo: point => {
-        const delta = point.clone().sub(mount.group.position)
-        mount.group.position.copy(point)
-        mount.previousPosition.copy(point)
-        mount.skipImpactThisFrame = true
-        mount.movementSpeed = 0
-        if (mount.riderNpc) mount.riderNpc.group.position.add(delta)
-        if (this.player.currentMount === mount) this.player.group.position.add(delta)
-      } })
-    }
-    if (this.player.currentMount) addMount(this.player.currentMount)
-    else if (!this.player.dead) bodies.push({ position: this.player.combatPosition, radius: .6, moveTo: point => this.player.group.position.copy(point).add(new THREE.Vector3(0, .9, 0)) })
-    for (const npc of this.runtimeCombatActors()) {
-      if (npc.dead) continue
-      if (npc.mount) addMount(npc.mount)
-      else bodies.push({ position: npc.combatPosition, radius: .5, moveTo: point => npc.group.position.copy(point) })
-    }
-    for (const mount of [...this.mounts, ...this.defense.enemyMounts, ...(this.outskirts?.mounts ?? []), ...(this.enemyEaglePatrol?.mounts ?? []), ...(this.personalSquad?.mounts ?? [])]) addMount(mount)
-    return bodies
-  }
-
   private initializeEnemyEaglePatrol(faction: CareerProfile['faction']): void {
     // The external enemy base serializes its own approaches independently of Town/HR pads.
     this.enemyEaglePatrol = new EnemyEaglePatrolController(this.scene, faction,
@@ -2609,7 +2548,7 @@ export class TownScene {
     // pads at the lawful entry; the actual saved Player/squad flight stays authoritative.
     const airborne = aerial?.sceneKey === this.personalSquad.sceneKey
       && (aerial.mount && aerial.mount.flight.phase !== 'grounded' || aerial.fall?.active)
-    const entry = airborne && (active?.kind === 'enemy-town-assault' || active?.kind === 'commander-sky-raid'
+    const entry = airborne && (active?.kind === 'commander-sky-raid'
       || active?.kind === 'commander-decapitation') ? siegeMuster('north', 1)
       : airborne && active?.kind === 'veteran-field' ? veteranPlayerSpawn(active.templateId) : null
     const anchor = entry ? { x: entry.x, z: entry.z, yaw: active?.kind === 'veteran-field' ? veteranPlayerYaw(active.templateId) : 0 }
@@ -2650,11 +2589,8 @@ export class TownScene {
         this.captainPatrol?.resume()
       } else if (profile.activeMission.kind === 'duel') {
         if (!await this.deployActiveDuel()) this.showDuelDeployFailure()
-      } else if (profile.activeMission.kind === 'town-defense' || profile.activeMission.kind === 'commander-four-gate-defense' || profile.activeMission.kind === 'enemy-town-assault'
-        || profile.activeMission.kind === 'commander-sky-raid' || profile.activeMission.kind === 'commander-decapitation') {
+      } else if (profile.activeMission.kind === 'commander-four-gate-defense' || profile.activeMission.kind === 'commander-sky-raid' || profile.activeMission.kind === 'commander-decapitation') {
         if (!profile.activeMission.result || profile.activeMission.phase === 'RETURNING') {
-          this.siegeOpeningPending = Boolean(profile.activeMission.kind === 'enemy-town-assault'
-            && profile.activeMission.siege && !profile.activeMission.siege.rosterCreated)
           this.defense.startActiveMission()
         }
       } else {
@@ -2672,15 +2608,15 @@ export class TownScene {
       }
       if (!active.result || active.phase === 'RETURNING') this.inventory.prepareForCombat()
       this.preparePersonalFieldDeployment(active.personalSquad)
-      const siegeAnchor = active.kind === 'enemy-town-assault' || active.kind === 'commander-sky-raid'
-        || active.kind === 'commander-decapitation' || active.kind === 'town-defense' && active.siege?.playerPosition
+      const siegeAnchor = active.kind === 'commander-sky-raid'
+        || active.kind === 'commander-decapitation'
         ? this.player.combatPosition.clone() : null
       const siegeHeading = this.player.facingYaw
       this.careerMounts.restoreActiveMount(!(this.defense instanceof CommanderTownMissionController && this.defense.initialDeployment))
       if ((active.kind === 'cavalry-sweep' || active.kind === 'veteran-field') && this.player.currentMount) {
         this.player.currentMount.group.rotation.y = active.kind === 'veteran-field' ? veteranPlayerYaw(active.templateId) : SWEEP_YAW
       }
-      if (active.kind === 'enemy-town-assault' || active.kind === 'commander-sky-raid'
+      if (active.kind === 'commander-sky-raid'
         || active.kind === 'commander-decapitation') {
         if (!active.result && !active.playerDead && !active.mountState && profile.selectedMountId) this.careerMounts.activate(profile.selectedMountId)
       }
@@ -2735,9 +2671,6 @@ export class TownScene {
       && !this.profile.careerRetirement) saved = placePersonalMissionAtHR(saved,
       { muster: this.world.hr.muster, eaglePads: this.world.eagleTraining.pads,
         padForMember: id => this.privateEaglePads?.get(id) })
-    if (this.personalSquad.hasHR) saved = migratePersonalTownLayout(saved, this.personalSquad.sceneKey,
-      { muster: this.world.hr.muster, eaglePads: this.world.eagleTraining.pads,
-        padForMember: id => this.privateEaglePads?.get(id) })!
     if (saved.sceneKey !== this.personalSquad.sceneKey && this.personalSquad.hasHR) {
       const anchor = { x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw: this.player.group.rotation.y }
       const official = this.defense.active ? this.defense.deploymentPositions : this.mission.deploymentPositions
@@ -2760,10 +2693,6 @@ export class TownScene {
     if (getHeavyFieldMissionDefinition(templateId)) { this.acceptHeavyFieldCareerMission(templateId); return }
     if (getCaptainMissionDefinition(templateId)) { this.acceptCaptainMission(templateId); return }
     if (getVeteranMissionDefinition(templateId)) { this.acceptVeteranCareerMission(templateId); return }
-    if (getRetiredCareerMissionTemplate(templateId) || isRetiredRecruitPatrolMission(templateId)) {
-      this.openPanel('無法接受任務', '該任務已退休。')
-      return
-    }
     const fresh = this.store.load()
     const template = availableRecruitMissions(fresh ?? this.profile).find(candidate => candidate.id === templateId)
     if (!fresh || !template) { this.openPanel('無法接受任務', '生涯存檔已變更，請重新與士官長交談。'); return }
@@ -2774,10 +2703,6 @@ export class TownScene {
       if (!next || !this.commit(next)) return
       this.dispose(true)
       this.onCampaign(createCareerFieldBattleLaunch(this.profile))
-      return
-    }
-    if (template.kind === 'enemy-town-assault' || template.kind === 'town-defense' || template.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID || template.kind === 'patrol') {
-      this.openPanel('無法接受任務', '該任務已退休。')
       return
     }
     const mission = this.mission.createMission(template, template.preferredCampIndex ?? 0, this.unavailableTownCavalryActorIds())
@@ -2922,10 +2847,6 @@ export class TownScene {
   }
   private openMissionResult(result: CareerMissionResult, _reloaded: boolean): void {
     this.missionResultOpen = true
-    if (this.profile.activeMission?.kind === 'enemy-town-assault' && result.outcome === 'victory') {
-      if (this.defense instanceof TownDefenseController) this.defense.ceaseAssaultAirSupport()
-      this.clearMissionCombatShots()
-    }
     const complete = result.outcome === 'victory'
     const merit = result.merit
     const defenseText = result.defense ? `\n\n平民\n存活：${result.defense.civilianSurvived} 人\n死亡：${result.defense.civilianDeaths} 人` : ''
@@ -2962,8 +2883,7 @@ export class TownScene {
       })
       return
     }
-    if (!result.defense && this.profile?.activeMission?.kind !== 'enemy-town-assault'
-      && !isCommanderTownMission(this.profile?.activeMission)
+    if (!result.defense && !isCommanderTownMission(this.profile?.activeMission)
       && !isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) && complete && result.stats.survived) this.button(panel, this.mission.friendlies.some(npc => !npc.dead) ? '跟隊伍走回去' : '自行走回小鎮', () => {
       if (this.mission.phase === 'RETURNING') return
       if (!this.mission.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
@@ -3229,7 +3149,7 @@ export class TownScene {
       && (resident.spec.duty === 'patrol' || resident.spec.duty === 'gate_guard' || resident.spec.duty === 'training' || resident.spec.duty === 'eagle_garrison'))) return true
     if (isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) && (target === this.cat || (this.stableHorses ?? []).includes(target as Mount))) return true
     const active = this.profile?.activeMission
-    if (active?.kind === 'town-defense' || active?.kind === 'commander-four-gate-defense' || active?.kind === 'enemy-town-assault') {
+    if (active?.kind === 'commander-four-gate-defense') {
       if (target instanceof NPC) return target.faction !== Faction.ENEMY && target.faction !== Faction.BANDIT
       return target === this.cat || (this.stableHorses ?? []).includes(target)
         || (this.residents ?? []).some(resident => resident.homeMount === target)
@@ -3287,7 +3207,7 @@ export class TownScene {
     const b = this.world.buildings[index]; if (!b || b.hp.destroyed || !Number.isFinite(amount) || amount <= 0) return
     const townOwned = b.ownerFaction === Faction.TOWN
     if (townOwned && this.commanderProtectsOwnTown) return
-    if (townOwned && (this.profile?.activeMission?.kind === 'town-defense' || this.profile?.activeMission?.kind === 'commander-four-gate-defense')) return
+    if (townOwned && (this.profile?.activeMission?.kind === 'commander-four-gate-defense')) return
     if (townOwned && !this.defense?.assault && !this.prepareDamage()) return
     const position = hitPosition ?? b.hp.root.getWorldPosition(new THREE.Vector3())
     const { appliedDamage } = b.hp.takeDamage(amount)
@@ -3698,50 +3618,15 @@ export class TownScene {
     }
     // Siege owns its native air roster; the independent opposing air patrol still flies.
     this.eagleGarrison?.setAmbientPatrolAllowed(allowed && !isTownCommandRevokedByRetirement(this.profile)
-      && this.profile.activeMission?.kind !== 'town-defense' && this.profile.activeMission?.kind !== 'commander-four-gate-defense' && this.profile.activeMission?.kind !== 'enemy-town-assault')
+      && this.profile.activeMission?.kind !== 'commander-four-gate-defense')
     this.enemyEaglePatrol?.setAmbientPatrolAllowed(allowed)
   }
 
-  /** Native snapshots must follow legacy ground mission restore, with validated player intent last. */
-  private restoreEagleCommandState(): void {
+  /** Restore autonomous native resources after mission snapshots. */
+  private restoreEagleGarrison(): void {
     this.eagleGarrison?.restore(this.profile.townEagleGarrisons?.[this.world.faction], `town:${this.world.faction}`,
       this.profile.activeMission?.kind === 'commander-four-gate-defense')
     this.garrisonRestored = true
-    this.townAirCommand?.restore()
-    const authority = this.profile.activeMission?.officialSquad
-    if (authority) for (const resident of this.residents ?? []) {
-      const npc = resident.npc, member = authority.members?.[npc.combatantId]
-      if (!resident.spec.eagle || !this.playerOwnsEagleCommand(npc)) continue
-      this.eagleGarrison?.claimPlayerCommand(npc)
-      if (member) restoreCommandActor(npc, member, resident.homeMount)
-      this.defense?.releasePlayerCommand(npc)
-      if (!npc.dead && member?.order === 'follow') npc.assignFollowTarget(this.player,
-        authority.actorIds.indexOf(npc.combatantId), officialFollowLocalOffset(authority.actorIds.indexOf(npc.combatantId),
-          npc.isMounted, Boolean(this.profile.personalSquad?.members.length)))
-    }
-    this.synchronizeEagleCommandOwnership()
-  }
-
-  private playerOwnsEagleCommand(npc: NPC): boolean {
-    if (isTownCommandRevokedByRetirement(this.profile)) return false
-    if (isAutonomousTownGuard(npc.combatantId)) return false
-    const mission = this.profile.activeMission, authority = mission?.officialSquad
-    return Boolean(this.profile.rank === 'commander' && this.world.faction === this.profile.faction
-      && (mission?.kind === 'town-defense' || mission?.kind === 'commander-four-gate-defense') && !mission.result
-      && authority?.missionId === mission.id && authority.townFaction === this.profile.faction
-      && npc.combatOwnership === 'mission-official' && !npc.hostileToPlayer
-      && (npc.faction === Faction.TOWN || npc.faction === Faction.PLAYER)
-      && TOWN_AIR_COMMAND_IDS.includes(npc.combatantId)
-      && (this.residents ?? []).some(resident => resident.npc === npc && resident.spec.id === npc.combatantId)
-      && officialCommandIsPlayerControlled(authority, npc.combatantId))
-  }
-  private synchronizeEagleCommandOwnership(): void {
-    for (const resident of this.residents ?? []) {
-      const npc = resident.npc
-      if (!resident.spec.eagle || !this.eagleGarrison) continue
-      if (this.playerOwnsEagleCommand(npc)) this.eagleGarrison.claimPlayerCommand(npc)
-      else if (this.eagleGarrison.isPlayerCommandOwned(npc)) this.eagleGarrison.releasePlayerCommand(npc, false)
-    }
   }
   private updateEagleDuty(npc: NPC, dt: number, combat: boolean): boolean {
     const consumed = this.eagleGarrison?.update(npc, dt, combat, this.camera.position, this.world.airspaceObstacles, this.navigation,
@@ -3819,18 +3704,10 @@ export class TownScene {
   private updateCareerCommandCue(): void {
     const active = this.profile.activeMission
     let cue: AudioCommand | null = null
-    if (active?.kind === 'duel' || active?.kind === 'enemy-town-assault' || active?.kind === 'cavalry-sweep' || active?.kind === 'veteran-field') return
-    if (active?.kind === 'town-defense') {
-      if (active.phase === 'PREPARING' || active.phase === 'ATTACKING' && !this.defense.reserveHasCharged) cue = 'defend'
-      else if (active.phase === 'ATTACKING' || active.phase === 'FAILURE_LOCKED') cue = this.defense.reserveHasCharged ? 'charge' : 'defend'
-    } else if (active?.phase === 'ENGAGING') {
-      cue = 'attack'
-    }
+    if (active?.kind === 'duel' || active?.kind === 'cavalry-sweep' || active?.kind === 'veteran-field') return
+    if (active?.phase === 'ENGAGING') cue = 'attack'
     if (cue === this.careerCommandCue) return
     this.careerCommandCue = cue
-    // The new warning already announces Town Defense's opening defensive order.
-    // Keep the tactical/cue state, but do not stack the legacy Defend speech over it.
-    if (active?.kind === 'town-defense' && cue === 'defend') return
     if (cue) sound?.playCommanderCommand(this.profile.faction, cue)
   }
   private updateCareerHorseAudio(): void {
@@ -3981,7 +3858,7 @@ export class TownScene {
       }
       return `${gateNames[id]}門 ${gate ? gateStatus[gate.state] : '部署'} · 攻城車 ${state('left')}/${state('right')}`
     })
-    return `\n四門總攻守城戰\n${phase} · 敵軍 ${defense.remainingEnemies}/${defense.enemyTotal}\n${sectors.slice(0, 2).join('　')}\n${sectors.slice(2).join('　')}\n${defense.enemyRosterVersion === 1 ? `巨鷹騎手 ${defense.remainingAirborneEnemies}/30 · ` : ''}平民死亡 ${defense.civilianDeaths}`
+    return `\n四門總攻守城戰\n${phase} · 敵軍 ${defense.remainingEnemies}/${defense.enemyTotal}\n${sectors.slice(0, 2).join('　')}\n${sectors.slice(2).join('　')}\n平民死亡 ${defense.civilianDeaths}`
   }
 
   private veteranMissionHud(): string {
@@ -4214,16 +4091,12 @@ export class TownScene {
         ? this.veteranMissionHud()
         : this.profile.activeMission.kind === 'cavalry-sweep'
         ? `\n騎兵清剿 · 剩餘盜匪 ${this.mission.remainingEnemies}/${CAVALRY_SWEEP_BANDITS}\n${this.profile.activeMission.phase === 'RETURNING' ? '跟隨部隊返回軍營' : this.profile.activeMission.templateId === CAPTAIN_CAVALRY_COMMAND_ID ? '率領騎兵前往盜匪所在位置 · 接近後下令衝鋒' : this.profile.activeMission.phase === 'ASSEMBLING' ? '前往軍營集合 · 與騎兵一起出城' : this.profile.activeMission.phase === 'MARCHING' ? '跟隨隊長出城 · 接近敵軍後一起衝鋒' : '衝鋒 · 穿過敵陣後拉開距離，再次衝鋒'}`
-        : this.profile.activeMission.kind === 'enemy-town-assault'
-        ? `\n進攻敵城${this.defense.phase === 'PREPARING' ? ' · 進攻倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : ''}\n剩餘地面守軍：${this.defense instanceof TownDefenseController ? this.defense.remainingAssaultGroundDefenders : '—'}`
         : this.profile.activeMission.kind === 'commander-sky-raid'
         ? `\n空襲敵城\n擊倒敵城人員：${this.profile.activeMission.deadTargetActorIds?.length ?? 0} / 100\n我方遊俠 ${this.defense.defenders.filter(npc => !npc.dead).length} / 50 · 巨鷹 ${this.defense.enemyMounts.filter(mount => !mount.dead).length} / 50`
         : this.profile.activeMission.kind === 'commander-decapitation'
         ? `\n斬首行動 · ${this.defense.remainingEnemies ? '敵方指揮官仍存活' : '敵方指揮官已倒下'}\n行動隊 ${this.defense.defenders.filter(npc => !npc.dead).length}/30 人`
         : this.profile.activeMission.kind === 'commander-four-gate-defense'
         ? this.fourGateDefenseHud()
-        : this.profile.activeMission.kind === 'town-defense'
-        ? `\n守衛城鎮 · ${this.defense.phase === 'PREPARING' ? '敵軍來襲倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : missionPhaseLabel(this.profile.activeMission.phase)} · 敵軍剩餘 ${this.defense.remainingEnemies} 人 · 平民死亡 ${this.defense.civilianDeaths}/10`
         : fieldMissionHud(
           'bandit',
           this.profile.activeMission.phase,

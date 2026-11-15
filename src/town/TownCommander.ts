@@ -1,27 +1,19 @@
-import { TOWN_COMMANDER_ID } from './TownCommanderIdentity'
-export { TOWN_COMMANDER_ID, townCommanderSpec } from './TownCommanderIdentity'
-import type { CareerProfile } from '../career/CareerProfile'
-import { officialActorSquadId } from '../career/CareerCommandAuthority'
 import { isCareerEnemyTerritoryFieldMission } from '../career/CareerFieldSceneContext'
+import type { CareerProfile } from '../career/CareerProfile'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
-import { townSitePoint, type TownActorSpec } from './TownRules'
 import { SERVICE_ANCHOR_CLEARANCE } from './architecture/ArchitectureSpecs'
 import type { TownServiceStation } from './TownCommanderIdentity'
+import { TOWN_COMMANDER_ID } from './TownCommanderIdentity'
+import { townSitePoint, type TownActorSpec } from './TownRules'
+export { TOWN_COMMANDER_ID,townCommanderSpec } from './TownCommanderIdentity'
 
-/** Shared by roster construction, asset preload and Defense's actual actor consumer.
- * A current rank alone never upgrades an accepted/legacy defense population.
- */
+/** Shared by roster construction, asset preload and the scene's actual actor consumer. */
 export function shouldSpawnTownCommander(profile: Pick<CareerProfile, 'rank' | 'faction' | 'activeMission'>): boolean {
-  const mission = profile.activeMission, authority = mission?.officialSquad
+  const mission = profile.activeMission
   if (mission?.kind === 'commander-sky-raid' || mission?.kind === 'commander-decapitation') return true
-  if (mission?.kind === 'town-defense') return profile.rank === 'commander'
-    && authority?.type === 'mission-official' && authority.commandRank === 'commander'
-    && authority.missionId === mission.id && authority.townFaction === profile.faction
-    && mission.friendlyActorIds.includes(TOWN_COMMANDER_ID)
-    && officialActorSquadId(authority, TOWN_COMMANDER_ID) === 2
-  return mission?.kind !== 'enemy-town-assault' && !isCareerEnemyTerritoryFieldMission(mission)
+  return !isCareerEnemyTerritoryFieldMission(mission)
 }
 
 export function townCommanderHeroAsset(faction: CharacterFaction): HeroAssetId {

@@ -158,8 +158,8 @@ export function canonicalRetirementTownActorIds(): Set<string> {
     ...TOWN_WATCHTOWER_ARCHER_IDS])
 }
 
-/** Existing checkpoint parser normalizes legacy records. A prepared retirement receipt
- * instead requires complete resource snapshots; missing records must never heal on reload. */
+/** A prepared retirement receipt requires complete resource snapshots; missing records
+ * must never heal on reload. */
 export function parseRetirementActorCheckpoints(value: unknown, ids: readonly string[]): Record<string, PersonalActorCheckpoint> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const raw = value as Record<string, unknown>, parsed: Record<string, PersonalActorCheckpoint> = {}

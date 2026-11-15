@@ -1,29 +1,26 @@
-import { addCareerItem, normalizeCareerInventory, type PersonalEquipment } from './CareerInventory'
-import { defaultPersonalRecruitmentChoice, inferLegacyPersonalRecruitmentRole, resolvePersonalRecruitment, type PersonalHeroVariantAssetId, type PersonalRecruitmentChoice, type PersonalRecruitmentRole } from './CareerRecruitmentCatalog'
 import type { CharacterIdentity, CharacterTier, HeroArchetype } from '../combat/CharacterIdentity'
+import { addCareerItem, normalizeCareerInventory, type PersonalEquipment } from './CareerInventory'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { defaultPersonalRecruitmentChoice, resolvePersonalRecruitment, type PersonalHeroVariantAssetId, type PersonalRecruitmentChoice, type PersonalRecruitmentRole } from './CareerRecruitmentCatalog'
 
 export const PERSONAL_SQUAD_LIMIT = 30
 export type PersonalSquadMemberType = 'soldier' | 'captain' | 'ranger' | 'commander'
 export interface CareerPersonalSquadMember {
-  id: string; type: PersonalSquadMemberType; originalHirePrice?: number; equipment?: PersonalEquipment
-  characterFaction?: CharacterIdentity['characterFaction']
-  characterTier?: CharacterTier
+  id: string; type: PersonalSquadMemberType; originalHirePrice: number; equipment: PersonalEquipment
+  characterFaction: CharacterIdentity['characterFaction']
+  characterTier: CharacterTier
   heroArchetype?: HeroArchetype
-  recruitmentRole?: PersonalRecruitmentRole
+  recruitmentRole: PersonalRecruitmentRole
   /** Durable elite body (Centurion / Dragon Oathguard / Byzantine Cataphract / Ironblood Warlord); absent for the default classes. */
   visualAssetId?: PersonalHeroVariantAssetId
-  /** New recruitment grant receipt; a saved null slot is never a missing legacy grant. */
-  initialEquipmentVersion?: 1
-  /** Durable migration receipt: removed/sold weapons are never granted again. */
-  rangerEquipmentVersion?: 1
+
 }
-/** Historical four-product prices, retained only for receiptless save migration and refunds. */
+/** Live recruitment categories; prices and grants belong to the current catalog. */
 export const PERSONAL_SQUAD_PRODUCTS = [
-  { type: 'soldier', name: 'Sword / Axe Soldier', price: 50 },
-  { type: 'captain', name: 'T4 Captain', price: 500 },
-  { type: 'ranger', name: 'T4 Shadow Warden / Mounted Ranger', price: 500 },
-  { type: 'commander', name: 'T5 Commander', price: 2000 },
+  { type: 'soldier', name: 'Sword / Axe Soldier' },
+  { type: 'captain', name: 'T4 Captain' },
+  { type: 'ranger', name: 'T4 Shadow Warden / Mounted Ranger' },
+  { type: 'commander', name: 'T5 Commander' },
 ] as const
 export function canRecruitPersonalSquad(profile: Pick<CareerProfile, 'rank'>, type?: PersonalSquadMemberType): boolean {
   return profile.rank === 'commander' || profile.rank === 'captain' && type !== 'commander'
@@ -52,13 +49,13 @@ export function recruitPersonalSquadMember(current: CareerProfile, choice: Perso
   next.availableMerit -= product.price
   next.personalSquad = { members: [...(next.personalSquad?.members ?? []), { id, type, characterFaction: product.characterFaction, characterTier: product.characterTier,
     ...(product.heroArchetype ? { heroArchetype: product.heroArchetype } : {}), ...(product.visualAssetId ? { visualAssetId: product.visualAssetId } : {}), recruitmentRole: product.recruitmentRole,
-    initialEquipmentVersion: 1, originalHirePrice: product.price, equipment, ...(type === 'ranger' ? { rangerEquipmentVersion: 1 as const } : {}) }] }
+    originalHirePrice: product.price, equipment }] }
   const key = `${next.faction}:hr-recruit-${type}`
   next.townDialogueSeen = [...new Set([...(next.townDialogueSeen ?? []), key])]
   try { if (!save(next)) return fail('save-failed') } catch { return fail('save-failed') }
   return { profile: next, recruited: true }
 }
-export function parsePersonalSquad(value: unknown, faction: CareerProfile['faction'] = 'roman'): { members: CareerPersonalSquadMember[] } | undefined {
+export function parsePersonalSquad(value: unknown, _faction: CareerProfile['faction'] = 'roman'): { members: CareerPersonalSquadMember[] } | undefined {
   if (value === undefined) return undefined
   if (!value || typeof value !== 'object' || !Array.isArray((value as { members?: unknown }).members)) throw new Error('Invalid personal squad')
   const members = (value as { members: unknown[] }).members
@@ -69,32 +66,25 @@ export function parsePersonalSquad(value: unknown, faction: CareerProfile['facti
     if (!member || typeof member.id !== 'string' || !/^personal:[A-Za-z0-9-]+$/.test(member.id)
       || ids.has(member.id) || !PERSONAL_SQUAD_PRODUCTS.some(item => item.type === member.type)) throw new Error('Invalid personal member')
     ids.add(member.id)
-    const product = PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)!
-    if (member.rangerEquipmentVersion !== undefined && member.rangerEquipmentVersion !== 1) throw new Error('Invalid ranger equipment version')
-    if (member.initialEquipmentVersion !== undefined && member.initialEquipmentVersion !== 1) throw new Error('Invalid initial equipment version')
     const equipment = member.equipment
     if (equipment && (typeof equipment !== 'object' || Array.isArray(equipment))) throw new Error('Invalid equipment')
-    const characterFaction = member.characterFaction === undefined ? faction : member.characterFaction
+    const characterFaction = member.characterFaction
     if (characterFaction !== 'roman' && characterFaction !== 'viking') throw new Error('Invalid member faction')
-    const defaults = defaultPersonalRecruitmentChoice(member.type, characterFaction)
-    // Legacy type is the durable identity. Equipment is consulted only for the previously unsaved role.
-    const characterTier = member.characterTier === undefined ? defaults.characterTier : member.characterTier
-    const heroArchetype = member.characterTier === undefined ? defaults.heroArchetype : member.heroArchetype
-    const recruitmentRole = member.recruitmentRole === undefined ? inferLegacyPersonalRecruitmentRole(equipment, member.type, characterFaction) : member.recruitmentRole
+    const { characterTier, heroArchetype, recruitmentRole } = member
+    if (!characterTier || !recruitmentRole || !equipment
+      || (['melee', 'ranged', 'shield', 'mount'] as const).some(slot => !Object.prototype.hasOwnProperty.call(equipment, slot)
+        || equipment[slot] !== null && typeof equipment[slot] !== 'string')) throw new Error('Missing current recruitment identity')
     const visualAssetId = member.visualAssetId
     if (visualAssetId !== undefined && (member.characterTier === undefined || member.type !== 'commander' && member.type !== 'captain')) throw new Error('Invalid member hero variant')
     const resolved = resolvePersonalRecruitment(characterFaction, { characterTier, heroArchetype, recruitmentRole, ...(visualAssetId ? { visualAssetId } : {}) })
-    if (!resolved || resolved.type !== member.type || member.characterTier === undefined && member.heroArchetype !== undefined && member.heroArchetype !== defaults.heroArchetype
-      || member.initialEquipmentVersion === 1 && (!equipment || member.characterTier === undefined || member.recruitmentRole === undefined)) throw new Error('Invalid member identity')
-    const originalHirePrice = member.originalHirePrice === undefined
-      ? member.initialEquipmentVersion === 1 ? resolved.price : product.price : member.originalHirePrice
+    if (!resolved || resolved.type !== member.type) throw new Error('Invalid member identity')
+    const originalHirePrice = member.originalHirePrice
+    if (originalHirePrice === undefined) throw new Error('Missing hire price')
     if (!Number.isSafeInteger(originalHirePrice) || originalHirePrice < 0) throw new Error('Invalid hire price')
     return { id: member.id, type: member.type, originalHirePrice, characterFaction, characterTier, ...(heroArchetype ? { heroArchetype } : {}), ...(visualAssetId ? { visualAssetId } : {}), recruitmentRole,
-      ...(member.initialEquipmentVersion === 1 ? { initialEquipmentVersion: 1 as const } : {}),
-      ...(member.rangerEquipmentVersion === 1 ? { rangerEquipmentVersion: 1 as const } : {}), ...(equipment ? { equipment: {
-      melee: equipment.melee ?? null, ranged: equipment.ranged ?? null, shield: equipment.shield ?? null,
-      mount: (['horse-t1', 'horse-t2', 'horse-t3'].includes(equipment.mount as string) ? 'horse' : equipment.mount) ?? null,
-    } } : {}) }
+      equipment: {
+        melee: equipment.melee, ranged: equipment.ranged, shield: equipment.shield, mount: equipment.mount,
+      } }
   }) }
 }
 export function personalSquadGreeting(profile: CareerProfile): string {
@@ -118,7 +108,7 @@ export const PERSONAL_RECRUIT_DIALOGUE: Record<PersonalSquadMemberType, string> 
 export interface PersonalSquadAuthority { readonly state: 'RESERVE' | 'DEPLOYING' | 'ACTIVE' | 'RETURNING' }
 export type PersonalManagementFailure = 'rank-locked' | 'not-reserve' | 'missing-member' | 'invalid-item' | 'no-available-item' | 'last-weapon' | 'save-failed'
 export function personalMemberRefund(profile: CareerProfile, member: CareerPersonalSquadMember): number {
-  const price = member.originalHirePrice ?? PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)!.price
+  const price = member.originalHirePrice
   return Math.floor(price * (profile.rank === 'commander' ? .9 : profile.rank === 'captain' ? .8 : 0))
 }
 export function sellPersonalSquadMember(read: () => CareerProfile, authority: PersonalSquadAuthority, memberId: string,
@@ -129,8 +119,7 @@ export function sellPersonalSquadMember(read: () => CareerProfile, authority: Pe
   if (authority.state !== 'RESERVE' || current.activeMission || current.activeOutpostMission) return fail('not-reserve')
   const member = current.personalSquad?.members.find(member => member.id === memberId)
   if (!member) return fail('missing-member')
-  if (member.equipment && !member.equipment.melee && !member.equipment.ranged
-    && (member.type !== 'ranger' || member.rangerEquipmentVersion === 1)) return fail('last-weapon')
+  if (!member.equipment.melee && !member.equipment.ranged) return fail('last-weapon')
   const next = cloneCareerProfile(current)
   normalizeCareerInventory(next)
   const refund = personalMemberRefund(current, member)

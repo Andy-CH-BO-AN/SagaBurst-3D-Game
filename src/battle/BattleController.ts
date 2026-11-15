@@ -3,10 +3,10 @@
  * Manages live combat monitoring, army casualties, victory determination,
  * and sessionStorage-based page reload transitions (REMATCH / BACK TO SETUP).
  */
-import { NPC } from '../world/NPC'
-import { BattleConfig } from './BattleConfig'
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import { renderBattleStats } from '../ui/BattleStatsView'
+import { NPC } from '../world/NPC'
+import { BattleConfig } from './BattleConfig'
 
 export type BattleResult = "VIKING_VICTORY" | "ROMAN_VICTORY" | "DRAW" | null
 
@@ -202,7 +202,7 @@ export class BattleController {
     rematchBtn?.addEventListener('mouseleave', () => { rematchBtn.style.background = '#2b221a' })
     rematchBtn?.addEventListener('click', () => {
       try {
-        sessionStorage.setItem('sagaburst_battle_config', JSON.stringify(this.config))
+        sessionStorage.setItem('sagaburst_battle_config_v2', JSON.stringify(this.config))
       } catch (e) {
         console.warn('sessionStorage error', e)
       }
@@ -214,7 +214,7 @@ export class BattleController {
     backBtn?.addEventListener('mouseleave', () => { backBtn.style.background = '#1f1a16' })
     backBtn?.addEventListener('click', () => {
       try {
-        sessionStorage.removeItem('sagaburst_battle_config')
+        sessionStorage.removeItem('sagaburst_battle_config_v2')
       } catch (e) {
         console.warn('sessionStorage error', e)
       }

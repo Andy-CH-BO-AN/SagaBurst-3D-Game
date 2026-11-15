@@ -1,15 +1,16 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { createCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
-import { describe,expect,it,vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CareerMissionCheckpoint } from '../../src/career/CareerMissionCheckpoint'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
-import { createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
-import { CAREER_STORAGE_KEY,CareerProfileStore,parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 import { CommanderTownMissionController } from '../../src/career/CommanderTownMissionController'
 import { acceptCommanderMission, COMMANDER_DECAPITATION_ID } from '../../src/career/CommanderMissionCatalog'
-import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, advanceCommanderFourGateDefensePreparation } from '../../src/career/CommanderFourGateDefenseState'
+import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
 import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
 import type { NPC } from '../../src/world/NPC'
 
@@ -67,7 +68,7 @@ describe('CareerMissionCheckpoint', () => {
   it('isolates profile mutations and preserves unrelated Career state across a snapshot commit', () => {
     const h = fixture()
     h.setProfile({ ...h.profile, totalMerit: 25, availableMerit: 25, claimedBattleIds: ['battle'],
-      ownedWeapons: ['gladius_rusty'], activeMission: { ...h.profile.activeMission!,
+      inventory: { version: 1 as const, quantities: Object.fromEntries(['gladius_rusty'].map(id => [id, 1])) }, ownedWeapons: ['gladius_rusty'], activeMission: { ...h.profile.activeMission!,
         mountState: { activeMountId: 'horse', hp: { horse: 43 }, unavailable: ['corgi'] },
       } })
     const before = h.profile
@@ -114,7 +115,7 @@ describe('CareerMissionCheckpoint', () => {
 
   it('lazily captures Commander Town death after combat and retries fresh state before returning to the periodic cadence', () => {
     const base = createCareerProfile('roman')
-    base.rank = 'commander'; base.totalMerit = 20_000
+    Object.assign(base, careerRankFixture(base.faction, 'commander')); base.totalMerit = 20_000
     let profile = acceptCommanderMission(base, COMMANDER_DECAPITATION_ID, 'town-death')!
     profile.activeMission!.commanderMission!.deploymentComplete = true
     let saving = true, positionReads = 0
@@ -254,11 +255,13 @@ describe('CareerMissionCheckpoint', () => {
   })
 
   it('retries a failed first-attack save with current actor intent in both checkpoints before publishing combat', () => {
-    const legacy = createFourGateDefenseProfile('PREPARING', { legacyPrepared: true })
-    legacy.activeMission!.fourGateDefense!.preparationRemainingSeconds = 37.5
-    let profile = parseCareerProfile(legacy)!
-    expect(profile.activeMission!.fourGateDefense!.preparationRemainingSeconds).toBe(37.5)
-    const state = advanceCommanderFourGateDefensePreparation(profile.activeMission!.fourGateDefense!, 37.5, true)
+    const initialProfile = createFourGateDefenseProfile('ATTACKING')
+    Object.assign(initialProfile.activeMission!.fourGateDefense!, { phase: 'SPAWNING', deploymentComplete: false, attackStarted: false, combatElapsedSeconds: 0 })
+    for (const ramp of initialProfile.activeMission!.fourGateDefense!.siege!.ramps) ramp.state = 'DEPLOYING'
+    initialProfile.activeMission!.phase = 'SPAWNING'
+    initialProfile.activeMission!.commanderMission!.deploymentComplete = false
+    let profile = parseCareerProfile(initialProfile)!
+    const state = profile.activeMission!.fourGateDefense!
     profile.activeMission!.fourGateDefense = state; profile.activeMission!.phase = 'SPAWNING'
     profile.activeMission!.commanderMission!.deploymentComplete = false
     const initial = profile
@@ -328,7 +331,7 @@ describe('CareerMissionCheckpoint', () => {
     storage.failWrites = false
     expect(checkpoint.persist(snapshot, { immediate: false, periodic: true })).toBe(true)
     expect(Array.from({ length: storage.length }, (_, index) => storage.key(index))).toEqual([CAREER_STORAGE_KEY])
-    expect(JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!)).toMatchObject({ version: 1, activeMission: { id: 'four-gate-save', phase: 'ATTACKING' } })
+    expect(JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!)).toMatchObject({ version: 2, activeMission: { id: 'four-gate-save', phase: 'ATTACKING' } })
     // Inspect durable bytes from the successful retry, including the fresh actor intent.
     const saved = (JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!) as CareerProfile).activeMission!.fourGateDefense!
     expect(saved).toMatchObject({ phase: 'ATTACKING', attackStarted: true, preparationRemainingSeconds: 0, player: { hp: 70 } })

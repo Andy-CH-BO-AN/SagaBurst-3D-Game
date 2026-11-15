@@ -1,3 +1,5 @@
+import { personalSquadFixture } from '../helpers/personalSquadFixture'
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import type { OfficialCommandAuthority } from '../../src/career/CareerCommandAuthority'
@@ -65,7 +67,7 @@ describe('official squad lookup cache', () => {
     // First listed squad wins; listed-but-unassigned and unlisted actors have no squad.
     expect(['a', 'b', 'c', 'x'].map(id => officialActorSquadId(authority, id))).toEqual([1, 2, undefined, undefined])
     expect(officialCommandIsPlayerControlled(authority, 'b')).toBe(true)
-    // Saved edits replace arrays on the same object (TownProfileCommit, TownDefenseController).
+    // Saved edits replace arrays on the same object (TownProfileCommit, CommanderFourGateDefenseController).
     authority.squads = [{ squadId: 3, actorIds: ['c', 'b'] }]
     authority.actorIds = authority.actorIds.filter(id => id !== 'a')
     expect(['a', 'b', 'c'].map(id => officialActorSquadId(authority, id))).toEqual([undefined, 3, 3])
@@ -79,33 +81,6 @@ describe('official squad lookup cache', () => {
 })
 
 describe('Commander saved command grant', () => {
-  it('migrates the authored peaceful army by actor identity and releases old air claims without healing or resetting cooldowns', () => {
-    const profile = createCareerProfile('roman')
-    profile.rank = 'commander'; profile.totalMerit = 20000
-    const squads = commanderGateDefenseSlots(undefined, 1), actorIds = squads.flatMap(squad => squad.actorIds)
-    profile.townCommandSquad = { type: 'town-command', townFaction: 'roman', squadId: 1, commandRank: 'commander', squads,
-      actorIds, commandedActorIds: ['captain', 'town-eagle-rider:1'], contribution: emptyPersonalContribution(),
-      authorized: true, state: 'FOLLOWING', sceneKey: 'town-home', members: {
-        captain: { status: 'deployed', hp: 17, order: 'follow' },
-        'town-eagle-rider:1': { status: 'dead', hp: 0, ammo: 2, position: { x: -90, y: 10, z: -75, yaw: 0 },
-          mount: { hp: 11, mounted: false, position: { x: -91, y: 10, z: -76, yaw: 0 } } },
-      } }
-    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
-    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
-    const loaded = store.load()!, town = loaded.townCommandSquad!
-    expect(town.squads!.map(squad => squad.actorIds.length)).toEqual([26, 26, 26, 26, 25, 26, 25, 26])
-    expect(town.actorIds).toHaveLength(206)
-    expect(officialActorSquadId(town, 'captain')).toBe(6)
-    expect(officialActorSquadId(town, 'hr-officer')).toBe(8)
-    expect(town.commandedActorIds).toEqual(['captain'])
-    expect(town.members!.captain).toEqual({ status: 'deployed', hp: 17, order: 'follow' })
-    const native = loaded.townEagleGarrisons!.roman!
-    expect(native.pairs[0]).toMatchObject({ riderId: 'town-eagle-rider:1', duty: 'casualty', hp: 0,
-      commandReturn: true, replacementRemaining: 60, mount: { hp: 11 } })
-    native.pairs[0].replacementRemaining = 23
-    expect(store.save(loaded)).toBe(true)
-    expect(store.load()!.townEagleGarrisons!.roman!.pairs[0].replacementRemaining).toBe(23)
-  })
 
   it('isolates native sentries from official ALL, legacy air authority and HUD while mission-issued air remains commandable', () => {
     const squads = commanderGateDefenseSlots(), authority = createMissionCommandAuthority('guards', 'roman', 'commander', [], squads)
@@ -117,7 +92,7 @@ describe('Commander saved command grant', () => {
       expect(officialCommandAcceptsActor(authority, { combatantId: id, squadId: 8, dead: false,
         faction: Faction.TOWN, combatOwnership: 'mission-official' })).toBe(false)
     }
-    const legacy = createMissionCommandAuthority('legacy', 'roman', 'commander', [], commanderGateDefenseSlots(undefined, 1))
+    const legacy = createMissionCommandAuthority('legacy', 'roman', 'commander', [], commanderGateDefenseSlots())
     legacy.commandedSquadIds = [8]
     expect(officialCommandIsPlayerControlled(legacy, 'town-eagle-rider:1')).toBe(false)
     const roster = careerCommandHudRoster({ sceneKey: 'town:roman', faction: 'roman', missionId: 'legacy', official: legacy,
@@ -130,7 +105,7 @@ describe('Commander saved command grant', () => {
 
   it('round-trips exact peaceful claims until retirement revokes Town authority while preserving HR and resources', () => {
     const profile = createCareerProfile('roman')
-    profile.rank = 'commander'; profile.totalMerit = 20000
+    Object.assign(profile, careerRankFixture(profile.faction, 'commander')); profile.totalMerit = 20000
     profile.townCommandSquad = { type: 'town-command', townFaction: 'roman', squadId: 1,
       commandRank: 'commander', squads: [{ squadId: 1, actorIds: ['one', 'two'] }, { squadId: 2, actorIds: ['three'] }],
       actorIds: ['one', 'two', 'three'], commandedActorIds: ['two'], nativeReturnStates: { three: 'REFIT' },
@@ -151,16 +126,13 @@ describe('Commander saved command grant', () => {
     expect(store.load()!.townCommandSquad).toEqual(profile.townCommandSquad)
 
     const retiring = cloneCareerProfile(profile)
-    retiring.personalSquad = { members: [{ id: 'personal:retained', type: 'soldier' }] }
+    retiring.personalSquad = personalSquadFixture(retiring, [{ id: 'personal:retained', type: 'soldier' }])
     retiring.personalSquadRuntime = snapshotPersonalMission(retiring)!
     retiring.personalSquadRuntime.state = 'ACTIVE'
     retiring.personalSquadRuntime.members['personal:retained'] = { status: 'deployed', hp: 15, order: 'follow' }
     retiring.civilianCommandSquad = { type: 'civilian-command', squadId: 'civilians', townFaction: 'roman',
       sceneKey: 'town:roman', actorIds: ['merchant'], owners: { merchant: 'player' },
       members: { merchant: { status: 'deployed', hp: 19, order: 'follow' } } }
-    retiring.townAirCommandSquad = { type: 'town-air-command', squadId: 8, townFaction: 'roman', sceneKey: 'town:roman',
-      actorIds: ['town-eagle-rider:1'], commandedActorIds: ['town-eagle-rider:1'],
-      members: { 'town-eagle-rider:1': { status: 'deployed', hp: 11, ammo: 2 } } }
     retiring.careerRetirement = { version: 1, phase: 'departing', acceptedAt: 1, combatElapsedSeconds: 0 }
     const departing = cloneCareerProfile(retiring)
     revokeRetirementTownCommandClaims(retiring)
@@ -183,8 +155,6 @@ describe('Commander saved command grant', () => {
     expect(retiring.townCommandSquad!.members!.two).toMatchObject({ hp: 17, ammo: 3, shieldImpact: 4, order: 'defend' })
     expect(retiring.townCommandSquad!.members!.two.formation).toBeUndefined()
     expect(retiring.townCommandSquad!.members!.three.mount).toEqual(departing.townCommandSquad!.members!.three.mount)
-    expect(retiring.townAirCommandSquad!.commandedActorIds).toEqual([])
-    expect(retiring.townAirCommandSquad!.members).toEqual(departing.townAirCommandSquad!.members)
     expect(retiring.civilianCommandSquad!.owners).toEqual({ merchant: 'daily' })
     expect(retiring.civilianCommandSquad!.members.merchant.hp).toBe(19)
     expect(retiring.personalSquad).toEqual(departing.personalSquad)
@@ -206,7 +176,7 @@ describe('Commander saved command grant', () => {
 
   it('round-trips explicit squads, ownership, casualties, formations and resource checkpoints through CareerProfileStore', () => {
     const profile = createCareerProfile('roman')
-    profile.rank = 'commander'; profile.totalMerit = 20000
+    Object.assign(profile, careerRankFixture(profile.faction, 'commander')); profile.totalMerit = 20000
     profile.activeMission = createActiveCareerMission('captain-cavalry-command', 0, 1, 0, 'army-save')
     profile.activeMission.friendlyActorIds = ['north', 'south']
     profile.activeMission.reinforcementActorIds = ['pending']
@@ -227,10 +197,14 @@ describe('Commander saved command grant', () => {
     expect(store.load()!.activeMission!.officialSquad).toEqual(authority)
     const loaded = store.load()!
     const copy = cloneCareerProfile(loaded)
+    copy.activeMission!.targetActorIds.push('not-saved-target')
+    copy.activeMission!.friendlyActorIds.push('not-saved-friendly')
     copy.activeMission!.officialSquad!.squads![1].actorIds.push('not-saved')
     copy.activeMission!.officialSquad!.commandedSquadIds!.push(1)
     copy.activeMission!.officialSquad!.members!.south.formation!.position.x = 99
     copy.activeMission!.officialSquad!.squads![1].contribution!.damageDealt = 999
+    expect(loaded.activeMission!.targetActorIds).toEqual(['army-save:bandit:0'])
+    expect(loaded.activeMission!.friendlyActorIds).toEqual(['north', 'south'])
     expect(loaded.activeMission!.officialSquad).toEqual(authority)
     expect(store.load()!.activeMission!.officialSquad).toEqual(authority)
   })
@@ -238,7 +212,7 @@ describe('Commander saved command grant', () => {
   it('never promotes a legacy single-squad save merely because the profile has merit or a higher current rank', () => {
     const rank = 'commander'
       const profile = createCareerProfile('roman')
-      profile.rank = rank; profile.totalMerit = 20000
+      Object.assign(profile, careerRankFixture(profile.faction, rank)); profile.totalMerit = 20000
       profile.activeMission = createActiveCareerMission('captain-cavalry-command', 0, 1, 0, 'army-save')
       profile.activeMission.friendlyActorIds = ['north', 'south']
       profile.activeMission.officialSquad = createMissionCommandAuthority('army-save', 'roman', 'captain', ['north'], [])
@@ -253,11 +227,11 @@ describe('Commander saved command grant', () => {
   it('refuses an invalid expanded rank or membership grant without acknowledging a write', () => {
     for (const mismatch of ['rank', 'membership'] as const) {
       const profile = createCareerProfile('roman')
-      profile.rank = 'commander'; profile.totalMerit = 20000
+      Object.assign(profile, careerRankFixture(profile.faction, 'commander')); profile.totalMerit = 20000
       profile.activeMission = createActiveCareerMission('captain-cavalry-command', 0, 1, 0, 'army-save')
       profile.activeMission.friendlyActorIds = ['north', 'south', 'pending']
       profile.activeMission.officialSquad = commanderAuthority()
-      if (mismatch === 'rank') profile.rank = 'captain'
+      if (mismatch === 'rank') Object.assign(profile, careerRankFixture(profile.faction, 'captain'));
       if (mismatch === 'membership') profile.activeMission.friendlyActorIds = ['north']
       const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
       expect(store.save(profile)).toBe(false)
@@ -272,7 +246,7 @@ describe('Commander saved command grant', () => {
     const savedCaptain = parseOfficialCommandAuthority(JSON.parse(JSON.stringify(captain)))!
     expect(officialCommandIsPlayerControlled(savedCaptain, 'north')).toBe(false)
     const profile = createCareerProfile('roman')
-    profile.rank = 'commander'; profile.totalMerit = 20000
+    Object.assign(profile, careerRankFixture(profile.faction, 'commander')); profile.totalMerit = 20000
     profile.activeMission = createActiveCareerMission('captain-cavalry-command', 0, 1, 0, 'army-save')
     profile.activeMission.friendlyActorIds = ['north', 'south', 'pending']
     profile.activeMission.officialSquad = commanderAuthority()
@@ -320,8 +294,8 @@ describe('Commander saved command grant', () => {
 })
 
 function acceptedOutpost(kind: 'outpost-defense' | 'outpost-relief') {
-  const current = { ...createCareerProfile('roman'), rank: 'commander' as const, totalMerit: 20000,
-    completedOutpostStages: [1, 2, 3] as const, ownedMounts: ['horse' as const] }
+  const current = { ...createCareerProfile('roman'), ...careerRankFixture('roman', 'commander' as const), rank: 'commander' as const, totalMerit: 20000,
+    completedOutpostStages: [1, 2, 3] as const, inventory: { version: 1 as const, quantities: Object.fromEntries(['horse' as const].map(id => [id, 1])) }, ownedMounts: ['horse' as const] }
   const profile = { ...current, completedOutpostStages: [...current.completedOutpostStages] }
   return (kind === 'outpost-relief' ? acceptCareerOutpostRelief(profile, 'outpost-store')
     : acceptCareerOutpost(profile, 1, 'outpost-store'))!
@@ -399,7 +373,7 @@ function residentRecovery(actorId: string, npcDead: boolean, mountDead: boolean,
   const actor = records.find(record => record.spec.id === actorId)!.npc
   // One adapter into the production borrowing boundary; no NPC/Mount/3D construction.
   const residents = records as unknown as CivilianCommandResident[]
-  let profile: import('../../src/career/CareerProfile').CareerProfile = { ...createCareerProfile('roman'), rank: 'commander', totalMerit: 20000 }
+  let profile: import('../../src/career/CareerProfile').CareerProfile = { ...createCareerProfile('roman'), ...careerRankFixture('roman', 'commander'), rank: 'commander', totalMerit: 20000 }
   let permitSave = true
   const controller = () => new CivilianCommandSquadController(residents, () => ({ dead: false }) as Player,
     () => profile, next => { events.push('save'); if (!permitSave) return false; profile = next; return true },
@@ -521,10 +495,10 @@ it('uses Veteran authored squads with distinct pending reinforcement groups at f
     expect(officialActorSquadId(authority, mission.reinforcementActorIds![0])).toBe(5)
     expect(officialActorSquadId(authority, mission.reinforcementActorIds![1])).toBe(6)
     expect(mission.officialSquad).toBeUndefined()
-    expect(buildCommanderAuthorityForMission({ ...profile, rank: 'captain' }, mission)).toBeUndefined()
+    expect(buildCommanderAuthorityForMission({ ...profile, ...careerRankFixture((profile).faction, 'captain'), rank: 'captain' }, mission)).toBeUndefined()
     expect(buildCommanderAuthorityForMission(profile, { ...mission, kind: 'duel' })).toBeUndefined()
     expect(buildCommanderAuthorityForMission(profile, { ...mission, phase: 'RETURNING' })).toBeUndefined()
     expect(buildCommanderAuthorityForMission(profile, { ...mission, officialSquad: authority })).toBeUndefined()
   })
 
-const commander = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'commander', totalMerit: 20000 })
+const commander = (): CareerProfile => ({ ...createCareerProfile('roman'), ...careerRankFixture('roman', 'commander'), rank: 'commander', totalMerit: 20000 })

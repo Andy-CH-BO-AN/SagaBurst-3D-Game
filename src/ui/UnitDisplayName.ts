@@ -4,7 +4,7 @@ import type { MountType } from '../world/Mount'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import type { CareerPersonalSquadMember } from '../career/CareerPersonalSquad'
-import { PERSONAL_ROLE_NAMES, defaultPersonalRecruitmentChoice } from '../career/CareerRecruitmentCatalog'
+import { PERSONAL_ROLE_NAMES } from '../career/CareerRecruitmentCatalog'
 import { resolveCharacterIdentity } from '../combat/CharacterIdentity'
 import { HERO_CLASS_NAMES } from '../career/CareerHeroClasses'
 
@@ -69,14 +69,13 @@ export function townUnitDisplayNames(roster: readonly { spec: TownActorSpec; mou
 }
 
 /** Permanent member order is supplied by the roster, never inferred from its UUID. */
-export function personalUnitDisplayName(member: CareerPersonalSquadMember, faction: CharacterFaction, index?: number): string {
-  faction = member.characterFaction ?? faction
-  const legacy = defaultPersonalRecruitmentChoice(member.type, faction)
-  const identity = resolveCharacterIdentity({ characterFaction: faction, characterTier: member.characterTier ?? legacy.characterTier,
-    heroArchetype: member.heroArchetype ?? legacy.heroArchetype, visualAssetId: member.visualAssetId })
+export function personalUnitDisplayName(member: CareerPersonalSquadMember, _faction: CharacterFaction, index?: number): string {
+  const faction = member.characterFaction
+  const identity = resolveCharacterIdentity({ characterFaction: faction, characterTier: member.characterTier,
+    heroArchetype: member.heroArchetype, visualAssetId: member.visualAssetId })
   const hero = identity.heroArchetype === 'ranger' ? '遊俠・' : identity.heroArchetype && member.visualAssetId ? `${HERO_CLASS_NAMES[identity.combatProfileId!].zh}・`
     : identity.heroArchetype === 'captain' ? '隊長・' : identity.heroArchetype === 'commander' ? '指揮官・' : ''
-  return `私兵・${FACTIONS[faction]}${hero}${PERSONAL_ROLE_NAMES[member.recruitmentRole ?? legacy.recruitmentRole]}${index === undefined ? '' : ` ${number(index + 1)}`}${tierSuffix(identity.characterTier)}`
+  return `私兵・${FACTIONS[faction]}${hero}${PERSONAL_ROLE_NAMES[member.recruitmentRole]}${index === undefined ? '' : ` ${number(index + 1)}`}${tierSuffix(identity.characterTier)}`
 }
 
 export interface CombatUnitDisplayInfo {

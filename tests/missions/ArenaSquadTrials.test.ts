@@ -2,10 +2,7 @@ import { CareerArenaCombatScene } from '../../src/arena/CareerArenaCombatScene'
 import { CareerArenaSession } from '../../src/arena/CareerArenaSession'
 import { SkillManager } from '../../src/rpg/SkillManager'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
-import {
-  ARENA_TRIAL_DEFINITIONS, ARENA_TRIAL_TIERS, ARENA_TRIAL_TIME_LIMIT_SECONDS, arenaTrialBlocker, arenaTrialRestorablePlan, arenaTrialRoster,
-  acceptArenaStoryTrial, arenaTrialTeamSizes, arenaTrialUnitSpec, createArenaTrialMission, resolveArenaTrialEnd, type ArenaTrialTier,
-} from '../../src/career/CareerArenaTrials'
+import { ARENA_TRIAL_DEFINITIONS, ARENA_TRIAL_TIERS, ARENA_TRIAL_TIME_LIMIT_SECONDS, arenaTrialBlocker, arenaTrialRestorablePlan, arenaTrialRoster, acceptArenaStoryTrial, arenaTrialTeamSizes, arenaTrialUnitSpec, createArenaTrialMission, resolveArenaTrialEnd, type ArenaTrialTier } from '../../src/career/CareerArenaTrials'
 import { claimCareerMission, createCareerProfile, promoteCareer, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { assignArenaTrialSlots, planArenaTrialFormation } from '../../src/arena/ArenaTrialFormation'
@@ -170,24 +167,6 @@ describe('Arena Squad Trials', () => {
     }
   })
 
-  it('restores the original actor identities and knockouts in an already accepted pre-rebalance trial', () => {
-    const profile = profileAt('commander')
-    const mission = createArenaTrialMission(profile, 5, 'viking-valhalla', 'legacy-trial')!
-    mission.friendlyActorIds = Array.from({ length: 4 }, (_, i) => `legacy-trial:friendly:${i}`)
-    delete mission.arenaTrial!.rosterVersion
-    Object.assign(mission.arenaTrial!, { stage: 'engaged', combatElapsed: 12, actors: {
-      'legacy-trial:friendly:2': { status: 'knocked', hp: 0, x: 1, z: 2, yaw: 0 },
-    } })
-    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
-    expect(store.save({ ...profile, activeMission: mission })).toBe(true)
-    const restored = store.load()!.activeMission!, state = restored.arenaTrial!
-    expect(restored.friendlyActorIds).toEqual(mission.friendlyActorIds)
-    expect(state.rosterVersion).toBeUndefined()
-    const friendly = arenaTrialRoster(restored.id, 5, state.rosterVersion ?? 1).filter(entry => entry.team === 'friendly')
-    expect(friendly.map(entry => Boolean(entry.group.heavy))).toEqual([true, true, false, false])
-    expect(arenaTrialRestorablePlan(restored, state).map(entry => entry.actorId)).not.toContain('legacy-trial:friendly:2')
-  })
-
   it('ends only when a team is out: a fallen player alone does not lose while a friendly body stands', () => {
     expect(resolveArenaTrialEnd({ friendlyActive: 3, enemyActive: 4, playerKnocked: true }, 30)).toBeNull()
     expect(resolveArenaTrialEnd({ friendlyActive: 0, enemyActive: 4, playerKnocked: false }, 30)).toBeNull()
@@ -221,13 +200,13 @@ describe('Arena Squad Trials', () => {
     const settled = { ...restored, arenaTrial: { ...restored.arenaTrial!, endReason: 'timeout' as const } }
     expect(store.save({ ...profile, activeMission: settled })).toBe(true)
     expect(store.load()!.activeMission!.arenaTrial!.endReason).toBe('timeout')
-    const tampered = JSON.parse(storage.getItem('sagaburst_career_v1')!)
+    const tampered = JSON.parse(storage.getItem('sagaburst_career_v2')!)
     tampered.activeMission.arenaTrial.actors['not-in-roster'] = { status: 'knocked', hp: 0, x: 0, z: 0, yaw: 0 }
-    storage.setItem('sagaburst_career_v1', JSON.stringify(tampered))
+    storage.setItem('sagaburst_career_v2', JSON.stringify(tampered))
     expect(store.load()?.activeMission).toBeUndefined()
   })
 
-  it('saves height, ammo and shield durability exactly, keeping zero as spent and older saves loadable', () => {
+  it('saves height, ammo and shield durability exactly, keeping zero as spent and rejecting malformed checkpoints', () => {
     const profile = profileAt('commander')
     const mission = createArenaTrialMission(profile, 5, 'viking-valhalla', 'trial-gear')!
     const [archer] = mission.friendlyActorIds
@@ -243,13 +222,13 @@ describe('Arena Squad Trials', () => {
     expect(restored.actors[mission.friendlyActorIds[1]]).not.toHaveProperty('ammo')
     expect(restored.player).toMatchObject({ y: 3.95, ammo: 0, shieldImpact: 0, shieldDurability: { shield_a: 0, shield_b: 12 } })
     expect(restored.player?.fall).toEqual({ velocityY: -12.5, grounded: false, apexY: 17.9 })
-    const bad = JSON.parse(storage.getItem('sagaburst_career_v1')!)
+    const bad = JSON.parse(storage.getItem('sagaburst_career_v2')!)
     bad.activeMission.arenaTrial.player.fall.grounded = 'no'
-    storage.setItem('sagaburst_career_v1', JSON.stringify(bad))
+    storage.setItem('sagaburst_career_v2', JSON.stringify(bad))
     expect(store.load()?.activeMission).toBeUndefined()
     bad.activeMission.arenaTrial.player.fall.grounded = false
     bad.activeMission.arenaTrial.player.ammo = -1
-    storage.setItem('sagaburst_career_v1', JSON.stringify(bad))
+    storage.setItem('sagaburst_career_v2', JSON.stringify(bad))
     expect(store.load()?.activeMission).toBeUndefined()
   })
 

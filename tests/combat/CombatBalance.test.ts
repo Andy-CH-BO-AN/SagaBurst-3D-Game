@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it } from 'vitest'
 import { calculateLanceChargeDamage, getAntiCavalryMultiplier, getBerserkerModifiers, getNpcRangedAttackRange } from '../../src/combat/CombatBalance'
 import { applyHeroIncomingDamage, applyHeroMeleeDamage, applyHeroOutgoingDamage, getHeroCombatModifiers, heroMeleeAttackSpeed, HERO_COMBAT_PROFILE_BY_ASSET, HERO_COMBAT_PROFILES } from '../../src/battle/HeroCombatProfile'
@@ -36,7 +37,7 @@ describe('Combat damage eligibility', () => {
     expect(HERO_COMBAT_PROFILES.praetorian).toEqual({ maxHp: 500, damageMultiplier: 2, damageTakenMultiplier: .7, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 })
     expect([HERO_COMBAT_PROFILES.varangian.maxHp, HERO_COMBAT_PROFILES.ranger.maxHp, HERO_COMBAT_PROFILES['roman-commander'].maxHp, HERO_COMBAT_PROFILES['byzantine-cataphract'].maxHp]).toEqual([500, 300, 850, 1000])
     expect([HERO_COMBAT_PROFILE_BY_ASSET['roman-centurion-t4'], HERO_COMBAT_PROFILE_BY_ASSET['roman-hero-t4']]).toEqual(['centurion', 'praetorian'])
-    const captain = { faction: 'roman' as const, rank: 'captain' as const, eliteClass: null, skills: undefined }
+    const captain = { faction: 'roman' as const, ...careerRankFixture('roman', 'captain'), skills: undefined }
     expect(resolveCareerCombatProfile({ ...captain, t4Specialization: 'centurion' })).toBe('centurion')
     // Skill progression is applied by its existing owner on top of the profile base.
     expect(resolveCareerPlayerMaxHp({ ...captain, t4Specialization: 'centurion' })).toBe(resolveSkillAdjustedMaxHp(700, undefined))
@@ -59,10 +60,10 @@ describe('Combat damage eligibility', () => {
       expect(getHeroCombatModifiers(heavy)!.moveSpeedMultiplier).toBeLessThan(getHeroCombatModifiers(normal)!.moveSpeedMultiplier)
     }
     const viking = { faction: 'viking' as const, eliteClass: null, skills: undefined }
-    expect(resolveCareerCombatProfile({ ...viking, rank: 'captain', t4Specialization: 'dragon-oathguard' })).toBe('dragon-oathguard')
-    expect(resolveCareerCombatProfile({ ...viking, rank: 'captain' })).toBe('varangian')
-    expect(resolveCareerCombatProfile({ ...viking, rank: 'commander', eliteClass: 'ironblood-warlord', t4Specialization: 'dragon-oathguard' })).toBe('ironblood-warlord')
-    expect(resolveCareerPlayerMaxHp({ ...viking, rank: 'commander', eliteClass: 'ironblood-warlord' })).toBe(resolveSkillAdjustedMaxHp(1000, undefined))
+    expect(resolveCareerCombatProfile({ ...viking, ...careerRankFixture((viking).faction, 'captain'), rank: 'captain', t4Specialization: 'dragon-oathguard' })).toBe('dragon-oathguard')
+    expect(resolveCareerCombatProfile({ ...viking, ...careerRankFixture((viking).faction, 'captain'), rank: 'captain' })).toBe('varangian')
+    expect(resolveCareerCombatProfile({ ...viking, ...careerRankFixture((viking).faction, 'commander'), rank: 'commander', eliteClass: 'ironblood-warlord', t4Specialization: 'dragon-oathguard' })).toBe('ironblood-warlord')
+    expect(resolveCareerPlayerMaxHp({ ...viking, ...careerRankFixture((viking).faction, 'commander'), rank: 'commander', eliteClass: 'ironblood-warlord' })).toBe(resolveSkillAdjustedMaxHp(1000, undefined))
     const axe = { baseDamage: 80, combatKind: WEAPONS.axe_t5.combatKind, isLance: false, isMounted: false, mountSpeed: 0, oneHandedMultiplier: 1, faction: 'viking' as const, hasShield: true }
     expect(calculatePlayerMeleeDamage({ ...axe, heroAssetId: 'viking-heavy-hero-t5' }).damage).toBe(232)
   })

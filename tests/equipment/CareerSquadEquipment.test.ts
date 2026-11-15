@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { changeTownEquipment, type TownEquipmentContext } from '../../src/career/CareerTownEquipment'
 import { canUseCareerMount, ownedCareerMountIds } from '../../src/career/CareerMountController'
 import { addCareerItem } from '../../src/career/CareerInventory'
@@ -5,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { availableCareerItem, careerItemAllocated, careerItemTotal, careerItemTotals, type PersonalEquipmentSlot } from '../../src/career/CareerInventory'
 import { personalMemberRefund, recruitPersonalSquadMember, sellPersonalSquadMember, sellPersonalSquadMembers, type PersonalSquadAuthority, type PersonalSquadMemberType } from '../../src/career/CareerPersonalSquad'
 import { cloneCareerProfile, createCareerProfile, purchaseCareerContent, type CareerPurchaseRequest, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
-import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
 import { resolvePersonalRecruitment } from '../../src/career/CareerRecruitmentCatalog'
 import { TownEquipment } from '../../src/town/TownEquipment'
@@ -14,7 +15,7 @@ import { purchaseTownEquipment, purchaseTownMount, sellTownProduct } from '../..
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 function harness(rank: CareerRank = 'captain', faction: CareerProfile['faction'] = 'roman') {
-  let profile: CareerProfile = { ...createCareerProfile(faction), rank, totalMerit: 60000, availableMerit: 60000 }
+  let profile: CareerProfile = { ...createCareerProfile(faction), ...careerRankFixture(faction, rank), rank, totalMerit: 60000, availableMerit: 60000 }
   const storage = new MemoryStorage()
   const store = new CareerProfileStore(storage)
   const authority: PersonalSquadAuthority = { state: 'RESERVE' }
@@ -75,7 +76,7 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     balanced(remaining)
     // Continue the same purchased-copy lifecycle with an eligible private soldier.
     // Appointment eligibility is covered by its own owner; no new shield is granted.
-    h.set({ ...remaining, rank: 'captain' })
+    h.set({ ...remaining, ...careerRankFixture((remaining).faction, 'captain'), rank: 'captain' })
     const member = h.hire('soldier')
     const equipped = new TownEquipment(h.read, h.save)
     equipped.unequipShield()
@@ -207,13 +208,7 @@ describe('Shared Career quantity inventory and personal equipment', () => {
       hero: { combatProfileId: 'ranger' }, loadout: { meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: null, reversibleRangedSwitch: true } })
     expect(careerItemTotal(loaded, 'recurve_longbow')).toBe(1)
     expect(careerItemTotal(loaded, T4_RANGER_BOW_RANGED_ID)).toBe(0)
-    expect(loaded.personalSquad!.members[0]).toMatchObject({ characterTier: 4, heroArchetype: 'ranger', recruitmentRole: 'archer', originalHirePrice: 500, initialEquipmentVersion: 1 })
-    const withoutOldRangerReceipt = cloneCareerProfile(loaded)
-    delete withoutOldRangerReceipt.personalSquad!.members[0].rangerEquipmentVersion
-    const newReceiptOnly = parseCareerProfile(withoutOldRangerReceipt)!
-    expect(newReceiptOnly.personalSquad!.members[0].equipment).toEqual(loaded.personalSquad!.members[0].equipment)
-    expect(newReceiptOnly.inventory).toEqual(loaded.inventory)
-    expect(parseCareerProfile(JSON.parse(JSON.stringify(newReceiptOnly)))).toEqual(newReceiptOnly)
+    expect(loaded.personalSquad!.members[0]).toMatchObject({ characterTier: 4, heroArchetype: 'ranger', recruitmentRole: 'archer', originalHirePrice: 500 })
     expect(parseCareerProfile(JSON.parse(JSON.stringify(loaded)))).toEqual(loaded)
     balanced(loaded)
   })
@@ -266,19 +261,6 @@ describe('Atomic HR release and refunds', () => {
   })
 })
 describe('Inventory migration and normalization', () => {
-  it('migrates legacy ownership and HR gear once, deduplicating Horse aliases', () => {
-    const legacy = { ...createCareerProfile('roman'), totalMerit: 6000, rank: 'captain', ownedWeapons: ['gladius_standard', 'gladius_standard', T4_RANGER_BOW_RANGED_ID],
-      ownedMounts: ['horse', 'horse-t1', 'horse-t2'], ownedHorseTiers: [1, 2, 3], equipment: { melee: 'gladius_standard' },
-      personalSquad: { members: [{ id: 'personal:s', type: 'soldier' }, { id: 'personal:c', type: 'captain' }, { id: 'personal:r', type: 'ranger' }] } }
-    const loaded = parseCareerProfile(legacy)!
-    expect(careerItemTotal(loaded, 'gladius_standard')).toBe(2); expect(availableCareerItem(loaded, 'gladius_standard')).toBe(0)
-    expect(careerItemTotal(loaded, T4_RANGER_BOW_RANGED_ID)).toBe(2)
-    expect(availableCareerItem(loaded, T4_RANGER_BOW_RANGED_ID)).toBe(1)
-    expect(careerItemTotal(loaded, 'horse')).toBe(3); expect(loaded.personalSquad!.members.map(member => member.originalHirePrice)).toEqual([50, 500, 500])
-    expect(loaded.personalSquad!.members.map(member => [member.characterTier, member.heroArchetype])).toEqual([[2, undefined], [4, 'captain'], [4, 'ranger']])
-    expect(personalMemberRefund(loaded, loaded.personalSquad!.members[0])).toBe(40)
-    expect(parseCareerProfile(JSON.parse(JSON.stringify(loaded)))).toEqual(loaded); balanced(loaded)
-  })
   it('rejects saves with duplicate weapon allocations or inconsistent hero identity', () => {
     const h = harness(); h.hire('ranger'); h.hire('ranger')
     const invalid = cloneCareerProfile(h.read()); invalid.inventory!.quantities.gladius_standard = 1
@@ -287,62 +269,5 @@ describe('Inventory migration and normalization', () => {
     const badHero = cloneCareerProfile(h.read())
     badHero.personalSquad!.members[0].heroArchetype = 'captain'
     expect(parseCareerProfile(badHero)).toBeNull()
-  })
-  it('commits a receiptless legacy member identity once before exposing the migrated profile', () => {
-    const h = harness(), id = h.hire(), legacy = cloneCareerProfile(h.read()), member = legacy.personalSquad!.members[0]
-    delete member.originalHirePrice
-    // The new grant receipt identifies the current catalog; old receiptless Soldiers cost 50.
-    expect(parseCareerProfile(legacy)!.personalSquad!.members[0].originalHirePrice).toBe(200)
-    delete member.characterFaction; delete member.characterTier; delete member.recruitmentRole; delete member.initialEquipmentVersion; delete member.originalHirePrice
-    const storage = new MemoryStorage(), store = new CareerProfileStore(storage), bytes = JSON.stringify(legacy)
-    storage.setItem(CAREER_STORAGE_KEY, bytes); storage.failWrites = true
-    expect(store.loadChecked()).toMatchObject({ profile: null, error: expect.any(String) })
-    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
-    storage.failWrites = false
-    const loaded = store.loadChecked().profile!
-    expect(loaded.personalSquad!.members[0]).toMatchObject({ id, characterFaction: 'roman', characterTier: 2, recruitmentRole: 'swordsman', originalHirePrice: 50 })
-    expect(loaded.inventory).toEqual(legacy.inventory)
-    expect(JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!)).toEqual(loaded)
-    storage.failWrites = true
-    expect(store.loadChecked().profile).toEqual(loaded)
-  })
-  it('atomically migrates legacy Ranger and resident receipts once, preserving choices and mounts across failed-save retry', () => {
-    const legacy: CareerProfile = { ...createCareerProfile('viking'), rank: 'captain', totalMerit: 6000, availableMerit: 1234,
-      inventory: { version: 1, quantities: { heavy_lance: 1, scutum_t2: 1, [T4_RANGER_BOW_RANGED_ID]: 1, horse: 1, 'black-cat': 1, xongkoro: 1 } },
-      equipment: { ranged: T4_RANGER_BOW_RANGED_ID }, personalSquad: { members: [
-        { id: 'personal:ghost', type: 'ranger', equipment: { melee: null, ranged: null, shield: null, mount: 'xongkoro' } },
-        { id: 'personal:custom', type: 'ranger', equipment: { melee: 'heavy_lance', ranged: null, shield: 'scutum_t2', mount: 'horse' } },
-        { id: 'personal:empty', type: 'ranger', equipment: { melee: null, ranged: null, shield: null, mount: 'black-cat' } },
-      ] }, townEquipment: { viking: { version: 1, nativeReserve: [], actors: {
-        merchant: { melee: { itemId: 'paladin_sword_t4', source: 'native', nativeId: 'viking/merchant/melee' },
-          ranged: null, shield: { itemId: 'paladin_shield_t4', source: 'native', nativeId: 'viking/merchant/shield' }, mount: null },
-        'civilian-0': { melee: null, ranged: null, shield: null, mount: null },
-      } } } }
-    const storage = new MemoryStorage(), store = new CareerProfileStore(storage), bytes = JSON.stringify(legacy)
-    storage.setItem(CAREER_STORAGE_KEY, bytes); storage.failWrites = true
-    let writes = 0
-    const write = storage.setItem.bind(storage)
-    storage.setItem = (key, value) => { writes++; write(key, value) }
-    expect(store.loadChecked()).toMatchObject({ profile: null, error: expect.any(String) })
-    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
-    expect(writes).toBe(1)
-    storage.failWrites = false
-    const loaded = store.loadChecked().profile!
-    expect(loaded).not.toBeNull()
-    expect(loaded.availableMerit).toBe(1234)
-    expect(loaded.inventory!.quantities).toEqual({ ...legacy.inventory!.quantities, viking_axe_t3: 2, [T4_RANGER_BOW_RANGED_ID]: 3 })
-    expect(loaded.personalSquad!.members[1].equipment).toEqual(legacy.personalSquad!.members[1].equipment)
-    expect(loaded.personalSquad!.members.map(member => member.equipment!.mount)).toEqual(['xongkoro', 'horse', 'black-cat'])
-    expect(loaded.personalSquad!.members.every(member => member.rangerEquipmentVersion === 1)).toBe(true)
-    expect(loaded.townEquipment!.viking).toMatchObject({ residentEquipmentVersion: 1, actors: {
-      merchant: { melee: { itemId: 'sword_t5', source: 'native', nativeId: 'viking/merchant/melee' } },
-      'civilian-0': { melee: { itemId: 'gladius_rusty', source: 'native', nativeId: 'viking/civilian-0/melee' } },
-    } })
-    expect(availableCareerItem(loaded, 'viking_axe_t3')).toBe(0)
-    expect(availableCareerItem(loaded, T4_RANGER_BOW_RANGED_ID)).toBe(0)
-    expect(JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!)).toEqual(loaded)
-    expect(store.loadChecked().profile).toEqual(loaded)
-    expect(writes).toBe(2)
-    balanced(loaded)
   })
 })

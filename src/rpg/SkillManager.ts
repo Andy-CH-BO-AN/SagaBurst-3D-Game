@@ -10,7 +10,6 @@ import type { WeaponData } from './WeaponDatabase'
 export const MAX_SKILL_LEVEL = 50
 
 export type SkillId = 'oneHanded' | 'twoHanded' | 'ranged' | 'mountedImpact' | 'blocking' | 'unarmed'
-export type LegacySkillId = SkillId | 'archery'
 
 export interface SkillData {
   level: number
@@ -33,8 +32,6 @@ export interface SkillStateInput {
   twoHanded?: Partial<SkillData>
   ranged?: Partial<SkillData>
   mountedImpact?: Partial<SkillData>
-  /** Legacy save compatibility. */
-  archery?: Partial<SkillData>
 }
 
 const SKILL_LABELS: Record<SkillId, string> = {
@@ -74,13 +71,12 @@ function normalizeSkillData(value?: Partial<SkillData>): SkillData {
 }
 
 export function normalizeSkillState(state?: SkillStateInput | null): SkillState {
-  const ranged = state?.ranged ?? state?.archery
   return {
     unarmed: normalizeSkillData(state?.unarmed),
     blocking: normalizeSkillData(state?.blocking),
     oneHanded: normalizeSkillData(state?.oneHanded),
     twoHanded: normalizeSkillData(state?.twoHanded),
-    ranged: normalizeSkillData(ranged),
+    ranged: normalizeSkillData(state?.ranged),
     mountedImpact: normalizeSkillData(state?.mountedImpact),
   }
 }
@@ -186,8 +182,8 @@ export class SkillManager {
    * Offensive XP uses actual HP removed. Blocking uses actual absorbed impact
    * scaled by SHIELD_CONFIG. Structure damage must not call this method.
    */
-  addXp(skill: LegacySkillId, amount: number, soundManager?: SoundManager): number {
-    const id: SkillId = skill === 'archery' ? 'ranged' : skill
+  addXp(skill: SkillId, amount: number, soundManager?: SoundManager): number {
+    const id = skill
     const data = this.state[id]
     if (data.level >= MAX_SKILL_LEVEL) return 0
 

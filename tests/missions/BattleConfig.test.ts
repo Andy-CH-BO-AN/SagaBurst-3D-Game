@@ -1,10 +1,10 @@
-import { needsPlayerHpConfirmation, resolveOrdinaryPlayerBaseHp } from '../../src/combat/OrdinarySoldierProfile'
-import { describe, expect, it } from 'vitest'
-import { PRESET_10V10, PRESET_25V25, PRESET_50V50, PRESET_100V100, PRESET_200V200, getDefaultBattleConfig, createEmptyArmyConfig, validateBattleConfig, validateBattleSquadAssignments, type BattleConfig } from '../../src/battle/BattleConfig'
+import { describe,expect,it } from 'vitest'
+import { PRESET_100V100,PRESET_10V10,PRESET_200V200,PRESET_25V25,PRESET_50V50,createEmptyArmyConfig,getDefaultBattleConfig,validateBattleConfig,validateBattleSquadAssignments,type BattleConfig } from '../../src/battle/BattleConfig'
+import { resolveOrdinaryPlayerBaseHp } from '../../src/combat/OrdinarySoldierProfile'
 function config(count: number): BattleConfig {
   return { playerFaction: 'viking',
-    viking: { ...createEmptyArmyConfig(), infantry: { 1: count, 2: 0, 3: 0 } },
-    roman: { ...createEmptyArmyConfig(), infantry: { 1: 1, 2: 0, 3: 0 } },
+    viking: { ...createEmptyArmyConfig('viking'), viking_berserker: { 1: count, 2: 0, 3: 0 } },
+    roman: { ...createEmptyArmyConfig('roman'), roman_heavy_infantry: { 1: 1, 2: 0, 3: 0 } },
     rules: { respawnEnabled: false, includeCamps: false } }
 }
 describe('Custom battle input boundaries', () => {
@@ -23,17 +23,17 @@ describe('Custom battle input boundaries', () => {
   })
 })
 
-it('keeps automatic health tied to character identity and requires a choice for ambiguous legacy setup', () => {
+it('preserves explicit custom HP and rejects configurations without HP provenance', () => {
   const defaults = getDefaultBattleConfig()
-  expect(needsPlayerHpConfirmation(defaults)).toBe(false)
+  expect(validateBattleConfig(defaults).valid).toBe(true)
   expect(resolveOrdinaryPlayerBaseHp('viking', 2, defaults)).toBe(135)
   for (const preset of [PRESET_10V10, PRESET_25V25, PRESET_50V50, PRESET_100V100, PRESET_200V200]) {
-    expect(needsPlayerHpConfirmation(preset)).toBe(false)
+    expect(validateBattleConfig(preset).valid).toBe(true)
   }
   const legacy = { ...defaults, playerHpSource: undefined, playerHp: 200 }
-  expect(needsPlayerHpConfirmation(legacy)).toBe(true)
+  expect(validateBattleConfig(legacy).valid).toBe(false)
   const confirmed = { ...legacy, playerHpSource: 'custom' as const }
-  expect(needsPlayerHpConfirmation(confirmed)).toBe(false)
+  expect(validateBattleConfig(confirmed).valid).toBe(true)
   expect(resolveOrdinaryPlayerBaseHp('viking', 2, confirmed)).toBe(200)
   expect(validateBattleConfig({ ...confirmed, playerHpSource: 'unknown' }).valid).toBe(false)
 })

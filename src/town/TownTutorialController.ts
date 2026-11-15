@@ -1,14 +1,14 @@
 import { Vector3 } from 'three'
+import type { ArmyHudRoster } from '../battle/ArmyCommandHudRoster'
+import type { ArmyCommandTarget } from '../battle/CommandTarget'
+import type { TacticalOrder } from '../battle/TacticalOrder'
 import type { CareerProfile } from '../career/CareerProfile'
 import { cloneCareerProfile } from '../career/CareerProfile'
+import { careerShopProduct } from '../career/CareerShopCatalog'
 import { claimCareerTutorialReward, deferCareerTutorial, hasCareerTutorialHorse, recordCareerTutorialOperation, startCareerTutorial } from '../career/CareerTutorial'
 import { CAREER_TUTORIAL_STAGES, type CareerTutorialStageId } from '../career/CareerTutorialState'
 import { MissionGuide } from '../career/MissionGuide'
-import { careerShopProduct } from '../career/CareerShopCatalog'
 import type { CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
-import type { ArmyCommandTarget } from '../battle/CommandTarget'
-import type { TacticalOrder } from '../battle/TacticalOrder'
-import type { ArmyHudRoster } from '../battle/ArmyCommandHudRoster'
 import { townShopProducts } from './TownRules'
 import { TownTutorialHUD } from './TownUI'
 
@@ -98,14 +98,13 @@ export class TownTutorialController {
   }
 
   /**
-   * A stage the player skipped, with its progress kept. Legacy saves that never started a stage stay opt-in:
-   * migration marks them deferred, and that must not nag veterans with a tutorial they never chose to begin.
+   * A stage the player explicitly deferred, with its progress kept for the next reminder.
    */
   private guidedDeferred(stages: readonly CareerTutorialStageId[] = ['commander', 'captain', 'hr', 'town', 'recruit']): CareerTutorialStageId | null {
     const t = this.host.profile().tutorial
     if (!t) return null
     // A voluntary replay paused midway is not an unfinished first run; it resumes from the review entry.
-    return stages.find(id => t[id].status === 'deferred' && !t[id].replay && (!t.legacy || t[id].operations.length > 0)) ?? null
+    return stages.find(id => t[id].status === 'deferred' && !t[id].replay) ?? null
   }
 
   update(): void {
@@ -630,7 +629,7 @@ export class TownTutorialController {
           }))
         }
       }
-      if (t.recruit.status === 'deferred' && (!t.legacy || t.recruit.operations.length > 0)) {
+      if (t.recruit.status === 'deferred') {
         const b = this.button(panel, '繼續新兵操作訓練', () => this.launchRecruit(b, panel))
       }
       if (t.captain.status === 'deferred') resume('繼續 30 人指揮演練', 'captain')

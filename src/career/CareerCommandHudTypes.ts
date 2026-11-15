@@ -1,14 +1,13 @@
-import { armyHudUnitType, type ArmyHudUnitSource, type ArmyHudUnitType } from '../battle/ArmyCommandHudRoster'
+import { armyHudUnitType,type ArmyHudUnitSource,type ArmyHudUnitType } from '../battle/ArmyCommandHudRoster'
 import { BattleSpawner } from '../battle/BattleSpawner'
-import { createDefaultDefensePlayerLoadout, createDefenseCampaignWaveConfig, type DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
-import { createSkyRaidRoster, createDecapitationRoster, createLastStandRoster, createBridgeheadRoster } from './CommanderMissionCatalog'
-import { createCaptainEagleSpawnPlan, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from './CaptainBattleLaunch'
-import { createSweepRoster } from './CavalrySweep'
-import { createVeteranRoster, createVeteranSpawnSpec, getVeteranMissionDefinition } from './VeteranMission'
-import { siegeRoster, siegeRosterVersion } from './TownSiege'
-import { careerOutpostActorId, createCareerOutpostDefenderArmy } from './CareerOutpostRoster'
+import { createDefaultDefensePlayerLoadout,createDefenseCampaignWaveConfig,type DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
+import { createCaptainEagleSpawnPlan,createCaptainFrontlineLaunch,createCaptainFrontlineSpawnPlan } from './CaptainBattleLaunch'
 import { createCareerReliefSpawnPlan } from './CareerOutpostRelief'
+import { careerOutpostActorId,createCareerOutpostDefenderArmy } from './CareerOutpostRoster'
 import type { CareerProfile } from './CareerProfile'
+import { createSweepRoster } from './CavalrySweep'
+import { createBridgeheadRoster,createDecapitationRoster,createLastStandRoster,createSkyRaidRoster } from './CommanderMissionCatalog'
+import { createVeteranRoster,createVeteranSpawnSpec,getVeteranMissionDefinition } from './VeteranMission'
 
 /** Data-only production rosters, evaluated once per accepted identity set. No NPCs or scene queries.
  * Unlike surviving actors, these plans retain casualties and soldiers not yet deployed, including old saves.
@@ -38,8 +37,6 @@ export class CareerCommandHudTypes {
         addSpecs(createCaptainFrontlineSpawnPlan(launch).npcSpecs)
         add(mission.reinforcementActorIds ?? [], BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'reinforcement')).npcSpecs)
       } else if (mission.kind === 'cavalry-sweep') add(mission.friendlyActorIds, createSweepRoster(profile.faction))
-      else if (mission.kind === 'enemy-town-assault') add(mission.siege?.attackerIds ?? mission.friendlyActorIds,
-        siegeRoster(profile.faction, true, mission.siege ? siegeRosterVersion(mission.siege) : 2).map(slot => slot.spec))
       else {
         const definition = getVeteranMissionDefinition(mission.templateId)
         if (definition) {

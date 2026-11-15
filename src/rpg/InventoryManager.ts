@@ -115,15 +115,11 @@ export class InventoryManager {
   }
 
   /** A loaded save is a fresh selection: nothing held before it may stand in for an item still loading. */
-  loadSaveState(state: { items?: InventoryStack[]; ownedWeaponIds?: string[]; equippedMeleeId?: string; equippedRangedId?: string; equippedShieldId?: string | null; rangedEnabled?: boolean }): void {
+  loadSaveState(state: { items: InventoryStack[]; equippedMeleeId?: string; equippedRangedId?: string; equippedShieldId?: string | null; rangedEnabled?: boolean }): void {
     if (this.equippedMeleeId) releaseEquipmentDemand(this.equippedMeleeId, this)
     if (this.equippedShieldId) releaseEquipmentDemand(this.equippedShieldId, this)
     this.heldMeleeId = this.heldShieldId = null
-    if (state.items) {
-      this.items = state.items.map(i => ({ id: i.id, quantity: i.quantity || 1 }))
-    } else if (state.ownedWeaponIds && state.ownedWeaponIds.length > 0) {
-      this.items = state.ownedWeaponIds.map(id => ({ id, quantity: 1 }))
-    }
+    this.items = state.items.map(item => ({ ...item }))
     const merged = new Map<string, number>()
     for (const stack of this.items) {
       const id = stack.id

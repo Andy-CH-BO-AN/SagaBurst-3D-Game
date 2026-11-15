@@ -1,25 +1,24 @@
-import type { TownProfileChange } from './TownProfileCommit'
-import type { TownGarrisonStation } from './TownGarrison'
-import { activateTownResidentHome, restoreTownResidentHome } from './TownResidentHome'
-import { isRetiredRecruitPatrolMission } from '../career/CareerMissionCatalog'
 import type { BanditMissionController } from '../career/BanditMissionController'
-import { restoreCareerDuelCommander, type CareerDuelController } from '../career/CareerDuelController'
-import type { TownDefenseController } from '../career/TownDefenseController'
-import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
-import type { ActiveCareerMission, CareerMissionOutcome, CareerMissionResult } from '../career/CareerMissionState'
+import type { CaptainPatrolCommandController } from '../career/CaptainPatrolCommandController'
+import { restoreCareerDuelCommander,type CareerDuelController } from '../career/CareerDuelController'
+import { isCareerEnemyTerritoryFieldMission } from '../career/CareerFieldSceneContext'
+import { isMissionReturnResident } from '../career/CareerMissionReturnRecovery'
+import type { ActiveCareerMission,CareerMissionOutcome,CareerMissionResult } from '../career/CareerMissionState'
+import { claimCareerMission,clearCareerMission,cloneCareerProfile,type CareerProfile } from '../career/CareerProfile'
+import type { CommanderTownMissionController } from '../career/CommanderTownMissionController'
+import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import type { Mount } from '../world/Mount'
-import { Faction, type NPC } from '../world/NPC'
-import { isMissionReturnResident } from '../career/CareerMissionReturnRecovery'
+import { Faction,type NPC } from '../world/NPC'
 import { getTerrainHeight } from '../world/Terrain'
-import { townPlayerEntryPoint, townSitePoint, type TownActorSpec } from './TownRules'
-import { markCareerMissionReturnToSergeant, sergeantReturnFromResidents, type SergeantReturnPoint } from './SergeantReturn'
+import { markCareerMissionReturnToSergeant,sergeantReturnFromResidents,type SergeantReturnPoint } from './SergeantReturn'
 import type { TownEquipment } from './TownEquipment'
+import type { TownGarrisonStation } from './TownGarrison'
+import type { TownProfileChange } from './TownProfileCommit'
+import { activateTownResidentHome,restoreTownResidentHome } from './TownResidentHome'
+import { townPlayerEntryPoint,townSitePoint,type TownActorSpec } from './TownRules'
 import type { TownWorld } from './TownWorld'
-import { isCareerEnemyTerritoryFieldMission } from '../career/CareerFieldSceneContext'
-import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
-import type { CaptainPatrolCommandController } from '../career/CaptainPatrolCommandController'
 
 interface MissionProfiles {
   read(): CareerProfile
@@ -31,7 +30,7 @@ interface MissionProfiles {
 interface MissionControllers {
   field: Pick<BanditMissionController, 'snapshot' | 'cleanupMission' | 'friendlies'>
   duel: Pick<CareerDuelController, 'snapshot' | 'cleanupMission' | 'actors'>
-  defense: Pick<TownDefenseController, 'active' | 'snapshot' | 'cleanupMission' | 'civilianSurvived' | 'civilianDeaths'> & {
+  defense: Pick<CommanderTownMissionController, 'active' | 'snapshot' | 'cleanupMission' | 'civilianSurvived' | 'civilianDeaths'> & {
     snapshotActiveMission?(): ActiveCareerMission | undefined
     ceaseAssaultAirSupport?(): void
   }
@@ -101,7 +100,7 @@ export class TownMissionSettlement {
       if (latest?.id === profile.activeMission.id) profile.activeMission = latest
     }
     const active = profile.activeMission
-    if (!active || active.result || isRetiredRecruitPatrolMission(active)) return { status: 'ignored' }
+    if (!active || active.result) return { status: 'ignored' }
     const source = active.kind === 'duel' ? this.missions.duel : this.missions.defense.active ? this.missions.defense : this.missions.field
     let stats: BattleStatsSnapshot
     if (active.personalSquad && this.personalResult?.missionId === active.id) {
@@ -110,20 +109,16 @@ export class TownMissionSettlement {
       stats = active.kind === 'captain-patrol-command' && this.missions.patrol?.statsSnapshot
         ? this.missions.patrol.statsSnapshot : source.snapshot()
       if (active.personalSquad) this.personalResult = { missionId: active.id, outcome, stats: structuredClone(stats),
-        ...((active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense') ? { defense: { civilianSurvived: this.missions.defense.civilianSurvived, civilianDeaths: this.missions.defense.civilianDeaths } } : {}) }
+        ...((active.kind === 'commander-four-gate-defense') ? { defense: { civilianSurvived: this.missions.defense.civilianSurvived, civilianDeaths: this.missions.defense.civilianDeaths } } : {}) }
     }
     const claim = claimCareerMission(profile, active.id, outcome, stats.player, stats.meritPlayer)
-    if ((active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense') && claim.profile.activeMission?.result) {
+    if ((active.kind === 'commander-four-gate-defense') && claim.profile.activeMission?.result) {
       claim.profile.activeMission.result.defense = this.personalResult?.missionId === active.id ? this.personalResult.defense : {
         civilianSurvived: this.missions.defense.civilianSurvived,
         civilianDeaths: this.missions.defense.civilianDeaths,
       }
     }
     if (!this.profiles.commit(claim.profile)) return { status: 'save-failed' }
-    if (active.kind === 'enemy-town-assault' && this.profiles.read().activeMission?.result?.outcome === 'victory') {
-      this.missions.defense.ceaseAssaultAirSupport?.()
-      this.town.clearCombatShots()
-    }
     return { status: 'saved', result: this.profiles.read().activeMission!.result! }
   }
 
@@ -131,14 +126,13 @@ export class TownMissionSettlement {
     const profile = this.profiles.read()
     const active = profile.activeMission
     if (!active) return { status: 'ignored' }
-    const defense = (active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense')
+    const defense = (active.kind === 'commander-four-gate-defense')
     if (defense && (intent !== 'direct' || !active.result)) return { status: 'ignored' }
     const veteranField = active.kind === 'veteran-field'
     const captainPatrol = active.kind === 'captain-patrol-command'
     if (captainPatrol && !active.result) return { status: 'ignored' }
     const enemyTerritoryScout = isCareerEnemyTerritoryFieldMission(active)
-    const enemyTownOperation = active.kind === 'enemy-town-assault'
-      || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation'
+    const enemyTownOperation = active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation'
     if (veteranField && !active.result) return { status: 'ignored' }
     const inPlace = !defense && !enemyTerritoryScout && (intent === 'arrived' || active.kind === 'cavalry-sweep' || veteranField || captainPatrol)
     if (inPlace && !defense && active.phase !== 'RETURNING' && !((active.kind === 'cavalry-sweep' || veteranField || captainPatrol) && active.result)) return { status: 'ignored' }

@@ -1,40 +1,40 @@
-import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
-import { captureBorrowedCharacterIdentities } from '../career/CareerBorrowedIdentity'
-import { validateOrdinaryRetirementCommit } from '../career/CareerRetirement'
-import { isTownCommandRevokedByRetirement } from '../career/CareerRetirementCommand'
-import { stageMissionReturnRebuild, stageMissionReturnResidents, stageMissionReturnPlayerHealth, isMissionReturnResident } from '../career/CareerMissionReturnRecovery'
-import { refitCommandCheckpoint, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
-import { buildCommanderAuthorityForMission } from '../career/CommanderMissionAcceptance'
-import { townDefenseCommanderIds } from '../career/TownDefenseRoster'
-import { officialCommandIsPlayerControlled } from '../career/CareerCommandAuthority'
+import type { ArmyCommandController } from '../battle/ArmyCommandController'
+import type { BanditMissionController } from '../career/BanditMissionController'
+import type { CaptainPatrolCommandController } from '../career/CaptainPatrolCommandController'
 import { captureCareerAerialState } from '../career/CareerAerialState'
+import { captureBorrowedCharacterIdentities } from '../career/CareerBorrowedIdentity'
+import { refitCommandCheckpoint, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
+
+import type { CareerMissionPage } from '../career/CareerMissionCatalog'
+import { isMissionReturnResident, stageMissionReturnPlayerHealth, stageMissionReturnRebuild, stageMissionReturnResidents } from '../career/CareerMissionReturnRecovery'
+import type { CareerMountController } from '../career/CareerMountController'
 import { followDeployedPersonalMission, snapshotPersonalMission, type PersonalSquadMission } from '../career/CareerPersonalSquadMission'
-import { emptyPersonalContribution } from '../combat/CommandMerit'
-import { stageTownEaglePlayerCommand } from './TownEagleGarrisonController'
-import { townRoster, townPlayerEntryPoint } from './TownRules'
-import { sergeantReturnFromResidents, type SergeantReturnPoint } from './SergeantReturn'
-import { getTerrainHeight } from '../world/Terrain'
-import type { TownCombatResident } from './TownMissionCombat'
+import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import type { CareerProfileStore } from '../career/CareerProfileStore'
 import type { CareerRaceController } from '../career/CareerRaceController'
-import type { TownAirCommandSquadController } from './TownAirCommandSquadController'
-import type { CivilianCommandSquadController } from './CivilianCommandSquadController'
-import type { TownCommandSquadController } from './TownCommandSquadController'
-import type { CareerMountController } from '../career/CareerMountController'
-import type { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
-import type { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController'
-import type { TownCavalryPatrolController } from './TownCavalryPatrolController'
-import type { TownEagleGarrisonController } from './TownEagleGarrisonController'
-import type { TownPersonalSquadController } from './TownPersonalSquadController'
-import type { CaptainPatrolCommandController } from '../career/CaptainPatrolCommandController'
-import type { BanditMissionController } from '../career/BanditMissionController'
-import type { TownDefenseController } from '../career/TownDefenseController'
-import type { TownRetirementMobilizationController } from './TownRetirementMobilizationController'
+import { validateOrdinaryRetirementCommit } from '../career/CareerRetirement'
+import { isTownCommandRevokedByRetirement } from '../career/CareerRetirementCommand'
+import { buildCommanderAuthorityForMission } from '../career/CommanderMissionAcceptance'
+import type { CommanderTownMissionController } from '../career/CommanderTownMissionController'
+import { townDefenseCommanderIds } from '../career/TownDefenseRoster'
+import { emptyPersonalContribution } from '../combat/CommandMerit'
 import type { Player } from '../player/Player'
 import { standingPlayerY } from '../player/PlayerFootBody'
-import type { CareerMissionPage } from '../career/CareerMissionCatalog'
-import type { ArmyCommandController } from '../battle/ArmyCommandController'
 import type { SkillManager } from '../rpg/SkillManager'
+import { getTerrainHeight } from '../world/Terrain'
+import type { CivilianCommandSquadController } from './CivilianCommandSquadController'
+import type { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
+import { sergeantReturnFromResidents, type SergeantReturnPoint } from './SergeantReturn'
+
+import type { TownCavalryPatrolController } from './TownCavalryPatrolController'
+import type { TownCommandSquadController } from './TownCommandSquadController'
+import type { TownEagleGarrisonController } from './TownEagleGarrisonController'
+import { stageTownEaglePlayerCommand } from './TownEagleGarrisonController'
+import type { TownCombatResident } from './TownMissionCombat'
+import type { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController'
+import type { TownPersonalSquadController } from './TownPersonalSquadController'
+import type { TownRetirementMobilizationController } from './TownRetirementMobilizationController'
+import { townPlayerEntryPoint, townRoster } from './TownRules'
 
 /** Caller intent; checkpoint precedence is private to the commit implementation. */
 export type TownProfileChange = 'ordinary' | 'civilian-command' | 'grounded-return'
@@ -54,7 +54,6 @@ export interface TownProfileCommitRuntime {
   world: { faction: CareerProfile['faction'] }
   sceneContext: { missionOnlyResidents: boolean }
   race?: Pick<CareerRaceController, 'session' | 'capturePlayerState'>
-  townAirCommand?: Pick<TownAirCommandSquadController, 'checkpoint' | 'stageContext' | 'applySavedState'>
   civilianCommand?: Pick<CivilianCommandSquadController, 'checkpoint' | 'applySavedState' | 'synchronize'>
   townCommand?: Pick<TownCommandSquadController, 'checkpoint' | 'stageRefit' | 'stageMissionHandoff' | 'applySavedState' | 'grant'>
   careerMounts?: Pick<CareerMountController, 'checkpoint'>
@@ -64,7 +63,7 @@ export interface TownProfileCommitRuntime {
   eagleGarrison?: Pick<TownEagleGarrisonController, 'snapshot' | 'beginRefit'>
   personalSquad?: Pick<TownPersonalSquadController, 'sceneKey' | 'captureForNewMission' | 'checkpoint' | 'cleanup' | 'beginMission' | 'regroupAfterMission'>
   captainPatrol?: Pick<CaptainPatrolCommandController, 'active' | 'checkpoint'>
-  defense?: Pick<TownDefenseController, 'active' | 'personalContribution'>
+  defense?: Pick<CommanderTownMissionController, 'active' | 'personalContribution'>
   mission?: Pick<BanditMissionController, 'ambientBandits' | 'personalContribution'>
   retirementMobilization?: Pick<TownRetirementMobilizationController, 'capture'>
   personalCommands?: Pick<ArmyCommandController, 'close'>
@@ -80,7 +79,6 @@ export interface TownProfileCommitRuntime {
   unavailableTownCavalryActorIds(includeReturning: boolean): ReadonlySet<string>
   captureRetirementResources(profile: CareerProfile): void
   applyRetirementDeparture(): void
-  synchronizeEagleCommandOwnership(): void
   synchronizeEaglePatrolPolicy(): void
   synchronizeCommandActors(): void
   cancelCareerAudio(): void
@@ -131,25 +129,18 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   const startsFormal = Boolean(next.activeMission && next.activeMission.id !== runtime.profile.activeMission?.id
     || next.activeOutpostMission && next.activeOutpostMission.id !== runtime.profile.activeOutpostMission?.id)
   let townStateChanged = JSON.stringify(next.townCommandSquad) !== JSON.stringify(runtime.profile.townCommandSquad)
-  const airStateChanged = JSON.stringify(next.townAirCommandSquad) !== JSON.stringify(runtime.profile.townAirCommandSquad)
-  if (!airStateChanged && runtime.townAirCommand) next.townAirCommandSquad = runtime.townAirCommand.checkpoint() ?? next.townAirCommandSquad
-  if (runtime.townAirCommand) next = runtime.townAirCommand.stageContext(next)
-  const airClaimsReleased = Boolean(runtime.profile.townAirCommandSquad?.commandedActorIds.length
-    && !next.townAirCommandSquad?.commandedActorIds.length)
-  const airScenePermissionChanged = (runtime.profile.townEvent?.state === 'hostile') !== (next.townEvent?.state === 'hostile')
-    || runtime.profile.faction !== next.faction
   const civilianStateChanged = JSON.stringify(next.civilianCommandSquad) !== JSON.stringify(runtime.profile.civilianCommandSquad)
   if (!restoringResidents && change !== 'civilian-command' && !civilianStateChanged && runtime.civilianCommand) next.civilianCommandSquad = runtime.civilianCommand.checkpoint() ?? next.civilianCommandSquad
   // An Arena Squad Trial takes no Town troops: it only captures the Town's current command checkpoint.
   const arenaTrialStart = startsFormal && next.activeMission?.kind === 'arena-squad-trial'
-  const startsDefense = startsFormal && (next.activeMission?.kind === 'town-defense' || next.activeMission?.kind === 'commander-four-gate-defense')
+  const startsDefense = startsFormal && (next.activeMission?.kind === 'commander-four-gate-defense')
   if (startsFormal && next.activeMission?.kind === 'commander-four-gate-defense') {
     next.activeMission.mountState = runtime.careerMounts!.checkpoint()
     next.activeMission.playerHp = runtime.player!.hp
     next.activeMission.playerStamina = runtime.player!.staminaValue
   }
   const respawning = Boolean(runtime.player?.dead && runtime.profile.activeMission && !next.activeMission)
-  const returningFromDefense = Boolean((runtime.profile.activeMission?.kind === 'town-defense' || runtime.profile.activeMission?.kind === 'commander-four-gate-defense') && runtime.profile.activeMission.result && !next.activeMission)
+  const returningFromDefense = Boolean((runtime.profile.activeMission?.kind === 'commander-four-gate-defense') && runtime.profile.activeMission.result && !next.activeMission)
   if ((startsDefense && next.rank !== 'commander' || respawning || returningFromDefense) && runtime.townCommand) next = runtime.townCommand.stageRefit(next, startsDefense)
   else if (startsFormal && !arenaTrialStart && runtime.townCommand) next = runtime.townCommand.stageMissionHandoff(next)
   else if (!restoringResidents && !townStateChanged && next.faction === runtime.profile.faction && runtime.townCommand) next.townCommandSquad = runtime.townCommand.checkpoint() ?? next.townCommandSquad
@@ -233,7 +224,7 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   if (outgoing && !next.activeMission && runtime.world.faction === next.faction && next.townPatrols?.[next.faction]) {
     const borrowed = new Set([...(outgoing.officialSquad?.actorIds ?? []), ...(outgoing.borrowedActorIds ?? [])])
     const returned = new Set(runtime.residents.filter(r => r.spec.duty === 'patrol'
-      && (outgoing.kind === 'town-defense' || outgoing.kind === 'commander-four-gate-defense' || borrowed.has(r.spec.id))).map(r => r.spec.patrolId))
+      && (outgoing.kind === 'commander-four-gate-defense' || borrowed.has(r.spec.id))).map(r => r.spec.patrolId))
     next.townPatrols[next.faction] = { squads: next.townPatrols[next.faction]!.squads.filter(s => !returned.has(s.id)) }
   }
   if (next.activeMission?.kind === 'captain-patrol-command') {
@@ -252,24 +243,6 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
     const faction = runtime.world.faction
     const refit = !next.activeMission && runtime.profile.activeMission ? new Set(next.townEagleGarrisons?.[faction]?.pairs.filter(pair => pair.refitAllowed).map(pair => pair.riderId)) : undefined
     let snapshot = runtime.eagleGarrison.snapshot(`town:${faction}`)
-    const claimed: string[] = [], released: string[] = []
-    for (const resident of runtime.residents ?? []) {
-      if (!resident.spec.eagle) continue
-      const id = resident.npc.combatantId
-      const owns = (profile: CareerProfile) => Boolean(profile.rank === 'commander' && profile.faction === faction
-        && ((profile.activeMission?.kind === 'town-defense' || profile.activeMission?.kind === 'commander-four-gate-defense') && !profile.activeMission.result
-          && profile.activeMission.officialSquad?.missionId === profile.activeMission.id
-          && profile.activeMission.officialSquad?.townFaction === faction
-          && officialCommandIsPlayerControlled(profile.activeMission.officialSquad, id)
-          || !profile.activeMission && !profile.activeOutpostMission && profile.townEvent?.state !== 'hostile'
-            && profile.townAirCommandSquad?.commandedActorIds.includes(id)))
-      if (owns(next)) claimed.push(id)
-      else if (owns(runtime.profile)) released.push(id)
-    }
-    if (claimed.length) snapshot = stageTownEaglePlayerCommand(snapshot, claimed, true)
-    if (released.length) snapshot = stageTownEaglePlayerCommand(snapshot, released, false, !runtime.profile.activeMission && !runtime.profile.activeOutpostMission
-      && !next.activeMission && !next.activeOutpostMission
-      && next.townEvent?.state !== 'hostile' && next.faction === faction)
     const serviceIds = (next.townCommandSquad?.refittingActorIds ?? []).filter(id =>
       !runtime.profile.townCommandSquad?.refittingActorIds?.includes(id) && /^town-eagle-rider:[1-5]$/.test(id))
     if (serviceIds.length) snapshot = stageTownEaglePlayerCommand(snapshot, serviceIds, false, true)
@@ -370,8 +343,6 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   runtime.profile = next
   runtime.applyRetirementDeparture()
   if (restoringResidents) runtime.civilianCommand?.applySavedState(next.civilianCommandSquad)
-  if (runtime.townAirCommand && (airStateChanged || airClaimsReleased || airScenePermissionChanged || startsFormal || endedFormal || rankChanged)) runtime.townAirCommand.applySavedState(next.townAirCommandSquad)
-  runtime.synchronizeEagleCommandOwnership()
   runtime.synchronizeEaglePatrolPolicy()
   if (startsFormal || townStateChanged || townClaimStateChanged || endedFormal) runtime.townCommand?.applySavedState(next.townCommandSquad)
   if (!isTownCommandRevokedByRetirement(next) && !runtime.townRefitOnReturn && (endedFormal || next.rank === 'captain' || next.rank === 'commander') && !next.townEvent?.authorizedTownCommandActorIds) runtime.townCommand?.grant()

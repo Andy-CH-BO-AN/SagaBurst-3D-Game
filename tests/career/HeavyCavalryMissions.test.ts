@@ -1,3 +1,5 @@
+import { personalSquadFixture } from '../helpers/personalSquadFixture'
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it } from 'vitest'
 import { t4EquipmentIdsForArmy } from '../../src/battle/T4HeroCatalog'
 import { availableCareerMissionsForPage } from '../../src/career/CareerMissionCatalog'
@@ -10,13 +12,7 @@ import { Faction } from '../../src/combat/CombatFaction'
 import { AIType } from '../../src/world/NPC'
 import type { CombatEvent } from '../../src/combat/CombatAttribution'
 import { MemoryStorage } from '../helpers/memoryStorage'
-import {
-  CAPTAIN_STEEL_AVALANCHE_ID, COMMANDER_IRON_LEGION_ID, SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID,
-  createHeavyFieldState,
-  heavyCommandPlan, heavyFrontlineDistance, isHeavyFormationComplete, heavyTacticalOrder,
-  parseHeavyFieldState, planVeteranCaltropDefense, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge,
-  shouldTriggerHeavyEnemyCharge, veteranCaltropWorldRects,
-} from '../../src/career/HeavyCavalryMissions'
+import { CAPTAIN_STEEL_AVALANCHE_ID, COMMANDER_IRON_LEGION_ID, SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID, createHeavyFieldState, heavyCommandPlan, heavyFrontlineDistance, isHeavyFormationComplete, heavyTacticalOrder, parseHeavyFieldState, planVeteranCaltropDefense, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, veteranCaltropWorldRects } from '../../src/career/HeavyCavalryMissions'
 
 function damage(targetType: 'npc' | 'mount', id: string, appliedDamage: number): CombatEvent {
   return { type: 'damage_applied', method: 'melee', requestedDamage: 10, appliedDamage,
@@ -96,10 +92,10 @@ describe('heavy cavalry tactical triggers', () => {
 describe('heavy cavalry field missions in Career', () => {
   const profileFor = (rank: 'soldier' | 'veteran' | 'captain' | 'commander', faction: 'roman' | 'viking' = 'roman') => {
     const profile = createCareerProfile(faction)
-    profile.rank = rank
+    Object.assign(profile, careerRankFixture(profile.faction, rank));
     profile.totalMerit = 20_000
     profile.availableMerit = 20_000
-    profile.ownedMounts = ['black-cat']
+    Object.assign(profile.inventory!.quantities, Object.fromEntries(['black-cat'].map(id => [id, 1]))); profile.ownedMounts = ['black-cat'];
     profile.selectedMountId = 'black-cat'
     return profile
   }
@@ -149,7 +145,7 @@ describe('heavy cavalry field missions in Career', () => {
     const friendly = createCareerHeavySpawnPlan(veteran).npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
     expect(friendly.filter(spec => rects.some(r => spec.x > r.minX - 1 && spec.x < r.maxX + 1 && spec.z > r.minZ - 1 && spec.z < r.maxZ + 1))).toEqual([])
     const captainProfile = profileFor('captain')
-    captainProfile.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+    captainProfile.personalSquad = personalSquadFixture(captainProfile, [{ id: 'personal:hr-1', type: 'soldier' }])
     const captain = acceptHeavyFieldMission(captainProfile, CAPTAIN_STEEL_AVALANCHE_ID, 'c')!.activeMission!
     expect(captain.officialSquad?.actorIds).toHaveLength(29)
     expect(captain.officialSquad?.actorIds.every(id => captain.friendlyActorIds.includes(id))).toBe(true)
@@ -160,7 +156,7 @@ describe('heavy cavalry field missions in Career', () => {
     // 1. Captain accepts Soldier mission: save() === true -> loadChecked() has same mission, personalSquad, officialSquad === undefined
     const store1 = new CareerProfileStore(new MemoryStorage())
     const captainSoldier = profileFor('captain')
-    captainSoldier.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+    captainSoldier.personalSquad = personalSquadFixture(captainSoldier, [{ id: 'personal:hr-1', type: 'soldier' }])
     const acceptedCaptainSoldier = acceptHeavyFieldMission(captainSoldier, SOLDIER_IRON_ENCOUNTER_ID, 'cap-sol')!
     expect(store1.save(acceptedCaptainSoldier)).toBe(true)
     const loadedCaptainSoldier = store1.loadChecked().profile!
@@ -171,7 +167,7 @@ describe('heavy cavalry field missions in Career', () => {
     // 2. Captain accepts Steel Avalanche: save() === true -> loadChecked() keeps 29-man squad
     const store2 = new CareerProfileStore(new MemoryStorage())
     const captainSteel = profileFor('captain')
-    captainSteel.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+    captainSteel.personalSquad = personalSquadFixture(captainSteel, [{ id: 'personal:hr-1', type: 'soldier' }])
     const acceptedCaptainSteel = acceptHeavyFieldMission(captainSteel, CAPTAIN_STEEL_AVALANCHE_ID, 'cap-steel')!
     expect(store2.save(acceptedCaptainSteel)).toBe(true)
     const loadedCaptainSteel = store2.loadChecked().profile!
@@ -219,80 +215,9 @@ describe('heavy cavalry field missions in Career', () => {
     expect(store3.save(forgedCmdCount)).toBe(false)
   })
 
-  it('recognizes 50-man legacy Captain grant and atomically revokes officialSquad while preserving combat state idempotently', () => {
+  it('rejects forged authority and corrupted current Heavy Field missions without modifying storage', () => {
     const captainSoldier = profileFor('captain')
-    captainSoldier.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
-    const acceptedCaptainSoldier = acceptHeavyFieldMission(captainSoldier, SOLDIER_IRON_ENCOUNTER_ID, 'cap-sol')!
-
-    const storage4 = new MemoryStorage()
-    const store4 = new CareerProfileStore(storage4)
-    const legacyCaptainSave = structuredClone(acceptedCaptainSoldier)
-    const friendlies = acceptedCaptainSoldier.activeMission!.friendlyActorIds
-    const squad50 = friendlies.slice(0, 50)
-    legacyCaptainSave.activeMission!.phase = 'ENGAGING'
-    legacyCaptainSave.activeMission!.deadFriendlyActorIds = [friendlies[2]]
-    legacyCaptainSave.activeMission!.actorHealth = {
-      [friendlies[2]]: { hp: 0 },
-      [friendlies[0]]: { hp: 42 },
-    }
-    legacyCaptainSave.activeMission!.officialSquad = {
-      type: 'mission-official',
-      missionId: 'cap-sol',
-      townFaction: 'roman',
-      squadId: 1,
-      actorIds: squad50,
-      contribution: { kills: 0, damageTaken: 0, structuresDestroyed: 0, gateBreaches: 0, damageDealt: 0, arrowHits: 0, meleeHits: 0, mountDamage: 0 },
-    } as any
-
-    storage4.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacyCaptainSave))
-    // 1st loadChecked: durable migration runs, rewrites storage, revokes officialSquad while preserving casualties/HP/phase
-    const migratedProfile = store4.loadChecked().profile!
-    expect(migratedProfile.activeMission?.templateId).toBe(SOLDIER_IRON_ENCOUNTER_ID)
-    expect(migratedProfile.activeMission?.officialSquad).toBeUndefined()
-    expect(migratedProfile.activeMission?.phase).toBe('ENGAGING')
-    expect(migratedProfile.activeMission?.actorHealth?.[friendlies[0]]?.hp).toBe(42)
-    expect(migratedProfile.activeMission?.deadFriendlyActorIds).toEqual([friendlies[2]])
-    expect(migratedProfile.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
-
-    // Verify storage was durably committed
-    const persistedParsed = JSON.parse(storage4.getItem(CAREER_STORAGE_KEY)!)
-    expect(persistedParsed.activeMission?.officialSquad).toBeUndefined()
-
-    // 2nd loadChecked: idempotent, returns matching profile
-    const reloadedProfile = store4.loadChecked().profile!
-    expect(reloadedProfile.activeMission?.officialSquad).toBeUndefined()
-    expect(reloadedProfile.activeMission?.templateId).toBe(SOLDIER_IRON_ENCOUNTER_ID)
-  })
-
-  it('fails closed on storage write failure during migration, retaining original legacy bytes and returning error', () => {
-    const captainSoldier = profileFor('captain')
-    captainSoldier.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
-    const acceptedCaptainSoldier = acceptHeavyFieldMission(captainSoldier, SOLDIER_IRON_ENCOUNTER_ID, 'cap-sol')!
-    const legacyCaptainSave = structuredClone(acceptedCaptainSoldier)
-    const friendlies = acceptedCaptainSoldier.activeMission!.friendlyActorIds
-    legacyCaptainSave.activeMission!.officialSquad = {
-      type: 'mission-official',
-      missionId: 'cap-sol',
-      townFaction: 'roman',
-      squadId: 1,
-      actorIds: friendlies.slice(0, 50),
-      contribution: { kills: 0, damageTaken: 0, structuresDestroyed: 0, gateBreaches: 0, damageDealt: 0, arrowHits: 0, meleeHits: 0, mountDamage: 0 },
-    } as any
-
-    const brokenStorage = new MemoryStorage()
-    brokenStorage.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacyCaptainSave))
-    const validLegacyBytes = brokenStorage.getItem(CAREER_STORAGE_KEY)!
-    brokenStorage.setItem = () => { throw new Error('disk failure') }
-    const brokenStore = new CareerProfileStore(brokenStorage)
-    const brokenResult = brokenStore.loadChecked()
-    expect(brokenResult.profile).toBeNull()
-    expect(brokenResult.error).toContain('生涯資料升級無法儲存')
-    expect(brokenStorage.getItem(CAREER_STORAGE_KEY)).toBe(validLegacyBytes)
-  })
-
-  it('fails closed on forged legacy grants and corrupted Heavy Field missions without modifying storage', () => {
-    const captainSoldier = profileFor('captain')
-    captainSoldier.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+    captainSoldier.personalSquad = personalSquadFixture(captainSoldier, [{ id: 'personal:hr-1', type: 'soldier' }])
     const acceptedCaptainSoldier = acceptHeavyFieldMission(captainSoldier, SOLDIER_IRON_ENCOUNTER_ID, 'cap-sol')!
     const legacyCaptainSave = structuredClone(acceptedCaptainSoldier)
     const friendlies = acceptedCaptainSoldier.activeMission!.friendlyActorIds
@@ -319,7 +244,7 @@ describe('heavy cavalry field missions in Career', () => {
     // 2. Corrupted active Heavy Field: fail-closed, does not save/drop mission
     const storage = new MemoryStorage()
     const store = new CareerProfileStore(storage)
-    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacyCaptainSave))
+    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(acceptedCaptainSoldier))
     const migratedProfile = store.loadChecked().profile!
     const corruptedSave = structuredClone(migratedProfile)
     corruptedSave.activeMission!.targetActorIds = ['corrupted_target']

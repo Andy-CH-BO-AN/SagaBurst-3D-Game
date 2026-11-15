@@ -1,3 +1,4 @@
+
 import * as THREE from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Game } from '../../src/Game'
@@ -545,7 +546,7 @@ it('Career melee → NPC 傷害 → CombatEvent → 單挑統計、軍功與徒�
     })),
   }) as Player
   const profile = createCareerProfile('roman')
-  profile.ownedWeapons = ['steel_lance']
+  Object.assign(profile.inventory!.quantities, Object.fromEntries(['steel_lance'].map(id => [id, 1]))); profile.ownedWeapons = ['steel_lance'];
   profile.equipment = { melee: 'steel_lance' }
   profile.activeMission = createCareerDuelMission(profile, 'roman_archer', 1, 'boxing-target', 'captain', 'boxing-chain')!
   profile.activeMission.phase = 'ENGAGING'

@@ -1,11 +1,10 @@
-import { allocatedTownEquipment, validateTownEquipment } from './CareerTownEquipmentState'
-import type { CareerProfile, CareerMountId } from './CareerProfile'
-import type { PersonalSquadMemberType } from './CareerPersonalSquad'
-import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
-import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
-import { ARMORS } from '../rpg/ArmorDatabase'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
+import { ARMORS } from '../rpg/ArmorDatabase'
+import { WEAPONS } from '../rpg/WeaponDatabase'
+import type { PersonalSquadMemberType } from './CareerPersonalSquad'
+import type { CareerMountId, CareerProfile } from './CareerProfile'
 import { defaultPersonalRecruitmentChoice, resolvePersonalRecruitment } from './CareerRecruitmentCatalog'
+import { allocatedTownEquipment, validateTownEquipment } from './CareerTownEquipmentState'
 
 /** Concurrent canonical ownership, including assigned, reserve and unavailable eagles. */
 export const MAX_PLAYER_OWNED_XONGKORO = 3
@@ -14,7 +13,7 @@ export interface CareerInventory { version: 1; quantities: Record<string, number
 export interface PersonalEquipment { melee: string | null; ranged: string | null; shield: string | null; mount: PlayerMountId | null }
 export type PersonalEquipmentSlot = keyof PersonalEquipment
 export function canonicalInventoryId(id: string): string {
-  return ['horse-t1', 'horse-t2', 'horse-t3'].includes(id) ? 'horse' : id
+  return id
 }
 export function isTradableCareerItem(id: string): boolean {
   return Object.prototype.hasOwnProperty.call(WEAPONS, id) || Object.prototype.hasOwnProperty.call(ARMORS, id) || (PLAYER_MOUNT_IDS as readonly string[]).includes(id)
@@ -22,30 +21,10 @@ export function isTradableCareerItem(id: string): boolean {
 export function initialPersonalEquipment(type: PersonalSquadMemberType, faction: CareerProfile['faction']): PersonalEquipment {
   return resolvePersonalRecruitment(faction, defaultPersonalRecruitmentChoice(type, faction))!.equipment
 }
-/** Pre-inventory hires had T2 Soldier and T3 Captain gear; migration must preserve that grant. */
-export function legacyPersonalEquipment(type: PersonalSquadMemberType, faction: CareerProfile['faction']): PersonalEquipment {
-  return personalEquipmentAtTier(type, faction, type === 'soldier' ? 2 : type === 'captain' ? 3 : 2)
-}
-function personalEquipmentAtTier(type: PersonalSquadMemberType, faction: CareerProfile['faction'], weaponTier: 1 | 2 | 3): PersonalEquipment {
-  if (type === 'ranger') return { melee: defaultRangerMeleeWeaponId(faction), ranged: T4_RANGER_BOW_RANGED_ID, shield: null, mount: 'horse' }
-  const presetId = `${faction}_${type === 'soldier' ? faction === 'roman' ? 'heavy_infantry' : 'berserker' : 'sword_cavalry'}` as UnitPresetId
-  const loadouts = UNIT_PRESETS[presetId].tierLoadouts
-  // Legacy grants keep their original shields and mounts.
-  return { melee: loadouts[weaponTier].meleeWeaponId ?? null, ranged: null,
-    shield: loadouts[type === 'soldier' ? 2 : 3].shieldId ?? null, mount: type === 'soldier' ? null : 'horse' }
-}
-/** Legacy ownership is read only until the first transaction or load normalizes it. */
+/** Persisted quantities are the sole ownership source. */
 export function careerItemTotals(profile: CareerProfile): Record<string, number> {
-  if (profile.inventory) return profile.inventory.quantities
-  const ids = [...profile.ownedArmors, ...profile.ownedMounts,
-    ...(profile.ownedHorseTiers?.length ? ['horse'] : [])].map(canonicalInventoryId).filter(isTradableCareerItem)
-  const totals: Record<string, number> = Object.fromEntries([...new Set(ids)].map(id => [id, 1]))
-  for (const id of new Set(profile.ownedWeapons)) {
-    if (!isTradableCareerItem(id)) continue
-    const canonical = canonicalInventoryId(id)
-    totals[canonical] = (totals[canonical] ?? 0) + 1
-  }
-  return totals
+  if (!profile.inventory || profile.inventory.version !== 1) throw new Error('Missing current inventory')
+  return profile.inventory.quantities
 }
 export function careerItemTotal(profile: CareerProfile, id: string): number { return careerItemTotals(profile)[canonicalInventoryId(id)] ?? 0 }
 export function careerItemAllocated(profile: CareerProfile, rawId: string): number {
@@ -69,13 +48,12 @@ export function playerHasAllocation(profile: CareerProfile, rawId: string): bool
 export function canAllocateCareerItemToPlayer(profile: CareerProfile, id: string): boolean {
   return careerItemTotal(profile, id) > 0 && (playerHasAllocation(profile, id) || availableCareerItem(profile, id) > 0)
 }
-/** Compatibility ownership arrays are projections, never an independent quantity source. */
+/** UI ownership arrays are projections, never an independent quantity source. */
 export function syncCareerOwnership(profile: CareerProfile): void {
   const ids = Object.keys(profile.inventory!.quantities).filter(id => profile.inventory!.quantities[id] > 0)
   profile.ownedWeapons = ids.filter(id => Boolean(WEAPONS[id]))
   profile.ownedArmors = ids.filter(id => Boolean(ARMORS[id]))
   profile.ownedMounts = ids.filter(id => (PLAYER_MOUNT_IDS as readonly string[]).includes(id)) as PlayerMountId[]
-  if (!profile.ownedMounts.includes('horse')) delete profile.ownedHorseTiers
 }
 export function addCareerItem(profile: CareerProfile, id: string, delta: number): void {
   normalizeCareerInventory(profile)
@@ -96,16 +74,10 @@ export function validPersonalEquipment(_type: PersonalSquadMemberType, equipment
     && (!equipment.shield || ARMORS[equipment.shield]?.type === 'shield')
     && (!equipment.mount || (PLAYER_MOUNT_IDS as readonly string[]).includes(equipment.mount)))
 }
-/** Mutates only a newly parsed/staged profile. The marker prevents repeated recruitment grants. */
+/** Validates canonical quantities and allocations on a newly parsed or staged profile. */
 export function normalizeCareerInventory(profile: CareerProfile): void {
   validateTownEquipment(profile)
-  const legacy = !profile.inventory
   const totals: Record<string, number> = {}
-  const grant = (id: string) => {
-    const count = (totals[id] ?? 0) + 1
-    if (!Number.isSafeInteger(count)) throw new Error('Invalid inventory quantity')
-    totals[id] = count
-  }
   if (profile.inventory?.version !== undefined && profile.inventory.version !== 1) throw new Error('Invalid inventory version')
   for (const [id, count] of Object.entries(careerItemTotals(profile))) {
     if (!isTradableCareerItem(id) || !Number.isSafeInteger(count) || count < 0) throw new Error('Invalid inventory')
@@ -115,45 +87,8 @@ export function normalizeCareerInventory(profile: CareerProfile): void {
     if (merged) totals[canonical] = merged
   }
   if (profile.selectedMountId) profile.selectedMountId = canonicalInventoryId(profile.selectedMountId) as CareerMountId
-  if (legacy) {
-    const inferPlayerWeapon = profile.equipment === undefined
-    const equipment = { ...profile.equipment }
-    for (const slot of ['melee', 'ranged', 'shield'] as const) {
-      const id = equipment[slot]
-      if (id && (!totals[id] || (slot === 'shield' ? !ARMORS[id] : WEAPONS[id]?.type !== slot))) delete equipment[slot]
-    }
-    if (equipment.ranged) equipment.shield = null
-    if (inferPlayerWeapon && !equipment.melee && !equipment.ranged) {
-      const fallback = [profile.starterWeaponId, ...profile.ownedWeapons].map(id => id && canonicalInventoryId(id))
-        .find(id => id && totals[id] && isTradableCareerItem(id))
-      if (fallback) equipment[WEAPONS[fallback].type === 'ranged' ? 'ranged' : 'melee'] = fallback
-    }
-    profile.equipment = equipment
-    if (profile.selectedMountId && !totals[profile.selectedMountId]) delete profile.selectedMountId
-  }
   for (const member of profile.personalSquad?.members ?? []) {
-    const characterFaction = member.characterFaction ?? profile.faction
-    if (!member.equipment) {
-      if (!legacy) throw new Error('Missing member equipment')
-      member.equipment = legacyPersonalEquipment(member.type, characterFaction)
-      for (const id of Object.values(member.equipment)) if (id) grant(id)
-    }
-    if (member.type === 'ranger' && member.rangerEquipmentVersion !== 1 && member.initialEquipmentVersion !== 1) {
-      // Old HR Rangers owned their mount but materialized both weapons only at runtime.
-      // Grant missing default slots as real copies; preserve all legitimate saved choices.
-      const equipment = { ...member.equipment }
-      if (!equipment.melee) {
-        equipment.melee = defaultRangerMeleeWeaponId(characterFaction)
-        grant(equipment.melee)
-      }
-      if (!equipment.ranged && !equipment.shield) {
-        equipment.ranged = T4_RANGER_BOW_RANGED_ID
-        grant(equipment.ranged)
-      }
-      member.equipment = equipment
-      // Persisted receipt also distinguishes later intentional unequips from legacy gaps.
-      member.rangerEquipmentVersion = 1
-    }
+    if (!member.equipment) throw new Error('Missing member equipment')
     if (!validPersonalEquipment(member.type, member.equipment)) throw new Error('Invalid member equipment')
   }
   profile.inventory = { version: 1, quantities: totals }

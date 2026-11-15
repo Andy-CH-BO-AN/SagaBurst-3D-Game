@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { Box3, Vector3, type Scene } from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { CareerArenaSession } from '../../src/arena/CareerArenaSession'
@@ -219,19 +220,21 @@ describe('Career Duel physical travel and preparation', () => {
 })
 
 describe('Career Duel independent arena', () => {
-  it('saves the chosen arena through storage, keeps legacy and tutorial duels in Town, and refuses or drops unknown arenas', () => {
-    const profile = { ...createCareerProfile('viking'), tutorial: undefined }
+  it('saves the chosen arena, rejects missing or unknown arenas and keeps tutorial duels in Town', () => {
+    const profile = createCareerProfile('viking')
     const mission = createCareerDuelMission(profile, 'viking_berserker', 1, 'soldier-1', 'captain', 'arena-duel', 'captain', 'armed', undefined, 'roman-colosseum')!
     expect(careerDuelArena(mission)).toBe('roman-colosseum')
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
     expect(store.save({ ...profile, activeMission: mission })).toBe(true)
     expect(careerDuelArena(store.load()!.activeMission)).toBe('roman-colosseum')
-    // A pre-arena save resumes in the Town forecourt; a corrupted ID falls back the same way.
+    // Default acceptance writes the faction arena; unsupported saved arenas are rejected.
     const legacy = createCareerDuelMission(profile, 'viking_berserker', 1, 'soldier-1', 'captain', 'legacy-duel')!
-    expect(careerDuelArena(legacy)).toBeNull()
+    expect(careerDuelArena(legacy)).toBe('viking-valhalla')
     const raw = JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!)
     raw.activeMission.duelArenaId = 'forum'
-    expect(careerDuelArena(parseCareerProfile(raw)!.activeMission)).toBeNull()
+    expect(parseCareerProfile(raw)).toBeNull()
+    delete raw.activeMission.duelArenaId
+    expect(parseCareerProfile(raw)).toBeNull()
     expect(createCareerDuelMission(profile, 'viking_berserker', 1, 'soldier-1', 'captain', 'bad', 'captain', 'armed', undefined, 'forum' as never)).toBeNull()
     expect(careerDuelArena({ ...mission, duelTutorialCareerId: 'career-1' })).toBeNull()
   })
@@ -269,7 +272,7 @@ describe('Career Duel independent arena', () => {
     let retry: (() => void) | null = null, failSave = true
     const live = { player: { ...stats }, squads: [] }
     const player = { hp: 150, clearTownAction: vi.fn(), update: () => { throw new Error('player combat ran while frozen') } }
-    const base = { ...createCareerProfile('roman'), tutorial: undefined }
+    const base = createCareerProfile('roman')
     const input = { clear: vi.fn() }
     // The real save transactions; only the DOM panel and the result view are recorded.
     const session = new CareerArenaSession(duel(base, 'roman_heavy_infantry', 1, 'arena-settle'), {
@@ -341,7 +344,7 @@ describe('Career Duel progression per unit preset', () => {
 describe('Career Duel settlement and safe storage', () => {
 
   it('saves T5 progress, original Commander resources and active travel through real storage and settlement', () => {
-    const profile = duel({ ...createCareerProfile('viking'), rank: 'commander',
+    const profile = duel({ ...createCareerProfile('viking'), ...careerRankFixture('viking', 'commander'), rank: 'commander', totalMerit: 20000,
       duelHighestDefeatedTierByPreset: { viking_sword_cavalry: 4 } }, 'viking_sword_cavalry', 5, 'commander-duel')
     const commander = townCommanderSpec({ x: 0, z: 0, yaw: 0 })
     const roster = selectCareerDuelRoster([
@@ -369,7 +372,7 @@ describe('Career Duel settlement and safe storage', () => {
     expect(restored.activeMission).toBeUndefined()
     expect(restored.duelHighestDefeatedTierByPreset).toEqual({ viking_sword_cavalry: 5 })
     expect(restored.townCommanderRecovery).toEqual({ faction: 'viking', hp: 712, ammo: 13 })
-    expect(restored.careerMissionCompletionsByTier).toBeUndefined()
+    expect(restored.careerMissionCompletionsByTier).toEqual(profile.careerMissionCompletionsByTier)
   })
 
   it('settles tutorial Captain sparring once without official unlocks, mission statistics or a second outcome award', () => {

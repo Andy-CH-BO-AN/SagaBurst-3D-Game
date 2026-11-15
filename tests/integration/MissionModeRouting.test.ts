@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { acceptHeavyFieldMission } from '../../src/career/HeavyFieldMission'
 import { Faction } from '../../src/world/NPC'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -25,7 +26,7 @@ function harness(career = true) {
   const storage = new MemoryStorage()
   vi.stubGlobal('window', { localStorage: storage, addEventListener: vi.fn(), removeEventListener: vi.fn() })
   const store = new CareerProfileStore(storage)
-  const profile = acceptCareerOutpost({ ...createCareerProfile('roman'), rank: 'soldier', totalMerit: 300, availableMerit: 300, starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'] }, 1, 'battle')!
+  const profile = acceptCareerOutpost({ ...createCareerProfile('roman'), ...careerRankFixture('roman', 'soldier'), rank: 'soldier', totalMerit: 300, availableMerit: 300, starterWeaponId: 'gladius_rusty', inventory: { version: 1 as const, quantities: Object.fromEntries(['gladius_rusty'].map(id => [id, 1])) }, ownedWeapons: ['gladius_rusty'] }, 1, 'battle')!
   store.save(profile)
   const config = createCareerOutpostLaunch(profile)
   if (!career) { delete config.capabilities; delete config.careerMissionId }
@@ -67,7 +68,7 @@ describe('Game routes Campaign and Career separately', () => {
   it('keeps formal Campaign progress and Next Stage behavior and leaves Career untouched', () => {
     const { game, store, storage } = harness(false)
     const completed = store.load()!
-    completed.rank = 'commander'; completed.totalMerit = completed.availableMerit = 20000
+    Object.assign(completed, careerRankFixture(completed.faction, 'commander')); completed.totalMerit = completed.availableMerit = 20000
     delete completed.activeOutpostMission
     completed.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 123, combatElapsedSeconds: 42, outcome: 'escaped' }
     expect(store.save(completed)).toBe(true)
@@ -99,7 +100,7 @@ describe('Career reload routing', () => {
   it('restores the Veteran assault player at the checkpoint instead of the new frontline', () => {
     const store = new CareerProfileStore(new MemoryStorage())
     const profile = acceptVeteranMission({
-      ...createCareerProfile('roman'), rank: 'veteran', totalMerit: 900, ownedMounts: ['horse'],
+      ...createCareerProfile('roman'), ...careerRankFixture('roman', 'veteran'), rank: 'veteran', totalMerit: 900, inventory: { version: 1 as const, quantities: Object.fromEntries(['horse'].map(id => [id, 1])) }, ownedMounts: ['horse'],
     }, 'veteran-outpost-assault', { missionId: 'assault' })!
     const leaderId = profile.activeMission!.friendlyActorIds![0]
     profile.activeMission!.actorPositions = { [leaderId]: { x: 8, z: 63, yaw: 0 } }
@@ -146,7 +147,7 @@ describe('Career reload routing', () => {
   it('preserves departing, mobilizing, and final-stand recovery priority without a town flag', () => {
     for (const phase of ['departing', 'mobilizing', 'final-stand'] as const) {
       const profile = createCareerProfile('viking')
-      profile.rank = 'commander'; profile.totalMerit = profile.availableMerit = 20000
+      Object.assign(profile, careerRankFixture(profile.faction, 'commander')); profile.totalMerit = profile.availableMerit = 20000
       profile.careerRetirement = { version: 1, phase, acceptedAt: 1, combatElapsedSeconds: phase === 'final-stand' ? 42 : 0 }
       const saved = JSON.stringify(profile)
       const store = new CareerProfileStore(new MemoryStorage())
@@ -164,7 +165,7 @@ describe('Heavy field defeat capture at the production Game caller', () => {
   it('正式結果保存失敗不離場，重試後保存一次被俘資格，玩家倒下的勝利不進戰俘流程', () => {
     for (const outcome of ['failure', 'victory'] as const) {
       const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
-      const profile = acceptHeavyFieldMission({ ...createCareerProfile('roman'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 'soldier-iron-encounter', `field-${outcome}`)!
+      const profile = acceptHeavyFieldMission({ ...createCareerProfile('roman'), ...careerRankFixture('roman', 'soldier'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 'soldier-iron-encounter', `field-${outcome}`)!
       expect(store.save(profile)).toBe(true)
       const player = { damageDealt: 20, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
       const elements: { innerHTML: string }[] = []
@@ -215,7 +216,7 @@ describe('Heavy field defeat capture at the production Game caller', () => {
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage), session = new Map<string, string>()
     vi.stubGlobal('window', { removeEventListener: vi.fn(), location: { pathname: '/game/', href: '' } })
     vi.stubGlobal('sessionStorage', { setItem: (key: string, value: string) => session.set(key, value), removeItem: (key: string) => session.delete(key) })
-    const profile = acceptHeavyFieldMission({ ...createCareerProfile('roman'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 'soldier-iron-encounter', 'field-return')!
+    const profile = acceptHeavyFieldMission({ ...createCareerProfile('roman'), ...careerRankFixture('roman', 'soldier'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 'soldier-iron-encounter', 'field-return')!
     expect(store.save(profile)).toBe(true)
     const player = { damageDealt: 20, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
     const hud = { showResult: vi.fn(), showSaveRetry: vi.fn() }, dispose = vi.fn()

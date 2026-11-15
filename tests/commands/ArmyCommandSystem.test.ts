@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it, vi } from 'vitest'
 import type { SquadIdentity } from '../../src/battle/CommandTarget'
 import type { OfficialCommandAuthority } from '../../src/career/CareerCommandAuthority'
@@ -44,7 +45,7 @@ describe('Army command roster, dispatch and submenu', () => {
     actor.activateOutpostRampartGarrison('attack')
     expect(actor.holdsRampartPosition).toBe(true) // Internal mission Attack still permits explicit duty.
     actor.setTacticalOrder('defend')
-    const profile = { ...createCareerProfile('roman'), rank: 'commander' as const }
+    const profile = { ...createCareerProfile('roman'), ...careerRankFixture('roman', 'commander' as const), rank: 'commander' as const }
     profile.activeOutpostMission = { id: 'outpost', kind: 'outpost-defense', stageId: 1, acceptedAt: 0,
       officialSquad: { type: 'mission-official', missionId: 'outpost', townFaction: 'roman', squadId: 1,
         commandRank: 'commander', actorIds: [actor.combatantId], commandedSquadIds: [],

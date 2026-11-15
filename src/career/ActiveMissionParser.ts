@@ -3,39 +3,38 @@
  * mission family's own roster rules; any failure rejects the whole mission (fail closed).
  */
 import { parseDuelArenaId } from '../arena/DuelArenaCatalog'
-import { parsePrisonBreakState } from './CareerPrisonBreak'
-import { arenaTrialRoster, arenaTrialTierFromTemplateId, parseArenaTrialState } from './CareerArenaTrials'
-import { legacySiegeCharacterTier, parseBorrowedCharacterIdentities } from './CareerBorrowedIdentity'
-import { siegeRoster, siegeRosterVersion } from './TownSiege'
+import { BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_FRIENDLY_SQUADS, BRIDGEHEAD_SQUAD_SIZE, isBridgeheadEnemyCount } from '../battle/BridgeheadRosterConfig'
+import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
+import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
+import { parseCampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
 import { TOWN_WATCHTOWER_ARCHER_IDS } from '../town/TownNativeGuardIdentity'
-import { BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLY_SQUADS, BRIDGEHEAD_SQUAD_SIZE, isBridgeheadEnemyCount } from '../battle/BridgeheadRosterConfig'
-import { commanderGateDefenseSlots } from './CommanderTownRoster'
+import { parseTownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
+import { townRoster } from '../town/TownRules'
+import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
+import { parseCaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
+import { arenaTrialRoster, arenaTrialTierFromTemplateId, parseArenaTrialState } from './CareerArenaTrials'
+import { parseBorrowedCharacterIdentities } from './CareerBorrowedIdentity'
+import type { OfficialCommandAuthority } from './CareerCommandAuthority'
+import { parseOfficialCommandAuthority } from './CareerCommandAuthority'
+import { careerDuelClassOptions } from './CareerDuelClasses'
+import type { CareerDuelTier } from './CareerDuelState'
+import { CAREER_DUEL_TEMPLATE_ID, DUEL_COMBAT_SECONDS, DUEL_COUNTDOWN_SECONDS, isCareerDuelPresetId, isCareerDuelTier, parseCareerDuelCommanderHome, parseCareerDuelTravelCheckpoint } from './CareerDuelState'
+import { isMigratedCareerFieldTemplate } from './CareerFieldBattle'
+import type { CareerMissionTemplate } from './CareerMissionCatalog'
+import { getCareerMissionTemplate } from './CareerMissionCatalog'
+import { BRIDGEHEAD_PREPARATION_SECONDS, type ActiveCareerMission, type CareerMissionPhase, type CommanderMissionState, type VeteranOutpostBattleState } from './CareerMissionState'
+import { parseCareerOutpostCheckpoint } from './CareerOutpostMission'
+import type { PersonalSquadMission } from './CareerPersonalSquadMission'
+import { parsePersonalMission } from './CareerPersonalSquadMission'
+import { parsePrisonBreakState } from './CareerPrisonBreak'
+import type { CareerProfile } from './CareerProfile'
+import { nonNegativeInteger, nonNegativeNumber, parseMissionMountState, parseMissionPlayerStats, uniqueStrings } from './CareerSaveFields'
 import { commanderFourGateDefenseActorIds } from './CommanderFourGateDefenseRoster'
 import { parseCommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
-import { townRoster } from '../town/TownRules'
-import { parseCampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
-import type { CareerDuelTier } from './CareerDuelState'
-import { careerDuelClassOptions } from './CareerDuelClasses'
-import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
-import { parseTownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
-import { parseOfficialCommandAuthority } from './CareerCommandAuthority'
-import { parseCaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
-import { parseCareerOutpostCheckpoint } from './CareerOutpostMission'
-import { parsePersonalMission } from './CareerPersonalSquadMission'
-import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
-import type { CareerProfile } from './CareerProfile'
-import { getCareerMissionTemplate } from './CareerMissionCatalog'
 import { COMMANDER_FELINE_CAVALRY_KIND, COMMANDER_IRON_LEGION_KIND, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_FRIENDLY_TOTAL, felineCavalryActorIds, felineVanguardActorId } from './CommanderMissionCatalog'
+import { commanderGateDefenseSlots } from './CommanderTownRoster'
 import { HEAVY_FIELD_KIND, heavyActorIds, heavyNpcGroups, ironLegionEnemyActorIds, ironLegionVanguardActorId, isHeavyFieldMissionId, parseHeavyFieldState } from './HeavyCavalryMissions'
 import { careerHeavyFieldMissionRankOk, heavyMissionOfficialCommandPolicy } from './HeavyFieldMission'
-import { isMigratedCareerFieldTemplate } from './CareerFieldBattle'
-import { BRIDGEHEAD_PREPARATION_SECONDS, type ActiveCareerMission, type CareerMissionPhase, type CommanderMissionState, type VeteranOutpostBattleState } from './CareerMissionState'
-import { CAREER_DUEL_TEMPLATE_ID, DUEL_COUNTDOWN_SECONDS, DUEL_COMBAT_SECONDS, isCareerDuelPresetId, isCareerDuelTier, parseCareerDuelCommanderHome, parseCareerDuelTravelCheckpoint } from './CareerDuelState'
-import { nonNegativeInteger, nonNegativeNumber, parseMissionMountState, parseMissionPlayerStats, uniqueStrings } from './CareerSaveFields'
-import type { CareerMissionTemplate } from './CareerMissionCatalog'
-import type { OfficialCommandAuthority } from './CareerCommandAuthority'
-import type { PersonalSquadMission } from './CareerPersonalSquadMission'
-import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 
 const MISSION_PHASES: CareerMissionPhase[] = ['DEPLOYING', 'ASSEMBLING', 'MARCHING', 'ENGAGING', 'RETURNING', 'PREPARING', 'SPAWNING', 'ATTACKING', 'VICTORY_LOCKED', 'FAILURE_LOCKED', 'RESET', 'RESULT']
 
@@ -134,31 +133,6 @@ function parseCommanderMissionState(value: unknown, expectedKind: ActiveCareerMi
     ...(playerPosition ? { playerPosition } : {}) }
 }
 
-function parseSiege(value: unknown): ActiveCareerMission['siege'] {
-  if (!value || typeof value !== 'object') return undefined
-  const raw = value as Record<string, unknown>
-  if (raw.version !== 1) return undefined
-  const gates = (value: unknown) => uniqueStrings(value).filter((id): id is 'north' | 'south' | 'east' | 'west' => ['north', 'south', 'east', 'west'].includes(id))
-  const position = raw.playerPosition as { x?: unknown; y?: unknown; z?: unknown; yaw?: unknown } | undefined
-  const health = raw.gateHealth && typeof raw.gateHealth === 'object' ? raw.gateHealth as Record<string, unknown> : {}
-  return {
-    version: 1, rosterCreated: raw.rosterCreated === true,
-    rosterVersion: raw.rosterCreated === true && raw.rosterVersion !== 2 ? 1 : 2,
-    attackerIds: uniqueStrings(raw.attackerIds), claimedSquadIds: uniqueStrings(raw.claimedSquadIds).filter(id => /^outskirts:cavalry:[abc]$/.test(id)),
-    destroyedGateIds: gates(raw.destroyedGateIds), releasedReserveGateIds: gates(raw.releasedReserveGateIds),
-    crossedActorIds: uniqueStrings(raw.crossedActorIds).filter(id => uniqueStrings(raw.attackerIds).includes(id)),
-    approachedActorIds: uniqueStrings(raw.approachedActorIds).filter(id => uniqueStrings(raw.attackerIds).includes(id)),
-    defensePlans: Array.isArray(raw.defensePlans) ? raw.defensePlans.flatMap(value => {
-      if (!value || typeof value !== 'object') return []
-      const plan = value as Record<string, unknown>, gateId = gates([plan.gateId])[0]
-      return gateId ? [{ gateId, infantry: uniqueStrings(plan.infantry), cavalry: uniqueStrings(plan.cavalry), ...(typeof plan.leaderId === 'string' ? { leaderId: plan.leaderId } : {}) }] : []
-    }) : [],
-    gateHealth: Object.fromEntries(Object.entries(health).filter(([id, hp]) => gates([id]).length && typeof hp === 'number' && Number.isFinite(hp) && hp >= 0)),
-    ...(position && typeof position.x === 'number' && Number.isFinite(position.x) && typeof position.z === 'number' && Number.isFinite(position.z)
-      && typeof position.yaw === 'number' && Number.isFinite(position.yaw) ? { playerPosition: { x: position.x, z: position.z, yaw: position.yaw, ...(typeof position.y === 'number' && Number.isFinite(position.y) ? { y: position.y } : {}) } } : {}),
-  }
-}
-
 /** What every family validator may read once the shared identity checks have passed. */
 interface MissionParseContext {
   readonly raw: Record<string, unknown>
@@ -202,16 +176,16 @@ function parseDuelIdentity(raw: Record<string, unknown>, faction: CareerProfile[
 
 /** Commander missions need the exact official roster of their template. */
 function rejectsCommanderRoster({ raw, template, fourGateMission, friendlyActorIds, targetActorIds, acceptedOfficialSquad }: MissionParseContext): boolean {
-  const rosterVersion = (raw.fourGateDefense as { rosterVersion?: unknown } | undefined)?.rosterVersion ?? 1
-  if (fourGateMission && rosterVersion !== 1 && rosterVersion !== 2) return true
-  const nativeSquads = fourGateMission ? commanderGateDefenseSlots(undefined, rosterVersion as 1 | 2) : []
+  const rosterVersion = (raw.fourGateDefense as { rosterVersion?: unknown } | undefined)?.rosterVersion
+  if (fourGateMission && rosterVersion !== 2) return true
+  const nativeSquads = fourGateMission ? commanderGateDefenseSlots(undefined, rosterVersion as 2) : []
   const nativeActorIds = nativeSquads.flatMap(squad => squad.actorIds)
   const expectedFriendly = fourGateMission ? nativeActorIds.length : template?.kind === 'commander-sky-raid' ? 50
     : template?.kind === 'commander-decapitation' ? 30 : template?.kind === 'commander-bridgehead-battle' ? BRIDGEHEAD_FRIENDLIES
     : template?.kind === COMMANDER_FELINE_CAVALRY_KIND || template?.kind === COMMANDER_IRON_LEGION_KIND ? FELINE_FRIENDLY_TOTAL : 120
   const enemyVersion = (raw.fourGateDefense as { enemyRosterVersion?: unknown } | undefined)?.enemyRosterVersion
-  if (fourGateMission && enemyVersion !== undefined && enemyVersion !== 2) return true
-  const exactTargets = fourGateMission ? new Set(commanderFourGateDefenseActorIds(raw.id as string, enemyVersion === 2 ? 2 : 1)) : undefined
+  if (fourGateMission && enemyVersion !== 2) return true
+  const exactTargets = fourGateMission ? new Set(commanderFourGateDefenseActorIds(raw.id as string, 2)) : undefined
   const validTargets = exactTargets ? targetActorIds.length === exactTargets.size && targetActorIds.every(id => exactTargets.has(id))
     : template?.kind === 'commander-sky-raid' ? targetActorIds.length >= 100
     : template?.kind === 'commander-decapitation' ? targetActorIds.length === 1 && targetActorIds[0] === 'commander'
@@ -294,9 +268,9 @@ function rejectsFelineFamily({ raw, template, friendlyActorIds, targetActorIds, 
 
 /**
  * Heavy field missions: exact generated rosters and the rank's command policy.
- * Returns the official squad to keep (a recognizable legacy Captain grant is dropped), or `null` to reject.
+ * Returns the accepted current official squad, or `null` when authority conflicts with the mission.
  */
-function resolveHeavyOfficialSquad({ raw, template, faction, rank, friendlyActorIds, targetActorIds, knownActorIds, officialSquad, acceptedOfficialSquad, personalSquad }: MissionParseContext,
+function resolveHeavyOfficialSquad({ raw, template, rank, friendlyActorIds, targetActorIds, knownActorIds, acceptedOfficialSquad, personalSquad }: MissionParseContext,
   felineBattle: CaptainEagleCheckpoint | undefined): { squad: OfficialCommandAuthority | undefined } | null {
   let heavyOfficialSquad = acceptedOfficialSquad
   const templateId = template!.id as Parameters<typeof heavyNpcGroups>[0]
@@ -328,34 +302,7 @@ function resolveHeavyOfficialSquad({ raw, template, faction, rank, friendlyActor
           && squad.actorIds.every((id, slot) => id === friendlyActorIds[i * 50 + slot])
         )) return null
     }
-  } else {
-    if (raw.officialSquad !== undefined) {
-      // Safe compatibility: recognizable legacy save produced by older buggy code where Captain got unauthorized officialSquad in Soldier/Veteran mission.
-      // It must match the exact recognizable grant structure from old heavyOfficialAuthority:
-      // - rank === 'captain'
-      // - officialSquad.type === 'mission-official'
-      // - officialSquad.missionId === raw.id
-      // - officialSquad.townFaction === faction
-      // - officialSquad.commandRank === undefined
-      // - actorIds must match exactly friendlyActorIds.slice(0, Math.min(50, friendlyActorIds.length))
-      // If it does not match this recognizable legacy shape, fail-closed!
-      const expectedCount = Math.min(50, friendlyActorIds.length)
-      const isRecognizableLegacyCaptainGrant =
-        rank === 'captain'
-        && officialSquad?.type === 'mission-official'
-        && officialSquad.missionId === raw.id
-        && officialSquad.townFaction === faction
-        && officialSquad.commandRank === undefined
-        && officialSquad.actorIds.length === expectedCount
-        && officialSquad.actorIds.every((id, slot) => id === friendlyActorIds[slot])
-
-      if (isRecognizableLegacyCaptainGrant) {
-        heavyOfficialSquad = undefined
-      } else {
-        return null
-      }
-    }
-  }
+  } else if (raw.officialSquad !== undefined) return null
   return { squad: heavyOfficialSquad }
 }
 
@@ -383,7 +330,7 @@ function parseDuelFields(raw: Record<string, unknown>, faction: CareerProfile['f
     ...(raw.duelMode === 'unarmed' || raw.duelTier === 5 || raw.duelTutorialCareerId ? { duelCommanderHome: parseCareerDuelCommanderHome(raw.duelCommanderHome),
       duelTravel: parseCareerDuelTravelCheckpoint(raw.duelTravel, [...new Set([duelOpponentActorId, duelCaptainActorId, ...(raw.duelTutorialCareerId ? [duelRefereeActorId] : [])])]) } : {}),
     duelPresetId: raw.duelPresetId as UnitPresetId,
-    // An unknown arena ID is dropped; the duel then resumes in the legacy Town forecourt.
+    // Formal duels have a validated arena; tutorial sparring stays in the Town forecourt.
     ...(!raw.duelTutorialCareerId && parseDuelArenaId(raw.duelArenaId) ? { duelArenaId: parseDuelArenaId(raw.duelArenaId)! } : {}),
     // An unknown or illegal class is dropped, so the duel simply uses the resident's original class.
     ...(raw.duelMode !== 'unarmed' && typeof raw.duelClassId === 'string'
@@ -440,35 +387,20 @@ function reconcileFourGateResult(mission: ActiveCareerMission, fourGateDefense: 
     || mission.result?.outcome === 'failure' && fourGateDefense.victoryReason !== undefined) return false
   if (mission.result?.outcome === 'victory') {
     if (!fourGateDefense.deploymentComplete || !fourGateDefense.attackStarted) return false
-    if (fourGateDefense.victoryReason !== 'survival') {
+    if (fourGateDefense.victoryReason === 'elimination') {
       if (mission.deadTargetActorIds?.length !== mission.targetActorIds.length
         || mission.targetActorIds.some(id => fourGateDefense.actors[id]?.status !== 'dead')) return false
-      // Old victories predate the explicit reason and can only represent elimination.
-      fourGateDefense.victoryReason = 'elimination'
+      return true
     }
+    return fourGateDefense.victoryReason === 'survival'
   }
   return true
 }
 
-/** Structured borrowed identities, plus the one-time historical adapter for old siege rosters. */
-function attachBorrowedIdentities(mission: ActiveCareerMission, raw: Record<string, unknown>, faction: CareerProfile['faction']): void {
-  const borrowedActorIdentities = parseBorrowedCharacterIdentities(raw.borrowedActorIdentities,
-    [...mission.friendlyActorIds, ...mission.targetActorIds, ...(mission.siege?.attackerIds ?? [])])
-  if (borrowedActorIdentities) mission.borrowedActorIdentities = borrowedActorIdentities
-  // Only old siege records need the historical ID adapter. Its result becomes
-  // structured data once, so runtime factories never guess from actor names.
-  if (raw.borrowedActorIdentities === undefined && mission.siege?.rosterCreated
-    && mission.siege.attackerIds.some(id => legacySiegeCharacterTier(id, 3) === 2)) {
-    const assault = mission.kind === 'enemy-town-assault'
-    const characterFaction = assault ? faction : faction === 'roman' ? 'viking' : 'roman'
-    siegeRoster(characterFaction, assault, siegeRosterVersion(mission.siege)).forEach(({ spec }, index) => {
-      const id = mission.siege!.attackerIds[index]
-      if (id && legacySiegeCharacterTier(id, spec.tier) !== spec.tier) {
-        mission.borrowedActorIdentities = { ...mission.borrowedActorIdentities,
-          [id]: { characterFaction, characterTier: 2 } }
-      }
-    })
-}
+/** Borrowed bodies use the identity captured by the accepting writer. */
+function attachBorrowedIdentities(mission: ActiveCareerMission, raw: Record<string, unknown>): void {
+  const identities = parseBorrowedCharacterIdentities(raw.borrowedActorIdentities, [...mission.friendlyActorIds, ...mission.targetActorIds])
+  if (identities) mission.borrowedActorIdentities = identities
 }
 
 export function parseActiveMission(value: unknown, faction: CareerProfile['faction'], rank: CareerProfile['rank']): ActiveCareerMission | undefined {
@@ -478,15 +410,13 @@ export function parseActiveMission(value: unknown, faction: CareerProfile['facti
   const fourGateMission = template?.kind === 'commander-four-gate-defense'
   // Reject malformed roster data before normalization can hide duplicates or unbounded arrays.
   if (fourGateMission && rejectsFourGateRosterShape(raw)) return undefined
-  const siege = parseSiege(raw.siege)
-  if ((raw.kind === 'town-defense' || raw.kind === 'enemy-town-assault') && !siege) return undefined
   const duel = raw.kind === 'duel' && raw.templateId === CAREER_DUEL_TEMPLATE_ID
   const trialTier = raw.kind === 'arena-squad-trial' ? arenaTrialTierFromTemplateId(raw.templateId) : null
-  const trialRosterVersion = (raw.arenaTrial as { rosterVersion?: unknown } | undefined)?.rosterVersion === 2 ? 2 : 1
+  const trialRosterVersion = 2
   const trialRoster = trialTier && typeof raw.id === 'string' && raw.id ? arenaTrialRoster(raw.id, trialTier, trialRosterVersion) : null
   if (raw.kind === 'arena-squad-trial' && !trialRoster) return undefined
   const duelIdentity = duel ? parseDuelIdentity(raw, faction) : undefined
-  if (duel && !duelIdentity) return undefined
+  if (duel && (!duelIdentity || !raw.duelTutorialCareerId && !parseDuelArenaId(raw.duelArenaId))) return undefined
   const outpostMission = template?.kind === 'veteran-outpost-defense' || template?.kind === 'veteran-outpost-assault' || template?.kind === 'captain-outpost-defense'
   const captainStandalone = template?.kind === 'captain-patrol-command' || template?.kind === 'captain-eagle-battle'
   const commanderMission = Boolean(template?.id.startsWith('commander-'))
@@ -495,7 +425,7 @@ export function parseActiveMission(value: unknown, faction: CareerProfile['facti
   if (
     typeof raw.id !== 'string' || !raw.id
     || (!template && !duel && !trialRoster)
-    || !Number.isInteger(raw.targetCampId) || ((duel || trialRoster || template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault' || outpostMission || captainStandalone || commanderMission || heavyMission)
+    || !Number.isInteger(raw.targetCampId) || ((duel || trialRoster || outpostMission || captainStandalone || commanderMission || heavyMission)
       ? raw.targetCampId !== -1
       : (raw.targetCampId as number) < 0 || (raw.targetCampId as number) > 4)
     || !MISSION_PHASES.includes(raw.phase as CareerMissionPhase) || raw.phase === 'SPAWNING' && !fourGateMission
@@ -503,14 +433,12 @@ export function parseActiveMission(value: unknown, faction: CareerProfile['facti
   const targetActorIds = duelIdentity ? [duelIdentity.duelOpponentActorId] : trialRoster ? trialRoster.filter(e => e.team === 'enemy').map(e => e.actorId) : uniqueStrings(raw.targetActorIds)
   const friendlyActorIds = duelIdentity ? (duelIdentity.duelRefereeActorId === duelIdentity.duelOpponentActorId ? [] : [duelIdentity.duelRefereeActorId]) : trialRoster ? trialRoster.filter(e => e.team === 'friendly').map(e => e.actorId) : uniqueStrings(raw.friendlyActorIds)
   const reinforcementActorIds = uniqueStrings(raw.reinforcementActorIds)
-  if (template?.kind === 'town-defense' && !friendlyActorIds.includes('ranger')) friendlyActorIds.push('ranger')
-  if (template?.kind === 'town-defense' && !friendlyActorIds.includes('deployment')) friendlyActorIds.push('deployment')
   const allFriendlyActorIds = [...new Set([...friendlyActorIds, ...reinforcementActorIds])]
   if ((targetActorIds.length === 0 && template?.kind !== 'captain-patrol-command') || (!duel && friendlyActorIds.length === 0)) return undefined
   const mountState = parseMissionMountState(raw.mountState)
   const playerStats = parseMissionPlayerStats(raw.playerStats)
   const knownActorIds = new Set([...targetActorIds, ...allFriendlyActorIds,
-    ...TOWN_WATCHTOWER_ARCHER_IDS, ...TOWN_WATCHTOWER_ARCHER_IDS.map(id => `enemy-town:${id}`), ...(siege || fourGateMission ? uniqueStrings(raw.civilianActorIds) : [])])
+    ...TOWN_WATCHTOWER_ARCHER_IDS, ...TOWN_WATCHTOWER_ARCHER_IDS.map(id => `enemy-town:${id}`), ...(fourGateMission ? uniqueStrings(raw.civilianActorIds) : [])])
   const actorHealth = parseActorHealth(raw.actorHealth, knownActorIds)
   const arenaTrial = trialRoster ? parseArenaTrialState(raw.arenaTrial, { friendlyActorIds, targetActorIds }) : undefined
   if (trialRoster && (!arenaTrial || arenaTrial.tier !== trialTier)) return undefined
@@ -557,7 +485,6 @@ export function parseActiveMission(value: unknown, faction: CareerProfile['facti
     && typeof marchPosition.z === 'number' && Number.isFinite(marchPosition.z) ? { x: marchPosition.x, z: marchPosition.z } : undefined
 
   const mission: ActiveCareerMission = {
-    ...(siege ? { siege } : {}),
     ...(commanderState ? { commanderMission: commanderState } : {}),
     ...(fourGateDefense ? { fourGateDefense } : {}),
     id: raw.id,
@@ -600,7 +527,7 @@ export function parseActiveMission(value: unknown, faction: CareerProfile['facti
     reinforcementActorIds,
     chargedSquadIds: Array.isArray(raw.chargedSquadIds) ? [...new Set(raw.chargedSquadIds.filter((id): id is number => Number.isInteger(id) && id >= 1 && id <= 8))] : [],
     borrowedActorIds: uniqueStrings(raw.borrowedActorIds).filter(id => friendlyActorIds.includes(id)),
-    ...(raw.veteranRosterVersion === 1 || raw.veteranRosterVersion === 2 || raw.veteranRosterVersion === 3 ? { veteranRosterVersion: raw.veteranRosterVersion } : {}),
+    ...(raw.veteranRosterVersion === 2 || raw.veteranRosterVersion === 3 ? { veteranRosterVersion: raw.veteranRosterVersion } : {}),
     ...(actorHealth ? { actorHealth } : {}),
     ...(actorPositions ? { actorPositions } : {}),
     ...(engagedEnemySquadIds ? { engagedEnemySquadIds } : {}),
@@ -610,8 +537,7 @@ export function parseActiveMission(value: unknown, faction: CareerProfile['facti
     ...(outpostSiege ? { outpostSiege } : {}),
     acceptedAt: nonNegativeInteger(raw.acceptedAt),
     ...(mountState ? { mountState } : {}),
-    ...((template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault'
-      || template?.kind === 'commander-sky-raid' || fourGateMission) ? { civilianActorIds: uniqueStrings(raw.civilianActorIds) } : {}),
+    ...((template?.kind === 'commander-sky-raid' || fourGateMission) ? { civilianActorIds: uniqueStrings(raw.civilianActorIds) } : {}),
   }
   const result = parseMissionResult(raw)
   if (result) mission.result = result
@@ -626,6 +552,6 @@ export function parseActiveMission(value: unknown, faction: CareerProfile['facti
     if (meritStats) mission.result.meritStats = { ...meritStats, survived: mission.result.stats.survived }
   }
   if (fourGateDefense && !reconcileFourGateResult(mission, fourGateDefense)) return undefined
-  attachBorrowedIdentities(mission, raw, faction)
+  attachBorrowedIdentities(mission, raw)
   return mission
 }

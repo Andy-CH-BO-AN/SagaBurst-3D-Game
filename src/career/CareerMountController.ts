@@ -1,19 +1,19 @@
+import * as THREE from 'three'
 import { mountArmorImpactMax } from '../combat/MountArmor'
 import { mountStats } from '../combat/MountStats'
-import { compareMounts, mountComparisonBasis, mountDetails, mountTraits, type MountComparisonBasis } from '../rpg/MountComparison'
-import { isCareerShopItemUseUnlocked } from './CareerShopCatalog'
-import type { RaceRider } from './CareerRaceState'
-import { availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from './CareerInventory'
-import * as THREE from 'three'
-import { getCareerPurchaseTier, cloneCareerProfile, canonicalCareerMountId, ownsCareerHorse, type CareerMountId, type CareerProfile } from './CareerProfile'
-import type { EquipmentMountAdapter, EquipmentMountItem } from '../ui/EquipmentUI'
 import type { Player } from '../player/Player'
-import { HorseAssetRegistry, horseVariantFromSave, type HorseAppearanceVariant } from '../world/HorseAssetRegistry'
-import { Mount, MountType, felineVariantFromMountId } from '../world/Mount'
-import { BlackCatVisual, type FelineMountVariant } from '../world/BlackCatVisual'
-import { findEagleLandingPosition, type EagleLandingPoint } from '../world/EagleLanding'
-import { syncCareerEaglePads, EaglePadReservations, PLAYER_EAGLE_PAD_OWNER } from './EaglePadReservations'
-import { getTerrainHeight, getScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
+import { compareMounts,mountComparisonBasis,mountDetails,mountTraits,type MountComparisonBasis } from '../rpg/MountComparison'
+import type { EquipmentMountAdapter,EquipmentMountItem } from '../ui/EquipmentUI'
+import { BlackCatVisual,type FelineMountVariant } from '../world/BlackCatVisual'
+import { findEagleLandingPosition,type EagleLandingPoint } from '../world/EagleLanding'
+import { HorseAssetRegistry,horseVariantFromSave,type HorseAppearanceVariant } from '../world/HorseAssetRegistry'
+import { Mount,MountType,felineVariantFromMountId } from '../world/Mount'
+import { getScenePlayableWorldBound,getTerrainHeight,type ObstacleData } from '../world/Terrain'
+import { availableCareerItem,canAllocateCareerItemToPlayer,careerItemTotal,normalizeCareerInventory } from './CareerInventory'
+import { canonicalCareerMountId,cloneCareerProfile,getCareerPurchaseTier,ownsCareerHorse,type CareerMountId,type CareerProfile } from './CareerProfile'
+import type { RaceRider } from './CareerRaceState'
+import { isCareerShopItemUseUnlocked } from './CareerShopCatalog'
+import { EaglePadReservations,PLAYER_EAGLE_PAD_OWNER,syncCareerEaglePads } from './EaglePadReservations'
 
 export const CAREER_MOUNT_INTERACTION_DISTANCE = 3
 
@@ -30,7 +30,7 @@ const MOUNTS: Readonly<Record<ReturnType<typeof canonicalCareerMountId>, Omit<Eq
   xongkoro: { id: 'xongkoro', name: 'xongkoro · 巨鷹英雄坐騎', tier: 4 },
 }
 
-export function ownedCareerMountIds(profile: Pick<CareerProfile, 'ownedMounts' | 'ownedHorseTiers'>): CareerMountId[] {
+export function ownedCareerMountIds(profile: Pick<CareerProfile, 'ownedMounts'>): CareerMountId[] {
   const result: CareerMountId[] = ownsCareerHorse(profile) ? ['horse'] : []
   if (profile.ownedMounts.includes('armored-horse')) result.push('armored-horse')
   if (profile.ownedMounts.includes('black-cat')) result.push('black-cat')
@@ -321,8 +321,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     }
     syncCareerEaglePads(this.options.eaglePads, profile, this.sceneKey())
     const pad = id === 'xongkoro' ? this.options.eaglePads?.reserve(PLAYER_EAGLE_PAD_OWNER) : undefined
-    // A legacy fourth Player eagle already in flight keeps its saved runtime, even while all home pads are reserved.
-    if (id === 'xongkoro' && this.options.eaglePads && !pad && !aerial?.mount && !retirement?.mount) return false
+    if (id === 'xongkoro' && this.options.eaglePads && !pad) return false
     const deployment = this.options.eagleDeployment?.()
     const heading = retirement?.mount?.position.yaw ?? aerial?.mount?.position.yaw ?? deployment?.yaw ?? this.player().facingYaw
     const position = retirement?.mount

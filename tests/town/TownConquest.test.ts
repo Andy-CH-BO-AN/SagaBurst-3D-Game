@@ -1,3 +1,5 @@
+import { personalSquadFixture } from '../helpers/personalSquadFixture'
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { initialPersonalEquipment } from '../../src/career/CareerInventory'
 import { createCareerProfile, enlistmentMerit, type CareerProfile } from '../../src/career/CareerProfile'
@@ -36,7 +38,7 @@ interface ConquestSettlementEntry {
 function savedTown() {
   const store = new CareerProfileStore(new MemoryStorage())
   const profile = createCareerProfile('roman')
-  profile.totalMerit = 22000; profile.availableMerit = 180; profile.rank = 'commander'
+  profile.totalMerit = 22000; profile.availableMerit = 180; Object.assign(profile, careerRankFixture(profile.faction, 'commander'));
   profile.townEvent = { id: 'conquest', state: 'hostile' }
   const event = new TownEvent(population)
   for (const spec of population) event.register(spec.id, { dead: false })
@@ -89,8 +91,8 @@ describe('full population conquest outcomes and registration', () => {
 describe('hostile save migration and settlement retries', () => {
   it.each(['town_defeated', 'player_defeated'] as const)('saves %s once after retry and only then permits transition', result => {
     const { town, store } = savedTown()
-    town.profile.personalSquad = { members: [{ id: 'personal:permanent', type: 'soldier', originalHirePrice: 50,
-      equipment: initialPersonalEquipment('soldier', 'roman') }] }
+    town.profile.personalSquad = personalSquadFixture(town.profile, [{ id: 'personal:permanent', type: 'soldier', originalHirePrice: 50,
+      equipment: initialPersonalEquipment('soldier', 'roman') }])
     town.profile.inventory = { version: 1, quantities: { gladius_rusty: 2,
       ...Object.fromEntries(Object.values(initialPersonalEquipment('soldier', 'roman')).filter(Boolean).map(id => [id, 1])) } }
     town.profile.skills = { ...createDefaultSkillState(), ...town.profile.skills, ranged: { level: 4, xp: 20 } }

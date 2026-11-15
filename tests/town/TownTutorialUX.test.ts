@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Vector3 } from 'three'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -104,7 +105,7 @@ function setupMockDOM() {
 function createHostHarness(initialProfile?: CareerProfile) {
   let profile = initialProfile ?? createCareerProfile('roman')
   if (!profile.tutorial) {
-    profile.tutorial = createCareerTutorialState('recruit', true)
+    profile.tutorial = createCareerTutorialState('recruit')
   }
   // Complete recruit training so town tutorial is available
   for (const op of CAREER_TUTORIAL_OPERATIONS.recruit.flat()) {
@@ -185,7 +186,7 @@ describe('TownTutorialUX', () => {
   })
 
   it('keeps Sergeant mission tabs in normal services after bypassing a pending story invitation', () => {
-    const profile = createCareerProfile('roman'); profile.rank = 'soldier'
+    const profile = createCareerProfile('roman'); Object.assign(profile, careerRankFixture(profile.faction, 'soldier'));
     profile.careerStory!.events['veteran-squad-spar'] = { status: 'pending' }
     let panel = new MockElement('div')
     const board = new TownMissionBoard({ profile, tutorial: undefined, captainPatrol: undefined,
@@ -592,25 +593,15 @@ describe('TownTutorialUX', () => {
     ctrl.dispose()
   })
 
-  it('never-started legacy stages stay opt-in, while skipped stages are guided and resume directly from the Sergeant', () => {
+  it('skipped current stages retain progress and resume directly from the Sergeant', () => {
     const harness = createHostHarness()
     const ctrl = new TownTutorialController(harness.host)
     const t = harness.getProfile().tutorial!
-    t.legacy = true
     t.recruit.status = 'completed'
     t.town.status = 'deferred'
     t.captain.status = 'deferred'
     t.commander.status = 'deferred'
 
-    expect(ctrl.hasDialogue('deployment')).toBe(false)
-    ctrl.update()
-    expect(dom.elements.find(el => el.id === 'career-tutorial-hint')!.textContent).toBe('')
-    const side = dialoguePanel()
-    ctrl.appendPanel(side.panel, 'deployment')
-    expect(side.buttons().map(b => b.textContent)).toEqual(['繼續新兵訓練', '繼續 30 人指揮演練', '繼續指揮塔訓練'])
-
-    // A real skip keeps progress: the HUD points back to the Sergeant and the dialogue keeps the regular menu reachable.
-    t.legacy = false
     t.captain.status = 'locked'; t.commander.status = 'locked'
     t.town.operations = ['report']; t.town.step = 'weapon'
     ctrl.update()

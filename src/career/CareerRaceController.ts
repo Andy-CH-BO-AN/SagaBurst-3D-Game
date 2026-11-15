@@ -1,26 +1,33 @@
-import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
-import { raceReturnProfile } from './CareerRaceReturn'
 import * as THREE from 'three'
-import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
-import type { HpBar } from '../ui/HpBar'
 import type { Player } from '../player/Player'
 import { standingPlayerY } from '../player/PlayerFootBody'
-import { AIType, Faction, NPC } from '../world/NPC'
-import { Mount, mountCombatRadius, mountTypeFromId, felineVariantFromMountId } from '../world/Mount'
-import { BlackCatVisual } from '../world/BlackCatVisual'
-import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
-import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
-import type { CareerProfile } from './CareerProfile'
-import { findMountParkingPoint, findSergeantResident, isMountParkingClear, planSergeantReturn, resolveTownEntryFallbackPoint, sergeantReturnFromResidents, type SergeantResidentLike } from '../town/SergeantReturn'
-import { townPlayerEntryPoint } from '../town/TownRules'
+import { findMountParkingPoint,findSergeantResident,isMountParkingClear,planSergeantReturn,resolveTownEntryFallbackPoint,sergeantReturnFromResidents,type SergeantResidentLike } from '../town/SergeantReturn'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
-import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
-import { CAREER_MOUNT_INTERACTION_DISTANCE, canUseCareerMount, findSafeCareerMountPosition, type CareerMountController } from './CareerMountController'
-import { activateCareerStoryEvent, careerStoryPending } from './CareerStoryEvents'
-import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, pickRaceOpponentMount, RACE_SCHEDULE_VERSION, RACE_STORY_ID, RACE_STORY_RACE_ID, raceOpponentCanSprint, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
-  type CareerRaceSession, type RaceId, type RaceRider, type RaceReferee, type RaceMountId } from './CareerRaceState'
-import { legalRaceStart, RACE_START, RACE_START_SLOTS, raceMountPoseLegal, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, resolveRaceMountSpawn, type RacePoint, type RacePosition, type RaceMountSpawnOptions } from './CareerRaceRoute'
+import { townPlayerEntryPoint } from '../town/TownRules'
+import type { HpBar } from '../ui/HpBar'
+import { BlackCatVisual } from '../world/BlackCatVisual'
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
+import { felineVariantFromMountId,Mount,mountCombatRadius,mountTypeFromId } from '../world/Mount'
+import { NPC } from '../world/NPC'
+import { gameplayNpcSpawns,trackNpcSpawn,type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
+import { getTerrainHeight,type ObstacleData } from '../world/Terrain'
+import { canUseCareerMount,CAREER_MOUNT_INTERACTION_DISTANCE,findSafeCareerMountPosition,type CareerMountController } from './CareerMountController'
+import type { CareerProfile } from './CareerProfile'
+import { canonicalCareerMountId,cloneCareerProfile } from './CareerProfile'
+import { raceReturnProfile } from './CareerRaceReturn'
+import { legalRaceStart,RACE_START,RACE_START_SLOTS,raceCheckpointTarget,raceMountPoseLegal,raceMovementIsLegal,raceWaypoints,resolveRaceMountSpawn,type RaceMountSpawnOptions,type RacePoint,type RacePosition } from './CareerRaceRoute'
+import {
+advanceRaceClock,advanceRaceRider,canEnterRace,finalizeRaceDeployment,lockRace,MOUNTED_RACES,pickRaceOpponentMount,RACE_SCHEDULE_VERSION,RACE_STORY_ID,RACE_STORY_RACE_ID,
+raceIsRunning,
+raceOpponentCanSprint,raceRecordProfile,
+raceRiderDone,resolveRace,selectRaceCommander,updateRaceGuidance,
+type CareerRaceSession,type RaceId,
+type RaceMountId,
+type RaceReferee,
+type RaceRider
+} from './CareerRaceState'
+import { activateCareerStoryEvent,careerStoryPending } from './CareerStoryEvents'
 
 interface RaceResident { npc: NPC; homeMount?: Mount; spec: { id: string; role?: string; x: number; z: number; yaw?: number } }
 const commandId = -7400
@@ -219,13 +226,9 @@ export class CareerRaceController {
       this.error = s.story ? '賽手部署失敗；可取消本次賽馬（不計勝負），或重新載入重試同場賽事。' : '賽手部署失敗；重新載入可重試同場賽事。'
     })
     this.batch.enqueue(s.opponent.actorId, () => {
-      const presetId: UnitPresetId = this.read().faction === 'roman' ? 'roman_sword_cavalry' : 'viking_sword_cavalry'
-      const loadout = { ...UNIT_PRESETS[presetId].tierLoadouts[1], mountId: s.opponent.mountId }
-      this.borrowedCommander = s.opponent.actorId === TOWN_COMMANDER_ID ? this.residents.find(r => r.spec.id === TOWN_COMMANDER_ID) : undefined
-      if (s.opponent.actorId === TOWN_COMMANDER_ID && !this.borrowedCommander) throw new Error('Race Commander resident unavailable')
-      // Legacy in-progress sessions retain their actor identity until they finish.
-      const npc = this.borrowedCommander?.npc ?? trackNpcSpawn(new NPC(this.scene, s.opponent.position.x, s.opponent.position.z, Faction.TOWN,
-        this.read().faction, AIType.MELEE, 'Circuit Rider', 1, true, loadout, presetId, undefined, s.opponent.actorId))
+      this.borrowedCommander = this.residents.find(r => r.spec.id === TOWN_COMMANDER_ID)
+      if (s.opponent.actorId !== TOWN_COMMANDER_ID || !this.borrowedCommander) throw new Error('Race Commander resident unavailable')
+      const npc = this.borrowedCommander.npc
       this.racer = npc
       // Resolve the race mount on the real walk surface before anything moves, so it never appears in a plinth.
       const spawn = this.raceMountSpawn(s, npc, initial)
@@ -243,7 +246,7 @@ export class CareerRaceController {
           home.visualHold = true
         }
         npc.dismountFromMount()
-      } else npc.setTownPeaceful()
+      }
       const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(s.opponent.mountId), spawn.x, spawn.z, spawn.y, horseVariantForStableKey(`town:${this.read().faction}:${s.opponent.actorId}`)))
       mount.group.rotation.y = spawn.yaw
       mount.reservedForTown = true; this.mount = mount
@@ -597,7 +600,7 @@ export class CareerRaceController {
         if (home.mounted && mount && !mount.dead) npc.mountVehicle(mount)
       }
       this.commanded.delete(npc)
-    } else this.racer?.dispose()
+    }
     this.mount?.dispose(); this.racer = undefined; this.mount = undefined; this.borrowedCommander = undefined
   }
   dispose(): void { this.disposeRacer(); this.commanded.clear() }

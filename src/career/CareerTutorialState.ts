@@ -1,5 +1,5 @@
-import type { CareerProfile, CareerRank } from './CareerProfile'
 import type { CharacterFaction } from '../world/CharacterVisuals'
+import type { CareerProfile,CareerRank } from './CareerProfile'
 
 export const CAREER_TUTORIAL_STAGES = ['recruit', 'town', 'captain', 'hr', 'commander'] as const
 export type CareerTutorialStageId = typeof CAREER_TUTORIAL_STAGES[number]
@@ -24,7 +24,6 @@ export interface CareerTutorialState {
   version: 1
   /** Immutable identity of this enlistment; callbacks must check it before saving. */
   careerId: string
-  legacy: boolean
   recruit: CareerTutorialStage
   town: CareerTutorialStage
   captain: CareerTutorialStage
@@ -51,40 +50,23 @@ export function careerTutorialStep(stage: CareerTutorialStageId, operations: rea
 function stage(id: CareerTutorialStageId, status: CareerTutorialStatus): CareerTutorialStage {
   return { status, step: careerTutorialStep(id, []), operations: [], replay: false }
 }
-export function createCareerTutorialState(rank: CareerRank = 'recruit', newCareer = true): CareerTutorialState {
+export function createCareerTutorialState(rank: CareerRank = 'recruit'): CareerTutorialState {
   return {
-    version: 1, careerId: crypto.randomUUID(), legacy: !newCareer,
-    recruit: stage('recruit', newCareer ? 'available' : 'deferred'),
-    town: stage('town', newCareer ? 'locked' : 'deferred'),
+    version: 1, careerId: crypto.randomUUID(),
+    recruit: stage('recruit', 'available'),
+    town: stage('town', 'locked'),
     captain: stage('captain', rank === 'captain' || rank === 'commander' ? 'deferred' : 'locked'),
     hr: stage('hr', 'locked'),
     commander: stage('commander', rank === 'commander' ? 'deferred' : 'locked'),
     rewards: {}, purchases: { weaponIds: [], horse: false }, settledMissionIds: [],
   }
 }
-/** Pre-impact-lesson saves recorded horse mounting, then three ride markers; there was no cat or impact proof. */
-const LEGACY_RECRUIT_RIDE_OPERATIONS = ['ride1', 'ride2', 'ride3']
-const RECRUIT_MOUNT_CHAIN = ['cat-mounted', 'horse-mounted', 'mount-impact', 'dismounted']
-/**
- * Drops the retired ride markers and back-fills the ordered proofs the old flow already implied, so a save that
- * had reached the horse resumes at the impact lesson and a completed save stays completed (no second reward).
- */
-function migrateLegacyRecruitOperations(operations: string[], step: unknown): { operations: string[]; legacy: boolean } {
-  const rode = operations.some(op => LEGACY_RECRUIT_RIDE_OPERATIONS.includes(op)) || LEGACY_RECRUIT_RIDE_OPERATIONS.includes(step as string)
-  const mountedHorse = rode || operations.includes('horse-mounted')
-  const legacy = !operations.includes('cat-mounted') && !operations.includes('mount-impact') && (mountedHorse || step === 'horse-mounted')
-  if (!legacy) return { operations, legacy }
-  const kept = operations.filter(op => !LEGACY_RECRUIT_RIDE_OPERATIONS.includes(op))
-  const furthest = RECRUIT_MOUNT_CHAIN.reduce((last, op, index) => kept.includes(op) ? index : last, -1)
-  const reached = mountedHorse ? Math.max(furthest, 1) : furthest
-  return { operations: [...kept, ...RECRUIT_MOUNT_CHAIN.slice(0, reached + 1).filter(op => !kept.includes(op))], legacy }
-}
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(s => typeof s === 'string' && s.length > 0 && s.length <= 256)
 export function parseCareerTutorialState(value: unknown): CareerTutorialState | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Record<string, unknown>
   if (raw.version !== 1 || typeof raw.careerId !== 'string' || !raw.careerId || raw.careerId.length > 256
-    || typeof raw.legacy !== 'boolean' || !raw.purchases || typeof raw.purchases !== 'object'
+    || !raw.purchases || typeof raw.purchases !== 'object'
     || !raw.rewards || typeof raw.rewards !== 'object' || Array.isArray(raw.rewards)
     || !strings(raw.settledMissionIds)) return null
   const purchases = raw.purchases as Record<string, unknown>
@@ -95,11 +77,11 @@ export function parseCareerTutorialState(value: unknown): CareerTutorialState | 
     if (!part || !['locked', 'available', 'active', 'deferred', 'completed'].includes(part.status as string)
       || typeof part.replay !== 'boolean' || !strings(part.operations)) return null
     const allowed = CAREER_TUTORIAL_OPERATIONS[id].flat()
-    const { operations: savedOperations, legacy } = id === 'recruit' ? migrateLegacyRecruitOperations(part.operations, part.step) : { operations: part.operations, legacy: false }
+    const savedOperations = part.operations
     if (savedOperations.some(op => !allowed.includes(op))) return null
     const operations = [...new Set(savedOperations)]
     const step = careerTutorialStep(id, operations)
-    if (!legacy && part.step !== step || part.status === 'completed' && step !== 'complete') return null
+    if (part.step !== step || part.status === 'completed' && step !== 'complete') return null
     stages[id] = { status: part.status as CareerTutorialStatus, replay: part.replay, operations, step }
   }
   const rewards: CareerTutorialState['rewards'] = {}
@@ -118,7 +100,7 @@ export function parseCareerTutorialState(value: unknown): CareerTutorialState | 
       || !['active', 'completed'].includes(stages[s.stage].status)) return null
     session = { id: s.id, careerId: s.careerId, stage: s.stage, replay: s.replay, returnFaction: s.returnFaction }
   }
-  return { version: 1, careerId: raw.careerId, legacy: raw.legacy, ...stages, rewards,
+  return { version: 1, careerId: raw.careerId, ...stages, rewards,
     purchases: { weaponIds: [...new Set(purchases.weaponIds)], horse: purchases.horse },
     settledMissionIds: [...new Set(raw.settledMissionIds)],
     ...(raw.duelOutcome ? { duelOutcome: raw.duelOutcome } : {}), ...(session ? { session } : {}) }

@@ -4,18 +4,18 @@ import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { gateBreachLane } from '../../src/navigation/GateBreachPortal'
 import { describe, expect, it, onTestFinished } from 'vitest'
-import { siegeDefensePlans, siegeActorCharacterTier } from '../../src/career/TownSiege'
+
 import { TownFourGateSiege, type TownSiegeAttackerRole } from '../../src/career/TownFourGateSiege'
 import { planCommanderFourGateDefenseDeployment } from '../../src/career/CommanderFourGateDefenseDeployment'
 import { AIType, NPC, Faction } from '../../src/world/NPC'
 import { parseCommandActorCheckpoint } from '../../src/career/CareerCommandAuthority'
-import { Box3, Vector3 } from 'three'
+import { Vector3 } from 'three'
 import { AvailableBreachEntrances } from '../../src/navigation/AvailableBreachEntrances'
 import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
 import { townAuthoredRoster, type TownActorSpec } from '../../src/town/TownRules'
 import { getTownRampartLayout, townRampartHeight } from '../../src/town/TownRamparts'
-import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
-import { getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
+
+import { getTerrainHeight } from '../../src/world/Terrain'
 import { SiegeConvoy } from '../../src/campaign/SiegeConvoy'
 
 // Exercise the full authored identity/capacity contract without allocating normal-Town
@@ -23,71 +23,6 @@ import { SiegeConvoy } from '../../src/campaign/SiegeConvoy'
 // with the positioned townRoster; TownResidentLayout owns those placement invariants.
 
 describe('Siege deployment and shared rule ownership', () => {
-  it('keeps native gate membership and deploys all ground defenders without replacing the eight official squads', () => {
-    const residents = townAuthoredRoster(), plans = siegeDefensePlans(residents)
-    expect(plans.map(p => p.infantry.length).sort()).toEqual([25, 25, 25, 26])
-    expect(plans.map(p => p.cavalry.length).sort()).toEqual([25, 25, 26, 26])
-    for (const p of plans) expect(p.infantry.filter(id => id.startsWith('gate:')).every(id => id.startsWith(`gate:${p.gateId}:`))).toBe(true)
-    expect(plans.map(p => p.leaderId)).toEqual(['captain', 'ranger', 'town-patrol:a:captain', 'town-patrol:b:captain'])
-    const trainer: TownActorSpec = { id: 'eagle-trainer', role: 'eagle-trainer', duty: 'service', tier: 4,
-      mounted: false, training: false, assaultObjective: true, index: 0, x: -90, z: 36, yaw: 0 }
-    const officer: TownActorSpec = { id: 'hr-officer', role: 'hr-officer', duty: 'service', tier: 4,
-      mounted: true, training: false, assaultObjective: false, index: 0, x: -70, z: 0 }
-    const native = [...residents, townCommanderSpec({ x: 52, z: -22, yaw: 0 }), trainer, officer]
-    const original = structuredClone(native), layout = getTownRampartLayout()
-    // Math-only walk surfaces and two physical volumes: a firing blocker outside
-    // the deck and an occupied portion of its inner lanes. No scene/model builder.
-    const obstacles: ObstacleData[] = [
-      { box: new Box3(new Vector3(-31, -100, -115), new Vector3(-12, 100, -113.3)), isBarricade: false },
-      { box: new Box3(new Vector3(10, -100, -112), new Vector3(20, 100, -104)), isBarricade: false },
-    ]
-    const deployment = planCommanderFourGateDefenseDeployment(native, layout, obstacles)
-    const groundIds = native.filter(actor => actor.duty !== 'eagle_garrison' && actor.duty !== 'watchtower_guard'
-      && (actor.unitKind || ['ranger', 'commander', 'eagle-trainer', 'hr-officer'].includes(actor.role))).map(actor => actor.id)
-    const sectorIds = deployment.sectors.flatMap(sector => [...sector.wallActorIds, ...sector.cavalryActorIds])
-    expect(deployment.stations.size).toBe(206)
-    expect(new Set(sectorIds).size).toBe(206)
-    expect([...deployment.stations.keys()].sort()).toEqual(groundIds.sort())
-    expect(sectorIds.sort()).toEqual(groundIds)
-    expect(deployment.sectors.map(sector => [sector.wallActorIds.length, sector.cavalryActorIds.length]))
-      .toEqual([[26, 26], [26, 26], [25, 26], [25, 26]])
-    expect(deployment.squads.map(squad => squad.squadId)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
-    expect(deployment.squads.map(squad => squad.actorIds.length)).toEqual([26, 26, 26, 26, 25, 26, 25, 26])
-    expect(new Set(deployment.squads.flatMap(squad => squad.actorIds)).size).toBe(206)
-    expect(deployment.squads[1].actorIds).toContain('commander')
-    expect(deployment.squads[2].actorIds).toContain('eagle-trainer')
-    expect(deployment.squads[7].actorIds).toContain('hr-officer')
-    expect(deployment.squads[5].actorIds).toContain('captain')
-    expect(deployment.squads.flatMap(squad => squad.actorIds).some(id => /^(town-eagle-rider|watchtower-archer):/.test(id))).toBe(false)
-    expect(deployment.squads.flatMap(squad => squad.actorIds.map(id => {
-      const station = deployment.stations.get(id)
-      return [id, station?.gateId, station?.kind]
-    }))).toEqual(deployment.squads.flatMap(squad => squad.actorIds.map(id => [id,
-      ['north', 'south', 'east', 'west'][Math.floor((squad.squadId - 1) / 2)], squad.squadId % 2 ? 'wall' : 'cavalry'])))
-    expect(deployment.stations.get('gate:north:0')!.z).toBeLessThan(deployment.stations.get('gate:north:4')!.z)
-    expect(native).toEqual(original)
-    const stations = [...deployment.stations], invalid: string[] = []
-    const nativeById = new Map(native.map(actor => [actor.id, actor]))
-    const radius = (kind: 'wall' | 'cavalry') => kind === 'wall' ? .6 : 1.25
-    for (const [index, [id, station]] of stations.entries()) {
-      const r = radius(station.kind), spec = nativeById.get(id)!
-      if (station.kind === 'wall' && townRampartHeight(layout, station.x, station.z) !== station.y) invalid.push(`${id}:unsupported`)
-      if (spec.gateId && station.gateId !== spec.gateId) invalid.push(`${id}:wrong gate`)
-      if (obstacles.some(({ box }) => station.x + r > box.min.x && station.x - r < box.max.x
-        && station.z + r > box.min.z && station.z - r < box.max.z)) invalid.push(`${id}:blocked`)
-      if (station.kind === 'wall' && station.gateId === 'north' && ['ranged', 'archer'].includes(spec.unitKind ?? '')
-        && station.x >= -31 && station.x <= -12) invalid.push(`${id}:blocked shot`)
-      // West pad 4's standing/approach envelope is reserved even without a ground collider.
-      if (station.kind === 'cavalry' && station.x >= -99 && station.x <= -71 && station.z >= -27 && station.z <= 113) invalid.push(`${id}:eagle corridor`)
-      for (let other = 0; other < index; other++) {
-        const neighbor = stations[other][1]
-        const dx = neighbor.x - station.x, dz = neighbor.z - station.z, clearance = r + radius(neighbor.kind)
-        if (Math.abs(neighbor.y - station.y) < 3.6
-          && dx * dx + dz * dz < clearance * clearance) invalid.push(`${id}:overlap`)
-      }
-    }
-    expect(invalid).toEqual([])
-  })
 
   it('keeps horse-equipped native infantry on supported wall slots and dismounted native cavalry at its gate', () => {
     const ids = ['gate:north:0', 'gate:north:1', 'gate:north:7', 'captain', 'town-eagle-rider:1']
@@ -320,16 +255,6 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(mountedNpc.siegeBypassTarget).toBeNull()
 
     convoy.dispose(); expect(npc.siegeBypassTarget).toBeNull()
-  })
-
-  // A reload rebuilds an outskirts-owned rider from the siege equipment roster.
-  it('keeps borrowed outskirts soldiers at their formal tier across siege reconstruction', () => {
-    expect(siegeActorCharacterTier('outskirts:cavalry:a:0', 3)).toBe(2)
-    expect(siegeActorCharacterTier('outskirts:cavalry:c:9:wave:12', 3)).toBe(2)
-    expect(siegeActorCharacterTier('mission:siege:1', 3)).toBe(3)
-    expect(siegeActorCharacterTier('outskirts:cavalry:a:0', 4)).toBe(4)
-    expect(siegeActorCharacterTier('outskirts:bandit:a:0', 3)).toBe(3)
-    expect(siegeActorCharacterTier('outskirts:cavalry:a:10', 3)).toBe(3)
   })
 })
 

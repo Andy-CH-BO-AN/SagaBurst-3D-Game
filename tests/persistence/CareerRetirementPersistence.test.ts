@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { expect, it } from 'vitest'
 import { cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -8,7 +9,7 @@ import { withNativeRetirementCheckpoints } from '../helpers/RetirementMobilizati
 function preparedRetirement(): CareerProfile {
 
   const ready = withNativeRetirementCheckpoints({ ...createCareerProfile('roman'),
-    rank: 'commander', totalMerit: 20000, commanderMeleeGranted: true,
+    ...careerRankFixture('roman', 'commander'), rank: 'commander', totalMerit: 20000, commanderMeleeGranted: true,
     careerRetirement: { version: 1, phase: 'final-stand', acceptedAt: 123, combatElapsedSeconds: 42.5,
       mobilization: { version: 1, commandRevoked: true, refillCompleted: true, formationPrepared: true } },
     retirementRuntime: { player: { position: { x: 0, y: 0, z: 0, yaw: 0 },
@@ -55,6 +56,7 @@ it('rejects incomplete prepared native retirement checkpoints without replacing 
     { ...ready, townCommandSquad: { ...ready.townCommandSquad!,
       members: { ...ready.townCommandSquad!.members, captain: unmountedCaptain } } },
     { ...ready, retirementRuntime: undefined },
+    { ...ready, retirementRuntime: { ...ready.retirementRuntime!, stats: undefined } },
     { ...ready, retirementRuntime: { ...ready.retirementRuntime!, stats: { ...ready.retirementRuntime!.stats!,
       personal: { ...ready.retirementRuntime!.stats!.personal, kills: -1 } } } },
   ]
@@ -62,14 +64,6 @@ it('rejects incomplete prepared native retirement checkpoints without replacing 
     expect(store.save(corrupt)).toBe(false)
     expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
   }
-})
-
-it('accepts legacy prepared retirement resources without inventing missing combat counters', () => {
-  const ready = preparedRetirement()
-  const store = new CareerProfileStore(new MemoryStorage())
-  const legacy = { ...ready, retirementRuntime: { ...ready.retirementRuntime!, stats: undefined } }
-  expect(store.save(legacy)).toBe(true)
-  expect(store.load()?.retirementRuntime?.stats).toBeUndefined()
 })
 
 it('round-trips minimal retirement progress and resource snapshots without sharing mutable state', () => {
@@ -137,7 +131,7 @@ it('round-trips a prepared retirement receipt and rejects incomplete or misplace
 
 function retirementProfile(): CareerProfile {
   const profile = createCareerProfile('roman')
-  profile.rank = 'commander'
+  Object.assign(profile, careerRankFixture(profile.faction, 'commander'));
   profile.totalMerit = 20000
   profile.commanderMeleeGranted = true
   profile.inventory = { version: 1, quantities: {} }

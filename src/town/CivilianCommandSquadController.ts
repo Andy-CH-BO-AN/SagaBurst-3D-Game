@@ -1,19 +1,19 @@
-import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes } from './TownCivilianLife'
 import * as THREE from 'three'
-import { matchesArmyCommandTarget, type ArmyCommandTarget } from '../battle/CommandTarget'
+import { matchesArmyCommandTarget,type ArmyCommandTarget } from '../battle/CommandTarget'
 import { officialFollowLocalOffset } from '../battle/FollowOrder'
 import type { TacticalOrder } from '../battle/TacticalOrder'
-import { civilianCommandRoster, cloneCivilianCommandSquad, type CivilianCommandOwner, type CivilianCommandSquadState } from '../career/CivilianCommandAuthority'
+import { refitCommandActor,refitCommandCheckpoint,restoreCommandActor,snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
 import type { PersonalActorCheckpoint } from '../career/CareerPersonalSquadMission'
-import { refitCommandActor, refitCommandCheckpoint, restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
-import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
+import { cloneCareerProfile,type CareerProfile } from '../career/CareerProfile'
 import { isTownCommandRevokedByRetirement } from '../career/CareerRetirementCommand'
+import { civilianCommandRoster,cloneCivilianCommandSquad,type CivilianCommandOwner,type CivilianCommandSquadState } from '../career/CivilianCommandAuthority'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
-import type { Mount } from '../world/Mount'
 import type { Player } from '../player/Player'
-import { Faction, type NPC } from '../world/NPC'
-import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
-import { CIVILIAN_PROFILE, townRoster, type TownActorSpec } from './TownRules'
+import type { Mount } from '../world/Mount'
+import { Faction,type NPC } from '../world/NPC'
+import { getTerrainHeight,type ObstacleData } from '../world/Terrain'
+import { CIVILIAN_HOME_LAYOUT_VERSION,restoreCivilianMountClearance } from './TownCivilianLife'
+import { CIVILIAN_PROFILE,townRoster,type TownActorSpec } from './TownRules'
 
 export const CIVILIAN_COMMAND_RETURN_ID = -4500
 export interface CivilianCommandResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
@@ -54,7 +54,7 @@ export class CivilianCommandSquadController {
     const profile = this.read(), mission = profile.activeMission
     return !isTownCommandRevokedByRetirement(profile) && profile.rank === 'commander' && profile.faction === this.options.townFaction
       && profile.townEvent?.state !== 'hostile' && !profile.activeOutpostMission
-      && (!mission || (mission.kind === 'town-defense' || mission.kind === 'commander-four-gate-defense') && !mission.result && mission.phase !== 'RETURNING'
+      && (!mission || (mission.kind === 'commander-four-gate-defense') && !mission.result && mission.phase !== 'RETURNING'
         && mission.phase !== 'RESULT' && mission.phase !== 'RESET')
   }
   private get matchesScene(): boolean {
@@ -186,7 +186,7 @@ export class CivilianCommandSquadController {
       let restored = saved
       const profile = this.read()
       if (!isTownCommandRevokedByRetirement(profile) && !profile.activeMission && !profile.activeOutpostMission && profile.townEvent?.state !== 'hostile') {
-        const migrated = migrateCivilianHomes(saved, [...this.residentsById.values()].map(r => r.spec), this.options.canPlaceMountedCivilian, this.options.hasMountedCivilianClearance)
+        const migrated = restoreCivilianMountClearance(saved, [...this.residentsById.values()].map(r => r.spec), this.options.canPlaceMountedCivilian, this.options.hasMountedCivilianClearance)
         if (migrated !== saved) {
           const next = cloneCareerProfile(profile); next.civilianCommandSquad = migrated
           // A denied save falls back to the original checkpoint, including its deaths.
@@ -232,7 +232,7 @@ export class CivilianCommandSquadController {
       if (!resident) continue
       if (resident.npc.dead) { value.owners[id] = this.defaultOwner(resident.spec); continue }
       const owner = value.owners[id]
-      if ((profile.activeMission?.kind === 'town-defense' || profile.activeMission?.kind === 'commander-four-gate-defense') && !profile.activeMission.result && resident.spec.role === 'civilian') {
+      if ((profile.activeMission?.kind === 'commander-four-gate-defense') && !profile.activeMission.result && resident.spec.role === 'civilian') {
         value.owners[id] = 'evacuation'; delete value.members[id].formation
       } else if (owner === 'player' || owner === 'evacuation') this.stageReturn(value, id, resident.spec)
     }
@@ -321,7 +321,7 @@ export class CivilianCommandSquadController {
 
   private defaultOwner(spec: TownActorSpec): CivilianCommandOwner {
     const mission = this.read().activeMission
-    return spec.role === 'civilian' && (mission?.kind === 'town-defense' || mission?.kind === 'commander-four-gate-defense') && !mission.result ? 'evacuation' : 'daily'
+    return spec.role === 'civilian' && (mission?.kind === 'commander-four-gate-defense') && !mission.result ? 'evacuation' : 'daily'
   }
   private stageReturn(value: CivilianCommandSquadState, id: string, spec: TownActorSpec): void {
     const member = value.members[id]

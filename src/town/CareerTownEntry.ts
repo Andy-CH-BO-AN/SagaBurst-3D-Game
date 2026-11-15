@@ -1,38 +1,36 @@
-import { commitPrisonBreakReturn } from '../career/CareerMissionReturnRecovery'
-import { CareerPrisonBreakScene } from '../arena/CareerPrisonBreakScene'
-import { beginPrisonBreak, prisonGuardCount } from '../career/CareerPrisonBreak'
-import { PRISON_CAPTURE_ACTION, PRISON_CAPTURE_DESCRIPTION, PRISON_CAPTURE_TITLE, prisonCaptureObjective } from '../ui/PrisonBreakBriefing'
-import { stageMissionReturnRebuild } from '../career/CareerMissionReturnRecovery'
-import { townRoster } from './TownRules'
-import { createCareerBridgeBattleLaunch, createCareerFelineBattleLaunch, isCareerBridgeBattle, isCareerFelineBattle } from '../career/CareerBridgeBattle'
-import { installTownStyles } from './TownUI'
-import { FactionSelectionUI } from './FactionSelectionUI'
-import type { CareerProfile } from '../career/CareerProfile'
-import { createAndSaveCareer } from '../career/CareerCreation'
-import { showCommanderRetirementEnding } from './TownRetirementUI'
-import { CareerProfileStore } from '../career/CareerProfileStore'
-import { CAREER_RECOVERY_NOTICE_KEY, retireObsoleteActiveMission } from '../career/CareerMissionRecovery'
-import { isRetiredRecruitPatrolMission } from '../career/CareerMissionCatalog'
-import { createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
-import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from '../career/CaptainMissionCatalog'
-import { clearCareerMission } from '../career/CareerProfile'
-import { CAREER_OUTPOST_SESSION_KEY } from '../career/CareerOutpostMission'
-import { refitTownCommandForSceneChange } from '../career/SquadRefit'
-import type { PersonalSquadMission } from '../career/CareerPersonalSquadMission'
-import { resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext'
-import { COMMANDER_LAST_STAND_ID } from '../career/CommanderMissionCatalog'
-import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
-import { TownScene } from './TownScene'
-import { HorseAssetLoadError } from '../world/HorseAssetRegistry'
-import { canStartCareerTutorial, commitCareerTutorial, startCareerTutorial } from '../career/CareerTutorial'
-import type { CareerTutorialLaunch } from '../career/CareerTutorialLaunch'
-import { careerDuelArena } from '../career/CareerDuelState'
-import { CareerDuelArenaScene } from '../arena/CareerDuelArenaScene'
 import { CareerArenaTrialScene } from '../arena/CareerArenaTrialScene'
-import { careerArenaTrial } from '../career/CareerArenaTrials'
+import { CareerDuelArenaScene } from '../arena/CareerDuelArenaScene'
+import { CareerPrisonBreakScene } from '../arena/CareerPrisonBreakScene'
 import { DUEL_ARENA_LABELS } from '../arena/DuelArenaCatalog'
 import { DUEL_ARENA_RETURN_KEY } from '../arena/DuelArenaReturn'
+import { createCaptainEagleLaunch,createCaptainFrontlineLaunch,type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
+import { CAPTAIN_EAGLE_BATTLE_ID,CAPTAIN_FRONTLINE_COMMAND_ID } from '../career/CaptainMissionCatalog'
+import { careerArenaTrial } from '../career/CareerArenaTrials'
+import { createCareerBridgeBattleLaunch,createCareerFelineBattleLaunch,isCareerBridgeBattle,isCareerFelineBattle } from '../career/CareerBridgeBattle'
+import { createAndSaveCareer } from '../career/CareerCreation'
+import { careerDuelArena } from '../career/CareerDuelState'
+import { resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext'
+import { CAREER_RECOVERY_NOTICE_KEY } from '../career/CareerMissionRecovery'
+import { commitPrisonBreakReturn,stageMissionReturnRebuild } from '../career/CareerMissionReturnRecovery'
+import { CAREER_OUTPOST_SESSION_KEY } from '../career/CareerOutpostMission'
+import type { PersonalSquadMission } from '../career/CareerPersonalSquadMission'
+import { beginPrisonBreak,prisonGuardCount } from '../career/CareerPrisonBreak'
+import type { CareerProfile } from '../career/CareerProfile'
+import { clearCareerMission } from '../career/CareerProfile'
+import { CareerProfileStore } from '../career/CareerProfileStore'
+import { canStartCareerTutorial,commitCareerTutorial,startCareerTutorial } from '../career/CareerTutorial'
+import type { CareerTutorialLaunch } from '../career/CareerTutorialLaunch'
+import { COMMANDER_LAST_STAND_ID } from '../career/CommanderMissionCatalog'
+import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
+import { refitTownCommandForSceneChange } from '../career/SquadRefit'
+import { PRISON_CAPTURE_ACTION,PRISON_CAPTURE_DESCRIPTION,PRISON_CAPTURE_TITLE,prisonCaptureObjective } from '../ui/PrisonBreakBriefing'
+import { HorseAssetLoadError } from '../world/HorseAssetRegistry'
+import { FactionSelectionUI } from './FactionSelectionUI'
 import { markCareerMissionReturnToSergeant } from './SergeantReturn'
+import { showCommanderRetirementEnding } from './TownRetirementUI'
+import { townRoster } from './TownRules'
+import { TownScene } from './TownScene'
+import { installTownStyles } from './TownUI'
 export const TOWN_ENTRY_KEY = 'sagaburst_career_town'
 
 export function recoverSettledStartupMissionReturn(
@@ -76,18 +74,6 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
     if (!open) return false
     const generation = ++routeGeneration
     const current = () => open && generation === routeGeneration
-    if (isRetiredRecruitPatrolMission(profile.activeMission)) {
-      const retired = retireObsoleteActiveMission(profile, townRoster().map(spec => ({ spec })))
-      if (retired) {
-        if (!store.save(retired)) {
-          status.textContent = '無法保存已退休巡邏任務的安全撤回狀態，請重試。'
-          if (!selection) { document.body.append(form); button('重試恢復城鎮', () => { void start(profile) }) }
-          return false
-        }
-        profile = retired
-        sessionStorage.setItem(CAREER_RECOVERY_NOTICE_KEY, '新兵巡邏任務（南路巡邏／林線巡邏）已退休並安全撤回，原有軍功與進度未受影響。')
-      }
-    }
     if (profile.careerRetirement?.phase === 'completed') {
       form.remove()
       sessionStorage.removeItem(TOWN_ENTRY_KEY)
@@ -149,7 +135,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
     }
     // Routing is a capability saved on this enlistment, never inferred from a free-mode URL.
     if (launchTutorial && profile.tutorial && canStartCareerTutorial(profile)) {
-      if (!profile.tutorial.session && !profile.tutorial.legacy && profile.tutorial.recruit.status === 'available') {
+      if (!profile.tutorial.session && profile.tutorial.recruit.status === 'available') {
         const started = commitCareerTutorial(store, profile.tutorial.careerId, next => Boolean(startCareerTutorial(next, 'recruit')))
         if (!started.ok) {
           status.textContent = '無法保存新兵教學，尚未離開角色建立畫面。請重試。'
@@ -300,7 +286,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       try { container.requestPointerLock?.()?.catch(() => {}) } catch { /* Canvas click retries pointer lock after loading. */ }
     }
     form.remove()
-    const loading = document.createElement('div'); loading.id = 'career-town-loading'; loading.textContent = profile.activeMission?.siege ? '正在部署攻守部隊與四門城防…' : '正在載入陣營小鎮、駐軍與居民…'; loading.style.cssText = 'position:fixed;inset:0;z-index:999;background:#191b1c;color:#eee;display:grid;place-items:center'; document.body.append(loading)
+    const loading = document.createElement('div'); loading.id = 'career-town-loading'; loading.textContent = profile.activeMission?.kind === 'commander-four-gate-defense' ? '正在部署攻守部隊與四門城防…' : '正在載入陣營小鎮、駐軍與居民…'; loading.style.cssText = 'position:fixed;inset:0;z-index:999;background:#191b1c;color:#eee;display:grid;place-items:center'; document.body.append(loading)
     const transition = (value: CareerProfile, proceed: (next: CareerProfile) => void, deathReturn = false): void => {
       if (!current()) return
       const next = refitTownCommandForSceneChange(value)
@@ -317,7 +303,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
     }
     try {
       sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
-      sessionStorage.removeItem('sagaburst_battle_config'); sessionStorage.removeItem('sagaburst_campaign_config')
+      sessionStorage.removeItem('sagaburst_battle_config_v2'); sessionStorage.removeItem('sagaburst_campaign_config_v2')
       const town = await TownScene.create(container, profile, config => {
         if (!current() || !config?.careerMissionId) return
         // Keep the launch gesture on the persistent container across scene loading.

@@ -1,15 +1,12 @@
-import { CAPTAIN_MISSION_CATALOG, availableCaptainMissions, getCaptainMissionDefinition, RETIRED_CAPTAIN_GATE_DEFENSE_DEFINITION, RETIRED_CAPTAIN_SIEGE_COMMAND_DEFINITION, type CaptainMissionDefinition } from './CaptainMissionCatalog'
-import { COMMANDER_MISSION_CATALOG, availableCommanderMissions, getCommanderMissionDefinition, type CommanderMissionDefinition } from './CommanderMissionCatalog'
-import { HEAVY_FIELD_MISSION_CATALOG, getHeavyFieldMissionAvailability, getHeavyFieldMissionDefinition, type HeavyFieldMissionDefinition } from './HeavyFieldMission'
-import { resolveCareerReliefMount } from './CareerOutpostMission'
-import { CAREER_RANKS, careerMissionCompletionsForTier, enlistmentMerit, type CareerMissionTier, type CareerProfile, type CareerRank } from './CareerProfile'
+import { CAPTAIN_MISSION_CATALOG,availableCaptainMissions,getCaptainMissionDefinition,type CaptainMissionDefinition } from './CaptainMissionCatalog'
 import { careerMissionTierForTemplateId } from './CareerMissionTier'
-import { townDefenseEnemyCount, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
-import { getVeteranMissionAvailability, getVeteranMissionDefinition, VETERAN_MISSION_CATALOG, type VeteranMissionDefinition } from './VeteranMission'
-import { townDefenseForceCounts } from '../town/TownRules'
+import { resolveCareerReliefMount } from './CareerOutpostMission'
+import { CAREER_RANKS,enlistmentMerit,type CareerMissionTier,type CareerProfile,type CareerRank } from './CareerProfile'
+import { COMMANDER_MISSION_CATALOG,availableCommanderMissions,getCommanderMissionDefinition,type CommanderMissionDefinition } from './CommanderMissionCatalog'
+import { HEAVY_FIELD_MISSION_CATALOG,getHeavyFieldMissionAvailability,getHeavyFieldMissionDefinition,type HeavyFieldMissionDefinition } from './HeavyFieldMission'
+import { VETERAN_MISSION_CATALOG,getVeteranMissionAvailability,getVeteranMissionDefinition,type VeteranMissionDefinition } from './VeteranMission'
 
 export type RecruitMissionRisk = '低' | '中' | '高' | '極高'
-export type RecruitPatrolRouteId = 'south-road' | 'forest-line'
 
 interface RecruitMissionCommon {
   id: string
@@ -32,31 +29,14 @@ export interface RecruitBanditMissionTemplate extends RecruitMissionCommon {
   preferredCampIndex: number
 }
 
-export interface RecruitPatrolMissionTemplate extends RecruitMissionCommon {
-  kind: 'patrol'
-  routeId: RecruitPatrolRouteId
-  encounterBanditCount: number
-}
-
-export interface RecruitTownDefenseMissionTemplate extends RecruitMissionCommon {
-  kind: 'town-defense'
-  targetArea: 'career-town'
-  friendlySoldiers: number
-  enemyCount: number
-  civilianCount: number
-  maxCivilianDeaths: number
-}
-
 export interface CavalrySweepTemplate extends RecruitMissionCommon { kind: 'cavalry-sweep' }
-
-export interface EnemyTownAssaultTemplate extends RecruitMissionCommon { kind: 'enemy-town-assault' }
 
 export type RecruitMissionTemplate =
   | CavalrySweepTemplate
-  | EnemyTownAssaultTemplate
+
   | RecruitBanditMissionTemplate
-  | RecruitPatrolMissionTemplate
-  | RecruitTownDefenseMissionTemplate
+
+
 
 export type CareerMissionTemplate = RecruitMissionTemplate | VeteranMissionDefinition | CaptainMissionDefinition | CommanderMissionDefinition | HeavyFieldMissionDefinition
 
@@ -87,106 +67,6 @@ const mission = (
   minRank: 'recruit',
 })
 
-const patrol = (
-  id: string,
-  name: string,
-  briefing: string,
-  routeId: RecruitPatrolRouteId,
-  friendlyCombatants: number,
-  encounterBanditCount: number,
-  risk: RecruitMissionRisk,
-  requiresEnlistmentMerit = 0,
-): RecruitPatrolMissionTemplate => ({
-  id,
-  kind: 'patrol',
-  name,
-  briefing,
-  routeId,
-  friendlyCombatants,
-  encounterBanditCount,
-  risk,
-  requiresEnlistmentMerit,
-  requiresCompletions: 0,
-  storyOnce: false,
-  minRank: 'recruit',
-})
-
-export const RETIRED_ENEMY_TOWN_ASSAULT_TEMPLATE: RecruitMissionTemplate = {
-  id: 'career-enemy-town-assault',
-  kind: 'enemy-town-assault',
-  name: 'Enemy Town Assault · 進攻敵方家園',
-  briefing: '目標：率軍從四門進攻敵城，擊潰全部地面守軍並迫使空軍撤離。',
-  friendlyCombatants: 120,
-  risk: '極高',
-  requiresEnlistmentMerit: 0,
-  requiresCompletions: 0,
-  storyOnce: false,
-  minRank: 'soldier',
-}
-
-export const VETERAN_TOWN_DEFENSE_TEMPLATE: RecruitTownDefenseMissionTemplate = {
-  id: VETERAN_TOWN_DEFENSE_TEMPLATE_ID,
-  kind: 'town-defense',
-  name: '守衛家園 · 老兵守城',
-  briefing: '目標：守住城鎮、擊退來襲的敵方騎兵，並保護居民。',
-  targetArea: 'career-town',
-  ...townDefenseForceCounts(),
-  enemyCount: townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran'),
-  civilianCount: 20,
-  maxCivilianDeaths: 10,
-  risk: '極高',
-  requiresEnlistmentMerit: 0,
-  requiresCompletions: 0,
-  storyOnce: false,
-  minRank: 'veteran',
-}
-
-export const RETIRED_RECRUIT_PATROL_IDS = ['recruit-patrol-01', 'recruit-patrol-02'] as const
-
-const RETIRED_RECRUIT_PATROL_TEMPLATES: readonly RecruitPatrolMissionTemplate[] = [
-  patrol(
-    'recruit-patrol-01',
-    '南路巡邏',
-    '目標：跟隨隊長沿城外道路巡邏，不要落隊；遇到伏兵時協助擊退。',
-    'south-road',
-    6,
-    4,
-    '低',
-  ),
-  patrol(
-    'recruit-patrol-02',
-    '林線巡邏',
-    '目標：跟隨隊長沿森林邊緣巡邏；地形複雜，請跟緊隊長。',
-    'forest-line',
-    8,
-    7,
-    '中',
-    0,
-  ),
-]
-
-export const RETIRED_CAREER_MISSION_TEMPLATES: readonly CareerMissionTemplate[] = [
-  RETIRED_ENEMY_TOWN_ASSAULT_TEMPLATE,
-  VETERAN_TOWN_DEFENSE_TEMPLATE,
-  RETIRED_CAPTAIN_GATE_DEFENSE_DEFINITION,
-  RETIRED_CAPTAIN_SIEGE_COMMAND_DEFINITION,
-  ...RETIRED_RECRUIT_PATROL_TEMPLATES,
-]
-
-export function getRetiredCareerMissionTemplate(id: string): CareerMissionTemplate | null {
-  return RETIRED_CAREER_MISSION_TEMPLATES.find(template => template.id === id) ?? null
-}
-
-/** True for permanently retired recruit patrol missions (preserved only for save recognition/recovery). */
-export function isRetiredRecruitPatrolMission(
-  mission: { templateId?: string; kind?: string } | string | null | undefined,
-): boolean {
-  if (!mission) return false
-  if (typeof mission === 'string') return (RETIRED_RECRUIT_PATROL_IDS as readonly string[]).includes(mission)
-  return mission.kind === 'patrol'
-    || Boolean(mission.templateId && (RETIRED_RECRUIT_PATROL_IDS as readonly string[]).includes(mission.templateId))
-}
-
 /**
  * The board stays intentionally compact and repeatable. Roughly ten ordinary,
  * credited contributions should earn enough merit for Soldier eligibility;
@@ -206,12 +86,11 @@ export function getRecruitMissionTemplate(id: string): RecruitMissionTemplate | 
 
 /** Generic lookup used by the active-mission save parser; the legacy Recruit lookup stays narrow. */
 export function getCareerMissionTemplate(id: string): CareerMissionTemplate | null {
-  const active = getRecruitMissionTemplate(id)
+  return getRecruitMissionTemplate(id)
     ?? getVeteranMissionDefinition(id)
     ?? getCaptainMissionDefinition(id)
     ?? getCommanderMissionDefinition(id)
     ?? getHeavyFieldMissionDefinition(id)
-  return active ?? getRetiredCareerMissionTemplate(id)
 }
 
 export function availableRecruitMissions(profile: CareerProfile): RecruitMissionTemplate[] {
@@ -222,12 +101,10 @@ export function availableRecruitMissions(profile: CareerProfile): RecruitMission
   return RECRUIT_MISSION_CATALOG.filter(template => (
     CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf(template.minRank)
     && merit >= template.requiresEnlistmentMerit
-    && (template.kind === 'town-defense' ? careerMissionCompletionsForTier(profile, careerMissionTier(template)) : completions) >= template.requiresCompletions
+    && completions >= template.requiresCompletions
     && (template.kind !== 'cavalry-sweep' || Boolean(resolveCareerReliefMount(profile)))
     && (!template.storyOnce || !completedStory.includes(template.id))
-  )).map(template => template.kind === 'town-defense'
-    ? { ...template, enemyCount: townDefenseEnemyCount(template.id, profile.rank) }
-    : template)
+  ))
 }
 
 export type CareerMissionPage = 'recruit' | 'soldier' | 'veteran' | 'captain' | 'commander'

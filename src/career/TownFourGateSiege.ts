@@ -1,19 +1,19 @@
-import { crossingGateBreach } from '../navigation/GateBreachPortal'
 import * as THREE from 'three'
 import { MobileSiegeRamp } from '../campaign/MobileSiegeRamp'
 import type { MobileSiegeRampState } from '../campaign/MobileSiegeRampController'
-import { placeSiegeRampCrew, siegeRampDeckHeightAt, type TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
-import { SiegeConvoy, evacuateAbandonedRamp, fallFromDestroyedRamp } from '../campaign/SiegeConvoy'
+import { placeSiegeRampCrew,siegeRampDeckHeightAt,type TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
+import { SiegeConvoy,evacuateAbandonedRamp,fallFromDestroyedRamp } from '../campaign/SiegeConvoy'
+import { crossingGateBreach } from '../navigation/GateBreachPortal'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
-import { AIType, type NPC } from '../world/NPC'
-import type { SpatialGrid } from '../world/SpatialGrid'
-import { getTerrainHeight, type EntityCollisionBody } from '../world/Terrain'
+import { TOWN_CITY,TOWN_GATES,type TownGateId } from '../town/TownLayout'
 import type { TownWorld } from '../town/TownWorld'
-import { TOWN_CITY, TOWN_GATES, type TownGateId } from '../town/TownLayout'
-import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
-import { withinTownSiegeSector, allocateTownSiegeCrews, isTownSiegeDockConnected, planTownSiegeRamps, townSiegeFrame, townSiegeSectorReceiptsMatch, type TownSiegeApproach, type TownSiegeCrewSlot, type TownSiegeEscortClearance, type TownSiegeRampAssignment } from './TownFourGateSiegePolicy'
-import { TownGateBreachPolicy, type TownGateBreachEvent } from './TownGateBreachPolicy'
-import { parseTownFourGateSiegeCheckpoint, type TownFourGateSiegeCheckpoint, type TownSiegeActorCheckpoint } from './TownFourGateSiegeCheckpoint'
+import { AIType,type NPC } from '../world/NPC'
+import type { SpatialGrid } from '../world/SpatialGrid'
+import { getTerrainHeight,type EntityCollisionBody } from '../world/Terrain'
+import { restoreCommandActor,snapshotCommandActor } from './CareerCommandActorCheckpoint'
+import { parseTownFourGateSiegeCheckpoint,type TownFourGateSiegeCheckpoint,type TownSiegeActorCheckpoint } from './TownFourGateSiegeCheckpoint'
+import { allocateTownSiegeCrews,isTownSiegeDockConnected,planTownSiegeRamps,townSiegeFrame,townSiegeSectorReceiptsMatch,withinTownSiegeSector,type TownSiegeApproach,type TownSiegeCrewSlot,type TownSiegeEscortClearance,type TownSiegeRampAssignment } from './TownFourGateSiegePolicy'
+import { TownGateBreachPolicy,type TownGateBreachEvent } from './TownGateBreachPolicy'
 
 export interface TownSiegeSectorRoster {
   gateId: TownGateId
@@ -43,7 +43,6 @@ export interface TownFourGateSiegeOptions {
   /** A mission-owned temporary formation retains movement/target ownership. */
   externalMovementOwns?(npc: NPC): boolean
   /** Commander V may restore old equipment-derived roles; receipts remain in their original same-gate lists. */
-  historicalSectorReceipts?: boolean
   registerHit(ramp: MobileSiegeRamp<TownSiegeRampId>): void
   unregisterHit(ramp: MobileSiegeRamp<TownSiegeRampId>): void
   blockers?(): readonly EntityCollisionBody[]
@@ -108,10 +107,9 @@ export class TownFourGateSiege {
     if (slots.some(s => s.spec.characterFaction !== this.faction) || this.saved && this.saved.faction !== this.faction) throw new Error('Town siege faction mismatch')
     for (const gate of this.saved?.gates ?? []) {
       const sector = this.sectorById.get(gate.gateId)
-      if (!townSiegeSectorReceiptsMatch(sector, gate, this.options.historicalSectorReceipts)) throw new Error('Checkpoint released actor is outside its sector')
+      if (!townSiegeSectorReceiptsMatch(sector, gate)) throw new Error('Checkpoint released actor is outside its sector')
     }
-    // Existing 40m checkpoints retain their physical carrier rather than teleporting to a new start.
-    const approach = this.saved?.ramps.every(r => Math.abs(r.travelDistance - 40) < .01) ? 'near-wall' : this.options.approach
+    const approach = this.options.approach
     const placements = planTownSiegeRamps(world.fortifications.rampartLayout, world.obstacles, obstacle => passages.isRailObstacle(obstacle), approach, this.options.escortClearance)
     for (const assignment of assignments) {
       const saved = this.saved?.ramps.find(r => r.assignment.id === assignment.id)
@@ -239,11 +237,6 @@ export class TownFourGateSiege {
     if (!sector || this.restoring) return []
     const issued: string[] = []
     for (const id of event.kind === 'wall' ? sector.wallActorIds : sector.cavalryActorIds) {
-      if (this.options.historicalSectorReceipts) {
-        const prior = this.policy.gates.get(event.gateId)!
-        // A role migration must not issue a second order or duplicate the original receipt.
-        if (prior.releasedWallActorIds.includes(id) || prior.releasedCavalryActorIds.includes(id)) continue
-      }
       const npc = this.actorsById.get(id)
       if (!npc || !this.accepts(npc)) continue
       if (event.kind === 'wall') npc.releaseOutpostRampartGarrison()
