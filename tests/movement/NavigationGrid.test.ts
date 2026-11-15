@@ -35,6 +35,30 @@ describe('NavigationGrid', () => {
     ).toBeNull()
   })
 
+  it('labels walkable regions row-major, splitting at a diagonal pinch and joining through open diagonals', () => {
+    // 3x3 cells. Blocked (1,0) and (0,1) pinch off (0,0); (2,2) reaches (1,1) diagonally through open neighbours.
+    const grid = new NavigationGrid({ minX: 0, maxX: 6, minZ: 0, maxZ: 6, cellSize: 2 })
+    grid.setBlocked({ x: 1, z: 0 }, true)
+    grid.setBlocked({ x: 0, z: 1 }, true)
+    const labels = new Int32Array(grid.cellCount), queue = new Int32Array(grid.cellCount)
+    labels.fill(7)
+    grid.labelComponents(labels, queue)
+    expect([...labels]).toEqual([
+      0, -1, 1,
+      -1, 1, 1,
+      1, 1, 1,
+    ])
+    // Reused buffers: closing (2,1) and (1,2) leaves only pinched diagonals, so every walkable cell is alone.
+    grid.setBlocked({ x: 2, z: 1 }, true)
+    grid.setBlocked({ x: 1, z: 2 }, true)
+    grid.labelComponents(labels, queue)
+    expect([...labels]).toEqual([
+      0, -1, 1,
+      -1, 2, -1,
+      3, -1, 4,
+    ])
+  })
+
   it('supports clearing a dynamic obstacle and finding the newly opened route', () => {
     const grid = createGrid()
 

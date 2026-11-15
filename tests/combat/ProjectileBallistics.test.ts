@@ -255,6 +255,8 @@ function contactBody(x: number) {
 
 describe('registered-source ballistic broad phase', () => {
   it('returns the linear scan result for a stable source, including unculled projectile envelopes and live passability', () => {
+    const town = new TownProjectileObstacles(), shotFrom = new THREE.Vector3(-1, 1, 0.5), shotTo = new THREE.Vector3(6, 1.5, 0.5)
+    const townQuery = (obstacles: ObstacleData[]) => [...town.query(shotFrom, shotTo, obstacles)]
     const box = (x: number, z: number) => new THREE.Box3(new THREE.Vector3(x, 0, z), new THREE.Vector3(x + 1, 3, z + 1))
     // 80 scattered static walls keep the source above the indexed-source threshold.
     const source: ObstacleData[] = Array.from({ length: 80 }, (_, i) => ({ isBarricade: false, box: box((i % 10) * 9 - 40, Math.floor(i / 10) * 9 - 40) }))
@@ -270,9 +272,15 @@ describe('registered-source ballistic broad phase', () => {
     try {
       expect(collect(source)).toEqual(linear)
       expect(linear).toContain(source[80]); expect(linear).toContain(source[81]); expect(linear).toContain(source[82])
+      // Town live shots prefilter the same registered source and keep its exact filter.
+      const townLinear = townQuery(source.slice())
+      expect(townQuery(source)).toEqual(townLinear)
+      expect(townLinear).toContain(source[80]); expect(townLinear).toContain(source[82])
       // Dynamic bounds and passability are read live, after the grid prefilter.
       source[82].box.translate(new THREE.Vector3(0, 0, 20))
       expect(collect(source)).toEqual(collect(source.slice()))
+      expect(townQuery(source)).toEqual(townQuery(source.slice()))
+      expect(townQuery(source)).not.toContain(source[82])
       source[81].projectilePassable = true
       expect(collect(source)).not.toContain(source[81])
     } finally {

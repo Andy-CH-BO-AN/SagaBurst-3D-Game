@@ -2385,6 +2385,8 @@ export class NPC {
         )
         pathObstacles = collectBallisticPathObstacles(origin, point, verticalSpeed,
           endTime, obstacles, this._rangedPathBounds, this._rangedPathObstacles)
+        // The whole-arc candidate set is exhaustive: with none, no segment can be blocked.
+        if (pathObstacles.length === 0) return null
       }
       for (let index = 1; index <= segmentCount; index++) {
         const t = flightTime * index / segmentCount
