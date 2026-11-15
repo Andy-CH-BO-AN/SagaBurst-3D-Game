@@ -13,6 +13,40 @@ import type { CampaignGateController } from '../campaign/CampaignGate'
 /** Open span between the towers (mounted body radius kept clear) and the rampart point just behind a gallery. */
 const GATEHOUSE_PASSAGE = GATEHOUSE_SHELL.inner - 1.2
 const GALLERY_EXIT = TOWN_GATEHOUSE.deckRear - 1.6
+const SURFACE_CELL = 4
+const NO_GATEHOUSES: readonly TownGatehouse[] = []
+
+type SurfaceBounds = { minX: number; minZ: number; maxX: number; maxZ: number }
+/** getWalkRampHeight's oriented rectangle: along [0, length + landing], lateral ±halfWidth. */
+function surfaceBounds(s: { startX: number; startZ: number; dirX: number; dirZ: number; length: number; landing: number; halfWidth: number }): SurfaceBounds {
+  const run = s.length + s.landing, ax = s.dirX * run, az = s.dirZ * run, lx = -s.dirZ * s.halfWidth, lz = s.dirX * s.halfWidth
+  const xs = [s.startX + lx, s.startX - lx, s.startX + ax + lx, s.startX + ax - lx]
+  const zs = [s.startZ + lz, s.startZ - lz, s.startZ + az + lz, s.startZ + az - lz]
+  return { minX: Math.min(...xs) - 1e-6, maxX: Math.max(...xs) + 1e-6, minZ: Math.min(...zs) - 1e-6, maxZ: Math.max(...zs) + 1e-6 }
+}
+function buildSurfaceIndex(decks: TownRampartLayout['decks'], ramps: readonly TownRamp[], houses: readonly TownGatehouse[], counts: string) {
+  // gatehouseSection rejects beyond towerOuter + 5 on either axis before any surface test.
+  const reach = TOWN_GATEHOUSE.towerOuter + 5
+  const items: Array<{ kind: 'decks' | 'ramps' | 'houses'; index: number; bounds: SurfaceBounds }> = [
+    ...decks.map((deck, index) => ({ kind: 'decks' as const, index, bounds: surfaceBounds(deck.surface) })),
+    ...ramps.map((ramp, index) => ({ kind: 'ramps' as const, index, bounds: surfaceBounds(ramp.surface) })),
+    ...houses.map((house, index) => ({ kind: 'houses' as const, index, bounds: { minX: house.gate.x - reach - 1e-6, maxX: house.gate.x + reach + 1e-6, minZ: house.gate.z - reach - 1e-6, maxZ: house.gate.z + reach + 1e-6 } })),
+  ]
+  const minX = Math.min(0, ...items.map(i => i.bounds.minX)), minZ = Math.min(0, ...items.map(i => i.bounds.minZ))
+  const maxX = Math.max(0, ...items.map(i => i.bounds.maxX)), maxZ = Math.max(0, ...items.map(i => i.bounds.maxZ))
+  const cols = Math.max(1, Math.ceil((maxX - minX) / SURFACE_CELL) + 1), rows = Math.max(1, Math.ceil((maxZ - minZ) / SURFACE_CELL) + 1)
+  const cells: Array<{ decks: number[]; ramps: number[]; houses: number[] } | undefined> = new Array(cols * rows)
+  // Items are appended per kind in ascending layout index, preserving first-match order.
+  for (const { kind, index, bounds } of items) {
+    for (let row = Math.floor((bounds.minZ - minZ) / SURFACE_CELL); row <= Math.floor((bounds.maxZ - minZ) / SURFACE_CELL); row++) {
+      for (let col = Math.floor((bounds.minX - minX) / SURFACE_CELL); col <= Math.floor((bounds.maxX - minX) / SURFACE_CELL); col++) {
+        const cell = cells[row * cols + col] ??= { decks: [], ramps: [], houses: [] }
+        cell[kind].push(index)
+      }
+    }
+  }
+  return { decks, ramps, houses, counts, minX, minZ, cols, rows, cells }
+}
 
 export interface TownNavigationStep {
   ground: boolean
@@ -72,12 +106,40 @@ export class TownLayeredNavigation {
   setWatchtower(layout: CommandWatchtowerLayout): void { this.watchtower = new TownWatchtowerNavigation(layout) }
   constructor(readonly layout: TownRampartLayout, private readonly connected: (a: THREE.Vector3, b: THREE.Vector3) => boolean = () => false) {}
   rampAt(p: THREE.Vector3): TownRamp | undefined {
-    return this.layout.ramps.find(r => { const y = getWalkRampHeight(r.surface, p.x, p.z); return y !== null && Math.abs(p.y - y) < 1.1 })
+    const ramps = this.layout.ramps
+    for (const index of this.surfaceCandidates(p).ramps) {
+      const y = getWalkRampHeight(ramps[index].surface, p.x, p.z)
+      if (y !== null && Math.abs(p.y - y) < 1.1) return ramps[index]
+    }
+    return undefined
   }
   isElevated(p: THREE.Vector3): boolean {
     if (this.gatehouseAt(p)) return true
-    const y = townRampartHeight(this.layout, p.x, p.z)
-    return y !== null && Math.abs(p.y - y) < 1.3
+    // townRampartHeight: the first deck (layout order) whose surface covers x/z.
+    const decks = this.layout.decks
+    for (const index of this.surfaceCandidates(p).decks) {
+      const y = getWalkRampHeight(decks[index].surface, p.x, p.z)
+      if (y !== null) return Math.abs(p.y - y) < 1.3
+    }
+    return false
+  }
+  /** Static X/Z broad phase over decks, native ramps and gatehouses: each cell lists the
+   * layout indices whose complete footprint may cover it, in layout order, so every
+   * first-match query returns exactly what a full ordered scan returns. Rebuilt when a
+   * layout array is replaced or resized (ramps are registered after construction). */
+  private surfaceIndex?: { decks: unknown; ramps: unknown; houses: unknown; counts: string; minX: number; minZ: number; cols: number; rows: number
+    cells: Array<{ decks: number[]; ramps: number[]; houses: number[] } | undefined> }
+  private static readonly NO_SURFACES = { decks: [] as number[], ramps: [] as number[], houses: [] as number[] }
+  private surfaceCandidates(p: { x: number; z: number }): { decks: readonly number[]; ramps: readonly number[]; houses: readonly number[] } {
+    const { decks, ramps } = this.layout, houses = this.layout.gatehouses ?? NO_GATEHOUSES
+    const counts = `${decks.length}:${ramps.length}:${houses.length}`
+    let index = this.surfaceIndex
+    if (!index || index.decks !== decks || index.ramps !== ramps || index.houses !== houses || index.counts !== counts) {
+      index = this.surfaceIndex = buildSurfaceIndex(decks, ramps, houses, counts)
+    }
+    const col = Math.floor((p.x - index.minX) / SURFACE_CELL), row = Math.floor((p.z - index.minZ) / SURFACE_CELL)
+    if (!(col >= 0 && col < index.cols && row >= 0 && row < index.rows)) return TownLayeredNavigation.NO_SURFACES
+    return index.cells[row * index.cols + col] ?? TownLayeredNavigation.NO_SURFACES
   }
   private projection(p: THREE.Vector3): { distance: number; point: THREE.Vector3 } {
     let best = Infinity, distance = 0, offset = 0, point = p.clone()
@@ -111,7 +173,10 @@ export class TownLayeredNavigation {
     out.copy(this.pointAt(a.distance + Math.sign(delta) * Math.min(3, Math.abs(delta))))
   }
   private gatehouseAt(p: THREE.Vector3): TownGatehouse | null {
-    return this.layout.gatehouses?.find(house => gatehouseSection(house, p) !== null) ?? null
+    const houses = this.layout.gatehouses
+    if (!houses) return null
+    for (const index of this.surfaceCandidates(p).houses) if (gatehouseSection(houses[index], p) !== null) return houses[index]
+    return null
   }
   /** The rampart walk runs level into each gallery between the towers. Leave a
    * gallery through that open span, then reuse the existing ring. */
