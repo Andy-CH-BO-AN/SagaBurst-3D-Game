@@ -7,6 +7,7 @@ import { prepareAuthoredBowContacts } from './BowDrawHand'
 import { configureMultiInfluenceSkinning, multiInfluenceSkinningPlugin } from './MultiInfluenceSkinning'
 import { primeSkinnedTemplateBounds } from './SkinnedTemplateBounds'
 import { stopBoneEulerSync } from './BoneEulerSync'
+import { hideBoneOnlySubtrees } from './BoneRenderTraversal'
 import { prepareSelectedHumanoidSource, type SelectedHumanoidSource } from './SelectedHumanoidSource'
 import { shareSelectedLodPose, shareIdenticalSkinSkeletons, validateSelectedLodAnimations, optimizeSelectedAnimationClips } from './SelectedLodPose'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
@@ -1359,6 +1360,7 @@ export class HumanoidAssetRegistry {
       animation.setVisibleLOD(lod.getCurrentLevel())
     }
     stopBoneEulerSync(root)
+    hideBoneOnlySubtrees(root)
     return {
       root,
       skeleton,

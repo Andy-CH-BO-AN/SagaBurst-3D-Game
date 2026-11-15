@@ -2940,7 +2940,9 @@ export class NPC {
     this.animator.setEquipment(this.isUsingLance, this.shield.active, this.mount?.type as MountedPoseKind | undefined, true)
     this.animator.setShieldRaised(this.shield.shieldRaised)
     this.rig.animation?.setEquipmentState?.({ mounted: this.isMounted })
-    if (!this.animator.busy && this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
+    // A drawn bow owns the arms while ranged is active (the lance is hidden). Lance-ready
+    // would cancel that bowAim each frame and restart its fade; the melee switch cancels it.
+    if (!this.animator.busy && this.isUsingLance && !this.hasActiveRangedWeapon) this.animator.poseLanceReady(this.isMounted)
 
     if (this.tacticalOrder === 'follow') {
       const contact = nearbyNPCs.some(other => other !== this && !other.dead && combatAllegiancesHostile(this, other) && other.combatPosition.distanceToSquared(this.combatPosition) <= 64

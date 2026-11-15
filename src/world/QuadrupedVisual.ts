@@ -4,6 +4,7 @@ import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { SkinnedSeatContact } from './SkinnedSeatContact'
 import { stopBoneEulerSync } from './BoneEulerSync'
+import { hideBoneOnlySubtrees } from './BoneRenderTraversal'
 import { RiderSeatContactCache } from './RiderSeatContactCache'
 import {
   isQuadrupedAnimationState,
@@ -111,6 +112,7 @@ export class QuadrupedVisual {
     this.mixer.update(0)
     this.root.updateMatrixWorld(true)
     stopBoneEulerSync(this.root)
+    hideBoneOnlySubtrees(this.root)
   }
 
   private play(clip: QuadrupedAnimationState, immediate = false): void {

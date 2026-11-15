@@ -7,7 +7,9 @@ export interface MainPassCensusScene {
   npcs: Array<{ group: THREE.Object3D, characterVisualGroup: THREE.Object3D,
     characterFaction?: string,
     equipmentVisualLOD: { forEachRoot(fn: (kind: string, root: THREE.Object3D) => void): void } }>
-  mounts: Array<{ horseVisual: { root: THREE.Object3D, lod: THREE.LOD } | null }>
+  mounts: Array<{ horseVisual: { root: THREE.Object3D, lod: THREE.LOD } | null,
+    catVisual?: { root: THREE.Object3D, lod: THREE.LOD } | null,
+    snowLeopardVisual?: { root: THREE.Object3D, lod: THREE.LOD } | null }>
   player: { group: THREE.Object3D }
   arrows: Array<{ mesh: THREE.Object3D }>
   pickups: Array<{ group: THREE.Object3D }>
@@ -70,6 +72,7 @@ function accumulator(): CensusAccumulator {
 function broadCategory(category: string): string {
   if (category.startsWith('Humanoid ') || /^(Viking|Roman) Humanoid /.test(category)) return 'Humanoid'
   if (category.startsWith('Horse ')) return 'Horse'
+  if (category.startsWith('Quadruped ')) return 'Quadruped'
   if (category.startsWith('Equipment/')) return 'Equipment'
   if (category === 'Player') return 'Player'
   if (category.startsWith('Projectile/')) return 'Projectiles'
@@ -107,6 +110,10 @@ export function collectMainPassCensus(game: MainPassCensusScene): MainPassCensus
   }
   for (const mount of game.mounts) mount.horseVisual?.lod.levels.forEach((level, i) =>
     tag(level.object, `Horse LOD${i}`, mount.horseVisual!.root.id))
+  for (const mount of game.mounts) {
+    const quadruped = mount.catVisual ?? mount.snowLeopardVisual
+    quadruped?.lod.levels.forEach((level, i) => tag(level.object, `Quadruped LOD${i}`, quadruped.root.id))
+  }
   for (const arrow of game.arrows) tag(arrow.mesh, `Projectile/${arrow.mesh.name}`)
   for (const pickup of game.pickups) tag(pickup.group, 'Pickups')
 

@@ -15,6 +15,22 @@ type ProjectileWorld =
   | { kind: 'town'; practiceTargets: readonly Vector3[];
       traceSiege(from: Vector3, to: Vector3, maximum: number): ProjectileSiegeContact | null }
 
+/** Ordered target arrays visited in place, without a per-shot generator or concatenation. */
+export interface ProjectileTargetGroups<T> { readonly groups: readonly (readonly T[])[] }
+
+/** Every hittable primitive (body, limbs, shield, seat) lies within this distance of its target origin;
+ * mount colliders add their own combat radius. */
+const TARGET_REACH = 4
+
+function segmentPointDistanceSq(from: Vector3, to: Vector3, point: Vector3): number {
+  const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z
+  const px = point.x - from.x, py = point.y - from.y, pz = point.z - from.z
+  const lengthSq = dx * dx + dy * dy + dz * dz
+  const t = lengthSq > 0 ? Math.min(1, Math.max(0, (px * dx + py * dy + pz * dz) / lengthSq)) : 0
+  const ex = px - dx * t, ey = py - dy * t, ez = pz - dz * t
+  return ex * ex + ey * ey + ez * ez
+}
+
 export type ProjectileContact<T> =
   | { kind: 'terrain' | 'practice'; point: Vector3 }
   | { kind: 'obstacle'; obstacle: ObstacleData; point: Vector3 }
@@ -39,7 +55,7 @@ export class ProjectileContactQuery {
     world: ProjectileWorld
     obstacles: readonly ObstacleData[]
     /** Iteration order breaks equal actor contacts; do not deduplicate or sort. */
-    targets: Iterable<T>
+    targets: Iterable<T> | ProjectileTargetGroups<T>
     /** Read after broad-phase, once per candidate in this shot; never cached. */
     acceptsTarget(target: T): boolean
   }): ProjectileContact<T> | null {
@@ -74,10 +90,13 @@ export class ProjectileContactQuery {
         if (distance < nearest) { nearest = distance; kind = 'practice' }
       }
     }
-    const broadRadius = length + 4
-    for (const target of input.targets) {
-      const radius = broadRadius + (target.mountCollider ? target.combatRadius ?? 0 : 0)
-      if (target.group.position.distanceToSquared(from) > radius * radius || !input.acceptsTarget(target)) continue
+    // Capsule broad-phase around the swept segment: a target whose origin is farther than
+    // its reach from every point of the segment cannot be touched by it.
+    const { targets } = input
+    const groups: readonly Iterable<T>[] = 'groups' in targets ? targets.groups : [targets]
+    for (const group of groups) for (const target of group) {
+      const reach = TARGET_REACH + (target.mountCollider ? target.combatRadius ?? 0 : 0)
+      if (segmentPointDistanceSq(from, to, target.group.position) > reach * reach || !input.acceptsTarget(target)) continue
       if (traceCombatSegment(target, from, to, this.candidate) && this.candidate.time * scale < nearest) {
         nearest = this.candidate.time * scale; actor = target; kind = 'actor'
         Object.assign(this.best, this.candidate)
