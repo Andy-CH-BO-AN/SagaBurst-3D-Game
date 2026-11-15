@@ -67,8 +67,10 @@ export class FittedHumanoidCloth {
     }
   }
 
+  /** Runs inside CharacterEquipmentPose.apply, which publishes the full pose afterwards;
+   * reads below refresh their own ancestor chains, so no subtree pass is needed here. */
   applyMounted(): void {
-    this.root.updateWorldMatrix(true, true)
+    this.root.updateWorldMatrix(true, false)
     this.root.getWorldQuaternion(this.rootRotation)
     this.rootInverse.copy(this.rootRotation).invert()
     this.delta.copy(this.rootInverse).multiply(this.anchor.getWorldQuaternion(this.parentInverse)).multiply(this.anchorRestInverse)
@@ -80,7 +82,6 @@ export class FittedHumanoidCloth {
       bone.parent!.getWorldQuaternion(this.parentInverse).invert()
       this.pitch.setFromAxisAngle(this.x, pitch)
       bone.quaternion.copy(this.parentInverse).multiply(this.rootRotation).multiply(this.yaw).multiply(this.pitch).multiply(rest)
-      bone.updateWorldMatrix(false, true)
     }
     let flexion = 0
     for (const item of this.skirt) {

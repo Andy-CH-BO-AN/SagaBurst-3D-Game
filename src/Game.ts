@@ -5363,8 +5363,10 @@ export class Game {
     // Seat the preview rider on this frame's animated saddle before drawing.
     if (this.modelStudio?.mode === 'mounts') this.modelStudio.fitPreviewRider()
     else {
-      this.player.fitMountedSeat()
-      for (const npc of this.npcs) npc.fitMountedSeat()
+      // The renderer refreshes every world matrix right after this, so riders skip
+      // their own subtree pass here (other callers keep publishing immediately).
+      this.player.fitMountedSeat(false)
+      for (const npc of this.npcs) npc.fitMountedSeat(false)
     }
 
     this._updateCommandSelectionMarker(dt)

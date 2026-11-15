@@ -38,11 +38,11 @@ export class QuadrupedVisual {
     }
   })
 
-  fitRider(rider: THREE.Object3D): void {
+  fitRider(rider: THREE.Object3D, publish = true): void {
     const contact = this.riderContacts.get(rider)
     // A far mount whose pose did not step keeps the last measured seat correction.
     if (!this.poseChanged && this.cameraDistance > MOUNT_ANIMATION_THROTTLE_DISTANCE && contact.reapply()) return
-    contact.align()
+    contact.align(publish)
     this.poseChanged = false
   }
   private cameraDistance = 0
