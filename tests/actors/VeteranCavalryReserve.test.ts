@@ -1,19 +1,15 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it } from 'vitest'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import {
-  acceptVeteranMission,
-  restoreVeteranTownCavalryReserveRoster,
-  VETERAN_MISSION_IDS,
-  type VeteranMissionRoster
-} from '../../src/career/VeteranMission'
+import { acceptVeteranMission, restoreVeteranTownCavalryReserveRoster, VETERAN_MISSION_IDS, type VeteranMissionRoster } from '../../src/career/VeteranMission'
 import { selectTownCavalryReserve, type TownCavalryReserveResident } from '../../src/town/TownCavalryReserve'
 import { townRoster } from '../../src/town/TownRules'
 import type { Mount } from '../../src/world/Mount'
 import type { NPC } from '../../src/world/NPC'
 
 const veteran = (): CareerProfile => ({
-  ...createCareerProfile('roman'), rank: 'veteran', totalMerit: 900, availableMerit: 900,
-  ownedMounts: ['horse'], completedCareerMissionTemplateIds: [...VETERAN_MISSION_IDS],
+  ...createCareerProfile('roman'), ...careerRankFixture('roman', 'veteran'), rank: 'veteran', totalMerit: 900, availableMerit: 900,
+  inventory: { version: 1 as const, quantities: Object.fromEntries(['horse'].map(id => [id, 1])) }, ownedMounts: ['horse'], completedCareerMissionTemplateIds: [...VETERAN_MISSION_IDS],
 })
 
 function residents(): TownCavalryReserveResident[] {

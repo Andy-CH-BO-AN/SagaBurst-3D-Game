@@ -6,13 +6,7 @@ import { officialFollowLocalOffset } from '../battle/FollowOrder'
 import { matchesArmyCommandTarget, type ArmyCommandTarget } from '../battle/CommandTarget'
 import type { FormationCommandAssignment } from '../battle/FormationController'
 import type { TacticalOrder } from '../battle/TacticalOrder'
-import {
-  cloneTownCommandSquad,
-  officialActorSquadId,
-  townCommandIsPlayerControlled,
-  type TownCommandNativeReturnState,
-  type TownCommandSquadState,
-} from '../career/CareerCommandAuthority'
+import { cloneTownCommandSquad, officialActorSquadId, townCommandIsPlayerControlled, type TownCommandNativeReturnState, type TownCommandSquadState } from '../career/CareerCommandAuthority'
 import { refitCommandActor, refitCommandCheckpoint, restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
 import { commanderGateDefenseSlots, commanderTownCommandMembership } from '../career/CommanderTownRoster'
 import { emptyPersonalContribution } from '../combat/CommandMerit'
@@ -457,7 +451,6 @@ export class TownCommandSquadController {
     }
     next.townCommandSquad = value
     // Refit releases only selected native air claims; other squads keep their exact intent.
-    if (next.townAirCommandSquad) next.townAirCommandSquad.commandedActorIds = next.townAirCommandSquad.commandedActorIds.filter(id => !ids.includes(id))
     if (!this.commit(next)) return false
     this.applySavedState(value)
     for (const id of ids) {

@@ -1,17 +1,17 @@
 import * as THREE from 'three'
-import { refitCommandCheckpoint,restoreCommandActor,snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
-import type { PersonalActorCheckpoint,PersonalActorPosition } from '../career/CareerPersonalSquadMission'
+import { refitCommandCheckpoint, restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
+import type { PersonalActorCheckpoint, PersonalActorPosition } from '../career/CareerPersonalSquadMission'
 import type { CareerProfile } from '../career/CareerProfile'
 import { cloneCareerProfile } from '../career/CareerProfile'
-import { isTownCommandRevokedByRetirement,revokeRetirementTownCommandClaims } from '../career/CareerRetirementCommand'
-import { commitCommanderRetirementToMobilizing,hasCompleteRetirementMobilizationCheckpoint,outsideRetirementTownCore,retirementAssaultFormations,retirementGroundStaging,retirementMobilizationNeedsPreparation,type RetirementAssaultFormation } from '../career/CareerRetirementMobilization'
+import { isTownCommandRevokedByRetirement, revokeRetirementTownCommandClaims } from '../career/CareerRetirementCommand'
+import { commitCommanderRetirementToMobilizing, hasCompleteRetirementMobilizationCheckpoint, outsideRetirementTownCore, retirementAssaultFormations, retirementGroundStaging, retirementMobilizationNeedsPreparation, type RetirementAssaultFormation } from '../career/CareerRetirementMobilization'
 import { civilianCommandRoster } from '../career/CivilianCommandAuthority'
 import { commanderGateDefenseSlots } from '../career/CommanderTownRoster'
 import { emptyPersonalContribution } from '../combat/CommandMerit'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Mount } from '../world/Mount'
 import type { NPC } from '../world/NPC'
-import { getTerrainHeight,type ObstacleData } from '../world/Terrain'
+import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import type { TownCavalryPatrolController } from './TownCavalryPatrolController'
 import { CIVILIAN_HOME_LAYOUT_VERSION } from './TownCivilianLife'
 import type { TownEagleGarrisonController } from './TownEagleGarrisonController'
@@ -165,7 +165,7 @@ export class TownRetirementMobilizationController {
     delete saved.outpostRampartGarrison; delete saved.townRampartGarrison; delete saved.townRampartMounted
     saved.order = 'formation'
     // No arrivalOrder: native movement retains the reached checkpoint, making
-    // this migration idempotent even after an actor reaches its ground slot.
+    // initial staging idempotent even after an actor reaches its ground slot.
     saved.formation = { commandId: this.formationIds.get(id)!, position: { ...position }, reached: false }
   }
 

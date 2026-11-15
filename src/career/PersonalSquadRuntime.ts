@@ -7,39 +7,33 @@ import type { UnitPresetId } from '../battle/UnitPresetCatalog'
 import { resolveCharacterIdentity } from '../combat/CharacterIdentity'
 import type { CombatEventSink } from '../combat/CombatAttribution'
 import type { Player } from '../player/Player'
-import { T4_RANGER_BOW_RANGED_ID,WEAPONS } from '../rpg/WeaponDatabase'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { registerPersonalCombatDisplayName } from '../ui/CombatTargetDisplayName'
 import type { EagleLandingQueue } from '../world/EagleLandingQueue'
 import { isEaglePadArrived } from '../world/EaglePadArrival'
 import { HERO_ASSETS } from '../world/HeroAssetCatalog'
-import { preloadHighTierEquipment,prepareByzantineEquipment } from '../world/HighTierEquipment'
+import { preloadHighTierEquipment, prepareByzantineEquipment } from '../world/HighTierEquipment'
 import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
 import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
 import { Mount } from '../world/Mount'
-import { AIType,Faction,NPC } from '../world/NPC'
-import { assertNpcSpawnJob,gameplayNpcSpawns,trackNpcSpawn,type NpcSpawnBatch,type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
+import { AIType, Faction, NPC } from '../world/NPC'
+import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import { getTerrainHeight } from '../world/Terrain'
-import { refitCommandActor,refitCommandCheckpoint,restoreShieldDurability,savedShieldDurability } from './CareerCommandActorCheckpoint'
+import { refitCommandActor, refitCommandCheckpoint, restoreShieldDurability, savedShieldDurability } from './CareerCommandActorCheckpoint'
 import { careerMountType } from './CareerMountController'
-import { PERSONAL_SQUAD_LIMIT,type CareerPersonalSquadMember } from './CareerPersonalSquad'
-import {
-clonePersonalMission,preparePersonalMissionAcceptance,
-snapshotPersonalMission,
-type PersonalActorCheckpoint,type PersonalActorPosition,
-type PersonalSquadMission,type PersonalSquadState
-} from './CareerPersonalSquadMission'
-import { cloneCareerProfile,type CareerProfile } from './CareerProfile'
-import { careerEaglePadOwners,EaglePadReservations,type EaglePad } from './EaglePadReservations'
+import { PERSONAL_SQUAD_LIMIT, type CareerPersonalSquadMember } from './CareerPersonalSquad'
+import { clonePersonalMission, preparePersonalMissionAcceptance, snapshotPersonalMission, type PersonalActorCheckpoint, type PersonalActorPosition, type PersonalSquadMission, type PersonalSquadState } from './CareerPersonalSquadMission'
+import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { careerEaglePadOwners, EaglePadReservations, type EaglePad } from './EaglePadReservations'
 
 export type PersonalSquadSpawnSlot = PersonalActorPosition
-export function personalMemberLoadout(member: CareerPersonalSquadMember, faction: CareerProfile['faction']) {
-  const characterFaction = member.characterFaction ?? faction
-  const characterTier = member.characterTier ?? (member.type === 'soldier' ? 2 : member.type === 'commander' ? 5 : 4)
+export function personalMemberLoadout(member: CareerPersonalSquadMember, _faction: CareerProfile['faction']) {
+  const characterFaction = member.characterFaction
+  const characterTier = member.characterTier
   const identity = resolveCharacterIdentity({ characterFaction, characterTier,
-    heroArchetype: member.heroArchetype ?? (member.type === 'soldier' ? undefined : member.type), visualAssetId: member.visualAssetId })
-  if (member.type === 'ranger' && !member.equipment) throw new Error('Ranger equipment must be migrated and saved before deployment')
+    heroArchetype: member.heroArchetype, visualAssetId: member.visualAssetId })
   const equipment = member.equipment!
   const primaryWeapon = WEAPONS[equipment.ranged ?? equipment.melee ?? '']
   // Select valid catalog metadata from actual equipment; the hero is always resolved from identity.
@@ -361,7 +355,7 @@ export class PersonalSquadRuntime {
     this.cancelPendingSpawns(false)
     this.state = 'RETURNING'; this.returnCommand--
     this.boarding.clear(); this.returningOnFoot.clear(); this.awaitingEaglePad.clear(); this.homeArrivals.clear()
-    // Reserve-only legacy owners have no physical mount occupying their assigned pad.
+    // Reserve-only owners have no physical mount occupying their assigned pad.
     for (const id of this.reservedEagleOwners) if (!this.actors.some(actor => actor.combatantId === id) && !this.pending.has(id)) this.releaseEaglePad(id)
     for (const actor of this.actors) {
       // Later hires already stand at HR; Dismiss only returns the deployed members.
@@ -660,7 +654,7 @@ export class PersonalSquadRuntime {
   private queueMember(member: CareerPersonalSquadMember, slot: PersonalSquadSpawnSlot, index: number, restore?: (npc: NPC) => void, standby = false): void {
     if (this.pending.has(member.id) || this.actors.some(npc => npc.combatantId === member.id)) return
     const eaglePad = member.equipment?.mount === 'xongkoro' ? this.eaglePads.reserve(member.id, this.mission?.members[member.id]?.eaglePadId) : undefined
-    // New excess legacy deployments wait in reserve. Existing same-scene actors retain their saved flight/position.
+    // Excess deployments wait in reserve. Existing same-scene actors retain their saved flight/position.
     const saved = this.mission?.members[member.id]
     const returningHome = this.hasHR && this.mission?.returnToHR === true
     const restoreExistingEagle = Boolean(restore && this.mission?.sceneKey === this.sceneKey && saved?.status === 'deployed' && saved.position && saved.mount)
@@ -943,5 +937,5 @@ export class PersonalSquadRuntime {
 /** Saved equipment identity of a member, compared with what its live actor materialized with. */
 function loadoutKey(member: CareerPersonalSquadMember): string {
   const e = member.equipment
-  return e ? `${e.melee ?? ''}|${e.ranged ?? ''}|${e.shield ?? ''}|${e.mount ?? ''}` : 'legacy'
+  return `${e.melee ?? ''}|${e.ranged ?? ''}|${e.shield ?? ''}|${e.mount ?? ''}`
 }

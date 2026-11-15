@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it, vi } from 'vitest'
 import { acceptCaptainFrontline } from '../../src/career/CaptainBattleLaunch'
 import { addCareerItem } from '../../src/career/CareerInventory'
@@ -9,7 +10,7 @@ import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefens
 
 function withMission(): CareerProfile {
   const base = createCareerProfile('viking')
-  base.rank = 'captain'
+  Object.assign(base, careerRankFixture(base.faction, 'captain'));
   base.totalMerit = 10000
   base.availableMerit = 3700
   // Producing valid Career inventory and mission actor IDs through real APIs.

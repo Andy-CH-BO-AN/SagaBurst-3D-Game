@@ -1,3 +1,5 @@
+import { personalSquadFixture } from '../helpers/personalSquadFixture'
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
@@ -16,12 +18,12 @@ afterEach(() => vi.restoreAllMocks())
 function fixture() {
   const storage = new MemoryStorage(), store = new CareerProfileStore(storage), events: string[] = []
   // One legitimate inventory-backed member exercises the shared bulk caller without a native Town loadout.
-  let profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'captain', totalMerit: 5000, availableMerit: 5000,
+  let profile: CareerProfile = { ...createCareerProfile('roman'), ...careerRankFixture('roman', 'captain'), rank: 'captain', totalMerit: 5000, availableMerit: 5000,
     ownedWeapons: ['gladius_rusty', 'paladin_sword_t4'],
     inventory: { version: 1, quantities: { gladius_rusty: 1, paladin_sword_t4: 1 } },
-    personalSquad: { members: [{ id: 'personal:ui-soldier', type: 'soldier', originalHirePrice: 50,
-      equipment: { melee: 'gladius_rusty', ranged: null, shield: null, mount: null } }] },
   }
+  profile.personalSquad = personalSquadFixture(profile, [{ id: 'personal:ui-soldier', type: 'soldier',
+    equipment: { melee: 'gladius_rusty', ranged: null, shield: null, mount: null } }])
   expect(store.save(profile)).toBe(true)
   const save = (next: CareerProfile) => {
     events.push('save')

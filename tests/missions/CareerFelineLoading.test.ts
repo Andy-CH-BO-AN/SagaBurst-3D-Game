@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Vector3 } from 'three'
 import { HorseAssetRegistry } from '../../src/world/HorseAssetRegistry'
@@ -164,7 +165,7 @@ describe('Town startup feline preload set', () => {
   it('requests only required variants and includes selected, race opponent and squad mounts', () => {
     const profile = createCareerProfile('roman')
     for (const id of ['horse', 'white-cat', 'orange-cat', 'serval', 'caracal'] as const) addCareerItem(profile, id, 1)
-    profile.ownedMounts = ['white-cat', 'orange-cat', 'serval', 'caracal']
+    Object.assign(profile.inventory!.quantities, Object.fromEntries(['white-cat', 'orange-cat', 'serval', 'caracal'].map(id => [id, 1]))); profile.ownedMounts = ['white-cat', 'orange-cat', 'serval', 'caracal'];
     profile.selectedMountId = 'horse'
     expect([...careerFelineVariants(profile)]).toEqual(['black-cat'])
 
@@ -253,12 +254,12 @@ describe('Town feline equipment asynchronous refit', () => {
 
   function profilesFixture(actorId = 'cavalry-training:melee_cavalry:0') {
     const previous = createCareerProfile('roman')
-    previous.rank = 'commander'
+    Object.assign(previous, careerRankFixture(previous.faction, 'commander'));
     addCareerItem(previous, 'horse', 2)
     addCareerItem(previous, 'paladin_sword_t4', 1)
     previous.townEquipment = {
       roman: {
-        version: 1,
+        version: 2,
         nativeReserve: [],
         actors: {
           [actorId]: { melee: { itemId: 'paladin_sword_t4', source: 'inventory' }, ranged: null, shield: null, mount: { itemId: 'horse', source: 'inventory' } },
@@ -267,13 +268,13 @@ describe('Town feline equipment asynchronous refit', () => {
     }
 
     const current = createCareerProfile('roman')
-    current.rank = 'commander'
+    Object.assign(current, careerRankFixture(current.faction, 'commander'));
     addCareerItem(current, 'horse', 1)
     addCareerItem(current, 'serval', 1)
     addCareerItem(current, 'paladin_sword_t4', 1)
     current.townEquipment = {
       roman: {
-        version: 1,
+        version: 2,
         nativeReserve: [],
         actors: {
           [actorId]: { melee: { itemId: 'paladin_sword_t4', source: 'inventory' }, ranged: null, shield: null, mount: { itemId: 'serval', source: 'inventory' } },

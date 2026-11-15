@@ -30,7 +30,6 @@ export function revokeRetirementTownCommandClaims(profile: CareerProfile): void 
     // not player orders and must survive after the old claims have been removed.
     if (commanded) clearOrders(town.members)
   }
-  if (profile.townAirCommandSquad) profile.townAirCommandSquad.commandedActorIds = []
   const civilians = profile.civilianCommandSquad
   if (civilians) {
     for (const id of civilians.actorIds) {

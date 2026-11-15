@@ -1,3 +1,5 @@
+import { personalSquadFixture } from '../helpers/personalSquadFixture'
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it, vi } from 'vitest'
 import { canRecruitPersonalSquad, recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
 import { cloneCareerProfile, createCareerProfile, type CareerRank } from '../../src/career/CareerProfile'
@@ -5,7 +7,7 @@ import { MemoryStorage } from '../helpers/memoryStorage'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { PERSONAL_RECRUITMENT_ROLES, resolvePersonalRecruitment, type PersonalRecruitmentChoice } from '../../src/career/CareerRecruitmentCatalog'
 import { careerItemAllocated, careerItemTotal } from '../../src/career/CareerInventory'
-function profile(rank: CareerRank = 'captain') { return { ...createCareerProfile('roman'), rank, totalMerit: 60000, availableMerit: 60000 } }
+function profile(rank: CareerRank = 'captain') { return { ...createCareerProfile('roman'), ...careerRankFixture('roman', rank), rank, totalMerit: 60000, availableMerit: 60000 } }
 describe('Personal Squad recruitment and durable identity', () => {
   it('requires formal Commander rank to hire T5 even with 60,000 merit', () => {
     const current = profile('captain'), before = cloneCareerProfile(current), save = vi.fn(() => true)
@@ -16,9 +18,9 @@ describe('Personal Squad recruitment and durable identity', () => {
   it('shares the thirty-member cap across Soldier, Captain, Ranger and Commander without spending on member 31', () => {
     let current = profile('commander')
     const types = ['soldier', 'captain', 'ranger', 'commander'] as const
-    current.personalSquad = { members: Array.from({ length: 30 }, (_, index) => ({
+    current.personalSquad = personalSquadFixture(current, Array.from({ length: 30 }, (_, index) => ({
       id: 'personal:' + index, type: types[index % types.length],
-    })) }
+    })))
     const save = vi.fn(() => true), old = cloneCareerProfile(current)
     expect(recruitPersonalSquadMember(current, 'commander', save)).toMatchObject({ recruited: false, reason: 'squad-full' })
     expect(current).toEqual(old); expect(save).not.toHaveBeenCalled()
@@ -87,7 +89,7 @@ describe('Personal Squad recruitment and durable identity', () => {
     expect(current).toEqual(before); expect(save).not.toHaveBeenCalled()
   })
   it('persists a T3 javelin recruit with its owned backup sword and catalog price despite forged UI grants', () => {
-    const current = { ...profile(), faction: 'viking' as const }, store = new CareerProfileStore(new MemoryStorage())
+    const current = { ...profile(), ...careerRankFixture('viking', 'captain'), faction: 'viking' as const }, store = new CareerProfileStore(new MemoryStorage())
     const choice = { characterTier: 3 as const, recruitmentRole: 'javelin' as const, price: 1, maxHp: 9999, equipment: { melee: 'axe_t5', mount: 'black-cat' } }
     const result = recruitPersonalSquadMember(current, choice, next => store.save(next), () => 'personal:javelin')
     expect(result.recruited).toBe(true)
@@ -99,7 +101,7 @@ describe('Personal Squad recruitment and durable identity', () => {
     expect(careerItemTotal(loaded, 'rusty_dagger')).toBe(1); expect(careerItemAllocated(loaded, 'rusty_dagger')).toBe(1)
     expect(careerItemTotal(loaded, 'pilum_basic')).toBe(1); expect(careerItemAllocated(loaded, 'pilum_basic')).toBe(1)
     expect(careerItemTotal(loaded, 'axe_t5')).toBe(0); expect(careerItemTotal(loaded, 'black-cat')).toBe(0)
-    const afterCareerFactionChange = parseCareerProfile({ ...loaded, faction: 'roman' })!
+    const afterCareerFactionChange = parseCareerProfile({ ...loaded, ...careerRankFixture('roman', loaded.rank), faction: 'roman' })!
     expect(afterCareerFactionChange.personalSquad).toEqual(loaded.personalSquad)
     expect(afterCareerFactionChange.inventory).toEqual(loaded.inventory)
   })

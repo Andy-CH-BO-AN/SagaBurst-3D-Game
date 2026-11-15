@@ -1,6 +1,6 @@
 import type { UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { CampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
-import type { BattleStatsSnapshot,PlayerBattleStatsCheckpoint,PlayerCommandMeritPolicy } from '../combat/BattleStatsTracker'
+import type { BattleStatsSnapshot, PlayerBattleStatsCheckpoint, PlayerCommandMeritPolicy } from '../combat/BattleStatsTracker'
 import type { CombatEvent } from '../combat/CombatAttribution'
 import type { TownPatrolReturnState } from '../town/TownCavalryPatrolController'
 import type { TownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
@@ -8,10 +8,10 @@ import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import type { ArenaTrialState } from './CareerArenaTrials'
 import type { BorrowedCharacterIdentities } from './CareerBorrowedIdentity'
 import type { OfficialCommandAuthority } from './CareerCommandAuthority'
-import { officialCommandSquads,officialMissionSourcePolicy } from './CareerCommandAuthority'
-import type { CareerDuelCommanderHome,CareerDuelTier,CareerDuelTravelCheckpoint } from './CareerDuelState'
+import { officialCommandSquads, officialMissionSourcePolicy } from './CareerCommandAuthority'
+import type { CareerDuelCommanderHome, CareerDuelTier, CareerDuelTravelCheckpoint } from './CareerDuelState'
 import type { CareerOutpostCheckpoint } from './CareerOutpostMission'
-import { personalMissionSourcePolicy,type PersonalSquadMission } from './CareerPersonalSquadMission'
+import { personalMissionSourcePolicy, type PersonalSquadMission } from './CareerPersonalSquadMission'
 import type { CareerMountId } from './CareerProfile'
 import type { CommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
 
@@ -118,7 +118,7 @@ export interface ActiveCareerMission {
   duelPlayerWasMounted?: boolean
   duelPlayerHomeMountActorId?: string
   duelTier?: CareerDuelTier
-  /** Formal duels fight in an independent arena scene; absent on legacy/tutorial duels = the Town forecourt. */
+  /** Formal duels require an arena ID; tutorial sparring uses the Town forecourt. */
   duelArenaId?: import('../arena/DuelArenaCatalog').DuelArenaId
   duelPresetId?: UnitPresetId
   /** Hero class of a T4/T5 armed duel opponent; absent in older saves = the resident's original class. */
@@ -213,7 +213,7 @@ export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: Co
       && mission.kind !== 'commander-sky-raid' && mission.kind !== 'commander-decapitation')
       || !isCareerMissionMeritSource(mission, event.source)) return false
     // Structures identify their owning army. A saved official's visual faction can differ
-    // (legacy Rangers can retain their shared visual faction), so use the accepted army's faction for hostility.
+    // (Rangers use their shared visual faction), so use the accepted army's faction for hostility.
     const sourceFaction = isOfficialMissionMeritSource(mission, event.source)
       ? mission.officialSquad!.townFaction : event.source.characterFaction
     return event.target.characterFaction !== undefined

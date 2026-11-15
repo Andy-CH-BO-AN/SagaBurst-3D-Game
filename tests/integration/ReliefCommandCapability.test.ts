@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it, vi } from 'vitest'
 import { ArmyCommandController } from '../../src/battle/ArmyCommandController'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
@@ -8,8 +9,8 @@ import { InventoryManager } from '../../src/rpg/InventoryManager'
 import { ArmyCommandUI } from '../../src/ui/ArmyCommandUI'
 
 function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
-  return { ...createCareerProfile(faction), rank: 'soldier', totalMerit: 300, availableMerit: 300,
-    completedOutpostStages: [1, 2, 3], ownedHorseTiers: [1], selectedMountId: 'horse-t1' }
+  return { ...createCareerProfile(faction), ...careerRankFixture(faction, 'soldier'), rank: 'soldier', totalMerit: 300, availableMerit: 300,
+    completedOutpostStages: [1, 2, 3], inventory: { version: 1 as const, quantities: Object.fromEntries(['horse'].map(id => [id, 1])) }, ownedMounts: ['horse'], selectedMountId: 'horse' }
 }
 
 function launch(faction: 'roman' | 'viking' = 'roman') { return createCareerOutpostLaunch(acceptCareerOutpostRelief(ready(faction), 'relief')!) }

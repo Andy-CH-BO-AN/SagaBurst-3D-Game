@@ -1,15 +1,16 @@
-import { afterEach,describe,expect,it,vi } from 'vitest'
+import { careerRankFixture } from '../helpers/careerRankFixture'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { changeTownEquipment } from '../../src/career/CareerTownEquipment'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { acceptCareerOutpost } from '../../src/career/CareerOutpostMission'
 import { recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
-import { createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
+import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import type { PersonalSquadState } from '../../src/town/TownPersonalSquadController'
 import { purchaseTownEquipment } from '../../src/town/TownRules'
 import { appendCommanderRetirementOption } from '../../src/town/TownRetirementUI'
 import { areOrdinaryTownServicesPeaceful } from '../../src/career/CareerRetirement'
-import { squadEquipmentUI,townEquipmentUI,type TownEquipmentMemberView,type TownEquipmentSquadView,type TownEquipmentUIBindings } from '../../src/town/TownSquadEquipmentUI'
+import { squadEquipmentUI, townEquipmentUI, type TownEquipmentMemberView, type TownEquipmentSquadView, type TownEquipmentUIBindings } from '../../src/town/TownSquadEquipmentUI'
 import { type EquipmentSquadAdapter } from '../../src/ui/EquipmentUI'
 import { appendPersonalRecruitmentConfigurator, personalRecruitmentPresentation } from '../../src/town/TownRecruitmentPanel'
 import type { PersonalRecruitmentChoice } from '../../src/career/CareerRecruitmentCatalog'
@@ -42,7 +43,7 @@ class Element {
 function harness(type: 'captain' | 'ranger' = 'captain') {
   vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
   vi.stubGlobal('Option', class { constructor(readonly text: string, readonly value: string) {} })
-  let profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'captain', totalMerit: 60000, availableMerit: 60000,
+  let profile: CareerProfile = { ...createCareerProfile('roman'), ...careerRankFixture('roman', 'captain'), rank: 'captain', totalMerit: 60000, availableMerit: 60000,
     duelHighestDefeatedTierByPreset: { roman_heavy_infantry: 3 } }
   const store = new CareerProfileStore(new MemoryStorage())
   const save = (next: CareerProfile) => { if (!store.save(next)) return false; profile = next; return true }
@@ -68,7 +69,7 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 describe('Town retirement service controls', () => {
   it('blocks every stale retirement dialog action when the saved phase enters final stand', () => {
     vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
-    let profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'commander',
+    let profile: CareerProfile = { ...createCareerProfile('roman'), ...careerRankFixture('roman', 'commander'), rank: 'commander',
       careerMissionCompletionsByTier: { 5: 10 },
       completedCareerMissionTemplateIds: ['commander-four-gate-defense'] }
     const panels: Element[] = []
@@ -181,7 +182,7 @@ describe('Town-wide equipment panels', () => {
 
 it('updates recruitment choices and summary immediately and blocks a stale purchase when service closes', () => {
   vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
-  const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'captain', availableMerit: 5000 }
+  const profile: CareerProfile = { ...createCareerProfile('roman'), ...careerRankFixture('roman', 'captain'), rank: 'captain', availableMerit: 5000 }
   let choice: PersonalRecruitmentChoice = { characterTier: 3, recruitmentRole: 'spearman' }, available = true
   const recruit = vi.fn(), root = new Element('div')
   appendPersonalRecruitmentConfigurator(root as unknown as HTMLElement, { readProfile: () => profile, serviceAvailable: () => available,
@@ -205,7 +206,7 @@ it.each([
   ['viking', ['瓦良格隊長 Varangian Captain', '龍誓重衛 Dragon Oathguard', '遊俠 Ranger'], ['北境戰酋 Norse Warchief', '鐵血戰帥 Ironblood Warlord'], 'viking-heavy-hero-t4', 'viking-heavy-hero-t5'],
 ] as const)('offers the %s HR officer only its own T4/T5 classes with their price, and submits the chosen elite body', (faction, t4Labels, t5Labels, t4Asset, t5Asset) => {
   vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
-  const profile: CareerProfile = { ...createCareerProfile(faction), rank: 'commander', availableMerit: 5000 }
+  const profile: CareerProfile = { ...createCareerProfile(faction), ...careerRankFixture(faction, 'commander'), rank: 'commander', availableMerit: 5000 }
   let choice: PersonalRecruitmentChoice = { characterTier: 3, recruitmentRole: 'swordsman' }
   const root = new Element('div')
   appendPersonalRecruitmentConfigurator(root as unknown as HTMLElement, { readProfile: () => profile, serviceAvailable: () => true, choice, onChoice: next => { choice = next }, recruit: vi.fn() })

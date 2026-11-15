@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CareerArenaCombatScene } from '../../src/arena/CareerArenaCombatScene'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -24,7 +25,7 @@ function boundary() {
   const selected = vi.spyOn(highTier, 'prepareByzantineEquipment').mockImplementation(async ids =>
     [...ids].some(id => confiscated.includes(String(id))) ? 'failed' : 'ready')
   const profile = createCareerProfile('roman')
-  profile.rank = 'commander'; profile.totalMerit = profile.availableMerit = 80000
+  Object.assign(profile, careerRankFixture(profile.faction, 'commander')); profile.totalMerit = profile.availableMerit = 80000
   profile.equipment = { melee: confiscated[0], shield: confiscated[1] }
   return { profile, selected, paladinLoad, highLoad, makiLoad }
 }

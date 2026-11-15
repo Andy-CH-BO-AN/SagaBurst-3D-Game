@@ -1,3 +1,6 @@
+import { addCareerItem } from '../../src/career/CareerInventory'
+import { personalSquadFixture } from '../helpers/personalSquadFixture'
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import type { Scene } from 'three'
 import { Box3, Vector3 } from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
@@ -26,7 +29,7 @@ import { MemoryStorage } from '../helpers/memoryStorage'
 
 function commander(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
   const profile = createCareerProfile(faction)
-  profile.rank = 'commander'
+  Object.assign(profile, careerRankFixture(profile.faction, 'commander'));
   profile.totalMerit = 20_000
   profile.availableMerit = 20_000
   return profile
@@ -35,7 +38,7 @@ function commander(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
 function accepted(templateId: string, faction: 'roman' | 'viking' = 'roman', personal = false,
   missionId = `test:${templateId}`): CareerProfile {
   const profile = commander(faction)
-  if (personal) profile.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+  if (personal) profile.personalSquad = personalSquadFixture(profile, [{ id: 'personal:hr-1', type: 'soldier' }])
   const next = acceptCommanderMission(profile, templateId, missionId)
   if (!next?.activeMission) throw new Error(`Could not accept ${templateId}`)
   return next
@@ -326,28 +329,8 @@ describe('Bridgehead official field battle', () => {
         && spec.loadout?.mountId === (spec.tier === 4 ? 'black-cat' : 'horse'))).toBe(true)
       expect(enemy.every(spec => spec.z >= 230 && spec.z < 290 && Math.abs(spec.x) < 100)).toBe(true)
     }
-    const captain = commander(faction); captain.rank = 'captain'
+    const captain = commander(faction); Object.assign(captain, careerRankFixture(captain.faction, 'captain'));
     expect(acceptCommanderMission(captain, COMMANDER_BRIDGEHEAD_ID)).toBeNull()
-  })
-
-  it('resumes the original eight-squad save without adding riders and rejects partial enemy rosters', () => {
-    const profile = accepted(COMMANDER_BRIDGEHEAD_ID), mission = profile.activeMission!
-    mission.targetActorIds = mission.targetActorIds.slice(0, 200)
-    mission.bridgeDeployment = { phase: 'assault', preparationRemainingSeconds: 0 }
-    const roster = createBridgeheadRoster(mission, 'roman')
-    mission.bridgeBattle = { ready: true, player: { hp: 30, stamina: 30, dead: false,
-      position: { x: 0, z: -90, yaw: 0 }, ammo: 0, shieldImpact: 0 },
-      playerStats: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
-      actors: Object.fromEntries([...mission.friendlyActorIds, ...mission.targetActorIds].map(id => [id, { status: 'deployed', hp: 30 }])) }
-    const store = new CareerProfileStore(new MemoryStorage())
-    expect(store.save(profile)).toBe(true)
-    const restored = store.load()!
-    expect(createCareerBridgeSpawnPlan(restored).npcSpecs).toHaveLength(400)
-    expect(roster.enemy.filter(spec => spec.presetId === 'viking_sword_cavalry')).toHaveLength(100)
-    expect(roster.enemy.filter(spec => spec.presetId === 'viking_lancer')).toHaveLength(100)
-    expect(new CareerBridgeBattleRuntime(restored.activeMission!).enemyAlive).toBe(200)
-    mission.targetActorIds.pop()
-    expect(parseCareerProfile(profile)?.activeMission).toBeUndefined()
   })
 
   it('waits for deployment and every unique target death, allows dead-player victories and gives victory precedence on mutual destruction', () => {
@@ -505,7 +488,7 @@ describe('Bridgehead official field battle', () => {
   it('keeps the last HR survivor fighting after reload and restores its surviving mount without reviving a dead rider', () => {
     const profile = accepted(COMMANDER_BRIDGEHEAD_ID, 'roman', true), mission = profile.activeMission!
     const id = mission.personalSquad!.memberIds[0]
-    profile.personalSquad!.members[0].type = 'captain'
+    profile.personalSquad = personalSquadFixture(profile, [{ id, type: 'captain' }])
     mission.playerDead = true
     mission.bridgeDeployment = { phase: 'assault', preparationRemainingSeconds: 0 }
     mission.commanderMission!.deploymentComplete = true
@@ -616,7 +599,7 @@ describe('Commander VI Six Feline Cavalry', () => {
 
   it('derives the exact 200-vs-300 roster from production formation slots and keeps all six feline mounts commandable', () => {
     const profile = accepted(COMMANDER_FELINE_CAVALRY_ID, 'roman', true), mission = profile.activeMission!
-    profile.ownedMounts.push('serval')
+    addCareerItem(profile, 'serval', 1)
     profile.selectedMountId = 'serval'
     const launch = createCareerFelineBattleLaunch(profile)
     expect(isCareerFelineBattle(mission)).toBe(true)
@@ -720,7 +703,7 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(Math.max(...friendly.map(spec => Math.abs(spec.z)))).toBeLessThanOrEqual(140)
 
     const baseViking = createCareerProfile('viking')
-    baseViking.rank = 'commander'
+    Object.assign(baseViking, careerRankFixture(baseViking.faction, 'commander'));
     const vikingProfile = acceptCommanderMission(baseViking, COMMANDER_FELINE_CAVALRY_ID, 'viking-feline')!
     const vikingFriendly = createCareerFelineSpawnPlan(vikingProfile).npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
     const vikingS7 = vikingFriendly.filter(spec => spec.squadId === 7)

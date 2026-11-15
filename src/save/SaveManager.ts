@@ -23,7 +23,6 @@ export interface SkillDetail {
 export interface PlayerSaveData {
   version: 2
   /** Captured identity is independent of currently equipped weapons. */
-  healthRulesVersion?: 1
   maxHp: number
   characterTier?: 1 | 2 | 3
   characterFaction?: 'roman' | 'viking'
@@ -35,12 +34,12 @@ export interface PlayerSaveData {
   stamina: number
   arrows: number
   skills: {
-    unarmed?: SkillDetail
+    unarmed: SkillDetail
     oneHanded: SkillDetail
-    twoHanded?: SkillDetail
-    ranged?: SkillDetail
-    mountedImpact?: SkillDetail
-    blocking?: SkillDetail
+    twoHanded: SkillDetail
+    ranged: SkillDetail
+    mountedImpact: SkillDetail
+    blocking: SkillDetail
   }
   inventory: {
     items: { id: string; quantity: number }[]
@@ -53,7 +52,7 @@ export interface PlayerSaveData {
     isMounted: boolean
     type: string
     appearanceVariant?: 0 | 1 | 2
-    hp?: number
+    hp: number
     armorImpactRemaining?: number
     flight?: EagleFlightSnapshot
     position: { x: number; y: number; z: number }
@@ -93,6 +92,8 @@ export class SaveManager {
 
   save(data: PlayerSaveData): boolean {
     try {
+      const existing = this.storage.getItem(SAVE_KEY)
+      if (existing !== null && !parsePlayerSave(JSON.parse(existing))) return false
       const parsed = parsePlayerSave(data)
       if (!parsed) return false
       this.storage.setItem(SAVE_KEY, JSON.stringify(parsed))

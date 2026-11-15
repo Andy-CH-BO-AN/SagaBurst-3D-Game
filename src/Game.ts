@@ -1,22 +1,22 @@
 import { playAppliedPunchHit } from './audio/SoundManager'
-import { AerialViewPolicy,usesAerialView } from './camera/AerialViewPolicy'
+import { AerialViewPolicy, usesAerialView } from './camera/AerialViewPolicy'
 import { CampaignSiegeAssault } from './campaign/CampaignSiegeAssault'
-import { getSiegeApproachClearances,isMobileSiegeRampEnabled,isSiegeRampCrewCandidate } from './campaign/MobileSiegeRampPolicy'
+import { getSiegeApproachClearances, isMobileSiegeRampEnabled, isSiegeRampCrewCandidate } from './campaign/MobileSiegeRampPolicy'
 import { outpostCheckpointHeight } from './campaign/OutpostRampartGarrison'
-import { captureCareerAerialState,restoreCareerAerialState } from './career/CareerAerialState'
-import { CareerBridgeBattleRuntime,careerFelineHeroAssetIds,careerFieldTacticalOrder,clearCareerBridgeBattle,commitCareerBridgeBattleResult,createCareerBridgeOrphanMountPlan,createCareerBridgeSpawnPlan,createCareerFelineOrphanMountPlan,createCareerFelineSpawnPlan,dispatchFelineVanguardCharge,isCareerBridgeBattle,isCareerFelineBattle,shouldTriggerFelineVanguardCharge,validateFelineDeploymentReadiness,type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
+import { captureCareerAerialState, restoreCareerAerialState } from './career/CareerAerialState'
+import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, careerFieldTacticalOrder, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeOrphanMountPlan, createCareerBridgeSpawnPlan, createCareerFelineOrphanMountPlan, createCareerFelineSpawnPlan, dispatchFelineVanguardCharge, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { CareerCommandHudTypes } from './career/CareerCommandHudTypes'
 import { stageMissionReturnRebuild } from './career/CareerMissionReturnRecovery'
 import { officialCommandHudLabel } from './career/CommanderTownSquadLabels'
 import { refitTownCommandForSceneChange } from './career/SquadRefit'
-import { getOrdinarySoldierHp,resolveOrdinaryPlayerBaseHp,resolveOrdinarySoldierTier } from './combat/OrdinarySoldierProfile'
+import { getOrdinarySoldierHp, resolveOrdinaryPlayerBaseHp, resolveOrdinarySoldierTier } from './combat/OrdinarySoldierProfile'
 import { playerEagleProjectileBudget } from './combat/ProjectileBallistics'
-import { traceFistStrike,unarmedDamage } from './combat/UnarmedCombat'
+import { traceFistStrike, unarmedDamage } from './combat/UnarmedCombat'
 import { markCareerMissionReturnToSergeant } from './town/SergeantReturn'
 import { townRoster } from './town/TownRules'
 import { findEagleLandingPosition } from './world/EagleLanding'
-import { preloadHighTierEquipment,prepareByzantineEquipment } from './world/HighTierEquipment'
-import { assertNpcSpawnJob,gameplayNpcSpawns,trackNpcSpawn,type NpcSpawnBatch } from './world/NpcSpawnScheduler'
+import { preloadHighTierEquipment, prepareByzantineEquipment } from './world/HighTierEquipment'
+import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from './world/NpcSpawnScheduler'
 import { preloadPaladinEquipment } from './world/PaladinEquipment'
 /**
  * Game.ts
@@ -25,144 +25,90 @@ import { preloadPaladinEquipment } from './world/PaladinEquipment'
  */
 import * as THREE from 'three'
 import { updateEagleWingbeatAudio } from './audio/EagleWingbeatAudio'
-import { SoundManager,type HorseGallopCandidate } from './audio/SoundManager'
-import { ArmyCommandController,type ArmyCommandAuthority } from './battle/ArmyCommandController'
+import { SoundManager, type HorseGallopCandidate } from './audio/SoundManager'
+import { ArmyCommandController, type ArmyCommandAuthority } from './battle/ArmyCommandController'
 import { countArmyHudRoster } from './battle/ArmyCommandHudRoster'
 import { ArmyCommandSelectionMarker } from './battle/ArmyCommandSelectionMarker'
-import {
-BattleConfig,
-normalizeArmyConfig,
-PRESET_DEVCOMBAT,
-PRESET_SCENARIO_A,
-PRESET_SCENARIO_B,
-PRESET_SCENARIO_C,
-PRESET_SCENARIO_D,
-PRESET_SCENARIO_E,
-PRESET_SCENARIO_F,
-PRESET_SCENARIO_G,
-PRESET_SCENARIO_H,
-PRESET_SCENARIO_I,
-PRESET_SCENARIO_J,
-PRESET_SCENARIO_K,
-} from './battle/BattleConfig'
+import { BattleConfig, normalizeArmyConfig, PRESET_DEVCOMBAT, PRESET_SCENARIO_A, PRESET_SCENARIO_B, PRESET_SCENARIO_C, PRESET_SCENARIO_D, PRESET_SCENARIO_E, PRESET_SCENARIO_F, PRESET_SCENARIO_G, PRESET_SCENARIO_H, PRESET_SCENARIO_I, PRESET_SCENARIO_J, PRESET_SCENARIO_K } from './battle/BattleConfig'
 import { BattleController } from './battle/BattleController'
-import { BattleSpawner,BattleSpawnPlan,NpcSpawnSpec,ROMAN_PLAYER_SPAWN,VIKING_PLAYER_SPAWN } from './battle/BattleSpawner'
+import { BattleSpawner, BattleSpawnPlan, NpcSpawnSpec, ROMAN_PLAYER_SPAWN, VIKING_PLAYER_SPAWN } from './battle/BattleSpawner'
 import { matchesArmyCommandTarget } from './battle/CommandTarget'
 import { officialFollowLocalOffset } from './battle/FollowOrder'
-import { FormationController,type FormationCommandAssignment } from './battle/FormationController'
-import { getT4HeroCombatModifiers,HERO_COMBAT_PROFILE_BY_ASSET,T4_UNIT_PROFILES,t4EquipmentIdsForArmy } from './battle/T4HeroCatalog'
-import { getT5ProfileForPreset,t5EquipmentIdsForArmy } from './battle/T5HeroCatalog'
+import { FormationController, type FormationCommandAssignment } from './battle/FormationController'
+import { getT4HeroCombatModifiers, HERO_COMBAT_PROFILE_BY_ASSET, T4_UNIT_PROFILES, t4EquipmentIdsForArmy } from './battle/T4HeroCatalog'
+import { getT5ProfileForPreset, t5EquipmentIdsForArmy } from './battle/T5HeroCatalog'
 import type { TacticalOrder } from './battle/TacticalOrder'
 import type { UnitPresetId } from './battle/UnitPresetCatalog'
 import { SpectatorCameraController } from './camera/SpectatorCameraController'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
 import type { CampaignFaction } from './campaign/CampaignConfig'
-import {
-DEFENSE_CAMPAIGN_RULES,
-opposingCampaignFaction,
-} from './campaign/CampaignConfig'
-import {
-applyCampaignBreachOrders,
-isCampaignGateOccupied,
-reconcileCampaignGateSiege,
-restoreCampaignBreachCheckpoint,
-type CampaignBreachController,
-type CampaignGateController,
-} from './campaign/CampaignGate'
-import {
-createCampaignOutpost,
-getCampaignDefenderFacingYaw,
-getCampaignOutpostPlacement,
-} from './campaign/CampaignOutpost'
-import { getOutpostWalkwayLayout,isOutpostWalkwayEnabled } from './campaign/CampaignOutpostWalkways'
-import {
-completeDefenseCampaignStage,
-DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY,
-} from './campaign/CampaignProgress'
+import { DEFENSE_CAMPAIGN_RULES, opposingCampaignFaction } from './campaign/CampaignConfig'
+import { applyCampaignBreachOrders, isCampaignGateOccupied, reconcileCampaignGateSiege, restoreCampaignBreachCheckpoint, type CampaignBreachController, type CampaignGateController } from './campaign/CampaignGate'
+import { createCampaignOutpost, getCampaignDefenderFacingYaw, getCampaignOutpostPlacement } from './campaign/CampaignOutpost'
+import { getOutpostWalkwayLayout, isOutpostWalkwayEnabled } from './campaign/CampaignOutpostWalkways'
+import { completeDefenseCampaignStage, DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY } from './campaign/CampaignProgress'
 import { resolveDefenseCampaignAttackerDeployment } from './campaign/DefenseCampaignDeployment'
-import {
-createDefenseCampaignWaveConfig,
-defenseCampaignCapabilities,
-positionDefenseCampaignAttackers,
-positionDefenseCampaignDefenders,
-positionDefenseCampaignReinforcements,
-type DefenseCampaignLaunchConfig,
-} from './campaign/DefenseCampaignLaunch'
+import { createDefenseCampaignWaveConfig, defenseCampaignCapabilities, positionDefenseCampaignAttackers, positionDefenseCampaignDefenders, positionDefenseCampaignReinforcements, type DefenseCampaignLaunchConfig } from './campaign/DefenseCampaignLaunch'
 import { DefenseCampaignRuntime } from './campaign/DefenseCampaignRuntime'
-import { applyCaptainFrontlineEnemyHeroes,captainFrontlineEnemyHeroAsset,createCaptainEagleSpawnPlan,createCaptainFrontlineSpawnPlan } from './career/CaptainBattleLaunch'
-import { snapshotCheckpointMount,snapshotCheckpointPlayer,type CaptainEagleCheckpoint } from './career/CaptainEagleCheckpoint'
-import { CAPTAIN_EAGLE_BATTLE_ID,CAPTAIN_FRONTLINE_COMMAND_ID } from './career/CaptainMissionCatalog'
-import { restoreCommandActor,snapshotCommandActor } from './career/CareerCommandActorCheckpoint'
-import { officialActorSquadId,officialCommandAcceptsActor,type OfficialCommandAuthority } from './career/CareerCommandAuthority'
+import { applyCaptainFrontlineEnemyHeroes, captainFrontlineEnemyHeroAsset, createCaptainEagleSpawnPlan, createCaptainFrontlineSpawnPlan } from './career/CaptainBattleLaunch'
+import { snapshotCheckpointMount, snapshotCheckpointPlayer, type CaptainEagleCheckpoint } from './career/CaptainEagleCheckpoint'
+import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './career/CaptainMissionCatalog'
+import { restoreCommandActor, snapshotCommandActor } from './career/CareerCommandActorCheckpoint'
+import { officialActorSquadId, officialCommandAcceptsActor, type OfficialCommandAuthority } from './career/CareerCommandAuthority'
 import { careerCommandHudRoster } from './career/CareerCommandHudRoster'
-import { createCareerFieldCheckpointSeed,createCareerFieldDeployment,FIELD_BANDIT_DETECTION_RANGE,FIELD_SWEEP_CHARGE_DISTANCE,findVeteranSquadsInRange,isCareerFieldNoCommandMission,isMigratedCareerFieldMission,resolveFieldActorCheckpoint,resolveFieldDamagedTargetId,shouldTriggerSweepAlert,type CareerFieldDeployment } from './career/CareerFieldBattle'
-import { CareerMissionCheckpoint,type CareerMissionCheckpointReason } from './career/CareerMissionCheckpoint'
-import type { ActiveCareerMission,BridgeBattleDeployment } from './career/CareerMissionState'
-import { acceptsCareerMissionStat,careerMissionCommandMeritPolicy } from './career/CareerMissionState'
-import { officialPlayerOwnsActor,stageOfficialCommandOrder } from './career/CareerOfficialCommandOrder'
-import { CAREER_OUTPOST_SESSION_KEY,careerOutpostCommandMeritPolicy,claimCareerOutpost,clearCareerOutpost } from './career/CareerOutpostMission'
-import { CareerReliefMarchController,createCareerReliefSpawnPlan,initializeCareerReliefBattlefield } from './career/CareerOutpostRelief'
+import { createCareerFieldCheckpointSeed, createCareerFieldDeployment, FIELD_BANDIT_DETECTION_RANGE, FIELD_SWEEP_CHARGE_DISTANCE, findVeteranSquadsInRange, isCareerFieldNoCommandMission, isMigratedCareerFieldMission, resolveFieldActorCheckpoint, resolveFieldDamagedTargetId, shouldTriggerSweepAlert, type CareerFieldDeployment } from './career/CareerFieldBattle'
+import { CareerMissionCheckpoint, type CareerMissionCheckpointReason } from './career/CareerMissionCheckpoint'
+import type { ActiveCareerMission, BridgeBattleDeployment } from './career/CareerMissionState'
+import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy } from './career/CareerMissionState'
+import { officialPlayerOwnsActor, stageOfficialCommandOrder } from './career/CareerOfficialCommandOrder'
+import { CAREER_OUTPOST_SESSION_KEY, careerOutpostCommandMeritPolicy, claimCareerOutpost, clearCareerOutpost } from './career/CareerOutpostMission'
+import { CareerReliefMarchController, createCareerReliefSpawnPlan, initializeCareerReliefBattlefield } from './career/CareerOutpostRelief'
 import { careerOutpostActorId } from './career/CareerOutpostRoster'
 import type { PersonalSquadMission } from './career/CareerPersonalSquadMission'
-import { resolveCareerHeroAsset,resolveCareerOrdinaryTier,resolveCareerPlayerMaxHp } from './career/CareerPlayerProfile'
-import { beginPrisonBreak,claimCareerFieldResult,prisonGuardCount } from './career/CareerPrisonBreak'
-import { claimCareerMission,clearCareerMission,cloneCareerProfile,type CareerMountId,type CareerProfile } from './career/CareerProfile'
+import { resolveCareerHeroAsset, resolveCareerOrdinaryTier, resolveCareerPlayerMaxHp } from './career/CareerPlayerProfile'
+import { beginPrisonBreak, claimCareerFieldResult, prisonGuardCount } from './career/CareerPrisonBreak'
+import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerMountId, type CareerProfile } from './career/CareerProfile'
 import { CareerProfileStore } from './career/CareerProfileStore'
 import type { CareerTutorialLaunch } from './career/CareerTutorialLaunch'
-import {
-careerVeteranOutpostOwner,
-createCareerVeteranOutpostReinforcementPlan,
-createCareerVeteranOutpostSpawnPlan,
-} from './career/CareerVeteranOutpost'
+import { careerVeteranOutpostOwner, createCareerVeteranOutpostReinforcementPlan, createCareerVeteranOutpostSpawnPlan } from './career/CareerVeteranOutpost'
 import { createBridgeheadRoster } from './career/CommanderMissionCatalog'
-import { createCareerCommanderOutpostSpawnPlan,remainingCommanderAttackers } from './career/CommanderOutpost'
-import { COMMANDER_IRON_LEGION_ID,HEAVY_FIELD_SPECS,heavyCommandPlan,heavyFrontlineDistance,isHeavyFormationComplete,planVeteranCaltropDefense,shouldIssueHeavyFormation,shouldTriggerHeavyCounterCharge,shouldTriggerHeavyEnemyCharge,VETERAN_IRON_TIDE_ID,veteranCaltropWorldRects,type HeavyPoint } from './career/HeavyCavalryMissions'
+import { createCareerCommanderOutpostSpawnPlan, remainingCommanderAttackers } from './career/CommanderOutpost'
+import { COMMANDER_IRON_LEGION_ID, HEAVY_FIELD_SPECS, heavyCommandPlan, heavyFrontlineDistance, isHeavyFormationComplete, planVeteranCaltropDefense, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, VETERAN_IRON_TIDE_ID, veteranCaltropWorldRects, type HeavyPoint } from './career/HeavyCavalryMissions'
 import { careerHeavyPreloadPlan } from './career/HeavyCavalrySpawn'
-import { createHeavyFieldDeployment,getHeavyFieldMissionDefinition,isCareerHeavyFieldBattle,type HeavyFieldDeployment } from './career/HeavyFieldMission'
+import { createHeavyFieldDeployment, getHeavyFieldMissionDefinition, isCareerHeavyFieldBattle, type HeavyFieldDeployment } from './career/HeavyFieldMission'
 import { MissionGuide } from './career/MissionGuide'
-import { MountedMissionMarchController,type MountedMissionSquad } from './career/MountedMissionMarch'
+import { MountedMissionMarchController, type MountedMissionSquad } from './career/MountedMissionMarch'
 import { planPersonalOutpostGround } from './career/PersonalOutpostGroundPlan'
-import { personalOutpostDeployment,personalRearDeployment } from './career/PersonalSquadDeployment'
-import { personalMemberLoadout,PersonalSquadRuntime } from './career/PersonalSquadRuntime'
-import { BattleStatsTracker,type BattleStatsSnapshot } from './combat/BattleStatsTracker'
-import {
-CombatEventStream,
-createNpcCombatActorRef,
-createPlayerCombatActorRef,
-type CombatEvent,
-} from './combat/CombatAttribution'
-import {
-COMBAT_BALANCE,
-getAntiCavalryMultiplier,
-} from './combat/CombatBalance'
+import { personalOutpostDeployment, personalRearDeployment } from './career/PersonalSquadDeployment'
+import { personalMemberLoadout, PersonalSquadRuntime } from './career/PersonalSquadRuntime'
+import { BattleStatsTracker, type BattleStatsSnapshot } from './combat/BattleStatsTracker'
+import { CombatEventStream, createNpcCombatActorRef, createPlayerCombatActorRef, type CombatEvent } from './combat/CombatAttribution'
+import { COMBAT_BALANCE, getAntiCavalryMultiplier } from './combat/CombatBalance'
 import { isDamageReceiver } from './combat/DamageReceiver'
-import { damageMount,damageNpc,damageObstacle,damagePlayer,damageReceiver } from './combat/DamageRouter'
+import { damageMount, damageNpc, damageObstacle, damagePlayer, damageReceiver } from './combat/DamageRouter'
 import { resolveMountImpacts } from './combat/MountImpact'
 import { calculatePlayerMeleeDamage } from './combat/PlayerMeleeDamage'
 import { SHIELD_CONFIG } from './combat/ShieldBlocking'
 import { CombatTrajectoryDebugger } from './debug/CombatTrajectoryDebugger'
 import { commanderValidationHero } from './debug/CommanderValidation'
 import type { GameplayBowQAPanel } from './debug/GameplayBowQAPanel'
-import { configureHeroBenchmarkActors,createHeroBenchmarkScenario,parseHeroBenchmarkQuery } from './debug/HeroBenchmark'
+import { configureHeroBenchmarkActors, createHeroBenchmarkScenario, parseHeroBenchmarkQuery } from './debug/HeroBenchmark'
 import { createHeroBenchmarkRecorder } from './debug/HeroBenchmarkRecorder'
-import { ModelStudio,resolveModelStudioMode,type ModelStudioMode } from './debug/ModelStudio'
-import { NpcSubphaseAggregator,NpcSubphaseCollector,SUBPHASE_COHORT } from './debug/NpcSubphaseProfiler'
-import {
-applyDevSimpleMaterials,
-getActiveRenderProbe,
-} from './debug/RendererCostIsolation'
+import { ModelStudio, resolveModelStudioMode, type ModelStudioMode } from './debug/ModelStudio'
+import { NpcSubphaseAggregator, NpcSubphaseCollector, SUBPHASE_COHORT } from './debug/NpcSubphaseProfiler'
+import { applyDevSimpleMaterials, getActiveRenderProbe } from './debug/RendererCostIsolation'
 import { RuntimeProfiler } from './debug/RuntimeProfiler'
 import { XONGKORO } from './movement/XongkoroConfig'
 import { ChaseTargetCoordinator } from './navigation/ChaseTargetCoordinator'
 import { NavigationWorld } from './navigation/NavigationWorld'
-import { DEFAULT_PLAYER_MAX_HP,Player } from './player/Player'
+import { DEFAULT_PLAYER_MAX_HP, Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
-import { BATTLE_SCENE_MAX_PIXEL_RATIO,bindWindowResize,createSceneRenderer } from './rendering/SceneRenderer'
-import { resolveActivePlayerSkillProgressionAward,resolveCombatSkill,resolveSkillAdjustedMaxHp,skillStatesEqual } from './rpg/CombatSkillProgression'
+import { BATTLE_SCENE_MAX_PIXEL_RATIO, bindWindowResize, createSceneRenderer } from './rendering/SceneRenderer'
+import { resolveActivePlayerSkillProgressionAward, resolveCombatSkill, resolveSkillAdjustedMaxHp, skillStatesEqual } from './rpg/CombatSkillProgression'
 import { InventoryManager } from './rpg/InventoryManager'
 import { SkillManager } from './rpg/SkillManager'
-import { T4_RANGER_BOW_RANGED_ID,WEAPONS } from './rpg/WeaponDatabase'
-import { restoreSavedPlayerHp,SaveManager,type PlayerSaveData } from './save/SaveManager'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from './rpg/WeaponDatabase'
+import { restoreSavedPlayerHp, SaveManager, type PlayerSaveData } from './save/SaveManager'
 import { TOWN_ENTRY_KEY } from './town/CareerTownEntry'
 import { TownEquipment } from './town/TownEquipment'
 import { TownWorld } from './town/TownWorld'
@@ -170,7 +116,7 @@ import { preloadArchitectureStatues } from './town/architecture/TownArchitecture
 import { CareerTutorialScene } from './training/CareerTutorialScene'
 import { trainingDamageText } from './training/TrainingDamageDisplay'
 import { TrainingGround } from './training/TrainingGround'
-import { createTrainingGroundPlan,createTrainingInventory } from './training/TrainingGroundPlan'
+import { createTrainingGroundPlan, createTrainingInventory } from './training/TrainingGroundPlan'
 import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { CaptainEagleHUD } from './ui/CaptainEagleHUD'
 import { CompassUI } from './ui/CompassUI'
@@ -183,43 +129,28 @@ import { QuiverUI } from './ui/QuiverUI'
 import { StaminaBar } from './ui/StaminaBar'
 import { TrainingGroundUI } from './ui/TrainingGroundUI'
 import { WeaponWheelUI } from './ui/WeaponWheelUI'
-import { AIM_RAYCAST_LAYER,AimTargetRegistry } from './world/AimTargetRegistry'
+import { AIM_RAYCAST_LAYER, AimTargetRegistry } from './world/AimTargetRegistry'
 import { ArrowProjectile } from './world/ArrowProjectile'
-import { BlackCatVisual,FELINE_MOUNT_VARIANTS,type FelineMountVariant } from './world/BlackCatVisual'
+import { BlackCatVisual, FELINE_MOUNT_VARIANTS, type FelineMountVariant } from './world/BlackCatVisual'
 import { createCaltropBarrier } from './world/CaltropBarrier'
 import { CombatRenderWarmup } from './world/CombatRenderWarmup'
 import { CorgiVisual } from './world/CorgiVisual'
 import { DamageableObstacle } from './world/DamageableObstacle'
 import { EntityCollisionBroadPhase } from './world/EntityCollisionBroadPhase'
 import { createCampfireVisual } from './world/EnvironmentVisuals'
-import { HERO_ASSETS,type HeroAssetId,type PlayerHeroId } from './world/HeroAssetCatalog'
-import {
-HorseAssetRegistry,
-horseVariantForStableKey,
-horseVariantFromSave,
-} from './world/HorseAssetRegistry'
-import { isPlayerHostileNpc,populateNpcFactionGrids,selectHostileNpcGrid } from './world/HostileNpcGrid'
+import { HERO_ASSETS, type HeroAssetId, type PlayerHeroId } from './world/HeroAssetCatalog'
+import { HorseAssetRegistry, horseVariantForStableKey, horseVariantFromSave } from './world/HorseAssetRegistry'
+import { isPlayerHostileNpc, populateNpcFactionGrids, selectHostileNpcGrid } from './world/HostileNpcGrid'
 import { HumanoidAssetRegistry } from './world/HumanoidAssetRegistry'
-import { InteractionFocus,type InteractionCandidate } from './world/InteractionFocus'
+import { InteractionFocus, type InteractionCandidate } from './world/InteractionFocus'
 import { preloadMakiRangerBow } from './world/MakiRangerEquipment'
-import { DEFAULT_MOUNT_TYPE,felineVariantFromMountId,Mount,MountState,MountType,mountTypeFromId,mountTypeFromSave } from './world/Mount'
-import { AIState,AIType,Faction,NPC,NPC_NEIGHBOR_QUERY_RADIUS } from './world/NPC'
-import {
-createBridgePreviewSpawnPlan,
-createRiverCrossingBattlefield,
-getRiverCrossingTreeClearances,
-RIVER_CROSSING_LAYOUT,
-settleRiverCrossingDrowning,
-} from './world/RiverCrossingBattlefield'
-import {
-createSky,
-getDirectionalShadowMapSize,
-resolveShadowMapSize,
-setDirectionalShadowMapSize,
-} from './world/Sky'
+import { DEFAULT_MOUNT_TYPE, felineVariantFromMountId, Mount, MountState, MountType, mountTypeFromId, mountTypeFromSave } from './world/Mount'
+import { AIState, AIType, Faction, NPC, NPC_NEIGHBOR_QUERY_RADIUS } from './world/NPC'
+import { createBridgePreviewSpawnPlan, createRiverCrossingBattlefield, getRiverCrossingTreeClearances, RIVER_CROSSING_LAYOUT, settleRiverCrossingDrowning } from './world/RiverCrossingBattlefield'
+import { createSky, getDirectionalShadowMapSize, resolveShadowMapSize, setDirectionalShadowMapSize } from './world/Sky'
 import { SnowLeopardVisual } from './world/SnowLeopardVisual'
 import { SpatialGrid } from './world/SpatialGrid'
-import { createTerrain,EntityCollisionBody,getScenePlayableWorldBound,getTerrainHeight,ObstacleData,resetTerrainScenePolicy,resolveObstacleCollision,TERRAIN_TREE_POSITIONS } from './world/Terrain'
+import { createTerrain, EntityCollisionBody, getScenePlayableWorldBound, getTerrainHeight, ObstacleData, resetTerrainScenePolicy, resolveObstacleCollision, TERRAIN_TREE_POSITIONS } from './world/Terrain'
 import { WeaponPickup } from './world/WeaponPickup'
 import { XongkoroVisual } from './world/XongkoroVisual'
 
@@ -4352,7 +4283,6 @@ export class Game {
       falling: this.player.isFalling ? this.player.fallSnapshot : undefined,
       position: { x: pos.x, y: pos.y, z: pos.z },
       hp: this.player.hp,
-      healthRulesVersion: 1,
       maxHp: this.player.maxHp,
       ...(this.player.heroAssetId ? {} : { characterTier: this.player.ordinaryCharacterTier, characterFaction: this.player.characterFaction,
         ...(this.playerMaxHpOverride !== undefined ? { baseMaxHpOverride: this.playerMaxHpOverride } : {}) }),
@@ -4417,24 +4347,19 @@ export class Game {
     // 1. Restore player stats, position, skills & inventory first
     this.player.setPosition(data.position.x, data.position.y, data.position.z)
     this.player.setStamina(data.stamina)
-    this.player.setArrowCount(data.arrows ?? 30)
-
-    if (data.skills) {
-      this.skillManager.setSkillState(data.skills)
-    }
+    this.player.setArrowCount(data.arrows)
+    this.skillManager.setSkillState(data.skills)
     this.player.blockingLevel = this.skillManager.skillState.blocking.level
     if (!this.player.heroAssetId) {
       const faction = data.characterFaction ?? this.player.characterFaction
       const tier = data.characterTier ?? this.player.ordinaryCharacterTier
       this.player.setCharacterIdentity(faction, tier)
-      if (data.healthRulesVersion === 1) this.playerMaxHpOverride = data.baseMaxHpOverride
+      this.playerMaxHpOverride = data.baseMaxHpOverride
       this.basePlayerMaxHp = this.playerMaxHpOverride ?? getOrdinarySoldierHp(faction, tier)
     }
     this.player.setMaxHp(resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, this.skillManager.skillState), false)
     this.player.setHp(restoreSavedPlayerHp(data, this.player.maxHp))
-    if (data.inventory) {
-      this.inventoryManager.loadSaveState(data.inventory)
-    }
+    this.inventoryManager.loadSaveState(data.inventory)
 
     this.staminaBar.setFill(data.stamina / 100)
     this.hpBar.setFill(this.player.hpRatio)

@@ -1,5 +1,5 @@
-import { parseEagleFlightSnapshot,type EagleFlightSnapshot } from '../movement/EagleFlightController';
-import { parseFallingRiderSnapshot,type FallingRiderSnapshot } from '../movement/FallingRider';
+import { parseEagleFlightSnapshot, type EagleFlightSnapshot } from '../movement/EagleFlightController'
+import { parseFallingRiderSnapshot, type FallingRiderSnapshot } from '../movement/FallingRider'
 
 export const EAGLE_DUTIES = ['standby', 'walking-to-mount', 'mounted-waiting', 'sortie', 'patrolling', 'resting', 'return-queue', 'returning', 'walking-to-standby', 'casualty'] as const
 export type TownEagleDuty = typeof EAGLE_DUTIES[number]
@@ -21,7 +21,7 @@ export interface TownEagleGarrisonState { version: 1; sceneKey: string; layoutVe
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const position = (value: unknown): value is Position => !!value && typeof value === 'object'
   && ['x', 'y', 'z', 'yaw'].every(key => finite((value as Record<string, unknown>)[key]))
-/** Bounded strict optional extension: malformed state never changes legacy mission rosters. */
+/** Bounded strict optional extension: malformed state never changes accepted mission rosters. */
 export function parseTownEagleGarrisonState(value: unknown): TownEagleGarrisonState | undefined {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Partial<TownEagleGarrisonState>

@@ -1,5 +1,5 @@
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import { applyClassRoad,classRoadOffer,type CareerClassOffer,type CareerClassRoad } from './CareerElitePromotion'
+import { applyClassRoad, classRoadOffer, type CareerClassOffer, type CareerClassRoad } from './CareerElitePromotion'
 import type { CareerProfile } from './CareerProfile'
 
 /** T4 Captain classes. Independent of the T5 eliteClass/unlockedCareerClasses records; same road rules (CareerElitePromotion). */
@@ -17,14 +17,14 @@ type T4Profile = Pick<CareerProfile, 'faction' | 'rank' | 't4Specialization' | '
 
 export const isT4ClassId = (value: unknown): value is T4ClassId => (T4_CLASS_IDS as readonly unknown[]).includes(value)
 
-/** The T4 class in use, or null outside Captain (T5 identity is decided only by eliteClass). Legacy Captains use the faction default. */
+/** The saved T4 class in use, or null outside Captain (T5 identity is decided only by eliteClass). */
 export function currentT4Class(profile: Pick<CareerProfile, 'faction' | 'rank' | 't4Specialization'>): T4ClassId | null {
   if (profile.rank !== 'captain') return null
   const classes = T4_CLASSES_BY_FACTION[profile.faction]
-  return classes.includes(profile.t4Specialization as T4ClassId) ? profile.t4Specialization as T4ClassId : classes[0]
+  return classes.includes(profile.t4Specialization as T4ClassId) ? profile.t4Specialization as T4ClassId : null
 }
 
-/** Unlocked is distinct from current. A legacy Captain unlocks only its default; a Commander keeps only an explicit record. */
+/** Unlocked is distinct from current; appointed officers retain their explicit unlock record. */
 export function unlockedT4Classes(profile: T4Profile): readonly T4ClassId[] {
   if (profile.rank !== 'captain' && profile.rank !== 'commander') return []
   return profile.unlockedT4Classes ?? []

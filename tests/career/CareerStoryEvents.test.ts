@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it } from 'vitest'
 import { acceptArenaStoryTrial, createArenaTrialMission } from '../../src/career/CareerArenaTrials'
 import { addCareerItem } from '../../src/career/CareerInventory'
@@ -13,11 +14,6 @@ import { MemoryStorage } from '../helpers/memoryStorage'
 const stats = { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
 const rich = (): CareerProfile => { const p = createCareerProfile('roman'); p.totalMerit = p.availableMerit = 20000; return p }
 const free: StoryGuidanceContext = { raceHorseReady: true, deferred: new Set(), available: () => true }
-/** A pre-feature save: the model never wrote `careerStory`, and the tutorial receipts are the only horse record. */
-const legacy = (mutate: (p: CareerProfile) => void): CareerProfile => {
-  const p = createCareerProfile('roman'); mutate(p); delete p.careerStory
-  return parseCareerProfile(JSON.parse(JSON.stringify(p)))!
-}
 /** A formal mission settled and its report closed, as the Sergeant's return does. */
 function won(profile: CareerProfile, id: string, outcome: 'victory' | 'failure' = 'victory'): CareerProfile {
   const claim = claimCareerMission({ ...profile, activeMission: createActiveCareerMission('career-bandit-camp', 1, 2, 2, id) }, id, outcome, stats)
@@ -57,21 +53,6 @@ describe('Career story events: triggers', () => {
 })
 
 describe('Career story events: saves', () => {
-  it('reads old saves without replaying milestones they already passed, and keeps the ones still ahead', () => {
-    const owner = legacy(p => { addCareerItem(p, 'horse', 1) })
-    expect(owner.careerStory!.events).toEqual({ 'commander-circuit-race': { status: 'settled' } })
-    expect(legacy(p => { p.careerMissionCompletions = 1 }).careerStory!.events).toEqual({ 'veteran-squad-spar': { status: 'settled' } })
-    expect(legacy(p => { p.completedCareerMissionTemplateIds = ['career-bandit-camp'] }).careerStory!.events['veteran-squad-spar']).toEqual({ status: 'settled' })
-    // Settled-by-legacy carries no reward fields, so nothing can be paid out for it later.
-    expect(owner.careerStory!.events['commander-circuit-race']).not.toHaveProperty('merit')
-    expect(legacy(() => {}).careerStory).toBeUndefined()
-    // A save that already has state is authoritative: owning a horse without an event is not re-derived into one.
-    const current = createCareerProfile('roman'); addCareerItem(current, 'horse', 1)
-    expect(parseCareerProfile(JSON.parse(JSON.stringify(current)))!.careerStory).toEqual(current.careerStory)
-    expect(legacy(p => { addCareerItem(p, 'xongkoro', 1) }).careerStory!.eaglePurchased).toBe(true)
-    const eligible = legacy(p => { p.totalMerit = p.availableMerit = 900; p.rank = 'soldier' })
-    expect(selectStoryGuidance(eligible, free)).toMatchObject({ npc: 'captain', key: 'appoint:soldier' })
-  })
 
   it('restores pending, active and settled invitations, and returns an orphaned accepted one instead of consuming it', () => {
     const store = new CareerProfileStore(new MemoryStorage())
@@ -88,9 +69,9 @@ describe('Career story events: saves', () => {
     const done = claimCareerMission(accepted, 'spar-1', 'victory', stats).profile
     expect(store.save(done)).toBe(true)
     expect(store.load()!.careerStory!.events['veteran-squad-spar']).toEqual({ status: 'settled', sourceId: 'spar-1', outcome: 'victory', merit: 1000 })
-    // A tampered reward is not honoured: the event is closed without one.
+    // A tampered receipt rejects the profile instead of reopening an invitation.
     const forged = JSON.parse(JSON.stringify(done)); forged.careerStory.events['veteran-squad-spar'].merit = 99999
-    expect(parseCareerProfile(forged)!.careerStory!.events['veteran-squad-spar']).toEqual({ status: 'settled' })
+    expect(parseCareerProfile(forged)).toBeNull()
   })
 })
 
@@ -111,7 +92,7 @@ describe('Career story guidance', () => {
   })
 
   it('guides to the first eagle only for a formal officer who can pay and never bought one, and never repeats its opening line', () => {
-    const veteran = createCareerProfile('roman'); veteran.totalMerit = veteran.availableMerit = 10000; veteran.rank = 'veteran'
+    const veteran = createCareerProfile('roman'); veteran.totalMerit = veteran.availableMerit = 10000; Object.assign(veteran, careerRankFixture(veteran.faction, 'veteran'));
     expect(selectStoryGuidance(veteran, free)?.key).toBe('appoint:veteran')
     const captain = applyT4Class(veteran, 'paladin')!
     const first = selectStoryGuidance(captain, free)

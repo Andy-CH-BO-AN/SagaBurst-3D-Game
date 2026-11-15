@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
@@ -9,8 +10,8 @@ import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
-  return { ...createCareerProfile(faction), rank: 'soldier', totalMerit: 300, availableMerit: 300,
-    completedOutpostStages: [1, 2, 3], ownedHorseTiers: [1], selectedMountId: 'horse-t1' }
+  return { ...createCareerProfile(faction), ...careerRankFixture(faction, 'soldier'), rank: 'soldier', totalMerit: 300, availableMerit: 300,
+    completedOutpostStages: [1, 2, 3], inventory: { version: 1 as const, quantities: Object.fromEntries(['horse'].map(id => [id, 1])) }, ownedMounts: ['horse'], selectedMountId: 'horse' }
 }
 
 afterEach(() => vi.unstubAllGlobals())

@@ -1,8 +1,8 @@
-import { describe,expect,it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import type { SkillState } from '../../src/rpg/SkillManager'
-import { DEFAULT_SAVE,SaveManager,type PlayerSaveData } from '../../src/save/SaveManager'
+import { DEFAULT_SAVE, SaveManager, type PlayerSaveData } from '../../src/save/SaveManager'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { resolveSkillAdjustedMaxHp } from '../../src/rpg/CombatSkillProgression'
 
@@ -19,7 +19,7 @@ const implementations: Array<{
 }> = [
   {
     name: 'persists all six skills through Career save/reload',
-    key: 'sagaburst_career_v1',
+    key: 'sagaburst_career_v2',
     skills: {
       unarmed: { level: 16, xp: 123 },
       blocking: { level: 12, xp: 42 },

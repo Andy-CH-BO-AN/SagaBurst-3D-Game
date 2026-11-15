@@ -1,6 +1,6 @@
-import { cloneCareerProfile,type CareerProfile } from './CareerProfile';
-import type { CareerProfileStore } from './CareerProfileStore';
-import { careerTutorialStep,type CareerTutorialSession,type CareerTutorialStageId } from './CareerTutorialState';
+import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import type { CareerProfileStore } from './CareerProfileStore'
+import { careerTutorialStep, type CareerTutorialSession, type CareerTutorialStageId } from './CareerTutorialState'
 
 export type CareerTutorialCommitResult = { ok: true; profile: CareerProfile } | { ok: false; reason: 'load-failed' | 'stale-career' | 'stale-session' | 'rejected' | 'save-failed' }
 /** Mutate the latest saved enlistment, so a scene return cannot restore an old full-profile snapshot. */
@@ -19,7 +19,7 @@ export function canStartCareerTutorial(profile: CareerProfile): boolean {
   return !profile.activeMission && !profile.activeOutpostMission && !profile.activeRace
     && !profile.careerRetirement && profile.townEvent?.state !== 'hostile'
 }
-/** Loaded legacy ownership can satisfy guidance, but never invents a purchase/reward receipt. */
+/** Guidance follows the saved purchase receipt independently of current horse ownership. */
 export function hasCareerTutorialHorse(profile: CareerProfile): boolean {
   const tutorial = profile.tutorial
   return Boolean(tutorial && (tutorial.purchases.horse))

@@ -1,3 +1,5 @@
+import { personalSquadFixture } from '../helpers/personalSquadFixture'
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { TownScene } from '../../src/town/TownScene'
 import { commanderGateDefenseSlots } from '../../src/career/CommanderTownRoster'
 import { createMissionCommandAuthority } from '../../src/career/CareerCommandAuthority'
@@ -19,9 +21,9 @@ import { createArmyCommandHarness as controllerHarness, type CommandRecipientFix
 /** Only command ports are installed; no TownScene/actor constructor runs. */
 function nativeDismissFixture() {
   const profile = createCareerProfile('roman')
-  profile.rank = 'commander'
+  Object.assign(profile, careerRankFixture(profile.faction, 'commander'));
   const squads = commanderGateDefenseSlots()
-  const mission = { ...createActiveCareerMission('legacy-defense', 0, 0, 0, 'ground-defense'), kind: 'town-defense' as const }
+  const mission = { ...createActiveCareerMission('legacy-defense', 0, 0, 0, 'ground-defense'), kind: 'commander-four-gate-defense' as const }
   mission.phase = 'ENGAGING'
   mission.officialSquad = createMissionCommandAuthority(mission.id, 'roman', 'commander', [], squads)
   mission.officialSquad.commandedSquadIds = [8]
@@ -83,7 +85,7 @@ describe('Personal Squad command lifecycle routing', () => {
 
   it('deploys the current HR roster once through ALL → Follow and routes Dismiss only to its owner', () => {
     const profile = createCareerProfile('roman')
-    profile.personalSquad = { members: ['returned', 'casualty', 'new'].map(id => ({ id: `personal:${id}`, type: 'soldier' as const })) }
+    profile.personalSquad = personalSquadFixture(profile, ['returned', 'casualty', 'new'].map(id => ({ id: `personal:${id}`, type: 'soldier' as const })))
     const mission: PersonalSquadMission = { squadId: 'personal', sceneKey: 'town-home', state: 'RESERVE',
       memberIds: ['personal:returned', 'personal:casualty'], contribution: emptyPersonalContribution(),
       members: { 'personal:returned': { status: 'exited' }, 'personal:casualty': { status: 'dead', hp: 0 } } }

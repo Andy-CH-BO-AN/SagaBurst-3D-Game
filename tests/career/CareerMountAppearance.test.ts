@@ -59,14 +59,6 @@ describe('Career horse appearance transactions', () => {
     expect(current.selectedMountId).toBeUndefined()
   })
 
-  it('normalizes a legacy save without an appearance to grey independently of legacy horse tier', () => {
-    const p = profile(); delete p.horseAppearanceVariant
-    p.ownedHorseTiers = [3]; p.selectedMountId = 'horse-t3'
-    const loaded = parseCareerProfile(JSON.parse(JSON.stringify(p)))!
-    expect(loaded.selectedMountId).toBe('horse')
-    expect(careerMountAppearanceVariant(loaded)).toBe(0)
-  })
-
   it('purges unowned mount armor on resale and syncOwnership so re-purchasing starts with full 50 armor', () => {
     const current = profile(); addCareerItem(current, 'armored-horse', 1)
     current.mountArmor = { 'armored-horse': 0 }

@@ -1,3 +1,5 @@
+import { personalSquadFixture } from '../helpers/personalSquadFixture'
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { Euler, Vector3 } from 'three'
 import { expect, it, vi } from 'vitest'
 import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
@@ -13,7 +15,7 @@ import { parsePersonalMission } from '../../src/career/CareerPersonalSquadMissio
 import { PersonalSquadRuntime, spawnPersonalSquadActor } from '../../src/career/PersonalSquadRuntime'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { MountArmor } from '../../src/combat/MountArmor'
-import { migratePersonalTownLayout } from '../../src/town/TownLayoutMigration'
+
 import * as HighTierEquipment from '../../src/world/HighTierEquipment'
 import { HumanoidAssetRegistry } from '../../src/world/HumanoidAssetRegistry'
 import { MountType, type Mount } from '../../src/world/Mount'
@@ -32,8 +34,8 @@ it('keeps a newly recruited hero pending until assets load and propagates asset 
       vi.spyOn(HighTierEquipment, 'preloadHighTierEquipment').mockResolvedValue(),
       vi.spyOn(PaladinEquipment, 'preloadPaladinEquipment').mockResolvedValue()]
     const profile = createCareerProfile('roman')
-    profile.personalSquad = { members: [{ id: 'personal:new-hero', type: 'commander', characterTier: 5, heroArchetype: 'commander',
-      equipment: { melee: 'gladius_standard', ranged: null, shield: 'scutum_t2', mount: 'horse' } }] }
+    profile.personalSquad = personalSquadFixture(profile, [{ id: 'personal:new-hero', type: 'commander', characterTier: 5, heroArchetype: 'commander',
+      equipment: { melee: 'gladius_standard', ranged: null, shield: 'scutum_t2', mount: 'horse' } }])
     const scheduler = new NpcSpawnScheduler()
     const runtime = Object.assign(Object.create(PersonalSquadRuntime.prototype), {
       actors: [], mounts: [], state: 'RESERVE', read: () => profile, spawn: spawnPersonalSquadActor,
@@ -63,11 +65,11 @@ it('keeps a newly recruited hero pending until assets load and propagates asset 
 
 it('restores a formal HR return without actors and queues the full equipped reserve only once on Follow', () => {
     const profile = createCareerProfile('roman')
-    profile.personalSquad = { members: [
+    profile.personalSquad = personalSquadFixture(profile, [
       { id: 'personal:foot', type: 'soldier' },
       { id: 'personal:cat', type: 'captain', equipment: { melee: null, ranged: null, shield: null, mount: 'black-cat' } },
       { id: 'personal:eagle', type: 'ranger', equipment: { melee: null, ranged: null, shield: null, mount: 'xongkoro' } },
-    ] }
+    ])
     const saved = returnPersonalMissionToHR({ squadId: 'personal', sceneKey: 'battle', state: 'ACTIVE',
       memberIds: profile.personalSquad.members.map(member => member.id), contribution: emptyPersonalContribution(),
       members: { 'personal:foot': { status: 'dead', hp: 0 }, 'personal:cat': { status: 'deployed', hp: 7, ammo: 0 },
@@ -116,7 +118,7 @@ it('returns a ground private soldier to the HR floor height on Dismiss', () => {
     expect(actor.missionMovement).toBe(true)
   })
 
-it('restores a migrated off-base boarding target, follows a moving mount and boards only at live contact', () => {
+it('restores an off-base boarding target, follows a moving mount and boards only at live contact', () => {
     const h = boardingHarness()
     const saved: PersonalSquadMission = {
       squadId: 'personal', sceneKey: 'town-home', layoutVersion: 3, state: 'ACTIVE',
@@ -126,8 +128,7 @@ it('restores a migrated off-base boarding target, follows a moving mount and boa
         mount: { hp: 73, mounted: false, position: { x: 20, y: 0, z: 30, yaw: 0 },
           flight: { phase: 'grounded', yaw: 0, pitch: 0, bank: 0, speed: 0, velocity: { x: 0, y: 0, z: 0 } } } } },
     }
-    const migrated = migratePersonalTownLayout(saved, 'town-home', { eaglePads: [h.home], muster: [] }, () => 0)!
-    h.runtime.restoreActor(h.npc, migrated.members['personal:eagle'], false, 0)
+    h.runtime.restoreActor(h.npc, saved.members['personal:eagle'], false, 0)
     expect(h.actor.assignFormationTarget.mock.lastCall![1].toArray()).toEqual([20, 0, 30])
     h.mount.group.position.set(24, 3, 31)
     h.runtime.updateEagleTransfers()
@@ -197,7 +198,7 @@ function boardingHarness(command: 'defend' | 'follow' = 'defend') {
 
 it('locks HR reserves and refit in the final stand without replacing casualties or advancing return cleanup', () => {
   const profile = createCareerProfile('roman')
-  profile.personalSquad = { members: [{ id: 'personal:fallen', type: 'soldier' }] }
+  profile.personalSquad = personalSquadFixture(profile, [{ id: 'personal:fallen', type: 'soldier' }])
   const mission: PersonalSquadMission = { squadId: 'personal', sceneKey: 'town-home', state: 'RETURNING',
     memberIds: ['personal:fallen'], contribution: emptyPersonalContribution(),
     members: { 'personal:fallen': { status: 'dead', hp: 0 } } }
@@ -250,7 +251,7 @@ interface StandbyEagle {
 /** Numeric actor double: only the private-squad lifecycle API; no scene, mesh or asset. */
 function standbyHarness(members: { id: string; mount?: 'xongkoro' }[], options: { saved?: PersonalSquadMission; failOnce?: string[]; queue?: EagleLandingQueue; loadingShields?: boolean } = {}) {
   let profile = createCareerProfile('roman')
-  profile.rank = 'captain'; profile.availableMerit = 100_000
+  Object.assign(profile, careerRankFixture(profile.faction, 'captain')); profile.availableMerit = 100_000
   // Real hires own their equipment; an eagle rider additionally owns its xongkoro.
   for (const { id } of members) expect(recruitPersonalSquadMember(profile, 'soldier', next => { profile = next; return true }, () => id).recruited).toBe(true)
   for (const { id, mount } of members) if (mount) {

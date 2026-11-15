@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { Box3, Vector3 } from 'three'
 import { expect, it } from 'vitest'
 import { commanderGateDefenseSlots } from '../../src/career/CaptainMissionCatalog'
@@ -89,4 +90,4 @@ it('assigns every native retirement humanoid exactly once and stops preparation 
     expect(retirementMobilizationNeedsPreparation(pending)).toBe(false)
   })
 
-const commander = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'commander', totalMerit: 20000 })
+const commander = (): CareerProfile => ({ ...createCareerProfile('roman'), ...careerRankFixture('roman', 'commander'), rank: 'commander', totalMerit: 20000 })

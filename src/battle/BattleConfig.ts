@@ -2,28 +2,13 @@
  * BattleConfig.ts
  * Core domain types, validation, presets, and combat mapping rules for Custom Battle.
  */
-import { COMBAT_BALANCE,getRangedCombatKind,getRangedDamageMultiplier } from '../combat/CombatBalance'
-import { T4_RANGER_BOW_RANGED_ID,WEAPONS } from '../rpg/WeaponDatabase'
+import { COMBAT_BALANCE, getRangedCombatKind, getRangedDamageMultiplier } from '../combat/CombatBalance'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import { isHeroAssetId,isSetupPlayerHeroId,type PlayerHeroId } from '../world/HeroAssetCatalog'
+import { isHeroAssetId, isSetupPlayerHeroId, type PlayerHeroId } from '../world/HeroAssetCatalog'
 import { AIType } from '../world/NpcAIType'
-import {
-MAX_CUSTOM_BATTLE_COMMAND_SQUADS,
-MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE,
-type CommandGroupingMode,
-type SquadAssignment,
-} from './CommandTarget'
-import {
-BASE_UNIT_TIERS,
-BaseUnitTier,
-CUSTOM_BATTLE_UNIT_TIERS,
-ROMAN_PRESET_IDS,
-RomanPresetId,
-UnitPresetId,
-UnitTier,
-VIKING_PRESET_IDS,
-VikingPresetId,
-} from './UnitPresetCatalog'
+import { MAX_CUSTOM_BATTLE_COMMAND_SQUADS, MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE, type CommandGroupingMode, type SquadAssignment } from './CommandTarget'
+import { BASE_UNIT_TIERS, BaseUnitTier, CUSTOM_BATTLE_UNIT_TIERS, ROMAN_PRESET_IDS, RomanPresetId, UnitPresetId, UnitTier, VIKING_PRESET_IDS, VikingPresetId } from './UnitPresetCatalog'
 
 /** Production Custom Battle limit. Ground battle supports 300v300; aerial supports 50v50. */
 export const MAX_CUSTOM_ARMY_SIZE = 300
@@ -103,7 +88,7 @@ export const PLAYER_MELEE_WEAPON_IDS: readonly PlayerMeleeWeaponId[] = [
   'paladin_sword_t4', 'paladin_mace_t4',
   'sword_t5', 'axe_t5', 'spear_t5', 'byzantine_standard_lance_t5',
 ]
-/** Current setup UI choices; legacy Viking sword IDs remain accepted for saved loadouts. */
+/** Current setup UI choices; stable Viking sword IDs remain valid equipment identities. */
 export const PLAYER_MELEE_SELECTION_IDS: readonly PlayerMeleeWeaponId[] = [
   'viking_axe_t1', 'viking_axe_t2', 'viking_axe_t3',
   'gladius_rusty', 'gladius_standard', 'centurion_blade',
@@ -137,7 +122,7 @@ export interface BattleConfig {
   spectator?: boolean
   playerFaction?: CharacterFaction
   playerHeroId?: PlayerHeroId | null
-  /** Formal ordinary character tier; absent legacy launches use T2, never equipment tier. */
+  /** Formal ordinary character tier; direct launches may use the default T2, never equipment tier. */
   playerVisualTier?: BaseUnitTier
   playerHp?: number
   /** Generated defaults do not override the faction/tier HP table. UI edits are custom. */
@@ -397,7 +382,7 @@ function validateBattleConfigWithArmyLimit(
         if (!['1', '2', '3', '4', '5'].includes(key)) errors.push(`${sideName} ${presetId} invalid tier ${key}`)
       }
       for (const tier of CUSTOM_BATTLE_UNIT_TIERS) {
-        const val = counts[tier]
+        const val = counts[tier] ?? (tier >= 4 ? 0 : undefined)
         if (typeof val !== 'number' || !Number.isInteger(val) || val < 0) {
           errors.push(`${sideName} ${presetId} T${tier} must be a non-negative integer`)
         } else if (val > maxArmySize) {

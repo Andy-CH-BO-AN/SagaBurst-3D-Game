@@ -17,7 +17,7 @@ export interface TownPatrolCheckpoint {
     returning?: string[] }[]
 }
 
-/** Optional per-town schema. Missing legacy data never changes mission ownership. */
+/** Optional per-town deployment schema, independent of mission ownership. */
 export function parseTownPatrolCheckpoint(value: unknown): TownPatrolCheckpoint | undefined {
   if (!value || typeof value !== 'object' || !Array.isArray((value as TownPatrolCheckpoint).squads)) return undefined
   const squads: TownPatrolCheckpoint['squads'] = []

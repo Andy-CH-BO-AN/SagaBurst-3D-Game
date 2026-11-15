@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
@@ -8,8 +9,8 @@ import { createCareerProfile, type CareerProfile } from '../../src/career/Career
 import { NPC } from '../../src/world/NPC'
 
 function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
-  return { ...createCareerProfile(faction), rank: 'soldier', totalMerit: 300, availableMerit: 300,
-    completedOutpostStages: [1, 2, 3], ownedHorseTiers: [1], selectedMountId: 'horse-t1' }
+  return { ...createCareerProfile(faction), ...careerRankFixture(faction, 'soldier'), rank: 'soldier', totalMerit: 300, availableMerit: 300,
+    completedOutpostStages: [1, 2, 3], inventory: { version: 1 as const, quantities: Object.fromEntries(['horse'].map(id => [id, 1])) }, ownedMounts: ['horse'], selectedMountId: 'horse' }
 }
 
 function launch(faction: 'roman' | 'viking' = 'roman') { return createCareerOutpostLaunch(acceptCareerOutpostRelief(ready(faction), 'relief')!) }

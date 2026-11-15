@@ -15,6 +15,14 @@ export const OBSTACLE_COLLISION_GRID_CELL_SIZE = 8
  * immediately and must not retain or mutate it.
  */
 export class ObstacleCollisionSpatialIndex {
+  /**
+   * `projectile` mode is a ballistic broad phase: records whose projectile test
+   * does not use `box` (explicit projectile bounds or local transforms) are never
+   * culled, so callers' exact predicate sees a superset in source order.
+   */
+  constructor(private readonly mode: 'collision' | 'projectile' = 'collision') {}
+
+  private readonly unculledIndices: number[] = []
   private readonly dynamicIndices: number[] = []
   private readonly dynamicGroups: (ObstacleCollisionGroup & { indices: number[] })[] = []
   private readonly cells = new Map<string, number[]>()
@@ -35,6 +43,7 @@ export class ObstacleCollisionSpatialIndex {
     this.obstacleCount = obstacles.length
     this.obstacleRevision = obstacleTopologyRevision(obstacles)
     this.cells.clear()
+    this.unculledIndices.length = 0
     this.dynamicIndices.length = 0
     this.dynamicGroups.length = 0
     this.seenStamp = new Uint32Array(obstacles.length)
@@ -42,6 +51,10 @@ export class ObstacleCollisionSpatialIndex {
 
     for (let index = 0; index < obstacles.length; index++) {
       const obstacle = obstacles[index]
+      if (this.mode === 'projectile' && (obstacle.projectileBounds || obstacle.projectileWorldToLocal)) {
+        this.unculledIndices.push(index)
+        continue
+      }
       if (obstacle.dynamic) {
         const group = obstacle.collisionGroup
         if (!group) this.dynamicIndices.push(index)
@@ -132,6 +145,8 @@ export class ObstacleCollisionSpatialIndex {
           && maxZ >= box.min.z && minZ <= box.max.z) this.queryIndices.push(index)
       }
     }
+
+    for (const index of this.unculledIndices) this.queryIndices.push(index)
 
     // General dynamic records without a complete owner envelope keep the
     // existing direct-bounds fallback.

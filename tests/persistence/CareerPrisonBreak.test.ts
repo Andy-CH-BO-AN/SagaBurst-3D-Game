@@ -1,3 +1,5 @@
+import { personalSquadFixture } from '../helpers/personalSquadFixture'
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import * as townRules from '../../src/town/TownRules'
 import { commitPrisonBreakReturn } from '../../src/career/CareerMissionReturnRecovery'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
@@ -13,10 +15,10 @@ import { CareerProfileStore, CAREER_STORAGE_KEY } from '../../src/career/CareerP
 import { MemoryStorage } from '../helpers/memoryStorage'
 const stats = { damageDealt: 10, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
 function fixture(rank: 'captain' | 'commander' = 'captain') {
-  let profile = createCareerProfile('roman'); profile.rank = rank; profile.totalMerit = profile.availableMerit = rank === 'commander' ? 80000 : 5000
-  profile.ownedWeapons = ['centurion_blade']; profile.equipment = { melee: 'centurion_blade' }
-  profile.ownedMounts = ['snow-leopard']; profile.selectedMountId = 'snow-leopard'
-  profile.personalSquad = { members: [{ id: 'personal:hr-1', type: 'soldier' }] }
+  let profile = createCareerProfile('roman'); Object.assign(profile, careerRankFixture(profile.faction, rank)); profile.totalMerit = profile.availableMerit = rank === 'commander' ? 80000 : 5000
+  Object.assign(profile.inventory!.quantities, Object.fromEntries(['centurion_blade'].map(id => [id, 1]))); profile.ownedWeapons = ['centurion_blade']; profile.equipment = { melee: 'centurion_blade' }
+  Object.assign(profile.inventory!.quantities, Object.fromEntries(['snow-leopard'].map(id => [id, 1]))); profile.ownedMounts = ['snow-leopard']; profile.selectedMountId = 'snow-leopard'
+  profile.personalSquad = personalSquadFixture(profile, [{ id: 'personal:hr-1', type: 'soldier' }])
   profile = acceptHeavyFieldMission(profile, 'soldier-iron-encounter', 'original')!
   profile = beginPrisonBreak(claimCareerFieldResult(profile, 'original', 'failure', stats, stats, 'viking').profile)!
   profile.activeMission!.personalSquad!.state = 'ACTIVE'
@@ -145,29 +147,6 @@ describe('Prison encounter persistence', () => {
       expect(store.loadChecked().error).toBeTruthy()
       expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
     }
-  })
-
-  it('舊存檔不回推被俘，未完成越獄沿新規則恢復，已保存的舊結果不重開', () => {
-    const { profile, store, storage } = fixture()
-    const legacy = structuredClone(profile)
-    const checkpoint = legacy.activeMission!.prisonBreak!
-    delete checkpoint.rosterVersion
-    for (let i = 5; i < 10; i++) delete checkpoint.combat.actors[`original:guard:${i}`]
-    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacy))
-    expect(store.load()!.activeMission!.prisonBreak).toEqual(checkpoint)
-    checkpoint.version = 1
-    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacy))
-    expect(store.load()!.activeMission!.prisonBreak).toEqual({ ...checkpoint, version: 2 })
-    const sealed = legacy.activeMission!.prisonBreak!
-    sealed.stage = 'result'; sealed.combat.player!.knocked = true; sealed.combat.player!.hp = 0
-    sealed.result = { outcome: 'failure', merit: 0 }
-    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacy))
-    expect(store.load()!.activeMission!.prisonBreak).toEqual(sealed)
-    const restoredLegacy = store.load()!
-    expect(settlePrisonBreak(restoredLegacy, 'victory', () => { throw new Error('舊結果不可重發獎') })).toEqual(restoredLegacy)
-    delete profile.activeMission!.prisonBreak
-    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
-    expect(store.load()!.activeMission!.prisonBreak).toBeUndefined()
   })
 
   it('成功與獎勵同交易保存，拒絕寫入後重試僅入帳一次且不改原戰役或裝備部隊資料', () => {

@@ -398,13 +398,11 @@ async function bootstrap(): Promise<void> {
       ) {
         savedCampaign = parsed
       } else {
-        console.warn('Invalid or locked sessionStorage campaign config, clearing:', validation.errors)
-        sessionStorage.removeItem('sagaburst_campaign_config_v2')
+        console.warn('Invalid or locked campaign config; original session data retained:', validation.errors)
       }
     }
   } catch (err) {
     console.warn('Failed to parse sessionStorage campaign config:', err)
-    sessionStorage.removeItem('sagaburst_campaign_config_v2')
   }
 
   const careerResume = !menuOnly && shouldResumeCareerTown(outpostProfile, sessionStorage.getItem(TOWN_ENTRY_KEY) === '1')
@@ -422,13 +420,11 @@ async function bootstrap(): Promise<void> {
       if (validation.valid && !parsed.careerEagleMissionId && !parsed.careerFelineMissionId) {
         savedConfig = parsed
       } else {
-        console.warn('Invalid sessionStorage battle config, clearing:', validation.errors)
-        sessionStorage.removeItem('sagaburst_battle_config_v2')
+        console.warn('Invalid battle config; original session data retained:', validation.errors)
       }
     }
   } catch (err) {
     console.warn('Failed to parse sessionStorage battle config:', err)
-    sessionStorage.removeItem('sagaburst_battle_config_v2')
   }
 
   if (savedConfig && !careerResume) {

@@ -1,10 +1,10 @@
-import { PLAYER_MOUNT_IDS,type PlayerMountId } from '../battle/BattleConfig'
+import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { PersonalSquadMemberType } from './CareerPersonalSquad'
-import type { CareerMountId,CareerProfile } from './CareerProfile'
-import { defaultPersonalRecruitmentChoice,resolvePersonalRecruitment } from './CareerRecruitmentCatalog'
-import { allocatedTownEquipment,validateTownEquipment } from './CareerTownEquipmentState'
+import type { CareerMountId, CareerProfile } from './CareerProfile'
+import { defaultPersonalRecruitmentChoice, resolvePersonalRecruitment } from './CareerRecruitmentCatalog'
+import { allocatedTownEquipment, validateTownEquipment } from './CareerTownEquipmentState'
 
 /** Concurrent canonical ownership, including assigned, reserve and unavailable eagles. */
 export const MAX_PLAYER_OWNED_XONGKORO = 3
@@ -48,7 +48,7 @@ export function playerHasAllocation(profile: CareerProfile, rawId: string): bool
 export function canAllocateCareerItemToPlayer(profile: CareerProfile, id: string): boolean {
   return careerItemTotal(profile, id) > 0 && (playerHasAllocation(profile, id) || availableCareerItem(profile, id) > 0)
 }
-/** Compatibility ownership arrays are projections, never an independent quantity source. */
+/** UI ownership arrays are projections, never an independent quantity source. */
 export function syncCareerOwnership(profile: CareerProfile): void {
   const ids = Object.keys(profile.inventory!.quantities).filter(id => profile.inventory!.quantities[id] > 0)
   profile.ownedWeapons = ids.filter(id => Boolean(WEAPONS[id]))
@@ -74,7 +74,7 @@ export function validPersonalEquipment(_type: PersonalSquadMemberType, equipment
     && (!equipment.shield || ARMORS[equipment.shield]?.type === 'shield')
     && (!equipment.mount || (PLAYER_MOUNT_IDS as readonly string[]).includes(equipment.mount)))
 }
-/** Mutates only a newly parsed/staged profile. The marker prevents repeated recruitment grants. */
+/** Validates canonical quantities and allocations on a newly parsed or staged profile. */
 export function normalizeCareerInventory(profile: CareerProfile): void {
   validateTownEquipment(profile)
   const totals: Record<string, number> = {}

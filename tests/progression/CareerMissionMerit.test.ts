@@ -1,8 +1,9 @@
-import { describe,expect,it } from 'vitest'
+import { createCavalrySweepMission } from '../../src/career/CavalrySweep'
+import { describe, expect, it } from 'vitest'
 import { calculateRecruitMissionMerit, RECRUIT_MISSION_MERIT_RULES } from '../../src/career/CareerMissionMeritPolicy'
-import { createActiveCareerMission } from '../../src/career/CareerMissionState'
+
 import { claimCareerOutpost } from '../../src/career/CareerOutpostMission'
-import { claimCareerMission,createCareerProfile } from '../../src/career/CareerProfile'
+import { claimCareerMission, createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { calculateMerit } from '../../src/career/MeritCalculator'
 import type { PlayerBattleStats } from '../../src/combat/BattleStatsTracker'
@@ -19,9 +20,9 @@ describe('mission merit ownership', () => {
     expect(calculateMerit({ player: stats(threshold), squads: [] }, 'defeat', 'defense', 'mission').characterDamage).toBe(1)
   })
 
-  it('saves an enemy-town offense reward once and rejects a second claim after reload', () => {
+  it('saves a current cavalry offense reward once and rejects a second claim after reload', () => {
     const profile = createCareerProfile('roman')
-    profile.activeMission = { ...createActiveCareerMission('assault-merit', 0, 1, 0, 'assault-merit'), kind: 'enemy-town-assault' }
+    profile.activeMission = createCavalrySweepMission('assault-merit')
     const result = claimCareerMission(profile, 'assault-merit', 'victory', { ...stats(40), structureDamage: 40 })
     expect(result.profile.tutorial?.settledMissionIds).toEqual(['assault-merit'])
     expect(result.profile.activeMission?.result?.merit).toEqual({ damage: 4, kills: 0, contribution: 80, total: 84 })

@@ -148,8 +148,10 @@ export function parseCareerStoryState(value: unknown, facts: CareerStoryLoadFact
   const rawEvents = objectOf(raw.events)!
   const events: CareerStoryState['events'] = {}
   for (const id of CAREER_STORY_EVENT_IDS) {
+    if (rawEvents[id] === undefined) continue
     const parsed = parseEvent(id, rawEvents[id])
-    if (parsed) events[id] = parsed
+    if (!parsed) return null
+    events[id] = parsed
   }
   const live = (id: CareerStoryEventId, sourceId: string): boolean => id === 'commander-circuit-race'
     ? facts.activeRaceId === sourceId : facts.activeMissionId === sourceId

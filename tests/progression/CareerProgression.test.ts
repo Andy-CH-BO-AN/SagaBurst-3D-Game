@@ -1,30 +1,17 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it } from 'vitest'
 import { applyCareerClass, careerClassOffer, unlockedCareerClasses } from '../../src/career/CareerElitePromotion'
 import { addCareerItem, careerItemAllocated, careerItemTotal } from '../../src/career/CareerInventory'
 import { resolveCareerHeroAsset } from '../../src/career/CareerPlayerProfile'
-import {
-  claimCareerBattle,
-  cloneCareerProfile,
-  createCareerProfile,
-  promoteCareer,
-  purchaseCareerContent,
-  resolveCareerRank,
-  type CareerProfile
-} from '../../src/career/CareerProfile'
-import {
-  CAREER_STORAGE_KEY,
-  CareerProfileStore,
-  parseCareerProfile
-} from '../../src/career/CareerProfileStore'
+import { claimCareerBattle, cloneCareerProfile, createCareerProfile, promoteCareer, purchaseCareerContent, resolveCareerRank, type CareerProfile } from '../../src/career/CareerProfile'
+import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { canAppointCareerRank } from '../../src/career/CareerPromotionAuthority'
 import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, validateOrdinaryRetirementCommit } from '../../src/career/CareerRetirement'
-import { careerShopProduct } from '../../src/career/CareerShopCatalog'
+
 import { applyT4Class, currentT4Class, t4ClassOffer, unlockedT4Classes } from '../../src/career/CareerT4Promotion'
 import { claimCareerTutorialReward, commitCareerTutorial, deferCareerTutorial, hasCareerTutorialHorse, recordCareerTutorialOperation, startCareerTutorial } from '../../src/career/CareerTutorial'
 import { CAREER_TUTORIAL_OPERATIONS } from '../../src/career/CareerTutorialState'
-import {
-  calculateMerit
-} from '../../src/career/MeritCalculator'
+import { calculateMerit } from '../../src/career/MeritCalculator'
 import type { BattleStatsSnapshot } from '../../src/combat/BattleStatsTracker'
 import { TownEquipment } from '../../src/town/TownEquipment'
 import { grantStarter, settleTown } from '../../src/town/TownRules'
@@ -47,8 +34,8 @@ function stats(overrides: Partial<BattleStatsSnapshot['player']> = {}): BattleSt
 }
 
 describe('T5 雙職業任命', () => {
-  const captain = (total: number) => { const p = createCareerProfile('roman'); p.rank = 'captain'; p.totalMerit = total; p.availableMerit = 777; return p }
-  it('驗證 T5 雙職業首次任命門檻、第二職業購買切換與舊存檔推導', () => {
+  const captain = (total: number) => { const p = createCareerProfile('roman'); Object.assign(p, careerRankFixture(p.faction, 'captain')); p.totalMerit = total; p.availableMerit = 777; return p }
+  it('驗證 T5 雙職業首次任命門檻、第二職業購買切換與非法紀錄拒絕', () => {
     expect(careerClassOffer(captain(20000), 'byzantine-cataphract')).toMatchObject({ kind: 'merit-locked', shortfall: 10000 })
     const commander = applyCareerClass(captain(20000), 'roman-commander')!
     expect(commander).toMatchObject({ rank: 'commander', eliteClass: null, availableMerit: 777, unlockedCareerClasses: ['roman-commander'] })
@@ -59,7 +46,7 @@ describe('T5 雙職業任命', () => {
     expect(next.ownedWeapons).not.toContain('byzantine_standard_lance_t5'); expect(next.ownedArmors).not.toContain('byzantine_eagle_shield_t5')
     expect(resolveCareerHeroAsset(parseCareerProfile(next)!)).toBe('byzantine-cataphract-t5')
     expect(p.rank).toBe('captain')
-    const viking = createCareerProfile('viking'); viking.rank = 'captain'; viking.totalMerit = 30000
+    const viking = createCareerProfile('viking'); Object.assign(viking, careerRankFixture(viking.faction, 'captain')); viking.totalMerit = 30000
     expect(careerClassOffer(viking, 'byzantine-cataphract').kind).toBe('unavailable')
 
     // 第二職業只扣可用軍功並永久解鎖；之後免費切換不重複扣款
@@ -84,27 +71,20 @@ describe('T5 雙職業任命', () => {
     expect(store.load()).toMatchObject({ eliteClass: null, availableMerit: 500, unlockedCareerClasses: ['roman-commander', 'byzantine-cataphract'] })
     expect(store.save(first)).toBe(false)
 
-    // 舊存檔只推導目前職業，不猜測第二職業；非法職業組合拒絕
-    const legacy = applyCareerClass(captain(30000), 'roman-commander')!
-    delete legacy.unlockedCareerClasses
-    legacy.availableMerit = 30000
-    expect(unlockedCareerClasses(parseCareerProfile(legacy)!)).toEqual(['roman-commander'])
-    expect(careerClassOffer(parseCareerProfile(legacy)!, 'byzantine-cataphract').kind).toBe('purchase')
-    legacy.eliteClass = 'byzantine-cataphract'
-    expect(unlockedCareerClasses(parseCareerProfile(legacy)!)).toEqual(['byzantine-cataphract'])
-    legacy.totalMerit = 29999; expect(parseCareerProfile(legacy)).toBeNull()
+    // Missing current class records and contradictory unlocks are rejected.
+    expect(parseCareerProfile({ ...commander, unlockedCareerClasses: undefined })).toBeNull()
     const bad = applyCareerClass(captain(30000), 'byzantine-cataphract')!
     expect(parseCareerProfile({ ...bad, unlockedCareerClasses: ['roman-commander'] })).toBeNull()
     expect(parseCareerProfile({ ...bad, totalMerit: 29999 })).toBeNull()
     expect(parseCareerProfile({ ...bad, totalMerit: 29999, unlockedCareerClasses: ['roman-commander', 'byzantine-cataphract'] })).not.toBeNull()
     expect(parseCareerProfile({ ...bad, faction: 'viking' })).toBeNull()
-    expect(parseCareerProfile({ ...bad, rank: 'captain' })).toBeNull()
+    expect(parseCareerProfile({ ...bad, ...careerRankFixture((bad).faction, 'captain'), rank: 'captain' })).toBeNull()
   })
 })
 
 describe('T4 雙職業任命（聖騎士／百夫長）', () => {
-  const veteran = (total: number, faction: 'roman' | 'viking' = 'roman') => { const p = createCareerProfile(faction); p.rank = 'veteran'; p.totalMerit = total; p.availableMerit = 333; return p }
-  it('驗證 T4 雙職業（聖騎士／百夫長）任命門檻、第二職業購買切換與舊存檔推導', () => {
+  const veteran = (total: number, faction: 'roman' | 'viking' = 'roman') => { const p = createCareerProfile(faction); Object.assign(p, careerRankFixture(p.faction, 'veteran')); p.totalMerit = total; p.availableMerit = 333; return p }
+  it('驗證 T4 雙職業（聖騎士／百夫長）任命門檻、第二職業購買切換與非法紀錄拒絕', () => {
     expect(['paladin', 'centurion'].map(id => t4ClassOffer(veteran(4999), id as 'paladin').kind)).toEqual(['merit-locked', 'merit-locked'])
     expect(t4ClassOffer(veteran(5000), 'paladin').kind).toBe('appoint')
     expect(t4ClassOffer(veteran(6999), 'centurion')).toMatchObject({ kind: 'merit-locked', shortfall: 1 })
@@ -117,7 +97,7 @@ describe('T4 雙職業任命（聖騎士／百夫長）', () => {
     // The generic one-step authority refuses Veteran → Captain (both factions), and a Centurion-only save below 7,000 is rejected.
     expect(canAppointCareerRank(veteran(7000), 'captain')).toBe(false)
     expect(parseCareerProfile({ ...centurion, totalMerit: 6999 })).toBeNull()
-    expect(promoteCareer(veteran(5000))?.t4Specialization).toBeUndefined() // legacy shape → Paladin, never Centurion
+    expect(promoteCareer(veteran(5000))?.t4Specialization).toBe('paladin')
     const viking = veteran(5000, 'viking')
     expect(t4ClassOffer(viking, 'paladin').kind).toBe('unavailable')
     expect(canAppointCareerRank(viking, 'captain')).toBe(false)
@@ -145,9 +125,9 @@ describe('T4 雙職業任命（聖騎士／百夫長）', () => {
     expect(store.load()).toMatchObject({ t4Specialization: 'paladin', availableMerit: 500, unlockedT4Classes: ['paladin', 'centurion'] })
     expect(store.save(paladin)).toBe(false) // stale scene: would drop the unlock and restore the spent merit
 
-    // 舊 Captain 僅推導聖騎士；非法 ID／重複／矛盾被拒；T4 升 T5 依 PR #453，T4 面板不服務 Commander
-    const legacy = promoteCareer(veteran(5000))!
-    const parsed = parseCareerProfile(legacy)!
+    // 現行 Captain 保存明確職業；非法 ID／重複／矛盾被拒；T4 升 T5 依 PR #453，T4 面板不服務 Commander
+    const appointed = promoteCareer(veteran(5000))!
+    const parsed = parseCareerProfile(appointed)!
     expect([currentT4Class(parsed), unlockedT4Classes(parsed)]).toEqual(['paladin', ['paladin']])
     expect(resolveCareerHeroAsset(parsed)).toBe('roman-hero-t4')
     for (const bad of [{ t4Specialization: 'legate' }, { unlockedT4Classes: ['centurion', 'centurion'] }, { unlockedT4Classes: ['paladin'] },
@@ -166,8 +146,8 @@ describe('T4 雙職業任命（聖騎士／百夫長）', () => {
 })
 
 describe('維京 T4／T5 雙職業（瓦良格隊長／龍誓重衛、維京指揮官／鐵血戰帥）', () => {
-  const at = (rank: CareerProfile['rank'], total: number, available = 333) => { const p = createCareerProfile('viking'); p.rank = rank; p.totalMerit = total; p.availableMerit = available; return p }
-  it('驗證維京 T4／T5 雙職業任命、購買切換、舊存檔推導與非法紀錄拒絕', () => {
+  const at = (rank: CareerProfile['rank'], total: number, available = 333) => { const p = createCareerProfile('viking'); Object.assign(p, careerRankFixture(p.faction, rank)); p.totalMerit = total; p.availableMerit = available; return p }
+  it('驗證維京 T4／T5 雙職業任命、購買切換與非法紀錄拒絕', () => {
     expect(t4ClassOffer(at('veteran', 6999), 'dragon-oathguard')).toMatchObject({ kind: 'merit-locked', shortfall: 1 })
     expect(t4ClassOffer(at('veteran', 5000), 'varangian').kind).toBe('appoint')
     expect(t4ClassOffer(at('veteran', 7000), 'centurion').kind).toBe('unavailable')
@@ -289,8 +269,8 @@ describe('Career progression and spending', () => {
     const profile = createCareerProfile('viking')
     profile.totalMerit = 5000
     profile.availableMerit = 300
-    profile.rank = 'recruit'
-    profile.ownedMounts.push('horse')
+    Object.assign(profile, careerRankFixture(profile.faction, 'recruit'));
+    addCareerItem(profile, 'horse', 1)
     expect(hasCareerTutorialHorse(profile)).toBe(false)
 
     const duplicate = purchaseCareerContent(profile, {
@@ -319,44 +299,6 @@ describe('Career progression and spending', () => {
 })
 
 describe('Career profile persistence', () => {
-
-  it('migrates legacy shape, preserves spendable merit and rejects bad faction/version', () => {
-    const parsed = parseCareerProfile({
-      version: 1,
-      faction: 'roman',
-      merit: 950,
-      rank: 'commander',
-      unlockedWeapons: ['gladius_rusty'],
-      unlockedShields: ['scutum_t1'],
-      unlockedMounts: ['horse-t2'],
-      unlockedHeroes: ['roman-hero-t4'],
-      claimedBattleIds: [],
-      lifetimeStats: {},
-    })
-
-    expect(parsed).toMatchObject({
-      faction: 'roman',
-      totalMerit: 950,
-      availableMerit: 950,
-      rank: 'veteran',
-      ownedWeapons: ['gladius_rusty'],
-      ownedArmors: ['scutum_t1'],
-      ownedMounts: ['horse'],
-      ownedHeroes: ['roman-hero-t4'],
-    })
-    expect(hasCareerTutorialHorse(parsed!)).toBe(true)
-    expect(parsed?.tutorial?.purchases).toEqual({ weaponIds: [], horse: false })
-    expect(parsed?.tutorial?.rewards).toEqual({})
-
-    // Spendable merit above lifetime earned merit and invalid faction/version rejection
-    const spendable = parseCareerProfile({
-      version: 1, faction: 'viking', totalMerit: 1000, availableMerit: 9000,
-      ownedWeapons: [], ownedArmors: [], ownedMounts: [], ownedHeroes: [], lifetimeStats: {}, claimedBattleIds: [],
-    })
-    expect(spendable?.availableMerit).toBe(9000)
-    expect(parseCareerProfile({ version: 1, faction: 'gaul' })).toBeNull()
-    expect(parseCareerProfile({ version: 2, faction: 'roman' })).toBeNull()
-  })
 
   it('restores active mission casualties, phase, route and defense progress', () => {
     const profile = createCareerProfile('roman')
@@ -413,7 +355,7 @@ describe('Commander melee appointment and save migration', () => {
     new TownEquipment(() => profile, next => { profile = next; return true }).prepareForCombat()
     expect(profile.equipment?.melee).toBeUndefined()
     expect(profile.meleeSelectionOrigin).toBe('starter')
-    profile.rank = 'captain'; profile.totalMerit = 20000
+    Object.assign(profile, careerRankFixture(profile.faction, 'captain')); profile.totalMerit = 20000
     const restored = parseCareerProfile(profile)!
     expect(restored.meleeSelectionOrigin).toBe('starter')
     const promoted = promoteCareer(restored)!
@@ -422,43 +364,11 @@ describe('Commander melee appointment and save migration', () => {
     expect(careerItemAllocated(promoted, 'sword_t5')).toBe(1)
     expect(careerItemTotal(promoted, 'gladius_rusty')).toBe(1)
   })
-
-  it('persists legacy grants once, handles save failure rollback and equips melee', () => {
-    const profile = createCareerProfile('viking')
-    profile.rank = 'commander'; profile.totalMerit = 20000
-    addCareerItem(profile, 'paladin_mace_t4', 1)
-    addCareerItem(profile, 'axe_t5', 2)
-    profile.equipment = { melee: 'paladin_mace_t4' }
-    const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify({ ...profile, commanderMeleeGranted: 'invalid' })]] })
-    const store = new CareerProfileStore(storage)
-    const loaded = store.loadChecked().profile!
-    expect(loaded.equipment?.melee).toBe('paladin_mace_t4')
-    expect(careerItemTotal(loaded, 'axe_t5')).toBe(3)
-    expect(careerItemTotal(loaded, 'bow_t5')).toBe(0)
-    expect(JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!).commanderMeleeGranted).toBe(true)
-    expect(store.loadChecked().profile).toEqual(loaded)
-    addCareerItem(loaded, 'axe_t5', -3)
-    expect(store.save(loaded)).toBe(true)
-    expect(careerItemTotal(store.loadChecked().profile!, 'axe_t5')).toBe(0)
-
-    // Save failure rollback
-    const roman = createCareerProfile('roman')
-    roman.rank = 'commander'; roman.totalMerit = 20000
-    const romanOriginal = JSON.stringify(roman)
-    const romanStorage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, romanOriginal]], failWrites: true })
-    const romanStore = new CareerProfileStore(romanStorage)
-    expect(romanStore.loadChecked().profile).toBeNull()
-    expect(romanStorage.getItem(CAREER_STORAGE_KEY)).toBe(romanOriginal)
-    romanStorage.failWrites = false
-    const romanLoaded = romanStore.loadChecked().profile!
-    expect(romanLoaded.equipment?.melee).toBe('sword_t5')
-    expect(careerItemTotal(romanLoaded, 'sword_t5')).toBe(1)
-  })
 })
 
 function retirementProfile(): CareerProfile {
   const profile = createCareerProfile('roman')
-  profile.rank = 'commander'
+  Object.assign(profile, careerRankFixture(profile.faction, 'commander'));
   profile.totalMerit = 20000
   profile.commanderMeleeGranted = true
   profile.inventory = { version: 1, quantities: {} }
@@ -517,7 +427,7 @@ it('preserves retirement ownership while allowing ordinary resource commits', ()
     { activeMission: { id: 'new-mission', templateId: 'recruit-bandits-01', targetCampId: 0,
       phase: 'RETURNING', targetActorIds: [], friendlyActorIds: [], acceptedAt: 124 } },
     { activeOutpostMission: { id: 'new-outpost', kind: 'outpost-defense', stageId: 1, acceptedAt: 124 } },
-    { activeRace: { version: 1, deployed: false, id: 'new-race', raceId: 'race-1', phase: 'guiding',
+    { activeRace: { version: 1, deployed: false, id: 'new-race', raceId: 'race-1', scheduleVersion: 3, phase: 'guiding',
       countdownSeconds: 0, elapsedSeconds: 0, gameSeconds: 0, phaseSeconds: 0, waypoint: 0,
       player: rider, opponent: { ...rider, actorId: 'opponent' } } },
   ]
@@ -533,52 +443,6 @@ it('preserves retirement ownership while allowing ordinary resource commits', ()
 })
 
 describe('Career tutorial durable transactions', () => {
-  it('recognizes migrated legacy equipment/mount without duplicate payouts, requiring real purchases', () => {
-    // 1. Legacy horse below price without charging or inventing rewards
-    const legacy = createCareerProfile('roman')
-    delete legacy.tutorial
-    legacy.ownedHorseTiers = [2]
-    legacy.totalMerit = 1000; legacy.availableMerit = 0
-    const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify(legacy)]] })
-    const store = new CareerProfileStore(storage), loaded = store.load()!
-    expect(loaded.availableMerit).toBeLessThan(careerShopProduct('horse')!.price)
-    expect(hasCareerTutorialHorse(loaded)).toBe(true)
-    expect(careerItemTotal(loaded, 'horse')).toBe(1)
-    expect(loaded.tutorial?.purchases.horse).toBe(false)
-    loaded.tutorial!.town = { status: 'active', step: 'horse', replay: false,
-      operations: ['report', 'weapon', 'duel-intro', 'duel', 'missions', 'horse-intro'] }
-    expect(recordCareerTutorialOperation(loaded, 'town', 'horse')).toBe(true)
-    expect(claimCareerTutorialReward(loaded, 'horse')).toBe(0)
-    expect(store.save(loaded)).toBe(true)
-    const restored = store.load()!
-    expect(hasCareerTutorialHorse(restored)).toBe(true)
-    expect(restored.tutorial?.rewards.horse).toBeUndefined()
-    expect(recordCareerTutorialOperation(restored, 'town', 'horse-use')).toBe(true)
-    expect(restored.tutorial?.town.status).toBe('completed')
-    startCareerTutorial(restored, 'town', true)
-    expect(restored.tutorial?.town.replay).toBe(true)
-    expect(claimCareerTutorialReward(restored, 'horse')).toBe(0)
-
-    // 2. Real purchase after a legacy starting weapon pays receipt only once
-    const weaponLegacy = grantStarter(createCareerProfile('roman'), 'gladius_rusty')
-    delete weaponLegacy.tutorial
-    weaponLegacy.totalMerit = 1000; weaponLegacy.availableMerit = 1000
-    const weaponStore = new CareerProfileStore(new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify(weaponLegacy)]] }))
-    const weaponLoaded = weaponStore.load()!
-    startCareerTutorial(weaponLoaded, 'town')
-    expect(recordCareerTutorialOperation(weaponLoaded, 'town', 'report')).toBe(true)
-    expect(claimCareerTutorialReward(weaponLoaded, 'weapon')).toBe(0)
-    const item = careerShopProduct('gladius_rusty')!
-    const purchase = purchaseCareerContent(weaponLoaded, { kind: 'weapon', id: item.id, cost: item.price, requiredTier: item.tier })
-    expect(purchase.purchased).toBe(true)
-    expect(recordCareerTutorialOperation(purchase.profile, 'town', 'weapon')).toBe(true)
-    expect(claimCareerTutorialReward(purchase.profile, 'weapon')).toBe(20)
-    expect(weaponStore.save(purchase.profile)).toBe(true)
-    const paid = weaponStore.load()!
-    expect(paid.availableMerit).toBe(1000 - item.price + 20)
-    expect(paid.totalMerit).toBe(1020)
-    expect(claimCareerTutorialReward(paid, 'weapon')).toBe(0)
-  })
 
   it('keeps the final operation and fixed reward atomic on failed storage, retries once and never pays a replay', () => {
     const profile = createCareerProfile('roman')
@@ -609,43 +473,28 @@ describe('Career tutorial durable transactions', () => {
     expect(store.load()!.lifetimeStats.battles).toBe(0)
     expect(store.load()!.skills).toEqual(profile.skills)
   })
+})
 
-  it('durably migrates legacy career and recruit progress without double payment', () => {
-    const legacy = createCareerProfile('roman')
-    delete legacy.tutorial
-    legacy.totalMerit = 5200; legacy.availableMerit = 4100; legacy.rank = 'captain'
-    legacy.activeMission = { id: 'ongoing', templateId: 'recruit-bandits-01', kind: 'bandit', targetCampId: 0,
-      phase: 'RETURNING', targetActorIds: ['bandit'], friendlyActorIds: ['captain'], acceptedAt: 1 }
-    const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify(legacy)]] })
-    const store = new CareerProfileStore(storage), migrated = store.load()!
-    expect(migrated.tutorial).toMatchObject({ legacy: true, recruit: { status: 'deferred' }, captain: { status: 'deferred' }, commander: { status: 'locked' } })
-    expect(store.load()!.tutorial?.careerId).toBe(migrated.tutorial!.careerId)
-    expect(migrated).toMatchObject({ rank: 'captain', totalMerit: 5200, availableMerit: 4100, activeMission: { id: 'ongoing' } })
-    const replacement = createCareerProfile('viking')
-    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(replacement))
-    expect(commitCareerTutorial(store, migrated.tutorial!.careerId, p => { p.availableMerit += 100 })).toEqual({ ok: false, reason: 'stale-career' })
-    expect(store.save(migrated)).toBe(false)
-    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(JSON.stringify(replacement))
 
-    // Ride-marker Recruit progress migration
-    const base = createCareerProfile('roman'), session = startCareerTutorial(base, 'recruit')!
-    const early = ['look', 'movement', 'equipment', 'melee-hit-1', 'melee-hit-2', 'shield', 'bow-hit']
-    const load = (profile: CareerProfile) => new CareerProfileStore(new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify(profile)]] })).load()!
-    const inProgress = structuredClone(base)
-    inProgress.tutorial!.recruit.operations = [...early, 'horse-mounted', 'ride1']
-    inProgress.tutorial!.recruit.step = 'ride2'
-    expect(load(inProgress).tutorial).toMatchObject({ session: { id: session.id }, recruit: { status: 'active', step: 'mount-impact',
-      operations: [...early, 'horse-mounted', 'cat-mounted'] } })
+it('isolates the current Career writer and reader while leaving historical storage untouched', () => {
+  const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+  const historical = JSON.stringify({ version: 1, faction: 'roman', merit: 400, unlockedWeapons: ['gladius_rusty'] })
+  storage.setItem('sagaburst_career_v1', historical)
+  expect(store.loadChecked()).toEqual({ profile: null })
+  const current = createCareerProfile('viking')
+  expect(store.save(current)).toBe(true)
+  expect(store.load()).toEqual(current)
+  expect(JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!).version).toBe(2)
+  expect(storage.getItem('sagaburst_career_v1')).toBe(historical)
+})
 
-    const completed = structuredClone(base)
-    completed.totalMerit = completed.availableMerit = 100
-    Object.assign(completed.tutorial!, { rewards: { recruit: 100 } })
-    Object.assign(completed.tutorial!.recruit, { status: 'completed', step: 'complete',
-      operations: [...early, 'horse-mounted', 'ride1', 'ride2', 'ride3', 'dismounted'] })
-    delete completed.tutorial!.session
-    const completedMigrated = load(completed)
-    expect(completedMigrated.tutorial?.recruit).toMatchObject({ status: 'completed', step: 'complete' })
-    expect(claimCareerTutorialReward(completedMigrated, 'recruit')).toBe(0)
-    expect([completedMigrated.totalMerit, completedMigrated.availableMerit]).toEqual([100, 100])
-  })
+it('refuses unsupported or incomplete current-key data without replacing the original bytes', () => {
+  const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+  const current = createCareerProfile('roman')
+  for (const bytes of [JSON.stringify({ ...current, version: 1 }), JSON.stringify({ ...current, inventory: undefined }), '{broken', '', 'false']) {
+    storage.setItem(CAREER_STORAGE_KEY, bytes)
+    expect(store.loadChecked()).toMatchObject({ profile: null, error: expect.any(String) })
+    expect(store.save(current)).toBe(false)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
+  }
 })

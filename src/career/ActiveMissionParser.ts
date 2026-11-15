@@ -3,38 +3,38 @@
  * mission family's own roster rules; any failure rejects the whole mission (fail closed).
  */
 import { parseDuelArenaId } from '../arena/DuelArenaCatalog'
-import { BRIDGEHEAD_ENEMIES,BRIDGEHEAD_FRIENDLIES,BRIDGEHEAD_FRIENDLY_SQUADS,BRIDGEHEAD_SQUAD_SIZE,isBridgeheadEnemyCount } from '../battle/BridgeheadRosterConfig'
+import { BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_FRIENDLY_SQUADS, BRIDGEHEAD_SQUAD_SIZE, isBridgeheadEnemyCount } from '../battle/BridgeheadRosterConfig'
 import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
-import { UNIT_PRESETS,type UnitPresetId } from '../battle/UnitPresetCatalog'
+import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { parseCampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
 import { TOWN_WATCHTOWER_ARCHER_IDS } from '../town/TownNativeGuardIdentity'
 import { parseTownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
 import { townRoster } from '../town/TownRules'
 import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import { parseCaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
-import { arenaTrialRoster,arenaTrialTierFromTemplateId,parseArenaTrialState } from './CareerArenaTrials'
+import { arenaTrialRoster, arenaTrialTierFromTemplateId, parseArenaTrialState } from './CareerArenaTrials'
 import { parseBorrowedCharacterIdentities } from './CareerBorrowedIdentity'
 import type { OfficialCommandAuthority } from './CareerCommandAuthority'
 import { parseOfficialCommandAuthority } from './CareerCommandAuthority'
 import { careerDuelClassOptions } from './CareerDuelClasses'
 import type { CareerDuelTier } from './CareerDuelState'
-import { CAREER_DUEL_TEMPLATE_ID,DUEL_COMBAT_SECONDS,DUEL_COUNTDOWN_SECONDS,isCareerDuelPresetId,isCareerDuelTier,parseCareerDuelCommanderHome,parseCareerDuelTravelCheckpoint } from './CareerDuelState'
+import { CAREER_DUEL_TEMPLATE_ID, DUEL_COMBAT_SECONDS, DUEL_COUNTDOWN_SECONDS, isCareerDuelPresetId, isCareerDuelTier, parseCareerDuelCommanderHome, parseCareerDuelTravelCheckpoint } from './CareerDuelState'
 import { isMigratedCareerFieldTemplate } from './CareerFieldBattle'
 import type { CareerMissionTemplate } from './CareerMissionCatalog'
 import { getCareerMissionTemplate } from './CareerMissionCatalog'
-import { BRIDGEHEAD_PREPARATION_SECONDS,type ActiveCareerMission,type CareerMissionPhase,type CommanderMissionState,type VeteranOutpostBattleState } from './CareerMissionState'
+import { BRIDGEHEAD_PREPARATION_SECONDS, type ActiveCareerMission, type CareerMissionPhase, type CommanderMissionState, type VeteranOutpostBattleState } from './CareerMissionState'
 import { parseCareerOutpostCheckpoint } from './CareerOutpostMission'
 import type { PersonalSquadMission } from './CareerPersonalSquadMission'
 import { parsePersonalMission } from './CareerPersonalSquadMission'
 import { parsePrisonBreakState } from './CareerPrisonBreak'
 import type { CareerProfile } from './CareerProfile'
-import { nonNegativeInteger,nonNegativeNumber,parseMissionMountState,parseMissionPlayerStats,uniqueStrings } from './CareerSaveFields'
+import { nonNegativeInteger, nonNegativeNumber, parseMissionMountState, parseMissionPlayerStats, uniqueStrings } from './CareerSaveFields'
 import { commanderFourGateDefenseActorIds } from './CommanderFourGateDefenseRoster'
 import { parseCommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
-import { COMMANDER_FELINE_CAVALRY_KIND,COMMANDER_IRON_LEGION_KIND,FELINE_ENEMY_TOTAL,FELINE_FRIENDLY_SQUAD_SIZES,FELINE_FRIENDLY_TOTAL,felineCavalryActorIds,felineVanguardActorId } from './CommanderMissionCatalog'
+import { COMMANDER_FELINE_CAVALRY_KIND, COMMANDER_IRON_LEGION_KIND, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_FRIENDLY_TOTAL, felineCavalryActorIds, felineVanguardActorId } from './CommanderMissionCatalog'
 import { commanderGateDefenseSlots } from './CommanderTownRoster'
-import { HEAVY_FIELD_KIND,heavyActorIds,heavyNpcGroups,ironLegionEnemyActorIds,ironLegionVanguardActorId,isHeavyFieldMissionId,parseHeavyFieldState } from './HeavyCavalryMissions'
-import { careerHeavyFieldMissionRankOk,heavyMissionOfficialCommandPolicy } from './HeavyFieldMission'
+import { HEAVY_FIELD_KIND, heavyActorIds, heavyNpcGroups, ironLegionEnemyActorIds, ironLegionVanguardActorId, isHeavyFieldMissionId, parseHeavyFieldState } from './HeavyCavalryMissions'
+import { careerHeavyFieldMissionRankOk, heavyMissionOfficialCommandPolicy } from './HeavyFieldMission'
 
 const MISSION_PHASES: CareerMissionPhase[] = ['DEPLOYING', 'ASSEMBLING', 'MARCHING', 'ENGAGING', 'RETURNING', 'PREPARING', 'SPAWNING', 'ATTACKING', 'VICTORY_LOCKED', 'FAILURE_LOCKED', 'RESET', 'RESULT']
 
@@ -268,7 +268,7 @@ function rejectsFelineFamily({ raw, template, friendlyActorIds, targetActorIds, 
 
 /**
  * Heavy field missions: exact generated rosters and the rank's command policy.
- * Returns the official squad to keep (a recognizable legacy Captain grant is dropped), or `null` to reject.
+ * Returns the accepted current official squad, or `null` when authority conflicts with the mission.
  */
 function resolveHeavyOfficialSquad({ raw, template, rank, friendlyActorIds, targetActorIds, knownActorIds, acceptedOfficialSquad, personalSquad }: MissionParseContext,
   felineBattle: CaptainEagleCheckpoint | undefined): { squad: OfficialCommandAuthority | undefined } | null {
@@ -330,7 +330,7 @@ function parseDuelFields(raw: Record<string, unknown>, faction: CareerProfile['f
     ...(raw.duelMode === 'unarmed' || raw.duelTier === 5 || raw.duelTutorialCareerId ? { duelCommanderHome: parseCareerDuelCommanderHome(raw.duelCommanderHome),
       duelTravel: parseCareerDuelTravelCheckpoint(raw.duelTravel, [...new Set([duelOpponentActorId, duelCaptainActorId, ...(raw.duelTutorialCareerId ? [duelRefereeActorId] : [])])]) } : {}),
     duelPresetId: raw.duelPresetId as UnitPresetId,
-    // An unknown arena ID is dropped; the duel then resumes in the legacy Town forecourt.
+    // Formal duels have a validated arena; tutorial sparring stays in the Town forecourt.
     ...(!raw.duelTutorialCareerId && parseDuelArenaId(raw.duelArenaId) ? { duelArenaId: parseDuelArenaId(raw.duelArenaId)! } : {}),
     // An unknown or illegal class is dropped, so the duel simply uses the resident's original class.
     ...(raw.duelMode !== 'unarmed' && typeof raw.duelClassId === 'string'
@@ -387,11 +387,12 @@ function reconcileFourGateResult(mission: ActiveCareerMission, fourGateDefense: 
     || mission.result?.outcome === 'failure' && fourGateDefense.victoryReason !== undefined) return false
   if (mission.result?.outcome === 'victory') {
     if (!fourGateDefense.deploymentComplete || !fourGateDefense.attackStarted) return false
-    if (fourGateDefense.victoryReason !== 'survival') {
+    if (fourGateDefense.victoryReason === 'elimination') {
       if (mission.deadTargetActorIds?.length !== mission.targetActorIds.length
         || mission.targetActorIds.some(id => fourGateDefense.actors[id]?.status !== 'dead')) return false
-      return false
+      return true
     }
+    return fourGateDefense.victoryReason === 'survival'
   }
   return true
 }

@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it } from 'vitest'
 import { getOrdinarySoldierHp, resolveOrdinaryNpcHp, resolveOrdinaryPlayerBaseHp, resolveOrdinarySoldierTier } from '../../src/combat/OrdinarySoldierProfile'
 import { resolveCareerCharacterTier, resolveCareerPlayerMaxHp, preserveHpRatio } from '../../src/career/CareerPlayerProfile'
@@ -39,10 +40,10 @@ describe('Ordinary character health identity', () => {
     const profile = createCareerProfile('viking')
     profile.skills!.oneHanded.level = 4
     expect(resolveCareerPlayerMaxHp(profile)).toBe(94)
-    profile.rank = 'captain'
+    Object.assign(profile, careerRankFixture(profile.faction, 'captain'));
     expect(resolveCareerCharacterTier(profile)).toBe(4)
     expect(resolveCareerPlayerMaxHp(profile)).toBe(504)
-    profile.rank = 'commander'
+    Object.assign(profile, careerRankFixture(profile.faction, 'commander'));
     expect(resolveCareerCharacterTier(profile)).toBe(5)
     expect(resolveCareerPlayerMaxHp(profile)).toBe(904)
     profile.faction = 'roman'
@@ -76,7 +77,7 @@ describe('Ordinary character health identity', () => {
       { type: 'ranger', characterTier: 4, heroArchetype: 'ranger', recruitmentRole: 'spearman', melee: 'steel_lance', ranged: null, profile: 'ranger', hp: 300 },
     ] as const
     for (const { type, characterTier, heroArchetype, recruitmentRole, melee, ranged, profile, hp } of cases) {
-      const member = { id: 'personal-identity', type, characterFaction: 'roman' as const, characterTier, heroArchetype, recruitmentRole,
+      const member = { id: 'personal-identity', type, originalHirePrice: 500, characterFaction: 'roman' as const, characterTier, heroArchetype, recruitmentRole,
         equipment: { melee, ranged, shield: null, mount: null } }
       const spec = personalMemberLoadout(member, 'roman')
       expect(spec.identity).toMatchObject({ characterTier: 4, heroArchetype, combatProfileId: profile })

@@ -4,6 +4,7 @@ import type { CharacterFaction } from './CharacterVisuals'
 import { proceduralMaterial } from './ProceduralMaterials'
 import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
 import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODController'
+import { shareEquipmentGeometry } from './EquipmentGeometryRegistry'
 import { LANCE_RADIUS } from './EquipmentAttachmentContract'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { createPaladinEquipment } from './PaladinEquipment'
@@ -197,11 +198,18 @@ function attachByzantineEquipment(id: ByzantineEquipmentId, pivot: THREE.Group, 
   requestByzantineEquipment(id).then(model => { if (holder.parent) place(model) }, () => {})
 }
 
+/** Public builders share byte-identical rigid geometry across actors (EquipmentGeometryRegistry). */
 export class WeaponMeshFactory {
   /**
    * 建構近戰武器的 3D mesh group，附加到指定 pivot
    */
   static buildMelee(weaponId: string, pivot: THREE.Group): { tipLocal: THREE.Vector3 } {
+    const result = this.buildMeleeUnshared(weaponId, pivot)
+    shareEquipmentGeometry(pivot)
+    return result
+  }
+
+  private static buildMeleeUnshared(weaponId: string, pivot: THREE.Group): { tipLocal: THREE.Vector3 } {
     const tipLocal = new THREE.Vector3(0, 1.2, 0)
     pivot.userData.gripCenterLocal = [0, 0.15, 0]
     pivot.userData.meleeWeaponId = weaponId
@@ -433,6 +441,12 @@ export class WeaponMeshFactory {
    * 建構遠程武器的 3D mesh group
    */
   static buildRanged(weaponId: string, pivot: THREE.Group, consolidateMaterialGroups = false): { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number } {
+    const result = this.buildRangedUnshared(weaponId, pivot, consolidateMaterialGroups)
+    shareEquipmentGeometry(pivot)
+    return result
+  }
+
+  private static buildRangedUnshared(weaponId: string, pivot: THREE.Group, consolidateMaterialGroups = false): { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number } {
     if (weaponId === 'bow_t5') {
       pivot.add(createT5BowBody())
       return { topTip: new THREE.Vector3(0, .85, .21), botTip: new THREE.Vector3(0, -.85, .21), stringLength: .85 }
@@ -531,6 +545,11 @@ export class WeaponMeshFactory {
    * 建構地面掉落用的簡化武器模型
    */
   static buildPickupMesh(weaponId: string, isArrowPack: boolean, colorHex: number, pivot: THREE.Group): void {
+    this.buildPickupMeshUnshared(weaponId, isArrowPack, colorHex, pivot)
+    shareEquipmentGeometry(pivot)
+  }
+
+  private static buildPickupMeshUnshared(weaponId: string, isArrowPack: boolean, colorHex: number, pivot: THREE.Group): void {
     if (isArrowPack) {
       const mat = new THREE.MeshStandardMaterial({ color: colorHex, emissive: colorHex, emissiveIntensity: 0.3 })
       for (let i = 0; i < 5; i++) {
@@ -567,6 +586,12 @@ export class WeaponMeshFactory {
    * 建構 NPC 專用近戰武器（含羅馬/維京差異）
    */
   static buildRomanGladius(tier: number, pivot: THREE.Group): THREE.Vector3 {
+    const result = this.buildRomanGladiusUnshared(tier, pivot)
+    shareEquipmentGeometry(pivot)
+    return result
+  }
+
+  private static buildRomanGladiusUnshared(tier: number, pivot: THREE.Group): THREE.Vector3 {
     pivot.userData.gripCenterLocal = [0, 0.1, 0]
     let bladeColor = 0x80664e
     const bladeLength = 0.68
@@ -611,6 +636,12 @@ export class WeaponMeshFactory {
   }
 
   static buildNpcMelee(characterFaction: CharacterFaction, tier: number, isLance: boolean, pivot: THREE.Group, weaponId?: string): THREE.Vector3 {
+    const result = this.buildNpcMeleeUnshared(characterFaction, tier, isLance, pivot, weaponId)
+    shareEquipmentGeometry(pivot)
+    return result
+  }
+
+  private static buildNpcMeleeUnshared(characterFaction: CharacterFaction, tier: number, isLance: boolean, pivot: THREE.Group, weaponId?: string): THREE.Vector3 {
     if (weaponId && WEAPONS[weaponId]?.combatKind === 'sword') pivot.userData.meleeAnimationKind = WEAPONS[weaponId].animationKind
     else delete pivot.userData.meleeAnimationKind
     if (weaponId) {
@@ -633,6 +664,12 @@ export class WeaponMeshFactory {
    * 建構 NPC 專用遠程武器（羅馬標槍 vs 維京弓）
    */
   static buildNpcRanged(characterFaction: CharacterFaction, tier: number, pivot: THREE.Group): NpcRangedMeshParts {
+    const result = this.buildNpcRangedUnshared(characterFaction, tier, pivot)
+    shareEquipmentGeometry(pivot)
+    return result
+  }
+
+  private static buildNpcRangedUnshared(characterFaction: CharacterFaction, tier: number, pivot: THREE.Group): NpcRangedMeshParts {
     if (characterFaction === 'roman') {
       // Roman Pilum (Javelin)
       const woodMat = proceduralMaterial({ kind: 'wood', color: tier === 1 ? 0x71604b : tier === 3 ? 0x3c2926 : 0x68452c, roughness: tier === 1 ? 0.95 : 0.78, repeat: [2, 7] })
@@ -715,6 +752,11 @@ export class WeaponMeshFactory {
    * 建構盾牌的 3D mesh group，附加到指定 pivot
    */
   static buildShield(shieldId: string, pivot: THREE.Group): void {
+    this.buildShieldUnshared(shieldId, pivot)
+    shareEquipmentGeometry(pivot)
+  }
+
+  private static buildShieldUnshared(shieldId: string, pivot: THREE.Group): void {
     pivot.userData.gripCenterLocal = [0, 0, 0.085]
     const isRoman = shieldId.startsWith('scutum')
     const tier = parseInt(shieldId.split('_t')[1]) || 1

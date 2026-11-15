@@ -1,5 +1,5 @@
-import type { CharacterFaction } from '../world/CharacterVisuals';
-import { cloneCareerProfile,enlistmentMerit,promoteCareer,type CareerProfile,type CareerRank } from './CareerProfile';
+import type { CharacterFaction } from '../world/CharacterVisuals'
+import { cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile, type CareerRank } from './CareerProfile'
 
 export type CareerClassOfferKind = 'current' | 'appoint' | 'merit-locked' | 'purchase' | 'insufficient-merit' | 'switch' | 'unavailable'
 export interface CareerClassOffer { kind: CareerClassOfferKind; cost: number; shortfall: number }
@@ -10,7 +10,7 @@ export interface CareerClassRoad<T extends string> {
   /** Rank appointed from (free first class) and the rank whose body the class decides. */
   fromRank: CareerRank
   rank: CareerRank
-  /** Per faction; the first entry is the class a legacy save without a record is using. */
+  /** Per faction; the first entry is the standard class represented by eliteClass null. */
   classes: Readonly<Record<CharacterFaction, readonly T[]>>
   /** Enlistment merit needed for the free first appointment. Nothing is deducted. */
   firstMerit: Readonly<Record<T, number>>
@@ -77,14 +77,14 @@ export const isCareerEliteClass = (value: unknown): value is CareerEliteClass =>
 
 type ClassProfile = Pick<CareerProfile, 'faction' | 'rank' | 'eliteClass' | 'unlockedCareerClasses'>
 
-/** The T5 class in use, or null when the profile is not a Commander. A missing/foreign eliteClass is the faction default. */
+/** The T5 class in use; null eliteClass explicitly selects the faction's standard Commander. */
 export function currentCareerClass(profile: Pick<CareerProfile, 'faction' | 'rank' | 'eliteClass'>): CareerClassId | null {
   if (profile.rank !== 'commander') return null
   const classes = CAREER_CLASSES_BY_FACTION[profile.faction]
-  return classes.includes(profile.eliteClass as CareerClassId) ? profile.eliteClass as CareerClassId : classes[0]
+  return profile.eliteClass === null ? classes[0] : classes.includes(profile.eliteClass as CareerClassId) ? profile.eliteClass as CareerClassId : null
 }
 
-/** Unlocked is distinct from current. A save without the record unlocks only the class in use. */
+/** Unlocked is distinct from current; appointed Commanders carry an explicit unlock record. */
 export function unlockedCareerClasses(profile: ClassProfile): readonly CareerClassId[] {
   const current = currentCareerClass(profile)
   if (!current) return []

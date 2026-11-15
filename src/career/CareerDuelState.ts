@@ -1,14 +1,11 @@
-import { parseDuelArenaId,type DuelArenaId } from '../arena/DuelArenaCatalog'
+import { parseDuelArenaId, type DuelArenaId } from '../arena/DuelArenaCatalog'
 import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
-import {
-UNIT_PRESETS,
-type UnitPresetId,type UnitTier,
-} from '../battle/UnitPresetCatalog'
+import { UNIT_PRESETS, type UnitPresetId, type UnitTier } from '../battle/UnitPresetCatalog'
 import type { CombatEvent } from '../combat/CombatAttribution'
 import { getOrdinarySoldierHp } from '../combat/OrdinarySoldierProfile'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { careerDuelClassOptions } from './CareerDuelClasses'
-import { createCareerMissionId,type ActiveCareerMission,type CareerMissionOutcome } from './CareerMissionState'
+import { createCareerMissionId, type ActiveCareerMission, type CareerMissionOutcome } from './CareerMissionState'
 import type { CareerProfile } from './CareerProfile'
 
 export const CAREER_DUEL_TEMPLATE_ID = 'career-duel'
@@ -112,7 +109,7 @@ export function createCareerDuelMission(
   classId?: HeroCombatProfileId,
   arenaId: DuelArenaId = profile.faction === 'roman' ? 'roman-colosseum' : 'viking-valhalla',
 ): ActiveCareerMission | null {
-  // A requested arena must be a saved, known ID; omitting it keeps the legacy Town forecourt.
+  // Formal entries resolve a known arena ID; tutorial sparring uses the Town forecourt.
   if (arenaId !== undefined && !parseDuelArenaId(arenaId)) return null
   // A class is only meaningful for an armed T4/T5 duel and must be one the preset legally offers.
   const classes = mode === 'armed' ? careerDuelClassOptions(profile.faction, presetId, tier) : []

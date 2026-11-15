@@ -31,6 +31,7 @@ import { FallingRider } from '../movement/FallingRider'
 import { EagleAttack } from '../combat/EagleAttack'
 import type { CombatContact, PhysicalCombatTarget } from '../combat/ShieldBlocking'
 import type { CombatDamageContext } from '../combat/CombatAttribution'
+import { skipHiddenCorpseMatrices } from './DeathFade'
 
 let mountAimGeometry: THREE.BoxGeometry | undefined
 let mountAimMaterial: THREE.MeshBasicMaterial | undefined
@@ -201,6 +202,7 @@ export class Mount {
     this.appearanceVariant = type === MountType.HORSE ? horseVariantFromSave(appearanceVariant) : 0
     this.group = new THREE.Group()
     this.group.name = `mount_${type}`
+    skipHiddenCorpseMatrices(this.group, () => this.deathPresentationComplete)
     const stats = mountStats(type)
     this.baseSpeed = stats.kind === 'flying' ? stats.cruiseSpeed : stats.baseSpeed
     this.maxHp = this.currentHp = stats.maxHp

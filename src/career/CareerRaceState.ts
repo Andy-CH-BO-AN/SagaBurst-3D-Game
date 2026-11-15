@@ -1,12 +1,12 @@
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { canAllocateCareerItemToPlayer } from './CareerInventory'
-import type { CareerMountId,CareerProfile } from './CareerProfile'
-import { canonicalCareerMountId,cloneCareerProfile } from './CareerProfile'
-import { illegalTownCrossing,insideRaceTown,legalRaceStart,lineCrossing,RACE_LINES,type RacePosition } from './CareerRaceRoute'
-import { releaseCareerStoryEvent,settleCareerStoryEvent } from './CareerStoryEvents'
+import type { CareerMountId, CareerProfile } from './CareerProfile'
+import { canonicalCareerMountId, cloneCareerProfile } from './CareerProfile'
+import { illegalTownCrossing, insideRaceTown, legalRaceStart, lineCrossing, RACE_LINES, type RacePosition } from './CareerRaceRoute'
+import { releaseCareerStoryEvent, settleCareerStoryEvent } from './CareerStoryEvents'
 
 export type RaceMountId = 'horse' | 'armored-horse' | 'corgi' | 'black-cat' | 'white-cat' | 'orange-cat' | 'serval' | 'caracal' | 'snow-leopard'
-export type RaceId = 'race-1' | 'race-2' | 'race-3' | 'race-4' | 'race-5' | 'race-6' | 'race-7' | 'race-8'
+export type RaceId = 'race-1' | 'race-2' | 'race-3' | 'race-4' | 'race-5' | 'race-6'
 export type RaceScheduleVersion = 3
 export const RACE_SCHEDULE_VERSION = 3 as const
 export type RaceOutcome = 'win' | 'loss' | 'draw'
@@ -90,8 +90,8 @@ export interface CareerRaceSession {
   deployed: boolean
   id: string
   raceId: RaceId
-  /** Absent for original six-race sessions; captured on acceptance, not on reload. */
-  scheduleVersion?: RaceScheduleVersion
+  /** Captured by the current acceptance writer. */
+  scheduleVersion: RaceScheduleVersion
   /** Set only when the invitation was accepted at the Commander; ordinary entries never carry it. */
   story?: RaceStoryId
   phase: 'guiding' | 'countdown' | 'racing' | 'finishing' | 'result' | 'returning'
@@ -103,7 +103,7 @@ export interface CareerRaceSession {
   player: RaceRider
   opponent: RaceRider
   referee?: RaceReferee
-  /** Present when borrowing the native Commander; legacy temporary riders keep their identity. */
+  /** Captured native Commander resources, restored when the race ends. */
   opponentHome?: RaceReferee
   opponentAmmo?: number
   waypoint: number
@@ -119,14 +119,13 @@ export function raceOpponentCanSprint(session: Pick<CareerRaceSession, 'raceId' 
 export interface CareerRaceRecord {
   sessionId: string
   raceId: RaceId
-  scheduleVersion?: RaceScheduleVersion
+  scheduleVersion: RaceScheduleVersion
   story?: RaceStoryId
   result: RaceOutcome
   legalFinish: boolean
   playerSeconds?: number
   opponentSeconds?: number
-  /** Absent on records settled before racing rewards existed; never retroactively granted. */
-  merit?: number
+  merit: number
 }
 /** Spawn finalization must fail unless its initial race checkpoint is durable. */
 export function finalizeRaceDeployment(session: CareerRaceSession, save: () => boolean): void {
@@ -179,7 +178,7 @@ export function raceRecordProfile(profile: CareerProfile, session: CareerRaceSes
   }
   const record: CareerRaceRecord = { sessionId: session.id, raceId: session.raceId, result: session.result, merit,
     ...(story ? { story } : {}),
-    ...(session.scheduleVersion ? { scheduleVersion: session.scheduleVersion } : {}),
+    scheduleVersion: session.scheduleVersion,
     legalFinish: session.player.finishSeconds !== undefined,
     ...(session.player.finishSeconds !== undefined ? { playerSeconds: session.player.finishSeconds } : {}),
     ...(session.opponent.finishSeconds !== undefined ? { opponentSeconds: session.opponent.finishSeconds } : {}) }
@@ -312,7 +311,7 @@ export function parseRaceRecords(value: unknown): CareerRaceRecord[] | null {
       || typeof r.legalFinish !== 'boolean' || (r.playerSeconds !== undefined && !nonnegative(r.playerSeconds))
       || (r.opponentSeconds !== undefined && !nonnegative(r.opponentSeconds)) || r.legalFinish !== (r.playerSeconds !== undefined)
       || (r.story !== undefined && (r.story !== RACE_STORY_ID || r.raceId !== RACE_STORY_RACE_ID))
-      || (r.merit !== undefined && (!nonnegative(r.merit) || !Number.isInteger(r.merit)))) return null
+      || !nonnegative(r.merit) || !Number.isInteger(r.merit)) return null
     if (!ids.has(r.sessionId)) { ids.add(r.sessionId); records.push(structuredClone(r) as unknown as CareerRaceRecord) }
   }
   return records

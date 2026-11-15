@@ -1,8 +1,8 @@
-import { PLAYER_MOUNT_IDS,type PlayerMountId } from '../battle/BattleConfig'
+import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { parseEagleFlightSnapshot } from '../movement/EagleFlightController'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { normalizeSkillState,type SkillStateInput } from '../rpg/SkillManager'
+import { normalizeSkillState, type SkillStateInput } from '../rpg/SkillManager'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { parseEnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
 import { parseTownEagleGarrisons } from '../town/TownEagleGarrisonState'
@@ -10,41 +10,32 @@ import { TOWN_WATCHTOWER_ARCHER_IDS } from '../town/TownNativeGuardIdentity'
 import { outskirtsSquadSpecs } from '../town/TownOutskirtsRules'
 import { parseTownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
 import { parseTownPatrolCheckpoint } from '../town/TownPatrolCheckpoint'
-import { isHeroAssetId,type HeroAssetId } from '../world/HeroAssetCatalog'
+import { isHeroAssetId, type HeroAssetId } from '../world/HeroAssetCatalog'
 import { horseVariantFromSave } from '../world/HorseAssetRegistry'
 import { parseActiveMission } from './ActiveMissionParser'
 import { parseCareerAerialState } from './CareerAerialState'
-import { parseOfficialCommandAuthority,parseTownCommandSquad } from './CareerCommandAuthority'
+import { parseOfficialCommandAuthority, parseTownCommandSquad } from './CareerCommandAuthority'
 import type { CareerDuelTier } from './CareerDuelState'
-import { isCareerDuelPresetId,isCareerDuelTier,parseCareerDuelCommanderHome } from './CareerDuelState'
-import { CAREER_CLASSES_BY_FACTION,isCareerEliteClass,isRoadClass,T5_CLASS_ROAD,unlockedCareerClasses,type CareerClassRoad } from './CareerElitePromotion'
-import { normalizeCareerInventory,type CareerInventory } from './CareerInventory'
+import { isCareerDuelPresetId, isCareerDuelTier, parseCareerDuelCommanderHome } from './CareerDuelState'
+import { CAREER_CLASSES_BY_FACTION, isCareerEliteClass, isRoadClass, T5_CLASS_ROAD, unlockedCareerClasses, type CareerClassRoad } from './CareerElitePromotion'
+import { normalizeCareerInventory, type CareerInventory } from './CareerInventory'
 import { type ActiveCareerMission } from './CareerMissionState'
-import { isCareerOutpostStageId,parseCareerOutpostCheckpoint,type CareerOutpostMission,type CareerOutpostRecord } from './CareerOutpostMission'
+import { isCareerOutpostStageId, parseCareerOutpostCheckpoint, type CareerOutpostMission, type CareerOutpostRecord } from './CareerOutpostMission'
 import { createCareerOutpostCommandSquads } from './CareerOutpostRoster'
 import { parsePersonalSquad } from './CareerPersonalSquad'
-import { emptyPersonalContribution,parsePersonalMission } from './CareerPersonalSquadMission'
-import {
-canonicalCareerMountId,
-CAREER_RANKS,
-cloneCareerProfile,
-resolveCareerRank,
-type CareerLifetimeStats,
-type CareerMountId,
-type CareerProfile
-} from './CareerProfile'
-import { isRaceRider,MOUNTED_RACES,parseRaceRecords,parseRaceSession,RACE_SCHEDULE_VERSION,type RaceId } from './CareerRaceState'
-import { hasCompleteRetirementMobilizationCheckpoint,parseRetirementActorCheckpoints } from './CareerRetirementMobilization'
-import { parseCareerRetirementState,type CareerRetirementRuntime } from './CareerRetirementState'
-import { CAREER_MOUNT_IDS,nonNegativeInteger,nonNegativeNumber,parseMissionMountState,parseMissionPlayerStats,parseMountArmor,uniqueStrings } from './CareerSaveFields'
+import { emptyPersonalContribution, parsePersonalMission } from './CareerPersonalSquadMission'
+import { canonicalCareerMountId, CAREER_RANKS, cloneCareerProfile, resolveCareerRank, type CareerLifetimeStats, type CareerMountId, type CareerProfile } from './CareerProfile'
+import { isRaceRider, MOUNTED_RACES, parseRaceRecords, parseRaceSession, RACE_SCHEDULE_VERSION, type RaceId } from './CareerRaceState'
+import { hasCompleteRetirementMobilizationCheckpoint, parseRetirementActorCheckpoints } from './CareerRetirementMobilization'
+import { parseCareerRetirementState, type CareerRetirementRuntime } from './CareerRetirementState'
+import { CAREER_MOUNT_IDS, nonNegativeInteger, nonNegativeNumber, parseMissionMountState, parseMissionPlayerStats, parseMountArmor, uniqueStrings } from './CareerSaveFields'
 import { parseCareerStoryState } from './CareerStoryEvents'
-import { isT4ClassId,T4_CLASS_ROAD,T4_CLASSES_BY_FACTION,unlockedT4Classes } from './CareerT4Promotion'
+import { isT4ClassId, T4_CLASS_ROAD, unlockedT4Classes } from './CareerT4Promotion'
 import { parseTownEquipment } from './CareerTownEquipmentState'
 import { parseCareerTutorialState } from './CareerTutorialState'
 import { parseCivilianCommandSquad } from './CivilianCommandAuthority'
 import { COMMANDER_FOUR_GATE_DEFENSE_ID } from './CommanderFourGateDefenseRoster'
-import { HEAVY_FIELD_KIND,isHeavyFieldMissionId } from './HeavyCavalryMissions'
-import { parseTownAirCommandSquad } from './TownAirCommandAuthority'
+import { HEAVY_FIELD_KIND, isHeavyFieldMissionId } from './HeavyCavalryMissions'
 
 export const CAREER_STORAGE_KEY = 'sagaburst_career_v2'
 
@@ -170,9 +161,8 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (careerRetirement === null) return null
   const retirementRuntime = raw.retirementRuntime === undefined ? undefined : parseRetirementRuntime(raw.retirementRuntime)
   if (raw.retirementRuntime !== undefined && (!careerRetirement || !retirementRuntime)) return null
-  // A prepared live finale must never migrate by healing fresh player resources.
-  // Preserve receiptless legacy records; runtime refuses to start their ambush.
-  if (careerRetirement?.phase === 'final-stand' && careerRetirement.mobilization && !retirementRuntime) return null
+  // A prepared final stand requires the current player-resource and combat-counter checkpoint.
+  if (careerRetirement?.phase === 'final-stand' && careerRetirement.mobilization && (!retirementRuntime || !retirementRuntime.stats)) return null
   if (raw.inventory !== undefined && (!raw.inventory || typeof raw.inventory !== 'object'
     || (raw.inventory as CareerInventory).version !== 1 || !(raw.inventory as CareerInventory).quantities
     || typeof (raw.inventory as CareerInventory).quantities !== 'object' || Array.isArray((raw.inventory as CareerInventory).quantities))) return null
@@ -214,7 +204,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const firstAppointmentValid = <T extends string>(road: CareerClassRoad<T>, used: T, unlocked: T[] | undefined) =>
     unlocked !== undefined && unlocked.length > 1 || merit >= road.firstMerit[used]
   const rawElite = raw.eliteClass as unknown
-  if (rawElite !== undefined && rawElite !== null && !(rank === 'commander' && isCareerEliteClass(rawElite) && isRoadClass(T5_CLASS_ROAD, faction, rawElite))) return null
+  if (rawElite !== null && !(rank === 'commander' && isCareerEliteClass(rawElite) && isRoadClass(T5_CLASS_ROAD, faction, rawElite))) return null
   const unlockedCareerClasses = unlockRecord(T5_CLASS_ROAD, raw.unlockedCareerClasses)
   if (unlockedCareerClasses === null || unlockedCareerClasses && rank !== 'commander') return null
   const eliteClass = isCareerEliteClass(rawElite) ? rawElite : null
@@ -226,7 +216,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const t4Unlocked = unlockRecord(T4_CLASS_ROAD, raw.unlockedT4Classes)
   if (t4Unlocked === null || t4Unlocked && !officer) return null
   const t4Specialization = isT4ClassId(rawT4) ? rawT4 : undefined
-  const usedT4 = t4Specialization ?? (rank === 'captain' ? T4_CLASSES_BY_FACTION[faction][0] : undefined)
+  const usedT4 = t4Specialization
   if (usedT4 && (t4Unlocked && !t4Unlocked.includes(usedT4) || !firstAppointmentValid(T4_CLASS_ROAD, usedT4, t4Unlocked))) return null
   const tutorial = parseCareerTutorialState(raw.tutorial)
   if (!tutorial || !raw.inventory || !raw.careerStory || !raw.skills || !raw.careerMissionCompletionsByTier
@@ -260,7 +250,6 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const personalSquadRuntime = parsePersonalMission(raw.personalSquadRuntime)
   const townCommandSquad = parseTownCommandSquad(raw.townCommandSquad)
   const civilianCommandSquad = parseCivilianCommandSquad(raw.civilianCommandSquad)
-  const townAirCommandSquad = parseTownAirCommandSquad(raw.townAirCommandSquad)
   const selectedMountId = CAREER_MOUNT_IDS.includes(raw.selectedMountId as CareerMountId)
     ? canonicalCareerMountId(raw.selectedMountId as CareerMountId)
     : undefined
@@ -288,7 +277,6 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(personalSquad ? { personalSquad } : {}),
     ...(personalSquadRuntime ? { personalSquadRuntime } : {}),
     ...(townCommandSquad && townCommandSquad.townFaction === raw.faction ? { townCommandSquad } : {}),
-    ...(townAirCommandSquad && townAirCommandSquad.townFaction === raw.faction ? { townAirCommandSquad } : {}),
     ...(civilianCommandSquad && civilianCommandSquad.townFaction === raw.faction ? { civilianCommandSquad } : {}),
     skills: normalizeSkillState(raw.skills && typeof raw.skills === 'object' ? raw.skills as SkillStateInput : undefined),
     enlistmentMeritBase,
@@ -372,7 +360,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     claimedBattleIds: uniqueStrings(raw.claimedBattleIds),
   }
   if (raw.retirementTowerGuards !== undefined && !profile.retirementTowerGuards) return null
-  // Validate the raw full-resource receipt before permissive legacy normalization.
+  // Authenticate complete native resources before inventory normalization.
   if (careerRetirement?.mobilization && !hasCompleteRetirementMobilizationCheckpoint({ ...raw, careerRetirement } as unknown as CareerProfile)) return null
   if (!hasCompleteRetirementMobilizationCheckpoint(profile)) return null
   try { normalizeCareerInventory(profile) } catch { return null }
@@ -406,16 +394,15 @@ export class CareerProfileStore {
   save(profile: CareerProfile): boolean {
     try {
       const existingBytes = this.storage.getItem(CAREER_STORAGE_KEY)
-      const existing = existingBytes ? JSON.parse(existingBytes) as Partial<CareerProfile> : null
+      const stored = existingBytes === null ? null : parseCareerProfile(JSON.parse(existingBytes))
+      if (existingBytes !== null && !stored) return false
       // An old scene may never replace a later enlistment. Creation may replace only a completed ending.
-      if (existing?.tutorial?.careerId && profile.tutorial?.careerId !== existing.tutorial.careerId
-        && !(existing.careerRetirement?.phase === 'completed'
+      if (stored?.tutorial?.careerId && profile.tutorial?.careerId !== stored.tutorial.careerId
+        && !(stored.careerRetirement?.phase === 'completed'
           && profile.rank === 'recruit' && profile.totalMerit === 0 && !profile.careerRetirement)) return false
-      if (existing && !parseCareerProfile(existing)) return false
       const parsed = parseCareerProfile(profile)
       if (!parsed) return false
       // Unlocks are permanent within an enlistment: a stale scene may not drop one (switching the class in use is allowed).
-      const stored = existing ? parseCareerProfile(existing) : null
       if (stored && parsed.tutorial?.careerId === stored.tutorial?.careerId && parsed.enlistmentMeritBase === stored.enlistmentMeritBase
         && (unlockedCareerClasses(stored).some(id => !unlockedCareerClasses(parsed).includes(id))
           || unlockedT4Classes(stored).some(id => !unlockedT4Classes(parsed).includes(id)))) return false
@@ -424,7 +411,6 @@ export class CareerProfileStore {
         || profile.activeMission?.battle?.outpostSiege && !parsed.activeMission?.battle?.outpostSiege
         || profile.activeOutpostMission?.battle?.outpostSiege && !parsed.activeOutpostMission?.battle?.outpostSiege) return false
       if (profile.activeMission?.prisonBreak && !parsed.activeMission?.prisonBreak) return false
-      if (profile.townAirCommandSquad && !parsed.townAirCommandSquad) return false
       if (profile.townCommandSquad?.commandRank === 'commander'
         && parsed.townCommandSquad?.commandRank !== 'commander') return false
       // A rejected expanded grant must not look like a successful ownership commit.

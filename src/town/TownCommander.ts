@@ -6,12 +6,10 @@ import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import { SERVICE_ANCHOR_CLEARANCE } from './architecture/ArchitectureSpecs'
 import type { TownServiceStation } from './TownCommanderIdentity'
 import { TOWN_COMMANDER_ID } from './TownCommanderIdentity'
-import { townSitePoint,type TownActorSpec } from './TownRules'
+import { townSitePoint, type TownActorSpec } from './TownRules'
 export { TOWN_COMMANDER_ID,townCommanderSpec } from './TownCommanderIdentity'
 
-/** Shared by roster construction, asset preload and Defense's actual actor consumer.
- * A current rank alone never upgrades an accepted/legacy defense population.
- */
+/** Shared by roster construction, asset preload and the scene's actual actor consumer. */
 export function shouldSpawnTownCommander(profile: Pick<CareerProfile, 'rank' | 'faction' | 'activeMission'>): boolean {
   const mission = profile.activeMission
   if (mission?.kind === 'commander-sky-raid' || mission?.kind === 'commander-decapitation') return true

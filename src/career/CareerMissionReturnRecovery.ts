@@ -79,7 +79,6 @@ export function stageMissionReturnRebuild(current: CareerProfile,
     next.townCommandSquad.refittingActorIds = []
     delete next.townCommandSquad.nativeReturnStates
   }
-  if (next.townAirCommandSquad?.townFaction === next.faction) delete next.townAirCommandSquad
   // Reconstruct native riders at their pads; their existing patrol owner starts the next cycle.
   if (next.townEagleGarrisons) delete next.townEagleGarrisons[next.faction]
   // Town return rest retires both transient replays. The race snapshot can

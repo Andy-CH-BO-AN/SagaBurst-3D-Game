@@ -1,6 +1,6 @@
-import { afterEach,beforeEach,describe,expect,it,vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
-import { DEFAULT_SAVE,PlayerSaveData,SaveManager } from '../../src/save/SaveManager'
+import { DEFAULT_SAVE, PlayerSaveData, SaveManager } from '../../src/save/SaveManager'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 describe('SaveManager current-format persistence', () => {
@@ -38,6 +38,7 @@ describe('SaveManager current-format persistence', () => {
         flight: { phase: 'cruise', yaw: 0, pitch: 0, bank: 0, speed: 13 } } })
     mockStorage.setItem('sagaburst_game_v2', bytes)
     expect(saveManager.load()).toBeNull()
+    expect(saveManager.save(DEFAULT_SAVE)).toBe(false)
     expect(mockStorage.getItem('sagaburst_game_v2')).toBe(bytes)
   })
 
@@ -79,6 +80,7 @@ describe('SaveManager current-format persistence', () => {
     expect(mockStorage.getItem('wdyh_save_v1')).toBe(bytes)
     mockStorage.setItem('sagaburst_game_v2', bytes)
     expect(saveManager.load()).toBeNull()
+    expect(saveManager.save(DEFAULT_SAVE)).toBe(false)
     expect(mockStorage.getItem('sagaburst_game_v2')).toBe(bytes)
   })
 })

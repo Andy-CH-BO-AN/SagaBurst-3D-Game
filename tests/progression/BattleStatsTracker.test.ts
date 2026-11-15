@@ -1,13 +1,11 @@
-import { describe,expect,it,onTestFinished } from 'vitest'
-import { acceptCareerOutpost,careerOutpostCommandMeritPolicy,claimCareerOutpost } from '../../src/career/CareerOutpostMission'
+import { personalSquadFixture } from '../helpers/personalSquadFixture'
+import { careerRankFixture } from '../helpers/careerRankFixture'
+import { describe, expect, it, onTestFinished } from 'vitest'
+import { acceptCareerOutpost, careerOutpostCommandMeritPolicy, claimCareerOutpost } from '../../src/career/CareerOutpostMission'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
-import {
-CombatEventStream,
-type CombatActorRef,
-type CombatTargetRef,
-} from '../../src/combat/CombatAttribution'
+import { CombatEventStream, type CombatActorRef, type CombatTargetRef } from '../../src/combat/CombatAttribution'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import type { Player } from '../../src/player/Player'
 import type { NPC } from '../../src/world/NPC'
@@ -185,8 +183,9 @@ describe('BattleStatsTracker', () => {
 
 describe('Regular Outpost official merit settlement', () => {
   it('merges two accepted official squads and HR once, preserves source boundaries, and resumes their saved contributions', () => {
-    const profile = acceptCareerOutpost({ ...createCareerProfile('viking'), rank: 'commander', totalMerit: 20000,
-      personalSquad: { members: [{ id: 'personal:outpost', type: 'soldier' }] } }, 1, 'outpost-merit')!
+    const current = { ...createCareerProfile('viking'), ...careerRankFixture('viking', 'commander'), rank: 'commander' as const, totalMerit: 20000 }
+    current.personalSquad = personalSquadFixture(current, [{ id: 'personal:outpost', type: 'soldier' }])
+    const profile = acceptCareerOutpost(current, 1, 'outpost-merit')!
     const mission = profile.activeOutpostMission!, official = mission.officialSquad!
     const first: CombatActorRef = { ...squadSource(1), actorId: official.squads![0].actorIds[0], ownership: 'mission-official' }
     const second: CombatActorRef = { ...squadSource(2), actorId: official.squads![1].actorIds[0], ownership: 'mission-official' }

@@ -10,19 +10,18 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CareerAerialState } from './CareerAerialState'
 import type { TownCommandSquadState } from './CareerCommandAuthority'
-import type { CareerDuelCommanderHome,CareerDuelTier } from './CareerDuelState'
+import type { CareerDuelCommanderHome, CareerDuelTier } from './CareerDuelState'
 import type { CareerInventory } from './CareerInventory'
 import type { ActiveCareerMission } from './CareerMissionState'
 import type { CareerMissionTier } from './CareerMissionTier'
-import type { CareerOutpostMission,CareerOutpostRecord,CareerOutpostStageId } from './CareerOutpostMission'
+import type { CareerOutpostMission, CareerOutpostRecord, CareerOutpostStageId } from './CareerOutpostMission'
 import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
-import type { CareerRetirementRuntime,CareerRetirementState } from './CareerRetirementState'
+import type { CareerRetirementRuntime, CareerRetirementState } from './CareerRetirementState'
 import type { CareerStoryState } from './CareerStoryEvents'
 import type { CareerTownEquipment } from './CareerTownEquipmentState'
 import type { CareerTutorialState } from './CareerTutorialState'
 import type { CivilianCommandSquadState } from './CivilianCommandAuthority'
-import type { CareerBattleOutcome,CareerBattleRole,MeritBreakdown } from './MeritCalculator'
-import type { TownAirCommandSquadState } from './TownAirCommandAuthority'
+import type { CareerBattleOutcome, CareerBattleRole, MeritBreakdown } from './MeritCalculator'
 
 export type { CareerMissionTier } from './CareerMissionTier'
 
@@ -56,15 +55,14 @@ export interface CareerProfile {
   /** Spendable merit. Purchases deduct this without affecting rank. */
   availableMerit: number
   rank: CareerRank
-  /** T5 elite identity, independent of rank and spendable currency. Missing legacy value means ordinary. */
   /** Non-default T5 class in use (Roman Byzantine Cataphract / Viking Ironblood Warlord); null = the faction's default Commander. */
   eliteClass?: 'byzantine-cataphract' | 'ironblood-warlord' | null
-  /** Permanently unlocked Commander classes of this faction for this enlistment; eliteClass is only the one in use. Missing legacy value = the class in use. */
+  /** Permanently unlocked Commander classes of this faction for this enlistment; eliteClass is only the one in use. Required for an appointed Commander. */
   unlockedCareerClasses?: ('roman-commander' | 'byzantine-cataphract' | 'viking-commander' | 'ironblood-warlord')[]
-  /** T4 class in use while Captain (Roman Praetorian Captain/Centurion, Viking Varangian/Dragon Oathguard). Missing legacy value = the faction default
-   * (legacy `paladin` / `varangian` IDs). Kept as data after T5; T5 identity ignores it. */
+  /** T4 class in use while Captain. Stable `paladin` / `varangian` IDs are current class IDs.
+   * Kept as data after T5; T5 identity ignores it. */
   t4Specialization?: 'paladin' | 'centurion' | 'varangian' | 'dragon-oathguard'
-  /** Permanently unlocked T4 classes of this faction for this enlistment. Missing legacy Captain value = the default only. */
+  /** Permanently unlocked T4 classes of this faction for this enlistment. Required after Captain appointment. */
   unlockedT4Classes?: ('paladin' | 'centurion' | 'varangian' | 'dragon-oathguard')[]
   /** Optional ending lifecycle; retirement never changes the appointed rank. */
   careerRetirement?: CareerRetirementState
@@ -78,14 +76,14 @@ export interface CareerProfile {
   equipment?: { melee?: string; ranged?: string; shield?: string | null }
   /** Persistent receipt, independent of current inventory: selling the reward never re-grants it. */
   commanderMeleeGranted?: boolean
-  /** Undefined legacy selections are preserved; only a known untouched starter is replaceable. */
+  /** Only a known untouched starter is automatically replaceable. */
   meleeSelectionOrigin?: 'starter' | 'custom'
   starterWeaponId?: string
   townDialogueSeen?: string[]
   personalSquad?: { members: CareerPersonalSquadMember[] }
   /** Wounded deployed members after a slow mission return, until actual HR arrival. */
   personalSquadRuntime?: import('./CareerPersonalSquadMission').PersonalSquadMission
-  /** Cosmetic only; missing legacy values use the original grey coat. */
+  /** Cosmetic only; absent means the default grey coat. */
   horseAppearanceVariant?: import('../world/HorseAssetRegistry').HorseAppearanceVariant
   mountArmor?: Partial<Record<CareerMountId, number>>
   selectedMountId?: CareerMountId
@@ -95,7 +93,6 @@ export interface CareerProfile {
   townPatrols?: Partial<Record<CharacterFaction, import('../town/TownPatrolCheckpoint').TownPatrolCheckpoint>>
   townCommandSquad?: TownCommandSquadState
   civilianCommandSquad?: CivilianCommandSquadState
-  townAirCommandSquad?: TownAirCommandSquadState
   racePlayerState?: import('./CareerRaceState').RaceRider
   activeRace?: import('./CareerRaceState').CareerRaceSession
   raceRecords?: import('./CareerRaceState').CareerRaceRecord[]

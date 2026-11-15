@@ -1,16 +1,17 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it } from 'vitest'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
-import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_GATE_DEFENSE_ID, commanderGateDefenseSlots, commanderGateDefenseSquads, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../../src/career/CaptainMissionCatalog'
+import { CAPTAIN_EAGLE_BATTLE_ID, commanderGateDefenseSlots, commanderGateDefenseSquads, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../../src/career/CaptainMissionCatalog'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { townAssaultObjectiveRoster, townRoster } from '../../src/town/TownRules'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
-const captain = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'captain', totalMerit: 5000, availableMerit: 5000, ownedMounts: ['horse', 'xongkoro'] })
+const captain = (): CareerProfile => ({ ...createCareerProfile('roman'), ...careerRankFixture('roman', 'captain'), rank: 'captain', totalMerit: 5000, availableMerit: 5000, inventory: { version: 1 as const, quantities: Object.fromEntries(['horse', 'xongkoro'].map(id => [id, 1])) }, ownedMounts: ['horse', 'xongkoro'] })
 
 describe('Captain mission eligibility and official roster policy without actor materialization', () => {
   it('requires actual Eagle ownership, independent of the selected mount', () => {
-    const unowned = { ...captain(), ownedMounts: ['horse' as const], selectedMountId: 'xongkoro' as const }
+    const unowned = { ...captain(), inventory: { version: 1 as const, quantities: Object.fromEntries(['horse' as const].map(id => [id, 1])) }, ownedMounts: ['horse' as const], selectedMountId: 'xongkoro' as const }
     expect(getCaptainMissionAvailability(unowned, CAPTAIN_EAGLE_BATTLE_ID).unlocked).toBe(false)
     expect(acceptCaptainEagle(unowned)).toBeNull()
     const owned = { ...captain(), selectedMountId: 'horse' as const }
@@ -19,14 +20,14 @@ describe('Captain mission eligibility and official roster policy without actor m
   })
 
   it('已淘汰的隊長守城任務不列入現役目錄且指揮官也不可接取', () => {
-    expect(getCaptainMissionDefinition(CAPTAIN_GATE_DEFENSE_ID)).toBeNull()
-    const commander: CareerProfile = { ...captain(), rank: 'commander', totalMerit: 20000 }
-    expect(getCaptainMissionAvailability(commander, CAPTAIN_GATE_DEFENSE_ID).unlocked).toBe(false)
+    expect(getCaptainMissionDefinition('captain-gate-defense')).toBeNull()
+    const commander: CareerProfile = { ...captain(), ...careerRankFixture((captain()).faction, 'commander'), rank: 'commander', totalMerit: 20000 }
+    expect(getCaptainMissionAvailability(commander, 'captain-gate-defense').unlocked).toBe(false)
   })
 })
 
 describe('Commander accepted production rosters without actor materialization', () => {
-  const commander = (): CareerProfile => ({ ...captain(), rank: 'commander', totalMerit: 20000 })
+  const commander = (): CareerProfile => ({ ...captain(), ...careerRankFixture((captain()).faction, 'commander'), rank: 'commander', totalMerit: 20000 })
 
   it('excludes unavailable or unaccepted military without moving the remaining defenders between squads', () => {
     const residents = townRoster(), accepted = townAssaultObjectiveRoster(residents).map(actor => actor.id)

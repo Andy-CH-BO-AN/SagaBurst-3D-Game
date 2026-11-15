@@ -33,21 +33,21 @@
 
 ### Cross-owner lint warning
 
-- `npm run lint:test` 會對少量明確列出的 production 入口加上非阻擋 Warning；目前只有同一 Vitest leaf 直接呼叫 `CareerBridgeBattle.careerFieldTacticalOrder` 與 `CareerFieldBattle.resolveFieldDamagedTargetId` 這個試行組合會命中。前者決定小隊戰術命令，後者將傷害事件對應到目標 actor；`tests/missions/CareerFieldBattle.test.ts` 的「supports ambush alerts, squad engagement, and non-respawning legacy checkpoint migration」同時直接驗證兩者，且各自涵蓋不同決策，值得 reviewer 確認是否為同一正式路徑。Warning 只指出入口，請 reviewer 判斷，不自動判定案例放錯檔，也不要求拆 case。
+- `npm run lint:test` 會對少量明確列出的 production 入口加上非阻擋 Warning；目前只有同一 Vitest leaf 直接呼叫 `CareerBridgeBattle.careerFieldTacticalOrder` 與 `CareerFieldBattle.resolveFieldDamagedTargetId` 這個試行組合會命中。前者決定小隊戰術命令，後者將傷害事件對應到目標 actor；`tests/missions/CareerFieldBattle.test.ts` 的「supports ambush alerts and squad engagement」同時直接驗證兩者，且各自涵蓋不同決策，值得 reviewer 確認是否為同一正式路徑。Warning 只指出入口，請 reviewer 判斷，不自動判定案例放錯檔，也不要求拆 case。
 - 舊的任務分類 leaf 同時呼叫 `CareerFieldBattle.isMigratedCareerFieldTemplate`／`isMigratedCareerFieldMission` 與 `CareerBridgeBattle.isCareerFelineBattle`，但這些分類呼叫組成同一條任務路由，現在不會命中 Warning。#490 的 Bridgehead「keeps Bridgehead victory unclaimed after a failed result save and retries it once」則以 `commitCareerBridgeBattleResult` 搭配真正的 `CareerProfileStore` 驗證同一結算交易可重試，也不會命中。跨檔案或跨模組本身不是警告條件。
 - 只 import 未呼叫、type-only import、同一 Owner 的多個入口，以及 fixture helper、`beforeEach`／`afterEach` setup／cleanup、巢狀 helper／延遲 callback 或資料轉換 callback 不會觸發。這條規則依既有 callback 與 import binding 辨識實際呼叫，不依目錄或 import 數量推測 Owner，且每個 leaf 最多報一個 Warning。
 - Warning 只提供 review 線索。**Owner 歸屬、failure mode 是否獨立、caller 是否真的有覆蓋，仍由 review 判斷**；Warning 不增加 leaf 數、不阻擋 CI，也不改變既有 Error 規則。
 - 本次 PR 最新分支 head 的 CI：[test/warn-cross-owner-test-calls Actions runs](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/workflows/ci.yml?query=branch%3Atest%2Fwarn-cross-owner-test-calls)。
 
 - 同一不可分交易可有多個 assertions，同一不變量可使用少量資料變體；部署容量、投射物遮擋、地形切換與落水死亡等不同原因的失敗必須能獨立定位。把 200 行以上的大型 `it` 搬進正確檔案，不代表已完成責任整理。
-- 搬移／刪除前核對「原案例與 assertions → 保留案例 → production consumer」，不能只比較名稱或 leaf 數；保留舊版存檔、權限、錯誤恢復與正式 Game call path 的唯一 regression。刪除自建決策流程時，指出真正 owner 的保護位置；沒有等效保護就明列風險，不宣稱已替代。
+- 搬移／刪除前核對「原案例與 assertions → 保留案例 → production consumer」，不能只比較名稱或 leaf 數；保留現行存檔、權限、錯誤恢復與正式 Game call path 的唯一 regression；純歷史格式遷移及已退役 production owner 的案例一併刪除。刪除自建決策流程時，指出真正 owner 的保護位置；沒有等效保護就明列風險，不宣稱已替代。
 
 ## Regression 設計與正式呼叫路徑
 
 - 新增測試前先寫出**可觀察的行為契約與失敗模式**，不是照目前實作抄 expected。先查「使用者／事件入口 → 真正決策 owner → 正式 caller → side effects／存檔 → 替換／退出 cleanup」。純函式小改動不必製作流程表；跨模組、非同步或生命週期修改，須簡短盤點這條路徑與責任歸屬。
 - **Helper / Service 測試通過，不等於正式遊戲已修好**。改動跨越 caller 邊界時，至少用一個輕量且執行真實 production caller 的案例驗證授權、資料傳遞、儲存或清理確實觸發；可隔離場景／網路等外部依賴，但不自行模擬或代做受測 caller 的決策。
-- 不同的失敗模式應有可獨立定位的案例：正常 Save/Load、非法權限、舊版遷移、寫入失敗與非同步取消不是同一個 scenario。**同一不可分交易**可用多個 assertions，**同一契約**少量資料變體可迭代；不要以大型單一 `it` 或迴圈藏多項不相干的失敗模式，也不為了守住 case count 刪除重要斷言。
-- 存檔相容性測試使用**真實歷史格式與授權／編組形狀**（可縮小無關 Fixture，不可改變造成 Bug 的關鍵形狀）；驗證首次載入、需要時的持久化、再次載入的冪等性，以及任務、HP、陣亡、指揮權、獎勵等必要不變量。無法安全遷移或寫入失敗時應 fail closed、保留原始資料，不只驗證 parser 有回傳值。
+- 不同的失敗模式應有可獨立定位的案例：現行 Save/Load、非法權限、不支援格式拒讀、寫入失敗與非同步取消不是同一個 scenario。**同一不可分交易**可用多個 assertions，**同一契約**少量資料變體可迭代；不要以大型單一 `it` 或迴圈藏多項不相干的失敗模式，也不為了守住 case count 刪除重要斷言。
+- 存檔測試只使用現行 writer 或完整的現行 fixture，驗證正常往返、任務與 HP／傷亡／坐騎／兵權保留、結算不重發及寫入失敗重試。對歷史或不支援格式只驗證拒讀、保留原始 bytes 且不自動重存／刪檔；不保留歷史資料轉換、推導、補發或 runtime 續行案例。合法空手、未騎乘、無任務與尚未產生首份 checkpoint 都屬現行輸入。
 
 ## 成本與邏輯範圍
 
@@ -96,7 +96,7 @@
 - 執行 `npm run lint:test`；範圍需與 runner 收檔一致，涵蓋 Vitest `.test`／`.spec` 測試檔與遞迴發現的 Node `.test.cjs`，不因 `tests/` 子目錄漏掉案例。CI 會在既有 logic gate 的 `npm ci` 後執行，不會新增測試案例或另一個 Full Test Job。
 - ESLint Error 會阻擋 Vitest focused／disabled／重複標題／條件式註冊（含 namespace 與 named/namespace 混用）、Unit Test 重型 3D constructor，以及 Node `test`／`describe` 的 `.only`／`.skip`／`.todo` 和明確啟用的停用 options。
 - Test body 超過 120 行、`expect-expect`、真實 timer wait pattern、`any` 與 `@ts-ignore` 僅輸出 Warning；不可為了消除 Warning 刪除重要 assertions 或大規模改寫既有案例。
-- Owner 歸屬、failure mode 是否重複、正式 caller 覆蓋、Regression 是否能攔截 Bug、Legacy 格式及跨模組 Import 是否合理，仍須依本文件由人工 Review。
+- Owner 歸屬、failure mode 是否重複、正式 caller 覆蓋、Regression 是否能攔截 Bug、現行格式完整性及跨模組 Import 是否合理，仍須依本文件由人工 Review。
 
 ## 刪除政策與防規避
 

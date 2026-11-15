@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { Box3, Matrix4, Vector3, type Object3D } from 'three'
 import { Game } from '../../src/Game'
@@ -28,8 +29,7 @@ import { getTownRampartLayout } from '../../src/town/TownRamparts'
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../../src/town/TownBounds'
 import { TOWN_GATES } from '../../src/town/TownLayout'
 import { advanceCommanderInfantryEscort, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, parseCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT } from '../../src/career/CommanderInfantryEscort'
-import { advanceCommanderCavalryEscort, commanderCavalryReleaseDistance, commanderCavalryEscortAssignments, commanderCavalryEscortTarget,
-  createCommanderCavalryEscort, type CommanderCavalryEscortActorFrame, type CommanderCavalryEscortRampFrame } from '../../src/career/CommanderCavalryEscort'
+import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, createCommanderCavalryEscort, type CommanderCavalryEscortActorFrame, type CommanderCavalryEscortRampFrame } from '../../src/career/CommanderCavalryEscort'
 import type { TownSiegeRampId } from '../../src/campaign/MobileSiegeRampPolicy'
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 
@@ -114,7 +114,7 @@ describe('shared siege crew and vehicle lifecycle', () => {
     const nativeAttackers = [legacyMelee, legacyRanged, savedDefend, savedFormation]
     for (const actor of nativeAttackers) actor.setCommandSquad(undefined)
     const profile = createCareerProfile('roman')
-    profile.rank = 'commander'
+    Object.assign(profile, careerRankFixture(profile.faction, 'commander'));
     profile.activeOutpostMission = { id: 'relief', kind: 'outpost-relief', stageId: 3, acceptedAt: 0, battle: saved,
       officialSquad: { type: 'mission-official', missionId: 'relief', townFaction: 'roman', squadId: 1,
         commandRank: 'commander', actorIds: [controlled.combatantId], commandedSquadIds: [1],
@@ -416,8 +416,6 @@ describe('shared siege crew and vehicle lifecycle', () => {
     const guards = Array.from({ length: 10 }, (_, slot) => commanderInfantryEscortTarget(slot, rear, inward))
     for (const g of guards) for (const l of lancers) expect(Math.hypot(g.x - l.x, g.z - l.z)).toBeGreaterThan(3.5)
     expect(Math.min(...guards.map(g => g.x - rear.x))).toBeGreaterThanOrEqual(COMMANDER_INFANTRY_ESCORT.firstRowBehind)
-    expect(commanderCavalryReleaseDistance(2)).toBe(100)
-    expect(commanderCavalryReleaseDistance(1)).toBe(50)
 
     const actors = new Map<string, { dead: boolean }>(assignments.map(a => [a.actorId, { dead: false }]))
     const ramps = new Map<TownSiegeRampId, CommanderCavalryEscortRampFrame>(assignments.map(a => {

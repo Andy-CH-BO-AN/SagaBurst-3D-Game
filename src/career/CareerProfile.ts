@@ -1,33 +1,22 @@
 import type { PlayerMountId } from '../battle/BattleConfig'
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
-import { createDefaultSkillState,normalizeSkillState } from '../rpg/SkillManager'
+import { createDefaultSkillState, normalizeSkillState } from '../rpg/SkillManager'
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import { cloneOfficialCommandAuthority,cloneTownCommandSquad } from './CareerCommandAuthority'
+import { cloneOfficialCommandAuthority, cloneTownCommandSquad } from './CareerCommandAuthority'
 import { grantCommanderMelee } from './CareerCommanderEquipment'
 import type { CareerDuelTier } from './CareerDuelState'
-import { addCareerItem,careerItemTotal,isTradableCareerItem,MAX_PLAYER_OWNED_XONGKORO,normalizeCareerInventory } from './CareerInventory'
+import { addCareerItem, careerItemTotal, isTradableCareerItem, MAX_PLAYER_OWNED_XONGKORO, normalizeCareerInventory } from './CareerInventory'
 import { calculateRecruitMissionMerit } from './CareerMissionMeritPolicy'
 import type { CareerMissionOutcome } from './CareerMissionState'
-import { careerMissionTierForTemplateId,type CareerMissionTier } from './CareerMissionTier'
+import { careerMissionTierForTemplateId, type CareerMissionTier } from './CareerMissionTier'
 import { clonePersonalMission } from './CareerPersonalSquadMission'
-import type {
-CareerBattleClaim,
-CareerBattleResult,
-CareerMissionClaim,
-CareerMountId,
-CareerProfile,
-CareerPurchaseRequest,
-CareerPurchaseResult,
-CareerPurchaseTier,
-CareerRank,
-} from './CareerProfileTypes'
+import type { CareerBattleClaim, CareerBattleResult, CareerMissionClaim, CareerMountId, CareerProfile, CareerPurchaseRequest, CareerPurchaseResult, CareerPurchaseTier, CareerRank } from './CareerProfileTypes'
 import { careerShopProduct } from './CareerShopCatalog'
-import { hasFormalVictoryEvidence,recordCareerStoryFormalVictory,recordCareerStoryPurchase,settleCareerStoryEvent } from './CareerStoryEvents'
+import { hasFormalVictoryEvidence, recordCareerStoryFormalVictory, recordCareerStoryPurchase, settleCareerStoryEvent } from './CareerStoryEvents'
 import { cloneTownEquipment } from './CareerTownEquipmentState'
-import { claimCareerTutorialReward,createCareerTutorialState,recordCareerTutorialAppointment,recordCareerTutorialMissionSettlement,recordCareerTutorialOperation,recordCareerTutorialPurchase } from './CareerTutorialState'
+import { claimCareerTutorialReward, createCareerTutorialState, recordCareerTutorialAppointment, recordCareerTutorialMissionSettlement, recordCareerTutorialOperation, recordCareerTutorialPurchase } from './CareerTutorialState'
 import { cloneCivilianCommandSquad } from './CivilianCommandAuthority'
 import { calculateMerit } from './MeritCalculator'
-import { cloneTownAirCommandSquad } from './TownAirCommandAuthority'
 
 // The Career profile model lives in a type-only module that emits no JavaScript; this facade keeps every existing import path.
 export type * from './CareerProfileTypes'
@@ -67,7 +56,7 @@ export function createCareerProfile(faction: CharacterFaction): CareerProfile {
   return {
     version: 2,
     inventory: { version: 1, quantities: {} },
-    careerMissionCompletionsByTier: {},
+    careerMissionCompletionsByTier: { 1: 0, 2: 0, 3: 0 },
     raceScheduleVersion: 3,
     faction,
     tutorial: createCareerTutorialState(),
@@ -411,7 +400,6 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.townDuelResidentRecovery ? { townDuelResidentRecovery: { ...profile.townDuelResidentRecovery } } : {}),
     ...(profile.townCommanderRecovery ? { townCommanderRecovery: { ...profile.townCommanderRecovery } } : {}),
     ...(profile.townCommandSquad ? { townCommandSquad: cloneTownCommandSquad(profile.townCommandSquad) } : {}),
-    ...(profile.townAirCommandSquad ? { townAirCommandSquad: cloneTownAirCommandSquad(profile.townAirCommandSquad) } : {}),
     ...(profile.civilianCommandSquad ? { civilianCommandSquad: cloneCivilianCommandSquad(profile.civilianCommandSquad) } : {}),
     ...(profile.enemyEaglePatrols ? { enemyEaglePatrols: structuredClone(profile.enemyEaglePatrols) } : {}),
     ...(profile.townEagleGarrisons ? { townEagleGarrisons: structuredClone(profile.townEagleGarrisons) } : {}),

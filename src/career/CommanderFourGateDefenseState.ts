@@ -4,15 +4,15 @@ import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
 import { TOWN_HR_OFFICER_ID } from '../town/TownHRLayout'
 import { TOWN_AUTONOMOUS_GUARD_IDS } from '../town/TownNativeGuardIdentity'
 import { townRoster } from '../town/TownRules'
-import { parseCaptainEagleCheckpoint,type CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
+import { parseCaptainEagleCheckpoint, type CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import { parseCommandActorCheckpoint } from './CareerCommandAuthority'
-import type { CareerMissionOutcome,CareerMissionPhase } from './CareerMissionState'
-import type { PersonalActorCheckpoint,PersonalActorPosition } from './CareerPersonalSquadMission'
-import { parseCommanderCavalryEscort,type CommanderCavalryEscortCheckpoint } from './CommanderCavalryEscort'
-import { COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS,commanderFourGateDefenseSlots,type CommanderEnemyRosterVersion } from './CommanderFourGateDefenseRoster'
-import { parseCommanderInfantryEscort,type CommanderInfantryEscortCheckpoint } from './CommanderInfantryEscort'
-import { COMMANDER_TOWN_ROSTER_VERSION,type CommanderTownRosterVersion } from './CommanderTownRoster'
-import { parseTownFourGateSiegeCheckpoint,type TownFourGateSiegeCheckpoint } from './TownFourGateSiegeCheckpoint'
+import type { CareerMissionOutcome, CareerMissionPhase } from './CareerMissionState'
+import type { PersonalActorCheckpoint, PersonalActorPosition } from './CareerPersonalSquadMission'
+import { parseCommanderCavalryEscort, type CommanderCavalryEscortCheckpoint } from './CommanderCavalryEscort'
+import { COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS, commanderFourGateDefenseSlots, type CommanderEnemyRosterVersion } from './CommanderFourGateDefenseRoster'
+import { parseCommanderInfantryEscort, type CommanderInfantryEscortCheckpoint } from './CommanderInfantryEscort'
+import { COMMANDER_TOWN_ROSTER_VERSION, type CommanderTownRosterVersion } from './CommanderTownRoster'
+import { parseTownFourGateSiegeCheckpoint, type TownFourGateSiegeCheckpoint } from './TownFourGateSiegeCheckpoint'
 
 export const COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS = 15 * 60
 export type CommanderFourGateDefenseVictoryReason = 'elimination' | 'survival'
@@ -21,7 +21,7 @@ export type CommanderFourGateDefensePhase = 'DEPLOYING' | 'PREPARING' | 'SPAWNIN
 export type NativeTownGuardCombatStats = Pick<NonNullable<BattleStatsSnapshot['nativeDefenders']>, 'damageDealt' | 'damageTaken' | 'kills'>
 export interface CommanderFourGateDefenseState {
   version: 1
-  /** Absent means the accepted 210-person army; never infer from current rank/count. */
+  /** Current accepted 206-person official army plus ten autonomous tower guards. */
   rosterVersion: CommanderTownRosterVersion
   /** Current enemy roster, independent of the defender roster. */
   enemyRosterVersion: 2
@@ -41,7 +41,7 @@ export interface CommanderFourGateDefenseState {
   siege?: TownFourGateSiegeCheckpoint
   /** Created with attacker deployment and retained until settlement. */
   cavalryEscort?: CommanderCavalryEscortCheckpoint
-  /** Only enemyRosterVersion 2. Absent after an attack began means every escort was already released. */
+  /** Created with attacker deployment and retained until settlement. */
   infantryEscort?: CommanderInfantryEscortCheckpoint
   /** Independent actor and mount HP/flight state; a dead mount does not kill its rider. */
   actors: Record<string, PersonalActorCheckpoint>

@@ -5,8 +5,8 @@ import type { TacticalOrder } from '../battle/TacticalOrder'
 import type { CareerProfile } from '../career/CareerProfile'
 import { cloneCareerProfile } from '../career/CareerProfile'
 import { careerShopProduct } from '../career/CareerShopCatalog'
-import { claimCareerTutorialReward,deferCareerTutorial,hasCareerTutorialHorse,recordCareerTutorialOperation,startCareerTutorial } from '../career/CareerTutorial'
-import { CAREER_TUTORIAL_STAGES,type CareerTutorialStageId } from '../career/CareerTutorialState'
+import { claimCareerTutorialReward, deferCareerTutorial, hasCareerTutorialHorse, recordCareerTutorialOperation, startCareerTutorial } from '../career/CareerTutorial'
+import { CAREER_TUTORIAL_STAGES, type CareerTutorialStageId } from '../career/CareerTutorialState'
 import { MissionGuide } from '../career/MissionGuide'
 import type { CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
 import { townShopProducts } from './TownRules'
@@ -98,8 +98,7 @@ export class TownTutorialController {
   }
 
   /**
-   * A stage the player skipped, with its progress kept. Legacy saves that never started a stage stay opt-in:
-   * migration marks them deferred, and that must not nag veterans with a tutorial they never chose to begin.
+   * A stage the player explicitly deferred, with its progress kept for the next reminder.
    */
   private guidedDeferred(stages: readonly CareerTutorialStageId[] = ['commander', 'captain', 'hr', 'town', 'recruit']): CareerTutorialStageId | null {
     const t = this.host.profile().tutorial
