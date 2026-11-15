@@ -1,8 +1,9 @@
-import { CHARACTER_LOD_DISTANCES, MOUNT_ANIMATION_THROTTLE_DISTANCE, MOUNT_FAR_ANIMATION_INTERVAL } from './CharacterLODPolicy'
+import { CHARACTER_LOD_DISTANCES, MOUNT_ANIMATION_THROTTLE_DISTANCE, mountAnimationInterval } from './CharacterLODPolicy'
 import * as THREE from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { SkinnedSeatContact } from './SkinnedSeatContact'
+import { stopBoneEulerSync } from './BoneEulerSync'
 import { RiderSeatContactCache } from './RiderSeatContactCache'
 import {
   isQuadrupedAnimationState,
@@ -109,6 +110,7 @@ export class QuadrupedVisual {
     this.play('idle', true)
     this.mixer.update(0)
     this.root.updateMatrixWorld(true)
+    stopBoneEulerSync(this.root)
   }
 
   private play(clip: QuadrupedAnimationState, immediate = false): void {
@@ -186,13 +188,13 @@ export class QuadrupedVisual {
     }
   }
 
-  /** Matches the horse cadence: beyond the far distance the mixer steps at 15 Hz.
+  /** Matches the horse cadence (CharacterLODPolicy.mountAnimationInterval).
    * World matrices are left to the renderer and to seat contact, which update their own chains. */
   update(dt: number, cameraDistance = 0): void {
     if (this.paused || !Number.isFinite(dt) || dt < 0) return
     this.cameraDistance = cameraDistance
     this.farAccumulator += dt
-    if (cameraDistance > MOUNT_ANIMATION_THROTTLE_DISTANCE && this.farAccumulator < MOUNT_FAR_ANIMATION_INTERVAL) return
+    if (this.farAccumulator < mountAnimationInterval(cameraDistance)) return
     // Returning near consumes any pending far time once.
     dt = this.farAccumulator
     this.farAccumulator = 0
