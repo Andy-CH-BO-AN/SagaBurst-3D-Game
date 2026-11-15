@@ -304,34 +304,12 @@ export function shouldCreateStartingHorse(battleConfig?: BattleConfig): boolean 
   return !battleConfig?.spectator && (battleConfig?.playerLoadout?.startMounted ?? true)
 }
 
-/**
- * Resolves the ground spawn position for a mount being restored from save data.
- * Prefers mountData.position (ground position of mount).
- * Falls back to data.position (rider saddle position) for legacy saves lacking mountData.position.
- */
-export function resolveMountSpawnPosition(
-  saveData: {
-    position: { x: number; y: number; z: number }
-    mountData?: PlayerSaveData['mountData']
-  }
-): { x: number; y: number; z: number } {
-  if (saveData.mountData && saveData.mountData.position) {
-    return { ...saveData.mountData.position }
-  }
-  return { ...saveData.position }
+/** Mounts restore their own ground position, independently from the rider. */
+export function resolveMountSpawnPosition(saveData: { mountData: NonNullable<PlayerSaveData['mountData']> }): { x: number; y: number; z: number } {
+  return { ...saveData.mountData.position }
 }
-
-/**
- * Resolves the ground spawn Y coordinate for a mount being restored from save data.
- * Returns mountData.position.y when saved with modern format.
- * Returns undefined for legacy saves so terrain height is used rather than rider saddle Y.
- */
-export function resolveMountSpawnY(
-  saveData: {
-    mountData?: PlayerSaveData['mountData']
-  }
-): number | undefined {
-  return saveData.mountData?.position ? saveData.mountData.position.y : undefined
+export function resolveMountSpawnY(saveData: { mountData: NonNullable<PlayerSaveData['mountData']> }): number {
+  return saveData.mountData.position.y
 }
 import { damageMount, damageNpc, damageObstacle, damagePlayer, damageReceiver } from './combat/DamageRouter'
 import { isDamageReceiver } from './combat/DamageReceiver'
@@ -430,7 +408,7 @@ export class Game {
       const usesPlayerT4Bow = (
         campaignConfig?.playerLoadout?.rangedWeaponId ?? battleConfig?.playerLoadout?.rangedWeaponId
       ) === T4_RANGER_BOW_RANGED_ID
-      const savedInventory = !trainingGround ? new SaveManager().load().inventory : undefined
+      const savedInventory = !trainingGround ? new SaveManager().load()?.inventory : undefined
       const savedPlayerT4Bow = savedInventory?.equippedRangedId === T4_RANGER_BOW_RANGED_ID
         || Boolean(savedInventory?.items?.some(item => item.id === T4_RANGER_BOW_RANGED_ID && item.quantity > 0))
       const ownsCareerT4Bow = personalProfile?.ownedWeapons.includes(T4_RANGER_BOW_RANGED_ID) ?? false
@@ -4382,6 +4360,7 @@ export class Game {
     const inv = this.inventoryManager.saveState
 
     const ok = this.saveManager.save({
+      version: 2,
       falling: this.player.isFalling ? this.player.fallSnapshot : undefined,
       position: { x: pos.x, y: pos.y, z: pos.z },
       hp: this.player.hp,
@@ -4432,6 +4411,7 @@ export class Game {
       return
     }
     const data = this.saveManager.load()
+    if (!data) { this._showNotify('存檔損壞或版本不支援；原資料已保留。'); return }
     if (this.player.isMounted) this.player.dismountFromMount()
 
     let newMountToLoad: Mount | null = null
@@ -4441,8 +4421,8 @@ export class Game {
       const variant = mountType === MountType.HORSE
         ? horseVariantFromSave(data.mountData.appearanceVariant)
         : 0
-      const mountPos = resolveMountSpawnPosition(data)
-      const mountY = resolveMountSpawnY(data)
+      const mountPos = resolveMountSpawnPosition({ mountData: data.mountData })
+      const mountY = resolveMountSpawnY({ mountData: data.mountData })
       newMountToLoad = new Mount(this.scene, mountType, mountPos.x, mountPos.z, mountY, variant)
     }
 

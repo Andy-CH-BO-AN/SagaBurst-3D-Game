@@ -42,7 +42,7 @@ const implementations: Array<{
   },
   {
     name: 'persists all six skills through regular save/reload',
-    key: 'wdyh_save_v1',
+    key: 'sagaburst_game_v2',
     skills: {
       unarmed: { level: 19, xp: 321 },
       blocking: { level: 11, xp: 21 },
@@ -60,7 +60,7 @@ const implementations: Array<{
           inventory: { ...DEFAULT_SAVE.inventory },
           skills,
         }),
-        load: () => store.load().skills,
+        load: () => store.load()?.skills,
       }
     },
   },
@@ -68,7 +68,7 @@ const implementations: Array<{
 
 describe('Skill storage round-trip', () => {
   for (const { name, key, skills, create } of implementations) {
-    it(`${name}（含六技能往返與舊存檔補徒手技能）`, () => {
+    it(`${name}（六技能往返）`, () => {
       const storage = new MemoryStorage(), adapter = create(storage)
       expect(adapter.save(skills)).toBe(true)
       const raw = storage.getItem(key)
@@ -76,14 +76,7 @@ describe('Skill storage round-trip', () => {
       expect(JSON.parse(raw!).skills).toEqual(skills)
       expect(adapter.load()).toEqual(skills)
 
-      // Legacy save lacking unarmed gets default Lv.1 / 0 XP without corrupting existing skills (#355/#357 merged)
-      const parsed = JSON.parse(raw!)
-      delete parsed.skills.unarmed
-      const oldSkills = { ...parsed.skills }
-      storage.setItem(key, JSON.stringify(parsed))
-      const loaded = adapter.load()!
-      expect(loaded).toEqual({ ...oldSkills, unarmed: { level: 1, xp: 0 } })
-      expect(resolveSkillAdjustedMaxHp(200, loaded)).toBeGreaterThan(200)
+      expect(resolveSkillAdjustedMaxHp(200, adapter.load()!)).toBeGreaterThan(200)
     })
   }
 })

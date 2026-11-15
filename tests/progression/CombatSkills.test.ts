@@ -95,10 +95,10 @@ describe('Career skill progression', () => {
     expect(resolveSkillProgressionAward(event)).toEqual({ skill: 'mountedImpact', xp: 60 })
   })
 
-  it('migrates legacy Archery progress into Ranged and clamps invalid values', () => {
+  it('clamps invalid current skill values', () => {
     const state = normalizeSkillState({
       oneHanded: { level: 0, xp: -1 },
-      archery: { level: 12, xp: 250 },
+      ranged: { level: 12, xp: 250 },
       twoHanded: { level: 99, xp: 9999 },
     })
 

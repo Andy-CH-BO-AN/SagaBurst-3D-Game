@@ -8,16 +8,11 @@ import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { parseFallingRiderSnapshot, type FallingRiderSnapshot } from '../movement/FallingRider'
 import { parseEagleFlightSnapshot, type EagleFlightSnapshot } from '../movement/EagleFlightController'
 
-const SAVE_KEY = 'wdyh_save_v1'
+export const SAVE_KEY = 'sagaburst_game_v2'
 
-/** Legacy saves did not record their actual maximum or custom-HP provenance.
- * Never guess a 200 baseline from their current HP or equipment. */
+/** Current saves record their measured HP pool. */
 export function restoreSavedPlayerHp(data: Pick<PlayerSaveData, 'hp' | 'maxHp'>, newMaxHp: number): number {
-  const hp = Number.isFinite(data.hp) ? Math.max(0, data.hp) : 0
-  if (hp === 0 || !Number.isFinite(newMaxHp) || newMaxHp <= 0) return 0
-  const oldMax = data.maxHp
-  return Math.min(newMaxHp, typeof oldMax === 'number' && Number.isFinite(oldMax) && oldMax > 0
-    ? hp / oldMax * newMaxHp : hp)
+  return Number.isFinite(newMaxHp) && newMaxHp > 0 ? Math.min(newMaxHp, Math.max(0, data.hp / data.maxHp * newMaxHp)) : 0
 }
 
 export interface SkillDetail {
@@ -26,9 +21,10 @@ export interface SkillDetail {
 }
 
 export interface PlayerSaveData {
+  version: 2
   /** Captured identity is independent of currently equipped weapons. */
   healthRulesVersion?: 1
-  maxHp?: number
+  maxHp: number
   characterTier?: 1 | 2 | 3
   characterFaction?: 'roman' | 'viking'
   /** Present only for an explicitly selected custom HP override. */
@@ -45,12 +41,9 @@ export interface PlayerSaveData {
     ranged?: SkillDetail
     mountedImpact?: SkillDetail
     blocking?: SkillDetail
-    /** Legacy pre-four-skill save compatibility. */
-    archery?: SkillDetail
   }
   inventory: {
-    items?: { id: string; quantity: number }[]
-    ownedWeaponIds?: string[]
+    items: { id: string; quantity: number }[]
     equippedMeleeId: string
     equippedRangedId: string
     rangedEnabled?: boolean
@@ -63,11 +56,13 @@ export interface PlayerSaveData {
     hp?: number
     armorImpactRemaining?: number
     flight?: EagleFlightSnapshot
-    position?: { x: number; y: number; z: number }
+    position: { x: number; y: number; z: number }
   }
 }
 
 export const DEFAULT_SAVE: PlayerSaveData = {
+  version: 2,
+  maxHp: COMBAT_BALANCE.hp.playerDefault,
   position: { x: 0, y: 0.95, z: 0 },
   hp: COMBAT_BALANCE.hp.playerDefault,
   stamina: 100,
@@ -87,7 +82,6 @@ export const DEFAULT_SAVE: PlayerSaveData = {
       { id: 'elven_runebow', quantity: 1 },
       { id: 'round_shield_t3', quantity: 1 },
     ],
-    ownedWeaponIds: ['steel_lance', 'runic_greatsword', 'elven_runebow', 'round_shield_t3'],
     equippedMeleeId: 'steel_lance',
     equippedRangedId: 'elven_runebow',
     equippedShieldId: 'round_shield_t3',
@@ -99,7 +93,9 @@ export class SaveManager {
 
   save(data: PlayerSaveData): boolean {
     try {
-      this.storage.setItem(SAVE_KEY, JSON.stringify(data))
+      const parsed = parsePlayerSave(data)
+      if (!parsed) return false
+      this.storage.setItem(SAVE_KEY, JSON.stringify(parsed))
       return true
     } catch {
       console.warn('[SaveManager] Failed to save:', SAVE_KEY)
@@ -107,70 +103,39 @@ export class SaveManager {
     }
   }
 
-  load(): PlayerSaveData {
+  load(): PlayerSaveData | null {
     try {
       const raw = this.storage.getItem(SAVE_KEY)
-      if (!raw) return { ...DEFAULT_SAVE }
-      const parsed = JSON.parse(raw) as Partial<PlayerSaveData>
-
-      let inventoryData: PlayerSaveData['inventory']
-      if (parsed.inventory) {
-        let items = parsed.inventory.items
-        if (!items && parsed.inventory.ownedWeaponIds) {
-          items = parsed.inventory.ownedWeaponIds.map(id => ({ id, quantity: 1 }))
-        }
-        inventoryData = {
-          items: items ? items.map(item => ({ ...item })) : undefined,
-          ownedWeaponIds: parsed.inventory.ownedWeaponIds,
-          equippedMeleeId: parsed.inventory.equippedMeleeId ?? DEFAULT_SAVE.inventory.equippedMeleeId,
-          equippedRangedId: parsed.inventory.equippedRangedId ?? DEFAULT_SAVE.inventory.equippedRangedId,
-          rangedEnabled: parsed.inventory.rangedEnabled,
-          equippedShieldId: parsed.inventory.equippedShieldId !== undefined ? parsed.inventory.equippedShieldId : null,
-        }
-      } else {
-        inventoryData = {
-          ...DEFAULT_SAVE.inventory,
-          items: DEFAULT_SAVE.inventory.items?.map(item => ({ ...item })),
-        }
-      }
-
-      const mountData = parsed.mountData ? {
-        ...parsed.mountData,
-        hp: typeof parsed.mountData.hp === 'number' && Number.isFinite(parsed.mountData.hp) && parsed.mountData.hp >= 0
-          ? parsed.mountData.hp : undefined,
-        flight: parseEagleFlightSnapshot(parsed.mountData.flight),
-        position: parsed.mountData.position ? { ...parsed.mountData.position } : undefined,
-      } : undefined
-
-      return {
-        ...DEFAULT_SAVE,
-        ...parsed,
-        healthRulesVersion: parsed.healthRulesVersion === 1 ? 1 : undefined,
-        maxHp: typeof parsed.maxHp === 'number' && Number.isFinite(parsed.maxHp) && parsed.maxHp > 0 ? parsed.maxHp : undefined,
-        characterTier: parsed.characterTier === 1 || parsed.characterTier === 2 || parsed.characterTier === 3 ? parsed.characterTier : undefined,
-        characterFaction: parsed.characterFaction === 'roman' || parsed.characterFaction === 'viking' ? parsed.characterFaction : undefined,
-        baseMaxHpOverride: typeof parsed.baseMaxHpOverride === 'number' && Number.isFinite(parsed.baseMaxHpOverride) && parsed.baseMaxHpOverride > 0
-          ? parsed.baseMaxHpOverride : undefined,
-        falling: parseFallingRiderSnapshot(parsed.falling),
-        position: { ...DEFAULT_SAVE.position, ...parsed.position },
-        skills: {
-          unarmed: { ...DEFAULT_SAVE.skills.unarmed!, ...parsed.skills?.unarmed },
-          oneHanded: { ...DEFAULT_SAVE.skills.oneHanded, ...parsed.skills?.oneHanded },
-          twoHanded: { ...DEFAULT_SAVE.skills.twoHanded!, ...parsed.skills?.twoHanded },
-          ranged: { ...DEFAULT_SAVE.skills.ranged!, ...(parsed.skills?.ranged ?? parsed.skills?.archery) },
-          mountedImpact: { ...DEFAULT_SAVE.skills.mountedImpact!, ...parsed.skills?.mountedImpact },
-          blocking: { ...DEFAULT_SAVE.skills.blocking!, ...parsed.skills?.blocking },
-        },
-        inventory: inventoryData,
-        mountData,
-      }
+      return raw === null ? null : parsePlayerSave(JSON.parse(raw))
     } catch {
-      console.warn('[SaveManager] Corrupt save data — using defaults.')
-      return { ...DEFAULT_SAVE }
+      console.warn('[SaveManager] 無法讀取存檔；原資料已保留。')
+      return null
     }
   }
 
   hasSave(): boolean {
     return this.storage.getItem(SAVE_KEY) !== null
   }
+}
+
+/** Reject unsupported or damaged records without converting them or writing storage. */
+export function parsePlayerSave(value: unknown): PlayerSaveData | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as PlayerSaveData
+  const resource = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0
+  const position = (p: PlayerSaveData['position'] | undefined) => p && [p.x, p.y, p.z].every(Number.isFinite)
+  if (raw.version !== 2 || !position(raw.position) || !resource(raw.hp) || !resource(raw.maxHp) || raw.maxHp <= 0
+    || !resource(raw.stamina) || !resource(raw.arrows) || !raw.skills || !raw.inventory
+    || !['unarmed', 'oneHanded', 'twoHanded', 'ranged', 'mountedImpact', 'blocking'].every(id => {
+      const skill = raw.skills[id as keyof PlayerSaveData['skills']]
+      return skill && Number.isInteger(skill.level) && skill.level >= 1 && skill.level <= 50 && resource(skill.xp)
+    }) || !Array.isArray(raw.inventory.items)
+    || raw.inventory.items.some(item => !item || typeof item.id !== 'string' || !Number.isSafeInteger(item.quantity) || item.quantity <= 0)
+    || typeof raw.inventory.equippedMeleeId !== 'string' || typeof raw.inventory.equippedRangedId !== 'string') return null
+  if (raw.mountData && (!position(raw.mountData.position) || typeof raw.mountData.isMounted !== 'boolean'
+    || !['HORSE', 'ARMORED_HORSE', 'BLACK_CAT', 'WHITE_CAT', 'ORANGE_CAT', 'SERVAL', 'CARACAL', 'CORGI', 'SNOW_LEOPARD', 'xongkoro'].includes(raw.mountData.type)
+    || !resource(raw.mountData.hp))) return null
+  if (raw.falling !== undefined && !parseFallingRiderSnapshot(raw.falling)
+    || raw.mountData?.flight !== undefined && !parseEagleFlightSnapshot(raw.mountData.flight)) return null
+  return JSON.parse(JSON.stringify(raw)) as PlayerSaveData
 }

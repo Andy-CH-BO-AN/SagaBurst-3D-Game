@@ -99,17 +99,8 @@ export enum MountState {
 }
 
 export function mountTypeFromSave(value: string): MountType {
-  if (value === 'armored-horse' || value === 'ARMORED_HORSE') return MountType.ARMORED_HORSE
-  if (value === 'xongkoro') return MountType.XONGKORO
-  if (value === MountType.BLACK_CAT || value === 'black-cat') return MountType.BLACK_CAT
-  if (value === MountType.WHITE_CAT || value === 'white-cat') return MountType.WHITE_CAT
-  if (value === MountType.ORANGE_CAT || value === 'orange-cat') return MountType.ORANGE_CAT
-  if (value === MountType.SERVAL || value === 'serval') return MountType.SERVAL
-  if (value === MountType.CARACAL || value === 'caracal') return MountType.CARACAL
-  if (value === MountType.SNOW_LEOPARD || value === 'snow-leopard') return MountType.SNOW_LEOPARD
-  if (value === MountType.CORGI || value === 'corgi') return MountType.CORGI
-  if (value === MountType.HORSE || value === 'horse') return MountType.HORSE
-  return DEFAULT_MOUNT_TYPE
+  if (!(Object.values(MountType) as string[]).includes(value)) throw new Error('Unsupported saved mount type')
+  return value as MountType
 }
 
 export function mountTypeFromId(value: string | null | undefined): MountType {
