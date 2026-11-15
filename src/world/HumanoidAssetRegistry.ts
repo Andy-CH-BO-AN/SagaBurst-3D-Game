@@ -6,6 +6,7 @@ import type { FittedHumanoidClothRig } from './FittedHumanoidCloth'
 import { prepareAuthoredBowContacts } from './BowDrawHand'
 import { configureMultiInfluenceSkinning, multiInfluenceSkinningPlugin } from './MultiInfluenceSkinning'
 import { primeSkinnedTemplateBounds } from './SkinnedTemplateBounds'
+import { stopBoneEulerSync } from './BoneEulerSync'
 import { prepareSelectedHumanoidSource, type SelectedHumanoidSource } from './SelectedHumanoidSource'
 import { shareSelectedLodPose, shareIdenticalSkinSkeletons, validateSelectedLodAnimations, optimizeSelectedAnimationClips } from './SelectedLodPose'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
@@ -1345,6 +1346,7 @@ export class HumanoidAssetRegistry {
       THREE.LOD.prototype.update.call(lod, camera)
       animation.setVisibleLOD(lod.getCurrentLevel())
     }
+    stopBoneEulerSync(root)
     return {
       root,
       skeleton,

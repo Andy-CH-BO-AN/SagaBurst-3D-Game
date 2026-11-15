@@ -1,4 +1,4 @@
-import { CHARACTER_LOD_DISTANCES, MOUNT_ANIMATION_THROTTLE_DISTANCE, MOUNT_FAR_ANIMATION_INTERVAL } from './CharacterLODPolicy'
+import { CHARACTER_LOD_DISTANCES, mountAnimationInterval } from './CharacterLODPolicy'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -9,6 +9,7 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 import { setHorseCorneaTransmission } from './HorseCorneaMaterial'
 import { shouldHorseCastShadow } from './HorseShadowPolicy'
 import { primeSkinnedTemplateBounds } from './SkinnedTemplateBounds'
+import { stopBoneEulerSync } from './BoneEulerSync'
 
 export type HorseAnimationState =
   | 'idle'
@@ -385,9 +386,10 @@ class HorseAnimationController {
   update(dt: number, cameraDistance = 0): void {
     if (!Number.isFinite(dt) || dt <= 0 || this.paused) return
     let step = dt
-    if (cameraDistance > MOUNT_ANIMATION_THROTTLE_DISTANCE) {
+    const interval = mountAnimationInterval(cameraDistance)
+    if (interval > 0) {
       this.farAccumulator += dt
-      if (this.farAccumulator < MOUNT_FAR_ANIMATION_INTERVAL) return
+      if (this.farAccumulator < interval) return
       step = this.farAccumulator
       this.farAccumulator = 0
     }
@@ -464,6 +466,7 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
     () => appearanceVariant,
     template.manifest,
   )
+  stopBoneEulerSync(root)
 
   return {
     root,

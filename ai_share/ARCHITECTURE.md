@@ -86,14 +86,15 @@ Career 城鎮劇情事件（`CareerStoryEvents`／`CareerStoryGuidance`／`TownS
 - NPC 持有裝備在 LOD2 關閉 castShadow，LOD0/1 還原第一次登記的原值；重建盾牌立即沿用目前 level。Player、飛行物、掉落物、人物與坐騎不屬於此 policy。
 - `WeaponMeshFactory` 的公開 builder 與 `CharacterBowVisual` 完成後由 `EquipmentGeometryRegistry` 把剛性 mesh 指向內容逐位元相同的共用 geometry（skinned、morph、interleaved 與非 static attribute 除外）。共用 geometry 不可修改，也不可當作實例資源 dispose；自行銷毀零件的 owner 先檢查 `isSharedEquipmentGeometry`。
 - 人物與戰馬的共享 GLB 模板在第一次 clone 前由 `primeSkinnedTemplateBounds` 以完整蒙皮算一次 `SkinnedMesh.boundingSphere`（rest pose，半徑 ×1.2），實例與 Roman LOD2 合併 mesh 沿用；clone 與 `configureMultiInfluenceSkinning` 不再逐實例 CPU 蒙皮重算。四足坐騎與巨鷹仍用各自的固定 bounds。
-- 遠距（>28m）人物的 explicit `seek`（拉弓 `bowLoad`、`pilumThrow`）與一般動畫共用 `deferFarHumanoidPose` 的 1/12 秒節奏：同一 state 仍綁定時沿用上次全 level 取樣；蓄力／投擲進度仍由 gameplay 計時。
+- 人物取樣節奏由 `CharacterLODPolicy.humanoidPoseInterval` 決定：≤28m 每幀、>28m 12Hz、>55m 6Hz；近戰動作傳入距離 0，永不降頻。explicit `seek`（拉弓 `bowLoad`、`pilumThrow`）共用同一節奏：同一 state 仍綁定時沿用上次全 level 取樣；蓄力／投擲進度仍由 gameplay 計時。
+- 人物、戰馬與四足坐騎實例的 `THREE.Bone` 由 `stopBoneEulerSync` 停止 quaternion→Euler 同步：骨骼只能讀寫 `.quaternion`；整組寫入 `.rotation.set(x, y, z)`（`setRigRotation`）仍會更新 quaternion，但不可單軸寫入或讀取骨骼 `.rotation`。
 
 ## 坐騎
 
 - `Mount` 是 HP、移動、碰撞、跳躍、衝撞、死亡／下馬與存檔的權威；`HorseAssetRegistry`、`BlackCatVisual`、`SnowLeopardVisual`、`CorgiVisual`、`XongkoroVisual` 負責資產與動畫，保留原 save IDs。
 - `QuadrupedAssetPreload` 集中 Black Cat／Snow Leopard／Corgi 的 manifest／GLB 驗證、並行預載共用與失敗重試；各 Visual 提供路徑、body 前綴與模板發布。全部必要 clips／LOD／seat 通過後才發布模板，失敗後下次預載重新讀取，Black Cat 與 Snow Leopard 的實例、LOD 及動畫共用 `QuadrupedVisual`；Snow Leopard 必須具備完整七段 baked clips。
 - 地面坐騎只有 LOD0 投射陰影：戰馬依 `HorseShadowPolicy` 名單，Black Cat／Snow Leopard 由 `QuadrupedVisual` 依 LOD level 設定（LOD1/2 不投影）。
-- 戰馬與 Black Cat／Snow Leopard 共用 `CharacterLODPolicy` 的遠距坐騎節奏（>35m 以 15Hz 推進 mixer）；`QuadrupedVisual` 不再強制更新整棵世界矩陣。遠距騎士在坐騎姿勢未推進時，由 `SkinnedSeatContact.reapply` 沿用上次量得的座位修正。
+- 戰馬與 Black Cat／Snow Leopard 共用 `CharacterLODPolicy.mountAnimationInterval`（>35m 15Hz、>55m 6Hz 推進 mixer）；`QuadrupedVisual` 不再強制更新整棵世界矩陣。遠距騎士在坐騎姿勢未推進時，由 `SkinnedSeatContact.reapply` 沿用上次量得的座位修正。
 - `ARMORED_HORSE`／Career ID `armored-horse` 是獨立重甲戰馬，使用 `HorseAssetRegistry` 的獨立模板、原戰馬 70 骨架／九動畫與三層 LOD；不替換普通馬。10.5 m/s、HP 600、售價 8,000 軍功，重甲馬的加速／轉向限制在既有 `Mount` controlled movement owner 處理，Player／NPC 共用。
 - `MountArmor` 以獨立 `ShieldState` 重用 `absorb()` 和 `weaponShieldImpact()`：重甲馬／雪豹 50 Impact，其餘 0。`DamageRouter.damageMount` 只對武器 melee／projectile 消耗護甲；自然鷹擊、墜落、地形與 mount-impact 沿原 HP 路徑。騎士 body／盾接觸不消耗馬甲，也不受馬甲保護。Game 與 Town 所有武器命中坐騎的 caller 都須保留武器 ID／攻擊者騎乘狀態。
 - 玩家馬甲耐久在 `CareerProfile.mountArmor`、任務 `mountState.armorImpact` 與 mounted RPG save 保存；NPC／借用角色在既有 mount resource checkpoint 保存 `armorImpactRemaining`，決鬥、賽馬的既有資源快照亦保留。現行耐久狀態按 writer 保存，已存 0 必須保留；只有 respawn／正式 refit／rest 重設。純護甲受擊也須觸發資源 checkpoint。
