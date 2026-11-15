@@ -10,6 +10,7 @@ import { setHorseCorneaTransmission } from './HorseCorneaMaterial'
 import { shouldHorseCastShadow } from './HorseShadowPolicy'
 import { primeSkinnedTemplateBounds } from './SkinnedTemplateBounds'
 import { stopBoneEulerSync } from './BoneEulerSync'
+import { hideBoneOnlySubtrees } from './BoneRenderTraversal'
 
 export type HorseAnimationState =
   | 'idle'
@@ -471,6 +472,7 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
     template.manifest,
   )
   stopBoneEulerSync(root)
+  hideBoneOnlySubtrees(root)
 
   return {
     root,

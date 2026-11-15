@@ -6,6 +6,7 @@ import { officialCommandHudLabel } from './career/CommanderTownSquadLabels'
 import { stageMissionReturnRebuild } from './career/CareerMissionReturnRecovery'
 import { markCareerMissionReturnToSergeant } from './town/SergeantReturn'
 import { townRoster } from './town/TownRules'
+import { RANGER_HORSE_ARCHER_HERO_ASSETS, RANGER_HORSE_ARCHER_MOUNTS, createRangerHorseArcherScenarioPlan, rangerHorseArcherEquipmentIds } from './career/RangerHorseArcherScenario'
 import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, careerFieldTacticalOrder, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, dispatchFelineVanguardCharge, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { prepareByzantineEquipment, preloadHighTierEquipment } from './world/HighTierEquipment'
 import { outpostCheckpointHeight } from './campaign/OutpostRampartGarrison'
@@ -149,6 +150,7 @@ import {
   PRESET_SCENARIO_H,
   PRESET_SCENARIO_I,
   PRESET_SCENARIO_K,
+  PRESET_SCENARIO_L,
   PRESET_SCENARIO_J,
 } from './battle/BattleConfig'
 import {
@@ -362,6 +364,12 @@ import {
   horseVariantFromSave,
 } from './world/HorseAssetRegistry'
 
+/** `?devcombat=l`: 300v300 Six Feline Ranger horse archers. */
+function isRangerHorseArcherScenario(devcombat: string | null | undefined): boolean {
+  const value = devcombat?.toLowerCase()
+  return value === 'l' || value === 'scenariol'
+}
+
 export class Game {
   readonly combatEvents = new CombatEventStream()
   readonly battleStats: BattleStatsTracker
@@ -436,6 +444,8 @@ export class Game {
       const ownsCareerT4Bow = personalProfile?.ownedWeapons.includes(T4_RANGER_BOW_RANGED_ID) ?? false
       const usesPersonalT4Bow = personalMembers.some(member => member.type === 'ranger' || member.equipment?.ranged === T4_RANGER_BOW_RANGED_ID)
       const isFelineLaunch = Boolean(battleConfig?.careerFelineMissionId)
+      const rangerHorseArcherPlan = !trainingGround && isRangerHorseArcherScenario(query.get('devcombat'))
+        ? createRangerHorseArcherScenarioPlan() : null
       const felineVariants = new Set<FelineMountVariant>(trainingGround ? FELINE_MOUNT_VARIANTS : ['black-cat'])
       if (battleConfig?.careerFelineMissionId) for (const variant of ['white-cat', 'orange-cat', 'serval', 'caracal'] as const) felineVariants.add(variant)
       const devModelFeline = felineVariantFromMountId(query.get('devmodels'))
@@ -452,6 +462,7 @@ export class Game {
         const memberFeline = felineVariantFromMountId(member.equipment?.mount)
         if (memberFeline) felineVariants.add(memberFeline)
       }
+      if (rangerHorseArcherPlan) for (const variant of RANGER_HORSE_ARCHER_MOUNTS) felineVariants.add(variant)
       if (!campaignConfig && battleConfig) {
         felineVariants.add('black-cat').add('white-cat').add('orange-cat').add('serval').add('caracal')
       }
@@ -471,9 +482,10 @@ export class Game {
         game.clock.start(); requestAnimationFrame(game._loop)
         return game
       }
-      await Promise.all([prepareByzantineEquipment([...heavyPreload.equipmentIds, ...(battleConfig && !campaignConfig ? (['viking', 'roman'] as const).flatMap(faction => { const army = normalizeArmyConfig(battleConfig[faction], faction); return [...t5EquipmentIdsForArmy(army), ...t4EquipmentIdsForArmy(army)] }) : []), battleConfig?.playerLoadout?.meleeWeaponId, battleConfig?.playerLoadout?.shieldId, personalProfile?.equipment?.melee, personalProfile?.equipment?.shield, ...personalMembers.flatMap(member => { const { loadout } = personalMemberLoadout(member, personalProfile!.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
+      await Promise.all([prepareByzantineEquipment([...heavyPreload.equipmentIds, ...(rangerHorseArcherPlan ? rangerHorseArcherEquipmentIds(rangerHorseArcherPlan) : []), ...(battleConfig && !campaignConfig ? (['viking', 'roman'] as const).flatMap(faction => { const army = normalizeArmyConfig(battleConfig[faction], faction); return [...t5EquipmentIdsForArmy(army), ...t4EquipmentIdsForArmy(army)] }) : []), battleConfig?.playerLoadout?.meleeWeaponId, battleConfig?.playerLoadout?.shieldId, personalProfile?.equipment?.melee, personalProfile?.equipment?.shield, ...personalMembers.flatMap(member => { const { loadout } = personalMemberLoadout(member, personalProfile!.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
       const heroAssets = new Set<HeroAssetId>()
       if (trainingGround) heroAssets.add('maki-archer-t4')
+      if (rangerHorseArcherPlan) for (const assetId of RANGER_HORSE_ARCHER_HERO_ASSETS) heroAssets.add(assetId)
       const validationHero = import.meta.env.DEV && trainingGround ? commanderValidationHero(query) : undefined
       if (validationHero) heroAssets.add(validationHero)
       const benchmarkSettings = import.meta.env.DEV && !trainingGround ? parseHeroBenchmarkQuery(query) : null
@@ -1187,9 +1199,12 @@ export class Game {
         scenarioConfig = PRESET_SCENARIO_J
       } else if (devVal === 'k' || devVal === 'scenariok') {
         scenarioConfig = PRESET_SCENARIO_K
+      } else if (isRangerHorseArcherScenario(devVal)) {
+        scenarioConfig = PRESET_SCENARIO_L
       }
       activeBattleConfig = scenarioConfig
-      battlePlan = BattleSpawner.createSpawnPlan(scenarioConfig)
+      battlePlan = scenarioConfig === PRESET_SCENARIO_L
+        ? createRangerHorseArcherScenarioPlan(scenarioConfig) : BattleSpawner.createSpawnPlan(scenarioConfig)
     } else if (battleConfig) {
       battlePlan = BattleSpawner.createSpawnPlan(battleConfig, obstacles)
     }
@@ -1412,9 +1427,10 @@ export class Game {
           attackerFaction: 'viking',
         })
       } else {
-        // Scenario K charges both armies so its benchmark covers the approach and the melee;
+        // Scenarios K and L charge both armies so their benchmarks cover the approach and the fight;
         // other DEV combat scenarios remain controllable test battlefields.
-        const devOrder = startupDevCombat === 'k' || startupDevCombat === 'scenariok' ? 'charge' : 'defend'
+        const devOrder = startupDevCombat === 'k' || startupDevCombat === 'scenariok'
+          || isRangerHorseArcherScenario(startupDevCombat) ? 'charge' : 'defend'
         for (const npc of this.npcs) npc.setTacticalOrder(devOrder)
       }
       if (this.activeRenderProbe === 'simple-material') {

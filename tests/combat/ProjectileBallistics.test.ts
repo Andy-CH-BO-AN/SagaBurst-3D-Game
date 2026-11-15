@@ -305,6 +305,21 @@ describe('shared live projectile first contact', () => {
     expect(hit!.point.x).toBeCloseTo(.05)
   })
 
+  it('keeps a long sweep\'s far-end body, culls targets beyond reach of the whole segment and breaks grouped ties in order', () => {
+    const query = new ProjectileContactQuery(), from = new THREE.Vector3(0, 41, 0), to = new THREE.Vector3(20, 41, 0)
+    const lead = contactBody(19.5), tie = contactBody(19.5), remote = contactBody(10)
+    remote.group.position.z = 4.5
+    const admitted: unknown[] = []
+    const input = { world: { kind: 'battle' as const, travelledDistance: 1 }, obstacles: [],
+      targets: { groups: [[remote], [lead], [tie]] },
+      acceptsTarget: (target: typeof lead) => { admitted.push(target); return target.available } }
+    expect(query.find(from, to, input)).toMatchObject({ kind: 'actor', target: lead })
+    // 4.5 m from every point of the segment: rejected before admission is ever read.
+    expect(admitted).toEqual([lead, tie])
+    lead.available = false
+    expect(query.find(from, to, input)).toMatchObject({ kind: 'actor', target: tie })
+  })
+
   it('keeps Town siege tolerance and catches a practice target just beyond the tip after live blockers disappear', () => {
     const query = new ProjectileContactQuery(), from = new THREE.Vector3(0, 40, 0), to = new THREE.Vector3(1, 40, 0)
     const wall: ObstacleData = { isBarricade: false,

@@ -323,13 +323,15 @@ function felineGroupSlots(plan: BattleSpawnPlan, faction: CareerProfile['faction
   return plan.npcSpecs.filter(spec => spec.characterFaction === faction && spec.presetId === presetId)
 }
 
+/** `rangerKit` selects the Six Feline Ranger weapons; Commander VI/VII give them to friendlies only. */
 function felineT4Spec(template: NpcSpawnSpec, actorId: string, faction: CareerProfile['faction'],
-  allegiance: Faction, role: FelineCavalryRole, mountId: string, squadId?: NpcSpawnSpec['squadId']): NpcSpawnSpec {
+  allegiance: Faction, role: FelineCavalryRole, mountId: string, squadId?: NpcSpawnSpec['squadId'],
+  rangerKit = allegiance === Faction.PLAYER): NpcSpawnSpec {
   const presetId = felineRolePreset(faction, role)
   const hero = T4_UNIT_PROFILES[presetId]
   const baseLoadout = resolveT4UnitLoadout(presetId)
   let loadout: UnitLoadout
-  if (allegiance === Faction.PLAYER) {
+  if (rangerKit) {
     if (role === 'horse_archer') {
       loadout = {
         ...baseLoadout,
@@ -359,10 +361,11 @@ function felineT4Spec(template: NpcSpawnSpec, actorId: string, faction: CareerPr
 }
 
 function felineT5Spec(template: NpcSpawnSpec, actorId: string, faction: CareerProfile['faction'],
-  allegiance: Faction, role: FelineCavalryRole, mountId: string, squadId?: NpcSpawnSpec['squadId']): NpcSpawnSpec {
+  allegiance: Faction, role: FelineCavalryRole, mountId: string, squadId?: NpcSpawnSpec['squadId'],
+  rangerKit = allegiance === Faction.PLAYER): NpcSpawnSpec {
   const asset = townCommanderHeroAsset(faction)
   const commander = careerCommanderLoadout(faction)
-  const loadout: UnitLoadout = allegiance === Faction.PLAYER
+  const loadout: UnitLoadout = rangerKit
     ? (role === 'lancer'
         ? { ...commander, meleeWeaponId: 'spear_t5', rangedWeaponId: 'bow_t5', mountId }
         : { ...commander, rangedWeaponId: 'bow_t5', mountId })
@@ -379,12 +382,14 @@ function felineT5Spec(template: NpcSpawnSpec, actorId: string, faction: CareerPr
   }
 }
 
-export function felineFriendlyMountId(role: FelineCavalryRole, tier: 4 | 5, indexInGroup: number): string {
+/** Horse archers split their group into thirds: black, white, then orange cats (20/20/20 in Commander VI). */
+export function felineFriendlyMountId(role: FelineCavalryRole, tier: 4 | 5, indexInGroup: number, groupCount = 60): string {
   if (tier === 5) return 'snow-leopard'
   if (role === 'melee') return 'caracal'
   if (role === 'lancer') return 'serval'
-  if (indexInGroup < 20) return 'black-cat'
-  if (indexInGroup < 40) return 'white-cat'
+  const third = groupCount / 3
+  if (indexInGroup < third) return 'black-cat'
+  if (indexInGroup < third * 2) return 'white-cat'
   return 'orange-cat'
 }
 
@@ -403,6 +408,20 @@ function felineFriendlyRangerSpec(spec: NpcSpawnSpec): NpcSpawnSpec {
     aiType: AIType.RANGED,
     loadout: { ...spec.loadout, rangedWeaponId: 'bow_t5', reversibleRangedSwitch: true },
   }
+}
+
+/** One Six Feline Ranger exactly as Commander VI/VII field their friendlies, for either allegiance. */
+export function felineRangerCavalrySpec(template: NpcSpawnSpec, actorId: string, faction: CareerProfile['faction'],
+  allegiance: Faction, role: FelineCavalryRole, tier: 4 | 5, mountId: string): NpcSpawnSpec {
+  const spec = tier === 4
+    ? felineT4Spec(template, actorId, faction, allegiance, role, mountId, template.squadId, true)
+    : felineT5Spec(template, actorId, faction, allegiance, role, mountId, template.squadId, true)
+  return felineFriendlyRangerSpec(spec)
+}
+
+/** Template slots of one role, in spawn-plan order. */
+export function felineRoleTemplateSlots(plan: BattleSpawnPlan, faction: CareerProfile['faction'], role: FelineCavalryRole): NpcSpawnSpec[] {
+  return felineGroupSlots(plan, faction, role)
 }
 
 function expandFelineSide(
