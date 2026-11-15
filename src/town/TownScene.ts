@@ -328,7 +328,9 @@ export class TownScene {
   private residentSpawnBatch?: NpcSpawnBatch
   private commanderReturnPending = false
   private get deploymentReady(): boolean {
-    return (this.mission?.ready ?? true) && (this.defense?.ready ?? true)
+    // An idle Commander controller has no deployed roster. Only its active
+    // mission may hold Town simulation while that roster is being prepared.
+    return (this.mission?.ready ?? true) && (!this.defense?.active || this.defense.ready)
       && (!(isCommanderTownMission(this.profile.activeMission) || this.profile.activeMission?.kind === 'commander-four-gate-defense') || (this.personalSquad?.ready ?? true))
   }
   private get deploymentFailed(): boolean {
