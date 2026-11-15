@@ -650,7 +650,7 @@ export class Mount {
         this.proceduralVisual.playOnce('land')
       }
       this.proceduralVisual.setLocomotion(this.movementSpeed)
-      this.proceduralVisual.update(dt)
+      this.updateProceduralVisual(dt)
     }
     if (this.horseVisual) {
       if (this.horseLanding.update(dt, this.onGround, this.group.position.y, this.pendingJumpLanding)) {
@@ -662,6 +662,12 @@ export class Mount {
       this.horseVisual.update(dt, this.cameraDistance)
       if (import.meta.env.DEV && collector) { collector.endPhase('mountHorseAnimation', _tHorseAnimation!) }
     }
+  }
+
+  private updateProceduralVisual(dt: number): void {
+    const quadruped = this.catVisual ?? this.snowLeopardVisual
+    if (quadruped) quadruped.update(dt, this.cameraDistance)
+    else this.corgiVisual?.update(dt)
   }
 
   canImpact(target: object, now: number): boolean {
@@ -701,7 +707,7 @@ export class Mount {
         }
       }
       if (this.horseVisual) this.horseVisual.update(dt, this.cameraDistance)
-      else if (this.proceduralVisual) this.proceduralVisual.update(dt)
+      else if (this.proceduralVisual) this.updateProceduralVisual(dt)
       else this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
       this.deathTimer -= dt
       if (this.deathTimer <= 0) {
@@ -717,7 +723,7 @@ export class Mount {
 
     if (this.visualHold) {
       this.onGround = true
-      this.proceduralVisual?.update(dt)
+      this.updateProceduralVisual(dt)
       if (this.horseVisual) this.horseVisual.update(dt, this.cameraDistance)
       this.eagleVisual?.update(dt, { flying: false, sprinting: false, attackWeight: 0, dead: false, groundClearance: 0 })
       return

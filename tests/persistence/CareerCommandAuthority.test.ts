@@ -57,6 +57,27 @@ function commanderAuthority(): OfficialCommandAuthority {
   ])
 }
 
+describe('official squad lookup cache', () => {
+  it('follows replaced squads, in-place roster growth and rank changes on the same authority object', () => {
+    const authority: OfficialCommandAuthority = { type: 'mission-official', missionId: 'm', townFaction: 'roman', squadId: 1,
+      commandRank: 'commander', actorIds: ['a', 'b', 'c'], contribution: emptyPersonalContribution(),
+      squads: [{ squadId: 1, actorIds: ['a'] }, { squadId: 2, actorIds: ['b', 'a'] }], commandedSquadIds: [2] }
+    // First listed squad wins; listed-but-unassigned and unlisted actors have no squad.
+    expect(['a', 'b', 'c', 'x'].map(id => officialActorSquadId(authority, id))).toEqual([1, 2, undefined, undefined])
+    expect(officialCommandIsPlayerControlled(authority, 'b')).toBe(true)
+    // Saved edits replace arrays on the same object (TownProfileCommit, TownDefenseController).
+    authority.squads = [{ squadId: 3, actorIds: ['c', 'b'] }]
+    authority.actorIds = authority.actorIds.filter(id => id !== 'a')
+    expect(['a', 'b', 'c'].map(id => officialActorSquadId(authority, id))).toEqual([undefined, 3, 3])
+    expect(officialCommandIsPlayerControlled(authority, 'b')).toBe(false)
+    // Roster construction pushes into an existing squad list.
+    authority.actorIds.push('d'); authority.squads[0].actorIds.push('d')
+    expect(officialActorSquadId(authority, 'd')).toBe(3)
+    delete authority.commandRank
+    expect(['b', 'd'].map(id => officialActorSquadId(authority, id))).toEqual([1, 1])
+  })
+})
+
 describe('Commander saved command grant', () => {
   it('migrates the authored peaceful army by actor identity and releases old air claims without healing or resetting cooldowns', () => {
     const profile = createCareerProfile('roman')

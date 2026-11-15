@@ -95,6 +95,8 @@ const EXTERNAL_GARRISON_RETURN_ID = -4401
  * NPC callbacks run synchronously and carry the actual actor to TownScene's damage/projectile routing.
  * Grids and neighbor storage live here. Controller roster/peer semantics and checkpoints are unchanged.
  */
+type ExternalThreatAssignmentOptions = { enemyTownScouts?: readonly NPC[]; player?: Player; roamingOnly?: boolean; nativeEnemyTown?: boolean }
+
 export class TownMissionCombat {
   private readonly grid = new SpatialGrid<NPC>(4)
   private readonly defenseEnemyGrid = new SpatialGrid<NPC>(8)
@@ -116,6 +118,8 @@ export class TownMissionCombat {
   private readonly protectionCandidates: NPC[] = []
   private readonly runtimeActors: NPC[] = []
   private readonly eagleThreatCandidates = new Set<NPC | Player>()
+  /** Live only while external threats are reassigned; other callers keep live roster reads. */
+  private threatOwnershipSnapshot: { command: ReadonlySet<NPC>; fieldFriendlies: ReadonlySet<NPC>; defense: ReadonlySet<NPC> | null } | null = null
   private readonly eagleThreatTargets = new Map<NPC, NPC | Player>()
   private eagleSensorRemaining = 0
   private eagleSensorReady = true
@@ -741,7 +745,18 @@ export class TownMissionCombat {
     this.town.careerMounts.update(dt)
   }
 
-  private updateExternalThreatAssignments(options: { enemyTownScouts?: readonly NPC[]; player?: Player; roamingOnly?: boolean; nativeEnemyTown?: boolean } = {}): void {
+  private updateExternalThreatAssignments(options: ExternalThreatAssignmentOptions = {}): void {
+    // This pass reassigns threats only (no combat, deaths or command changes), so
+    // per-resident ownership checks may share one roster snapshot.
+    this.threatOwnershipSnapshot = {
+      command: new Set(this.town.commandActors?.() ?? []),
+      fieldFriendlies: new Set(this.missions.field.friendlies),
+      defense: this.missions.defense.active ? new Set(this.missions.defense.fieldNpcs) : null,
+    }
+    try { this.assignExternalThreats(options) } finally { this.threatOwnershipSnapshot = null }
+  }
+
+  private assignExternalThreats(options: ExternalThreatAssignmentOptions): void {
     const { field } = this.missions
     const enemyTownScouts = options.enemyTownScouts
     const outskirts = this.town.outskirts?.()
@@ -907,10 +922,11 @@ export class TownMissionCombat {
   private externalThreatHasOtherOwner(npc: NPC, respectOrders = false): boolean {
     const returning = this.garrisonReturns.has(npc)
       && npc.formationCommandId === EXTERNAL_GARRISON_RETURN_ID
+    const snapshot = this.threatOwnershipSnapshot
     return Boolean(this.externalRampartActors.has(npc) && !npc.isTownRampartGarrisonActive
-      || this.town.commandActors?.().includes(npc) || this.town.ownsPeacefulTravel?.(npc)
-      || this.missions.field.friendlies.includes(npc) || this.missions.duel.isMissionActor(npc)
-      || this.missions.defense.active && this.missions.defense.fieldNpcs.includes(npc)
+      || (snapshot ? snapshot.command.has(npc) : this.town.commandActors?.().includes(npc)) || this.town.ownsPeacefulTravel?.(npc)
+      || (snapshot ? snapshot.fieldFriendlies.has(npc) : this.missions.field.friendlies.includes(npc)) || this.missions.duel.isMissionActor(npc)
+      || this.missions.defense.active && (snapshot?.defense ? snapshot.defense.has(npc) : this.missions.defense.fieldNpcs.includes(npc))
       || respectOrders && !returning && (npc.missionMovement || npc.formationCommandId != null
         || npc.tacticalOrder === 'follow' || npc.tacticalOrder === 'formation'
         || npc.tacticalOrder === 'charge' && !this.externalThreatActors.has(npc)))
