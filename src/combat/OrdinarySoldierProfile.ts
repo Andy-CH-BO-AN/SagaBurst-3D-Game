@@ -35,11 +35,7 @@ export function resolveOrdinaryNpcHp(identity: OrdinaryNpcIdentity, fallback: nu
 /** Optional playerHp means an explicit override; generated defaults carry a source tag. */
 export function resolveOrdinaryPlayerBaseHp(faction: SoldierFaction, tier: OrdinarySoldierTier,
   config?: { playerHp?: number; playerHpSource?: 'default' | 'custom' }): number {
-  return config?.playerHp !== undefined && config.playerHpSource !== 'default'
+  return config?.playerHp !== undefined && config.playerHpSource === 'custom'
     ? config.playerHp : getOrdinarySoldierHp(faction, tier)
 }
 
-/** Older serialized setup data cannot distinguish generated HP from deliberate overrides. */
-export function needsPlayerHpConfirmation(config: { playerHp?: number; playerHpSource?: 'default' | 'custom'; playerHeroId?: string | null }): boolean {
-  return !config.playerHeroId && config.playerHp !== undefined && config.playerHpSource === undefined
-}

@@ -12,34 +12,34 @@
  * - Camp supply and horses verification.
  * - Squad shortcut key mappings.
  */
-import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
+import { describe,expect,it } from 'vitest'
+import { AerialFormationPlanner } from '../../src/battle/AerialFormationPlanner'
 import {
-  BattleConfig,
-  createEmptyArmyConfig,
-  validateBattleConfig,
+BattleConfig,
+createEmptyArmyConfig,
+validateBattleConfig,
 } from '../../src/battle/BattleConfig'
 import { BattleSpawner } from '../../src/battle/BattleSpawner'
-import { SquadFormationPlanner } from '../../src/battle/SquadFormationPlanner'
-import { AerialFormationPlanner } from '../../src/battle/AerialFormationPlanner'
-import { BattleSetupUI } from '../../src/ui/BattleSetupUI'
-import { getCustomBattlePresetsForFaction, getUnitPresetsForFaction } from '../../src/battle/UnitPresetCatalog'
-import { mountTypeFromId, MountType } from '../../src/world/Mount'
 import {
-  squadShortcutKey,
-  SquadId,
+SquadId,
+squadShortcutKey,
 } from '../../src/battle/CommandTarget'
+import { SquadFormationPlanner } from '../../src/battle/SquadFormationPlanner'
 import {
-  T4_RANDOM_MOUNTS,
-  T5_RANDOM_MOUNTS,
-  getCustomBattleMount,
+T4_RANDOM_MOUNTS,
+T5_RANDOM_MOUNTS,
+getCustomBattleMount,
 } from '../../src/battle/T5HeroCatalog'
+import { getCustomBattlePresetsForFaction,getUnitPresetsForFaction } from '../../src/battle/UnitPresetCatalog'
+import { BattleSetupUI } from '../../src/ui/BattleSetupUI'
+import { MountType,mountTypeFromId } from '../../src/world/Mount'
 
 function makeGroundConfig(vikingTotal: number, romanTotal: number = 10): BattleConfig {
-  const vikingArmy = createEmptyArmyConfig()
-  vikingArmy.infantry[1] = vikingTotal
-  const romanArmy = createEmptyArmyConfig()
-  romanArmy.infantry[1] = romanTotal
+  const vikingArmy = createEmptyArmyConfig('viking')
+  vikingArmy.viking_berserker![1] = vikingTotal
+  const romanArmy = createEmptyArmyConfig('roman')
+  romanArmy.roman_heavy_infantry![1] = romanTotal
 
   return {
     battleType: 'ground',
@@ -100,12 +100,12 @@ describe('Custom Battle: Ground Battle Limits and Tiers', () => {
 
   it('allows arbitrary combinations of T1..T5 with no unit limit, validating loadouts, mounts and combat profiles including heavy cavalry', () => {
     const config = makeGroundConfig(0, 50)
-    const vikingArmy = createEmptyArmyConfig()
-    vikingArmy.infantry[1] = 50
-    vikingArmy.infantry[2] = 50
-    vikingArmy.infantry[3] = 50
-    vikingArmy.infantry[4] = 70 // More than old limit of 3!
-    vikingArmy.infantry[5] = 75 // T5 allowed freely
+    const vikingArmy = createEmptyArmyConfig('viking')
+    vikingArmy.viking_berserker![1] = 50
+    vikingArmy.viking_berserker![2] = 50
+    vikingArmy.viking_berserker![3] = 50
+    vikingArmy.viking_berserker![4] = 70 // More than old limit of 3!
+    vikingArmy.viking_berserker![5] = 75 // T5 allowed freely
     config.viking = vikingArmy
     // Add Roman & Viking heavy cavalry across T1..T5 (5 units, keeping total Viking = 300)
     config.roman = { ...config.roman, roman_heavy_cavalry: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 } }
@@ -232,9 +232,9 @@ describe('Custom Battle: Cavalry Mount Assignments and Seed Repeatability', () =
 
     // Within a battle, T4 and T5 NPCs receive independent mount draws from their tier pools
     const config = makeGroundConfig(0, 10)
-    const vikingArmy = createEmptyArmyConfig()
-    vikingArmy.cavalry[4] = 20
-    vikingArmy.cavalry[5] = 20
+    const vikingArmy = createEmptyArmyConfig('viking')
+    vikingArmy.viking_lancer![4] = 20
+    vikingArmy.viking_lancer![5] = 20
     config.viking = vikingArmy
     config.seed = 99999
 
@@ -296,8 +296,8 @@ describe('Custom Battle: Squad Formation Layout Rules', () => {
 
   it('maintains safe distance >= 4.0m between mounted units in 50-unit cavalry squads', () => {
     const config = makeGroundConfig(0, 10)
-    const vikingArmy = createEmptyArmyConfig()
-    vikingArmy.cavalry[3] = 50
+    const vikingArmy = createEmptyArmyConfig('viking')
+    vikingArmy.viking_lancer![3] = 50
     config.viking = vikingArmy
 
     const plan = SquadFormationPlanner.planCustomBattle(config)

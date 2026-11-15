@@ -2,28 +2,28 @@
  * BattleConfig.ts
  * Core domain types, validation, presets, and combat mapping rules for Custom Battle.
  */
-import { AIType } from '../world/NpcAIType'
-import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
+import { COMBAT_BALANCE,getRangedCombatKind,getRangedDamageMultiplier } from '../combat/CombatBalance'
+import { T4_RANGER_BOW_RANGED_ID,WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
+import { isHeroAssetId,isSetupPlayerHeroId,type PlayerHeroId } from '../world/HeroAssetCatalog'
+import { AIType } from '../world/NpcAIType'
 import {
-  MAX_CUSTOM_BATTLE_COMMAND_SQUADS,
-  MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE,
-  type CommandGroupingMode,
-  type SquadAssignment,
+MAX_CUSTOM_BATTLE_COMMAND_SQUADS,
+MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE,
+type CommandGroupingMode,
+type SquadAssignment,
 } from './CommandTarget'
-import { COMBAT_BALANCE, getRangedCombatKind, getRangedDamageMultiplier } from '../combat/CombatBalance'
 import {
-  UnitTier,
-  BaseUnitTier,
-  BASE_UNIT_TIERS,
-  CUSTOM_BATTLE_UNIT_TIERS,
-  UnitPresetId,
-  VikingPresetId,
-  RomanPresetId,
-  VIKING_PRESET_IDS,
-  ROMAN_PRESET_IDS,
+BASE_UNIT_TIERS,
+BaseUnitTier,
+CUSTOM_BATTLE_UNIT_TIERS,
+ROMAN_PRESET_IDS,
+RomanPresetId,
+UnitPresetId,
+UnitTier,
+VIKING_PRESET_IDS,
+VikingPresetId,
 } from './UnitPresetCatalog'
-import { isHeroAssetId, isSetupPlayerHeroId, type PlayerHeroId } from '../world/HeroAssetCatalog'
 
 /** Production Custom Battle limit. Ground battle supports 300v300; aerial supports 50v50. */
 export const MAX_CUSTOM_ARMY_SIZE = 300
@@ -36,8 +36,8 @@ export const MAX_BENCHMARK_ARMY_SIZE = 200
 export type CustomBattleCategory = 'ground' | 'aerial'
 export type CustomBattleMapId = 'original' | 'bridge' | 'roman_town' | 'snow' | 'viking_town'
 
-export type { UnitTier, UnitPresetId, VikingPresetId, RomanPresetId }
 export { CUSTOM_BATTLE_UNIT_TIERS }
+export type { RomanPresetId,UnitPresetId,UnitTier,VikingPresetId }
 export type BattleUnitType = 'infantry' | 'archer' | 'cavalry' | 'horseArcher'
 
 export interface UnitTierCounts {
@@ -48,21 +48,9 @@ export interface UnitTierCounts {
   5?: number
 }
 
-export type VikingArmyConfig = Partial<Record<VikingPresetId, UnitTierCounts>> & {
-  readonly infantry?: UnitTierCounts
-  readonly archer?: UnitTierCounts
-  readonly cavalry?: UnitTierCounts
-  readonly horseArcher?: UnitTierCounts
-}
-
-export type RomanArmyConfig = Partial<Record<RomanPresetId, UnitTierCounts>> & {
-  readonly infantry?: UnitTierCounts
-  readonly archer?: UnitTierCounts
-  readonly cavalry?: UnitTierCounts
-  readonly horseArcher?: UnitTierCounts
-}
-export type LegacyArmyConfig = Partial<Record<BattleUnitType, UnitTierCounts>>
-export type ArmyConfig = VikingArmyConfig | RomanArmyConfig
+export type VikingArmyConfig = Partial<Record<VikingPresetId, UnitTierCounts>>
+export type RomanArmyConfig = Partial<Record<RomanPresetId, UnitTierCounts>>
+export type ArmyConfig = Partial<Record<UnitPresetId, UnitTierCounts>>
 
 export interface BattleRules {
   respawnEnabled: boolean
@@ -174,62 +162,19 @@ export interface UnitCombatProfile {
   lanceMultiplier: number
 }
 
-export function attachArmyAliases(army: any, faction: CharacterFaction): any {
-  if (!army || typeof army !== 'object') return army
-  const isViking = faction === 'viking'
-  const infKey = isViking ? 'viking_berserker' : 'roman_heavy_infantry'
-  const archKey = isViking ? 'viking_archer' : (army.roman_archer ? 'roman_archer' : (army.roman_javelin_infantry ? 'roman_javelin_infantry' : 'roman_archer'))
-  const cavKey = isViking ? 'viking_lancer' : 'roman_lancer'
-  const haKey = isViking ? 'viking_horse_archer' : 'roman_horse_archer'
-
-  // Ensure underlying preset buckets exist
-  if (!army[infKey]) army[infKey] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
-  if (!army[archKey]) army[archKey] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
-  if (!army[cavKey]) army[cavKey] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
-  if (!army[haKey]) army[haKey] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
-
-  Object.defineProperties(army, {
-    infantry: {
-      get() { return this[infKey] },
-      set(v) { this[infKey] = v },
-      enumerable: false,
-      configurable: true,
-    },
-    archer: {
-      get() { return this[archKey] },
-      set(v) { this[archKey] = v },
-      enumerable: false,
-      configurable: true,
-    },
-    cavalry: {
-      get() { return this[cavKey] },
-      set(v) { this[cavKey] = v },
-      enumerable: false,
-      configurable: true,
-    },
-    horseArcher: {
-      get() { return this[haKey] },
-      set(v) { this[haKey] = v },
-      enumerable: false,
-      configurable: true,
-    },
-  })
-  return army
-}
-
-export function createEmptyVikingArmyConfig(): VikingArmyConfig {
-  return attachArmyAliases({
+export function createEmptyVikingArmyConfig(): Record<Exclude<VikingPresetId, 'viking_heavy_cavalry'>, UnitTierCounts> {
+  return {
     viking_berserker: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
     viking_spearman: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
     viking_archer: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
     viking_sword_cavalry: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
     viking_lancer: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
     viking_horse_archer: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-  }, 'viking')
+  }
 }
 
-export function createEmptyRomanArmyConfig(): RomanArmyConfig {
-  return attachArmyAliases({
+export function createEmptyRomanArmyConfig(): Record<Exclude<RomanPresetId, 'roman_heavy_cavalry'>, UnitTierCounts> {
+  return {
     roman_heavy_infantry: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
     roman_spearman: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
     roman_archer: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
@@ -237,18 +182,14 @@ export function createEmptyRomanArmyConfig(): RomanArmyConfig {
     roman_sword_cavalry: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
     roman_lancer: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
     roman_horse_archer: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-  }, 'roman')
+  }
 }
 
-export function createEmptyArmyConfig(faction?: CharacterFaction): any {
-  if (faction === 'viking') return createEmptyVikingArmyConfig()
-  if (faction === 'roman') return createEmptyRomanArmyConfig()
-  return {
-    infantry: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-    archer: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-    cavalry: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-    horseArcher: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-  }
+export function createEmptyArmyConfig(faction: 'viking'): ReturnType<typeof createEmptyVikingArmyConfig>
+export function createEmptyArmyConfig(faction: 'roman'): ReturnType<typeof createEmptyRomanArmyConfig>
+export function createEmptyArmyConfig(faction: CharacterFaction): ArmyConfig
+export function createEmptyArmyConfig(faction: CharacterFaction): ArmyConfig {
+  return faction === 'viking' ? createEmptyVikingArmyConfig() : createEmptyRomanArmyConfig()
 }
 
 export function createEmptyBattleConfig(): BattleConfig {
@@ -272,54 +213,8 @@ export function createDefaultPlayerLoadout(): PlayerLoadoutConfig {
   return { ...DEFAULT_PLAYER_LOADOUT }
 }
 
-export function normalizeArmyConfig(army: any, faction: CharacterFaction): Record<string, UnitTierCounts> {
-  if (!army || typeof army !== 'object') return {}
-  const normalized: Record<string, UnitTierCounts> = {}
-
-  // Check for legacy unit type keys
-  const legacyKeys = ['infantry', 'archer', 'cavalry', 'horseArcher'] as const
-  for (const [key, value] of Object.entries(army)) {
-    if (!value || typeof value !== 'object') continue
-    const counts = value as UnitTierCounts
-
-    if (legacyKeys.includes(key as any)) {
-      let mappedPresetId: string
-      if (faction === 'viking') {
-        switch (key) {
-          case 'infantry': mappedPresetId = 'viking_berserker'; break
-          case 'archer': mappedPresetId = 'viking_archer'; break
-          case 'cavalry': mappedPresetId = 'viking_lancer'; break
-          case 'horseArcher': mappedPresetId = 'viking_horse_archer'; break
-          default: mappedPresetId = key
-        }
-      } else {
-        switch (key) {
-          case 'infantry': mappedPresetId = 'roman_heavy_infantry'; break
-          case 'archer': mappedPresetId = (army.roman_javelin_infantry && !army.roman_archer) ? 'roman_javelin_infantry' : 'roman_archer'; break
-          case 'cavalry': mappedPresetId = 'roman_lancer'; break
-          case 'horseArcher': mappedPresetId = 'roman_horse_archer'; break
-          default: mappedPresetId = key
-        }
-      }
-      normalized[mappedPresetId] = {
-        1: (normalized[mappedPresetId]?.[1] || 0) + (counts[1] || 0),
-        2: (normalized[mappedPresetId]?.[2] || 0) + (counts[2] || 0),
-        3: (normalized[mappedPresetId]?.[3] || 0) + (counts[3] || 0),
-        4: (normalized[mappedPresetId]?.[4] || 0) + (counts[4] || 0),
-        5: (normalized[mappedPresetId]?.[5] || 0) + (counts[5] || 0),
-      }
-    } else {
-      normalized[key] = {
-        1: (normalized[key]?.[1] || 0) + (counts[1] || 0),
-        2: (normalized[key]?.[2] || 0) + (counts[2] || 0),
-        3: (normalized[key]?.[3] || 0) + (counts[3] || 0),
-        4: (normalized[key]?.[4] || 0) + (counts[4] || 0),
-        5: (normalized[key]?.[5] || 0) + (counts[5] || 0),
-      }
-    }
-  }
-
-  return normalized
+export function normalizeArmyConfig(army: Record<string, UnitTierCounts> | undefined, _faction: CharacterFaction): Record<string, UnitTierCounts> {
+  return army ? Object.fromEntries(Object.entries(army).map(([id, counts]) => [id, { ...counts }])) : {}
 }
 
 export function calculateArmyTotal(army: any): number {
@@ -423,6 +318,7 @@ function validateBattleConfigWithArmyLimit(
     errors.push('Invalid player visual tier')
   }
 
+  if (c.playerHp !== undefined && c.playerHpSource === undefined) errors.push('Missing playerHpSource')
   if (c.playerHpSource !== undefined && c.playerHpSource !== 'default' && c.playerHpSource !== 'custom') errors.push('Invalid playerHpSource')
   if (c.playerHp !== undefined) {
     if (typeof c.playerHp !== 'number' || !Number.isInteger(c.playerHp) || c.playerHp < 1 || c.playerHp > 9999) {
@@ -474,8 +370,7 @@ function validateBattleConfigWithArmyLimit(
       if ((forbiddenPresetIds as readonly string[]).includes(key)) {
         errors.push(`${sideName} army cannot contain foreign faction preset: ${key}`)
       } else if (
-        !(allowedPresetIds as readonly string[]).includes(key) &&
-        !['infantry', 'archer', 'cavalry', 'horseArcher'].includes(key)
+        !(allowedPresetIds as readonly string[]).includes(key)
       ) {
         errors.push(`Invalid preset id: ${key} for ${sideName} army`)
       }
@@ -687,8 +582,6 @@ export function getUnitCombatProfile(
 function definePreset(config: BattleConfig): BattleConfig {
   // Every preset HP is generated by this module, never a user override.
   if (config.playerHp !== undefined) config.playerHpSource = 'default'
-  attachArmyAliases(config.viking, 'viking')
-  attachArmyAliases(config.roman, 'roman')
   return config
 }
 

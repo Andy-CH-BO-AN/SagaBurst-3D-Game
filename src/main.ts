@@ -1,41 +1,40 @@
-import { needsPlayerHpConfirmation } from './combat/OrdinarySoldierProfile'
-import { createCareerBridgeBattleLaunch, createCareerFelineBattleLaunch, isCareerBridgeBattle, isCareerFelineBattle, recoverClaimedCareerBridgeBattle, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
-import { createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerCombatLaunch } from './career/CaptainBattleLaunch'
-import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './career/CaptainMissionCatalog'
+import { createCaptainEagleLaunch,createCaptainFrontlineLaunch,type CareerCombatLaunch } from './career/CaptainBattleLaunch'
+import { CAPTAIN_EAGLE_BATTLE_ID,CAPTAIN_FRONTLINE_COMMAND_ID } from './career/CaptainMissionCatalog'
+import { createCareerBridgeBattleLaunch,createCareerFelineBattleLaunch,isCareerBridgeBattle,isCareerFelineBattle,recoverClaimedCareerBridgeBattle,type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 /**
  * main.ts
  * Vite entry point.
  * Implements Custom Battle Setup official entrance with developer bypass and untrusted sessionStorage validation.
  */
-import { Game } from './Game'
-import { HorseAssetLoadError } from './world/HorseAssetRegistry'
-import { enterCareerTown, recoverSettledStartupMissionReturn, TOWN_ENTRY_KEY } from './town/CareerTownEntry'
-import { CAREER_OUTPOST_SESSION_KEY, clearCareerOutpost } from './career/CareerOutpostMission'
+import { BattleConfig,validateBattleConfig } from './battle/BattleConfig'
+import {
+DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY,
+isDefenseCampaignStageUnlocked,
+parseDefenseCampaignSetupTarget,
+type DefenseCampaignSetupTarget,
+} from './campaign/CampaignProgress'
+import {
+validateDefenseCampaignLaunchConfig,
+type DefenseCampaignLaunchConfig,
+} from './campaign/DefenseCampaignLaunch'
+import { CAREER_RECOVERY_NOTICE_KEY,recoverFailedCareerMission } from './career/CareerMissionRecovery'
 import { createCareerOutpostLaunch } from './career/CareerOutpostLaunch'
+import { CAREER_OUTPOST_SESSION_KEY,clearCareerOutpost } from './career/CareerOutpostMission'
 import { clearCareerMission } from './career/CareerProfile'
-import { markCareerMissionReturnToSergeant } from './town/SergeantReturn'
-import { createCareerVeteranOutpostLaunch, isCareerVeteranOutpostMission, shouldResumeCareerVeteranOutpost } from './career/CareerVeteranOutpost'
-import { createCareerCommanderOutpostLaunch, isCareerCommanderOutpostMission } from './career/CommanderOutpost'
 import { CareerProfileStore } from './career/CareerProfileStore'
 import { shouldResumeCareerTown } from './career/CareerResumeRouting'
-import { commitCareerTutorial, deferCareerTutorial } from './career/CareerTutorial'
-import { createCareerCaptainTutorialConfig, type CareerTutorialLaunch } from './career/CareerTutorialLaunch'
-import { recoverFailedCareerMission, CAREER_RECOVERY_NOTICE_KEY } from './career/CareerMissionRecovery'
-import { BattleConfig, validateBattleConfig } from './battle/BattleConfig'
-import { BattleSetupUI } from './ui/BattleSetupUI'
-import { MainMenuUI } from './ui/MainMenuUI'
-import { CampaignSetupUI } from './ui/CampaignSetupUI'
+import { commitCareerTutorial,deferCareerTutorial } from './career/CareerTutorial'
+import { createCareerCaptainTutorialConfig,type CareerTutorialLaunch } from './career/CareerTutorialLaunch'
+import { createCareerVeteranOutpostLaunch,isCareerVeteranOutpostMission,shouldResumeCareerVeteranOutpost } from './career/CareerVeteranOutpost'
+import { createCareerCommanderOutpostLaunch,isCareerCommanderOutpostMission } from './career/CommanderOutpost'
+import { Game } from './Game'
+import { enterCareerTown,recoverSettledStartupMissionReturn,TOWN_ENTRY_KEY } from './town/CareerTownEntry'
+import { markCareerMissionReturnToSergeant } from './town/SergeantReturn'
 import { BattleReferenceUI } from './ui/BattleReferenceUI'
-import {
-  validateDefenseCampaignLaunchConfig,
-  type DefenseCampaignLaunchConfig,
-} from './campaign/DefenseCampaignLaunch'
-import {
-  DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY,
-  isDefenseCampaignStageUnlocked,
-  parseDefenseCampaignSetupTarget,
-  type DefenseCampaignSetupTarget,
-} from './campaign/CampaignProgress'
+import { BattleSetupUI } from './ui/BattleSetupUI'
+import { CampaignSetupUI } from './ui/CampaignSetupUI'
+import { MainMenuUI } from './ui/MainMenuUI'
+import { HorseAssetLoadError } from './world/HorseAssetRegistry'
 
 if (import.meta.env.DEV) void import('./debug/EquipmentRenderCensus')
 if (import.meta.env.DEV) void import('./debug/MainPassCensus')
@@ -108,8 +107,8 @@ function handleCareerMissionError(missionId: string, error: unknown): void {
   try {
     document.exitPointerLock?.()
     sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
-    sessionStorage.removeItem('sagaburst_campaign_config')
-    sessionStorage.removeItem('sagaburst_battle_config')
+    sessionStorage.removeItem('sagaburst_campaign_config_v2')
+    sessionStorage.removeItem('sagaburst_battle_config_v2')
     sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
     sessionStorage.setItem(CAREER_RECOVERY_NOTICE_KEY, '任務部署失敗，已返回城鎮。角色、私兵與軍功資料均已保留。')
     sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
@@ -300,8 +299,8 @@ async function bootstrap(): Promise<void> {
   }
   // Capture is checked before generic claimed-battle recovery can consume its original mission.
   if (!completedCareer && outpostProfile?.activeMission?.prisonBreak) {
-    sessionStorage.removeItem('sagaburst_battle_config')
-    sessionStorage.removeItem('sagaburst_campaign_config')
+    sessionStorage.removeItem('sagaburst_battle_config_v2')
+    sessionStorage.removeItem('sagaburst_campaign_config_v2')
     sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
   }
   const settleClaimedOnStartup = (
@@ -381,7 +380,7 @@ async function bootstrap(): Promise<void> {
   if (!menuOnly) sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
   let savedCampaign: DefenseCampaignLaunchConfig | null = null
   try {
-    const raw = menuOnly ? null : sessionStorage.getItem('sagaburst_campaign_config')
+    const raw = menuOnly ? null : sessionStorage.getItem('sagaburst_campaign_config_v2')
     if (raw) {
       const parsed = JSON.parse(raw)
       const validation = validateDefenseCampaignLaunchConfig(parsed)
@@ -400,12 +399,12 @@ async function bootstrap(): Promise<void> {
         savedCampaign = parsed
       } else {
         console.warn('Invalid or locked sessionStorage campaign config, clearing:', validation.errors)
-        sessionStorage.removeItem('sagaburst_campaign_config')
+        sessionStorage.removeItem('sagaburst_campaign_config_v2')
       }
     }
   } catch (err) {
     console.warn('Failed to parse sessionStorage campaign config:', err)
-    sessionStorage.removeItem('sagaburst_campaign_config')
+    sessionStorage.removeItem('sagaburst_campaign_config_v2')
   }
 
   const careerResume = !menuOnly && shouldResumeCareerTown(outpostProfile, sessionStorage.getItem(TOWN_ENTRY_KEY) === '1')
@@ -416,7 +415,7 @@ async function bootstrap(): Promise<void> {
 
   let savedConfig: BattleConfig | null = null
   try {
-    const raw = menuOnly ? null : sessionStorage.getItem('sagaburst_battle_config')
+    const raw = menuOnly ? null : sessionStorage.getItem('sagaburst_battle_config_v2')
     if (raw) {
       const parsed = JSON.parse(raw)
       const validation = validateBattleConfig(parsed)
@@ -424,15 +423,15 @@ async function bootstrap(): Promise<void> {
         savedConfig = parsed
       } else {
         console.warn('Invalid sessionStorage battle config, clearing:', validation.errors)
-        sessionStorage.removeItem('sagaburst_battle_config')
+        sessionStorage.removeItem('sagaburst_battle_config_v2')
       }
     }
   } catch (err) {
     console.warn('Failed to parse sessionStorage battle config:', err)
-    sessionStorage.removeItem('sagaburst_battle_config')
+    sessionStorage.removeItem('sagaburst_battle_config_v2')
   }
 
-  if (savedConfig && !needsPlayerHpConfirmation(savedConfig) && !careerResume) {
+  if (savedConfig && !careerResume) {
     await launchGame(savedConfig)
     return
   }
@@ -464,9 +463,9 @@ async function bootstrap(): Promise<void> {
       document.body,
       async (config) => {
         try {
-          sessionStorage.removeItem('sagaburst_battle_config')
+          sessionStorage.removeItem('sagaburst_battle_config_v2')
           sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
-          sessionStorage.setItem('sagaburst_campaign_config', JSON.stringify(config))
+          sessionStorage.setItem('sagaburst_campaign_config_v2', JSON.stringify(config))
         } catch (e) {
           console.warn('sessionStorage set error', e)
         }
@@ -486,9 +485,9 @@ async function bootstrap(): Promise<void> {
       document.body,
       async (config) => {
         try {
-          sessionStorage.removeItem('sagaburst_campaign_config')
+          sessionStorage.removeItem('sagaburst_campaign_config_v2')
           sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
-          sessionStorage.setItem('sagaburst_battle_config', JSON.stringify(config))
+          sessionStorage.setItem('sagaburst_battle_config_v2', JSON.stringify(config))
         } catch (e) {
           console.warn('sessionStorage set error', e)
         }
@@ -528,8 +527,6 @@ async function bootstrap(): Promise<void> {
 
   if (careerResume) {
     enterCareerTown(container!, launchCareerCombat, showHome, handleCareerMissionError, launchCareerTutorial)
-  } else if (savedConfig && needsPlayerHpConfirmation(savedConfig)) {
-    showCustomBattle(savedConfig)
   } else if (requestedCampaignSetup) {
     showCampaignSetup(requestedCampaignSetup)
   } else {
