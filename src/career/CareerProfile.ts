@@ -426,6 +426,8 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.duelHighestDefeatedTierByPreset ? { duelHighestDefeatedTierByPreset: { ...profile.duelHighestDefeatedTierByPreset } } : {}),
     ...(profile.activeMission ? { activeMission: {
       ...profile.activeMission,
+      targetActorIds: [...profile.activeMission.targetActorIds],
+      friendlyActorIds: [...profile.activeMission.friendlyActorIds],
       ...(profile.activeMission.prisonBreak ? { prisonBreak: structuredClone(profile.activeMission.prisonBreak) } : {}),
       ...(profile.activeMission.duelCommanderHome ? { duelCommanderHome: { ...profile.activeMission.duelCommanderHome } } : {}),
       ...(profile.activeMission.duelTravel ? { duelTravel: structuredClone(profile.activeMission.duelTravel) } : {}),

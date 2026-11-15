@@ -29,6 +29,8 @@ import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { resolveTownActorEquipment } from '../../src/career/CareerTownEquipmentState'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
+import { COMMANDER_FOUR_GATE_DEFENSE_ID } from '../../src/career/CommanderFourGateDefenseRoster'
+import { TOWN_COMMANDER_ID, townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 
 import { acceptCommanderMission, COMMANDER_FELINE_CAVALRY_ID, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_TOTAL } from '../../src/career/CommanderMissionCatalog'
 
@@ -211,6 +213,30 @@ describe('Town mission settlement transactions', () => {
     expect(h.commit(next)).toBe(true)
     expect(write.mock.calls[0][0].activeMission!.borrowedActorIdentities).toEqual({ resident: { characterFaction: 'roman', characterTier: 2 } })
     expect(h.store.load()!.activeMission!.borrowedActorIdentities).toEqual({ resident: { characterFaction: 'roman', characterTier: 2 } })
+  })
+
+  it('isolates the Commander defense roster staged by the real Town commit when saving fails', () => {
+    const h = fixture()
+    const peaceful = cloneCareerProfile(h.read()); delete peaceful.activeMission
+    Object.assign(peaceful, careerRankFixture(peaceful.faction, 'commander'), { totalMerit: 20000, availableMerit: 20000 })
+    expect(h.store.save(peaceful)).toBe(true); h.publish(peaceful)
+    h.resident.spec = townCommanderSpec({ x: 2, z: 3, yaw: .5 })
+    Object.assign(h.residentState, { dead: false, hp: 71, combatPosition: new Vector3(2, 0, 3), combatAmmo: 3,
+      shield: { shieldImpactRemaining: 2, reset: vi.fn() } })
+    Object.assign(h.player.shield, { reset: vi.fn() })
+    h.runtime.careerMounts = { checkpoint: () => ({ hp: {}, unavailable: [] }) }
+    const next = acceptCommanderMission(peaceful, COMMANDER_FOUR_GATE_DEFENSE_ID, 'accept-defense')!
+    // The live service resident is opted in by TownProfileCommit before persistence.
+    next.activeMission!.friendlyActorIds = next.activeMission!.friendlyActorIds.filter(id => id !== TOWN_COMMANDER_ID)
+    const before = structuredClone(next), bytes = h.storage.getItem(CAREER_STORAGE_KEY)
+    const write = vi.spyOn(h.runtime.store, 'save').mockReturnValueOnce(false)
+
+    expect(h.commit(next)).toBe(false)
+    expect(write).toHaveBeenCalledOnce()
+    expect(write.mock.calls[0][0].activeMission!.friendlyActorIds).toContain(TOWN_COMMANDER_ID)
+    expect(next).toEqual(before)
+    expect(h.read()).toBe(peaceful)
+    expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
   })
 
   it('saves and applies full player HP before reentrant completed-arrival handoffs without losing flight or other resources', () => {

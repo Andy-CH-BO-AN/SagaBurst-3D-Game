@@ -174,8 +174,9 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (raw.version !== 2) return null
   if (raw.faction !== 'roman' && raw.faction !== 'viking') return null
 
-  const totalMerit = nonNegativeInteger(raw.totalMerit)
-  const availableMerit = nonNegativeInteger(raw.availableMerit)
+  const totalMerit = raw.totalMerit, availableMerit = raw.availableMerit
+  if (typeof totalMerit !== 'number' || !Number.isSafeInteger(totalMerit) || totalMerit < 0
+    || typeof availableMerit !== 'number' || !Number.isSafeInteger(availableMerit) || availableMerit < 0) return null
 
   const ownedWeapons = uniqueStrings(raw.ownedWeapons)
     .filter(id => Boolean(WEAPONS[id]))

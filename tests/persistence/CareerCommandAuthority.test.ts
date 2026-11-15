@@ -197,10 +197,14 @@ describe('Commander saved command grant', () => {
     expect(store.load()!.activeMission!.officialSquad).toEqual(authority)
     const loaded = store.load()!
     const copy = cloneCareerProfile(loaded)
+    copy.activeMission!.targetActorIds.push('not-saved-target')
+    copy.activeMission!.friendlyActorIds.push('not-saved-friendly')
     copy.activeMission!.officialSquad!.squads![1].actorIds.push('not-saved')
     copy.activeMission!.officialSquad!.commandedSquadIds!.push(1)
     copy.activeMission!.officialSquad!.members!.south.formation!.position.x = 99
     copy.activeMission!.officialSquad!.squads![1].contribution!.damageDealt = 999
+    expect(loaded.activeMission!.targetActorIds).toEqual(['army-save:bandit:0'])
+    expect(loaded.activeMission!.friendlyActorIds).toEqual(['north', 'south'])
     expect(loaded.activeMission!.officialSquad).toEqual(authority)
     expect(store.load()!.activeMission!.officialSquad).toEqual(authority)
   })

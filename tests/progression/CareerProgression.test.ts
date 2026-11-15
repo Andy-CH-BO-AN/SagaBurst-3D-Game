@@ -498,3 +498,23 @@ it('refuses unsupported or incomplete current-key data without replacing the ori
     expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
   }
 })
+
+it('rejects malformed current merit balances without zeroing or overwriting them', () => {
+  const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+  const current = createCareerProfile('roman')
+  for (const field of ['totalMerit', 'availableMerit'] as const) {
+    for (const invalid of [undefined, '100', null, NaN, Infinity, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      const malformed = { ...current, [field]: invalid }
+      expect(parseCareerProfile(malformed), `${field}: ${String(invalid)}`).toBeNull()
+      const bytes = JSON.stringify(malformed)
+      storage.setItem(CAREER_STORAGE_KEY, bytes)
+      expect(store.loadChecked()).toMatchObject({ profile: null, error: expect.any(String) })
+      expect(store.save(current)).toBe(false)
+      expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
+    }
+  }
+  storage.removeItem(CAREER_STORAGE_KEY)
+  const valid = { ...current, totalMerit: 200, availableMerit: 37 }
+  expect(store.save(valid)).toBe(true)
+  expect(store.loadChecked().profile).toMatchObject({ totalMerit: 200, availableMerit: 37 })
+})

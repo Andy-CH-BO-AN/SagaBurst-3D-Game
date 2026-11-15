@@ -125,6 +125,9 @@ export function parsePlayerSave(value: unknown): PlayerSaveData | null {
   const raw = value as PlayerSaveData
   const resource = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0
   const position = (p: PlayerSaveData['position'] | undefined) => p && [p.x, p.y, p.z].every(Number.isFinite)
+  if (raw.baseMaxHpOverride !== undefined && (!Number.isInteger(raw.baseMaxHpOverride) || raw.baseMaxHpOverride < 1 || raw.baseMaxHpOverride > 9999)
+    || raw.characterFaction !== undefined && raw.characterFaction !== 'roman' && raw.characterFaction !== 'viking'
+    || raw.characterTier !== undefined && ![1, 2, 3].includes(raw.characterTier)) return null
   if (raw.version !== 2 || !position(raw.position) || !resource(raw.hp) || !resource(raw.maxHp) || raw.maxHp <= 0
     || !resource(raw.stamina) || !resource(raw.arrows) || !raw.skills || !raw.inventory
     || !['unarmed', 'oneHanded', 'twoHanded', 'ranged', 'mountedImpact', 'blocking'].every(id => {
