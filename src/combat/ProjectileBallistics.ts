@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { findBlockingProjectileObstacleAlongPath, getTerrainHeight, TERRAIN_MIN_HEIGHT, type ObstacleData } from '../world/Terrain'
+import { findBlockingProjectileObstacleAlongPath, getTerrainHeight, queryProjectilePathObstacles, TERRAIN_MIN_HEIGHT, type ObstacleData } from '../world/Terrain'
 
 /** Shared by flight prediction and the actual projectile integrator, in m/s². */
 export const PROJECTILE_GRAVITY = 9.8
@@ -81,7 +81,9 @@ export function collectBallisticPathObstacles(
   }
   // Match the segment trace's world-space tolerance for transform rounding.
   bounds.expandByScalar(1e-6)
-  for (const obstacle of obstacles) {
+  // Registered stable sources (Town) prefilter through a grid; the exact test below is unchanged.
+  const source = queryProjectilePathObstacles(obstacles, bounds.min.x, bounds.min.z, bounds.max.x, bounds.max.z) ?? obstacles
+  for (const obstacle of source) {
     if (!obstacle.projectilePassable
       && (obstacle.projectileBounds
         ? bounds.intersectsBox(obstacle.projectileBounds)

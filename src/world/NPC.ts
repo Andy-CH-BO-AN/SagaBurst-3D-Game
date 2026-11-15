@@ -761,6 +761,9 @@ export class NPC {
   private readonly _rangedPathBounds = new THREE.Box3()
   private readonly _rangedPathObstacles: ObstacleData[] = []
   private readonly _rangedTargetCandidates: NPC[] = []
+  private readonly _rangedTargetEligible: NPC[] = []
+  private readonly _rangedTargetEligibleDistSq: number[] = []
+  private readonly _rangedTargetEligibleOrder: number[] = []
   private _rangedVisibleTargetHoldFrames = 0
 
   private static readonly _UP = new THREE.Vector3(0, 1, 0)
@@ -2494,6 +2497,10 @@ export class NPC {
       }
     }
 
+    // Eligible candidates are traced nearest-first (ties in scan order), so the
+    // first clear one is exactly the closest clear target the scan would keep.
+    const eligible = this._rangedTargetEligible, eligibleDistSq = this._rangedTargetEligibleDistSq
+    eligible.length = 0; eligibleDistSq.length = 0
     const considerNpc = (candidate: NPC): void => {
       if (
         candidate === this
@@ -2505,11 +2512,8 @@ export class NPC {
 
       const distSq = this.combatPosition.distanceToSquared(candidate.combatPosition)
       if (distSq < minRangeSq || distSq > maxRangeSq || distSq >= bestDistSq) return
-      if (this._findRangedTrajectoryBlocker(candidate.combatPosition, obstacles) !== null) return
-
-      bestIsPlayer = false
-      bestNpc = candidate
-      bestDistSq = distSq
+      eligible.push(candidate)
+      eligibleDistSq.push(distSq)
     }
 
     if (hostileNpcGrid) {
@@ -2521,6 +2525,21 @@ export class NPC {
       for (const candidate of this._rangedTargetCandidates) considerNpc(candidate)
     } else {
       for (const candidate of allNPCs) considerNpc(candidate)
+    }
+    const order = this._rangedTargetEligibleOrder
+    order.length = eligible.length
+    for (let i = 0; i < order.length; i++) order[i] = i
+    order.sort((a, b) => eligibleDistSq[a] - eligibleDistSq[b] || a - b)
+    try {
+      for (const i of order) {
+        if (this._findRangedTrajectoryBlocker(eligible[i].combatPosition, obstacles) !== null) continue
+        bestIsPlayer = false
+        bestNpc = eligible[i]
+        bestDistSq = eligibleDistSq[i]
+        break
+      }
+    } finally {
+      eligible.length = 0
     }
 
     if (!bestIsPlayer && bestNpc === null) return false

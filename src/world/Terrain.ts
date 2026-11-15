@@ -270,6 +270,7 @@ export function setObstaclePathQuerySource(obstacles: ObstacleData[], enabled: b
   else {
     obstaclePathQuerySources.delete(obstacles)
     obstacleCollisionIndexes.delete(obstacles)
+    projectileObstacleIndexes.delete(obstacles)
   }
 }
 
@@ -287,6 +288,30 @@ export function getLocalCollisionObstacles(
   }
   index.sync(obstacles)
   return index.queryNear(x, z, radius)
+}
+
+const projectileObstacleIndexes = new WeakMap<ObstacleData[], ObstacleCollisionSpatialIndex>()
+
+/**
+ * Ballistic broad-phase candidates for an X/Z envelope, or null when the caller
+ * must scan every record (unregistered/small sources or very large envelopes).
+ * Returns an ephemeral superset in source order; apply the exact test to it.
+ */
+export function queryProjectilePathObstacles(obstacles: readonly ObstacleData[],
+  minX: number, minZ: number, maxX: number, maxZ: number): readonly ObstacleData[] | null {
+  const source = obstacles as ObstacleData[]
+  if (!obstaclePathQuerySources.has(source) || obstacles.length < 64) return null
+  const minCellX = Math.floor(minX / OBSTACLE_COLLISION_GRID_CELL_SIZE), maxCellX = Math.floor(maxX / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+  const minCellZ = Math.floor(minZ / OBSTACLE_COLLISION_GRID_CELL_SIZE), maxCellZ = Math.floor(maxZ / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+  if (!Number.isSafeInteger(minCellX) || !Number.isSafeInteger(minCellZ) || !Number.isSafeInteger(maxCellX) || !Number.isSafeInteger(maxCellZ)
+    || (maxCellX - minCellX + 1) * (maxCellZ - minCellZ + 1) > 256) return null
+  let index = projectileObstacleIndexes.get(source)
+  if (!index) {
+    index = new ObstacleCollisionSpatialIndex('projectile')
+    projectileObstacleIndexes.set(source, index)
+  }
+  index.sync(source)
+  return index.queryBounds(minX, minZ, maxX, maxZ)
 }
 
 /** Swept X/Z bounds, without radius inflation on the perpendicular axis. */
@@ -500,6 +525,11 @@ export function findBlockingProjectileObstacleAlongPath(
 ): ObstacleData | null {
   let closest: ObstacleData | null = null
   let closestFraction = Infinity
+  // Segment bounds for an exact early reject: a box-only record that misses them
+  // on any axis cannot pass the slab test below. Arc chords miss most candidates.
+  const minX = Math.min(start.x, end.x), maxX = Math.max(start.x, end.x)
+  const minY = Math.min(start.y, end.y), maxY = Math.max(start.y, end.y)
+  const minZ = Math.min(start.z, end.z), maxZ = Math.max(start.z, end.z)
 
   for (const obstacle of obstacles) {
     if (obstacle.projectilePassable) continue
@@ -508,9 +538,13 @@ export function findBlockingProjectileObstacleAlongPath(
     // so they retain the original conservative local exact fallback.
     if (obstacle.projectileBounds
       && !segmentEnvelopeIntersectsBox(start, end, obstacle.projectileBounds)) continue
-    const coarseEntry = obstacle.projectileWorldToLocal || obstacle.projectileBounds
-      ? 0
-      : segmentEntryFractionBox3D(start, end, obstacle.box)
+    let coarseEntry: number | null = 0
+    if (!obstacle.projectileWorldToLocal && !obstacle.projectileBounds) {
+      const box = obstacle.box
+      if (maxX < box.min.x || minX > box.max.x || maxY < box.min.y || minY > box.max.y
+        || maxZ < box.min.z || minZ > box.max.z) continue
+      coarseEntry = segmentEntryFractionBox3D(start, end, box)
+    }
     if (coarseEntry === null || coarseEntry >= closestFraction) continue
 
     const entry = projectileObstacleEntryFraction(obstacle, start, end)
