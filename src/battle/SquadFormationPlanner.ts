@@ -14,7 +14,7 @@
  * 7. Safe mounted footprints (>= 4.2m center-to-center for cavalry).
  * 8. Comprehensive occupancy tracking and tree/obstacle avoidance (never returns blocked coordinate).
  * 9. Individual deterministic mount allocation per NPC for T4/T5 cavalry.
- * 10. Reusable deployment zones for all 5 ground maps.
+ * 10. Seeded mixed scattered deployment and reusable zones for all 5 ground maps.
  */
 import { AIType } from '../world/NPC'
 import {
@@ -170,7 +170,6 @@ export class SquadFormationPlanner {
     const mode = config.mode ?? 'formation'
     const mapId = config.mapId ?? 'original'
     const zones = getMapDeploymentZones(mapId)
-    const respawn = config.rules.respawnEnabled ?? false
     const playerFaction: CharacterFaction = config.playerFaction ?? 'viking'
     const isVikingPlayer = playerFaction === 'viking'
 
@@ -181,6 +180,10 @@ export class SquadFormationPlanner {
 
     const vikingUnits = this._expandFactionUnits(config.viking, 'viking', prng, vikingAssignments)
     const romanUnits = this._expandFactionUnits(config.roman, 'roman', prng, romanAssignments)
+
+    if (mode === 'scattered') {
+      return this._planScatteredBattle(config, vikingUnits, romanUnits, zones, prng, obstacles)
+    }
 
     // 2. Group into squads and partition into front/rear ranks
     const vikingSquads = this._groupIntoSquads(vikingUnits)
@@ -193,11 +196,11 @@ export class SquadFormationPlanner {
     const occupied: OccupiedFootprint[] = []
 
     // 3. Compute dynamic rank depths for each faction
-    const vikingRearDepth = this._calculateRankDepth(vikingPartition.rearRank, mode)
-    const vikingFrontDepth = this._calculateRankDepth(vikingPartition.frontRank, mode)
+    const vikingRearDepth = this._calculateRankDepth(vikingPartition.rearRank)
+    const vikingFrontDepth = this._calculateRankDepth(vikingPartition.frontRank)
 
-    const romanRearDepth = this._calculateRankDepth(romanPartition.rearRank, mode)
-    const romanFrontDepth = this._calculateRankDepth(romanPartition.frontRank, mode)
+    const romanRearDepth = this._calculateRankDepth(romanPartition.rearRank)
+    const romanFrontDepth = this._calculateRankDepth(romanPartition.frontRank)
 
     // 4. Calculate Viking rank base Z (South edge: Z > 0, facing -Z)
     // Row 0 has smaller Z; rear row has largest Z (up to edgeZ)
@@ -232,9 +235,7 @@ export class SquadFormationPlanner {
       vikingFrontBaseZ,
       'viking',
       config,
-      mode,
       npcSpecs,
-      respawn,
       obstacles,
       occupied,
       zones.boundsX,
@@ -246,9 +247,7 @@ export class SquadFormationPlanner {
       vikingRearBaseZ,
       'viking',
       config,
-      mode,
       npcSpecs,
-      respawn,
       obstacles,
       occupied,
       zones.boundsX,
@@ -262,9 +261,7 @@ export class SquadFormationPlanner {
       romanFrontBaseZ,
       'roman',
       config,
-      mode,
       npcSpecs,
-      respawn,
       obstacles,
       occupied,
       zones.boundsX,
@@ -276,9 +273,7 @@ export class SquadFormationPlanner {
       romanRearBaseZ,
       'roman',
       config,
-      mode,
       npcSpecs,
-      respawn,
       obstacles,
       occupied,
       zones.boundsX,
@@ -309,21 +304,103 @@ export class SquadFormationPlanner {
       z: playerPos.z,
     }
 
-    // 9. Camps / pick-ups / horses
+    return { playerSpawn, npcSpecs, ...this._createCampSpecs(config) }
+  }
+
+  private static _planScatteredBattle(
+    config: BattleConfig,
+    vikingUnits: PlannedUnitInstance[],
+    romanUnits: PlannedUnitInstance[],
+    zones: MapDeploymentZone,
+    prng: () => number,
+    obstacles?: ObstacleData[],
+  ): BattleSpawnPlan {
+    // One shared, shuffled field for both armies and the player. Cell spacing
+    // leaves room for mounted footprints even after independent slot jitter.
+    const spacing = 6.4
+    const columns = Math.floor((zones.boundsX * 2 - 10) / spacing)
+    const rows = Math.floor(zones.edgeZ * 2 / spacing)
+    const cellWidth = (zones.boundsX * 2 - 10) / columns
+    const cellDepth = zones.edgeZ * 2 / rows
+    const candidates: Array<{ x: number; z: number }> = []
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < columns; col++) {
+        candidates.push({
+          x: -zones.boundsX + 5 + (col + 0.5 + (prng() - 0.5) * 0.3) * cellWidth,
+          z: -zones.edgeZ + (row + 0.5 + (prng() - 0.5) * 0.3) * cellDepth,
+        })
+      }
+    }
+    for (let i = candidates.length - 1; i > 0; i--) {
+      const j = Math.floor(prng() * (i + 1))
+      ;[candidates[i], candidates[j]] = [candidates[j], candidates[i]]
+    }
+
+    const occupied: OccupiedFootprint[] = []
+    let cursor = 0
+    const takePosition = (radius: number, name: string): { x: number; z: number } => {
+      while (cursor < candidates.length) {
+        const position = candidates[cursor++]
+        if (this._isBlocked(position.x, position.z, obstacles, occupied, radius)) continue
+        occupied.push({ ...position, radius })
+        return position
+      }
+      throw new Error(`Unable to find safe non-overlapping deployment position for ${name} within scattered deployment zone.`)
+    }
+
+    const playerRadius = config.playerLoadout?.startMounted && config.playerLoadout.mountId ? 2.1 : 1.1
+    const playerSpawn = takePosition(playerRadius, 'player')
+    const npcSpecs: NpcSpawnSpec[] = []
+    // Interleave factions before taking slots so unequal army sizes still share
+    // the same distribution without reserving an edge or a rank for either side.
+    for (let i = 0; i < Math.max(vikingUnits.length, romanUnits.length); i++) {
+      for (const [characterFaction, units] of [['viking', vikingUnits], ['roman', romanUnits]] as const) {
+        const unit = units[i]
+        if (!unit) continue
+        const name = `${characterFaction}_${unit.presetName}_t${unit.tier}_s${unit.squadId}_${i + 1}`
+        const position = takePosition(unit.cavalry ? 2.1 : 1.1, name)
+        npcSpecs.push(this._createNpcSpec(unit, characterFaction, config, name, position))
+      }
+    }
+    return { playerSpawn, npcSpecs, ...this._createCampSpecs(config) }
+  }
+
+  private static _createCampSpecs(config: BattleConfig): Pick<BattleSpawnPlan, 'pickupSpecs' | 'horseSpecs'> {
     const pickupSpecs: CampPickupSpec[] = []
     const horseSpecs: CampHorseSpec[] = []
-    if (config.rules.includeCamps && mapId === 'original') {
+    if (config.rules.includeCamps && (config.mapId ?? 'original') === 'original') {
       pickupSpecs.push(...BattleSpawner.generateCampPickups('viking'))
       pickupSpecs.push(...BattleSpawner.generateCampPickups('roman'))
       horseSpecs.push(...BattleSpawner.generateCampHorses('viking'))
       horseSpecs.push(...BattleSpawner.generateCampHorses('roman'))
     }
+    return { pickupSpecs, horseSpecs }
+  }
 
+  private static _createNpcSpec(
+    unit: PlannedUnitInstance,
+    characterFaction: CharacterFaction,
+    config: BattleConfig,
+    name: string,
+    position: { x: number; z: number },
+  ): NpcSpawnSpec {
     return {
-      playerSpawn,
-      npcSpecs,
-      pickupSpecs,
-      horseSpecs,
+      ...position,
+      characterFaction,
+      faction: allegianceFor(characterFaction, config.playerFaction ?? 'viking'),
+      aiType: unit.aiType,
+      name,
+      tier: unit.tier,
+      characterTier: unit.characterTier,
+      heroArchetype: unit.heroArchetype,
+      cavalry: unit.cavalry,
+      respawnEnabled: config.rules.respawnEnabled ?? false,
+      presetId: unit.presetId,
+      loadout: unit.loadout,
+      visualAssetId: unit.visualAssetId,
+      combatProfileId: unit.combatProfileId,
+      specialCombatProfile: unit.specialCombatProfile,
+      squadId: unit.squadId,
     }
   }
 
@@ -476,14 +553,14 @@ export class SquadFormationPlanner {
     return groups.sort((a, b) => a.squadId - b.squadId)
   }
 
-  private static _calculateRankDepth(squads: SquadGroup[], mode: 'formation' | 'scattered'): number {
+  private static _calculateRankDepth(squads: SquadGroup[]): number {
     if (squads.length === 0) return 0
     let maxDepth = 0
     for (const squad of squads) {
       const unitCount = squad.units.length
       if (unitCount === 0) continue
       const hasCavalry = squad.units.some(u => u.cavalry)
-      const spacingZ = hasCavalry ? (mode === 'scattered' ? 5.5 : 4.5) : (mode === 'scattered' ? 3.2 : 2.4)
+      const spacingZ = hasCavalry ? 4.5 : 2.4
       const columns = Math.min(6, Math.max(3, Math.ceil(Math.sqrt(unitCount * 1.2))))
       const rows = Math.ceil(unitCount / columns)
       const depth = Math.max(0, (rows - 1) * spacingZ)
@@ -497,9 +574,7 @@ export class SquadFormationPlanner {
     rankBaseZ: number,
     characterFaction: CharacterFaction,
     config: BattleConfig,
-    mode: 'formation' | 'scattered',
     npcSpecs: NpcSpawnSpec[],
-    respawn: boolean,
     obstacles: ObstacleData[] | undefined,
     occupied: OccupiedFootprint[],
     boundsX: number,
@@ -508,12 +583,10 @@ export class SquadFormationPlanner {
   ): void {
     if (squads.length === 0) return
 
-    const playerFaction = config.playerFaction ?? 'viking'
-    const factionAllegiance = allegianceFor(characterFaction, playerFaction)
     const isViking = characterFaction === 'viking'
 
     const squadCount = Math.min(5, squads.length)
-    const squadGap = mode === 'scattered' ? 10 : 8
+    const squadGap = 8
 
     // Measure each squad width
     const squadWidths: number[] = []
@@ -521,7 +594,7 @@ export class SquadFormationPlanner {
       const units = squads[i].units
       const unitCount = units.length
       const hasCavalry = units.some(u => u.cavalry)
-      const spacingX = hasCavalry ? (mode === 'scattered' ? 5.2 : 4.2) : (mode === 'scattered' ? 3.2 : 2.4)
+      const spacingX = hasCavalry ? 4.2 : 2.4
       const columns = Math.min(6, Math.max(3, Math.ceil(Math.sqrt(unitCount * 1.2))))
       squadWidths.push(Math.max(1, (columns - 1) * spacingX))
     }
@@ -536,8 +609,8 @@ export class SquadFormationPlanner {
       if (unitCount === 0) continue
 
       const hasCavalry = units.some(u => u.cavalry)
-      const spacingX = hasCavalry ? (mode === 'scattered' ? 5.2 : 4.2) : (mode === 'scattered' ? 3.2 : 2.4)
-      const spacingZ = hasCavalry ? (mode === 'scattered' ? 5.5 : 4.5) : (mode === 'scattered' ? 3.2 : 2.4)
+      const spacingX = hasCavalry ? 4.2 : 2.4
+      const spacingZ = hasCavalry ? 4.5 : 2.4
       const footRadius = hasCavalry ? 2.1 : 1.1
 
       const columns = Math.min(6, Math.max(3, Math.ceil(Math.sqrt(unitCount * 1.2))))
@@ -576,25 +649,7 @@ export class SquadFormationPlanner {
 
         occupied.push({ x, z, radius: footRadius })
 
-        npcSpecs.push({
-          x,
-          z,
-          characterFaction,
-          faction: factionAllegiance,
-          aiType: unit.aiType,
-          name,
-          tier: unit.tier,
-          characterTier: unit.characterTier,
-          heroArchetype: unit.heroArchetype,
-          cavalry: unit.cavalry,
-          respawnEnabled: respawn,
-          presetId: unit.presetId,
-          loadout: unit.loadout,
-          visualAssetId: unit.visualAssetId,
-          combatProfileId: unit.combatProfileId,
-          specialCombatProfile: unit.specialCombatProfile,
-          squadId: unit.squadId,
-        })
+        npcSpecs.push(this._createNpcSpec(unit, characterFaction, config, name, { x, z }))
       }
     }
   }

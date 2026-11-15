@@ -313,6 +313,70 @@ describe('Custom Battle: Squad Formation Layout Rules', () => {
   })
 })
 
+describe('Custom Battle: Ground Scattered Deployment', () => {
+  it('mixes both factions across every ground map instead of deploying squad ranks', () => {
+    for (const mapId of ['original', 'snow', 'bridge', 'roman_town', 'viking_town'] as const) {
+      const config = makeGroundConfig(30, 30)
+      config.mapId = mapId
+      config.mode = 'scattered'
+      config.seed = 12345
+      config.rules.includeCamps = true
+      const plan = BattleSpawner.createSpawnPlan(config)
+      expect(plan.npcSpecs).toHaveLength(60)
+      expect(plan.pickupSpecs.length > 0).toBe(mapId === 'original')
+      expect(plan.horseSpecs.length > 0).toBe(mapId === 'original')
+      for (const faction of ['viking', 'roman'] as const) {
+        const units = plan.npcSpecs.filter(spec => spec.characterFaction === faction)
+        expect(units.some(spec => spec.z < -50), `${mapId}: ${faction} north`).toBe(true)
+        expect(units.some(spec => spec.z > 50), `${mapId}: ${faction} south`).toBe(true)
+        expect(Math.max(...units.map(spec => spec.x)) - Math.min(...units.map(spec => spec.x))).toBeGreaterThan(150)
+      }
+      expect(BattleSpawner.createSpawnPlan(config)).toEqual(plan)
+      expect(BattleSpawner.createSpawnPlan({ ...config, seed: 54321 }).playerSpawn).not.toEqual(plan.playerSpawn)
+    }
+  })
+
+  it('places 300v300 mounted actors and the player safely around blockers while preserving squad assignments', () => {
+    const config = makeGroundConfig(0, 0)
+    config.mapId = 'bridge'
+    config.mode = 'scattered'
+    config.playerFaction = 'roman'
+    config.rules.respawnEnabled = true
+    config.playerLoadout!.startMounted = true
+    config.playerLoadout!.mountId = 'horse'
+    config.viking.viking_lancer![3] = 300
+    config.roman.roman_lancer![3] = 300
+    config.squadAssignments = [{ presetId: 'roman_lancer', tier: 3, squadId: 10, count: 50 }]
+    // Synthetic river and wall footprints; passable water still forbids deployment.
+    const obstacles = [
+      { box: new THREE.Box3(new THREE.Vector3(-300, -8, -30), new THREE.Vector3(300, 4, 30)), isBarricade: false, physicalPassable: true },
+      { box: new THREE.Box3(new THREE.Vector3(-50, 0, 60), new THREE.Vector3(50, 10, 70)), isBarricade: false },
+    ]
+    const plan = BattleSpawner.createSpawnPlan(config, obstacles)
+    expect(plan.npcSpecs).toHaveLength(600)
+    expect(plan.npcSpecs.filter(spec => spec.characterFaction === 'roman' && spec.squadId === 10)).toHaveLength(50)
+    expect(plan.npcSpecs.every(spec => spec.cavalry && spec.respawnEnabled && spec.loadout?.mountId === 'horse')).toBe(true)
+    const actors = [plan.playerSpawn, ...plan.npcSpecs]
+    let minDistance = Infinity
+    let blocked = false
+    for (let i = 0; i < actors.length; i++) {
+      const actor = actors[i]
+      expect(Number.isFinite(actor.x) && Number.isFinite(actor.z)).toBe(true)
+      expect(Math.abs(actor.x)).toBeLessThanOrEqual(125)
+      expect(Math.abs(actor.z)).toBeLessThanOrEqual(220)
+      for (const obstacle of obstacles) {
+        if (actor.x + 2.1 >= obstacle.box.min.x && actor.x - 2.1 <= obstacle.box.max.x &&
+            actor.z + 2.1 >= obstacle.box.min.z && actor.z - 2.1 <= obstacle.box.max.z) blocked = true
+      }
+      for (let j = 0; j < i; j++) {
+        minDistance = Math.min(minDistance, Math.hypot(actor.x - actors[j].x, actor.z - actors[j].z))
+      }
+    }
+    expect(blocked).toBe(false)
+    expect(minDistance).toBeGreaterThanOrEqual(4.2)
+  })
+})
+
 describe('Custom Battle: Roman Player Squad Assignments and Shortcuts (P0)', () => {
   it('applies manual squad assignments to Roman army in ground and aerial battles', () => {
     const config = makeGroundConfig(20, 20)
@@ -357,15 +421,18 @@ describe('Custom Battle: Roman Player Squad Assignments and Shortcuts (P0)', () 
 describe('Custom Battle: Clearance and Collision Avoidance (P1)', () => {
   it('throws a descriptive error when all candidate coordinates in the deployment zone are blocked', () => {
     const config = makeGroundConfig(5, 5)
-    // Create an obstacle covering the entire Viking deployment zone
+    // Cover the full field so both deployment modes must fail closed.
     const hugeObstacle = {
       box: new THREE.Box3(
-        new THREE.Vector3(-300, -10, 100),
+        new THREE.Vector3(-300, -10, -300),
         new THREE.Vector3(300, 50, 300),
       ),
       isBarricade: false,
     }
     expect(() => SquadFormationPlanner.planCustomBattle(config, [hugeObstacle])).toThrow(
+      /Unable to find safe non-overlapping deployment position/
+    )
+    expect(() => BattleSpawner.createSpawnPlan({ ...config, mode: 'scattered' }, [hugeObstacle])).toThrow(
       /Unable to find safe non-overlapping deployment position/
     )
   })
