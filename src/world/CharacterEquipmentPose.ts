@@ -714,6 +714,12 @@ export class CharacterEquipmentPose {
   /** Borrowed root-space physical palm frame, shared by the authority's LODs. */
   get axeSupportPalm(): THREE.Quaternion | undefined { return this.hasSupportPalm ? this.supportPalm : undefined }
 
+  /**
+   * Matrix refresh contract: every exit ends with a full `root.updateWorldMatrix(true, true)`.
+   * Inside, world reads use getWorldPosition/getWorldQuaternion (they refresh their own
+   * ancestor chain), so a branch needs its own full refresh only before it reads a
+   * descendant's `.matrixWorld`, `localToWorld` or `worldToLocal` directly.
+   */
   apply(state: EquipmentPoseState, authorityPalm?: THREE.Quaternion): void {
     this.hasSupportPalm = false
     this.hasSwordEquipmentCorrection = false
@@ -837,7 +843,7 @@ export class CharacterEquipmentPose {
     if (live && this.relaxedLeftThumbForward && !state.shield
       && (!state.lance || this.relaxedLeftThumbForward === 'including-lance') && !state.sampledBowPose
       && !this.bakedActions.includes(state.action) && state.action !== 'greatswordSlash' && relaxedHandWeight > 0) {
-      this.root.updateWorldMatrix(true, true)
+      this.root.updateWorldMatrix(true, false)
       this.root.getWorldQuaternion(this.rootWorld).invert()
       this.rig.left.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
       this.attackAxis.fromArray(this.frames.lanceLeft.fingerDirection).applyQuaternion(this.handWorld).normalize()
@@ -906,7 +912,7 @@ export class CharacterEquipmentPose {
     if (live && (this.selectedSource?.rig === 'ordinary22' || this.selectedSource?.rig === 'varangian63') && state.action === 'axeAttack2H') {
       const facing = this.selectedSource.rig === 'ordinary22' ? -.6098016643687594 : -.7488516894154653
       const weight = smooth(state.elapsed / .08) * (1 - smooth((state.elapsed - .38) / .1))
-      this.root.updateWorldMatrix(true, true)
+      this.root.updateWorldMatrix(true, false)
       this.root.getWorldQuaternion(this.rootWorld)
       this.attackAxis.set(0, 1, 0).applyQuaternion(this.rootWorld)
       if (state.mounted && this.seatedTorso.length) {
@@ -920,7 +926,7 @@ export class CharacterEquipmentPose {
     if (live && state.mounted && state.mountKind === 'CORGI'
       && !this.selectedSource
       && state.action !== 'bowAim' && state.action !== 'bowRelease' && state.action !== 'pilumThrow') {
-      this.root.updateWorldMatrix(true, true)
+      this.root.updateWorldMatrix(true, false)
       this.rig.right.wrist.getWorldQuaternion(this.handWorld)
       this.root.getWorldQuaternion(this.rootWorld)
       this.attackAxis.set(0, 0, 1).applyQuaternion(this.rootWorld)
@@ -956,7 +962,7 @@ export class CharacterEquipmentPose {
       const extension = state.elapsed < windup ? -.18 * smooth(state.elapsed / windup)
         : state.elapsed < peak ? -.18 + 1.18 * smooth((state.elapsed - windup) / (peak - windup))
           : state.elapsed < end ? 1 : 1 - smooth((state.elapsed - end) / recovery)
-      this.root.updateWorldMatrix(true, true)
+      this.root.updateWorldMatrix(true, false)
       this.rig.right.wrist.getWorldQuaternion(this.handWorld)
       this.root.getWorldQuaternion(this.rootWorld)
       this.attackAxis.set(1, 0, 0).applyQuaternion(this.rootWorld)
