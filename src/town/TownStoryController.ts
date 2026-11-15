@@ -1,5 +1,6 @@
 import type { Vector3 } from 'three'
 import type { CareerProfile } from '../career/CareerProfile'
+import { arenaTrialTeamSizes } from '../career/CareerArenaTrials'
 import { MissionGuide } from '../career/MissionGuide'
 import { markCareerStoryEagleIntroSeen } from '../career/CareerStoryEvents'
 import { cloneCareerProfile } from '../career/CareerProfile'
@@ -127,7 +128,8 @@ export class TownStoryController {
       return true
     }
     if (title) title.textContent = '士官長'
-    if (body) body.textContent = '「剛才打得不錯。幾個老兵說，你們新兵光會打仗還不夠，得學會一起打。去競技場，讓他們看看你們怎麼配合。」\n\n小隊切磋（T1 新兵試煉）：我方含你 20 人對 10 名 T2 士兵，全員步戰；你倒下後可以觀戰，我方全員倒下才算敗北。首場邀請賽有特別獎勵：勝利 +1,000 軍功，就算輸了也有 +100。'
+    const teams = arenaTrialTeamSizes(1)
+    if (body) body.textContent = `「剛才打得不錯。幾個老兵說，你們新兵光會打仗還不夠，得學會一起打。去競技場，讓他們看看你們怎麼配合。」\n\n小隊切磋（T1 新兵試煉）：我方含你 ${teams.friendly} 人對 ${teams.enemy} 名 T2 士兵，全員步戰；你倒下後可以觀戰，我方全員倒下才算敗北。首場邀請賽有特別獎勵：勝利 +1,000 軍功，就算輸了也有 +100。`
     const accept = this.button(panel, '接受小隊切磋', () => {
       if (this.busy) return
       this.busy = true; accept.disabled = true
