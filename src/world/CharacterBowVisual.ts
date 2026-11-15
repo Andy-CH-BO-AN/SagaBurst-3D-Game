@@ -5,7 +5,7 @@ import { createMakiRangerBowInstance } from './MakiRangerEquipment'
 import { createT5Bow } from './HighTierEquipment'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { shareEquipmentGeometry } from './EquipmentGeometryRegistry'
-import { equipmentShadowUntil } from './EquipmentVisualLODController'
+import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODController'
 import { BOW_STRING_CONTACT, BOW_ARROW_REST } from './BowDrawHand'
 import {
   applyBowAttachment,
@@ -110,6 +110,9 @@ export class CharacterBowVisual {
     this.stringBottom = equipmentShadowUntil(strings?.bottom ?? new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
     this.stringTop.name = 'bow-string-top'
     this.stringBottom.name = 'bow-string-bottom'
+    // 1.5 mm strings are sub-pixel at LOD2; NPC equipment LOD hides them there (two draws per bow).
+    equipmentDetail(this.stringTop, 1)
+    equipmentDetail(this.stringBottom, 1)
     this.gripPivot.add(this.stringTop, this.stringBottom)
 
     this.nockedArrow = new THREE.Group()
