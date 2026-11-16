@@ -44,6 +44,7 @@ import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAwar
 import { SkillManager } from '../rpg/SkillManager'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { TownEquipment } from '../town/TownEquipment'
+import { ArenaEquipmentMenu } from './ArenaEquipmentMenu'
 import { ArenaTrialHUD } from '../ui/ArenaTrialHUD'
 import { ArenaOpeningHUD } from '../ui/ArenaOpeningHUD'
 import { CombatTargetHud } from '../ui/CombatTargetHud'
@@ -129,6 +130,7 @@ export class CareerArenaCombatScene {
   private orbit!: ThirdPersonCamera
   private spectator?: SpectatorCameraController
   private inventory!: InventoryManager
+  private equipment?: ArenaEquipmentMenu
   private tracker!: BattleStatsTracker
   private formation!: ArenaTrialFormation
   private bodies: Body[] = []
@@ -362,8 +364,11 @@ export class CareerArenaCombatScene {
 
   private bindInput(): void {
     const signal = this.listeners.signal
+    // Prison break deliberately owns a fixed, scavenged loadout.
+    if (!this.prison) this.equipment = new ArenaEquipmentMenu(this.input, this.skills, this.inventory, this.renderer.domElement,
+      () => this.started && !this.disposed && !this.player.dead && !this.panelOpen && !this.settlementPending && this.phase !== 'result')
     this.renderer.domElement.addEventListener('click', () => {
-      if (!this.started || this.panelOpen) return
+      if (!this.started || this.panelOpen || this.equipment?.visible) return
       this.sound.unlockAudio()
       if (this.phase === 'waiting' || this.phase === 'paused') {
         // This gesture belongs to the opening, including in the unlocked QA path.
@@ -382,7 +387,7 @@ export class CareerArenaCombatScene {
   }
 
   private beginCountdown(): void {
-    if (!this.started || this.panelOpen || this.phase !== 'waiting' && this.phase !== 'paused') return
+    if (!this.started || this.panelOpen || this.equipment?.visible || this.phase !== 'waiting' && this.phase !== 'paused') return
     this.input.clear()
     this.phase = 'countdown'
     this.last = performance.now()
@@ -416,6 +421,7 @@ export class CareerArenaCombatScene {
   /** One gameplay step (also used by DEV QA at a fixed rate). */
   update(dt: number): void {
     if (this.disposed) return
+    if (this.equipment?.visible) { this.input.clear(); return }
     if (this.settlementPending || this.pickupRetry) {
       if (this.prison) { this.clearPickupFocus(); this.input.consumeKeyE() }
       this.arena.update(dt); this.damageNumbers.update(dt, this.camera); return
@@ -979,6 +985,7 @@ export class CareerArenaCombatScene {
     this.disposed = true
     cancelAnimationFrame(this.raf)
     this.listeners.abort()
+    this.equipment?.dispose()
     this.closePanel()
     this.inventory?.dispose()
     this.pickupHud?.dispose(); this.props?.dispose(); this.prisonHud?.remove(); this.subtitle?.remove(); this.dimmer?.remove()

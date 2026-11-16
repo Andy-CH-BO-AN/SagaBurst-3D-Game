@@ -35,6 +35,7 @@ import { resolveActivePlayerSkillProgressionAward, resolveCombatSkill } from '..
 import { SkillManager } from '../rpg/SkillManager'
 import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { TownEquipment } from '../town/TownEquipment'
+import { ArenaEquipmentMenu } from './ArenaEquipmentMenu'
 import { townCommanderHeroAsset } from '../town/TownCommander'
 import { townCaptainProfile, type TownActorSpec } from '../town/TownRules'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
@@ -132,6 +133,7 @@ export class CareerDuelArenaScene {
   private player!: Player
   private orbit!: ThirdPersonCamera
   private inventory!: TownEquipment
+  private equipment?: ArenaEquipmentMenu
   private careerMounts!: CareerMountController
   private duel!: CareerDuelController
   private party!: ArenaDuelParty
@@ -317,9 +319,12 @@ export class CareerDuelArenaScene {
 
   private bindInput(): void {
     const signal = this.listeners.signal
+    this.equipment = new ArenaEquipmentMenu(this.input, this.skills, this.inventory, this.renderer.domElement,
+      () => !this.disposed && !this.player.dead && !this.panel && !this.pendingSettlement && !this.profile.activeMission?.result,
+      this.careerMounts)
     this.renderer.domElement.addEventListener('click', () => {
       this.sound.unlockAudio()
-      if (!location.search.includes('nolock') && !this.panel) this.input.requestPointerLock(this.renderer.domElement)
+      if (!location.search.includes('nolock') && !this.panel && !this.equipment?.visible) this.input.requestPointerLock(this.renderer.domElement)
     }, { signal })
     bindWindowResize(this.camera, this.renderer, signal)
     window.addEventListener('pagehide', () => this.persistNow(), { signal })
@@ -342,6 +347,7 @@ export class CareerDuelArenaScene {
   /** One gameplay step (also used by DEV QA at a fixed rate). */
   update(dt: number): void {
     if (this.disposed) return
+    if (this.equipment?.visible) { this.input.clear(); return }
     if (this.pendingSettlement) {
       // Only presentation moves while the decided result waits for its save.
       this.arena.update(dt)
@@ -657,7 +663,9 @@ export class CareerDuelArenaScene {
     this.disposed = true
     cancelAnimationFrame(this.raf)
     this.listeners.abort()
+    this.equipment?.dispose()
     this.session.panel.close()
+    this.inventory?.dispose()
     this.input.dispose()
     this.duelHud.dispose()
     this.targetHud.dispose()

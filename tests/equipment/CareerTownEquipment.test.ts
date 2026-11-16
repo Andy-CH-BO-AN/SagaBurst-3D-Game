@@ -337,10 +337,11 @@ describe('Resident native equipment and military horse ownership', () => {
 })
 
 
-it('空手 Duel 暫時隱藏雙手裝備、拒絕轉盤換裝，重載及結束後保留原持有與偏好', () => {
+it('空手 Duel 以空手開始，但允許明確換裝與卸下；保存失敗仍保持空手', () => {
   let profile = createCareerProfile('roman')
   Object.assign(profile.inventory!.quantities, Object.fromEntries(['steel_lance'].map(id => [id, 1]))); profile.ownedWeapons = ['steel_lance']; profile.equipment = { melee: 'steel_lance' }
-  const commit = (next: CareerProfile) => { profile = next; return true }
+  let saveAllowed = true
+  const commit = (next: CareerProfile) => { if (!saveAllowed) return false; profile = next; return true }
   const equipment = new TownEquipment(() => profile, commit)
   equipment.prepareForCombat()
   expect(equipment.activeMelee?.id).toBe('steel_lance')
@@ -348,9 +349,18 @@ it('空手 Duel 暫時隱藏雙手裝備、拒絕轉盤換裝，重載及結束�
   profile.activeMission = createCareerDuelMission(profile, 'roman_archer', 1, 'soldier', 'captain', 'boxing', 'captain', 'unarmed')!
   expect(equipment.activeMelee).toBeUndefined()
   expect(equipment.meleeEnabled || equipment.rangedEnabled || equipment.shieldEnabled).toBe(false)
+  saveAllowed = false
   expect(equipment.equipWeapon('steel_lance')).toBe(false)
-  expect(equipment.unequipWeapon('steel_lance')).toBe(false)
+  expect(equipment.activeMelee).toBeUndefined()
   expect(JSON.stringify(profile.equipment)).toBe(before)
+  saveAllowed = true
+  expect(equipment.canEquipWeapon('steel_lance')).toBe(true)
+  expect(equipment.equipWeapon('steel_lance')).toBe(true)
+  expect(equipment.activeMelee?.id).toBe('steel_lance')
+  expect(profile.activeMission?.duelFailureReason).toBeUndefined()
+  expect(equipment.unequipWeapon('steel_lance')).toBe(true)
+  expect(equipment.activeMelee).toBeUndefined()
+  expect(equipment.equipWeapon('steel_lance')).toBe(true)
   profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
   const reloaded = new TownEquipment(() => profile, commit)
   reloaded.prepareForCombat()
@@ -360,4 +370,5 @@ it('空手 Duel 暫時隱藏雙手裝備、拒絕轉盤換裝，重載及結束�
   expect(equipment.activeMelee?.id).toBe('steel_lance')
   expect(reloaded.activeMelee?.id).toBe('steel_lance')
   expect(profile.ownedWeapons).toContain('steel_lance')
+  equipment.dispose(); reloaded.dispose()
 })
