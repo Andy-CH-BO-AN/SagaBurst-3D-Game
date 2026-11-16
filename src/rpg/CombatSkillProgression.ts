@@ -1,6 +1,8 @@
 import type { CombatDamageMethod, CombatEvent, CombatTargetType } from '../combat/CombatAttribution'
 import type { WeaponData } from './WeaponDatabase'
+import { SHIELD_CONFIG } from '../combat/ShieldImpact'
 import {
+  SKILL_IDS,
   normalizeSkillState,
   resolveMeleeSkillId,
   skillHpBonus,
@@ -40,14 +42,20 @@ export function isSkillProgressionTarget(targetType: CombatTargetType): boolean 
 }
 
 /**
- * Convert one authoritative combat damage event into player skill XP.
+ * Convert one authoritative combat event into player skill XP.
  * NPC body and mount HP damage both count; structures never do.
+ * Impact the player's attacks spend on an NPC shield or mount barding trains Armor Break.
  */
 export function resolveSkillProgressionAward(
   event: CombatEvent,
   meleeWeapon?: Pick<WeaponData, 'animationKind'> | null,
   hasShield = false,
 ): SkillProgressionAward | null {
+  if (event.type === 'hit_blocked') {
+    if (event.source.actorType !== 'player' || !isSkillProgressionTarget(event.target.targetType)) return null
+    const xp = event.blockedImpact * SHIELD_CONFIG.xpPerBlockedImpact
+    return Number.isFinite(xp) && xp > 0 ? { skill: 'armorBreak', xp } : null
+  }
   if (event.type !== 'damage_applied') return null
   if (event.source.actorType !== 'player') return null
   if (!isSkillProgressionTarget(event.target.targetType)) return null
@@ -81,16 +89,5 @@ export function resolveSkillAdjustedMaxHp(
 }
 
 export function skillStatesEqual(a: SkillState, b: SkillState): boolean {
-  return a.unarmed.level === b.unarmed.level
-    && a.unarmed.xp === b.unarmed.xp
-    && a.oneHanded.level === b.oneHanded.level
-    && a.oneHanded.xp === b.oneHanded.xp
-    && a.twoHanded.level === b.twoHanded.level
-    && a.twoHanded.xp === b.twoHanded.xp
-    && a.ranged.level === b.ranged.level
-    && a.ranged.xp === b.ranged.xp
-    && a.mountedImpact.level === b.mountedImpact.level
-    && a.mountedImpact.xp === b.mountedImpact.xp
-    && a.blocking.level === b.blocking.level
-    && a.blocking.xp === b.blocking.xp
+  return SKILL_IDS.every(id => a[id].level === b[id].level && a[id].xp === b[id].xp)
 }

@@ -18,7 +18,7 @@ const implementations: Array<{
   create(storage: MemoryStorage): SkillStorageAdapter
 }> = [
   {
-    name: 'persists all six skills through Career save/reload',
+    name: 'persists all seven skills through Career save/reload',
     key: 'sagaburst_career_v2',
     skills: {
       unarmed: { level: 16, xp: 123 },
@@ -27,6 +27,7 @@ const implementations: Array<{
       twoHanded: { level: 8, xp: 23 },
       ranged: { level: 9, xp: 34 },
       mountedImpact: { level: 10, xp: 45 },
+      armorBreak: { level: 14, xp: 56 },
     },
     create(storage) {
       const store = new CareerProfileStore(storage)
@@ -41,7 +42,7 @@ const implementations: Array<{
     },
   },
   {
-    name: 'persists all six skills through regular save/reload',
+    name: 'persists all seven skills through regular save/reload',
     key: 'sagaburst_game_v2',
     skills: {
       unarmed: { level: 19, xp: 321 },
@@ -50,6 +51,7 @@ const implementations: Array<{
       twoHanded: { level: 4, xp: 20 },
       ranged: { level: 5, xp: 30 },
       mountedImpact: { level: 6, xp: 40 },
+      armorBreak: { level: 13, xp: 50 },
     },
     create(storage) {
       const store = new SaveManager(storage)
@@ -68,7 +70,7 @@ const implementations: Array<{
 
 describe('Skill storage round-trip', () => {
   for (const { name, key, skills, create } of implementations) {
-    it(`${name}（六技能往返）`, () => {
+    it(`${name}（七技能往返）`, () => {
       const storage = new MemoryStorage(), adapter = create(storage)
       expect(adapter.save(skills)).toBe(true)
       const raw = storage.getItem(key)

@@ -4,9 +4,11 @@ import { FACTION_SHIELD_BANDS } from './FactionShieldGeometry'
 import type { Mount } from '../world/Mount'
 import { refreshWorldChains } from '../world/AnchoredWorldMatrix'
 
+import { skillPercentEffect } from '../rpg/SkillManager'
+
 export { SHIELD_CONFIG, weaponShieldImpact } from './ShieldImpact'
 export function blockingReduction(level: number): number {
-  return Math.min(.5, Math.max(0, Number.isFinite(level) ? Math.floor(level) : 0) * .01)
+  return skillPercentEffect(level)
 }
 /** Battle-local state, deliberately excluded from inventory and Career saves. */
 export class ShieldState {
@@ -39,12 +41,17 @@ export class ShieldState {
     this.shieldImpactRemaining = this.id ? this.used.get(this.id) ?? this.shieldImpactMax : 0
     this.shieldRaised = false
   }
-  absorb(damage: number, impact: number, level = 0): { damage: number; blockedImpact: number } {
+  /**
+   * `level` is the defender's Blocking; `penetration` is the attacker's Armor Break
+   * fraction of the blocked share that still lands. Durability is consumed in full either way.
+   */
+  absorb(damage: number, impact: number, level = 0, penetration = 0): { damage: number; blockedImpact: number } {
     if (!this.active || !Number.isFinite(impact) || impact <= 0) return { damage, blockedImpact: 0 }
     const blockedImpact = Math.min(this.shieldImpactRemaining, impact)
     this.shieldImpactRemaining -= blockedImpact
     if (this.shieldBroken) this.shieldRaised = false
-    return { damage: damage * (impact - blockedImpact) / impact * (1 - blockingReduction(level)), blockedImpact }
+    const pierce = Math.min(1, Math.max(0, Number.isFinite(penetration) ? penetration : 0))
+    return { damage: damage * (impact - blockedImpact * (1 - pierce)) / impact * (1 - blockingReduction(level)), blockedImpact }
   }
 }
 

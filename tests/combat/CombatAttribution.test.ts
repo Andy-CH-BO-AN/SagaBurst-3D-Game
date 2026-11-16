@@ -494,6 +494,29 @@ describe('Combat attribution foundation', () => {
     expect(pivot.visible).toBe(true)
   })
 
+  it('lets player Armor Break pierce half of the blocked damage while shield and barding durability drain in full', () => {
+    const { stream } = eventHarness(), shield = new ShieldState()
+    shield.equip('commander_shield_t5')
+    const npc = mockNpc({ hp: 200, shield })
+    npc.shieldCollider = new ShieldCollider({ visible: true } as THREE.Object3D, shield)
+    const player = { actorId: 'player', actorType: 'player' as const, allegiance: Faction.PLAYER, characterFaction: 'viking' as const }
+    // axe_t5 spends 15 Impact; Lv.50 lets 50% of the fully blocked 50 damage land.
+    expect(damageNpc(npc, 50, sourceContext(stream, { weaponId: 'axe_t5', contact: { kind: 'shield', time: 0 },
+      source: { ...player, armorBreakLevel: 50 } }))).toMatchObject({ appliedDamage: 25, blockedImpact: 15 })
+    expect(shield.shieldImpactRemaining).toBe(81)
+    expect(damageNpc(npc, 50, sourceContext(stream, { weaponId: 'axe_t5', contact: { kind: 'shield', time: 0 },
+      source: { ...player, armorBreakLevel: 10 } }))).toMatchObject({ appliedDamage: 5, blockedImpact: 15 })
+    expect(npc.hp).toBe(170)
+
+    const armor = new MountArmor('ARMORED_HORSE')
+    const mount = { armor, currentHp: 600, maxHp: 600, dead: false, disposed: false, displayName: '重甲戰馬', group: { uuid: 'pierced' },
+      takeDamage(this: { currentHp: number }, amount: number) { this.currentHp -= amount; return true } } as unknown as Mount
+    // Above Lv.50 is still capped at 50%: heavy lance 40 Impact of 50 barding, 80 → 40 HP.
+    expect(damageMount(mount, 80, sourceContext(stream, { weaponId: 'heavy_lance', contact: { kind: 'mount', mount, time: 0 },
+      source: { ...player, isMounted: true, armorBreakLevel: 99 } }))).toMatchObject({ appliedDamage: 40, blockedImpact: 40 })
+    expect(armor.remaining).toBe(10)
+  })
+
   it('keeps the T5 shield collider inside its tapered face as the hand moves and rotates', () => {
     const shield = new ShieldState(); shield.equip('commander_shield_t5')
     const matrixWorld = new THREE.Matrix4().makeRotationY(Math.PI / 2).setPosition(3, 2, -4)

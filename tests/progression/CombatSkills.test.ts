@@ -149,6 +149,24 @@ describe('Career skill progression', () => {
     )).toEqual({ skill: 'mountedImpact', xp: 18 })
   })
 
+  it('trains Armor Break only from Impact the player spends on NPC shields and mount barding', () => {
+    const blocked = (actorType: 'player' | 'npc', targetType: 'npc' | 'mount' | 'player', blockedImpact: number): CombatEvent => ({
+      type: 'hit_blocked', method: 'melee', weaponId: WEAPONS.steel_sword.id, blockedImpact,
+      source: { actorId: actorType, actorType, allegiance: 'PLAYER' as never, characterFaction: 'roman' },
+      target: { targetId: `${targetType}:test`, targetType, name: 'target' },
+    })
+    expect(resolveSkillProgressionAward(blocked('player', 'npc', 15))).toEqual({ skill: 'armorBreak', xp: 300 })
+    expect(resolveSkillProgressionAward(blocked('player', 'mount', 40))).toEqual({ skill: 'armorBreak', xp: 800 })
+    // An NPC hitting a shield, or the player's own shield being hit, never trains the player's Armor Break.
+    expect(resolveSkillProgressionAward(blocked('npc', 'npc', 15))).toBeNull()
+    expect(resolveSkillProgressionAward(blocked('npc', 'player', 15))).toBeNull()
+
+    const manager = new SkillManager()
+    manager.addXp('armorBreak', 100)
+    expect(manager.skillState.armorBreak).toEqual({ level: 2, xp: 0 })
+    expect(manager.getMaxHpBonus()).toBe(2)
+  })
+
   it('never awards skill XP for fall, structure, or non-damage kill events', () => {
     expect(resolveSkillProgressionAward(damageEvent('fall', 'npc', 150), WEAPONS.steel_sword)).toBeNull()
     expect(resolveSkillProgressionAward(

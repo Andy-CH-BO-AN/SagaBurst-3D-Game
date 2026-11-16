@@ -40,6 +40,8 @@ export interface PlayerSaveData {
     ranged: SkillDetail
     mountedImpact: SkillDetail
     blocking: SkillDetail
+    /** Optional so current-schema records written before Armor Break stay loadable at Lv.1. */
+    armorBreak?: SkillDetail
   }
   inventory: {
     items: { id: string; quantity: number }[]
@@ -73,6 +75,7 @@ export const DEFAULT_SAVE: PlayerSaveData = {
     ranged: { level: 1, xp: 0 },
     mountedImpact: { level: 1, xp: 0 },
     blocking: { level: 1, xp: 0 },
+    armorBreak: { level: 1, xp: 0 },
   },
   inventory: {
     items: [
@@ -130,8 +133,9 @@ export function parsePlayerSave(value: unknown): PlayerSaveData | null {
     || raw.characterTier !== undefined && ![1, 2, 3].includes(raw.characterTier)) return null
   if (raw.version !== 2 || !position(raw.position) || !resource(raw.hp) || !resource(raw.maxHp) || raw.maxHp <= 0
     || !resource(raw.stamina) || !resource(raw.arrows) || !raw.skills || !raw.inventory
-    || !['unarmed', 'oneHanded', 'twoHanded', 'ranged', 'mountedImpact', 'blocking'].every(id => {
+    || !['unarmed', 'oneHanded', 'twoHanded', 'ranged', 'mountedImpact', 'blocking', 'armorBreak'].every(id => {
       const skill = raw.skills[id as keyof PlayerSaveData['skills']]
+      if (skill === undefined && id === 'armorBreak') return true
       return skill && Number.isInteger(skill.level) && skill.level >= 1 && skill.level <= 50 && resource(skill.xp)
     }) || !Array.isArray(raw.inventory.items)
     || raw.inventory.items.some(item => !item || typeof item.id !== 'string' || !Number.isSafeInteger(item.quantity) || item.quantity <= 0)

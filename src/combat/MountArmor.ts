@@ -1,5 +1,6 @@
 import { ShieldState, weaponShieldImpact } from './ShieldBlocking'
 import type { CombatDamageContext } from './CombatAttribution'
+import { armorBreakPenetration } from '../rpg/SkillManager'
 
 export function mountArmorImpactMax(type: string): number {
   return type === 'ARMORED_HORSE' || type === 'SNOW_LEOPARD' ? 50 : 0
@@ -22,7 +23,8 @@ export class MountArmor {
   absorbWeapon(damage: number, context?: CombatDamageContext): { damage: number; blockedImpact: number } {
     if (!context || context.method !== 'melee' && context.method !== 'projectile'
       || (context.attackSource ?? context.contact?.attackSource) === 'xongkoro') return { damage, blockedImpact: 0 }
-    return this.state.absorb(damage, weaponShieldImpact(context.weaponId, context.source.isMounted))
+    return this.state.absorb(damage, weaponShieldImpact(context.weaponId, context.source.isMounted), 0,
+      armorBreakPenetration(context.source.armorBreakLevel))
   }
 }
 

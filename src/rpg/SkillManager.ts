@@ -1,7 +1,7 @@
 /**
  * SkillManager.ts
  * Manages persistent combat skill progression for one-handed, two-handed,
- * ranged, mounted-impact, blocking, and unarmed combat.
+ * ranged, mounted-impact, blocking, armor-break, and unarmed combat.
  */
 
 import type { SoundManager } from '../audio/SoundManager'
@@ -9,7 +9,10 @@ import type { WeaponData } from './WeaponDatabase'
 
 export const MAX_SKILL_LEVEL = 50
 
-export type SkillId = 'oneHanded' | 'twoHanded' | 'ranged' | 'mountedImpact' | 'blocking' | 'unarmed'
+export type SkillId = 'oneHanded' | 'twoHanded' | 'ranged' | 'mountedImpact' | 'blocking' | 'armorBreak' | 'unarmed'
+
+/** Display and persistence order for every combat skill. */
+export const SKILL_IDS: readonly SkillId[] = ['unarmed', 'oneHanded', 'twoHanded', 'ranged', 'mountedImpact', 'blocking', 'armorBreak']
 
 export interface SkillData {
   level: number
@@ -23,6 +26,7 @@ export interface SkillState {
   twoHanded: SkillData
   ranged: SkillData
   mountedImpact: SkillData
+  armorBreak: SkillData
 }
 
 export interface SkillStateInput {
@@ -32,6 +36,7 @@ export interface SkillStateInput {
   twoHanded?: Partial<SkillData>
   ranged?: Partial<SkillData>
   mountedImpact?: Partial<SkillData>
+  armorBreak?: Partial<SkillData>
 }
 
 const SKILL_LABELS: Record<SkillId, string> = {
@@ -41,17 +46,11 @@ const SKILL_LABELS: Record<SkillId, string> = {
   twoHanded: '🪓 雙手武器',
   ranged: '🏹 遠程',
   mountedImpact: '🐎 騎馬衝撞',
+  armorBreak: '🔨 破甲',
 }
 
 export function createDefaultSkillState(): SkillState {
-  return {
-    unarmed: { level: 1, xp: 0 },
-    blocking: { level: 1, xp: 0 },
-    oneHanded: { level: 1, xp: 0 },
-    twoHanded: { level: 1, xp: 0 },
-    ranged: { level: 1, xp: 0 },
-    mountedImpact: { level: 1, xp: 0 },
-  }
+  return normalizeSkillState()
 }
 
 function finiteNumber(value: unknown, fallback: number): number {
@@ -71,14 +70,26 @@ function normalizeSkillData(value?: Partial<SkillData>): SkillData {
 }
 
 export function normalizeSkillState(state?: SkillStateInput | null): SkillState {
-  return {
-    unarmed: normalizeSkillData(state?.unarmed),
-    blocking: normalizeSkillData(state?.blocking),
-    oneHanded: normalizeSkillData(state?.oneHanded),
-    twoHanded: normalizeSkillData(state?.twoHanded),
-    ranged: normalizeSkillData(state?.ranged),
-    mountedImpact: normalizeSkillData(state?.mountedImpact),
-  }
+  return Object.fromEntries(SKILL_IDS.map(id => [id, normalizeSkillData(state?.[id])])) as unknown as SkillState
+}
+
+/** Shared 1%-per-level curve capped at 50% (Blocking overflow reduction, Armor Break penetration). */
+export function skillPercentEffect(level: number | undefined): number {
+  return Math.min(.5, Math.max(0, Number.isFinite(level) ? Math.floor(level!) : 0) * .01)
+}
+
+/** Fraction of shield / barding-blocked damage an attacker's Armor Break turns back into damage. */
+export function armorBreakPenetration(level: number | undefined): number {
+  return skillPercentEffect(level)
+}
+
+/** Combat-time skill levels the Player carries into shield and actor-ref calculations. */
+export function syncPlayerSkillCombatLevels(
+  player: { blockingLevel: number; armorBreakLevel: number },
+  state: Pick<SkillState, 'blocking' | 'armorBreak'>,
+): void {
+  player.blockingLevel = state.blocking.level
+  player.armorBreakLevel = state.armorBreak.level
 }
 
 /** Lv.1 = 1.0x and Lv.50 = exactly 3.0x. */
@@ -93,14 +104,9 @@ export function unarmedSkillDamageMultiplier(level: number): number {
   return 1 + ((clamped - 1) / (MAX_SKILL_LEVEL - 1)) * 4
 }
 
-/** Offensive skills grant HP above Lv.1; Blocking grants its full level. */
+/** Offensive skills (Armor Break included) grant HP above Lv.1; Blocking grants its full level. */
 export function skillHpBonus(state: SkillState): number {
-  return (state.oneHanded.level - 1)
-    + (state.twoHanded.level - 1)
-    + (state.ranged.level - 1)
-    + (state.mountedImpact.level - 1)
-    + (state.unarmed.level - 1)
-    + state.blocking.level
+  return SKILL_IDS.reduce((total, id) => total + state[id].level - (id === 'blocking' ? 0 : 1), 0)
 }
 
 /**
@@ -129,14 +135,7 @@ export class SkillManager {
   }
 
   get skillState(): SkillState {
-    return {
-      unarmed: { ...this.state.unarmed },
-      blocking: { ...this.state.blocking },
-      oneHanded: { ...this.state.oneHanded },
-      twoHanded: { ...this.state.twoHanded },
-      ranged: { ...this.state.ranged },
-      mountedImpact: { ...this.state.mountedImpact },
-    }
+    return Object.fromEntries(SKILL_IDS.map(id => [id, { ...this.state[id] }])) as unknown as SkillState
   }
 
   setSkillState(state: SkillStateInput): void {
@@ -179,8 +178,8 @@ export class SkillManager {
   }
 
   /**
-   * Offensive XP uses actual HP removed. Blocking uses actual absorbed impact
-   * scaled by SHIELD_CONFIG. Structure damage must not call this method.
+   * Offensive XP uses actual HP removed. Blocking and Armor Break use actual
+   * absorbed impact scaled by SHIELD_CONFIG. Structure damage must not call this method.
    */
   addXp(skill: SkillId, amount: number, soundManager?: SoundManager): number {
     const id = skill

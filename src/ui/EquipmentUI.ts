@@ -4,7 +4,8 @@ import type { HorseAppearanceVariant } from '../world/HorseAssetRegistry'
  * Manages the RPG Character & Equipment Modal overlay (toggled via Tab or I key).
  * Renders owned items, quantity badges (x2, x3), Tier badges (灰/藍/金), damage stats, and handles EQUIP buttons.
  */
-import { resolveMeleeSkillId, type SkillManager } from '../rpg/SkillManager'
+import { MAX_SKILL_LEVEL, SKILL_IDS, armorBreakPenetration, resolveMeleeSkillId, skillPercentEffect, type SkillId, type SkillManager } from '../rpg/SkillManager'
+import { SHIELD_CONFIG } from '../combat/ShieldImpact'
 import type { InventoryManager } from '../rpg/InventoryManager'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { getTierBadge, getTierColor } from '../rpg/WeaponDatabase'
@@ -45,16 +46,33 @@ export interface EquipmentMountAdapter {
 export interface EquipmentSquadAdapter { render(container: HTMLElement, refresh: () => void): void }
 export interface EquipmentTownAdapter extends EquipmentSquadAdapter { access(): { allowed: boolean; reason: string } }
 
+interface SkillRowSpec {
+  name: string
+  /** Hover text: how the skill trains and what it grants. */
+  hint: string
+  effect(skillManager: SkillManager, level: number): string
+}
+
+const damageEffect = (skill: SkillId) => (skillManager: SkillManager): string => `傷害 ×${skillManager.getMultiplier(skill).toFixed(2)}`
+const percent = (value: number): string => `${Math.round(value * 100)}%`
+const blockXp = SHIELD_CONFIG.xpPerBlockedImpact
+
+/** Every skill row uses the same layout: name, Lv.x/50, XP progress with its current effect, and a bar. */
+export const SKILL_ROWS: Readonly<Record<SkillId, SkillRowSpec>> = {
+  unarmed: { name: '🥊 徒手格鬥', hint: '每級 +1 HP；每點有效 HP 傷害獲得 2 XP，Lv.50 傷害 ×5', effect: damageEffect('unarmed') },
+  oneHanded: { name: '⚔️ 單手武器 One-Handed', hint: '每級 +1 HP；單手持握造成的每點有效 HP 傷害獲得 1 XP，Lv.50 傷害 ×3', effect: damageEffect('oneHanded') },
+  twoHanded: { name: '🪓 雙手武器 Two-Handed', hint: '每級 +1 HP；雙手持握造成的每點有效 HP 傷害獲得 1 XP，Lv.50 傷害 ×3', effect: damageEffect('twoHanded') },
+  ranged: { name: '🏹 遠程 Ranged', hint: '每級 +1 HP；投射物造成的每點有效 HP 傷害獲得 1 XP，Lv.50 傷害 ×3', effect: damageEffect('ranged') },
+  mountedImpact: { name: '🐎 騎馬衝撞 Mounted Impact', hint: '每級 +1 HP；坐騎衝撞造成的每點有效 HP 傷害獲得 1 XP，Lv.50 傷害 ×3', effect: damageEffect('mountedImpact') },
+  blocking: { name: '🛡️ 格擋 Blocking', hint: `每級 +1 HP；用盾擋下敵方攻擊，每點衝擊獲得 ${blockXp} XP；只降低破盾當次的溢出傷害，每級 1%，最高 50%`,
+    effect: (_, level) => `破盾溢傷 −${percent(skillPercentEffect(level))}` },
+  armorBreak: { name: '🔨 破甲 Armor Break', hint: `每級 +1 HP；攻擊被敵方盾牌或坐騎重甲擋下時，每點被擋衝擊獲得 ${blockXp} XP；被格擋的傷害每級 1% 直接穿透，最高 50%`,
+    effect: (_, level) => `格擋穿透 ${percent(armorBreakPenetration(level))}` },
+}
+
 export class EquipmentUI {
   private modal: HTMLElement
-  private ohLvlEl: HTMLElement
-  private ohFillEl: HTMLElement
-  private thLvlEl: HTMLElement
-  private thFillEl: HTMLElement
-  private rangedLvlEl: HTMLElement
-  private rangedFillEl: HTMLElement
-  private mountLvlEl: HTMLElement
-  private mountFillEl: HTMLElement
+  private skillListEl: HTMLElement
   private inventoryListEl: HTMLElement
   private squadListEl: HTMLElement
   private townListEl: HTMLElement | null
@@ -72,14 +90,7 @@ export class EquipmentUI {
 
   constructor() {
     this.modal           = document.getElementById('character-modal')!
-    this.ohLvlEl         = document.getElementById('skill-oh-lvl')!
-    this.ohFillEl        = document.getElementById('skill-oh-fill')!
-    this.thLvlEl         = document.getElementById('skill-th-lvl')!
-    this.thFillEl        = document.getElementById('skill-th-fill')!
-    this.rangedLvlEl     = document.getElementById('skill-ranged-lvl')!
-    this.rangedFillEl    = document.getElementById('skill-ranged-fill')!
-    this.mountLvlEl      = document.getElementById('skill-mount-lvl')!
-    this.mountFillEl     = document.getElementById('skill-mount-fill')!
+    this.skillListEl     = document.getElementById('skill-list')!
     this.inventoryListEl = document.getElementById('inventory-list')!
     this.squadListEl     = document.getElementById('squad-list')!
     this.townListEl      = document.getElementById('town-equipment-list')
@@ -104,6 +115,25 @@ export class EquipmentUI {
       }
     })
     this.selectTab(1)
+  }
+
+  private renderSkills(skillManager: SkillManager): void {
+    const state = skillManager.skillState
+    this.skillListEl.replaceChildren(...SKILL_IDS.map(id => {
+      const spec = SKILL_ROWS[id], { level, xp } = state[id], needed = skillManager.getXpNeeded(level)
+      const row = document.createElement('div'); row.className = 'skill-row'; row.title = spec.hint; row.dataset.skill = id
+      const head = document.createElement('div')
+      const name = document.createElement('span'); name.className = 'skill-name'; name.textContent = spec.name
+      const lvl = document.createElement('span'); lvl.className = 'skill-level'; lvl.textContent = ` Lv.${level}/${MAX_SKILL_LEVEL}`
+      head.append(name, lvl)
+      const detail = document.createElement('span'); detail.className = 'skill-detail'
+      detail.textContent = `${needed ? `XP ${Math.floor(xp)} / ${needed}` : 'MAX'} · ${spec.effect(skillManager, level)}`
+      const bar = document.createElement('div'); bar.className = 'skill-xp-bar'
+      const fill = document.createElement('div'); fill.className = 'skill-xp-fill'
+      fill.style.width = needed > 0 ? `${Math.min(100, (xp / needed) * 100)}%` : '100%'
+      bar.append(fill); row.append(head, detail, bar)
+      return row
+    }))
   }
 
   private selectTab(index: number): void {
@@ -157,26 +187,7 @@ export class EquipmentUI {
   }
 
   private renderModal(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter, squad?: EquipmentSquadAdapter, town?: EquipmentTownAdapter): void {
-    const { oneHanded, twoHanded, ranged, mountedImpact, blocking, unarmed } = skillManager.skillState
-
-    const renderSkill = (levelEl: HTMLElement, fillEl: HTMLElement, data: { level: number; xp: number }): void => {
-      const needed = skillManager.getXpNeeded(data.level)
-      levelEl.textContent = data.level >= 50 ? ' Lv.50 MAX' : ` Lv.${data.level}`
-      fillEl.style.width = needed > 0 ? `${Math.min(100, (data.xp / needed) * 100)}%` : '100%'
-    }
-    renderSkill(this.ohLvlEl, this.ohFillEl, oneHanded)
-    renderSkill(this.thLvlEl, this.thFillEl, twoHanded)
-    renderSkill(this.rangedLvlEl, this.rangedFillEl, ranged)
-    renderSkill(this.mountLvlEl, this.mountFillEl, mountedImpact)
-    const blockLevel = document.getElementById('skill-block-lvl'), blockFill = document.getElementById('skill-block-fill')
-    if (blockLevel && blockFill) renderSkill(blockLevel, blockFill, blocking)
-    const fistLevel = document.getElementById('skill-unarmed-lvl'), fistFill = document.getElementById('skill-unarmed-fill')
-    if (fistLevel && fistFill) {
-      renderSkill(fistLevel, fistFill, unarmed)
-      fistLevel.textContent = ` Lv.${unarmed.level}/50`
-      const detail = document.getElementById('skill-unarmed-detail'), needed = skillManager.getXpNeeded(unarmed.level)
-      if (detail) detail.textContent = `${needed ? `XP ${Math.floor(unarmed.xp)} / ${needed}` : 'MAX'} · 傷害 ×${skillManager.getMultiplier('unarmed').toFixed(2)}`
-    }
+    this.renderSkills(skillManager)
 
     // Render Inventory Cards
     this.inventoryListEl.innerHTML = ''
