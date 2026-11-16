@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { FACTION_SHIELD_BANDS } from './FactionShieldGeometry'
 import type { Mount } from '../world/Mount'
+import { refreshWorldChains } from '../world/AnchoredWorldMatrix'
 
 export { SHIELD_CONFIG, weaponShieldImpact } from './ShieldImpact'
 export function blockingReduction(level: number): number {
@@ -192,7 +193,9 @@ let limbCount = 0
 let preparedMount: Mount | null = null
 function prepareTarget(target: PhysicalCombatTarget): void {
   limbCount = Math.min(limbCenters.length, target.bodyHitNodes?.length ?? 0)
-  for (let i = 0; i < limbCount; i++) target.bodyHitNodes![i].getWorldPosition(limbCenters[i])
+  // Same matrices as one getWorldPosition per limb; the limbs' shared ancestors are refreshed once.
+  if (limbCount > 0) refreshWorldChains(target.bodyHitNodes!, limbCount)
+  for (let i = 0; i < limbCount; i++) limbCenters[i].setFromMatrixPosition(target.bodyHitNodes![i].matrixWorld)
   target.shieldCollider?.prepare()
   preparedMount = target.mountCollider ? target as Mount
     : target.isMounted ? target.mount ?? target.currentMount ?? null : null
