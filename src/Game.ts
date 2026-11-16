@@ -1090,7 +1090,7 @@ export class Game {
         battlePlan = this.heavyDeployment.plan
       } else battlePlan = createCareerFelineSpawnPlan(this.careerProfile)
     } else if (this.captainEagleMissionId && this.careerProfile) {
-      battlePlan = createCaptainEagleSpawnPlan(this.careerProfile)
+      battlePlan = createCaptainEagleSpawnPlan(this.careerProfile, this.obstacles)
     } else if (heroBenchmark) {
       activeBattleConfig = heroBenchmark.config
       battlePlan = heroBenchmark.plan
