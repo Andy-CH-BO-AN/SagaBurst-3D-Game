@@ -5,6 +5,7 @@ import { createCareerProfile, type CareerProfile } from '../../src/career/Career
 import { acceptHeavyFieldMission } from '../../src/career/HeavyFieldMission'
 import { beginPrisonBreak, claimCareerFieldResult } from '../../src/career/CareerPrisonBreak'
 import { createArenaTrialMission } from '../../src/career/CareerArenaTrials'
+import { HorseAssetRegistry } from '../../src/world/HorseAssetRegistry'
 import { HumanoidAssetRegistry } from '../../src/world/HumanoidAssetRegistry'
 import * as highTier from '../../src/world/HighTierEquipment'
 import * as paladin from '../../src/world/PaladinEquipment'
@@ -19,6 +20,7 @@ const preload = (profile: CareerProfile) => {
 function boundary() {
   vi.spyOn(HumanoidAssetRegistry, 'preload').mockResolvedValue()
   vi.spyOn(HumanoidAssetRegistry, 'preloadAsset').mockResolvedValue()
+  vi.spyOn(HorseAssetRegistry, 'preload').mockResolvedValue()
   const paladinLoad = vi.spyOn(paladin, 'preloadPaladinEquipment').mockResolvedValue()
   const highLoad = vi.spyOn(highTier, 'preloadHighTierEquipment').mockResolvedValue()
   const makiLoad = vi.spyOn(maki, 'preloadMakiRangerBow').mockResolvedValue()

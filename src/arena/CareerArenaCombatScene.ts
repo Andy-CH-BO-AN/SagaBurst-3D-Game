@@ -27,7 +27,9 @@ import type { ActiveCareerMission, CareerMissionOutcome } from '../career/Career
 import { BattleStatsTracker, type PlayerBattleStats } from '../combat/BattleStatsTracker'
 import { CombatEventStream, createNpcCombatActorRef, createPlayerCombatActorRef, type CombatDamageMethod, type CombatEvent } from '../combat/CombatAttribution'
 import { getAntiCavalryMultiplier } from '../combat/CombatBalance'
-import { damageNpc, damagePlayer } from '../combat/DamageRouter'
+import { damageMount, damageNpc, damagePlayer } from '../combat/DamageRouter'
+import { applyMountImpactDamage, applyMountImpactKnockback, checkMountImpact } from '../combat/MountImpact'
+import { CareerMountController } from '../career/CareerMountController'
 import { calculatePlayerMeleeDamage } from '../combat/PlayerMeleeDamage'
 import { ProjectileAdmission } from '../combat/ProjectileAdmission'
 import { ProjectileContactQuery } from '../combat/ProjectileContactQuery'
@@ -55,12 +57,14 @@ import { StaminaBar } from '../ui/StaminaBar'
 import { WeaponWheelUI } from '../ui/WeaponWheelUI'
 import { ArrowProjectile } from '../world/ArrowProjectile'
 import { HERO_ASSETS } from '../world/HeroAssetCatalog'
+import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
 import { HIGH_TIER_WEAPON_ASSETS, prepareByzantineEquipment, preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
+import { Mount } from '../world/Mount'
 import { Faction, NPC } from '../world/NPC'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
-import { resolveEntityCollision } from '../world/Terrain'
+import { resolveEntityCollision, type ObstacleData } from '../world/Terrain'
 
 const PLAYER_HALF_HEIGHT = 0.95
 const RESUME_GRACE_SECONDS = 3
@@ -131,6 +135,8 @@ export class CareerArenaCombatScene {
   private spectator?: SpectatorCameraController
   private inventory!: InventoryManager
   private equipment?: ArenaEquipmentMenu
+  /** The player's own ground mount; squad trials are mountable like the solo duel, while the prison break stays on foot. */
+  private careerMounts?: CareerMountController
   private tracker!: BattleStatsTracker
   private formation!: ArenaTrialFormation
   private bodies: Body[] = []
@@ -234,6 +240,7 @@ export class CareerArenaCombatScene {
     const requires = (predicate: (id: string) => boolean) => !this.prison || equipmentIds.some(id => typeof id === 'string' && predicate(id))
     const [, equipment] = await Promise.all([
       Promise.all([HumanoidAssetRegistry.preload(),
+        ...(this.prison ? [] : [HorseAssetRegistry.preload(this.renderer)]),
         ...(requires(id => id.startsWith('paladin_')) ? [preloadPaladinEquipment()] : []),
         ...(requires(id => id in HIGH_TIER_WEAPON_ASSETS) ? [preloadHighTierEquipment()] : []),
         ...(requires(id => id === T4_RANGER_BOW_RANGED_ID) ? [preloadMakiRangerBow()] : []),
@@ -293,6 +300,14 @@ export class CareerArenaCombatScene {
     if (this.prison && this.player.dead) this.orbit.update(this.input, 0, this.arena.obstacles)
     this.tracker = new BattleStatsTracker(this.events, false, undefined, mission.playerStats)
     if (this.inventory instanceof TownEquipment) this.inventory.prepareForCombat()
+    if (!this.prison && !settled) {
+      this.careerMounts = new CareerMountController(this.scene, () => this.player, () => this.profile, next => this.commit(next),
+        // Overhead roof volumes cannot block summoning a mount on the floor below them.
+        () => this.mountObstacles, () => this.bodies.map(body => body.npc.combatPosition), () => `arena-trial:${this.arenaId}`)
+      // A ridden ground mount comes along to the trial; eagles never fly inside an arena.
+      const mountId = mission.mountState?.activeMountId
+      if (mountId && mountId !== 'xongkoro') this.careerMounts.restoreActiveMount(false)
+    }
     // prepareForCombat tops up supplies; a saved fight restores what was really left (0 means spent or broken).
     if (saved) {
       if (saved.ammo !== undefined) this.player.setArrowCount(saved.ammo)
@@ -362,11 +377,15 @@ export class CareerArenaCombatScene {
     }
   }
 
+  private get mountObstacles(): ObstacleData[] {
+    return this.arena.obstacles.filter(obstacle => !(obstacle.navigationPassable && !obstacle.walkSurface && obstacle.box.min.y > 4))
+  }
+
   private bindInput(): void {
     const signal = this.listeners.signal
     // Prison break deliberately owns a fixed, scavenged loadout.
     if (!this.prison) this.equipment = new ArenaEquipmentMenu(this.input, this.skills, this.inventory, this.renderer.domElement,
-      () => this.started && !this.disposed && !this.player.dead && !this.panelOpen && !this.settlementPending && this.phase !== 'result')
+      () => this.started && !this.disposed && !this.player.dead && !this.panelOpen && !this.settlementPending && this.phase !== 'result', this.careerMounts)
     this.renderer.domElement.addEventListener('click', () => {
       if (!this.started || this.panelOpen || this.equipment?.visible) return
       this.sound.unlockAudio()
@@ -440,14 +459,27 @@ export class CareerArenaCombatScene {
     this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(this.aimPoint), this.arena.obstacles,
       this.stamina, this.quiver, this.sound, this.inventory, this.skills.getRangedMultiplier(), fighting && !this.panelOpen)
     // The ground boundary holds living, supported bodies only; falls always complete.
-    if (!this.player.dead && this.player.isGrounded) this.arena.constrainGroundedBody(this.player.group.position)
+    if (!this.player.dead && this.player.isGrounded) {
+      const mount = this.player.currentMount
+      if (mount) { if (this.arena.constrainGroundedBody(mount.group.position)) this.player.syncMountTransform() }
+      else this.arena.constrainGroundedBody(this.player.group.position)
+    }
     this.updateBodies(dt)
-    if (fighting) { this.melee(); this.resolveBodies(); if (this.prison) this.pickupSwords(pickupPressed) }
+    if (fighting) { this.melee(); this.resolveBodies(); this.mountImpacts(); if (this.prison) this.pickupSwords(pickupPressed) }
     if (this.pickupRetry) return
     // A living teammate who has already crossed wins before any in-flight shot
     // can hit them later in this frame. A rejected receipt freezes this same crossing.
     if (this.prison?.gateOpen && this.resolvePrisonResult()) return
     this.updateShots(dt)
+    if (this.careerMounts) {
+      this.careerMounts.update(dt)
+      this.player.fitMountedSeat()
+      const mount = this.careerMounts.activeMount
+      if (mount && !mount.disposed) {
+        mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
+        if (mount.dead || !mount.riderPlayer) mount.update(dt, this.arena.obstacles)
+      }
+    }
     this.arena.update(dt)
     this.props?.update(dt)
     this.advancePhase(dt)
@@ -591,8 +623,9 @@ export class CareerArenaCombatScene {
         if (body.pickupSwordIndex !== undefined) { delete body.pickupSwordIndex; npc.setTacticalOrder('attack') }
       }
       npc.update(dt, this.player, live, live, this.arena.obstacles, this.hp,
-        (damage, isPlayer, target) => {
+        (damage, isPlayer, target, targetMount) => {
           if (isPlayer) this.damagePlayerFrom(npc, damage, 'melee')
+          else if (targetMount) this.hitMount(targetMount, damage, 'melee', npc)
           else if (target) this.damageBodyFrom(npc, target, damage, 'melee')
         },
         (origin, direction, kind) => this.fire(origin, direction, npc.rangedProjectileSpeed, npc.rangedDamage, kind, npc),
@@ -622,14 +655,26 @@ export class CareerArenaCombatScene {
     const weapon = activeMelee
     const damage = calculatePlayerMeleeDamage({
       baseDamage: weapon.damageMax, combatKind: weapon.combatKind, isLance: weapon.isLance === true,
-      isMounted: false, mountSpeed: 0,
+      isMounted: this.player.isMounted, mountSpeed: this.player.currentMount?.movementSpeed ?? 0,
       oneHandedMultiplier: this.skills.getMultiplier(resolveCombatSkill('melee', weapon, Boolean(this.inventory.shieldEnabled && this.inventory.equippedShield))!),
       faction: this.player.characterFaction, hasShield: this.inventory.shieldEnabled, heroAssetId: this.player.heroAssetId ?? undefined,
     })
-    const contact = this.player.weaponSweep.traceFirst(enemies, [], null)
+    const contact = this.player.weaponSweep.traceFirst(enemies, [], this.player.currentMount)
     if (!contact) return
     this.player.markHitProcessed()
-    this.hitEnemy(contact.target as NPC, Math.round(damage.damage * getAntiCavalryMultiplier(weapon.combatKind, false, false)), 'melee', contact)
+    this.hitEnemy(contact.target as NPC, Math.round(damage.damage * getAntiCavalryMultiplier(weapon.combatKind, this.player.isMounted, false)), 'melee', contact)
+    if (damage.isCharge && this.player.currentMount) this.player.currentMount.skipImpactThisFrame = true
+  }
+
+  /** Mounted contacts: the player's charge tramples enemy bodies through the same impact rules as the solo duel. */
+  private mountImpacts(): void {
+    const mount = this.player.currentMount
+    if (!mount || mount.dead || this.player.dead) return
+    for (const { npc, team } of this.bodies) {
+      if (team !== 'enemy' || npc.dead || !checkMountImpact(mount, npc.combatPosition, 0.5)) continue
+      applyMountImpactDamage(mount, npc, npc.combatPosition, this.elapsed,
+        damage => this.hitEnemy(npc, Math.round(damage * this.skills.getMountedImpactMultiplier()), 'mount-impact'))
+    }
   }
 
   private emit(event: CombatEvent, lod = 0): void {
@@ -650,9 +695,23 @@ export class CareerArenaCombatScene {
     })
     if (!result.hitSuccess) return
     if (result.appliedDamage > 0) this.damageNumbers.spawn(result.appliedDamage, target.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)))
+    if (method === 'mount-impact' && this.player.currentMount && !result.isMountHit) {
+      applyMountImpactKnockback(this.player.currentMount, target, { obstacles: this.arena.obstacles, worldBound: 108 })
+    }
     if (method === 'projectile') this.sound.playProjectileImpact(target.currentLod, true)
+    else if (method === 'mount-impact') this.sound.playHorseImpact(target.currentLod, true)
     else if (contact?.attackSource !== 'unarmed') this.sound.playSwordHit(target.currentLod, true)
     this.targetHud.show(result.targetName, result.hpRatio)
+  }
+
+  /** Enemies may only strike the player's own mount, during live combat. */
+  private hitMount(mount: Mount, amount: number, method: CombatDamageMethod, source: NPC, contact?: CombatContact): void {
+    if (this.phase !== 'fight' || mount.dead || mount.disposed || amount <= 0 || mount !== this.player.currentMount || source.faction !== Faction.ENEMY || source.dead) return
+    damageMount(mount, amount, {
+      contact, source: createNpcCombatActorRef(source), method,
+      weaponId: (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined,
+      emit: event => this.emit(event, mount.currentLod),
+    })
   }
 
   /** NPC → NPC: only across teams (allegiance), only in live combat. */
@@ -669,6 +728,7 @@ export class CareerArenaCombatScene {
   private damagePlayerFrom(source: NPC, amount: number, method: CombatDamageMethod, contact?: CombatContact): void {
     if (this.phase !== 'fight' || this.player.dead || source.faction !== Faction.ENEMY || source.dead) return
     contact ??= source.unarmedContact
+    if (contact?.kind === 'mount' && contact.mount) { this.hitMount(contact.mount, amount, method, source, contact); return }
     const result = damagePlayer(this.player, amount, this.hp, this.inventory.shieldEnabled ? this.inventory.equippedShield?.id ?? null : null, {
       contact: contact ?? source.unarmedContact ?? (method === 'melee' ? source.weaponSweep?.contact : undefined), hostileToTarget: true,
       source: createNpcCombatActorRef(source), method,
@@ -698,18 +758,20 @@ export class CareerArenaCombatScene {
       shot.arrow.update(dt, this.player, [], [], () => {}, amount => damagePlayer(this.player, amount, this.hp, null), undefined, true)
       if (!shot.arrow.isAlive) continue
       const shooterTeam = shot.player ? 'friendly' : shot.source!.faction === Faction.ENEMY ? 'enemy' : 'friendly'
-      const targets: (Player | NPC)[] = [
+      const playerMount = this.player.currentMount
+      const targets: (Player | NPC | Mount)[] = [
         ...this.bodies.filter(body => body.team !== shooterTeam && !body.npc.dead).map(body => body.npc),
-        ...(shooterTeam === 'enemy' && !this.player.dead ? [this.player] : []),
+        ...(shooterTeam === 'enemy' && !this.player.dead ? [this.player, ...(playerMount && !playerMount.dead ? [playerMount] : [])] : []),
       ]
       const hit = this.shotContacts.find(from, shot.arrow.mesh.position, {
         world: { kind: 'town', practiceTargets: [], traceSiege: () => null },
-        obstacles: this.arena.obstacles, targets, acceptsTarget: target => !target.dead,
+        obstacles: this.arena.obstacles, targets, acceptsTarget: target => !target.dead && !(target instanceof Mount && target.disposed),
       })
       if (hit) {
         if (hit.kind === 'actor') {
           const { target, contact } = hit
-          if (target instanceof Player && shot.source) this.damagePlayerFrom(shot.source, shot.arrow.damage, 'projectile', contact)
+          if (contact.kind === 'mount' && contact.mount && shot.source) this.hitMount(contact.mount, shot.arrow.damage, 'projectile', shot.source, contact)
+          else if (target instanceof Player && shot.source) this.damagePlayerFrom(shot.source, shot.arrow.damage, 'projectile', contact)
           else if (target instanceof NPC && shot.player) this.hitEnemy(target, shot.arrow.damage, 'projectile', contact)
           else if (target instanceof NPC && shot.source) this.damageBodyFrom(shot.source, target, shot.arrow.damage, 'projectile', contact)
         }
@@ -773,7 +835,7 @@ export class CareerArenaCombatScene {
       shieldDurability: { ...this.player.shield.captureDurability() },
       ...(this.player.currentMount || this.player.isFalling ? {} : (fall => fall.grounded && fall.apexY === null ? {} : { fall })(this.player.captureFootFall())) } }
     if (this.prison) active.prisonBreak!.combat = combat
-    else { active.arenaTrial = combat; active.phase = 'ENGAGING'; active.playerStats = this.tracker.checkpoint() }
+    else { active.arenaTrial = combat; active.phase = 'ENGAGING'; active.playerStats = this.tracker.checkpoint(); if (this.careerMounts) active.mountState = this.careerMounts.checkpoint() }
     return next
   }
 
@@ -988,6 +1050,7 @@ export class CareerArenaCombatScene {
     this.equipment?.dispose()
     this.closePanel()
     this.inventory?.dispose()
+    this.careerMounts?.dispose()
     this.pickupHud?.dispose(); this.props?.dispose(); this.prisonHud?.remove(); this.subtitle?.remove(); this.dimmer?.remove()
     this.input.dispose()
     this.hud.dispose(); this.openingHud.dispose(); this.targetHud.dispose(); this.weaponWheelUI.dispose(); this.damageNumbers.clear()
