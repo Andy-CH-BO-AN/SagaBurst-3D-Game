@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { UNARMED_DURATION, punchEventsBetween, punchExtension, type FistStrike, type PunchHand } from '../combat/UnarmedCombat'
-import type { CharacterRig, HumanoidAnimationState, HumanoidPunchTiming, MountedPoseKind } from './CharacterVisuals'
+import type { CharacterRig, HumanoidAnimationState, HumanoidPunchTiming, HumanoidSeekNextUpdate, MountedPoseKind } from './CharacterVisuals'
 import { setRigRotation } from './CharacterVisuals'
 import { axeCarryWeight, axeRecoveryWeight, setSwordMountedAttachment } from './SwordAttachmentContract'
 import type { EquipmentPoseState } from './CharacterEquipmentPose'
@@ -485,7 +485,8 @@ export class CharacterCombatAnimator {
     return wrist.localToWorld(out.fromArray(hand === 'right' ? frames.lanceRight.gripCenterLocal : frames.lanceLeft.gripCenterLocal))
   }
 
-  poseBow(chargeRatio: number, aimBlend = 1): void {
+  /** `nextUpdate`: see HumanoidAnimationController.seek; pass it only when `update` follows directly. */
+  poseBow(chargeRatio: number, aimBlend = 1, nextUpdate?: HumanoidSeekNextUpdate): void {
     if (this.busy || this.shieldGuardEnabled) return
     this.clearCanceledAxePose()
     this.rig.animation?.setEquipmentState?.({ action: 'bowAim' })
@@ -494,7 +495,7 @@ export class CharacterCombatAnimator {
     this.ownership = imported ? 'clip' : 'procedural'
     if (imported) {
       if (chargeRatio >= 1) this.rig.animation!.play('bowHold', { fadeSeconds: 0.08, loop: true })
-      else this.rig.animation!.seek('bowLoad', chargeRatio, this.cameraDistance)
+      else this.rig.animation!.seek('bowLoad', chargeRatio, this.cameraDistance, nextUpdate)
       return
     }
     this.applyBowPose(chargeRatio, aimBlend)

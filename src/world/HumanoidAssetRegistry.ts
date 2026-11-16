@@ -52,6 +52,7 @@ import type {
   HumanoidAnimationState,
   HumanoidMeleeTiming,
   HumanoidPunchTiming,
+  HumanoidSeekNextUpdate,
   LegRig,
 } from './CharacterVisuals'
 
@@ -593,6 +594,7 @@ export class MixerController implements HumanoidAnimationController {
 
   /** Called after Three selects its actual render LOD, before traversing meshes. */
   setVisibleLOD(index: number): void {
+    this.flushDeferredSeek()
     // Selected LOD meshes share the primary pose; their render level is not a
     // separate mixer index. Legacy assets retain one mixer per representation.
     if (this.mixers.length === 1) index = 0
@@ -626,6 +628,7 @@ export class MixerController implements HumanoidAnimationController {
   private farAccumulator = 0
   /** Repeated explicit samples (bow draw, pilum) of the still-bound state share the far cadence. */
   private seekedState: HumanoidAnimationState | null = null
+  private deferredSeek = false
   private seekPending = Infinity
   private readonly bowMeshes: THREE.SkinnedMesh[] = []
   private readonly swordMeshes: THREE.SkinnedMesh[] = []
@@ -634,6 +637,7 @@ export class MixerController implements HumanoidAnimationController {
 
   /** Authored upper-body recoil is additive: never cancels an AI attack or its hit clock. */
   playHitReaction(): void {
+    this.flushDeferredSeek()
     if (this.current === 'death') return
     this.catchUpInactive()
     for (const action of this.hitReactions) action.reset().setLoop(THREE.LoopOnce, 1).setEffectiveWeight(.65).play()
@@ -729,7 +733,10 @@ export class MixerController implements HumanoidAnimationController {
   }
 
   setBowLocomotion(state: 'idle' | 'walk' | 'run', timeScale: number): void {
-    if (this.bowLegState !== state || (this.bowLegActions.get(state) ?? []).some(action => action.timeScale !== timeScale)) this.catchUpInactive()
+    if (this.bowLegState !== state || (this.bowLegActions.get(state) ?? []).some(action => action.timeScale !== timeScale)) {
+      this.flushDeferredSeek()
+      this.catchUpInactive()
+    }
     if (this.bowLegState !== state) {
       for (const action of this.bowLegActions.get(this.bowLegState ?? '') ?? []) action.stop()
       for (const action of this.bowLegActions.get(state) ?? []) action.reset().play()
@@ -751,6 +758,7 @@ export class MixerController implements HumanoidAnimationController {
   }
 
   play(state: HumanoidAnimationState, options: HumanoidAnimationPlayOptions = {}): boolean {
+    this.flushDeferredSeek()
     this.seekedState = null
     if (state === 'death') for (const action of this.hitReactions) action.stop()
     const bindings = this.poseLayersEnabled ? this.actions : this.rawActions
@@ -817,7 +825,8 @@ export class MixerController implements HumanoidAnimationController {
     return true
   }
 
-  seek(state: HumanoidAnimationState, normalizedTime: number, cameraDistance = 0): boolean {
+  seek(state: HumanoidAnimationState, normalizedTime: number, cameraDistance = 0, nextUpdate?: HumanoidSeekNextUpdate): boolean {
+    this.flushDeferredSeek()
     // A far repeat keeps the last all-level sample: its paused actions are still
     // bound, and the caller's gameplay clock (draw/throw progress) is unaffected.
     if (this.seekedState === state && this.current === state && deferFarHumanoidPose(cameraDistance, this.seekPending)) return true
@@ -835,14 +844,32 @@ export class MixerController implements HumanoidAnimationController {
     this.restoreEquipment(true)
     for (const transition of this.inertialTransitions) transition.clear()
     this.relaxedHandTransitionStart = undefined
-    for (const mixer of this.mixers) mixer.update(0)
-    this.finishPose(true)
     this.seekedState = state
     this.seekPending = 0
+    // The caller's update(dt) this tick re-evaluates every action, including this paused
+    // sample, so sampling here as well only produced a pose that update overwrote. Defer it
+    // only when that update is certain to evaluate (one mixer, not a deferred far tick); any
+    // other mixer or pose change first runs the sample in its original order.
+    if (nextUpdate && this.mixers.length === 1 && Number.isFinite(nextUpdate.dt) && nextUpdate.dt > 0
+      && !deferFarHumanoidPose(nextUpdate.cameraDistance, this.farAccumulator + nextUpdate.dt)) {
+      this.deferredSeek = true
+      return true
+    }
+    for (const mixer of this.mixers) mixer.update(0)
+    this.finishPose(true)
     return true
   }
 
+  /** Runs a deferred seek's sample exactly as seek would have, before anything else touches the pose. */
+  private flushDeferredSeek(): void {
+    if (!this.deferredSeek) return
+    this.deferredSeek = false
+    for (const mixer of this.mixers) mixer.update(0)
+    this.finishPose(true)
+  }
+
   sampleInitialPose(): void {
+    this.flushDeferredSeek()
     this.restoreEquipment(true)
     for (const transition of this.inertialTransitions) transition.clear()
     this.relaxedHandTransitionStart = undefined
@@ -851,14 +878,16 @@ export class MixerController implements HumanoidAnimationController {
   }
 
   update(dt: number, cameraDistance = 0): void {
-    if (!Number.isFinite(dt) || dt < 0) return
-    if (dt === 0) { this.restoreEquipment(); this.finishPose(); return }
+    if (!Number.isFinite(dt) || dt < 0) { this.flushDeferredSeek(); return }
+    if (dt === 0) { this.flushDeferredSeek(); this.restoreEquipment(); this.finishPose(); return }
     this.seekPending += dt
     this.farAccumulator += dt
-    if (deferFarHumanoidPose(cameraDistance, this.farAccumulator)) return
+    if (deferFarHumanoidPose(cameraDistance, this.farAccumulator)) { this.flushDeferredSeek(); return }
     // Returning near must consume the pending far time once, too.
     dt = this.farAccumulator
     this.farAccumulator = 0
+    // This evaluation supersedes a deferred seek sample (see seek).
+    this.deferredSeek = false
     this.restoreEquipment()
     for (let index = 0; index < this.mixers.length; index++) {
       if (this.needsLevel(index)) {
@@ -874,6 +903,7 @@ export class MixerController implements HumanoidAnimationController {
   }
 
   stop(): void {
+    this.flushDeferredSeek()
     this.catchUpInactive()
     this.equipmentLayers.forEach(layer => layer.stop())
     for (const transition of this.inertialTransitions) transition.clear()
