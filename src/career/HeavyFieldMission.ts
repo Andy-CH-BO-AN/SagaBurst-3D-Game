@@ -39,9 +39,9 @@ const definition = (id: HeavyFieldMissionId, name: string, briefing: string, fri
 
 export const HEAVY_FIELD_MISSION_CATALOG: readonly HeavyFieldMissionDefinition[] = [
   definition(SOLDIER_IRON_ENCOUNTER_ID, 'Iron Encounter · 遭遇鐵騎',
-    '目標：跟隨隊長行軍並在預定位置列陣，擊退 60 名重騎兵。敵軍一有人受傷就會全軍衝鋒；敵軍逼近 20 公尺時，隊長會下令反衝鋒。', 75, 60, 'soldier'),
+    '目標：跟隨隊長行軍並在預定位置列陣，與分列兩翼的 100 名 T2 槍騎兵友軍一同擊退 60 名重騎兵。敵軍一有人受傷就會全軍衝鋒；敵軍逼近 20 公尺時，隊長會下令反衝鋒。', 175, 60, 'soldier'),
   definition(VETERAN_IRON_TIDE_ID, 'Iron Tide · 鐵騎破陣',
-    '目標：在拒馬後列陣（長槍、刀斧、弓兵各 100 人），擊退 100 名重騎兵。敵軍一有人受傷就會全軍衝鋒；前鋒逼近 20 公尺時我方全軍反衝鋒。', 300, 100, 'veteran'),
+    '目標：在拒馬後列陣（長槍、刀斧、弓兵各 100 人，另有分列兩翼的 100 名 T3 槍騎兵友軍），擊退 100 名重騎兵。敵軍一有人受傷就會全軍衝鋒；前鋒逼近 20 公尺時我方全軍反衝鋒。', 400, 100, 'veteran'),
   definition(CAPTAIN_STEEL_AVALANCHE_ID, 'Steel Avalanche · 鋼鐵雪崩',
     '目標：率領 29 名 T4 重騎兵（含你共 30 人，可另帶私兵），進攻已列陣的 200 名步兵（刀斧 100、弓兵 100）。何時進攻由你決定；我方前鋒進入 20 公尺後，敵軍會反衝鋒。', 30, 200, 'captain'),
 ]
@@ -144,6 +144,18 @@ export function createCareerHeavyBattleLaunch(profile: CareerProfile): CareerHea
 
 interface SlotQueue { role: HeavyRosterGroup['role']; tier: HeavyRosterGroup['tier']; ids: string[] }
 
+/** Split the cavalry equally across both wings, leaving horse-sized room beside the infantry. */
+function flankCavalryPositions(count: number, infantry: readonly HeavyPoint[], zSign: 1 | -1): HeavyPoint[] {
+  const columns = 5, gapX = 3.6, halfWidth = (columns - 1) * gapX / 2
+  const frontAbsZ = Math.min(...infantry.map(at => Math.abs(at.z)))
+  const leftCount = Math.ceil(count / 2)
+  const options = { columns, gapX, gapZ: 3.8, frontAbsZ, zSign }
+  return [
+    ...heavyBlockPositions(leftCount, { ...options, centerX: Math.min(...infantry.map(at => at.x)) - 8 - halfWidth }),
+    ...heavyBlockPositions(count - leftCount, { ...options, centerX: Math.max(...infantry.map(at => at.x)) + 8 + halfWidth }),
+  ]
+}
+
 /** Actor ids are unique per mission; a group's ids are consumed in order. */
 function queues(missionId: HeavyFieldMissionId, side: 'friendly' | 'enemy', ids: readonly string[]): SlotQueue[] {
   let offset = 0
@@ -185,15 +197,16 @@ export function createHeavyFieldDeployment(profile: CareerProfile): HeavyFieldDe
   let ambushPoint: HeavyPoint = { x: 0, z: friendlySign * SOLDIER_AMBUSH_ABS_Z }
   let formationSlots: HeavyPoint[] = []
   const friendlyCount = mission.friendlyActorIds.length
+  const lancerCount = heavyNpcGroups(templateId, 'friendly').filter(group => group.role === 'lancer').reduce((count, group) => count + group.count, 0)
 
   if (templateId === SOLDIER_IRON_ENCOUNTER_ID) {
-    const column = heavyBlockPositions(friendlyCount + 1, { columns: 10, gapX: 2.4, gapZ: 2.6, frontAbsZ: SOLDIER_COLUMN_FRONT_ABS_Z, zSign: friendlySign })
+    const column = heavyBlockPositions(friendlyCount - lancerCount + 1, { columns: 10, gapX: 2.4, gapZ: 2.6, frontAbsZ: SOLDIER_COLUMN_FRONT_ABS_Z, zSign: friendlySign })
     const playerIndex = 15
     playerSpawn = column[playerIndex]
-    friendlyPositions = column.filter((_, index) => index !== playerIndex)
+    friendlyPositions = [...column.filter((_, index) => index !== playerIndex), ...flankCavalryPositions(lancerCount, column, friendlySign)]
     // Captain (the only T4) leads from the front: he is placed first in the queue below.
-    const line = heavyBlockPositions(friendlyCount + 1, { columns: 19, gapX: 2.2, gapZ: 2.4, frontAbsZ: SOLDIER_AMBUSH_ABS_Z, zSign: friendlySign })
-    formationSlots = line.filter((_, index) => index !== playerIndex)
+    const line = heavyBlockPositions(friendlyCount - lancerCount + 1, { columns: 19, gapX: 2.2, gapZ: 2.4, frontAbsZ: SOLDIER_AMBUSH_ABS_Z, zSign: friendlySign })
+    formationSlots = [...line.filter((_, index) => index !== playerIndex), ...flankCavalryPositions(lancerCount, line, friendlySign)]
     enemyPositions = heavyBlockPositions(60, { columns: 10, gapX: 3.6, gapZ: 3.8, frontAbsZ: HEAVY_ENEMY_FRONT_ABS_Z, zSign: enemySign })
   } else if (templateId === VETERAN_IRON_TIDE_ID) {
     const layout = planVeteranCaltropDefense()
@@ -203,6 +216,7 @@ export function createHeavyFieldDeployment(profile: CareerProfile): HeavyFieldDe
       if (slot.playerSlot) { playerSpawn = veteranSlotWorldPosition(slot, faction); continue }
       roleQueues.set(key, [...(roleQueues.get(key) ?? []), veteranSlotWorldPosition(slot, faction)])
     }
+    roleQueues.set('lancer:3', flankCavalryPositions(lancerCount, layout.slots.map(slot => veteranSlotWorldPosition(slot, faction)), friendlySign))
     friendlyPositions = queues(templateId, 'friendly', mission.friendlyActorIds).flatMap(group =>
       Array.from({ length: group.ids.length }, () => roleQueues.get(`${group.role === 'heavy_cavalry' ? 'melee' : group.role}:${group.tier}`)!.shift()!))
     formationSlots = friendlyPositions

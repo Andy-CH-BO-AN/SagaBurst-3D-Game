@@ -12,6 +12,13 @@ import { Faction } from '../../src/world/NPC'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { PlayerInput } from '../../src/player/PlayerInput'
 
+// Replace only the rendered panel; arena input, menu listeners and countdown decisions remain real.
+vi.mock('../../src/ui/EquipmentUI', () => ({ EquipmentUI: class {
+  visible = false
+  open() { this.visible = true }
+  close() { this.visible = false }
+} }))
+
 const stats = { damageDealt: 400, damageTaken: 10, kills: 3, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
 
 function profileAt(rank: CareerProfile['rank']): CareerProfile {
@@ -28,10 +35,10 @@ function openingHarness(search: string, seconds: number, prison = false) {
   const canvas = Object.assign(new EventTarget(), { requestPointerLock: vi.fn(() => Promise.reject(new Error('denied'))) })
   vi.stubGlobal('window', win); vi.stubGlobal('location', win.location); vi.stubGlobal('document', doc)
   const input = new PlayerInput(), listeners = new AbortController()
-  onTestFinished(() => { listeners.abort(); input.dispose(); vi.unstubAllGlobals() })
   const attack = vi.fn(), save = vi.fn(), checkpoint = vi.fn(), openingHud = { update: vi.fn() }
   const scene = Object.assign(Object.create(CareerArenaCombatScene.prototype) as {
     bindInput(): void; advancePhase(dt: number): void; phase: string; countdownRemaining: number
+    equipment?: { dispose(): void }
   }, {
     renderer: { domElement: canvas }, input, listeners, camera: {}, sound: { unlockAudio() {} },
     openingHud, started: true, panel: null, localProfile: { activeMission: prison ? { prisonBreak: {} } : {} },
@@ -39,6 +46,7 @@ function openingHarness(search: string, seconds: number, prison = false) {
     player: { dead: prison }, bodies: [{ npc: { dead: false, setTacticalOrder: attack } }],
     resolvePrisonResult: () => false, checkpointFight: checkpoint, persistProgress: save, saveProgressWithRetry: save,
   })
+  onTestFinished(() => { scene.equipment?.dispose(); listeners.abort(); input.dispose(); vi.unstubAllGlobals() })
   scene.bindInput()
   return { scene, input, canvas, win, doc, attack, save, checkpoint, openingHud }
 }
