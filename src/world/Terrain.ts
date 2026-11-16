@@ -776,10 +776,19 @@ export function getObstacleAvoidanceDirection(
   const lookAhead = radius + 1.25
   const angles = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, Math.PI * 0.75, -Math.PI * 0.75]
 
+  // Every sample square lies within `reach` of the position (unit directions), so the
+  // inclusive X/Z broad phase is a superset of the strict overlaps tested below.
+  let candidates: readonly ObstacleData[] = obstacles
+  const reach = lookAhead + radius + SEGMENT_EPSILON
+  if (obstaclePathQuerySources.has(obstacles) && obstacles.length >= 64 && radius >= 0 && Number.isFinite(radius)
+    && Number.isFinite(position.x) && Number.isFinite(position.z)) {
+    candidates = getSweptCollisionObstacles(obstacles, position.x - reach, position.z - reach, position.x + reach, position.z + reach)
+  }
+
   const isBlocked = (direction: THREE.Vector3): boolean => {
     const sampleX = position.x + direction.x * lookAhead
     const sampleZ = position.z + direction.z * lookAhead
-    for (const obstacle of obstacles) {
+    for (const obstacle of candidates) {
       if (obstacle.navigationPassable) continue
       const box = obstacle.box
       if (bottomY >= box.max.y - 0.001 || topY <= box.min.y + 0.001) continue

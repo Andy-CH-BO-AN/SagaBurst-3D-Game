@@ -290,6 +290,7 @@ export class TownScene {
   private readonly raceHud = new CareerRaceHUD()
   private raceClockDt = 0
   private readonly preparationClock = new ActiveMissionClock()
+  private readonly devSkipPreparation = import.meta.env.DEV && new URLSearchParams(location.search).has('skipprep')
   private captainPatrol?: CaptainPatrolCommandController
   private readonly commandActors: NPC[] = []
   private missionCombat!: TownMissionCombat
@@ -4060,7 +4061,12 @@ export class TownScene {
     const preparationElapsed = this.preparationClock.advance(time,
       !document.hidden && document.hasFocus() && !this.panel && !this.equipment.visible
       && !this.result && !this.spawnErrorShown && !this.deploymentFailed && this.deploymentReady)
-    if (this.defense instanceof CommanderFourGateDefenseController) this.defense.setPreparationElapsed(preparationElapsed)
+    if (this.defense instanceof CommanderFourGateDefenseController) {
+      // DEV `&skipprep`: the first counted frame consumes the countdown; afterwards remaining is 0,
+      // so released combat still advances by the real frame time.
+      const skip = this.devSkipPreparation && preparationElapsed > 0
+      this.defense.setPreparationElapsed(skip ? Math.max(preparationElapsed, this.defense.preparationRemaining) : preparationElapsed)
+    }
     this.updateGameplay(dt)
     if (this.disposed) return
     // Lance hits suppress mount impact only for that simulation frame, as in Game.
