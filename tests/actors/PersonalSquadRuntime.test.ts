@@ -191,7 +191,7 @@ function boardingHarness(command: 'defend' | 'follow' = 'defend') {
   }
   const runtime = Object.assign(Object.create(PersonalSquadRuntime.prototype), {
     state: 'ACTIVE', command, returnCommand: -1000, eaglePads, options: {}, player: () => ({}),
-    memberMounts: new Map([[actor.combatantId, vehicle]]), boarding: new Map(),
+    memberMounts: new Map([[actor.combatantId, vehicle]]), boarding: new Map(), returningOnFoot: new Set(),
   }) as RestoreTransferSeam
   return { home, mount, actor, npc, runtime }
 }
@@ -249,7 +249,7 @@ interface StandbyEagle {
   restoreArmor(): void; dispose(): void
 }
 /** Numeric actor double: only the private-squad lifecycle API; no scene, mesh or asset. */
-function standbyHarness(members: { id: string; mount?: 'xongkoro' }[], options: { saved?: PersonalSquadMission; failOnce?: string[]; queue?: EagleLandingQueue; loadingShields?: boolean } = {}) {
+function standbyHarness(members: { id: string; mount?: 'xongkoro' }[], options: { saved?: PersonalSquadMission; failOnce?: string[]; queue?: EagleLandingQueue; loadingShields?: boolean; field?: boolean } = {}) {
   let profile = createCareerProfile('roman')
   Object.assign(profile, careerRankFixture(profile.faction, 'captain')); profile.availableMerit = 100_000
   // Real hires own their equipment; an eagle rider additionally owns its xongkoro.
@@ -296,7 +296,7 @@ function standbyHarness(members: { id: string; mount?: 'xongkoro' }[], options: 
   const scheduler = new NpcSpawnScheduler()
   const player = { dead: false, combatPosition: new Vector3(), group: { rotation: { y: 0 } } }
   const runtime = new PersonalSquadRuntime({} as never, muster, () => profile, () => player as never, spawn as never,
-    { scheduler, hasHR: true, eaglePads: new EaglePadReservations([pad]), eagleLandingQueue: options.queue })
+    { scheduler, hasHR: !options.field, ...(options.field ? { sceneKey: 'mission-field' } : {}), eaglePads: new EaglePadReservations([pad]), eagleLandingQueue: options.queue })
   let frame = 0
   const flush = () => { while (scheduler.pending) scheduler.tick(++frame) }
   return { runtime, scheduler, muster, pad, spawned, actors, mounts, flush,
@@ -415,6 +415,36 @@ it('finishes an eagle return at HR standby with the same rider and parked eagle,
   h.runtime.updateLifecycle()
   expect(rider.mount).toBe(eagle)
   expect(h.actors).toHaveLength(2)
+})
+
+it('turns a Charge issued while an eagle rider walks home into boarding its parked eagle, then charges mounted', () => {
+  const h = standbyHarness([{ id: 'personal:eagle', mount: 'xongkoro' }])
+  h.runtime.materializeStandby(); h.flush()
+  const [rider] = h.actors, [eagle] = h.mounts
+  expect(h.runtime.follow()).toBe(true)
+  rider.group.position.copy(eagle.group.position)
+  h.runtime.updateLifecycle()
+  expect(h.runtime.dismiss()).toBe(true)
+  h.runtime.updateLifecycle()
+  expect([rider.mount, h.runtime.state]).toEqual([undefined, 'RETURNING'])
+  // The command UI sets Charge on live actors before the squad records it.
+  rider.setTacticalOrder('charge'); h.runtime.resumeCommand('charge')
+  expect(rider.assignFormationTarget.mock.lastCall![1].toArray()).toEqual(eagle.group.position.toArray())
+  rider.group.position.copy(eagle.group.position)
+  h.runtime.updateLifecycle()
+  expect([rider.mount, rider.tacticalOrder]).toEqual([eagle, 'charge'])
+})
+
+it('deploys an HR standby eagle rider into a mission field already in the saddle', () => {
+  const home = standbyHarness([{ id: 'personal:eagle', mount: 'xongkoro' }])
+  home.runtime.materializeStandby(); home.flush()
+  const saved = home.runtime.checkpoint()!
+  expect(saved.members['personal:eagle'].mount?.mounted).toBe(false)
+  const field = standbyHarness([{ id: 'personal:eagle', mount: 'xongkoro' }], { field: true })
+  field.runtime.restoreMission(saved); field.flush()
+  const [rider] = field.actors, [eagle] = field.mounts
+  expect([rider.mount, rider.tacticalOrder]).toEqual([eagle, 'defend'])
+  expect([eagle.group.position.x, eagle.group.position.z]).toEqual([field.pad.x, field.pad.z])
 })
 
 it('keeps an airborne eagle on its return order while it closes on the pad, holds a stalled one for retry, and never reports it home', () => {

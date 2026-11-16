@@ -394,6 +394,12 @@ export class PersonalSquadRuntime {
         if (formation) this.mission.members[id].formation = { ...formation, position: reserved[ids.indexOf(id)], reached: false }
         else delete this.mission.members[id].formation
       }
+      // The command UI already set this order on live actors; a rider still
+      // apart from its own HR eagle walks back and boards before carrying it out.
+      const memberIds = this.mission?.memberIds ?? this.read().personalSquad?.members.map(member => member.id) ?? []
+      for (const actor of this.actors) {
+        if (!this.standbyIds.has(actor.combatantId)) this.boardOwnedEagle(actor, Math.max(0, memberIds.indexOf(actor.combatantId)))
+      }
     }
   }
 
@@ -732,15 +738,7 @@ export class PersonalSquadRuntime {
   private applyCommand(npc: NPC, index: number): void {
     npc.missionMovement = false
     if (npc.mount?.isFlyingMount) npc.setEagleFlightOrder(null)
-    // A formal HR return parks the owned eagle separately from its rider. A
-    // later Follow, including one issued while restore jobs are pending, boards
-    // that same mount through the ordinary live-contact transfer.
-    const ownedMount = this.memberMounts.get(npc.combatantId)
-    if (this.command === 'follow' && this.hasHR && !npc.mount && !npc.isFalling
-      && ownedMount?.isFlyingMount && !ownedMount.dead && !this.boarding.has(npc)) {
-      this.orderBoarding(npc, ownedMount, index)
-      return
-    }
+    if (this.boardOwnedEagle(npc, index)) return
     const boarding = this.boarding.get(npc)
     if (boarding) {
       const mount = this.memberMounts.get(npc.combatantId)
@@ -753,6 +751,21 @@ export class PersonalSquadRuntime {
       npc.assignFormationTarget(f.commandId, new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z), p.z),
         new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw)), f.speedLimit, f.arrivalOrder, f.reached)
     } else if (this.command) npc.setTacticalOrder(this.command)
+  }
+
+  /**
+   * A formal HR return parks the owned eagle separately from its rider. Every
+   * later squad order (Follow, a mission's opening Defend, Attack, Charge; not Formation),
+   * including one issued while restore jobs are pending, first boards that same
+   * mount through the ordinary live-contact transfer; the order applies once mounted.
+   */
+  private boardOwnedEagle(npc: NPC, index: number): boolean {
+    const ownedMount = this.memberMounts.get(npc.combatantId)
+    // Formation slots are explicit player placements; they keep their own target.
+    if (!this.hasHR || this.command === 'formation' || npc.dead || npc.mount || npc.isFalling || !ownedMount?.isFlyingMount || ownedMount.dead) return false
+    this.returningOnFoot.delete(npc)
+    this.orderBoarding(npc, ownedMount, this.boarding.get(npc)?.index ?? index)
+    return true
   }
 
   private spawnMember(member: CareerPersonalSquadMember, slot: PersonalSquadSpawnSlot, boardingPad?: PersonalSquadSpawnSlot,
@@ -907,7 +920,9 @@ export class PersonalSquadRuntime {
       if (saved.mount.hp <= 0) { mount.takeDamage(mount.maxHp + 1); if (npc.mount) npc.dismountFromMount() }
       else {
         mount.currentHp = Math.min(mount.maxHp, saved.mount.hp)
-        if (!saved.mount.mounted && npc.mount) npc.dismountFromMount()
+        // A new scene deploys rider and living mount together: an HR standby
+        // rider standing beside its parked eagle still arrives in the saddle.
+        if (!changedScene && !saved.mount.mounted && npc.mount) npc.dismountFromMount()
         if (!changedScene) {
           const p = saved.mount.position
           mount.group.position.set(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z); mount.group.rotation.y = p.yaw
