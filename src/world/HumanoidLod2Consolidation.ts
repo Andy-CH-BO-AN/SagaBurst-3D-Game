@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { materialRenderContract, sameMaterialRenderContract } from './MaterialRenderContract'
+import { copyMergedSeatSupport } from './SkinnedSeatContact'
 
 interface ConsolidationPair {
   first: string
@@ -164,6 +165,8 @@ function mergeInstancePair(root: THREE.Object3D, template: ConsolidationTemplate
   // Keep the inherited template bounds so the first frustum test never CPU-skins the merge.
   if (first.boundingSphere && second.boundingSphere) merged.boundingSphere = first.boundingSphere.clone().union(second.boundingSphere)
   copyRenderableState(first, merged, [pair.first, pair.second], prefix)
+  // Mounted riders seat on these landmarks; the Varangian body is its pair's second mesh.
+  copyMergedSeatSupport(first, second, merged)
   first.parent.add(merged)
   return { first, second, merged }
 }
