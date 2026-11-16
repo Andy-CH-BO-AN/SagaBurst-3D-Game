@@ -36,6 +36,7 @@
         color: #fff;
       }
       #hud:has(#character-modal.visible) { z-index: 1001; }
+      body:has(#character-modal.visible) :is(#arena-opening-hud, #career-duel-hud, #arena-trial-hud) { visibility: hidden; }
 
       /* Crosshair */
       #crosshair {

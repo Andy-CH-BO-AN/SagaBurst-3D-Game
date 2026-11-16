@@ -1246,9 +1246,6 @@ export class TownScene {
       return
     }
     if (e.repeat) return
-    if (e.code === 'Tab' && this.profile.activeMission?.duelMode === 'unarmed') {
-      e.preventDefault(); e.stopImmediatePropagation(); this.notice = '空手對戰期間暫停換裝與召喚坐騎。'; return
-    }
     if (e.code === 'Tab') {
       e.preventDefault(); e.stopImmediatePropagation(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
       const adapters = createTownCareerEquipmentUI(() => this.profile, () => this.townEquipmentContext(),
