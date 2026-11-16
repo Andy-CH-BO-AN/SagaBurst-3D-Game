@@ -315,6 +315,24 @@ describe('Career profile persistence', () => {
       deadFriendlyActorIds: ['melee_infantry-0'], playerStats: { damageDealt: 310, kills: 2 }, routeStage: 7, patrolStage: 2, defenseElapsed: 19.5,
     })
   })
+
+  it('reloads repeated bytes without sharing profiles and re-reads replaced or corrupted bytes', () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    const profile = grantStarter(createCareerProfile('roman'), 'gladius_rusty')
+    profile.availableMerit = profile.totalMerit = 300
+    expect(store.save(profile)).toBe(true)
+    const first = store.loadChecked().profile!
+    first.availableMerit = 9; first.ownedWeapons.push('mutated')
+    const second = new CareerProfileStore(storage).loadChecked().profile!
+    expect([second.availableMerit, second.ownedWeapons.includes('mutated')]).toEqual([300, false])
+    // Same storage, different bytes written behind the store's back.
+    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify({ ...JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!), availableMerit: 120 }))
+    expect(store.loadChecked().profile?.availableMerit).toBe(120)
+    storage.setItem(CAREER_STORAGE_KEY, '{"version":2')
+    expect(store.loadChecked()).toMatchObject({ profile: null, error: expect.any(String) })
+    expect(store.save(profile)).toBe(false)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe('{"version":2')
+  })
 })
 
 describe('Commander melee appointment and save migration', () => {

@@ -373,6 +373,19 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   return profile
 }
 
+/** Last stored bytes parsed per Storage. parseCareerProfile is a pure function of the bytes, so
+ * identical bytes reuse its result; the cached profile is never handed out or mutated. */
+const parsedStoredBytes = new WeakMap<Storage, { bytes: string; profile: CareerProfile | null }>()
+
+/** Throws like JSON.parse for unreadable bytes; a rejected profile is null. */
+function parseStoredCareerBytes(storage: Storage, bytes: string): CareerProfile | null {
+  const cached = parsedStoredBytes.get(storage)
+  if (cached?.bytes === bytes) return cached.profile
+  const profile = parseCareerProfile(JSON.parse(bytes))
+  parsedStoredBytes.set(storage, { bytes, profile })
+  return profile
+}
+
 export class CareerProfileStore {
   constructor(private readonly storage: Storage = localStorage) {}
 
@@ -380,9 +393,8 @@ export class CareerProfileStore {
     try {
       const raw = this.storage.getItem(CAREER_STORAGE_KEY)
       if (raw === null) return { profile: null }
-      const source: unknown = JSON.parse(raw)
-      const profile = parseCareerProfile(source)
-      return profile ? { profile } : { profile: null, error: '生涯存檔損壞或版本不支援；原資料已保留。' }
+      const parsed = parseStoredCareerBytes(this.storage, raw)
+      return parsed ? { profile: structuredClone(parsed) } : { profile: null, error: '生涯存檔損壞或版本不支援；原資料已保留。' }
     } catch { return { profile: null, error: '無法讀取生涯存檔；原資料已保留。' } }
   }
 
@@ -395,7 +407,8 @@ export class CareerProfileStore {
   save(profile: CareerProfile): boolean {
     try {
       const existingBytes = this.storage.getItem(CAREER_STORAGE_KEY)
-      const stored = existingBytes === null ? null : parseCareerProfile(JSON.parse(existingBytes))
+      // Read-only below: comparisons against the durable save.
+      const stored = existingBytes === null ? null : parseStoredCareerBytes(this.storage, existingBytes)
       if (existingBytes !== null && !stored) return false
       // An old scene may never replace a later enlistment. Creation may replace only a completed ending.
       if (stored?.tutorial?.careerId && profile.tutorial?.careerId !== stored.tutorial.careerId

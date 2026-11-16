@@ -67,6 +67,7 @@ import { canStartCareerTutorial } from '../career/CareerTutorial'
 import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
 import { acceptCaptainCavalryCommand, acceptCavalrySweep, CAVALRY_SWEEP_BANDITS, SWEEP_YAW, sweepPlayerSpawn } from '../career/CavalrySweep'
 import { CommanderFourGateDefenseController } from '../career/CommanderFourGateDefenseController'
+import { townPersonalCheckpointDue } from './TownPersonalCheckpointCadence'
 import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_BRIDGEHEAD_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_IRON_LEGION_ID, COMMANDER_LAST_STAND_ID, getCommanderMissionAvailability, getCommanderMissionDefinition, isCommanderTownMission } from '../career/CommanderMissionCatalog'
 import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
 import { CommanderTownMissionController } from '../career/CommanderTownMissionController'
@@ -1141,7 +1142,7 @@ export class TownScene {
       const member = saved.members[id]
       return [member.status, member.order, member.mount?.hp === 0, member.formation?.commandId]
     })])
-    if (!force && this.personalSaveElapsed < 5 && critical === this.personalCriticalState) return
+    if (!townPersonalCheckpointDue(this.personalSaveElapsed, critical !== this.personalCriticalState, force, Boolean(this.profile.careerRetirement))) return
     const next = cloneCareerProfile(this.profile)
     next.playerAerialState = aerial
     const active = next.activeMission ?? next.activeOutpostMission
