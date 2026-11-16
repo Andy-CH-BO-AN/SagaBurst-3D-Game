@@ -26,6 +26,16 @@ export function prepareSeatSupport(mesh: THREE.SkinnedMesh, landmarks: readonly 
   })
 }
 
+/** Carries bearing points onto `mergeGeometries([first, second])`: the second mesh's vertices
+ * follow the first's, so its ids shift by the first's vertex count. First wins when both carry them. */
+export function copyMergedSeatSupport(first: THREE.SkinnedMesh, second: THREE.SkinnedMesh, merged: THREE.SkinnedMesh): void {
+  if (first.userData[SUPPORT]) { merged.userData[SUPPORT] = first.userData[SUPPORT]; return }
+  const points = second.userData[SUPPORT] as SupportPoint[] | undefined
+  if (!points) return
+  const offset = first.geometry.attributes.position.count
+  merged.userData[SUPPORT] = points.map(({ ids, weights }) => ({ ids: ids.map(id => id + offset), weights: [...weights] }))
+}
+
 function readPoint(mesh: THREE.SkinnedMesh, point: SupportPoint, target: THREE.Vector3, vertex: THREE.Vector3, toWorld: THREE.Matrix4 = mesh.matrixWorld): THREE.Vector3 {
   target.set(0, 0, 0)
   for (let i = 0; i < 3; i++) target.addScaledVector(mesh.getVertexPosition(point.ids[i], vertex), point.weights[i])
