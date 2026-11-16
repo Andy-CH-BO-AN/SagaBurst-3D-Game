@@ -1,6 +1,6 @@
 import { createPalisadeSegment as buildPalisadeSegment, createPalisadeStakeGeometry } from '../world/PalisadeSegment'
 import * as THREE from 'three'
-import { createCampfireVisual, createChevalVisual, createTentVisual, timberMaterial, bakedMesh, beamBetween } from '../world/EnvironmentVisuals'
+import { createCampfireVisual, timberMaterial, bakedMesh, beamBetween } from '../world/EnvironmentVisuals'
 import {
   getTerrainHeight,
   removeObstacleData,
@@ -212,7 +212,7 @@ export function createCampaignOutpost(
   }
 
   const zSign = defenderFaction === 'roman' ? -1 : 1
-  const { frontZ, backZ, halfWidth, gateWidth, stakeLineZ } = placement
+  const { frontZ, backZ, halfWidth, gateWidth } = placement
   const frontSideSpan = halfWidth - gateWidth / 2
   const frontSegmentLength = frontSideSpan / 3
 
@@ -386,96 +386,6 @@ export function createCampaignOutpost(
     openRotationY: zSign * Math.PI / 2,
   })
   gateController.onStateChange(state => { if (state !== 'closed') breachController.trigger() })
-
-  const stakeXs = [-40, -32, -24, -16, -10, 10, 16, 24, 32, 40]
-  for (const [index, x] of stakeXs.entries()) {
-    const z = stakeLineZ + zSign * (index % 2 === 0 ? -0.8 : 0.8)
-    const terrainY = getTerrainHeight(x, z)
-    const pieceRoot = createChevalVisual()
-    pieceRoot.name = `campaign-chevaux-de-frise-${index + 1}`
-    pieceRoot.position.set(x, terrainY, z)
-    const hitMeshes = [...pieceRoot.children]
-
-    root.add(pieceRoot)
-    registerDamageablePiece({
-      kind: 'chevaux_de_frise',
-      root: pieceRoot,
-      hitMeshes,
-      box: new THREE.Box3(
-        new THREE.Vector3(x - 1.6, terrainY, z - 0.8),
-        new THREE.Vector3(x + 1.6, terrainY + 2.0, z + 0.8),
-      ),
-      isBarricade: true,
-    })
-  }
-
-  // Let the cloth hem and rope pegs meet the terrain without bending the roof.
-  const groundTentHem = (tent: THREE.Group): void => {
-    const point = new THREE.Vector3()
-    for (const child of tent.children) {
-      if (!(child instanceof THREE.Mesh)) continue
-      const positions = child.geometry.getAttribute('position')
-      for (let i = 0; i < positions.count; i++) {
-        const y = positions.getY(i)
-        if (y >= 0.7) continue
-        point.set(positions.getX(i), y, positions.getZ(i)).applyEuler(tent.rotation).add(tent.position)
-        const offset = getTerrainHeight(point.x, point.z) - tent.position.y
-        positions.setY(i, y + offset * (1 - THREE.MathUtils.smoothstep(y, 0.1, 0.7)))
-      }
-      positions.needsUpdate = true
-      child.geometry.computeVertexNormals()
-    }
-  }
-
-  const createTent = (
-    name: string,
-    x: number,
-    z: number,
-    rotationY: number,
-  ): DamageableObstacle => {
-    const terrainY = getTerrainHeight(x, z)
-    const tentRoot = createTentVisual(defenderFaction)
-    tentRoot.name = name
-    tentRoot.position.set(x, terrainY, z)
-    tentRoot.rotation.y = rotationY
-    groundTentHem(tentRoot)
-    root.add(tentRoot)
-
-    return registerDamageablePiece({
-      kind: 'tent',
-      root: tentRoot,
-      hitMeshes: [...tentRoot.children],
-      box: new THREE.Box3(
-        new THREE.Vector3(x - 3.7, terrainY, z - 3.7),
-        new THREE.Vector3(x + 3.7, terrainY + 3.8, z + 3.7),
-      ),
-      isBarricade: false,
-    })
-  }
-
-  // Keep the gate -> central lookout corridor open for infantry formations and
-  // mounted deployment. Tents live on the two side lanes only.
-  const tentLayout: readonly [number, number, number][] = [
-    [-28, 124, Math.PI / 4],
-    [ 28, 124, -Math.PI / 4],
-    // Keep the straight approach and turning apron behind both interior ramps clear.
-    [-26, 136, Math.PI / 4],
-    [ 26, 136, -Math.PI / 4],
-    [-28, 150, Math.PI / 4],
-    [ 28, 150, -Math.PI / 4],
-    [-36, 162, Math.PI / 4],
-    [ 36, 162, -Math.PI / 4],
-    [-28, 174, Math.PI / 4],
-    [ 28, 174, -Math.PI / 4],
-  ]
-  tentLayout.forEach(([x, absZ, rotationY], index) => {
-    createTent(
-      `campaign-outpost-tent-${index + 1}`,
-      x,
-      absZ * zSign,
-      rotationY + (x < 0 ? Math.PI / 4 : -Math.PI / 4),
-    )
-  })
 
   const createCampfire = (
     name: string,
