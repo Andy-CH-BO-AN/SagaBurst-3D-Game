@@ -40,7 +40,10 @@ jobs:
           if [ -n "$VERIFIED_SHA" ]; then test "$LOGIC_RESULT" = skipped && test "$VERIFIED_SHA" = "$GITHUB_SHA" && test "$GITHUB_EVENT_NAME" = push && test "$GITHUB_REF" = refs/heads/main && echo "Reusing same-run Full gate for $GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"; else test "$LOGIC_RESULT" = success; fi
   inspect:
     # This job can push a version tag; the Full gate must have succeeded first.
+    # Explicit conditions: on main pushes `logic` is skipped by design, and the
+    # implicit success() would skip every job downstream of it.
     needs: gate
+    if: ${{ !cancelled() && needs.gate.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -90,7 +93,7 @@ jobs:
         run: node .github/scripts/release/publish.cjs --check
   validate:
     needs: [inspect, gate]
-    if: needs.inspect.outputs.published != 'true'
+    if: ${{ !cancelled() && needs.inspect.result == 'success' && needs.gate.result == 'success' && needs.inspect.outputs.published != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -111,6 +114,7 @@ jobs:
       - run: npm run smoke:web
   desktop:
     needs: validate
+    if: ${{ !cancelled() && needs.validate.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
