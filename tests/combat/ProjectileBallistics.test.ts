@@ -4,7 +4,7 @@ import { BallisticIntercept, collectBallisticPathObstacles, projectileTerrainCon
 import { ProjectileAdmission, projectileAmmoAfterLaunch } from '../../src/combat/ProjectileAdmission'
 import { findBlockingProjectileObstacleAlongPath, getTerrainHeight, setObstaclePathQuerySource, type ObstacleData } from '../../src/world/Terrain'
 import { TownProjectileObstacles } from '../../src/town/TownProjectileObstacles'
-import { ProjectileContactQuery } from '../../src/combat/ProjectileContactQuery'
+import { ProjectileContactQuery, ProjectileTargetIndex } from '../../src/combat/ProjectileContactQuery'
 import { RANGED_SIGHT_REUSE_SECONDS, RangedSightReuse } from '../../src/combat/RangedSightReuse'
 import { markObstacleTopologyChanged } from '../../src/world/ObstacleTopology'
 import type { PhysicalCombatTarget } from '../../src/combat/ShieldBlocking'
@@ -352,6 +352,31 @@ describe('shared live projectile first contact', () => {
     expect(admitted).toEqual([lead, tie])
     lead.available = false
     expect(query.find(from, to, input)).toMatchObject({ kind: 'actor', target: tie })
+  })
+
+  it('admits indexed candidates exactly as the linear groups, in group order across cells, and re-samples moved targets after invalidate', () => {
+    const query = new ProjectileContactQuery(), from = new THREE.Vector3(0, 41, 0), to = new THREE.Vector3(20, 41, 0)
+    // Equal contact times in two grid cells; the earlier group lies in the later-visited cell.
+    const first = contactBody(19.5), second = contactBody(19.5), remote = contactBody(10), far = contactBody(100), lost = contactBody(0)
+    first.group.position.z = .1; second.group.position.z = -.1; remote.group.position.z = 4.5; lost.group.position.x = Number.NaN
+    const groups = [[far], [first, remote], [lost, second]]
+    const index = new ProjectileTargetIndex<typeof first>()
+    index.reset(groups)
+    const run = (targets: { groups: typeof groups } | typeof index) => {
+      const admitted: unknown[] = []
+      const hit = query.find(from, to, { world: { kind: 'battle' as const, travelledDistance: 1 }, obstacles: [], targets,
+        acceptsTarget: target => { admitted.push(target); return target.available } })
+      return { target: hit?.kind === 'actor' ? hit.target : undefined, admitted }
+    }
+    const linear = run({ groups }), indexed = run(index)
+    expect(linear).toEqual({ target: first, admitted: [first, lost, second] })
+    expect(indexed.target).toBe(first)
+    expect(indexed.admitted).toEqual(linear.admitted)
+    // A target that moves into reach (for example after a hit) is only seen once re-sampled.
+    far.group.position.set(19.4, 40, 0)
+    expect(run({ groups }).target).toBe(far)
+    index.invalidate()
+    expect(run(index)).toEqual(run({ groups }))
   })
 
   it('keeps Town siege tolerance and catches a practice target just beyond the tip after live blockers disappear', () => {

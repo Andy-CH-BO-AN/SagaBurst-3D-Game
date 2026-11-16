@@ -7,7 +7,7 @@ import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
 import { getScenePlayableWorldBound, type ObstacleData } from './Terrain'
 import { PROJECTILE_GRAVITY, createProjectileFlightBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
-import { ProjectileContactQuery, type ProjectileTargetGroups } from '../combat/ProjectileContactQuery'
+import { ProjectileContactQuery, type ProjectileTargetGroups, type ProjectileTargetIndex } from '../combat/ProjectileContactQuery'
 import { damageMount, damageNpc, damageObstacle, damageReceiver, type DamageResult } from '../combat/DamageRouter'
 import { isDamageReceiver, type DamageReceiver } from '../combat/DamageReceiver'
 import { Mount } from './Mount'
@@ -244,6 +244,8 @@ export class ArrowProjectile {
     visualOnly = false,
     mounts: readonly Mount[] = [],
     receivers: readonly DamageReceiver[] = [],
+    /** Same player/npcs/mounts/receivers groups, indexed once per frame by the caller. */
+    targetIndex?: ProjectileTargetIndex<Player | NPC | Mount | DamageReceiver>,
   ): void {
     if (!this.alive) return
     if (!Number.isFinite(dt) || dt < 0) { this.destroy(); return }
@@ -283,7 +285,7 @@ export class ArrowProjectile {
 
     const hit = this.contacts.find(this.previousPosition, this.mesh.position, {
       world: { kind: 'battle', travelledDistance: this.travelledDistance }, obstacles,
-      targets: this.orderedTargets(player, npcs, mounts, receivers),
+      targets: targetIndex ?? this.orderedTargets(player, npcs, mounts, receivers),
       acceptsTarget: target => {
         if (target === player) return this.shooterFaction === Faction.ENEMY && player.targetable
         if (target instanceof NPC) return !target.dead && target.faction !== this.shooterFaction
@@ -296,6 +298,8 @@ export class ArrowProjectile {
     if (hit) {
       this.mesh.position.copy(hit.point)
       if (hit.kind === 'actor') {
+        // Damage may move or reseat actors; later shots this frame re-sample positions.
+        targetIndex?.invalidate()
         const hitNpc = hit.target instanceof NPC ? hit.target : undefined
         const hitMount = hit.target instanceof Mount ? hit.target : undefined
         const hitReceiver = isDamageReceiver(hit.target) ? hit.target : undefined

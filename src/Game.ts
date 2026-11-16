@@ -85,7 +85,8 @@ import { personalMemberLoadout, PersonalSquadRuntime } from './career/PersonalSq
 import { BattleStatsTracker, type BattleStatsSnapshot } from './combat/BattleStatsTracker'
 import { CombatEventStream, createNpcCombatActorRef, createPlayerCombatActorRef, type CombatEvent } from './combat/CombatAttribution'
 import { COMBAT_BALANCE, getAntiCavalryMultiplier } from './combat/CombatBalance'
-import { isDamageReceiver } from './combat/DamageReceiver'
+import { isDamageReceiver, type DamageReceiver } from './combat/DamageReceiver'
+import { ProjectileTargetIndex } from './combat/ProjectileContactQuery'
 import { damageMount, damageNpc, damageObstacle, damagePlayer, damageReceiver } from './combat/DamageRouter'
 import { resolveMountImpacts } from './combat/MountImpact'
 import { calculatePlayerMeleeDamage } from './combat/PlayerMeleeDamage'
@@ -154,6 +155,8 @@ import { SpatialGrid } from './world/SpatialGrid'
 import { createTerrain, EntityCollisionBody, getScenePlayableWorldBound, getTerrainHeight, ObstacleData, resetTerrainScenePolicy, resolveObstacleCollision, TERRAIN_TREE_POSITIONS } from './world/Terrain'
 import { WeaponPickup } from './world/WeaponPickup'
 import { XongkoroVisual } from './world/XongkoroVisual'
+
+const NO_PROJECTILE_RECEIVERS: readonly DamageReceiver[] = []
 
 export type PlayerControlMode = 'player' | 'spectator'
 
@@ -595,6 +598,9 @@ export class Game {
   private readonly careerVeteranActorMounts = new Map<string, Mount | null>()
   private damageNumbers!: DamageNumbers
   private arrows: ArrowProjectile[] = []
+  private readonly projectileTargets = new ProjectileTargetIndex<Player | NPC | Mount | DamageReceiver>()
+  private readonly projectilePlayerGroup: Player[] = []
+  private readonly projectileTargetGroups: (readonly (Player | NPC | Mount | DamageReceiver)[])[] = [this.projectilePlayerGroup, [], [], []]
   private pickups: WeaponPickup[] = []
   private mounts: Mount[] = []
 
@@ -5205,6 +5211,12 @@ export class Game {
 
     // 6. Arrow / Projectile
     if (profile) t0 = performance.now()
+    // Movement and collision are settled; shots sample target positions once (re-sampled after a hit).
+    this.projectilePlayerGroup[0] = this.player
+    this.projectileTargetGroups[1] = this.npcs
+    this.projectileTargetGroups[2] = this.mounts
+    this.projectileTargetGroups[3] = this.trainingGround?.dummies ?? NO_PROJECTILE_RECEIVERS
+    this.projectileTargets.reset(this.projectileTargetGroups)
     for (let i = this.arrows.length - 1; i >= 0; i--) {
       const arrow = this.arrows[i]
       arrow.update(dt, this.player, this.npcs, this.obstacles, (damage, hitPos, targetName, hpRatio, isPlayer, _npc, isMountHit) => {
@@ -5253,6 +5265,7 @@ export class Game {
         this._showEnemyHud(obstacle.displayName, hpRatio)
       },
       this._commanderOutpostCombatLocked(), this.mounts, this.trainingGround?.dummies,
+      this.projectileTargets,
     )
 
       if (!arrow.isAlive) {
