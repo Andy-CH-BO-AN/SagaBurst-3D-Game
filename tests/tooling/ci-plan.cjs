@@ -87,7 +87,7 @@ function prepareInputs({ mode = 'full', base, head, event }, cwd = root) {
   const unknown = inputs.filter(i => i.kind === 'unknown')
   const unsafe = unknown.filter(i => i.file.startsWith('public/models/') || /^tools\/build-/.test(i.file))
   const requiresSeed = false
-  const policy = inputs.some(i => ['asset', 'builder'].includes(i.kind)) ? 'asset-only'
+  const policy = inputs.some(i => ['asset', 'builder', 'retired'].includes(i.kind)) ? 'asset-only'
     : inputs.some(i => ['css', 'html-style'].includes(i.kind)) ? 'css-only' : inputs.length ? 'docs-only' : 'empty-diff'
   return { evidence, inputs, requiresSeed, policy, unsafe }
 }
@@ -97,11 +97,11 @@ function inputSummary(prepared) {
     'Checkout SHA: ' + evidence.checkoutSha, 'Merge-base SHA: ' + evidence.mergeBaseSha,
     'Effective diff: ' + evidence.diffBaseSha + ' -> ' + evidence.diffHeadSha,
     'Exact seed required: ' + requiresSeed + '; non-runtime policy: ' + policy,
-    ...['runtime', 'asset', 'html-style', 'builder', 'css', 'docs', 'unknown'].map(kind => kind + ' inputs: ' + inputs.filter(i => i.kind === kind).length),
+    ...['runtime', 'asset', 'html-style', 'builder', 'retired', 'css', 'docs', 'unknown'].map(kind => kind + ' inputs: ' + inputs.filter(i => i.kind === kind).length),
     ...inputs.map(i => i.kind + ': ' + i.file + ' — ' + i.reason)].join('\n')
 }
 function assetProof(prepared) {
-  if (!prepared.inputs.some(i => ['asset', 'builder'].includes(i.kind))) return null
+  if (!prepared.inputs.some(i => ['asset', 'builder', 'retired'].includes(i.kind))) return null
   let proof
   try { proof = JSON.parse(readFileSync(resolve(root, 'output/asset-validation.json'), 'utf8')) }
   catch { throw Error('Missing independent asset validation; run ci-asset-run.cjs first') }
@@ -197,6 +197,7 @@ function selectionSummary(plan) {
     'Base SHA: ' + (plan.baseSha || '-') + '; Head SHA: ' + (plan.headSha || '-'),
     'Checkout SHA: ' + (plan.checkoutSha || '-') + '; Merge-base SHA: ' + (plan.gitEvidence?.mergeBaseSha || '-'),
     'Asset validation: ' + (plan.assetValidation?.result || 'not-needed'),
+    ...(plan.assetValidation?.runtimeManifestChanges ?? []).map(c => 'Runtime manifest change: ' + c.file + ' — ' + c.fields.join(', ')),
     ...(plan.inputClassification ? [inputSummary({ evidence: plan.gitEvidence, inputs: plan.inputClassification, requiresSeed: false, policy: plan.nonRuntimePolicy })] : []),
     'Total suite: ' + total + ' leaves; Selected: ' + count + ' leaves; Files: ' + plan.selected.length,
     'Case limit: ' + MAX_LOGIC_CASES + ' hard limit',
@@ -216,7 +217,9 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
     version: 1, planId: randomUUID(), requestedMode: mode, mode: 'full', event,
     baseSha: base, headSha: head, checkoutSha, changedFiles: [], changes: [], inventory,
     selected: inventory.map(item => item.file), reasons: {}, fallback: null,
-    assetValidation, ...(prepared ? { gitEvidence: prepared.evidence, inputClassification: prepared.inputs, requiresSeed: false, nonRuntimePolicy: prepared.policy } : {}),
+    assetValidation, ...(prepared ? { gitEvidence: prepared.evidence, inputClassification: prepared.inputs, requiresSeed: false,
+      // Runtime-sensitive manifest edits are never reported as an asset-only change.
+      nonRuntimePolicy: assetValidation?.runtimeManifestChanges?.length ? 'runtime-manifest' : prepared.policy } : {}),
     expectedCount,
   })
 }
