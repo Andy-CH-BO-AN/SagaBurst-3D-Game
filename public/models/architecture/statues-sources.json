@@ -1,0 +1,18 @@
+[
+  {
+    "asset": "roman-byzantine-statue.glb",
+    "source": "Meshy_AI_byzantine_warrior_30k_1111102334_generate.glb",
+    "sourceSha256": "0f4910ec5052c90c15d4fae2298a0099dba16868f23da179b3e448d37443c941",
+    "sha256": "d8de11bb2405c1018726f6a6e1beca00f9c4ed22ad2a258efb28e8050689eb5a",
+    "build": "blender -b --factory-startup -P tools/build-architecture-statues.py -- <downloads>",
+    "permission": "User supplied Meshy GLB; the repository owner supplied this file and requested its use as static town architecture on 2026-11-11."
+  },
+  {
+    "asset": "viking-berserker-statue.glb",
+    "source": "Meshy_AI_Ironclad_Berserker_1111103126_generate.glb",
+    "sourceSha256": "3c566402188ec05a5b89587b190f40e47f481b03255e12564f5c2d9c20bcb9e4",
+    "sha256": "92358cefbde4085dce345ea6ad64003992fb9d4f8e2b50849c76e1b9fe1fef82",
+    "build": "blender -b --factory-startup -P tools/build-architecture-statues.py -- <downloads>",
+    "permission": "User supplied Meshy GLB; the repository owner supplied this file and requested its use as static town architecture on 2026-11-11."
+  }
+]
