@@ -1,6 +1,7 @@
 import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it } from 'vitest'
-import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
+import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainEagleSpawnPlan, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
+import { isEagleLandingClear } from '../../src/world/EagleLanding'
 import { hasAerialCombatPower, resolveCaptainEagleBattleOutcome } from '../../src/career/CaptainEagleBattleOutcome'
 import { CAPTAIN_EAGLE_BATTLE_ID, commanderGateDefenseSlots, commanderGateDefenseSquads, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../../src/career/CaptainMissionCatalog'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -18,6 +19,16 @@ describe('Captain mission eligibility and official roster policy without actor m
     const owned = { ...captain(), selectedMountId: 'horse' as const }
     expect(getCaptainMissionAvailability(owned, CAPTAIN_EAGLE_BATTLE_ID).unlocked).toBe(true)
     expect(acceptCaptainEagle(owned)!.selectedMountId).toBe('xongkoro')
+  })
+
+  it('parks every Eagle battle wing where a grounded eagle is allowed to take off', () => {
+    const plan = createCaptainEagleSpawnPlan(acceptCaptainEagle({ ...captain(), selectedMountId: 'horse' as const }, 'eagle-takeoff')!)
+    expect(plan.npcSpecs).toHaveLength(59)
+    for (const [index, spec] of plan.npcSpecs.entries()) {
+      // EagleFlightController only leaves the ground where the landing footprint is clear and level.
+      expect(isEagleLandingClear({ x: spec.x, z: spec.z, yaw: spec.z < 0 ? 0 : Math.PI }, [])).toBe(true)
+      for (const other of plan.npcSpecs.slice(index + 1)) expect(Math.hypot(other.x - spec.x, other.z - spec.z)).toBeGreaterThanOrEqual(16)
+    }
   })
 
   it('已淘汰的隊長守城任務不列入現役目錄且指揮官也不可接取', () => {
