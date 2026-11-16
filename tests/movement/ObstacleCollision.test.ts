@@ -7,6 +7,7 @@ import { ObstacleCollisionSpatialIndex } from '../../src/world/ObstacleCollision
 import { PLAYER_FOOT_OFFSET, standingPlayerY, stepPlayerFootBody } from '../../src/player/PlayerFootBody'
 import {
   findBlockingObstacleAlongPath,
+  getObstacleAvoidanceDirection,
   getTerrainHeight,
   getWalkRampHeight,
   resolveEntityCollision,
@@ -278,5 +279,24 @@ describe('opt-in obstacle path candidates', () => {
     expect(findBlockingObstacleAlongPath(start, target, .5, 2, 1, fresh, 3)).toBe(first)
     fresh[3] = remote
     expect(findBlockingObstacleAlongPath(start, target, .5, 2, 1, fresh, .5)).toBeNull()
+  })
+
+  it('steers around blockers at the edge of avoidance reach and follows moved dynamic obstacles', () => {
+    const box = (minX: number, minZ: number, maxX: number, maxZ: number, dynamic = false): ObstacleData => ({
+      isBarricade: false, dynamic, box: new THREE.Box3(new THREE.Vector3(minX, 0, minZ), new THREE.Vector3(maxX, 2, maxZ)),
+    })
+    // Reach is the 1.75 look-ahead plus the .5 radius: x = 2.2 blocks only the straight sample.
+    const edge = box(2.2, -.3, 3, .3), cart = box(-.3, 2.2, .3, 3, true)
+    const remote = box(1000, 1000, 1001, 1001)
+    const obstacles = [edge, cart, ...Array<ObstacleData>(62).fill(remote)]
+    onTestFinished(() => setObstaclePathQuerySource(obstacles, false))
+    setObstaclePathQuerySource(obstacles, true)
+    const at = new THREE.Vector3(0, 0, 0)
+    const steer = (direction: THREE.Vector3) => getObstacleAvoidanceDirection(at, direction, .5, 2, 0, obstacles).toArray().map(v => +v.toFixed(6))
+    expect(steer(new THREE.Vector3(1, 0, 0))).toEqual([+Math.SQRT1_2.toFixed(6), 0, -Math.SQRT1_2.toFixed(6)])
+    // The dynamic cart blocks +Z until it moves away after the index was built.
+    expect(steer(new THREE.Vector3(0, 0, 1))).not.toEqual([0, 0, 1])
+    cart.box.translate(new THREE.Vector3(0, 0, 50))
+    expect(steer(new THREE.Vector3(0, 0, 1))).toEqual([0, 0, 1])
   })
 })

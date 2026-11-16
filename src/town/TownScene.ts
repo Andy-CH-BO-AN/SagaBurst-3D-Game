@@ -67,6 +67,7 @@ import { canStartCareerTutorial } from '../career/CareerTutorial'
 import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
 import { acceptCaptainCavalryCommand, acceptCavalrySweep, CAVALRY_SWEEP_BANDITS, SWEEP_YAW, sweepPlayerSpawn } from '../career/CavalrySweep'
 import { CommanderFourGateDefenseController } from '../career/CommanderFourGateDefenseController'
+import { townPersonalCheckpointDue } from './TownPersonalCheckpointCadence'
 import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_BRIDGEHEAD_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_IRON_LEGION_ID, COMMANDER_LAST_STAND_ID, getCommanderMissionAvailability, getCommanderMissionDefinition, isCommanderTownMission } from '../career/CommanderMissionCatalog'
 import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
 import { CommanderTownMissionController } from '../career/CommanderTownMissionController'
@@ -290,6 +291,7 @@ export class TownScene {
   private readonly raceHud = new CareerRaceHUD()
   private raceClockDt = 0
   private readonly preparationClock = new ActiveMissionClock()
+  private readonly devSkipPreparation = import.meta.env.DEV && new URLSearchParams(location.search).has('skipprep')
   private captainPatrol?: CaptainPatrolCommandController
   private readonly commandActors: NPC[] = []
   private missionCombat!: TownMissionCombat
@@ -1140,7 +1142,7 @@ export class TownScene {
       const member = saved.members[id]
       return [member.status, member.order, member.mount?.hp === 0, member.formation?.commandId]
     })])
-    if (!force && this.personalSaveElapsed < 5 && critical === this.personalCriticalState) return
+    if (!townPersonalCheckpointDue(this.personalSaveElapsed, critical !== this.personalCriticalState, force, Boolean(this.profile.careerRetirement))) return
     const next = cloneCareerProfile(this.profile)
     next.playerAerialState = aerial
     const active = next.activeMission ?? next.activeOutpostMission
@@ -4060,7 +4062,12 @@ export class TownScene {
     const preparationElapsed = this.preparationClock.advance(time,
       !document.hidden && document.hasFocus() && !this.panel && !this.equipment.visible
       && !this.result && !this.spawnErrorShown && !this.deploymentFailed && this.deploymentReady)
-    if (this.defense instanceof CommanderFourGateDefenseController) this.defense.setPreparationElapsed(preparationElapsed)
+    if (this.defense instanceof CommanderFourGateDefenseController) {
+      // DEV `&skipprep`: the first counted frame consumes the countdown; afterwards remaining is 0,
+      // so released combat still advances by the real frame time.
+      const skip = this.devSkipPreparation && preparationElapsed > 0
+      this.defense.setPreparationElapsed(skip ? Math.max(preparationElapsed, this.defense.preparationRemaining) : preparationElapsed)
+    }
     this.updateGameplay(dt)
     if (this.disposed) return
     // Lance hits suppress mount impact only for that simulation frame, as in Game.
