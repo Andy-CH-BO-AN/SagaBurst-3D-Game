@@ -114,7 +114,8 @@ export class CharacterBowVisual {
   rebuildFromAsset(model: THREE.Object3D, profile: BowGripProfile, topTip: THREE.Vector3, botTip: THREE.Vector3): void {
     this.profile = profile
     this.gripPivot.clear()
-    this.gripPivot.add(model)
+    // A 3 cm stave is narrower than one battle shadow texel (~8 cm) beyond LOD0.
+    this.gripPivot.add(equipmentShadowUntil(model, 0))
     // Authored string halves keep the source PBR surface and triangle detail.
     // Their unit-height geometry uses the same endpoint transforms as cylinders.
     const top = model.getObjectByName('bow-string-top')

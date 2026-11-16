@@ -513,7 +513,8 @@ export class WeaponMeshFactory {
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
     geometry.setIndex(indices)
     geometry.computeVertexNormals()
-    const stave = equipmentShadowUntil(new THREE.Mesh(geometry, [wood, leather]), 1)
+    // A bow stave is narrower than one battle shadow texel (~8 cm) beyond LOD0.
+    const stave = equipmentShadowUntil(new THREE.Mesh(geometry, [wood, leather]), 0)
     stave.name = 'bow-stave-and-grip'
     bowModel.add(stave)
     for (const side of [-1, 1]) {

@@ -87,6 +87,7 @@ import { CombatEventStream, createNpcCombatActorRef, createPlayerCombatActorRef,
 import { COMBAT_BALANCE, getAntiCavalryMultiplier } from './combat/CombatBalance'
 import { isDamageReceiver, type DamageReceiver } from './combat/DamageReceiver'
 import { ProjectileTargetIndex } from './combat/ProjectileContactQuery'
+import { installShadowCasterCulling } from './rendering/ShadowCasterCulling'
 import { damageMount, damageNpc, damageObstacle, damagePlayer, damageReceiver } from './combat/DamageRouter'
 import { resolveMountImpacts } from './combat/MountImpact'
 import { calculatePlayerMeleeDamage } from './combat/PlayerMeleeDamage'
@@ -738,6 +739,11 @@ export class Game {
     private readonly tutorialLaunch?: CareerTutorialLaunch,
   ) {
     this.renderer = renderer
+    // Far actors hold no shadow caster; skip walking them in the shadow pass (output unchanged).
+    installShadowCasterCulling(renderer, visit => {
+      for (const npc of this.npcs) visit(npc.group, npc.currentLod)
+      for (const mount of this.mounts) visit(mount.group, mount.currentLod)
+    })
     this.customPickupPolicy = Boolean(battleConfig && !campaignConfig && !bridgeLaunch && !battleConfig.careerEagleMissionId && !battleConfig.careerFelineMissionId && !tutorialLaunch && !isTrainingGround)
     if (isTrainingGround && (battleConfig || campaignConfig)) throw new Error('Training Ground cannot use a battle or Career launch')
     if (tutorialLaunch) {
