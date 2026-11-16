@@ -571,7 +571,8 @@ export class MixerController implements HumanoidAnimationController {
       }
     })
     this.equipmentState.alive = alive
-    this.onPoseEvaluated?.()
+    // Layer 0 (the primary rig) always applies and ends with a full refresh of its subtree.
+    this.onPoseEvaluated?.(this.equipmentLayers[0] !== undefined)
   }
 
   // Advance retained actions, including their loop/fade state, using Three's
@@ -608,8 +609,9 @@ export class MixerController implements HumanoidAnimationController {
     else layer?.apply(this.evaluatedEquipmentState)
   }
 
-  /** Asset-owned socket followers run after the single pose evaluation. */
-  onPoseEvaluated?: () => void
+  /** Asset-owned socket followers run after the single pose evaluation.
+   * `primaryPoseCurrent`: the primary rig's whole subtree was refreshed just before. */
+  onPoseEvaluated?: (primaryPoseCurrent?: boolean) => void
   private poseLayersEnabled = true
   private readonly bowLegActions = new Map<string, THREE.AnimationAction[]>()
   private bowLegState: string | null = null
@@ -1338,8 +1340,8 @@ export class HumanoidAssetRegistry {
       handBounds.push({ mesh: node, wrist, radius: bound.radius })
     })
     const handBoundTransform = new THREE.Matrix4()
-    animation.onPoseEvaluated = () => {
-      updateEquipmentSockets()
+    animation.onPoseEvaluated = (primaryPoseCurrent = false) => {
+      updateEquipmentSockets(primaryPoseCurrent)
       for (const { mesh, wrist, radius } of handBounds) {
         mesh.updateWorldMatrix(true, false)
         handBoundTransform.copy(mesh.matrixWorld).invert().multiply(wrist.matrixWorld)

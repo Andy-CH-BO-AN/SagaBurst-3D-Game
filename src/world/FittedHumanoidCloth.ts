@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { currentWorldQuaternion, worldQuaternionBelow } from './AnchoredWorldMatrix'
 
 /** Asset-measured helper bones. Foot/death motion remains in the baked clips;
  * this layer only follows the runtime's procedural seated legs and torso. */
@@ -67,19 +68,18 @@ export class FittedHumanoidCloth {
     }
   }
 
-  /** Runs inside CharacterEquipmentPose.apply, which publishes the full pose afterwards;
-   * reads below refresh their own ancestor chains, so no subtree pass is needed here. */
+  /** Runs inside CharacterEquipmentPose.apply, which publishes the full pose afterwards and keeps
+   * `root` current; reads below refresh their own chains from `root`, so no subtree pass is needed. */
   applyMounted(): void {
-    this.root.updateWorldMatrix(true, false)
-    this.root.getWorldQuaternion(this.rootRotation)
+    currentWorldQuaternion(this.root, this.rootRotation)
     this.rootInverse.copy(this.rootRotation).invert()
-    this.delta.copy(this.rootInverse).multiply(this.anchor.getWorldQuaternion(this.parentInverse)).multiply(this.anchorRestInverse)
+    this.delta.copy(this.rootInverse).multiply(worldQuaternionBelow(this.anchor, this.root, this.parentInverse)).multiply(this.anchorRestInverse)
     this.direction.set(0, 0, 1).applyQuaternion(this.delta)
     this.yaw.setFromAxisAngle(this.y, Math.atan2(this.direction.x, this.direction.z))
     // Follow chest yaw but compensate its lean in the helper alone. Parent-first
     // ordering is authored in the asset; each child's world rest is independent.
     for (const { bone, rest, pitch } of this.cape) {
-      bone.parent!.getWorldQuaternion(this.parentInverse).invert()
+      worldQuaternionBelow(bone.parent!, this.root, this.parentInverse).invert()
       this.pitch.setFromAxisAngle(this.x, pitch)
       bone.quaternion.copy(this.parentInverse).multiply(this.rootRotation).multiply(this.yaw).multiply(this.pitch).multiply(rest)
     }

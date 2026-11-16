@@ -274,18 +274,21 @@ export class HighTierEquipmentService {
       endpoints.push({ mesh, index: highIndex, high: true }, { mesh, index: lowIndex, high: false })
     }
     let previousRatio = -1
+    const parentInverse = new THREE.Matrix4()
     return {
       model, topTip, bottomTip, profile: { ...DEFAULT_BOW_GRIP_PROFILE, id: 'bow_t5' },
       sampleDraw(ratio: number) {
         if (ratio === previousRatio) return
         previousRatio = ratio
         if (mixer && clip) mixer.setTime(THREE.MathUtils.clamp(ratio, 0, 1) * clip.duration / 2)
-        model.updateWorldMatrix(true, false)
+        // Tips are read back in the parent's frame, so the parent's world matrix cancels:
+        // only the bow's own subtree must be current, not the archer's ancestor chain.
         model.updateMatrixWorld(true)
+        const parent = model.parent
+        if (parent) parentInverse.copy(parent.matrixWorld).invert()
         for (const endpoint of endpoints) {
-          endpoint.mesh.getVertexPosition(endpoint.index, point)
-          endpoint.mesh.localToWorld(point)
-          model.parent?.worldToLocal(point)
+          endpoint.mesh.getVertexPosition(endpoint.index, point).applyMatrix4(endpoint.mesh.matrixWorld)
+          if (parent) point.applyMatrix4(parentInverse)
           ;(endpoint.high ? topTip : bottomTip).copy(point)
         }
       },

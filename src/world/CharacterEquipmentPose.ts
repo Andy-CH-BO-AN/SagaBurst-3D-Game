@@ -14,6 +14,7 @@ import { XONGKORO_VISUAL } from '../movement/XongkoroConfig'
 import { SelectedMountedSkirt, type SelectedHumanoidSource } from './SelectedHumanoidSource'
 import { BOW_ARROW_REST, BOW_STRING_CONTACT } from './BowDrawHand'
 import { angleDifference, mountedBowTorsoTurn, MOUNTED_BOW_MAX_PITCH } from '../movement/MountedArcherOrbit'
+import { currentWorldQuaternion, localToWorldBelow, refreshWorldBelow, worldPositionBelow, worldQuaternionBelow, worldToLocalBelow } from './AnchoredWorldMatrix'
 const smooth = (x: number): number => { const t = THREE.MathUtils.clamp(x, 0, 1); return t * t * (3 - 2 * t) }
 const SHIELD_POSE = { side: 0.36, height: 0.12, forward: 0.26 }
 
@@ -252,15 +253,15 @@ class ArmSolver {
     // ancestor paths. Keep the solved arm subtree updates below for callers.
     this.root.updateWorldMatrix(true, false)
     this.inverseRoot.copy(this.root.matrixWorld).invert()
-    this.root.getWorldQuaternion(this.rootQ)
-    this.arm.shoulder.getWorldPosition(this.shoulder).applyMatrix4(this.inverseRoot)
+    currentWorldQuaternion(this.root, this.rootQ)
+    worldPositionBelow(this.arm.shoulder, this.root, this.shoulder).applyMatrix4(this.inverseRoot)
     if (followSampledPose) {
       this.sampledShoulder.copy(this.shoulder)
-      this.arm.elbow.getWorldPosition(this.sampledElbow).applyMatrix4(this.inverseRoot)
-      this.arm.wrist.getWorldPosition(this.sampledWrist).applyMatrix4(this.inverseRoot)
+      worldPositionBelow(this.arm.elbow, this.root, this.sampledElbow).applyMatrix4(this.inverseRoot)
+      worldPositionBelow(this.arm.wrist, this.root, this.sampledWrist).applyMatrix4(this.inverseRoot)
       this.parentQ.copy(this.rootQ).invert()
-      this.arm.shoulder.getWorldQuaternion(this.sampledUpper).premultiply(this.parentQ)
-      this.arm.elbow.getWorldQuaternion(this.sampledLower).premultiply(this.parentQ)
+      worldQuaternionBelow(this.arm.shoulder, this.root, this.sampledUpper).premultiply(this.parentQ)
+      worldQuaternionBelow(this.arm.elbow, this.root, this.sampledLower).premultiply(this.parentQ)
       if (sampledFrame) {
         this.sampledShoulder.sub(sampledFrame.pivot).applyQuaternion(sampledFrame.rotation).add(sampledFrame.pivot)
         this.sampledElbow.sub(sampledFrame.pivot).applyQuaternion(sampledFrame.rotation).add(sampledFrame.pivot)
@@ -367,14 +368,16 @@ class ArmSolver {
     }
     // Each parent read below refreshes its own ancestor chain, so one subtree pass
     // after the last joint leaves exactly the matrices the old per-joint passes did.
-    this.arm.shoulder.parent!.getWorldQuaternion(this.parentQ).invert()
+    // Only the joint just written lies between consecutive parents, so each read
+    // starts from the previous (still current) parent.
+    worldQuaternionBelow(this.arm.shoulder.parent!, this.root, this.parentQ).invert()
     this.arm.shoulder.quaternion.copy(this.parentQ).multiply(this.rootQ).multiply(this.q)
     // Match forearm roll to the anatomical hand frame, then swing its long axis
     // to the wrist. This leaves flexion at the wrist without a 180-degree twist.
     this.q.copy(this.lowerRotation)
-    this.arm.elbow.parent!.getWorldQuaternion(this.parentQ).invert()
+    worldQuaternionBelow(this.arm.elbow.parent!, this.arm.shoulder.parent!, this.parentQ).invert()
     this.arm.elbow.quaternion.copy(this.parentQ).multiply(this.rootQ).multiply(this.q)
-    this.arm.wrist.parent!.getWorldQuaternion(this.parentQ).invert()
+    worldQuaternionBelow(this.arm.wrist.parent!, this.arm.elbow.parent!, this.parentQ).invert()
     this.arm.wrist.quaternion.copy(this.parentQ).multiply(this.rootQ).multiply(handRotation)
     this.arm.shoulder.updateWorldMatrix(false, true)
   }
@@ -644,10 +647,10 @@ export class CharacterEquipmentPose {
   private solveHandContact(solver: ArmSolver, arm: ArmRig, frame: EquipmentGripFrame): void {
     const clavicle = arm.shoulder.parent
     if (clavicle?.name === 'clavicle_r' || clavicle?.name === 'clavicle_l') {
-      clavicle.getWorldPosition(this.carryClavicleAnchor)
-      this.root.worldToLocal(this.carryClavicleAnchor)
-      arm.shoulder.getWorldPosition(this.carryShoulderAxis)
-      this.root.worldToLocal(this.carryShoulderAxis)
+      worldPositionBelow(clavicle, this.root, this.carryClavicleAnchor)
+      worldToLocalBelow(this.root, this.root, this.carryClavicleAnchor)
+      worldPositionBelow(arm.shoulder, this.root, this.carryShoulderAxis)
+      worldToLocalBelow(this.root, this.root, this.carryShoulderAxis)
       this.carryShoulderAxis.sub(this.carryClavicleAnchor)
       this.carryWristAxis.fromArray(frame.gripCenterLocal).multiply(solver.gripScale).applyQuaternion(this.handWorld)
         .negate().add(this.target).sub(this.carryClavicleAnchor)
@@ -655,7 +658,7 @@ export class CharacterEquipmentPose {
       if (swing !== null && swing > 0) {
         this.attackRotation.setFromUnitVectors(this.carryShoulderAxis.normalize(), this.carryWristAxis.normalize())
         this.attackAxis.set(this.attackRotation.x, this.attackRotation.y, this.attackRotation.z).normalize()
-        this.root.getWorldQuaternion(this.rootWorld)
+        currentWorldQuaternion(this.root, this.rootWorld)
         this.attackAxis.applyQuaternion(this.rootWorld)
         this.rotateArm(clavicle, swing)
       }
@@ -704,8 +707,9 @@ export class CharacterEquipmentPose {
   }
 
   private rotateArm(node: THREE.Object3D, angle: number, updateSubtree = true): void {
-    node.getWorldQuaternion(this.boneWorld)
-    node.parent!.getWorldQuaternion(this.parentInverse).invert()
+    worldQuaternionBelow(node, this.root, this.boneWorld)
+    // The read above just refreshed the parent chain.
+    currentWorldQuaternion(node.parent!, this.parentInverse).invert()
     this.attackRotation.setFromAxisAngle(this.attackAxis, angle)
     node.quaternion.copy(this.parentInverse).multiply(this.attackRotation).multiply(this.boneWorld)
     if (updateSubtree) node.updateWorldMatrix(false, true)
@@ -715,12 +719,14 @@ export class CharacterEquipmentPose {
   get axeSupportPalm(): THREE.Quaternion | undefined { return this.hasSupportPalm ? this.supportPalm : undefined }
 
   /**
-   * Matrix refresh contract: every exit ends with a full `root.updateWorldMatrix(true, true)`.
-   * Inside, world reads use getWorldPosition/getWorldQuaternion (they refresh their own
-   * ancestor chain), so a branch needs its own full refresh only before it reads a
-   * descendant's `.matrixWorld`, `localToWorld` or `worldToLocal` directly.
+   * Matrix refresh contract: every exit ends with a full subtree refresh of `root`.
+   * The pass never writes `root` or its ancestors, so it refreshes that chain once on
+   * entry; world reads then start at `root` (AnchoredWorldMatrix) and refresh their own
+   * chain below it. A branch needs its own subtree refresh only before it reads a
+   * descendant's `.matrixWorld` directly.
    */
   apply(state: EquipmentPoseState, authorityPalm?: THREE.Quaternion): void {
+    this.root.updateWorldMatrix(true, false)
     this.hasSupportPalm = false
     this.hasSwordEquipmentCorrection = false
     this.hasShieldEquipmentCorrection = false
@@ -746,39 +752,39 @@ export class CharacterEquipmentPose {
       // Standing keeps the authored whole-body side-on stance. Moving/seated
       // legs face their travel direction; transfer the same turn above the
       // pelvis without re-solving either arm or rotating the weapon grip.
-      this.seatedHips.getWorldQuaternion(this.bowHipsWorld)
-      this.bowSpine.getWorldQuaternion(this.bowSpineWorld)
-      this.seatedSpine.getWorldQuaternion(this.bowChestWorld)
+      worldQuaternionBelow(this.seatedHips, this.root, this.bowHipsWorld)
+      worldQuaternionBelow(this.bowSpine, this.root, this.bowSpineWorld)
+      worldQuaternionBelow(this.seatedSpine, this.root, this.bowChestWorld)
       setRigRotation(this.seatedHips, 0, 0, 0)
-      this.seatedHips.getWorldQuaternion(this.parentInverse).invert()
+      worldQuaternionBelow(this.seatedHips, this.root, this.parentInverse).invert()
       this.bowHipsWorld.multiply(this.parentInverse).invert()
       this.bowHalfTurnInverse.identity().slerp(this.bowHipsWorld, .5)
       this.bowSpineWorld.premultiply(this.bowHalfTurnInverse)
-      this.bowSpine.parent!.getWorldQuaternion(this.parentInverse).invert()
+      worldQuaternionBelow(this.bowSpine.parent!, this.root, this.parentInverse).invert()
       this.bowSpine.quaternion.copy(this.parentInverse).multiply(this.bowSpineWorld)
       this.bowSpine.updateWorldMatrix(false, true)
-      this.seatedSpine.parent!.getWorldQuaternion(this.parentInverse).invert()
+      worldQuaternionBelow(this.seatedSpine.parent!, this.root, this.parentInverse).invert()
       this.seatedSpine.quaternion.copy(this.parentInverse).multiply(this.bowChestWorld)
     }
     if (live && state.mounted && (this.selectedSource || state.mountKind === 'CORGI' || state.mountKind === 'xongkoro') && this.seatedSpine) {
       // Selected foot clips turn the pelvis by over 100 degrees. Mask the
       // seated pelvis; a sword swing may carry at most 45 degrees of its yaw
       // through the whole torso, never through a single lumbar joint.
-      if (!this.selectedSource) this.seatedSpine.getWorldQuaternion(this.seatedRotation)
-      else this.seatedHips.getWorldQuaternion(this.seatedRotation)
+      if (!this.selectedSource) worldQuaternionBelow(this.seatedSpine, this.root, this.seatedRotation)
+      else worldQuaternionBelow(this.seatedHips, this.root, this.seatedRotation)
       setRigRotation(this.seatedHips, 0, 0, 0)
       this.seatedHips.position.x = this.hipsBindPosition.x
       this.seatedHips.position.z = this.hipsBindPosition.z
       if (state.mountKind === 'xongkoro') this.seatedHips.position.y = this.hipsBindPosition.y
       if (!this.selectedSource) {
-        this.seatedSpine.parent!.getWorldQuaternion(this.parentInverse).invert()
+        worldQuaternionBelow(this.seatedSpine.parent!, this.root, this.parentInverse).invert()
         this.seatedSpine.quaternion.copy(this.parentInverse).multiply(this.seatedRotation)
       } else if (selectedMountedBow && this.seatedTorso.length) {
         // Preserve the sampled bow's world-facing direction when seating removes
         // the source pelvis turn. Transfer that measured world-space delta above
         // the saddle, split across the torso rather than twisting one lumbar joint.
         // Arms, hand attachment, actor heading and projectile aim stay untouched.
-        this.seatedHips.getWorldQuaternion(this.parentInverse).invert()
+        worldQuaternionBelow(this.seatedHips, this.root, this.parentInverse).invert()
         this.seatedRotation.multiply(this.parentInverse).normalize()
         if (this.seatedRotation.w < 0) this.seatedRotation.set(-this.seatedRotation.x, -this.seatedRotation.y, -this.seatedRotation.z, -this.seatedRotation.w)
         this.attackAxis.set(this.seatedRotation.x, this.seatedRotation.y, this.seatedRotation.z)
@@ -792,7 +798,7 @@ export class CharacterEquipmentPose {
         // Seating removes the foot clip's pelvis rotation. Carry that rotation
         // through the torso so the authored right-high / left-low axe arc keeps
         // its world direction, with the saddle and legs remaining planted.
-        this.seatedHips.getWorldQuaternion(this.parentInverse).invert()
+        worldQuaternionBelow(this.seatedHips, this.root, this.parentInverse).invert()
         this.seatedRotation.multiply(this.parentInverse).normalize()
         if (this.seatedRotation.w < 0) this.seatedRotation.set(-this.seatedRotation.x, -this.seatedRotation.y, -this.seatedRotation.z, -this.seatedRotation.w)
         this.attackAxis.set(this.seatedRotation.x, this.seatedRotation.y, this.seatedRotation.z)
@@ -804,9 +810,9 @@ export class CharacterEquipmentPose {
           this.updateTorsoSubtree()
         }
       } else if (state.action === 'swordSlash' && this.seatedTorso.length) {
-        this.seatedHips.getWorldQuaternion(this.parentInverse).invert()
+        worldQuaternionBelow(this.seatedHips, this.root, this.parentInverse).invert()
         this.seatedRotation.multiply(this.parentInverse)
-        this.root.getWorldQuaternion(this.rootWorld)
+        currentWorldQuaternion(this.root, this.rootWorld)
         this.parentInverse.copy(this.rootWorld).invert()
         this.seatedRotation.premultiply(this.parentInverse).multiply(this.rootWorld)
         const yaw = THREE.MathUtils.euclideanModulo(2 * Math.atan2(this.seatedRotation.y, this.seatedRotation.w) + Math.PI, 2 * Math.PI) - Math.PI
@@ -828,11 +834,11 @@ export class CharacterEquipmentPose {
       // Flight still leans the lower torso, but must not tilt a selected bow's
       // already aligned shoulder/hand frame away from the aim during sprint.
       const bowChest = selectedMountedBow ? this.seatedTorso[this.seatedTorso.length - 1] : undefined
-      bowChest?.getWorldQuaternion(this.bowChestWorld)
+      bowChest && worldQuaternionBelow(bowChest, this.root, this.bowChestWorld)
       this.seatedRotation.setFromAxisAngle(this.attackAxis.set(1, 0, 0), THREE.MathUtils.clamp(state.flightLean, 0, 1) * XONGKORO_VISUAL.sprintRiderLean)
       this.seatedSpine.quaternion.multiply(this.seatedRotation)
       if (bowChest) {
-        bowChest.parent!.getWorldQuaternion(this.parentInverse).invert()
+        worldQuaternionBelow(bowChest.parent!, this.root, this.parentInverse).invert()
         bowChest.quaternion.copy(this.parentInverse).multiply(this.bowChestWorld)
       }
     }
@@ -843,9 +849,8 @@ export class CharacterEquipmentPose {
     if (live && this.relaxedLeftThumbForward && !state.shield
       && (!state.lance || this.relaxedLeftThumbForward === 'including-lance') && !state.sampledBowPose
       && !this.bakedActions.includes(state.action) && state.action !== 'greatswordSlash' && relaxedHandWeight > 0) {
-      this.root.updateWorldMatrix(true, false)
-      this.root.getWorldQuaternion(this.rootWorld).invert()
-      this.rig.left.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
+      currentWorldQuaternion(this.root, this.rootWorld).invert()
+      worldQuaternionBelow(this.rig.left.wrist, this.root, this.handWorld).premultiply(this.rootWorld)
       this.attackAxis.fromArray(this.frames.lanceLeft.fingerDirection).applyQuaternion(this.handWorld).normalize()
       this.target.set(0, 0, 1).addScaledVector(this.attackAxis, -this.attackAxis.z)
       if (this.target.lengthSq() > 1e-6) {
@@ -854,8 +859,8 @@ export class CharacterEquipmentPose {
         this.attackRotation.setFromUnitVectors(this.axeReach, this.target)
         this.handWorld.premultiply(this.attackRotation)
         this.target.fromArray(this.frames.lanceLeft.gripCenterLocal).applyQuaternion(this.handWorld)
-        this.rig.left.wrist.getWorldPosition(this.axeReach)
-        this.root.worldToLocal(this.axeReach)
+        worldPositionBelow(this.rig.left.wrist, this.root, this.axeReach)
+        worldToLocalBelow(this.root, this.root, this.axeReach)
         this.target.add(this.axeReach)
         this.axeLeftBones.forEach((bone, index) => this.axeSavedLeft[index].copy(bone.quaternion))
         this.left.solve(this.target, this.handWorld, this.frames.lanceLeft, undefined, true, true)
@@ -874,13 +879,13 @@ export class CharacterEquipmentPose {
     // Trimmed 2H releases this source-owned hand only during recovery.
     const authoredRecovery = axeRecoveryWeight(state.action, state.elapsed, state.continuousAxeAction)
     if (live && this.selectedSource?.rig === 'roman54' && !state.shield && !state.sampledBowPose && (state.action === 'idle' || authoredRecovery > 0)) {
-      this.root.updateWorldMatrix(true, true)
-      this.root.getWorldQuaternion(this.rootWorld).invert()
-      this.rig.right.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
+      this.root.updateWorldMatrix(false, true)
+      currentWorldQuaternion(this.root, this.rootWorld).invert()
+      worldQuaternionBelow(this.rig.right.wrist, this.root, this.handWorld).premultiply(this.rootWorld)
       this.handWorld.set(this.handWorld.x, -this.handWorld.y, -this.handWorld.z, this.handWorld.w)
       this.target.fromArray(this.frames.lanceLeft.gripCenterLocal).applyQuaternion(this.handWorld)
-      this.rig.left.wrist.getWorldPosition(this.axeReach)
-      this.root.worldToLocal(this.axeReach)
+      worldPositionBelow(this.rig.left.wrist, this.root, this.axeReach)
+      worldToLocalBelow(this.root, this.root, this.axeReach)
       this.target.add(this.axeReach)
       if (authoredRecovery > 0) for (let i = 0; i < 3; i++) this.axeSavedLeft[i].copy(this.axeLeftBones[i].quaternion)
       this.left.solve(this.target, this.handWorld, this.frames.lanceLeft, undefined, true, true)
@@ -898,7 +903,7 @@ export class CharacterEquipmentPose {
       // localToWorld below refreshes the wrist's ancestor chain. No other
       // subtree is read before the arm solve and the final pose refresh.
       this.target.fromArray(this.frames.lanceRight.gripCenterLocal)
-      this.rig.right.wrist.localToWorld(this.target); this.root.worldToLocal(this.target)
+      localToWorldBelow(this.rig.right.wrist, this.root, this.target); worldToLocalBelow(this.root, this.root, this.target)
       this.handWorld.copy(state.carryWeapon === 'axe' ? state.action === 'axeAttack1H' ? this.axe1Carry : this.axeCarry : this.swordCarry)
       this.carryBones.forEach((bone, index) => this.carrySaved[index].copy(bone.quaternion))
       this.axeRight.solve(this.target, this.handWorld, this.frames.lanceRight, undefined, true, true)
@@ -912,8 +917,7 @@ export class CharacterEquipmentPose {
     if (live && (this.selectedSource?.rig === 'ordinary22' || this.selectedSource?.rig === 'varangian63') && state.action === 'axeAttack2H') {
       const facing = this.selectedSource.rig === 'ordinary22' ? -.6098016643687594 : -.7488516894154653
       const weight = smooth(state.elapsed / .08) * (1 - smooth((state.elapsed - .38) / .1))
-      this.root.updateWorldMatrix(true, false)
-      this.root.getWorldQuaternion(this.rootWorld)
+      currentWorldQuaternion(this.root, this.rootWorld)
       this.attackAxis.set(0, 1, 0).applyQuaternion(this.rootWorld)
       if (state.mounted && this.seatedTorso.length) {
         for (const joint of this.seatedTorso) this.rotateArm(joint, facing * weight / this.seatedTorso.length, false)
@@ -926,9 +930,8 @@ export class CharacterEquipmentPose {
     if (live && state.mounted && state.mountKind === 'CORGI'
       && !this.selectedSource
       && state.action !== 'bowAim' && state.action !== 'bowRelease' && state.action !== 'pilumThrow') {
-      this.root.updateWorldMatrix(true, false)
-      this.rig.right.wrist.getWorldQuaternion(this.handWorld)
-      this.root.getWorldQuaternion(this.rootWorld)
+      worldQuaternionBelow(this.rig.right.wrist, this.root, this.handWorld)
+      currentWorldQuaternion(this.root, this.rootWorld)
       this.attackAxis.set(0, 0, 1).applyQuaternion(this.rootWorld)
       this.rotateArm(this.rig.right.shoulder, -0.60)
       this.attackAxis.set(1, 0, 0).applyQuaternion(this.rootWorld)
@@ -940,7 +943,7 @@ export class CharacterEquipmentPose {
           : smooth((state.elapsed - windup - active) / recovery)
       }
       this.rotateArm(this.rig.right.shoulder, -1.05 * carry)
-      this.rig.right.wrist.parent!.getWorldQuaternion(this.parentInverse).invert()
+      worldQuaternionBelow(this.rig.right.wrist.parent!, this.root, this.parentInverse).invert()
       this.rig.right.wrist.quaternion.copy(this.parentInverse).multiply(this.handWorld)
       this.rig.right.wrist.updateWorldMatrix(false, true)
       // Lift the cutting edge over the neck while the authored slash crosses
@@ -962,22 +965,21 @@ export class CharacterEquipmentPose {
       const extension = state.elapsed < windup ? -.18 * smooth(state.elapsed / windup)
         : state.elapsed < peak ? -.18 + 1.18 * smooth((state.elapsed - windup) / (peak - windup))
           : state.elapsed < end ? 1 : 1 - smooth((state.elapsed - end) / recovery)
-      this.root.updateWorldMatrix(true, false)
-      this.rig.right.wrist.getWorldQuaternion(this.handWorld)
-      this.root.getWorldQuaternion(this.rootWorld)
+      worldQuaternionBelow(this.rig.right.wrist, this.root, this.handWorld)
+      currentWorldQuaternion(this.root, this.rootWorld)
       this.attackAxis.set(1, 0, 0).applyQuaternion(this.rootWorld)
       this.rotateArm(this.rig.right.shoulder, -1.55 * extension)
       this.rotateArm(this.rig.right.elbow, .56 * extension)
       // Keep the original hand direction: the lance translates forward instead
       // of pitching upward with the arm. No roll/supination or IK is added.
-      this.rig.right.wrist.parent!.getWorldQuaternion(this.parentInverse).invert()
+      worldQuaternionBelow(this.rig.right.wrist.parent!, this.root, this.parentInverse).invert()
       this.rig.right.wrist.quaternion.copy(this.parentInverse).multiply(this.handWorld)
     }
     if (live && state.mounted && (state.action === 'axeAttack1H' || state.action === 'axeAttack2H')) {
       // Adapt the source arm as a whole so its fixed palm/haft contact survives.
       const lift = smooth(state.elapsed / .06) * (1 - smooth((state.elapsed - .38) / .1))
-      this.root.updateWorldMatrix(true, true)
-      this.root.getWorldQuaternion(this.rootWorld)
+      this.root.updateWorldMatrix(false, true)
+      currentWorldQuaternion(this.root, this.rootWorld)
       this.attackAxis.set(1, 0, 0).applyQuaternion(this.rootWorld)
       if (state.action === 'axeAttack1H') {
         // Raise during preparation, then descend through the original contact
@@ -1017,7 +1019,7 @@ export class CharacterEquipmentPose {
     if (live && state.shield) {
       // The guard delta only reads the chest and root. Refresh that chain;
       // ArmSolver refreshes the arm, and the final refresh publishes all bones.
-      this.shieldBody.updateWorldMatrix(true, false)
+      refreshWorldBelow(this.shieldBody, this.root)
       this.shieldBodyDelta.copy(this.root.matrixWorld).invert().multiply(this.shieldBody.matrixWorld).multiply(this.shieldBindInverse)
       this.shieldBodyRotation.setFromRotationMatrix(this.shieldBodyDelta)
       if (state.shieldRaised && state.action === 'idle') {
@@ -1052,15 +1054,15 @@ export class CharacterEquipmentPose {
       const blendRight = state.continuousAxeAction && state.elapsed >= .42 && blend < 1
       for (let i = 0; i < 3; i++) this.axeSavedLeft[i].copy(this.axeLeftBones[i].quaternion)
       if (blendRight) for (let i = 0; i < 3; i++) this.carrySaved[i].copy(this.carryBones[i].quaternion)
-      this.root.updateWorldMatrix(true, true)
+      this.root.updateWorldMatrix(false, true)
       this.axeInverseRoot.copy(this.root.matrixWorld).invert()
       this.axeMatrix.copy(this.axeInverseRoot).multiply(this.rig.right.wrist.matrixWorld).multiply(this.axeGripInHand)
       this.axeRightGrip.setFromMatrixPosition(this.axeMatrix)
       this.axeLeftOffset.set(0, -.1, 0).transformDirection(this.axeMatrix).multiplyScalar(.1)
-      this.root.getWorldQuaternion(this.rootWorld).invert()
+      currentWorldQuaternion(this.root, this.rootWorld).invert()
       if (authorityPalm) this.handWorld.copy(authorityPalm).multiply(this.axeLeftPalmInverse)
       else {
-        this.rig.left.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
+        worldQuaternionBelow(this.rig.left.wrist, this.root, this.handWorld).premultiply(this.rootWorld)
         this.attackAxis.fromArray(this.frames.lanceLeft.gripAxisLocal).applyQuaternion(this.handWorld).normalize()
         this.target.set(0, 1, 0).transformDirection(this.axeMatrix)
         if (continuousLeftAcquisition) {
@@ -1097,7 +1099,7 @@ export class CharacterEquipmentPose {
       }
       this.supportPalm.copy(this.handWorld).multiply(this.axeLeftPalmFrame)
       this.hasSupportPalm = true
-      this.rig.right.wrist.getWorldQuaternion(this.axeRightRotation).premultiply(this.rootWorld)
+      worldQuaternionBelow(this.rig.right.wrist, this.root, this.axeRightRotation).premultiply(this.rootWorld)
       // Different shoulder widths can put the retargeted grasp beyond the
       // opposite arm's reach. Project the shared haft into both reach spheres,
       // moving both hands together while retaining its authored orientation.
@@ -1107,7 +1109,7 @@ export class CharacterEquipmentPose {
           const limb = right ? this.rig.right : this.rig.left
           const frame = right ? this.frames.lanceRight : this.frames.lanceLeft
           const rotation = right ? this.axeRightRotation : this.handWorld
-          limb.shoulder.getWorldPosition(this.axeShoulder).applyMatrix4(this.axeInverseRoot)
+          worldPositionBelow(limb.shoulder, this.root, this.axeShoulder).applyMatrix4(this.axeInverseRoot)
           this.axeWristOffset.fromArray(frame.gripCenterLocal).applyQuaternion(rotation)
           this.axeReach.copy(this.axeRightGrip).sub(this.axeWristOffset).sub(this.axeShoulder)
           if (!right) this.axeReach.add(this.axeLeftOffset)
@@ -1121,10 +1123,10 @@ export class CharacterEquipmentPose {
         // arms together so the shortened clip does not drop that correction
         // abruptly at completion; acquisition and the strike remain unchanged.
         for (let i = 0; i < 3; i++) this.carryBones[i].quaternion.copy(this.carrySaved[i].slerp(this.carryBones[i].quaternion, blend))
-        this.rig.right.shoulder.updateWorldMatrix(true, true)
+        refreshWorldBelow(this.rig.right.shoulder.parent!, this.root); this.rig.right.shoulder.updateWorldMatrix(false, true)
         // Follow the actual, partially released haft rather than the fully
         // projected target. Carry its palm rotation into the support solve.
-        this.rig.right.wrist.getWorldQuaternion(this.boneWorld).premultiply(this.rootWorld)
+        worldQuaternionBelow(this.rig.right.wrist, this.root, this.boneWorld).premultiply(this.rootWorld)
         this.attackRotation.copy(this.axeRightRotation).invert().premultiply(this.boneWorld)
         this.handWorld.premultiply(this.attackRotation)
         this.supportPalm.copy(this.handWorld).multiply(this.axeLeftPalmFrame)
@@ -1174,10 +1176,10 @@ export class CharacterEquipmentPose {
         ? (state.mounted ? this.articulatedMountedSwordFrame : undefined) ?? this.articulatedSwordFrame!
         : sourceFrame
       const solver = fittedSwordContact ? this.articulatedSwordArm! : this.axeRight
-      this.root.updateWorldMatrix(true, true)
+      this.root.updateWorldMatrix(false, true)
       this.swordEquipmentCorrection.copy(this.rig.right.wrist.matrixWorld)
-      this.root.getWorldQuaternion(this.rootWorld).invert()
-      this.rig.right.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
+      currentWorldQuaternion(this.root, this.rootWorld).invert()
+      worldQuaternionBelow(this.rig.right.wrist, this.root, this.handWorld).premultiply(this.rootWorld)
       if (fittedSwordContact) {
         if (state.mounted && this.mountedSwordShaftLocal) {
           this.attackAxis.fromArray(sourceFrame.gripAxisLocal).applyQuaternion(this.handWorld).normalize()
@@ -1190,15 +1192,15 @@ export class CharacterEquipmentPose {
         this.handWorld.premultiply(this.attackRotation.setFromUnitVectors(this.attackAxis, this.axeReach))
       }
       this.target.fromArray(sourceFrame.gripCenterLocal).applyMatrix4(this.swordEquipmentCorrection)
-      this.root.worldToLocal(this.target)
+      worldToLocalBelow(this.root, this.root, this.target)
       // Near full extension, recover reach through anatomical shoulder-girdle
       // protraction, not a discontinuous hand roll or a stretched arm. The
       // clavicle rotates about its existing root and is restored each sample.
       if (this.carryClavicle) {
-        this.carryClavicle.getWorldPosition(this.carryClavicleAnchor)
-        this.root.worldToLocal(this.carryClavicleAnchor)
-        this.rig.right.shoulder.getWorldPosition(this.carryShoulderAxis)
-        this.root.worldToLocal(this.carryShoulderAxis)
+        worldPositionBelow(this.carryClavicle, this.root, this.carryClavicleAnchor)
+        worldToLocalBelow(this.root, this.root, this.carryClavicleAnchor)
+        worldPositionBelow(this.rig.right.shoulder, this.root, this.carryShoulderAxis)
+        worldToLocalBelow(this.root, this.root, this.carryShoulderAxis)
         this.carryShoulderAxis.sub(this.carryClavicleAnchor)
         this.carryWristAxis.fromArray(frame.gripCenterLocal).multiply(solver.gripScale).applyQuaternion(this.handWorld)
           .negate().add(this.target).sub(this.carryClavicleAnchor)
@@ -1207,7 +1209,7 @@ export class CharacterEquipmentPose {
         if (swing !== null && swing > 0) {
           this.attackRotation.setFromUnitVectors(this.carryShoulderAxis.normalize(), this.carryWristAxis.normalize())
           this.attackAxis.set(this.attackRotation.x, this.attackRotation.y, this.attackRotation.z).normalize()
-          this.root.getWorldQuaternion(this.rootWorld)
+          currentWorldQuaternion(this.root, this.rootWorld)
           this.attackAxis.applyQuaternion(this.rootWorld)
           this.rotateArm(this.carryClavicle, swing)
         }
@@ -1236,10 +1238,10 @@ export class CharacterEquipmentPose {
       }
       const blend = nearest < 1e-10 || !Number.isFinite(second) ? 0 : nearest / (nearest + second)
       const surfaceOffset = THREE.MathUtils.lerp(this.swordCarryGrips[lower].palmSurfaceOffset, this.swordCarryGrips[upper].palmSurfaceOffset, blend)
-      this.root.updateWorldMatrix(true, true)
+      this.root.updateWorldMatrix(false, true)
       this.swordEquipmentCorrection.copy(this.rig.right.wrist.matrixWorld)
-      this.root.getWorldQuaternion(this.rootWorld).invert()
-      this.rig.right.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
+      currentWorldQuaternion(this.root, this.rootWorld).invert()
+      worldQuaternionBelow(this.rig.right.wrist, this.root, this.handWorld).premultiply(this.rootWorld)
       if (state.mounted) {
         this.attackAxis.fromArray(swordFrame.gripAxisLocal).applyQuaternion(this.handWorld).normalize()
         this.axeReach.copy(this.mountedSwordShaftLocal).applyQuaternion(this.handWorld).normalize()
@@ -1248,7 +1250,7 @@ export class CharacterEquipmentPose {
       // Keep the sampled wrist station. Only the mounted shaft orientation
       // needs an arm solve; the equipment moves into the natural curled palm.
       if (state.mounted) {
-        this.rig.right.wrist.getWorldPosition(this.target); this.root.worldToLocal(this.target)
+        worldPositionBelow(this.rig.right.wrist, this.root, this.target); worldToLocalBelow(this.root, this.root, this.target)
         this.target.add(this.swordCarryCenter.fromArray(swordFrame.gripCenterLocal).applyQuaternion(this.handWorld))
         this.axeRight.solve(this.target, this.handWorld, this.swordCarryFrame, undefined, true, true)
       }
@@ -1277,7 +1279,7 @@ export class CharacterEquipmentPose {
     // the hand to the measured handle; the next sample restores both arms.
     const contact = fingerContactOwnership(state)
     if (contact && fittedAxe && contact.right && this.articulatedAxeFrame && this.articulatedSwordArm) {
-      this.root.updateWorldMatrix(true, true)
+      this.root.updateWorldMatrix(false, true)
       this.swordEquipmentCorrection.copy(this.rig.right.wrist.matrixWorld)
       const naturalCarryWeight = naturalAxeCarry ? carryBlend : 0
       if (naturalCarryWeight < 1) {
@@ -1285,8 +1287,8 @@ export class CharacterEquipmentPose {
           for (let index = 0; index < 2; index++) this.carrySaved[index].copy(this.carryBones[index].quaternion)
           if (this.carryClavicle) this.axeRightRotation.copy(this.carryClavicle.quaternion)
         }
-        this.root.getWorldQuaternion(this.rootWorld).invert()
-        this.rig.right.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
+        currentWorldQuaternion(this.root, this.rootWorld).invert()
+        worldQuaternionBelow(this.rig.right.wrist, this.root, this.handWorld).premultiply(this.rootWorld)
         if (state.axeHandFrame) this.attackRotation.copy(state.axeHandFrame.rotation)
         else this.attackRotation.setFromRotationMatrix(this.axeGripInHand)
         // Preserve the sampled palm roll and use the shortest shaft swing.
@@ -1298,7 +1300,7 @@ export class CharacterEquipmentPose {
         if (state.axeHandFrame) this.target.copy(state.axeHandFrame.center)
         else this.target.fromArray(this.frames.lanceRight.gripCenterLocal)
         this.target.applyMatrix4(this.swordEquipmentCorrection)
-        this.root.worldToLocal(this.target)
+        worldToLocalBelow(this.root, this.root, this.target)
         this.solveHandContact(this.articulatedSwordArm, this.rig.right, this.articulatedAxeFrame)
         if (naturalCarryWeight > 0) {
           for (let index = 0; index < 2; index++) this.carryBones[index].quaternion.slerp(this.carrySaved[index], naturalCarryWeight)
@@ -1309,7 +1311,7 @@ export class CharacterEquipmentPose {
         // Carry belongs to the relaxed arm. Keep the anatomical wrist bind
         // relative to its forearm instead of bending it to the legacy shaft.
         this.rig.right.wrist.quaternion.slerp(this.articulatedAxeNeutralWrist, naturalCarryWeight)
-        this.rig.right.wrist.updateWorldMatrix(true, true)
+        refreshWorldBelow(this.rig.right.wrist.parent!, this.root); this.rig.right.wrist.updateWorldMatrix(false, true)
       }
       this.axeMatrix.copy(this.rig.right.wrist.matrixWorld).invert()
       this.swordEquipmentCorrection.premultiply(this.axeMatrix)
@@ -1330,12 +1332,12 @@ export class CharacterEquipmentPose {
       this.hasSwordEquipmentCorrection = true
     }
     if (contact?.left && state.shield && this.articulatedShieldFrame && this.articulatedShieldArm) {
-      this.root.updateWorldMatrix(true, true)
+      this.root.updateWorldMatrix(false, true)
       this.shieldEquipmentCorrection.copy(this.rig.left.wrist.matrixWorld)
-      this.root.getWorldQuaternion(this.rootWorld).invert()
-      this.rig.left.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
+      currentWorldQuaternion(this.root, this.rootWorld).invert()
+      worldQuaternionBelow(this.rig.left.wrist, this.root, this.handWorld).premultiply(this.rootWorld)
       this.target.fromArray(this.frames.shieldLeft.gripCenterLocal).applyMatrix4(this.shieldEquipmentCorrection)
-      this.root.worldToLocal(this.target)
+      worldToLocalBelow(this.root, this.root, this.target)
       this.solveHandContact(this.articulatedShieldArm, this.rig.left, this.articulatedShieldFrame)
       this.axeMatrix.copy(this.rig.left.wrist.matrixWorld).invert()
       this.shieldEquipmentCorrection.premultiply(this.axeMatrix)
@@ -1368,14 +1370,14 @@ export class CharacterEquipmentPose {
       // The source stance is already side-on. Cap its total chest twist, then
       // use the existing two-bone solves only for the remaining arm reach.
       // Wrist targets rotate together, retaining the source finger/weapon frame.
-      this.orbitNock.getWorldPosition(this.orbitNockPosition)
-      this.orbitRest.getWorldPosition(this.orbitDirection).sub(this.orbitNockPosition)
-      this.root.getWorldQuaternion(this.rootWorld)
+      worldPositionBelow(this.orbitNock, this.root, this.orbitNockPosition)
+      worldPositionBelow(this.orbitRest, this.root, this.orbitDirection).sub(this.orbitNockPosition)
+      currentWorldQuaternion(this.root, this.rootWorld)
       this.orbitDirection.applyQuaternion(this.parentInverse.copy(this.rootWorld).invert()).normalize()
       const yaw = angleDifference(state.mountedBowAim.yaw, Math.atan2(this.orbitDirection.x, this.orbitDirection.z))
       const pitch = THREE.MathUtils.clamp(state.mountedBowAim.pitch - Math.atan2(this.orbitDirection.y, Math.hypot(this.orbitDirection.x, this.orbitDirection.z)), -MOUNTED_BOW_MAX_PITCH, MOUNTED_BOW_MAX_PITCH)
       const chest = this.orbitTorso[this.orbitTorso.length - 1]
-      chest.getWorldQuaternion(this.bowChestWorld).premultiply(this.parentInverse).multiply(this.orbitChestBindInverse)
+      worldQuaternionBelow(chest, this.root, this.bowChestWorld).premultiply(this.parentInverse).multiply(this.orbitChestBindInverse)
       this.orbitDirection.set(0, 0, 1).applyQuaternion(this.bowChestWorld)
       const torsoYaw = mountedBowTorsoTurn(Math.atan2(this.orbitDirection.x, this.orbitDirection.z), yaw)
       const solveArms = Math.abs(torsoYaw - yaw) > .001
@@ -1383,14 +1385,14 @@ export class CharacterEquipmentPose {
         this.orbitAimRotation.setFromAxisAngle(this.attackAxis.set(0, 1, 0), yaw)
         this.attackRotation.setFromAxisAngle(this.attackAxis.set(Math.cos(state.mountedBowAim.yaw), 0, -Math.sin(state.mountedBowAim.yaw)), -pitch)
         this.orbitAimRotation.premultiply(this.attackRotation)
-        chest.getWorldPosition(this.orbitPivot); this.root.worldToLocal(this.orbitPivot)
+        worldPositionBelow(chest, this.root, this.orbitPivot); worldToLocalBelow(this.root, this.root, this.orbitPivot)
         for (let i = 0; i < 2; i++) {
           const arm = i === 0 ? this.rig.left : this.rig.right
-          arm.wrist.getWorldPosition(this.orbitHandTargets[i]); this.root.worldToLocal(this.orbitHandTargets[i])
+          worldPositionBelow(arm.wrist, this.root, this.orbitHandTargets[i]); worldToLocalBelow(this.root, this.root, this.orbitHandTargets[i])
           this.orbitHandTargets[i].sub(this.orbitPivot).applyQuaternion(this.orbitAimRotation).add(this.orbitPivot)
-          arm.wrist.getWorldQuaternion(this.orbitHandRotations[i]).premultiply(this.parentInverse).premultiply(this.orbitAimRotation)
+          worldQuaternionBelow(arm.wrist, this.root, this.orbitHandRotations[i]).premultiply(this.parentInverse).premultiply(this.orbitAimRotation)
         }
-        this.orbitNeck?.getWorldQuaternion(this.orbitNeckTarget)
+        this.orbitNeck && worldQuaternionBelow(this.orbitNeck, this.root, this.orbitNeckTarget)
         this.orbitNeckTarget.premultiply(this.parentInverse).premultiply(this.orbitAimRotation).premultiply(this.rootWorld)
       }
       this.attackAxis.set(0, 1, 0).applyQuaternion(this.rootWorld)
@@ -1403,7 +1405,7 @@ export class CharacterEquipmentPose {
         // needed. Never clamp each hand independently and bend the arrow line.
         for (let i = 0; i < 2; i++) {
           const arm = i === 0 ? this.rig.left : this.rig.right
-          arm.shoulder.getWorldPosition(this.target); this.root.worldToLocal(this.target)
+          worldPositionBelow(arm.shoulder, this.root, this.target); worldToLocalBelow(this.root, this.root, this.target)
           this.axeReach.subVectors(this.orbitHandTargets[i], this.target)
           const reach = this.axeReach.length(), maxReach = this.orbitArms[i].maxReach - .01
           if (reach > maxReach) {
@@ -1415,7 +1417,7 @@ export class CharacterEquipmentPose {
         this.orbitSampleFrame.rotation.setFromAxisAngle(this.attackAxis.set(0, 1, 0), yaw - torsoYaw)
         for (let i = 0; i < 2; i++) this.orbitArms[i].solve(this.orbitHandTargets[i], this.orbitHandRotations[i], this.orbitWristFrame, undefined, true, false, undefined, this.orbitSampleFrame)
         if (this.orbitNeck) {
-          this.orbitNeck.parent!.getWorldQuaternion(this.parentInverse).invert()
+          worldQuaternionBelow(this.orbitNeck.parent!, this.root, this.parentInverse).invert()
           this.orbitNeck.quaternion.copy(this.parentInverse).multiply(this.orbitNeckTarget)
         }
       }
@@ -1427,7 +1429,7 @@ export class CharacterEquipmentPose {
       const shield = state.action === 'punchRight'
       const right = punchExtension(state.elapsed, 'right', shield), leftHand = shield ? 0 : punchExtension(state.elapsed, 'left', false)
       const torso = this.seatedTorso.length ? this.seatedTorso : this.seatedSpine ? [this.seatedSpine] : []
-      this.root.getWorldQuaternion(this.rootWorld)
+      currentWorldQuaternion(this.root, this.rootWorld)
       this.attackAxis.set(0, 1, 0).applyQuaternion(this.rootWorld)
       for (const joint of torso) this.rotateArm(joint, (right - leftHand) * (shield ? PUNCH_SHIELD_TORSO_YAW : PUNCH_TORSO_YAW) / torso.length)
       // Ease in from and out to the sampled locomotion pose rather than snapping to the guard.
@@ -1437,13 +1439,13 @@ export class CharacterEquipmentPose {
         const arm = this.rig[hand], solver = hand === 'right' ? this.axeRight : this.left, pose = this.punchPoses[hand]
         const frame = hand === 'right' ? this.frames.lanceRight : this.frames.lanceLeft
         const extension = hand === 'right' ? right : leftHand
-        arm.shoulder.getWorldPosition(this.axeReach); this.root.worldToLocal(this.axeReach)
+        worldPositionBelow(arm.shoulder, this.root, this.axeReach); worldToLocalBelow(this.root, this.root, this.axeReach)
         const x = this.axeReach.x, y = this.axeReach.y, z = this.axeReach.z
         const reach = (solver.maxReach + pose.gripAlong) * .97, dx = x * .7, dy = .04
         const strikeZ = z + Math.sqrt(Math.max(.04, reach * reach - dx * dx - dy * dy))
         this.target.set(x * .8 + (x * .3 - x * .8) * extension, y - .03 - .01 * extension, z + .25 + (strikeZ - z - .25) * extension)
         if (blend < 1) {
-          arm.wrist.localToWorld(this.axeReach.fromArray(frame.gripCenterLocal)); this.root.worldToLocal(this.axeReach)
+          localToWorldBelow(arm.wrist, this.root, this.axeReach.fromArray(frame.gripCenterLocal)); worldToLocalBelow(this.root, this.root, this.axeReach)
           this.target.lerpVectors(this.axeReach, this.target, blend)
         }
         // Guard: thumb up, palm inward. Strike: thumb inward, palm down. The hand's back always follows the real
@@ -1453,17 +1455,17 @@ export class CharacterEquipmentPose {
         for (let pass = 0; pass < 2; pass++) {
           punchBasis(this.punchForearm, this.punchThumbGoal, this.handWorld).multiply(pose.local)
           if (blend < 1) {
-            arm.wrist.getWorldQuaternion(this.parentInverse).premultiply(this.punchRootInverse.copy(this.rootWorld).invert())
+            worldQuaternionBelow(arm.wrist, this.root, this.parentInverse).premultiply(this.punchRootInverse.copy(this.rootWorld).invert())
             this.handWorld.copy(this.parentInverse.slerp(this.handWorld, blend))
           }
           solver.solve(this.target, this.handWorld, frame, undefined, false, true)
-          arm.elbow.getWorldPosition(this.punchElbow); arm.wrist.getWorldPosition(this.punchForearm)
-          this.root.worldToLocal(this.punchElbow); this.root.worldToLocal(this.punchForearm)
+          worldPositionBelow(arm.elbow, this.root, this.punchElbow); worldPositionBelow(arm.wrist, this.root, this.punchForearm)
+          worldToLocalBelow(this.root, this.root, this.punchElbow); worldToLocalBelow(this.root, this.root, this.punchForearm)
           this.punchForearm.sub(this.punchElbow)
         }
         for (const finger of this.punchFingers[hand]) finger.node.quaternion.copy(finger.fist)
       }
     }
-    this.root.updateWorldMatrix(true, true)
+    this.root.updateWorldMatrix(false, true)
   }
 }

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { currentWorldQuaternion, refreshWorldChains } from './AnchoredWorldMatrix'
 import { polishWeaponMaterials } from './CharacterVisuals'
 import { T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
 import { createMakiRangerBowInstance } from './MakiRangerEquipment'
@@ -74,6 +75,11 @@ export class CharacterBowVisual {
   private readonly tmpWorldNock = new THREE.Vector3()
   private readonly tmpLocalDirection = new THREE.Vector3()
   private readonly tmpWorldQuaternion = new THREE.Quaternion()
+  private readonly worldChain: (THREE.Object3D | undefined)[] = [undefined, undefined, undefined]
+  private readonly gripInverse = new THREE.Matrix4()
+  private readonly gripWorldRotationInverse = new THREE.Quaternion()
+  private readonly stringRotation = new THREE.Matrix4()
+  private readonly stringPosition = new THREE.Vector3()
   private drawContact?: THREE.Object3D
   private arrowRest?: THREE.Object3D
   private profile: BowGripProfile = DEFAULT_BOW_GRIP_PROFILE
@@ -182,6 +188,25 @@ export class CharacterBowVisual {
       if (!this.actionPivot.parent.userData.handGripFrame) updateBowOrientation(this.actionPivot.parent, this.actionPivot, targetWorld, this.profile, targetYOffset)
     }
 
+    // A stable actor root owns both hands, across equipment and rig rebuilds.
+    // Never search an ancestor: Scene lookup can borrow another archer's pose.
+    const handGrip = !!this.actionPivot.parent?.userData.handGripFrame
+    if (handGrip) {
+      if (!this.isOwnerContact(this.drawContact)) this.drawContact = this.ownerRoot.getObjectByName(BOW_STRING_CONTACT)
+      if (!this.isOwnerContact(this.arrowRest)) this.arrowRest = this.ownerRoot.getObjectByName(BOW_ARROW_REST)
+    }
+    // Nothing below moves the grip pivot or the archer's hands, only their children
+    // (bow body, strings, nocked arrow). Refresh those chains once, as the separate
+    // world reads each did, and read the current matrices afterwards.
+    const drawContact = handGrip && arrowVisible ? this.drawContact : undefined
+    const arrowRest = arrowVisible ? this.arrowRest : undefined
+    let chainCount = 0
+    this.worldChain[chainCount++] = this.gripPivot
+    if (drawContact) this.worldChain[chainCount++] = drawContact
+    if (arrowRest) this.worldChain[chainCount++] = arrowRest
+    refreshWorldChains(this.worldChain as THREE.Object3D[], chainCount)
+    this.worldChain[1] = this.worldChain[2] = undefined
+    this.gripInverse.copy(this.gripPivot.matrixWorld).invert()
     // The bow body curves toward local -Z (the target), while the string nock
     // stays on the archer side at +Z and moves farther back as it is drawn.
     const ratio = THREE.MathUtils.clamp(drawRatio, 0, 1)
@@ -191,33 +216,28 @@ export class CharacterBowVisual {
       this.bottomTip.copy(this.animatedAsset.bottomTip)
     }
     this.nockPosition.set(this.profile.gripRadius + 0.007, this.profile.gripLength / 2 + 0.015, 0.12 + ratio * 0.45)
-    if (this.actionPivot.parent?.userData.handGripFrame) {
-      // A stable actor root owns both hands, across equipment and rig rebuilds.
-      // Never search an ancestor: Scene lookup can borrow another archer's pose.
-      if (!this.isOwnerContact(this.drawContact)) this.drawContact = this.ownerRoot.getObjectByName(BOW_STRING_CONTACT)
-      if (!this.isOwnerContact(this.arrowRest)) this.arrowRest = this.ownerRoot.getObjectByName(BOW_ARROW_REST)
-      if (arrowVisible && this.drawContact) {
-        this.drawContact.getWorldPosition(this.tmpWorldNock)
-        this.gripPivot.worldToLocal(this.tmpWorldNock)
+    if (handGrip) {
+      if (drawContact) {
+        this.tmpWorldNock.setFromMatrixPosition(drawContact.matrixWorld).applyMatrix4(this.gripInverse)
         // This contact is part of the sampled humanoid pose and already moves
         // with bowLoad progress. Applying the charge ratio again would lag the
         // nock behind the draw hand (for example, half of a half-draw at 50%).
         if (Number.isFinite(this.tmpWorldNock.x + this.tmpWorldNock.y + this.tmpWorldNock.z)) this.nockPosition.copy(this.tmpWorldNock)
       } else if (!arrowVisible) this.nockPosition.z = .12
     }
-    this.gripPivot.localToWorld(this.tmpWorldNock.copy(this.nockPosition))
+    this.tmpWorldNock.copy(this.nockPosition).applyMatrix4(this.gripPivot.matrixWorld)
+    this.gripWorldRotationInverse.setFromRotationMatrix(this.stringRotation.extractRotation(this.gripPivot.matrixWorld)).invert()
     this.updateString(this.stringTop, this.topTip)
     this.updateString(this.stringBottom, this.bottomTip)
 
     this.nockedArrow.visible = arrowVisible
     if (!arrowVisible) return
-    if (this.arrowRest) {
+    if (arrowRest) {
       // The nocked shaft is supported by the bow hand. A distant aim target
       // must not pull its front away from that physical rest.
-      this.arrowRest.getWorldPosition(this.tmpLocalDirection)
-      this.gripPivot.worldToLocal(this.tmpLocalDirection).sub(this.nockPosition).normalize()
+      this.tmpLocalDirection.setFromMatrixPosition(arrowRest.matrixWorld).applyMatrix4(this.gripInverse).sub(this.nockPosition).normalize()
     } else if (targetWorld) {
-      this.gripPivot.getWorldQuaternion(this.tmpWorldQuaternion).invert()
+      currentWorldQuaternion(this.gripPivot, this.tmpWorldQuaternion).invert()
       this.tmpLocalDirection.copy(targetWorld)
       this.tmpLocalDirection.y += targetYOffset
       this.tmpLocalDirection.sub(this.tmpWorldNock).normalize().applyQuaternion(this.tmpWorldQuaternion)
@@ -309,7 +329,12 @@ export class CharacterBowVisual {
 
   private updateString(mesh: THREE.Mesh, tip: THREE.Vector3): void {
     mesh.position.copy(tip).add(this.nockPosition).multiplyScalar(0.5)
-    mesh.lookAt(this.tmpWorldNock)
+    // Object3D.lookAt(tmpWorldNock) with the grip pivot (its parent) already current:
+    // same steps without re-walking the archer's ancestor chain.
+    mesh.updateWorldMatrix(false, false)
+    this.stringPosition.setFromMatrixPosition(mesh.matrixWorld)
+    this.stringRotation.lookAt(this.tmpWorldNock, this.stringPosition, mesh.up)
+    mesh.quaternion.setFromRotationMatrix(this.stringRotation).premultiply(this.gripWorldRotationInverse)
     mesh.rotateX(Math.PI / 2)
     mesh.scale.set(1, tip.distanceTo(this.nockPosition) / this.stringLength, 1)
   }
