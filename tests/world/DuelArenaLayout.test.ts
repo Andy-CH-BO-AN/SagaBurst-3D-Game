@@ -211,6 +211,8 @@ describe('duel arena layout collision', () => {
       .toEqual({ opponent: 'ordinary', opponentBorrowsMount: true, referee: 'captain', captain: false })
     expect(arenaDuelPartyPlan({ ...base, duelPresetId: 'roman_horse_archer', duelTier: 4, duelOpponentActorId: 'ranger', duelRefereeActorId: 'captain' }))
       .toEqual({ opponent: 'ranger', opponentBorrowsMount: false, referee: 'captain', captain: false })
+    expect(arenaDuelPartyPlan({ ...base, duelPresetId: 'roman_horse_archer', duelTier: 2, duelOpponentActorId: 'cavalry-training:horse_archer:0', duelRefereeActorId: 'captain' }))
+      .toEqual({ opponent: 'ordinary', opponentBorrowsMount: true, referee: 'captain', captain: false })
     expect(arenaDuelPartyPlan({ ...base, duelPresetId: 'viking_berserker', duelTier: 4, duelOpponentActorId: 'captain', duelRefereeActorId: 'ranger' }))
       .toEqual({ opponent: 'captain', opponentBorrowsMount: true, referee: 'ranger', captain: false })
     expect(arenaDuelPartyPlan({ ...base, duelPresetId: 'viking_heavy_cavalry', duelTier: 5, duelOpponentActorId: 'commander', duelRefereeActorId: 'captain' }))
