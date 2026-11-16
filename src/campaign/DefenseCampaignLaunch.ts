@@ -611,8 +611,7 @@ export function positionDefenseCampaignDefenders(
   // Campaign defenders share one bounded mounted formation instead of the
   // generic cavalry + horse-archer outer wings. With 90 mounted defenders the
   // generic second wing can reach |x| ~= 49m, outside the 44m outpost wall.
-  // Keep both wings inside the central clear corridor; campaign tents live
-  // farther out toward the side walls.
+  // Keep both wings inside the central clear corridor.
   for (let i = 0; i < mounted.length; i++) {
     const spec = mounted[i]
     const wingSign = i % 2 === 0 ? -1 : 1
