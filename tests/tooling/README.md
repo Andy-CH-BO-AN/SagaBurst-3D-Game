@@ -28,4 +28,7 @@ checkout → npm ci → probe inputs / assets → plan inventory → run tests �
 - **`tests/tooling/ci-plan.cjs`**: Discovers the complete inventory (Vitest and Node) and enforces the 1,000 cases hard limit.
 - **`tests/tooling/ci-run.cjs`**: Executes the planned tests and enforces exact completeness, duration budget, and top 10 slow case diagnostics.
 - **`tests/tooling/ci-inputs.cjs` & `ci-assets.cjs`**: Classify git changes and validate static GLB/asset integrity.
+  - Unclassified `public/models/` or `tools/build-*` inputs fail closed. Removed models/builders are `retired` and pass only when no code, workflow, runtime manifest or sibling GLB URI still references them.
+  - Each offline builder in `BUILDERS` lists the validator family of every output it produces; register new builders there.
+  - Runtime-sensitive manifest edits (animation timing, rig selection, clips, …) are reported as `Runtime manifest change` and the plan policy becomes `runtime-manifest`; they are never presented as asset-only.
 - **`tests/tooling/run.cjs`**: Local test runner (`npm test`) enforcing identical budget constraints.
