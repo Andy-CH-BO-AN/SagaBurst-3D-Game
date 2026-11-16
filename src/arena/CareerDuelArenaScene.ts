@@ -97,7 +97,8 @@ export function arenaDuelPartyPlan(active: Pick<ActiveCareerMission, 'duelPreset
   const refereeId = active.duelRefereeActorId ?? active.duelCaptainActorId
   return {
     opponent,
-    opponentBorrowsMount: tier < 5 && !archer && active.duelMode !== 'unarmed',
+    // Only the T4 Ranger rides the cat; an ordinary T1–T3 horse archer still owns its own horse.
+    opponentBorrowsMount: tier < 5 && !(archer && tier === 4) && active.duelMode !== 'unarmed',
     referee: refereeId && refereeId !== active.duelOpponentActorId ? (refereeId === 'ranger' ? 'ranger' : 'captain') : null,
     captain: Boolean(active.duelCaptainActorId && active.duelCaptainActorId !== active.duelOpponentActorId && active.duelCaptainActorId !== refereeId),
   }
