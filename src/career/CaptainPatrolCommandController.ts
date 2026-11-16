@@ -5,6 +5,7 @@ import { CombatEventStream, type CombatEvent, type CombatTargetRef } from '../co
 import { Faction, type NPC } from '../world/NPC'
 import type { Player } from '../player/Player'
 import type { TownCavalryPatrolController, PatrolResident } from '../town/TownCavalryPatrolController'
+import { blocksPlayerSideDefeat } from './CaptainEagleBattleOutcome'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
 import { cloneOfficialCommandAuthority, officialMissionSourcePolicy } from './CareerCommandAuthority'
@@ -254,7 +255,7 @@ export class CaptainPatrolCommandController {
   evaluateOutcome(): CareerMissionOutcome | null {
     if (!this.ready || this.active?.result) return null
     return resolveCaptainPatrolCommandOutcome(this.killCount, this.player().dead, this.aliveCombatants,
-      (this.options.personalActors?.() ?? []).filter(npc => !npc.dead).length)
+      (this.options.personalActors?.() ?? []).filter(blocksPlayerSideDefeat).length)
   }
   registerPersonalActor(npc: NPC): void { this.tracker?.registerNpc(npc, true) }
   get statsSnapshot(): BattleStatsSnapshot | undefined { return this.tracker?.snapshot([...this.officialActors, ...(this.options.personalActors?.() ?? [])], this.player()) }

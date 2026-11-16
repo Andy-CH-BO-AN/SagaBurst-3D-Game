@@ -2,7 +2,9 @@ import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it } from 'vitest'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainEagleSpawnPlan, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
 import { isEagleLandingClear } from '../../src/world/EagleLanding'
-import { hasAerialCombatPower, resolveCaptainEagleBattleOutcome } from '../../src/career/CaptainEagleBattleOutcome'
+import { blocksPlayerSideDefeat, hasAerialCombatPower, resolveCaptainEagleBattleOutcome } from '../../src/career/CaptainEagleBattleOutcome'
+import { resolveCaptainPatrolCommandOutcome } from '../../src/career/CaptainPatrolCommandController'
+import { combatHpTotal, PLAYER_SIDE_STALEMATE_SECONDS, PlayerSideStalemate } from '../../src/career/PlayerSideStalemate'
 import { CAPTAIN_EAGLE_BATTLE_ID, commanderGateDefenseSlots, commanderGateDefenseSquads, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../../src/career/CaptainMissionCatalog'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -77,5 +79,28 @@ describe('Commander accepted production rosters without actor materialization', 
     expect(resolveCaptainEagleBattleOutcome(0, 3)).toBe('victory')
     expect(resolveCaptainEagleBattleOutcome(4, 0)).toBe('failure')
     expect(resolveCaptainEagleBattleOutcome(4, 3)).toBeNull()
+  })
+
+  it('fails a mission once the player falls and only private eagle knights remain airborne', () => {
+    const eagle = { isFlyingMount: true, dead: false }
+    const privateSquad = [{ dead: false, mount: eagle }, { dead: false, mount: eagle }, { dead: true, mount: null }]
+    expect(resolveCaptainPatrolCommandOutcome(10, true, 0, privateSquad.filter(blocksPlayerSideDefeat).length)).toBe('failure')
+    // A dismounted knight or one whose eagle died can still be reached and keeps the battle going.
+    const grounded = [...privateSquad, { dead: false, mount: { ...eagle, dead: true } }]
+    expect(resolveCaptainPatrolCommandOutcome(10, true, 0, grounded.filter(blocksPlayerSideDefeat).length)).toBeNull()
+  })
+
+  it('declares a Sky Raid stalemate only after the dead player sees no damage for the full window', () => {
+    const stalemate = new PlayerSideStalemate()
+    const knight = { dead: false, hp: 100, mount: { dead: false, currentHp: 400 } }
+    stalemate.advance(PLAYER_SIDE_STALEMATE_SECONDS, false, combatHpTotal([knight]))
+    expect(stalemate.stalled).toBe(false)
+    stalemate.advance(0, true, combatHpTotal([knight]))
+    stalemate.advance(PLAYER_SIDE_STALEMATE_SECONDS - 1, true, combatHpTotal([knight]))
+    stalemate.advance(1, true, combatHpTotal([{ ...knight, mount: { dead: false, currentHp: 390 } }]))
+    expect(stalemate.stalled).toBe(false)
+    stalemate.advance(PLAYER_SIDE_STALEMATE_SECONDS / 2, true, combatHpTotal([knight]))
+    stalemate.advance(PLAYER_SIDE_STALEMATE_SECONDS / 2, true, combatHpTotal([knight]))
+    expect(stalemate.stalled).toBe(true)
   })
 })

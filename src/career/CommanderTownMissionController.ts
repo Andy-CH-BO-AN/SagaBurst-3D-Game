@@ -21,6 +21,7 @@ import { XONGKORO } from '../movement/XongkoroConfig'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy, resolveCareerMissionOutcome, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
+import { combatHpTotal, PlayerSideStalemate } from './PlayerSideStalemate'
 import { createDecapitationRoster, createSkyRaidRoster, isCommanderTownMission, recordCommanderObjectiveDeath, COMMANDER_SKY_RAID_REQUIRED_KILLS } from './CommanderMissionCatalog'
 import { needsDecapitationDeployment, planDecapitationDeployment, type DecapitationDeployment, type DeploymentThreat } from './CommanderDecapitationDeployment'
 import { careerEaglePadOwners } from './EaglePadReservations'
@@ -39,6 +40,7 @@ export class CommanderTownMissionController {
   personalActors: () => readonly NPC[] = () => []
   civilianCommandOwns: (npc: NPC) => boolean = () => false
   private readonly officialActors: NPC[] = []
+  private readonly skyRaidStalemate = new PlayerSideStalemate()
   private readonly actorMounts = new Map<NPC, Mount>()
   private readonly plannedPositions: THREE.Vector3[] = []
   private readonly playerIssuedCommands = new Set<NPC>()
@@ -372,6 +374,8 @@ export class CommanderTownMissionController {
     this.finalizeDeployment()
     if (!this.active?.commanderMission?.deploymentComplete) return
     this.checkpoint.advance(_dt)
+    if (this.active.kind === 'commander-sky-raid') this.skyRaidStalemate.advance(_dt, this.player().dead,
+      combatHpTotal([...this.officialActors, ...this.personalActors(), ...this.residents.map(resident => resident.npc)]))
     this.saveProgress(false)
   }
 
@@ -382,7 +386,8 @@ export class CommanderTownMissionController {
     if (active.kind === 'commander-sky-raid') {
       const kills = new Set(active.deadTargetActorIds ?? []).size
       return resolveCareerMissionOutcome(playerDead, active.targetActorIds.length >= COMMANDER_SKY_RAID_REQUIRED_KILLS,
-        Math.max(0, COMMANDER_SKY_RAID_REQUIRED_KILLS - kills), friendlyAlive, kills >= COMMANDER_SKY_RAID_REQUIRED_KILLS)
+        Math.max(0, COMMANDER_SKY_RAID_REQUIRED_KILLS - kills), playerDead && this.skyRaidStalemate.stalled ? 0 : friendlyAlive,
+        kills >= COMMANDER_SKY_RAID_REQUIRED_KILLS)
     }
     const targetAlive = this.targetResidents.some(actor => !actor.dead)
     return resolveCareerMissionOutcome(playerDead, this.targetResidents.length === 1, targetAlive ? 1 : 0, friendlyAlive, !targetAlive)
@@ -492,6 +497,7 @@ export class CommanderTownMissionController {
     this.tracker?.dispose(); this.tracker = null
     for (const actor of this.officialActors) actor.dispose()
     for (const mount of this.enemyMounts) mount.dispose()
+    this.skyRaidStalemate.reset()
     this.officialActors.length = 0; this.enemyMounts.length = 0; this.plannedPositions.length = 0
     this.actorMounts.clear(); this.playerIssuedCommands.clear(); this.civilianCombat.clear(); this.checkpoint.reset()
     this.initialDeployment = undefined

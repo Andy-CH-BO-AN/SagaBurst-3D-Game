@@ -2895,7 +2895,7 @@ export class Game {
       }
       const result = runtime.outcome(this.player.dead,
         this.fieldRosterBatch?.ready === true && mission.commanderMission?.deploymentComplete === true,
-        this.personalSquad?.aliveCombatants ?? 0)
+        this.personalSquad?.defeatBlockingCombatants ?? 0)
       if (result) this._showFieldBattleResult(result)
       return
     }
@@ -2940,7 +2940,7 @@ export class Game {
           + (hasPlayerAerialCombatPower(this.player) ? 1 : 0))
       if (outcome) this._showFieldBattleResult(outcome)
     } else if (enemyAlive === 0) this._showFieldBattleResult('victory')
-    else if (this.player.dead && officialAlive === 0 && (this.personalSquad?.aliveCombatants ?? 0) === 0) this._showFieldBattleResult('failure')
+    else if (this.player.dead && officialAlive === 0 && (this.personalSquad?.defeatBlockingCombatants ?? 0) === 0) this._showFieldBattleResult('failure')
     void dt
   }
 
@@ -3940,7 +3940,7 @@ export class Game {
       playerDead: this.player.dead,
       originalDefendersAlive,
       defendersAlive: playerSideAliveBefore,
-      personalPlayerSideAlive: this.personalSquad?.aliveCombatants ?? 0,
+      personalPlayerSideAlive: this.personalSquad?.defeatBlockingCombatants ?? 0,
       // The assault wave is frame-spawned. Pending attackers still count as
       // remaining enemies so a temporary zero on the field cannot end the battle.
       attackersAlive: commanderOutpost && this.careerProfile?.activeMission
