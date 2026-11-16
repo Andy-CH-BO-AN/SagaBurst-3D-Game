@@ -74,7 +74,8 @@ export const VETERAN_FIELD_LAYOUT = Object.freeze({
   enemy: new THREE.Vector3(TOWN_PLAYABLE_WORLD_BOUND - 28, 0, 20),
   supportApproach: new THREE.Vector3(-288, 0, 0),
   townEntry: new THREE.Vector3(-65, 0, 0),
-  scoutRally: new THREE.Vector3(8, 0, TOWN_PLAYABLE_WORLD_BOUND - 40),
+  /** Must stay clear of bandit camp 4 (20, 295): its tents ring the old (8, 310) rally. */
+  scoutRally: new THREE.Vector3(-60, 0, TOWN_PLAYABLE_WORLD_BOUND - 40),
   scoutEnemyApproach: new THREE.Vector3(TOWN_PLAYABLE_WORLD_BOUND - 28, 0, 20),
   scoutEnemyCourtyard: new THREE.Vector3(8, 0, 40),
 })
