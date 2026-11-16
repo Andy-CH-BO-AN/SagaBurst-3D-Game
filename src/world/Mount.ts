@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { getScenePlayableWorldBound, clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
+import { getScenePlayableWorldBound, clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData } from './Terrain'
+import { collideMountBody, MOUNT_MOVEMENT_RADIUS, settleMountOnTerrain } from './MountGroundBody'
 import type { Faction, NPC } from './NPC'
 import {
   HorseAssetRegistry,
@@ -11,9 +12,13 @@ import {
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 import { HorseLandingAnimation } from './HorseLandingAnimation'
 import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
-import { BlackCatVisual } from './BlackCatVisual'
+import { BlackCatVisual, type FelineMountVariant } from './BlackCatVisual'
+import { SnowLeopardVisual, SNOW_LEOPARD_HURTBOX } from './SnowLeopardVisual'
+import type { QuadrupedVisual } from './QuadrupedVisual'
 import { CorgiVisual } from './CorgiVisual'
 import { isQuadrupedAnimationState, type MountAnimationState } from './QuadrupedMountAnimation'
+import { MountArmor, mountImpactMultiplier } from '../combat/MountArmor'
+import { MOUNT_RIDER_SPEED_EXCEPTIONS, mountGroundSpeed, mountStats, type GroundMountKind } from '../combat/MountStats'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { LocalBoxCollider } from '../combat/ShieldBlocking'
 import { CompoundLocalBoxCollider } from '../combat/CompoundLocalBoxCollider'
@@ -26,19 +31,54 @@ import { FallingRider } from '../movement/FallingRider'
 import { EagleAttack } from '../combat/EagleAttack'
 import type { CombatContact, PhysicalCombatTarget } from '../combat/ShieldBlocking'
 import type { CombatDamageContext } from '../combat/CombatAttribution'
+import { skipHiddenCorpseMatrices } from './DeathFade'
 
 let mountAimGeometry: THREE.BoxGeometry | undefined
 let mountAimMaterial: THREE.MeshBasicMaterial | undefined
 
 export enum MountType {
   BLACK_CAT = 'BLACK_CAT',
+  WHITE_CAT = 'WHITE_CAT',
+  ORANGE_CAT = 'ORANGE_CAT',
+  SERVAL = 'SERVAL',
+  CARACAL = 'CARACAL',
   CORGI = 'CORGI',
   HORSE = 'HORSE',
+  ARMORED_HORSE = 'ARMORED_HORSE',
   XONGKORO = 'xongkoro',
+  SNOW_LEOPARD = 'SNOW_LEOPARD',
+}
+
+export function isFelineMountType(type: MountType): boolean {
+  return (
+    type === MountType.BLACK_CAT
+    || type === MountType.WHITE_CAT
+    || type === MountType.ORANGE_CAT
+    || type === MountType.SERVAL
+    || type === MountType.CARACAL
+  )
+}
+
+export function felineVariantForMountType(type: MountType): FelineMountVariant {
+  if (type === MountType.WHITE_CAT) return 'white-cat'
+  if (type === MountType.ORANGE_CAT) return 'orange-cat'
+  if (type === MountType.SERVAL) return 'serval'
+  if (type === MountType.CARACAL) return 'caracal'
+  return 'black-cat'
+}
+
+export function felineVariantFromMountId(value: string | null | undefined): FelineMountVariant | null {
+  if (value === 'black-cat') return 'black-cat'
+  if (value === 'white-cat') return 'white-cat'
+  if (value === 'orange-cat') return 'orange-cat'
+  if (value === 'serval') return 'serval'
+  if (value === 'caracal') return 'caracal'
+  return null
 }
 
 /** Shared physical footprint for live mounts and equipment preflight without materialization. */
 export function mountCombatRadius(type: MountType): number { return type === MountType.XONGKORO ? 7 : 2 }
+export { MOUNT_MOVEMENT_RADIUS }
 export const DEFAULT_MOUNT_TYPE = MountType.HORSE
 
 /**
@@ -60,18 +100,26 @@ export enum MountState {
 }
 
 export function mountTypeFromSave(value: string): MountType {
-  if (value === 'xongkoro') return MountType.XONGKORO
-  if (value === MountType.BLACK_CAT) return MountType.BLACK_CAT
-  if (value === MountType.CORGI) return MountType.CORGI
-  if (value === MountType.HORSE) return MountType.HORSE
-  return DEFAULT_MOUNT_TYPE
+  if (!(Object.values(MountType) as string[]).includes(value)) throw new Error('Unsupported saved mount type')
+  return value as MountType
 }
 
 export function mountTypeFromId(value: string | null | undefined): MountType {
+  if (value === 'armored-horse' || value === 'ARMORED_HORSE') return MountType.ARMORED_HORSE
   if (value === 'xongkoro') return MountType.XONGKORO
   if (value === 'black-cat') return MountType.BLACK_CAT
+  if (value === 'white-cat') return MountType.WHITE_CAT
+  if (value === 'orange-cat') return MountType.ORANGE_CAT
+  if (value === 'serval') return MountType.SERVAL
+  if (value === 'caracal') return MountType.CARACAL
+  if (value === 'snow-leopard') return MountType.SNOW_LEOPARD
   if (value === 'corgi') return MountType.CORGI
   return DEFAULT_MOUNT_TYPE
+}
+
+/** Only a mount with a rider speed exception (the armored horse) changes speed with its rider; see MountStats. */
+function speedWithRider(type: MountType, current: number, riderHeroAssetId: string | null | undefined): number {
+  return type in MOUNT_RIDER_SPEED_EXCEPTIONS ? mountGroundSpeed(type as GroundMountKind, riderHeroAssetId) : current
 }
 
 export class Mount {
@@ -79,6 +127,7 @@ export class Mount {
   readonly type: MountType
   readonly horseVisual: HorseInstance | null
   readonly catVisual: BlackCatVisual | null = null
+  readonly snowLeopardVisual: SnowLeopardVisual | null = null
   readonly corgiVisual: CorgiVisual | null = null
   readonly eagleVisual: XongkoroVisual | null = null
   readonly flight: EagleFlightController | null = null
@@ -91,7 +140,7 @@ export class Mount {
   get combatRadius(): number { return mountCombatRadius(this.type) }
   get isAirborne(): boolean { return this.isFlyingMount && this.flight?.phase !== 'grounded' }
 
-  get proceduralVisual(): BlackCatVisual | CorgiVisual | null { return this.catVisual ?? this.corgiVisual }
+  get proceduralVisual(): QuadrupedVisual | CorgiVisual | null { return this.catVisual ?? this.snowLeopardVisual ?? this.corgiVisual }
   public appearanceVariant: HorseAppearanceVariant
   public readonly aimCollider: THREE.Mesh
   public readonly aimColliders: readonly THREE.Mesh[]
@@ -104,6 +153,11 @@ export class Mount {
   public readonly onDeathCallbacks: Array<(mount: Mount) => void> = []
 
   public reservedForTown = false
+  readonly armor: MountArmor
+  get armorImpactMax(): number { return this.armor.max }
+  get armorImpactRemaining(): number { return this.armor.remaining }
+  restoreArmor(value?: number): void { this.armor.restore(value) }
+  get impactMultiplier(): number { return mountImpactMultiplier(this.type) }
   public maxHp = 100
   public currentHp = 100
   public baseSpeed = 12
@@ -122,7 +176,7 @@ export class Mount {
   public visualHold = false
 
   get currentLod(): number {
-    return this.eagleVisual?.lod.getCurrentLevel() ?? this.horseVisual?.lod.getCurrentLevel() ?? this.catVisual?.lod.getCurrentLevel() ?? this.corgiVisual?.lod.getCurrentLevel() ?? 0
+    return this.eagleVisual?.lod.getCurrentLevel() ?? this.horseVisual?.lod.getCurrentLevel() ?? this.proceduralVisual?.lod.getCurrentLevel() ?? 0
   }
 
   private impactTimes = new Map<object, number>()
@@ -144,10 +198,14 @@ export class Mount {
   ) {
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.type = type
+    this.armor = new MountArmor(type)
     this.appearanceVariant = type === MountType.HORSE ? horseVariantFromSave(appearanceVariant) : 0
     this.group = new THREE.Group()
     this.group.name = `mount_${type}`
-    this.baseSpeed = type === MountType.BLACK_CAT ? 13.2 : 12
+    skipHiddenCorpseMatrices(this.group, () => this.deathPresentationComplete)
+    const stats = mountStats(type)
+    this.baseSpeed = stats.kind === 'flying' ? stats.cruiseSpeed : stats.baseSpeed
+    this.maxHp = this.currentHp = stats.maxHp
 
     if (type === MountType.XONGKORO) {
       this.horseVisual = null
@@ -156,12 +214,13 @@ export class Mount {
       this.flight = new EagleFlightController()
       this.eagleAttack = new EagleAttack()
       this.eagleAttackSockets.push(this.eagleVisual.headAttackSocket, this.eagleVisual.leftClawAttackSocket, this.eagleVisual.rightClawAttackSocket)
-      this.maxHp = this.currentHp = XONGKORO.maxHp
-      this.baseSpeed = XONGKORO.cruiseSpeed
       this.ridePitch = 0
-    } else if (type === MountType.HORSE) {
-      if (!HorseAssetRegistry.ready) throw new Error('Horse assets were not preloaded')
-      this.horseVisual = HorseAssetRegistry.createInstance({ variant: this.appearanceVariant })
+    } else if (type === MountType.HORSE || type === MountType.ARMORED_HORSE) {
+      if (type === MountType.ARMORED_HORSE ? !HorseAssetRegistry.armoredReady : !HorseAssetRegistry.ready) {
+        throw (type === MountType.ARMORED_HORSE ? HorseAssetRegistry.armoredError : null)
+          ?? new Error(type === MountType.ARMORED_HORSE ? 'Armored horse assets were not preloaded' : 'Horse assets were not preloaded')
+      }
+      this.horseVisual = HorseAssetRegistry.createInstance({ variant: this.appearanceVariant, armored: type === MountType.ARMORED_HORSE })
       this.group.add(this.horseVisual.root)
       this.horseVisual.root.updateWorldMatrix(true, true)
       const saddleWorld = this.horseVisual.saddleSeat.getWorldPosition(new THREE.Vector3())
@@ -169,20 +228,27 @@ export class Mount {
       this.ridePitch = 0
     } else {
       this.horseVisual = null
-      if (type === MountType.BLACK_CAT) {
-        this.catVisual = new BlackCatVisual()
+      if (isFelineMountType(type)) {
+        this.catVisual = new BlackCatVisual(felineVariantForMountType(type))
         this.group.add(this.catVisual.root)
         this.catVisual.root.updateWorldMatrix(true, true)
         this.rideHeightOffset = this.catVisual.root.worldToLocal(this.catVisual.saddleSeat.getWorldPosition(new THREE.Vector3())).y
         this.ridePitch = 0
       }
-      else {
+      else if (type === MountType.SNOW_LEOPARD) {
+        this.snowLeopardVisual = new SnowLeopardVisual()
+        this.group.add(this.snowLeopardVisual.root)
+        this.snowLeopardVisual.root.updateWorldMatrix(true, true)
+        this.rideHeightOffset = this.getSaddleSeatLocal().y
+        this.ridePitch = 0
+      }
+      else if (type === MountType.CORGI) {
         this.corgiVisual = new CorgiVisual()
         this.group.add(this.corgiVisual.root)
         this.corgiVisual.root.updateWorldMatrix(true, true)
         this.rideHeightOffset = this.getSaddleSeatLocal().y
         this.ridePitch = 0
-      }
+      } else throw new Error(`Unsupported mount type: ${type}`)
     }
 
     const startY = y ?? getTerrainHeight(x, z)
@@ -193,6 +259,13 @@ export class Mount {
       mountAimMaterial ??= new THREE.MeshBasicMaterial())
     this.aimCollider.name = `aim_proxy_mount_${type}`
     this.aimCollider.position.set(0, 0.825, 0)
+    if (this.type === MountType.SNOW_LEOPARD) {
+      this.aimCollider.scale.set(SNOW_LEOPARD_HURTBOX.size[0] / 1.1, SNOW_LEOPARD_HURTBOX.size[1] / 1.65, SNOW_LEOPARD_HURTBOX.size[2] / 2.4)
+      this.aimCollider.position.fromArray(SNOW_LEOPARD_HURTBOX.center)
+    } else if (this.type === MountType.SERVAL || this.type === MountType.CARACAL) {
+      this.aimCollider.scale.set(1.12 / 1.1, 2.04 / 1.65, 2.38 / 2.4)
+      this.aimCollider.position.set(0, 1.02, 0)
+    }
     if (this.isFlyingMount) {
       this.aimCollider.scale.set(XONGKORO.torsoHurtSize[0] / 1.1, XONGKORO.torsoHurtSize[1] / 1.65, XONGKORO.torsoHurtSize[2] / 2.4)
       this.aimCollider.position.fromArray(XONGKORO.torsoHurtCenter)
@@ -234,7 +307,13 @@ export class Mount {
   }
   get displayName(): string {
     if (this.isFlyingMount) return 'xongkoro'
+    if (this.type === MountType.ARMORED_HORSE) return '重甲戰馬'
     if (this.type === MountType.HORSE) return '戰馬'
+    if (this.type === MountType.SNOW_LEOPARD) return '重甲雪豹'
+    if (this.type === MountType.WHITE_CAT) return '白貓'
+    if (this.type === MountType.ORANGE_CAT) return '橘貓'
+    if (this.type === MountType.SERVAL) return '藪貓'
+    if (this.type === MountType.CARACAL) return '獰貓'
     return this.type === MountType.BLACK_CAT ? '黑貓' : '柯基'
   }
   get mountDisplayName(): string { return `${this.displayName}坐騎` }
@@ -409,6 +488,7 @@ export class Mount {
   }
 
   setNpcRider(npc: NPC, faction: Faction): void {
+    this.baseSpeed = speedWithRider(this.type, this.baseSpeed, null)
     if (this.dead) return
     this.riderNpc = npc
     this.riderFaction = faction
@@ -418,6 +498,7 @@ export class Mount {
   }
 
   setPlayerRider(player: Player): void {
+    this.baseSpeed = speedWithRider(this.type, this.baseSpeed, player.heroAssetId)
     this.riderPlayer = player
     this.combatOwner = createPlayerCombatActorRef(player)
     this.state = MountState.CONTROLLED
@@ -431,6 +512,7 @@ export class Mount {
   }
 
   releaseRider(): void {
+    this.baseSpeed = speedWithRider(this.type, this.baseSpeed, null)
     this.riderNpc = null
     this.riderFaction = null
     this.riderPlayer = null
@@ -438,17 +520,19 @@ export class Mount {
     this.eagleAttack?.cancel()
   }
 
-  restoreForTown(x: number, z: number, yaw: number): void {
+  /** `y` keeps a mount on a raised floor (e.g. inside a hall); omitted, it stands on the terrain. */
+  restoreForTown(x: number, z: number, yaw: number, y?: number): void {
     this.riderNpc = null
     this.riderFaction = null
     this.currentHp = this.maxHp
+    this.armor.reset()
     this.state = MountState.IDLE
     this.deathTimer = 3
     // Completed eagle corpses retain their logical actor, but their hidden rig
     // leaves the scene graph until this same native mount is restored.
     if (this.eagleVisual && this.eagleVisual.root.parent !== this.group) this.group.add(this.eagleVisual.root)
     this.group.visible = true
-    this.group.position.set(x, getTerrainHeight(x, z), z)
+    this.group.position.set(x, y ?? getTerrainHeight(x, z), z)
     this.group.rotation.set(0, yaw, 0)
     this.previousPosition.copy(this.group.position)
     this.movementSpeed = 0
@@ -539,30 +623,13 @@ export class Mount {
       return
     }
     if (import.meta.env.DEV && collector) { var _tPhysics = performance.now() }
-    const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
-    this.velY += -22 * dt
-    this.group.position.y += this.velY * dt
-    if (this.group.position.y <= terrainY) {
-      this.group.position.y = terrainY
-      this.velY = 0
-      this.onGround = true
-    } else {
-      this.onGround = false
-    }
+    const settled = settleMountOnTerrain(this.group.position, this.velY, dt)
+    this.velY = settled.velocityY
+    this.onGround = settled.onGround
     if (import.meta.env.DEV && collector) { collector.endPhase('mountPhysics', _tPhysics!) }
 
     if (import.meta.env.DEV && collector) { var _tObstacle = performance.now() }
-    const collision = resolveObstacleCollision(
-      this.group.position,
-      this.previousPosition,
-      this.velY,
-      this.onGround,
-      1,
-      2.6,
-      0,
-      obstacles,
-      { mountedSurfaces: true },
-    )
+    const collision = collideMountBody(this.group.position, this.previousPosition, { velocityY: this.velY, onGround: this.onGround }, obstacles)
     this.velY = collision.velocityY
     this.onGround = collision.onGround
     if (import.meta.env.DEV && collector) { collector.endPhase('mountObstacleCollision', _tObstacle!) }
@@ -576,7 +643,7 @@ export class Mount {
         this.proceduralVisual.playOnce('land')
       }
       this.proceduralVisual.setLocomotion(this.movementSpeed)
-      this.proceduralVisual.update(dt)
+      this.updateProceduralVisual(dt)
     }
     if (this.horseVisual) {
       if (this.horseLanding.update(dt, this.onGround, this.group.position.y, this.pendingJumpLanding)) {
@@ -588,6 +655,12 @@ export class Mount {
       this.horseVisual.update(dt, this.cameraDistance)
       if (import.meta.env.DEV && collector) { collector.endPhase('mountHorseAnimation', _tHorseAnimation!) }
     }
+  }
+
+  private updateProceduralVisual(dt: number): void {
+    const quadruped = this.catVisual ?? this.snowLeopardVisual
+    if (quadruped) quadruped.update(dt, this.cameraDistance)
+    else this.corgiVisual?.update(dt)
   }
 
   canImpact(target: object, now: number): boolean {
@@ -627,7 +700,7 @@ export class Mount {
         }
       }
       if (this.horseVisual) this.horseVisual.update(dt, this.cameraDistance)
-      else if (this.proceduralVisual) this.proceduralVisual.update(dt)
+      else if (this.proceduralVisual) this.updateProceduralVisual(dt)
       else this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
       this.deathTimer -= dt
       if (this.deathTimer <= 0) {
@@ -643,7 +716,7 @@ export class Mount {
 
     if (this.visualHold) {
       this.onGround = true
-      this.proceduralVisual?.update(dt)
+      this.updateProceduralVisual(dt)
       if (this.horseVisual) this.horseVisual.update(dt, this.cameraDistance)
       this.eagleVisual?.update(dt, { flying: false, sprinting: false, attackWeight: 0, dead: false, groundClearance: 0 })
       return

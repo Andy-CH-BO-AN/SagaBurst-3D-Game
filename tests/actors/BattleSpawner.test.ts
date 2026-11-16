@@ -7,7 +7,7 @@ import {
 import {
   BattleSpawner
 } from '../../src/battle/BattleSpawner'
-import { Faction } from '../../src/world/NPC'
+import { Faction, AIType } from '../../src/world/NPC'
 import { TERRAIN_TREE_POSITIONS } from '../../src/world/Terrain'
 
 describe('BattleSpawner Deterministic Scattered Battle', () => {
@@ -47,6 +47,22 @@ describe('BattleSpawner Deterministic Scattered Battle', () => {
       allies.filter(spec => spec.presetId === 'viking_berserker' && spec.tier === 1)
         .every(spec => spec.squadId === 2),
     ).toBe(true)
+  })
+
+  it('assigns AIType.RANGED when the spawn loadout contains a ranged weapon and AIType.MELEE otherwise', () => {
+    const plan = BattleSpawner.createSpawnPlan({
+      ...PRESET_10V10,
+      squadAssignments: [
+        { presetId: 'viking_berserker', tier: 1, squadId: 1, count: 1 },
+        { presetId: 'viking_archer', tier: 1, squadId: 1, count: 1 },
+      ],
+    })
+    const ranged = plan.npcSpecs.filter(spec => Boolean(spec.loadout?.rangedWeaponId))
+    const melee = plan.npcSpecs.filter(spec => !spec.loadout?.rangedWeaponId)
+    expect(ranged.length).toBeGreaterThan(0)
+    expect(melee.length).toBeGreaterThan(0)
+    expect(ranged.every(spec => spec.aiType === AIType.RANGED)).toBe(true)
+    expect(melee.every(spec => spec.aiType === AIType.MELEE)).toBe(true)
   })
 
 })

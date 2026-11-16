@@ -17,7 +17,7 @@ export interface CampaignSiegeCheckpoint {
   destroyedPalisadeIds: string[]
 }
 
-/** Optional v1 extension; old Career checkpoints need no migration. Invalid extensions are rejected. */
+/** Optional siege checkpoint created only after siege deployment. Invalid extensions are rejected. */
 export function parseCampaignSiegeCheckpoint(value: unknown): CampaignSiegeCheckpoint | undefined {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as CampaignSiegeCheckpoint

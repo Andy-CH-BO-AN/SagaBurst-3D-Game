@@ -38,6 +38,6 @@
 
 ## 可重製與驗證
 
-Roman T4 的順序是 builder → retarget → audit。Builder 需要 Blender 的 `mathutils.geometry.delaunay_2d_cdt` 及具 Pillow／numpy 的 Python，可用 `ROMAN_HERO_BLENDER` 和 `ROMAN_HERO_PYTHON` 指定路徑。`roman-mask-topology.py` 與 `roman-hero-textures.py` 是 builder 的持續維護依賴，不是一次性探針。
+舊 Roman T4 的 builder → retarget → audit 流程只供歷史來源參考，不能覆寫已替換的現役資產。舊面甲生成已從 builder 移除，面甲拓撲腳本僅保留於 Git 歷史；`roman-hero-textures.py` 仍由保留的舊 builder 使用。現役資產應依目前 descriptor 與來源文件選擇重建入口，不將舊流程視為持續維護入口。
 
-重建從普通 Roman 的乾淨 GLB 開始；retarget 拒絕重複烘焙。離線地面校正須量實際蒙皮頂點，保留 clip 名稱、時長、事件與來源旋轉。只調英雄的騎姿或資產級 offset，不調坐騎物理。最後核對三層 GLB 的 hash、內嵌貼圖、面數、尺寸與完整 bindings，再用既有 DEV 預覽驗證普通人物、英雄與原英雄入口的隔離。
+如明確重製歷史 Roman 變體，從普通 Roman 的乾淨 GLB 開始；retarget 拒絕重複烘焙。離線地面校正須量實際蒙皮頂點，保留 clip 名稱、時長、事件與來源旋轉。只調英雄的騎姿或資產級 offset，不調坐騎物理。最後核對三層 GLB 的 hash、內嵌貼圖、面數、尺寸與完整 bindings，再用既有 DEV 預覽驗證普通人物、英雄與原英雄入口的隔離。

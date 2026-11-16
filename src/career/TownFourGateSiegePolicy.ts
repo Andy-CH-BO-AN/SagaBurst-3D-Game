@@ -1,15 +1,15 @@
 import * as THREE from 'three'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
-import { resolveT4UnitLoadout, T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
-import { AIType, Faction } from '../world/NPC'
-import type { CharacterFaction } from '../world/CharacterVisuals'
-import { getTerrainHeight, getWalkRampHeight, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
-import { SIEGE_RAMP, siegeRampDeckHeightAt, siegeRampRearHeightAt, type SiegeRampAssignment, type SiegeRampPlacement, type TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
-import { TOWN_CITY, TOWN_GATES, townGatePoint, type TownGateId } from '../town/TownLayout'
+import { resolveT4UnitLoadout,T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { SIEGE_RAMP,siegeRampDeckHeightAt,siegeRampRearHeightAt,type SiegeRampAssignment,type SiegeRampPlacement,type TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
-import { townRampartHeight, TOWN_RAMPART, type TownRampartLayout } from '../town/TownRamparts'
 import type { TownDockSite } from '../town/TownDockPassages'
+import { TOWN_CITY,TOWN_GATES,townGatePoint,type TownGateId } from '../town/TownLayout'
+import { TOWN_RAMPART,townRampartHeight,type TownRampartLayout } from '../town/TownRamparts'
+import type { CharacterFaction } from '../world/CharacterVisuals'
+import { AIType,Faction } from '../world/NPC'
+import { getTerrainHeight,getWalkRampHeight,type ObstacleData,type WalkRampSurface } from '../world/Terrain'
 
 export const TOWN_SIEGE_DOCK_INWARD = TOWN_RAMPART.inward - TOWN_RAMPART.width / 2 + .9
 export type TownSiegeApproach = 'near-wall' | 'world-edge'
@@ -38,12 +38,21 @@ export interface TownSiegeCrewSlot { gateId: TownGateId; side: -1 | 1; role: 'pu
 export function townSiegeSectorReceiptsMatch(
   sector: { gateId: TownGateId; wallActorIds: readonly string[]; cavalryActorIds: readonly string[] } | undefined,
   saved: { gateId: TownGateId; releasedWallActorIds: readonly string[]; releasedCavalryActorIds: readonly string[] },
-  historicalRoles = false,
 ): boolean {
   if (!sector) return saved.releasedWallActorIds.length === 0 && saved.releasedCavalryActorIds.length === 0
   return sector.gateId === saved.gateId
-    && saved.releasedWallActorIds.every(id => sector.wallActorIds.includes(id) || historicalRoles && sector.cavalryActorIds.includes(id))
-    && saved.releasedCavalryActorIds.every(id => sector.cavalryActorIds.includes(id) || historicalRoles && sector.wallActorIds.includes(id))
+    && saved.releasedWallActorIds.every(id => sector.wallActorIds.includes(id))
+    && saved.releasedCavalryActorIds.every(id => sector.cavalryActorIds.includes(id))
+}
+
+/** A bounded overlap across the authored Voronoi sector, not a moving chase leash.
+ * A target leaving this strip cannot renew its allowance merely because the rider followed it. */
+export function withinTownSiegeSector(point: { x: number; z: number }, gateId: TownGateId, overlap: number): boolean {
+  const own = TOWN_GATES.find(gate => gate.id === gateId)!
+  const ownDistanceSq = (point.x - own.x) ** 2 + (point.z - own.z) ** 2
+  return TOWN_GATES.every(gate => gate.id === gateId || ownDistanceSq
+    - ((point.x - gate.x) ** 2 + (point.z - gate.z) ** 2)
+      <= 2 * Math.hypot(gate.x - own.x, gate.z - own.z) * overlap)
 }
 
 export const townSiegeRampId = (gateId: TownGateId, side: -1 | 1): TownSiegeRampId => `town-siege-ramp:${gateId}:${side < 0 ? 'left' : 'right'}`
@@ -89,7 +98,8 @@ export function createTownSiegeCrewSlots(faction: CharacterFaction): TownSiegeCr
     return { gateId: gate.id, side, role: slot < 4 ? 'pusher' as const : 'assault' as const, spec: {
       actorId: `${townSiegeRampId(gate.id, side)}:crew:${slot}`, x: 0, z: 0, faction: Faction.ENEMY,
       characterFaction: faction, aiType: AIType.MELEE, name: `${gate.id} ${side < 0 ? 'left' : 'right'} ${t5 ? 'T5' : 'T4'}`,
-      tier: 4 as const, cavalry: false, respawnEnabled: false, presetId, loadout, visualAssetId,
+      tier: 4 as const, characterTier: t5 ? 5 as const : 4 as const, heroArchetype: t5 ? 'commander' as const : 'captain' as const,
+      cavalry: false, respawnEnabled: false, presetId, loadout, visualAssetId,
       combatProfileId: HERO_COMBAT_PROFILE_BY_ASSET[visualAssetId],
     } }
   })))

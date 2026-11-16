@@ -2,6 +2,7 @@ import { markObstacleTopologyChanged } from '../world/ObstacleTopology'
 import * as THREE from 'three'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { DamageableObstacle } from '../world/DamageableObstacle'
+import type { CampaignSiegeCheckpoint } from './CampaignSiegeCheckpoint'
 import { AIType, type NPC } from '../world/NPC'
 import { removeObstacleData, type ObstacleData } from '../world/Terrain'
 
@@ -55,6 +56,17 @@ export class CampaignBreachController {
   }
 }
 
+/** Restore the event latch before rebuilding any open gate, wall gap or docked ramp. */
+export function restoreCampaignBreachCheckpoint(
+  controller: CampaignBreachController,
+  siege: Pick<CampaignSiegeCheckpoint, 'breached'> | undefined,
+  gate: { state?: CampaignGateState; hp?: number } | undefined,
+): void {
+  if (siege?.breached || gate?.state === 'open' || gate?.state === 'destroyed' || gate?.hp === 0) {
+    controller.restoreBreached()
+  }
+}
+
 /**
  * Campaign breach transition:
  * - attacker melee units Charge through the opening
@@ -84,7 +96,8 @@ export function applyCampaignBreachOrders(
       continue
     }
 
-    if (npc.characterFaction === defenderFaction && !npc.isOutpostRampartGarrisonActive) {
+    if (npc.characterFaction === defenderFaction) {
+      if (npc.isOutpostRampartGarrisonActive) npc.releaseOutpostRampartGarrison()
       npc.setTacticalOrder('attack')
       defenderAttackCount++
     }

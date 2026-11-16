@@ -1,16 +1,46 @@
-import {
-  getUnitPresetsForFaction, UNIT_PRESETS,
-  type UnitPreset, type UnitPresetId, type UnitTier,
-} from '../battle/UnitPresetCatalog'
+import { parseDuelArenaId, type DuelArenaId } from '../arena/DuelArenaCatalog'
+import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
+import { UNIT_PRESETS, type UnitPresetId, type UnitTier } from '../battle/UnitPresetCatalog'
+import type { CombatEvent } from '../combat/CombatAttribution'
+import { getOrdinarySoldierHp } from '../combat/OrdinarySoldierProfile'
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import type { CareerProfile } from './CareerProfile'
+import { careerDuelClassOptions } from './CareerDuelClasses'
 import { createCareerMissionId, type ActiveCareerMission, type CareerMissionOutcome } from './CareerMissionState'
+import type { CareerProfile } from './CareerProfile'
 
 export const CAREER_DUEL_TEMPLATE_ID = 'career-duel'
 export const DUEL_COUNTDOWN_SECONDS = 5
+/** The FIGHT banner covers only the first moment of live combat, for any duel duration. */
+export const DUEL_FIGHT_BANNER_SECONDS = 1
+export const duelFightBannerVisible = (combatElapsedSeconds: number): boolean => combatElapsedSeconds < DUEL_FIGHT_BANNER_SECONDS
 export const DUEL_COMBAT_SECONDS = 30
+export type CareerDuelMode = 'armed' | 'unarmed'
+export function duelCombatSeconds(mode?: CareerDuelMode): number { return mode === 'unarmed' ? 90 : DUEL_COMBAT_SECONDS }
+export function isUnarmedDuelUnlocked(profile: Pick<CareerProfile, 'unarmedDuelHighestDefeatedTier'>, tier: CareerDuelTier): boolean {
+  return isCareerDuelTier(tier) && (tier === 1 || (profile.unarmedDuelHighestDefeatedTier ?? 0) >= tier - 1)
+}
+/** Only actual player fist contacts are legal; allied units can never punch on the player's behalf. */
+export function isIllegalUnarmedDuelDamage(mission: ActiveCareerMission, event: CombatEvent): boolean {
+  if (mission.duelMode !== 'unarmed' || mission.phase !== 'ENGAGING' || mission.result
+    || event.type !== 'damage_applied' || event.appliedDamage <= 0
+    || event.target.targetId !== mission.duelOpponentActorId) return false
+  const player = event.source.actorType === 'player'
+  const commanded = event.source.allegiance === 'PLAYER' || Boolean(event.source.ownership)
+  if (!player && !commanded) return false
+  return !(player && event.method === 'melee' && event.weaponId === 'unarmed'
+    && event.attackSource === 'unarmed' && event.contactKind === 'body')
+}
 export const CAREER_DUEL_TIERS = [1, 2, 3, 4, 5] as const
 export type CareerDuelTier = UnitTier | 5
+
+/** Carry saved injury across a temporary Duel identity; never revive zero HP. */
+export function careerDuelOpponentHealth(faction: CharacterFaction, tier: CareerDuelTier,
+  hp: number, sourceMaxHp: number): { hp: number; maxHp: number } {
+  const maxHp = tier <= 3 ? getOrdinarySoldierHp(faction, tier as 1 | 2 | 3) : sourceMaxHp
+  const current = Number.isFinite(hp) ? Math.max(0, hp) : 0
+  return { maxHp, hp: Math.min(maxHp, sourceMaxHp > 0 && Number.isFinite(sourceMaxHp)
+    ? current / sourceMaxHp * maxHp : current) }
+}
 
 /** Resources lent to a Duel are restored after its saved settlement, including a scene reload. */
 export interface CareerDuelCommanderHome { hp: number; ammo: number }
@@ -57,11 +87,6 @@ export function isCareerDuelPresetId(value: unknown): value is UnitPresetId {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(UNIT_PRESETS, value)
 }
 
-/** Keep selection tied to the authoritative faction catalog. */
-export function careerDuelPresets(faction: CharacterFaction): UnitPreset[] {
-  return getUnitPresetsForFaction(faction)
-}
-
 export function isCareerDuelUnlocked(
   profile: Pick<CareerProfile, 'faction' | 'duelHighestDefeatedTierByPreset'>,
   presetId: UnitPresetId,
@@ -80,19 +105,55 @@ export function createCareerDuelMission(
   captainActorId: string,
   id = createCareerMissionId(CAREER_DUEL_TEMPLATE_ID),
   refereeActorId = captainActorId,
+  mode: CareerDuelMode = 'armed',
+  classId?: HeroCombatProfileId,
+  arenaId: DuelArenaId = profile.faction === 'roman' ? 'roman-colosseum' : 'viking-valhalla',
 ): ActiveCareerMission | null {
-  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission || tier === 5 && profile.townEvent?.state === 'hostile' || !isCareerDuelUnlocked(profile, presetId, tier)
+  // Formal entries resolve a known arena ID; tutorial sparring uses the Town forecourt.
+  if (arenaId !== undefined && !parseDuelArenaId(arenaId)) return null
+  // A class is only meaningful for an armed T4/T5 duel and must be one the preset legally offers.
+  const classes = mode === 'armed' ? careerDuelClassOptions(profile.faction, presetId, tier) : []
+  if (classId !== undefined && !classes.some(option => option.combatProfileId === classId)) return null
+  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission || tier === 5 && profile.townEvent?.state === 'hostile' || !(mode === 'unarmed' ? isUnarmedDuelUnlocked(profile, tier) && isCareerDuelPresetId(presetId) && UNIT_PRESETS[presetId].faction === profile.faction : isCareerDuelUnlocked(profile, presetId, tier))
     || !opponentActorId.trim() || !captainActorId.trim() || !refereeActorId.trim() || !id.trim()) return null
   const opponent = opponentActorId.trim(), captain = captainActorId.trim(), referee = refereeActorId.trim()
   if (tier === 5 && (opponent !== 'commander' || captain !== 'captain' || referee !== captain)) return null
   return {
     id: id.trim(), templateId: CAREER_DUEL_TEMPLATE_ID, kind: 'duel', targetCampId: -1,
     phase: 'ASSEMBLING', targetActorIds: [opponent], friendlyActorIds: opponent === referee ? [] : [referee],
-    duelTier: tier, duelPresetId: presetId, duelOpponentActorId: opponent, duelCaptainActorId: captain,
-    duelRefereeActorId: referee,
+    duelMode: mode, duelTier: tier, duelPresetId: presetId, duelOpponentActorId: opponent, duelCaptainActorId: captain,
+    duelRefereeActorId: referee, ...(classes.length ? { duelClassId: classId ?? classes[0].combatProfileId } : {}),
+    ...(arenaId ? { duelArenaId: arenaId } : {}),
     duelCountdownElapsed: 0, duelCombatElapsed: 0, duelOpponentDead: false,
     acceptedAt: Date.now(),
   }
+}
+
+/** An explicit practice challenge borrows the real service Captain without unlocking formal tiers. */
+export function createCareerTutorialDuelMission(profile: CareerProfile, presetId: UnitPresetId,
+  captainActorId: string, refereeActorId: string): ActiveCareerMission | null {
+  if (!profile.tutorial || profile.activeMission || profile.activeOutpostMission || profile.activeRace
+    || profile.careerRetirement || profile.townEvent?.state === 'hostile'
+    || captainActorId !== 'captain' || !refereeActorId || refereeActorId === captainActorId
+    || !isCareerDuelPresetId(presetId) || UNIT_PRESETS[presetId].faction !== profile.faction
+    || UNIT_PRESETS[presetId].traits.includes('bow_fire')) return null
+  return {
+    id: createCareerMissionId(CAREER_DUEL_TEMPLATE_ID), templateId: CAREER_DUEL_TEMPLATE_ID,
+    kind: 'duel', targetCampId: -1, phase: 'ASSEMBLING', targetActorIds: [captainActorId],
+    friendlyActorIds: [refereeActorId], duelTier: 4, duelPresetId: presetId,
+    duelOpponentActorId: captainActorId, duelCaptainActorId: captainActorId,
+    duelRefereeActorId: refereeActorId, duelTutorialCareerId: profile.tutorial.careerId,
+    duelCountdownElapsed: 0, duelCombatElapsed: 0, duelOpponentDead: false, acceptedAt: Date.now(),
+  }
+}
+
+/**
+ * The independent arena scene owns this duel. Legacy saves without an arena and the
+ * tutorial sparring match keep the original Town forecourt flow.
+ */
+export function careerDuelArena(mission: Pick<ActiveCareerMission, 'kind' | 'duelArenaId' | 'duelTutorialCareerId'> | undefined): DuelArenaId | null {
+  if (mission?.kind !== 'duel' || mission.duelTutorialCareerId) return null
+  return parseDuelArenaId(mission.duelArenaId)
 }
 
 /** Duel has no allied victory after player death; a simultaneous death is a failure. */
@@ -100,8 +161,9 @@ export function resolveCareerDuelOutcome(
   playerDead: boolean,
   opponentDead: boolean,
   combatElapsed: number,
+  mode: CareerDuelMode = 'armed',
 ): CareerMissionOutcome | null {
   if (playerDead) return 'failure'
   if (opponentDead) return 'victory'
-  return combatElapsed >= DUEL_COMBAT_SECONDS ? 'failure' : null
+  return combatElapsed >= duelCombatSeconds(mode) ? 'failure' : null
 }

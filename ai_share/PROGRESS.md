@@ -1,10 +1,18 @@
 # SagaBurst — 目前交接
 
+## 重甲戰馬與坐騎護甲
+
+新增獨立 armored-horse（600 HP、10.5 m/s、8,000 軍功），沿用普通戰馬 70 骨與九動畫；來源掃描的腿／裙甲／尾巴接合已分區重綁、補足隱藏腿根，LOD1/2 重烘焙來源紋理。普通戰馬資產不替換。重甲戰馬與雪豹共用獨立 50 Impact 護甲與 2.5 衝撞倍率，沿用盾牌吸收與既有武器資料；Career／任務／RPG 存檔保留剩餘護甲，正式整補恢復。實際 Chrome 已檢查九動畫、多視角、三 LOD、購買／受擊／重載／整補與 Player/NPC 騎乘。來源的開放毛髮卡片在極端倒地姿勢仍可能露出細小離散邊；尚未宣稱大型戰鬥效能驗收。相關契約見 ARCHITECTURE，詳細證據與 CI 狀態留 PR。
+
+## 普通士兵 T1/T2 與共用 HP
+
+四份 owner-confirmed Meshy 模型已加入獨立 T1/T2 身體及 30 根加權手指骨；局部手部加線／權重校準改善初版尖片，保留原身體蒙皮與低模風格，原 T3 與特殊角色資產不替換。Player／NPC 共用普通士兵基礎 HP，Career 正式軍階、技能、舊存檔比例與自訂 HP 來源分開處理，契約見 ARCHITECTURE。Blender 來源／動畫外觀檢查不等於實際裝備接觸或騎乘驗收；雲端瀏覽器未能執行 WebGL 預覽，不宣告完整視覺驗收。使用者遊戲回報確認 mounted 衍生 clip 漏指骨，以及新 Roman 左掌未進自由手校正；修復已接入 scoped mounted 指軌、自由左手與實際槍／騎乘劍握軸校正；正式 CPU controller／裝備取樣及 Blender 渲染可重現並對照原故障，仍不是實際 WebGL 或完整騎乘驗收。未執行效能基準。
+
 ## Commander V 四門守城交接
 
 Commander 新正式八隊為 26／26／26／26／25／26／25／26，共 206 人，四門各有步兵／騎兵；HR 本人在西門第 8 隊、Captain 在東門第 6 隊。城鎮 5 名巨鷹與新增 5 名常駐 T3 指揮塔弓兵自主防守，不受 ALL／Preset／小隊命令。新任務使用 rosterVersion 2；進行中的舊版 210 人快照保持至返回，和平授權按 Actor ID 遷移。Roman／Viking 實際塔頂站位、射擊及完整任務回歸仍需實機驗收。
 
-正式 Career 任務已接入 Home Town、既有八車與八隊兵權：守方獨立準備 180 秒後才從邊境生成 230 名攻方與八車、每門獨立事件、完整 ground／air checkpoint、原子結果與正常城鎮重建。正式攻擊後守住15分鐘且守方仍有人存活即可獲勝，提前全滅攻方仍勝；戰鬥計時排除準備／生成／暫停並隨存檔續算，舊存檔缺值從0開始。Roman／Viking 真實 WebGL 的八車移動／Dock／Crew 登城、空戰、遊玩回歸及 GPU 效能尚待驗收；CPU 幾何診斷與 CI 不代表上述通過。模組契約見 ARCHITECTURE，詳細驗證留 PR。
+正式 Career 任務已接入 Home Town、既有八車與八隊兵權：守方獨立準備 180 秒後才從邊境生成 280 名攻方（80 Crew、60 槍騎、60 弓兵、每車後 10 名 T3 近戰護衛步兵，無巨鷹）與八車、每門獨立事件、完整 ground checkpoint（enemyRosterVersion 缺省的舊 230 人任務仍沿用舊編制至結束）、原子結果與正常城鎮重建。正式攻擊後守住15分鐘且守方仍有人存活即可獲勝，提前全滅 280 名攻方仍勝；戰鬥計時排除準備／生成／暫停並隨存檔續算，舊存檔缺值從0開始。Roman／Viking 真實 WebGL 的八車移動／Dock／Crew 登城、空戰、遊玩回歸及 GPU 效能尚待驗收；CPU 幾何診斷與 CI 不代表上述通過。模組契約見 ARCHITECTURE，詳細驗證留 PR。
 
 更新：2026-10-19。城外遭遇戰與任務交火的目前契約見 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
@@ -23,6 +31,7 @@ Commander 新正式八隊為 26／26／26／26／25／26／25／26，共 206 人
 
 - Soldier Enemy Town Assault 與 Veteran Home Defense 共用四門、120 人 Siege；Recruit／Soldier 舊守城下架。新攻城地圖預先部署後直接開打，主城防守只等存活巡邏騎兵進城便關門開戰，其他單位邊作戰邊完成部署；破門即解除該門步兵與騎兵的部署命令投入戰鬥，同場 reload 保留戰損，詳細契約見 ARCHITECTURE。
 
+- Career 城鎮劇情事件已接入：首次買普通戰馬 → 指揮官繞城賽馬邀請（Race I，勝 +500／敗 +29）、首次正式任務勝利 → 士官長小隊切磋邀請（T1 試煉，勝 +1,000／敗 +100），另有任命與首隻巨鷹的單一箭頭引導。契約見 [ARCHITECTURE.md](ARCHITECTURE.md) 的「Career 城鎮劇情事件」段；單元測試涵蓋觸發、結算、重試去重與舊檔，瀏覽器已走過接受流程，完整跑完賽馬與競技場實戰尚未實機驗收。
 - 正式入口提供 Custom Battle、Defense Campaign 與 Career Town；有效存檔／session 可恢復對應流程。人物含 Viking／Roman 與 T4 英雄；Horse、Black Cat、Corgi 均已有模型載入路徑。
 - 近期開發集中在 Career Town：剿匪、巡邏、守城、騎兵清剿、Outpost 任務、敵城進攻，以及最新 1v1 Duel。任務結算、恢復與借用駐軍是主要交接區域，入口見 [ARCHITECTURE.md](ARCHITECTURE.md)。
 - Captain／Commander 的所有 Town runtime 已接入城外 6 隊 Bandit、3 隊 T2 Horse cavalry。騎兵屬當前城鎮的敵對 faction，進入敵境可能是玩家友軍；自然交火可影響正式任務角色的傷亡及結果，roaming 自身保持獨立名單與歸因。

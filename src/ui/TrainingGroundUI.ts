@@ -30,7 +30,7 @@ export class TrainingGroundUI {
       <pre class="training-damage" role="status" aria-live="polite">最近命中：—</pre>
       <div class="training-pause" hidden role="dialog" aria-modal="true" aria-labelledby="training-pause-title">
         <div class="training-pause-card"><h2 id="training-pause-title">訓練暫停</h2>
-          <p>WASD 移動 · Shift 加速 · Space 跳躍 · E 上下坐騎<br>左鍵近戰 · 右鍵瞄準／舉盾 · 瞄準時左鍵射擊<br>Tab 裝備 · Esc 暫停／繼續</p>
+          <p>WASD 移動 · Shift 加速 · Space 跳躍 · E 上下坐騎<br>左鍵近戰 · 右鍵或 F 瞄準／舉盾 · 瞄準時左鍵射擊<br>Tab 裝備 · Esc 暫停／繼續</p>
           <p>黃圈是射擊點，距離以旁邊 0m 假人中心為準。<br>沿黃線向後 125m 是衝撞跑道；藍圈是坐騎停放區。</p>
           <label>練習角色 <select aria-label="練習角色"><option value="">一般戰士 · 所有一般武器</option><option value="maki-archer-t4">T4 遊俠 · 一般武器切換</option></select></label>
           <p>切換角色會安全返回起點；遊俠可使用一般近戰、遠程與盾牌裝備。</p>
@@ -68,6 +68,16 @@ export class TrainingGroundUI {
   }
 
   setDamage(text: string | null): void { this.damage.textContent = text ?? '最近命中：—' }
+  /** Career's persistent tutorial stays above this pause card, including short viewports. */
+  placePauseBelowTutorial(bottom: number): void {
+    if (!this.paused) return
+    const top = Math.round(bottom + 12)
+    this.pausePanel.style.padding = `${top}px 16px 16px`
+    this.pausePanel.style.alignItems = 'start'
+    const card = this.pausePanel.querySelector<HTMLElement>('.training-pause-card')!
+    card.style.maxHeight = `${Math.max(96, window.innerHeight - top - 16)}px`
+    card.style.overflowY = 'auto'
+  }
   pause(): void {
     if (this.paused) return
     this.paused = true; this.pausePanel.hidden = false; this.actions.onPause()

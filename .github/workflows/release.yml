@@ -1,8 +1,15 @@
 name: Release
 on:
+  # Normal main pushes arrive through ci.yml, which already ran the one Full gate for
+  # this SHA and passes its verified SHA. A manually pushed tag has no such proof and
+  # runs its own Full gate. (Tags pushed by GITHUB_TOKEN do not trigger workflows.)
   push:
-    branches: [main]
     tags: ['v*']
+  workflow_call:
+    inputs:
+      logic-verified-sha:
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -10,14 +17,30 @@ concurrency:
   cancel-in-progress: false
 jobs:
   logic:
+    if: inputs.logic-verified-sha == ''
     uses: ./.github/workflows/logic-tests.yml
     with:
       mode: full
       head: ${{ github.sha }}
       event: ${{ github.event_name }}
-  inspect:
-    # This job can push a version tag; Full logic must succeed first.
+  gate:
+    # Single decision point: either this workflow's own Full gate succeeded, or the
+    # caller proved a Full gate for exactly this SHA in the same workflow run.
     needs: logic
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      LOGIC_RESULT: ${{ needs.logic.result }}
+      VERIFIED_SHA: ${{ inputs.logic-verified-sha }}
+    steps:
+      - name: Require a successful Full gate for this exact SHA
+        run: |
+          set -euo pipefail
+          if [ -n "$VERIFIED_SHA" ]; then test "$LOGIC_RESULT" = skipped && test "$VERIFIED_SHA" = "$GITHUB_SHA" && test "$GITHUB_EVENT_NAME" = push && test "$GITHUB_REF" = refs/heads/main && echo "Reusing same-run Full gate for $GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"; else test "$LOGIC_RESULT" = success; fi
+  inspect:
+    # This job can push a version tag; the Full gate must have succeeded first.
+    needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -43,7 +66,7 @@ jobs:
             tag="v$(node -p "require('./package.json').version")"
             export RELEASE_TAG="$tag"
             node - <<'NODE'
-          const { validateVersion } = require('./tools/release/validate-tag.cjs')
+          const { validateVersion } = require('./.github/scripts/release/validate-tag.cjs')
           const { version } = require('./package.json')
           const lock = require('./package-lock.json')
           validateVersion(version, lock, process.env.RELEASE_TAG)
@@ -64,9 +87,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
-        run: node tools/release/publish.cjs --check
+        run: node .github/scripts/release/publish.cjs --check
   validate:
-    needs: [inspect, logic]
+    needs: [inspect, gate]
     if: needs.inspect.outputs.published != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -77,7 +100,7 @@ jobs:
         with:
           fetch-depth: 0
       - run: git fetch origin refs/heads/main:refs/remotes/origin/main --tags --force
-      - run: node tools/release/validate-tag.cjs
+      - run: node .github/scripts/release/validate-tag.cjs
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -125,9 +148,9 @@ jobs:
           path: release/SagaBurst-v*-*.zip
           if-no-files-found: error
   publish:
-    needs: [inspect, logic, validate, desktop]
+    needs: [inspect, gate, validate, desktop]
     if: >-
-      ${{ !cancelled() && needs.inspect.result == 'success' && needs.logic.result == 'success' &&
+      ${{ !cancelled() && needs.inspect.result == 'success' && needs.gate.result == 'success' &&
           (needs.inspect.outputs.published == 'true' ||
            (needs.validate.result == 'success' && needs.desktop.result == 'success')) }}
     runs-on: ubuntu-latest
@@ -143,7 +166,7 @@ jobs:
         if: needs.inspect.outputs.published != 'true'
         run: |
           git fetch origin refs/heads/main:refs/remotes/origin/main --tags --force
-          node tools/release/validate-tag.cjs
+          node .github/scripts/release/validate-tag.cjs
       - uses: actions/download-artifact@v4
         if: needs.inspect.outputs.published != 'true'
         with:
@@ -153,4 +176,4 @@ jobs:
       - name: Publish player downloads
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node tools/release/publish.cjs
+        run: node .github/scripts/release/publish.cjs

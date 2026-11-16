@@ -1,14 +1,15 @@
 {
-  "evidenceType": "Supplied GLB asset.extras metadata; original author/license strings retained",
   "source": {
-    "author": "DJMaesen (https://sketchfab.com/bumstrum)",
-    "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
-    "source": "https://sketchfab.com/3d-models/paladin-4f1c320f2cec49dc9bf38c6aad2d8ea9",
-    "title": "Paladin",
-    "sourceSha256": "ea73c6eaea636f927197d400d9b8c4a778e9d4e6363efd500e250c6ed5bd7e63",
-    "sourceFile": "paladin.glb",
-    "bytes": 31441392
+    "title": "Gondor Knight",
+    "sourceFile": "Meshy_AI_Gondor_Knight_30k_All_Animations.glb",
+    "sourceSha256": "a59206334da45915e443cd6880c42c8e11cea319a49a459244ba62da62a1062d",
+    "license": "User-supplied Meshy asset; user confirmed use and GitHub redistribution rights, 2026-11-02",
+    "licenseEvidence": "attribution-evidence.json"
   },
-  "animationSourceRevision": "ae06476",
-  "animationSourcePath": "public/models/characters/v2/roman-hero-t4/lod0.glb"
+  "rightsEvidence": "User explicitly confirmed generation/use and GitHub publication rights in this Codex conversation on 2026-11-02.",
+  "animationDonor": {
+    "revision": "7cb61c07f9daf41cccd35287a6cc842955c3f137",
+    "manifest": "animation-donor-manifest.json"
+  },
+  "sourceDistribution": "Original supplied downloads remain outside the shipped runtime bundle; normalized derivative GLBs only."
 }

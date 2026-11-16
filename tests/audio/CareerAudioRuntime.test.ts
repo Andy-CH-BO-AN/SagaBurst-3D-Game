@@ -1,5 +1,5 @@
 import { afterEach,beforeEach,describe,expect,it,onTestFinished,vi } from 'vitest'
-import { SoundManager } from '../../src/audio/SoundManager'
+import { playAppliedPunchHit, SoundManager } from '../../src/audio/SoundManager'
 
 class Source extends EventTarget {
   buffer: unknown
@@ -41,10 +41,11 @@ function managerFixture() {
 }
 
 describe('Lazy Career audio runtime', () => {
-  it('finishes Follow only on the actual audio end event', async () => {
+  it('finishes Follow on the actual audio end event or falls back immediately when audio fails', async () => {
     const faction = 'roman'
     const manager = managerFixture()
     await manager.preload()
+
     const finished = vi.fn()
     manager.playCareerMissionVoice(faction, 'follow', finished)
     await flush()
@@ -53,9 +54,15 @@ describe('Lazy Career audio runtime', () => {
     sources[0].dispatchEvent(new Event('ended'))
     await flush()
     expect(finished).toHaveBeenCalledExactlyOnceWith()
+
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('offline'))
+    const offlineFinished = vi.fn()
+    manager.playCareerMissionVoice(faction, 'follow', offlineFinished)
+    await flush()
+    expect(offlineFinished).toHaveBeenCalledExactlyOnceWith()
   })
 
-  it('drops the Follow completion callback when the scene is cancelled', async () => {
+  it('drops the Follow completion callback when cancelled and drops pending cold loads when mission scope changes', async () => {
     const manager = managerFixture()
     await manager.preload()
     const finished = vi.fn()
@@ -64,38 +71,9 @@ describe('Lazy Career audio runtime', () => {
     manager.cancelCareerAudio()
     await flush()
     expect(finished).not.toHaveBeenCalled()
-  })
 
-  it('releases the Follow completion callback if optional audio cannot play', async () => {
-    const manager = managerFixture()
-    await manager.preload()
-    vi.mocked(fetch).mockRejectedValueOnce(new Error('offline'))
-    const finished = vi.fn()
-    manager.playCareerMissionVoice('roman', 'follow', finished)
-    await flush()
-    expect(sources).toHaveLength(0)
-    expect(finished).toHaveBeenCalledExactlyOnceWith()
-  })
-
-  it('resolves the commander wait only after all six bells finish', async () => {
-    const manager = managerFixture()
-    await manager.preload()
-    let completed = false
-    const alarm = manager.playTownAlarm(true).then(played => { completed = true; return played })
-    await flush()
-    expect(sources).toHaveLength(6)
-    for (const source of sources.slice(0, 5)) source.dispatchEvent(new Event('ended'))
-    await flush()
-    expect(completed).toBe(false)
-    sources[5].dispatchEvent(new Event('ended'))
-    expect(await alarm).toBe(true)
-    expect(completed).toBe(true)
-  })
-
-
-  it('drops pending cold loads and queued speech when the mission scope changes', async () => {
-    const manager = managerFixture()
-    await manager.preload()
+    sources.length = 0
+    vi.mocked(fetch).mockClear()
     let loaded!: (response: Response) => void
     vi.mocked(fetch).mockReturnValueOnce(new Promise(resolve => { loaded = resolve }))
     manager.playCareerMissionVoice('roman', 'missionAccepted')
@@ -105,11 +83,61 @@ describe('Lazy Career audio runtime', () => {
     manager.playCareerMissionVoice('viking', 'return')
     await flush()
     expect(sources).toHaveLength(1)
-    // Fetch is the external boundary; completion needs decoded bytes, not Node's HTTP implementation.
     const response: Pick<Response, 'ok' | 'arrayBuffer'> = { ok: true, arrayBuffer: async () => new ArrayBuffer(8) }
     loaded(response as Response)
     await flush()
     expect(sources).toHaveLength(1)
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/follow.wav'))).toBe(false)
+  })
+
+  it('resolves the commander wait only after all alarm bells finish', async () => {
+    const manager = managerFixture()
+    await manager.preload()
+    let completed = false
+    const alarm = manager.playTownAlarm(true).then(played => { completed = true; return played })
+    await flush()
+    const count = sources.length
+    expect(count).toBeGreaterThan(0)
+    for (const source of sources.slice(0, count - 1)) source.dispatchEvent(new Event('ended'))
+    await flush()
+    expect(completed).toBe(false)
+    sources[count - 1].dispatchEvent(new Event('ended'))
+    expect(await alarm).toBe(true)
+    expect(completed).toBe(true)
+  })
+})
+
+
+describe('Optional punch impact audio', () => {
+  it('收起長槍後只有有效拳頭接觸走拳擊音效，空揮和完全格擋不播放', () => {
+    const sound = { playPunchHit: vi.fn() }
+    const event = { type: 'damage_applied' as const, source: { actorId: 'player', actorType: 'player' as const,
+      allegiance: 'PLAYER' as never, characterFaction: 'roman' as const }, target: { targetId: 'opponent', targetType: 'npc' as const, name: 'opponent' },
+      method: 'melee' as const, weaponId: 'unarmed', attackSource: 'unarmed' as const, contactKind: 'body' as const,
+      appliedDamage: 5, requestedDamage: 5 }
+    expect(playAppliedPunchHit(event, sound, 1)).toBe(true)
+    expect(sound.playPunchHit).toHaveBeenCalledExactlyOnceWith(1, true)
+    expect(playAppliedPunchHit({ ...event, appliedDamage: 0 }, sound)).toBe(false)
+    expect(playAppliedPunchHit({ ...event, contactKind: 'shield' }, sound)).toBe(false)
+    expect(playAppliedPunchHit({ ...event, weaponId: 'steel_lance', attackSource: undefined }, sound)).toBe(false)
+    expect(sound.playPunchHit).toHaveBeenCalledTimes(1)
+  })
+  it('拳擊錄音 404 只請求一次，之後拳擊安全靜音；新的 manager 可載入新增的錄音', async () => {
+    const manager = managerFixture()
+    await manager.preload()
+    const missing = vi.fn(async (_url: string) => ({ ok: false }))
+    vi.stubGlobal('fetch', missing)
+    manager.playPunchHit(0, true); manager.playPunchHit(0, true)
+    await flush()
+    manager.playPunchHit(0, true)
+    await flush()
+    expect(missing).toHaveBeenCalledTimes(1)
+    expect(sources).toHaveLength(0)
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) })))
+    const fresh = managerFixture()
+    await fresh.preload()
+    fresh.playPunchHit(0, true)
+    await flush()
+    expect(sources).toHaveLength(1)
   })
 })

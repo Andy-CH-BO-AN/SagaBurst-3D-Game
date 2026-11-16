@@ -7,6 +7,7 @@
  */
 export const HORSE_LOD0_SHADOW_KEEP_MESHES: ReadonlySet<string> = new Set([
   'horse_body_lod0',
+  'armored_horse_body_lod0',
   'horse_groom_tail_lod0',
   'horse_horse_hooves',
 ])

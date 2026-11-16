@@ -1,0 +1,15 @@
+{
+  "source": {
+    "title": "Textured Roman Soldier",
+    "sourceFile": "Meshy_AI_Textured_Roman_Soldier_10k_20261107_animated_mixamo_All_animation.glb",
+    "sourceSha256": "9bcb0c2f7dcfe7706ec0aee526e6eafc0b112e42cd79fb1c8be6adb8e8f4e920",
+    "license": "Owner-supplied Meshy asset; the repository owner supplied this file and requested its integration into SagaBurst on 2026-11-10",
+    "licenseEvidence": "attribution-evidence.json"
+  },
+  "rightsEvidence": "Owner-supplied Meshy asset; the repository owner supplied this file and requested its integration into SagaBurst on 2026-11-10",
+  "animationDonor": {
+    "revision": "7cb61c07f9daf41cccd35287a6cc842955c3f137",
+    "manifest": "animation-donor-manifest.json"
+  },
+  "sourceDistribution": "Original supplied downloads remain outside the shipped runtime bundle; normalized derivative GLBs only."
+}

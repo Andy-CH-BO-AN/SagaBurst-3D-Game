@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it, vi } from 'vitest'
 import { ArmyCommandController } from '../../src/battle/ArmyCommandController'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
@@ -8,8 +9,8 @@ import { InventoryManager } from '../../src/rpg/InventoryManager'
 import { ArmyCommandUI } from '../../src/ui/ArmyCommandUI'
 
 function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
-  return { ...createCareerProfile(faction), rank: 'soldier', totalMerit: 300, availableMerit: 300,
-    completedOutpostStages: [1, 2, 3], ownedHorseTiers: [1], selectedMountId: 'horse-t1' }
+  return { ...createCareerProfile(faction), ...careerRankFixture(faction, 'soldier'), rank: 'soldier', totalMerit: 300, availableMerit: 300,
+    completedOutpostStages: [1, 2, 3], inventory: { version: 1 as const, quantities: Object.fromEntries(['horse'].map(id => [id, 1])) }, ownedMounts: ['horse'], selectedMountId: 'horse' }
 }
 
 function launch(faction: 'roman' | 'viking' = 'roman') { return createCareerOutpostLaunch(acceptCareerOutpostRelief(ready(faction), 'relief')!) }
@@ -19,13 +20,13 @@ describe('Relief command capability wiring', () => {
   let step = 1
   const input = { consumeWheelStep: () => { const value = step; step = 0; return value }, consumeKeyPress: vi.fn(() => true) }
   const ui = { setEnabled: vi.fn() }, inventory = new InventoryManager()
-  const weapon = inventory.equippedMelee.id
+  const weapon = inventory.equippedMelee?.id
   const config = launch()
   const controller = new ArmyCommandController([], 'roman', input as unknown as PlayerInput, ui as unknown as ArmyCommandUI,
     null, null, 'defend', null, inventory, 'preset', config.capabilities!.playerCommandsEnabled)
   controller.update()
   expect(ui.setEnabled).toHaveBeenCalledWith(false)
   expect(input.consumeKeyPress).not.toHaveBeenCalled(); expect(controller.wheelMode).toBe('weapon'); expect(controller.isSubmenuOpen).toBe(false)
-  expect(inventory.equippedMelee.id).not.toBe(weapon)
+  expect(inventory.equippedMelee?.id).not.toBe(weapon)
 })
 })

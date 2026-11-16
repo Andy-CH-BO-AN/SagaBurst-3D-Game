@@ -9,6 +9,8 @@ export const TOWN_LAYOUT_VERSION = 4
 export const TOWN_CITY = { minX: -110, maxX: 150, minZ: -115, maxZ: 100, wallHeight: 8, wallThickness: 1.8, gateWidth: 14, gateHeight: 6, gateDepth: 2.4 } as const
 export const TOWN_PLAZA = { minX: 32, maxX: 74, minZ: -4, maxZ: 28 } as const
 export const TOWN_PLAZA_CENTER = { x: (TOWN_PLAZA.minX + TOWN_PLAZA.maxX) / 2, z: (TOWN_PLAZA.minZ + TOWN_PLAZA.maxZ) / 2 } as const
+/** Existing siege muster offset, shared with blocked combat pursuit. */
+export const TOWN_GATE_ASSAULT_APPROACH = 12
 export type TownGateId = 'north' | 'south' | 'east' | 'west'
 export interface TownGateSpec { id: TownGateId; x: number; z: number; yaw: number }
 /** Local +Z points outwards; leaves swing inward, away from the main passage. */
@@ -33,6 +35,10 @@ export const TOWN_PRIVATE_EAGLE_SITES = [-85, -55, -25].map(x => ({ x, z: 54, ya
 export const TOWN_GARRISON_EAGLE_SITES = [
   ...[[-78, -63], [-50, -75], [-22, -75], [-85, -18], [-57, -22]].map(([x, z], index) => ({ x, z, yaw: index === 3 ? Math.PI : 0 })),
 ]
+/** Low eagle-field supply posts (8×4m, under 3.4m): beside the private pads, behind the garrison sign. */
+export const TOWN_EAGLE_STATION_SITES = [{ x: -40, z: 32.5, yaw: 0 }, { x: -35, z: -12.5, yaw: 0 }] as const
+/** Station-local service post in the open front, facing out (+Z) toward visitors. */
+export const TOWN_EAGLE_STATION_SERVICE_POST = { x: 0, z: 1.9 } as const
 export const TOWN_HR_REGION = { minX: -94, maxX: -73, minZ: 18, maxZ: 35, yaw: 0 } as const
 export interface TownRoad { ax: number; az: number; bx: number; bz: number; width: number }
 /** Exact road rectangle, including the caller's clearance. */
@@ -102,5 +108,36 @@ export function townHousing(faction: 'roman' | 'viking') {
       yaw: i < 5 || z < -50 ? 0 : Math.PI }))
 }
 
-export const TOWN_CENTER = { x: 52, z: -22, width: 24, depth: 20, yaw: 0 } as const
+/** Town Center anchor (plan origin, door facing +Z toward the plaza). */
+export const TOWN_CENTER = { x: 52, z: -22, yaw: 0 } as const
+/** World frame of either faction's Town Center, entrance ramp included (40 × 36m north of the plaza). */
+export const TOWN_CENTER_FRAME = { minX: 32, maxX: 72, minZ: -44, maxZ: -8 } as const
 export const TOWN_WELL = { x: 72, z: 30, radius: 1.35 } as const
+
+export interface CivicClearanceShape {
+  readonly id: string
+  readonly bounds: THREE.Box3
+  readonly blocking: readonly THREE.Box3[]
+}
+/** World-space physical access audit; overhead decoration is reported separately from a blocked road. */
+export function townCivicClearance(shapes: readonly CivicClearanceShape[], roads: readonly TownRoad[],
+  actors: readonly { id: string; x: number; z: number; radius: number }[]): { blocked: string[]; outlineRoads: string[]; neighbors: string[] } {
+  const blocked: string[] = [], outlineRoads: string[] = [], neighbors: string[] = []
+  const touches = (b: THREE.Box3, p: typeof actors[number]) => {
+    const dx = Math.max(b.min.x - p.x, 0, p.x - b.max.x), dz = Math.max(b.min.z - p.z, 0, p.z - b.max.z)
+    return dx * dx + dz * dz < p.radius * p.radius
+  }
+  for (const shape of shapes) {
+    for (const [i, road] of roads.entries()) {
+      if (townRoadIntersectsBox(road, shape.bounds)) outlineRoads.push(`${shape.id}/road-${i}`)
+      if (shape.blocking.some(box => townRoadIntersectsBox(road, box))) blocked.push(`${shape.id}/road-${i}`)
+    }
+    for (const actor of actors) if (shape.blocking.some(box => touches(box, actor))) blocked.push(`${shape.id}/${actor.id}`)
+  }
+  for (let i = 0; i < shapes.length; i++) for (let j = 0; j < i; j++) {
+    const a = shapes[i], b = shapes[j]
+    if (a.bounds.intersectsBox(b.bounds)) neighbors.push(`${a.id}/${b.id}`)
+    if (a.blocking.some(x => b.blocking.some(y => x.intersectsBox(y)))) blocked.push(`${a.id}/${b.id}`)
+  }
+  return { blocked, outlineRoads, neighbors }
+}

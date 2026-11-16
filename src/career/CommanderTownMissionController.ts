@@ -21,6 +21,7 @@ import { XONGKORO } from '../movement/XongkoroConfig'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy, resolveCareerMissionOutcome, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
+import { combatHpTotal, PlayerSideStalemate } from './PlayerSideStalemate'
 import { createDecapitationRoster, createSkyRaidRoster, isCommanderTownMission, recordCommanderObjectiveDeath, COMMANDER_SKY_RAID_REQUIRED_KILLS } from './CommanderMissionCatalog'
 import { needsDecapitationDeployment, planDecapitationDeployment, type DecapitationDeployment, type DeploymentThreat } from './CommanderDecapitationDeployment'
 import { careerEaglePadOwners } from './EaglePadReservations'
@@ -39,6 +40,7 @@ export class CommanderTownMissionController {
   personalActors: () => readonly NPC[] = () => []
   civilianCommandOwns: (npc: NPC) => boolean = () => false
   private readonly officialActors: NPC[] = []
+  private readonly skyRaidStalemate = new PlayerSideStalemate()
   private readonly actorMounts = new Map<NPC, Mount>()
   private readonly plannedPositions: THREE.Vector3[] = []
   private readonly playerIssuedCommands = new Set<NPC>()
@@ -220,6 +222,7 @@ export class CommanderTownMissionController {
       if (health && !actor.dead) actor.restoreCombatHealth(health.hp)
       const mount = actor.mount ?? resident.homeMount
       if (mount && health?.mountHp !== undefined) {
+      mount.restoreArmor(health.mountArmorImpact)
         if (health.mountHp <= 0 && !mount.dead) { mount.takeDamage(mount.maxHp + 1); if (actor.mount === mount) actor.dismountFromMount() }
         else if (!mount.dead) mount.currentHp = Math.min(mount.maxHp, health.mountHp)
       }
@@ -250,7 +253,8 @@ export class CommanderTownMissionController {
     const actorId = spec.actorId!
     const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, spec.faction, spec.characterFaction, spec.aiType,
       spec.name, spec.tier, spec.cavalry, spec.loadout, spec.presetId, spec.squadId, actorId, this.events.emit,
-      spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile))
+      spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile, undefined, undefined, undefined, undefined,
+      spec.characterTier, spec.heroArchetype))
     npc.respawnEnabled = false
     npc.combatOwnership = 'mission-official'
     const squadId = active.officialSquad && officialActorSquadId(active.officialSquad, actorId)
@@ -288,6 +292,7 @@ export class CommanderTownMissionController {
     }
     if (health && !npc.dead) npc.restoreCombatHealth(health.hp)
     if (mount && health?.mountHp !== undefined) {
+      mount.restoreArmor(health.mountArmorImpact)
       if (health.mountHp <= 0) { mount.takeDamage(mount.maxHp + 1); npc.dismountFromMount() }
       else mount.currentHp = Math.min(mount.maxHp, health.mountHp)
     }
@@ -369,6 +374,8 @@ export class CommanderTownMissionController {
     this.finalizeDeployment()
     if (!this.active?.commanderMission?.deploymentComplete) return
     this.checkpoint.advance(_dt)
+    if (this.active.kind === 'commander-sky-raid') this.skyRaidStalemate.advance(_dt, this.player().dead,
+      combatHpTotal([...this.officialActors, ...this.personalActors(), ...this.residents.map(resident => resident.npc)]))
     this.saveProgress(false)
   }
 
@@ -379,7 +386,8 @@ export class CommanderTownMissionController {
     if (active.kind === 'commander-sky-raid') {
       const kills = new Set(active.deadTargetActorIds ?? []).size
       return resolveCareerMissionOutcome(playerDead, active.targetActorIds.length >= COMMANDER_SKY_RAID_REQUIRED_KILLS,
-        Math.max(0, COMMANDER_SKY_RAID_REQUIRED_KILLS - kills), friendlyAlive, kills >= COMMANDER_SKY_RAID_REQUIRED_KILLS)
+        Math.max(0, COMMANDER_SKY_RAID_REQUIRED_KILLS - kills), playerDead && this.skyRaidStalemate.stalled ? 0 : friendlyAlive,
+        kills >= COMMANDER_SKY_RAID_REQUIRED_KILLS)
     }
     const targetAlive = this.targetResidents.some(actor => !actor.dead)
     return resolveCareerMissionOutcome(playerDead, this.targetResidents.length === 1, targetAlive ? 1 : 0, friendlyAlive, !targetAlive)
@@ -453,13 +461,13 @@ export class CommanderTownMissionController {
         if (active.kind === 'commander-sky-raid' && actor.dead) deadTargets.add(actor.combatantId)
         if (resident.spec.duty === 'patrol') continue
         const mount = actor.mount ?? resident.homeMount
-        actorHealth[actor.combatantId] = { hp: actor.dead ? 0 : actor.hp, ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }
+        actorHealth[actor.combatantId] = { hp: actor.dead ? 0 : actor.hp, ...(mount ? { mountArmorImpact: mount.armorImpactRemaining, mountHp: mount.dead ? 0 : mount.currentHp } : {}) }
         actorPositions[actor.combatantId] = { x: actor.combatPosition.x, y: actor.combatPosition.y, z: actor.combatPosition.z, yaw: actor.group.rotation.y }
       }
       const authority = active.officialSquad ? { ...active.officialSquad, members: { ...active.officialSquad.members } } : undefined
       for (const actor of this.officialActors) {
         const mount = this.actorMounts.get(actor) ?? actor.mount ?? undefined
-        actorHealth[actor.combatantId] = { hp: actor.dead ? 0 : actor.hp, ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }
+        actorHealth[actor.combatantId] = { hp: actor.dead ? 0 : actor.hp, ...(mount ? { mountArmorImpact: mount.armorImpactRemaining, mountHp: mount.dead ? 0 : mount.currentHp } : {}) }
         actorPositions[actor.combatantId] = { x: actor.combatPosition.x, z: actor.combatPosition.z, yaw: actor.group.rotation.y }
         if (actor.dead) deadFriendlies.add(actor.combatantId)
         if (authority) authority.members![actor.combatantId] = snapshotCommandActor(actor, mount)
@@ -489,6 +497,7 @@ export class CommanderTownMissionController {
     this.tracker?.dispose(); this.tracker = null
     for (const actor of this.officialActors) actor.dispose()
     for (const mount of this.enemyMounts) mount.dispose()
+    this.skyRaidStalemate.reset()
     this.officialActors.length = 0; this.enemyMounts.length = 0; this.plannedPositions.length = 0
     this.actorMounts.clear(); this.playerIssuedCommands.clear(); this.civilianCombat.clear(); this.checkpoint.reset()
     this.initialDeployment = undefined

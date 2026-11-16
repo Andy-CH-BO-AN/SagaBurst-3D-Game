@@ -41,9 +41,9 @@ export class HumanoidStudioPlayback {
   private equipped = true
   private started = false
 
-  constructor(readonly instance: HumanoidCharacterInstance, public state: HumanoidAnimationState, readonly faction: 'viking' | 'roman', public mountKind: MountedPoseKind = 'HORSE', assets?: { bow: MakiBowAsset }, private readonly equipment?: { swordId: string; axeId: string; shieldId: string }) {
+  constructor(readonly instance: HumanoidCharacterInstance, public state: HumanoidAnimationState, readonly faction: 'viking' | 'roman', public mountKind: MountedPoseKind = 'HORSE', assets?: { bow: MakiBowAsset }, private readonly equipment?: { swordId: string; axeId: string; shieldId: string; lanceId?: string; bowId?: string }) {
     this.lance.add(this.lanceModel)
-    WeaponMeshFactory.buildMelee('steel_lance', this.lanceModel)
+    WeaponMeshFactory.buildMelee(equipment?.lanceId ?? 'steel_lance', this.lanceModel)
     WeaponMeshFactory.buildShield(equipment?.shieldId ?? (faction === 'roman' ? 'scutum_t2' : 'round_shield_t2'), this.shield)
     instance.rig.right.handSocket.add(this.lance)
     instance.rig.left.handSocket.add(this.shield)
@@ -70,7 +70,7 @@ export class HumanoidStudioPlayback {
     instance.rig.left.handSocket.add(this.bow)
     this.bowVisual = new CharacterBowVisual(this.bow, bowGrip, instance.root)
     if (assets) this.bowVisual.rebuildFromAsset(assets.bow.model, assets.bow.profile, assets.bow.topTip, assets.bow.bottomTip)
-    else this.bowVisual.rebuild('recurve_longbow')
+    else this.bowVisual.rebuild(equipment?.bowId ?? 'recurve_longbow')
     this.animator = new CharacterCombatAnimator(instance.rig, this.sword, state === 'pilumThrow' ? this.pilum : this.bow)
     this.reset()
   }
@@ -177,7 +177,7 @@ export class HumanoidStudioPlayback {
     const profile = COMBAT_ANIMATION_PROFILES[action]
     const duration = this.instance.rig.animation?.getMeleeTiming?.(action)?.duration ?? profile.windup + profile.active + profile.recovery
     const id = this.equipmentLoadout === 'axe' ? (this.useSelectedAxe ? 'viking_axe_t3' : this.equipment?.axeId)
-      : this.equipmentLoadout === 'sword' ? this.equipment?.swordId : undefined
+      : this.equipmentLoadout === 'sword' ? this.equipment?.swordId : this.equipmentLoadout === 'lance' ? this.equipment?.lanceId : undefined
     return duration / meleeActionTimeScale(action, WEAPONS[id ?? ''])
   }
 
@@ -185,7 +185,7 @@ export class HumanoidStudioPlayback {
     if (this.equipmentLoadout === 'bow' || this.equipmentLoadout === 'none') return
     const action = this.equipmentAction(mounted)
     const id = this.equipmentLoadout === 'axe' ? (this.useSelectedAxe ? 'viking_axe_t3' : this.equipment?.axeId)
-      : this.equipmentLoadout === 'sword' ? this.equipment?.swordId : undefined
+      : this.equipmentLoadout === 'sword' ? this.equipment?.swordId : this.equipmentLoadout === 'lance' ? this.equipment?.lanceId : undefined
     this.animator.start(action, meleeActionTimeScale(action, WEAPONS[id ?? '']))
   }
 
@@ -229,6 +229,25 @@ export class HumanoidStudioPlayback {
   }
 
   setEquipped(enabled: boolean): void { this.equipped = enabled; this.reset() }
+
+  /** Fixed-time fists through the production animator, including its contact events. */
+  lastFistStrikes = 0
+  samplePunch(time: number, mounted = false): void {
+    this.reset()
+    this.animator.setEquipment(this.equipmentLoadout === 'lance', this.hasShield, this.mountKind)
+    this.animator.setLocomotion(0, mounted)
+    this.animator.update(.2)
+    const action = this.state as 'punchCombo' | 'punchRight'
+    this.animator.start(action)
+    const end = time * (this.instance.rig.animation!.getDuration(action) ?? 1.6)
+    this.lastFistStrikes = 0
+    for (let elapsed = 0; elapsed < end - 1e-9;) {
+      const dt = Math.min(1 / 120, end - elapsed)
+      this.lastFistStrikes += this.animator.update(dt).fists.length
+      elapsed += dt
+    }
+    this.instance.root.updateWorldMatrix(true, true)
+  }
 
   /** Deterministic sampling through the same release event used by the moving studio. */
   samplePilum(time: number, mounted = false): void {
@@ -297,6 +316,7 @@ export class HumanoidStudioPlayback {
       if ((this.state === 'lanceThrust' || this.state === 'mountedLance' || this.state === 'swordSlash' || this.state === 'axeAttack1H' || this.state === 'axeAttack2H') && !this.animator.busy) {
         this.startEquipmentAttack(mounted)
       }
+      if ((this.state === 'punchCombo' || this.state === 'punchRight') && !this.animator.busy) this.animator.start(this.state)
       this.animator.update(dt)
     } else if (!this.equipped) {
       if (!this.started) animation.play(this.state, { fadeSeconds: 0, loop: true })

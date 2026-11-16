@@ -15,13 +15,15 @@ description: 使用 Playwright CLI 驗證 SagaBurst 的瀏覽器戰鬥畫面、�
 | --- | --- |
 | `/?nolock` | 正式主選單與戰鬥流程；有效 Career／session 狀態可能直接恢復 |
 | `/?training=1&nolock` | 獨立訓練場；全部坐騎與目錄裝備、11 個假人、補給／重置／返回，不恢復或修改 Career |
+| `/?training=1&nolock&devplayerhero=<HeroAssetId>` | DEV：訓練場以指定英雄作為 Player（例如 `roman-centurion-t4`），用於逐坐騎驗證新角色 |
+| `/?duelarena=roman&nolock`、`/?duelarena=valhalla&nolock` | DEV：單挑競技場走查（正式 Player 移動／相機／碰撞、看台、墜落死亡）；`window.__duelArenaPreview.advance(seconds, keys)` 以固定 60Hz 推進同一路徑，`teleport`／`setCamera` 供 QA；不讀寫 Career |
 | `/?devmodels=humans&nolock` | 人物 LOD、骨架、握點與 controller／raw clip 比較 |
 | `/?devmodels=mounts&nolock` | Horse 變體、LOD、騎士與動畫 |
 | `/?devmodels=black-cat&nolock`、`/?devmodels=corgi&nolock` | 指定坐騎；可用鍵位以工作室 HUD 為準 |
 | `/?devhero=maki-t4&nolock` | Shadow Warden 遊俠預覽（保留舊 route）；平民用 `roman-civilian`／`viking-civilian`，其餘英雄 ID 見 `HeroAssetCatalog`／`main.ts` |
 | `/?devcombat&nolock` | 預設 50v50 騎兵診斷，Player 軌跡 |
 | `/?devcombat=a&nolock`、`b`、`c`、`d` | A：50v50 遠程步兵；B：100v100 近戰步兵；C：100v100 混編；D：100v100 騎兵 |
-| `/?devcombat=all&nolock` | 同預設診斷，加 NPC 軌跡；只在需要時啟用，輸出量大 |
+| `/?devcombat=all&nolock` | 同預設診斷，加 NPC 軌跡線與 console 摘要；其他 `devcombat` 只畫 Player 軌跡。只在需要時啟用，畫面與輸出量大 |
 
 正式入口由 `src/main.ts` 分流；不要假設 `/` 直接生成戰鬥。可重現 QA 使用獨立 browser session，明確記錄選單、設定與存檔前提，不清除使用者生涯存檔。效能場景與量測改用 [benchmark skill](../sagaburst-performance-benchmark/SKILL.md)。
 
@@ -48,6 +50,8 @@ rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.
 - **騎乘**：骨盆座面、膝踝與裝備不穿模；測本次影響的坐騎、LOD、動作與上下馬恢復。新匯出的坐騎 GLB 先依 [mount-from-reference](../mount-from-reference/SKILL.md)／資產流程做 Blender round-trip 檢查，再進瀏覽器。
 - **接地**：側面比較 Player/NPC 鞋底與相同地形，不能只看 physics root 高度。
 
+測試命令要看結束碼與每個 runner：Vitest 與 Node 分開回報，單一 runner 的失敗數不是總數。
+
 程式檢查沿用專案 AGENTS，不在瀏覽器流程重複強制整套測試。使用者要求不開瀏覽器時遵守，並明確標記視覺未驗證。
 
 ## 動畫資產與播放缺陷
@@ -58,6 +62,18 @@ rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.
 - 「移動但腳停住」記錄一段連續時間內的移速、active clip、action time、effective weight/timeScale、腿骨姿勢，以及 land／hit 等觸發次數。只看 mixer.time 前進不代表腿有動；只看截圖不同也不能排除反覆重啟。
 - 腳本直接呼叫跳躍等有接地前提的操作時，讓前提檢查與呼叫在同一次 page task 執行；鍵鼠觸發則記錄輸入與動作是否實際被接受。若 trace 沒有 jump，先區分觸發失敗與落地恢復失敗，不繞過 runtime guard 製造通過。
 - 動作修復依實際支援驗證 Player／NPC 的移動、一次性動作恢復與死亡保持；資產／實例改動另查 LOD、獨立 skeleton/mixer 和騎士接點。藝術形變的完整週期與多視角判讀見 [坐騎動畫診斷](../mount-from-reference/references/animation-deformation.md)。
+
+## 資產失敗與近距離檢查
+
+- **失敗注入：** 先到主選單，再包裝 `window.fetch`，讓目標 URL 永遠不回應，接著才開始戰鬥。確認場景仍會開啟、受影響的角色沒有武器效果、其他角色不受影響；解除封鎖後確認有新的網路請求，且模型與戰鬥狀態一起恢復。自訂戰鬥重新整理會由 `sessionStorage` 直接恢復，來不及包裝，需先清除 `sagaburst_battle_config`。
+- **近距離檢查：** 可暫時停用第三人稱相機更新，並在 render 前把相機放到目標旁邊。遠景不能證明握持；手部與騎姿要看近照和多個角度。臨時掛在 `window` 的 handle 不要提交。
+- **視窗要可見：** 隱藏的預覽窗格會讓 `requestAnimationFrame` 與載入變慢，時間數據不可信。
+
+## 合成輸入的限制
+
+- 以 `window.game.input` 加上 `allowUnlockedInput` 派送鍵鼠事件，可驗證上下坐騎、近戰、換武器、格擋、受傷與死亡。騎乘中的弓蓄力與巨鷹 S 降落需要真實 pointer lock 與滑鼠俯仰，合成輸入不會生效；這些項目記為 BLOCKED 並列人工步驟，不寫成 PASS。
+- 判定新角色缺陷前，用同一腳本跑一次既有英雄（例如 Paladin）。兩者結果相同時是工具或既有行為，不是新資產問題。英雄預覽單獨播放 additive `hit` 會顯示 bind pose，屬既有預覽行為。
+- 驗證期間不要修改 repo 內任何檔案（含 ignored `output/`）：Vite 會整頁重載，進行中的腳本與狀態會遺失。
 
 ## 軌跡與錯誤判讀
 

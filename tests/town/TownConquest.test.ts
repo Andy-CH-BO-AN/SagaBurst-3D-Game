@@ -1,3 +1,5 @@
+import { personalSquadFixture } from '../helpers/personalSquadFixture'
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { initialPersonalEquipment } from '../../src/career/CareerInventory'
 import { createCareerProfile, enlistmentMerit, type CareerProfile } from '../../src/career/CareerProfile'
@@ -36,7 +38,7 @@ interface ConquestSettlementEntry {
 function savedTown() {
   const store = new CareerProfileStore(new MemoryStorage())
   const profile = createCareerProfile('roman')
-  profile.totalMerit = 22000; profile.availableMerit = 180; profile.rank = 'commander'
+  profile.totalMerit = 22000; profile.availableMerit = 180; Object.assign(profile, careerRankFixture(profile.faction, 'commander'));
   profile.townEvent = { id: 'conquest', state: 'hostile' }
   const event = new TownEvent(population)
   for (const spec of population) event.register(spec.id, { dead: false })
@@ -45,6 +47,8 @@ function savedTown() {
     profile, event, store, skills: { skillState: profile.skills },
     clearCareerSkillSaveTimer: vi.fn(), careerSaveFailures: 0, player: { dead: false },
     temporaryMounts: new TemporaryBattlefieldMounts(), onRestart: vi.fn(), dispose: vi.fn(),
+    // A promotion clears the Sergeant board's remembered tab.
+    missionBoard: { page: undefined },
   })
   return { town, store }
 }
@@ -64,6 +68,18 @@ describe('canonical free Town conquest population', () => {
 })
 
 describe('full population conquest outcomes and registration', () => {
+  it('allows defection with all native Eagle riders alive while retaining the remaining resident objectives', () => {
+    const survivors = ['town-eagle-rider:1', 'town-eagle-rider:2', 'town-eagle-rider:3', 'town-eagle-rider:4', 'town-eagle-rider:5',
+      'watchtower-archer:1', 'civilian-0', 'merchant', 'cat']
+    const event = eventWithSurvivors(survivors)
+    for (const id of ['watchtower-archer:1', 'civilian-0', 'merchant', 'cat']) {
+      expect(event.evaluate(false)).toBeNull()
+      event.actors.get(id)!.dead = true
+    }
+    expect(event.evaluate(false)).toBe('town_defeated')
+    expect(event.evaluate(true)).toBe('player_defeated')
+    expect(event.allActors.get('town-eagle-rider:1')?.dead).toBe(false)
+  })
   it('requires the last living formal resident before declaring town defeat', () => {
     // The outcome rule is identity-independent; full roster membership and registration are tested above.
     const id = 'gate:east:0'
@@ -87,14 +103,15 @@ describe('full population conquest outcomes and registration', () => {
 describe('hostile save migration and settlement retries', () => {
   it.each(['town_defeated', 'player_defeated'] as const)('saves %s once after retry and only then permits transition', result => {
     const { town, store } = savedTown()
-    town.profile.personalSquad = { members: [{ id: 'personal:permanent', type: 'soldier', originalHirePrice: 50,
-      equipment: initialPersonalEquipment('soldier', 'roman') }] }
+    town.profile.personalSquad = personalSquadFixture(town.profile, [{ id: 'personal:permanent', type: 'soldier', originalHirePrice: 50,
+      equipment: initialPersonalEquipment('soldier', 'roman') }])
     town.profile.inventory = { version: 1, quantities: { gladius_rusty: 2,
       ...Object.fromEntries(Object.values(initialPersonalEquipment('soldier', 'roman')).filter(Boolean).map(id => [id, 1])) } }
     town.profile.skills = { ...createDefaultSkillState(), ...town.profile.skills, ranged: { level: 4, xp: 20 } }
     town.profile.claimedBattleIds = ['historical-battle']
     town.profile = parseCareerProfile(town.profile)!
     town.skills.skillState = town.profile.skills
+    expect(store.save(town.profile)).toBe(true) // Ensure the authoritative town save exists before retry tests.
     const before = JSON.stringify(town.profile), original = JSON.parse(before), restartButtons: Array<() => void> = []
     town.openPanel = vi.fn(() => ({}))
     town.button = vi.fn((_panel: unknown, _label: string, callback: () => void) => restartButtons.push(callback))

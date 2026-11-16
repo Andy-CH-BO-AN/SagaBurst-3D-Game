@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { MountArmor } from '../../src/combat/MountArmor'
 import { FallingRider } from '../../src/movement/FallingRider'
 import { Mount, MountState, MountType } from '../../src/world/Mount'
 import { getTerrainHeight } from '../../src/world/Terrain'
@@ -15,6 +16,7 @@ interface PresentationPort {
   deathTimer: number
   currentHp: number
   maxHp: number
+  armor: MountArmor
   riderNpc: null
   riderPlayer: null
   riderFaction: null
@@ -48,7 +50,8 @@ function presentation() {
   let attached = true
   const port: PresentationPort = {
     state: MountState.DEAD, type: MountType.XONGKORO, disposed: false, deathTimer: 3,
-    currentHp: 0, maxHp: 200, riderNpc: null, riderPlayer: null, riderFaction: null, onDeathCallbacks: [],
+    currentHp: 0, maxHp: 200, armor: new MountArmor(MountType.XONGKORO),
+    riderNpc: null, riderPlayer: null, riderFaction: null, onDeathCallbacks: [],
     get dead() { return read('dead').call(this) },
     get deathPresentationComplete() { return read('deathPresentationComplete').call(this) },
     get isAirborne() { return read('isAirborne').call(this) },
@@ -111,12 +114,15 @@ describe('mount death presentation lifetime', () => {
 
   it('reattaches the retained resource before native refit and re-arms its next death', () => {
     const h = presentation()
+    const armorReset = vi.spyOn(h.port.armor, 'reset')
     h.port.flight.phase = 'grounded'
     Mount.prototype.update.call(h.mount, 3, [])
+    expect(armorReset).not.toHaveBeenCalled()
     const resource = h.port.eagleVisual.root
     h.events.length = 0
 
     Mount.prototype.restoreForTown.call(h.mount, 4, 7, .8)
+    expect(armorReset).toHaveBeenCalledOnce()
     expect(h.events).toEqual(['attach', 'flight-reset', 'live-pose-attached'])
     expect(h.port.eagleVisual.root).toBe(resource)
     expect(h.port.group.visible).toBe(true)
@@ -131,5 +137,6 @@ describe('mount death presentation lifetime', () => {
     Mount.prototype.update.call(h.mount, 3, [])
     expect(h.port.deathPresentationComplete).toBe(true)
     expect(h.attached()).toBe(false)
+    expect(armorReset).toHaveBeenCalledOnce()
   })
 })

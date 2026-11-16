@@ -3,7 +3,7 @@ import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { prepareSeatSupport } from './SkinnedSeatContact'
 
 export interface SelectedHumanoidSource {
-  rig: 'mixamo66' | 'steppe37' | 'ordinary22' | 'roman54' | 'varangian63'
+  rig: 'mixamo66' | 'mixamo24' | 'steppe37' | 'ordinary22' | 'roman54' | 'varangian63'
   uniformScale: number
   /** Authored upper-thigh bearing landmarks in the original mesh-local space. */
   seatBearing?: readonly (readonly number[])[]
@@ -67,7 +67,7 @@ const MIXAMO_ALIASES: Readonly<Record<string, string>> = {
 export function prepareSelectedHumanoidSource(gltf: GLTF, source: SelectedHumanoidSource): void {
   const { scene } = gltf
   if (!(source.uniformScale > 0) || !Number.isFinite(source.uniformScale)) throw new Error('Invalid source scale')
-  if (source.rig === 'mixamo66') {
+  if (source.rig === 'mixamo66' || source.rig === 'mixamo24') {
     const renamed = new Map<string, string>()
     scene.traverse(node => {
       const name = MIXAMO_ALIASES[node.name.replace(/^mixamorig:?/, '')]
@@ -92,6 +92,8 @@ export function prepareSelectedHumanoidSource(gltf: GLTF, source: SelectedHumano
       sole_l: 'foot_l', sole_r: 'foot_r',
     }
     for (const [name, parentName] of Object.entries(sockets)) {
+      // Offline-normalized Mixamo deliveries already retain their calibrated sockets.
+      if (scene.getObjectByName(name)) continue
       const parent = scene.getObjectByName(parentName)
       if (!parent) throw new Error(`Selected source missing ${parentName}`)
       const socket = new THREE.Object3D()

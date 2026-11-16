@@ -1,20 +1,25 @@
-import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
+import { CHARACTER_LOD_DISTANCES, HUMANOID_ANIMATION_THROTTLE_DISTANCE, deferFarHumanoidPose } from './CharacterLODPolicy'
+import type { ArticulatedFingerPoses } from './FingerContactPolicy'
+import { getOrdinarySoldierAssetId } from '../combat/OrdinarySoldierProfile'
 import { prepareSeatSupport } from './SkinnedSeatContact'
 import type { FittedHumanoidClothRig } from './FittedHumanoidCloth'
 import { prepareAuthoredBowContacts } from './BowDrawHand'
 import { configureMultiInfluenceSkinning, multiInfluenceSkinningPlugin } from './MultiInfluenceSkinning'
+import { primeSkinnedTemplateBounds } from './SkinnedTemplateBounds'
+import { stopBoneEulerSync } from './BoneEulerSync'
+import { hideBoneOnlySubtrees } from './BoneRenderTraversal'
 import { prepareSelectedHumanoidSource, type SelectedHumanoidSource } from './SelectedHumanoidSource'
 import { shareSelectedLodPose, shareIdenticalSkinSkeletons, validateSelectedLodAnimations, optimizeSelectedAnimationClips } from './SelectedLodPose'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import { civilianHumanoidAssetId } from './CivilianAppearance'
 import { BANDIT_ASSET } from './BanditAsset'
 import { CharacterEquipmentPose, type SwordCarryGripProfile, createEquipmentPoseState, type EquipmentPoseState } from './CharacterEquipmentPose'
-import { calibrateEquipmentFrames, calibrateLanceIdleAttachment, type EquipmentGripFrames } from './EquipmentAttachmentContract'
+import { InertialPoseTransition } from './InertialPoseTransition'
+import { calibrateEquipmentFrames, calibrateLanceIdleAttachment, LANCE_RADIUS, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { prepareEquipmentHandShape } from './EquipmentHandShape'
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
-import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import type { GLTF, GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { createRuntimeGltfLoader } from './RuntimeGltfLoader'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { createEquipmentSocketProxies } from './HumanoidEquipmentSockets'
@@ -22,12 +27,16 @@ import { normalizeBowHandClips, prepareBowGripShape } from './CanonicalBowGripPo
 import type { HandGripFrame } from './BowAttachmentContract'
 import { prepareBladeGrip } from './HumanoidBladeGrip'
 import { prepareSwordHandShape } from './SwordHandShape'
+import { MITTEN_MORPHS, prepareMittenHandShape } from './MittenHandShape'
 import {
   AUDITED_ROMAN_LOD2_SHA256,
   cullRomanLod2TinyDetails,
   consolidateRomanLod2,
+  consolidateVikingCaptainLod2,
   isRomanLod2ConsolidationAssetAudited,
+  isVikingCaptainLod2AssetAudited,
   tryCreateRomanLod2ConsolidationTemplate,
+  tryCreateVikingCaptainLod2ConsolidationTemplate,
   type RomanLod2ConsolidationTemplate,
 } from './HumanoidLod2Consolidation'
 import { shouldRomanHumanoidCastShadow } from './RomanHumanoidShadowPolicy'
@@ -42,6 +51,8 @@ import type {
   HumanoidAnimationPlayOptions,
   HumanoidAnimationState,
   HumanoidMeleeTiming,
+  HumanoidPunchTiming,
+  HumanoidSeekNextUpdate,
   LegRig,
 } from './CharacterVisuals'
 
@@ -54,11 +65,17 @@ export interface HumanoidAnimationBinding {
   nominalSpeed?: number
   /** Runtime cycle only; the embedded clip and its source event times stay intact. */
   meleeCycleSeconds?: number
+  /** Opt-in 2H axe blend length in the base action clock, not source clip time. */
+  attackFadeInSeconds?: number
+  /** Explicit opt-in for fixed-offset entry/exit blends on this 2H axe take. */
+  attackTransition?: 'inertial'
   events?: Record<string, number>
+  /** Clip-driven fists: which hand lands each `punchN` contact event. */
+  punchHands?: ('left' | 'right')[]
 }
 
 export const HUMANOID_LOD_DISTANCES = CHARACTER_LOD_DISTANCES
-export const HUMANOID_ANIMATION_THROTTLE_DISTANCE = 28
+export { HUMANOID_ANIMATION_THROTTLE_DISTANCE }
 
 export interface HumanoidAssetManifest {
   schemaVersion: 1
@@ -80,7 +97,13 @@ export interface HumanoidAssetManifest {
   } | null
   selectedSource?: SelectedHumanoidSource
   /** Identical LOD bind spaces and clips share one actor-owned skeleton/mixer. */
+  /** Complete source skin, padded to the existing four-set plugin contract. */
+  skinInfluenceSets?: 4
   sharedLodPose?: boolean
+  /** Preserve authored canonical finger channels when deriving mounted upper-body idle. */
+  preserveMountedFingerTracks?: boolean
+  /** Absolute target-bind finger poses; free hands and contact have separate owners. */
+  articulatedFingerPoses?: ArticulatedFingerPoses
   /** Keep the equipped axe carry forward without changing the authored wrist. */
   forwardAxeCarry?: boolean
   clothRig?: FittedHumanoidClothRig
@@ -108,10 +131,12 @@ export interface HumanoidAssetManifest {
   shieldGripFrames?: Record<'lod0' | 'lod1' | 'lod2', SwordGripFrame>
   /** Posed source hands already authored in the asset; do not apply faction morphs. */
   handShapeMode?: 'authored'
+  /** Align authored finger grasp to the fixed production lance/mounted-sword shaft. */
+  alignAuthoredCarryGrip?: boolean
   /** Asset-local anatomical grasp for a visible sword, on foot and mounted. */
   swordCarryGrips?: SwordCarryGripProfile[]
   /** Relaxed fitted left hand: thumb web follows character-forward. */
-  relaxedLeftThumbForward?: boolean
+  relaxedLeftThumbForward?: boolean | 'including-lance'
   /** Generate grip morphs on each authored LOD without substituting LOD0 hand geometry. */
   preserveLodHandTopology?: boolean
   /** These clips already contain asset-specific equipment contact constraints. */
@@ -195,8 +220,19 @@ export const ORDINARY_HUMANOID_ASSETS: Record<CharacterFaction, HumanoidAssetDes
   viking: { assetId: 'viking', faction: 'viking', heightM: 1.86, maxShoulderWidthM: .54, neckLengthM: .11037482018019391 },
 }
 
+/** Measured source anatomy; T3 continues to use ORDINARY_HUMANOID_ASSETS unchanged. */
+export const TIERED_ORDINARY_HUMANOID_ASSETS = {
+  'roman-t1': { assetId: 'roman-t1', faction: 'roman', heightM: 1.78, maxShoulderWidthM: .4042321163, neckLengthM: .0768731880 },
+  'roman-t2': { assetId: 'roman-t2', faction: 'roman', heightM: 1.78, maxShoulderWidthM: .4145330483, neckLengthM: .0731541124 },
+  'viking-t1': { assetId: 'viking-t1', faction: 'viking', heightM: 1.86, maxShoulderWidthM: .4581928559, neckLengthM: .0776720027 },
+  'viking-t2': { assetId: 'viking-t2', faction: 'viking', heightM: 1.86, maxShoulderWidthM: .4795944902, neckLengthM: .0773273763 },
+} as const satisfies Record<string, HumanoidAssetDescriptor>
+
 export function resolveHumanoidAssetId(config: CharacterVisualConfig, assetId?: string): string | undefined {
-  return config.civilian ? civilianHumanoidAssetId(config.civilianStyle ?? config.faction) : assetId
+  if (config.civilian) return civilianHumanoidAssetId(config.civilianStyle ?? config.faction)
+  // Explicit hero, bandit and other specialised appearances retain ownership.
+  // Ordinary bodies use the same formal character tier as their combat profile.
+  return assetId ?? (config.ordinarySoldier === false ? undefined : getOrdinarySoldierAssetId(config.faction, config.tier))
 }
 
 interface HumanoidTemplate {
@@ -205,6 +241,8 @@ interface HumanoidTemplate {
   animationClips?: THREE.AnimationClip[][]
   bowClips?: THREE.AnimationClip[][]
   romanLod2Consolidation?: RomanLod2ConsolidationTemplate
+  /** viking-hero-t4 only; empty or absent keeps the original LOD2 structure. */
+  vikingCaptainLod2Consolidation?: RomanLod2ConsolidationTemplate
 }
 
 const LOD0_MOTION_CLIP_NAMES = new Set(['pilumThrow'])
@@ -381,9 +419,14 @@ function sharedReplacementHitClip(): THREE.AnimationClip {
 
 /** Reuse authored Idle above the pelvis; mounted legs remain procedural.
  * An empty mounted clip otherwise blends the arms back to the bind T-pose. */
-export function createMountedIdleClip(idle: THREE.AnimationClip): THREE.AnimationClip {
-  return new THREE.AnimationClip('mounted', idle.duration, idle.tracks.filter(track =>
-    /^(spine|chest|upper_chest|clavicle_|upper_arm_|lower_arm_|hand_|neck|head)/.test(track.name)))
+export function filterMountedIdleTracks<T extends { name: string }>(tracks: readonly T[], preserveFingerTracks = false): T[] {
+  return tracks.filter(track =>
+    /^(spine|chest|upper_chest|clavicle_|upper_arm_|lower_arm_|hand_|neck|head)/.test(track.name)
+    || preserveFingerTracks && /^(thumb|index|middle|ring|pinky)_0[123]_[lr]\.quaternion$/.test(track.name))
+}
+
+export function createMountedIdleClip(idle: THREE.AnimationClip, preserveFingerTracks = false): THREE.AnimationClip {
+  return new THREE.AnimationClip('mounted', idle.duration, filterMountedIdleTracks(idle.tracks, preserveFingerTracks))
 }
 
 let vikingHornMaterial: THREE.MeshStandardMaterial | undefined
@@ -471,6 +514,9 @@ export class MixerController implements HumanoidAnimationController {
   private visibleLOD: number | null = null
   private transitionRemaining = 0
   private readonly pendingMixerDt: number[]
+  private readonly inertialAxe: boolean
+  private readonly inertialTransitions: InertialPoseTransition[]
+  private relaxedHandTransitionStart: number | undefined
   setEquipmentState(state: Partial<EquipmentPoseState>): void { Object.assign(this.equipmentState, state) }
   private needsLevel(index: number): boolean {
     return this.visibleLOD === null || index === 0 || index === this.visibleLOD || this.transitionRemaining > 0
@@ -479,6 +525,9 @@ export class MixerController implements HumanoidAnimationController {
     this.equipmentLayers.forEach((layer, index) => { if (all || this.needsLevel(index)) layer.restore() })
   }
   private finishPose(all = false): void {
+    for (let index = 0; index < this.inertialTransitions.length; index++) {
+      if (all || this.needsLevel(index)) this.inertialTransitions[index].apply()
+    }
     const alive = this.equipmentState.alive
     this.equipmentState.alive = alive && this.poseLayersEnabled && this.current !== 'death'
     // Equipment action can already be idle while Three is fading out bowHold
@@ -500,6 +549,20 @@ export class MixerController implements HumanoidAnimationController {
       if (action?.isScheduled() && action.enabled) this.equipmentState.relaxedHandWeight += action.getEffectiveWeight()
     }
     this.equipmentState.relaxedHandWeight = Math.min(1, this.equipmentState.relaxedHandWeight)
+    if (this.relaxedHandTransitionStart !== undefined) {
+      // Native actions switch to full target weight immediately for an inertial
+      // pose. Its hand overlay must follow the same clock as the bone offsets.
+      const blend = this.inertialTransitions[0]?.blend ?? 1
+      this.equipmentState.relaxedHandWeight = THREE.MathUtils.lerp(this.relaxedHandTransitionStart, this.equipmentState.relaxedHandWeight, blend)
+      if (blend === 1) this.relaxedHandTransitionStart = undefined
+    }
+    if (this.equipmentState.carryWeapon === 'axe' && this.equipmentState.prepareAxeAttachment) {
+      // Evaluate the weapon against the newly sampled source hand, before any
+      // contact overlay moves it. The final callback then counter-transforms
+      // the equipment proxy once; no late attachment owner can move it again.
+      this.onPoseEvaluated?.()
+      this.equipmentState.prepareAxeAttachment(this.equipmentState)
+    }
     Object.assign(this.evaluatedEquipmentState, this.equipmentState)
     this.equipmentLayers.forEach((layer, index) => {
       if (all || this.needsLevel(index)) {
@@ -509,7 +572,8 @@ export class MixerController implements HumanoidAnimationController {
       }
     })
     this.equipmentState.alive = alive
-    this.onPoseEvaluated?.()
+    // Layer 0 (the primary rig) always applies and ends with a full refresh of its subtree.
+    this.onPoseEvaluated?.(this.equipmentLayers[0] !== undefined)
   }
 
   // Advance retained actions, including their loop/fade state, using Three's
@@ -518,7 +582,10 @@ export class MixerController implements HumanoidAnimationController {
     const dt = this.pendingMixerDt[index]
     if (dt === 0) return
     this.equipmentLayers[index]?.restore()
+    this.inertialTransitions[index]?.restore()
     this.mixers[index].update(dt)
+    this.inertialTransitions[index]?.advance(dt)
+    this.inertialTransitions[index]?.apply()
     this.pendingMixerDt[index] = 0
   }
   private catchUpInactive(): void {
@@ -527,6 +594,7 @@ export class MixerController implements HumanoidAnimationController {
 
   /** Called after Three selects its actual render LOD, before traversing meshes. */
   setVisibleLOD(index: number): void {
+    this.flushDeferredSeek()
     // Selected LOD meshes share the primary pose; their render level is not a
     // separate mixer index. Legacy assets retain one mixer per representation.
     if (this.mixers.length === 1) index = 0
@@ -537,13 +605,15 @@ export class MixerController implements HumanoidAnimationController {
     // Use the authority's last evaluated pose, not newer gameplay state from a
     // skipped distance tick. Do not consume the shared far accumulator here.
     layer?.restore()
+    this.inertialTransitions[index]?.apply()
     const palm = index === 0 ? undefined : this.equipmentLayers[0]?.axeSupportPalm
     if (palm) layer?.apply(this.evaluatedEquipmentState, palm)
     else layer?.apply(this.evaluatedEquipmentState)
   }
 
-  /** Asset-owned socket followers run after the single pose evaluation. */
-  onPoseEvaluated?: () => void
+  /** Asset-owned socket followers run after the single pose evaluation.
+   * `primaryPoseCurrent`: the primary rig's whole subtree was refreshed just before. */
+  onPoseEvaluated?: (primaryPoseCurrent?: boolean) => void
   private poseLayersEnabled = true
   private readonly bowLegActions = new Map<string, THREE.AnimationAction[]>()
   private bowLegState: string | null = null
@@ -553,8 +623,13 @@ export class MixerController implements HumanoidAnimationController {
   private readonly relaxedHandActions: THREE.AnimationAction[][] = []
   private readonly durations = new Map<HumanoidAnimationState, number>()
   private readonly meleeTimings = new Map<HumanoidAnimationState, HumanoidMeleeTiming>()
+  private readonly punchTimings = new Map<HumanoidAnimationState, HumanoidPunchTiming>()
   private current: HumanoidAnimationState | null = null
   private farAccumulator = 0
+  /** Repeated explicit samples (bow draw, pilum) of the still-bound state share the far cadence. */
+  private seekedState: HumanoidAnimationState | null = null
+  private deferredSeek = false
+  private seekPending = Infinity
   private readonly bowMeshes: THREE.SkinnedMesh[] = []
   private readonly swordMeshes: THREE.SkinnedMesh[] = []
   private swordHandEnabled = false
@@ -562,18 +637,38 @@ export class MixerController implements HumanoidAnimationController {
 
   /** Authored upper-body recoil is additive: never cancels an AI attack or its hit clock. */
   playHitReaction(): void {
+    this.flushDeferredSeek()
     if (this.current === 'death') return
     this.catchUpInactive()
     for (const action of this.hitReactions) action.reset().setLoop(THREE.LoopOnce, 1).setEffectiveWeight(.65).play()
   }
 
-  constructor(private readonly mixers: THREE.AnimationMixer[], clipsPerLevel: THREE.AnimationClip[][], rawClipsPerLevel = clipsPerLevel, bindings: HumanoidAnimationBinding[] = [], relaxedLeftThumbForward = false) {
+  constructor(private readonly mixers: THREE.AnimationMixer[], clipsPerLevel: THREE.AnimationClip[][], rawClipsPerLevel = clipsPerLevel, bindings: HumanoidAnimationBinding[] = [], relaxedLeftThumbForward: boolean | 'including-lance' = false) {
+    this.inertialAxe = bindings.some(binding => binding.clip === 'axeAttack2H' && binding.attackTransition === 'inertial')
+    this.inertialTransitions = this.inertialAxe ? mixers.map((mixer, index) => {
+      const nodes = new Set<THREE.Object3D>()
+      for (const clip of [...clipsPerLevel[index], ...rawClipsPerLevel[index]]) for (const track of clip.tracks) {
+        const parsed = THREE.PropertyBinding.parseTrackName(track.name)
+        if (!['position', 'quaternion', 'scale'].includes(parsed.propertyName)) continue
+        const node = THREE.PropertyBinding.findNode(mixer.getRoot(), parsed.nodeName) as THREE.Object3D | null
+        if (!node || parsed.objectName || parsed.propertyIndex) throw new Error(`Unsupported inertial pose track: ${track.name}`)
+        nodes.add(node)
+      }
+      return new InertialPoseTransition([...nodes])
+    }) : []
     for (const binding of bindings) {
+      const punch = parsePunchTiming(binding)
+      if (punch) this.punchTimings.set(binding.clip, punch)
       if (binding.meleeCycleSeconds === undefined) continue
       const { activeStart, hit, activeEnd } = binding.events ?? {}
       if (!(binding.meleeCycleSeconds > 0 && activeStart >= 0 && hit > activeStart && activeEnd > hit && binding.duration > activeEnd)) throw new Error(`Invalid melee timeline: ${binding.clip}`)
       const ratio = binding.meleeCycleSeconds / binding.duration
-      this.meleeTimings.set(binding.clip, { duration: binding.meleeCycleSeconds, activeStart: activeStart * ratio, hit: hit * ratio, activeEnd: activeEnd * ratio, clipTimeScale: 1 / ratio })
+      const fade = binding.attackFadeInSeconds
+      const attackFadeInSeconds = binding.clip === 'axeAttack2H' && typeof fade === 'number' && Number.isFinite(fade) && fade >= 0 ? fade : undefined
+      this.meleeTimings.set(binding.clip, {
+        duration: binding.meleeCycleSeconds, activeStart: activeStart * ratio, hit: hit * ratio, activeEnd: activeEnd * ratio, clipTimeScale: 1 / ratio,
+        ...(attackFadeInSeconds === undefined ? {} : { attackFadeInSeconds }),
+      })
     }
     this.pendingMixerDt = mixers.map(() => 0)
     mixers.forEach((mixer, index) => {
@@ -638,7 +733,10 @@ export class MixerController implements HumanoidAnimationController {
   }
 
   setBowLocomotion(state: 'idle' | 'walk' | 'run', timeScale: number): void {
-    if (this.bowLegState !== state || (this.bowLegActions.get(state) ?? []).some(action => action.timeScale !== timeScale)) this.catchUpInactive()
+    if (this.bowLegState !== state || (this.bowLegActions.get(state) ?? []).some(action => action.timeScale !== timeScale)) {
+      this.flushDeferredSeek()
+      this.catchUpInactive()
+    }
     if (this.bowLegState !== state) {
       for (const action of this.bowLegActions.get(this.bowLegState ?? '') ?? []) action.stop()
       for (const action of this.bowLegActions.get(state) ?? []) action.reset().play()
@@ -655,7 +753,13 @@ export class MixerController implements HumanoidAnimationController {
     return this.meleeTimings.get(state)
   }
 
+  getPunchTiming(state: HumanoidAnimationState): HumanoidPunchTiming | undefined {
+    return this.punchTimings.get(state)
+  }
+
   play(state: HumanoidAnimationState, options: HumanoidAnimationPlayOptions = {}): boolean {
+    this.flushDeferredSeek()
+    this.seekedState = null
     if (state === 'death') for (const action of this.hitReactions) action.stop()
     const bindings = this.poseLayersEnabled ? this.actions : this.rawActions
     const next = bindings.get(state) ?? []
@@ -672,7 +776,9 @@ export class MixerController implements HumanoidAnimationController {
       this.bowLegState = null
     }
     const fadeSeconds = options.fadeSeconds ?? 0.12
-    if (state === this.current) {
+    const inertial = this.poseLayersEnabled && this.inertialAxe && (state === 'axeAttack2H' || this.current === 'axeAttack2H'
+      || this.inertialTransitions.some(transition => transition.active))
+    if (state === this.current && !(inertial && options.startNormalizedTime !== undefined)) {
       for (const action of next) {
         action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
         action.clampWhenFinished = !loop
@@ -689,7 +795,14 @@ export class MixerController implements HumanoidAnimationController {
     this.transitionRemaining = Math.max(this.transitionRemaining, fadeSeconds)
     this.restoreEquipment(true)
     const previous = this.current ? bindings.get(this.current) ?? [] : []
-    for (const action of previous) action.fadeOut(fadeSeconds)
+    if (inertial) {
+      if (this.relaxedHandActions.length) this.relaxedHandTransitionStart = this.equipmentState.relaxedHandWeight ?? 0
+      for (const transition of this.inertialTransitions) transition.capture()
+      // Discard only the outgoing pose's unevaluated distance debt. It must not
+      // advance the new attack beyond its independently clocked start.
+      this.farAccumulator = 0
+      for (const actions of bindings.values()) for (const action of actions) action.stop()
+    } else for (const action of previous) action.fadeOut(fadeSeconds)
     for (const action of next) {
       action.reset().setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
       action.clampWhenFinished = !loop
@@ -697,7 +810,12 @@ export class MixerController implements HumanoidAnimationController {
       if (options.startNormalizedTime !== undefined) {
         action.time = THREE.MathUtils.clamp(options.startNormalizedTime, 0, 1) * action.getClip().duration
       }
-      action.fadeIn(fadeSeconds).play()
+      if (inertial) action.setEffectiveWeight(1).play()
+      else action.fadeIn(fadeSeconds).play()
+    }
+    if (inertial) for (let index = 0; index < this.mixers.length; index++) {
+      this.mixers[index].update(0)
+      this.inertialTransitions[index].begin(fadeSeconds)
     }
     this.current = state
     for (const mesh of this.bowMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.bowGrip] = this.poseLayersEnabled && state.startsWith('bow') ? 1 : 0
@@ -707,7 +825,11 @@ export class MixerController implements HumanoidAnimationController {
     return true
   }
 
-  seek(state: HumanoidAnimationState, normalizedTime: number): boolean {
+  seek(state: HumanoidAnimationState, normalizedTime: number, cameraDistance = 0, nextUpdate?: HumanoidSeekNextUpdate): boolean {
+    this.flushDeferredSeek()
+    // A far repeat keeps the last all-level sample: its paused actions are still
+    // bound, and the caller's gameplay clock (draw/throw progress) is unaffected.
+    if (this.seekedState === state && this.current === state && deferFarHumanoidPose(cameraDistance, this.seekPending)) return true
     // A paused action may skip an unchanged PropertyMixer write. Never restore
     // last frame's overlay base AFTER evaluating the newly requested sample.
     if (!this.play(state, { fadeSeconds: this.current === state ? 0 : 0.12, loop: false })) return false
@@ -720,23 +842,59 @@ export class MixerController implements HumanoidAnimationController {
       action.paused = true
     }
     this.restoreEquipment(true)
+    for (const transition of this.inertialTransitions) transition.clear()
+    this.relaxedHandTransitionStart = undefined
+    this.seekedState = state
+    this.seekPending = 0
+    // The caller's update(dt) this tick re-evaluates every action, including this paused
+    // sample, so sampling here as well only produced a pose that update overwrote. Defer it
+    // only when that update is certain to evaluate (one mixer, not a deferred far tick); any
+    // other mixer or pose change first runs the sample in its original order.
+    if (nextUpdate && this.mixers.length === 1 && Number.isFinite(nextUpdate.dt) && nextUpdate.dt > 0
+      && !deferFarHumanoidPose(nextUpdate.cameraDistance, this.farAccumulator + nextUpdate.dt)) {
+      this.deferredSeek = true
+      return true
+    }
     for (const mixer of this.mixers) mixer.update(0)
     this.finishPose(true)
     return true
   }
 
+  /** Runs a deferred seek's sample exactly as seek would have, before anything else touches the pose. */
+  private flushDeferredSeek(): void {
+    if (!this.deferredSeek) return
+    this.deferredSeek = false
+    for (const mixer of this.mixers) mixer.update(0)
+    this.finishPose(true)
+  }
+
+  sampleInitialPose(): void {
+    this.flushDeferredSeek()
+    this.restoreEquipment(true)
+    for (const transition of this.inertialTransitions) transition.clear()
+    this.relaxedHandTransitionStart = undefined
+    for (const mixer of this.mixers) mixer.update(0)
+    this.finishPose(true)
+  }
+
   update(dt: number, cameraDistance = 0): void {
-    if (!Number.isFinite(dt) || dt < 0) return
-    if (dt === 0) { this.restoreEquipment(); this.finishPose(); return }
+    if (!Number.isFinite(dt) || dt < 0) { this.flushDeferredSeek(); return }
+    if (dt === 0) { this.flushDeferredSeek(); this.restoreEquipment(); this.finishPose(); return }
+    this.seekPending += dt
     this.farAccumulator += dt
-    if (cameraDistance > HUMANOID_ANIMATION_THROTTLE_DISTANCE && this.farAccumulator < 1 / 12) return
+    if (deferFarHumanoidPose(cameraDistance, this.farAccumulator)) { this.flushDeferredSeek(); return }
     // Returning near must consume the pending far time once, too.
     dt = this.farAccumulator
     this.farAccumulator = 0
+    // This evaluation supersedes a deferred seek sample (see seek).
+    this.deferredSeek = false
     this.restoreEquipment()
     for (let index = 0; index < this.mixers.length; index++) {
       if (this.needsLevel(index)) {
-        this.mixers[index].update(this.pendingMixerDt[index] + dt)
+        const elapsed = this.pendingMixerDt[index] + dt
+        this.inertialTransitions[index]?.restore()
+        this.mixers[index].update(elapsed)
+        this.inertialTransitions[index]?.advance(elapsed)
         this.pendingMixerDt[index] = 0
       } else this.pendingMixerDt[index] += dt
     }
@@ -745,15 +903,46 @@ export class MixerController implements HumanoidAnimationController {
   }
 
   stop(): void {
+    this.flushDeferredSeek()
     this.catchUpInactive()
     this.equipmentLayers.forEach(layer => layer.stop())
+    for (const transition of this.inertialTransitions) transition.clear()
+    this.relaxedHandTransitionStart = undefined
     for (const mixer of this.mixers) mixer.stopAllAction()
     for (const mesh of this.bowMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.bowGrip] = 0
     this.current = null
+    this.seekedState = null
     this.bowLegState = null
     this.transitionRemaining = 0
     this.onPoseEvaluated?.()
   }
+}
+
+/** Fingerless source rig: both hands close through morphs, sized from the same grip frames the weapons use. */
+function prepareMittenLevel(manifest: HumanoidAssetManifest, scene: THREE.Object3D, level: number, restHollow: boolean): void {
+  const right = manifest.swordGripFrames?.[`lod${level}` as 'lod0'], left = manifest.handGripFrames?.left
+  if (!right || !left) throw new Error(`${manifest.id}: mitten hands require grip frames`)
+  const leftCenter = new THREE.Vector3(...left.palmContactCenter).addScaledVector(new THREE.Vector3(...left.palmNormal), LANCE_RADIUS).toArray()
+  if (restHollow) scene.userData.mittenHands = true
+  scene.updateMatrixWorld(true)
+  scene.traverse(object => {
+    if (!(object instanceof THREE.SkinnedMesh)) return
+    prepareMittenHandShape(object, [
+      { bone: scene.getObjectByName('hand_r')!, grip: MITTEN_MORPHS.gripRight, hollow: restHollow ? MITTEN_MORPHS.hollowRight : undefined,
+        frame: { finger: right.fingerDirection, thumb: right.gripAxisLocal, palm: right.palmNormalLocal, center: right.gripCenterLocal } },
+      { bone: scene.getObjectByName('hand_l')!, grip: MITTEN_MORPHS.gripLeft, hollow: restHollow ? MITTEN_MORPHS.hollowLeft : undefined,
+        frame: { finger: left.fingerDirection, thumb: left.thumbDirection, palm: left.palmNormal, center: leftCenter } },
+    ])
+  })
+}
+
+/** Contact events `punch0..N` plus `punchHands`; every contact must lie inside the clip and strictly ascend. */
+export function parsePunchTiming(binding: HumanoidAnimationBinding): HumanoidPunchTiming | undefined {
+  if (!binding.punchHands) return undefined
+  const contacts = binding.punchHands.map((hand, index) => ({ time: binding.events?.[`punch${index}`] as number, hand }))
+  if (contacts.length === 0 || contacts.some((c, i) => !Number.isFinite(c.time) || c.time <= 0 || c.time >= binding.duration || (i > 0 && c.time <= contacts[i - 1].time))
+    || contacts.some(c => c.hand !== 'left' && c.hand !== 'right')) throw new Error(`Invalid punch timeline: ${binding.clip}`)
+  return { duration: binding.duration, contacts }
 }
 
 function armRig(root: THREE.Object3D, side: 'L' | 'R'): ArmRig {
@@ -809,6 +998,7 @@ export function createHumanoidRigAdapter(root: THREE.Object3D, animation: Humano
     rightFootSocket: findSocket(root, ['socket_foot_r', 'sole_r'], rightFoot, 'socket_foot_r'),
     animation,
     equipmentGripFrames: root.userData.equipmentGripFrames,
+    mittenHands: root.userData.mittenHands === true,
     upperChest: root.getObjectByName('upper_chest'),
     clavicleLeft: root.getObjectByName('clavicle_l'),
     clavicleRight: root.getObjectByName('clavicle_r'),
@@ -874,6 +1064,7 @@ export class HumanoidAssetRegistry {
 
   static get ready(): boolean {
     return this.templates.has('viking') && this.templates.has('roman')
+      && Object.keys(TIERED_ORDINARY_HUMANOID_ASSETS).every(id => this.assets.has(id))
   }
 
   static preload(): Promise<void> {
@@ -882,7 +1073,7 @@ export class HumanoidAssetRegistry {
   }
 
   private static async loadTemplate(faction: CharacterFaction, assetId: string, descriptor?: HumanoidAssetDescriptor): Promise<HumanoidTemplate> {
-    const loader = new GLTFLoader()
+    const loader = createRuntimeGltfLoader()
     const query = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
     const expGroup = query?.get('expGroup')?.toLowerCase()
     const base = publicAssetUrl(`models/characters/v2/${assetId}`)
@@ -890,14 +1081,13 @@ export class HumanoidAssetRegistry {
     if (!response.ok) throw new Error(`Cannot load ${faction} humanoid manifest (${response.status})`)
     const manifest = await response.json() as HumanoidAssetManifest
     validateHumanoidManifest(faction, manifest, descriptor)
-    if (manifest.bufferCompression === 'EXT_meshopt_compression') loader.setMeshoptDecoder(MeshoptDecoder)
-    if (manifest.selectedSource?.rig === 'mixamo66') loader.register(multiInfluenceSkinningPlugin)
+    if (manifest.selectedSource?.rig === 'mixamo66' || manifest.skinInfluenceSets === 4) loader.register(multiInfluenceSkinningPlugin)
     const files = manifest.files!
     const lod0File = (!descriptor && expGroup && ['g0', 'g1', 'g2', 'g3'].includes(expGroup))
       ? `lod0.${expGroup}.glb`
       : files.lod0
     const lod2Url = `${base}/${files.lod2}`
-    const lod2Promise: Promise<LoadedGltfWithSha256> = faction === 'roman' && !descriptor
+    const lod2Promise: Promise<LoadedGltfWithSha256> = faction === 'roman' && !descriptor || assetId === 'viking-hero-t4'
       ? loadGltfWithSha256(loader, lod2Url, `${base}/`)
       : loader.loadAsync(lod2Url).then(gltf => ({ gltf }))
     const [lod0, lod1, lod2Loaded] = await Promise.all([
@@ -971,6 +1161,8 @@ export class HumanoidAssetRegistry {
         }
       })
     }
+    // Fingerless bodies: Byzantine's flat hands rest open-gripped; the ordinary Viking's sculpted hands only close to punch.
+    if (manifest.selectedSource?.rig === 'mixamo24' || manifest.selectedSource?.rig === 'ordinary22') levels.forEach((level, index) => prepareMittenLevel(manifest, level.scene, index, manifest.selectedSource?.rig === 'mixamo24'))
     validateEmbeddedAnimations(faction, manifest, levels)
     const frame = readHandFrame(manifest)
     const animationClips = manifest.selectedSource || manifest.sharedLodPose
@@ -1001,11 +1193,18 @@ export class HumanoidAssetRegistry {
         )
       }
     }
-    return { manifest, levels, animationClips, bowClips, romanLod2Consolidation }
+    let vikingCaptainLod2Consolidation: RomanLod2ConsolidationTemplate | undefined
+    if (assetId === 'viking-hero-t4') {
+      if (isVikingCaptainLod2AssetAudited(lod2Loaded.sha256)) vikingCaptainLod2Consolidation = tryCreateVikingCaptainLod2ConsolidationTemplate(levels[2].scene)
+      else console.warn(`Viking captain LOD2 consolidation disabled: asset SHA-256 ${lod2Loaded.sha256 ?? 'unavailable'} is not the audited LOD2`)
+    }
+    return { manifest, levels, animationClips, bowClips, romanLod2Consolidation, vikingCaptainLod2Consolidation }
   }
 
   private static async loadAll(): Promise<void> {
-    await Promise.all([this.preloadAsset(BANDIT_ASSET), ...(['viking', 'roman'] as const).map(async faction => {
+    await Promise.all([this.preloadAsset(BANDIT_ASSET),
+      ...Object.values(TIERED_ORDINARY_HUMANOID_ASSETS).map(descriptor => this.preloadAsset(descriptor)),
+      ...(['viking', 'roman'] as const).map(async faction => {
       this.templates.set(faction, await this.loadTemplate(faction, faction, ORDINARY_HUMANOID_ASSETS[faction]))
     })])
   }
@@ -1020,6 +1219,7 @@ export class HumanoidAssetRegistry {
     warmupGroup.name = 'humanoid-warmup-templates'
     for (const [faction, template] of this.templates) {
       template.levels.forEach((gltf, index) => {
+        primeSkinnedTemplateBounds(gltf.scene)
         const levelClone = cloneSkeleton(gltf.scene) as THREE.Group
         configureMultiInfluenceSkinning(levelClone)
         levelClone.name = `${faction}-warmup-lod${index}`
@@ -1047,23 +1247,6 @@ export class HumanoidAssetRegistry {
     return template?.levels[lodIndex]?.scene
   }
 
-  /**
-   * Test-only seam to snapshot registry templates.
-   */
-  static _snapshotTemplatesForTesting(): Map<CharacterFaction, HumanoidTemplate> {
-    return new Map(this.templates)
-  }
-
-  /**
-   * Test-only seam to restore registry templates after test execution.
-   */
-  static _restoreTemplatesForTesting(snapshot: Map<CharacterFaction, HumanoidTemplate>): void {
-    this.templates.clear()
-    for (const [k, v] of snapshot) {
-      this.templates.set(k, v)
-    }
-  }
-
   static forEachLODLevel(callback: (levelScene: THREE.Group, faction: CharacterFaction, lodIndex: number) => void): void {
     for (const [faction, template] of this.templates) {
       template.levels.forEach((gltf, index) => {
@@ -1086,6 +1269,7 @@ export class HumanoidAssetRegistry {
     let primaryScene: THREE.Group | null = null
     let skeleton: THREE.Skeleton | null = null
     template.levels.forEach((gltf, index) => {
+      primeSkinnedTemplateBounds(gltf.scene)
       const level = cloneSkeleton(gltf.scene) as THREE.Group
       configureMultiInfluenceSkinning(level)
       level.name = `${assetId ?? config.faction}-lod${index}`
@@ -1111,13 +1295,15 @@ export class HumanoidAssetRegistry {
       }
       if (index === 0 && ['ordinary22', 'roman54', 'varangian63'].includes(template.manifest.selectedSource?.rig ?? '')) shareIdenticalSkinSkeletons(level)
       if (sharedLodPose && primaryScene) shareSelectedLodPose(primaryScene, level)
+      // After LOD2 meshes share the primary skeleton, so merged pairs bind to it directly.
+      if (index === 2 && !preserveOriginalLod2 && template.vikingCaptainLod2Consolidation) consolidateVikingCaptainLod2(level, template.vikingCaptainLod2Consolidation)
       lod.addLevel(level, HUMANOID_LOD_DISTANCES[index])
       if (sharedLodPose && index > 0) return
       mixers.push(new THREE.AnimationMixer(level))
       const animations = template.animationClips?.[index] ?? gltf.animations
       const clips = new Map(sharedProjectAnimationClips().map((clip) => [clip.name, clip]))
       for (const clip of animations) clips.set(clip.name, clip)
-      if (!assetId || !animations.some(clip => clip.name === 'mounted')) clips.set('mounted', createMountedIdleClip(clips.get('idle')!))
+      if (!assetId || !animations.some(clip => clip.name === 'mounted')) clips.set('mounted', createMountedIdleClip(clips.get('idle')!, template.manifest.preserveMountedFingerTracks))
       const rawClips = new Map(sharedProjectAnimationClips().map((clip) => [clip.name, clip]))
       for (const clip of gltf.animations) rawClips.set(clip.name, clip)
       for (const supplemental of template.manifest.animations?.supplemental ?? []) {
@@ -1128,7 +1314,7 @@ export class HumanoidAssetRegistry {
         if (!clips.has('hit')) clips.set('hit', sharedReplacementHitClip())
         if (!rawClips.has('hit')) rawClips.set('hit', sharedReplacementHitClip())
       }
-      if (!assetId || !gltf.animations.some(clip => clip.name === 'mounted')) rawClips.set('mounted', createMountedIdleClip(rawClips.get('idle')!))
+      if (!assetId || !gltf.animations.some(clip => clip.name === 'mounted')) rawClips.set('mounted', createMountedIdleClip(rawClips.get('idle')!, template.manifest.preserveMountedFingerTracks))
       rawClipsPerLevel.push([...rawClips.values()])
       for (const clip of template.bowClips?.[index] ?? []) clips.set(clip.name, clip)
       clipsPerLevel.push([...clips.values()])
@@ -1168,10 +1354,31 @@ export class HumanoidAssetRegistry {
       if (frames) {
         const layerRig = createHumanoidRigAdapter(level.object, animation)
         layerRig.swordGripFrame = template.manifest.swordGripFrames?.[(['lod0', 'lod1', 'lod2'] as const)[index]]
-        animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, layerRig, frames, template.manifest.bakedEquipmentActions, template.manifest.bowFullBodyStance, template.manifest.selectedSource, template.manifest.clothRig, template.manifest.relaxedLeftThumbForward, template.manifest.swordCarryGrips)
+        animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, layerRig, frames, template.manifest.bakedEquipmentActions, template.manifest.bowFullBodyStance, template.manifest.selectedSource, template.manifest.clothRig, template.manifest.relaxedLeftThumbForward, template.manifest.swordCarryGrips, template.manifest.alignAuthoredCarryGrip, template.manifest.articulatedFingerPoses)
       }
     }
-    animation.onPoseEvaluated = createEquipmentSocketProxies(root, rig, template.manifest.swordCarryGrips ? () => animation.equipmentLayers[0]?.rightEquipmentHandCorrection : undefined)
+    rig.right.handSocket.userData.articulatedAxeContact = !!template.manifest.articulatedFingerPoses?.axeGripProfile
+    const updateEquipmentSockets = createEquipmentSocketProxies(root, rig, (template.manifest.swordCarryGrips || template.manifest.alignAuthoredCarryGrip || template.manifest.articulatedFingerPoses?.swordGripCenterLocal) ? () => animation.equipmentLayers[0]?.rightEquipmentHandCorrection : undefined, template.manifest.articulatedFingerPoses?.shieldGripCenterLocal ? () => animation.equipmentLayers[0]?.leftEquipmentHandCorrection : undefined)
+    const handBounds: Array<{ mesh: THREE.SkinnedMesh, wrist: THREE.Bone, radius: number }> = []
+    root.traverse(node => {
+      if (!(node instanceof THREE.SkinnedMesh)) return
+      const bound = node.userData.animatedHandBound as { bone: string, radius: number } | undefined
+      if (!bound) return
+      const wrist = node.skeleton.bones.find(bone => bone.name === bound.bone)
+      if (!wrist || !Number.isFinite(bound.radius) || bound.radius <= 0) throw new Error('Invalid animated hand bound')
+      node.boundingSphere = new THREE.Sphere()
+      handBounds.push({ mesh: node, wrist, radius: bound.radius })
+    })
+    const handBoundTransform = new THREE.Matrix4()
+    animation.onPoseEvaluated = (primaryPoseCurrent = false) => {
+      updateEquipmentSockets(primaryPoseCurrent)
+      for (const { mesh, wrist, radius } of handBounds) {
+        mesh.updateWorldMatrix(true, false)
+        handBoundTransform.copy(mesh.matrixWorld).invert().multiply(wrist.matrixWorld)
+        mesh.boundingSphere!.center.setFromMatrixPosition(handBoundTransform)
+        mesh.boundingSphere!.radius = radius * handBoundTransform.getMaxScaleOnAxis()
+      }
+    }
     if (template.manifest.swordCarryGrips && rig.right.handSocket) rig.right.handSocket.userData.anatomicalSwordCarry = true
     animation.onPoseEvaluated()
     animation.play('idle')
@@ -1182,6 +1389,8 @@ export class HumanoidAssetRegistry {
       THREE.LOD.prototype.update.call(lod, camera)
       animation.setVisibleLOD(lod.getCurrentLevel())
     }
+    stopBoneEulerSync(root)
+    hideBoneOnlySubtrees(root)
     return {
       root,
       skeleton,

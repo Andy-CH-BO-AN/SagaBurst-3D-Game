@@ -1,0 +1,6 @@
+Local hand surface derivative: Kevin Iglesias, Human Melee Animations FREE.
+Source: https://kevdev.itch.io/human-melee-animatons-free
+License: Unity Asset Store EULA, https://unity.com/legal/as-terms
+Reference FBX SHA-256: 88fd0684f0b3331cc4056b2ddafebf506d52c21c32e18884fd28214c0a8d75cb
+Only the hand derivative is embedded in this character. The complete reference FBX and standalone extracted hand are not shipped. The original character body/material source terms remain unchanged; the body license does not replace the reference hand terms.
+Rebuild: tools/prepare-hand-reference.py and tools/repair-hero-fingers.mjs; see docs/hero-hand-repair.md.

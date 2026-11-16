@@ -1,6 +1,7 @@
 import { WEAPONS } from '../rpg/WeaponDatabase'
+import { UNARMED_DURATION } from '../combat/UnarmedCombat'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { preloadHighTierEquipment } from '../world/HighTierEquipment'
+import { prepareByzantineEquipment, preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
@@ -10,6 +11,7 @@ import { HumanoidAssetRegistry, type HumanoidAssetDescriptor, type HumanoidChara
 import { HumanoidStudioPlayback } from './HumanoidStudioPlayback'
 import { CorgiVisual } from '../world/CorgiVisual'
 import { BlackCatVisual } from '../world/BlackCatVisual'
+import { SnowLeopardVisual } from '../world/SnowLeopardVisual'
 import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
 import { XongkoroVisual } from '../world/XongkoroVisual'
 import { HORSE_RIDER_PELVIS_SADDLE_FORWARD_OFFSET } from '../world/Mount'
@@ -27,12 +29,20 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
   const maki = descriptor.assetId === MAKI_HERO.assetId
   const civilian = descriptor.assetId.endsWith('-civilian')
   const commander = descriptor.assetId.endsWith('-t5')
+  const ordinary = /^(roman|viking)-t[12]$/.test(descriptor.assetId)
   const roman = descriptor.faction === 'roman'
   const faction = descriptor.faction
-  const label = civilian ? (roman ? 'Roman Civilian · Roman Statesman' : 'Viking Civilian · Nordic Warrior') : commander ? (roman ? '禁衛軍指揮官 · Roman T5' : '鐵衛指揮官 · Viking T5') : maki ? 'Shadow Warden · T4 遊俠英雄' : roman ? '聖騎士 Paladin T4' : '維京英雄 · T4'
-  const reference = commander ? (roman ? ROMAN_HERO : VIKING_HERO) : undefined
+  const swordId = commander ? (roman ? 'sword_t5' : 'axe_t5') : 'paladin_sword_t4'
+  const axeId = commander ? 'axe_t5' : 'paladin_mace_t4'
+  const byzantine = descriptor.assetId === 'byzantine-cataphract-t5'
+  const centurion = descriptor.assetId === 'roman-centurion-t4'
+  const heavyT4 = descriptor.assetId === 'viking-heavy-hero-t4', heavyT5 = descriptor.assetId === 'viking-heavy-hero-t5'
+  const lanceId = byzantine ? 'byzantine_standard_lance_t5' : 'spear_t4'
+  const shieldId = byzantine ? 'byzantine_eagle_shield_t5' : centurion ? 'centurion_aquila_shield_t4' : heavyT4 ? 'viking_dragonward_shield_t4' : commander ? (roman ? 'commander_shield_t5' : 'viking_berserker_shield_t5') : roman ? 'roman_officer_shield_t4' : 'paladin_shield_t4'
+  const label = ordinary ? `${roman ? '羅馬' : '維京'}普通士兵 · ${descriptor.assetId}` : civilian ? (roman ? 'Roman Civilian · Roman Statesman' : 'Viking Civilian · Nordic Warrior') : byzantine ? '拜占庭鐵甲重騎兵 · Byzantine Cataphract' : centurion ? '百夫長 · Centurion T4' : heavyT4 ? '龍誓重衛 · Dragon Oathguard T4' : heavyT5 ? '鐵血戰帥 · Ironblood Warlord T5' : commander ? (roman ? '禁衛軍指揮官 · Roman T5' : '維京指揮官 · Viking Warrior T5') : maki ? 'Shadow Warden · T4 遊俠英雄' : roman ? '聖騎士 · Gondor Knight T4' : '維京英雄 · T4'
+  const reference = commander ? (roman ? ROMAN_HERO : VIKING_HERO) : centurion ? ROMAN_HERO : heavyT4 ? VIKING_HERO : undefined
   const factionLabel = roman ? '羅馬人' : '維京'
-  const actions: HumanoidAnimationState[] = ['idle', 'walk', 'run', 'swordSlash', 'axeAttack1H', 'axeAttack1HFoot', 'axeAttack2H', 'daggerSlash', 'greatswordSlash', 'lanceThrust', 'mountedLance', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow', 'hit', 'mounted', 'axeMountedIdle', 'death']
+  const actions: HumanoidAnimationState[] = ['idle', 'walk', 'run', 'punchCombo', 'punchRight', 'swordSlash', 'axeAttack1H', 'axeAttack1HFoot', 'axeAttack2H', 'daggerSlash', 'greatswordSlash', 'lanceThrust', 'mountedLance', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow', 'hit', 'mounted', 'axeMountedIdle', 'death']
   const sourceOnlyStates = new Set<HumanoidAnimationState>(['daggerSlash', 'greatswordSlash', 'axeAttack1HFoot'])
   for (const id of ['hud', 'crosshair']) { const element = document.getElementById(id); if (element) element.style.display = 'none' }
   const panel = document.createElement('aside')
@@ -41,7 +51,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
   panel.textContent = `正在載入${label}資產…`
   document.body.append(panel)
   try {
-    await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HumanoidAssetRegistry.preloadAsset(descriptor), ...(reference ? [HumanoidAssetRegistry.preloadAsset(reference)] : []), CorgiVisual.preload(), BlackCatVisual.preload(), XongkoroVisual.preload()])
+    await Promise.all([prepareByzantineEquipment([lanceId, shieldId]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HumanoidAssetRegistry.preloadAsset(descriptor), ...(reference ? [HumanoidAssetRegistry.preloadAsset(reference)] : []), CorgiVisual.preload(), BlackCatVisual.preloadAll(), SnowLeopardVisual.preload(), XongkoroVisual.preload()])
     const scene = new THREE.Scene()
     scene.background = new THREE.Color('#b4bac1')
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
@@ -71,23 +81,36 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
     ground.position.y = -.006
     scene.add(ground, new THREE.GridHelper(10, 20, 0x888f99, 0x9ca3ac))
     const hero = HumanoidAssetRegistry.createCharacterInstance({ faction, tier: 2, isPlayer: false }, descriptor.assetId)
-    const availableActions = actions.filter(action => hero.rig.animation!.has(action))
-    const normal = HumanoidAssetRegistry.createCharacterInstance({ faction, tier: 2, isPlayer: false }, reference?.assetId)
+    const availableActions = actions.filter(action => hero.rig.animation!.has(action)
+      || action === 'lanceThrust' || action === 'mountedLance' || action === 'punchCombo' || action === 'punchRight')
+    const normal = HumanoidAssetRegistry.createCharacterInstance({ faction, tier: ordinary ? 3 : 2, isPlayer: false }, reference?.assetId)
     scene.add(hero.root, normal.root)
     normal.rig.animation!.play('idle', { fadeSeconds: 0, loop: true })
     normal.rig.animation!.update(.2)
     const manifest = await fetch(publicAssetUrl(`models/characters/v2/${descriptor.assetId}/manifest.json`)).then(response => response.json())
-    const playback = new HumanoidStudioPlayback(hero, 'idle', faction, roman ? 'CORGI' : 'BLACK_CAT', maki ? { bow: await loadMakiRangerBow() } : undefined, { swordId: 'paladin_sword_t4', axeId: 'paladin_mace_t4', shieldId: 'paladin_shield_t4' })
+    const playback = new HumanoidStudioPlayback(hero, 'idle', faction, roman ? 'CORGI' : 'BLACK_CAT', maki ? { bow: await loadMakiRangerBow() } : undefined, { swordId, axeId, shieldId, lanceId, bowId: commander ? 'bow_t5' : 'recurve_longbow' })
     playback.setEquipmentLoadout('none', false)
-    const mounts = { CORGI: new CorgiVisual(), BLACK_CAT: new BlackCatVisual(), HORSE: HorseAssetRegistry.createInstance(), xongkoro: new XongkoroVisual() }
-    for (const mount of Object.values(mounts)) { mount.root.visible = false; scene.add(mount.root) }
-    let mountKind: MountedPoseKind = roman ? 'CORGI' : 'BLACK_CAT'
+    const mounts = {
+      CORGI: new CorgiVisual(),
+      BLACK_CAT: new BlackCatVisual('black-cat'),
+      WHITE_CAT: new BlackCatVisual('white-cat'),
+      ORANGE_CAT: new BlackCatVisual('orange-cat'),
+      SERVAL: new BlackCatVisual('serval'),
+      CARACAL: new BlackCatVisual('caracal'),
+      SNOW_LEOPARD: new SnowLeopardVisual(),
+      HORSE: HorseAssetRegistry.createInstance(),
+      ...(HorseAssetRegistry.armoredReady ? { ARMORED_HORSE: HorseAssetRegistry.createInstance({ armored: true }) } : {}),
+      xongkoro: new XongkoroVisual(),
+    } as Partial<Record<MountedPoseKind, { root: THREE.Object3D; saddleSeat?: THREE.Object3D }>>
+    for (const mount of Object.values(mounts)) if (mount) { mount.root.visible = false; scene.add(mount.root) }
+    let mountKind: MountedPoseKind = commander ? 'SNOW_LEOPARD' : roman ? 'CORGI' : 'BLACK_CAT'
+    playback.mountKind = mountKind
     // DEV-only inspection of the actual rendered instance, selected mixers and equipment.
     Object.assign(window, { __heroPreview: { hero, normal, playback, scene, camera, controls, renderer, manifest, mounts } })
     let paused = false, time = 0, selectedLOD = 0, compare = true, riding = false, sourcePlayback = ''
     let state: HumanoidAnimationState = 'idle'
     const duration = () => !sourcePlayback && ['axeAttack1H', 'axeAttack2H', 'swordSlash', 'lanceThrust', 'mountedLance'].includes(state)
-      ? playback.getAttackDuration(riding) : hero.rig.animation!.getDuration(state) ?? 1
+      ? playback.getAttackDuration(riding) : hero.rig.animation!.getDuration(state) ?? (state === 'punchCombo' || state === 'punchRight' ? UNARMED_DURATION : 1)
     const setLOD = (instance: HumanoidCharacterInstance, index: number) => {
       const lod = instance.root.children.find(object => object instanceof THREE.LOD) as THREE.LOD
       lod.autoUpdate = false
@@ -100,23 +123,23 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       normal.root.visible = compare && !riding
       normal.root.position.set(-.85, 0, 0)
       hero.root.position.set(compare && !riding ? .65 : 0, 0, 0)
-      for (const [kind, mount] of Object.entries(mounts)) mount.root.visible = riding && kind === mountKind
+      for (const [kind, mount] of Object.entries(mounts)) if (mount) mount.root.visible = riding && kind === mountKind
       const mount = mounts[mountKind]
       if (riding && mount instanceof XongkoroVisual) {
         mount.update(0, { flying: true, sprinting: false, attackWeight: 0, dead: false })
         fitStandingRider(hero.root, hero.rig, mount.standingSocket)
-      } else if (riding && 'saddleSeat' in mount) {
+      } else if (riding && mount?.saddleSeat) {
         hero.root.updateMatrixWorld(true)
         const pelvis = hero.rig.pelvis!.getWorldPosition(new THREE.Vector3())
         // Match Mount.getRiderPelvisSeatWorld, including the fitted horse seat
         // and Corgi contact clearance used by real Player and NPC riders.
-        const seat = (mount instanceof CorgiVisual ? mount.riderPelvisSeat : mount.saddleSeat).getWorldPosition(new THREE.Vector3())
+        const seat = (mount instanceof CorgiVisual ? mount.riderPelvisSeat : mount.saddleSeat!).getWorldPosition(new THREE.Vector3())
         if (mountKind === 'HORSE') seat.add(new THREE.Vector3(0, 0, HORSE_RIDER_PELVIS_SADDLE_FORWARD_OFFSET).applyQuaternion(mount.root.getWorldQuaternion(new THREE.Quaternion())))
         hero.root.position.add(seat.sub(pelvis))
       }
       hero.root.updateMatrixWorld(true)
       if (riding && mount instanceof CorgiVisual) mount.fitRider(hero.root)
-      if (riding && mount instanceof BlackCatVisual) mount.fitRider(hero.root)
+      if (riding && (mount instanceof BlackCatVisual || mount instanceof SnowLeopardVisual)) mount.fitRider(hero.root)
     }
     const sample = () => {
       if (sourcePlayback) {
@@ -130,6 +153,8 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
         playback.sampleBowComparison(time, 'gameplay', 'idle', riding)
       } else if (state === 'pilumThrow') {
         playback.samplePilum(time, riding)
+      } else if (state === 'punchCombo' || state === 'punchRight') {
+        playback.samplePunch(time, riding)
       } else {
         const attack = state === 'axeAttack1H' || state === 'axeAttack2H' || state === 'swordSlash' || state === 'lanceThrust' || state === 'mountedLance'
         playback.sampleEquipment(time, riding, state === 'walk' || state === 'run' ? state : 'idle', attack, duration())
@@ -143,13 +168,13 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       <label><input id="hero-compare" type="checkbox" ${compare ? 'checked' : ''}> ${commander ? '同陣營 T4 並排比較' : `一般${factionLabel}並排比較`}</label><br>
       <label>播放方式 <select id="hero-playback"><option value="equipment">遊戲裝備</option><option value="source">原始片段 · 無裝備</option><option value="source-equipped">原始片段 · 武器接點</option></select></label><br>
       <label>動畫 <select id="hero-animation">${availableActions.map(name => `<option value="${name}">${name === 'hit' ? 'hit · 來源動作（不代表戰鬥受擊）' : sourceOnlyStates.has(name) ? `${name} · 來源片段` : name}</option>`).join('')}</select></label><br>
-      <label>裝備 <select id="hero-equipment"><option value="none">空手</option><option value="sword">${WEAPONS.paladin_sword_t4.name}</option><option value="axe">${WEAPONS.paladin_mace_t4.name}</option><option value="shield">${WEAPONS.paladin_sword_t4.name} + ${ARMORS.paladin_shield_t4.name}</option><option value="axe-shield">${WEAPONS.paladin_mace_t4.name} + ${ARMORS.paladin_shield_t4.name}</option><option value="selected-axe">${WEAPONS.viking_axe_t3.name}</option><option value="selected-axe-shield">${WEAPONS.viking_axe_t3.name} + ${ARMORS.paladin_shield_t4.name}</option><option value="lance">${WEAPONS.steel_lance.name}</option><option value="bow">${WEAPONS[maki ? 'maki-ranger-bow-ranged' : 'recurve_longbow'].name}</option></select></label><br>
+      <label>裝備 <select id="hero-equipment"><option value="none">空手</option><option value="sword">${WEAPONS[swordId].name}</option><option value="axe">${WEAPONS[axeId].name}</option><option value="shield">${WEAPONS[swordId].name} + ${ARMORS[shieldId].name}</option><option value="axe-shield">${WEAPONS[axeId].name} + ${ARMORS[shieldId].name}</option><option value="selected-axe">${WEAPONS.viking_axe_t3.name}</option><option value="selected-axe-shield">${WEAPONS.viking_axe_t3.name} + ${ARMORS[shieldId].name}</option><option value="lance">${WEAPONS[lanceId].name}</option><option value="bow">${WEAPONS[maki ? 'maki-ranger-bow-ranged' : commander ? 'bow_t5' : 'recurve_longbow'].name}</option></select></label><br>
       <label><input id="hero-shield-raised" type="checkbox"> 舉盾</label><br>
       <label>LOD <select id="hero-lod"><option value="0">LOD0</option><option value="1">LOD1</option><option value="2">LOD2</option></select></label><br>
-      <label><input id="hero-mounted" type="checkbox"> 騎乘 <select id="hero-mount"><option value="HORSE">Horse</option><option value="BLACK_CAT" ${!roman ? 'selected' : ''}>Black Cat</option><option value="CORGI" ${roman ? 'selected' : ''}>Corgi</option><option value="xongkoro">xongkoro 飛行姿勢</option></select></label><br>
+      <label><input id="hero-mounted" type="checkbox"> 騎乘 <select id="hero-mount"><option value="HORSE">Horse</option><option value="ARMORED_HORSE">重甲戰馬</option><option value="SNOW_LEOPARD" ${commander ? 'selected' : ''}>Armored Snow Leopard</option><option value="BLACK_CAT" ${!commander && !roman ? 'selected' : ''}>Black Cat</option><option value="WHITE_CAT">White Cat</option><option value="ORANGE_CAT">Orange Cat</option><option value="SERVAL">Serval</option><option value="CARACAL">Caracal</option><option value="CORGI" ${!commander && roman ? 'selected' : ''}>Corgi</option><option value="xongkoro">xongkoro 飛行姿勢</option></select></label><br>
       <button id="hero-pause">暫停</button> <button id="hero-replay">重新播放</button><br>
       <label>固定時間 <input id="hero-time" type="range" min="0" max="1" step="0.001" value="0" style="width:160px"></label>
-      <div id="hero-status"></div><hr><div>${commander ? '來源 T5 模型 · 同陣營 T4 身體尺度校準' : maki || civilian ? '新模型 · 一般 Humanoid 裝備' : roman ? 'Paladin 原始模型適配' : '一般角色 1.86 m'}<br>${civilian ? '含鞋全高' : commander ? '含盔鞋全高' : maki ? '鞋底至兜帽' : roman ? '含頭盔角飾全高' : '英雄本體'} ${manifest.metrics.heightM.toFixed(3)} m${commander || maki || civilian || roman ? '' : `<br>含盔鞋 ${manifest.metrics.overallHeightM.toFixed(3)} m`}</div>
+      <div id="hero-status"></div><hr><div>${commander ? '來源 T5 模型 · 同陣營 T4 身體尺度校準' : maki || civilian ? '新模型 · 一般 Humanoid 裝備' : roman ? 'Gondor Knight 原始模型適配' : '一般角色 1.86 m'}<br>${civilian ? '含鞋全高' : commander ? '含盔鞋全高' : maki ? '鞋底至兜帽' : roman ? '含盔鞋全高' : '英雄本體'} ${manifest.metrics.heightM.toFixed(3)} m${commander || maki || civilian || roman ? '' : `<br>含盔鞋 ${(manifest.metrics.overallHeightM ?? manifest.metrics.heightM).toFixed(3)} m`}</div>
       <small>滑鼠拖曳旋轉，滾輪縮放。動畫只驗證姿勢，不產生戰鬥事件。</small>`
     const input = <T extends HTMLElement>(id: string) => panel.querySelector<T>(`#${id}`)!
     const status = input('hero-status')
@@ -193,8 +218,8 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       if (state.startsWith('bow')) input<HTMLSelectElement>('hero-equipment').value = 'bow'
       if (state === 'lanceThrust' || state === 'mountedLance') input<HTMLSelectElement>('hero-equipment').value = 'lance'
       if (state === 'swordSlash') input<HTMLSelectElement>('hero-equipment').value = 'shield'
-      if (state === 'axeAttack1H') input<HTMLSelectElement>('hero-equipment').value = 'selected-axe-shield'
-      if (state === 'axeAttack2H' || state === 'axeMountedIdle') input<HTMLSelectElement>('hero-equipment').value = 'selected-axe'
+      if (state === 'axeAttack1H') input<HTMLSelectElement>('hero-equipment').value = commander ? 'axe-shield' : 'selected-axe-shield'
+      if (state === 'axeAttack2H' || state === 'axeMountedIdle') input<HTMLSelectElement>('hero-equipment').value = commander ? 'axe' : 'selected-axe'
       playback.state = riding && (state === 'idle' || state === 'walk' || state === 'run') ? 'mounted' : state
       equip(); time = 0; sample(); setCamera()
     }

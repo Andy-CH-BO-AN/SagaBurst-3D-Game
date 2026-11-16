@@ -48,17 +48,20 @@ export class MountStudioSeatContact {
     // Inspected bearing patches: trousers, seated mail, and rear tunic over
     // the buttocks. The regular Viking's hanging front hem is not a seat.
     const mesh = rider.getObjectByName(hero ? 'Tunic002' : 'Tunic') as THREE.SkinnedMesh
-    const x = .07
-    const z = hero ? -.15 : -.25
     mount.updateWorldMatrix(true, false)
     mount.updateMatrixWorld(true)
+    const seatNode = mount.getObjectByName('socket_saddle_seat')
+    const seatLocal = seatNode ? mount.worldToLocal(seatNode.getWorldPosition(new THREE.Vector3())) : new THREE.Vector3(0.008, 1.266, 0)
+    const x = seatLocal.x + .062
+    const z = seatLocal.z + (hero ? -.15 : -.25)
     mesh.computeBoundingBox(); mesh.computeBoundingSphere()
     saddle.computeBoundingBox(); saddle.computeBoundingSphere()
     const up = new THREE.Vector3(0, 1, 0).transformDirection(mount.matrixWorld)
-    const underneath = new THREE.Vector3(x, 1.1, z).applyMatrix4(mount.matrixWorld)
-    const overhead = new THREE.Vector3(x, 2.3, z).applyMatrix4(mount.matrixWorld)
+    const underneath = new THREE.Vector3(x, seatLocal.y - .166, z).applyMatrix4(mount.matrixWorld)
+    const overhead = new THREE.Vector3(x, seatLocal.y + 1.034, z).applyMatrix4(mount.matrixWorld)
     const buttHit = new THREE.Raycaster(underneath, up, 0, 1.2).intersectObject(mesh, false)[0]
     const seatHit = new THREE.Raycaster(overhead, up.clone().negate(), 0, 1.2).intersectObject(saddle, false)[0]
+      ?? new THREE.Raycaster(new THREE.Vector3(seatLocal.x, seatLocal.y + .6, seatLocal.z - .05).applyMatrix4(mount.matrixWorld), up.clone().negate(), 0, 1.2).intersectObject(saddle, false)[0]
     if (!buttHit?.face || !seatHit?.face) throw new Error(`Cannot locate seated contact on ${rider.name}`)
     this.butt = new SkinSurfacePoint(mesh, buttHit)
     this.seat = new SkinSurfacePoint(saddle, seatHit)

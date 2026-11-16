@@ -1,33 +1,34 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { TownWorld } from '../town/TownWorld'
-import { TownFourGateSiege, type TownSiegeSectorRoster } from '../career/TownFourGateSiege'
-import { createTownSiegeCrewSlots, townSiegeFrame } from '../career/TownFourGateSiegePolicy'
-import { parseTownFourGateSiegeCheckpoint } from '../career/TownFourGateSiegeCheckpoint'
-import { TOWN_GATES, townGatePoint, type TownGateId } from '../town/TownLayout'
-import { townRampartHeight } from '../town/TownRamparts'
-import { TOWN_NAVIGATION_BOUNDS } from '../town/TownBounds'
-import { NavigationWorld } from '../navigation/NavigationWorld'
-import { NPC, AIType, Faction } from '../world/NPC'
-import { Player } from '../player/Player'
-import { Mount, MountType } from '../world/Mount'
-import { SpatialGrid } from '../world/SpatialGrid'
-import { getTerrainHeight } from '../world/Terrain'
-import { gameplayNpcSpawns, trackNpcSpawn } from '../world/NpcSpawnScheduler'
-import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
-import { HERO_ASSETS } from '../world/HeroAssetCatalog'
-import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
-import { preloadHighTierEquipment } from '../world/HighTierEquipment'
-import { preloadPaladinEquipment } from '../world/PaladinEquipment'
-import { resolveT4UnitLoadout, T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
+import { resolveT4UnitLoadout,T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { TownFourGateSiege,type TownSiegeSectorRoster } from '../career/TownFourGateSiege'
+import { parseTownFourGateSiegeCheckpoint } from '../career/TownFourGateSiegeCheckpoint'
+import { createTownSiegeCrewSlots,townSiegeFrame } from '../career/TownFourGateSiegePolicy'
+import { damageNpc,damagePlayer } from '../combat/DamageRouter'
+import { NavigationWorld } from '../navigation/NavigationWorld'
+import { Player } from '../player/Player'
+import { TOWN_NAVIGATION_BOUNDS } from '../town/TownBounds'
+import { TOWN_GATES,townGatePoint,type TownGateId } from '../town/TownLayout'
+import { townRampartHeight } from '../town/TownRamparts'
+import { TownWorld } from '../town/TownWorld'
+import { preloadArchitectureStatues } from '../town/architecture/TownArchitecture'
 import { HpBar } from '../ui/HpBar'
-import { damageNpc, damagePlayer } from '../combat/DamageRouter'
-import type { DamageableObstacle } from '../world/DamageableObstacle'
 import { BlackCatVisual } from '../world/BlackCatVisual'
 import { CorgiVisual } from '../world/CorgiVisual'
+import type { DamageableObstacle } from '../world/DamageableObstacle'
+import { HERO_ASSETS } from '../world/HeroAssetCatalog'
+import { preloadHighTierEquipment } from '../world/HighTierEquipment'
+import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
+import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
+import { Mount,MountType } from '../world/Mount'
+import { AIType,Faction,NPC } from '../world/NPC'
+import { gameplayNpcSpawns,trackNpcSpawn } from '../world/NpcSpawnScheduler'
+import { preloadPaladinEquipment } from '../world/PaladinEquipment'
+import { SpatialGrid } from '../world/SpatialGrid'
+import { getTerrainHeight } from '../world/Terrain'
 
-const PREVIEW_KEY = 'sagaburst_dev_four_gate_siege_v1'
+const PREVIEW_KEY = 'sagaburst_dev_four_gate_siege_v2'
 
 /** Isolated DEV route. It never creates a Career store or reads/writes Career/session launch state. */
 export async function launchTownFourGateSiegePreview(container: HTMLElement): Promise<void> {
@@ -60,7 +61,7 @@ export async function launchTownFourGateSiegePreview(container: HTMLElement): Pr
   }
   const resize = () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight) }
   try {
-    await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer),
+    await Promise.all([preloadArchitectureStatues(), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer),
       BlackCatVisual.preload(), CorgiVisual.preload(), ...(['roman-hero-t4', 'viking-hero-t4', 'roman-hero-t5', 'viking-hero-t5'] as const)
         .map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
     const text = query.get('restore') === '1' ? sessionStorage.getItem(PREVIEW_KEY) : null

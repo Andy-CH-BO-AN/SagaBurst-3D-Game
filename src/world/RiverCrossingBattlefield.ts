@@ -414,19 +414,11 @@ export function settleRiverCrossingDrowning(
  */
 export function getRiverCrossingMeadowWear(x: number, z: number): number {
   if (!isRiverCrossingTerrainActive()) return 0
-  const { bridge, river, northDefense } = RIVER_CROSSING_LAYOUT
+  const { bridge, river } = RIVER_CROSSING_LAYOUT
   const absX = Math.abs(x)
   const absZ = Math.abs(z)
 
   if (absX <= bridge.halfTotalWidth + 1.5 && absZ <= bridge.halfLength + 2.5) {
-    return 1
-  }
-
-  if (
-    Math.abs(z - northDefense.wallZ) <= 2.4
-    && absX >= northDefense.centralGapHalfWidth - 1.5
-    && absX <= northDefense.wingOuterAbsX + 2.5
-  ) {
     return 1
   }
 
@@ -462,7 +454,7 @@ export function getRiverCrossingTreeClearances(distantCavalry = false): THREE.Bo
  */
 export function createRiverCrossingObstacleData(): ObstacleData[] {
   const obstacles: ObstacleData[] = []
-  const { river, bridge, northDefense } = RIVER_CROSSING_LAYOUT
+  const { river, bridge } = RIVER_CROSSING_LAYOUT
 
   // 1. River channel navigation & AI blockers (West and East of the bridge).
   // A* navigation, NPC pathfinding, obstacle avoidance, and formation placement
@@ -523,36 +515,6 @@ export function createRiverCrossingObstacleData(): ObstacleData[] {
         projectileBoxes: [pierBox.clone()],
       })
     }
-  }
-
-  // 3. North Bank military defensive walls (two wing walls with a 20.8m central passage).
-  const wallHalfThick = northDefense.wallThickness * 0.5
-  const wallMinZ = northDefense.wallZ - wallHalfThick
-  const wallMaxZ = northDefense.wallZ + wallHalfThick
-  for (const side of [-1, 1] as const) {
-    const wingMinX = side < 0 ? -northDefense.wingOuterAbsX : northDefense.centralGapHalfWidth
-    const wingMaxX = side < 0 ? -northDefense.centralGapHalfWidth : northDefense.wingOuterAbsX
-    const wingBox = new THREE.Box3(
-      new THREE.Vector3(wingMinX, -0.3, wallMinZ),
-      new THREE.Vector3(wingMaxX, northDefense.wallHeight, wallMaxZ),
-    )
-    obstacles.push({
-      box: wingBox,
-      isBarricade: false,
-      projectileBoxes: [wingBox.clone()],
-    })
-
-    const flankMinX = side < 0 ? -northDefense.wingOuterAbsX - northDefense.wallThickness : northDefense.wingOuterAbsX
-    const flankMaxX = side < 0 ? -northDefense.wingOuterAbsX : northDefense.wingOuterAbsX + northDefense.wallThickness
-    const flankBox = new THREE.Box3(
-      new THREE.Vector3(flankMinX, -0.3, wallMinZ - northDefense.flankReturnDepth),
-      new THREE.Vector3(flankMaxX, northDefense.wallHeight, wallMaxZ),
-    )
-    obstacles.push({
-      box: flankBox,
-      isBarricade: false,
-      projectileBoxes: [flankBox.clone()],
-    })
   }
 
   return obstacles
@@ -842,7 +804,7 @@ export function createRiverCrossingBattlefield(
   const staticObstacles = createRiverCrossingObstacleData()
   obstacles.push(...staticObstacles)
 
-  const { bridge, river, northDefense } = RIVER_CROSSING_LAYOUT
+  const { bridge, river } = RIVER_CROSSING_LAYOUT
 
   const stoneWallMaterial = proceduralMaterial({
     kind: 'leather',
@@ -1081,61 +1043,7 @@ export function createRiverCrossingBattlefield(
     )
   }
 
-  // 3. North Bank military defensive walls (West and East wings with firing steps).
-  const wallHalfThick = northDefense.wallThickness * 0.5
-  for (const side of [-1, 1] as const) {
-    const wingMinX = side < 0 ? -northDefense.wingOuterAbsX : northDefense.centralGapHalfWidth
-    const wingMaxX = side < 0 ? -northDefense.centralGapHalfWidth : northDefense.wingOuterAbsX
-    const wingWidth = wingMaxX - wingMinX
-    const wingCenterX = (wingMinX + wingMaxX) * 0.5
-
-    defenseWallParts.push(
-      new THREE.BoxGeometry(wingWidth, northDefense.wallHeight, northDefense.wallThickness).translate(
-        wingCenterX,
-        northDefense.wallHeight * 0.5 - 0.05,
-        northDefense.wallZ,
-      ),
-    )
-    // Stone coping and low embrasure blocks along the breastwork
-    for (let x = wingMinX + 2.0; x <= wingMaxX - 2.0; x += 4.0) {
-      defenseWallParts.push(
-        new THREE.BoxGeometry(1.8, 0.28, northDefense.wallThickness + 0.16).translate(
-          x,
-          northDefense.wallHeight + 0.08,
-          northDefense.wallZ,
-        ),
-      )
-    }
-    // Timber firing step / brace along the defender (-Z) face of the wall
-    defenseTimberParts.push(
-      new THREE.BoxGeometry(wingWidth - 0.8, 0.32, 0.85).translate(
-        wingCenterX,
-        0.16,
-        northDefense.wallZ - wallHalfThick - 0.42,
-      ),
-    )
-
-    // Central passage bastion pillar
-    const innerPillarX = side * (northDefense.centralGapHalfWidth + 0.7)
-    defenseWallParts.push(
-      new THREE.BoxGeometry(1.8, northDefense.wallHeight + 0.45, northDefense.wallThickness + 0.5).translate(
-        innerPillarX,
-        (northDefense.wallHeight + 0.45) * 0.5 - 0.05,
-        northDefense.wallZ,
-      ),
-    )
-
-    // Outer angled flank return wall
-    const flankX = side * (northDefense.wingOuterAbsX + wallHalfThick)
-    const flankZ = northDefense.wallZ - northDefense.flankReturnDepth * 0.5
-    defenseWallParts.push(
-      new THREE.BoxGeometry(
-        northDefense.wallThickness,
-        northDefense.wallHeight,
-        northDefense.flankReturnDepth + northDefense.wallThickness,
-      ).translate(flankX, northDefense.wallHeight * 0.5 - 0.05, flankZ),
-    )
-  }
+  // 3. North Bank military defensive walls removed to keep bridgehead path unobstructed.
 
   // 4. Riverbank boulders / stones (batched into a single mesh for zero draw-call bloat).
   const random = environmentRandom(9041)

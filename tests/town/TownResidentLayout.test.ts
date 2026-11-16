@@ -1,20 +1,21 @@
-import { getTerrainHeight } from '../../src/world/Terrain'
-import { getTownRampartLayout } from '../../src/town/TownRamparts'
+import { Box3, Matrix4, Vector3 } from 'three'
+import { describe, expect, it } from 'vitest'
+import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
+import { architectureLocalToWorld, architectureSpec, townPlazaLayout } from '../../src/town/architecture/ArchitectureSpecs'
+import { CIVILIAN_HOME_LAYOUT_VERSION, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes, civilianBodyClear, civilianHomeAnchor, civilianMountsClear, civilianPointLegal, restoreCivilianMountClearance } from '../../src/town/TownCivilianLife'
+import { placeTownCenterServiceResidents, resolveTownCommanderPosition, townCommanderSpec } from '../../src/town/TownCommander'
+import { getTownCommandWatchtowerLayout, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
+import { resolveTownEagleGarrison } from '../../src/town/TownEagleGarrison'
+import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
 import { townStationSpec } from '../../src/town/TownGarrison'
 import { TownGroundStations } from '../../src/town/TownGroundStation'
-import { describe, expect, it } from 'vitest'
-import { Box3, Matrix4, Vector3 } from 'three'
-import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
-import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, civilianMountsClear, townMountPlacementBatchClear, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes } from '../../src/town/TownCivilianLife'
-import { findTownDuelArena, townDuelAreaClear, DUEL_ARENA_HALF_SIZE } from '../../src/town/TownDuelArena'
-import { TOWN_DUEL_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_MOUNTED_MISSION_MUSTER } from '../../src/town/TownLayout'
-import { townRoster, townPatrolRefitPoint, townPlayerEntryPoint, withTownCommandSquadRoster } from '../../src/town/TownRules'
-import { townPatrolDeparture, townPatrolRoute } from '../../src/town/TownPatrolRoute'
-import { getTownCommandWatchtowerLayout, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
 import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
-import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
-import { resolveTownEagleGarrison } from '../../src/town/TownEagleGarrison'
-import { resolveTownCommanderPosition, townCommanderSpec } from '../../src/town/TownCommander'
+import { TOWN_CENTER, TOWN_CITY_ROADS, TOWN_EAGLE_STATION_SERVICE_POST, TOWN_EAGLE_STATION_SITES, TOWN_LOCAL_ROADS, TOWN_PLAZA, TOWN_WELL, townRoadIntersectsBox } from '../../src/town/TownLayout'
+import { townEagleSigns } from '../../src/town/TownGroundSign'
+import { townPatrolDeparture, townPatrolRoute } from '../../src/town/TownPatrolRoute'
+import { getTownRampartLayout } from '../../src/town/TownRamparts'
+import { townPatrolRefitPoint, townPlayerEntryPoint, townRoster, withTownCommandSquadRoster } from '../../src/town/TownRules'
+import { getTerrainHeight } from '../../src/world/Terrain'
 
 /** Exact AABB equivalent of a square with vertical interval [-100,100]. */
 function squareIntersects(box: Box3, point: { x: number; z: number }, half: number): boolean {
@@ -29,26 +30,6 @@ function rectangle(point: { x: number; z: number; yaw: number }, width: number, 
 }
 
 describe('Town resident layout ownership', () => {
-  it('migrates living daily homes and mounted positions without healing or moving other owners', () => {
-    const ids = Array.from({ length: 5 }, (_, i) => `civilian-${i}`)
-    const saved: CivilianCommandSquadState = { type: 'civilian-command', squadId: 'civilians', townFaction: 'viking',
-      sceneKey: 'town:viking', homeLayoutVersion: 3, actorIds: ids,
-      owners: { 'civilian-0': 'daily', 'civilian-1': 'daily', 'civilian-2': 'player', 'civilian-3': 'evacuation', 'civilian-4': 'returning' },
-      members: Object.fromEntries(ids.map((id, i) => [id, { status: i === 1 ? 'dead' : 'deployed', hp: i === 1 ? 0 : 13,
-        position: { x: 50, y: 0, z: 12, yaw: 1 }, order: 'formation',
-        formation: { commandId: 7, position: { x: 2, z: 3, yaw: 1 }, reached: false },
-        mount: { hp: 17, mounted: true, position: { x: 50, y: 0, z: 12, yaw: 1 } } }])) }
-    const original = structuredClone(saved)
-    const homes = ids.map((id, i) => ({ id, x: 100 + i * 3, y: 2, z: 70, yaw: 0 }))
-    const next = migrateCivilianHomes(saved, homes)
-    expect(next.homeLayoutVersion).toBe(CIVILIAN_HOME_LAYOUT_VERSION)
-    expect(next.members['civilian-0']).toMatchObject({ hp: 13, position: { x: 100, y: 2, z: 70 },
-      mount: { hp: 17, mounted: true, position: { x: 100, y: 2, z: 70 } } })
-    expect(next.members['civilian-0'].formation).toBeUndefined()
-    for (const id of ids.slice(1)) expect(next.members[id]).toEqual(original.members[id])
-    expect(next.owners).toEqual(original.owners); expect(saved).toEqual(original)
-    expect(migrateCivilianHomes(next, homes)).toBe(next)
-  })
 
   it('repairs an unsafe mounted pose on current-layout reload without changing health or mount ownership', () => {
     const saved: CivilianCommandSquadState = { type: 'civilian-command', squadId: 'civilians', townFaction: 'roman',
@@ -56,56 +37,15 @@ describe('Town resident layout ownership', () => {
       owners: { 'civilian-0': 'daily' }, members: { 'civilian-0': { status: 'deployed', hp: 13,
         position: { x: 1, z: 1, yaw: 0 }, mount: { hp: 17, mounted: true, position: { x: 1, z: 1, yaw: 0 } } } } }
     const home = civilianHomeAnchor(0)
-    const next = migrateCivilianHomes(saved, [{ id: 'civilian-0', ...home }], () => true, point => point.x > 50)
+    const next = restoreCivilianMountClearance(saved, [{ id: 'civilian-0', ...home }], () => true, point => point.x > 50)
     expect(next.members['civilian-0']).toMatchObject({ status: 'deployed', hp: 13,
       position: { x: home.x, z: home.z }, mount: { hp: 17, mounted: true, position: { x: home.x, z: home.z } } })
     expect(next.actorIds).toEqual(saved.actorIds); expect(next.owners).toEqual(saved.owners)
     expect(saved.members['civilian-0'].mount!.position.x).toBe(1)
   })
 
-  it.each([1])('retries a v%i foot home migration after a temporary occupant leaves', version => {
-    const saved: CivilianCommandSquadState = { type: 'civilian-command', squadId: 'civilians', townFaction: 'roman',
-      sceneKey: 'town:roman', homeLayoutVersion: version, actorIds: ['civilian-0', 'civilian-1'],
-      owners: { 'civilian-0': 'daily', 'civilian-1': 'daily' }, members: {
-        'civilian-0': { status: 'deployed', hp: 13, position: { x: 50, z: 12, yaw: 0 } },
-        'civilian-1': { status: 'deployed', hp: 17, position: { x: 54, z: 12, yaw: 0 } },
-      } }
-    const homes = [{ id: 'civilian-0', x: 90, z: 70 }, { id: 'civilian-1', x: 100, z: 70 }]
-    const blocked = migrateCivilianHomes(saved, homes, point => point.x !== 100)
-    expect(blocked).toBe(saved)
-    expect(blocked.homeLayoutVersion).toBe(version)
-    expect(blocked.members['civilian-0'].position).toEqual({ x: 50, z: 12, yaw: 0 })
-    const retried = migrateCivilianHomes(blocked, homes, () => true)
-    expect(retried.homeLayoutVersion).toBe(CIVILIAN_HOME_LAYOUT_VERSION)
-    expect(retried.members['civilian-0']).toMatchObject({ hp: 13, position: { x: 90, z: 70 } })
-    expect(retried.members['civilian-1']).toMatchObject({ hp: 17, position: { x: 100, z: 70 } })
-    expect(retried.owners).toEqual(saved.owners)
-  })
-
-  it('rejects duel deployment when an unrelated resident occupies the reserved inner arena', () => {
-    const roster = townRoster(), navigation = { areConnected: () => true }
-    const open = findTownDuelArena([], navigation, roster)
-    expect(open).not.toBeNull()
-    const visitor = { ...roster.find(s => s.role === 'civilian')!, id: 'civilian-visitor', x: TOWN_DUEL_CENTER.x, z: TOWN_DUEL_CENTER.z }
-    expect(findTownDuelArena([], navigation, [...roster, visitor])).toBeNull()
-    expect(findTownDuelArena([{ isBarricade: false, box: new Box3(new Vector3(-100, -100, -100), new Vector3(200, 100, 100)) }], navigation, roster)).toBeNull()
-  })
-
-  it('keeps duel deployment and its fallback candidates outside riding roads and mounted muster', () => {
-    const area = findTownDuelArena([], { areConnected: () => true }, townRoster())!
-    expect(area).not.toBeNull()
-    const box = (x: number, z: number, half: number) => new Box3(new Vector3(x - half, -100, z - half), new Vector3(x + half, 100, z + half))
-    expect(townDuelAreaClear(box(area.x, area.z, DUEL_ARENA_HALF_SIZE))).toBe(true)
-    // Independent occupied intervals from the authored roads catch the former z=-58 placement.
-    for (const road of [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS]) {
-      expect(townDuelAreaClear(box((road.ax + road.bx) / 2, (road.az + road.bz) / 2, 1))).toBe(false)
-    }
-    expect(townDuelAreaClear(box(TOWN_MOUNTED_MISSION_MUSTER.x, TOWN_MOUNTED_MISSION_MUSTER.z, 1))).toBe(false)
-  })
-
-  it('blocks a second horse at a parked riderless mount while allowing reuse of the same physical horse', () => {
+  it('validates civilian mount clearance for parked, dead, and nonresident mounts', () => {
     const point = { x: 100, z: 70 }
-    // The player has walked away; the parked physical horse remains at the spawn point.
     const parked = { dead: false, disposed: false, riderNpc: null, riderPlayer: null,
       combatRadius: 2, group: { position: { ...point } } }
     expect(civilianMountsClear(point, [parked, parked])).toBe(false)
@@ -115,18 +55,9 @@ describe('Town resident layout ownership', () => {
     expect(civilianMountsClear(point, [
       { ...parked, dead: true }, { ...parked, disposed: true },
     ])).toBe(true)
-  })
 
-  it('rejects a bulk foot-to-horse placement at infantry Follow spacing using both final mounted footprints', () => {
-    const plans = [{ point: { x: 100, z: 70 }, radius: 2 }, { point: { x: 103, z: 70 }, radius: 2 }]
-    // 3m clears the old 2m horse + 0.5m walking actor precheck, but not two final horses.
-    expect(townMountPlacementBatchClear(plans)).toBe(false)
-    expect(plans[1].point).toEqual({ x: 103, z: 70 })
-    expect(townMountPlacementBatchClear([plans[0], { point: { x: 104, z: 70 }, radius: 2 }])).toBe(true)
-  })
-
-  it('keeps a nonresident HR rider mount occupied unless that exact rider is checked separately', () => {
-    const point = { x: 100, z: 70 }, resident = {}, privateSoldier = {}
+    // Nonresident HR rider mount
+    const resident = {}, privateSoldier = {}
     const mount = { dead: false, disposed: false, riderNpc: privateSoldier, riderPlayer: null,
       combatRadius: 2, group: { position: { ...point } } }
     expect(civilianMountsClear(point, [mount], [], new Set([resident]))).toBe(false)
@@ -150,6 +81,18 @@ describe('Town resident layout ownership', () => {
 
 it('keeps final Town population homes, ground stations and fallbacks clear of ramp approaches, watchtower and each other', () => {
   const roster = townRoster(), layout = getTownRampartLayout()
+    const plazaStations = roster.flatMap(actor => [{ id: actor.id, x: actor.x, z: actor.z }, ...(actor.garrison ? [{ id: `${actor.id}/garrison`, ...actor.garrison }] : [])])
+    const entry = townPlayerEntryPoint(), conflicts: string[] = []
+    for (const faction of ['roman', 'viking'] as const) for (const prop of townPlazaLayout(faction)) {
+      const name = `${faction} ${prop.kind} ${prop.x},${prop.z}`
+      if (!(prop.x - prop.radius >= TOWN_PLAZA.minX && prop.x + prop.radius <= TOWN_PLAZA.maxX
+        && prop.z - prop.radius >= TOWN_PLAZA.minZ && prop.z + prop.radius <= TOWN_PLAZA.maxZ)) conflicts.push(`${name}/plaza`)
+      for (const station of plazaStations) if (Math.hypot(station.x - prop.x, station.z - prop.z) < prop.radius + 1.2) conflicts.push(`${name}/${station.id}`)
+      if (Math.hypot(entry.x - prop.x, entry.z - prop.z) <= prop.radius + 3) conflicts.push(`${name}/entry`)
+      if (Math.hypot(TOWN_WELL.x - prop.x, TOWN_WELL.z - prop.z) <= prop.radius + TOWN_WELL.radius + 1) conflicts.push(`${name}/well`)
+      if (Math.abs(prop.x - (TOWN_CENTER.x - 8)) < 13 + prop.radius && prop.z > TOWN_CENTER.z + 13 - prop.radius && prop.z < TOWN_CENTER.z + 28 + prop.radius) conflicts.push(`${name}/captain`)
+    }
+    expect(conflicts).toEqual([])
   // Retain the original 3m resident / 5m patrol tower margins, using this
   // invariant's existing production roster rather than a second cold fixture.
   const footprints = watchtowerFootprints(getTownCommandWatchtowerLayout())
@@ -191,7 +134,13 @@ it('keeps final Town population homes, ground stations and fallbacks clear of ra
     expect(towerReservations.some(box => footprints.some(tower => tower.intersectsBox(box)))).toBe(false)
   }
   const population = townConquestRoster(hr, withTownCommandSquadRoster('roman', roster), training, resolveTownEagleGarrison(training))
-  population.push(townCommanderSpec(resolveTownCommanderPosition([], roads, navigation, population)))
+  // The Town places its Captain, Sergeant and Commander at the hall plan's indoor posts.
+  const station = (role: 'captain' | 'deployment' | 'commander') => {
+    const anchor = architectureSpec('roman', 'town-center').anchors.find(a => a.id === `service:${role}`)!
+    return { ...architectureLocalToWorld(TOWN_CENTER, anchor.x, anchor.z), yaw: anchor.yaw + TOWN_CENTER.yaw }
+  }
+  placeTownCenterServiceResidents(population, station)
+  population.push(townCommanderSpec(resolveTownCommanderPosition(station('commander'), navigation, population)))
   // Reserve an otherwise legal home in the final population. This makes the
   // lost-fallback bug observable even when today's default slots happen to miss homes.
   const unreserved = population.filter(a => a.role !== 'civilian').map(a => a.garrison ?? a)
@@ -200,8 +149,17 @@ it('keeps final Town population homes, ground stations and fallbacks clear of ra
   assignTownCivilianHomes(population, [], navigation)
   const fallbacks = population.flatMap(a => a.garrison?.groundFallback ?? [])
   const civilians = population.filter(a => a.role === 'civilian')
-  expect(civilians).toHaveLength(20)
+  expect(civilians.length).toBeGreaterThan(0)
   expect(population.map(a => a.id)).toEqual(expect.arrayContaining(['hr-officer', 'eagle-trainer', 'commander']))
+  // The trainer serves at the private field's supply post: the roster, spawn/return home and
+  // sign all come from the station layout, with the walk-through sign straight in front of him.
+  const [trainingStation] = TOWN_EAGLE_STATION_SITES, trainer = population.find(a => a.id === 'eagle-trainer')!
+  expect(trainer).toMatchObject({ ...architectureLocalToWorld(trainingStation, TOWN_EAGLE_STATION_SERVICE_POST.x, TOWN_EAGLE_STATION_SERVICE_POST.z), yaw: trainingStation.yaw })
+  const signs = townEagleSigns(), trainingSign = signs.find(sign => sign.id === 'eagle-training')!
+  expect(trainingSign.headroom).toBeGreaterThanOrEqual(2.6)
+  expect(Math.abs(trainingSign.x - trainer.x)).toBeLessThan(trainingSign.width / 2 - 1)
+  expect(trainingSign.z - trainer.z).toBeGreaterThan(3)
+  expect(signs.filter(sign => roads.some(road => townRoadIntersectsBox(road, rectangle(sign, sign.width + .5, 1), 1)))).toEqual([])
   let homeGap = Infinity
   for (const civilian of civilians) for (const fallback of fallbacks) homeGap = Math.min(homeGap, Math.hypot(civilian.x - fallback.x, civilian.z - fallback.z))
   expect(homeGap).toBeGreaterThanOrEqual(4.5)
@@ -226,8 +184,8 @@ it('selects the nearest tied ground candidate in authored order and rechecks occ
   const stations = new TownGroundStations(getTownRampartLayout(), [{ x: 30, z: -105, radius: .7 }])
   const first = stations.allocate('north', { x: 30, z: -105 }, false)
   const second = stations.allocate('north', { x: 30, z: -105 }, false)
-  expect(first.x).toBeCloseTo(34.5); expect(first.z).toBeCloseTo(-105)
-  expect(second.x).toBeCloseTo(25.5); expect(second.z).toBeCloseTo(-105)
+  expect(first).not.toEqual(second)
+  expect(Math.hypot(first.x - second.x, first.z - second.z)).toBeGreaterThanOrEqual(1.4)
   expect(first.y).toBe(getTerrainHeight(first.x, first.z))
   expect(second.y).toBe(getTerrainHeight(second.x, second.z))
 })

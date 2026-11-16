@@ -1,8 +1,8 @@
 import { Faction } from '../combat/CombatFaction'
+import { townRoster, type TownActorSpec } from '../town/TownRules'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { ActiveCareerMission } from './CareerMissionState'
 import type { CareerProfile } from './CareerProfile'
-import { townRoster, type TownActorSpec } from '../town/TownRules'
 import { VETERAN_MISSION_IDS } from './VeteranMission'
 
 export interface CareerTownSceneContext {
@@ -23,16 +23,15 @@ function opposingFaction(faction: CharacterFaction): CharacterFaction {
 export function resolveCareerTownSceneContext(
   profile: Pick<CareerProfile, 'faction' | 'activeMission'>,
 ): CareerTownSceneContext {
-  const enemyTownAssault = profile.activeMission?.kind === 'enemy-town-assault'
-    || profile.activeMission?.kind === 'commander-sky-raid'
+  const commanderEnemyTown = profile.activeMission?.kind === 'commander-sky-raid'
     || profile.activeMission?.kind === 'commander-decapitation'
   const enemyTerritoryField = isCareerEnemyTerritoryFieldMission(profile.activeMission)
-  const foreignTownFaction = enemyTownAssault || enemyTerritoryField
+  const foreignTownFaction = commanderEnemyTown || enemyTerritoryField
     ? opposingFaction(profile.faction)
     : profile.faction
   return {
     worldFaction: foreignTownFaction,
-    residentFaction: enemyTownAssault ? foreignTownFaction : profile.faction,
+    residentFaction: commanderEnemyTown ? foreignTownFaction : profile.faction,
     missionOnlyResidents: enemyTerritoryField,
     worldOwnerAllegiance: enemyTerritoryField ? Faction.ENEMY : Faction.TOWN,
   }
@@ -64,7 +63,7 @@ function townResidentCharacterFaction(spec: TownActorSpec, faction: CharacterFac
 /**
  * Describe every resident that the current scene should create. Veteran VI places the player's
  * borrowed home actors first, then adds a separate, hostile native Town population with stable
- * prefixed IDs. Other scenes retain the existing Town and Enemy Town Assault roster semantics.
+ * prefixed IDs. Other scenes retain the Town, Sky Raid and Decapitation roster semantics.
  */
 export function careerTownSceneRoster(
   profile: Pick<CareerProfile, 'faction' | 'activeMission'>,
@@ -74,9 +73,7 @@ export function careerTownSceneRoster(
   // the complete conquest roster assembled from the built TownWorld.
   const nativeSpecs = (isCareerEnemyTerritoryFieldMission(profile.activeMission) ? residents.filter(spec => spec.role !== 'hr-officer' && spec.role !== 'eagle-trainer') : residents)
     .filter(spec => spec.role !== 'cat')
-    // Accepted legacy Commander V snapshots keep their original native population.
-    .filter(spec => spec.duty !== 'watchtower_guard' || profile.activeMission?.kind !== 'commander-four-gate-defense'
-      || profile.activeMission.fourGateDefense?.rosterVersion === 2)
+
   const activeMission = profile.activeMission
   if (isCareerEnemyTerritoryFieldMission(activeMission)) {
     const nativeById = new Map(nativeSpecs.map(spec => [spec.id, spec]))
@@ -105,8 +102,7 @@ export function careerTownSceneRoster(
   const context = resolveCareerTownSceneContext(profile)
   const commanderTown = activeMission?.kind === 'commander-sky-raid'
     || activeMission?.kind === 'commander-decapitation'
-  const allegiance = activeMission?.kind === 'enemy-town-assault'
-    || commanderTown ? Faction.ENEMY : Faction.TOWN
+  const allegiance = commanderTown ? Faction.ENEMY : Faction.TOWN
   return nativeSpecs.map(spec => ({
     spec: { ...spec },
     characterFaction: townResidentCharacterFaction(spec, context.residentFaction),

@@ -1,7 +1,11 @@
 import { describe,expect,it } from 'vitest'
 import { type CombatEvent } from '../../src/combat/CombatAttribution'
 import { resolveSkillProgressionAward } from '../../src/rpg/CombatSkillProgression'
-import { normalizeSkillState } from '../../src/rpg/SkillManager'
+import { normalizeSkillState, SkillManager } from '../../src/rpg/SkillManager'
+import { skillStatesEqual } from '../../src/rpg/CombatSkillProgression'
+import { unarmedDamage } from '../../src/combat/UnarmedCombat'
+import { TownScene } from '../../src/town/TownScene'
+import { createCareerProfile } from '../../src/career/CareerProfile'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 
 function damageEvent(
@@ -31,22 +35,70 @@ function damageEvent(
 }
 
 describe('Career skill progression', () => {
+  it('Town 的權威傷害事件只發一次徒手 XP，後續擊殺事件不重發也不遺失戰鬥統計', () => {
+    let forwarded = 0
+    const town = Object.assign(Object.create(TownScene.prototype) as {
+      emitCombatEvent(event: CombatEvent): void; skills: SkillManager; profile: ReturnType<typeof createCareerProfile>; careerSkillsDirty: boolean
+    }, {
+      skills: new SkillManager(), profile: createCareerProfile('roman'),
+      player: { dead: false, spectatorOnly: false, hasShield: true }, inventory: { activeMelee: WEAPONS.viking_axe_t3 },
+      squadRefitSafety: { note() {} }, mission: { events: { emit() { forwarded++ } } },
+      scheduleCareerSkillProgressionFlush() {},
+    })
+    const event = damageEvent('melee', 'npc', 5, 'unarmed')
+    town.emitCombatEvent(event)
+    town.emitCombatEvent({ type: 'actor_killed', source: event.source, target: event.target, method: 'melee', weaponId: 'unarmed' })
+    expect(town.skills.skillState.unarmed).toEqual({ level: 1, xp: 10 })
+    expect(town.skills.skillState.oneHanded.xp).toBe(0)
+    expect(town.skills.skillState.twoHanded.xp).toBe(0)
+    expect(town.profile.skills!.unarmed.xp).toBe(10)
+    expect(town.careerSkillsDirty).toBe(true)
+    expect(forwarded).toBe(2)
+  })
+  it('徒手技能倍率、傷害事件雙倍 XP 結算與升級曲線完整驗證', () => {
+    const manager = new SkillManager()
+    expect(manager.getMultiplier('unarmed')).toBe(1)
+    manager.setSkillState({ unarmed: { level: 50 }, oneHanded: { level: 50 }, twoHanded: { level: 50 }, ranged: { level: 50 }, mountedImpact: { level: 50 } })
+    expect(manager.getMultiplier('unarmed')).toBe(5)
+    expect(unarmedDamage(manager.getMultiplier('unarmed'))).toBe(25)
+    expect(unarmedDamage(manager.getMultiplier('unarmed'), 'byzantine-cataphract-t5')).toBe(75)
+    for (const id of ['oneHanded', 'twoHanded', 'ranged', 'mountedImpact'] as const) expect(manager.getMultiplier(id)).toBe(3)
+
+    // 雙倍徒手 XP
+    const fresh = new SkillManager(), before = fresh.skillState
+    const event = damageEvent('melee', 'npc', 5, 'unarmed')
+    expect(resolveSkillProgressionAward(event, WEAPONS.viking_axe_t3, false)).toEqual({ skill: 'unarmed', xp: 10 })
+    const award = resolveSkillProgressionAward(event, WEAPONS.viking_axe_t3, true)!
+    fresh.addXp(award.skill, award.xp)
+    expect(fresh.skillState).toMatchObject({ unarmed: { level: 1, xp: 10 }, oneHanded: { level: 1, xp: 0 }, twoHanded: { level: 1, xp: 0 } })
+    expect(skillStatesEqual(before, fresh.skillState)).toBe(false)
+    expect(before.unarmed.xp).toBe(0)
+    expect(resolveSkillProgressionAward(damageEvent('melee', 'mount', 5, 'unarmed'))).toEqual({ skill: 'unarmed', xp: 10 })
+    expect(resolveSkillProgressionAward(damageEvent('melee', 'npc', 0, 'unarmed'))).toBeNull()
+
+    // 升級曲線與 HP 加成
+    const curve = new SkillManager(), hp = curve.getMaxHpBonus()
+    expect(curve.addXp('unarmed', 122500)).toBe(49)
+    expect(curve.skillState.unarmed).toEqual({ level: 50, xp: 0 })
+    expect(curve.getMaxHpBonus() - hp).toBe(49)
+    const copy = curve.skillState; copy.unarmed.level = 1
+    expect(curve.skillState.unarmed.level).toBe(50)
+    expect(curve.addXp('unarmed', 100)).toBe(0)
+  })
   it('awards eagle melee to mountedImpact from attack metadata independent of the held sword', () => {
     const event = damageEvent('melee', 'npc', 60, WEAPONS.steel_sword.id)
     if (event.type !== 'damage_applied') throw new Error('expected damage event')
     event.attackSource = 'xongkoro'
     expect(resolveSkillProgressionAward(event, WEAPONS.steel_sword, true)).toEqual({ skill: 'mountedImpact', xp: 60 })
     expect(resolveSkillProgressionAward(event)).toEqual({ skill: 'mountedImpact', xp: 60 })
+    event.weaponId = 'unarmed'
+    expect(resolveSkillProgressionAward(event)).toEqual({ skill: 'mountedImpact', xp: 60 })
   })
 
-  it('fall damage never awards weapon or mountedImpact XP to the original attacker', () => {
-    expect(resolveSkillProgressionAward(damageEvent('fall', 'npc', 150), WEAPONS.steel_sword)).toBeNull()
-  })
-
-  it('migrates legacy Archery progress into Ranged and clamps invalid values', () => {
+  it('clamps invalid current skill values', () => {
     const state = normalizeSkillState({
       oneHanded: { level: 0, xp: -1 },
-      archery: { level: 12, xp: 250 },
+      ranged: { level: 12, xp: 250 },
       twoHanded: { level: 99, xp: 9999 },
     })
 
@@ -97,20 +149,32 @@ describe('Career skill progression', () => {
     )).toEqual({ skill: 'mountedImpact', xp: 18 })
   })
 
-  it('never grants skill XP for structure damage', () => {
+  it('trains Armor Break only from Impact the player spends on NPC shields and mount barding', () => {
+    const blocked = (actorType: 'player' | 'npc', targetType: 'npc' | 'mount' | 'player', blockedImpact: number): CombatEvent => ({
+      type: 'hit_blocked', method: 'melee', weaponId: WEAPONS.steel_sword.id, blockedImpact,
+      source: { actorId: actorType, actorType, allegiance: 'PLAYER' as never, characterFaction: 'roman' },
+      target: { targetId: `${targetType}:test`, targetType, name: 'target' },
+    })
+    expect(resolveSkillProgressionAward(blocked('player', 'npc', 15))).toEqual({ skill: 'armorBreak', xp: 300 })
+    expect(resolveSkillProgressionAward(blocked('player', 'mount', 40))).toEqual({ skill: 'armorBreak', xp: 800 })
+    // An NPC hitting a shield, or the player's own shield being hit, never trains the player's Armor Break.
+    expect(resolveSkillProgressionAward(blocked('npc', 'npc', 15))).toBeNull()
+    expect(resolveSkillProgressionAward(blocked('npc', 'player', 15))).toBeNull()
+
+    const manager = new SkillManager()
+    manager.addXp('armorBreak', 100)
+    expect(manager.skillState.armorBreak).toEqual({ level: 2, xp: 0 })
+    expect(manager.getMaxHpBonus()).toBe(2)
+  })
+
+  it('never awards skill XP for fall, structure, or non-damage kill events', () => {
+    expect(resolveSkillProgressionAward(damageEvent('fall', 'npc', 150), WEAPONS.steel_sword)).toBeNull()
     expect(resolveSkillProgressionAward(
       damageEvent('melee', 'structure', 100, WEAPONS.steel_sword.id),
       WEAPONS.steel_sword,
       false,
     )).toBeNull()
-  })
 
-  it('uses only the damage_applied event so mount death cannot double count progression', () => {
-    const hit = resolveSkillProgressionAward(
-      damageEvent('projectile', 'mount', 100, WEAPONS.elven_runebow.id),
-      WEAPONS.steel_sword,
-      false,
-    )
     const killEvent = {
       type: 'actor_killed',
       source: {
@@ -121,8 +185,6 @@ describe('Career skill progression', () => {
       contact: { kind: 'mount', time: .1 },
       weaponId: WEAPONS.elven_runebow.id,
     } as CombatEvent
-
-    expect(hit).toEqual({ skill: 'ranged', xp: 100 })
     expect(resolveSkillProgressionAward(killEvent, WEAPONS.steel_sword, false)).toBeNull()
   })
 

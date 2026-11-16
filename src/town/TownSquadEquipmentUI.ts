@@ -1,13 +1,16 @@
-import type { CareerProfile } from '../career/CareerProfile'
 import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
-import { availableCareerItem, careerItemTotal, careerItemTotals, legacyPersonalEquipment, type PersonalEquipmentSlot } from '../career/CareerInventory'
+import { availableCareerItem,careerItemTotal,careerItemTotals,type PersonalEquipmentSlot } from '../career/CareerInventory'
+import { personalSquadStateLabel } from '../career/CareerMissionPresentation'
 import { canRecruitPersonalSquad } from '../career/CareerPersonalSquad'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import type { CareerProfile } from '../career/CareerProfile'
+import { careerShopProduct,isCareerShopItemUseUnlocked } from '../career/CareerShopCatalog'
+import type { BulkEquipmentCategory,TownEquipmentSquadId } from '../career/CareerTownEquipment'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import type { EquipmentSquadAdapter, EquipmentTownAdapter } from '../ui/EquipmentUI'
-import type { BulkEquipmentCategory, TownEquipmentSquadId } from '../career/CareerTownEquipment'
-import type { PersonalSquadState } from './TownPersonalSquadController'
+import { WEAPONS } from '../rpg/WeaponDatabase'
+import type { EquipmentSquadAdapter,EquipmentTownAdapter } from '../ui/EquipmentUI'
 import { personalUnitDisplayName } from '../ui/UnitDisplayName'
+import { getTownEquipmentRuntimeStatus } from './TownEquipmentRuntime'
+import type { PersonalSquadState } from './TownPersonalSquadController'
 
 export function squadEquipmentUI(read: () => CareerProfile, state: () => PersonalSquadState,
   change: (memberId: string, slot: PersonalEquipmentSlot, id: string | null) => string, bulk?: EquipmentBulkAdapter, management?: () => { allowed: boolean; reason: string }): EquipmentSquadAdapter {
@@ -16,48 +19,51 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
     const profile = read(), currentState = state()
     if (!canRecruitPersonalSquad(profile)) {
       const locked = document.createElement('p'); locked.className = 'inv-item-desc inventory-wide'
-      locked.textContent = '升任隊長（Captain）後，可到人資中心（HR Center）雇用隊員。'
+      locked.textContent = '晉升為隊長後，可到人力資源中心招募私兵。'
       container.append(locked)
       return
     }
     const heading = document.createElement('div'); heading.className = 'modal-section-title inventory-wide'
-    heading.textContent = `Personal Squad · ${profile.personalSquad?.members.length ?? 0}/30 · ${currentState}`; container.append(heading)
+    heading.textContent = `私兵 · ${profile.personalSquad?.members.length ?? 0}/30 人 · ${personalSquadStateLabel(currentState)}`; container.append(heading)
     const missionActive = Boolean(profile.activeMission || profile.activeOutpostMission)
     const access = management?.()
     const canChange = currentState === 'RESERVE' && !missionActive && access?.allowed !== false
-    heading.textContent += ` · 存活 ${profile.personalSquad?.members.length ?? 0} · 可整補 ${canChange ? profile.personalSquad?.members.length ?? 0 : 0}`
+    heading.textContent += ` · 可換裝 ${canChange ? profile.personalSquad?.members.length ?? 0 : 0} 人`
     const lockNotice = access?.allowed === false ? access.reason : missionActive
       ? profile.activeMission?.kind === 'duel' && profile.activeMission.phase === 'RETURNING'
         ? '單挑尚未結算。請先關閉面板，跟隨裁判回營完成結算後，再替小隊換裝。'
         : '任務尚未結算。請先關閉面板，完成任務並返回小鎮結算後，再替小隊換裝。'
-      : '全隊回到 HR、進入 RESERVE 後才能換裝。'
-    const notice = document.createElement('p'); notice.className = 'inv-item-desc inventory-wide'
+      : '私兵必須全員回到人資中心（待命中）才能換裝；請先下令「Dismiss · 收隊」。'
+    const notice = document.createElement('p'); notice.className = 'inv-item-desc inventory-wide'; notice.setAttribute('role', 'status')
     notice.textContent = canChange ? message || '換裝只使用背包可用份數。裝備遠程會退回盾牌；裝備盾牌會退回遠程武器。' : lockNotice
     container.append(notice)
     appendBulkControls(container, bulk, () => canRecruitPersonalSquad(read()) && management?.().allowed !== false && state() === 'RESERVE' && !read().activeMission && !read().activeOutpostMission, lockNotice, value => { message = value; refresh() })
     if (!profile.personalSquad?.members.length) {
       const empty = document.createElement('p'); empty.className = 'inv-item-desc inventory-wide'
-      empty.textContent = '尚未雇用隊員。前往人資中心（HR Center）雇用隊員後，可在此管理小隊裝備。'
+      empty.textContent = '尚未招募私兵。到人力資源中心招募後，可在此管理私兵裝備。'
       container.append(empty)
     }
     for (const [index, member] of (profile.personalSquad?.members ?? []).entries()) {
       const card = document.createElement('article'); card.className = 'inventory-card'; card.dataset.memberId = member.id
       const title = document.createElement('strong'); title.textContent = personalUnitDisplayName(member, profile.faction, index); card.append(title)
-      const equipment = member.equipment ?? legacyPersonalEquipment(member.type, profile.faction)
+      const equipment = member.equipment!
       for (const slot of ['melee', 'ranged', 'shield', 'mount'] as PersonalEquipmentSlot[]) {
         const label = document.createElement('label'); label.className = 'inv-item-desc squad-equipment-slot'; label.style.display = 'block'
         const current = equipment[slot], item = current ? WEAPONS[current] ?? ARMORS[current] : undefined
-        label.textContent = SLOT_LABELS[slot] + (item ? ` · T${item.tier}` : current ? current === 'horse' ? ' · T1' : ' · T4' : '') + ': '
-        const select = document.createElement('select'); select.className = 'town-button'; select.setAttribute('aria-label', `${title.textContent} ${slot}`)
+        label.textContent = SLOT_LABELS[slot] + (current ? ` · T${item?.tier ?? careerShopProduct(current)?.tier ?? '?'}` : '') + ': '
+        const select = document.createElement('select'); select.className = 'town-button'; select.setAttribute('aria-label', `${title.textContent} ${slot}`); select.dataset.focusKey = `personal:${member.id}:${slot}`
         const canRemove = slot !== 'melee' && slot !== 'ranged' || Boolean(equipment[slot === 'melee' ? 'ranged' : 'melee'])
-        if (canRemove || !equipment[slot]) select.add(new Option('None', ''))
+        if (canRemove || !equipment[slot]) select.add(new Option('無', ''))
         for (const id of Object.keys(careerItemTotals(profile))) {
           const item = WEAPONS[id] ?? ARMORS[id]
           const fits = slot === 'mount' ? (PLAYER_MOUNT_IDS as readonly string[]).includes(id) : item?.type === (slot === 'shield' ? 'shield' : slot)
           if (!fits || !availableCareerItem(profile, id) && equipment[slot] !== id) continue
-          const name = item?.name ?? ({ horse: 'Horse', corgi: 'Corgi', 'black-cat': 'Black Cat', xongkoro: 'xongkoro' } as Record<string, string>)[id]
-          const tier = item?.tier ?? (id === 'horse' ? 1 : 4)
-          select.add(new Option(`${name} · T${tier} · 可用 ${availableCareerItem(profile, id)} / ${careerItemTotal(profile, id)}`, id))
+          const name = item?.name ?? careerShopProduct(id)?.name ?? id
+          const tier = item?.tier ?? careerShopProduct(id)!.tier
+          const locked = !isCareerShopItemUseUnlocked(profile, id)
+          const option = new Option(`${name} · T${tier} · 未分配 ${availableCareerItem(profile, id)} / 持有 ${careerItemTotal(profile, id)}` + (locked ? ' · 需要隊長或指揮官軍階' : ''), id)
+          option.disabled = locked
+          select.add(option)
         }
         select.value = equipment[slot] ?? ''; select.disabled = !canChange; select.title = canChange ? '' : lockNotice
         select.onchange = () => {
@@ -73,7 +79,7 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
 }
 
 
-const SLOT_LABELS: Record<PersonalEquipmentSlot, string> = { melee: '近戰 Melee', ranged: '遠程 Ranged', shield: '盾牌 Shield', mount: '坐騎 Mount' }
+const SLOT_LABELS: Record<PersonalEquipmentSlot, string> = { melee: '近戰', ranged: '遠程', shield: '盾牌', mount: '坐騎' }
 const BULK_ACTIONS: readonly { category: BulkEquipmentCategory; label: string }[] = [
   { category: 'bow', label: '一鍵換弓' }, { category: 'sword', label: '一鍵換刀' },
   { category: 'axe', label: '一鍵換斧' }, { category: 'spear', label: '一鍵換槍' }, { category: 'mount', label: '一鍵換馬' },
@@ -92,7 +98,7 @@ function appendBulkControls(container: HTMLElement, bulk: EquipmentBulkAdapter |
     const availability = bulk?.availability?.(action.category)
     const reason = !initiallyAllowed ? lockReason : !bulk ? '目前無法批量換裝。' : availability?.enabled === false ? availability.reason ?? '沒有適用裝備。' : ''
     const button = document.createElement('button'); button.className = 'btn-equip'; button.type = 'button'
-    button.textContent = action.label; button.dataset.bulkCategory = action.category
+    button.textContent = action.label; button.dataset.bulkCategory = action.category; button.dataset.focusKey = `bulk:${action.category}`
     button.disabled = Boolean(reason); button.title = reason
     button.onclick = () => {
       if (!canChange()) { onMessage(lockReason); return }
@@ -152,7 +158,7 @@ export function townEquipmentUI(bindings: TownEquipmentUIBindings): EquipmentTow
       tabs.setAttribute('aria-label', '全城裝備小隊')
       view.squads.forEach((squad, index) => {
         const tab = document.createElement('button'); tab.type = 'button'; tab.className = 'equipment-tab'
-        tab.textContent = squad.name; tab.dataset.squadId = String(squad.id); tab.id = `town-equipment-squad-${squad.id}`
+        tab.textContent = squad.name; tab.dataset.squadId = String(squad.id); tab.dataset.focusKey = `town-squad-tab:${squad.id}`; tab.id = `town-equipment-squad-${squad.id}`
         tab.setAttribute('role', 'tab'); tab.setAttribute('aria-controls', 'town-equipment-current')
         tab.setAttribute('aria-selected', String(squad.id === selected)); tab.tabIndex = squad.id === selected ? 0 : -1
         tab.onclick = () => { selected = squad.id; message = ''; refresh() }
@@ -181,7 +187,8 @@ export function townEquipmentUI(bindings: TownEquipmentUIBindings): EquipmentTow
       panel.append(heading)
       if (squad.id === 'personal') { bindings.personal.render(panel, refresh); return }
       const notice = document.createElement('p'); notice.className = 'inv-item-desc squad-equipment-summary'
-      notice.setAttribute('role', 'status'); notice.textContent = message || squad.reason || '全隊規劃，不降低任何成員的裝備 Tier；成功保存後套用。'
+      notice.setAttribute('role', 'status'); notice.setAttribute('data-town-equipment-status', '')
+      notice.textContent = message || getTownEquipmentRuntimeStatus() || squad.reason || '全隊規劃，不降低任何成員的裝備 Tier；成功保存後套用。'
       panel.append(notice)
       const currentSquad = () => bindings.read().squads.find(current => current.id === squad.id)
       const initiallyAllowed = view.allowed && Boolean(squad.refittable) && !squad.reason
@@ -211,7 +218,7 @@ export function townEquipmentUI(bindings: TownEquipmentUIBindings): EquipmentTow
             const fixed = document.createElement('span'); fixed.textContent = `${equipped.label} · 固定`; label.append(fixed)
           } else {
             const select = document.createElement('select'); select.className = 'town-button'
-            select.setAttribute('aria-label', `${member.name} ${slot}`)
+            select.setAttribute('aria-label', `${member.name} ${slot}`); select.dataset.focusKey = `town:${squad.id}:${member.id}:${slot}`
             const options = bindings.options(squad.id, member.id, slot)
             for (const option of options) select.add(new Option(option.label, option.id ?? ''))
             if (!options.some(option => option.id === equipped.id)) select.add(new Option(equipped.label, equipped.id ?? ''))
@@ -231,6 +238,17 @@ export function townEquipmentUI(bindings: TownEquipmentUIBindings): EquipmentTow
       }
     },
   }
+}
+
+/** Updates visible town equipment status elements immediately without triggering full UI rebuilds. */
+export function updateTownEquipmentVisibleStatus(status: string): boolean {
+  if (typeof document === 'undefined') return false
+  const targets = document.querySelectorAll<HTMLElement>('#town-equipment-current [data-town-equipment-status]')
+  if (!targets.length) return false
+  targets.forEach(target => {
+    target.textContent = status
+  })
+  return true
 }
 
 /** Shared wording for HR and Town results, including no-op and failed atomic saves. */

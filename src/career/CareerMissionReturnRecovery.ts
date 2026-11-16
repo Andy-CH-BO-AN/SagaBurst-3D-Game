@@ -1,4 +1,6 @@
-import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { COMBAT_BALANCE } from '../combat/CombatBalance'
+import { resolveCareerPlayerMaxHp } from './CareerPlayerProfile'
+import { clearCareerMission, cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import type { PersonalActorCheckpoint } from './CareerPersonalSquadMission'
 import { civilianCommandRoster } from './CivilianCommandAuthority'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
@@ -58,6 +60,16 @@ export function stageMissionReturnResidents(current: CareerProfile, homes: reado
   return next
 }
 
+/** Only completed formal returns may replace the health replayed by older
+ * race/aerial checkpoints. Preserve their movement and other resource state. */
+export function stageMissionReturnPlayerHealth(current: CareerProfile,
+  maxHp = resolveCareerPlayerMaxHp(current, COMBAT_BALANCE.hp.playerDefault)): CareerProfile {
+  return { ...current,
+    ...(current.playerAerialState ? { playerAerialState: { ...current.playerAerialState, hp: maxHp, dead: false } } : {}),
+    ...(current.racePlayerState ? { racePlayerState: { ...current.racePlayerState, hp: maxHp, dead: false } } : {}),
+  }
+}
+
 /** Explicit completed mission return only. Ordinary town reloads retain all checkpoints. */
 export function stageMissionReturnRebuild(current: CareerProfile,
   homes: readonly MissionReturnHome[], personal = current.personalSquadRuntime): CareerProfile {
@@ -67,10 +79,13 @@ export function stageMissionReturnRebuild(current: CareerProfile,
     next.townCommandSquad.refittingActorIds = []
     delete next.townCommandSquad.nativeReturnStates
   }
-  if (next.townAirCommandSquad?.townFaction === next.faction) delete next.townAirCommandSquad
   // Reconstruct native riders at their pads; their existing patrol owner starts the next cycle.
   if (next.townEagleGarrisons) delete next.townEagleGarrisons[next.faction]
+  // Town return rest retires both transient replays. The race snapshot can
+  // contain the outgoing battle mount HP, armor and position, not just race state.
   delete next.playerAerialState
+  delete next.racePlayerState
+  delete next.mountArmor
   // Return the whole owned roster, including reserves or members absent from this mission.
   const roster = snapshotPersonalMission(next)
   if (roster) for (const id of roster.memberIds) {
@@ -79,4 +94,16 @@ export function stageMissionReturnRebuild(current: CareerProfile,
   }
   next.personalSquadRuntime = returnPersonalMissionToHR(roster)
   return next
+}
+
+/** Both prison exits return the original, already-claimed defeat through the normal formal rebuild.
+ * Capture its HR snapshot before clearing activeMission: it owns private eagle pad identities.
+ */
+export function commitPrisonBreakReturn(current: CareerProfile, missionId: string,
+  homes: readonly MissionReturnHome[], save: (profile: CareerProfile) => boolean): CareerProfile | null {
+  const active = current.activeMission
+  if (!active?.prisonBreak || active.id !== missionId || active.result?.outcome !== 'failure'
+    || !active.result.claimed || !current.claimedBattleIds.includes(missionId)) return null
+  const returned = stageMissionReturnRebuild(clearCareerMission(current, missionId), homes, active.personalSquad)
+  return save(returned) ? returned : null
 }

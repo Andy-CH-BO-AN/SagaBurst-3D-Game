@@ -3,10 +3,13 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { MountType } from '../world/Mount'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
-import { PERSONAL_SQUAD_PRODUCTS, type CareerPersonalSquadMember } from '../career/CareerPersonalSquad'
-import { legacyPersonalEquipment } from '../career/CareerInventory'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import type { CareerPersonalSquadMember } from '../career/CareerPersonalSquad'
+import { PERSONAL_ROLE_NAMES } from '../career/CareerRecruitmentCatalog'
+import { resolveCharacterIdentity } from '../combat/CharacterIdentity'
+import { HERO_CLASS_NAMES } from '../career/CareerHeroClasses'
 
+/** Second (heavy) classes are shown by their own name; the default classes keep the generic rank label. */
+const ELITE_CLASS_PROFILES: ReadonlySet<HeroCombatProfileId> = new Set(['centurion', 'dragon-oathguard', 'byzantine-cataphract', 'ironblood-warlord'])
 const FACTIONS = { roman: '羅馬', viking: '維京' } as const
 const GATES = { north: '北門', south: '南門', east: '東門', west: '西門' } as const
 const SERVICES: Partial<Record<TownActorSpec['role'], string>> = {
@@ -18,8 +21,8 @@ const tierSuffix = (tier?: number) => tier && Number.isFinite(tier) ? ` · T${ti
 
 /** Display rank, not equipment tier or the legacy NPC tier-4 storage used by T5 heroes. */
 export function townUnitDisplayTier(spec: TownActorSpec, _faction: CharacterFaction, ordinaryTier: number = spec.tier): number {
-  if (spec.role === 'commander') return 5
-  if (['captain', 'deployment', 'hr-officer', 'ranger', 'eagle-trainer'].includes(spec.role) || spec.patrolLeader) return 4
+  if (spec.role === 'commander' || spec.role === 'deployment') return 5
+  if (['captain', 'hr-officer', 'ranger', 'eagle-trainer'].includes(spec.role) || spec.patrolLeader) return 4
   return ordinaryTier
 }
 
@@ -66,12 +69,13 @@ export function townUnitDisplayNames(roster: readonly { spec: TownActorSpec; mou
 }
 
 /** Permanent member order is supplied by the roster, never inferred from its UUID. */
-export function personalUnitDisplayName(member: CareerPersonalSquadMember, faction: CharacterFaction, index?: number, ordinaryTier?: number): string {
-  const product = PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)
-  const equipment = member.equipment ?? legacyPersonalEquipment(member.type, faction)
-  const tier = member.type === 'soldier' ? Math.min(4, ordinaryTier ?? WEAPONS[equipment.ranged ?? equipment.melee ?? '']?.tier ?? 1)
-    : member.type === 'commander' ? 5 : 4
-  return `私兵・${product?.name.replace(/^T\d+\s+/, '') ?? '士兵'}${index === undefined ? '' : ` ${number(index + 1)}`}${tierSuffix(tier)}`
+export function personalUnitDisplayName(member: CareerPersonalSquadMember, _faction: CharacterFaction, index?: number): string {
+  const faction = member.characterFaction
+  const identity = resolveCharacterIdentity({ characterFaction: faction, characterTier: member.characterTier,
+    heroArchetype: member.heroArchetype, visualAssetId: member.visualAssetId })
+  const hero = identity.heroArchetype === 'ranger' ? '遊俠・' : identity.heroArchetype && member.visualAssetId ? `${HERO_CLASS_NAMES[identity.combatProfileId!].zh}・`
+    : identity.heroArchetype === 'captain' ? '隊長・' : identity.heroArchetype === 'commander' ? '指揮官・' : ''
+  return `私兵・${FACTIONS[faction]}${hero}${PERSONAL_ROLE_NAMES[member.recruitmentRole]}${index === undefined ? '' : ` ${number(index + 1)}`}${tierSuffix(identity.characterTier)}`
 }
 
 export interface CombatUnitDisplayInfo {
@@ -93,10 +97,12 @@ export function combatUnitDisplayName(info: CombatUnitDisplayInfo): string {
   if (info.bandit) return '盜匪'
   if (info.civilian) return `${prefix}平民`
   const profile = info.combatProfileId
-  const hero = profile === 'roman-commander' || profile === 'viking-commander' ? '指揮官'
-    : profile === 'ranger' ? '遊俠' : profile ? '隊長' : undefined
+  const elite = profile && ELITE_CLASS_PROFILES.has(profile) ? HERO_CLASS_NAMES[profile].zh : undefined
+  const hero = elite ?? (profile === 'roman-commander' || profile === 'viking-commander' ? '指揮官'
+    : profile === 'ranger' ? '遊俠' : profile ? '隊長' : undefined)
   const preset = info.presetId ? UNIT_PRESETS[info.presetId] : undefined
-  const name = hero ? `${info.faction ? FACTIONS[info.faction] : ''}${hero}`
+  const name = elite ? elite : hero ? `${info.faction ? FACTIONS[info.faction] : ''}${hero}`
     : info.mountType === 'xongkoro' && preset?.traits.includes('bow_fire') ? '巨鷹弓兵' : preset?.nameZh
-  return `${prefix}${name ?? (info.mounted ? '騎兵' : '士兵')}${tierSuffix(hero === '指揮官' ? 5 : hero ? 4 : info.tier)}`
+  const heroTier = profile === 'byzantine-cataphract' || profile === 'ironblood-warlord' || hero === '指揮官' ? 5 : hero ? 4 : info.tier
+  return `${prefix}${name ?? (info.mounted ? '騎兵' : '士兵')}${tierSuffix(heroTier)}`
 }

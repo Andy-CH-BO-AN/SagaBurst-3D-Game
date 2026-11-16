@@ -1,24 +1,24 @@
 import * as THREE from 'three'
+import { refitCommandCheckpoint, restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
+import type { PersonalActorCheckpoint, PersonalActorPosition } from '../career/CareerPersonalSquadMission'
 import type { CareerProfile } from '../career/CareerProfile'
 import { cloneCareerProfile } from '../career/CareerProfile'
-import { emptyPersonalContribution } from '../combat/CommandMerit'
-import { refitCommandCheckpoint, restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
-import { commitCommanderRetirementToMobilizing, hasCompleteRetirementMobilizationCheckpoint, outsideRetirementTownCore, retirementAssaultFormations, retirementGroundStaging, retirementMobilizationNeedsPreparation, type RetirementAssaultFormation } from '../career/CareerRetirementMobilization'
 import { isTownCommandRevokedByRetirement, revokeRetirementTownCommandClaims } from '../career/CareerRetirementCommand'
-import { commanderGateDefenseSlots } from '../career/CommanderTownRoster'
+import { commitCommanderRetirementToMobilizing, hasCompleteRetirementMobilizationCheckpoint, outsideRetirementTownCore, retirementAssaultFormations, retirementGroundStaging, retirementMobilizationNeedsPreparation, type RetirementAssaultFormation } from '../career/CareerRetirementMobilization'
 import { civilianCommandRoster } from '../career/CivilianCommandAuthority'
-import { TOWN_WATCHTOWER_ARCHER_IDS } from './TownNativeGuardIdentity'
-import { townStationSpec } from './TownGarrison'
-import { restoreTownResidentHome } from './TownResidentHome'
-import { CIVILIAN_HOME_LAYOUT_VERSION } from './TownCivilianLife'
-import type { PersonalActorCheckpoint, PersonalActorPosition } from '../career/CareerPersonalSquadMission'
-import type { TownActorSpec } from './TownRules'
-import type { NPC } from '../world/NPC'
-import type { Mount } from '../world/Mount'
-import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
+import { commanderGateDefenseSlots } from '../career/CommanderTownRoster'
+import { emptyPersonalContribution } from '../combat/CommandMerit'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
+import type { Mount } from '../world/Mount'
+import type { NPC } from '../world/NPC'
+import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import type { TownCavalryPatrolController } from './TownCavalryPatrolController'
+import { CIVILIAN_HOME_LAYOUT_VERSION } from './TownCivilianLife'
 import type { TownEagleGarrisonController } from './TownEagleGarrisonController'
+import { townStationSpec } from './TownGarrison'
+import { TOWN_WATCHTOWER_ARCHER_IDS } from './TownNativeGuardIdentity'
+import { restoreTownResidentHome } from './TownResidentHome'
+import type { TownActorSpec } from './TownRules'
 
 interface Resident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
 interface MobilizationDependencies {
@@ -83,14 +83,6 @@ export class TownRetirementMobilizationController {
       this.deps.revoke()
     }
     if (!next.careerRetirement?.mobilization || !hasCompleteRetirementMobilizationCheckpoint(next)) return false
-    // Older prepared saves staged native guards at home. Migrate only their
-    // orders, behind the same save-first boundary, without another resource refit.
-    if (next.careerRetirement.phase === 'mobilizing') {
-      const staged = this.stageGroundOrders(next)
-      if (!staged || staged !== next && !this.deps.save(staged)) return false
-      if (staged !== next) this.deps.revoke()
-      next = staged
-    }
     if (!this.deps.patrol.reconcileRetirementMobilization(next.townCommandSquad!.members!)) return false
     if (!this.deps.eagles.reconcileRetirementMobilization(next.townEagleGarrisons![next.faction]!, `town:${next.faction}`, next.careerRetirement?.phase === 'final-stand')) return false
     for (const resident of this.residents) {
@@ -173,25 +165,8 @@ export class TownRetirementMobilizationController {
     delete saved.outpostRampartGarrison; delete saved.townRampartGarrison; delete saved.townRampartMounted
     saved.order = 'formation'
     // No arrivalOrder: native movement retains the reached checkpoint, making
-    // this migration idempotent even after an actor reaches its ground slot.
+    // initial staging idempotent even after an actor reaches its ground slot.
     saved.formation = { commandId: this.formationIds.get(id)!, position: { ...position }, reached: false }
-  }
-
-  private stageGroundOrders(current: CareerProfile): CareerProfile | null {
-    const pending = this.residents.filter(({ spec }) => {
-      const saved = this.savedMember(current, spec.id)
-      return !spec.eagle && saved?.status !== 'dead' && saved?.formation?.commandId !== this.formationIds.get(spec.id)
-    })
-    if (!pending.length) return current
-    const staging = this.groundPositions()
-    if (!staging) return null
-    const next = cloneCareerProfile(current)
-    for (const { spec } of pending) {
-      const saved = this.savedMember(next, spec.id)
-      if (!saved) return null
-      this.stageGroundOrder(saved, spec.id, staging.get(spec.id)!)
-    }
-    return hasCompleteRetirementMobilizationCheckpoint(next) ? next : null
   }
 
   /** Called last during ordinary snapshot staging, so stale native patrol/refit data cannot win. */

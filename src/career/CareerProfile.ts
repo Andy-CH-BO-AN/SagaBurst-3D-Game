@@ -1,46 +1,32 @@
-import type { CareerRetirementRuntime, CareerRetirementState } from './CareerRetirementState'
-import { grantCommanderMelee } from './CareerCommanderEquipment'
-import { cloneTownEquipment, type CareerTownEquipment } from './CareerTownEquipmentState'
-import { cloneTownAirCommandSquad, type TownAirCommandSquadState } from './TownAirCommandAuthority'
-import { cloneCivilianCommandSquad, type CivilianCommandSquadState } from './CivilianCommandAuthority'
-import type { EnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
-import type { CareerDuelTier, CareerDuelCommanderHome } from './CareerDuelState'
-import { cloneOfficialCommandAuthority, cloneTownCommandSquad, type TownCommandSquadState } from './CareerCommandAuthority'
-import type { TownEagleGarrisons } from '../town/TownEagleGarrisonState'
-import type { CareerAerialState } from './CareerAerialState'
-import { addCareerItem, careerItemTotal, MAX_PLAYER_OWNED_XONGKORO, isTradableCareerItem, normalizeCareerInventory, type CareerInventory } from './CareerInventory'
-import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
-import { clonePersonalMission } from './CareerPersonalSquadMission'
-import type { CareerOutpostMission, CareerOutpostRecord, CareerOutpostStageId } from './CareerOutpostMission'
-import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { PlayerMountId } from '../battle/BattleConfig'
-import type { HeroAssetId } from '../world/HeroAssetCatalog'
+import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
+import { createDefaultSkillState, normalizeSkillState } from '../rpg/SkillManager'
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import type { UnitPresetId } from '../battle/UnitPresetCatalog'
-import { createDefaultSkillState, normalizeSkillState, type SkillState } from '../rpg/SkillManager'
+import { cloneOfficialCommandAuthority, cloneTownCommandSquad } from './CareerCommandAuthority'
+import { grantCommanderMelee } from './CareerCommanderEquipment'
+import type { CareerDuelTier } from './CareerDuelState'
+import { addCareerItem, careerItemTotal, isTradableCareerItem, MAX_PLAYER_OWNED_XONGKORO, normalizeCareerInventory } from './CareerInventory'
 import { calculateRecruitMissionMerit } from './CareerMissionMeritPolicy'
+import type { CareerMissionOutcome } from './CareerMissionState'
 import { careerMissionTierForTemplateId, type CareerMissionTier } from './CareerMissionTier'
-import type { ActiveCareerMission, CareerMissionOutcome } from './CareerMissionState'
-import {
-  calculateMerit,
-  type CareerBattleOutcome,
-  type CareerBattleRole,
-  type MeritBreakdown,
-} from './MeritCalculator'
+import { clonePersonalMission } from './CareerPersonalSquadMission'
+import type { CareerBattleClaim, CareerBattleResult, CareerMissionClaim, CareerMountId, CareerProfile, CareerPurchaseRequest, CareerPurchaseResult, CareerPurchaseTier, CareerRank } from './CareerProfileTypes'
+import { careerShopProduct } from './CareerShopCatalog'
+import { hasFormalVictoryEvidence, recordCareerStoryFormalVictory, recordCareerStoryPurchase, settleCareerStoryEvent } from './CareerStoryEvents'
+import { cloneTownEquipment } from './CareerTownEquipmentState'
+import { claimCareerTutorialReward, createCareerTutorialState, recordCareerTutorialAppointment, recordCareerTutorialMissionSettlement, recordCareerTutorialOperation, recordCareerTutorialPurchase } from './CareerTutorialState'
+import { cloneCivilianCommandSquad } from './CivilianCommandAuthority'
+import { calculateMerit } from './MeritCalculator'
 
-export type { CareerMissionTier } from './CareerMissionTier'
-export type CareerRank = 'recruit' | 'soldier' | 'veteran' | 'captain' | 'commander'
-export type CareerPurchaseKind = 'weapon' | 'armor' | 'mount' | 'hero'
-export type CareerPurchaseTier = 1 | 2 | 3 | 4 | 5
-// Tier-specific horse IDs are retained only for legacy saves.
-export type CareerMountId = PlayerMountId | 'horse-t1' | 'horse-t2' | 'horse-t3'
+// The Career profile model lives in a type-only module that emits no JavaScript; this facade keeps every existing import path.
+export type * from './CareerProfileTypes'
 
 export function canonicalCareerMountId(id: CareerMountId): PlayerMountId {
-  return id === 'horse-t1' || id === 'horse-t2' || id === 'horse-t3' ? 'horse' : id
+  return id
 }
 
-export function ownsCareerHorse(profile: Pick<CareerProfile, 'ownedMounts' | 'ownedHorseTiers'>): boolean {
-  return profile.ownedMounts.includes('horse') || Boolean(profile.ownedHorseTiers?.some(tier => [1, 2, 3].includes(tier)))
+export function ownsCareerHorse(profile: Pick<CareerProfile, 'ownedMounts'>): boolean {
+  return profile.ownedMounts.includes('horse')
 }
 
 export const CAREER_RANK_THRESHOLDS: Readonly<Record<CareerRank, number>> = {
@@ -51,6 +37,11 @@ export const CAREER_RANK_THRESHOLDS: Readonly<Record<CareerRank, number>> = {
   commander: 20000,
 }
 
+/** Player-facing rank names; internal rank IDs stay unchanged for saves. */
+export const CAREER_RANK_LABELS: Readonly<Record<CareerRank, string>> = {
+  recruit: '新兵', soldier: '士兵', veteran: '老兵', captain: '隊長', commander: '指揮官',
+}
+
 export const CAREER_PURCHASE_TIER_BY_RANK: Readonly<Record<CareerRank, CareerPurchaseTier>> = {
   recruit: 1,
   soldier: 2,
@@ -59,145 +50,21 @@ export const CAREER_PURCHASE_TIER_BY_RANK: Readonly<Record<CareerRank, CareerPur
   commander: 5,
 }
 
-export interface CareerLifetimeStats {
-  battles: number
-  victories: number
-  deaths: number
-  kills: number
-  damage: number
-  structureDamage: number
-  breaches: number
-}
-
-export interface CareerProfile {
-  version: 1
-  faction: CharacterFaction
-
-  /** Lifetime earned merit. Never decreases; appointments use merit earned during this enlistment. */
-  totalMerit: number
-  /** Spendable merit. Purchases deduct this without affecting rank. */
-  availableMerit: number
-  rank: CareerRank
-  /** Optional ending lifecycle; retirement never changes the appointed rank. */
-  careerRetirement?: CareerRetirementState
-  /** Grounded player and owned-mount resources throughout the retirement sequence. */
-  retirementRuntime?: CareerRetirementRuntime
-  /** Native tower resources have no ordinary command checkpoint. */
-  retirementTowerGuards?: Record<string, import('./CareerPersonalSquadMission').PersonalActorCheckpoint>
-  /** Permanent Career combat progression. Never resets when returning to town or changing missions. */
-  skills?: SkillState
-  enlistmentMeritBase: number
-  equipment?: { melee?: string; ranged?: string; shield?: string | null }
-  /** Persistent receipt, independent of current inventory: selling the reward never re-grants it. */
-  commanderMeleeGranted?: boolean
-  /** Undefined legacy selections are preserved; only a known untouched starter is replaceable. */
-  meleeSelectionOrigin?: 'starter' | 'custom'
-  starterWeaponId?: string
-  townDialogueSeen?: string[]
-  personalSquad?: { members: CareerPersonalSquadMember[] }
-  /** Wounded deployed members after a slow mission return, until actual HR arrival. */
-  personalSquadRuntime?: import('./CareerPersonalSquadMission').PersonalSquadMission
-  /** Legacy purchases; any owned tier grants the single military horse. */
-  ownedHorseTiers?: (1 | 2 | 3)[]
-  /** Cosmetic only; missing legacy values use the original grey coat. */
-  horseAppearanceVariant?: import('../world/HorseAssetRegistry').HorseAppearanceVariant
-  selectedMountId?: CareerMountId
-  playerAerialState?: CareerAerialState
-  /** Minimal roaming deployment state survives mission cleanup independently in each Town. */
-  townOutskirts?: Partial<Record<CharacterFaction, import('../town/TownOutskirtsWarfareController').TownOutskirtsCheckpoint>>
-  townPatrols?: Partial<Record<CharacterFaction, import('../town/TownPatrolCheckpoint').TownPatrolCheckpoint>>
-  townCommandSquad?: TownCommandSquadState
-  civilianCommandSquad?: CivilianCommandSquadState
-  townAirCommandSquad?: TownAirCommandSquadState
-  racePlayerState?: import('./CareerRaceState').RaceRider
-  activeRace?: import('./CareerRaceState').CareerRaceSession
-  raceRecords?: import('./CareerRaceState').CareerRaceRecord[]
-  completedRaceIds?: import('./CareerRaceState').RaceId[]
-  raceBestSeconds?: Partial<Record<import('./CareerRaceState').RaceId, number>>
-  activeMission?: ActiveCareerMission
-  activeOutpostMission?: CareerOutpostMission
-  completedOutpostStages?: CareerOutpostStageId[]
-  /** Canonical, persistent prerequisite for Enemy Town Assault. */
-  completedOutpostRelief?: boolean
-  outpostBattleRecords?: CareerOutpostRecord[]
-  careerMissionCompletions?: number
-  /** Mission-board tiers are independent of the player's current rank. */
-  careerMissionCompletionsByTier?: Partial<Record<CareerMissionTier, number>>
-  completedCareerMissionTemplateIds?: string[]
-  /** Original service resources retained through Duel settlement and scene reconstruction. */
-  townCommanderRecovery?: CareerDuelCommanderHome & { faction: CharacterFaction }
-  /** Each unit preset unlocks only its own next Duel tier. */
-  duelHighestDefeatedTierByPreset?: Partial<Record<UnitPresetId, CareerDuelTier>>
-  townEvent?: { id: string; state: 'hostile' | 'settled'; pendingResult?: 'player_defeated' | 'town_defeated'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[]; authorizedTownCommandActorIds?: string[] }
-
-  enemyEaglePatrols?: Partial<Record<CharacterFaction, EnemyEaglePatrolCheckpoint>>
-  townEagleGarrisons?: TownEagleGarrisons
-  townEquipment?: CareerTownEquipment
-  inventory?: CareerInventory
-  ownedWeapons: string[]
-  ownedArmors: string[]
-  ownedMounts: PlayerMountId[]
-  ownedHeroes: HeroAssetId[]
-
-  lifetimeStats: CareerLifetimeStats
-  claimedBattleIds: string[]
-}
-
-export interface CareerBattleResult {
-  battleId: string
-  outcome: CareerBattleOutcome
-  role: CareerBattleRole
-  stats: BattleStatsSnapshot
-}
-
-export interface CareerBattleClaim {
-  profile: CareerProfile
-  meritAwarded: number
-  meritBreakdown: MeritBreakdown
-  alreadyClaimed: boolean
-  previousRank: CareerRank
-  newRank: CareerRank
-}
-
-export interface CareerMissionClaim {
-  profile: CareerProfile
-  meritAwarded: number
-  alreadyClaimed: boolean
-}
-
 export const MAX_BULK_PURCHASE_QUANTITY = 20
-
-export interface CareerPurchaseRequest {
-  kind: CareerPurchaseKind
-  id: string
-  cost: number
-  requiredTier: CareerPurchaseTier
-  quantity?: number
-}
-
-export type CareerPurchaseFailureReason =
-  | 'invalid-id'
-  | 'invalid-cost'
-  | 'invalid-quantity'
-  | 'already-owned'
-  | 'tier-locked'
-  | 'insufficient-merit'
-  | 'ownership-limit'
-
-export interface CareerPurchaseResult {
-  profile: CareerProfile
-  purchased: boolean
-  spentMerit: number
-  reason?: CareerPurchaseFailureReason
-}
 
 export function createCareerProfile(faction: CharacterFaction): CareerProfile {
   return {
-    version: 1,
+    version: 2,
+    inventory: { version: 1, quantities: {} },
+    careerMissionCompletionsByTier: { 1: 0, 2: 0, 3: 0 },
+    raceScheduleVersion: 3,
     faction,
+    tutorial: createCareerTutorialState(),
+    careerStory: { version: 1, events: {} },
     totalMerit: 0,
     availableMerit: 0,
     rank: 'recruit',
+    eliteClass: null,
     horseAppearanceVariant: 0,
     skills: createDefaultSkillState(),
     enlistmentMeritBase: 0,
@@ -278,6 +145,7 @@ export function claimCareerBattle(
   profile.availableMerit = availableMerit
   profile.rank = newRank
   profile.claimedBattleIds.push(battleId)
+  if (current.activeOutpostMission?.id === battleId) recordCareerTutorialMissionSettlement(profile, battleId)
   profile.lifetimeStats.battles += 1
   if (result.outcome === 'victory') profile.lifetimeStats.victories += 1
   if (!result.stats.player.survived) profile.lifetimeStats.deaths += 1
@@ -311,36 +179,61 @@ export function claimCareerMission(
     return { profile: cloneCareerProfile(current), meritAwarded: 0, alreadyClaimed: true }
   }
 
+  if (active.duelFailureReason === 'illegal_attack') outcome = 'failure'
+  if (active.duelTutorialCareerId) {
+    if (active.duelTutorialCareerId !== current.tutorial?.careerId || active.kind !== 'duel') {
+      return { profile: cloneCareerProfile(current), meritAwarded: 0, alreadyClaimed: false }
+    }
+    const profile = cloneCareerProfile(current)
+    if (!profile.tutorial!.duelOutcome) profile.tutorial!.duelOutcome = outcome === 'victory' ? 'victory' : 'defeat'
+    const meritAwarded = claimCareerTutorialReward(profile, 'duel')
+    recordCareerTutorialOperation(profile, 'town', 'duel')
+    profile.claimedBattleIds.push(missionId)
+    profile.activeMission = { ...profile.activeMission!, phase: 'RESULT', result: {
+      outcome, stats: { ...stats }, merit: { damage: 0, kills: 0, contribution: meritAwarded, total: meritAwarded }, claimed: true,
+    } }
+    return { profile, meritAwarded, alreadyClaimed: false }
+  }
+
   const contribution = { ...meritStats, damageTaken: stats.damageTaken, survived: stats.survived }
-  const offense = active.kind === 'enemy-town-assault' || active.kind === 'cavalry-sweep' || active.kind === 'veteran-outpost-assault' || active.kind === 'captain-eagle-battle'
-    || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation'
+  const profile = cloneCareerProfile(current)
+  // The veteran's invitation settles in this same claim: its fixed award replaces the damage/kill reward of this one trial.
+  const storyMerit = active.storyEventId && active.kind === 'arena-squad-trial'
+    ? settleCareerStoryEvent(profile, active.storyEventId, missionId, outcome === 'victory' ? 'victory' : 'defeat') : null
+  const offense = active.kind === 'cavalry-sweep' || active.kind === 'veteran-outpost-assault' || active.kind === 'captain-eagle-battle'
+    || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation' || active.kind === 'commander-six-feline-cavalry' || active.kind === 'commander-iron-legion' || active.kind === 'heavy-cavalry-field'
     ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense', 'mission') : null
   const defense = active.kind === 'captain-outpost-defense' || active.kind === 'commander-outpost-last-stand' || active.kind === 'commander-bridgehead-battle'
     || active.kind === 'commander-four-gate-defense'
     ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'defense', 'mission') : null
   const battleMerit = offense ?? defense
-  const merit = battleMerit ? { damage: battleMerit.characterDamage + battleMerit.structureDamage, kills: battleMerit.kills, contribution: battleMerit.victory + battleMerit.survival + battleMerit.gateBreaches, total: battleMerit.total } : calculateRecruitMissionMerit(contribution, outcome)
-  const profile = cloneCareerProfile(current)
+  const merit = storyMerit !== null ? { damage: 0, kills: 0, contribution: storyMerit, total: storyMerit }
+    : battleMerit ? { damage: battleMerit.characterDamage + battleMerit.structureDamage, kills: battleMerit.kills, contribution: battleMerit.victory + battleMerit.survival + battleMerit.gateBreaches, total: battleMerit.total } : calculateRecruitMissionMerit(contribution, outcome)
   profile.totalMerit += merit.total
   profile.availableMerit += merit.total
   profile.claimedBattleIds.push(missionId)
+  const arenaTrial = active.kind === 'arena-squad-trial'
+  if (active.kind !== 'duel' && !arenaTrial) recordCareerTutorialMissionSettlement(profile, missionId)
   profile.lifetimeStats.battles += 1
   if (outcome === 'victory') {
     profile.lifetimeStats.victories += 1
     if (active.kind === 'duel') {
-      if (active.duelPresetId && active.duelTier) {
+      if (active.duelMode === 'unarmed' && active.duelTier) {
+        profile.unarmedDuelHighestDefeatedTier = Math.max(profile.unarmedDuelHighestDefeatedTier ?? 0, active.duelTier) as CareerDuelTier
+      } else if (active.duelPresetId && active.duelTier) {
         profile.duelHighestDefeatedTierByPreset = {
           ...profile.duelHighestDefeatedTierByPreset,
           [active.duelPresetId]: Math.max(profile.duelHighestDefeatedTierByPreset?.[active.duelPresetId] ?? 0, active.duelTier) as CareerDuelTier,
         }
       }
-    } else recordCareerMissionCompletion(profile, careerMissionTierForTemplateId(active.templateId))
-    if ((active.kind === 'town-defense' || active.kind?.startsWith('veteran-') || active.templateId.startsWith('captain-') || active.templateId.startsWith('commander-'))
+    } else if (!arenaTrial) recordCareerMissionCompletion(profile, careerMissionTierForTemplateId(active.templateId))
+    if ((active.kind?.startsWith('veteran-') || active.templateId.startsWith('captain-') || active.templateId.startsWith('commander-'))
       && !(profile.completedCareerMissionTemplateIds ?? []).includes(active.templateId)) {
       profile.completedCareerMissionTemplateIds = [...(profile.completedCareerMissionTemplateIds ?? []), active.templateId]
     }
   }
-  if (!stats.survived) profile.lifetimeStats.deaths += 1
+  // A knocked-out trial player is not a casualty.
+  if (!stats.survived && !arenaTrial) profile.lifetimeStats.deaths += 1
   profile.lifetimeStats.kills += Math.max(0, Math.floor(stats.kills))
   profile.lifetimeStats.damage += Math.max(0, stats.damageDealt)
   if (offense) {
@@ -364,30 +257,21 @@ export function clearCareerMission(current: CareerProfile, missionId: string): C
   if (profile.activeMission?.id === missionId) {
     const home = profile.activeMission.duelTier === 5 ? profile.activeMission.duelCommanderHome : undefined
     if (home) profile.townCommanderRecovery = { ...home, faction: profile.faction }
+    const duel = profile.activeMission
+    if (duel.duelMode === 'unarmed' && duel.duelTier !== 5 && duel.duelCommanderHome && duel.duelOpponentActorId)
+      profile.townDuelResidentRecovery = { ...duel.duelCommanderHome, faction: profile.faction, actorId: duel.duelOpponentActorId }
     delete profile.activeMission
   }
   return profile
 }
 
 export function careerMissionCompletionsForTier(profile: CareerProfile, tier: CareerMissionTier): number {
-  if (profile.careerMissionCompletionsByTier) return profile.careerMissionCompletionsByTier[tier] ?? 0
-  // Legacy saves have a combined total. Preserve proven Soldier-tier wins;
-  // the remaining total belongs to the original Recruit mission board.
-  const outpostWins = profile.outpostBattleRecords?.filter(record => record.outcome === 'victory').length ?? 0
-  const soldierStoryWins = profile.completedCareerMissionTemplateIds?.filter(id => careerMissionTierForTemplateId(id) === 2).length ?? 0
-  const assaultWin = profile.activeMission?.kind === 'enemy-town-assault'
-    && profile.activeMission.result?.outcome === 'victory' ? 1 : 0
-  const soldierWins = outpostWins + soldierStoryWins + assaultWin
-  const veteranStoryWins = profile.completedCareerMissionTemplateIds?.filter(id => careerMissionTierForTemplateId(id) === 3).length ?? 0
-  const captainStoryWins = profile.completedCareerMissionTemplateIds?.filter(id => careerMissionTierForTemplateId(id) === 4).length ?? 0
-  if (tier === 5) return 0
-  if (tier === 4) return captainStoryWins
-  if (tier === 2) return soldierWins
-  if (tier === 3) return veteranStoryWins
-  return Math.max(0, (profile.careerMissionCompletions ?? 0) - soldierWins - veteranStoryWins - captainStoryWins)
+  return profile.careerMissionCompletionsByTier?.[tier] ?? 0
 }
 
 export function recordCareerMissionCompletion(profile: CareerProfile, tier: CareerMissionTier): void {
+  // The canonical formal-victory counter is also the first-victory story trigger; evidence is read before counting.
+  recordCareerStoryFormalVictory(profile, hasFormalVictoryEvidence(profile))
   const counts: Partial<Record<CareerMissionTier, number>> = {
     1: careerMissionCompletionsForTier(profile, 1),
     2: careerMissionCompletionsForTier(profile, 2),
@@ -404,7 +288,7 @@ export function purchaseCareerContent(
   current: CareerProfile,
   request: CareerPurchaseRequest,
 ): CareerPurchaseResult {
-  const id = request.id.trim()
+  const id = typeof request.id === 'string' ? request.id.trim() : ''
   if (!id || request.kind !== 'hero' && !isTradableCareerItem(id)) {
     return {
       profile: cloneCareerProfile(current),
@@ -422,6 +306,17 @@ export function purchaseCareerContent(
     }
   }
 
+  // Only catalog-backed shop goods have rank-free purchase rights. Never trust caller prices or tiers.
+  const item = request.kind === 'hero' ? undefined : careerShopProduct(id)
+  if (request.kind !== 'hero' && (!item || item.category !== request.kind)) {
+    return { profile: cloneCareerProfile(current), purchased: false, spentMerit: 0, reason: 'invalid-id' }
+  }
+  if (item && request.cost !== item.price) {
+    return { profile: cloneCareerProfile(current), purchased: false, spentMerit: 0, reason: 'invalid-cost' }
+  }
+  if (item && request.requiredTier !== item.tier) {
+    return { profile: cloneCareerProfile(current), purchased: false, spentMerit: 0, reason: 'invalid-tier' }
+  }
   const quantity = request.quantity ?? 1
   if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > MAX_BULK_PURCHASE_QUANTITY
     || request.kind === 'hero' && quantity !== 1) {
@@ -433,7 +328,7 @@ export function purchaseCareerContent(
   }
 
   const profile = cloneCareerProfile(current)
-  if (!isCareerPurchaseTierUnlocked(profile, request.requiredTier)) {
+  if ((!item || item.id === 'xongkoro') && !isCareerPurchaseTierUnlocked(profile, request.requiredTier)) {
     return {
       profile,
       purchased: false,
@@ -473,9 +368,12 @@ export function purchaseCareerContent(
   if (request.kind !== 'hero' && !Number.isSafeInteger(careerItemTotal(profile, id) + quantity)) {
     return { profile, purchased: false, spentMerit: 0, reason: 'invalid-quantity' }
   }
+  const hadHorse = ownsCareerHorse(profile) || profile.tutorial?.purchases.horse === true
   profile.availableMerit -= totalCost
   if (request.kind === 'hero') target.push(id)
   else { normalizeCareerInventory(profile); addCareerItem(profile, id, quantity) }
+  recordCareerTutorialPurchase(profile, request.kind, id)
+  recordCareerStoryPurchase(profile, request.kind, id, hadHorse)
 
   return {
     profile,
@@ -487,6 +385,10 @@ export function purchaseCareerContent(
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
+    ...(profile.unlockedCareerClasses ? { unlockedCareerClasses: [...profile.unlockedCareerClasses] } : {}),
+    ...(profile.unlockedT4Classes ? { unlockedT4Classes: [...profile.unlockedT4Classes] } : {}),
+    ...(profile.tutorial ? { tutorial: structuredClone(profile.tutorial) } : {}),
+    ...(profile.careerStory ? { careerStory: structuredClone(profile.careerStory) } : {}),
     ...(profile.retirementTowerGuards ? { retirementTowerGuards: structuredClone(profile.retirementTowerGuards) } : {}),
     ...(profile.retirementRuntime ? { retirementRuntime: structuredClone(profile.retirementRuntime) } : {}),
     ...(profile.careerRetirement ? { careerRetirement: { ...profile.careerRetirement, ...(profile.careerRetirement.mobilization ? { mobilization: { ...profile.careerRetirement.mobilization } } : {}) } } : {}),
@@ -495,9 +397,9 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.raceRecords ? { raceRecords: structuredClone(profile.raceRecords) } : {}),
     ...(profile.completedRaceIds ? { completedRaceIds: [...profile.completedRaceIds] } : {}),
     ...(profile.raceBestSeconds ? { raceBestSeconds: { ...profile.raceBestSeconds } } : {}),
+    ...(profile.townDuelResidentRecovery ? { townDuelResidentRecovery: { ...profile.townDuelResidentRecovery } } : {}),
     ...(profile.townCommanderRecovery ? { townCommanderRecovery: { ...profile.townCommanderRecovery } } : {}),
     ...(profile.townCommandSquad ? { townCommandSquad: cloneTownCommandSquad(profile.townCommandSquad) } : {}),
-    ...(profile.townAirCommandSquad ? { townAirCommandSquad: cloneTownAirCommandSquad(profile.townAirCommandSquad) } : {}),
     ...(profile.civilianCommandSquad ? { civilianCommandSquad: cloneCivilianCommandSquad(profile.civilianCommandSquad) } : {}),
     ...(profile.enemyEaglePatrols ? { enemyEaglePatrols: structuredClone(profile.enemyEaglePatrols) } : {}),
     ...(profile.townEagleGarrisons ? { townEagleGarrisons: structuredClone(profile.townEagleGarrisons) } : {}),
@@ -520,11 +422,13 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.equipment ? { equipment: { ...profile.equipment } } : {}),
     ...(profile.townEvent ? { townEvent: { ...profile.townEvent, ...(profile.townEvent.authorizedTownCommandActorIds ? { authorizedTownCommandActorIds: [...profile.townEvent.authorizedTownCommandActorIds] } : {}), ...(profile.townEvent.deadActorIds ? { deadActorIds: [...profile.townEvent.deadActorIds] } : {}), ...(profile.townEvent.destroyedBuildingIds ? { destroyedBuildingIds: [...profile.townEvent.destroyedBuildingIds] } : {}) } } : {}),
     ...(profile.townDialogueSeen ? { townDialogueSeen: [...profile.townDialogueSeen] } : {}),
-    ...(profile.ownedHorseTiers ? { ownedHorseTiers: [...profile.ownedHorseTiers] } : {}),
     ...(profile.careerMissionCompletionsByTier ? { careerMissionCompletionsByTier: { ...profile.careerMissionCompletionsByTier } } : {}),
     ...(profile.duelHighestDefeatedTierByPreset ? { duelHighestDefeatedTierByPreset: { ...profile.duelHighestDefeatedTierByPreset } } : {}),
     ...(profile.activeMission ? { activeMission: {
       ...profile.activeMission,
+      targetActorIds: [...profile.activeMission.targetActorIds],
+      friendlyActorIds: [...profile.activeMission.friendlyActorIds],
+      ...(profile.activeMission.prisonBreak ? { prisonBreak: structuredClone(profile.activeMission.prisonBreak) } : {}),
       ...(profile.activeMission.duelCommanderHome ? { duelCommanderHome: { ...profile.activeMission.duelCommanderHome } } : {}),
       ...(profile.activeMission.duelTravel ? { duelTravel: structuredClone(profile.activeMission.duelTravel) } : {}),
       ...(profile.activeMission.officialSquad ? { officialSquad: cloneOfficialCommandAuthority(profile.activeMission.officialSquad) } : {}),
@@ -536,22 +440,10 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
       ...(profile.activeMission.fourGateDefense ? { fourGateDefense: structuredClone(profile.activeMission.fourGateDefense) } : {}),
       ...(profile.activeMission.bridgeBattle ? { bridgeBattle: structuredClone(profile.activeMission.bridgeBattle) } : {}),
       ...(profile.activeMission.bridgeDeployment ? { bridgeDeployment: { ...profile.activeMission.bridgeDeployment } } : {}),
+      ...(profile.activeMission.felineBattle ? { felineBattle: structuredClone(profile.activeMission.felineBattle) } : {}),
       ...(profile.activeMission.eagleBattle ? { eagleBattle: structuredClone(profile.activeMission.eagleBattle) } : {}),
+      ...(profile.activeMission.arenaTrial ? { arenaTrial: structuredClone(profile.activeMission.arenaTrial) } : {}),
       ...(profile.activeMission.personalSquad ? { personalSquad: clonePersonalMission(profile.activeMission.personalSquad) } : {}),
-      ...(profile.activeMission.siege ? { siege: {
-        ...profile.activeMission.siege,
-        attackerIds: [...profile.activeMission.siege.attackerIds],
-        claimedSquadIds: [...profile.activeMission.siege.claimedSquadIds],
-        destroyedGateIds: [...profile.activeMission.siege.destroyedGateIds],
-        releasedReserveGateIds: [...profile.activeMission.siege.releasedReserveGateIds],
-        crossedActorIds: [...profile.activeMission.siege.crossedActorIds],
-        approachedActorIds: [...profile.activeMission.siege.approachedActorIds],
-        defensePlans: profile.activeMission.siege.defensePlans.map(plan => ({ ...plan, infantry: [...plan.infantry], cavalry: [...plan.cavalry] })),
-        gateHealth: { ...profile.activeMission.siege.gateHealth },
-        ...(profile.activeMission.siege.playerPosition ? { playerPosition: { ...profile.activeMission.siege.playerPosition } } : {}),
-      } } : {}),
-      targetActorIds: [...profile.activeMission.targetActorIds],
-      friendlyActorIds: [...profile.activeMission.friendlyActorIds],
       ...(profile.activeMission.deadTargetActorIds ? { deadTargetActorIds: [...profile.activeMission.deadTargetActorIds] } : {}),
       ...(profile.activeMission.deadFriendlyActorIds ? { deadFriendlyActorIds: [...profile.activeMission.deadFriendlyActorIds] } : {}),
       ...(profile.activeMission.deadCivilianActorIds ? { deadCivilianActorIds: [...profile.activeMission.deadCivilianActorIds] } : {}),
@@ -559,6 +451,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
       ...(profile.activeMission.mountState ? { mountState: {
         ...profile.activeMission.mountState,
         hp: { ...profile.activeMission.mountState.hp },
+        ...(profile.activeMission.mountState.armorImpact ? { armorImpact: { ...profile.activeMission.mountState.armorImpact } } : {}),
         unavailable: [...profile.activeMission.mountState.unavailable],
       } } : {}),
       ...(profile.activeMission.result ? { result: {
@@ -572,11 +465,16 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
       ...(profile.activeMission.reinforcementActorIds ? { reinforcementActorIds: [...profile.activeMission.reinforcementActorIds] } : {}),
       ...(profile.activeMission.chargedSquadIds ? { chargedSquadIds: [...profile.activeMission.chargedSquadIds] } : {}),
       ...(profile.activeMission.borrowedActorIds ? { borrowedActorIds: [...profile.activeMission.borrowedActorIds] } : {}),
+      ...(profile.activeMission.borrowedActorIdentities ? { borrowedActorIdentities: Object.fromEntries(Object.entries(profile.activeMission.borrowedActorIdentities).map(([id, identity]) => [id, { ...identity }])) } : {}),
       ...(profile.activeMission.actorHealth ? { actorHealth: Object.fromEntries(Object.entries(profile.activeMission.actorHealth).map(([actorId, health]) => [actorId, { ...health }])) } : {}),
       ...(profile.activeMission.actorPositions ? { actorPositions: Object.fromEntries(Object.entries(profile.activeMission.actorPositions).map(([actorId, position]) => [actorId, { ...position }])) } : {}),
       ...(profile.activeMission.engagedEnemySquadIds ? { engagedEnemySquadIds: [...profile.activeMission.engagedEnemySquadIds] } : {}),
       ...(profile.activeMission.outpostSiege ? { outpostSiege: structuredClone(profile.activeMission.outpostSiege) } : {}),
-      ...(profile.activeMission.outpostBattleState ? { outpostBattleState: { ...profile.activeMission.outpostBattleState } } : {}),
+      ...(profile.activeMission.outpostBattleState ? { outpostBattleState: {
+        ...profile.activeMission.outpostBattleState,
+        ...(profile.activeMission.outpostBattleState.playerPosition
+          ? { playerPosition: { ...profile.activeMission.outpostBattleState.playerPosition } } : {}),
+      } } : {}),
       ...(profile.activeMission.commanderMission ? { commanderMission: {
         ...profile.activeMission.commanderMission,
         ...(profile.activeMission.commanderMission.playerPosition
@@ -588,6 +486,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ownedWeapons: [...profile.ownedWeapons],
     ownedArmors: [...profile.ownedArmors],
     ownedMounts: [...profile.ownedMounts],
+    ...(profile.mountArmor ? { mountArmor: { ...profile.mountArmor } } : {}),
     ownedHeroes: [...profile.ownedHeroes],
     lifetimeStats: { ...profile.lifetimeStats },
     claimedBattleIds: [...profile.claimedBattleIds],
@@ -605,6 +504,15 @@ export function promoteCareer(profile: CareerProfile): CareerProfile | null {
   const next = CAREER_RANKS[CAREER_RANKS.indexOf(profile.rank) + 1]
   if (!next || enlistmentMerit(profile) < CAREER_RANK_THRESHOLDS[next]) return null
   const promoted = { ...cloneCareerProfile(profile), rank: next }
+  if (next === 'captain') {
+    promoted.t4Specialization = promoted.faction === 'roman' ? 'paladin' : 'varangian'
+    promoted.unlockedT4Classes = [promoted.t4Specialization]
+  }
+  if (next === 'commander') {
+    promoted.eliteClass = null
+    promoted.unlockedCareerClasses = [promoted.faction === 'roman' ? 'roman-commander' : 'viking-commander']
+  }
+  recordCareerTutorialAppointment(promoted, next)
   grantCommanderMelee(promoted)
   return promoted
 }

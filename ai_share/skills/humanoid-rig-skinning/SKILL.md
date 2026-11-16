@@ -11,6 +11,7 @@ Prepare external people through the existing registry and asset descriptors. Pre
 
 - Read [humanoid contract](references/humanoid-contract.md) and [manifest contract](references/asset-manifest.md). Faction dimensions apply to ordinary characters; heroes and source-proportion variants use an asset-specific descriptor, not relaxed global checks.
 - Audit the source, license and texture provenance before export. Preserve source hashes and attribution; keep source downloads outside the shipped runtime bundle. Resolve missing usage/redistribution evidence before publishing the asset.
+- For sources that already have a skeleton and animations (armature scale bake, direction retargeting, fingerless hands), or optional equipment GLBs loaded on demand, read [skinned-source integration](references/skinned-source-integration.md).
 - For static posed sources, sleeve/forearm deformation or Maki's bow stance, read [posed-source characters](references/posed-source-characters.md). For clothing and reference-driven appearance work, use [humanoid-from-reference](../humanoid-from-reference/SKILL.md).
 - Normalize the full hierarchy to metres and local `+Z` forward. Fit the target skeleton through anatomical rest transforms, not bone names alone; runtime scaling must remain uniform.
 - Preserve required bones, sockets, bind transforms and equipment ownership. Validate weights at shoulders, elbows, hips, knees, skirts and rigid armour using the affected actions, including mounted poses when supported.

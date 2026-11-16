@@ -1,5 +1,12 @@
-import { careerMissionCompletionsForTier, type CareerProfile } from '../career/CareerProfile'
+import romanEscaped from '../assets/retirement/roman_escaped.webp?url'
+import romanFallen from '../assets/retirement/roman_fallen.webp?url'
+import romanLegacy from '../assets/retirement/roman_legacy.webp?url'
+import vikingEscaped from '../assets/retirement/viking_escaped.webp?url'
+import vikingFallen from '../assets/retirement/viking_fallen.webp?url'
+import vikingLegacy from '../assets/retirement/viking_legacy.webp?url'
+import type { CareerProfile } from '../career/CareerProfile'
 import { commanderRetirementEligibility } from '../career/CareerRetirement'
+import './retirement-ending.css'
 
 const RETIREMENT_DETAIL = '完成十場指揮官任務，並至少一次守住敵軍全線進攻後，即可申請退休。'
 const RETIREMENT_DIALOGUE = '十場勝利。連敵軍的全線進攻，也沒能從你手中奪走這座城。\n\n你替這裡流的血已經夠多了。軍隊會記得你，城鎮也會記得你。\n\n交回軍令吧。帶上真正屬於你的士兵，到城外完成最後一次點名。\n\n謝謝你所做的一切。願你往後，不必再為任何人的命令拔劍。'
@@ -53,54 +60,145 @@ export function appendCommanderRetirementOption(panel: HTMLElement, profile: Car
   apply.disabled = !eligibility.eligible || Boolean(profile.careerRetirement)
 }
 
-const ENDINGS = {
-  fallen: {
-    title: '退休結局：光榮退役',
-    name: '光榮退役',
-    body: '你曾替這座城守住四面城門。\n最後一次，沒有人替你守住退路。\n\n官方記錄宣稱，你在退役途中發動叛亂，最終被城鎮軍隊平定。\n\n軍冊上只留下四個字：\n\n光榮退役\n\n城鎮仍然安全。\n因為它最害怕的人，已經倒下。',
-  },
-  escaped: {
-    title: '退休結局：帶旗離城',
-    name: '帶旗離城',
-    body: '你曾替這座城守住四面城門。\n最後一次，城門在你身後關上。\n\n戰鬥結束時，你仍然站著。\n軍權被收回，願意追隨你的人卻沒有散去。\n\n他們想讓你的退休成為一場葬禮。\n你卻帶著自己的旗，活著離開。\n\n從此，你不再為城鎮而戰。\n你只為自己，以及曾選擇站在你身旁的人拔劍。',
-  },
-} as const
+/** Visual variants do not add or change the persisted battle outcome. */
+export function retirementEndingView(profile: CareerProfile) {
+  const ENDINGS = {
+    fallen: {
+      images: { roman: romanFallen, viking: vikingFallen },
+      title: '光榮退役',
+      subtitle: '他曾守住四座城門，最後卻死在自己守護的城前。',
+      body: '你曾替這座城守住四面城門。\n最後一次，沒有人替你守住退路。\n\n官方記錄宣稱，你在退役途中發動叛亂，最終被城鎮軍隊平定。\n\n軍冊上只留下四個字：\n\n光榮退役\n\n城鎮仍然安全。\n因為它最害怕的人，已經倒下。',
+    },
+    escaped: {
+      images: { roman: romanEscaped, viking: vikingEscaped },
+      title: '帶旗離城',
+      subtitle: '你交出了軍權，卻從未失去追隨者。',
+      body: '你曾替這座城守住四面城門。\n最後一次，城門在你身後關上。\n\n戰鬥結束時，你仍然站著。\n軍權被收回，願意追隨你的人卻沒有散去。\n\n他們想讓你的退休成為一場葬禮。\n你卻帶著自己的旗，活著離開。\n\n從此，你不再為城鎮而戰。\n你只為自己，以及曾選擇站在你身旁的人拔劍。',
+    },
+    legacy: {
+      images: { roman: romanLegacy, viking: vikingLegacy },
+      title: '旗幟不倒',
+      subtitle: '指揮官沒能回來，但他們帶著他的意志走出了戰場。',
+      body: '你曾替這座城守住四面城門。\n最後一次，你倒在了離城的路上。\n\n但願意追隨你的人沒有散去。\n他們撐過了追殺，或擊潰了全城的敵軍，讓你的旗仍然飄揚。\n\n你沒能活著離開。\n你的部隊卻帶著你的旗，走出了這場清算。',
+    },
+  } as const
 
-/** No Town scene, actors, storage deletion, or mission result UI is created here. */
+  const state = profile.careerRetirement
+  if (state?.phase !== 'completed' || !state.outcome) return null
+  const variant = state.outcome === 'escaped' && profile.retirementRuntime?.player?.hp === 0 ? 'legacy' : state.outcome
+  const battle = profile.retirementRuntime?.stats
+  const metric = (value: number | undefined): string => typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.round(value).toLocaleString('zh-TW') : '—'
+  const seconds = state.combatElapsedSeconds
+  return {
+    ...ENDINGS[variant], variant,
+    faction: profile.faction === 'viking' ? '維京' : '羅馬',
+    imageUrl: ENDINGS[variant].images[profile.faction],
+    stats: [
+      ['指揮官任務勝利', metric(profile.careerMissionCompletionsByTier?.[5])],
+      ['最後一戰玩家擊殺', metric(battle?.player?.kills)],
+      ['最後一戰私人部隊擊殺', metric(battle?.personal?.kills)],
+      ['玩家造成傷害', metric(battle?.player?.damageDealt)],
+      ['玩家承受傷害', metric(battle?.player?.damageTaken)],
+      ['私人部隊造成傷害', metric(battle?.personal?.damageDealt)],
+      ['私人部隊承受傷害', metric(battle?.personal?.damageTaken)],
+      ['最後一戰持續時間', typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0
+        ? `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}` : '—'],
+    ],
+  }
+}
+
+let closeActiveEnding: (() => void) | undefined
+
+/** DOM-only ending. The caller owns save replacement and scene transitions. */
 export function showCommanderRetirementEnding(profile: CareerProfile, actions: {
   home(): void
   newCareer(): void
-}): void {
-  const outcome = profile.careerRetirement?.outcome
-  if (profile.careerRetirement?.phase !== 'completed' || !outcome) return
+}): () => void {
+  closeActiveEnding?.()
+  const ending = retirementEndingView(profile)
+  if (!ending) return () => {}
   document.exitPointerLock?.()
-  const ending = ENDINGS[outcome]
-  const screen = document.createElement('div'); screen.id = 'career-retirement-ending'
-  screen.style.cssText = 'position:fixed;inset:0;z-index:1000;overflow:auto;box-sizing:border-box;padding:clamp(24px,5vh,70px) max(24px,calc((100vw - 740px)/2));background:radial-gradient(ellipse at 25% 0,#493d2c,#121719 70%);color:#efdfbf;font:16px/1.8 system-ui'
-  const label = document.createElement('small'); label.className = 'town-eyebrow'
-  label.textContent = outcome === 'escaped' ? 'CAREER COMPLETE · SECRET ENDING' : 'CAREER COMPLETE'
-  const title = document.createElement('h1'); title.textContent = ending.title
-  title.style.cssText = 'font:700 clamp(26px,4vw,40px)/1.3 Georgia,serif;color:#ffe5af'
-  const story = document.createElement('p')
-  story.textContent = outcome === 'escaped' && profile.retirementRuntime?.player.hp === 0
-    ? '你曾替這座城守住四面城門。\n最後一次，你倒在了離城的路上。\n\n但願意追隨你的人沒有散去。\n他們撐過了追殺，或擊潰了全城的敵軍，讓你的旗仍然飄揚。\n\n你沒能活著離開。\n你的部隊卻帶著你的旗，走出了這場清算。'
-    : ending.body
-  story.style.whiteSpace = 'pre-line'
-  const stats = document.createElement('p'); stats.className = 'town-summary'; stats.style.whiteSpace = 'pre-line'
-  const battle = profile.retirementRuntime?.stats
-  stats.textContent = `Commander Victories：${careerMissionCompletionsForTier(profile, 5)}\n結局：${ending.name}`
-    + `\n\n最後一戰\n玩家擊殺：${battle?.player.kills ?? 0}　私人部隊擊殺：${battle?.personal.kills ?? 0}`
-    + `\n玩家造成傷害：${Math.round(battle?.player.damageDealt ?? 0)}　承受傷害：${Math.round(battle?.player.damageTaken ?? 0)}`
-    + `\n私人部隊造成傷害：${Math.round(battle?.personal.damageDealt ?? 0)}　承受傷害：${Math.round(battle?.personal.damageTaken ?? 0)}`
-  const controls = document.createElement('div')
-  screen.append(label, title, story, stats, controls)
-  button(controls, '返回主選單', () => { screen.remove(); actions.home() })
-  button(controls, '開始新的 Career', () => {
-    controls.replaceChildren()
-    const warning = document.createElement('p'); warning.textContent = '開始新的 Career 將取代目前已完成的退休存檔。'
-    controls.append(warning)
-    button(controls, '開始新生涯', () => { screen.remove(); actions.newCareer() })
-    button(controls, '取消', () => { screen.remove(); showCommanderRetirementEnding(profile, actions) })
+  let disposed = false
+  const handlers: HTMLButtonElement[] = []
+  const screen = document.createElement('section'); screen.id = 'career-retirement-ending'
+  screen.className = `retirement-ending retirement-${profile.faction}`
+  screen.setAttribute('aria-labelledby', 'retirement-ending-title')
+  const make = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string) => {
+    const node = document.createElement(tag); node.className = className
+    if (text !== undefined) node.textContent = text
+    return node
+  }
+  const addButton = (parent: HTMLElement, label: string, action: () => void, className = '') => {
+    const node = button(parent, label, () => { if (!disposed) action() })
+    node.className = `retirement-button ${className}`; node.type = 'button'
+    handlers.push(node); return node
+  }
+  const dispose = () => {
+    if (disposed) return
+    disposed = true
+    for (const node of handlers) node.onclick = null
+    copy.onanimationend = null
+    screen.onkeydown = null; screen.remove()
+    if (closeActiveEnding === dispose) closeActiveEnding = undefined
+  }
+  closeActiveEnding = dispose
+  const hero = make('header', 'retirement-hero')
+  const art = make('div', 'retirement-art')
+  art.style.backgroundImage = `url("${ending.imageUrl}")`; art.setAttribute('aria-hidden', 'true')
+  const copy = make('div', 'retirement-copy')
+  const eyebrow = make('p', 'retirement-eyebrow', 'SAGABURST · THE FINAL CHAPTER')
+  const title = make('h1', 'retirement-title', ending.title); title.id = 'retirement-ending-title'
+  title.tabIndex = -1
+  const subtitle = make('p', 'retirement-subtitle', ending.subtitle)
+  copy.append(eyebrow, title, subtitle)
+  const skip = addButton(hero, '略過動畫', () => {
+    screen.setAttribute('data-motion', 'skipped'); skip.hidden = true
+  }, 'retirement-skip')
+  copy.onanimationend = event => {
+    if (!disposed && event.target === copy && event.animationName === 'retirement-copy') skip.hidden = true
+  }
+  hero.append(art, copy)
+  const content = make('div', 'retirement-content')
+  const stats = make('section', 'retirement-stats')
+  stats.setAttribute('aria-labelledby', 'retirement-stats-title')
+  const statsTitle = make('h2', '', '最後的戰記'); statsTitle.id = 'retirement-stats-title'
+  const caption = make('p', 'retirement-caption', `${ending.faction} · 生涯終章`)
+  const grid = make('dl', 'retirement-stat-grid')
+  for (const [label, value] of ending.stats) {
+    const cell = make('div', 'retirement-stat')
+    cell.append(make('dt', '', label), make('dd', '', value)); grid.append(cell)
+  }
+  stats.append(caption, statsTitle, grid)
+  const story = make('details', 'retirement-story')
+  story.append(make('summary', '', '閱讀完整故事'), make('p', '', ending.body))
+  const controls = make('nav', 'retirement-controls'); controls.setAttribute('aria-label', '結局操作')
+  addButton(controls, '返回主選單', () => { dispose(); actions.home() }, 'retirement-primary')
+  const creator = addButton(controls, '開啟新生涯', () => {
+    confirmation.hidden = false; cancel.focus()
   })
-  document.body.append(screen)
+  const confirmation = make('div', 'retirement-confirmation'); confirmation.hidden = true
+  confirmation.setAttribute('role', 'alertdialog'); confirmation.setAttribute('aria-modal', 'true')
+  confirmation.setAttribute('aria-labelledby', 'retirement-confirm-title')
+  confirmation.setAttribute('aria-describedby', 'retirement-confirm-warning')
+  const card = make('div', 'retirement-confirm-card')
+  const warningTitle = make('h2', '', '開啟新生涯？'); warningTitle.id = 'retirement-confirm-title'
+  const warning = make('p', '', '開啟新生涯將取代目前的 Career 存檔。確認後選擇陣營，成功保存時才會取代；取消將保留這段生涯。')
+  warning.id = 'retirement-confirm-warning'
+  card.append(warningTitle, warning)
+  const confirm = addButton(card, '確認，選擇陣營', () => { dispose(); actions.newCareer() }, 'retirement-primary')
+  const cancel = addButton(card, '取消', () => { confirmation.hidden = true; creator.focus() })
+  confirmation.append(card)
+  screen.onkeydown = event => {
+    if (confirmation.hidden) return
+    if (event.key === 'Escape') { event.preventDefault(); confirmation.hidden = true; creator.focus() }
+    if (event.key === 'Tab') {
+      // Two controls in the modal; keep keyboard focus inside until resolved.
+      event.preventDefault(); (document.activeElement === cancel ? confirm : cancel).focus()
+    }
+  }
+  content.append(stats, story, controls)
+  screen.append(hero, content, confirmation); document.body.append(screen)
+  title.focus({ preventScroll: true })
+  return dispose
 }

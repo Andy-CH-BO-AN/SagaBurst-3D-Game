@@ -15,12 +15,14 @@ export interface PersonalActorCheckpoint {
   position?: PersonalActorPosition
   hp?: number
   boarding?: boolean
+  /** A later hire held at HR while the rest of the squad is deployed; it joins on the next Follow. */
+  standby?: boolean
   /** Stable private home identity; independent of full squad roster order. */
   eaglePadId?: string
   fall?: FallingRiderSnapshot
   ammo?: number
   shieldImpact?: number
-  mount?: { hp: number; mounted: boolean; position: PersonalActorPosition; flight?: EagleFlightSnapshot }
+  mount?: { armorImpactRemaining?: number; hp: number; mounted: boolean; position: PersonalActorPosition; flight?: EagleFlightSnapshot }
   order?: TacticalOrder
   formation?: { commandId: number; position: PersonalActorPosition; reached: boolean; speedLimit?: number; arrivalOrder?: TacticalOrder }
   /** True only while the system-owned initial Outpost rampart order is active. */
@@ -33,7 +35,7 @@ export interface PersonalSquadMission {
   squadId: typeof PERSONAL_SQUAD_ID
   memberIds: string[]
   sceneKey: string
-  /** The town geometry last used by these checkpoints; absent in legacy saves. */
+  /** The town geometry last used by these checkpoints. */
   layoutVersion?: number
   state: PersonalSquadState
   /** A saved formal return; the home scene resolves HR muster/pads before spawning. */
@@ -61,13 +63,14 @@ export function clonePersonalMission(value: PersonalSquadMission): PersonalSquad
     }])) }
 }
 
-/** A completed scene-rebuild return refits every owned member using the fresh actor's loadout resources. */
+/** A completed scene-rebuild return stores every owned member at HR.
+ * Follow creates its next actor with the equipped loadout's full resources. */
 export function returnPersonalMissionToHR(value: PersonalSquadMission | undefined): PersonalSquadMission | undefined {
   if (!value) return undefined
   const next = clonePersonalMission(value)
   next.sceneKey = 'town-home'; next.state = 'RESERVE'; next.returnToHR = true
   delete next.pendingMemberIds; delete next.playerLastPosition
-  next.members = Object.fromEntries(next.memberIds.map(id => [id, { status: 'deployed', order: 'defend',
+  next.members = Object.fromEntries(next.memberIds.map(id => [id, { status: 'reserve',
     ...(value.members[id]?.eaglePadId ? { eaglePadId: value.members[id].eaglePadId } : {}) }]))
   return next
 }
@@ -86,6 +89,8 @@ export function preparePersonalMissionAcceptance(value: PersonalSquadMission): P
     }
     delete member.order
     delete member.formation
+    // Formal acceptance deploys the whole roster, HR standby included.
+    delete member.standby
     if (member.status === 'deployed' || next.pendingMemberIds?.includes(id)) member.order = 'defend'
   }
   if (next.state === 'RETURNING') next.state = next.pendingMemberIds?.length ? 'DEPLOYING'
@@ -99,7 +104,7 @@ export function followDeployedPersonalMission(value: PersonalSquadMission): Pers
   let regrouped = false
   for (const id of next.memberIds) {
     const member = next.members[id]
-    if (!member || member.hp === 0 || !(member.status === 'deployed'
+    if (!member || member.hp === 0 || member.standby || !(member.status === 'deployed'
       || member.status === 'reserve' && next.pendingMemberIds?.includes(id))) continue
     member.order = 'follow'
     delete member.formation
@@ -124,7 +129,7 @@ function position(value: unknown): PersonalActorPosition | undefined {
   return raw && finite(raw.x) && finite(raw.z) && finite(raw.yaw) ? { x: raw.x, z: raw.z, yaw: raw.yaw, ...(finite(raw.y) ? { y: raw.y } : {}) } : undefined
 }
 
-/** Missing mission membership is a legacy empty roster, never inferred from today's owned members. */
+/** No membership means this mission brought no private squad; never infer one from today's owned members. */
 export function parsePersonalMission(value: unknown): PersonalSquadMission | undefined {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Partial<PersonalSquadMission>
@@ -140,6 +145,7 @@ export function parsePersonalMission(value: unknown): PersonalSquadMission | und
     const formationPosition = position(actor?.formation?.position)
     members[id] = { status,
       ...(actor?.boarding === true ? { boarding: true } : {}),
+      ...(actor?.standby === true ? { standby: true } : {}),
       ...(typeof actor?.eaglePadId === 'string' && actor.eaglePadId.length <= 100 ? { eaglePadId: actor.eaglePadId } : {}),
       ...(parseFallingRiderSnapshot(actor?.fall) ? { fall: parseFallingRiderSnapshot(actor?.fall) } : {}),
       ...(point ? { position: point } : {}),
@@ -147,7 +153,7 @@ export function parsePersonalMission(value: unknown): PersonalSquadMission | und
       ...(finite(actor?.ammo) ? { ammo: Math.floor(nonnegative(actor.ammo)) } : {}),
       ...(finite(actor?.shieldImpact) ? { shieldImpact: nonnegative(actor.shieldImpact) } : {}),
       ...(actor?.order && ORDERS.includes(actor.order) ? { order: actor.order } : {}),
-      ...(mountPosition && finite(actor?.mount?.hp) ? { mount: { hp: nonnegative(actor.mount.hp), mounted: actor.mount.mounted === true, position: mountPosition, ...(parseEagleFlightSnapshot(actor.mount.flight) ? { flight: parseEagleFlightSnapshot(actor.mount.flight) } : {}) } } : {}),
+      ...(mountPosition && finite(actor?.mount?.hp) ? { mount: { armorImpactRemaining: finite(actor.mount.armorImpactRemaining) ? Math.min(50, nonnegative(actor.mount.armorImpactRemaining)) : undefined, hp: nonnegative(actor.mount.hp), mounted: actor.mount.mounted === true, position: mountPosition, ...(parseEagleFlightSnapshot(actor.mount.flight) ? { flight: parseEagleFlightSnapshot(actor.mount.flight) } : {}) } } : {}),
       ...(formationPosition && finite(actor?.formation?.commandId) ? { formation: {
         commandId: actor.formation.commandId, position: formationPosition, reached: actor.formation.reached === true,
         ...(finite(actor.formation.speedLimit) ? { speedLimit: nonnegative(actor.formation.speedLimit) } : {}),

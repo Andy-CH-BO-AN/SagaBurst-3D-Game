@@ -14,7 +14,7 @@ import {
   type UnitTierCounts,
 } from '../battle/BattleConfig'
 import type { HorseAppearanceVariant } from '../world/HorseAssetRegistry'
-import type { NpcSpawnSpec } from '../battle/BattleSpawner'
+import { BATTLE_FRONTLINE_Z, type NpcSpawnSpec } from '../battle/BattleSpawner'
 import {
   MAX_COMMAND_SQUAD_SIZE,
   MAX_COMMAND_SQUADS,
@@ -24,8 +24,7 @@ import {
 import { getCampaignOutpostPlacement } from './CampaignOutpost'
 import {
   getUnitPreset,
-  ROMAN_PRESET_IDS,
-  VIKING_PRESET_IDS,
+  getUnitPresetsForFaction,
   type UnitPresetId,
   type BaseUnitTier as UnitTier,
   type UnitTier as BattleUnitTier,
@@ -286,9 +285,7 @@ export function validateDefenseCampaignLaunchConfig(
   const stageId = config.stageId
 
   const stage = getDefenseCampaignStage(stageId)
-  const allowedPresets = config.defenderFaction === 'roman'
-    ? ROMAN_PRESET_IDS
-    : VIKING_PRESET_IDS
+  const allowedPresets = getUnitPresetsForFaction(config.defenderFaction).map(preset => preset.id)
   const army = config.defenderArmy
 
   if (veteranOutpost || commanderOutpost) {
@@ -402,9 +399,7 @@ export function validateDefenseCampaignSquadAssignments(
     return { valid: false, errors: ['Missing squad assignments'] }
   }
 
-  const allowedPresets = launch.defenderFaction === 'roman'
-    ? ROMAN_PRESET_IDS
-    : VIKING_PRESET_IDS
+  const allowedPresets = getUnitPresetsForFaction(launch.defenderFaction).map(preset => preset.id)
   const expected = new Map<string, number>()
   for (const [presetId, counts] of Object.entries(launch.defenderArmy)) {
     if (!(allowedPresets as readonly string[]).includes(presetId)) continue
@@ -576,6 +571,7 @@ export function createDefenseCampaignWaveConfig(
     spectator: false,
     playerFaction: launch.careerVeteranOutpost?.playerFaction ?? launch.careerCommanderOutpost?.playerFaction ?? launch.defenderFaction,
     playerHp: COMBAT_BALANCE.hp.playerDefault,
+    playerHpSource: 'default',
     playerLoadout: { ...launch.playerLoadout },
     playerHeroId: launch.playerHeroId,
     playerVisualTier: launch.playerVisualTier,
@@ -615,8 +611,7 @@ export function positionDefenseCampaignDefenders(
   // Campaign defenders share one bounded mounted formation instead of the
   // generic cavalry + horse-archer outer wings. With 90 mounted defenders the
   // generic second wing can reach |x| ~= 49m, outside the 44m outpost wall.
-  // Keep both wings inside the central clear corridor; campaign tents live
-  // farther out toward the side walls.
+  // Keep both wings inside the central clear corridor.
   for (let i = 0; i < mounted.length; i++) {
     const spec = mounted[i]
     const wingSign = i % 2 === 0 ? -1 : 1
@@ -630,12 +625,18 @@ export function positionDefenseCampaignDefenders(
   return rampart
 }
 
-/** Shared front line for both the roster and its mobile siege vehicles. */
+/** Standard Defense uses the battle formation line on the opposite side of the map. */
+export function getStandardOutpostAttackerFrontlineZ(outpostFaction: CampaignFaction): number {
+  const { frontZ, backZ } = getCampaignOutpostPlacement(outpostFaction)
+  return -Math.sign(backZ - frontZ) * BATTLE_FRONTLINE_Z
+}
+
+/** Fallback staging line for a siege vehicle without a roster to anchor it. */
 export function getDefenseCampaignStagingZ(frontZ: number, inwardSign: number): number {
   return frontZ - inwardSign * 100
 }
 
-/** Keep an attacker wave at least 100m beyond the owning Outpost's front gate. */
+/** Enforce a minimum gate distance, not the Standard Outpost starting line. */
 export function positionDefenseCampaignAttackers(
   specs: NpcSpawnSpec[],
   outpostFaction: CampaignFaction,

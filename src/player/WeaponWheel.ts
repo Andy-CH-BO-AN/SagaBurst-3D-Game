@@ -6,7 +6,7 @@ export class WeaponWheel {
 
   cycle(inventory: InventoryManager, direction: -1 | 1): string | null {
     const items = inventory.inventoryStacks.filter(({ item, quantity }) => quantity > 0 && inventory.canEquipWeapon(item.id))
-    const current = items.findIndex(({ item }) => item.id === (this.cursor ?? inventory.equippedMelee.id))
+    const current = items.findIndex(({ item }) => item.id === (this.cursor ?? inventory.equippedMelee?.id))
     const start = current < 0 ? (direction === 1 ? -1 : 0) : current
     for (let offset = 1; offset <= items.length; offset++) {
       const item = items[(start + direction * offset + items.length * 2) % items.length].item

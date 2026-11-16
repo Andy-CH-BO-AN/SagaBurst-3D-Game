@@ -1,27 +1,68 @@
-import type { CareerProfile, CareerMountId } from './CareerProfile'
-import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
-import { canAllocateCareerItemToPlayer } from './CareerInventory'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
-import { insideRaceTown, illegalTownCrossing, legalRaceStart, lineCrossing, RACE_LINES, type RacePosition } from './CareerRaceRoute'
+import { canAllocateCareerItemToPlayer } from './CareerInventory'
+import type { CareerMountId, CareerProfile } from './CareerProfile'
+import { canonicalCareerMountId, cloneCareerProfile } from './CareerProfile'
+import { illegalTownCrossing, insideRaceTown, legalRaceStart, lineCrossing, RACE_LINES, type RacePosition } from './CareerRaceRoute'
+import { releaseCareerStoryEvent, settleCareerStoryEvent } from './CareerStoryEvents'
 
-export type RaceMountId = 'horse' | 'corgi' | 'black-cat'
+export type RaceMountId = 'horse' | 'armored-horse' | 'corgi' | 'black-cat' | 'white-cat' | 'orange-cat' | 'serval' | 'caracal' | 'snow-leopard'
 export type RaceId = 'race-1' | 'race-2' | 'race-3' | 'race-4' | 'race-5' | 'race-6'
+export type RaceScheduleVersion = 3
+export const RACE_SCHEDULE_VERSION = 3 as const
 export type RaceOutcome = 'win' | 'loss' | 'draw'
-export const RACE_PLAYER_CAN_SPRINT = true
-export const MOUNTED_RACES: readonly { id: RaceId; name: string; mount: RaceMountId; sprint: boolean; merit: number }[] = [
-  { id: 'race-1', name: 'Race I', mount: 'horse', sprint: false, merit: 100 },
-  { id: 'race-2', name: 'Race II', mount: 'corgi', sprint: false, merit: 400 },
-  { id: 'race-3', name: 'Race III', mount: 'black-cat', sprint: false, merit: 900 },
-  { id: 'race-4', name: 'Race IV', mount: 'horse', sprint: true, merit: 1600 },
-  { id: 'race-5', name: 'Race V', mount: 'corgi', sprint: true, merit: 2500 },
-  { id: 'race-6', name: 'Race VI', mount: 'black-cat', sprint: true, merit: 3600 },
+
+export const RACE_MOUNT_NAMES: Readonly<Record<RaceMountId, string>> = {
+  horse: '戰馬',
+  'armored-horse': '重甲戰馬',
+  corgi: '柯基',
+  'black-cat': '黑貓',
+  'white-cat': '白貓',
+  'orange-cat': '橘貓',
+  serval: '藪貓',
+  caracal: '獰貓',
+  'snow-leopard': '重甲雪豹',
+}
+
+export interface MountedRaceDefinition {
+  readonly id: RaceId
+  readonly name: string
+  readonly mount: RaceMountId
+  readonly opponents?: readonly RaceMountId[]
+  readonly sprint: boolean
+  readonly merit: number
+}
+
+export const MOUNTED_RACES: readonly MountedRaceDefinition[] = [
+  { id: 'race-1', name: 'Race I', mount: 'horse', sprint: true, merit: 100 },
+  { id: 'race-2', name: 'Race II', mount: 'orange-cat', sprint: true, merit: 400 },
+  { id: 'race-3', name: 'Race III', mount: 'corgi', sprint: true, merit: 900 },
+  { id: 'race-4', name: 'Race IV', mount: 'snow-leopard', sprint: true, merit: 1600 },
+  { id: 'race-5', name: 'Race V', mount: 'black-cat', opponents: ['black-cat', 'white-cat'], sprint: true, merit: 2500 },
+  { id: 'race-6', name: 'Race VI', mount: 'serval', opponents: ['serval', 'caracal'], sprint: true, merit: 3600 },
 ]
+
+export function pickRaceOpponentMount(definition: MountedRaceDefinition, random: () => number = Math.random): RaceMountId {
+  const pool = definition.opponents ?? [definition.mount]
+  if (pool.length <= 1) return definition.mount
+  const index = Math.min(pool.length - 1, Math.max(0, Math.floor(random() * pool.length)))
+  return pool[index]
+}
+
+export function raceStageOpponentLabel(definition: MountedRaceDefinition): string {
+  const pool = definition.opponents ?? [definition.mount]
+  return pool.map(id => RACE_MOUNT_NAMES[id]).join('／')
+}
+
+export function raceDefinitionForSchedule(id: unknown, scheduleVersion: unknown): MountedRaceDefinition | undefined {
+  return scheduleVersion === RACE_SCHEDULE_VERSION ? MOUNTED_RACES.find(race => race.id === id) : undefined
+}
 export interface RaceRider {
   actorId: string
   mountId: RaceMountId
   position: RacePosition
   mountPosition: RacePosition
   hp: number
+  mountArmorImpact?: number
   mountHp: number
   stamina: number
   mounted: boolean
@@ -35,15 +76,24 @@ export interface RaceRider {
 export interface RaceReferee {
   position: RacePosition
   hp: number
+  mountArmorImpact?: number
   mountHp?: number
   mountPosition?: RacePosition
   mounted: boolean
 }
+export type RaceStoryId = 'commander-circuit-race'
+export const RACE_STORY_ID: RaceStoryId = 'commander-circuit-race'
+/** The invitation runs the first circuit as a sprint race. */
+export const RACE_STORY_RACE_ID: RaceId = 'race-1'
 export interface CareerRaceSession {
   version: 1
   deployed: boolean
   id: string
   raceId: RaceId
+  /** Captured by the current acceptance writer. */
+  scheduleVersion: RaceScheduleVersion
+  /** Set only when the invitation was accepted at the Commander; ordinary entries never carry it. */
+  story?: RaceStoryId
   phase: 'guiding' | 'countdown' | 'racing' | 'finishing' | 'result' | 'returning'
   countdownSeconds: number
   elapsedSeconds: number
@@ -53,7 +103,7 @@ export interface CareerRaceSession {
   player: RaceRider
   opponent: RaceRider
   referee?: RaceReferee
-  /** Present when borrowing the native Commander; legacy temporary riders keep their identity. */
+  /** Captured native Commander resources, restored when the race ends. */
   opponentHome?: RaceReferee
   opponentAmmo?: number
   waypoint: number
@@ -61,15 +111,21 @@ export interface CareerRaceSession {
   reason?: string
   guideFallback?: string
 }
+/** Story races are sprint-enabled. Ordinary races retain their saved schedule's sprint rule. */
+export function raceOpponentCanSprint(session: Pick<CareerRaceSession, 'raceId' | 'scheduleVersion' | 'story'>): boolean {
+  return session.story === RACE_STORY_ID || Boolean(raceDefinitionForSchedule(session.raceId, session.scheduleVersion)?.sprint)
+}
+
 export interface CareerRaceRecord {
   sessionId: string
   raceId: RaceId
+  scheduleVersion: RaceScheduleVersion
+  story?: RaceStoryId
   result: RaceOutcome
   legalFinish: boolean
   playerSeconds?: number
   opponentSeconds?: number
-  /** Absent on records settled before racing rewards existed; never retroactively granted. */
-  merit?: number
+  merit: number
 }
 /** Spawn finalization must fail unless its initial race checkpoint is durable. */
 export function finalizeRaceDeployment(session: CareerRaceSession, save: () => boolean): void {
@@ -110,17 +166,31 @@ export function raceRecordProfile(profile: CareerProfile, session: CareerRaceSes
   const next = cloneCareerProfile(profile)
   next.activeRace = structuredClone(session)
   if (!session.result || session.phase === 'finishing' || next.raceRecords?.some(record => record.sessionId === session.id)) return next
-  const merit = session.result === 'win' ? MOUNTED_RACES.find(race => race.id === session.raceId)!.merit : 0
+  let merit = session.result === 'win' ? raceDefinitionForSchedule(session.raceId, session.scheduleVersion)!.merit : 0
+  // The invitation's fixed award replaces the ordinary one in this same save. A draw returns the invitation unused.
+  let story: RaceStoryId | undefined
+  if (session.story && session.raceId === RACE_STORY_RACE_ID) {
+    if (session.result === 'draw') releaseCareerStoryEvent(next, session.story, session.id)
+    else {
+      const fixed = settleCareerStoryEvent(next, session.story, session.id, session.result === 'win' ? 'victory' : 'defeat')
+      if (fixed !== null) { merit = fixed; story = session.story }
+    }
+  }
   const record: CareerRaceRecord = { sessionId: session.id, raceId: session.raceId, result: session.result, merit,
+    ...(story ? { story } : {}),
+    scheduleVersion: session.scheduleVersion,
     legalFinish: session.player.finishSeconds !== undefined,
     ...(session.player.finishSeconds !== undefined ? { playerSeconds: session.player.finishSeconds } : {}),
     ...(session.opponent.finishSeconds !== undefined ? { opponentSeconds: session.opponent.finishSeconds } : {}) }
   next.raceRecords = [...(next.raceRecords ?? []), record]
   next.totalMerit += merit
   next.availableMerit += merit
-  if (record.playerSeconds !== undefined) next.raceBestSeconds = { ...next.raceBestSeconds,
-    [record.raceId]: Math.min(next.raceBestSeconds?.[record.raceId] ?? Infinity, record.playerSeconds) }
-  if (record.result === 'win') next.completedRaceIds = [...new Set([...(next.completedRaceIds ?? []), record.raceId])]
+  if (session.scheduleVersion === RACE_SCHEDULE_VERSION) {
+    next.raceScheduleVersion = RACE_SCHEDULE_VERSION
+    if (record.playerSeconds !== undefined) next.raceBestSeconds = { ...next.raceBestSeconds,
+      [record.raceId]: Math.min(next.raceBestSeconds?.[record.raceId] ?? Infinity, record.playerSeconds) }
+    if (record.result === 'win') next.completedRaceIds = [...new Set([...(next.completedRaceIds ?? []), record.raceId])]
+  }
   return next
 }
 export function lockRace(session: CareerRaceSession, result: RaceOutcome, reason: string): void {
@@ -147,12 +217,12 @@ export function resolveRace(session: CareerRaceSession): void {
   } else if ((a.dead || a.dnf) && (b.dead || b.dnf)) lockRace(session, 'draw', '雙方皆無法合法完賽')
 }
 export function advanceRaceRider(rider: RaceRider, previous: RacePosition, elapsed: number, dt: number,
-  legalSegment: boolean, maximumSpeed: number): void {
+  legalSegment: boolean, maximumSpeed: number, mountingDistance = 0): void {
   if (rider.finishSeconds !== undefined || rider.dnf || rider.dead) return
   previous = rider.routePosition ?? previous
-  if (rider.mountHp <= 0) rider.dnf = '坐騎已死亡'
-  else if (!rider.mounted) rider.dnf = '已離開參賽坐騎'
-  else if (!legalSegment || Math.hypot(rider.position.x - previous.x, rider.position.z - previous.z) > maximumSpeed * dt + 1.5
+  // The racer must follow the route, but can continue on foot or another mount.
+  // A nearby mount interaction moves the rider to its seat once; still validate the swept route.
+  if (!legalSegment || Math.hypot(rider.position.x - previous.x, rider.position.z - previous.z) > maximumSpeed * dt + 1.5 + mountingDistance
     || illegalTownCrossing(previous, rider.position, rider.checkpoint)) rider.dnf = '不合法路線或位移'
   if (rider.dnf) return
   rider.routePosition = { ...rider.position }
@@ -186,8 +256,9 @@ export function advanceRaceClock(session: CareerRaceSession, dt: number, ready: 
 function object(value: unknown): Record<string, unknown> | null { return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null }
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n)
 const nonnegative = (n: unknown): n is number => finite(n) && n >= 0
-const raceId = (id: unknown): id is RaceId => MOUNTED_RACES.some(race => race.id === id)
-const mountId = (id: unknown): id is RaceMountId => ['horse', 'corgi', 'black-cat'].includes(id as string)
+const mountId = (id: unknown): id is RaceMountId => [
+  'horse', 'armored-horse', 'corgi', 'black-cat', 'white-cat', 'orange-cat', 'serval', 'caracal', 'snow-leopard',
+].includes(id as string)
 const outcome = (value: unknown): value is RaceOutcome => ['win', 'loss', 'draw'].includes(value as string)
 function position(value: unknown): value is RacePosition {
   const p = object(value)
@@ -210,19 +281,21 @@ export function isRaceReferee(value: unknown): value is RaceReferee {
 }
 export function parseRaceSession(value: unknown): CareerRaceSession | null {
   const s = object(value)
-  if (!s || s.version !== 1 || typeof s.deployed !== 'boolean' || typeof s.id !== 'string' || !s.id || !raceId(s.raceId)
+  const definition = s && raceDefinitionForSchedule(s.raceId, s.scheduleVersion)
+  if (!s || !definition || s.version !== 1 || typeof s.deployed !== 'boolean' || typeof s.id !== 'string' || !s.id
     || !['guiding', 'countdown', 'racing', 'finishing', 'result', 'returning'].includes(s.phase as string)
     || !nonnegative(s.countdownSeconds) || s.countdownSeconds > 10 || !nonnegative(s.elapsedSeconds) || !nonnegative(s.gameSeconds) || !nonnegative(s.phaseSeconds)
     || !isRaceRider(s.player) || !isRaceRider(s.opponent) || s.player.actorId !== 'player'
-    || (s.opponent.actorId !== `race:${s.id}` && s.opponent.actorId !== TOWN_COMMANDER_ID)
+    || s.opponent.actorId !== TOWN_COMMANDER_ID
     || (s.opponent.actorId === TOWN_COMMANDER_ID && !isRaceReferee(s.opponentHome))
-    || s.opponent.mountId !== MOUNTED_RACES.find(r => r.id === s.raceId)!.mount
+    || !(definition.opponents ?? [definition.mount]).includes(s.opponent.mountId as RaceMountId)
     || !Number.isInteger(s.waypoint) || (s.waypoint as number) < 0 || (s.waypoint as number) > 200
     || (s.result !== undefined && !outcome(s.result))
     || (s.startedAtSeconds !== undefined && !nonnegative(s.startedAtSeconds))
     || (s.referee !== undefined && !isRaceReferee(s.referee))
     || (s.opponentHome !== undefined && !isRaceReferee(s.opponentHome))
     || (s.opponentAmmo !== undefined && !nonnegative(s.opponentAmmo))
+    || (s.story !== undefined && (s.story !== RACE_STORY_ID || s.raceId !== RACE_STORY_RACE_ID))
     || (s.reason !== undefined && typeof s.reason !== 'string')
     || (s.guideFallback !== undefined && typeof s.guideFallback !== 'string')
     || (s.phase === 'finishing' || s.phase === 'result' || s.phase === 'returning') !== (s.result !== undefined)
@@ -234,10 +307,11 @@ export function parseRaceRecords(value: unknown): CareerRaceRecord[] | null {
   const ids = new Set<string>(), records: CareerRaceRecord[] = []
   for (const raw of value) {
     const r = object(raw)
-    if (!r || typeof r.sessionId !== 'string' || !r.sessionId || !raceId(r.raceId) || !outcome(r.result)
+    if (!r || typeof r.sessionId !== 'string' || !r.sessionId || !raceDefinitionForSchedule(r.raceId, r.scheduleVersion) || !outcome(r.result)
       || typeof r.legalFinish !== 'boolean' || (r.playerSeconds !== undefined && !nonnegative(r.playerSeconds))
       || (r.opponentSeconds !== undefined && !nonnegative(r.opponentSeconds)) || r.legalFinish !== (r.playerSeconds !== undefined)
-      || (r.merit !== undefined && (!nonnegative(r.merit) || !Number.isInteger(r.merit)))) return null
+      || (r.story !== undefined && (r.story !== RACE_STORY_ID || r.raceId !== RACE_STORY_RACE_ID))
+      || !nonnegative(r.merit) || !Number.isInteger(r.merit)) return null
     if (!ids.has(r.sessionId)) { ids.add(r.sessionId); records.push(structuredClone(r) as unknown as CareerRaceRecord) }
   }
   return records

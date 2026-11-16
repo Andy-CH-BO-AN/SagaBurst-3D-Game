@@ -1,0 +1,65 @@
+.retirement-ending {
+  --ending-gold: #edce8f;
+  --ending-accent: #8a342e;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: #0d1012;
+  color: #e7e1d6;
+  font: 16px/1.65 system-ui, sans-serif;
+}
+.retirement-ending *, .retirement-ending *::before, .retirement-ending *::after { box-sizing: border-box; }
+.retirement-viking { --ending-accent: #29495e; }
+.retirement-hero { position: relative; aspect-ratio: 16 / 9; isolation: isolate; }
+.retirement-art { position: absolute; inset: 0; z-index: -2; background-size: cover; background-position: center; animation: retirement-fade .65s ease-out both; }
+.retirement-hero::after { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(0deg, #0d1012 0%, #0d1012b8 16%, transparent 62%), linear-gradient(90deg, #080a0c77, transparent 75%); }
+.retirement-copy { position: absolute; left: 7%; right: 7%; bottom: 6%; animation: retirement-copy .8s .12s ease-out both; }
+.retirement-eyebrow { color: var(--ending-gold); font: 600 clamp(10px, 1vw, 14px)/1.6 Georgia, serif; letter-spacing: .28em; margin: 0 0 18px; }
+.retirement-title { color: #ffe8b4; font: 700 clamp(42px, 6.6vw, 100px)/1.2 'Noto Serif TC', 'Songti TC', 'PMingLiU', serif; letter-spacing: .18em; margin: 0 0 18px; text-shadow: 0 3px 24px #000b; }
+.retirement-subtitle { margin: 0; max-width: 760px; font-size: clamp(15px, 1.5vw, 22px); letter-spacing: .08em; text-shadow: 0 2px 12px #000; }
+.retirement-content { width: min(1180px, 86%); margin: 0 auto; padding: 8px 0 48px; }
+.retirement-stats { border: 1px solid #ddbd773d; border-top: 2px solid #c8a05c; background: linear-gradient(120deg, #27241ecc, #141c21b8); padding: clamp(20px, 3vw, 40px); }
+.retirement-caption { color: #bca477; font-size: 12px; letter-spacing: .22em; margin: 0 0 5px; }
+.retirement-stats h2 { margin: 0 0 26px; color: var(--ending-gold); font: 500 27px/1.3 'Songti TC', serif; letter-spacing: .14em; }
+.retirement-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px 26px; margin: 0; }
+.retirement-stat { border-left: 1px solid #c9a26444; padding-left: 16px; }
+.retirement-stat dt { color: #c3bbac; font-size: 12px; letter-spacing: .04em; }
+.retirement-stat dd { margin: 4px 0 0; color: var(--ending-gold); font: 500 clamp(24px, 2.8vw, 36px)/1.3 Georgia, serif; font-variant-numeric: tabular-nums; }
+.retirement-story { margin-top: 24px; border-bottom: 1px solid #ddbd7733; padding: 0 0 24px; }
+.retirement-story summary { cursor: pointer; color: #dbc496; letter-spacing: .08em; padding: 8px 0; }
+.retirement-story p { white-space: pre-line; max-width: 760px; color: #c7c3ba; }
+.retirement-controls { display: flex; justify-content: center; flex-wrap: wrap; gap: 16px; margin-top: 28px; }
+.retirement-button { min-height: 48px; padding: 12px 28px; border: 1px solid #c8a05c88; color: #ecd7ac; background: #14191de8; font: 500 15px/1.5 system-ui; letter-spacing: .08em; cursor: pointer; border-radius: 2px; }
+.retirement-button:hover { border-color: #f0dba8; background: #383024; }
+.retirement-title:focus-visible, .retirement-button:focus-visible, .retirement-story summary:focus-visible { outline: 2px solid #ffe2a5; outline-offset: 4px; }
+.retirement-primary { background: linear-gradient(110deg, var(--ending-accent), #25201a); color: #fff0cd; }
+.retirement-skip { position: absolute; z-index: 1; right: 24px; top: 20px; min-height: 36px; padding: 7px 14px; font-size: 12px; }
+.retirement-confirmation { position: fixed; inset: 0; z-index: 2; display: grid; place-items: center; padding: 24px; background: #050709df; }
+.retirement-confirmation[hidden], .retirement-button[hidden] { display: none; }
+.retirement-confirm-card { width: min(520px, 100%); max-height: 90svh; overflow: auto; padding: 32px; background: #181b1d; border: 1px solid #b59557; box-shadow: 0 20px 100px #0009; }
+.retirement-confirm-card h2 { color: var(--ending-gold); margin-top: 0; }
+.retirement-confirm-card .retirement-button { margin: 12px 12px 0 0; }
+@keyframes retirement-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes retirement-copy { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.retirement-ending[data-motion='skipped'], .retirement-ending[data-motion='skipped'] * { animation: none; }
+@media (max-width: 640px) {
+  /* Keep the entire 16:9 artwork (including standards) above the text on phones. */
+  .retirement-hero { aspect-ratio: auto; padding-top: 56.25%; }
+  .retirement-art { bottom: auto; width: 100%; aspect-ratio: 16 / 9; }
+  .retirement-hero::after { bottom: auto; aspect-ratio: 16 / 9; background: linear-gradient(0deg, #0d1012, transparent 40%); }
+  .retirement-copy { position: relative; inset: auto; margin: -8px 7% 26px; }
+  .retirement-eyebrow { font-size: 9px; letter-spacing: .2em; margin-bottom: 16px; }
+  .retirement-title { font-size: clamp(36px, 10vw, 62px); margin-bottom: 16px; }
+  .retirement-subtitle { font-size: 15px; }
+  .retirement-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 12px; }
+  .retirement-stat { padding-left: 10px; }
+  .retirement-stat dt { font-size: 11px; }
+  .retirement-controls { flex-direction: column; }
+  .retirement-skip { top: 10px; right: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .retirement-ending, .retirement-ending * { animation: none; }
+  .retirement-skip { display: none; }
+}

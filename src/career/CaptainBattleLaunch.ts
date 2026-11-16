@@ -1,6 +1,8 @@
-import { BattleSpawner, type BattleSpawnPlan } from '../battle/BattleSpawner'
+import { BattleSpawner, type BattleSpawnPlan, type NpcSpawnSpec } from '../battle/BattleSpawner'
+import { HEAVY_T4_HERO, heavyT4Variant, T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import { createEmptyRomanArmyConfig, createEmptyVikingArmyConfig, type BattleConfig, type PlayerLoadoutConfig } from '../battle/BattleConfig'
-import { resolveCampaignRolePreset } from '../campaign/CampaignConfig'
+import { opposingCampaignFaction, resolveCampaignRolePreset } from '../campaign/CampaignConfig'
 import { createDefenseCampaignWaveConfig, positionDefenseCampaignDefenders, type DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
 import { canUseCareerMount } from './CareerMountController'
 import { careerItemTotal } from './CareerInventory'
@@ -12,9 +14,11 @@ import { createMissionCommandAuthority, officialActorSquadId, type OfficialComma
 import { commandSquadsFromActorIds } from './MissionCommandRoster'
 import { getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './CaptainMissionCatalog'
+import { isEagleLandingClear, type EagleLandingPoint } from '../world/EagleLanding'
+import type { ObstacleData } from '../world/Terrain'
 
 export interface CaptainEagleLaunchConfig { type: 'captain-eagle'; careerMissionId: string; battle: BattleConfig }
-export type CareerCombatLaunch = DefenseCampaignLaunchConfig | CaptainEagleLaunchConfig | import('./CareerBridgeBattle').CareerBridgeBattleLaunch
+export type CareerCombatLaunch = DefenseCampaignLaunchConfig | CaptainEagleLaunchConfig | import('./CareerBridgeBattle').CareerBridgeBattleLaunch | import('./CareerBridgeBattle').CareerFelineBattleLaunch
 
 function captainAvailable(profile: CareerProfile): boolean {
   return (profile.rank === 'captain' || profile.rank === 'commander') && !profile.activeMission && !profile.activeOutpostMission && profile.townEvent?.state !== 'hostile'
@@ -27,8 +31,23 @@ export function careerCombatPlayerLoadout(profile: CareerProfile, eagle = false)
     rangedWeaponId: profile.equipment?.ranged ?? 'wooden_shortbow',
     shieldId: profile.equipment?.shield ?? null,
     startMounted: Boolean(mount && canUseCareerMount(profile, mount)),
-    mountId: mount === 'black-cat' || mount === 'corgi' || mount === 'xongkoro' ? mount : 'horse',
+    mountId: mount === 'armored-horse' || mount === 'black-cat' || mount === 'white-cat' || mount === 'orange-cat' || mount === 'serval' || mount === 'caracal' || mount === 'corgi' || mount === 'snow-leopard' || mount === 'xongkoro' ? mount : 'horse',
   } as PlayerLoadoutConfig
+}
+
+/** Captain IV attackers field two T4 heroes: the frontline captain and a Ranger. The captain is the faction's heavy T4 class
+ * (Centurion / Dragon Oathguard) while the Ranger, which has no second body, stays as it is. Counts, loadouts and IDs are untouched. */
+export function applyCaptainFrontlineEnemyHeroes(specs: readonly NpcSpawnSpec[]): void {
+  for (const spec of specs) {
+    if (spec.characterTier !== 4 || !spec.presetId) continue
+    const { visualAssetId, combatProfileId } = heavyT4Variant(T4_UNIT_PROFILES[spec.presetId], spec.characterFaction)
+    spec.visualAssetId = visualAssetId
+    spec.combatProfileId = combatProfileId
+  }
+}
+/** Hero body the Captain IV attackers need before their wave spawns. */
+export function captainFrontlineEnemyHeroAsset(defenderFaction: DefenseCampaignLaunchConfig['defenderFaction']): HeroAssetId {
+  return HEAVY_T4_HERO[opposingCampaignFaction(defenderFaction)].visualAssetId
 }
 
 /** Career owns the mission; Stage IX remains the source of map, enemy, reinforcement and timing rules. */
@@ -106,9 +125,10 @@ export function createCaptainEagleLaunch(profile: CareerProfile): CaptainEagleLa
 }
 
 /** Temporary aerial roster, using the existing Custom Battle terrain and spawn scheduler caller. */
-export function createCaptainEagleSpawnPlan(profile: CareerProfile): BattleSpawnPlan {
+export function createCaptainEagleSpawnPlan(profile: CareerProfile, obstacles: readonly ObstacleData[] = []): BattleSpawnPlan {
   const launch = createCaptainEagleLaunch(profile), mission = profile.activeMission!
   const plan = BattleSpawner.createSpawnPlan(launch.battle)
+  const placed: EagleLandingPoint[] = []
   let friendly = 0, enemy = 0
   for (const spec of plan.npcSpecs) {
     const ours = spec.characterFaction === profile.faction
@@ -118,11 +138,32 @@ export function createCaptainEagleSpawnPlan(profile: CareerProfile): BattleSpawn
     spec.cavalry = true
     spec.loadout = { ...spec.loadout!, mountId: 'xongkoro', shieldId: null }
     // Flight wings need actual separation at takeoff, without altering the map.
-    spec.x = (index % 6 - 2.5) * 22
-    spec.z = (ours === (profile.faction === 'roman') ? -1 : 1) * (110 + Math.floor(index / 6) * 22)
+    const side = ours === (profile.faction === 'roman') ? -1 : 1
+    const point = captainEagleLaunchPoint({ x: (index % 6 - 2.5) * 22, z: side * (110 + Math.floor(index / 6) * 22), yaw: side < 0 ? 0 : Math.PI },
+      obstacles, placed)
+    spec.x = point.x; spec.z = point.z
+    placed.push(point)
   }
   plan.playerSpawn = { x: 0, z: profile.faction === 'roman' ? -225 : 225 }
   return plan
+}
+
+/** Minimum spacing between parked eagles; full landing footprints may overlap, as on the original 22 m grid. */
+const CAPTAIN_EAGLE_MIN_SPACING = 16
+/**
+ * A grounded eagle may only take off where it could also land (`EagleFlightController.canLand`).
+ * Grid points on uneven terrain would park an eagle there for the whole battle, so move each
+ * one to the nearest clear launch point that keeps its wing spacing.
+ */
+function captainEagleLaunchPoint(origin: Required<EagleLandingPoint>, obstacles: readonly ObstacleData[],
+  placed: readonly EagleLandingPoint[]): Required<EagleLandingPoint> {
+  for (let radius = 0; radius <= 30; radius += 2) for (let step = 0; step < (radius ? 16 : 1); step++) {
+    const angle = step / 16 * Math.PI * 2
+    const point = { x: origin.x + Math.sin(angle) * radius, z: origin.z + Math.cos(angle) * radius, yaw: origin.yaw }
+    if (placed.some(other => Math.hypot(other.x - point.x, other.z - point.z) < CAPTAIN_EAGLE_MIN_SPACING)) continue
+    if (isEagleLandingClear(point, obstacles)) return point
+  }
+  throw new Error('No clear xongkoro takeoff area for the Captain Eagle battle')
 }
 
 export function acceptCaptainEagle(current: CareerProfile, id = createCareerMissionId(CAPTAIN_EAGLE_BATTLE_ID)): CareerProfile | null {

@@ -13,14 +13,18 @@ on:
         default: full
 permissions:
   contents: read
+  actions: read
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Both canonical branch pushes publish exact immutable Full seeds.
+  # Never cancel a dev Full run because a later push arrived: each SHA
+  # must finish its own Full gate and seed publication.
+  group: ci-${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && github.sha || github.ref }}
+  cancel-in-progress: ${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) }}
 jobs:
   logic:
     uses: ./.github/workflows/logic-tests.yml
     with:
-      mode: ${{ github.event_name == 'workflow_dispatch' && 'full' || github.base_ref == 'main' && 'full' || github.ref == 'refs/heads/main' && 'full' || 'related' }}
+      mode: full
       base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before || '' }}
       head: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       event: ${{ github.event_name }}
@@ -31,11 +35,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Require successful logic gate
-        env:
-          LOGIC_RESULT: ${{ needs.logic.result }}
-        run: test "$LOGIC_RESULT" = success
+      # Always collect actionable Web build diagnostics, even if Related cannot
+      # restore its exact-base seed. The final logic check still fails closed.
       - uses: actions/checkout@v4
+      - name: Lint GitHub Actions workflows
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash | bash -s -- 1.7.7 /tmp
+          /tmp/actionlint
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -43,13 +49,35 @@ jobs:
       - run: npm ci
       - run: npm run typecheck:test
       - run: npm run build
+      # Browser smoke belongs to production/main and explicit manual validation.
+      # PRs into main retain package/Desktop smoke; no PR downloads Chromium.
       - run: npx playwright install --with-deps chromium
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
       - run: npm run smoke:web
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      - name: Require successful logic gate
+        if: always()
+        env:
+          LOGIC_RESULT: ${{ needs.logic.result }}
+          VALIDATION_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          {
+            echo '### Required job execution'
+            echo "Logic result: $LOGIC_RESULT"
+            echo 'Web job: executed (its conclusion is reported by GitHub, not this step)'
+            echo "PR/event head: $VALIDATION_HEAD"
+            echo "Checkout ref SHA: $GITHUB_SHA"
+            echo "Run: $RUN_URL"
+            echo 'Missing jobs cannot emit this summary; inspect the run externally with ci-check-jobs.cjs.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$LOGIC_RESULT" = success
   desktop:
     needs: logic
-    # PR artifacts validate packaging/smoke only. Logic cases execute once in the
-    # Related gate; cross-platform Full/Node coverage is reserved for main/Release.
-    if: github.event_name == 'pull_request'
+    # Skip desktop packaging/smoke for PRs into dev and all pushes. PRs into main
+    # retain preview artifacts; main pushes package through the Release workflow.
+    # Logic cases execute only in the shared gate, not again in these PR jobs.
+    if: github.event_name == 'pull_request' && github.base_ref != 'dev'
     strategy:
       fail-fast: false
       matrix:
@@ -87,3 +115,27 @@ jobs:
           name: preview-${{ matrix.platform }}-${{ matrix.arch }}
           path: release/SagaBurst-v*-*.zip
           if-no-files-found: error
+  # push -> main is the single orchestrator for one Full gate. Pages and Release run
+  # in this same workflow run, so they cannot race, reuse a PR run, or see a
+  # different SHA; they start only after the Full logic gate and Web job succeed.
+  pages:
+    needs: [logic, web]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/deploy-pages.yml
+    with:
+      # Require the same verified Full SHA proof as Release; fail closed if absent.
+      logic-verified-sha: ${{ needs.logic.outputs.verified-sha }}
+  release:
+    needs: [logic, web]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      # Empty unless the aggregate verified a Full run for exactly this SHA; an
+      # empty value makes Release run its own Full gate (fail closed).
+      logic-verified-sha: ${{ needs.logic.outputs.verified-sha }}

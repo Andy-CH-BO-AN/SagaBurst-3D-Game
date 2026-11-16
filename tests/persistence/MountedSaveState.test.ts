@@ -1,9 +1,9 @@
-import { afterEach,beforeEach,describe,expect,it,vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
-import { DEFAULT_SAVE,PlayerSaveData,SaveManager } from '../../src/save/SaveManager'
+import { DEFAULT_SAVE, PlayerSaveData, SaveManager } from '../../src/save/SaveManager'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
-describe('SaveManager Persistence & Migration Compatibility', () => {
+describe('SaveManager current-format persistence', () => {
   let saveManager: SaveManager
 
   let mockStorage: MemoryStorage
@@ -24,25 +24,22 @@ describe('SaveManager Persistence & Migration Compatibility', () => {
     expect(saveManager.save({ ...DEFAULT_SAVE, mountData: {
       isMounted: true, type: 'xongkoro', hp: 83.5, position: { x: 40, y: 60, z: 20 }, flight,
     } })).toBe(true)
-    const loaded = saveManager.load()
+    const loaded = saveManager.load()!
     expect(loaded.mountData).toMatchObject({ type: 'xongkoro', hp: 83.5, flight })
     const falling = { active: true, highestFeetY: 71.4, velocity: { x: 8, y: -10, z: 10 } }
     expect(saveManager.save({ ...DEFAULT_SAVE, hp: 50, position: { x: 40, y: 60, z: 20 }, falling })).toBe(true)
-    expect(saveManager.load()).toMatchObject({ hp: 50, falling, mountData: undefined })
+    expect(saveManager.load()).toMatchObject({ hp: 50, falling })
+    expect(saveManager.load()?.mountData).toBeUndefined()
   })
 
-  it('drops malformed optional aerial fields at the JSON boundary while retaining the existing save', () => {
-    mockStorage.setItem('wdyh_save_v1', JSON.stringify({
-      ...DEFAULT_SAVE, hp: 50, position: { x: 40, y: 60, z: 20 },
-      falling: { active: true, highestFeetY: 71.4 },
-      mountData: { isMounted: true, type: 'xongkoro', hp: '200',
-        flight: { phase: 'cruise', yaw: 0, pitch: 0, bank: 0, speed: 13 } },
-    }))
-    const loaded = saveManager.load()
-    expect(loaded).toMatchObject({ hp: 50, position: { x: 40, y: 60, z: 20 }, mountData: { isMounted: true, type: 'xongkoro' } })
-    expect(loaded.falling).toBeUndefined()
-    expect(loaded.mountData?.flight).toBeUndefined()
-    expect(loaded.mountData?.hp).toBeUndefined()
+  it('rejects malformed aerial state without changing the stored bytes', () => {
+    const bytes = JSON.stringify({ ...DEFAULT_SAVE, hp: 50,
+      mountData: { isMounted: true, type: 'xongkoro', hp: 80, position: { x: 1, y: 40, z: 2 },
+        flight: { phase: 'cruise', yaw: 0, pitch: 0, bank: 0, speed: 13 } } })
+    mockStorage.setItem('sagaburst_game_v2', bytes)
+    expect(saveManager.load()).toBeNull()
+    expect(saveManager.save(DEFAULT_SAVE)).toBe(false)
+    expect(mockStorage.getItem('sagaburst_game_v2')).toBe(bytes)
   })
 
   it('contract: preserves full inventory items and equippedShieldId across save and load', () => {
@@ -55,7 +52,7 @@ describe('SaveManager Persistence & Migration Compatibility', () => {
     }
 
     expect(saveManager.save(saveData)).toBe(true)
-    const loaded = saveManager.load()
+    const loaded = saveManager.load()!
 
     expect(loaded.inventory.equippedMeleeId).toBe('steel_lance')
     expect(loaded.inventory.equippedRangedId).toBe('elven_runebow')
@@ -69,40 +66,21 @@ describe('SaveManager Persistence & Migration Compatibility', () => {
     // Restore to a fresh InventoryManager
     const freshInv = new InventoryManager()
     freshInv.loadSaveState(loaded.inventory)
-    expect(freshInv.equippedMelee.id).toBe('steel_lance')
+    expect(freshInv.equippedMelee?.id).toBe('steel_lance')
     expect(freshInv.equippedRanged.id).toBe('elven_runebow')
     expect(freshInv.equippedShield?.id).toBe('round_shield_t3')
     expect(freshInv.isEquipped('runic_greatsword')).toBe(false)
   })
 
-  it('existing save migration: does NOT give free T3 weapons to legacy saves without items/shield', () => {
-    const legacySave = {
-      position: { x: 5, y: 0.95, z: 12 },
-      hp: 85,
-      stamina: 90,
-      arrows: 24,
-      skills: {
-        oneHanded: { level: 2, xp: 50 },
-        archery: { level: 1, xp: 20 },
-      },
-      inventory: {
-        ownedWeaponIds: ['steel_sword', 'recurve_longbow'],
-        equippedMeleeId: 'steel_sword',
-        equippedRangedId: 'recurve_longbow',
-      },
-    }
-
-    mockStorage.setItem('wdyh_save_v1', JSON.stringify(legacySave))
-    const loaded = saveManager.load()
-
-    const loadedItemIds = loaded.inventory.items?.map(i => i.id)
-    expect(loadedItemIds).toEqual(['steel_sword', 'recurve_longbow'])
-    expect(loadedItemIds).not.toContain('steel_lance')
-    expect(loadedItemIds).not.toContain('runic_greatsword')
-    expect(loadedItemIds).not.toContain('round_shield_t3')
-
-    expect(loaded.inventory.equippedShieldId).toBeNull()
-    expect(loaded.inventory.equippedMeleeId).toBe('steel_sword')
-    expect(loaded.inventory.equippedRangedId).toBe('recurve_longbow')
+  it('ignores historical storage and rejects an unsupported format without rewriting either key', () => {
+    const bytes = JSON.stringify({ version: 1, hp: 85, inventory: { ownedWeaponIds: ['steel_sword'] } })
+    mockStorage.setItem('wdyh_save_v1', bytes)
+    expect(saveManager.load()).toBeNull()
+    expect(saveManager.hasSave()).toBe(false)
+    expect(mockStorage.getItem('wdyh_save_v1')).toBe(bytes)
+    mockStorage.setItem('sagaburst_game_v2', bytes)
+    expect(saveManager.load()).toBeNull()
+    expect(saveManager.save(DEFAULT_SAVE)).toBe(false)
+    expect(mockStorage.getItem('sagaburst_game_v2')).toBe(bytes)
   })
 })

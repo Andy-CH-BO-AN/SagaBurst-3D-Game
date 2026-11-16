@@ -1,5 +1,5 @@
-import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { clonePersonalMission } from './CareerPersonalSquadMission'
+import { cloneCareerProfile,type CareerProfile } from './CareerProfile'
 import type { CareerProfileStore } from './CareerProfileStore'
 
 export const CAREER_RECOVERY_NOTICE_KEY = 'sagaburst_career_recovery_notice'

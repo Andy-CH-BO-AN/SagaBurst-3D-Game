@@ -3,10 +3,10 @@
  * Manages live combat monitoring, army casualties, victory determination,
  * and sessionStorage-based page reload transitions (REMATCH / BACK TO SETUP).
  */
-import { NPC } from '../world/NPC'
-import { BattleConfig } from './BattleConfig'
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import { renderBattleStats } from '../ui/BattleStatsView'
+import { NPC } from '../world/NPC'
+import { BattleConfig } from './BattleConfig'
 
 export type BattleResult = "VIKING_VICTORY" | "ROMAN_VICTORY" | "DRAW" | null
 
@@ -31,16 +31,24 @@ export class BattleController {
     this._createHud()
   }
 
-  initCounts(npcs: NPC[]): void {
-    this.initialVikingCount = npcs.filter(n => n.characterFaction === 'viking').length
-    this.initialRomanCount = npcs.filter(n => n.characterFaction === 'roman').length
+  initCounts(npcs: NPC[], player?: { dead: boolean } | null): void {
+    let vikingInitial = npcs.filter(n => n.characterFaction === 'viking').length
+    let romanInitial = npcs.filter(n => n.characterFaction === 'roman').length
+    if (!this.config.spectator && player) {
+      if (this.config.playerFaction === 'viking') {
+        vikingInitial++
+      } else {
+        romanInitial++
+      }
+    }
+    this.initialVikingCount = vikingInitial
+    this.initialRomanCount = romanInitial
     this._updateHud(this.initialVikingCount, this.initialRomanCount)
   }
 
-  update(npcs: NPC[]): void {
+  update(npcs: NPC[], player?: { dead: boolean } | null): void {
     if (this.battleEnded) return
 
-    // Count living AI NPCs only (Player character is intentionally excluded)
     let vikingAlive = 0
     let romanAlive = 0
 
@@ -51,16 +59,24 @@ export class BattleController {
       }
     }
 
+    if (!this.config.spectator && player && !player.dead) {
+      if (this.config.playerFaction === 'viking') {
+        vikingAlive++
+      } else {
+        romanAlive++
+      }
+    }
+
     this._updateHud(vikingAlive, romanAlive)
 
     // Check victory conditions (Both sides must have initialized with > 0)
     if (this.initialVikingCount > 0 && this.initialRomanCount > 0 && vikingAlive === 0 && romanAlive === 0) {
       this.result = "DRAW"
       this._endBattle("DRAW", "#f39c12", "雙方同歸於盡！平局！")
-    } else if (this.initialRomanCount > 0 && romanAlive === 0) {
+    } else if (this.initialRomanCount > 0 && romanAlive === 0 && vikingAlive > 0) {
       this.result = "VIKING_VICTORY"
       this._endBattle("VIKING VICTORY", "#3498db", "維京軍團獲勝！")
-    } else if (this.initialVikingCount > 0 && vikingAlive === 0) {
+    } else if (this.initialVikingCount > 0 && vikingAlive === 0 && romanAlive > 0) {
       this.result = "ROMAN_VICTORY"
       this._endBattle("ROMAN VICTORY", "#e74c3c", "羅馬軍團獲勝！")
     }
@@ -186,7 +202,7 @@ export class BattleController {
     rematchBtn?.addEventListener('mouseleave', () => { rematchBtn.style.background = '#2b221a' })
     rematchBtn?.addEventListener('click', () => {
       try {
-        sessionStorage.setItem('sagaburst_battle_config', JSON.stringify(this.config))
+        sessionStorage.setItem('sagaburst_battle_config_v2', JSON.stringify(this.config))
       } catch (e) {
         console.warn('sessionStorage error', e)
       }
@@ -198,7 +214,7 @@ export class BattleController {
     backBtn?.addEventListener('mouseleave', () => { backBtn.style.background = '#1f1a16' })
     backBtn?.addEventListener('click', () => {
       try {
-        sessionStorage.removeItem('sagaburst_battle_config')
+        sessionStorage.removeItem('sagaburst_battle_config_v2')
       } catch (e) {
         console.warn('sessionStorage error', e)
       }

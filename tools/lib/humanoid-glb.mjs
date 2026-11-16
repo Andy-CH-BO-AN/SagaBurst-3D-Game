@@ -23,7 +23,7 @@ export function encodeGlb(document, binary) {
 export async function loadRig(asset, loader = new GLTFLoader()) {
   const document = structuredClone(asset.document)
   delete document.images; delete document.textures; delete document.materials
-  for (const mesh of document.meshes) for (const primitive of mesh.primitives) delete primitive.material
+  for (const mesh of document.meshes ?? []) for (const primitive of mesh.primitives) delete primitive.material
   const bytes = encodeGlb(document, asset.binary)
   return loader.parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '')
 }

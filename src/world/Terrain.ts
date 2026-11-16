@@ -77,6 +77,28 @@ export function clampToPlayableWorld(position: THREE.Vector3, bound = PLAYABLE_W
 
 let activeFortifiedCampFaction: CharacterFaction | null = null
 let activeRiverCrossing = false
+/** Enclosed arenas own a level ground plane; null keeps the procedural battlefield. */
+let activeFlatTerrainY: number | null = null
+/** Only one scene owns the flat ground at a time; the latest claim replaces an older one. */
+let flatTerrainOwner: object | null = null
+
+/** Installs a flat ground plane owned by `owner` until that same owner releases it. */
+export function claimFlatTerrainOverride(owner: object, y: number): void {
+  if (!Number.isFinite(y)) throw new Error(`Flat terrain height must be finite: ${y}`)
+  flatTerrainOwner = owner
+  activeFlatTerrainY = y
+}
+
+/** A late dispose of a replaced owner leaves the newer owner's ground untouched. */
+export function releaseFlatTerrainOverride(owner: object): void {
+  if (flatTerrainOwner !== owner) return
+  flatTerrainOwner = null
+  activeFlatTerrainY = null
+}
+
+export function getFlatTerrainOverride(): number | null {
+  return activeFlatTerrainY
+}
 const sceneRiverCrossing = new WeakMap<object, boolean>()
 
 export function setRiverCrossingTerrainActive(active: boolean): void {
@@ -100,6 +122,8 @@ export function isSceneRiverCrossing(scene: object): boolean {
 export function resetTerrainScenePolicy(): void {
   activeFortifiedCampFaction = null
   activeRiverCrossing = false
+  activeFlatTerrainY = null
+  flatTerrainOwner = null
 }
 
 export interface TerrainOptions {
@@ -128,6 +152,7 @@ export function getBaseProceduralTerrainHeight(
  * Calculates terrain Y height at any (x, z) world coordinate using smooth sine/cosine wave superposition.
  */
 export function getTerrainHeight(x: number, z: number): number {
+  if (activeFlatTerrainY !== null) return activeFlatTerrainY
   const baseHeight = getBaseProceduralTerrainHeight(x, z, activeFortifiedCampFaction)
   if (activeRiverCrossing) {
     return getRiverCrossingTerrainHeight(x, z, baseHeight)
@@ -245,6 +270,7 @@ export function setObstaclePathQuerySource(obstacles: ObstacleData[], enabled: b
   else {
     obstaclePathQuerySources.delete(obstacles)
     obstacleCollisionIndexes.delete(obstacles)
+    projectileObstacleIndexes.delete(obstacles)
   }
 }
 
@@ -262,6 +288,30 @@ export function getLocalCollisionObstacles(
   }
   index.sync(obstacles)
   return index.queryNear(x, z, radius)
+}
+
+const projectileObstacleIndexes = new WeakMap<ObstacleData[], ObstacleCollisionSpatialIndex>()
+
+/**
+ * Ballistic broad-phase candidates for an X/Z envelope, or null when the caller
+ * must scan every record (unregistered/small sources or very large envelopes).
+ * Returns an ephemeral superset in source order; apply the exact test to it.
+ */
+export function queryProjectilePathObstacles(obstacles: readonly ObstacleData[],
+  minX: number, minZ: number, maxX: number, maxZ: number): readonly ObstacleData[] | null {
+  const source = obstacles as ObstacleData[]
+  if (!obstaclePathQuerySources.has(source) || obstacles.length < 64) return null
+  const minCellX = Math.floor(minX / OBSTACLE_COLLISION_GRID_CELL_SIZE), maxCellX = Math.floor(maxX / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+  const minCellZ = Math.floor(minZ / OBSTACLE_COLLISION_GRID_CELL_SIZE), maxCellZ = Math.floor(maxZ / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+  if (!Number.isSafeInteger(minCellX) || !Number.isSafeInteger(minCellZ) || !Number.isSafeInteger(maxCellX) || !Number.isSafeInteger(maxCellZ)
+    || (maxCellX - minCellX + 1) * (maxCellZ - minCellZ + 1) > 256) return null
+  let index = projectileObstacleIndexes.get(source)
+  if (!index) {
+    index = new ObstacleCollisionSpatialIndex('projectile')
+    projectileObstacleIndexes.set(source, index)
+  }
+  index.sync(source)
+  return index.queryBounds(minX, minZ, maxX, maxZ)
 }
 
 /** Swept X/Z bounds, without radius inflation on the perpendicular axis. */
@@ -310,6 +360,7 @@ export interface EntityCollisionBody {
   bottomOffset: number
   anchored?: boolean
   walkSurfaces?: boolean
+  pushWeight?: number
 }
 
 export type ObstacleDetourSide = -1 | 1
@@ -474,6 +525,11 @@ export function findBlockingProjectileObstacleAlongPath(
 ): ObstacleData | null {
   let closest: ObstacleData | null = null
   let closestFraction = Infinity
+  // Segment bounds for an exact early reject: a box-only record that misses them
+  // on any axis cannot pass the slab test below. Arc chords miss most candidates.
+  const minX = Math.min(start.x, end.x), maxX = Math.max(start.x, end.x)
+  const minY = Math.min(start.y, end.y), maxY = Math.max(start.y, end.y)
+  const minZ = Math.min(start.z, end.z), maxZ = Math.max(start.z, end.z)
 
   for (const obstacle of obstacles) {
     if (obstacle.projectilePassable) continue
@@ -482,9 +538,13 @@ export function findBlockingProjectileObstacleAlongPath(
     // so they retain the original conservative local exact fallback.
     if (obstacle.projectileBounds
       && !segmentEnvelopeIntersectsBox(start, end, obstacle.projectileBounds)) continue
-    const coarseEntry = obstacle.projectileWorldToLocal || obstacle.projectileBounds
-      ? 0
-      : segmentEntryFractionBox3D(start, end, obstacle.box)
+    let coarseEntry: number | null = 0
+    if (!obstacle.projectileWorldToLocal && !obstacle.projectileBounds) {
+      const box = obstacle.box
+      if (maxX < box.min.x || minX > box.max.x || maxY < box.min.y || minY > box.max.y
+        || maxZ < box.min.z || minZ > box.max.z) continue
+      coarseEntry = segmentEntryFractionBox3D(start, end, box)
+    }
     if (coarseEntry === null || coarseEntry >= closestFraction) continue
 
     const entry = projectileObstacleEntryFraction(obstacle, start, end)
@@ -716,10 +776,19 @@ export function getObstacleAvoidanceDirection(
   const lookAhead = radius + 1.25
   const angles = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, Math.PI * 0.75, -Math.PI * 0.75]
 
+  // Every sample square lies within `reach` of the position (unit directions), so the
+  // inclusive X/Z broad phase is a superset of the strict overlaps tested below.
+  let candidates: readonly ObstacleData[] = obstacles
+  const reach = lookAhead + radius + SEGMENT_EPSILON
+  if (obstaclePathQuerySources.has(obstacles) && obstacles.length >= 64 && radius >= 0 && Number.isFinite(radius)
+    && Number.isFinite(position.x) && Number.isFinite(position.z)) {
+    candidates = getSweptCollisionObstacles(obstacles, position.x - reach, position.z - reach, position.x + reach, position.z + reach)
+  }
+
   const isBlocked = (direction: THREE.Vector3): boolean => {
     const sampleX = position.x + direction.x * lookAhead
     const sampleZ = position.z + direction.z * lookAhead
-    for (const obstacle of obstacles) {
+    for (const obstacle of candidates) {
       if (obstacle.navigationPassable) continue
       const box = obstacle.box
       if (bottomY >= box.max.y - 0.001 || topY <= box.min.y + 0.001) continue
@@ -762,7 +831,11 @@ export function resolveEntityCollision(
   const normalX = distance > 0.0001 ? dx / distance : 1
   const normalZ = distance > 0.0001 ? dz / distance : 0
   const pushDistance = minDistance - distance
-  const halfPush = pushDistance * 0.5
+  const firstWeight = Math.max(0.01, first.pushWeight ?? 1)
+  const secondWeight = Math.max(0.01, second.pushWeight ?? 1)
+  const totalWeight = firstWeight + secondWeight
+  const firstPush = pushDistance * (secondWeight / totalWeight)
+  const secondPush = pushDistance * (firstWeight / totalWeight)
 
   const overlapsObstacle = (pos: THREE.Vector3, offsetX: number, offsetZ: number, radius: number, bottomOffset: number, height: number, walkSurfaces?: boolean, mountedSurfaces?: boolean): boolean => {
     const targetX = pos.x + offsetX
@@ -801,8 +874,8 @@ export function resolveEntityCollision(
 
   // Direction B: Predictive Obstacle Check
   // If pushed into a wall, treat the entity as temporarily anchored
-  const firstAnchored = first.anchored || overlapsObstacle(first.position, normalX * halfPush, normalZ * halfPush, first.radius, first.bottomOffset, first.height, first.walkSurfaces, first.mountedSurfaces)
-  const secondAnchored = second.anchored || overlapsObstacle(second.position, -normalX * halfPush, -normalZ * halfPush, second.radius, second.bottomOffset, second.height, second.walkSurfaces, second.mountedSurfaces)
+  const firstAnchored = first.anchored || overlapsObstacle(first.position, normalX * firstPush, normalZ * firstPush, first.radius, first.bottomOffset, first.height, first.walkSurfaces, first.mountedSurfaces)
+  const secondAnchored = second.anchored || overlapsObstacle(second.position, -normalX * secondPush, -normalZ * secondPush, second.radius, second.bottomOffset, second.height, second.walkSurfaces, second.mountedSurfaces)
 
   if (firstAnchored && secondAnchored) return
   if (firstAnchored) {
@@ -816,10 +889,10 @@ export function resolveEntityCollision(
       first.position.z += normalZ * pushDistance
     }
   } else {
-    first.position.x += normalX * halfPush
-    first.position.z += normalZ * halfPush
-    second.position.x -= normalX * halfPush
-    second.position.z -= normalZ * halfPush
+    first.position.x += normalX * firstPush
+    first.position.z += normalZ * firstPush
+    second.position.x -= normalX * secondPush
+    second.position.z -= normalZ * secondPush
   }
 }
 
@@ -1113,6 +1186,8 @@ export function createTerrain(
   options: TerrainOptions = {},
 ): TerrainResult {
   activeFortifiedCampFaction = options.fortifiedCampFaction ?? null
+  activeFlatTerrainY = null
+  flatTerrainOwner = null
   setSceneRiverCrossing(scene, Boolean(options.riverCrossing))
   const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, 256, 256)
   geometry.rotateX(-Math.PI / 2)

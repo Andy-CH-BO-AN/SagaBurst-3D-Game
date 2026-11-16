@@ -10,7 +10,7 @@ import type { CombatOwnership } from './CombatFaction'
 export type CombatActorType = 'player' | 'npc'
 export type CombatTargetType = CombatActorType | 'mount' | 'structure' | 'training'
 export type CombatDamageMethod = 'melee' | 'projectile' | 'mount-impact' | 'siege' | 'fall'
-export type CombatAttackSource = 'xongkoro'
+export type CombatAttackSource = 'xongkoro' | 'unarmed'
 
 export interface CombatActorRef {
   actorId: string
@@ -22,6 +22,8 @@ export interface CombatActorRef {
   ownership?: CombatOwnership
   /** Riding state when this source reference was captured, including melee hit time. */
   isMounted?: boolean
+  /** Player Armor Break level when this source reference was captured; NPCs never carry one. */
+  armorBreakLevel?: number
 }
 
 export interface CombatTargetRef {
@@ -126,6 +128,7 @@ export function createPlayerCombatActorRef(player: Player): CombatActorRef {
     allegiance: 'PLAYER' as Faction,
     characterFaction: player.characterFaction,
     isMounted: player.isMounted,
+    armorBreakLevel: player.armorBreakLevel,
   }
 }
 

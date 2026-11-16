@@ -1,9 +1,10 @@
-import { describe,expect,it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import type { SkillState } from '../../src/rpg/SkillManager'
-import { DEFAULT_SAVE,SaveManager,type PlayerSaveData } from '../../src/save/SaveManager'
+import { DEFAULT_SAVE, SaveManager, type PlayerSaveData } from '../../src/save/SaveManager'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { resolveSkillAdjustedMaxHp } from '../../src/rpg/CombatSkillProgression'
 
 interface SkillStorageAdapter {
   save(skills: SkillState): boolean
@@ -17,14 +18,16 @@ const implementations: Array<{
   create(storage: MemoryStorage): SkillStorageAdapter
 }> = [
   {
-    name: 'persists all five skills through Career save/reload',
-    key: 'sagaburst_career_v1',
+    name: 'persists all seven skills through Career save/reload',
+    key: 'sagaburst_career_v2',
     skills: {
+      unarmed: { level: 16, xp: 123 },
       blocking: { level: 12, xp: 42 },
       oneHanded: { level: 7, xp: 12 },
       twoHanded: { level: 8, xp: 23 },
       ranged: { level: 9, xp: 34 },
       mountedImpact: { level: 10, xp: 45 },
+      armorBreak: { level: 14, xp: 56 },
     },
     create(storage) {
       const store = new CareerProfileStore(storage)
@@ -39,14 +42,16 @@ const implementations: Array<{
     },
   },
   {
-    name: 'persists all five skills through regular save/reload',
-    key: 'wdyh_save_v1',
+    name: 'persists all seven skills through regular save/reload',
+    key: 'sagaburst_game_v2',
     skills: {
+      unarmed: { level: 19, xp: 321 },
       blocking: { level: 11, xp: 21 },
       oneHanded: { level: 3, xp: 10 },
       twoHanded: { level: 4, xp: 20 },
       ranged: { level: 5, xp: 30 },
       mountedImpact: { level: 6, xp: 40 },
+      armorBreak: { level: 13, xp: 50 },
     },
     create(storage) {
       const store = new SaveManager(storage)
@@ -57,7 +62,7 @@ const implementations: Array<{
           inventory: { ...DEFAULT_SAVE.inventory },
           skills,
         }),
-        load: () => store.load().skills,
+        load: () => store.load()?.skills,
       }
     },
   },
@@ -65,13 +70,15 @@ const implementations: Array<{
 
 describe('Skill storage round-trip', () => {
   for (const { name, key, skills, create } of implementations) {
-    it(name, () => {
-      const storage = new MemoryStorage()
-      expect(create(storage).save(skills)).toBe(true)
+    it(`${name}（七技能往返）`, () => {
+      const storage = new MemoryStorage(), adapter = create(storage)
+      expect(adapter.save(skills)).toBe(true)
       const raw = storage.getItem(key)
       expect(raw).not.toBeNull()
       expect(JSON.parse(raw!).skills).toEqual(skills)
-      expect(create(storage).load()).toEqual(skills)
+      expect(adapter.load()).toEqual(skills)
+
+      expect(resolveSkillAdjustedMaxHp(200, adapter.load()!)).toBeGreaterThan(200)
     })
   }
 })

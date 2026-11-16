@@ -1,0 +1,86 @@
+{
+  "sourceSha256": "a1255bb902a7a61e8e1a8e37035141dc8faf0557cfe7abbf4ad97f2eb0e13e03",
+  "lods": [
+    {
+      "level": 0,
+      "triangles": 12380,
+      "bytes": 12355228,
+      "sha256": "603d74f5c9dbbbc9d5e89caaa54ac91463e2a717c6729e19a8e9293c8ced5a81",
+      "meshes": 1,
+      "materials": 1,
+      "images": [
+        {
+          "name": "Meshy_AI_rigged_warrior_biped_texture_0",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 7001675,
+          "normalVectorRenormalized": false,
+          "encoding": "image/png"
+        },
+        {
+          "name": "Meshy_AI_rigged_warrior_biped_texture_0_metallic-Meshy_AI_rigged_warrior_biped_texture_0_roughness",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3559260,
+          "normalVectorRenormalized": false,
+          "encoding": "image/png"
+        }
+      ]
+    },
+    {
+      "level": 1,
+      "triangles": 10521,
+      "bytes": 4732744,
+      "sha256": "cda61b7b73daacc39891c23082630b1a43b07a7323789a3b0b8bce9e61d6268e",
+      "meshes": 1,
+      "materials": 1,
+      "images": [
+        {
+          "name": "Meshy_AI_rigged_warrior_biped_texture_0",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 2034529,
+          "normalVectorRenormalized": false,
+          "encoding": "image/png"
+        },
+        {
+          "name": "Meshy_AI_rigged_warrior_biped_texture_0_metallic-Meshy_AI_rigged_warrior_biped_texture_0_roughness",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1154090,
+          "normalVectorRenormalized": false,
+          "encoding": "image/png"
+        }
+      ]
+    },
+    {
+      "level": 2,
+      "triangles": 8664,
+      "bytes": 2138512,
+      "sha256": "597af3c9043933a0c7b90ef7c3e6fc441691a1788700cd8fc45c415841705aab",
+      "meshes": 1,
+      "materials": 1,
+      "images": [
+        {
+          "name": "Meshy_AI_rigged_warrior_biped_texture_0",
+          "width": 512,
+          "height": 512,
+          "bytes": 544802,
+          "normalVectorRenormalized": false,
+          "encoding": "image/png"
+        },
+        {
+          "name": "Meshy_AI_rigged_warrior_biped_texture_0_metallic-Meshy_AI_rigged_warrior_biped_texture_0_roughness",
+          "width": 512,
+          "height": 512,
+          "bytes": 351635,
+          "normalVectorRenormalized": false,
+          "encoding": "image/png"
+        }
+      ]
+    }
+  ],
+  "imageDecodeVerified": true,
+  "normalResize": "Lanczos followed by RGB vector normalization",
+  "visualAcceptance": "Pending runtime deformation review"
+}

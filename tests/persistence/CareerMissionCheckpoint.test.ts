@@ -1,15 +1,16 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { createCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
-import { describe,expect,it,vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CareerMissionCheckpoint } from '../../src/career/CareerMissionCheckpoint'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
-import { createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
-import { CAREER_STORAGE_KEY,CareerProfileStore,parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 import { CommanderTownMissionController } from '../../src/career/CommanderTownMissionController'
 import { acceptCommanderMission, COMMANDER_DECAPITATION_ID } from '../../src/career/CommanderMissionCatalog'
-import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, advanceCommanderFourGateDefensePreparation } from '../../src/career/CommanderFourGateDefenseState'
+import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
 import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
 import type { NPC } from '../../src/world/NPC'
 
@@ -67,7 +68,7 @@ describe('CareerMissionCheckpoint', () => {
   it('isolates profile mutations and preserves unrelated Career state across a snapshot commit', () => {
     const h = fixture()
     h.setProfile({ ...h.profile, totalMerit: 25, availableMerit: 25, claimedBattleIds: ['battle'],
-      ownedWeapons: ['gladius_rusty'], activeMission: { ...h.profile.activeMission!,
+      inventory: { version: 1 as const, quantities: Object.fromEntries(['gladius_rusty'].map(id => [id, 1])) }, ownedWeapons: ['gladius_rusty'], activeMission: { ...h.profile.activeMission!,
         mountState: { activeMountId: 'horse', hp: { horse: 43 }, unavailable: ['corgi'] },
       } })
     const before = h.profile
@@ -93,9 +94,28 @@ describe('CareerMissionCheckpoint', () => {
     expect(h.checkpoint.persist(h.snapshot, reason)).toBe(true)
   })
 
+  it('acknowledges death only after save and renews that acknowledgement for a new mission or reset', () => {
+    const h = fixture()
+    h.setProfile({ ...h.profile, activeMission: { ...h.profile.activeMission!, playerDead: true, playerHp: 0 } })
+    const death = () => ({ immediate: false, deathMissionId: h.profile.activeMission!.id })
+    h.setSaving(false)
+    expect(h.checkpoint.persist(h.snapshot, death())).toBe(false)
+    h.setSaving(true)
+    expect(h.checkpoint.persist(h.snapshot, death())).toBe(true)
+    expect(h.checkpoint.persist(h.snapshot, death())).toBe(false)
+    expect(h.commit).toHaveBeenCalledTimes(2)
+    h.setProfile({ ...h.profile, activeMission: { ...h.profile.activeMission!, id: 'next-checkpoint' } })
+    expect(h.checkpoint.persist(h.snapshot, death())).toBe(true)
+    expect(h.checkpoint.persist(h.snapshot, death())).toBe(false)
+    h.checkpoint.reset()
+    expect(h.checkpoint.persist(h.snapshot, death())).toBe(true)
+    expect(h.checkpoint.persist(h.snapshot, death())).toBe(false)
+    expect(h.commit).toHaveBeenCalledTimes(4)
+  })
+
   it('lazily captures Commander Town death after combat and retries fresh state before returning to the periodic cadence', () => {
     const base = createCareerProfile('roman')
-    base.rank = 'commander'; base.totalMerit = 20_000
+    Object.assign(base, careerRankFixture(base.faction, 'commander')); base.totalMerit = 20_000
     let profile = acceptCommanderMission(base, COMMANDER_DECAPITATION_ID, 'town-death')!
     profile.activeMission!.commanderMission!.deploymentComplete = true
     let saving = true, positionReads = 0
@@ -151,7 +171,7 @@ describe('CareerMissionCheckpoint', () => {
     expect(commit).toHaveBeenCalledTimes(4)
   })
 
-  it('captures Four-gate death after an early save and keeps force, mission identity and reload independent of its acknowledgement', () => {
+  it('captures Four-gate death after an early save and forces a fresh exit snapshot without reviving the player', () => {
     let profile = createFourGateDefenseProfile('PREPARING')
     const state = structuredClone(profile.activeMission!.fourGateDefense!)
     const actorId = profile.activeMission!.friendlyActorIds[0]
@@ -160,7 +180,7 @@ describe('CareerMissionCheckpoint', () => {
     const player = { hp: 85, dead: false, staminaValue: 70, position: { x: 12, y: 10, z: 18 },
       facingYaw: .5, arrowCount: 7, shield: { shieldImpactRemaining: 2 }, currentMount: null }
     const commit = vi.fn((next: CareerProfile) => { profile = next; return true })
-    let checkpoint = new CareerMissionCheckpoint(() => profile, commit)
+    const checkpoint = new CareerMissionCheckpoint(() => profile, commit)
     const controller = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as
       Pick<CommanderFourGateDefenseController, 'updateFlow' | 'persistRuntimeProgress' | 'snapshotActiveMission'>, {
       readProfile: () => profile, player: () => player, state, startedMissionId: profile.activeMission!.id, friendlyReady: true,
@@ -193,31 +213,12 @@ describe('CareerMissionCheckpoint', () => {
     expect(commit).toHaveBeenCalledTimes(3)
     expect(profile.activeMission!.fourGateDefense!.actors[actorId].hp).toBe(26)
     expect(profile.activeMission!.mountState).toEqual({ hp: { horse: 12 }, unavailable: [] })
+    // The controller must still let the checkpoint owner deduplicate ordinary dead-player updates.
     controller.persistRuntimeProgress()
     controller.updateFlow(1, 0)
     controller.persistRuntimeProgress()
     expect(snapshot).toHaveBeenCalledTimes(3)
     expect(commit).toHaveBeenCalledTimes(3)
-    profile = { ...profile, activeMission: { ...profile.activeMission!, id: 'four-gate-next',
-      officialSquad: { ...profile.activeMission!.officialSquad!, missionId: 'four-gate-next' } } }
-    Object.assign(controller, { startedMissionId: 'four-gate-next' })
-    actor.hp = 18
-    controller.persistRuntimeProgress()
-    expect(commit).toHaveBeenCalledTimes(4)
-    expect(profile.activeMission!.fourGateDefense!.actors[actorId].hp).toBe(18)
-    checkpoint.reset()
-    actor.hp = 12
-    controller.persistRuntimeProgress()
-    expect(commit).toHaveBeenCalledTimes(5)
-    expect(profile.activeMission!.fourGateDefense!.actors[actorId].hp).toBe(12)
-    checkpoint = new CareerMissionCheckpoint(() => profile, commit)
-    Object.assign(controller, { checkpoint })
-    actor.hp = 7
-    controller.persistRuntimeProgress()
-    expect(commit).toHaveBeenCalledTimes(6)
-    expect(profile.activeMission!.fourGateDefense!.actors[actorId].hp).toBe(7)
-    controller.persistRuntimeProgress()
-    expect(commit).toHaveBeenCalledTimes(6)
   })
 
   it('acknowledges fresh native deployment with the actual HR service resident without cancelling the mission', () => {
@@ -254,11 +255,13 @@ describe('CareerMissionCheckpoint', () => {
   })
 
   it('retries a failed first-attack save with current actor intent in both checkpoints before publishing combat', () => {
-    const legacy = createFourGateDefenseProfile('PREPARING', { legacyPrepared: true })
-    legacy.activeMission!.fourGateDefense!.preparationRemainingSeconds = 37.5
-    let profile = parseCareerProfile(legacy)!
-    expect(profile.activeMission!.fourGateDefense!.preparationRemainingSeconds).toBe(37.5)
-    const state = advanceCommanderFourGateDefensePreparation(profile.activeMission!.fourGateDefense!, 37.5, true)
+    const initialProfile = createFourGateDefenseProfile('ATTACKING')
+    Object.assign(initialProfile.activeMission!.fourGateDefense!, { phase: 'SPAWNING', deploymentComplete: false, attackStarted: false, combatElapsedSeconds: 0 })
+    for (const ramp of initialProfile.activeMission!.fourGateDefense!.siege!.ramps) ramp.state = 'DEPLOYING'
+    initialProfile.activeMission!.phase = 'SPAWNING'
+    initialProfile.activeMission!.commanderMission!.deploymentComplete = false
+    let profile = parseCareerProfile(initialProfile)!
+    const state = profile.activeMission!.fourGateDefense!
     profile.activeMission!.fourGateDefense = state; profile.activeMission!.phase = 'SPAWNING'
     profile.activeMission!.commanderMission!.deploymentComplete = false
     const initial = profile
@@ -290,7 +293,7 @@ describe('CareerMissionCheckpoint', () => {
     // The actual snapshot owner must acknowledge that full roster even while still SPAWNING.
     const readySnapshot = controller.snapshotActiveMission()
     expect(readySnapshot.fourGateDefense).toMatchObject({ phase: 'SPAWNING', deploymentComplete: false })
-    expect(readySnapshot.fourGateDefense!.registeredTargetActorIds).toHaveLength(230)
+    expect(readySnapshot.fourGateDefense!.registeredTargetActorIds).toHaveLength(280)
     const liveState = { ...readySnapshot.fourGateDefense!, phase: 'ATTACKING' as const, attackStarted: true, deploymentComplete: true }
     Object.assign(controller, { state: liveState })
     // The same production snapshot must withhold the new escort's initial Charge,
@@ -328,7 +331,7 @@ describe('CareerMissionCheckpoint', () => {
     storage.failWrites = false
     expect(checkpoint.persist(snapshot, { immediate: false, periodic: true })).toBe(true)
     expect(Array.from({ length: storage.length }, (_, index) => storage.key(index))).toEqual([CAREER_STORAGE_KEY])
-    expect(JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!)).toMatchObject({ version: 1, activeMission: { id: 'four-gate-save', phase: 'ATTACKING' } })
+    expect(JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!)).toMatchObject({ version: 2, activeMission: { id: 'four-gate-save', phase: 'ATTACKING' } })
     // Inspect durable bytes from the successful retry, including the fresh actor intent.
     const saved = (JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!) as CareerProfile).activeMission!.fourGateDefense!
     expect(saved).toMatchObject({ phase: 'ATTACKING', attackStarted: true, preparationRemainingSeconds: 0, player: { hp: 70 } })
@@ -436,7 +439,7 @@ describe('CareerMissionCheckpoint', () => {
     expect(controller.state.combatElapsedSeconds).toBe(12.5)
     expect(profile.activeMission!.fourGateDefense!.combatElapsedSeconds).toBe(12.5)
     expect(profile.activeMission!.phase).toBe('ATTACKING')
-    expect(profile.activeMission!.fourGateDefense!.registeredTargetActorIds).toHaveLength(230)
+    expect(profile.activeMission!.fourGateDefense!.registeredTargetActorIds).toHaveLength(280)
     expect(controller.combatEnabled).toBe(true)
     expect(batches).toBe(1); expect(releases).toBe(1)
   })

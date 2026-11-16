@@ -1,0 +1,86 @@
+{
+  "sourceSha256": "5f34cda87c2f206e3d4eef1b323fafad7e5a88d54945b824f8e2c5b071951d82",
+  "lods": [
+    {
+      "level": 0,
+      "triangles": 13991,
+      "bytes": 11890756,
+      "sha256": "84e5262d066e2ccf485920508fbc3e64baf34ba65d757a9a6fe03aec6379031e",
+      "meshes": 1,
+      "materials": 1,
+      "images": [
+        {
+          "name": "Meshy_AI_roman_soldier_rigged_biped_texture_0",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 7163647,
+          "normalVectorRenormalized": false,
+          "encoding": "image/png"
+        },
+        {
+          "name": "Meshy_AI_roman_soldier_rigged_biped_texture_0_metallic-Meshy_AI_roman_soldier_rigged_biped_texture_0_roughness",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 3259646,
+          "normalVectorRenormalized": false,
+          "encoding": "image/png"
+        }
+      ]
+    },
+    {
+      "level": 1,
+      "triangles": 11889,
+      "bytes": 3957744,
+      "sha256": "3089aa6e1b878700a94571b00b89b7c333b878f700484655fa2a97fd7cd70cf9",
+      "meshes": 1,
+      "materials": 1,
+      "images": [
+        {
+          "name": "Meshy_AI_roman_soldier_rigged_biped_texture_0",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 2092875,
+          "normalVectorRenormalized": false,
+          "encoding": "image/png"
+        },
+        {
+          "name": "Meshy_AI_roman_soldier_rigged_biped_texture_0_metallic-Meshy_AI_roman_soldier_rigged_biped_texture_0_roughness",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1052344,
+          "normalVectorRenormalized": false,
+          "encoding": "image/png"
+        }
+      ]
+    },
+    {
+      "level": 2,
+      "triangles": 9790,
+      "bytes": 1577208,
+      "sha256": "88c55f9d3952b848999a12cfec9e08aada8149e9eca7e10e349ba95f34fa3a8d",
+      "meshes": 1,
+      "materials": 1,
+      "images": [
+        {
+          "name": "Meshy_AI_roman_soldier_rigged_biped_texture_0",
+          "width": 512,
+          "height": 512,
+          "bytes": 566417,
+          "normalVectorRenormalized": false,
+          "encoding": "image/png"
+        },
+        {
+          "name": "Meshy_AI_roman_soldier_rigged_biped_texture_0_metallic-Meshy_AI_roman_soldier_rigged_biped_texture_0_roughness",
+          "width": 512,
+          "height": 512,
+          "bytes": 316485,
+          "normalVectorRenormalized": false,
+          "encoding": "image/png"
+        }
+      ]
+    }
+  ],
+  "imageDecodeVerified": true,
+  "normalResize": "Lanczos followed by RGB vector normalization",
+  "visualAcceptance": "Pending runtime deformation review"
+}

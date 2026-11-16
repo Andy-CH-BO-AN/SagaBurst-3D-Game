@@ -66,4 +66,17 @@ describe('EntityCollisionBroadPhase', () => {
       expect.closeTo(.075, 10), expect.closeTo(-.9, 10), expect.closeTo(1.075, 10),
     ])
   })
+
+  it('distributes displacement proportionally when bodies have unequal push weights', () => {
+    // Mount (radius 1.0, weight 4) at x=0, Infantry (radius 0.5, weight 1) at x=1.0.
+    // minDistance = 1.5, overlap = 0.5.
+    // Infantry should take 4/(4+1) = 80% of push (0.4), Mount takes 1/(4+1) = 20% of push (0.1).
+    const mount = { ...body(0, 0, 1.0), pushWeight: 4 }
+    const infantry = { ...body(1.0, 0, 0.5), pushWeight: 1 }
+    resolveEntityCollision(mount, infantry, [])
+
+    expect(mount.position.x).toBeCloseTo(-0.1)
+    expect(infantry.position.x).toBeCloseTo(1.4)
+    expect(infantry.position.x - mount.position.x).toBeCloseTo(1.5)
+  })
 })

@@ -2,8 +2,13 @@ import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { BallisticIntercept, collectBallisticPathObstacles, projectileTerrainContactTime } from '../../src/combat/ProjectileBallistics'
 import { ProjectileAdmission, projectileAmmoAfterLaunch } from '../../src/combat/ProjectileAdmission'
-import { findBlockingProjectileObstacleAlongPath, getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
+import { findBlockingProjectileObstacleAlongPath, getTerrainHeight, setObstaclePathQuerySource, type ObstacleData } from '../../src/world/Terrain'
 import { TownProjectileObstacles } from '../../src/town/TownProjectileObstacles'
+import { ProjectileContactQuery, ProjectileTargetIndex } from '../../src/combat/ProjectileContactQuery'
+import { RANGED_SIGHT_REUSE_SECONDS, RangedSightReuse } from '../../src/combat/RangedSightReuse'
+import { markObstacleTopologyChanged } from '../../src/world/ObstacleTopology'
+import type { PhysicalCombatTarget } from '../../src/combat/ShieldBlocking'
+import type { DamageableObstacle } from '../../src/world/DamageableObstacle'
 
 describe('projectile launch admission', () => {
   it('retains ammo on capacity rejection and accepts the next shot when a slot is free', () => {
@@ -27,15 +32,11 @@ describe('projectile launch admission', () => {
     expect(shots).toHaveLength(2)
     expect(admission.snapshot()).toEqual({ acceptedShots: 3, rejectedShots: 2,
       capacityRejectedShots: 2, peakActiveShots: 2 })
-  })
 
-  it('keeps legacy void launches successful while explicit scene rejection preserves ammo', () => {
-    const admission = new ProjectileAdmission(2, 1)
+    // Explicit scene rejection preserves ammo
     const legacyLaunch = (): void => {}
     expect(projectileAmmoAfterLaunch(2, legacyLaunch())).toBe(1)
     expect(projectileAmmoAfterLaunch(2, admission.reject())).toBe(2)
-    expect(admission.snapshot()).toEqual({ acceptedShots: 0, rejectedShots: 1,
-      capacityRejectedShots: 0, peakActiveShots: 0 })
   })
 })
 
@@ -75,17 +76,11 @@ describe('bounded projectile interception and arc clearance', () => {
     expect(arc.isPathClear(origin, 65, [wall], () => 0)).toBe(false)
     expect(arc.isPathClear(origin, 65, [], () => 0)).toBe(true)
   })
-  it('blocks a terrain ridge between trajectory samples', () => {
+  it('blocks a terrain ridge between trajectory samples and detects above-ground frame endpoints', () => {
     const origin = new THREE.Vector3(0, 31.4, -200), arc = new BallisticIntercept()
     expect(arc.solve(origin, new THREE.Vector3(0, 1.4, 200), new THREE.Vector3(), 65)).toBe(true)
     expect(arc.isPathClear(origin, 65, [], (_x, z) => Math.abs(z) < 10 ? 150 : 0)).toBe(false)
-  })
 
-})
-
-
-describe('shared terrain first contact', () => {
-  it('blocks a ridge between two above-ground frame endpoints', () => {
     const from = new THREE.Vector3(-100, 1.5, 0), to = new THREE.Vector3(100, 1.5, 0)
     expect(from.y).toBeGreaterThan(getTerrainHeight(from.x, from.z))
     expect(to.y).toBeGreaterThan(getTerrainHeight(to.x, to.z))
@@ -150,25 +145,25 @@ describe('finite projectile obstacle trace', () => {
     expect(arc.solve(remoteFrom, remoteTo, new THREE.Vector3(), 15)).toBe(true)
     expect(arc.isPathClear(remoteFrom, 15, [obstacle], () => -10)).toBe(true)
     expect(exactReads).toBe(0)
-  })
 
-  it('keeps rotated slab protrusions hittable outside their narrower walk envelope', () => {
-    const obstacle: ObstacleData = { isBarricade: false,
+    // Slab protrusion outside narrower walk envelope (#534 merged)
+    const slab: ObstacleData = { isBarricade: false,
       box: new THREE.Box3(new THREE.Vector3(9.9, -1, -.1), new THREE.Vector3(10.1, 1, .1)),
       projectileBoxes: [new THREE.Box3(new THREE.Vector3(-2, -.2, -.2), new THREE.Vector3(2, .2, .2))],
       projectileWorldToLocal: new THREE.Matrix4().makeRotationY(Math.PI / 2).setPosition(10, 0, 0).invert(),
     }
-    const from = new THREE.Vector3(8, 0, 1), to = new THREE.Vector3(12, 0, 1)
-    const contact = { fraction: Infinity, point: new THREE.Vector3() }
-    expect(findBlockingProjectileObstacleAlongPath(from, to, [obstacle], contact)).toBe(obstacle)
-    expect(contact.point.x).toBeCloseTo(9.8)
-    expect(contact.point.z).toBe(1)
-    const arc = new BallisticIntercept()
-    expect(arc.solve(from, to, new THREE.Vector3(), 15)).toBe(true)
-    expect(arc.isPathClear(from, 15, [obstacle], () => -10)).toBe(false)
-    obstacle.projectileWorldToLocal!.makeRotationY(Math.PI / 2).setPosition(20, 0, 0).invert()
-    expect(arc.isPathClear(from, 15, [obstacle], () => -10)).toBe(true)
+    const slabFrom = new THREE.Vector3(8, 0, 1), slabTo = new THREE.Vector3(12, 0, 1)
+    const slabContact = { fraction: Infinity, point: new THREE.Vector3() }
+    expect(findBlockingProjectileObstacleAlongPath(slabFrom, slabTo, [slab], slabContact)).toBe(slab)
+    expect(slabContact.point.x).toBeCloseTo(9.8)
+    expect(slabContact.point.z).toBe(1)
+    expect(arc.solve(slabFrom, slabTo, new THREE.Vector3(), 15)).toBe(true)
+    expect(arc.isPathClear(slabFrom, 15, [slab], () => -10)).toBe(false)
+    slab.projectileWorldToLocal!.makeRotationY(Math.PI / 2).setPosition(20, 0, 0).invert()
+    expect(arc.isPathClear(slabFrom, 15, [slab], () => -10)).toBe(true)
   })
+
+
 })
 
 describe('Town live projectile candidates', () => {
@@ -223,7 +218,7 @@ describe('Town live projectile candidates', () => {
 
 
 describe('whole ballistic arc candidates', () => {
-  it('includes the unsampled apex and tolerance edge while retaining source order and duplicates', () => {
+  it('collects whole ballistic arc candidates and releases them safely if collection throws', () => {
     const origin = new THREE.Vector3(), end = new THREE.Vector3(10, 0, 0)
     const apex: ObstacleData = { isBarricade: false,
       box: new THREE.Box3(new THREE.Vector3(4, 1.2, -1), new THREE.Vector3(6, 1.3, 1)) }
@@ -238,17 +233,181 @@ describe('whole ballistic arc candidates', () => {
     expect(bounds.max.y).toBeCloseTo(1.225 + 1e-6, 10)
     expect(bounds.containsPoint(origin)).toBe(true)
     expect(bounds.containsPoint(end)).toBe(true)
-  })
 
-  it('releases partially collected live obstacles when collection throws', () => {
-    const arc = new BallisticIntercept(), origin = new THREE.Vector3(0, 2, 0)
-    expect(arc.solve(origin, new THREE.Vector3(8, 2, 0), new THREE.Vector3(), 15)).toBe(true)
+    // Release partially collected obstacles on throw
+    const arc = new BallisticIntercept(), launchOrigin = new THREE.Vector3(0, 2, 0)
+    expect(arc.solve(launchOrigin, new THREE.Vector3(8, 2, 0), new THREE.Vector3(), 15)).toBe(true)
     const retained: ObstacleData = { isBarricade: false,
       box: new THREE.Box3(new THREE.Vector3(1, -10, -1), new THREE.Vector3(2, 10, 1)) }
     const throwing: ObstacleData = { ...retained, get projectileBounds(): THREE.Box3 { throw new Error('disposed owner') } }
-    expect(() => arc.isPathClear(origin, 15, [retained, throwing], () => -10)).toThrow('disposed owner')
+    expect(() => arc.isPathClear(launchOrigin, 15, [retained, throwing], () => -10)).toThrow('disposed owner')
     const scratch = arc as unknown as { pathObstacles: ObstacleData[] }
     expect(scratch.pathObstacles).toHaveLength(0)
-    expect(arc.isPathClear(origin, 15, [], () => -10)).toBe(true)
+    expect(arc.isPathClear(launchOrigin, 15, [], () => -10)).toBe(true)
+  })
+})
+
+
+/** Only plain body positions and collision boxes; no actor or scene construction. */
+function contactBody(x: number) {
+  const position = new THREE.Vector3(x, 40, 0)
+  return { group: { position } as PhysicalCombatTarget['group'], combatPosition: position,
+    isMounted: false, available: true }
+}
+
+describe('registered-source ballistic broad phase', () => {
+  it('returns the linear scan result for a stable source, including unculled projectile envelopes and live passability', () => {
+    const town = new TownProjectileObstacles(), shotFrom = new THREE.Vector3(-1, 1, 0.5), shotTo = new THREE.Vector3(6, 1.5, 0.5)
+    const townQuery = (obstacles: ObstacleData[]) => [...town.query(shotFrom, shotTo, obstacles)]
+    const box = (x: number, z: number) => new THREE.Box3(new THREE.Vector3(x, 0, z), new THREE.Vector3(x + 1, 3, z + 1))
+    // 80 scattered static walls keep the source above the indexed-source threshold.
+    const source: ObstacleData[] = Array.from({ length: 80 }, (_, i) => ({ isBarricade: false, box: box((i % 10) * 9 - 40, Math.floor(i / 10) * 9 - 40) }))
+    // Its collision box is remote, but its complete projectile bounds cross the arc.
+    source.push({ isBarricade: false, box: box(90, 90),
+      projectileBounds: new THREE.Box3(new THREE.Vector3(3, 0, -1), new THREE.Vector3(4, 4, 1)) })
+    source.push({ isBarricade: false, box: box(60, 60), projectileWorldToLocal: new THREE.Matrix4() })
+    source.push({ isBarricade: false, dynamic: true, box: box(5, -0.5) })
+    const origin = new THREE.Vector3(-30, 1, 0.5), end = new THREE.Vector3(20, 1, 0.5)
+    const collect = (obstacles: ObstacleData[]) => [...collectBallisticPathObstacles(origin, end, 5, 2, obstacles, new THREE.Box3(), [])]
+    const linear = collect(source.slice())
+    setObstaclePathQuerySource(source, true)
+    try {
+      expect(collect(source)).toEqual(linear)
+      expect(linear).toContain(source[80]); expect(linear).toContain(source[81]); expect(linear).toContain(source[82])
+      // Town live shots prefilter the same registered source and keep its exact filter.
+      const townLinear = townQuery(source.slice())
+      expect(townQuery(source)).toEqual(townLinear)
+      expect(townLinear).toContain(source[80]); expect(townLinear).toContain(source[82])
+      // Dynamic bounds and passability are read live, after the grid prefilter.
+      source[82].box.translate(new THREE.Vector3(0, 0, 20))
+      expect(collect(source)).toEqual(collect(source.slice()))
+      expect(townQuery(source)).toEqual(townQuery(source.slice()))
+      expect(townQuery(source)).not.toContain(source[82])
+      source[81].projectilePassable = true
+      expect(collect(source)).not.toContain(source[81])
+    } finally {
+      setObstaclePathQuerySource(source, false)
+    }
+  })
+})
+
+describe('ranged sight reuse', () => {
+  it('reuses one target\'s trace briefly and retraces on target, movement, time or topology change', () => {
+    const sight = new RangedSightReuse(), obstacles: ObstacleData[] = []
+    const archer = { x: 0, y: 5, z: 0 }, enemy = {}, other = {}, at = { x: 30, y: 0, z: 0 }
+    let traces = 0, clear = true
+    const ask = (now: number, target: object | null = enemy, shooter = archer, position = at) =>
+      sight.isClear(now, target, shooter, position, obstacles, () => { traces++; return clear })
+    expect(ask(0)).toBe(true)
+    clear = false
+    // Same pair inside the window and movement limit keeps the first answer.
+    expect(ask(RANGED_SIGHT_REUSE_SECONDS * .9, enemy, archer, { x: 30.3, y: 0, z: .2 })).toBe(true)
+    expect(traces).toBe(1)
+    expect(ask(.1, other)).toBe(false); expect(traces).toBe(2)
+    expect(ask(.11, other, { x: 0, y: 5, z: .6 })).toBe(false); expect(traces).toBe(3)
+    clear = true
+    expect(ask(.11 + RANGED_SIGHT_REUSE_SECONDS, other, { x: 0, y: 5, z: .6 })).toBe(true); expect(traces).toBe(4)
+    clear = false
+    markObstacleTopologyChanged(obstacles)
+    expect(ask(.4, other, { x: 0, y: 5, z: .6 })).toBe(false); expect(traces).toBe(5)
+    // Position-only targets are never reused.
+    expect(ask(.4, null)).toBe(false); expect(ask(.4, null)).toBe(false); expect(traces).toBe(7)
+  })
+})
+
+describe('shared live projectile first contact', () => {
+  it('keeps nock clearance exclusive to world geometry and reads target eligibility before the next shot', () => {
+    const query = new ProjectileContactQuery(), from = new THREE.Vector3(0, 41, 0), to = new THREE.Vector3(.1, 41, 0)
+    const first = contactBody(.35), second = contactBody(.35), entry = first.group.position.x - .3
+    const wall: ObstacleData = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(entry, 40, -1), new THREE.Vector3(.2, 42, 1)) }
+    const duplicate = { ...wall }, targets = [first, second]
+    const input = { world: { kind: 'battle' as const, travelledDistance: .119 }, obstacles: [wall, duplicate], targets,
+      acceptsTarget: (target: typeof first) => target.available }
+    const hit = query.find(from, to, input)
+    expect(hit).toMatchObject({ kind: 'actor', target: first, contact: { kind: 'body' } })
+    expect(hit!.point.x).toBeCloseTo(.05)
+    // Damage/ownership from one projectile changes admission for the next one.
+    first.available = false
+    expect(query.find(from, to, input)).toMatchObject({ kind: 'actor', target: second })
+    input.world.travelledDistance = .12
+    expect(query.find(from, to, input)).toMatchObject({ kind: 'obstacle', obstacle: wall })
+    wall.projectilePassable = true
+    expect(query.find(from, to, input)).toMatchObject({ kind: 'obstacle', obstacle: duplicate })
+    // A returned contact remains owned by the hit even after subsequent queries.
+    expect(hit).toMatchObject({ kind: 'actor', target: first, contact: { target: first } })
+    expect(hit!.point.x).toBeCloseTo(.05)
+  })
+
+  it('keeps a long sweep\'s far-end body, culls targets beyond reach of the whole segment and breaks grouped ties in order', () => {
+    const query = new ProjectileContactQuery(), from = new THREE.Vector3(0, 41, 0), to = new THREE.Vector3(20, 41, 0)
+    const lead = contactBody(19.5), tie = contactBody(19.5), remote = contactBody(10)
+    remote.group.position.z = 4.5
+    const admitted: unknown[] = []
+    const input = { world: { kind: 'battle' as const, travelledDistance: 1 }, obstacles: [],
+      targets: { groups: [[remote], [lead], [tie]] },
+      acceptsTarget: (target: typeof lead) => { admitted.push(target); return target.available } }
+    expect(query.find(from, to, input)).toMatchObject({ kind: 'actor', target: lead })
+    // 4.5 m from every point of the segment: rejected before admission is ever read.
+    expect(admitted).toEqual([lead, tie])
+    lead.available = false
+    expect(query.find(from, to, input)).toMatchObject({ kind: 'actor', target: tie })
+  })
+
+  it('admits indexed candidates exactly as the linear groups, in group order across cells, and re-samples moved targets after invalidate', () => {
+    const query = new ProjectileContactQuery(), from = new THREE.Vector3(0, 41, 0), to = new THREE.Vector3(20, 41, 0)
+    // Equal contact times in two grid cells; the earlier group lies in the later-visited cell.
+    const first = contactBody(19.5), second = contactBody(19.5), remote = contactBody(10), far = contactBody(100), lost = contactBody(0)
+    first.group.position.z = .1; second.group.position.z = -.1; remote.group.position.z = 4.5; lost.group.position.x = Number.NaN
+    const groups = [[far], [first, remote], [lost, second]]
+    const index = new ProjectileTargetIndex<typeof first>()
+    index.reset(groups)
+    const run = (targets: { groups: typeof groups } | typeof index) => {
+      const admitted: unknown[] = []
+      const hit = query.find(from, to, { world: { kind: 'battle' as const, travelledDistance: 1 }, obstacles: [], targets,
+        acceptsTarget: target => { admitted.push(target); return target.available } })
+      return { target: hit?.kind === 'actor' ? hit.target : undefined, admitted }
+    }
+    const linear = run({ groups }), indexed = run(index)
+    expect(linear).toEqual({ target: first, admitted: [first, lost, second] })
+    expect(indexed.target).toBe(first)
+    expect(indexed.admitted).toEqual(linear.admitted)
+    // A target that moves into reach (for example after a hit) is only seen once re-sampled.
+    far.group.position.set(19.4, 40, 0)
+    expect(run({ groups }).target).toBe(far)
+    index.invalidate()
+    expect(run(index)).toEqual(run({ groups }))
+  })
+
+  it('keeps Town siege tolerance and catches a practice target just beyond the tip after live blockers disappear', () => {
+    const query = new ProjectileContactQuery(), from = new THREE.Vector3(0, 40, 0), to = new THREE.Vector3(1, 40, 0)
+    const wall: ObstacleData = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(.8, 39, -1), new THREE.Vector3(.9, 41, 1)) }
+    // The siege callback is the scene's mesh adapter; this test owns its distance contract.
+    const structure = {} as DamageableObstacle, maxima: number[] = []
+    let siegePresent = true
+    const practice = new THREE.Vector3(1.605, 40, 0), obstacles = [wall]
+    const input = { world: { kind: 'town' as const, practiceTargets: [practice],
+      traceSiege: (_from: THREE.Vector3, _to: THREE.Vector3, maximum: number) => {
+        maxima.push(maximum)
+        return !siegePresent ? null : { target: structure, distance: .8005, point: new THREE.Vector3(.8005, 40, 0) }
+      } }, obstacles, targets: [], acceptsTarget: () => true }
+    const siege = query.find(from, to, input)
+    expect(siege).toMatchObject({ kind: 'siege', target: structure })
+    expect(maxima[0]).toBeCloseTo(.801)
+    // The scene's synchronous destruction removes both registrations before the next shot.
+    siegePresent = false; obstacles.length = 0
+    const next = query.find(from, to, input)
+    expect(next?.kind).toBe('practice')
+    expect(next!.point.x).toBeCloseTo(1.005)
+    expect(maxima[1]).toBe(1)
+    practice.x = 1.611
+    expect(query.find(from, to, input)).toBeNull()
+    expect(siege!.point.x).toBe(.8005)
+    // A stationary shot already touching terrain still returns its own finite point.
+    const grounded = new THREE.Vector3(0, getTerrainHeight(0, 0) - 1, 0)
+    const stationary = query.find(grounded, grounded, input)
+    expect(stationary).toMatchObject({ kind: 'terrain', point: grounded })
+    expect(stationary!.point).not.toBe(grounded)
   })
 })

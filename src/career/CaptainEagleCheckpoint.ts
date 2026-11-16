@@ -61,3 +61,45 @@ export function parseCaptainEagleCheckpoint(value: unknown, maxActors = 128): Ca
     structuresDestroyed: Math.floor(raw.playerStats.structuresDestroyed), gateBreaches: Math.floor(raw.playerStats.gateBreaches),
   } }
 }
+
+type CheckpointMount = NonNullable<PersonalActorCheckpoint['mount']>
+type Vector = { readonly x: number; readonly y: number; readonly z: number }
+
+/** The live mount state a field-battle checkpoint records (structural, so no scene types are needed here). */
+export interface CheckpointMountSource {
+  readonly dead: boolean
+  readonly currentHp: number
+  readonly armorImpactRemaining: number
+  readonly group: { readonly position: Vector; readonly rotation: { readonly y: number } }
+  readonly flight: { snapshot(): NonNullable<CheckpointMount['flight']> } | null
+}
+
+/** A mount's saved HP (0 once dead), armour, rider state, place and, for a flier, its flight. */
+export function snapshotCheckpointMount(mount: CheckpointMountSource, mounted: boolean): CheckpointMount {
+  return {
+    hp: mount.dead ? 0 : mount.currentHp, armorImpactRemaining: mount.armorImpactRemaining, mounted,
+    position: { x: mount.group.position.x, y: mount.group.position.y, z: mount.group.position.z, yaw: mount.group.rotation.y },
+    ...(mount.flight ? { flight: mount.flight.snapshot() } : {}),
+  }
+}
+
+/** The live player state every field-battle checkpoint starts from. */
+export interface CheckpointPlayerSource {
+  readonly hp: number
+  readonly staminaValue: number
+  readonly dead: boolean
+  readonly position: Vector
+  readonly group: { readonly rotation: { readonly y: number } }
+  readonly arrowCount: number
+  readonly shield: { readonly shieldImpactRemaining: number }
+}
+
+/** HP, stamina, death, place and supplies; mount and fall details are added by the caller. */
+export function snapshotCheckpointPlayer(player: CheckpointPlayerSource): Pick<CaptainEagleCheckpoint['player'],
+  'hp' | 'stamina' | 'dead' | 'position' | 'ammo' | 'shieldImpact'> {
+  return {
+    hp: player.hp, stamina: player.staminaValue, dead: player.dead,
+    position: { x: player.position.x, y: player.position.y, z: player.position.z, yaw: player.group.rotation.y },
+    ammo: player.arrowCount, shieldImpact: player.shield.shieldImpactRemaining,
+  }
+}

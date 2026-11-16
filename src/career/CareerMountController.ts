@@ -1,33 +1,58 @@
-import type { RaceRider } from './CareerRaceState'
-import { availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from './CareerInventory'
 import * as THREE from 'three'
-import { getCareerPurchaseTier, cloneCareerProfile, canonicalCareerMountId, ownsCareerHorse, type CareerMountId, type CareerProfile } from './CareerProfile'
-import type { EquipmentMountAdapter, EquipmentMountItem } from '../ui/EquipmentUI'
+import { mountArmorImpactMax } from '../combat/MountArmor'
+import { mountStats } from '../combat/MountStats'
 import type { Player } from '../player/Player'
-import { horseVariantFromSave, type HorseAppearanceVariant } from '../world/HorseAssetRegistry'
-import { Mount, MountType } from '../world/Mount'
-import { findEagleLandingPosition, type EagleLandingPoint } from '../world/EagleLanding'
-import { syncCareerEaglePads, EaglePadReservations, PLAYER_EAGLE_PAD_OWNER } from './EaglePadReservations'
-import { getTerrainHeight, getScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
+import { compareMounts,mountComparisonBasis,mountDetails,mountTraits,type MountComparisonBasis } from '../rpg/MountComparison'
+import type { EquipmentMountAdapter,EquipmentMountItem } from '../ui/EquipmentUI'
+import { BlackCatVisual,type FelineMountVariant } from '../world/BlackCatVisual'
+import { findEagleLandingPosition,type EagleLandingPoint } from '../world/EagleLanding'
+import { HorseAssetRegistry,horseVariantFromSave,type HorseAppearanceVariant } from '../world/HorseAssetRegistry'
+import { Mount,MountType,felineVariantFromMountId } from '../world/Mount'
+import { getScenePlayableWorldBound,getTerrainHeight,type ObstacleData } from '../world/Terrain'
+import { availableCareerItem,canAllocateCareerItemToPlayer,careerItemTotal,normalizeCareerInventory } from './CareerInventory'
+import { canonicalCareerMountId,cloneCareerProfile,getCareerPurchaseTier,ownsCareerHorse,type CareerMountId,type CareerProfile } from './CareerProfile'
+import type { RaceRider } from './CareerRaceState'
+import { isCareerShopItemUseUnlocked } from './CareerShopCatalog'
+import { EaglePadReservations,PLAYER_EAGLE_PAD_OWNER,syncCareerEaglePads } from './EaglePadReservations'
+
+export const CAREER_MOUNT_INTERACTION_DISTANCE = 3
 
 const MOUNTS: Readonly<Record<ReturnType<typeof canonicalCareerMountId>, Omit<EquipmentMountItem, 'active' | 'available'>>> = {
   horse: { id: 'horse', name: '軍用戰馬', tier: 1 },
+  'armored-horse': { id: 'armored-horse', name: '重甲戰馬', tier: 5 },
   'black-cat': { id: 'black-cat', name: '黑貓英雄坐騎', tier: 4 },
+  'white-cat': { id: 'white-cat', name: '白貓英雄坐騎', tier: 4 },
+  'orange-cat': { id: 'orange-cat', name: '橘貓英雄坐騎', tier: 4 },
   corgi: { id: 'corgi', name: '柯基英雄坐騎', tier: 4 },
+  serval: { id: 'serval', name: '藪貓英雄坐騎', tier: 5 },
+  caracal: { id: 'caracal', name: '獰貓英雄坐騎', tier: 5 },
+  'snow-leopard': { id: 'snow-leopard', name: '重甲雪豹', tier: 5 },
   xongkoro: { id: 'xongkoro', name: 'xongkoro · 巨鷹英雄坐騎', tier: 4 },
 }
 
-export function ownedCareerMountIds(profile: Pick<CareerProfile, 'ownedMounts' | 'ownedHorseTiers'>): CareerMountId[] {
+export function ownedCareerMountIds(profile: Pick<CareerProfile, 'ownedMounts'>): CareerMountId[] {
   const result: CareerMountId[] = ownsCareerHorse(profile) ? ['horse'] : []
+  if (profile.ownedMounts.includes('armored-horse')) result.push('armored-horse')
   if (profile.ownedMounts.includes('black-cat')) result.push('black-cat')
+  if (profile.ownedMounts.includes('white-cat')) result.push('white-cat')
+  if (profile.ownedMounts.includes('orange-cat')) result.push('orange-cat')
   if (profile.ownedMounts.includes('corgi')) result.push('corgi')
+  if (profile.ownedMounts.includes('serval')) result.push('serval')
+  if (profile.ownedMounts.includes('caracal')) result.push('caracal')
+  if (profile.ownedMounts.includes('snow-leopard')) result.push('snow-leopard')
   if (profile.ownedMounts.includes('xongkoro')) result.push('xongkoro')
   return result
 }
 
 export function careerMountType(id: CareerMountId): MountType {
+  if (id === 'armored-horse') return MountType.ARMORED_HORSE
   if (id === 'black-cat') return MountType.BLACK_CAT
+  if (id === 'white-cat') return MountType.WHITE_CAT
+  if (id === 'orange-cat') return MountType.ORANGE_CAT
+  if (id === 'serval') return MountType.SERVAL
+  if (id === 'caracal') return MountType.CARACAL
   if (id === 'corgi') return MountType.CORGI
+  if (id === 'snow-leopard') return MountType.SNOW_LEOPARD
   if (id === 'xongkoro') return MountType.XONGKORO
   return MountType.HORSE
 }
@@ -43,7 +68,33 @@ export function careerMountAppearanceVariant(profile: Pick<CareerProfile, 'horse
 
 export function canUseCareerMount(profile: CareerProfile, id: CareerMountId): boolean {
   const canonical = canonicalCareerMountId(id)
-  return canAllocateCareerItemToPlayer(profile, canonical) && careerMountTier(canonical, profile) <= getCareerPurchaseTier(profile.rank)
+  return isCareerShopItemUseUnlocked(profile, canonical) && canAllocateCareerItemToPlayer(profile, canonical)
+}
+
+/**
+ * Feline variants a Town scene must be able to construct synchronously at startup:
+ * the Town Cat, the player's selected/active/saved-race mount, saved race opponent,
+ * and mounts already assigned to squad members or Town actors. Merely owned mounts are
+ * deferred until summon, purchase or preview.
+ */
+export function careerFelineVariants(profile: CareerProfile): Set<FelineMountVariant> {
+  const ids: Array<string | null | undefined> = [
+    'black-cat',
+    profile.selectedMountId,
+    profile.activeMission?.mountState?.activeMountId,
+    profile.retirementRuntime?.mountState?.activeMountId,
+    profile.racePlayerState?.mountId,
+    profile.activeRace?.player.mountId,
+    profile.activeRace?.opponent.mountId,
+    ...(profile.personalSquad?.members ?? []).map(member => member.equipment?.mount),
+    ...Object.values(profile.townEquipment ?? {}).flatMap(state => Object.values(state?.actors ?? {}).map(refs => refs.mount?.itemId)),
+  ]
+  const variants = new Set<FelineMountVariant>()
+  for (const id of ids) {
+    const variant = felineVariantFromMountId(id)
+    if (variant) variants.add(variant)
+  }
+  return variants
 }
 
 export function findSafeCareerMountPosition(
@@ -74,9 +125,17 @@ export function findSafeCareerMountPosition(
 
 export class CareerMountController implements EquipmentMountAdapter {
   private active: { id: CareerMountId; mount: Mount } | null = null
+  private readonly armorImpact = new Map<CareerMountId, number>()
   private readonly hp = new Map<CareerMountId, number>()
   private readonly unavailable = new Set<CareerMountId>()
   statusText = ''
+  /** Called when an asynchronous result (mount asset loaded or failed) changes statusText, so an open UI can refresh. */
+  onChange?: () => void
+  /** The mount whose assets are loading; its activation will finish on its own. */
+  get loadingId(): string | null { return this.pending?.id ?? null }
+  private requestSeq = 0
+  private resourcesDirty = false
+  private pending: { id: CareerMountId; token: number } | null = null
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -90,6 +149,8 @@ export class CareerMountController implements EquipmentMountAdapter {
   ) {
     syncCareerEaglePads(this.options.eaglePads, this.readProfile(), this.sceneKey())
     const state = this.readProfile().activeMission?.mountState ?? this.readProfile().retirementRuntime?.mountState
+    for (const [id, value] of Object.entries(this.readProfile().mountArmor ?? {})) this.armorImpact.set(id as CareerMountId, value!)
+    for (const [id, value] of Object.entries(state?.armorImpact ?? {})) this.armorImpact.set(id as CareerMountId, value!)
     if (!state) return
     for (const id of Object.keys(state.hp) as CareerMountId[]) {
       const value = state.hp[id]
@@ -102,15 +163,32 @@ export class CareerMountController implements EquipmentMountAdapter {
     }
   }
 
+  /** The mount to compare against: what the Player is riding (including a temporary mount), else the allocated private mount. */
+  comparisonBasis(profile: CareerProfile = this.readProfile()): MountComparisonBasis | null {
+    const current = this.player().currentMount
+    const privateId = current && this.active && current === this.active.mount ? canonicalCareerMountId(this.active.id) : undefined
+    const owned = ownedCareerMountIds(profile)
+    const allocated = profile.selectedMountId ? canonicalCareerMountId(profile.selectedMountId) : null
+    return mountComparisonBasis({
+      riding: current ? { kind: current.type, name: privateId ? MOUNTS[privateId].name : current.displayName, privateId } : null,
+      allocated: allocated && owned.includes(allocated) ? { id: allocated, name: MOUNTS[allocated].name, kind: careerMountType(allocated) } : null,
+    })
+  }
+
   list(): EquipmentMountItem[] {
     const profile = this.readProfile()
-    const unlockedTier = getCareerPurchaseTier(profile.rank)
+    const basis = this.comparisonBasis(profile), rider = this.player().heroAssetId
     return ownedCareerMountIds(profile).map(id => ({
       ...MOUNTS[canonicalCareerMountId(id)],
+      traits: mountTraits(mountStats(careerMountType(id), rider)),
+      // Speed follows the real rider (see MountStats), so the Byzantine cataphract exception shows what riding would actually give.
+      detail: mountDetails(careerMountType(id), rider).join(' ｜ '),
+      comparison: compareMounts(canonicalCareerMountId(id), careerMountType(id), basis, rider),
       tier: careerMountTier(id, profile),
       active: this.active?.id === id && this.player().currentMount === this.active.mount,
-      available: careerMountTier(id, profile) <= unlockedTier && !this.unavailable.has(id) && canAllocateCareerItemToPlayer(profile, id),
-      quantityText: `總持有 ${careerItemTotal(profile, id)} · 可用 ${availableCareerItem(profile, id)}`,
+      available: canUseCareerMount(profile, id) && !this.unavailable.has(id),
+      quantityText: `總持有 ${careerItemTotal(profile, id)} · 可用 ${availableCareerItem(profile, id)}${mountArmorImpactMax(careerMountType(id)) ? ` · 護甲 ${Math.ceil(this.active?.id === id ? this.active.mount.armorImpactRemaining : this.armorImpact.get(id) ?? mountArmorImpactMax(careerMountType(id)))}/${mountArmorImpactMax(careerMountType(id))}` : ''}`,
+      ...(!isCareerShopItemUseUnlocked(profile, canonicalCareerMountId(id)) ? { unavailableReason: '巨鷹訓練需 Captain / Commander 軍階' } : {}),
       allocated: profile.selectedMountId === id,
       ...(id === 'horse' ? { appearanceVariant: careerMountAppearanceVariant(profile), appearanceEditable: !profile.activeRace } : {}),
     }))
@@ -129,14 +207,36 @@ export class CareerMountController implements EquipmentMountAdapter {
   }
 
   activate(rawId: string): boolean {
+    if (this.readProfile().activeMission?.duelMode === 'unarmed') return this.fail('空手對戰期間不能召喚或切換坐騎。')
     if (this.readProfile().activeRace) return this.fail('賽馬期間不能召喚或切換坐騎。')
     if (this.player().isFalling || this.player().currentMount?.isAirborne) return this.fail('請先安全降落，再召喚或切換坐騎。')
     const id = canonicalCareerMountId(rawId as CareerMountId)
     const config = MOUNTS[id]
     const profile = this.readProfile()
     if (!config || !ownedCareerMountIds(profile).includes(id)) return this.fail('尚未擁有這匹坐騎。')
-    if (!canUseCareerMount(profile, id)) return this.fail('目前軍階不能使用這匹坐騎。')
+    if (!canUseCareerMount(profile, id)) return this.fail(!isCareerShopItemUseUnlocked(profile, id) ? '巨鷹訓練需 Captain / Commander 軍階。' : '這匹坐騎已分配給其他單位。')
     if (this.unavailable.has(id)) return this.fail('這匹坐騎本次出城已倒下，回到和平小鎮休整後才能再用。')
+    if (id === 'armored-horse' && !HorseAssetRegistry.armoredReady) return this.fail('重甲戰馬資源尚未就緒，請重新載入場景。')
+    const feline = felineVariantFromMountId(id)
+    if (feline && !BlackCatVisual.isPreloaded(feline)) {
+      // Repeated clicks on the same loading mount coalesce; any other request supersedes it.
+      if (this.pending?.id === id) return this.fail('正在載入坐騎資源…')
+      const token = ++this.requestSeq
+      this.pending = { id, token }
+      void BlackCatVisual.preload(feline).then(() => {
+        if (this.pending?.token !== token) return
+        this.pending = null
+        this.activate(rawId)
+        this.onChange?.()
+      }).catch(() => {
+        if (this.pending?.token !== token) return
+        this.pending = null
+        this.statusText = '坐騎資源載入失敗，請稍後重試。'
+        this.onChange?.()
+      })
+      return this.fail('正在載入坐騎資源…')
+    }
+    this.cancelPending()
     if (this.active?.id === id && !this.active.mount.dead) {
       if (!this.player().isMounted) this.player().mountVehicle(this.active.mount, id === 'xongkoro' ? this.active.mount.group.rotation.y : undefined)
       this.persistOutingState(id)
@@ -163,12 +263,15 @@ export class CareerMountController implements EquipmentMountAdapter {
     const previous = this.active
     const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(profile))
     mount.currentHp = Math.max(1, Math.min(mount.maxHp, this.hp.get(id) ?? mount.maxHp))
+    mount.restoreArmor(this.armorImpact.get(id))
     this.installDeathPersistence(id, mount)
-    if (previous) this.hp.set(previous.id, previous.mount.currentHp)
+    if (previous) { this.hp.set(previous.id, previous.mount.currentHp); this.rememberArmor(previous.id, previous.mount) }
     const previousHp = this.hp.get(id)
     this.hp.set(id, mount.currentHp)
     const next = cloneCareerProfile(profile)
     normalizeCareerInventory(next)
+    if (this.armorImpact.size) next.mountArmor = Object.fromEntries(this.armorImpact)
+    else delete next.mountArmor
     next.selectedMountId = id
     delete next.racePlayerState
     if (next.activeMission) next.activeMission.mountState = this.outingState(id)
@@ -191,9 +294,10 @@ export class CareerMountController implements EquipmentMountAdapter {
   restoreRaceMount(saved: RaceRider): boolean {
     if (this.active) return false
     const profile = this.readProfile(), id = saved.mountId
-    if (!canUseCareerMount(profile, id)) return false
+    if (!canUseCareerMount(profile, id) || (id === 'armored-horse' && !HorseAssetRegistry.armoredReady)) return false
     const p = saved.mountPosition
     const mount = new Mount(this.scene, careerMountType(id), p.x, p.z, p.y, careerMountAppearanceVariant(profile))
+    mount.restoreArmor(saved.mountArmorImpact ?? this.armorImpact.get(id))
     this.active = { id, mount }; this.hp.set(id, saved.mountHp)
     this.installDeathPersistence(id, mount)
     mount.group.rotation.y = p.yaw
@@ -211,10 +315,13 @@ export class CareerMountController implements EquipmentMountAdapter {
     const savedId = profile.activeMission?.mountState?.activeMountId ?? profile.retirementRuntime?.mountState?.activeMountId ?? (aerial?.mount ? 'xongkoro' : undefined)
     const id = savedId ? canonicalCareerMountId(savedId) : undefined
     if (!id || !MOUNTS[id] || !canUseCareerMount(profile, id) || this.unavailable.has(id) || (this.hp.get(id) ?? 1) <= 0) return false
+    if (id === 'armored-horse' && !HorseAssetRegistry.armoredReady) {
+      this.statusText = '重甲戰馬資源載入失敗，請稍後重試。'
+      return false
+    }
     syncCareerEaglePads(this.options.eaglePads, profile, this.sceneKey())
     const pad = id === 'xongkoro' ? this.options.eaglePads?.reserve(PLAYER_EAGLE_PAD_OWNER) : undefined
-    // A legacy fourth Player eagle already in flight keeps its saved runtime, even while all home pads are reserved.
-    if (id === 'xongkoro' && this.options.eaglePads && !pad && !aerial?.mount && !retirement?.mount) return false
+    if (id === 'xongkoro' && this.options.eaglePads && !pad) return false
     const deployment = this.options.eagleDeployment?.()
     const heading = retirement?.mount?.position.yaw ?? aerial?.mount?.position.yaw ?? deployment?.yaw ?? this.player().facingYaw
     const position = retirement?.mount
@@ -227,15 +334,18 @@ export class CareerMountController implements EquipmentMountAdapter {
       : findSafeCareerMountPosition(this.player().combatPosition, this.obstacles(), this.occupied())
     if (!position) return false
     const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(profile))
-    mount.currentHp = Math.max(1, Math.min(mount.maxHp, this.hp.get(id) ?? mount.maxHp))
+    mount.currentHp = Math.max(1, Math.min(mount.maxHp, retirement?.mount?.hp ?? this.hp.get(id) ?? mount.maxHp))
+    mount.restoreArmor(retirement?.mount?.armorImpactRemaining ?? this.armorImpact.get(id))
+    if (retirement?.mount) mount.group.rotation.y = heading
     this.installDeathPersistence(id, mount)
     this.active = { id, mount }
-    if (!retirement || retirement.player.mounted) this.player().mountVehicle(mount, id === 'xongkoro' ? heading : undefined)
+    if (profile.activeMission?.duelMode !== 'unarmed' && (!retirement || retirement.player.mounted)) this.player().mountVehicle(mount, heading)
     this.statusText = `${MOUNTS[canonicalCareerMountId(id)].name}已恢復，剩餘耐久 ${Math.ceil(mount.currentHp)}/${mount.maxHp}。`
     return true
   }
 
   dismiss(): boolean {
+    this.cancelPending()
     if (this.readProfile().activeRace) return this.fail('賽馬期間不能收起坐騎。')
     if (this.player().isFalling || this.active?.mount.isAirborne) return this.fail('請先安全降落，再收起坐騎。')
     if (!this.active) return false
@@ -245,6 +355,7 @@ export class CareerMountController implements EquipmentMountAdapter {
       if (!this.commit(next)) return this.fail('保存失敗，坐騎仍保持召喚。')
     }
     this.hp.set(entry.id, entry.mount.currentHp)
+    this.rememberArmor(entry.id, entry.mount)
     if (!this.persistOutingState(undefined)) return this.fail('保存失敗，坐騎仍保持召喚。')
     this.removeMountVisual(entry)
     this.active = null
@@ -253,16 +364,18 @@ export class CareerMountController implements EquipmentMountAdapter {
   }
 
   release(rawId: string): boolean {
+    this.cancelPending()
     if (this.readProfile().activeRace) return this.fail('賽馬期間不能解除坐騎分配。')
     if (this.player().isFalling || this.active?.mount.isAirborne) return this.fail('請先安全降落，再解除坐騎分配。')
     const id = canonicalCareerMountId(rawId as CareerMountId)
     const next = cloneCareerProfile(this.readProfile())
     delete next.racePlayerState
     if (next.selectedMountId !== id) return false
+    if (this.active?.id === id) next.mountArmor = { ...next.mountArmor, [id]: this.active.mount.armorImpactRemaining }
     delete next.selectedMountId
     if (next.activeMission?.mountState) delete next.activeMission.mountState.activeMountId
     if (!this.commit(next)) return this.fail('保存失敗，分配沒有變更。')
-    if (this.active?.id === id) { this.removeMountVisual(this.active); this.active = null }
+    if (this.active?.id === id) { this.rememberArmor(id, this.active.mount); this.removeMountVisual(this.active); this.active = null }
     if (id === 'xongkoro') this.options.eaglePads?.release(PLAYER_EAGLE_PAD_OWNER)
     this.statusText = '坐騎已解除分配，可交給隊員或出售。'
     return true
@@ -273,20 +386,28 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (!active) return
     active.mount.setCameraDistance(active.mount.group.position.distanceTo(this.player().position))
     if (active.mount.dead || active.mount.isFlyingMount && !active.mount.riderNpc && !active.mount.riderPlayer) active.mount.update(dt, this.obstacles() as ObstacleData[])
-    if (this.hp.get(active.id) !== active.mount.currentHp) {
+    if (this.resourcesDirty || this.hp.get(active.id) !== active.mount.currentHp || (this.armorImpact.get(active.id) ?? 0) !== active.mount.armorImpactRemaining) {
       this.hp.set(active.id, active.mount.currentHp)
-      this.persistOutingState(active.id)
+      this.rememberArmor(active.id, active.mount)
+      this.resourcesDirty = !this.persistOutingState(active.id)
     }
   }
 
-  restInTown(): void {
-    if (['final-stand', 'completed'].includes(this.readProfile().careerRetirement?.phase ?? '')) return
+  restInTown(options?: { persist?: boolean }): boolean {
+    this.cancelPending()
+    if (['final-stand', 'completed'].includes(this.readProfile().careerRetirement?.phase ?? '')) return true
     if (this.active) this.removeMountVisual(this.active)
     this.active = null
     this.unavailable.clear()
     this.hp.clear()
-    this.persistOutingState(undefined)
-    this.statusText = '坐騎已在馬廄完成休整。'
+    this.armorImpact.clear()
+    if (options?.persist === false) {
+      this.statusText = '坐騎已在馬廄完成休整。'
+      return true
+    }
+    const saved = this.persistOutingState(undefined)
+    if (saved) this.statusText = '坐騎已在馬廄完成休整。'
+    return saved
   }
 
   get activeMount(): Mount | null { return this.active?.mount ?? null }
@@ -294,6 +415,7 @@ export class CareerMountController implements EquipmentMountAdapter {
 
   /** Called after an ownership change has been saved; never writes another transaction. */
   syncOwnership(): void {
+    this.cancelPending()
     syncCareerEaglePads(this.options.eaglePads, this.readProfile(), this.sceneKey())
     const owned = new Set(ownedCareerMountIds(this.readProfile()))
     if (this.active && (!owned.has(this.active.id) || this.readProfile().selectedMountId !== this.active.id)) {
@@ -302,14 +424,17 @@ export class CareerMountController implements EquipmentMountAdapter {
       this.statusText = '坐騎已賣出。'
     }
     for (const id of this.hp.keys()) if (!owned.has(id)) this.hp.delete(id)
+    for (const id of this.armorImpact.keys()) if (!owned.has(id)) this.armorImpact.delete(id)
     for (const id of this.unavailable) if (!owned.has(id)) this.unavailable.delete(id)
   }
 
   dispose(): void {
+    this.cancelPending()
     this.options.eaglePads?.release(PLAYER_EAGLE_PAD_OWNER)
     if (this.active) {
-      if (this.hp.get(this.active.id) !== this.active.mount.currentHp) {
+      if (this.hp.get(this.active.id) !== this.active.mount.currentHp || (this.armorImpact.get(this.active.id) ?? 0) !== this.active.mount.armorImpactRemaining) {
         this.hp.set(this.active.id, this.active.mount.currentHp)
+        this.rememberArmor(this.active.id, this.active.mount)
         this.persistOutingState(this.active.id)
       }
       this.removeMountVisual(this.active)
@@ -320,6 +445,7 @@ export class CareerMountController implements EquipmentMountAdapter {
   private installDeathPersistence(id: CareerMountId, mount: Mount): void {
     mount.onDeathCallbacks.push(() => {
       this.hp.set(id, 0)
+      this.rememberArmor(id, mount)
       this.unavailable.add(id)
       this.persistOutingState(id)
       this.statusText = `${MOUNTS[canonicalCareerMountId(id)].name}已倒下；本次出城不能再次召喚。`
@@ -328,8 +454,12 @@ export class CareerMountController implements EquipmentMountAdapter {
 
   /** Player-only checkpoint; does not inspect or persist any mission NPCs. */
   checkpoint(): NonNullable<CareerProfile['activeMission']>['mountState'] {
-    if (this.active) this.hp.set(this.active.id, this.active.mount.currentHp)
+    if (this.active) { this.hp.set(this.active.id, this.active.mount.currentHp); this.rememberArmor(this.active.id, this.active.mount) }
     return this.outingState(this.active?.id)
+  }
+
+  private rememberArmor(id: CareerMountId, mount: Mount): void {
+    if (mount.armorImpactMax > 0) this.armorImpact.set(id, mount.armorImpactRemaining)
   }
 
   private outingState(activeMountId: CareerMountId | undefined): NonNullable<CareerProfile['activeMission']>['mountState'] {
@@ -338,14 +468,16 @@ export class CareerMountController implements EquipmentMountAdapter {
     return {
       ...(activeMountId ? { activeMountId } : {}),
       hp,
+      ...(this.armorImpact.size ? { armorImpact: Object.fromEntries(this.armorImpact) } : {}),
       unavailable: [...this.unavailable],
     }
   }
 
   private persistOutingState(activeMountId: CareerMountId | undefined): boolean {
     const profile = this.readProfile()
-    if (!profile.activeMission && profile.careerRetirement?.phase !== 'final-stand') return true
     const next = cloneCareerProfile(profile)
+    if (this.armorImpact.size) next.mountArmor = Object.fromEntries(this.armorImpact)
+    else delete next.mountArmor
     if (next.activeMission) next.activeMission.mountState = this.outingState(activeMountId)
     else if (next.retirementRuntime) next.retirementRuntime.mountState = this.outingState(activeMountId)
     return this.commit(next)
@@ -355,6 +487,9 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (this.player().currentMount === entry.mount) this.player().dismountFromMount()
     entry.mount.dispose()
   }
+
+  /** Invalidates any in-flight asset-load activation so a stale completion can never materialize a mount. */
+  private cancelPending(): void { this.pending = null; this.requestSeq++ }
 
   private fail(message: string): false { this.statusText = message; return false }
 }

@@ -1,20 +1,24 @@
+import { CAREER_SHOP_PRODUCTS, isCareerShopItemUseUnlocked, type CareerShopProduct } from '../career/CareerShopCatalog'
+export { XONGKORO_PRODUCT } from '../career/CareerShopCatalog'
 import { careerCommanderLoadout } from '../career/CareerCommanderEquipment'
 import { civilianHomeAnchor } from './TownCivilianLife'
 import { assignTownGarrison, type TownGarrisonStation } from './TownGarrison'
 import { townWatchtowerGuardRoster } from './TownWatchtowerGuardPolicy'
-import { townEagleRoster } from './TownEagleGarrison'
+import { townAssaultRequiredActorIds, townEagleRoster } from './TownEagleGarrison'
 import { addCareerItem, availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from '../career/CareerInventory'
-import { canonicalCareerMountId, cloneCareerProfile, getCareerPurchaseTier, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile, type CareerRank } from '../career/CareerProfile'
+import { canonicalCareerMountId, cloneCareerProfile, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile, type CareerRank, type CareerMountId } from '../career/CareerProfile'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { WEAPONS } from '../rpg/WeaponDatabase'
-import { ARMORS } from '../rpg/ArmorDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { NPC } from '../world/NPC'
-import type { Mount } from '../world/Mount'
-import { resolveT4UnitLoadout, T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { MountType, type Mount } from '../world/Mount'
+import { heavyT4Variant, resolveT4UnitLoadout, T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { getT5ProfileForPreset, resolveT5UnitLoadout } from '../battle/T5HeroCatalog'
+import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
+import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import { followLocalOffset } from '../battle/FollowOrder'
 import { TOWN_CENTER, TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
-import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
+import { UNIT_PRESETS, type UnitLoadout, type UnitPresetId } from '../battle/UnitPresetCatalog'
 export const townName = (faction: CharacterFaction): string => faction === 'roman' ? 'vinum 村' : 'økse 村'
 export const TOWN_RULES = { garrisonTier: 2, deathPenalty: 100, civilians: 20, stableHorses: 5 } as const
 export const CIVILIAN_PROFILE = { category: 'civilian', name: '平民 Civilian', hp: 50, retaliationWeapon: 'gladius_rusty' } as const
@@ -57,14 +61,22 @@ export function townMilitaryEquipment(faction: CharacterFaction, actor: TownRole
   const unitKind = role === 'hr-officer' || role === 'commander' ? 'sword_cavalry' : typeof actor === 'string' ? kinds[role] : actor.unitKind
   const kind = unitKind === 'melee' || !unitKind ? faction === 'roman' ? 'heavy_infantry' : 'berserker'
     : unitKind === 'ranged' ? faction === 'roman' ? 'javelin_infantry' : 'archer' : unitKind
-  const presetId = `${faction}_${kind}` as UnitPresetId
+  // The deployment officer is a T5 heavy cavalry commander; its resident record stays an infantry-squad member.
+  const presetId = (role === 'deployment' ? `${faction}_heavy_cavalry` : `${faction}_${kind}`) as UnitPresetId
   const patrolCaptain = typeof actor !== 'string' && actor.duty === 'patrol' && actor.patrolLeader
   const tier = typeof actor !== 'string' && (actor.duty === 'eagle_garrison' || actor.duty === 'watchtower_guard') ? 3 : role === 'captain' || role === 'commander' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 3 : TOWN_RULES.garrisonTier
   const level: 1 | 2 | 3 | 4 = role === 'captain' || role === 'commander' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 4 : tier
   const base = UNIT_PRESETS[presetId].tierLoadouts[tier]
   // Town owns mount placement; only standard hero equipment comes from the T4 catalog.
-  return { presetId, tier, level, loadout: level === 4
+  return { presetId, tier, level, loadout: role === 'deployment' ? resolveT5UnitLoadout(presetId) : level === 4
     ? { ...(role === 'commander' ? careerCommanderLoadout(faction) : resolveT4UnitLoadout(presetId)), mountId: base.mountId } : { ...base } }
+}
+/** Native-token baseline of the deployment officer: the T4 officer weapon and shield its saved tokens were issued as, plus its
+ * class mount. Weapon and shield tokens never change identity, so old and new saves share one catalogue; the T5 class kit is
+ * applied over untouched default weapon/shield slots at resolution. */
+export function townDeploymentTokenLoadout(faction: CharacterFaction): UnitLoadout {
+  return { ...resolveT4UnitLoadout(faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker'),
+    mountId: resolveT5UnitLoadout(`${faction}_heavy_cavalry`).mountId }
 }
 export const TOWN_SITES = {
   /** Civic hall faces the open plaza, clear of the four main roads. */
@@ -203,13 +215,16 @@ export class TownEvent {
   readonly allActors = new Map<string, { dead: boolean }>()
   readonly actors = new Map<string, { dead: boolean }>()
   private readonly expectedIds: Set<string>
+  private readonly requiredIds: Set<string>
   private readonly additionalResidentIds = new Set<string>()
   private excludedActorIds: ReadonlySet<string> = new Set()
   hostile = false
   registrationComplete = false
-  constructor(objectiveRoster: readonly Pick<TownActorSpec, 'id'>[]) {
+  constructor(objectiveRoster: readonly (Pick<TownActorSpec, 'id'> & Partial<Pick<TownActorSpec, 'eagle'>>)[]) {
     this.expectedIds = new Set(objectiveRoster.map(actor => actor.id))
     if (!this.expectedIds.size || this.expectedIds.size !== objectiveRoster.length) throw new Error('Invalid town objective roster')
+    // Keep every resident registered for casualties; native Eagle riders never gate defection.
+    this.requiredIds = townAssaultRequiredActorIds(objectiveRoster, [...this.expectedIds])
   }
   register(id: string, actor: { dead: boolean }): void {
     if (this.allActors.has(id)) throw new Error('Duplicate town actor: ' + id)
@@ -222,6 +237,7 @@ export class TownEvent {
     if (this.expectedIds.has(id)) throw new Error('Duplicate town objective resident: ' + id)
     this.register(id, actor)
     this.expectedIds.add(id)
+    this.requiredIds.add(id)
     this.additionalResidentIds.add(id)
     this.actors.set(id, actor)
   }
@@ -229,6 +245,7 @@ export class TownEvent {
   unregisterAdditionalResident(id: string): void {
     if (!this.additionalResidentIds.delete(id)) return
     this.expectedIds.delete(id)
+    this.requiredIds.delete(id)
     this.allActors.delete(id)
     this.actors.delete(id)
   }
@@ -244,7 +261,7 @@ export class TownEvent {
   evaluate(playerDead: boolean): TownResult | null {
     if (!this.hostile) return null
     if (playerDead) return 'player_defeated'
-    return this.registrationComplete && [...this.expectedIds].every(id => this.excludedActorIds.has(id) || this.actors.get(id)?.dead === true) ? 'town_defeated' : null
+    return this.registrationComplete && [...this.requiredIds].every(id => this.excludedActorIds.has(id) || this.actors.get(id)?.dead === true) ? 'town_defeated' : null
   }
 }
 /** Defer only presentation/transition; preserve the native first outcome across race reloads. */
@@ -259,7 +276,7 @@ export function settleTown(current: CareerProfile, id: string, result: TownResul
   result = profile.townEvent.pendingResult ?? result
   const penalty = result === 'player_defeated' ? Math.min(profile.availableMerit, TOWN_RULES.deathPenalty) : 0
   profile.availableMerit -= penalty
-  if (result === 'town_defeated') { profile.faction = profile.faction === 'roman' ? 'viking' : 'roman'; profile.rank = 'recruit'; profile.enlistmentMeritBase = profile.totalMerit; delete profile.activeMission; delete profile.townCommandSquad; delete profile.townAirCommandSquad }
+  if (result === 'town_defeated') { profile.faction = profile.faction === 'roman' ? 'viking' : 'roman'; profile.rank = 'recruit'; profile.eliteClass = null; delete profile.unlockedCareerClasses; delete profile.t4Specialization; delete profile.unlockedT4Classes; profile.enlistmentMeritBase = profile.totalMerit; delete profile.activeMission; delete profile.townCommandSquad }
   profile.townEvent = { id, state: 'settled', result, penalty }
   return profile
 }
@@ -274,30 +291,31 @@ export function grantStarter(current: CareerProfile, weapon: string): CareerProf
   return profile
 }
 export function careerTownWeapon(profile: CareerProfile): string {
-  const tier = getCareerPurchaseTier(profile.rank)
-  return [profile.equipment?.melee, ...profile.ownedWeapons].find(id => id && WEAPONS[id]?.type === 'melee' && WEAPONS[id].tier <= tier && isTownShopWeapon(id) && canAllocateCareerItemToPlayer(profile, id)) ?? ''
+  const id = profile.equipment?.melee
+  return id && WEAPONS[id]?.type === 'melee' && isTownShopWeapon(id) && canAllocateCareerItemToPlayer(profile, id) ? id : ''
 }
-export interface TownProduct { id: string; category: 'weapon' | 'armor' | 'mount'; name: string; tier: 1 | 2 | 3 | 4 | 5; price: number }
+export type TownProduct = CareerShopProduct
 // Ranger Bow remains the same ranged shop item; melee uses normal equipment.
 export function isTownShopWeapon(id: string): boolean {
   return Boolean(WEAPONS[id])
 }
-export const XONGKORO_PRODUCT: Readonly<TownProduct> = { id: 'xongkoro', category: 'mount', name: 'xongkoro · 巨鷹英雄坐騎', tier: 4, price: 10000 }
-export const TOWN_PRODUCTS: TownProduct[] = [
-  ...Object.values(WEAPONS).filter(w => isTownShopWeapon(w.id)).map(w => ({ id: w.id, category: 'weapon' as const, name: w.name, tier: w.tier, price: w.tier * w.tier * 100 })),
-  ...Object.values(ARMORS).map(a => ({ id: a.id, category: 'armor' as const, name: a.name, tier: a.tier, price: a.tier * a.tier * 90 })),
-  { id: 'horse', category: 'mount', name: '軍用戰馬', tier: 1, price: 200 },
-  { id: 'black-cat', category: 'mount', name: '黑貓英雄坐騎', tier: 4, price: 4000 },
-  { id: 'corgi', category: 'mount', name: '柯基英雄坐騎', tier: 4, price: 4000 },
-  XONGKORO_PRODUCT,
-]
+export const TOWN_PRODUCTS = CAREER_SHOP_PRODUCTS
 export function townShopProducts(serviceId: string): TownProduct[] {
   if (serviceId === 'eagle-trainer') return TOWN_PRODUCTS.filter(item => item.id === 'xongkoro')
   return TOWN_PRODUCTS.filter(item => item.id !== 'xongkoro' && (item.category === 'mount') === (serviceId !== 'merchant'))
 }
+/** Counting word for a shop product, used only for display. */
+export function townProductUnit(item: Pick<TownProduct, 'id' | 'category'>): string {
+  return item.category === 'mount' ? item.id === 'horse' || item.id === 'armored-horse' ? '匹' : '隻' : item.category === 'armor' ? '面' : '件'
+}
+/** "持有 / 未分配" line shared by the shop and the town equipment lists. */
+export function townHoldingText(profile: CareerProfile, item: Pick<TownProduct, 'id' | 'category'>): string {
+  const unit = townProductUnit(item)
+  return `持有：${careerItemTotal(profile, item.id)} ${unit}｜未分配：${availableCareerItem(profile, item.id)} ${unit}`
+}
 export function productStatus(profile: CareerProfile, item: TownProduct): string {
-  if (getCareerPurchaseTier(profile.rank) < item.tier) return '軍階未解鎖'
-  return profile.availableMerit < item.price ? '已解鎖・餘額不足' : '已解鎖・餘額足夠'
+  if (!isCareerShopItemUseUnlocked(profile, item.id)) return '軍階未解鎖'
+  return profile.availableMerit < item.price ? '餘額不足・可使用' : '可購買・可使用'
 }
 export function townCampaignTarget(faction: CharacterFaction) { return { defenderFaction: faction, stageId: 1 as const } }
 export function updateRangerMount(ranger: Pick<NPC, 'dead' | 'mount' | 'mountVehicle' | 'dismountFromMount'>, cat: Mount, distance: number): 'foot' | 'approach' | 'mounted' {
@@ -308,7 +326,11 @@ export function updateRangerMount(ranger: Pick<NPC, 'dead' | 'mount' | 'mountVeh
 }
 
 export function townCaptainProfile(faction: CharacterFaction) { return T4_UNIT_PROFILES[faction === 'roman' ? 'roman_sword_cavalry' : 'viking_sword_cavalry'] }
-export function stableHorsePositions() { return Array.from({ length: TOWN_RULES.stableHorses }, (_, i) => ({ ...townSitePoint('stable', -5.2 + i * 2.6, 1), variant: (i % 3) as 0 | 1 | 2 })) }
+export function stableHorsePositions(faction: CharacterFaction = 'roman') {
+  const types = faction === 'viking'
+    ? [MountType.SNOW_LEOPARD, MountType.ORANGE_CAT, MountType.WHITE_CAT, MountType.SERVAL, MountType.CARACAL]
+    : [MountType.ORANGE_CAT, MountType.HORSE, MountType.ARMORED_HORSE, MountType.CORGI, MountType.BLACK_CAT]
+  return Array.from({ length: TOWN_RULES.stableHorses }, (_, i) => ({ ...townSitePoint('stable', -5.2 + i * 2.6, 1), variant: (i % 3) as 0 | 1 | 2, type: types[i] })) }
 
 export function isTownProductOwned(profile: CareerProfile, item: TownProduct): boolean {
   return item.id === 'horse' ? ownsCareerHorse(profile)
@@ -323,7 +345,7 @@ export function purchaseTownMount(profile: CareerProfile, productId: string, qua
   const result = purchaseCareerContent(profile, {
     id: item.id, kind: 'mount', requiredTier: item.tier, cost: item.price, quantity,
   })
-  if (result.purchased) result.profile.selectedMountId = item.id as PlayerMountId
+  if (result.purchased && !profile.selectedMountId) result.profile.selectedMountId = item.id as PlayerMountId
   return result
 }
 
@@ -377,10 +399,19 @@ export function sellTownProduct(current: CareerProfile, productId: string, quant
   normalizeCareerInventory(profile)
   addCareerItem(profile, productId, -quantity)
   if (item.category === 'mount' && careerItemTotal(profile, productId) === 0) {
+    const canonical = canonicalCareerMountId(productId as CareerMountId)
+    if (profile.mountArmor?.[canonical] !== undefined) {
+      delete profile.mountArmor[canonical]
+      if (!Object.keys(profile.mountArmor).length) delete profile.mountArmor
+    }
     const state = profile.activeMission?.mountState
     if (state) {
       for (const id of Object.keys(state.hp) as (keyof typeof state.hp)[]) {
         if (canonicalCareerMountId(id) === productId) delete state.hp[id]
+      }
+      if (state.armorImpact?.[canonical] !== undefined) {
+        delete state.armorImpact[canonical]
+        if (!Object.keys(state.armorImpact).length) delete state.armorImpact
       }
       state.unavailable = state.unavailable.filter(id => canonicalCareerMountId(id) !== productId)
     }
@@ -407,10 +438,33 @@ export function sellTownProducts(current: CareerProfile, productIds: readonly st
   return { profile, sold: true, soldCount, earnedMerit, reason: undefined }
 }
 
-/** Town officers use the faction's canonical T4 profile for their mounted or foot role. */
-export function townActorHeroProfile(faction: CharacterFaction, spec: TownActorSpec) {
-  if (spec.role === 'deployment') return T4_UNIT_PROFILES[faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker']
-  if (spec.role === 'captain' || spec.role === 'commander' || spec.role === 'hr-officer') return townCaptainProfile(faction)
-  if (spec.duty === 'patrol' && spec.patrolLeader) return townCaptainProfile(faction)
+export interface TownHeroProfile {
+  visualAssetId: HeroAssetId
+  combatProfileId: HeroCombatProfileId
+  mountOverride: UnitLoadout['mountId']
+  /** Display and identity tier; the resident's legacy NPC tier stays 4 for every hero. */
+  characterTier: 4 | 5
+}
+function townDeploymentHeroProfile(faction: CharacterFaction): TownHeroProfile {
+  const presetId: UnitPresetId = `${faction}_heavy_cavalry`, { visualAssetId, combatProfileId } = getT5ProfileForPreset(presetId, faction)
+  return { visualAssetId, combatProfileId, mountOverride: resolveT5UnitLoadout(presetId).mountId, characterTier: 5 }
+}
+/** Both Patrol leaders are the faction's heavy T4 class, riding the Captain's original mount. */
+function townPatrolCaptainProfile(faction: CharacterFaction): TownHeroProfile {
+  return { ...heavyT4Variant(townCaptainProfile(faction), faction), characterTier: 4 }
+}
+/** Town officers: the deployment officer is a T5 heavy cavalry commander, the Captain keeps the classic T4, and both Patrol
+ * leaders are the heavy T4 class. Identity is explicit, never inferred from gear. */
+export function townActorHeroProfile(faction: CharacterFaction, spec: TownActorSpec): TownHeroProfile | undefined {
+  if (spec.role === 'deployment') return townDeploymentHeroProfile(faction)
+  if (spec.role === 'captain' || spec.role === 'commander' || spec.role === 'hr-officer') return { ...townCaptainProfile(faction), characterTier: 4 }
+  if (spec.duty === 'patrol' && spec.patrolLeader) return townPatrolCaptainProfile(faction)
   return undefined
 }
+/** Hero bodies and on-demand gear a Town must load before it spawns this faction's officers. */
+export function townOfficerPreload(faction: CharacterFaction): { heroAssets: HeroAssetId[]; equipmentIds: string[] } {
+  const { meleeWeaponId, shieldId } = resolveT5UnitLoadout(`${faction}_heavy_cavalry`)
+  return { heroAssets: [townDeploymentHeroProfile(faction).visualAssetId, townPatrolCaptainProfile(faction).visualAssetId],
+    equipmentIds: [meleeWeaponId, shieldId].filter((id): id is string => Boolean(id)) }
+}
+

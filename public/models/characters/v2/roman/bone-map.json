@@ -42,5 +42,19 @@
       ]
     }
   },
-  "preservedDynamicGrip": true
+  "preservedDynamicGrip": true,
+  "skeleton": "project-humanoid-v1",
+  "sockets": {
+    "socket_axe_2h_r": "hand_r",
+    "socket_hand_l": "hand_l",
+    "socket_hand_r": "hand_r",
+    "socket_back": "chest",
+    "socket_head": "head",
+    "socket_pelvis": "hips",
+    "socket_foot_l": "foot_l",
+    "socket_foot_r": "foot_r",
+    "sole_l": "foot_l",
+    "sole_r": "foot_r",
+    "socket_axe_1h_r": "hand_r"
+  }
 }

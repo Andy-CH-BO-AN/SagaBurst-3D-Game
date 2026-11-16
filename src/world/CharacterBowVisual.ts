@@ -1,10 +1,12 @@
 import * as THREE from 'three'
+import { currentWorldQuaternion, refreshWorldChains } from './AnchoredWorldMatrix'
 import { polishWeaponMaterials } from './CharacterVisuals'
 import { T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
 import { createMakiRangerBowInstance } from './MakiRangerEquipment'
 import { createT5Bow } from './HighTierEquipment'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
-import { equipmentShadowUntil } from './EquipmentVisualLODController'
+import { shareEquipmentGeometry } from './EquipmentGeometryRegistry'
+import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODController'
 import { BOW_STRING_CONTACT, BOW_ARROW_REST } from './BowDrawHand'
 import {
   applyBowAttachment,
@@ -15,6 +17,28 @@ import {
 
 const ARROW_LOCAL_FORWARD = new THREE.Vector3(0, 0, -1)
 const ARROW_CENTER_FROM_NOCK = 0.45
+
+type ArrowStyle = 'normal' | 'elven'
+/** Constant presentation materials shared by every bow instance (created on first bow, never
+ * mutated or disposed per bow). */
+let sharedBowMaterials: {
+  string: THREE.MeshBasicMaterial
+  shaft: THREE.MeshLambertMaterial
+  tip: Record<ArrowStyle, THREE.MeshStandardMaterial>
+  fin: Record<ArrowStyle, THREE.MeshBasicMaterial>
+} | undefined
+const bowMaterials = () => sharedBowMaterials ??= {
+  string: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+  shaft: new THREE.MeshLambertMaterial({ color: 0x5c3a1e }),
+  tip: {
+    normal: new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.9 }),
+    elven: new THREE.MeshStandardMaterial({ color: 0x00f0ff, metalness: 0.9 }),
+  },
+  fin: {
+    normal: new THREE.MeshBasicMaterial({ color: 0xdddddd }),
+    elven: new THREE.MeshBasicMaterial({ color: 0x00d2ff }),
+  },
+}
 
 export const positionArrowCenterFromNock = (
   target: THREE.Vector3,
@@ -51,6 +75,11 @@ export class CharacterBowVisual {
   private readonly tmpWorldNock = new THREE.Vector3()
   private readonly tmpLocalDirection = new THREE.Vector3()
   private readonly tmpWorldQuaternion = new THREE.Quaternion()
+  private readonly worldChain: (THREE.Object3D | undefined)[] = [undefined, undefined, undefined]
+  private readonly gripInverse = new THREE.Matrix4()
+  private readonly gripWorldRotationInverse = new THREE.Quaternion()
+  private readonly stringRotation = new THREE.Matrix4()
+  private readonly stringPosition = new THREE.Vector3()
   private drawContact?: THREE.Object3D
   private arrowRest?: THREE.Object3D
   private profile: BowGripProfile = DEFAULT_BOW_GRIP_PROFILE
@@ -85,11 +114,17 @@ export class CharacterBowVisual {
   rebuildFromAsset(model: THREE.Object3D, profile: BowGripProfile, topTip: THREE.Vector3, botTip: THREE.Vector3): void {
     this.profile = profile
     this.gripPivot.clear()
-    this.gripPivot.add(model)
-    this.configure({ topTip, botTip, stringLength: topTip.distanceTo(botTip) / 2 }, profile.id)
+    // A 3 cm stave is narrower than one battle shadow texel (~8 cm) beyond LOD0.
+    this.gripPivot.add(equipmentShadowUntil(model, 0))
+    // Authored string halves keep the source PBR surface and triangle detail.
+    // Their unit-height geometry uses the same endpoint transforms as cylinders.
+    const top = model.getObjectByName('bow-string-top')
+    const bottom = model.getObjectByName('bow-string-bottom')
+    const strings = top instanceof THREE.Mesh && bottom instanceof THREE.Mesh ? { top, bottom } : undefined
+    this.configure({ topTip, botTip, stringLength: topTip.distanceTo(botTip) / 2 }, profile.id, strings)
   }
 
-  private configure(parts: { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number }, weaponId: string): void {
+  private configure(parts: { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number }, weaponId: string, strings?: { top: THREE.Mesh; bottom: THREE.Mesh }): void {
     // Rebuild can follow pilum, an animated attachment or another bow instance.
     this.gripPivot.position.set(0, 0, 0)
     this.gripPivot.quaternion.identity()
@@ -97,40 +132,47 @@ export class CharacterBowVisual {
     this.drawContact = this.arrowRest = undefined
     this.topTip.copy(parts.topTip)
     this.bottomTip.copy(parts.botTip)
-    this.stringLength = parts.stringLength
+    this.stringLength = strings ? 1 : parts.stringLength
 
-    const stringMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
-    this.stringTop = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
-    this.stringBottom = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
+    const materials = bowMaterials()
+    const stringMat = strings ? undefined : materials.string
+    this.stringTop = equipmentShadowUntil(strings?.top ?? new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
+    this.stringBottom = equipmentShadowUntil(strings?.bottom ?? new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
     this.stringTop.name = 'bow-string-top'
     this.stringBottom.name = 'bow-string-bottom'
+    // 1.5 mm strings are sub-pixel at LOD2; NPC equipment LOD hides them there (two draws per bow).
+    equipmentDetail(this.stringTop, 1)
+    equipmentDetail(this.stringBottom, 1)
     this.gripPivot.add(this.stringTop, this.stringBottom)
 
     this.nockedArrow = new THREE.Group()
     equipmentShadowUntil(this.nockedArrow, -1)
     const shaft = equipmentShadowUntil(new THREE.Mesh(
       new THREE.CylinderGeometry(0.004, 0.004, 0.95, 6),
-      new THREE.MeshLambertMaterial({ color: 0x5c3a1e }),
+      materials.shaft,
     ), -1)
     shaft.rotation.x = Math.PI / 2
     this.nockedArrow.add(shaft)
 
-    const elven = weaponId === 'elven_runebow'
-    const tip = equipmentShadowUntil(new THREE.Mesh(
+    const arrowStyle: ArrowStyle = weaponId === 'elven_runebow' ? 'elven' : 'normal'
+    // The 9 cm tip and 3.5 cm fletching are sub-pixel at LOD2 like the strings; the shaft stays.
+    const tip = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(
       new THREE.ConeGeometry(0.014, 0.09, 6),
-      new THREE.MeshStandardMaterial({ color: elven ? 0x00f0ff : 0xaaaaaa, metalness: 0.9 }),
-    ), -1)
+      materials.tip[arrowStyle],
+    ), -1), 1)
     tip.rotation.x = -Math.PI / 2
     tip.position.z = -0.52
     this.nockedArrow.add(tip)
 
-    const fin = equipmentShadowUntil(new THREE.Mesh(
+    const fin = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(
       new THREE.BoxGeometry(0.003, 0.035, 0.09),
-      new THREE.MeshBasicMaterial({ color: elven ? 0x00d2ff : 0xdddddd }),
-    ), -1)
+      materials.fin[arrowStyle],
+    ), -1), 1)
     fin.position.z = 0.4
     this.nockedArrow.add(fin)
     this.gripPivot.add(this.nockedArrow)
+    // Strings and the nocked arrow are rigid (moved by transforms only); share their geometry.
+    shareEquipmentGeometry(this.gripPivot)
 
     polishWeaponMaterials(this.actionPivot)
     if (this.actionPivot.parent) {
@@ -147,6 +189,25 @@ export class CharacterBowVisual {
       if (!this.actionPivot.parent.userData.handGripFrame) updateBowOrientation(this.actionPivot.parent, this.actionPivot, targetWorld, this.profile, targetYOffset)
     }
 
+    // A stable actor root owns both hands, across equipment and rig rebuilds.
+    // Never search an ancestor: Scene lookup can borrow another archer's pose.
+    const handGrip = !!this.actionPivot.parent?.userData.handGripFrame
+    if (handGrip) {
+      if (!this.isOwnerContact(this.drawContact)) this.drawContact = this.ownerRoot.getObjectByName(BOW_STRING_CONTACT)
+      if (!this.isOwnerContact(this.arrowRest)) this.arrowRest = this.ownerRoot.getObjectByName(BOW_ARROW_REST)
+    }
+    // Nothing below moves the grip pivot or the archer's hands, only their children
+    // (bow body, strings, nocked arrow). Refresh those chains once, as the separate
+    // world reads each did, and read the current matrices afterwards.
+    const drawContact = handGrip && arrowVisible ? this.drawContact : undefined
+    const arrowRest = arrowVisible ? this.arrowRest : undefined
+    let chainCount = 0
+    this.worldChain[chainCount++] = this.gripPivot
+    if (drawContact) this.worldChain[chainCount++] = drawContact
+    if (arrowRest) this.worldChain[chainCount++] = arrowRest
+    refreshWorldChains(this.worldChain as THREE.Object3D[], chainCount)
+    this.worldChain[1] = this.worldChain[2] = undefined
+    this.gripInverse.copy(this.gripPivot.matrixWorld).invert()
     // The bow body curves toward local -Z (the target), while the string nock
     // stays on the archer side at +Z and moves farther back as it is drawn.
     const ratio = THREE.MathUtils.clamp(drawRatio, 0, 1)
@@ -156,33 +217,28 @@ export class CharacterBowVisual {
       this.bottomTip.copy(this.animatedAsset.bottomTip)
     }
     this.nockPosition.set(this.profile.gripRadius + 0.007, this.profile.gripLength / 2 + 0.015, 0.12 + ratio * 0.45)
-    if (this.actionPivot.parent?.userData.handGripFrame) {
-      // A stable actor root owns both hands, across equipment and rig rebuilds.
-      // Never search an ancestor: Scene lookup can borrow another archer's pose.
-      if (!this.isOwnerContact(this.drawContact)) this.drawContact = this.ownerRoot.getObjectByName(BOW_STRING_CONTACT)
-      if (!this.isOwnerContact(this.arrowRest)) this.arrowRest = this.ownerRoot.getObjectByName(BOW_ARROW_REST)
-      if (arrowVisible && this.drawContact) {
-        this.drawContact.getWorldPosition(this.tmpWorldNock)
-        this.gripPivot.worldToLocal(this.tmpWorldNock)
+    if (handGrip) {
+      if (drawContact) {
+        this.tmpWorldNock.setFromMatrixPosition(drawContact.matrixWorld).applyMatrix4(this.gripInverse)
         // This contact is part of the sampled humanoid pose and already moves
         // with bowLoad progress. Applying the charge ratio again would lag the
         // nock behind the draw hand (for example, half of a half-draw at 50%).
         if (Number.isFinite(this.tmpWorldNock.x + this.tmpWorldNock.y + this.tmpWorldNock.z)) this.nockPosition.copy(this.tmpWorldNock)
       } else if (!arrowVisible) this.nockPosition.z = .12
     }
-    this.gripPivot.localToWorld(this.tmpWorldNock.copy(this.nockPosition))
+    this.tmpWorldNock.copy(this.nockPosition).applyMatrix4(this.gripPivot.matrixWorld)
+    this.gripWorldRotationInverse.setFromRotationMatrix(this.stringRotation.extractRotation(this.gripPivot.matrixWorld)).invert()
     this.updateString(this.stringTop, this.topTip)
     this.updateString(this.stringBottom, this.bottomTip)
 
     this.nockedArrow.visible = arrowVisible
     if (!arrowVisible) return
-    if (this.arrowRest) {
+    if (arrowRest) {
       // The nocked shaft is supported by the bow hand. A distant aim target
       // must not pull its front away from that physical rest.
-      this.arrowRest.getWorldPosition(this.tmpLocalDirection)
-      this.gripPivot.worldToLocal(this.tmpLocalDirection).sub(this.nockPosition).normalize()
+      this.tmpLocalDirection.setFromMatrixPosition(arrowRest.matrixWorld).applyMatrix4(this.gripInverse).sub(this.nockPosition).normalize()
     } else if (targetWorld) {
-      this.gripPivot.getWorldQuaternion(this.tmpWorldQuaternion).invert()
+      currentWorldQuaternion(this.gripPivot, this.tmpWorldQuaternion).invert()
       this.tmpLocalDirection.copy(targetWorld)
       this.tmpLocalDirection.y += targetYOffset
       this.tmpLocalDirection.sub(this.tmpWorldNock).normalize().applyQuaternion(this.tmpWorldQuaternion)
@@ -195,6 +251,17 @@ export class CharacterBowVisual {
 
   hideArrow(): void {
     if (this.nockedArrow) this.nockedArrow.visible = false
+  }
+
+  /** Physical nock-to-rest bearing, also used by the visible shaft. */
+  writeShaftDirection(target: THREE.Vector3): boolean {
+    if (!this.arrowRest || !this.drawContact) return false
+    this.arrowRest.getWorldPosition(target)
+    this.getNockPosition(this.tmpWorldNock)
+    target.sub(this.tmpWorldNock)
+    if (target.lengthSq() < 1e-8) return false
+    target.normalize()
+    return Number.isFinite(target.x + target.y + target.z)
   }
 
   dispose(): void {
@@ -263,7 +330,12 @@ export class CharacterBowVisual {
 
   private updateString(mesh: THREE.Mesh, tip: THREE.Vector3): void {
     mesh.position.copy(tip).add(this.nockPosition).multiplyScalar(0.5)
-    mesh.lookAt(this.tmpWorldNock)
+    // Object3D.lookAt(tmpWorldNock) with the grip pivot (its parent) already current:
+    // same steps without re-walking the archer's ancestor chain.
+    mesh.updateWorldMatrix(false, false)
+    this.stringPosition.setFromMatrixPosition(mesh.matrixWorld)
+    this.stringRotation.lookAt(this.tmpWorldNock, this.stringPosition, mesh.up)
+    mesh.quaternion.setFromRotationMatrix(this.stringRotation).premultiply(this.gripWorldRotationInverse)
     mesh.rotateX(Math.PI / 2)
     mesh.scale.set(1, tip.distanceTo(this.nockPosition) / this.stringLength, 1)
   }

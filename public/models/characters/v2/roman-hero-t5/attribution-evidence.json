@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Index of this package's existing source and licence evidence; no new claims.",
+  "source": {
+    "title": "Masked Roman",
+    "sourceArchive": "Roman_Steppe_Selected_Complete.zip",
+    "sourceEntry": "Roman/Masked_Roman_Selected_11Clips.glb",
+    "sourceSha256": "9bc9dc10a52df00a5caaabe600d48e6164b0a1a619a05dfc5aeec27116652ca8",
+    "license": "Meshy account/service/input terms; project animation sources retain their original terms",
+    "licenseEvidence": "source-readme.txt"
+  },
+  "attribution": "Masked Roman: user-supplied Meshy model, textures and selected axe animations. Core clips: project-licensed Kevin Iglesias and Quaternius; see source-readme.txt.",
+  "evidenceFiles": [
+    {
+      "file": "ATTRIBUTION.md",
+      "sha256": "f3f76bf32b7cdb6381b1122c466ff8f54a66fdf1002b46fc3103a8d38bf77ade"
+    },
+    {
+      "file": "source-readme.txt",
+      "sha256": "26a658053c9faf2bfc2dcb04cc35f0d24e0b1d5bf1080211a414cead59e01dd9"
+    },
+    {
+      "file": "source-verification.json",
+      "sha256": "12245b50755f2826c2ed13af5ae1e56a904c4b46b6d474b908c28e63989962fd"
+    }
+  ]
+}

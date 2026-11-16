@@ -1,29 +1,76 @@
 import { TOWN_AUTONOMOUS_GUARD_IDS } from '../town/TownNativeGuardIdentity'
-import { BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_FRIENDLY_SQUADS, BRIDGEHEAD_SQUAD_SIZE, BRIDGEHEAD_ENEMY_SQUADS_PER_ROLE, bridgeheadEnemySquadsPerRole } from '../battle/BridgeheadRosterConfig'
+import { BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_FRIENDLY_SQUADS, BRIDGEHEAD_SQUAD_SIZE, bridgeheadEnemySquadsPerRole } from '../battle/BridgeheadRosterConfig'
 import { commanderGateDefenseSlots } from './CommanderTownRoster'
-import { COMMANDER_FOUR_GATE_DEFENSE_ID, COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, commanderFourGateDefenseActorIds } from './CommanderFourGateDefenseRoster'
-import { createCommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
+import { COMMANDER_FOUR_GATE_DEFENSE_ID, COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS, commanderFourGateDefenseActorIds } from './CommanderFourGateDefenseRoster'
+import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, createCommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
+import { COMMANDER_IRON_LEGION_ID, COMMANDER_IRON_LEGION_KIND, ironLegionEnemyActorIds, ironLegionVanguardActorId } from './HeavyCavalryMissions'
+export { COMMANDER_IRON_LEGION_ID, COMMANDER_IRON_LEGION_KIND } from './HeavyCavalryMissions'
 export { COMMANDER_FOUR_GATE_DEFENSE_ID } from './CommanderFourGateDefenseRoster'
 import { planNorthBankInfantryDeployment, planSouthBankCavalryStaging } from '../world/RiverCrossingBattlefield'
 import { careerCommanderLoadout } from './CareerCommanderEquipment'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { CombatEvent } from '../combat/CombatAttribution'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
-import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
-import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
+import { T4_UNIT_PROFILES, heavyT4Variant, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import { UNIT_PRESETS, type UnitPresetId, type UnitLoadout } from '../battle/UnitPresetCatalog'
 import { AIType, Faction } from '../world/NPC'
 import { townCommanderHeroAsset } from '../town/TownCommander'
-import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
+import { TOWN_COMMANDER_ID, TOWN_COMMANDER_MOUNT_ID } from '../town/TownCommanderIdentity'
 import { townRoster } from '../town/TownRules'
 import { createMissionCommandAuthority, officialMissionSourcePolicy, type OfficialCommandSquad } from './CareerCommandAuthority'
 import { personalMissionSourcePolicy, snapshotPersonalMission } from './CareerPersonalSquadMission'
-import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { CAREER_RANK_THRESHOLDS, cloneCareerProfile, enlistmentMerit, type CareerProfile } from './CareerProfile'
 import { BRIDGEHEAD_PREPARATION_SECONDS, createCareerMissionId, type ActiveCareerMission, type CareerMissionKind } from './CareerMissionState'
 
 export const COMMANDER_SKY_RAID_ID = 'commander-sky-raid'
 export const COMMANDER_DECAPITATION_ID = 'commander-operation-decapitation'
 export const COMMANDER_BRIDGEHEAD_ID = 'commander-bridgehead-battle'
 export const COMMANDER_LAST_STAND_ID = 'commander-outpost-last-stand'
+
+export const COMMANDER_FELINE_CAVALRY_ID = 'commander-six-feline-cavalry'
+export const COMMANDER_FELINE_CAVALRY_KIND = 'commander-six-feline-cavalry' as const
+
+export type FelineCavalryRole = 'melee' | 'lancer' | 'horse_archer'
+export interface FelineCavalryGroup {
+  role: FelineCavalryRole
+  tier: 4 | 5
+  count: number
+}
+
+export const FELINE_FRIENDLY_GROUPS: readonly FelineCavalryGroup[] = [
+  { role: 'melee', tier: 4, count: 60 },
+  { role: 'lancer', tier: 4, count: 60 },
+  { role: 'horse_archer', tier: 4, count: 60 },
+  { role: 'lancer', tier: 5, count: 20 },
+]
+export const FELINE_ENEMY_GROUPS: readonly FelineCavalryGroup[] = [
+  { role: 'melee', tier: 4, count: 70 },
+  { role: 'melee', tier: 5, count: 30 },
+  { role: 'lancer', tier: 4, count: 70 },
+  { role: 'lancer', tier: 5, count: 30 },
+  { role: 'horse_archer', tier: 4, count: 70 },
+  { role: 'horse_archer', tier: 5, count: 30 },
+]
+export const IRON_LEGION_ENEMY_TOTAL = 300
+export const FELINE_FRIENDLY_TOTAL = FELINE_FRIENDLY_GROUPS.reduce((sum, group) => sum + group.count, 0)
+export const FELINE_ENEMY_TOTAL = FELINE_ENEMY_GROUPS.reduce((sum, group) => sum + group.count, 0)
+export const FELINE_FRIENDLY_SQUAD_SIZES = [30, 30, 30, 30, 30, 30, 20] as const
+export const FELINE_VANGUARD_ADVANCE_METERS = 4
+export const FELINE_T4_MOUNTS = ['black-cat', 'white-cat', 'orange-cat'] as const
+export const FELINE_T5_MOUNTS = ['serval', 'caracal', 'snow-leopard'] as const
+
+export function felineCavalryActorIds(
+  missionId: string,
+  side: 'friendly' | 'enemy',
+  groups: readonly FelineCavalryGroup[] = side === 'friendly' ? FELINE_FRIENDLY_GROUPS : FELINE_ENEMY_GROUPS,
+): string[] {
+  return groups.flatMap(group => Array.from({ length: group.count }, (_, index) =>
+    `${missionId}:${side}:t${group.tier}:${group.role}:${index}`))
+}
+
+export function felineVanguardActorId(missionId: string): string {
+  return `${missionId}:enemy:t5:lancer:0`
+}
 
 export const COMMANDER_SKY_RAID_REQUIRED_KILLS = 100
 export const COMMANDER_SKY_RAID_RANGERS = 50
@@ -33,8 +80,8 @@ export const COMMANDER_LAST_STAND_ENEMIES = 100
 export const COMMANDER_FORMER_COMMANDER_SLOT = 'former-commander'
 
 export interface CommanderMissionDefinition {
-  id: typeof COMMANDER_SKY_RAID_ID | typeof COMMANDER_DECAPITATION_ID | typeof COMMANDER_LAST_STAND_ID | typeof COMMANDER_BRIDGEHEAD_ID | typeof COMMANDER_FOUR_GATE_DEFENSE_ID
-  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle' | 'commander-four-gate-defense'>
+  id: typeof COMMANDER_SKY_RAID_ID | typeof COMMANDER_DECAPITATION_ID | typeof COMMANDER_LAST_STAND_ID | typeof COMMANDER_BRIDGEHEAD_ID | typeof COMMANDER_FOUR_GATE_DEFENSE_ID | typeof COMMANDER_FELINE_CAVALRY_ID | typeof COMMANDER_IRON_LEGION_ID
+  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle' | 'commander-four-gate-defense' | 'commander-six-feline-cavalry' | 'commander-iron-legion'>
   name: string
   briefing: string
   friendlyCombatants: number
@@ -58,18 +105,27 @@ const entry = (
   requiresCompletions: 0, requiresEnlistmentMerit: 0, storyOnce: false,
 })
 
+const felineTierTotal = (groups: readonly FelineCavalryGroup[], tier: 4 | 5) =>
+  groups.filter(group => group.tier === tier).reduce((sum, group) => sum + group.count, 0)
+const FELINE_GROUP_TEXT = `${FELINE_FRIENDLY_TOTAL} 名騎乘貓科坐騎的遊俠（T4 ${felineTierTotal(FELINE_FRIENDLY_GROUPS, 4)}、T5 ${felineTierTotal(FELINE_FRIENDLY_GROUPS, 5)}，全員配備 T5 弓）`
+const CHARGE_TRIGGER_TEXT = '敵方 T5 先鋒一受到有效傷害，敵軍就會全軍衝鋒。'
+
 export const COMMANDER_MISSION_CATALOG: readonly CommanderMissionDefinition[] = [
   entry(COMMANDER_SKY_RAID_ID, 'commander-sky-raid', 'Commander I · Sky Raid · 空襲敵城',
-    `率領 ${COMMANDER_SKY_RAID_RANGERS} 名 T4 Ranger 與 xongkoro 從敵城外空降，擊敗 ${COMMANDER_SKY_RAID_REQUIRED_KILLS} 名不重複的敵城原生人員。`, 51, COMMANDER_SKY_RAID_REQUIRED_KILLS),
+    `目標：率領 ${COMMANDER_SKY_RAID_RANGERS} 名騎乘巨鷹的 T4 遊俠空降敵城，擊倒 ${COMMANDER_SKY_RAID_REQUIRED_KILLS} 名敵城人員（每人只計一次）。`, 51, COMMANDER_SKY_RAID_REQUIRED_KILLS),
   entry(COMMANDER_DECAPITATION_ID, 'commander-decapitation', 'Commander II · Operation Decapitation · 斬首行動',
-    '與前任 T5 Commander 及 29 名 T4 騎兵從合法邊界攻入敵城，擊敗唯一的敵方 T5 Commander。', 31, 1),
+    `目標：與前任指揮官及 ${COMMANDER_DECAPITATION_ESCORTS} 名 T4 騎兵攻入敵城，擊敗敵方 T5 指揮官（全城守軍都會迎戰）。`, 31, 1),
   entry(COMMANDER_LAST_STAND_ID, 'commander-outpost-last-stand', 'Commander III · Outpost Last Stand · 前哨決戰',
-    '指揮 4 支步兵隊守衛 Outpost；60 秒部署後，歼滅同時進攻的 100 名敵方騎兵。', 121, COMMANDER_LAST_STAND_ENEMIES),
+    `目標：用 60 秒部署 4 隊共 ${COMMANDER_LAST_STAND_FRIENDLIES} 名步兵守住前哨，全殲同時進攻的 ${COMMANDER_LAST_STAND_ENEMIES} 名敵方騎兵。`, 121, COMMANDER_LAST_STAND_ENEMIES),
   entry(COMMANDER_BRIDGEHEAD_ID, 'commander-bridgehead-battle', 'Commander IV · Bridgehead Battle · 橋頭決戰',
-    `率領${BRIDGEHEAD_FRIENDLIES}名步兵守衛北岸石橋。進場後有${BRIDGEHEAD_PREPARATION_SECONDS}秒部署時間，倒數結束後${BRIDGEHEAD_ENEMIES}名敵方騎兵（刀／斧騎兵與槍騎兵各${BRIDGEHEAD_ENEMY_SQUADS_PER_ROLE}隊，每隊1名T4隊長與${BRIDGEHEAD_SQUAD_SIZE - 1}名T3士兵）從南岸遠方出現並渡河進攻。我方${BRIDGEHEAD_FRIENDLY_SQUADS}支正式小隊各${BRIDGEHEAD_SQUAD_SIZE}人，包含1名T4隊長與${BRIDGEHEAD_SQUAD_SIZE - 1}名T3士兵。利用橋梁限制騎兵機動，發揮槍兵與遠程部隊的優勢。`, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_ENEMIES),
+    `目標：用 ${BRIDGEHEAD_PREPARATION_SECONDS} 秒在北岸部署 ${BRIDGEHEAD_FRIENDLY_SQUADS} 隊（每隊 ${BRIDGEHEAD_SQUAD_SIZE} 人，共 ${BRIDGEHEAD_FRIENDLIES} 名步兵），守住石橋，擊退渡河進攻的 ${BRIDGEHEAD_ENEMIES} 名敵方騎兵。利用橋面狹窄限制騎兵衝鋒。`, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_ENEMIES),
   entry(COMMANDER_FOUR_GATE_DEFENSE_ID, 'commander-four-gate-defense', 'Commander V · Four-Gate Town Defense · 四門總攻守城戰',
-    '防守所屬城鎮；守方部署完成後有180秒準備，之後敵軍才抵達。指揮原生八隊守軍與HR私兵，迎擊四門200名地面攻軍、八台攻城車及30名巨鷹騎射兵。正式攻擊後守住15分鐘且守方仍有人存活即可獲勝，也可提前殲滅全部230名攻軍。',
+    `目標：守住所屬城鎮。${COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS} 秒準備後，${COMMANDER_FOUR_GATE_DEFENSE_ENEMIES} 名敵軍與八台攻城坡道車會從四門同時進攻。守住 ${COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS / 60} 分鐘（且守方仍有人存活）或提前全殲敵軍即獲勝。你指揮 8 支城防部隊，並可帶最多 30 名私兵。`,
     commanderGateDefenseSlots().flatMap(squad => squad.actorIds).length + TOWN_AUTONOMOUS_GUARD_IDS.length + 1, COMMANDER_FOUR_GATE_DEFENSE_ENEMIES),
+  entry(COMMANDER_FELINE_CAVALRY_ID, 'commander-six-feline-cavalry', 'Commander VI · Six Feline Cavalry · 六貓騎兵團',
+    `目標：率領 ${FELINE_GROUP_TEXT}，迎戰 ${FELINE_ENEMY_TOTAL} 名戰馬騎兵（T4 ${felineTierTotal(FELINE_ENEMY_GROUPS, 4)}、T5 ${felineTierTotal(FELINE_ENEMY_GROUPS, 5)}）。${CHARGE_TRIGGER_TEXT}`, FELINE_FRIENDLY_TOTAL, FELINE_ENEMY_TOTAL),
+  entry(COMMANDER_IRON_LEGION_ID, COMMANDER_IRON_LEGION_KIND, 'Commander VII · Iron Legion · 鐵甲軍團決戰',
+    `目標：率領與六貓騎兵團相同的 ${FELINE_FRIENDLY_TOTAL} 名貓騎遊俠，迎戰 ${IRON_LEGION_ENEMY_TOTAL} 名鐵甲重騎兵（T4 210、T5 90）。${CHARGE_TRIGGER_TEXT}`, FELINE_FRIENDLY_TOTAL, IRON_LEGION_ENEMY_TOTAL),
 ]
 
 export function getCommanderMissionDefinition(id: string): CommanderMissionDefinition | null {
@@ -112,10 +168,12 @@ export function recordCommanderObjectiveDeath(mission: ActiveCareerMission, even
 
 export function getCommanderMissionAvailability(profile: CareerProfile, templateId: string): { unlocked: boolean; reason?: string } {
   if (!getCommanderMissionDefinition(templateId) || profile.rank !== 'commander') {
-    return { unlocked: false, reason: '需要正式任命為 Commander；單有 20,000 軍功不算完成任命。' }
+    const missing = CAREER_RANK_THRESHOLDS.commander - enlistmentMerit(profile)
+    return { unlocked: false, reason: profile.rank !== 'captain' ? '需要先晉升為隊長，再晉升為指揮官。'
+      : missing > 0 ? `需要晉升為指揮官：還差 ${missing.toLocaleString()} 軍功。` : '軍功已達標！請先找城鎮指揮官接受任命。' }
   }
-  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission) return { unlocked: false, reason: '請先完成目前的正式任務。' }
-  if (profile.townEvent?.state === 'hostile') return { unlocked: false, reason: '城鎮敵對事件中無法接受任務。' }
+  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission) return { unlocked: false, reason: '請先完成目前的任務。' }
+  if (profile.townEvent?.state === 'hostile') return { unlocked: false, reason: '目前仍在交戰，暫時無法接取。' }
   return { unlocked: true }
 }
 
@@ -165,6 +223,10 @@ export function createCommanderMission(profile: CareerProfile, templateId: strin
     friendlyActorIds = officialIds(id, BRIDGEHEAD_FRIENDLIES, 'infantry')
     targetActorIds = officialIds(id, BRIDGEHEAD_ENEMIES, 'cavalry')
     squads = commandSquads(friendlyActorIds, Array(BRIDGEHEAD_FRIENDLY_SQUADS).fill(BRIDGEHEAD_SQUAD_SIZE))
+  } else if (templateId === COMMANDER_FELINE_CAVALRY_ID || templateId === COMMANDER_IRON_LEGION_ID) {
+    friendlyActorIds = felineCavalryActorIds(id, 'friendly')
+    targetActorIds = templateId === COMMANDER_IRON_LEGION_ID ? ironLegionEnemyActorIds(id) : felineCavalryActorIds(id, 'enemy')
+    squads = commandSquads(friendlyActorIds, FELINE_FRIENDLY_SQUAD_SIZES)
   } else {
     friendlyActorIds = officialIds(id, COMMANDER_LAST_STAND_FRIENDLIES, 'defender')
     targetActorIds = officialIds(id, COMMANDER_LAST_STAND_ENEMIES, 'attacker')
@@ -173,7 +235,9 @@ export function createCommanderMission(profile: CareerProfile, templateId: strin
   return {
     id, templateId, kind: definition.kind, targetCampId: -1, phase: templateId === COMMANDER_FOUR_GATE_DEFENSE_ID ? 'DEPLOYING' : 'PREPARING',
     targetActorIds, friendlyActorIds, acceptedAt: Date.now(),
-    commanderMission: { version: 1, kind: definition.kind, deploymentComplete: false },
+    commanderMission: { version: 1, kind: definition.kind, deploymentComplete: false,
+      ...(templateId === COMMANDER_FELINE_CAVALRY_ID ? { felineVanguardActorId: felineVanguardActorId(id), felineChargeTriggered: false } : {}),
+      ...(templateId === COMMANDER_IRON_LEGION_ID ? { felineVanguardActorId: ironLegionVanguardActorId(id), felineChargeTriggered: false } : {}) },
     ...(templateId === COMMANDER_FOUR_GATE_DEFENSE_ID ? {
       fourGateDefense: createCommanderFourGateDefenseState(),
       civilianActorIds: townRoster().filter(actor => actor.role === 'civilian').map(actor => actor.id),
@@ -182,6 +246,7 @@ export function createCommanderMission(profile: CareerProfile, templateId: strin
       bridgeDeployment: { phase: 'preparing' as const, preparationRemainingSeconds: BRIDGEHEAD_PREPARATION_SECONDS },
     } : {}),
     officialSquad: createMissionCommandAuthority(id, profile.faction, profile.rank, friendlyActorIds, squads),
+    // The formal field roster stays fixed; HR soldiers deploy as a separate personal squad.
     personalSquad: snapshotPersonalMission(profile),
   }
 }
@@ -190,7 +255,7 @@ export function acceptCommanderMission(profile: CareerProfile, templateId: strin
   const mission = createCommanderMission(profile, templateId, id)
   if (!mission) return null
   const next = cloneCareerProfile(profile)
-  if (mission.kind === 'commander-bridgehead-battle') mission.officialSquad!.commandedSquadIds = mission.officialSquad!.squads!.map(squad => squad.squadId)
+  if (mission.kind === 'commander-bridgehead-battle' || mission.kind === 'commander-six-feline-cavalry' || mission.kind === 'commander-iron-legion') mission.officialSquad!.commandedSquadIds = mission.officialSquad!.squads!.map(squad => squad.squadId)
   next.activeMission = mission
   return next
 }
@@ -212,16 +277,21 @@ function specForTier(
   squadId: NpcSpawnSpec['squadId'],
   x = 0,
   z = 0,
-  forcedMount?: 'horse' | 'black-cat' | 'corgi' | 'xongkoro' | null,
+  forcedMount?: UnitLoadout['mountId'],
+  heavyHero = false,
 ): NpcSpawnSpec {
   const ranged = UNIT_PRESETS[presetId].traits.includes('bow_fire') || UNIT_PRESETS[presetId].traits.includes('javelin_throw')
-  const hero = tier === 4 ? T4_UNIT_PROFILES[presetId] : undefined
+  const classic = tier === 4 ? T4_UNIT_PROFILES[presetId] : undefined
+  // A Ranger has no second body; heavy cavalry already hold the heavy class in the shared catalog.
+  const hero = classic && heavyHero ? heavyT4Variant(classic, faction) : classic
   const loadout = tier === 4 ? resolveT4UnitLoadout(presetId) : { ...UNIT_PRESETS[presetId].tierLoadouts[3] }
   if (forcedMount !== undefined) loadout.mountId = forcedMount
   return {
     actorId, x, z, faction: allegiance, characterFaction: faction,
     aiType: ranged ? AIType.RANGED : AIType.MELEE, name: actorId.split(':').at(-1) ?? actorId,
-    tier, cavalry: Boolean(loadout.mountId), respawnEnabled: false, presetId, squadId, loadout,
+    tier, characterTier: tier,
+    ...(hero ? { heroArchetype: hero.combatProfileId === 'ranger' ? 'ranger' as const : 'captain' as const } : {}),
+    cavalry: Boolean(loadout.mountId), respawnEnabled: false, presetId, squadId, loadout,
     ...(hero ? { visualAssetId: hero.visualAssetId, combatProfileId: hero.combatProfileId,
       ...(hero.specialCombatProfile ? { specialCombatProfile: hero.specialCombatProfile } : {}) } : {}),
   }
@@ -241,9 +311,10 @@ export function createDecapitationRoster(mission: ActiveCareerMission, faction: 
     if (index === 0) {
       const presetId = preset(faction, 'sword')
       const asset = townCommanderHeroAsset(faction)
-      return { ...specForTier(actorId, faction, Faction.TOWN, presetId, 4, 1, 0, 0, canonicalMount),
+      return { ...specForTier(actorId, faction, Faction.TOWN, presetId, 4, 1, 0, 0, TOWN_COMMANDER_MOUNT_ID),
+        characterTier: 5, heroArchetype: 'commander',
         name: `Former ${faction === 'roman' ? 'Roman' : 'Viking'} Commander`, visualAssetId: asset,
-        aiType: AIType.RANGED, loadout: { ...careerCommanderLoadout(faction), mountId: canonicalMount },
+        aiType: AIType.RANGED, loadout: { ...careerCommanderLoadout(faction), mountId: TOWN_COMMANDER_MOUNT_ID },
         combatProfileId: HERO_COMBAT_PROFILE_BY_ASSET[asset] }
     }
     const escortIndex = index - 1
@@ -279,6 +350,9 @@ export function createLastStandRoster(mission: ActiveCareerMission, faction: Car
   return { friendly, enemy }
 }
 
+/** Squad leaders alternate classic and heavy T4 by squad number (odd squads classic, even squads heavy); Rangers keep their body. */
+const bridgeheadHeavyLeader = (squadId: number) => squadId % 2 === 0
+
 /** Exact saved identities, shared tier loadouts and deterministic production deployment points. */
 export function createBridgeheadRoster(mission: ActiveCareerMission, faction: CareerProfile['faction']): {
   friendly: NpcSpawnSpec[]; enemy: NpcSpawnSpec[]
@@ -292,13 +366,13 @@ export function createBridgeheadRoster(mission: ActiveCareerMission, faction: Ca
     const presetId: UnitPresetId = role === 'javelin' ? 'roman_javelin_infantry'
       : preset(faction, role === 'spearman' ? 'spear' : role === 'melee_infantry' ? 'melee' : 'archer')
     return specForTier(mission.friendlyActorIds[(squad.squadId - 1) * BRIDGEHEAD_SQUAD_SIZE + index], faction, Faction.PLAYER,
-      presetId, index === 0 ? 4 : 3, squad.squadId as NpcSpawnSpec['squadId'], slot.x, slot.z, null)
+      presetId, index === 0 ? 4 : 3, squad.squadId as NpcSpawnSpec['squadId'], slot.x, slot.z, null, bridgeheadHeavyLeader(squad.squadId))
   }))
   const enemy = planSouthBankCavalryStaging(230, enemySquadsPerRole).flatMap(squad => squad.slots.map((slot, index) =>
     specForTier(mission.targetActorIds[(squad.squadId - 1) * BRIDGEHEAD_SQUAD_SIZE + index], enemyFaction, Faction.ENEMY,
       preset(enemyFaction, squad.role === 'melee_cavalry' ? 'sword' : 'lancer'), index === 0 ? 4 : 3,
       // Enemy deployment groups beyond eight are not player command squads.
       squad.squadId <= 8 ? squad.squadId as NpcSpawnSpec['squadId'] : undefined, slot.x, slot.z,
-      index === 0 ? enemyFaction === 'roman' ? 'corgi' : 'black-cat' : 'horse')))
+      index === 0 ? enemyFaction === 'roman' ? 'corgi' : 'black-cat' : 'horse', bridgeheadHeavyLeader(squad.squadId))))
   return { friendly, enemy }
 }

@@ -1,17 +1,5 @@
-# Steppe Iron Guard — selected T5
+# Viking Warrior
 
-User-supplied model, textures and selected axe animations from
-`Roman_Steppe_Selected_Complete.zip`. The exact source entry/hash, delivered
-hashes and modifications are recorded in `manifest.json` and `audit.json`.
+Viking Warrior: user-supplied Meshy model/textures. Existing SagaBurst animation-source terms retained in animation-donor-manifest.json.
 
-Model/texture/axe rights follow the user's Meshy account, service and input
-material terms; this package does not claim CC0 or a blanket CC BY licence.
-Core locomotion/bow animations retain Kevin Iglesias / Unity Asset Store EULA
-terms. Sword/pilum sources retain Quaternius CC0 terms. Project carry animation
-keeps its original terms. No donor character mesh or standalone animation bank
-is included. See the verbatim [source README](source-readme.txt).
-
-LOD0 retains the selected mesh, UVs, texture payloads, skin and skeleton.
-Roman's approved local finger-pose correction is listed separately in the
-manifest. Lower LODs conservatively simplify indices and resize textures while
-retaining the source UV frame, joints, bind matrices and animation samples.
+User confirmed use and GitHub redistribution rights on 2026-11-02. This records supplied permission and does not assert CC0 or grant unrelated rights. See attribution-evidence.json, animation-donor-manifest.json and audit.json. Rebuild from the exact user source using tools/build-meshy-faction-heroes.mjs; donor revision 7cb61c07f9daf41cccd35287a6cc842955c3f137.

@@ -1,0 +1,75 @@
+Animation attribution and upstream evidence for this fitted target. The target model has separate provenance in manifest.json/source and attribution-evidence.json.
+
+Retargeted animation input: roman/lod0.glb
+SHA-256: 142102c670dcbbffae0527d732d6f139db6f8aa61b83cbdfb2b76bba632c6b34
+Original attribution: Ordinary Roman Infantry: user-provided Meshy model/derivative. Core animations: Kevin Iglesias (Unity Asset Store EULA), Quaternius (CC0); axe attacks: user-provided Meshy source. See source-readme.txt.
+
+Mixed animation rights remain unchanged: Kevin Iglesias / Unity Asset Store EULA, Quaternius / CC0, user-supplied Meshy derivatives, and the separately identified Bandit strike. The combined animation data is not CC0 and must not be redistributed as a standalone animation bank.
+
+Original animation-source readme, reproduced unchanged below (roman/source-readme.txt):
+
+普通羅馬步兵：五指骨與握柄更新
+版本：2026-10-12，五指骨／握柄衍生成品，遊戲 runtime 待整合。
+
+主模型為普通 Roman Infantry LOD0，不是面具羅馬英雄。維京與英雄檔案不變。
+兩個模型入口：clean 為角色本體；mock 為同一角色加預覽武器。兩者都有同一套 11 動畫。
+
+動畫清單（秒）
+idle 2.7；walk 0.8；run 0.6；swordSlash 0.48；bowLoad 25/30；bowHold 40/30；bowRelease 0.22；pilumThrow 1.5；axeMountedIdle 2.7；axeAttack1H 3；axeAttack2H 85/30。
+單手斧延用使用者選定 Meshy C，雙手斧延用 Attack 的 GripAndWeaponAdjusted 衍生。沒有加入死亡或先前棄用的自製斧動作。
+
+本次結構
+原 24 骨（22 人體骨＋2 肩甲輔助骨）增加雙手 30 指骨，共 54 骨；每指三節，拇指也有獨立對掌控制。
+原模型 9,937 三角面改為 11,117，增加 1,180 面，僅用於原指間融合处的局部切縫、封側壁及指節支撐。61 個交縫候選面按實際交界裁分，沒有整批刪除；另有必要的鄰面重接。原護腕、袖甲與其餘身體幾何保持。
+原有頂點位置與 UV 資料列保留；新增指側壁沿鄰近皮膚貼圖區取樣，原三張 2048² 貼圖位元組保持。手部局部權重改分配至各指骨，原前臂影響區不改，原掌根不受髖腿或袖子牽動。
+
+握柄與動作
+原 mock 柄軸曾穿入掌心。此次依實際掌面校準每種握柄 socket，反求腕與兩節臂 IK，再做各指包握；不是只新增骨名或把武器逐幀拉到手上。
+為維持掌面握持與自然手腕，必要改動左右上臂、前臂、手共六骨旋轉。其餘身體、鎖骨、腿、兩肩甲 helper、rest 與 bind 全部保持。雙手斧仍為原尺寸及刃向；其臂動畫以 600 Hz 採樣，其他臂校準以 150 Hz 採樣。
+2H 原近伸直窗約 0.90–1.05 秒使用連續肘平面過渡，以避免數學 pole 翻側。這是握姿衍生，保原攻擊節奏與主體動作。双手斧另使用斜握，以及起手局部平滑斧角調整，以避免硬折手腕；最終起手調整窗為 0.06–0.56 秒：斧原點最多偏移 42.43 mm、朝向最多 15°；斧上最遠頂點偏移約 246.30 mm。主劈及窗外斧世界路徑與原來源誤差不超過 0.001 mm。斧最低離原地面約 19.90 mm，沒有縮短斧頭或降低地板。
+早窗左肘重選路徑，與 v15 原版最大位置差約 33.3 cm；不是只旋轉手指，也不是全招逐骨照抄。軀幹、鎖骨、雙腳與節奏保持，主要改動限定手臂握姿。主擊右腕屈伸仍較強，約 71°；不能以總 quaternion 角度或小於某門檻聲稱生理自然。近拍與完整正側片供實際觀感判斷。
+早窗接回原段為位置連續，尚非完整一階速度連續：0.06 秒袖頂點最大速度向量差約 1.55 m/s；不是先前單採樣 33° 的翻側。已消除該快翻，不宣稱全鏈 C1。
+劍、單手斧、標槍的左手握新增盾背把；雙手斧兩手維持滑握關係。弓左手握弓、右手勾弦；釋放動作另有手指打開。
+各 clip 皆有全部 30 指骨的明確 TRS 起終點，不依賴前一動畫留下的握姿。
+clean 與 mock 都包含不參與蒙皮的 Socket_Axe2H_Grip.R 節點，父節點為 Hand.R；其 11 clip TRS 完全相同。雙斧曲線有動態繞柄握姿補償，實際武器需依包內 authored-axis 對齊後掛在此節點，不可改掛固定 Hand.R socket 而省略曲線。此 attachment 不增加 54 個蒙皮關節數。其他裝備的固定握位與弓右手勾弦點另見校準 JSON。
+弓 release 先在 0–0.035 秒張指，預覽箭於 0.035 秒離手，弦於 0.035–0.065 秒回彈。弦方向採連續最小旋轉框架，避免兩段弦在插值時裂開。
+
+使用限制
+甲下仍有窄暗褶與布／金屬交疊；例如 0.23 秒左袖交叉 depth proxy 約 9.54 mm，這是幾何交疊代理值，不能解讀為完全無碰撞。比修正前的大硬塊與扇皺改善，沒有宣稱電影級布料或所有表面零交叉。
+手形仍是原低多邊形造型；短指不強行拉長去包住粗斧柄。指節折面與輕微接觸皺褶仍存在。局部同指折層／共享指根接觸有逐面紀錄，最深約 0.98 mm；不宣稱數學零自交，已將這些微小折層與跨指、穿柄、拉絲問題分開檢查。
+這些握姿依本包 mock 尺寸製作；更換真實遊戲武器、盾把位置、左右手配置時，需手姿 overlay／socket 校準。
+mock 劍、斧、弓、箭、標槍、盾為檢查用。預覽弓弦回彈、箭和標槍離手不是已整合的遊戲物理、傷害或武器切換程式。
+axeMountedIdle 為上身待機；腿仍是站姿，騎姿需遊戲 runtime FK 與肩甲 helper 一起依既定 policy 更新。
+保原模型地面基準 Y=-0.950572 m。原攻擊仍有約 3–6 cm 足底接地偏差，本輪沒有新做腿 IK，也沒有降地板掩飾。
+只處理 LOD0。LOD1/2、遊戲引擎/runtime、控制器與正式武器接線未整合驗證。
+
+來源與授權
+普通人物 Meshy 素材來源與 CC BY 4.0 歸屬沿用原包（帳號 andypig9，2026-10-10）。C／Attack 依使用者 Meshy 來源條款。
+core 動作沿用使用者專案來源，含 Kevin Iglesias Asset Store EULA、Quaternius CC0 與專案衍生資料。整包不能一概稱 CC0，也不能把受限 core 動作拆成公共可再散布的獨立 animation bank。
+詳細來源證據沿用包內原 Source／Reproduce／Validation 紀錄；本次不改遊戲 repository。
+
+驗證與可重生
+clean、mock 重新匯入 Blender 4.3.2，均有精確 11 clips／54 蒙皮骨／11,117 人物三角面。每招 30 指骨全部 TRS 明確重置；各 121 組 clip 切換與故意污染手指 TRS 後恢復測試，狀態誤差皆為 0。
+真正遊戲引擎播放尚未驗證。此處驗證包括 GLB 重匯、原速影片逐時畫面抽查、實際蒙皮與武器幾何採樣、骨／柄連續性；不是只看骨名或只看單幀。
+Reproduce/FingerRig/rebuild_finger_models.py 由保留的原 BIN 前綴重建 v15，重新生成手指局部拓撲／skin，再套凍結的已驗握姿曲線和動態 socket；此流程可精確重建本包，不需要再次跑搜尋器、付費服務或存取 repository。預設不含無數中間候選與搜索大檔。
+
+雙斧有限柄尾：左小指末節外形最多約5.32mm超過木柄尾；靠柄的指腹區只約0.512mm超尾，仍有有效木柄支撐。掌根外形也會超出柄尾，但距真端蓋至少約4.19mm，沒有尾蓋刺入。兩手各428個實際姿勢檢查與真斧三角面0交叉，端蓋最小間隙2.35mm。短食指保持放鬆，不假稱五指都緊貼；其餘拇指／中指／無名指保持有效軸段內。
+
+Validation 為精簡機讀檢查與來源 hash；未包含全部逐樣本大檔或未採候選。正式模型可由 Reproduce/FingerRig 完整 byte-exact 重建。
+
+
+Bandit foot-strike attribution: Fantasy Bandit by tokeshi / CGTrader. Licensed for incorporated game use; no standalone redistribution.
+{
+  "title": "Fantasy Bandit",
+  "author": "tokeshi",
+  "url": "https://www.cgtrader.com/free-3d-models/character/man/fantasy-bandit",
+  "license": "CGTrader Royalty Free (no AI)",
+  "licenseUrl": "https://www.cgtrader.com/pages/terms-and-conditions",
+  "sourceSha256": "3260547fbbf5d24e4849933cedb5ae5b9156eab00ae01576680a9658d186e825",
+  "archives": {
+    "Bandit_animation_fbx.rar": "82c389524083106904818bb44ebe7acf04fa76c14fef058495e3d4c4d14034a7",
+    "Bandit_textures.rar": "1c1b840ef846deea2af9c7f30b1bff4fae57550c068dba65c9b30ec39a8b4660"
+  }
+}
+Embedded input: bb517258398423039a7a0dfa983681322c92a51d:public/models/characters/v2/bandit/lod0.glb
+SHA-256: 76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c

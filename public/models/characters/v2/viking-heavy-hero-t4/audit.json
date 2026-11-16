@@ -1,0 +1,130 @@
+{
+  "builder": "tools/build-viking-heavy-heroes.mjs",
+  "sourceSha256": "1c0773c314f64203dee2290bf2a95864aed1f531c863b2691a670fb5d595638b",
+  "sourceBytes": 27758324,
+  "sourceStructure": {
+    "joints": 24,
+    "animations": [
+      "Running",
+      "Walking"
+    ],
+    "armatureScale": 0.01,
+    "images": [
+      "image/jpeg",
+      "image/jpeg",
+      "image/jpeg"
+    ],
+    "triangles": 29726
+  },
+  "thighPivotM": 0.970617362541238,
+  "waistVerticesReweighted": 9878,
+  "measuredPlantedFootSpeed": {
+    "walk": 1.4211865418099843,
+    "run": 2.659495389824039
+  },
+  "seatBearing": [
+    [
+      0.109,
+      0.895,
+      -0.067
+    ],
+    [
+      -0.1,
+      0.897,
+      -0.066
+    ]
+  ],
+  "lod0Policy": "Original vertex, normal, UV, tangent and index bytes preserved; only JOINTS/WEIGHTS of the waist band changed. No decimation of LOD0.",
+  "lods": [
+    {
+      "level": 0,
+      "triangles": 29726,
+      "textureMax": 2048,
+      "bytes": 9729092,
+      "sha256": "481d31a1ae1bbe3356ecea4672fa030d3392d02669803bbab8c1bd708d7a8d24",
+      "maxDroppedInfluenceWeight": 0,
+      "joints": 24,
+      "animationNames": [
+        "idle",
+        "mounted",
+        "walk",
+        "run",
+        "swordSlash",
+        "bowLoad",
+        "bowHold",
+        "bowRelease",
+        "pilumThrow",
+        "axeMountedIdle",
+        "axeAttack1H",
+        "axeAttack1HFoot",
+        "axeAttack2H"
+      ],
+      "runtimeBudget": {
+        "triangles": 29726,
+        "textureMaxSize": 2048,
+        "textureEncoding": "KTX2 (KHR_texture_basisu)",
+        "audit": "tools/data/runtime-glb-budget-audit.json"
+      }
+    },
+    {
+      "level": 1,
+      "triangles": 15000,
+      "textureMax": 1024,
+      "bytes": 3969112,
+      "sha256": "7345564b9e37d84ca57ad3a1f8de2edd0a23fa2a17bd2fd477aa1383752b40d5",
+      "maxDroppedInfluenceWeight": 0.05749489589607615,
+      "joints": 24,
+      "animationNames": [
+        "idle",
+        "mounted",
+        "walk",
+        "run",
+        "swordSlash",
+        "bowLoad",
+        "bowHold",
+        "bowRelease",
+        "pilumThrow",
+        "axeMountedIdle",
+        "axeAttack1H",
+        "axeAttack1HFoot",
+        "axeAttack2H"
+      ],
+      "runtimeBudget": {
+        "triangles": 15000,
+        "textureMaxSize": 1024,
+        "textureEncoding": "KTX2 (KHR_texture_basisu)",
+        "audit": "tools/data/runtime-glb-budget-audit.json"
+      }
+    },
+    {
+      "level": 2,
+      "triangles": 6000,
+      "textureMax": 512,
+      "bytes": 2166896,
+      "sha256": "009070324f94acdf555b682110a876b7e6e5a2bd785dbbeb80e1c5616781ffdd",
+      "maxDroppedInfluenceWeight": 0.13231341343651093,
+      "joints": 24,
+      "animationNames": [
+        "idle",
+        "mounted",
+        "walk",
+        "run",
+        "swordSlash",
+        "bowLoad",
+        "bowHold",
+        "bowRelease",
+        "pilumThrow",
+        "axeMountedIdle",
+        "axeAttack1H",
+        "axeAttack1HFoot",
+        "axeAttack2H"
+      ],
+      "runtimeBudget": {
+        "triangles": 6000,
+        "textureMaxSize": 512,
+        "textureEncoding": "KTX2 (KHR_texture_basisu)",
+        "audit": "tools/data/runtime-glb-budget-audit.json"
+      }
+    }
+  ]
+}

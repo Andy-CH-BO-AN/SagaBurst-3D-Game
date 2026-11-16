@@ -1,0 +1,285 @@
+import type { ObstacleData } from '../world/Terrain'
+import { getTerrainHeight } from '../world/Terrain'
+
+export const CAREER_MISSION_RETURN_KEY = 'sagaburst_career_mission_return'
+
+export interface SergeantPose {
+  x: number
+  z: number
+  yaw?: number
+}
+
+export interface SergeantReturnBlocker {
+  x: number
+  z: number
+  radius?: number
+}
+
+export interface SergeantReturnPoint {
+  x: number
+  y: number
+  z: number
+  yaw: number
+}
+
+export interface SergeantReturnOptions {
+  /** Preferred stand-off distance in metres directly in front of the Sergeant (3–4m). */
+  distance?: number
+  /** Horizontal body radius used for obstacle/NPC/mount overlap checks. */
+  clearanceRadius?: number
+  obstacles?: readonly ObstacleData[]
+  blockers?: readonly SergeantReturnBlocker[]
+  terrainHeight?: (x: number, z: number) => number
+  worldBound?: number
+  isValid?: (point: { x: number; z: number }) => boolean
+}
+
+export interface SergeantResidentLike {
+  spec: { id?: string; role: string; x: number; z: number; yaw?: number }
+  npc?: {
+    dead?: boolean
+    combatPosition?: { x: number; z: number }
+    group?: { rotation?: { y?: number } }
+  }
+}
+
+const DISTANCE_CANDIDATES = [3.5, 3.2, 3.8, 3.0, 4.0] as const
+const ANGLE_OFFSETS = [0, 0.25, -0.25, 0.5, -0.5, 0.85, -0.85, 1.2, -1.2] as const
+const SERGEANT_SELF_TOLERANCE = 1.2
+const DEFAULT_CLEARANCE_RADIUS = 0.75
+const DEFAULT_BLOCKER_RADIUS = 0.65
+const DEFAULT_WORLD_BOUND = 348
+
+export function markCareerMissionReturnToSergeant(storage: Pick<Storage, 'setItem'> | undefined = typeof sessionStorage !== 'undefined' ? sessionStorage : undefined): void {
+  storage?.setItem(CAREER_MISSION_RETURN_KEY, '1')
+}
+
+export function consumeCareerMissionReturnFlag(storage: Pick<Storage, 'getItem' | 'removeItem'> | undefined = typeof sessionStorage !== 'undefined' ? sessionStorage : undefined): boolean {
+  if (!storage || storage.getItem(CAREER_MISSION_RETURN_KEY) !== '1') return false
+  storage.removeItem(CAREER_MISSION_RETURN_KEY)
+  return true
+}
+
+function isCandidateClear(
+  x: number,
+  z: number,
+  y: number,
+  sergeant: SergeantPose,
+  options: SergeantReturnOptions,
+): boolean {
+  const bound = options.worldBound ?? DEFAULT_WORLD_BOUND
+  if (Math.max(Math.abs(x), Math.abs(z)) > bound) return false
+  if (options.isValid && !options.isValid({ x, z })) return false
+  const radius = options.clearanceRadius ?? DEFAULT_CLEARANCE_RADIUS
+  for (const obstacle of options.obstacles ?? []) {
+    if (obstacle.navigationPassable) continue
+    if (obstacle.box.max.y <= y + 0.35 || obstacle.box.min.y >= y + 2.6) continue
+    if (x > obstacle.box.min.x - radius && x < obstacle.box.max.x + radius
+      && z > obstacle.box.min.z - radius && z < obstacle.box.max.z + radius) {
+      return false
+    }
+  }
+  for (const blocker of options.blockers ?? []) {
+    // Sergeant stands at `sergeant.{x,z}`; ignore his own footprint in the generic blocker list
+    // because the 3–4m stand-off already preserves conversational clearance.
+    if (Math.hypot(blocker.x - sergeant.x, blocker.z - sergeant.z) < SERGEANT_SELF_TOLERANCE) continue
+    const minDistance = radius + (blocker.radius ?? DEFAULT_BLOCKER_RADIUS)
+    if (Math.hypot(x - blocker.x, z - blocker.z) < minDistance) return false
+  }
+  return true
+}
+
+/**
+ * Resolves a grounded spawn position ~3–4m directly in front of the live Sergeant NPC,
+ * facing the Sergeant and free of walls, gates, buildings, NPCs and mounts.
+ */
+export function resolveSergeantReturnPoint(
+  sergeant: SergeantPose,
+  options: SergeantReturnOptions = {},
+): SergeantReturnPoint | null {
+  const terrainHeight = options.terrainHeight ?? getTerrainHeight
+  const heading = sergeant.yaw ?? 0
+  const preferredDistance = options.distance ?? DISTANCE_CANDIDATES[0]
+  const distances = [preferredDistance, ...DISTANCE_CANDIDATES.filter(d => Math.abs(d - preferredDistance) > 0.05)]
+  for (const angleOffset of ANGLE_OFFSETS) {
+    for (const distance of distances) {
+      const angle = heading + angleOffset
+      const x = Math.round((sergeant.x + Math.sin(angle) * distance) * 1000) / 1000
+      const z = Math.round((sergeant.z + Math.cos(angle) * distance) * 1000) / 1000
+      const y = terrainHeight(x, z)
+      if (!isCandidateClear(x, z, y, sergeant, options)) continue
+      return {
+        x,
+        y,
+        z,
+        yaw: Math.atan2(sergeant.x - x, sergeant.z - z),
+      }
+    }
+  }
+  return null
+}
+
+export function findSergeantResident<T extends SergeantResidentLike>(residents: readonly T[]): T | undefined {
+  return residents.find(resident => resident.spec.id === 'deployment' && resident.spec.role === 'deployment')
+}
+
+export function sergeantReturnFromResidents(
+  residents: readonly SergeantResidentLike[],
+  options: SergeantReturnOptions = {},
+): SergeantReturnPoint | null {
+  const sergeant = findSergeantResident(residents)
+  if (!sergeant) return null
+  const x = sergeant.npc && !sergeant.npc.dead && sergeant.npc.combatPosition ? sergeant.npc.combatPosition.x : sergeant.spec.x
+  const z = sergeant.npc && !sergeant.npc.dead && sergeant.npc.combatPosition ? sergeant.npc.combatPosition.z : sergeant.spec.z
+  const yaw = sergeant.npc && !sergeant.npc.dead && typeof sergeant.npc.group?.rotation?.y === 'number'
+    ? sergeant.npc.group.rotation.y
+    : sergeant.spec.yaw ?? 0
+  return resolveSergeantReturnPoint({ x, z, yaw }, options)
+}
+
+const FALLBACK_OFFSETS = [0, 4, -4, 8, -8] as const
+
+/**
+ * Backup return point around the ordinary Town entry. It is checked with the same
+ * final-state (walking or mounted) clearance as the Sergeant point, so a blocked
+ * Sergeant never degrades into an unchecked position.
+ */
+export function resolveTownEntryFallbackPoint(
+  home: SergeantPose,
+  options: SergeantReturnOptions = {},
+): SergeantReturnPoint | null {
+  const terrainHeight = options.terrainHeight ?? getTerrainHeight
+  for (const dx of FALLBACK_OFFSETS) {
+    for (const dz of FALLBACK_OFFSETS) {
+      const x = home.x + dx
+      const z = home.z + dz
+      const y = terrainHeight(x, z)
+      if (!isCandidateClear(x, z, y, { x: Number.NaN, z: Number.NaN }, options)) continue
+      return { x, y, z, yaw: home.yaw ?? 0 }
+    }
+  }
+  return null
+}
+
+export function peekCareerMissionReturnFlag(storage: Pick<Storage, 'getItem'> | undefined = typeof sessionStorage !== 'undefined' ? sessionStorage : undefined): boolean {
+  return storage?.getItem(CAREER_MISSION_RETURN_KEY) === '1'
+}
+
+export interface SergeantReturnPlanInput {
+  /** Final-stance lookup: Sergeant point first, then the checked Town-entry backup. */
+  resolve(mounted: boolean): SergeantReturnPoint | null
+  /** The saved pose would put the player back on a mount. */
+  restoreMounted: boolean
+  /** A mount comes back with the player, so a walking arrival also needs a legal parking spot for it. */
+  hasMount: boolean
+  findMountPark(point: SergeantReturnPoint): { x: number; z: number } | null
+}
+
+export type SergeantReturnPlan =
+  | { status: 'placed'; point: SergeantReturnPoint; dismount: boolean; mountPark?: { x: number; z: number } }
+  | { status: 'blocked' }
+
+/**
+ * Every arrival stance (mounted point, walking point, mount parking) is checked; nothing falls back
+ * to an unchecked position. `blocked` means the caller must keep its return intent and retry.
+ */
+export function planSergeantReturn(input: SergeantReturnPlanInput): SergeantReturnPlan {
+  if (input.restoreMounted) {
+    const mounted = input.resolve(true)
+    if (mounted) return { status: 'placed', point: mounted, dismount: false }
+  }
+  const walking = input.resolve(false)
+  if (!walking) return { status: 'blocked' }
+  if (!input.hasMount) return { status: 'placed', point: walking, dismount: false }
+  const park = input.findMountPark(walking)
+  return park ? { status: 'placed', point: walking, dismount: input.restoreMounted, mountPark: park } : { status: 'blocked' }
+}
+
+/** The one-shot return flag is spent only by a legal placement; a blocked plan leaves it for the retry. */
+export function settleCareerMissionReturn(
+  storage: Pick<Storage, 'getItem' | 'removeItem'> | undefined,
+  plan: () => SergeantReturnPlan,
+): SergeantReturnPlan | null {
+  if (!peekCareerMissionReturnFlag(storage)) return null
+  const result = plan()
+  if (result.status === 'placed') consumeCareerMissionReturnFlag(storage)
+  return result
+}
+
+const RETURN_RETRY_SECONDS = 0.5
+const RETURN_RETRY_ABANDON_DISTANCE = 10
+
+/** A blocked return stays pending until a legal point opens or the player has clearly walked off. */
+export class SergeantReturnIntent {
+  private origin: { x: number; z: number } | null = null
+  private clock = 0
+  get pending(): boolean { return this.origin !== null }
+  begin(here: { x: number; z: number }): void { if (!this.origin) { this.origin = { x: here.x, z: here.z }; this.clock = 0 } }
+  cancel(): void { this.origin = null }
+  /** `attempt` returns true once the player was legally placed. */
+  tick(dt: number, here: { x: number; z: number }, attempt: () => boolean): 'idle' | 'waiting' | 'placed' | 'abandoned' {
+    if (!this.origin) return 'idle'
+    if (Math.hypot(here.x - this.origin.x, here.z - this.origin.z) > RETURN_RETRY_ABANDON_DISTANCE) { this.origin = null; return 'abandoned' }
+    this.clock += dt
+    if (this.clock < RETURN_RETRY_SECONDS) return 'waiting'
+    this.clock = 0
+    if (!attempt()) return 'waiting'
+    this.origin = null
+    return 'placed'
+  }
+}
+
+export interface MountParkingOptions {
+  obstacles?: readonly ObstacleData[]
+  /** Everything that already stands there. `radius` is its body radius; omitted means a ground mount (1.05m). */
+  occupied?: readonly { x: number; z: number; radius?: number }[]
+  /** Body radius of the mount being parked; a large mount needs a correspondingly larger clear spot. */
+  radius?: number
+  terrainHeight?: (x: number, z: number) => number
+  isValid?: (point: { x: number; z: number }) => boolean
+}
+
+const DEFAULT_MOUNT_RADIUS = 1.05
+
+/** One clearance test for keeping a mount where it stands and for choosing a new spot: static obstacles plus every occupant's own radius. */
+export function isMountParkingClear(point: { x: number; z: number }, options: MountParkingOptions = {}): boolean {
+  const terrainHeight = options.terrainHeight ?? getTerrainHeight
+  const radius = options.radius ?? DEFAULT_MOUNT_RADIUS
+  if (Math.max(Math.abs(point.x), Math.abs(point.z)) > DEFAULT_WORLD_BOUND) return false
+  const y = terrainHeight(point.x, point.z)
+  const blocked = (options.obstacles ?? []).some(obstacle => !obstacle.navigationPassable
+    && obstacle.box.max.y > y + 0.35 && obstacle.box.min.y < y + 2.6
+    && point.x > obstacle.box.min.x - 1.05 && point.x < obstacle.box.max.x + 1.05 && point.z > obstacle.box.min.z - 1.05 && point.z < obstacle.box.max.z + 1.05)
+  if (blocked) return false
+  if ((options.occupied ?? []).some(other => Math.hypot(other.x - point.x, other.z - point.z) < (other.radius ?? DEFAULT_MOUNT_RADIUS) + radius)) return false
+  return !options.isValid || options.isValid(point)
+}
+
+/** A legal place to leave an unridden mount near `origin`; null when the surroundings leave none. */
+export function findMountParkingPoint(origin: { x: number; z: number }, options: MountParkingOptions = {}): { x: number; z: number } | null {
+  for (const ring of [2.4, 4.0, 5.6, 8.0, 11.0]) {
+    for (let index = 0; index < 12; index++) {
+      const angle = index / 12 * Math.PI * 2
+      const point = { x: origin.x + Math.sin(angle) * ring, z: origin.z + Math.cos(angle) * ring }
+      if (isMountParkingClear(point, options)) return point
+    }
+  }
+  return null
+}
+
+/**
+ * The nearest verified standing point around `home`, searched outward ring by ring. Used to hold the player
+ * somewhere legal while a mission return still waits for the Sergeant's front to clear.
+ */
+export function resolveNearestLegalPoint(home: SergeantPose, options: SergeantReturnOptions = {}, maxRadius = 60): SergeantReturnPoint | null {
+  const terrainHeight = options.terrainHeight ?? getTerrainHeight
+  for (let radius = 2; radius <= maxRadius; radius += 2) {
+    for (let index = 0; index < 16; index++) {
+      const angle = index / 16 * Math.PI * 2
+      const x = home.x + Math.sin(angle) * radius, z = home.z + Math.cos(angle) * radius
+      const y = terrainHeight(x, z)
+      if (isCandidateClear(x, z, y, { x: Number.NaN, z: Number.NaN }, options)) return { x, y, z, yaw: home.yaw ?? 0 }
+    }
+  }
+  return null
+}

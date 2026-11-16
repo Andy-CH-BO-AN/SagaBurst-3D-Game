@@ -1,13 +1,11 @@
-import type { CareerProfile } from './CareerProfile'
-import type { ActiveCareerMission } from './CareerMissionState'
-import { createMissionCommandAuthority, type OfficialCommandAuthority, type OfficialCommandSquad } from './CareerCommandAuthority'
-import { commandSquadsFromActorIds, commandSquadsFromSlots } from './MissionCommandRoster'
-import { commanderGateDefenseSquads } from './CaptainMissionCatalog'
-import { createSweepRoster } from './CavalrySweep'
-import { siegeCommandSquads } from './EnemyTownAssault'
-import { siegeRosterVersion } from './TownSiege'
-import { createVeteranRoster, getVeteranMissionDefinition } from './VeteranMission'
 import type { TownActorSpec } from '../town/TownRules'
+import { commanderGateDefenseSquads } from './CaptainMissionCatalog'
+import { createMissionCommandAuthority,type OfficialCommandAuthority,type OfficialCommandSquad } from './CareerCommandAuthority'
+import type { ActiveCareerMission } from './CareerMissionState'
+import type { CareerProfile } from './CareerProfile'
+import { createSweepRoster } from './CavalrySweep'
+import { commandSquadsFromActorIds,commandSquadsFromSlots } from './MissionCommandRoster'
+import { createVeteranRoster,getVeteranMissionDefinition } from './VeteranMission'
 
 /** Fresh acceptance only. Call before saving; never use a current rank to upgrade a loaded mission. */
 export function buildCommanderAuthorityForMission(profile: Pick<CareerProfile, 'rank' | 'faction'>,
@@ -15,13 +13,10 @@ export function buildCommanderAuthorityForMission(profile: Pick<CareerProfile, '
   if (profile.rank !== 'commander' || mission.officialSquad || mission.kind === 'duel'
     || mission.phase === 'RETURNING' || mission.phase === 'RESULT' || mission.result) return undefined
   let squads: OfficialCommandSquad[]
-  if (mission.kind === 'town-defense' || mission.kind === 'commander-four-gate-defense') {
+  if (mission.kind === 'commander-four-gate-defense') {
     if (!residentSpecs) return undefined
     squads = commanderGateDefenseSquads(residentSpecs, mission.friendlyActorIds,
       new Set(mission.deadFriendlyActorIds))
-  } else if (mission.kind === 'enemy-town-assault') {
-    squads = siegeCommandSquads(profile.faction, mission.siege?.rosterCreated ? mission.siege.attackerIds : mission.friendlyActorIds,
-      mission.siege ? siegeRosterVersion(mission.siege) : 2)
   } else if (mission.kind === 'cavalry-sweep') {
     squads = commandSquadsFromSlots(mission.friendlyActorIds, createSweepRoster(profile.faction))
   } else {

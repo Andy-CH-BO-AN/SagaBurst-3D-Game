@@ -113,6 +113,8 @@ export function applySwordAttachment(socket: THREE.Object3D, pivot: THREE.Object
   pivot.userData.authoredAxe1Socket = socket.userData.authoredAxe1Socket
   pivot.userData.authoredAxeActive = false
   pivot.userData.authoredAxeModelInverse = model.matrix.clone().invert()
+  pivot.userData.authoredAxeRecovery = pivot.userData.authoredAxeSocket
+    ? { active: false, anchorOffset: new THREE.Vector3(), rotationOffset: new THREE.Quaternion(), scaleOffset: new THREE.Vector3(), gripLocal: new THREE.Vector3() } : undefined
   pivot.userData.swordMountedAttachment = mountedRotation
     ? socket.matrix.clone().invert().multiply(new THREE.Matrix4().compose(
       new THREE.Vector3(...frame.gripCenterLocal), new THREE.Quaternion(...mountedRotation), new THREE.Vector3(1, 1, 1),
@@ -140,7 +142,8 @@ export function applySwordAttachment(socket: THREE.Object3D, pivot: THREE.Object
 
 export function weaponGripWorld(model: THREE.Object3D, target: THREE.Vector3): THREE.Vector3 {
   const attachment = model.parent?.userData
-  if (attachment?.authoredAxeActive) return model.localToWorld(target.set(0, attachment.authoredAxeGripY, 0))
+  if (attachment?.authoredAxeActive) return model.localToWorld(attachment.authoredAxeRecovery?.active
+    ? target.copy(attachment.authoredAxeRecovery.gripLocal) : target.set(0, attachment.authoredAxeGripY, 0))
   return model.localToWorld(target.fromArray(model.userData.gripCenterLocal ?? [0, 0, 0]))
 }
 
@@ -170,6 +173,16 @@ const authoredAxe1ModelFrame = new THREE.Matrix4().makeRotationX(Math.PI / 2)
   .multiply(new THREE.Matrix4().makeTranslation(0, -.15, 0))
 const authoredAxeModelFrame = new THREE.Matrix4().makeRotationX(Math.PI / 2)
   .multiply(new THREE.Matrix4().makeTranslation(0, -.35, 0))
+const recoveryMatrix = new THREE.Matrix4(), recoveryInverse = new THREE.Matrix4()
+const recoverySourceAnchor = new THREE.Vector3(), recoveryTargetAnchor = new THREE.Vector3(), recoveryScale = new THREE.Vector3(), recoverySourceScale = new THREE.Vector3(), recoveryGrip = new THREE.Vector3()
+const recoveryRotation = new THREE.Quaternion(), recoverySourceRotation = new THREE.Quaternion(), recoveryOffset = new THREE.Quaternion(), recoveryIdentity = new THREE.Quaternion()
+
+/** Recovery is action-clock based, not inferred from the symmetric carry blend. */
+export function axeRecoveryWeight(action: string, elapsed: number, enabled = false): number {
+  if (!enabled || action !== 'axeAttack2H') return 0
+  const t = THREE.MathUtils.clamp((elapsed - .42) / .06, 0, 1)
+  return t * t * (3 - 2 * t)
+}
 
 
 /** Keep carry adjustments outside the source contact/support-hand interval. */
@@ -180,7 +193,7 @@ export function axeCarryWeight(action: string, elapsed: number): number {
   return 1 - smooth(elapsed / .08) + smooth((elapsed - .42) / .06)
 }
 
-function selectSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolean, carryWeight = mounted ? 1 : 0, twoHandedCarry = false, action = 'idle', footCarryWeight = action === 'idle' ? 1 : 0): void {
+function selectSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolean, carryWeight = mounted ? 1 : 0, twoHandedCarry = false, action = 'idle', footCarryWeight = action === 'idle' ? 1 : 0, authoredRecoveryWeight = 0): void {
   const axeVisual = pivot.userData.axeVisual as THREE.Object3D | undefined
   if (pivot.userData.swordAttachmentOwned && !axeVisual && pivot.userData.meleeAnimationKind === 'axe'
     && !mounted && action === 'axeAttack1H' && pivot.userData.banditFootAxeAttachment) {
@@ -261,6 +274,45 @@ function selectSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolean, c
     pivot.userData.authoredAxeGripY = action === 'axeAttack1H' ? .15 : .35
     pivot.userData.authoredAxeActive = true
     pivot.updateMatrix()
+    if (action === 'axeAttack2H' && authoredRecoveryWeight > 0) {
+      const recovery = pivot.userData.authoredAxeRecovery as { active: boolean; anchorOffset: THREE.Vector3; rotationOffset: THREE.Quaternion; scaleOffset: THREE.Vector3; gripLocal: THREE.Vector3 }
+      const model = axeVisual.parent!
+      axeVisual.updateMatrix()
+      recoveryMatrix.copy(pivot.matrix).multiply(model.matrix).multiply(axeVisual.matrix)
+      recoveryMatrix.decompose(recoverySourceAnchor, recoverySourceRotation, recoverySourceScale)
+      recoverySourceAnchor.set(0, .35, 0).applyMatrix4(model.matrix).applyMatrix4(pivot.matrix)
+      // Evaluate the real idle owner, including the selected Viking's roll.
+      selectSwordMountedAttachment(pivot, mounted, mounted ? 1 : 0, twoHandedCarry, 'idle', 1)
+      axeVisual.updateMatrix()
+      recoveryMatrix.copy(pivot.matrix).multiply(model.matrix).multiply(axeVisual.matrix)
+      recoveryMatrix.decompose(recoveryTargetAnchor, recoveryRotation, recoveryScale)
+      recoveryTargetAnchor.copy(pivot.userData.axeSocketGrip)
+      if (!recovery.active) {
+        recovery.anchorOffset.subVectors(recoverySourceAnchor, recoveryTargetAnchor)
+        recovery.scaleOffset.subVectors(recoverySourceScale, recoveryScale)
+        recovery.rotationOffset.copy(recoveryRotation).invert().premultiply(recoverySourceRotation).normalize()
+        if (recovery.rotationOffset.w < 0) recovery.rotationOffset.set(-recovery.rotationOffset.x, -recovery.rotationOffset.y, -recovery.rotationOffset.z, -recovery.rotationOffset.w)
+        recovery.active = true
+      }
+      // Decay one fixed offset, never a changing shortest arc. Rotate the whole
+      // attachment about its grasp while the right hand slides down the haft.
+      recoveryTargetAnchor.addScaledVector(recovery.anchorOffset, 1 - authoredRecoveryWeight)
+      recoveryScale.addScaledVector(recovery.scaleOffset, 1 - authoredRecoveryWeight)
+      recoveryOffset.copy(recovery.rotationOffset).slerp(recoveryIdentity, authoredRecoveryWeight)
+      recoveryRotation.premultiply(recoveryOffset).normalize()
+      axeVisual.quaternion.identity(); axeVisual.updateMatrix()
+      recovery.gripLocal.set(0, .35, 0).lerp(recoveryGrip.fromArray(model.userData.gripCenterLocal), authoredRecoveryWeight)
+      recoveryInverse.copy(axeVisual.matrix).invert()
+      axeGripOffset.copy(recovery.gripLocal).applyMatrix4(recoveryInverse).multiply(recoveryScale).applyQuaternion(recoveryRotation)
+      recoveryTargetAnchor.sub(axeGripOffset)
+      recoveryInverse.copy(model.matrix).multiply(axeVisual.matrix).invert()
+      recoveryMatrix.compose(recoveryTargetAnchor, recoveryRotation, recoveryScale).multiply(recoveryInverse)
+      recoveryMatrix.decompose(pivot.position, pivot.quaternion, pivot.scale)
+      pivot.userData.authoredAxeGripY = recovery.gripLocal.y
+      pivot.userData.authoredAxeActive = true
+      pivot.userData.swordMounted = undefined
+      pivot.updateMatrix()
+    }
     return
   }
   const restoreAuthored = pivot.userData.authoredAxeActive === true
@@ -296,7 +348,7 @@ const forwardAxeUp = new THREE.Vector3()
 /** Fitted carry changes only the axe's heading around its existing palm station.
  * Preserve the sampled pitch/roll and the original contact interval; the next
  * sample always starts from the uncorrected equipment attachment. */
-export function setSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolean, carryWeight = mounted ? 1 : 0, twoHandedCarry = false, action = 'idle', footCarryWeight = action === 'idle' ? 1 : 0): void {
+export function setSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolean, carryWeight = mounted ? 1 : 0, twoHandedCarry = false, action = 'idle', footCarryWeight = action === 'idle' ? 1 : 0, continuousCarry = false, authoredRecoveryWeight = 0): void {
   const visual = pivot.userData.axeVisual as THREE.Object3D | undefined
   const root = pivot.userData.forwardAxeCarryRoot as THREE.Object3D | undefined
   const baseline = pivot.userData.forwardAxeCarryBaseRotation as THREE.Quaternion | undefined
@@ -304,7 +356,9 @@ export function setSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolea
     visual.quaternion.copy(baseline)
     pivot.userData.forwardAxeCarryApplied = false
   }
-  selectSwordMountedAttachment(pivot, mounted, carryWeight, twoHandedCarry, action, footCarryWeight)
+  if (!continuousCarry || action !== 'axeAttack2H' || footCarryWeight <= 0) delete pivot.userData.continuousAxeCarryHeading
+  if (authoredRecoveryWeight <= 0 && pivot.userData.authoredAxeRecovery) pivot.userData.authoredAxeRecovery.active = false
+  selectSwordMountedAttachment(pivot, mounted, carryWeight, twoHandedCarry, action, footCarryWeight, authoredRecoveryWeight)
   if (!pivot.userData.swordAttachmentOwned || !visual?.parent || !root || !baseline || footCarryWeight <= 0) return
   baseline.copy(visual.quaternion)
   visual.updateWorldMatrix(true, false)
@@ -314,7 +368,15 @@ export function setSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolea
     .applyQuaternion(forwardAxeParentInverse.copy(forwardAxeRootRotation).invert())
   if (forwardAxeShaft.x * forwardAxeShaft.x + forwardAxeShaft.z * forwardAxeShaft.z < 1e-8) return
   forwardAxeUp.set(0, 1, 0).applyQuaternion(forwardAxeRootRotation)
-  forwardAxeYaw.setFromAxisAngle(forwardAxeUp, -Math.atan2(forwardAxeShaft.x, forwardAxeShaft.z) * footCarryWeight)
+  let heading = Math.atan2(forwardAxeShaft.x, forwardAxeShaft.z)
+  if (continuousCarry && action === 'axeAttack2H') {
+    const previous = pivot.userData.continuousAxeCarryHeading
+    // A weighted +/-pi wrap is a real rotation jump, unlike the full heading.
+    // Retain its nearest branch across both pre- and post-mixer attachment calls.
+    if (typeof previous === 'number') heading = previous + Math.atan2(Math.sin(heading - previous), Math.cos(heading - previous))
+    pivot.userData.continuousAxeCarryHeading = heading
+  }
+  forwardAxeYaw.setFromAxisAngle(forwardAxeUp, -heading * footCarryWeight)
   visual.parent!.getWorldQuaternion(forwardAxeParentInverse).invert()
   visual.quaternion.copy(forwardAxeParentInverse).multiply(forwardAxeYaw).multiply(forwardAxeWorldRotation).normalize()
   pivot.userData.forwardAxeCarryApplied = true

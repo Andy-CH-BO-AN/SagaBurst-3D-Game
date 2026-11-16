@@ -1,27 +1,42 @@
 name: Deploy production Pages
+# Called only by ci.yml after the single Full logic gate and Web job succeeded for
+# this exact main SHA. There is deliberately no push/dispatch trigger: a standalone
+# run would deploy without a verified Full gate.
 on:
-  push:
-    branches: [main]
+  workflow_call:
+    inputs:
+      logic-verified-sha:
+        type: string
+        required: true
 permissions:
   contents: read
-concurrency:
-  group: production-pages
-  cancel-in-progress: false
 jobs:
-  logic:
-    uses: ./.github/workflows/logic-tests.yml
-    with:
-      mode: full
-      head: ${{ github.sha }}
-      event: ${{ github.event_name }}
   build:
-    needs: logic
+    # Serialize build artifact upload + deploy across main pushes without cancelling
+    # in-flight runs; if a newer main push already advanced origin/main, this older
+    # run detects it before uploading/deploying and cleanly skips.
+    concurrency:
+      group: production-pages-build-${{ github.sha }}
+      cancel-in-progress: false
     permissions:
       contents: read
       pages: read
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      is-latest: ${{ steps.current-build.outputs.is-latest }}
+    env:
+      VERIFIED_SHA: ${{ inputs.logic-verified-sha }}
     steps:
+      - name: Require a successful Full gate for this exact SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERIFIED_SHA"
+          test "$VERIFIED_SHA" = "$GITHUB_SHA"
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = refs/heads/main
+          echo "Verified same-run Full gate for $GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -32,19 +47,53 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run smoke:web
       - uses: actions/configure-pages@v5
+      - name: Check latest main head before uploading Pages artifact
+        id: current-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          test -n "$latest"
+          if [ "$GITHUB_SHA" = "$latest" ]; then echo "is-latest=true" >> "$GITHUB_OUTPUT"; else echo "is-latest=false" >> "$GITHUB_OUTPUT"; echo "Skipping stale Pages artifact upload for $GITHUB_SHA (origin/main is $latest)" | tee -a "$GITHUB_STEP_SUMMARY"; fi
       - uses: actions/upload-pages-artifact@v4
+        if: steps.current-build.outputs.is-latest == 'true'
         with:
           path: dist
   deploy:
     needs: build
+    if: needs.build.outputs.is-latest == 'true'
+    # Serialize the head check + deploy together without cancelling in-flight runs;
+    # if a newer main push finished build first, this older run detects it and skips.
+    concurrency:
+      group: production-pages
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      VERIFIED_SHA: ${{ inputs.logic-verified-sha }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Require verified SHA and check latest main head
+        id: current
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERIFIED_SHA"
+          test "$VERIFIED_SHA" = "$GITHUB_SHA"
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = refs/heads/main
+          latest="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          test -n "$latest"
+          if [ "$GITHUB_SHA" = "$latest" ]; then echo "is-latest=true" >> "$GITHUB_OUTPUT"; else echo "is-latest=false" >> "$GITHUB_OUTPUT"; echo "Skipping stale Pages deploy for $GITHUB_SHA (origin/main is $latest)" | tee -a "$GITHUB_STEP_SUMMARY"; fi
       - name: Deploy
         id: deployment
+        if: steps.current.outputs.is-latest == 'true'
         uses: actions/deploy-pages@v4

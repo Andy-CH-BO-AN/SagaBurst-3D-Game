@@ -1,23 +1,14 @@
 import * as THREE from 'three'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import { FACTION_SHIELD_BANDS } from './FactionShieldGeometry'
 import type { Mount } from '../world/Mount'
+import { refreshWorldChains } from '../world/AnchoredWorldMatrix'
 
-export const SHIELD_CONFIG = {
-  axeImpactByTier: { 1: 2, 2: 4, 3: 8 },
-  mountedLanceImpactByTier: { 1: 10, 2: 20, 3: 40, 4: 60, 5: 80 },
-  xpPerBlockedImpact: 20,
-} as const
-export function weaponShieldImpact(id?: string, isMounted = false): number {
-  const weapon = WEAPONS[id ?? '']
-  if (weapon?.shieldImpact !== undefined) return weapon.shieldImpact
-  if (!weapon) return 1
-  if (weapon.animationKind === 'axe') return (SHIELD_CONFIG.axeImpactByTier as Readonly<Partial<Record<number, number>>>)[weapon.tier] ?? 1
-  if (isMounted && weapon.combatKind === 'lance') return (SHIELD_CONFIG.mountedLanceImpactByTier as Readonly<Partial<Record<number, number>>>)[weapon.tier] ?? 1
-  return 1
-}
+import { skillPercentEffect } from '../rpg/SkillManager'
+
+export { SHIELD_CONFIG, weaponShieldImpact } from './ShieldImpact'
 export function blockingReduction(level: number): number {
-  return Math.min(.5, Math.max(0, Number.isFinite(level) ? Math.floor(level) : 0) * .01)
+  return skillPercentEffect(level)
 }
 /** Battle-local state, deliberately excluded from inventory and Career saves. */
 export class ShieldState {
@@ -50,12 +41,17 @@ export class ShieldState {
     this.shieldImpactRemaining = this.id ? this.used.get(this.id) ?? this.shieldImpactMax : 0
     this.shieldRaised = false
   }
-  absorb(damage: number, impact: number, level = 0): { damage: number; blockedImpact: number } {
+  /**
+   * `level` is the defender's Blocking; `penetration` is the attacker's Armor Break
+   * fraction of the blocked share that still lands. Durability is consumed in full either way.
+   */
+  absorb(damage: number, impact: number, level = 0, penetration = 0): { damage: number; blockedImpact: number } {
     if (!this.active || !Number.isFinite(impact) || impact <= 0) return { damage, blockedImpact: 0 }
     const blockedImpact = Math.min(this.shieldImpactRemaining, impact)
     this.shieldImpactRemaining -= blockedImpact
     if (this.shieldBroken) this.shieldRaised = false
-    return { damage: damage * (impact - blockedImpact) / impact * (1 - blockingReduction(level)), blockedImpact }
+    const pierce = Math.min(1, Math.max(0, Number.isFinite(penetration) ? penetration : 0))
+    return { damage: damage * (impact - blockedImpact * (1 - pierce)) / impact * (1 - blockingReduction(level)), blockedImpact }
   }
 }
 
@@ -100,18 +96,62 @@ const PALADIN_BANDS = [
 ].map(([bottom, top, halfWidth]) => new THREE.Box3(
   new THREE.Vector3(-halfWidth, bottom, .13), new THREE.Vector3(halfWidth, top, .30)))
 
+// Original Laurelguard 1.20m silhouette, conservatively inset by >=1mm per slice.
+// Depth follows each curved slice; central rear cutoff excludes the runtime grip.
+// Bounds were measured offline, never from GLB triangles during combat.
+const COMMANDER_BANDS = [
+  [-0.590, -0.560, 0.004, -0.086, -0.021],
+  [-0.560, -0.520, 0.023, -0.090, -0.009],
+  [-0.520, -0.460, 0.048, -0.091, 0.005],
+  [-0.460, -0.400, 0.080, -0.088, 0.023],
+  [-0.400, -0.340, 0.109, -0.084, 0.053],
+  [-0.340, -0.280, 0.137, -0.078, 0.055],
+  [-0.280, -0.220, 0.163, -0.074, 0.064],
+  [-0.220, -0.160, 0.186, -0.073, 0.074],
+  [-0.160, -0.100, 0.207, -0.050, 0.085],
+  [-0.100, -0.040, 0.226, -0.050, 0.103],
+  [-0.040, 0.020, 0.243, -0.050, 0.109],
+  [0.020, 0.080, 0.252, -0.050, 0.148],
+  [0.080, 0.140, 0.261, -0.050, 0.157],
+  [0.140, 0.200, 0.270, -0.088, 0.154],
+  [0.200, 0.260, 0.278, -0.091, 0.107],
+  [0.260, 0.320, 0.284, -0.095, 0.106],
+  [0.320, 0.380, 0.283, -0.098, 0.088],
+  [0.380, 0.440, 0.277, -0.101, 0.075],
+  [0.440, 0.460, 0.275, -0.102, 0.060],
+  [0.460, 0.475, 0.200, -0.099, 0.056],
+  [0.475, 0.500, 0.133, -0.066, 0.059],
+  [0.500, 0.530, 0.081, -0.054, 0.056],
+  [0.530, 0.560, 0.039, -0.053, 0.038],
+  [0.560, 0.590, 0.008, -0.050, 0.023],
+].map(([bottom, top, halfWidth, back, front]) => new THREE.Box3(
+  new THREE.Vector3(-halfWidth, bottom, back), new THREE.Vector3(halfWidth, top, front)))
+
+const factionShieldBands = new Map(Object.entries(FACTION_SHIELD_BANDS).map(([id, slices]) => [id,
+  slices.map(([bottom, top, halfWidth, back, front]) => new THREE.Box3(
+    new THREE.Vector3(-halfWidth, bottom, back), new THREE.Vector3(halfWidth, top, front))),
+]))
+
 /** OBB in shield model space. Never reads triangles or traverses meshes. */
 export class ShieldCollider {
   private readonly inverse = new THREE.Matrix4()
   private readonly a = new THREE.Vector3()
   private readonly b = new THREE.Vector3()
   private readonly box = new THREE.Box3()
-  private paladin = false
+  private bands: readonly THREE.Box3[] | undefined
   constructor(private readonly pivot: THREE.Object3D, private readonly state: ShieldState,
     private readonly visibilityAllowed: () => boolean = () => true) {}
   setModel(id: string | null): void {
-    this.paladin = id === 'paladin_shield_t4'
-    if (this.paladin) this.box.set(this.a.set(-.334, -.55, .123), this.b.set(.334, .55, .301))
+    const factionBands = factionShieldBands.get(id ?? '')
+    if (factionBands) {
+      this.bands = factionBands
+      this.box.makeEmpty()
+      for (const band of factionBands) this.box.union(band)
+      return
+    }
+    this.bands = id === 'commander_shield_t5' ? COMMANDER_BANDS : id === 'paladin_shield_t4' ? PALADIN_BANDS : undefined
+    if (id === 'commander_shield_t5') this.box.set(this.a.set(-.288, -.6, -.102), this.b.set(.288, .6, .157))
+    else if (id === 'paladin_shield_t4') this.box.set(this.a.set(-.334, -.55, .123), this.b.set(.334, .55, .301))
     else if (id?.startsWith('scutum')) this.box.set(this.a.set(-.31, -.51, -.01), this.b.set(.31, .51, .25))
     else this.box.set(this.a.set(-.43, -.43, .12), this.b.set(.43, .43, .28))
   }
@@ -129,9 +169,9 @@ export class ShieldCollider {
     if (!this.state.active || !this.visibilityAllowed()) return Infinity
     this.a.copy(from).applyMatrix4(this.inverse); this.b.copy(to).applyMatrix4(this.inverse)
     const broad = segmentBoxTime(this.a, this.b, this.box)
-    if (!this.paladin || !Number.isFinite(broad)) return broad
+    if (!this.bands || !Number.isFinite(broad)) return broad
     let contact = Infinity
-    for (const band of PALADIN_BANDS) contact = Math.min(contact, segmentBoxTime(this.a, this.b, band))
+    for (const band of this.bands) contact = Math.min(contact, segmentBoxTime(this.a, this.b, band))
     return contact
   }
   refreshVisibility(): void { this.pivot.visible = this.visibilityAllowed() && !this.state.shieldBroken }
@@ -149,7 +189,7 @@ export interface PhysicalCombatTarget {
   currentMount?: Mount | null
   mountCollider?: LocalBoxCollider
 }
-export interface CombatContact { kind: 'shield' | 'body' | 'mount'; time: number; mount?: Mount; target?: PhysicalCombatTarget; attackSource?: 'xongkoro' }
+export interface CombatContact { kind: 'shield' | 'body' | 'mount'; time: number; mount?: Mount; target?: PhysicalCombatTarget; attackSource?: 'xongkoro' | 'unarmed' }
 const bodyBox = new THREE.Box3()
 const bodyInverse = new THREE.Matrix4()
 const bodyFrom = new THREE.Vector3()
@@ -160,7 +200,9 @@ let limbCount = 0
 let preparedMount: Mount | null = null
 function prepareTarget(target: PhysicalCombatTarget): void {
   limbCount = Math.min(limbCenters.length, target.bodyHitNodes?.length ?? 0)
-  for (let i = 0; i < limbCount; i++) target.bodyHitNodes![i].getWorldPosition(limbCenters[i])
+  // Same matrices as one getWorldPosition per limb; the limbs' shared ancestors are refreshed once.
+  if (limbCount > 0) refreshWorldChains(target.bodyHitNodes!, limbCount)
+  for (let i = 0; i < limbCount; i++) limbCenters[i].setFromMatrixPosition(target.bodyHitNodes![i].matrixWorld)
   target.shieldCollider?.prepare()
   preparedMount = target.mountCollider ? target as Mount
     : target.isMounted ? target.mount ?? target.currentMount ?? null : null

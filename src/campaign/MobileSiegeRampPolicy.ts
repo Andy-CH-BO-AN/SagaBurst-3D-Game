@@ -2,7 +2,7 @@ import { INFANTRY_MOVE_SPEED } from '../movement/MovementBalance'
 import * as THREE from 'three'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import { AIType } from '../world/NPC'
-import { getTerrainHeight, TERRAIN_MIN_HEIGHT, type EntityCollisionBody, type WalkRampSurface } from '../world/Terrain'
+import { getTerrainHeight, TERRAIN_MIN_HEIGHT, type EntityCollisionBody, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
 import { getDefenseCampaignStagingZ, type DefenseCampaignLaunchConfig } from './DefenseCampaignLaunch'
 import { isOutpostWalkwayEnabled, type OutpostWalkwayLayout, type OutpostWalkwaySide } from './CampaignOutpostWalkways'
 
@@ -107,6 +107,18 @@ export function siegeRampUnderfillBounds(out: THREE.Box3, deck: THREE.Box3, surf
   return out
 }
 
+/** One ground-only navigation record covers the complete chassis, including its
+ * side braces and front overhang. Actual body/projectile collision stays with
+ * the original parts; layered routes separately admit the upper walk lane. */
+export function updateSiegeRampGroundObstacle(obstacle: ObstacleData, parts: readonly ObstacleData[]): void {
+  obstacle.box.makeEmpty()
+  for (const part of parts) obstacle.box.union(part.box)
+  obstacle.navigationPassable = false
+  obstacle.physicalPassable = true
+  obstacle.projectilePassable = true
+  obstacle.dynamic = true
+}
+
 /** The moving shell must not enclose a body wholly inside its hollow-looking
  * panels. Test the swept solid below the actual walking plane in O(1). */
 export function intersectsSiegeRampUnderfill(body: EntityCollisionBody, surface: WalkRampSurface, travel: number): boolean {
@@ -124,7 +136,9 @@ export function intersectsSiegeRampUnderfill(body: EntityCollisionBody, surface:
 }
 
 export function isMobileSiegeRampEnabled(config: DefenseCampaignLaunchConfig | undefined): boolean {
-  return isOutpostWalkwayEnabled(config, false)
+  if (!isOutpostWalkwayEnabled(config, false)) return false
+  // Relief enters through an already-breached gate without siege ramp attackers or dock cuts.
+  return !config?.careerReliefPhase && config?.careerMissionKind !== 'outpost-relief'
 }
 
 export function isSiegeRampCrewCandidate(spec: NpcSpawnSpec, attackerFaction?: NpcSpawnSpec['characterFaction']): boolean {

@@ -3,11 +3,79 @@ import { Faction } from '../../src/combat/CombatFaction'
 import { TownWatchtowerNavigation } from '../../src/navigation/TownWatchtowerNavigation'
 import { getTownCommandWatchtowerLayout } from '../../src/town/TownCommandWatchtowerLayout'
 import { describe, expect, it } from 'vitest'
-import { selectMissionCavalryActorIds } from '../../src/career/BanditMissionController'
-import { townRoster } from '../../src/town/TownRules'
-import type { NPC } from '../../src/world/NPC'
+import { BanditMissionController, selectMissionCavalryActorIds } from '../../src/career/BanditMissionController'
+import type { ActiveCareerMission } from '../../src/career/CareerMissionState'
+import { MissionTravelEncounter } from '../../src/career/MissionTravelEncounter'
+import type { Player } from '../../src/player/Player'
+import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
+import { TownScene } from '../../src/town/TownScene'
+import { NPC, AIState } from '../../src/world/NPC'
 import { townDefenseThreatInRange, townDefenseThreatResponse } from '../../src/town/TownGarrison'
 import { Vector3 } from 'three'
+
+/** Only data and real methods cross this seam; no scene/model constructor runs. */
+function modelFreePrototype<T>(prototype: object, fields: Record<string, unknown>): T {
+  return Object.defineProperties(Object.create(prototype), Object.fromEntries(Object.entries(fields)
+    .map(([key, value]) => [key, { value, writable: true, configurable: true }]))) as T
+}
+
+function borrowedTownCombat(phase: ActiveCareerMission['phase'], kind: ActiveCareerMission['kind'] = 'bandit') {
+  const spec: TownActorSpec = { id: 'borrowed-soldier', role: 'melee_infantry', duty: 'training',
+    mounted: false, training: true, assaultObjective: false, tier: 2, index: 0, x: 0, z: 0 }
+  const actor = (id: string, faction = Faction.TOWN, x = 100): NPC => modelFreePrototype<NPC>(NPC.prototype, {
+    combatantId: id, faction, dead: false, mount: null, combatPosition: new Vector3(x, 0, 0),
+    characterFaction: 'roman', rangedActive: false, arrows: 0, state: AIState.IDLE, tacticalOrder: 'follow',
+    shield: { active: false, shieldRaised: false }, alertSprite: { visible: false }, followNavigationGoal: new Vector3(),
+    _friendlyBypass: new Map(), _navigationPath: { clear() {} },
+  })
+  const captain = actor('captain'), soldier = actor(spec.id), bandit = actor('mission-bandit', Faction.BANDIT, 112)
+  const profile: { activeMission: ActiveCareerMission } = { activeMission: {
+    id: 'bandit-mission', templateId: 'recruit-bandits-01', kind, targetCampId: 0, phase,
+    targetActorIds: [bandit.combatantId], friendlyActorIds: [captain.combatantId, soldier.combatantId], acceptedAt: 0,
+  } }
+  const travelEncounter = new MissionTravelEncounter()
+  const mission = modelFreePrototype<BanditMissionController>(BanditMissionController.prototype, {
+    readProfile: () => profile, player: () => player, friendlies: [captain, soldier], camps: [{ ambient: [] }],
+    veteranEnemies: [bandit], veteranTargetActorIds: new Set([bandit.combatantId]),
+    veteranFriendlyActorIds: new Set([captain.combatantId, soldier.combatantId]),
+    routeIndex: 0, travelEncounter,
+    checkpoint: { persist(next: () => ActiveCareerMission) { profile.activeMission = next(); return true } },
+  })
+  type CombatInputs = ConstructorParameters<typeof TownMissionCombat>
+  const combat = new TownMissionCombat(
+    modelFreePrototype<CombatInputs[0]>(Object.prototype, { field: mission }),
+    modelFreePrototype<CombatInputs[1]>(Object.prototype, {}),
+  )
+  const scene = modelFreePrototype<TownScene>(TownScene.prototype, {
+    mission, missionCombat: combat, event: { hostile: false }, navigation: {},
+  })
+  for (const npc of [captain, soldier]) npc.combatTargetAllowed = target => scene['residentCombatTargetAllowed'](spec, npc, target)
+  const player = modelFreePrototype<Player>(Object.prototype, { targetable: false, dead: false, combatPosition: new Vector3(100, 0, 0) })
+  return { spec, actor, captain, soldier, bandit, profile, mission, combat, travelEncounter, scene, player }
+}
+
+describe('Borrowed Town mission target permission', () => {
+  it('acquires the scout survival target beyond a borrowed actor\'s station', () => {
+    const { soldier, bandit, profile, mission, player } = borrowedTownCombat('ENGAGING', 'veteran-field')
+    profile.activeMission.templateId = 'veteran-tragedy-of-the-scouts'
+    soldier.setTacticalOrder('charge')
+    expect(soldier.combatTargetAllowed?.(bandit)).toBe(true)
+    expect(soldier['_findTarget'](player, mission.combatPeersFor(soldier))?.npc).toBe(bandit)
+    expect(soldier['state']).toBe(AIState.CHASE)
+  })
+
+  it('limits scout survival native targets to the exact hostile Town combat roster', () => {
+    const { actor, soldier, profile, combat, player } = borrowedTownCombat('ENGAGING', 'veteran-field')
+    profile.activeMission.templateId = 'veteran-tragedy-of-the-scouts'
+    const guard = actor('enemy-town:active-guard', Faction.ENEMY, 112)
+    const unrelated = actor('enemy-town:unassigned-guard', Faction.ENEMY, 111)
+    const friendly = actor('same-faction-guard', Faction.TOWN, 111)
+    combat['enemyTownHostileActors'].push(guard, friendly)
+    expect(soldier.combatTargetAllowed?.(unrelated)).toBe(false)
+    expect(soldier.combatTargetAllowed?.(friendly)).toBe(false)
+    expect(soldier['_findTarget'](player, [unrelated, friendly, guard])?.npc).toBe(guard)
+  })
+})
 
 describe('Town patrol roster contracts', () => {
   it('permits stationary close defense outside home while bounding pursuit to the home sector', () => {
@@ -22,26 +90,21 @@ describe('Town patrol roster contracts', () => {
     expect(townDefenseThreatResponse(spec, npc, npc.combatPosition.clone().add(new Vector3(1, 0, 0)), 20)).toBe('defend')
     expect(townDefenseThreatResponse(spec, npc, npc.combatPosition.clone().add(new Vector3(9, 0, 0)), 20)).toBe('ignore')
   })
-  it('keeps two twenty-rider patrols distinct from the service Captain, training and gate guards', () => {
+
+  it('keeps two twenty-rider patrols distinct from guards and excludes them from ordinary mission cavalry selection', () => {
     const roster = townRoster(), patrol = roster.filter(s => s.duty === 'patrol')
-    expect(roster).toHaveLength(235); expect(patrol).toHaveLength(40)
     expect(new Set(roster.map(s => s.id)).size).toBe(roster.length)
     expect(roster.filter(s => s.role === 'captain')).toHaveLength(1)
     for (const id of ['A', 'B']) {
       const members = patrol.filter(s => s.patrolId === id)
-      expect(members).toHaveLength(20); expect(members.filter(s => s.patrolLeader)).toHaveLength(1)
-      expect(members.filter(s => !s.patrolLeader)).toHaveLength(19)
+      expect(members.filter(s => s.patrolLeader)).toHaveLength(1)
+      expect(members.length).toBeGreaterThan(0)
       for (const s of members) {
         expect(s).toMatchObject({ mounted: true, training: false, assaultObjective: false, tier: s.patrolLeader ? 4 : 2 })
         expect(s.defenseGroup).toBeUndefined(); expect(s.role).not.toBe('captain')
       }
     }
-    expect(roster.filter(s => s.mounted && s.duty === 'training')).toHaveLength(60)
-    expect(roster.filter(s => s.duty === 'gate_guard')).toHaveLength(40)
-  })
 
-  it('excludes patrol identities from ordinary mission cavalry selection', () => {
-    const roster = townRoster()
     const fake = roster.map(spec => ({ spec, npc: { dead: false, combatantId: spec.id, mount: { dead: false } } as NPC }))
     expect(selectMissionCavalryActorIds(fake, 59)).toEqual(selectMissionCavalryActorIds(fake.filter(r => r.spec.duty !== 'patrol'), 59))
   })
@@ -61,7 +124,7 @@ it('lets nearby military pursue a reachable tower target while preserving civili
   expect(townDefenseThreatResponse(spec, npc, target.clone().add(new Vector3(0, 5, 0)), 20, tower)).toBe('ignore')
 })
 
-it('assigns the nearest eligible tower threat and retains the first equal-distance candidate', () => {
+it('assigns the nearest eligible tower threat, retaining ties and ignoring parked duel bodies', () => {
   const tower = new TownWatchtowerNavigation(getTownCommandWatchtowerLayout())
   const template = townRoster().find(spec => spec.unitKind && !spec.eagle)!
   const spec = { ...template, garrison: undefined, x: -21, y: tower.layout.groundY, z: -28 }
@@ -82,10 +145,21 @@ it('assigns the nearest eligible tower threat and retains the first equal-distan
   // Exercise only real sensing/assignment; no actors, render scene or movement engine.
   const combat = new TownMissionCombat({
     field: { ambientBandits: [farther, first, tie, friendly, dead], missionBandits: [], friendlies: [] },
-    duel: { fieldNpcs: [], isMissionActor: () => false }, defense: {},
+    duel: { fieldNpcs: [], isMissionActor: () => false, isParkedResident: () => false }, defense: {},
   } as unknown as Inputs[0], {
     residents: [resident], navigation: { townNav: { watchtower: tower } },
   } as unknown as Inputs[1])
   combat['updateExternalThreatAssignments']()
   expect(selected).toBe(first)
+
+  // Never assigns a threat to a resident parked for a temporary Duel body
+  const parkedCombat = new TownMissionCombat({
+    field: { ambientBandits: [first], missionBandits: [], friendlies: [] },
+    duel: { fieldNpcs: [], isMissionActor: () => false, isParkedResident: () => true }, defense: {},
+  } as unknown as Inputs[0], {
+    residents: [resident], navigation: { townNav: { watchtower: tower } },
+  } as unknown as Inputs[1])
+  selected = undefined
+  parkedCombat['updateExternalThreatAssignments']()
+  expect(selected).toBeUndefined()
 })

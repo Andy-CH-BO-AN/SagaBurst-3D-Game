@@ -6,7 +6,7 @@ import type { CharacterRig } from './CharacterVisuals'
  * outside the LOD groups and follow the evaluated primary hand, without writing
  * to any skeletal transform or changing the authored socket/weapon contract.
  */
-export function createEquipmentSocketProxies(root: THREE.Object3D, rig: CharacterRig, rightHandCorrection?: () => THREE.Matrix4 | undefined): () => void {
+export function createEquipmentSocketProxies(root: THREE.Object3D, rig: CharacterRig, rightHandCorrection?: () => THREE.Matrix4 | undefined, leftHandCorrection?: () => THREE.Matrix4 | undefined): (handChainsCurrent?: boolean) => void {
   const followers = [rig.left, rig.right].map((arm, index) => {
     const source = arm.handSocket
     const parent = new THREE.Group()
@@ -21,13 +21,14 @@ export function createEquipmentSocketProxies(root: THREE.Object3D, rig: Characte
     return { source, parent, socket, right: index === 1 }
   })
   const inverseRoot = new THREE.Matrix4()
-  return () => {
+  /** `handChainsCurrent`: the caller has just refreshed every source hand's ancestor chain. */
+  return (handChainsCurrent = false) => {
     root.updateWorldMatrix(true, false)
     inverseRoot.copy(root.matrixWorld).invert()
     for (const { source, parent, socket, right } of followers) {
-      source.parent!.updateWorldMatrix(true, false)
+      if (!handChainsCurrent) source.parent!.updateWorldMatrix(true, false)
       parent.matrix.multiplyMatrices(inverseRoot, source.parent!.matrixWorld)
-      const correction = right ? rightHandCorrection?.() : undefined
+      const correction = right ? rightHandCorrection?.() : leftHandCorrection?.()
       if (correction) parent.matrix.multiply(correction)
       parent.matrixWorldNeedsUpdate = true
       socket.position.copy(source.position)

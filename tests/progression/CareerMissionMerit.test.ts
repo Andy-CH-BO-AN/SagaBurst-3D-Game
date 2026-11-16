@@ -1,8 +1,9 @@
-import { describe,expect,it } from 'vitest'
-import { calculateRecruitMissionMerit } from '../../src/career/CareerMissionMeritPolicy'
-import { createActiveCareerMission } from '../../src/career/CareerMissionState'
+import { createCavalrySweepMission } from '../../src/career/CavalrySweep'
+import { describe, expect, it } from 'vitest'
+import { calculateRecruitMissionMerit, RECRUIT_MISSION_MERIT_RULES } from '../../src/career/CareerMissionMeritPolicy'
+
 import { claimCareerOutpost } from '../../src/career/CareerOutpostMission'
-import { claimCareerMission,createCareerProfile } from '../../src/career/CareerProfile'
+import { claimCareerMission, createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { calculateMerit } from '../../src/career/MeritCalculator'
 import type { PlayerBattleStats } from '../../src/combat/BattleStatsTracker'
@@ -13,14 +14,17 @@ function stats(damageDealt: number, survived = false): PlayerBattleStats {
 }
 
 describe('mission merit ownership', () => {
-  it.each([[19, 0], [20, 1]] as const)('awards %s effective damage as %s merit at the shared mission threshold', (damage, expected) => {
-    expect(calculateMerit({ player: stats(damage), squads: [] }, 'defeat', 'defense', 'mission').characterDamage).toBe(expected)
+  it('awards effective damage as merit at the shared mission threshold', () => {
+    const threshold = RECRUIT_MISSION_MERIT_RULES.damagePerPoint
+    expect(calculateMerit({ player: stats(threshold - 1), squads: [] }, 'defeat', 'defense', 'mission').characterDamage).toBe(0)
+    expect(calculateMerit({ player: stats(threshold), squads: [] }, 'defeat', 'defense', 'mission').characterDamage).toBe(1)
   })
 
-  it('saves an enemy-town offense reward once and rejects a second claim after reload', () => {
+  it('saves a current cavalry offense reward once and rejects a second claim after reload', () => {
     const profile = createCareerProfile('roman')
-    profile.activeMission = { ...createActiveCareerMission('assault-merit', 0, 1, 0, 'assault-merit'), kind: 'enemy-town-assault' }
+    profile.activeMission = createCavalrySweepMission('assault-merit')
     const result = claimCareerMission(profile, 'assault-merit', 'victory', { ...stats(40), structureDamage: 40 })
+    expect(result.profile.tutorial?.settledMissionIds).toEqual(['assault-merit'])
     expect(result.profile.activeMission?.result?.merit).toEqual({ damage: 4, kills: 0, contribution: 80, total: 84 })
     const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(result.profile)).toBe(true)
@@ -33,8 +37,11 @@ describe('mission merit ownership', () => {
     const battle = { player: stats(40), squads: [] }
     const claim = claimCareerOutpost(profile, 'outpost-merit', 'victory', battle)
     expect(claim.meritBreakdown).toMatchObject({ characterDamage: 2, victory: 80, survival: 0, total: 82 })
+    expect(claim.profile.tutorial?.settledMissionIds).toEqual(['outpost-merit'])
     expect(claim.profile.lifetimeStats).toMatchObject({ battles: 1, victories: 1, deaths: 1 })
-    expect(claimCareerOutpost(claim.profile, 'outpost-merit', 'victory', battle).alreadyClaimed).toBe(true)
+    const duplicate = claimCareerOutpost(claim.profile, 'outpost-merit', 'victory', battle)
+    expect(duplicate.alreadyClaimed).toBe(true)
+    expect(duplicate.profile.tutorial?.settledMissionIds).toEqual(['outpost-merit'])
   })
 
   it('preserves recruit victory contribution after death while an uninvolved spectator earns none', () => {

@@ -9,7 +9,7 @@
     "sourceEntry": "Viking/Viking_Infantry_LOD0_GripAndWeaponAdjusted_DERIVED_11Clips.glb",
     "sourceSha256": "a66917fffe0b2ab9b682e14675993ddf0f184420a585e9951e629d35a40b8c0c",
     "license": "User-supplied Meshy model and derived animation; mixed animation-source licenses retained in source-readme.txt",
-    "licenseEvidence": "source-readme.txt"
+    "licenseEvidence": "attribution-evidence.json"
   },
   "attribution": "Ordinary Viking Infantry: user-provided Meshy model/derivative. Core animations: Kevin Iglesias (Unity Asset Store EULA), Quaternius (CC0); axe attacks: user-provided Meshy source. See source-readme.txt.",
   "selectedSource": {
@@ -153,14 +153,16 @@
         "source": "Meshy",
         "sourceClip": "axeAttack2H",
         "loop": false,
-        "duration": 2.8333333333333335,
+        "duration": 0.48,
         "meleeCycleSeconds": 0.48,
         "events": {
-          "activeStart": 1.025,
-          "hit": 1.0583333333333333,
-          "activeEnd": 1.125,
-          "actionComplete": 2.8333333333333335
-        }
+          "activeStart": 0.1375,
+          "hit": 0.2375,
+          "activeEnd": 0.2625,
+          "actionComplete": 0.48
+        },
+        "attackFadeInSeconds": 0.1,
+        "attackTransition": "inertial"
       },
       {
         "clip": "axeAttack1HFoot",
@@ -192,9 +194,9 @@
     ]
   },
   "fileSha256": {
-    "lod0": "564339b0624da0dd3eea6ce02fc666870848e978a71b77d756f05e9d640f7f43",
-    "lod1": "a86d1d2466b9a1a394a1a94efd06af1db8629a346eb9214fb6f13a319c993ea2",
-    "lod2": "91ee4e1eb1fc53b8ef01e0bc4052e059a67198a2a97c91a9970a540436b1e0b8"
+    "lod0": "a3d3754a397cbd521a27302947c664f6aac72d5da68241d8576dd5b49755f11a",
+    "lod1": "54663a1845fc97884301128d665e33a19d4f87c62f702467f7f26c75cc16e308",
+    "lod2": "3147cdbaf90455ff3c9151b0f25e7bd0a8f4eba5d7974f3250deca2d49d8a173"
   },
   "visualAcceptance": "Runtime visual integration pending; structural LOD generation is not gameplay acceptance.",
   "knownLimitations": [
@@ -462,5 +464,42 @@
     },
     "retarget": "Anatomical limb axes and thumb/finger grasp; target idle pelvis and legs; original 1H event clock retained",
     "rebuild": "node tools/retarget-bandit-foot-axe.mjs"
-  }
+  },
+  "axeAttack2HTrim": {
+    "version": 1,
+    "recipe": "tools/assets/axe-2h-trim.json",
+    "recipeSha256": "c54544b76dd7984bbd450f94b77054c2545f9e557a52665c70f918a5fa9f9356",
+    "sourceDuration": 2.8333333333333335,
+    "sourceRange": [
+      0.9666666666666667,
+      1.2
+    ],
+    "sourceEvents": {
+      "activeStart": 1.025,
+      "hit": 1.0583333333333333,
+      "activeEnd": 1.125,
+      "actionComplete": 2.8333333333333335
+    },
+    "inputSha256": {
+      "lod0.glb": "564339b0624da0dd3eea6ce02fc666870848e978a71b77d756f05e9d640f7f43",
+      "lod1.glb": "a86d1d2466b9a1a394a1a94efd06af1db8629a346eb9214fb6f13a319c993ea2",
+      "lod2.glb": "91ee4e1eb1fc53b8ef01e0bc4052e059a67198a2a97c91a9970a540436b1e0b8"
+    },
+    "duration": 0.48,
+    "events": {
+      "activeStart": 0.1375,
+      "hit": 0.2375,
+      "activeEnd": 0.2625,
+      "actionComplete": 0.48
+    },
+    "attackFadeInSeconds": 0.1,
+    "attackTransition": "inertial",
+    "knownLimitations": [
+      "The pre-existing authored attachment switch at attack entry remains numerically unchanged from origin/dev. Completion now recovers continuously to the carry attachment; browser appearance, contact and self/mount clearance still require actual playback acceptance."
+    ],
+    "preservation": "Only axeAttack2H channels and their referenced samples are replaced. Geometry, skin, textures, other animation payloads and runtime attack cycles are unchanged.",
+    "validation": "Animation/asset and production-controller trajectory checks; live browser gameplay, visual contact/clearance and mounted aesthetic acceptance remain unverified."
+  },
+  "boneMap": "bone-map.json",
+  "audit": "lod-publication-audit.json"
 }

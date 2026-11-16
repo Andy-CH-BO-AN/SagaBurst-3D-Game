@@ -254,7 +254,7 @@ export class CampaignSetupUI {
       const mountedUnit = Boolean(preset.tierLoadouts[2].mountId || preset.tierLoadouts[3].mountId)
       const heroName = HERO_ASSETS[T4_UNIT_PROFILES[preset.id].visualAssetId].nameZh
 
-      const renderTierControl = (tier: UnitTier): string => {
+      const renderTierControl = (tier: 1 | 2 | 3 | 4): string => {
         const value = counts[tier] ?? 0
         const tierCap = tier === 4 ? CAMPAIGN_DEFENDER_HERO_CAP : stage.defenderDeployment.tierCapacity[tier]
         const incrementDisabled = value >= this._maxAllowedTierCount(preset.id, tier)
@@ -372,6 +372,12 @@ export class CampaignSetupUI {
             <span>坐騎</span>
             <select id="campaign-player-mount">
               <option value="black-cat" ${loadout.mountId === 'black-cat' ? 'selected' : ''}>黑貓</option>
+              <option value="white-cat" ${loadout.mountId === 'white-cat' ? 'selected' : ''}>白貓</option>
+              <option value="orange-cat" ${loadout.mountId === 'orange-cat' ? 'selected' : ''}>橘貓</option>
+              <option value="serval" ${loadout.mountId === 'serval' ? 'selected' : ''}>藪貓</option>
+              <option value="caracal" ${loadout.mountId === 'caracal' ? 'selected' : ''}>獰貓</option>
+              <option value="armored-horse" ${loadout.mountId === 'armored-horse' ? 'selected' : ''}>重甲戰馬</option>
+              <option value="snow-leopard" ${loadout.mountId === 'snow-leopard' ? 'selected' : ''}>重甲雪豹</option>
               <option value="corgi" ${loadout.mountId === 'corgi' ? 'selected' : ''}>柯基</option>
               <option value="xongkoro" ${loadout.mountId === 'xongkoro' ? 'selected' : ''}>xongkoro 巨鷹</option>
               <option value="horse" ${!loadout.mountId || loadout.mountId === 'horse' ? 'selected' : ''}>馬</option>
@@ -394,7 +400,7 @@ export class CampaignSetupUI {
       button.addEventListener('click', () => {
         this._adjust(
           button.dataset.inc as UnitPresetId,
-          Number(button.dataset.tier) as UnitTier,
+          Number(button.dataset.tier) as 1 | 2 | 3 | 4,
           1,
         )
       })
@@ -403,7 +409,7 @@ export class CampaignSetupUI {
       button.addEventListener('click', () => {
         this._adjust(
           button.dataset.dec as UnitPresetId,
-          Number(button.dataset.tier) as UnitTier,
+          Number(button.dataset.tier) as 1 | 2 | 3 | 4,
           -1,
         )
       })
@@ -413,7 +419,7 @@ export class CampaignSetupUI {
         const parsed = Number.parseInt(input.value, 10)
         this._setTierCount(
           input.dataset.count as UnitPresetId,
-          Number(input.dataset.tier) as UnitTier,
+          Number(input.dataset.tier) as 1 | 2 | 3 | 4,
           Number.isFinite(parsed) ? parsed : 0,
         )
       })
@@ -625,7 +631,7 @@ export class CampaignSetupUI {
         const parsed = Number.parseInt(input.value, 10)
         this._setSquadAssignmentCount(
           input.dataset.squadCount as UnitPresetId,
-          Number(input.dataset.tier) as UnitTier,
+          Number(input.dataset.tier) as 1 | 2 | 3 | 4,
           Number.isFinite(parsed) ? parsed : 0,
         )
       })
@@ -744,7 +750,7 @@ export class CampaignSetupUI {
     return clone
   }
 
-  private _setTierCount(presetId: UnitPresetId, tier: UnitTier, value: number): void {
+  private _setTierCount(presetId: UnitPresetId, tier: 1 | 2 | 3 | 4, value: number): void {
     const counts = this.defenderArmy[presetId] ?? { 1: 0, 2: 0, 3: 0 }
     const maxAllowed = this._maxAllowedTierCount(presetId, tier)
 
@@ -755,7 +761,7 @@ export class CampaignSetupUI {
     this._render()
   }
 
-  private _maxAllowedTierCount(presetId: UnitPresetId, tier: UnitTier): number {
+  private _maxAllowedTierCount(presetId: UnitPresetId, tier: 1 | 2 | 3 | 4): number {
     const stage = getDefenseCampaignStage(this.stageId)
     const rules = stage.defenderDeployment
     const counts = this.defenderArmy[presetId] ?? { 1: 0, 2: 0, 3: 0 }
@@ -803,7 +809,7 @@ export class CampaignSetupUI {
     return 0
   }
 
-  private _adjust(presetId: UnitPresetId, tier: UnitTier, delta: number): void {
+  private _adjust(presetId: UnitPresetId, tier: 1 | 2 | 3 | 4, delta: number): void {
     const current = this.defenderArmy[presetId]?.[tier] ?? 0
     this._setTierCount(presetId, tier, current + delta)
   }

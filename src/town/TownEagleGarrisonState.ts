@@ -21,7 +21,7 @@ export interface TownEagleGarrisonState { version: 1; sceneKey: string; layoutVe
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const position = (value: unknown): value is Position => !!value && typeof value === 'object'
   && ['x', 'y', 'z', 'yaw'].every(key => finite((value as Record<string, unknown>)[key]))
-/** Bounded strict optional extension: malformed state never changes legacy mission rosters. */
+/** Bounded strict optional extension: malformed state never changes accepted mission rosters. */
 export function parseTownEagleGarrisonState(value: unknown): TownEagleGarrisonState | undefined {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Partial<TownEagleGarrisonState>
@@ -63,12 +63,11 @@ export function parseTownEagleGarrisonState(value: unknown): TownEagleGarrisonSt
 }
 
 export type TownEagleGarrisons = Partial<Record<'roman' | 'viking', TownEagleGarrisonState>>
-export function parseTownEagleGarrisons(value: unknown, legacy?: unknown): TownEagleGarrisons | undefined {
+export function parseTownEagleGarrisons(value: unknown): TownEagleGarrisons | undefined {
   const result: TownEagleGarrisons = {}
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
-  const old = parseTownEagleGarrisonState(legacy)
   for (const faction of ['roman', 'viking'] as const) {
-    const state = parseTownEagleGarrisonState(raw[faction]) ?? (old?.sceneKey === `town:${faction}` ? old : undefined)
+    const state = parseTownEagleGarrisonState(raw[faction])
     if (state?.sceneKey === `town:${faction}`) result[faction] = state
   }
   return Object.keys(result).length ? result : undefined

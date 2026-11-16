@@ -88,6 +88,8 @@ export interface OutpostWalkwayStair {
 }
 
 export interface OutpostWalkwayLayout {
+  /** Full authored enclosure; side/rear pursuit cannot be classified by front Z alone. */
+  perimeter?: { minX: number; maxX: number; minZ: number; maxZ: number }
   /** +1 when the interior lies toward +Z of the front wall, otherwise -1. */
   zSign: 1 | -1
   decks: OutpostWalkwayDeck[]
@@ -348,22 +350,26 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
     frontCrenelSpans: crenelSpans.map(([minX, maxX]) => ({ minX, maxX })),
   }
 
-  return { zSign, decks, stairs, bridge }
+  return { zSign, decks, stairs, bridge, perimeter: {
+    minX: placement.centerX - placement.halfWidth, maxX: placement.centerX + placement.halfWidth,
+    minZ: Math.min(placement.frontZ, placement.backZ), maxZ: Math.max(placement.frontZ, placement.backZ),
+  } }
 }
 
 export type OutpostWalkwayLaunchFields = Pick<DefenseCampaignLaunchConfig,
   'type' | 'careerMissionId' | 'careerMissionKind' | 'careerReliefPhase'
   | 'careerVeteranOutpost' | 'careerPersonalSquad'>
 
-/** Shared Outpost ramparts; breached relief battles retain their original map. */
+/** Shared Outpost ramparts across every formal Outpost mission and preview. */
 export function isOutpostWalkwayEnabled(
   config: OutpostWalkwayLaunchFields | null | undefined,
   devPreview: boolean,
 ): boolean {
   if (devPreview) return true
-  if (!config || config.type !== 'defense' || config.careerReliefPhase) return false
+  if (!config || config.type !== 'defense') return false
   if (config.careerMissionKind) {
     return config.careerMissionKind === 'outpost-defense'
+      || config.careerMissionKind === 'outpost-relief'
       || config.careerMissionKind === 'captain-outpost-defense'
       || config.careerMissionKind === 'veteran-outpost-defense'
       || config.careerMissionKind === 'veteran-outpost-assault'

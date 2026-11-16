@@ -4,10 +4,11 @@ import type { CharacterFaction } from './CharacterVisuals'
 import { proceduralMaterial } from './ProceduralMaterials'
 import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
 import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODController'
+import { shareEquipmentGeometry } from './EquipmentGeometryRegistry'
 import { LANCE_RADIUS } from './EquipmentAttachmentContract'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { createPaladinEquipment } from './PaladinEquipment'
-import { createT4Polearm, createT5BowBody, createT5Melee } from './HighTierEquipment'
+import { createByzantineEquipment, createT4Polearm, createT5BowBody, createT5Melee, createT5Shield, createFactionShield, requestByzantineEquipment, type ByzantineEquipmentId } from './HighTierEquipment'
 
 function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
   const positions: number[] = []
@@ -160,13 +161,58 @@ export interface NpcRangedMeshParts {
 let paladinGripGeometry: THREE.CapsuleGeometry | undefined
 let paladinGripMountGeometry: THREE.BoxGeometry | undefined
 
+const bannerWorld = new THREE.Quaternion()
+const bannerDown = new THREE.Vector3()
+
+/** Banner flies toward model -X. Spin the whole (round) lance about its shaft so the cloth hangs toward the ground.
+ * Runs at render time on the final pose: visual only, with no effect on grip, tip or hit traces. */
+export function bannerRollAngle(shaftWorld: THREE.Quaternion, down: THREE.Vector3 = bannerDown): number | undefined {
+  down.set(0, -1, 0).applyQuaternion(shaftWorld.clone().invert())
+  // Too close to vertical for a meaningful "down" around the shaft: keep the last roll.
+  if (Math.hypot(down.x, down.z) < .2) return undefined
+  return Math.atan2(down.z, -down.x)
+}
+
+function hangBannerByGravity(roll: THREE.Group, model: THREE.Object3D): void {
+  let angle: number | undefined
+  const update = () => {
+    if (!roll.parent) return
+    const target = bannerRollAngle(roll.parent.getWorldQuaternion(bannerWorld))
+    if (target === undefined) return
+    angle = angle === undefined ? target : angle + Math.atan2(Math.sin(target - angle), Math.cos(target - angle)) * .35
+    roll.rotation.set(0, angle, 0)
+    roll.updateMatrixWorld(true)
+  }
+  model.traverse(object => { if (object instanceof THREE.Mesh) object.onBeforeRender = update })
+}
+
+/** Gameplay frames exist at once; the real model joins this holder when loaded, unless the pivot was rebuilt meanwhile.
+ * A failure leaves the holder empty, never another model. Actors only reach this once the item is usable. */
+function attachByzantineEquipment(id: ByzantineEquipmentId, pivot: THREE.Group, onModel?: (holder: THREE.Group, model: THREE.Group) => void): void {
+  const holder = new THREE.Group()
+  holder.name = `${id}-holder`
+  pivot.add(holder)
+  const place = (model: THREE.Group) => { holder.add(model); onModel?.(holder, model) }
+  const loaded = createByzantineEquipment(id)
+  if (loaded) { place(loaded); return }
+  requestByzantineEquipment(id).then(model => { if (holder.parent) place(model) }, () => {})
+}
+
+/** Public builders share byte-identical rigid geometry across actors (EquipmentGeometryRegistry). */
 export class WeaponMeshFactory {
   /**
    * 建構近戰武器的 3D mesh group，附加到指定 pivot
    */
   static buildMelee(weaponId: string, pivot: THREE.Group): { tipLocal: THREE.Vector3 } {
+    const result = this.buildMeleeUnshared(weaponId, pivot)
+    shareEquipmentGeometry(pivot)
+    return result
+  }
+
+  private static buildMeleeUnshared(weaponId: string, pivot: THREE.Group): { tipLocal: THREE.Vector3 } {
     const tipLocal = new THREE.Vector3(0, 1.2, 0)
     pivot.userData.gripCenterLocal = [0, 0.15, 0]
+    pivot.userData.meleeWeaponId = weaponId
     if (WEAPONS[weaponId]?.combatKind === 'sword') pivot.userData.meleeAnimationKind = WEAPONS[weaponId].animationKind
     else delete pivot.userData.meleeAnimationKind
 
@@ -178,27 +224,38 @@ export class WeaponMeshFactory {
       return { tipLocal: new THREE.Vector3(0, 2.6, 0) }
     }
 
+    if (weaponId === 'byzantine_standard_lance_t5') {
+      // Visible shaft is 3.3 m (Y -0.5..2.8) with the same main/support grips as every lance.
+      // Gameplay reach is WeaponData.range (3.9 m), not this model length.
+      pivot.userData.supportPointLocal = [0, .33, 0]
+      pivot.userData.forwardAxisLocal = [0, 1, 0]
+      pivot.userData.tipLocal = [0, 2.8, 0]
+      attachByzantineEquipment(weaponId, pivot, hangBannerByGravity)
+      return { tipLocal: new THREE.Vector3(0, 2.8, 0) }
+    }
+
     if (weaponId === 'sword_t5') {
       pivot.add(createT5Melee(weaponId))
       return { tipLocal: new THREE.Vector3(0, 1.3275, 0) }
     }
-    if (weaponId === 'axe_t5') {
+    if (weaponId === 'axe_t5' || weaponId === 'paladin_mace_t4') {
       // Reuse the existing weapon-only carry/attack transform and Bandit foot-axe pose.
       // The normalized asset has its shaft along +Y and its grip at y=.15.
       const visual = new THREE.Group()
       visual.name = 'dane-axe-visual'
       visual.position.y = .15
       visual.rotation.x = .45
-      const model = createT5Melee(weaponId)
+      const model = weaponId === 'paladin_mace_t4' ? createPaladinEquipment(weaponId) : createT5Melee(weaponId)
       model.position.y = -.15
       visual.add(model)
       pivot.add(visual)
-      return { tipLocal: new THREE.Vector3(0, 1.51, 0) }
+      // Preserve each weapon's existing gameplay reach marker independently of its new mesh.
+      return { tipLocal: new THREE.Vector3(0, weaponId === 'paladin_mace_t4' ? .99375 : 1.51, 0) }
     }
 
-    if (weaponId === 'paladin_sword_t4' || weaponId === 'paladin_mace_t4') {
+    if (weaponId === 'paladin_sword_t4') {
       pivot.add(createPaladinEquipment(weaponId))
-      return { tipLocal: new THREE.Vector3(0, weaponId === 'paladin_sword_t4' ? 1.3275 : .99375, 0) }
+      return { tipLocal: new THREE.Vector3(0, 1.3275, 0) }
     }
 
     if (weaponId === 'gladius_rusty' || weaponId === 'gladius_standard' || weaponId === 'centurion_blade') {
@@ -384,6 +441,12 @@ export class WeaponMeshFactory {
    * 建構遠程武器的 3D mesh group
    */
   static buildRanged(weaponId: string, pivot: THREE.Group, consolidateMaterialGroups = false): { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number } {
+    const result = this.buildRangedUnshared(weaponId, pivot, consolidateMaterialGroups)
+    shareEquipmentGeometry(pivot)
+    return result
+  }
+
+  private static buildRangedUnshared(weaponId: string, pivot: THREE.Group, consolidateMaterialGroups = false): { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number } {
     if (weaponId === 'bow_t5') {
       pivot.add(createT5BowBody())
       return { topTip: new THREE.Vector3(0, .85, .21), botTip: new THREE.Vector3(0, -.85, .21), stringLength: .85 }
@@ -450,7 +513,8 @@ export class WeaponMeshFactory {
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
     geometry.setIndex(indices)
     geometry.computeVertexNormals()
-    const stave = equipmentShadowUntil(new THREE.Mesh(geometry, [wood, leather]), 1)
+    // A bow stave is narrower than one battle shadow texel (~8 cm) beyond LOD0.
+    const stave = equipmentShadowUntil(new THREE.Mesh(geometry, [wood, leather]), 0)
     stave.name = 'bow-stave-and-grip'
     bowModel.add(stave)
     for (const side of [-1, 1]) {
@@ -482,6 +546,11 @@ export class WeaponMeshFactory {
    * 建構地面掉落用的簡化武器模型
    */
   static buildPickupMesh(weaponId: string, isArrowPack: boolean, colorHex: number, pivot: THREE.Group): void {
+    this.buildPickupMeshUnshared(weaponId, isArrowPack, colorHex, pivot)
+    shareEquipmentGeometry(pivot)
+  }
+
+  private static buildPickupMeshUnshared(weaponId: string, isArrowPack: boolean, colorHex: number, pivot: THREE.Group): void {
     if (isArrowPack) {
       const mat = new THREE.MeshStandardMaterial({ color: colorHex, emissive: colorHex, emissiveIntensity: 0.3 })
       for (let i = 0; i < 5; i++) {
@@ -518,6 +587,12 @@ export class WeaponMeshFactory {
    * 建構 NPC 專用近戰武器（含羅馬/維京差異）
    */
   static buildRomanGladius(tier: number, pivot: THREE.Group): THREE.Vector3 {
+    const result = this.buildRomanGladiusUnshared(tier, pivot)
+    shareEquipmentGeometry(pivot)
+    return result
+  }
+
+  private static buildRomanGladiusUnshared(tier: number, pivot: THREE.Group): THREE.Vector3 {
     pivot.userData.gripCenterLocal = [0, 0.1, 0]
     let bladeColor = 0x80664e
     const bladeLength = 0.68
@@ -562,6 +637,12 @@ export class WeaponMeshFactory {
   }
 
   static buildNpcMelee(characterFaction: CharacterFaction, tier: number, isLance: boolean, pivot: THREE.Group, weaponId?: string): THREE.Vector3 {
+    const result = this.buildNpcMeleeUnshared(characterFaction, tier, isLance, pivot, weaponId)
+    shareEquipmentGeometry(pivot)
+    return result
+  }
+
+  private static buildNpcMeleeUnshared(characterFaction: CharacterFaction, tier: number, isLance: boolean, pivot: THREE.Group, weaponId?: string): THREE.Vector3 {
     if (weaponId && WEAPONS[weaponId]?.combatKind === 'sword') pivot.userData.meleeAnimationKind = WEAPONS[weaponId].animationKind
     else delete pivot.userData.meleeAnimationKind
     if (weaponId) {
@@ -584,6 +665,12 @@ export class WeaponMeshFactory {
    * 建構 NPC 專用遠程武器（羅馬標槍 vs 維京弓）
    */
   static buildNpcRanged(characterFaction: CharacterFaction, tier: number, pivot: THREE.Group): NpcRangedMeshParts {
+    const result = this.buildNpcRangedUnshared(characterFaction, tier, pivot)
+    shareEquipmentGeometry(pivot)
+    return result
+  }
+
+  private static buildNpcRangedUnshared(characterFaction: CharacterFaction, tier: number, pivot: THREE.Group): NpcRangedMeshParts {
     if (characterFaction === 'roman') {
       // Roman Pilum (Javelin)
       const woodMat = proceduralMaterial({ kind: 'wood', color: tier === 1 ? 0x71604b : tier === 3 ? 0x3c2926 : 0x68452c, roughness: tier === 1 ? 0.95 : 0.78, repeat: [2, 7] })
@@ -666,6 +753,11 @@ export class WeaponMeshFactory {
    * 建構盾牌的 3D mesh group，附加到指定 pivot
    */
   static buildShield(shieldId: string, pivot: THREE.Group): void {
+    this.buildShieldUnshared(shieldId, pivot)
+    shareEquipmentGeometry(pivot)
+  }
+
+  private static buildShieldUnshared(shieldId: string, pivot: THREE.Group): void {
     pivot.userData.gripCenterLocal = [0, 0, 0.085]
     const isRoman = shieldId.startsWith('scutum')
     const tier = parseInt(shieldId.split('_t')[1]) || 1
@@ -673,17 +765,39 @@ export class WeaponMeshFactory {
     const bronze = proceduralMaterial({ kind: 'bronze', color: 0xa47b42, roughness: 0.43, metalness: 0.72 })
     const leather = proceduralMaterial({ kind: 'leather', color: 0x3d281d, roughness: 0.86 })
 
-    if (shieldId === 'paladin_shield_t4') {
-      pivot.add(createPaladinEquipment(shieldId))
+    const factionShield = shieldId === 'roman_officer_shield_t4' || shieldId === 'viking_berserker_shield_t5'
+    const eagleShield = shieldId === 'byzantine_eagle_shield_t5' || shieldId === 'centurion_aquila_shield_t4' || shieldId === 'viking_dragonward_shield_t4'
+    if (shieldId === 'paladin_shield_t4' || shieldId === 'commander_shield_t5' || factionShield || eagleShield) {
+      const commander = shieldId === 'commander_shield_t5'
+      if (eagleShield) attachByzantineEquipment(shieldId, pivot)
+      else pivot.add(factionShield ? createFactionShield(shieldId) : commander ? createT5Shield() : createPaladinEquipment('paladin_shield_t4'))
+      // Laurelguard's front is +Z, but its central rear is near Z=0 rather than
+      // Paladin's +.13. Keep the original GLB axes and move only its rear grip.
+      const gripZ = commander ? -.085 : .085
+      pivot.userData.gripCenterLocal = [0, 0, gripZ]
       // Same central vertical grip geometry and frame as the existing shields.
       const rearGrip = equipmentShadowUntil(new THREE.Mesh(paladinGripGeometry ??= new THREE.CapsuleGeometry(.024, .2, 4, 8), leather), -1)
-      rearGrip.position.set(0, 0, 0.085)
+      rearGrip.position.set(0, 0, gripZ)
       rearGrip.name = 'shield-rear-grip'
       pivot.add(equipmentDetail(rearGrip, 0))
       for (const y of [-.10, .10]) {
         const mount = new THREE.Mesh(paladinGripMountGeometry ??= new THREE.BoxGeometry(.055, .035, .17), leather)
         mount.name = 'shield-grip-mount'
         mount.position.set(0, y, .16)
+        if (commander) {
+          // Measured rear surface at Y=-.10 / +.10 is -.0187 / +.0077.
+          // The mounts seat ~1cm into that lining, never through the front.
+          const rearSeatZ = y < 0 ? -.008 : .018
+          mount.position.z = (gripZ + rearSeatZ) / 2
+          mount.scale.z = (rearSeatZ - gripZ) / .17
+        }
+        if (eagleShield) {
+          // Measured rear surface behind the boss (builder rearCenterZ): .155 eagle, .255 curved Aquila scutum, .2145 dished Dragonward.
+          // Seat the mounts 1 cm into it rather than through the painted face.
+          const rearSeatZ = shieldId === 'centurion_aquila_shield_t4' ? .265 : shieldId === 'viking_dragonward_shield_t4' ? .2245 : .165
+          mount.position.z = (gripZ + rearSeatZ) / 2
+          mount.scale.z = (rearSeatZ - gripZ) / .17
+        }
         pivot.add(equipmentDetail(equipmentShadowUntil(mount, -1), 0))
       }
       return

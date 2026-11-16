@@ -25,8 +25,11 @@ description: 用固定瀏覽器、warm-up、取樣窗口與 JSON 輸出，量測
 | G | 200v200 步兵，Formation | 400／0 |
 | H | 200v200 混編，Formation；每方 60 步兵、60 遠程、40 近戰騎兵、40 騎射 | 400／160 |
 | I | 200v200 混合騎兵，Scattered | 400／400 |
+| K | 300v300 重騎兵（羅馬鎧甲戰馬 vs 維京雪豹），Formation，雙方 Charge | 600／300（Horse Count 只計 horse registry 的鎧甲戰馬） |
+| L | 300v300 六貓遊俠弓騎兵（雙方皆為 Commander VI 遊俠 ×1.5：caracal 90、serval 90、黑／白／橘貓各 30、雪豹 30），Formation，雙方 Charge | 600／0（坐騎全為貓科，不計入 Horse Count） |
+| M | 300v300 雪豹遊俠弓騎兵（同 L 的遊俠、陣型與裝備；每方坐騎改為雪豹 150、黑／白／橘貓、serval、caracal 各 30），Formation，雙方 Charge | 600／0（不計入 Horse Count） |
 
-E/F/G/H/I 使用 initial spectator；D–I 均 no respawn、no camps。配置以 `src/battle/BattleConfig.ts` 的 `PRESET_SCENARIO_*` 與 runner 的 scenario 表為準。J 已有遊戲診斷場景，但目前此 runner 未支援，不直接傳 `--scenario=J`。
+E/F/G/H/I/K/L/M 使用 initial spectator；D–M（不含 J）均 no respawn、no camps。其他 devcombat 場景的 NPC 預設 Defend，Formation 場景兩軍不會自行接戰；K／L／M 例外，雙方一開場即 Charge，before-contact 量衝鋒接近、during-combat 量混戰。K／L／M 有 600 名角色，只在明確指定時執行（不含於 `all`），生成較久，需加 `--initial-timeout-ms=120000`。配置以 `src/battle/BattleConfig.ts` 的 `PRESET_SCENARIO_*` 與 runner 的 scenario 表為準。J 已有遊戲診斷場景，但目前此 runner 未支援，不直接傳 `--scenario=J`。
 
 - 一般窗口預設 warm-up 3 秒、觀察 20 秒。注意：目前 before-contact 從 recorder 啟動後收集所有接戰前合格樣本，含 warm-up；during-combat 才按 observationStart 過濾。比較必須使用相同 runner 版本與實際樣本範圍，不能把 before-contact 說成純 warm-up 後 20 秒。
 - **before-contact**：預設 3 runs 取 median。只採 `Alive=該場景 NPC 總數`、`Dead=0` 且未出現攻擊／投射物證據的 samples。解析端保留 spawn-plan provisional 標記，但目前啟動 gate 仍要求初始 Alive/Dead 及 Horse 數正確；缺這些 HUD 的舊版會失敗，不可宣稱自動相容。歷史 provisional 報表不能等同存活數驗證。
@@ -79,6 +82,7 @@ rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/fixed-sce
 
 ## 結果與工具驗證
 
+- `?devcombat=a–k` 不再畫每名 NPC 的 `CombatTrajectoryDebugger` 線（只有 `devcombat=all` 會畫）；與更早版本的報表比較 Draw Calls／Renderer Submit 時，視為插樁差異。
 - `Renderer Submit` 是 `renderer.render()` 的 CPU 側耗時，可含 driver／GPU back-pressure，不是純 GPU 時間。預設 `renderer.info` 通常只含 main pass；mesh 數不等於 submissions。
 - 動態戰況若 Alive/Dead 或 LOD 分布不同，只能作 hotspot context，不能據此宣稱 FPS 因果收益。舊版缺 profiler／hook 時明確報告限制或 profiling-only checkpoint。
 - 修改 runner 後做 `node --check`、離線解析／比較案例及受影響的本機 browser smoke check；遊戲程式變更才依 AGENTS 跑相關測試與 build。純文件修正不啟動長時間 benchmark。

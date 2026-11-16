@@ -1,37 +1,40 @@
-import { createCareerBridgeBattleLaunch, isCareerBridgeBattle, recoverClaimedCareerBridgeBattle, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
-import { createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerCombatLaunch } from './career/CaptainBattleLaunch'
-import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './career/CaptainMissionCatalog'
+import { createCaptainEagleLaunch,createCaptainFrontlineLaunch,type CareerCombatLaunch } from './career/CaptainBattleLaunch'
+import { CAPTAIN_EAGLE_BATTLE_ID,CAPTAIN_FRONTLINE_COMMAND_ID } from './career/CaptainMissionCatalog'
+import { createCareerBridgeBattleLaunch,createCareerFelineBattleLaunch,isCareerBridgeBattle,isCareerFelineBattle,recoverClaimedCareerBridgeBattle,type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 /**
  * main.ts
  * Vite entry point.
  * Implements Custom Battle Setup official entrance with developer bypass and untrusted sessionStorage validation.
  */
-import { Game } from './Game'
-import { enterCareerTown, TOWN_ENTRY_KEY } from './town/CareerTownEntry'
-import { CAREER_OUTPOST_SESSION_KEY, clearCareerOutpost } from './career/CareerOutpostMission'
-import { createCareerOutpostLaunch } from './career/CareerOutpostLaunch'
-import { clearCareerMission } from './career/CareerProfile'
-import { stageMissionReturnRebuild } from './career/CareerMissionReturnRecovery'
-import { townRoster } from './town/TownRules'
-import { createCareerVeteranOutpostLaunch, isCareerVeteranOutpostMission, shouldResumeCareerVeteranOutpost } from './career/CareerVeteranOutpost'
-import { createCareerCommanderOutpostLaunch, isCareerCommanderOutpostMission } from './career/CommanderOutpost'
-import { CareerProfileStore } from './career/CareerProfileStore'
-import { recoverFailedCareerMission, CAREER_RECOVERY_NOTICE_KEY } from './career/CareerMissionRecovery'
-import { BattleConfig, validateBattleConfig } from './battle/BattleConfig'
-import { BattleSetupUI } from './ui/BattleSetupUI'
-import { MainMenuUI } from './ui/MainMenuUI'
-import { CampaignSetupUI } from './ui/CampaignSetupUI'
-import { BattleReferenceUI } from './ui/BattleReferenceUI'
+import { BattleConfig,validateBattleConfig } from './battle/BattleConfig'
 import {
-  validateDefenseCampaignLaunchConfig,
-  type DefenseCampaignLaunchConfig,
-} from './campaign/DefenseCampaignLaunch'
-import {
-  DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY,
-  isDefenseCampaignStageUnlocked,
-  parseDefenseCampaignSetupTarget,
-  type DefenseCampaignSetupTarget,
+DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY,
+isDefenseCampaignStageUnlocked,
+parseDefenseCampaignSetupTarget,
+type DefenseCampaignSetupTarget,
 } from './campaign/CampaignProgress'
+import {
+validateDefenseCampaignLaunchConfig,
+type DefenseCampaignLaunchConfig,
+} from './campaign/DefenseCampaignLaunch'
+import { CAREER_RECOVERY_NOTICE_KEY,recoverFailedCareerMission } from './career/CareerMissionRecovery'
+import { createCareerOutpostLaunch } from './career/CareerOutpostLaunch'
+import { CAREER_OUTPOST_SESSION_KEY,clearCareerOutpost } from './career/CareerOutpostMission'
+import { clearCareerMission } from './career/CareerProfile'
+import { CareerProfileStore } from './career/CareerProfileStore'
+import { shouldResumeCareerTown } from './career/CareerResumeRouting'
+import { commitCareerTutorial,deferCareerTutorial } from './career/CareerTutorial'
+import { createCareerCaptainTutorialConfig,type CareerTutorialLaunch } from './career/CareerTutorialLaunch'
+import { createCareerVeteranOutpostLaunch,isCareerVeteranOutpostMission,shouldResumeCareerVeteranOutpost } from './career/CareerVeteranOutpost'
+import { createCareerCommanderOutpostLaunch,isCareerCommanderOutpostMission } from './career/CommanderOutpost'
+import { Game } from './Game'
+import { enterCareerTown,recoverSettledStartupMissionReturn,TOWN_ENTRY_KEY } from './town/CareerTownEntry'
+import { markCareerMissionReturnToSergeant } from './town/SergeantReturn'
+import { BattleReferenceUI } from './ui/BattleReferenceUI'
+import { BattleSetupUI } from './ui/BattleSetupUI'
+import { CampaignSetupUI } from './ui/CampaignSetupUI'
+import { MainMenuUI } from './ui/MainMenuUI'
+import { HorseAssetLoadError } from './world/HorseAssetRegistry'
 
 if (import.meta.env.DEV) void import('./debug/EquipmentRenderCensus')
 if (import.meta.env.DEV) void import('./debug/MainPassCensus')
@@ -40,6 +43,27 @@ if (import.meta.env.DEV) void import('./debug/ShadowPassCensus')
 
 let currentCareerMissionId: string | undefined
 let recoveringCareerMission = false
+let currentCareerTutorial: CareerTutorialLaunch | undefined
+let recoveringCareerTutorial = false
+
+function handleCareerTutorialError(context: CareerTutorialLaunch, error: unknown): void {
+  if (recoveringCareerTutorial) return
+  const store = new CareerProfileStore(), loaded = store.loadChecked()
+  if (loaded.profile?.tutorial?.careerId !== context.careerId || loaded.profile.tutorial.session?.id !== context.sessionId) return
+  recoveringCareerTutorial = true
+  const game = (window as unknown as { game?: unknown }).game
+  if (game instanceof Game) game.abortCareerDeployment()
+  console.error('[Career tutorial] Scene failure; saved progress retained', error)
+  showCareerRecoveryError('教學載入或執行失敗；已保存的操作與獎勵紀錄保留，這次不會被當作戰敗。', () => window.location.reload(), '重試教學')
+  const back = document.createElement('button'); back.textContent = '稍後繼續，返回城鎮'
+  back.onclick = () => {
+    const result = commitCareerTutorial(store, context.careerId, next => deferCareerTutorial(next, context.stage), context.sessionId)
+    if (!result.ok) { back.textContent = '保存失敗，點擊重試返回'; return }
+    sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+    window.location.assign(window.location.pathname)
+  }
+  document.getElementById('career-recovery-error')?.append(back)
+}
 
 function showCareerRecoveryError(message: string, retry: () => void, label = '重試返回城鎮'): void {
   document.getElementById('asset-loading-status')?.remove()
@@ -83,8 +107,8 @@ function handleCareerMissionError(missionId: string, error: unknown): void {
   try {
     document.exitPointerLock?.()
     sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
-    sessionStorage.removeItem('sagaburst_campaign_config')
-    sessionStorage.removeItem('sagaburst_battle_config')
+    sessionStorage.removeItem('sagaburst_campaign_config_v2')
+    sessionStorage.removeItem('sagaburst_battle_config_v2')
     sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
     sessionStorage.setItem(CAREER_RECOVERY_NOTICE_KEY, '任務部署失敗，已返回城鎮。角色、私兵與軍功資料均已保留。')
     sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
@@ -98,6 +122,7 @@ function handleCareerMissionError(missionId: string, error: unknown): void {
 }
 
 window.addEventListener('error', e => {
+  if (currentCareerTutorial) { e.preventDefault(); handleCareerTutorialError(currentCareerTutorial, e.error ?? new Error(e.message)); return }
   if (currentCareerMissionId && !recoveringCareerMission) {
     e.preventDefault()
     handleCareerMissionError(currentCareerMissionId, e.error ?? new Error(e.message))
@@ -110,6 +135,7 @@ window.addEventListener('error', e => {
 })
 
 window.addEventListener('unhandledrejection', e => {
+  if (currentCareerTutorial) { e.preventDefault(); handleCareerTutorialError(currentCareerTutorial, e.reason); return }
   if (!currentCareerMissionId || recoveringCareerMission) return
   e.preventDefault()
   handleCareerMissionError(currentCareerMissionId, e.reason)
@@ -118,48 +144,63 @@ window.addEventListener('unhandledrejection', e => {
 const container = document.getElementById('canvas-container')
 if (!container) throw new Error('#canvas-container not found')
 
+let gameLaunchPending = false
 async function launchGame(
   battleConfig?: BattleConfig,
   campaignConfig?: DefenseCampaignLaunchConfig,
   trainingGround = false,
   bridgeLaunch?: CareerBridgeBattleLaunch,
+  tutorialLaunch?: CareerTutorialLaunch,
 ): Promise<void> {
-  const missionId = bridgeLaunch?.careerMissionId ?? campaignConfig?.careerMissionId ?? battleConfig?.careerEagleMissionId
+  if (gameLaunchPending) return
+  gameLaunchPending = true
+  document.getElementById('career-recovery-error')?.remove()
+  const missionId = bridgeLaunch?.careerMissionId ?? campaignConfig?.careerMissionId ?? battleConfig?.careerEagleMissionId ?? battleConfig?.careerFelineMissionId
   currentCareerMissionId = missionId
+  currentCareerTutorial = tutorialLaunch
+  recoveringCareerTutorial = false
   const loading = document.createElement('div')
   loading.id = 'asset-loading-status'
   loading.style.cssText = 'position:fixed;inset:0;display:grid;place-items:center;color:#eee;background:#171411;z-index:9998;font:16px system-ui'
   loading.setAttribute('role', 'status')
-  loading.textContent = bridgeLaunch ? '正在部署橋頭決戰部隊…' : battleConfig?.careerEagleMissionId ? '正在部署巨鷹空戰部隊…' : campaignConfig?.careerMissionId ? '正在載入 Outpost 任務、駐軍與敵軍…' : '正在載入寫實人物與戰馬資產…'
+  loading.textContent = bridgeLaunch ? '正在部署橋頭決戰部隊…' : battleConfig?.careerFelineMissionId ? '正在部署任務部隊…' : battleConfig?.careerEagleMissionId ? '正在部署巨鷹空戰部隊…' : campaignConfig?.careerMissionId ? '正在載入 Outpost 任務、駐軍與敵軍…' : '正在載入寫實人物與戰馬資產…'
   document.body.appendChild(loading)
 
   try {
     // Let the overlay paint before cached assets lead into synchronous scene creation.
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-    const game = await Game.create(container!, battleConfig, campaignConfig, text => { loading.textContent = text }, trainingGround, bridgeLaunch)
+    const game = await Game.create(container!, battleConfig, campaignConfig, text => { loading.textContent = text }, trainingGround, bridgeLaunch, tutorialLaunch)
     ;(window as unknown as { game: unknown }).game = game
     if (missionId && game instanceof Game) game.onCareerDeploymentError = error => handleCareerMissionError(missionId, error)
     loading.remove()
   } catch (error: unknown) {
     const e = error instanceof Error ? error : new Error(String(error))
     loading.remove()
+    if (e instanceof HorseAssetLoadError) {
+      showCareerRecoveryError(e.message, () => { void launchGame(battleConfig, campaignConfig, trainingGround, bridgeLaunch, tutorialLaunch) }, '重試載入')
+      return
+    }
+    if (tutorialLaunch) { handleCareerTutorialError(tutorialLaunch, e); return }
     if (missionId) { handleCareerMissionError(missionId, e); return }
-    const errDiv = document.createElement('div')
-    errDiv.style.position = 'absolute'
-    errDiv.style.top = '10px'
-    errDiv.style.left = '10px'
-    errDiv.style.color = 'red'
-    errDiv.style.zIndex = '9999'
-    errDiv.style.backgroundColor = 'rgba(0,0,0,0.8)'
-    errDiv.style.padding = '10px'
-    errDiv.textContent = `寫實資產載入失敗：${e.message}`
-    document.body.appendChild(errDiv)
+    showCareerRecoveryError(`寫實資產載入失敗：${e.message}`, () => { void launchGame(battleConfig, campaignConfig, trainingGround, bridgeLaunch, tutorialLaunch) }, '重試載入')
+  } finally { gameLaunchPending = false }
+}
+
+async function launchCareerTutorial(context: CareerTutorialLaunch): Promise<void> {
+  const loaded = new CareerProfileStore().loadChecked(), profile = loaded.profile
+  if (!profile || profile.tutorial?.careerId !== context.careerId || profile.tutorial.session?.id !== context.sessionId) {
+    showCareerRecoveryError('教學所屬的角色或存檔已變更，請重新進入生涯。', () => window.location.reload(), '重新載入')
+    return
   }
+  try {
+    await launchGame(context.stage === 'captain' ? createCareerCaptainTutorialConfig(profile) : undefined,
+      undefined, context.stage === 'recruit', undefined, context)
+  } catch (error) { handleCareerTutorialError(context, error) }
 }
 
 function launchCareerCombat(config: CareerCombatLaunch): Promise<void> {
   if (config.type === 'career-bridge-battle') return launchGame(config.battle, undefined, false, config)
-  return config.type === 'captain-eagle' ? launchGame(config.battle) : launchGame(undefined, config)
+  return config.type === 'captain-eagle' || config.type === 'career-feline-battle' ? launchGame(config.battle) : launchGame(undefined, config)
 }
 
 /** Catch errors in launch builders too, before launchGame gets a config. */
@@ -174,6 +215,27 @@ async function bootstrap(): Promise<void> {
     const { installCareerRetirementQa } = await import('./debug/CareerRetirementQA')
     installCareerRetirementQa()
   }
+  if (import.meta.env.DEV && query.get('careerQa') === 'commander-v') {
+    const { installCommanderFourGateQa } = await import('./debug/CommanderFourGateQA')
+    installCommanderFourGateQa(query)
+  }
+  if (import.meta.env.DEV && query.has('duelarena')) {
+    // DEV-only walk-through; never reads or writes Career/session launch state.
+    const { launchDuelArenaPreview, resolveDuelArenaPreviewSetup } = await import('./debug/DuelArenaPreview')
+    const setup = resolveDuelArenaPreviewSetup(query)
+    if (setup) {
+      await launchDuelArenaPreview(container!, setup)
+      return
+    }
+  }
+  if (import.meta.env.DEV && query.has('townarchitecture')) {
+    const { launchTownArchitectureShowcase, resolveTownArchitectureShowcase } = await import('./debug/TownArchitectureShowcase')
+    const faction = resolveTownArchitectureShowcase(query)
+    if (faction) {
+      await launchTownArchitectureShowcase(container!, faction)
+      return
+    }
+  }
   if (import.meta.env.DEV && query.get('fourgatepreview') === '1') {
     const { launchTownFourGateSiegePreview } = await import('./debug/TownFourGateSiegePreview')
     await launchTownFourGateSiegePreview(container!)
@@ -186,16 +248,22 @@ async function bootstrap(): Promise<void> {
     return
   }
   const menuOnly = query.get('menu') === '1'
-  if (import.meta.env.DEV && ['viking-t4', 'roman-t4', 'maki-t4', 'roman-t5', 'viking-t5', 'roman-civilian', 'viking-civilian'].includes(query.get('devhero') ?? '')) {
+  if (import.meta.env.DEV && ['viking-t4', 'roman-t4', 'centurion-t4', 'viking-heavy-t4', 'viking-heavy-t5', 'maki-t4', 'roman-t5', 'viking-t5', 'byzantine-t5', 'roman-civilian', 'viking-civilian', 'roman-t1', 'roman-t2', 'roman-t3', 'viking-t1', 'viking-t2', 'viking-t3'].includes(query.get('devhero') ?? '')) {
     const { launchVikingHeroPreview, ROMAN_HERO } = await import('./debug/VikingHeroPreview')
     const { HERO_ASSETS } = await import('./world/HeroAssetCatalog')
-    const { CIVILIAN_HUMANOID_ASSETS } = await import('./world/HumanoidAssetRegistry')
+    const { CIVILIAN_HUMANOID_ASSETS, ORDINARY_HUMANOID_ASSETS, TIERED_ORDINARY_HUMANOID_ASSETS } = await import('./world/HumanoidAssetRegistry')
     const requested = query.get('devhero')
-    const descriptor = requested === 'roman-civilian' ? CIVILIAN_HUMANOID_ASSETS.roman
+    const tiered = requested === 'roman-t1' || requested === 'roman-t2' || requested === 'viking-t1' || requested === 'viking-t2'
+      ? TIERED_ORDINARY_HUMANOID_ASSETS[requested] : undefined
+    const descriptor = tiered ?? (requested === 'roman-t3' ? ORDINARY_HUMANOID_ASSETS.roman : requested === 'viking-t3' ? ORDINARY_HUMANOID_ASSETS.viking : requested === 'roman-civilian' ? CIVILIAN_HUMANOID_ASSETS.roman
       : requested === 'viking-civilian' ? CIVILIAN_HUMANOID_ASSETS.viking
       : requested === 'roman-t5' ? HERO_ASSETS['roman-hero-t5'].descriptor
       : requested === 'viking-t5' ? HERO_ASSETS['viking-hero-t5'].descriptor
-      : requested === 'maki-t4' ? (await import('./world/MakiRangerEquipment')).MAKI_HERO : requested === 'roman-t4' ? ROMAN_HERO : undefined
+      : requested === 'byzantine-t5' ? HERO_ASSETS['byzantine-cataphract-t5'].descriptor
+      : requested === 'centurion-t4' ? HERO_ASSETS['roman-centurion-t4'].descriptor
+      : requested === 'viking-heavy-t4' ? HERO_ASSETS['viking-heavy-hero-t4'].descriptor
+      : requested === 'viking-heavy-t5' ? HERO_ASSETS['viking-heavy-hero-t5'].descriptor
+      : requested === 'maki-t4' ? (await import('./world/MakiRangerEquipment')).MAKI_HERO : requested === 'roman-t4' ? ROMAN_HERO : undefined)
     await launchVikingHeroPreview(container!, descriptor)
     return
   }
@@ -225,16 +293,34 @@ async function bootstrap(): Promise<void> {
   const outpostProfile = menuOnly ? null : careerStore.loadChecked().profile
   // A saved ending wins over stale mission fields without rewriting the Career save.
   const completedCareer = outpostProfile?.careerRetirement?.phase === 'completed'
-  const activeCareerMission = completedCareer ? undefined : outpostProfile?.activeMission
+  const activeCareerMission = completedCareer || outpostProfile?.activeMission?.prisonBreak ? undefined : outpostProfile?.activeMission
+  const tutorialSession = !completedCareer && !outpostProfile?.activeMission?.prisonBreak && !activeCareerMission && !outpostProfile?.activeOutpostMission
+    && !outpostProfile?.activeRace && !outpostProfile?.careerRetirement && outpostProfile?.townEvent?.state !== 'hostile'
+    ? outpostProfile?.tutorial?.session : undefined
+  if (tutorialSession) {
+    await launchCareerTutorial({ careerId: tutorialSession.careerId, sessionId: tutorialSession.id, stage: tutorialSession.stage })
+    return
+  }
+  // Capture is checked before generic claimed-battle recovery can consume its original mission.
+  if (!completedCareer && outpostProfile?.activeMission?.prisonBreak) {
+    sessionStorage.removeItem('sagaburst_battle_config_v2')
+    sessionStorage.removeItem('sagaburst_campaign_config_v2')
+    sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+  }
+  const settleClaimedOnStartup = (
+    clearedProfile: ReturnType<typeof clearCareerMission>,
+    personalSquad: NonNullable<typeof activeCareerMission>['personalSquad'] | undefined,
+    errorMessage: string,
+  ): boolean => {
+    if (recoverSettledStartupMissionReturn(clearedProfile, careerStore, personalSquad)) return true
+    showCareerRecoveryError(errorMessage, () => window.location.reload())
+    return false
+  }
   const captainStandalone = activeCareerMission?.templateId === CAPTAIN_FRONTLINE_COMMAND_ID && activeCareerMission.kind === 'captain-outpost-defense'
     || activeCareerMission?.templateId === CAPTAIN_EAGLE_BATTLE_ID && activeCareerMission.kind === 'captain-eagle-battle'
   if (outpostProfile && activeCareerMission && captainStandalone) {
     if (outpostProfile.claimedBattleIds.includes(activeCareerMission.id)) {
-      const returned = stageMissionReturnRebuild(clearCareerMission(outpostProfile, activeCareerMission.id),
-        townRoster().map(spec => ({ spec })), activeCareerMission.personalSquad)
-      if (!careerStore.save(returned)) throw new Error('無法保存 Captain 任務返回狀態')
-      sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
-      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      if (!settleClaimedOnStartup(clearCareerMission(outpostProfile, activeCareerMission.id), activeCareerMission.personalSquad, '無法保存 Captain 任務返回狀態，已領獎紀錄與軍功均已保留。')) return
     } else {
       await resumeStoredCareerMission(activeCareerMission.id, () => activeCareerMission.kind === 'captain-eagle-battle'
         ? createCaptainEagleLaunch(outpostProfile) : createCaptainFrontlineLaunch(outpostProfile))
@@ -247,10 +333,7 @@ async function bootstrap(): Promise<void> {
       return
     }
     if (outpostProfile.claimedBattleIds.includes(activeCareerMission.id)) {
-      const cleared = stageMissionReturnRebuild(clearCareerMission(outpostProfile, activeCareerMission.id),
-        townRoster().map(spec => ({ spec })), activeCareerMission.personalSquad)
-      if (!careerStore.save(cleared)) throw new Error('無法保存 Veteran Outpost 返回狀態')
-      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      if (!settleClaimedOnStartup(clearCareerMission(outpostProfile, activeCareerMission.id), activeCareerMission.personalSquad, '無法保存 Veteran Outpost 返回狀態，已領獎紀錄與軍功均已保留。')) return
     } else {
       // A terminal battle whose claim could not be saved must return to its result screen for retry.
       await resumeStoredCareerMission(activeCareerMission.id, () => createCareerVeteranOutpostLaunch(outpostProfile))
@@ -259,13 +342,17 @@ async function bootstrap(): Promise<void> {
   }
   if (outpostProfile && activeCareerMission && isCareerCommanderOutpostMission(activeCareerMission)) {
     if (outpostProfile.claimedBattleIds.includes(activeCareerMission.id)) {
-      const cleared = stageMissionReturnRebuild(clearCareerMission(outpostProfile, activeCareerMission.id),
-        townRoster().map(spec => ({ spec })), activeCareerMission.personalSquad)
-      if (!careerStore.save(cleared)) throw new Error('無法保存 Commander Last Stand 返回狀態')
-      sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
-      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      if (!settleClaimedOnStartup(clearCareerMission(outpostProfile, activeCareerMission.id), activeCareerMission.personalSquad, '無法保存 Commander Last Stand 返回狀態，已領獎紀錄與軍功均已保留。')) return
     } else {
       await resumeStoredCareerMission(activeCareerMission.id, () => createCareerCommanderOutpostLaunch(outpostProfile))
+      return
+    }
+  }
+  if (outpostProfile && activeCareerMission && isCareerFelineBattle(activeCareerMission)) {
+    if (outpostProfile.claimedBattleIds.includes(activeCareerMission.id)) {
+      if (!settleClaimedOnStartup(clearCareerMission(outpostProfile, activeCareerMission.id), activeCareerMission.personalSquad, '無法保存野外／騎兵任務返回狀態，已領獎紀錄與軍功均已保留。')) return
+    } else {
+      await resumeStoredCareerMission(activeCareerMission.id, () => createCareerFelineBattleLaunch(outpostProfile))
       return
     }
   }
@@ -278,6 +365,7 @@ async function bootstrap(): Promise<void> {
     if (recovery === 'return-to-town') {
       sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
       sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      markCareerMissionReturnToSergeant()
     } else {
       await resumeStoredCareerMission(activeCareerMission.id, () => createCareerBridgeBattleLaunch(outpostProfile))
       return
@@ -286,11 +374,7 @@ async function bootstrap(): Promise<void> {
   if (!completedCareer && outpostProfile?.activeOutpostMission) {
     const mission = outpostProfile.activeOutpostMission
     if (outpostProfile.claimedBattleIds.includes(mission.id)) {
-      const returned = stageMissionReturnRebuild(clearCareerOutpost(outpostProfile),
-        townRoster().map(spec => ({ spec })), mission.personalSquad)
-      if (!careerStore.save(returned)) throw new Error('無法保存 Outpost 返回狀態')
-      sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
-      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      if (!settleClaimedOnStartup(clearCareerOutpost(outpostProfile), mission.personalSquad, '無法保存 Outpost 返回狀態，已領獎紀錄與軍功均已保留。')) return
     } else {
       // Rebuild from Career state rather than trusting a free Campaign setup loadout.
       await resumeStoredCareerMission(mission.id, () => createCareerOutpostLaunch(outpostProfile))
@@ -300,7 +384,7 @@ async function bootstrap(): Promise<void> {
   if (!menuOnly) sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
   let savedCampaign: DefenseCampaignLaunchConfig | null = null
   try {
-    const raw = menuOnly ? null : sessionStorage.getItem('sagaburst_campaign_config')
+    const raw = menuOnly ? null : sessionStorage.getItem('sagaburst_campaign_config_v2')
     if (raw) {
       const parsed = JSON.parse(raw)
       const validation = validateDefenseCampaignLaunchConfig(parsed)
@@ -318,16 +402,14 @@ async function bootstrap(): Promise<void> {
       ) {
         savedCampaign = parsed
       } else {
-        console.warn('Invalid or locked sessionStorage campaign config, clearing:', validation.errors)
-        sessionStorage.removeItem('sagaburst_campaign_config')
+        console.warn('Invalid or locked campaign config; original session data retained:', validation.errors)
       }
     }
   } catch (err) {
     console.warn('Failed to parse sessionStorage campaign config:', err)
-    sessionStorage.removeItem('sagaburst_campaign_config')
   }
 
-  const careerResume = !menuOnly && (Boolean(outpostProfile?.careerRetirement) || outpostProfile?.townEvent?.state === 'hostile' || sessionStorage.getItem(TOWN_ENTRY_KEY) === '1')
+  const careerResume = !menuOnly && shouldResumeCareerTown(outpostProfile, sessionStorage.getItem(TOWN_ENTRY_KEY) === '1')
   if (savedCampaign && !careerResume) {
     await launchGame(undefined, savedCampaign)
     return
@@ -335,20 +417,18 @@ async function bootstrap(): Promise<void> {
 
   let savedConfig: BattleConfig | null = null
   try {
-    const raw = menuOnly ? null : sessionStorage.getItem('sagaburst_battle_config')
+    const raw = menuOnly ? null : sessionStorage.getItem('sagaburst_battle_config_v2')
     if (raw) {
       const parsed = JSON.parse(raw)
       const validation = validateBattleConfig(parsed)
-      if (validation.valid && !parsed.careerEagleMissionId) {
+      if (validation.valid && !parsed.careerEagleMissionId && !parsed.careerFelineMissionId) {
         savedConfig = parsed
       } else {
-        console.warn('Invalid sessionStorage battle config, clearing:', validation.errors)
-        sessionStorage.removeItem('sagaburst_battle_config')
+        console.warn('Invalid battle config; original session data retained:', validation.errors)
       }
     }
   } catch (err) {
     console.warn('Failed to parse sessionStorage battle config:', err)
-    sessionStorage.removeItem('sagaburst_battle_config')
   }
 
   if (savedConfig && !careerResume) {
@@ -383,9 +463,9 @@ async function bootstrap(): Promise<void> {
       document.body,
       async (config) => {
         try {
-          sessionStorage.removeItem('sagaburst_battle_config')
+          sessionStorage.removeItem('sagaburst_battle_config_v2')
           sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
-          sessionStorage.setItem('sagaburst_campaign_config', JSON.stringify(config))
+          sessionStorage.setItem('sagaburst_campaign_config_v2', JSON.stringify(config))
         } catch (e) {
           console.warn('sessionStorage set error', e)
         }
@@ -399,31 +479,36 @@ async function bootstrap(): Promise<void> {
     )
   }
 
+  const showCustomBattle = (initialConfig?: BattleConfig): void => {
+    const setupUI = new BattleSetupUI(initialConfig)
+    setupUI.mount(
+      document.body,
+      async (config) => {
+        try {
+          sessionStorage.removeItem('sagaburst_campaign_config_v2')
+          sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
+          sessionStorage.setItem('sagaburst_battle_config_v2', JSON.stringify(config))
+        } catch (e) {
+          console.warn('sessionStorage set error', e)
+        }
+        await launchGame(config)
+      },
+      () => {
+        setupUI.destroy()
+        showHome()
+      },
+    )
+  }
+
   showHome = (): void => {
+    sessionStorage.removeItem(TOWN_ENTRY_KEY)
     const menu = new MainMenuUI()
     menu.mount(document.body, {
       onTrainingGround: () => { menu.destroy(); void launchGame(undefined, undefined, true) },
-      onCareer: () => { menu.destroy(); enterCareerTown(container!, launchCareerCombat, showHome, handleCareerMissionError) },
+      onCareer: () => { menu.destroy(); enterCareerTown(container!, launchCareerCombat, showHome, handleCareerMissionError, launchCareerTutorial) },
       onCustomBattle: () => {
         menu.destroy()
-        const setupUI = new BattleSetupUI()
-        setupUI.mount(
-          document.body,
-          async (config) => {
-            try {
-              sessionStorage.removeItem('sagaburst_campaign_config')
-              sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
-              sessionStorage.setItem('sagaburst_battle_config', JSON.stringify(config))
-            } catch (e) {
-              console.warn('sessionStorage set error', e)
-            }
-            await launchGame(config)
-          },
-          () => {
-            setupUI.destroy()
-            showHome()
-          },
-        )
+        showCustomBattle()
       },
       onCampaign: () => {
         menu.destroy()
@@ -441,7 +526,7 @@ async function bootstrap(): Promise<void> {
   }
 
   if (careerResume) {
-    enterCareerTown(container!, launchCareerCombat, showHome, handleCareerMissionError)
+    enterCareerTown(container!, launchCareerCombat, showHome, handleCareerMissionError, launchCareerTutorial)
   } else if (requestedCampaignSetup) {
     showCampaignSetup(requestedCampaignSetup)
   } else {

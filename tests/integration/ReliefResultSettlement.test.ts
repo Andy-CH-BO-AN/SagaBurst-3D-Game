@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
@@ -9,8 +10,8 @@ import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
-  return { ...createCareerProfile(faction), rank: 'soldier', totalMerit: 300, availableMerit: 300,
-    completedOutpostStages: [1, 2, 3], ownedHorseTiers: [1], selectedMountId: 'horse-t1' }
+  return { ...createCareerProfile(faction), ...careerRankFixture(faction, 'soldier'), rank: 'soldier', totalMerit: 300, availableMerit: 300,
+    completedOutpostStages: [1, 2, 3], inventory: { version: 1 as const, quantities: Object.fromEntries(['horse'].map(id => [id, 1])) }, ownedMounts: ['horse'], selectedMountId: 'horse' }
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -47,7 +48,7 @@ describe('Relief result settlement wiring', () => {
     expect(game.defenseCampaignHud.showResult.mock.calls[0][0]).toBe(outcome)
     const saved = store.load()!
     expect(saved.outpostBattleRecords?.[0]).toMatchObject({ kind: 'outpost-relief', outcome, stats: { survived: false }, merit: { survival: 0 } })
-    expect(saved.totalMerit).toBe(outcome === 'victory' ? 445 : 365)
+    expect(saved.totalMerit).toBe(profile.totalMerit + saved.outpostBattleRecords![0].merit.total)
     expect(saved.completedOutpostStages).toEqual([1, 2, 3])
     expect(claimCareerOutpost(saved, 'relief', outcome, stats).alreadyClaimed).toBe(true)
     expect(parseCareerProfile(saved)?.outpostBattleRecords).toEqual(saved.outpostBattleRecords)

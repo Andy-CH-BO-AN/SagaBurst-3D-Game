@@ -1,13 +1,14 @@
-import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
+import { CHARACTER_LOD_DISTANCES, mountAnimationInterval } from './CharacterLODPolicy'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
+import { createRuntimeGltfLoader, registerTextureRenderer, sharedKtx2Loader } from './RuntimeGltfLoader'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { setHorseCorneaTransmission } from './HorseCorneaMaterial'
 import { shouldHorseCastShadow } from './HorseShadowPolicy'
+import { primeSkinnedTemplateBounds } from './SkinnedTemplateBounds'
+import { stopBoneEulerSync } from './BoneEulerSync'
+import { hideBoneOnlySubtrees } from './BoneRenderTraversal'
 
 export type HorseAnimationState =
   | 'idle'
@@ -82,6 +83,7 @@ export interface HorseTemplate {
   manifest: HorseAssetManifest
   gltf: GLTF
   bodyMaterials: THREE.MeshStandardMaterial[]
+  lodMaterials?: THREE.Material[]
 }
 
 export interface HorseDebugState {
@@ -141,6 +143,10 @@ const MAX_PACKAGE_BYTES = 30 * 1024 * 1024
 export const HORSE_LOD2_CULLED_TINY_DETAIL_NAMES = [
   'bridle_4F_Leather_Brown_Worn_mqm_lod2',
   'bridle_body_4F_Leather_Brown_Worn_mqm_lod2',
+  // Beyond 30 m each draw costs more than it shows: the blended mane/tail cards
+  // need a sorted transparent pass and the saddle sits under the rider.
+  'horse_groom_tail_lod2',
+  'horse_saddle_lod2',
 ] as const
 const HORSE_GAIT_REFERENCE_SPEEDS: Partial<Record<HorseAnimationState, number>> = {
   walk: 2.4,
@@ -180,7 +186,7 @@ function requireMesh(root: THREE.Object3D, name: string): THREE.Mesh {
   return object
 }
 
-/** Far LOD keeps the horse silhouette and saddle, but not sub-pixel bridle meshes. */
+/** Far LOD keeps the body silhouette only: bridle, blended mane/tail and saddle are hidden. */
 export function cullHorseLod2TinyDetails(root: THREE.Object3D): void {
   for (const name of HORSE_LOD2_CULLED_TINY_DETAIL_NAMES) {
     const detail = root.getObjectByName(name)
@@ -383,9 +389,10 @@ class HorseAnimationController {
   update(dt: number, cameraDistance = 0): void {
     if (!Number.isFinite(dt) || dt <= 0 || this.paused) return
     let step = dt
-    if (cameraDistance > 35) {
+    const interval = mountAnimationInterval(cameraDistance)
+    if (interval > 0) {
       this.farAccumulator += dt
-      if (this.farAccumulator < 1 / 15) return
+      if (this.farAccumulator < interval) return
       step = this.farAccumulator
       this.farAccumulator = 0
     }
@@ -420,6 +427,7 @@ class HorseAnimationController {
 }
 
 export function createHorseInstance(template: HorseTemplate, initialVariant: HorseAppearanceVariant): HorseInstance {
+  primeSkinnedTemplateBounds(template.gltf.scene)
   const root = cloneSkeleton(template.gltf.scene) as THREE.Group
   root.name = 'horse-mount-v2'
   const skeleton = bindSingleSkeleton(root)
@@ -451,7 +459,7 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
   const bodyMeshes = template.manifest.bodyMeshNames.map((name) => requireMesh(root, name))
   const applyVariant = (variant: HorseAppearanceVariant): void => {
     appearanceVariant = variant
-    for (const mesh of bodyMeshes) mesh.material = template.bodyMaterials[variant]
+    bodyMeshes.forEach((mesh, i) => { mesh.material = template.lodMaterials?.[i] ?? template.bodyMaterials[variant] })
   }
   applyVariant(initialVariant)
   const animation = new HorseAnimationController(
@@ -461,6 +469,8 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
     () => appearanceVariant,
     template.manifest,
   )
+  stopBoneEulerSync(root)
+  hideBoneOnlySubtrees(root)
 
   return {
     root,
@@ -496,113 +506,218 @@ function textureUrl(base: string, path: string): string {
   return `${base}/${path.replace(/^\/+/, '')}`
 }
 
+export class HorseAssetLoadError extends Error {
+  constructor(message: string) { super(message); this.name = 'HorseAssetLoadError' }
+}
+
+// Publish only a completed package. A timed-out attempt cannot overwrite a later retry.
+function loadHorsePackage(load: Promise<HorseTemplate>, label: string): Promise<HorseTemplate> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new HorseAssetLoadError(`${label}載入逾時（30 秒），請重試。`)), 30_000)
+    load.then(template => { clearTimeout(timeout); resolve(template) }, error => {
+      clearTimeout(timeout)
+      reject(new HorseAssetLoadError(`${label}載入失敗：${error instanceof Error ? error.message : String(error)}`))
+    })
+  })
+}
+
 export class HorseAssetRegistry {
   private static template: HorseTemplate | null = null
   private static preloadPromise: Promise<void> | null = null
+  private static ordinaryPreloadPromise: Promise<void> | null = null
+  private static armoredTemplate: HorseTemplate | null = null
+  private static armoredPreloadPromise: Promise<void> | null = null
+  private static armoredPreloadError: Error | null = null
+  private static lastRenderer: THREE.WebGLRenderer | null = null
 
   static get ready(): boolean {
     return this.template !== null
   }
 
+  static get armoredReady(): boolean {
+    return this.armoredTemplate !== null
+  }
+
+  static get armoredError(): Error | null {
+    return this.armoredPreloadError
+  }
+
+  static resetForTesting(): void {
+    this.template = null
+    this.preloadPromise = null
+    this.ordinaryPreloadPromise = null
+    this.armoredTemplate = null
+    this.armoredPreloadPromise = null
+    this.armoredPreloadError = null
+    this.lastRenderer = null
+  }
+
   static preload(renderer: THREE.WebGLRenderer): Promise<void> {
+    this.lastRenderer = renderer
     if (!this.preloadPromise) {
-      this.preloadPromise = this.load(renderer).catch((error) => {
-        this.preloadPromise = null
-        throw error
-      })
+      if (!this.ordinaryPreloadPromise) {
+        this.ordinaryPreloadPromise = this.template ? Promise.resolve()
+          : loadHorsePackage(this.load(renderer), '普通戰馬').then(template => { this.template = template }).catch(error => {
+            this.ordinaryPreloadPromise = null
+            throw error
+          })
+      }
+      // Every Game/Town/Studio entry awaits this shared barrier before creating mounts.
+      this.preloadPromise = Promise.all([this.ordinaryPreloadPromise, this.preloadArmored(renderer)])
+        .then(() => {}).catch(error => { this.preloadPromise = null; throw error })
     }
     return this.preloadPromise
   }
 
-  private static async load(renderer: THREE.WebGLRenderer): Promise<void> {
+  static preloadArmored(renderer?: THREE.WebGLRenderer): Promise<void> {
+    const activeRenderer = renderer ?? this.lastRenderer
+    if (renderer) this.lastRenderer = renderer
+    if (this.armoredTemplate) return Promise.resolve()
+    if (!this.armoredPreloadPromise) {
+      if (!activeRenderer) {
+        const error = new HorseAssetLoadError('Renderer is required to preload armored horse assets')
+        this.armoredPreloadError = error
+        return Promise.reject(error)
+      }
+      this.armoredPreloadPromise = loadHorsePackage(this.loadArmored(activeRenderer), '重甲戰馬').then(template => {
+        this.armoredTemplate = template
+        this.armoredPreloadError = null
+      }).catch((error) => {
+        this.armoredPreloadPromise = null
+        this.armoredPreloadError = error instanceof Error ? error : new Error(String(error))
+        throw error
+      })
+    }
+    return this.armoredPreloadPromise
+  }
+
+  private static async load(renderer: THREE.WebGLRenderer): Promise<HorseTemplate> {
     const base = publicAssetUrl('models/mounts/v1/horse')
     const response = await fetch(`${base}/manifest.json`, { cache: 'no-cache' })
     if (!response.ok) throw new Error(`Cannot load horse manifest (${response.status})`)
     const manifest = await response.json() as HorseAssetManifest
     validateHorseManifest(manifest)
 
-    const ktx2Loader = new KTX2Loader()
-      .setTranscoderPath(textureUrl(base, manifest.basisPath))
-      .detectSupport(renderer)
-    const loader = new GLTFLoader()
-      .setKTX2Loader(ktx2Loader)
-      .setMeshoptDecoder(MeshoptDecoder)
+    // One shared KTX2 transcoder for every runtime GLB (same Basis build as manifest.basisPath).
+    registerTextureRenderer(renderer)
+    const loader = createRuntimeGltfLoader()
 
-    try {
-      const gltf = await loader.loadAsync(textureUrl(base, manifest.file!))
-      // The authored transparent cornea remains a physical, clear-coated surface,
-      // but it must not make the whole main scene render into a transmission target.
-      setHorseCorneaTransmission(gltf.scene, false)
-      firstSkinnedMesh(gltf.scene)
-      normalizedClips(gltf)
-      for (const socket of REQUIRED_SOCKETS) requireObject(gltf.scene, socket)
-      for (const name of Object.values(manifest.lodNodes)) requireObject(gltf.scene, name)
-      for (const name of manifest.bodyMeshNames) requireMesh(gltf.scene, name)
+    const gltf = await loader.loadAsync(textureUrl(base, manifest.file!))
+    // The authored transparent cornea remains a physical, clear-coated surface,
+    // but it must not make the whole main scene render into a transmission target.
+    setHorseCorneaTransmission(gltf.scene, false)
+    firstSkinnedMesh(gltf.scene)
+    normalizedClips(gltf)
+    for (const socket of REQUIRED_SOCKETS) requireObject(gltf.scene, socket)
+    for (const name of Object.values(manifest.lodNodes)) requireObject(gltf.scene, name)
+    for (const name of manifest.bodyMeshNames) requireMesh(gltf.scene, name)
 
-      // Reuse external maps already loaded by GLTFLoader, including its sampler
-      // settings. Source horses may use repeating UVs outside the unit square.
-      const textures = new Map<string, Promise<THREE.Texture>>()
-      for (const [index, texture] of (gltf.parser.json.textures ?? []).entries()) {
-        const imageIndex = texture.extensions?.KHR_texture_basisu?.source ?? texture.source
-        const uri = gltf.parser.json.images?.[imageIndex]?.uri
-        if (uri) textures.set(textureUrl(base, uri), gltf.parser.getDependency('texture', index))
-      }
-      const loadTexture = (path: string): Promise<THREE.Texture> => {
-        const url = textureUrl(base, path)
-        if (!textures.has(url)) textures.set(url, ktx2Loader.loadAsync(url))
-        return textures.get(url)!
-      }
-      const [normal, roughness, ao, ...baseColors] = await Promise.all([
-        loadTexture(manifest.sharedBodyMaps.normal),
-        loadTexture(manifest.sharedBodyMaps.roughness),
-        manifest.sharedBodyMaps.ao
-          ? loadTexture(manifest.sharedBodyMaps.ao)
-          : Promise.resolve(null),
-        ...manifest.variants.map((variant) => loadTexture(variant.baseColor)),
-      ])
-      const anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy())
-      for (const texture of [normal, roughness, ao, ...baseColors]) {
-        if (!texture) continue
-        texture.anisotropy = anisotropy
-      }
-      normal.colorSpace = THREE.NoColorSpace
-      roughness.colorSpace = THREE.NoColorSpace
-      if (ao) ao.colorSpace = THREE.NoColorSpace
-      for (const texture of baseColors) texture.colorSpace = THREE.SRGBColorSpace
-
-      const sourceMaterial = requireMesh(gltf.scene, manifest.bodyMeshNames[0]).material
-      if (!(sourceMaterial instanceof THREE.MeshStandardMaterial)) {
-        throw new Error('Horse body material must be MeshStandardMaterial')
-      }
-      const bodyMaterials = baseColors.map((baseColor, index) => {
-        if (sourceMaterial.map) {
-          baseColor.wrapS = sourceMaterial.map.wrapS
-          baseColor.wrapT = sourceMaterial.map.wrapT
-          baseColor.repeat.copy(sourceMaterial.map.repeat)
-          baseColor.offset.copy(sourceMaterial.map.offset)
-          baseColor.rotation = sourceMaterial.map.rotation
-          baseColor.center.copy(sourceMaterial.map.center)
-          baseColor.channel = sourceMaterial.map.channel
-          baseColor.needsUpdate = true
-        }
-        const material = sourceMaterial.clone()
-        material.name = `horse-body-${manifest.variants[index].id}`
-        material.map = baseColor
-        material.normalMap = normal
-        material.roughnessMap = roughness
-        material.aoMap = ao
-        material.metalness = 0
-        material.needsUpdate = true
-        return material
-      })
-      this.template = { manifest, gltf, bodyMaterials }
-    } finally {
-      ktx2Loader.dispose()
+    // Reuse external maps already loaded by GLTFLoader, including its sampler
+    // settings. Source horses may use repeating UVs outside the unit square.
+    const textures = new Map<string, Promise<THREE.Texture>>()
+    for (const [index, texture] of (gltf.parser.json.textures ?? []).entries()) {
+      const imageIndex = texture.extensions?.KHR_texture_basisu?.source ?? texture.source
+      const uri = gltf.parser.json.images?.[imageIndex]?.uri
+      if (uri) textures.set(textureUrl(base, uri), gltf.parser.getDependency('texture', index))
     }
+    const loadTexture = (path: string): Promise<THREE.Texture> => {
+      const url = textureUrl(base, path)
+      if (!textures.has(url)) textures.set(url, sharedKtx2Loader().loadAsync(url))
+      return textures.get(url)!
+    }
+    const [normal, roughness, ao, ...baseColors] = await Promise.all([
+      loadTexture(manifest.sharedBodyMaps.normal),
+      loadTexture(manifest.sharedBodyMaps.roughness),
+      manifest.sharedBodyMaps.ao
+        ? loadTexture(manifest.sharedBodyMaps.ao)
+        : Promise.resolve(null),
+      ...manifest.variants.map((variant) => loadTexture(variant.baseColor)),
+    ])
+    const anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy())
+    for (const texture of [normal, roughness, ao, ...baseColors]) {
+      if (!texture) continue
+      texture.anisotropy = anisotropy
+    }
+    normal.colorSpace = THREE.NoColorSpace
+    roughness.colorSpace = THREE.NoColorSpace
+    if (ao) ao.colorSpace = THREE.NoColorSpace
+    for (const texture of baseColors) texture.colorSpace = THREE.SRGBColorSpace
+
+    const sourceMaterial = requireMesh(gltf.scene, manifest.bodyMeshNames[0]).material
+    if (!(sourceMaterial instanceof THREE.MeshStandardMaterial)) {
+      throw new Error('Horse body material must be MeshStandardMaterial')
+    }
+    const bodyMaterials = baseColors.map((baseColor, index) => {
+      if (sourceMaterial.map) {
+        baseColor.wrapS = sourceMaterial.map.wrapS
+        baseColor.wrapT = sourceMaterial.map.wrapT
+        baseColor.repeat.copy(sourceMaterial.map.repeat)
+        baseColor.offset.copy(sourceMaterial.map.offset)
+        baseColor.rotation = sourceMaterial.map.rotation
+        baseColor.center.copy(sourceMaterial.map.center)
+        baseColor.channel = sourceMaterial.map.channel
+        baseColor.needsUpdate = true
+      }
+      const material = sourceMaterial.clone()
+      material.name = `horse-body-${manifest.variants[index].id}`
+      material.map = baseColor
+      material.normalMap = normal
+      material.roughnessMap = roughness
+      material.aoMap = ao
+      material.metalness = 0
+      material.needsUpdate = true
+      return material
+    })
+    return { manifest, gltf, bodyMaterials }
   }
 
-  static createInstance(config: { variant?: HorseAppearanceVariant } = {}): HorseInstance {
+  private static async loadArmored(renderer: THREE.WebGLRenderer): Promise<HorseTemplate> {
+    const base = publicAssetUrl('models/mounts/v1/armored-horse')
+    const response = await fetch(`${base}/manifest.json`, { cache: 'no-cache' })
+    if (!response.ok) throw new Error(`Cannot load armored horse manifest (${response.status})`)
+    const manifest = await response.json() as HorseAssetManifest
+    validateHorseManifest(manifest)
+    registerTextureRenderer(renderer)
+    const gltf = await createRuntimeGltfLoader().loadAsync(textureUrl(base, manifest.file!))
+    firstSkinnedMesh(gltf.scene)
+    normalizedClips(gltf)
+    for (const name of [...REQUIRED_SOCKETS, ...Object.values(manifest.lodNodes)]) requireObject(gltf.scene, name)
+    const textures = new Map<string, Promise<THREE.Texture>>()
+    for (const [index, texture] of (gltf.parser?.json?.textures ?? []).entries()) {
+      const imageIndex = texture.extensions?.KHR_texture_basisu?.source ?? texture.source
+      const uri = gltf.parser?.json?.images?.[imageIndex]?.uri
+      if (uri) textures.set(textureUrl(base, uri), gltf.parser.getDependency('texture', index))
+    }
+    const loadTexture = (path: string): Promise<THREE.Texture> => {
+      const url = textureUrl(base, path)
+      if (!textures.has(url)) textures.set(url, sharedKtx2Loader().loadAsync(url))
+      return textures.get(url)!
+    }
+    await Promise.all([
+      loadTexture(manifest.sharedBodyMaps.normal),
+      loadTexture(manifest.sharedBodyMaps.roughness),
+      ...(manifest.sharedBodyMaps.ao ? [loadTexture(manifest.sharedBodyMaps.ao)] : []),
+      ...manifest.variants.map(variant => loadTexture(variant.baseColor)),
+    ])
+    const material = requireMesh(gltf.scene, manifest.bodyMeshNames[0]).material
+    if (!(material instanceof THREE.MeshStandardMaterial)) throw new Error('Armored horse material is unsupported')
+    return { manifest, gltf, bodyMaterials: [material, material, material],
+      lodMaterials: manifest.bodyMeshNames.map(name => requireMesh(gltf.scene, name).material as THREE.Material) }
+  }
+
+  static resolveTemplate(config: { variant?: HorseAppearanceVariant; armored?: boolean } = {}): HorseTemplate {
+    if (config.armored) {
+      if (!this.armoredTemplate) {
+        throw this.armoredPreloadError ?? new Error('Armored horse assets were not preloaded')
+      }
+      return this.armoredTemplate
+    }
     if (!this.template) throw new Error('HorseAssetRegistry is not preloaded')
-    return createHorseInstance(this.template, config.variant ?? 0)
+    return this.template
+  }
+
+  static createInstance(config: { variant?: HorseAppearanceVariant; armored?: boolean } = {}): HorseInstance {
+    const template = this.resolveTemplate(config)
+    return createHorseInstance(template, config.armored ? 0 : config.variant ?? 0)
   }
 }

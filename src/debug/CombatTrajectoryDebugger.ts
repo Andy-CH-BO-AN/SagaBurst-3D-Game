@@ -62,7 +62,7 @@ interface DebugLine {
 const formatVector = (value: THREE.Vector3): string =>
   `(${value.x.toFixed(2)}, ${value.y.toFixed(2)}, ${value.z.toFixed(2)})`
 
-/** Query-only combat animation diagnostics enabled by `?devcombat`. */
+/** Query-only combat animation diagnostics enabled by `?devcombat`; NPC traces need `?devcombat=all`. */
 export class CombatTrajectoryDebugger {
   private readonly traces = new Map<number, TraceState>()
   private readonly tmpGrip = new THREE.Vector3()
@@ -81,7 +81,8 @@ export class CombatTrajectoryDebugger {
   private readonly lastBowNock = new THREE.Vector3()
   private readonly lastProjectileTip = new THREE.Vector3()
   private readonly panel: HTMLDivElement
-  private readonly logAllNpcs: boolean
+  /** Per-NPC unculled lines would dominate large-battle draw calls and benchmarks. */
+  private readonly traceNpcs: boolean
   private readonly bowNockTrail: DebugLine
   private readonly bowDrawLine: DebugLine
   private readonly bowHandLine: DebugLine
@@ -109,7 +110,7 @@ export class CombatTrajectoryDebugger {
   private readonly projectileMax = new THREE.Vector3()
 
   constructor(private readonly scene: THREE.Scene) {
-    this.logAllNpcs = new URLSearchParams(window.location.search).get('devcombat') === 'all'
+    this.traceNpcs = new URLSearchParams(window.location.search).get('devcombat') === 'all'
     this.panel = document.createElement('div')
     this.panel.id = 'combat-trajectory-debug'
     Object.assign(this.panel.style, {
@@ -169,6 +170,7 @@ export class CombatTrajectoryDebugger {
     for (const npc of npcs) {
       const npcAction = npc.dead ? 'idle' : npc.combatAnimationAction
       if (MELEE_ACTIONS.has(npcAction)) activeNpcActions++
+      if (!this.traceNpcs) continue
       this.sample({
         key: npc.group.id,
         label: npc.name,
@@ -176,7 +178,7 @@ export class CombatTrajectoryDebugger {
         action: npcAction,
         color: npc.faction === Faction.PLAYER ? 0x39a9ff : 0xff4b3e,
         showWeapon: !npc.dead && npc.aiType === AIType.MELEE,
-        printSummary: this.logAllNpcs,
+        printSummary: true,
         getTip: () => npc.getWeaponTipPosition(),
         getGrip: (target) => npc.getWeaponGripPosition(target),
       })
@@ -198,7 +200,7 @@ export class CombatTrajectoryDebugger {
       'white=hand→nock  orange=nocked arrow',
       'green=launched arrow flight path',
       'red=5m aim guide + target marker',
-      this.logAllNpcs ? 'console=player+npcs' : 'console=player  (?devcombat=all for npcs)',
+      this.traceNpcs ? 'traces+console=player+npcs' : 'traces+console=player  (?devcombat=all for npcs)',
     ].join('\n')
   }
 

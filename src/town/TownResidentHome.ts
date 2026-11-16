@@ -32,7 +32,7 @@ export function restoreTownResidentHome<T extends TownHome>(resident: { spec: T;
   npc.restoreForTown({ x: home.x, y: home.y, z: home.z, yaw: home.yaw ?? Math.PI })
   npc.group.rotation.y = home.yaw ?? Math.PI
   if (homeMount) {
-    homeMount.restoreForTown(home.x, home.z, home.yaw ?? Math.PI)
+    homeMount.restoreForTown(home.x, home.z, home.yaw ?? Math.PI, home.y)
     npc.mountVehicle(homeMount)
   }
   return home

@@ -1,5 +1,6 @@
-import { describe,expect,it } from 'vitest'
-import { acceptCaptainFrontline,createCaptainFrontlineLaunch } from '../../src/career/CaptainBattleLaunch'
+import { careerRankFixture } from '../helpers/careerRankFixture'
+import { describe, expect, it } from 'vitest'
+import { acceptCaptainFrontline, createCaptainFrontlineLaunch } from '../../src/career/CaptainBattleLaunch'
 import type { CareerOutpostCheckpoint } from '../../src/career/CareerOutpostMission'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -9,7 +10,7 @@ import { MemoryStorage } from '../helpers/memoryStorage'
 
 describe('Captain Stage IX checkpoint storage contract', () => {
   it('round-trips the battle timeline, partial wave, casualties and official commands without using free Campaign progress', () => {
-    const profile = acceptCaptainFrontline({ ...createCareerProfile('roman'), rank: 'captain', totalMerit: 5000, availableMerit: 5000 }, 'stage-nine-save')!
+    const profile = acceptCaptainFrontline({ ...createCareerProfile('roman'), ...careerRankFixture('roman', 'captain'), rank: 'captain', totalMerit: 5000, availableMerit: 5000 }, 'stage-nine-save')!
     const launch = createCaptainFrontlineLaunch(profile), mission = profile.activeMission!
     const checkpoint: CareerOutpostCheckpoint = {
       runtime: { phase: 'assault', activePhase: 'assault', deploymentRemainingSeconds: 0, assaultElapsedSeconds: 121,

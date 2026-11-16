@@ -1,68 +1,284 @@
-import { stageMissionReturnRebuild } from '../career/CareerMissionReturnRecovery'
-import { townRoster } from './TownRules'
-import { createCareerBridgeBattleLaunch, isCareerBridgeBattle } from '../career/CareerBridgeBattle'
-import { installTownStyles, starterThumbnails } from './TownUI'
-import type { CareerProfile } from '../career/CareerProfile'
+import { CareerArenaTrialScene } from '../arena/CareerArenaTrialScene'
+import { CareerDuelArenaScene } from '../arena/CareerDuelArenaScene'
+import { CareerPrisonBreakScene } from '../arena/CareerPrisonBreakScene'
+import { DUEL_ARENA_LABELS } from '../arena/DuelArenaCatalog'
+import { DUEL_ARENA_RETURN_KEY } from '../arena/DuelArenaReturn'
+import { createCaptainEagleLaunch,createCaptainFrontlineLaunch,type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
+import { CAPTAIN_EAGLE_BATTLE_ID,CAPTAIN_FRONTLINE_COMMAND_ID } from '../career/CaptainMissionCatalog'
+import { careerArenaTrial } from '../career/CareerArenaTrials'
+import { createCareerBridgeBattleLaunch,createCareerFelineBattleLaunch,isCareerBridgeBattle,isCareerFelineBattle } from '../career/CareerBridgeBattle'
 import { createAndSaveCareer } from '../career/CareerCreation'
-import { showCommanderRetirementEnding } from './TownRetirementUI'
-import { CareerProfileStore } from '../career/CareerProfileStore'
-import { CAREER_RECOVERY_NOTICE_KEY } from '../career/CareerMissionRecovery'
-import { createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
-import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from '../career/CaptainMissionCatalog'
-import { clearCareerMission } from '../career/CareerProfile'
-import { CAREER_OUTPOST_SESSION_KEY } from '../career/CareerOutpostMission'
-import { refitTownCommandForSceneChange } from '../career/SquadRefit'
+import { careerDuelArena } from '../career/CareerDuelState'
 import { resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext'
+import { CAREER_RECOVERY_NOTICE_KEY } from '../career/CareerMissionRecovery'
+import { commitPrisonBreakReturn,stageMissionReturnRebuild } from '../career/CareerMissionReturnRecovery'
+import { CAREER_OUTPOST_SESSION_KEY } from '../career/CareerOutpostMission'
+import type { PersonalSquadMission } from '../career/CareerPersonalSquadMission'
+import { beginPrisonBreak,prisonGuardCount } from '../career/CareerPrisonBreak'
+import type { CareerProfile } from '../career/CareerProfile'
+import { clearCareerMission } from '../career/CareerProfile'
+import { CareerProfileStore } from '../career/CareerProfileStore'
+import { canStartCareerTutorial,commitCareerTutorial,startCareerTutorial } from '../career/CareerTutorial'
+import type { CareerTutorialLaunch } from '../career/CareerTutorialLaunch'
 import { COMMANDER_LAST_STAND_ID } from '../career/CommanderMissionCatalog'
 import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
+import { refitTownCommandForSceneChange } from '../career/SquadRefit'
+import { PRISON_CAPTURE_ACTION,PRISON_CAPTURE_DESCRIPTION,PRISON_CAPTURE_TITLE,prisonCaptureObjective } from '../ui/PrisonBreakBriefing'
+import { HorseAssetLoadError } from '../world/HorseAssetRegistry'
+import { FactionSelectionUI } from './FactionSelectionUI'
+import { markCareerMissionReturnToSergeant } from './SergeantReturn'
+import { showCommanderRetirementEnding } from './TownRetirementUI'
+import { townRoster } from './TownRules'
 import { TownScene } from './TownScene'
-import { grantStarter, STARTER_WEAPONS } from './TownRules'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import { installTownStyles } from './TownUI'
 export const TOWN_ENTRY_KEY = 'sagaburst_career_town'
+
+export function recoverSettledStartupMissionReturn(
+  clearedProfile: CareerProfile,
+  store: Pick<CareerProfileStore, 'save'>,
+  personalSquad?: PersonalSquadMission,
+  storage: Pick<Storage, 'setItem' | 'removeItem'> | undefined = typeof sessionStorage !== 'undefined' ? sessionStorage : undefined,
+  options: { setTownEntry?: boolean } = {},
+): CareerProfile | null {
+  const returned = stageMissionReturnRebuild(
+    refitTownCommandForSceneChange(clearedProfile),
+    townRoster().map(spec => ({ spec })),
+    personalSquad,
+  )
+  if (!store.save(returned)) return null
+  storage?.removeItem(CAREER_OUTPOST_SESSION_KEY)
+  if (options.setTownEntry !== false) storage?.setItem(TOWN_ENTRY_KEY, '1')
+  markCareerMissionReturnToSergeant(storage)
+  return returned
+}
 export function enterCareerTown(container: HTMLElement, launchCampaign: (config: CareerCombatLaunch) => Promise<void>, home: () => void,
-  onMissionLaunchError?: (missionId: string, error: unknown) => void): void {
+  onMissionLaunchError?: (missionId: string, error: unknown) => void,
+  launchTutorial?: (context: CareerTutorialLaunch) => Promise<void>): void {
   installTownStyles()
   const store = new CareerProfileStore(), loaded = store.loadChecked()
+  let open = true, routeGeneration = 0, selectionGeneration = 0
+  let selection: FactionSelectionUI | undefined
+  let closeEnding: (() => void) | undefined
+  const closeSelection = (): void => { selectionGeneration++; selection?.dispose(); selection = undefined }
+  const leave = (): void => {
+    if (!open) return
+    open = false; routeGeneration++; closeEnding?.(); closeSelection(); form.remove(); home()
+  }
   const form = document.createElement('div'); form.id = 'career-entry'; form.className = 'town-entry'
   const heading = document.createElement('h1'); heading.textContent = '生涯模式 CAREER'; form.append(heading)
   const status = document.createElement('p'); form.append(status); document.body.append(form)
-  const button = (label: string, action: () => void) => { const b = document.createElement('button'); b.textContent = label; b.className = 'town-button'; b.onclick = action; form.append(b); return b }
-  button('返回主選單', () => { form.remove(); home() })
+  const button = (label: string, action: () => void) => { const b = document.createElement('button'); b.textContent = label; b.className = 'town-button'; b.onclick = () => { if (open) action() }; form.append(b); return b }
+  button('返回主選單', leave)
   if (loaded.error) { status.textContent = loaded.error; return }
-  const start = async (profile: CareerProfile): Promise<void> => {
+  const start = async (profile: CareerProfile): Promise<boolean> => {
+    if (!open) return false
+    const generation = ++routeGeneration
+    const current = () => open && generation === routeGeneration
     if (profile.careerRetirement?.phase === 'completed') {
       form.remove()
-      showCommanderRetirementEnding(profile, {
-        home: () => { sessionStorage.removeItem(TOWN_ENTRY_KEY); home() },
-        newCareer: () => showCreator(null, profile),
+      sessionStorage.removeItem(TOWN_ENTRY_KEY)
+      closeEnding = showCommanderRetirementEnding(profile, {
+        home: () => { if (current()) { sessionStorage.removeItem(TOWN_ENTRY_KEY); leave() } },
+        newCareer: () => { if (current()) showCreator(profile) },
       })
-      return
+      return true
+    }
+    const prison = profile.activeMission?.prisonBreak
+    if (prison) {
+      form.remove()
+      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
+      const overlay = document.createElement('section'); overlay.id = 'career-prison-loading'
+      overlay.style.cssText = 'position:fixed;inset:0;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;color:#eee;background:#171411;z-index:9998;font:16px/1.6 system-ui;text-align:center;overflow-y:auto'
+      const text = document.createElement('p'); text.setAttribute('role', 'status')
+      text.style.cssText = 'width:min(600px,100%);margin:0;white-space:pre-line;overflow-wrap:anywhere'
+      overlay.append(text); document.body.append(overlay)
+      const action = (label: string, run: () => void) => { const b = document.createElement('button'); b.className = 'town-button'; b.textContent = label; b.style.cssText = 'max-width:100%;margin:0;white-space:normal'; b.onclick = () => { if (current()) run() }; overlay.append(b); return b }
+      const returnAfterLoadFailure = () => {
+        const latest = store.loadChecked().profile
+        if (!latest || latest.activeMission?.id !== prison.missionId) { text.textContent = '任務存檔已更新，請重新載入。'; return }
+        const next = commitPrisonBreakReturn(latest, prison.missionId, townRoster().map(spec => ({ spec })), next => store.save(next))
+        if (!next) { text.textContent = '返回尚未保存，請重試。'; return }
+        markCareerMissionReturnToSergeant()
+        overlay.remove(); void start(next)
+      }
+      if (prison.stage === 'captured') {
+        const result = profile.activeMission!.result!
+        const briefing = `${PRISON_CAPTURE_TITLE}\n原戰役軍功：${result.merit.total}\n${PRISON_CAPTURE_DESCRIPTION}\n${prisonCaptureObjective(prisonGuardCount(prison))}`
+        text.textContent = briefing
+        action(PRISON_CAPTURE_ACTION, () => {
+          const latest = store.loadChecked().profile
+          const next = latest && beginPrisonBreak(latest, prison.missionId)
+          if (!next || !store.save(next)) { text.textContent = `${briefing}\n越獄進度尚未保存，請重試。`; return }
+          overlay.remove(); void start(next)
+        })
+        return true
+      }
+      text.textContent = `正在前往${DUEL_ARENA_LABELS[prison.combat.arenaId]}…`
+      try {
+        const arena = await CareerPrisonBreakScene.create(container, { returnToTown: () => {
+          if (!current()) return
+          markCareerMissionReturnToSergeant()
+          void start(store.loadChecked().profile ?? profile)
+        } }, message => { text.textContent = message })
+        if (!current()) { arena.dispose(); overlay.remove(); return false }
+        if (import.meta.env.DEV) (window as unknown as { prisonBreak: CareerPrisonBreakScene }).prisonBreak = arena
+        overlay.remove(); arena.start(); return true
+      } catch (error) {
+        if (!current()) { overlay.remove(); return false }
+        console.error('[Career entry] Prison scene load failed', error)
+        text.textContent = '關押場景載入失敗；逃脫尚未結算。可以重試，或沿原戰役敗北返回小鎮。'
+        action('重試載入', () => { overlay.remove(); void start(store.loadChecked().profile ?? profile) })
+        action('依原敗北返回小鎮', returnAfterLoadFailure)
+        return false
+      }
+    }
+    // Routing is a capability saved on this enlistment, never inferred from a free-mode URL.
+    if (launchTutorial && profile.tutorial && canStartCareerTutorial(profile)) {
+      if (!profile.tutorial.session && profile.tutorial.recruit.status === 'available') {
+        const started = commitCareerTutorial(store, profile.tutorial.careerId, next => Boolean(startCareerTutorial(next, 'recruit')))
+        if (!started.ok) {
+          status.textContent = '無法保存新兵教學，尚未離開角色建立畫面。請重試。'
+          if (!selection) { document.body.append(form); button('重試進入新兵教學', () => { void start(profile) }) }
+          return false
+        }
+        profile = started.profile
+      }
+      const session = profile.tutorial?.session
+      if (session) {
+        form.remove()
+        try {
+          await launchTutorial({ careerId: session.careerId, sessionId: session.id, stage: session.stage })
+          return current()
+        } catch (error) {
+          if (!current()) return false
+          console.error('[Career entry] Tutorial launch failed', error)
+          status.textContent = '角色與教學已保存，但暫時無法載入練習場。請重試；你會繼續同一位角色。'
+          if (!selection) { document.body.append(form); button('重試進入新兵教學', () => { void start(profile) }) }
+          return false
+        }
+      }
+    }
+    // An Arena Squad Trial is its own scene too: accepted, mid-fight and settled saves all load the arena.
+    const trial = careerArenaTrial(profile.activeMission)
+    if (trial) {
+      form.remove()
+      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      const overlay = document.createElement('div'); overlay.id = 'career-arena-trial-loading'
+      overlay.style.cssText = 'position:fixed;inset:0;display:grid;place-content:center;gap:12px;color:#eee;background:#171411;z-index:9998;font:16px system-ui;text-align:center'
+      overlay.setAttribute('role', 'status')
+      const text = document.createElement('p'); text.textContent = `正在前往${DUEL_ARENA_LABELS[trial.arenaId]}…`; overlay.append(text)
+      document.body.append(overlay)
+      try {
+        const arena = await CareerArenaTrialScene.create(container, {
+          returnToTown: () => {
+            if (!current()) return
+            sessionStorage.setItem(DUEL_ARENA_RETURN_KEY, '1')
+            void start(store.loadChecked().profile ?? profile)
+          },
+        }, message => { text.textContent = message })
+        if (!current()) { arena.dispose(); overlay.remove(); return false }
+        if (import.meta.env.DEV) (window as unknown as { arenaTrial: CareerArenaTrialScene }).arenaTrial = arena
+        overlay.remove()
+        arena.start()
+        return true
+      } catch (error) {
+        if (!current()) { overlay.remove(); return false }
+        console.error('[Career entry] Arena trial load failed', error)
+        // A technical failure is never a defeat: the saved trial stays resumable or can be cancelled without a result.
+        text.textContent = `${DUEL_ARENA_LABELS[trial.arenaId]}載入失敗；本場試煉尚未結算，存檔與獎勵均未變動。`
+        const retry = document.createElement('button'); retry.className = 'town-button'; retry.textContent = '重試載入試煉'
+        retry.onclick = () => { overlay.remove(); void start(store.loadChecked().profile ?? profile) }
+        const cancel = document.createElement('button'); cancel.className = 'town-button'; cancel.textContent = '取消本次試煉（不計勝負）'
+        cancel.onclick = () => {
+          const latest = store.loadChecked().profile ?? profile
+          const mission = latest.activeMission
+          const next = mission ? clearCareerMission(latest, mission.id) : latest
+          if (mission && !store.save(next)) { text.textContent = '取消尚未保存，請重試。'; return }
+          overlay.remove(); void start(next)
+        }
+        overlay.append(retry, cancel)
+        return false
+      }
+    }
+    // A formal arena duel is its own scene: accepted, mid-fight and settled saves all load the arena.
+    const arenaId = careerDuelArena(profile.activeMission)
+    if (arenaId) {
+      form.remove()
+      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+      const overlay = document.createElement('div'); overlay.id = 'career-duel-arena-loading'
+      overlay.style.cssText = 'position:fixed;inset:0;display:grid;place-content:center;gap:12px;color:#eee;background:#171411;z-index:9998;font:16px system-ui;text-align:center'
+      overlay.setAttribute('role', 'status')
+      const text = document.createElement('p'); text.textContent = `正在前往${DUEL_ARENA_LABELS[arenaId]}…`; overlay.append(text)
+      document.body.append(overlay)
+      try {
+        const arena = await CareerDuelArenaScene.create(container, {
+          returnToTown: () => {
+            if (!current()) return
+            sessionStorage.setItem(DUEL_ARENA_RETURN_KEY, '1')
+            void start(store.loadChecked().profile ?? profile)
+          },
+        }, message => { text.textContent = message })
+        if (!current()) { arena.dispose(); overlay.remove(); return false }
+        if (import.meta.env.DEV) (window as unknown as { duelArena: CareerDuelArenaScene }).duelArena = arena
+        overlay.remove()
+        arena.start()
+        return true
+      } catch (error) {
+        if (!current()) { overlay.remove(); return false }
+        console.error('[Career entry] Duel arena load failed', error)
+        // A technical failure is never a defeat: the saved duel stays resumable or can be cancelled without a result.
+        text.textContent = `${DUEL_ARENA_LABELS[arenaId]}載入失敗；本場單挑尚未結算，存檔與獎勵均未變動。`
+        const retry = document.createElement('button'); retry.className = 'town-button'; retry.textContent = '重試載入單挑'
+        retry.onclick = () => { overlay.remove(); void start(store.loadChecked().profile ?? profile) }
+        const cancel = document.createElement('button'); cancel.className = 'town-button'; cancel.textContent = '取消本次單挑（不計勝負）'
+        cancel.onclick = () => {
+          const latest = store.loadChecked().profile ?? profile
+          const mission = latest.activeMission
+          const next = mission ? clearCareerMission(latest, mission.id) : latest
+          if (mission && !store.save(next)) { text.textContent = '取消尚未保存，請重試。'; return }
+          overlay.remove(); void start(next)
+        }
+        overlay.append(retry, cancel)
+        return false
+      }
     }
     const active = profile.activeMission
     const captainLaunch = active?.templateId === CAPTAIN_FRONTLINE_COMMAND_ID && active.kind === 'captain-outpost-defense'
       ? () => createCaptainFrontlineLaunch(profile)
       : active?.templateId === CAPTAIN_EAGLE_BATTLE_ID && active.kind === 'captain-eagle-battle' ? () => createCaptainEagleLaunch(profile)
       : isCareerBridgeBattle(active) ? () => createCareerBridgeBattleLaunch(profile)
+      : isCareerFelineBattle(active) ? () => createCareerFelineBattleLaunch(profile)
       : active?.templateId === COMMANDER_LAST_STAND_ID && active.kind === 'commander-outpost-last-stand' ? () => createCareerCommanderOutpostLaunch(profile) : null
     if (active && captainLaunch) {
       if (profile.claimedBattleIds.includes(active.id)) {
-        const cleared = stageMissionReturnRebuild(clearCareerMission(profile, active.id), townRoster().map(spec => ({ spec })), active.personalSquad)
-        if (!store.save(cleared)) {
+        const recovered = recoverSettledStartupMissionReturn(
+          clearCareerMission(profile, active.id),
+          store,
+          active.personalSquad,
+          undefined,
+          { setTownEntry: false },
+        )
+        if (!recovered) {
           status.textContent = '無法保存正式任務返回狀態，請重試。'
           button('重試返回小鎮', () => { void start(profile) })
-          return
+          return false
         }
-        profile = cleared
+        profile = recovered
       } else {
         form.remove()
         sessionStorage.setItem(CAREER_OUTPOST_SESSION_KEY, active.id)
         sessionStorage.removeItem(TOWN_ENTRY_KEY)
-        try { await launchCampaign(captainLaunch()) }
+        try { await launchCampaign(captainLaunch()); return current() }
         catch (error) {
+          if (!current()) return false
           if (onMissionLaunchError) onMissionLaunchError(active.id, error)
-          else { form.append(status); status.textContent = String(error); document.body.append(form) }
+          else {
+            console.error('[Career entry] Mission launch failed', error)
+            form.append(status); status.textContent = '任務暫時無法載入。存檔已保留，請返回主選單後再試。'; document.body.append(form)
+          }
+          return false
         }
-        return
       }
     }
     // Request inside the entry button gesture, before asynchronous loading consumes it.
@@ -70,10 +286,15 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       try { container.requestPointerLock?.()?.catch(() => {}) } catch { /* Canvas click retries pointer lock after loading. */ }
     }
     form.remove()
-    const loading = document.createElement('div'); loading.id = 'career-town-loading'; loading.textContent = profile.activeMission?.siege ? '正在部署攻守部隊與四門城防…' : '正在載入陣營小鎮、駐軍與居民…'; loading.style.cssText = 'position:fixed;inset:0;z-index:999;background:#191b1c;color:#eee;display:grid;place-items:center'; document.body.append(loading)
+    const loading = document.createElement('div'); loading.id = 'career-town-loading'; loading.textContent = profile.activeMission?.kind === 'commander-four-gate-defense' ? '正在部署攻守部隊與四門城防…' : '正在載入陣營小鎮、駐軍與居民…'; loading.style.cssText = 'position:fixed;inset:0;z-index:999;background:#191b1c;color:#eee;display:grid;place-items:center'; document.body.append(loading)
     const transition = (value: CareerProfile, proceed: (next: CareerProfile) => void, deathReturn = false): void => {
+      if (!current()) return
       const next = refitTownCommandForSceneChange(value)
-      if (deathReturn) delete next.playerAerialState
+      if (deathReturn) {
+        // Old race snapshots can also contain a later battle death; respawn owns recovery.
+        delete next.playerAerialState
+        delete next.racePlayerState
+      }
       if (store.save(next)) { proceed(next); return }
       loading.textContent = '無法保存城防整補，尚未轉場。'
       document.body.append(loading)
@@ -82,9 +303,9 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
     }
     try {
       sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
-      sessionStorage.removeItem('sagaburst_battle_config'); sessionStorage.removeItem('sagaburst_campaign_config')
+      sessionStorage.removeItem('sagaburst_battle_config_v2'); sessionStorage.removeItem('sagaburst_campaign_config_v2')
       const town = await TownScene.create(container, profile, config => {
-        if (!config?.careerMissionId) return
+        if (!current() || !config?.careerMissionId) return
         // Keep the launch gesture on the persistent container across scene loading.
         if (!location.search.includes('nolock')) {
           try { container.requestPointerLock?.()?.catch(() => {}) } catch { /* Canvas click retries if denied. */ }
@@ -96,15 +317,26 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
           void launchCampaign(config)
         })
       }, (p, reason) => {
+        if (!current()) return
         if (p.careerRetirement?.phase === 'completed') { void start(p); return }
         const before = resolveCareerTownSceneContext(profile), after = resolveCareerTownSceneContext(p)
         if (reason === 'death-return' || before.worldFaction !== after.worldFaction) {
           transition(p, next => { void start(next) }, reason === 'death-return')
         } else void start(p)
       }, () => {
+        if (!current()) return
         sessionStorage.removeItem(TOWN_ENTRY_KEY)
-        home()
-      }, message => { loading.textContent = message })
+        leave()
+      }, message => { if (current()) loading.textContent = message }, (stage, replay) => {
+        if (!current() || !launchTutorial || !profile.tutorial) return false
+        const started = commitCareerTutorial(store, profile.tutorial.careerId, next => Boolean(startCareerTutorial(next, stage, replay)))
+        if (!started.ok) return false
+        const session = started.profile.tutorial!.session!
+        // Town disposes its listeners and renderer before the next scene is constructed.
+        queueMicrotask(() => { if (current()) void launchTutorial({ careerId: session.careerId, sessionId: session.id, stage: session.stage }) })
+        return true
+      })
+      if (!current()) { town.dispose(); loading.remove(); return false }
       if (import.meta.env.DEV) (window as unknown as { town: TownScene }).town = town
       loading.remove()
       town.start()
@@ -121,63 +353,83 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
         close.onclick = () => note.remove()
         note.append(close); document.body.append(note)
       }
+      return true
     } catch (error) {
+      if (!current()) { loading.remove(); return false }
       const missionId = profile.activeMission?.id ?? profile.activeOutpostMission?.id
-      if (missionId && onMissionLaunchError) {
+      if (missionId && onMissionLaunchError && !(error instanceof HorseAssetLoadError)) {
         loading.remove()
         onMissionLaunchError(missionId, error)
-        return
+        return false
       }
       sessionStorage.removeItem(TOWN_ENTRY_KEY)
-      loading.textContent = '小鎮載入失敗：' + String(error)
+      console.error('[Career entry] Town load failed', error)
+      status.textContent = error instanceof HorseAssetLoadError ? `${error.message} 角色與存檔已保留。` : '暫時無法進入城鎮。角色與存檔已保留，請重試。'
+      if (selection) { loading.remove(); return false }
+      loading.textContent = status.textContent
+      const retry = document.createElement('button'); retry.textContent = '重試載入城鎮'
+      retry.onclick = () => {
+        if (!current() || retry.disabled) return
+        retry.disabled = true; loading.remove(); void start(profile)
+      }; loading.append(retry)
       const back = document.createElement('button'); back.textContent = '返回主選單'
-      back.onclick = () => { sessionStorage.removeItem(TOWN_ENTRY_KEY); loading.remove(); home() }; loading.append(back)
+      back.onclick = () => { if (current()) { sessionStorage.removeItem(TOWN_ENTRY_KEY); loading.remove(); leave() } }; loading.append(back)
+      return false
     }
   }
-  const showCreator = (existing: CareerProfile | null, replacement?: CareerProfile): void => {
-    form.replaceChildren(heading, status)
-    document.body.append(form)
-    button(replacement ? '取消' : '返回主選單', () => {
-      form.remove()
-      if (replacement) void start(replacement)
-      else home()
-    })
-    let faction: 'roman' | 'viking' = existing?.faction ?? 'roman'
-    status.textContent = existing ? '補選一次起始武器；原有軍功與收藏保留。' : '選擇陣營與一把 T1 起始武器。新角色只配發這一把武器。'
-    if (!existing) {
-      const select = document.createElement('select'); select.innerHTML = '<option value="roman">Roman 羅馬</option><option value="viking">Viking 維京</option>'; select.onchange = () => { faction = select.value as typeof faction }; form.append(select)
-    }
-    const grid = document.createElement('div'); grid.className = 'town-starters'; form.append(grid)
-    const thumbnails = starterThumbnails(STARTER_WEAPONS)
-    for (const id of STARTER_WEAPONS) {
-      const weapon = WEAPONS[id], card = document.createElement('button'); card.className = 'town-starter'
-      const image = document.createElement('img'); image.src = thumbnails.get(id)!; image.alt = weapon.name
-      const name = document.createElement('strong'); name.textContent = weapon.name
-      const description = document.createElement('p'); description.textContent = weapon.description
-      const stats = document.createElement('dl')
-      for (const [label, value] of [['傷害', weapon.damageMin + '–' + weapon.damageMax], [weapon.type === 'melee' ? '揮擊時間' : '蓄力時間', weapon.speedOrCharge + ' 秒'], [weapon.type === 'melee' ? '距離' : '彈速', weapon.range ? weapon.range + ' m' : weapon.arrowSpeedMin + '–' + weapon.arrowSpeedMax + ' m/s']]) {
-        const term = document.createElement('dt'), detail = document.createElement('dd'); term.textContent = label; detail.textContent = value; stats.append(term, detail)
-      }
-      const choose = document.createElement('p'); choose.textContent = 'T1 · 選擇此武器 →'
-      card.append(image, name, description, stats, choose); grid.append(card)
-      card.onclick = () => {
-        let profile: CareerProfile | null = null
-        if (existing) {
-          const selected = grantStarter(existing, id)
-          if (store.save(selected)) profile = selected
-        } else {
+  const showCreator = (replacement?: CareerProfile): void => {
+    if (!open) return
+    routeGeneration++; closeEnding?.(); closeSelection(); form.remove()
+    const token = selectionGeneration
+    const current = () => open && token === selectionGeneration
+    let starting = false, savedCareerId: string | undefined
+    const view = new FactionSelectionUI({
+      initialFaction: replacement?.faction ?? 'roman',
+      backLabel: replacement ? '取消' : '返回主選單',
+      onBack: () => {
+        if (!current() || starting) return
+        closeSelection()
+        if (replacement && !savedCareerId) void start(replacement)
+        else leave()
+      },
+      onStart: async faction => {
+        if (!current() || starting) return
+        starting = true
+        view.setBusy(true)
+        try {
           const fresh = store.loadChecked()
-          const sameEnding = !replacement || fresh.profile?.careerRetirement?.acceptedAt === replacement.careerRetirement?.acceptedAt
-            && fresh.profile?.careerRetirement?.outcome === replacement.careerRetirement?.outcome
-          if (!fresh.error && sameEnding) profile = createAndSaveCareer(fresh.profile, faction, id, Boolean(replacement), next => store.save(next))
+          if (fresh.error) { view.showError(fresh.error); return }
+          let profile: CareerProfile | null
+          if (savedCareerId) {
+            profile = fresh.profile?.tutorial?.careerId === savedCareerId ? fresh.profile : null
+          } else {
+            const sameEnding = !replacement || fresh.profile?.tutorial?.careerId === replacement.tutorial?.careerId
+              && fresh.profile?.careerRetirement?.acceptedAt === replacement.careerRetirement?.acceptedAt
+              && fresh.profile?.careerRetirement?.outcome === replacement.careerRetirement?.outcome
+            profile = sameEnding ? createAndSaveCareer(fresh.profile, faction, Boolean(replacement), next => store.save(next)) : null
+          }
+          if (!profile) { view.showError('保存失敗或原存檔已更新。角色尚未轉場，原存檔保留，請重試。'); return }
+          savedCareerId = profile.tutorial!.careerId
+          view.setCommittedFaction(profile.faction)
+          view.setVisible(false)
+          const started = await start(profile)
+          if (!current()) return
+          if (started) closeSelection()
+          else { view.setVisible(true); view.showError(status.textContent || '角色已保存，尚未進入場景。請重試。') }
+        } catch (error) {
+          if (current()) {
+            console.error('[Career entry] Could not prepare new Career', error)
+            view.setVisible(true); view.showError('暫時無法準備新兵訓練。角色與存檔已保留，請重試。')
+          }
+        } finally {
+          starting = false
+          if (current()) view.setBusy(false)
         }
-        if (!profile) { status.textContent = '保存失敗或原存檔已更新。角色與配發尚未完成，原存檔保留，請重試。'; return }
-        grid.querySelectorAll('button').forEach(button => { button.disabled = true })
-        void start(profile)
-      }
-    }
-
+      },
+    })
+    selection = view
+    view.mount(document.body)
   }
-  if (loaded.profile?.careerRetirement?.phase === 'completed' || loaded.profile?.starterWeaponId) { void start(loaded.profile); return }
-  showCreator(loaded.profile)
+  if (loaded.profile) { void start(loaded.profile); return }
+  showCreator()
 }

@@ -48,7 +48,7 @@ export function townNativeSaleStock(profile: CareerProfile, faction: CareerProfi
     const product = TOWN_PRODUCTS.find(product => product.id === item.itemId && product.category !== 'mount')
     const price = townResalePrice(profile, item.itemId)
     if (!product || !Number.isSafeInteger(product.price) || product.price <= 0 || !Number.isSafeInteger(price) || price <= 0) continue
-    const entry = stock.get(item.itemId) ?? { product, nativeIds: [], price }
+    const entry: TownNativeSaleStock = stock.get(item.itemId) ?? { product, nativeIds: [], price }
     entry.nativeIds.push(item.nativeId); stock.set(item.itemId, entry)
   }
   return [...stock.values()].map(entry => ({ ...entry, nativeIds: entry.nativeIds.sort() })).sort((a, b) => a.product.id.localeCompare(b.product.id))
@@ -86,12 +86,6 @@ function transact(read: () => CareerProfile, context: () => TownNativeSaleContex
   } catch { return fail('invalid-token') }
   try { if (!save(next)) return fail('save-failed') } catch { return fail('save-failed') }
   return { sold: true, profile: next, soldCount: ids.length, earnedMerit }
-}
-
-/** Explicit token requests reject duplicates, foreign tokens, active holders, and partial batches. */
-export function sellTownNativeEquipment(read: () => CareerProfile, context: () => TownNativeSaleContext,
-  nativeIds: readonly string[], save: (profile: CareerProfile) => boolean): TownNativeSaleResult {
-  return transact(read, context, () => nativeIds, save)
 }
 
 /** Select canonical native IDs in stable order, rechecking quantity at the moment of sale. */

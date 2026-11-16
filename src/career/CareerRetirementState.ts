@@ -38,7 +38,7 @@ export interface CareerRetirementRuntime {
     mounted: boolean
   }
   mountState?: ActiveCareerMission['mountState']
-  mount?: { position: AerialPosition; hp: number; flight?: EagleFlightSnapshot }
+  mount?: { position: AerialPosition; armorImpactRemaining?: number; hp: number; flight?: EagleFlightSnapshot }
 }
 
 export function parseCareerRetirementState(value: unknown): CareerRetirementState | null {

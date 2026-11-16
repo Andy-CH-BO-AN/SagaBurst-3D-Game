@@ -89,7 +89,8 @@ export function configureMultiInfluenceSkinning(root: THREE.Object3D): void {
     object.customDistanceMaterial = shadows.distance
     object.applyBoneTransform = applyCompleteSkin
     if (object.skeleton && object.boundingBox) object.computeBoundingBox()
-    if (object.skeleton && object.boundingSphere) object.computeBoundingSphere()
+    // A sphere copied from the template was already skinned with every set;
+    // recomputing it here would CPU-skin each clone at spawn.
   })
 }
 

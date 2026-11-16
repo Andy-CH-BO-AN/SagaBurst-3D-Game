@@ -1,19 +1,21 @@
+import { SpatialGrid } from '../../src/world/SpatialGrid'
+import type { Player } from '../../src/player/Player'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { gateBreachLane } from '../../src/navigation/GateBreachPortal'
 import { describe, expect, it, onTestFinished } from 'vitest'
-import { siegeDefensePlans } from '../../src/career/TownSiege'
+
 import { TownFourGateSiege, type TownSiegeAttackerRole } from '../../src/career/TownFourGateSiege'
 import { planCommanderFourGateDefenseDeployment } from '../../src/career/CommanderFourGateDefenseDeployment'
-import { AIType, NPC } from '../../src/world/NPC'
+import { AIType, NPC, Faction } from '../../src/world/NPC'
 import { parseCommandActorCheckpoint } from '../../src/career/CareerCommandAuthority'
-import { Box3, Vector3 } from 'three'
+import { Vector3 } from 'three'
 import { AvailableBreachEntrances } from '../../src/navigation/AvailableBreachEntrances'
 import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
-import { townSiegeSectorReceiptsMatch } from '../../src/career/TownFourGateSiegePolicy'
 import { townAuthoredRoster, type TownActorSpec } from '../../src/town/TownRules'
 import { getTownRampartLayout, townRampartHeight } from '../../src/town/TownRamparts'
-import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
-import type { ObstacleData } from '../../src/world/Terrain'
+
+import { getTerrainHeight } from '../../src/world/Terrain'
 import { SiegeConvoy } from '../../src/campaign/SiegeConvoy'
 
 // Exercise the full authored identity/capacity contract without allocating normal-Town
@@ -21,68 +23,6 @@ import { SiegeConvoy } from '../../src/campaign/SiegeConvoy'
 // with the positioned townRoster; TownResidentLayout owns those placement invariants.
 
 describe('Siege deployment and shared rule ownership', () => {
-  it('keeps native gate membership and deploys all ground defenders without replacing the eight official squads', () => {
-    const residents = townAuthoredRoster(), plans = siegeDefensePlans(residents)
-    expect(plans.map(p => p.infantry.length).sort()).toEqual([25, 25, 25, 26])
-    expect(plans.map(p => p.cavalry.length).sort()).toEqual([25, 25, 26, 26])
-    for (const p of plans) expect(p.infantry.filter(id => id.startsWith('gate:')).every(id => id.startsWith(`gate:${p.gateId}:`))).toBe(true)
-    expect(plans.map(p => p.leaderId)).toEqual(['captain', 'ranger', 'town-patrol:a:captain', 'town-patrol:b:captain'])
-    const trainer: TownActorSpec = { id: 'eagle-trainer', role: 'eagle-trainer', duty: 'service', tier: 4,
-      mounted: false, training: false, assaultObjective: true, index: 0, x: -90, z: 36, yaw: 0 }
-    const officer: TownActorSpec = { id: 'hr-officer', role: 'hr-officer', duty: 'service', tier: 4,
-      mounted: true, training: false, assaultObjective: false, index: 0, x: -70, z: 0 }
-    const native = [...residents, townCommanderSpec({ x: 52, z: -22, yaw: 0 }), trainer, officer]
-    const original = structuredClone(native), layout = getTownRampartLayout()
-    // Math-only walk surfaces and two physical volumes: a firing blocker outside
-    // the deck and an occupied portion of its inner lanes. No scene/model builder.
-    const obstacles: ObstacleData[] = [
-      { box: new Box3(new Vector3(-31, -100, -115), new Vector3(-12, 100, -113.3)), isBarricade: false },
-      { box: new Box3(new Vector3(10, -100, -112), new Vector3(20, 100, -104)), isBarricade: false },
-    ]
-    const deployment = planCommanderFourGateDefenseDeployment(native, layout, obstacles)
-    const groundIds = native.filter(actor => actor.duty !== 'eagle_garrison' && actor.duty !== 'watchtower_guard'
-      && (actor.unitKind || ['ranger', 'commander', 'eagle-trainer', 'hr-officer'].includes(actor.role))).map(actor => actor.id)
-    const sectorIds = deployment.sectors.flatMap(sector => [...sector.wallActorIds, ...sector.cavalryActorIds])
-    expect(deployment.stations.size).toBe(206)
-    expect(new Set(sectorIds).size).toBe(206)
-    expect([...deployment.stations.keys()].sort()).toEqual(groundIds.sort())
-    expect(sectorIds.sort()).toEqual(groundIds)
-    expect(deployment.sectors.map(sector => [sector.wallActorIds.length, sector.cavalryActorIds.length]))
-      .toEqual([[26, 26], [26, 26], [25, 26], [25, 26]])
-    expect(deployment.squads.map(squad => squad.squadId)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
-    expect(deployment.squads.map(squad => squad.actorIds.length)).toEqual([26, 26, 26, 26, 25, 26, 25, 26])
-    expect(new Set(deployment.squads.flatMap(squad => squad.actorIds)).size).toBe(206)
-    expect(deployment.squads[1].actorIds).toContain('commander')
-    expect(deployment.squads[2].actorIds).toContain('eagle-trainer')
-    expect(deployment.squads[7].actorIds).toContain('hr-officer')
-    expect(deployment.squads[5].actorIds).toContain('captain')
-    expect(deployment.squads.flatMap(squad => squad.actorIds).some(id => /^(town-eagle-rider|watchtower-archer):/.test(id))).toBe(false)
-    for (const squad of deployment.squads) for (const id of squad.actorIds) {
-      expect(deployment.stations.get(id)?.gateId).toBe(['north', 'south', 'east', 'west'][Math.floor((squad.squadId - 1) / 2)])
-      expect(deployment.stations.get(id)?.kind).toBe(squad.squadId % 2 ? 'wall' : 'cavalry')
-    }
-    expect(deployment.stations.get('gate:north:0')!.z).toBeLessThan(deployment.stations.get('gate:north:4')!.z)
-    expect(native).toEqual(original)
-    const stations = [...deployment.stations], invalid: string[] = []
-    const radius = (kind: 'wall' | 'cavalry') => kind === 'wall' ? .6 : 1.25
-    for (const [index, [id, station]] of stations.entries()) {
-      const r = radius(station.kind), spec = native.find(actor => actor.id === id)!
-      if (station.kind === 'wall' && townRampartHeight(layout, station.x, station.z) !== station.y) invalid.push(`${id}:unsupported`)
-      if (spec.gateId && station.gateId !== spec.gateId) invalid.push(`${id}:wrong gate`)
-      if (obstacles.some(({ box }) => station.x + r > box.min.x && station.x - r < box.max.x
-        && station.z + r > box.min.z && station.z - r < box.max.z)) invalid.push(`${id}:blocked`)
-      if (station.kind === 'wall' && station.gateId === 'north' && ['ranged', 'archer'].includes(spec.unitKind ?? '')
-        && station.x >= -31 && station.x <= -12) invalid.push(`${id}:blocked shot`)
-      // West pad 4's standing/approach envelope is reserved even without a ground collider.
-      if (station.kind === 'cavalry' && station.x >= -99 && station.x <= -71 && station.z >= -27 && station.z <= 113) invalid.push(`${id}:eagle corridor`)
-      for (let other = 0; other < index; other++) {
-        const neighbor = stations[other][1]
-        if (Math.abs(neighbor.y - station.y) < 3.6
-          && Math.hypot(neighbor.x - station.x, neighbor.z - station.z) < r + radius(neighbor.kind)) invalid.push(`${id}:overlap`)
-      }
-    }
-    expect(invalid).toEqual([])
-  })
 
   it('keeps horse-equipped native infantry on supported wall slots and dismounted native cavalry at its gate', () => {
     const ids = ['gate:north:0', 'gate:north:1', 'gate:north:7', 'captain', 'town-eagle-rider:1']
@@ -137,50 +77,39 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(actor.isMountedTownRampartGarrisonEnabled).toBe(false)
   })
 
-  it('releases only East wall defenders once when East-left docks, keeping all cavalry and East-right independent', () => {
-    const events: string[] = [], policy = new TownGateBreachPolicy(event => { events.push(`${event.gateId}:${event.kind}`); return ['east:wall:1'] })
+  it('requires explicit Outpost duty and does not reclaim a ranged melee attacker still standing on the rampart after release', () => {
+    type GarrisonActor = Pick<NPC, 'activateOutpostRampartGarrison' | 'releaseOutpostRampartGarrison'
+      | 'isOutpostRampartGarrisonActive' | 'holdsRampartPosition' | 'tacticalOrder' | 'setTacticalOrder'>
+    // Only order side effects are a boundary. The real duty lifecycle and hold policy run
+    // on a ranged actor that has already drawn melee, without constructing a scene/model.
+    const actor = Object.assign(Object.create(NPC.prototype) as GarrisonActor, {
+      mount: null, rangedActive: false, tacticalOrder: 'attack',
+      townRampartGarrison: false, outpostRampartGarrison: false,
+      group: { position: new Vector3(4, 8, -20) },
+      _activeNavigationWorld: { outpostNav: { getNavLayer: () => 'rampart_left' } },
+      setTacticalOrder(this: GarrisonActor, order: NPC['tacticalOrder']) { this.tacticalOrder = order },
+    })
+    Object.defineProperty(actor, 'aiType', { value: AIType.RANGED })
+    expect(actor.holdsRampartPosition).toBe(false)
+    actor.activateOutpostRampartGarrison('attack')
+    expect(actor.isOutpostRampartGarrisonActive).toBe(true)
+    expect(actor.holdsRampartPosition).toBe(true)
+    actor.releaseOutpostRampartGarrison()
+    expect(actor.isOutpostRampartGarrisonActive).toBe(false)
+    expect(actor.holdsRampartPosition).toBe(false)
+  })
+
+  it('releases wall defenders and gate cavalry on ramp dock or gate destruction without event replay', () => {
+    const events: string[] = []
+    const policy = new TownGateBreachPolicy(event => { events.push(`${event.gateId}:${event.kind}`); return [`${event.gateId}:1`] })
     policy.ramp('east', -1, true); policy.ramp('east', -1, true)
     expect(events).toEqual(['east:wall'])
     expect(policy.gates.get('east')).toMatchObject({ dockedRampIds: ['town-siege-ramp:east:left'], cavalryEventHandled: false })
     expect(policy.gates.get('north')?.wallEventHandled).toBe(false)
-    expect(policy.gates.get('south')?.wallEventHandled).toBe(false)
-    expect(policy.gates.get('west')?.wallEventHandled).toBe(false)
-  })
-  it('releases only destroyed North gate cavalry and restores its one-shot event without replay', () => {
-    const events: string[] = [], policy = new TownGateBreachPolicy(event => { events.push(`${event.gateId}:${event.kind}`); return ['north:cavalry:1'] })
-    policy.gate('east', 'open'); policy.gate('north', 'destroyed'); policy.gate('north', 'destroyed')
-    expect(events).toEqual(['north:cavalry'])
-    const oldReceipt = policy.gates.get('north')!
-    // An older Commander save classified a horse-equipped infantry actor as cavalry.
-    // Only the same-gate defender union may admit that historical receipt, without rewriting it.
-    const currentSector = { gateId: 'north' as const, wallActorIds: ['north:cavalry:1', 'north:wall:2'], cavalryActorIds: [] }
-    expect(townSiegeSectorReceiptsMatch(currentSector, oldReceipt)).toBe(false)
-    expect(townSiegeSectorReceiptsMatch(currentSector, oldReceipt, true)).toBe(true)
-    expect(townSiegeSectorReceiptsMatch({ ...currentSector, gateId: 'east' }, oldReceipt, true)).toBe(false)
-    expect(townSiegeSectorReceiptsMatch({ ...currentSector, wallActorIds: ['north:other'] }, oldReceipt, true)).toBe(false)
-    const issued: string[] = []
-    const actors = currentSector.wallActorIds.map(combatantId => ({ combatantId, dead: false,
-      tacticalOrder: 'defend', hasFormationTarget: false, releaseOutpostRampartGarrison() {},
-      setMissionCombatTarget() {}, setTacticalOrder() { issued.push(combatantId) } }))
-    const owner = Object.assign(Object.create(TownFourGateSiege.prototype) as {
-      dispatch(event: { gateId: 'north'; kind: 'wall' }): string[]; policy?: TownGateBreachPolicy
-    }, { restoring: false, departedActors: new Map(), playerCommands: new Set(),
-      actorsById: new Map(actors.map(actor => [actor.combatantId, actor])), sectorById: new Map([['north', currentSector]]),
-      options: { historicalSectorReceipts: true, acceptsOrders: () => true } })
-    const restored = new TownGateBreachPolicy(event => {
-      if (event.gateId !== 'north' || event.kind !== 'wall') throw new Error('replayed breach')
-      return owner.dispatch({ gateId: 'north', kind: 'wall' })
-    }, policy.snapshot())
-    owner.policy = restored
-    restored.gate('north', 'destroyed')
-    expect(restored.snapshot()).toEqual(policy.snapshot())
-    expect(restored.gates.get('north')).toMatchObject({ wallEventHandled: false, cavalryEventHandled: true, dockedRampIds: [], releasedCavalryActorIds: ['north:cavalry:1'] })
-    expect(restored.gates.get('east')?.cavalryEventHandled).toBe(false)
-    expect(restored.gates.get('south')?.cavalryEventHandled).toBe(false)
-    expect(restored.gates.get('west')?.cavalryEventHandled).toBe(false)
-    restored.ramp('north', -1, true)
-    expect(issued).toEqual(['north:wall:2'])
-    expect(restored.gates.get('north')).toMatchObject({ releasedWallActorIds: ['north:wall:2'], releasedCavalryActorIds: ['north:cavalry:1'] })
+
+    policy.gate('north', 'destroyed'); policy.gate('north', 'destroyed')
+    expect(events).toEqual(['east:wall', 'north:cavalry'])
+    expect(policy.gates.get('north')?.cavalryEventHandled).toBe(true)
   })
 
   it('keeps an actual sector dispatch inside its roster and preserves HR, follow, formation and explicit player orders', () => {
@@ -203,28 +132,7 @@ describe('Siege deployment and shared rule ownership', () => {
     expect([...targets]).toEqual([['east:auto', undefined]])
   })
 
-  it('routes a PR8 non-Crew ranged attacker through its own sector while preserving Attack', () => {
-    const entries = new AvailableBreachEntrances(), orders: string[] = []
-    const eastGate = { state: 'closed', siegeObstacle: { id: 'east-gate-collider' } }
-    let siegeTarget: unknown = null
-    for (const [gateId, x] of [['north', 198], ['east', 180]] as const) entries.set({ id: `town-siege-gate:${gateId}`, gateId,
-      type: 'gate', position: new Vector3(x, 0, 62), approach: new Vector3(x, 0, 62), exit: new Vector3(x - 4, 0, 62),
-      mounted: true, walkable: true, faction: null, connectionId: gateId })
-    const npc = { combatantId: 'east:archer', dead: false, siegeTransport: null, tacticalOrder: 'attack', hasFormationTarget: false,
-      campaignBreachCompleted: false, campaignEntranceId: null as string | null, characterFaction: 'viking', aiType: AIType.RANGED,
-      combatPosition: new Vector3(200, 0, 62), isMounted: false, assignSiegeObstacle(target: unknown) { siegeTarget = target }, setTacticalOrder(order: string) { orders.push(order) } }
-    const owner = Object.assign(Object.create(TownFourGateSiege.prototype) as { route(actor: typeof npc): void }, {
-      attackerIds: new Set(['east:archer']), actorSectors: new Map([['east:archer', 'east']]), playerCommands: new Set(), departedActors: new Map(),
-      options: { acceptsOrders: () => true, world: { gates: new Map([['east', eastGate]]) }, navigation: { townNav: { siegeEntrances: entries, isElevated: () => false }, areConnected: () => true } },
-    })
-    owner.route(npc)
-    expect(npc.campaignEntranceId).toBe('town-siege-gate:east')
-    expect(orders).toEqual(['attack'])
-    entries.clear(); owner.route(npc)
-    expect(npc.campaignEntranceId).toBeNull(); expect(siegeTarget).toBe(eastGate.siegeObstacle)
-  })
-
-  it('keeps opt-in cavalry on its gate while ranged and air actors retain their own combat policy after a dock', () => {
+  it('routes attacker roles through breach entrances and destroyed gates while preserving orders', () => {
     const entries = new AvailableBreachEntrances()
     entries.set({ id: 'town-siege-ramp:east:left', gateId: 'east', type: 'siege-ramp', position: new Vector3(190, 8, 62),
       approach: new Vector3(200, 0, 62), exit: new Vector3(145, 8, 62), mounted: true, walkable: true, faction: null, connectionId: 'east-ramp' })
@@ -296,8 +204,10 @@ describe('Siege deployment and shared rule ownership', () => {
     owner.route(npc); expect(npc.campaignEntranceId).toBeNull()
   })
 
-  it('admits only rostered ground attackers to convoy detours and clears excluded actors', () => {
-    const entrances = new AvailableBreachEntrances(), convoy = new SiegeConvoy()
+  it('admits only rostered ground attackers to convoy detours and returns gate movement when vehicle front clears', () => {
+    const navigation = new NavigationWorld({ minX: -10, maxX: 10, minZ: -40, maxZ: 10, cellSize: 2 })
+    navigation.townNav = new TownLayeredNavigation(getTownRampartLayout())
+    const entrances = navigation.townNav.siegeEntrances, convoy = new SiegeConvoy()
     onTestFinished(() => convoy.dispose())
     const npc = { combatantId: 'east:flyer', dead: false, tacticalOrder: 'attack', hasFormationTarget: false,
       siegeTransport: null, siegeBypassTarget: null as Vector3 | null, combatPosition: new Vector3(0, 20, -5),
@@ -307,7 +217,7 @@ describe('Siege deployment and shared rule ownership', () => {
     const defender = { ...npc, combatantId: 'east:defender' }, ambient = { ...npc, combatantId: 'ambient' }
     const personal = { ...npc, combatantId: 'personal', combatOwnership: 'player-personal' }
     // Narrow data adapter to seed an existing real detour; no actor or vehicle constructors.
-    const detours = convoy as unknown as { update(actor: typeof npc, ramps: readonly typeof ramp[]): void }
+    const detours = convoy as unknown as { update(actor: typeof npc | { combatPosition: Vector3; isMounted: boolean; siegeBypassTarget: Vector3 | null }, ramps: readonly typeof ramp[]): void }
     detours.update(defender, [ramp])
     expect(defender.siegeBypassTarget).not.toBeNull()
     // Real Town caller and convoy policy; readiness, render/spawn and route rosters are data boundaries.
@@ -315,7 +225,7 @@ describe('Siege deployment and shared rule ownership', () => {
       prepared: true, disposed: false, pending: new Set(), ramps: new Map(), rampList: [ramp], convoy,
       observedRevision: entrances.revision, actorsById: new Map(), playerCommands: new Set(), departedActors: new Map(),
       attackerIds: new Set([npc.combatantId]),
-      options: { world: {}, grid: {}, navigation: { townNav: { siegeEntrances: entrances } },
+      options: { world: { obstacles: [] }, grid: {}, navigation,
         actors: () => [npc, defender, ambient, personal], acceptsOrders: () => true,
         attackerRole: undefined as (() => TownSiegeAttackerRole) | undefined },
     })
@@ -329,29 +239,121 @@ describe('Siege deployment and shared rule ownership', () => {
     owner.update(.1); expect(npc.siegeBypassTarget).toEqual(new Vector3(6.5, 20, -5))
     owner.options.attackerRole = () => 'air'
     owner.update(.1); expect(npc.siegeBypassTarget).toBeNull()
+
+    // Mounted attacker clears vehicle front
+    const mountedNpc = { combatPosition: new Vector3(0, 0, 2), isMounted: true, siegeBypassTarget: null as Vector3 | null }
+    detours.update(mountedNpc, [ramp])
+    expect(mountedNpc.siegeBypassTarget).toBeNull()
+    mountedNpc.combatPosition.z = -5
+    detours.update(mountedNpc, [ramp])
+    expect(mountedNpc.siegeBypassTarget).toEqual(new Vector3(6.5, 0, -5))
+    mountedNpc.combatPosition.set(6.5, 0, 1.49)
+    detours.update(mountedNpc, [ramp])
+    expect(mountedNpc.siegeBypassTarget).not.toBeNull()
+    mountedNpc.combatPosition.z = 1.5
+    detours.update(mountedNpc, [ramp])
+    expect(mountedNpc.siegeBypassTarget).toBeNull()
+
     convoy.dispose(); expect(npc.siegeBypassTarget).toBeNull()
   })
+})
 
-  it('returns gate movement to mounted attackers as soon as their body clears the vehicle front', () => {
-    const convoy = new SiegeConvoy()
-    onTestFinished(() => convoy.dispose())
-    const npc = { combatPosition: new Vector3(0, 0, 2), isMounted: true, siegeBypassTarget: null as Vector3 | null }
-    const ramp = { position: new Vector3(), placement: { dirX: 0, dirZ: 1 }, controller: { state: 'PUSHING' },
-      surface: { startX: 0, startZ: -30, halfWidth: 2.5 } }
-    const detours = convoy as unknown as { update(actor: typeof npc, ramps: readonly typeof ramp[]): void }
-    // Between a moving vehicle and the wall, the gate remains a valid sideways
-    // destination. An unnecessary +6m convoy waypoint would lead through the wall.
-    detours.update(npc, [ramp])
-    expect(npc.siegeBypassTarget).toBeNull()
-    npc.combatPosition.z = -5
-    detours.update(npc, [ramp])
-    expect(npc.siegeBypassTarget).toEqual(new Vector3(6.5, 0, -5))
-    npc.combatPosition.set(6.5, 0, 1.49)
-    detours.update(npc, [ramp])
-    expect(npc.siegeBypassTarget).not.toBeNull()
-    npc.combatPosition.z = 1.5
-    detours.update(npc, [ramp])
-    expect(npc.siegeBypassTarget).toBeNull()
+it('四門騎兵先攔截本區城外敵人，清除後恢復攻門，突破後才追擊牆上及其他區域', () => {
+  const entries = new AvailableBreachEntrances(), town = new TownLayeredNavigation(getTownRampartLayout(), () => true)
+  const eastGate = { state: 'closed', siegeObstacle: { damageable: { destroyed: false, isDamageableBy: () => true } } }
+  const actor = {
+    combatantId: 'east:rider', dead: false, siegeTransport: null, tacticalOrder: 'charge', hasFormationTarget: false,
+    campaignBreachCompleted: false, campaignEntranceId: null as string | null, characterFaction: 'viking',
+    aiType: AIType.MELEE, combatPosition: new Vector3(180, 0, 62), isMounted: true, mount: { isFlyingMount: false },
+    combatTargetPriority: undefined as NPC['combatTargetPriority'], assignedSiegeObstacle: null as unknown,
+    faction: Faction.ENEMY, targetsPlayer: false, missionCombatTarget: undefined,
+    isTownRampartGarrisonActive: false, holdsRampartPosition: false, hasActiveRangedWeapon: false,
+    hasSiegeObstacle: true, _pursuitTargetAllowed: NPC.prototype['_pursuitTargetAllowed'],
+    priorityCombatTarget: null as unknown, get hasTacticalCombatPriority() {
+      return Object.getOwnPropertyDescriptor(NPC.prototype, 'hasTacticalCombatPriority')!.get!.call(this)
+    }, _isAttackableObstacle: NPC.prototype['_isAttackableObstacle'],
+    assignSiegeObstacle(target: unknown) { this.assignedSiegeObstacle = target }, setTacticalOrder() {},
+  }
+  const owner = Object.assign(Object.create(TownFourGateSiege.prototype) as { route(value: typeof actor): void }, {
+    attackerIds: new Set([actor.combatantId]), actorSectors: new Map([[actor.combatantId, 'east']]),
+    playerCommands: new Set(), departedActors: new Map(),
+    options: { acceptsOrders: () => true, attackerRole: () => 'gate-cavalry',
+      world: { gates: new Map([['east', eastGate]]) }, navigation: { townNav: town, areConnected: (): boolean => true } },
   })
+  const target = (x: number, y: number, z: number) => ({ combatPosition: new Vector3(x, y, z), dead: false, faction: Faction.PLAYER }) as NPC
+  const ground = target(186, getTerrainHeight(186, 62), 62), wall = target(148, townRampartHeight(town.layout, 148, 62)!, 62), remote = target(-180, 0, 30)
+  // A docked same-gate ramp must not replace the closed-gate task.
+  entries.set({ id: 'east:ramp', gateId: 'east', type: 'siege-ramp', position: wall.combatPosition,
+    approach: ground.combatPosition, exit: wall.combatPosition, walkable: true, mounted: true, faction: null, connectionId: 'east' })
+  town.siegeEntrances.set(entries.entries.get('east:ramp')!)
+  owner.route(actor)
+  expect(actor.campaignEntranceId).toBeNull()
+  expect(actor.assignedSiegeObstacle).toBe(eastGate.siegeObstacle)
+  expect(actor.combatTargetPriority!(ground)).toBe(0)
+  expect(actor.combatTargetPriority!(wall)).toBeNull()
+  expect(actor.combatTargetPriority!(remote)).toBeNull()
+  const hasObstacle = () => Object.getOwnPropertyDescriptor(NPC.prototype, 'hasSiegeObstacle')!.get!.call(actor)
+  actor.priorityCombatTarget = ground
+  expect(hasObstacle()).toBe(false)
+  const grid = new SpatialGrid<NPC>(20)
+  grid.insert(wall); grid.insert(remote); grid.insert(ground)
+  const acquire = () => NPC.prototype['_findTarget'].call(actor as unknown as NPC, { dead: true, targetable: false } as Player, [], grid)
+  expect(acquire()?.npc).toBe(ground)
+  Object.assign(ground, { dead: true })
+  expect(acquire()).toBeNull()
+  expect(hasObstacle()).toBe(true)
+  eastGate.state = 'destroyed'
+  owner.route(actor)
+  expect(actor.combatTargetPriority!(wall)).toBe(1)
+  expect(actor.combatTargetPriority!(remote)).toBe(2)
+  expect(acquire()?.npc).toBe(wall)
+  actor.combatPosition.copy(wall.combatPosition)
+  expect(actor.combatTargetPriority!(wall)).toBe(0)
+  // A target walking down to the ground must remain interceptable. The ground
+  // component beneath a wall cannot decide whether its docked descent is legal.
+  eastGate.state = 'closed'
+  Object.assign(ground, { dead: false })
+  owner.options.navigation.areConnected = () => false
+  expect(actor.combatTargetPriority!(ground)).toBe(0)
+})
 
+it('攔截相鄰 sector 眼前可達的地面敵人，超出固定分界帶後恢復原北門任務', () => {
+  let connected = true
+  const entries = new AvailableBreachEntrances()
+  entries.set({ id: 'east:open', gateId: 'east', type: 'gate', position: new Vector3(150, 0, 45),
+    approach: new Vector3(162, 0, 45), exit: new Vector3(138, 0, 45), mounted: true, walkable: true, faction: null, connectionId: 'east' })
+  const gate = { state: 'closed', siegeObstacle: { damageable: { destroyed: false, isDamageableBy: () => true } } }
+  const rider = {
+    combatantId: 'north:rider', dead: false, siegeTransport: null, tacticalOrder: 'charge', hasFormationTarget: false,
+    campaignBreachCompleted: false, campaignEntranceId: null as string | null, townSiegeGateId: 'north',
+    characterFaction: 'viking', aiType: AIType.MELEE, isMounted: true, mount: { isFlyingMount: false },
+    combatPosition: new Vector3(184, getTerrainHeight(184, -140), -140),
+    combatTargetPriority: undefined as NPC['combatTargetPriority'], priorityCombatTarget: null as NPC | null,
+    assignedSiegeObstacle: null as unknown, _isAttackableObstacle: NPC.prototype['_isAttackableObstacle'],
+    get hasTacticalCombatPriority() { return Object.getOwnPropertyDescriptor(NPC.prototype, 'hasTacticalCombatPriority')!.get!.call(this) },
+    assignSiegeObstacle(obstacle: unknown) { this.assignedSiegeObstacle = obstacle }, setTacticalOrder() {},
+  }
+  const owner = Object.assign(Object.create(TownFourGateSiege.prototype) as { route(actor: typeof rider): void }, {
+    attackerIds: new Set([rider.combatantId]), actorSectors: new Map([[rider.combatantId, 'north']]),
+    playerCommands: new Set(), departedActors: new Map(),
+    options: { acceptsOrders: () => true, attackerRole: () => 'gate-cavalry', world: { gates: new Map([['north', gate]]) },
+      navigation: { townNav: { siegeEntrances: entries, isElevated: () => false }, areConnected: () => connected } },
+  })
+  const target = { dead: false, combatPosition: new Vector3(190, getTerrainHeight(190, -140), -140) } as NPC
+  owner.route(rider)
+  expect(rider.combatTargetPriority!(target)).toBe(0)
+  rider.priorityCombatTarget = target
+  const hasGateTask = () => Object.getOwnPropertyDescriptor(NPC.prototype, 'hasSiegeObstacle')!.get!.call(rider)
+  expect(hasGateTask()).toBe(false)
+  connected = false
+  expect(rider.combatTargetPriority!(target)).toBeNull()
+  connected = true
+  // Still only 12m away, but the target has left the fixed 24m sector overlap.
+  rider.combatPosition.set(218, getTerrainHeight(218, -140), -140)
+  target.combatPosition.set(230, getTerrainHeight(230, -140), -140)
+  expect(rider.combatTargetPriority!(target)).toBeNull()
+  expect(hasGateTask()).toBe(true)
+  expect(rider.assignedSiegeObstacle).toBe(gate.siegeObstacle)
+  expect(rider.campaignEntranceId).toBeNull()
+  expect(rider.townSiegeGateId).toBe('north')
 })

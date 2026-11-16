@@ -1,21 +1,23 @@
-import type { CareerProfile } from '../career/CareerProfile'
-import { availableCareerItem, careerItemTotals, legacyPersonalEquipment, type PersonalEquipmentSlot } from '../career/CareerInventory'
 import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
-import { bulkCareerEquipment, canManageCareerEquipment, careerEquipmentCategory, changeTownEquipment, resolveTownActorEquipment, townEquipmentSquads,
-  type BulkEquipmentCategory, type TownEquipmentContext, type TownEquipmentSquadId } from '../career/CareerTownEquipment'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import { availableCareerItem,careerItemTotals,type PersonalEquipmentSlot } from '../career/CareerInventory'
+import type { CareerProfile } from '../career/CareerProfile'
+import { careerShopProduct } from '../career/CareerShopCatalog'
+import {
+bulkCareerEquipment,canManageCareerEquipment,careerEquipmentCategory,changeTownEquipment,resolveTownActorEquipment,townEquipmentSquads,
+type BulkEquipmentCategory,type TownEquipmentContext,type TownEquipmentSquadId
+} from '../career/CareerTownEquipment'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { squadEquipmentUI, townEquipmentUI, bulkEquipmentMessage, type TownEquipmentMemberView, type TownEquipmentUIBindings } from './TownSquadEquipmentUI'
+import { WEAPONS } from '../rpg/WeaponDatabase'
+import { townUnitDisplayNames,townUnitDisplayTier } from '../ui/UnitDisplayName'
 import type { TownCombatResident } from './TownMissionCombat'
-import { townUnitDisplayNames, townUnitDisplayTier } from '../ui/UnitDisplayName'
+import { bulkEquipmentMessage,squadEquipmentUI,townEquipmentUI,type TownEquipmentMemberView,type TownEquipmentUIBindings } from './TownSquadEquipmentUI'
 
 export interface TownEquipmentUIResident {
   spec: Pick<TownCombatResident['spec'], 'id'>
   npc: Pick<TownCombatResident['npc'], 'dead'>
 }
 
-const MOUNT_NAMES: Record<string, string> = { horse: '軍用戰馬', corgi: '柯基英雄坐騎', 'black-cat': '黑貓英雄坐騎', xongkoro: '巨鷹 xongkoro' }
-const itemName = (id: string | null | undefined) => id ? (WEAPONS[id] ?? ARMORS[id])?.name ?? MOUNT_NAMES[id] ?? id : 'None'
+const itemName = (id: string | null | undefined) => id ? careerShopProduct(id)?.name ?? id : '無'
 
 /** Both views share the profile, transaction entry and Personal adapter. No UI-owned roster exists. */
 export function createTownCareerEquipmentUI(read: () => CareerProfile, context: () => TownEquipmentContext,
@@ -80,18 +82,17 @@ export function createTownCareerEquipmentUI(read: () => CareerProfile, context: 
     },
     options(target, actorId, slot) {
       const profile = read()
-      const current = target === 'personal' ? (profile.personalSquad?.members.find(member => member.id === actorId)?.equipment
-        ?? legacyPersonalEquipment('soldier', profile.faction))[slot] : (() => {
+      const current = target === 'personal' ? (profile.personalSquad?.members.find(member => member.id === actorId)?.equipment)?.[slot] : (() => {
         const loadout = resolveTownActorEquipment(profile, profile.faction, actorId).loadout
         return slot === 'melee' ? loadout.meleeWeaponId : slot === 'ranged' ? loadout.rangedWeaponId : slot === 'shield' ? loadout.shieldId : loadout.mountId
       })()
       const loadout = target === 'personal' ? undefined : resolveTownActorEquipment(profile, profile.faction, actorId).loadout
       const canRemove = target === 'civilian' || slot !== 'melee' && slot !== 'ranged' || Boolean(slot === 'melee' ? loadout?.rangedWeaponId : loadout?.meleeWeaponId)
-      const options: { id: string | null; label: string }[] = canRemove ? [{ id: null, label: 'None' }] : []
+      const options: { id: string | null; label: string }[] = canRemove ? [{ id: null, label: '無' }] : []
       for (const id of Object.keys(careerItemTotals(profile)).sort()) {
         const item = WEAPONS[id] ?? ARMORS[id]
         const fits = slot === 'mount' ? (PLAYER_MOUNT_IDS as readonly string[]).includes(id) && (target === 'personal' || careerEquipmentCategory(id) === 'mount') : item?.type === slot
-        if (fits && (actorId !== 'merchant' || slot !== 'mount' || id === 'horse') && (availableCareerItem(profile, id) > 0 || current === id)) options.push({ id, label: `${itemName(id)}${item ? ` · T${item.tier}` : ''} · 可用 ${availableCareerItem(profile, id)}` })
+        if (fits && (actorId !== 'merchant' || slot !== 'mount' || id === 'horse') && (availableCareerItem(profile, id) > 0 || current === id)) options.push({ id, label: `${itemName(id)} · T${item?.tier ?? careerShopProduct(id)?.tier ?? '?'} · 未分配 ${availableCareerItem(profile, id)}` })
       }
       return options
     },

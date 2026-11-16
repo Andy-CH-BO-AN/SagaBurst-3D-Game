@@ -26,20 +26,52 @@ export function prepareSeatSupport(mesh: THREE.SkinnedMesh, landmarks: readonly 
   })
 }
 
-function readPoint(mesh: THREE.SkinnedMesh, point: SupportPoint, target: THREE.Vector3, vertex: THREE.Vector3): THREE.Vector3 {
+/** Carries bearing points onto `mergeGeometries([first, second])`: the second mesh's vertices
+ * follow the first's, so its ids shift by the first's vertex count. First wins when both carry them. */
+export function copyMergedSeatSupport(first: THREE.SkinnedMesh, second: THREE.SkinnedMesh, merged: THREE.SkinnedMesh): void {
+  if (first.userData[SUPPORT]) { merged.userData[SUPPORT] = first.userData[SUPPORT]; return }
+  const points = second.userData[SUPPORT] as SupportPoint[] | undefined
+  if (!points) return
+  const offset = first.geometry.attributes.position.count
+  merged.userData[SUPPORT] = points.map(({ ids, weights }) => ({ ids: ids.map(id => id + offset), weights: [...weights] }))
+}
+
+function readPoint(mesh: THREE.SkinnedMesh, point: SupportPoint, target: THREE.Vector3, vertex: THREE.Vector3, toWorld: THREE.Matrix4 = mesh.matrixWorld): THREE.Vector3 {
   target.set(0, 0, 0)
   for (let i = 0; i < 3; i++) target.addScaledVector(mesh.getVertexPosition(point.ids[i], vertex), point.weights[i])
-  return target.applyMatrix4(mesh.matrixWorld)
+  return target.applyMatrix4(toWorld)
+}
+
+/** Every bone that weights one of these vertices, across all four-influence sets. */
+function influencingBones(mesh: THREE.SkinnedMesh, points: readonly SupportPoint[]): THREE.Bone[] {
+  const bones = new Set<THREE.Bone>()
+  for (let set = 0; set < 4; set++) {
+    const joints = mesh.geometry.getAttribute(set === 0 ? 'skinIndex' : `joints_${set}`)
+    const weights = mesh.geometry.getAttribute(set === 0 ? 'skinWeight' : `weights_${set}`)
+    if (!joints || !weights) continue
+    for (const point of points) for (const id of point.ids) for (let c = 0; c < 4; c++) {
+      if (weights.getComponent(id, c) !== 0) bones.add(mesh.skeleton.bones[joints.getComponent(id, c)])
+    }
+  }
+  return [...bones]
 }
 
 /** Selected riders' actual bearing surfaces, evaluated after both animations.
- * Only six posed vertices per surface per frame; no per-frame mesh raycast. */
+ * Only six posed vertices per surface per frame; no per-frame mesh raycast.
+ * Vertex skinning reads bone matrixWorld directly (never Skeleton.boneMatrices). */
 export class SkinnedSeatContact {
   private readonly surfaces: Array<{ mesh: THREE.SkinnedMesh; points: SupportPoint[] }> = []
   private readonly seatPoints: SupportPoint[] = []
   private readonly a = new THREE.Vector3()
   private readonly b = new THREE.Vector3()
   private readonly vertex = new THREE.Vector3()
+  private readonly riderToWorld = new THREE.Matrix4()
+  private readonly saddleToWorld = new THREE.Matrix4()
+  /** Bones under the six sampled vertices; attached-bind meshes only refresh these. */
+  private readonly surfaceBones = new Map<THREE.SkinnedMesh, THREE.Bone[]>()
+  private saddleBones: THREE.Bone[] | null = null
+  /** Last measured mount-local lift, re-applied while neither pose is re-sampled. */
+  private correction: number | null = null
 
   constructor(private readonly rider: THREE.Object3D, private readonly mount: THREE.Object3D,
     private readonly saddle: THREE.SkinnedMesh, seat: THREE.Object3D) {
@@ -52,8 +84,9 @@ export class SkinnedSeatContact {
     const center = mount.worldToLocal(seat.getWorldPosition(new THREE.Vector3()))
     const down = new THREE.Vector3(0, -1, 0).transformDirection(mount.matrixWorld)
     for (const x of [-.1, .1]) {
-      const origin = mount.localToWorld(new THREE.Vector3(x, center.y + .3, center.z - .03))
+      const origin = mount.localToWorld(new THREE.Vector3(center.x + x, center.y + .3, center.z - .03))
       const hit = new THREE.Raycaster(origin, down, 0, .6).intersectObject(saddle, false)[0]
+        ?? new THREE.Raycaster(mount.localToWorld(new THREE.Vector3(center.x + x * .5, center.y + .3, center.z)), down, 0, .6).intersectObject(saddle, false)[0]
       if (!hit?.face) throw new Error('Missing saddle bearing surface')
       const ids = [hit.face.a, hit.face.b, hit.face.c]
       const vertices = ids.map(id => saddle.getVertexPosition(id, new THREE.Vector3()))
@@ -65,25 +98,54 @@ export class SkinnedSeatContact {
 
   get hasBearingSurface(): boolean { return this.surfaces.length > 0 }
 
-  align(): void {
+  /** `publish` refreshes the rider's subtree; skip it only when the renderer updates the scene next. */
+  align(publish = true): void {
     const surface = this.surfaces.find(({ mesh }) => {
       for (let node: THREE.Object3D | null = mesh; node && node !== this.rider; node = node.parent) if (!node.visible) return false
       return true
     })
     if (!surface) return
-    this.rider.updateWorldMatrix(true, false); this.rider.updateMatrixWorld(true)
-    this.mount.updateWorldMatrix(true, false); this.mount.updateMatrixWorld(true)
-    surface.mesh.skeleton.update(); this.saddle.skeleton.update()
+    let riderToWorld = surface.mesh.matrixWorld, saddleToWorld = this.saddle.matrixWorld
+    if (surface.mesh.bindMode === THREE.AttachedBindMode && this.saddle.bindMode === THREE.AttachedBindMode) {
+      // Attached skins: matrixWorld · bindMatrixInverse = I, so a sampled point is the
+      // bones' weighted skinning alone. Refresh only the bones under the six vertices
+      // (and the two frames used below) instead of both whole hierarchies.
+      this.rider.parent?.updateWorldMatrix(true, false)
+      this.mount.updateWorldMatrix(true, false)
+      let bones = this.surfaceBones.get(surface.mesh)
+      if (!bones) this.surfaceBones.set(surface.mesh, bones = influencingBones(surface.mesh, surface.points))
+      for (const bone of bones) bone.updateWorldMatrix(true, false)
+      for (const bone of this.saddleBones ??= influencingBones(this.saddle, this.seatPoints)) bone.updateWorldMatrix(true, false)
+      riderToWorld = this.riderToWorld.copy(surface.mesh.bindMatrixInverse).invert()
+      saddleToWorld = this.saddleToWorld.copy(this.saddle.bindMatrixInverse).invert()
+    } else {
+      this.rider.updateWorldMatrix(true, false); this.rider.updateMatrixWorld(true)
+      this.mount.updateWorldMatrix(true, false); this.mount.updateMatrixWorld(true)
+    }
     let correction = -Infinity
     for (let i = 0; i < this.seatPoints.length; i++) {
-      this.mount.worldToLocal(readPoint(surface.mesh, surface.points[i], this.a, this.vertex))
-      this.mount.worldToLocal(readPoint(this.saddle, this.seatPoints[i], this.b, this.vertex))
+      this.mount.worldToLocal(readPoint(surface.mesh, surface.points[i], this.a, this.vertex, riderToWorld))
+      this.mount.worldToLocal(readPoint(this.saddle, this.seatPoints[i], this.b, this.vertex, saddleToWorld))
       correction = Math.max(correction, this.b.y - this.a.y + .002)
     }
+    this.correction = correction
+    this.applyCorrection(correction)
+    if (publish) this.rider.updateMatrixWorld(true)
+  }
+
+  /** Cheap far-distance path: reuse the last lift on the current mount/rider transforms. */
+  reapply(): boolean {
+    if (this.correction === null || !this.rider.parent) return false
+    this.mount.updateWorldMatrix(true, false)
+    this.rider.parent.updateWorldMatrix(true, false)
+    this.applyCorrection(this.correction)
+    return true
+  }
+
+  private applyCorrection(correction: number): void {
     this.mount.localToWorld(this.a.set(0, 0, 0))
     this.mount.localToWorld(this.b.set(0, correction, 0))
     this.rider.parent!.worldToLocal(this.a); this.rider.parent!.worldToLocal(this.b)
     this.rider.position.add(this.b.sub(this.a))
-    this.rider.updateMatrixWorld(true)
   }
 }

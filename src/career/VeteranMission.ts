@@ -1,14 +1,14 @@
-import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
-import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
-import { AIType, Faction } from '../world/NPC'
-import type { CharacterFaction } from '../world/CharacterVisuals'
-import { cloneCareerProfile, CAREER_RANKS, type CareerProfile } from './CareerProfile'
-import { resolveCareerReliefMount } from './CareerOutpostMission'
-import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
-import { townRoster } from '../town/TownRules'
+import { T4_UNIT_PROFILES,resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import { UNIT_PRESETS,type UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { TownCavalryMissionSlot } from '../town/TownCavalryReserve'
+import { townRoster } from '../town/TownRules'
+import type { CharacterFaction } from '../world/CharacterVisuals'
+import { AIType,Faction } from '../world/NPC'
+import { createCareerMissionId,type ActiveCareerMission } from './CareerMissionState'
+import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { snapshotPersonalMission } from './CareerPersonalSquadMission'
+import { CAREER_RANKS,cloneCareerProfile,type CareerProfile } from './CareerProfile'
 
 export const VETERAN_MISSION_IDS = [
   'veteran-dread-outpost',
@@ -19,7 +19,7 @@ export const VETERAN_MISSION_IDS = [
   'veteran-tragedy-of-the-scouts',
 ] as const
 export type VeteranMissionTemplateId = typeof VETERAN_MISSION_IDS[number]
-export type VeteranRosterVersion = 1 | 2 | 3
+export type VeteranRosterVersion = 2 | 3
 export type VeteranMissionKind = 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault'
 export type VeteranTownRole = 'captain' | 'ranger' | 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry'
 export type VeteranMissionObjective = { kind: 'eliminate-all' } | { kind: 'survive'; seconds: 120 }
@@ -63,7 +63,7 @@ export interface VeteranMissionRoster {
 
 export interface VeteranMissionAvailability {
   unlocked: boolean
-  reason?: '軍階未達Veteran' | '前置任務未完成' | '需要坐騎'
+  reason?: string
 }
 
 export interface AcceptVeteranMissionOptions {
@@ -83,10 +83,7 @@ function reusesAllTownCavalry(templateId: string): boolean {
 /** Persist resident identities while changing only their mission equipment. */
 function equipExistingTownCavalry(roster: VeteranMissionRoster, missionId: string, actorIds?: readonly string[]): void {
   const requested = new Set(actorIds ?? TOWN_CAVALRY.map(actor => actor.id))
-  // Accepted missions may retain pre-expansion IDs whose peaceful slots are now infantry.
-  // Only explicit saved borrowing can temporarily re-equip those actors as mounted mission units.
-  const legacySlots = townRoster().filter(actor => actor.defenseGroup === 'E' || actor.defenseGroup === 'F')
-  const available = [...TOWN_CAVALRY, ...legacySlots].filter(actor => requested.has(actor.id))
+  const available = TOWN_CAVALRY.filter(actor => requested.has(actor.id))
   roster.friendly.filter(unit => unit.tier === 3).forEach((unit, index) => {
     const resident = available[index]
     unit.source = resident ? 'town' : 'temporary'
@@ -167,12 +164,12 @@ const definition = (
 ): VeteranMissionDefinition => ({ id, kind, name, briefing, friendlyCombatants, enemyCombatants, reinforcementCombatants, squadSizes, requiresMount, objective, minRank: 'veteran' })
 
 export const VETERAN_MISSION_CATALOG: readonly VeteranMissionDefinition[] = [
-  definition(VETERAN_MISSION_IDS[0], 'veteran-outpost-defense', 'Dread Outpost · 恐怖前哨防禦', '守住 Campaign Outpost，擊退 50 名敵方 T4 騎兵；第 90 秒後援軍從敵軍後方趕到。', 100, 50, 50, [25, 25, 25, 25], false),
-  definition(VETERAN_MISSION_IDS[1], 'veteran-field', 'Scout Hunters · 獵殺斥候', '跟隨四隊騎兵出擊，殲滅敵方斥候。', 100, 40, 0, [25, 25, 25, 25], true),
-  definition(VETERAN_MISSION_IDS[2], 'veteran-field', 'Village Intercept · 村外截擊', '與兩隊騎兵在村外截住敵軍，保護村莊。', 50, 100, 0, [25, 25], true),
-  definition(VETERAN_MISSION_IDS[3], 'veteran-outpost-assault', 'Outpost Assault · 強攻前哨', '從敵方 Outpost 外發起攻勢，攻破城門並殲滅守軍。', 100, 100, 0, [25, 25, 25, 25], true),
-  definition(VETERAN_MISSION_IDS[4], 'veteran-field', 'Spear Line Hunt · 槍林清剿', '率領兩隊弓騎兵清剿敵方槍兵主力。', 50, 100, 0, [25, 25], true),
-  definition(VETERAN_MISSION_IDS[5], 'veteran-field', 'Tragedy of the Scouts · 斥候的悲劇', '深入敵境時，敵方城鎮的騎兵出城迎擊。你與 9 名 T4 隊長、10 名 T4 弓騎斥候共 20 人，必須存活 02:00。', 20, 100, 0, [10, 10], true, { kind: 'survive', seconds: 120 }),
+  definition(VETERAN_MISSION_IDS[0], 'veteran-outpost-defense', 'Dread Outpost · 恐怖前哨防禦', '目標：守住前哨營地，擊退 50 名敵方 T4 騎兵；第 90 秒後會有 50 名友軍援軍趕到。', 100, 50, 50, [25, 25, 25, 25], false),
+  definition(VETERAN_MISSION_IDS[1], 'veteran-field', 'Scout Hunters · 獵殺斥候', '目標：跟隨四隊騎兵出擊，殲滅敵方斥候。', 100, 40, 0, [25, 25, 25, 25], true),
+  definition(VETERAN_MISSION_IDS[2], 'veteran-field', 'Village Intercept · 村外截擊', '目標：與兩隊騎兵在村外截住敵軍，保護村莊。', 50, 100, 0, [25, 25], true),
+  definition(VETERAN_MISSION_IDS[3], 'veteran-outpost-assault', 'Outpost Assault · 強攻前哨', '目標：從敵方前哨外發起攻勢，攻破城門並殲滅守軍。', 100, 100, 0, [25, 25, 25, 25], true),
+  definition(VETERAN_MISSION_IDS[4], 'veteran-field', 'Spear Line Hunt · 槍林清剿', '目標：率領兩隊弓騎兵，清剿敵方槍兵主力。', 50, 100, 0, [25, 25], true),
+  definition(VETERAN_MISSION_IDS[5], 'veteran-field', 'Tragedy of the Scouts · 斥候的悲劇', '目標：深入敵境時遭敵城騎兵出城圍攻，你與 19 名 T4 隊友（9 名隊長、10 名弓騎斥候）必須撐過 2 分鐘。', 20, 100, 0, [10, 10], true, { kind: 'survive', seconds: 120 }),
 ]
 
 export function getVeteranMissionDefinition(templateId: string): VeteranMissionDefinition | null {
@@ -181,15 +178,12 @@ export function getVeteranMissionDefinition(templateId: string): VeteranMissionD
 
 export function getVeteranMissionAvailability(profile: CareerProfile, templateId: string): VeteranMissionAvailability {
   const index = VETERAN_MISSION_IDS.indexOf(templateId as VeteranMissionTemplateId)
-  if (index < 0) return { unlocked: false, reason: '前置任務未完成' }
-  if (CAREER_RANKS.indexOf(profile.rank) < CAREER_RANKS.indexOf('veteran')) return { unlocked: false, reason: '軍階未達Veteran' }
+  if (index < 0) return { unlocked: false, reason: '無效的老兵任務' }
+  if (CAREER_RANKS.indexOf(profile.rank) < CAREER_RANKS.indexOf('veteran')) return { unlocked: false, reason: '需要晉升為老兵' }
+  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission) return { unlocked: false, reason: '請先完成目前的任務或競賽。' }
+  if (profile.townEvent?.state === 'hostile') return { unlocked: false, reason: '目前仍在交戰，暫時無法接取。' }
   const mission = VETERAN_MISSION_CATALOG[index]
-  if (mission.requiresMount && !resolveCareerReliefMount(profile)) return { unlocked: false, reason: '需要坐騎' }
-  const completed = profile.completedCareerMissionTemplateIds ?? []
-  const previouslyCompleted = completed.includes(mission.id)
-  if (index > 0 && !previouslyCompleted && !completed.includes(VETERAN_MISSION_IDS[index - 1])) {
-    return { unlocked: false, reason: '前置任務未完成' }
-  }
+  if (mission.requiresMount && !resolveCareerReliefMount(profile)) return { unlocked: false, reason: '需要一匹可使用的自有坐騎' }
   return { unlocked: true }
 }
 
@@ -302,7 +296,7 @@ function makeEnemyGroups(missionId: string, faction: CharacterFaction, groups: r
   return output
 }
 
-function buildVeteranRoster(templateId: VeteranMissionTemplateId, faction: CharacterFaction, missionId: string, rosterVersion: VeteranRosterVersion): VeteranMissionRoster {
+function buildVeteranRoster(templateId: VeteranMissionTemplateId, faction: CharacterFaction, missionId: string, _rosterVersion: VeteranRosterVersion): VeteranMissionRoster {
   const opposing = oppositeFaction(faction)
   let friendly: VeteranRosterUnit[] = []
   let enemy: VeteranRosterUnit[] = []
@@ -393,16 +387,7 @@ function buildVeteranRoster(templateId: VeteranMissionTemplateId, faction: Chara
     }
     case 'veteran-tragedy-of-the-scouts': {
       squadSizes = [10, 10]
-      friendly = rosterVersion === 1
-        ? makeFriendlyArmy(missionId, faction, squadSizes, [
-          { presetId: capt, heroRole: 'captain', source: 'town', townRole: 'captain' },
-          { presetId: maki, heroRole: 'ranger', source: 'town', townRole: 'ranger' },
-        ], [
-          { role: 'lancer', count: 8, borrowRole: 'lancer_cavalry', borrowCount: 5 },
-          { role: 'sword_cavalry', count: 5, borrowRole: 'melee_cavalry', borrowCount: 5 },
-          { role: 'horse_archer', count: 4, borrowRole: 'ranged_cavalry', borrowCount: 4 },
-        ])
-        : makeVeteranScoutHeroParty(missionId, faction, capt, maki)
+      friendly = makeVeteranScoutHeroParty(missionId, faction, capt, maki)
       enemy = makeEnemyGroups(missionId, opposing, [
         { leaderRole: 'lancer', leaderHeroRole: 'captain', count: 25, blocks: [{ role: 'lancer', tier: 3, count: 24 }] },
         { leaderRole: 'sword_cavalry', leaderHeroRole: 'captain', count: 25, blocks: [{ role: 'lancer', tier: 3, count: 22 }, { role: 'sword_cavalry', tier: 3, count: 2 }] },
@@ -482,6 +467,8 @@ export function createVeteranSpawnSpec(unitSpec: VeteranRosterUnit, playerFactio
     aiType: ranged ? AIType.RANGED : AIType.MELEE,
     name: unitSpec.heroRole === 'captain' ? 'Captain' : unitSpec.heroRole === 'ranger' ? 'Shadow Warden / Mounted Ranger' : 'Veteran Cavalry',
     tier: unitSpec.tier,
+    characterTier: unitSpec.tier,
+    ...(unitSpec.tier === 4 ? { heroArchetype: unitSpec.heroRole ?? (hero?.combatProfileId === 'ranger' ? 'ranger' as const : 'captain' as const) } : {}),
     cavalry: unitSpec.mounted,
     respawnEnabled: false,
     presetId,
@@ -495,7 +482,7 @@ export function createVeteranSpawnSpec(unitSpec: VeteranRosterUnit, playerFactio
 export function acceptVeteranMission(current: CareerProfile, templateId: string, options: AcceptVeteranMissionOptions = {}): CareerProfile | null {
   const missionDefinition = getVeteranMissionDefinition(templateId)
   if (!missionDefinition || !getVeteranMissionAvailability(current, templateId).unlocked
-    || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null
+    || current.activeRace || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null
   const missionId = options.missionId ?? createCareerMissionId(missionDefinition.id)
   const veteranRosterVersion = reusesAllTownCavalry(templateId) ? 3 as const
     : missionDefinition.id === VETERAN_MISSION_IDS[5] ? 2 as const : undefined

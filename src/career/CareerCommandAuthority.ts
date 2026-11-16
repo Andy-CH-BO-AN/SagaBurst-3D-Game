@@ -6,7 +6,7 @@ import { clonePersonalMission, type PersonalActorCheckpoint, type PersonalActorP
 import { parseFallingRiderSnapshot } from '../movement/FallingRider'
 import { parseEagleFlightSnapshot } from '../movement/EagleFlightController'
 import type { TacticalOrder } from '../battle/TacticalOrder'
-import { MAX_COMMAND_SQUADS, MAX_COMMAND_SQUAD_SIZE, type SquadId } from '../battle/CommandTarget'
+import { MAX_CUSTOM_BATTLE_COMMAND_SQUADS as MAX_COMMAND_SQUADS, MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE as MAX_COMMAND_SQUAD_SIZE, type SquadId } from '../battle/CommandTarget'
 import { Faction, type CombatOwnership } from '../combat/CombatFaction'
 import type { CareerRank } from './CareerProfile'
 
@@ -80,7 +80,7 @@ export function parseCommandActorCheckpoint(value: unknown): PersonalActorCheckp
     ...(raw.outpostRampartGarrison === true ? { outpostRampartGarrison: true } : {}),
     ...(raw.townRampartGarrison === true ? { townRampartGarrison: true } : {}),
     ...(raw.townRampartGarrison === true && raw.townRampartMounted === true ? { townRampartMounted: true } : {}),
-    ...(mountPoint && finite(raw.mount?.hp) ? { mount: { hp: nonnegative(raw.mount.hp), mounted: raw.mount.mounted === true,
+    ...(mountPoint && finite(raw.mount?.hp) ? { mount: { armorImpactRemaining: finite(raw.mount.armorImpactRemaining) ? Math.min(50, nonnegative(raw.mount.armorImpactRemaining)) : undefined, hp: nonnegative(raw.mount.hp), mounted: raw.mount.mounted === true,
       position: mountPoint, ...(flight ? { flight } : {}) } } : {}),
     ...(formationPoint && finite(raw.formation?.commandId) ? { formation: {
       commandId: raw.formation.commandId, position: formationPoint, reached: raw.formation.reached === true,
@@ -159,9 +159,46 @@ export function officialCommandSquads(authority: OfficialCommandAuthority): read
     : [{ squadId: 1, actorIds: authority.actorIds }]
 }
 
+interface OfficialSquadIndex {
+  readonly actorIds: readonly string[]
+  readonly actorCount: number
+  readonly commandRank: OfficialCommandAuthority['commandRank']
+  readonly squads: readonly OfficialCommandSquad[] | undefined
+  readonly squadLists: readonly (readonly string[])[]
+  readonly squadSizes: readonly number[]
+  readonly squadIds: readonly SquadId[]
+  readonly squadOf: ReadonlyMap<string, SquadId>
+}
+
+// Per-frame Town callers ask this for hundreds of actors. Saved authorities are
+// edited by replacing these arrays (or pushing while a roster is built), so the
+// index is reused only while every array reference and length is unchanged.
+const officialSquadIndexes = new WeakMap<OfficialCommandAuthority, OfficialSquadIndex>()
+
+function officialSquadIndex(authority: OfficialCommandAuthority): OfficialSquadIndex {
+  const cached = officialSquadIndexes.get(authority)
+  const squads = authority.commandRank === 'commander' ? authority.squads : undefined
+  if (cached && cached.actorIds === authority.actorIds && cached.actorCount === authority.actorIds.length
+    && cached.commandRank === authority.commandRank && cached.squads === squads
+    && cached.squadLists.length === (squads?.length ?? 0)
+    && (squads ?? []).every((squad, index) => cached.squadLists[index] === squad.actorIds
+      && cached.squadSizes[index] === squad.actorIds.length && cached.squadIds[index] === squad.squadId)) return cached
+  const members = new Set(authority.actorIds), squadOf = new Map<string, SquadId>()
+  // First listed squad wins, matching the original ordered search.
+  for (const squad of officialCommandSquads(authority)) {
+    for (const id of squad.actorIds) if (members.has(id) && !squadOf.has(id)) squadOf.set(id, squad.squadId)
+  }
+  const index: OfficialSquadIndex = {
+    actorIds: authority.actorIds, actorCount: authority.actorIds.length, commandRank: authority.commandRank, squads,
+    squadLists: (squads ?? []).map(squad => squad.actorIds), squadSizes: (squads ?? []).map(squad => squad.actorIds.length),
+    squadIds: (squads ?? []).map(squad => squad.squadId), squadOf,
+  }
+  officialSquadIndexes.set(authority, index)
+  return index
+}
+
 export function officialActorSquadId(authority: OfficialCommandAuthority, actorId: string): SquadId | undefined {
-  if (!authority.actorIds.includes(actorId)) return undefined
-  return officialCommandSquads(authority).find(squad => squad.actorIds.includes(actorId))?.squadId
+  return officialSquadIndex(authority).squadOf.get(actorId)
 }
 
 export function officialCommandIsPlayerControlled(authority: OfficialCommandAuthority, actorId: string): boolean {

@@ -1,24 +1,27 @@
+import { isCareerShopItemUseUnlocked } from '../career/CareerShopCatalog'
 import { availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from '../career/CareerInventory'
 import { InventoryManager } from '../rpg/InventoryManager'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { cloneCareerProfile, getCareerPurchaseTier, type CareerProfile } from '../career/CareerProfile'
+import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import { careerTownWeapon, isTownShopWeapon } from './TownRules'
 export function canUseCareerEquipment(profile: CareerProfile, id: string): boolean {
   const item = WEAPONS[id] ?? ARMORS[id]
-  return Boolean(item && item.tier <= getCareerPurchaseTier(profile.rank) && (Boolean(ARMORS[id]) || isTownShopWeapon(id))
+  return Boolean(item && isCareerShopItemUseUnlocked(profile, id) && (Boolean(ARMORS[id]) || isTownShopWeapon(id))
     && canAllocateCareerItemToPlayer(profile, id))
 }
 /** Temporary hand state is separate from persisted preferences and ownership. */
 export class TownEquipment extends InventoryManager {
-  override meleeEnabled = false
-  override rangedEnabled = false
-  override shieldEnabled = false
+  private unarmedEquipmentMissionId?: string
+  protected override get combatRestricted(): boolean {
+    const active = this.read?.().activeMission
+    return active?.duelMode === 'unarmed' && this.unarmedEquipmentMissionId !== active.id
+  }
   private readonly drawn = new Set<string>()
   constructor(private readonly read: () => CareerProfile, private readonly commit: (p: CareerProfile) => boolean) {
     super({ meleeWeaponId: careerTownWeapon(read()), rangedWeaponId: '', shieldId: null })
-    this.loadSaveState({ items: [...read().ownedWeapons, ...read().ownedArmors].map(id => ({ id, quantity: 1 })) })
-    this.rangedEnabled = false
+    this.loadSaveState({ items: [...read().ownedWeapons, ...read().ownedArmors].map(id => ({ id, quantity: 1 })), equippedMeleeId: careerTownWeapon(read()) })
+    this.rangedEnabled = this.meleeEnabled = this.shieldEnabled = false
   }
   syncOwnership(): void {
     const profile = this.read()
@@ -34,6 +37,7 @@ export class TownEquipment extends InventoryManager {
     }
   }
   restoreForHostile(): void {
+    if (this.combatRestricted) return
     this.syncOwnership()
     for (const id of Object.values(this.read().equipment ?? {})) {
       if (!id || !canUseCareerEquipment(this.read(), id) || !super.equipWeapon(id)) continue
@@ -45,10 +49,6 @@ export class TownEquipment extends InventoryManager {
   }
   prepareForCombat(): void {
     this.restoreForHostile()
-    if (this.meleeEnabled || this.rangedEnabled) return
-    const fallback = [this.read().starterWeaponId, careerTownWeapon(this.read()), ...this.read().ownedWeapons]
-      .find((id): id is string => Boolean(id && canUseCareerEquipment(this.read(), id)))
-    if (fallback) this.selectWeapon(fallback, false)
   }
   sheathAll(): void {
     this.meleeEnabled = false
@@ -56,10 +56,10 @@ export class TownEquipment extends InventoryManager {
     this.shieldEnabled = false
     this.drawn.clear()
   }
-  override get inventoryStacks() { this.syncOwnership(); return super.inventoryStacks.filter(({ item }) => { const data = WEAPONS[item.id] ?? ARMORS[item.id]; return data && data.tier <= getCareerPurchaseTier(this.read().rank) }).map(stack => ({ ...stack, quantity: careerItemTotal(this.read(), stack.item.id) })) }
+  override get inventoryStacks() { this.syncOwnership(); return super.inventoryStacks.map(stack => ({ ...stack, quantity: careerItemTotal(this.read(), stack.item.id) })) }
   override isEquipped(id: string): boolean { return this.drawn.has(id) && super.isEquipped(id) }
   override isAllocated(id: string): boolean { return Object.values(this.read().equipment ?? {}).includes(id) }
-  override itemAvailability(id: string): string { return `總持有 ${careerItemTotal(this.read(), id)} · 可用 ${availableCareerItem(this.read(), id)}` }
+  override itemAvailability(id: string): string { return `持有 ${careerItemTotal(this.read(), id)} · 未分配 ${availableCareerItem(this.read(), id)}` }
   override equipWeapon(id: string): boolean { return this.selectWeapon(id, true) }
   private selectWeapon(id: string, explicit: boolean): boolean {
     if (!canUseCareerEquipment(this.read(), id)) return false
@@ -72,6 +72,9 @@ export class TownEquipment extends InventoryManager {
     if (slot === 'shield') delete profile.equipment.ranged
     if (slot === 'ranged') profile.equipment.shield = null
     if (!this.commit(profile)) return false
+    // Start each boxing match with empty hands, but let an explicit selection draw gear.
+    if (this.combatRestricted) this.sheathAll()
+    this.unarmedEquipmentMissionId = profile.activeMission?.duelMode === 'unarmed' ? profile.activeMission.id : undefined
     super.equipWeapon(id)
     this.drawn.add(id)
     if (slot === 'melee') this.meleeEnabled = true
@@ -79,6 +82,8 @@ export class TownEquipment extends InventoryManager {
     if (slot === 'shield') this.shieldEnabled = true
     return true
   }
+  /** Career truth is the saved allocation: selecting a shield clears it even though the hand-state ID lingers. */
+  override get selectedRanged(): typeof WEAPONS[string] | undefined { const id = this.read().equipment?.ranged; return id ? WEAPONS[id] : undefined }
   override get supportsWeaponRelease(): boolean { return true }
   override unequipWeapon(id: string): boolean {
     const profile = cloneCareerProfile(this.read())
@@ -95,8 +100,10 @@ export class TownEquipment extends InventoryManager {
   override canEquipWeapon(id: string): boolean {
     return canUseCareerEquipment(this.read(), id) && super.canEquipWeapon(id)
   }
-  override unequipShield(): void {
+  override unequipShield(): boolean {
     const profile = cloneCareerProfile(this.read()); normalizeCareerInventory(profile); profile.equipment = { ...profile.equipment, shield: null }
-    if (this.commit(profile)) { this.shieldEnabled = false; super.unequipShield() }
+    if (!this.commit(profile)) return false
+    this.shieldEnabled = false
+    return super.unequipShield()
   }
 }

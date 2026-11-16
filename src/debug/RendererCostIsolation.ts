@@ -40,10 +40,6 @@ export function isPerfSimpleMaterial(query: URLSearchParams): boolean {
 
 const simpleMaterialCache = new Map<string, THREE.MeshBasicMaterial>()
 
-export function clearSimpleMaterialCacheForTesting(): void {
-  simpleMaterialCache.clear()
-}
-
 /**
  * Creates or retrieves a simple diagnostic MeshBasicMaterial.
  *

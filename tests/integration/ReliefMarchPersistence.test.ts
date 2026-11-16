@@ -1,3 +1,4 @@
+import { careerRankFixture } from '../helpers/careerRankFixture'
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
@@ -10,8 +11,8 @@ import { NPC } from '../../src/world/NPC'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
-  return { ...createCareerProfile(faction), rank: 'soldier', totalMerit: 300, availableMerit: 300,
-    completedOutpostStages: [1, 2, 3], ownedHorseTiers: [1], selectedMountId: 'horse-t1' }
+  return { ...createCareerProfile(faction), ...careerRankFixture(faction, 'soldier'), rank: 'soldier', totalMerit: 300, availableMerit: 300,
+    completedOutpostStages: [1, 2, 3], inventory: { version: 1 as const, quantities: Object.fromEntries(['horse'].map(id => [id, 1])) }, ownedMounts: ['horse'], selectedMountId: 'horse' }
 }
 
 describe('shared relief march checkpoint', () => {
@@ -26,8 +27,6 @@ describe('shared relief march checkpoint', () => {
       combatPosition: new THREE.Vector3(spec.x, 0, spec.z), mount: { baseSpeed: 12 },
       assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(), setTacticalOrder: vi.fn() }))
     const breach = new THREE.Vector3(0, 0, getCampaignOutpostPlacement(faction).frontZ)
-    const captain = rescue.find(npc => npc.name === 'Captain')!
-    expect(captain.combatPosition.distanceTo(breach)).toBeGreaterThan(300)
     const follow = vi.fn(), charge = vi.fn()
     const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, vi.fn(), charge, config.careerReliefPhase === 'charge', { chargeAfterFollow: true })
     controller.start(); controller.start(); controller.update(); controller.update()

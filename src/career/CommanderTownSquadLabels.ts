@@ -29,6 +29,8 @@ export const COMMANDER_TOWN_SQUAD_LABELS: Readonly<Record<SquadIdentity, string>
   6: '東門騎兵隊',
   7: '西門步兵隊',
   8: '西門騎兵隊',
+  9: '第 9 隊',
+  10: '第 10 隊',
   [PERSONAL_SQUAD_ID]: 'HR 私兵',
   [CIVILIAN_SQUAD_ID]: '平民／商人',
 })

@@ -3,7 +3,7 @@ import { proceduralMaterial } from './ProceduralMaterials'
 import { XONGKORO_VISUAL } from '../movement/XongkoroConfig'
 
 export type CharacterFaction = 'viking' | 'roman'
-export type MountedPoseKind = 'BLACK_CAT' | 'CORGI' | 'HORSE' | 'xongkoro'
+export type MountedPoseKind = 'BLACK_CAT' | 'WHITE_CAT' | 'ORANGE_CAT' | 'SERVAL' | 'CARACAL' | 'SNOW_LEOPARD' | 'CORGI' | 'HORSE' | 'ARMORED_HORSE' | 'xongkoro'
 
 export interface CharacterVisualConfig {
   faction: CharacterFaction
@@ -11,6 +11,8 @@ export interface CharacterVisualConfig {
   isPlayer: boolean
   civilian?: boolean
   civilianStyle?: CharacterFaction
+  /** Special roles without a dedicated asset retain their original faction body. */
+  ordinarySoldier?: boolean
 }
 
 export interface ArmRig {
@@ -31,6 +33,8 @@ export interface LegRig {
 }
 
 export type HumanoidAnimationState =
+  | 'punchCombo'
+  | 'punchRight'
   | 'idle'
   | 'walk'
   | 'run'
@@ -58,19 +62,33 @@ export interface HumanoidAnimationPlayOptions {
   startNormalizedTime?: number
 }
 
+export interface HumanoidSeekNextUpdate { dt: number; cameraDistance: number }
+
 export interface HumanoidAnimationController {
   getMeleeTiming?(state: HumanoidAnimationState): HumanoidMeleeTiming | undefined
+  /** Authored fist contact times for an imported punch clip; undefined means the procedural fallback owns it. */
+  getPunchTiming?(state: HumanoidAnimationState): HumanoidPunchTiming | undefined
   playHitReaction?(): void
   setEquipmentState?(state: Partial<import('./CharacterEquipmentPose').EquipmentPoseState>): void
   setSwordHandShape?(enabled: boolean): void
   setPoseLayersEnabled?(enabled: boolean): void
   setBowLocomotion?(state: 'idle' | 'walk' | 'run', timeScale: number): void
   play(state: HumanoidAnimationState, options?: HumanoidAnimationPlayOptions): boolean
-  seek(state: HumanoidAnimationState, normalizedTime: number): boolean
+  /** `cameraDistance` lets a far repeated sample of the same state keep the last pose.
+   * `nextUpdate`: the caller calls `update(dt, cameraDistance)` next in this tick, with no other
+   * pose read in between, so the controller may leave this sample to that evaluation. */
+  seek(state: HumanoidAnimationState, normalizedTime: number, cameraDistance?: number, nextUpdate?: HumanoidSeekNextUpdate): boolean
   has(state: HumanoidAnimationState): boolean
   getDuration(state: HumanoidAnimationState): number | undefined
+  sampleInitialPose?(): void
   update(dt: number, cameraDistance?: number): void
   stop(): void
+}
+
+/** Contacts are in clip seconds (== action seconds at timeScale 1); one damage event per entry. */
+export interface HumanoidPunchTiming {
+  duration: number
+  contacts: ReadonlyArray<{ time: number; hand: 'left' | 'right' }>
 }
 
 /** Source seconds remain on the clip; this describes its gameplay clock. */
@@ -80,9 +98,13 @@ export interface HumanoidMeleeTiming {
   hit: number
   activeEnd: number
   clipTimeScale: number
+  /** Optional 2H axe fade in base action seconds; action speed scales it once. */
+  attackFadeInSeconds?: number
 }
 
 export interface CharacterRig {
+  /** Fingerless hands close through morphs rather than finger bones. */
+  mittenHands?: boolean
   equipmentGripFrames?: import('./EquipmentAttachmentContract').EquipmentGripFrames
   upperChest?: THREE.Object3D
   clavicleLeft?: THREE.Object3D
@@ -234,13 +256,20 @@ export function applyCharacterMountedPose(rig: CharacterRig, mounted: boolean, k
       setRigRotation(leg.ankle, XONGKORO_VISUAL.standingAnklePitch * leg.forwardBendSign, 0, -leg.side * XONGKORO_VISUAL.standingSpread)
       continue
     }
+    if (kind === 'BLACK_CAT' || kind === 'WHITE_CAT' || kind === 'ORANGE_CAT' || kind === 'SERVAL' || kind === 'CARACAL') {
+      // Follow the source saddle's stirrups without widening or moving its geometry.
+      setRigRotation(leg.hip, -0.798 * leg.forwardBendSign, 0, leg.side * 0.511)
+      setRigRotation(leg.knee, 1.436 * leg.forwardBendSign, 0, -leg.side * 0.306)
+      setRigRotation(leg.ankle, -0.8 * leg.forwardBendSign, 0, -leg.side * 0.688)
+      continue
+    }
     // Follow each animal barrel and keep the soles upright. The source corgi
     // is narrower than the old procedural model; its calves follow the flanks.
-    const spread = kind === 'CORGI' ? .72 : kind === 'HORSE' ? 0.58 : 0.82
-    const kneeBend = kind === 'CORGI' ? 1.08 : kind === 'HORSE' ? 1.22 : 1.05
+    const spread = kind === 'CORGI' ? .72 : (kind === 'HORSE' || kind === 'ARMORED_HORSE') ? 0.58 : 0.82
+    const kneeBend = kind === 'CORGI' ? 1.08 : (kind === 'HORSE' || kind === 'ARMORED_HORSE') ? 1.22 : 1.05
     setRigRotation(leg.hip, -0.68 * leg.forwardBendSign, 0, leg.side * spread)
-    setRigRotation(leg.knee, kneeBend * leg.forwardBendSign, 0, kind === 'CORGI' ? 0 : kind === 'BLACK_CAT' ? -leg.side * 0.42 : 0)
-    setRigRotation(leg.ankle, (kind === 'HORSE' ? -0.44 : -0.38) * leg.forwardBendSign, 0, kind === 'CORGI' ? -leg.side * spread : kind === 'BLACK_CAT' ? -leg.side * .30 : 0)
+    setRigRotation(leg.knee, kneeBend * leg.forwardBendSign, 0, kind === 'CORGI' ? 0 : kind === 'SNOW_LEOPARD' ? -leg.side * 0.42 : 0)
+    setRigRotation(leg.ankle, ((kind === 'HORSE' || kind === 'ARMORED_HORSE') ? -0.44 : -0.38) * leg.forwardBendSign, 0, kind === 'CORGI' ? -leg.side * spread : kind === 'SNOW_LEOPARD' ? -leg.side * .30 : 0)
   }
 }
 

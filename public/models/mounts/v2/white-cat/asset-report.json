@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 2,
+  "id": "white-cat",
+  "sha256": "1b7a0a59d32440efa01a9373a97271284aa85280ac9bd51bc3795e7ade00c78e",
+  "sourceSha256": "a5cd03601031dc1f5c0b0370cfe1e010f9807727effe06df29f73cd3bd1fb7f7",
+  "sourceContract": {
+    "sourceTriangles": 31285,
+    "finalBodyTriangles": 31285,
+    "matchedSourceTriangles": 31285,
+    "saddleTriangles": 10348,
+    "windingPreserved": true
+  },
+  "sourceToAsset": [
+    1.032,
+    0,
+    0,
+    0,
+    0,
+    1.032,
+    0,
+    0,
+    0,
+    0,
+    1.032,
+    0,
+    0.01307544,
+    -1.3621138052144489e-8,
+    0.03096,
+    1
+  ],
+  "sourceImages": [
+    {
+      "image": 0,
+      "bytes": 5736888,
+      "mimeType": "image/png",
+      "sha256": "5252e64b6eaf5b56df65e0156c8cf895c847e9f99e37bb727b74b27c3e1ba109"
+    },
+    {
+      "image": 1,
+      "bytes": 8536238,
+      "mimeType": "image/png",
+      "sha256": "1e02d3354da65f973b75f09aa381581f6735fda27483596d87bbbc2b9b66855f"
+    }
+  ],
+  "metrics": {
+    "packageBytes": 19288608,
+    "joints": 43,
+    "materials": 2,
+    "storedPrimitives": 6,
+    "visibleDrawCalls": 2,
+    "lodTriangles": [
+      41633,
+      19148,
+      5398
+    ]
+  },
+  "skin": {
+    "method": "Continuous torso-unified belly/tail skin repair",
+    "geometricPoints": 15645,
+    "freePoints": 4388,
+    "iterations": 97,
+    "residual": 0.000009451098038404382,
+    "maxDroppedWeight": 0.10415131592260674
+  },
+  "saddleFit": {
+    "seatPos": [
+      0,
+      1.266,
+      0.08
+    ],
+    "cameraPos": [
+      0,
+      1.566,
+      0.08
+    ],
+    "pitchDeg": 1.2,
+    "scale": [
+      1.14,
+      1.02,
+      0.98
+    ],
+    "chestReachZ": 0.68,
+    "chestDropY": -0.02,
+    "chestScaleX": 0.98,
+    "shoulderBulgeX": 0.04,
+    "girthBottomY": 0.505,
+    "girthScaleX": 1
+  },
+  "sockets": {
+    "socket_saddle_seat": [
+      0,
+      1.266,
+      0.08
+    ],
+    "socket_camera": [
+      0,
+      1.566,
+      0.08
+    ]
+  }
+}

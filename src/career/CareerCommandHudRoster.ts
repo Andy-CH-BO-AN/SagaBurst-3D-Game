@@ -43,8 +43,6 @@ export interface CareerCommandHudSource {
     missionId?: string
   }
   civilianReturningIds?: readonly string[]
-  /** Legacy input retained for compatibility; native air is never commandable. */
-  townAirActorIds?: readonly string[]
   actors: readonly HudActor[]
 }
 
@@ -92,7 +90,8 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
     const saved = personal?.members[id]
     const state: ArmyHudMemberState = saved?.status === 'exited' ? 'exited'
       : saved?.status === 'dead' || saved?.hp === 0 || actor?.dead ? 'dead'
-      : actor ? returningPersonal.has(id) ? 'returning' : 'deployed'
+      // HR standby actors (a RESERVE squad, or later hires) are not deployed troops.
+      : actor ? returningPersonal.has(id) ? 'returning' : saved?.standby || personal?.state === 'RESERVE' ? 'reserve' : 'deployed'
       : pendingPersonal.has(id) ? 'pending'
       : saved?.status === 'reserve' || !saved ? 'reserve' : 'missing'
     members.push({ id, squadId: 'personal', state, order: actor ? actor.tacticalOrder : saved?.order,
@@ -113,6 +112,6 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
   // Include identities and saved assignments: equal headcounts do not imply the same authority.
   const contextId = JSON.stringify([source.sceneKey, source.faction, source.missionId ?? null,
     official?.type ?? null, official?.missionId ?? null, squads.map(squad => [squad.squadId, squad.actorIds]),
-    personal?.memberIds ?? [], civilians?.actorIds ?? [], source.townAirActorIds ?? []])
+    personal?.memberIds ?? [], civilians?.actorIds ?? []])
   return { contextId, members }
 }

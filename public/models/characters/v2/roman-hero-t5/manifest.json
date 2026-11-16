@@ -9,7 +9,7 @@
     "sourceEntry": "Roman/Masked_Roman_Selected_11Clips.glb",
     "sourceSha256": "9bc9dc10a52df00a5caaabe600d48e6164b0a1a619a05dfc5aeec27116652ca8",
     "license": "Meshy account/service/input terms; project animation sources retain their original terms",
-    "licenseEvidence": "source-readme.txt"
+    "licenseEvidence": "attribution-evidence.json"
   },
   "attribution": "Masked Roman: user-supplied Meshy model, textures and selected axe animations. Core clips: project-licensed Kevin Iglesias and Quaternius; see source-readme.txt.",
   "selectedSource": {
@@ -153,15 +153,17 @@
         "clip": "axeAttack2H",
         "meleeCycleSeconds": 0.48,
         "events": {
-          "activeStart": 0.9666666666666667,
-          "hit": 1.0666666666666667,
-          "activeEnd": 1.2,
-          "actionComplete": 2.8333332538604736
+          "activeStart": 0.166666667,
+          "hit": 0.2625,
+          "activeEnd": 0.291666667,
+          "actionComplete": 0.48
         },
         "source": "Meshy",
         "sourceClip": "axeAttack2H",
         "loop": false,
-        "duration": 2.8333332538604736
+        "duration": 0.48,
+        "attackFadeInSeconds": 0.1,
+        "attackTransition": "inertial"
       },
       {
         "clip": "axeAttack1HFoot",
@@ -332,9 +334,9 @@
     }
   },
   "fileSha256": {
-    "lod0": "7490c74e27318a7ee32f702407a06b094d178552720f6776ee82c0fbb5395327",
-    "lod1": "4283c211856b6c86b9d4066d4e330199eb0c90e9084a373145fbdda74d17e3c8",
-    "lod2": "f3b9a160308aae8c954adffe011f46b9bef0db62aa52502f8065b8626866048a"
+    "lod0": "2c96d3f5c720ac85c5536f5f3a91b41e52d6700a1c1a08ebd686ef1a993e866e",
+    "lod1": "b569d7adfbd66a18d69c73090fbf0fe5cc76d6281c3c5db9aeba71d5eb0e35d1",
+    "lod2": "dedc6966f3bccd9e7a6a75e3e9f5c73aedc14509a3b5d42912c2f1b7af091b2b"
   },
   "sourceRepairs": {
     "kind": "retain-authored-cupped-fingers",
@@ -446,5 +448,39 @@
     },
     "retarget": "Anatomical limb axes and thumb/finger grasp; target idle pelvis and legs; original 1H event clock retained",
     "rebuild": "node tools/retarget-bandit-foot-axe.mjs"
-  }
+  },
+  "axeAttack2HTrim": {
+    "version": 1,
+    "recipe": "tools/assets/axe-2h-trim.json",
+    "recipeSha256": "13459f01f2c9241ee588af14394eb0b1c0b0ee2677ca47dabe43bde5c54be197",
+    "sourceDuration": 2.8333332538604736,
+    "sourceRange": [
+      0.9666666666666667,
+      1.2
+    ],
+    "sourceEvents": {
+      "activeStart": 0.9666666666666667,
+      "hit": 1.0666666666666667,
+      "activeEnd": 1.2,
+      "actionComplete": 2.8333332538604736
+    },
+    "inputSha256": {
+      "lod0.glb": "7490c74e27318a7ee32f702407a06b094d178552720f6776ee82c0fbb5395327",
+      "lod1.glb": "4283c211856b6c86b9d4066d4e330199eb0c90e9084a373145fbdda74d17e3c8",
+      "lod2.glb": "f3b9a160308aae8c954adffe011f46b9bef0db62aa52502f8065b8626866048a"
+    },
+    "duration": 0.48,
+    "events": {
+      "activeStart": 0.166666667,
+      "hit": 0.2625,
+      "activeEnd": 0.291666667,
+      "actionComplete": 0.48
+    },
+    "attackFadeInSeconds": 0.1,
+    "attackTransition": "inertial",
+    "preservation": "Only axeAttack2H channels and their referenced samples are replaced. Geometry, skin, textures, other animation payloads and runtime attack cycles are unchanged.",
+    "validation": "Animation/asset and production-controller trajectory checks; live browser gameplay, visual contact/clearance and mounted aesthetic acceptance remain unverified."
+  },
+  "boneMap": "bone-map.json",
+  "audit": "lod-publication-audit.json"
 }

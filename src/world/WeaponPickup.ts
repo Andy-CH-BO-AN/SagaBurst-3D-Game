@@ -8,6 +8,7 @@ import { WEAPONS, getTierColor, type WeaponTier } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { getTerrainHeight } from './Terrain'
+import { PickupRing } from './PickupRing'
 
 export class WeaponPickup {
   readonly group: THREE.Group
@@ -20,6 +21,7 @@ export class WeaponPickup {
   private meshGroup: THREE.Group
   private alive = true
   private hoverTimer = 0
+  private readonly ring: PickupRing
 
   get position(): THREE.Vector3 { return this.group.position }
   get isAlive(): boolean { return this.alive }
@@ -63,16 +65,9 @@ export class WeaponPickup {
     WeaponMeshFactory.buildPickupMesh(this.weaponId, this.isArrowPack, colorHex, this.meshGroup)
 
     // ── Glowing Light Ring (Lightweight Basic Material) ──
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: colorHex,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.7,
-    })
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.7, 12), ringMat)
-    ring.rotation.x = -Math.PI / 2
-    ring.position.y = 0.05
-    this.group.add(ring)
+    this.ring = new PickupRing(colorHex)
+    this.ring.mesh.position.y = 0.05
+    this.group.add(this.ring.mesh)
 
     // Calibrate base Y to terrain height
     const terrainY = getTerrainHeight(x, z)
@@ -82,6 +77,8 @@ export class WeaponPickup {
   }
 
 
+
+  setSelected(selected: boolean): void { this.ring.setSelected(selected) }
 
   update(dt: number): void {
     if (!this.alive) return
@@ -94,6 +91,7 @@ export class WeaponPickup {
   destroy(): void {
     if (!this.alive) return
     this.alive = false
+    this.ring.dispose()
     if (this.group.parent) {
       this.group.parent.remove(this.group)
     }
