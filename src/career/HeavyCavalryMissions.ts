@@ -24,7 +24,7 @@ export const HEAVY_COUNTER_CHARGE_METERS = 20
 /** Every deployment starts with the two front lines farther apart than this. */
 export const HEAVY_MIN_START_DISTANCE_METERS = 200
 
-export type HeavyRole = 'spear' | 'melee' | 'archer' | 'heavy_cavalry'
+export type HeavyRole = 'spear' | 'melee' | 'archer' | 'lancer' | 'heavy_cavalry'
 export type HeavyTier = 2 | 3 | 4 | 5
 export interface HeavyRosterGroup { role: HeavyRole; tier: HeavyTier; count: number }
 export type HeavySide = 'friendly' | 'enemy'
@@ -37,6 +37,7 @@ export const SOLDIER_FRIENDLY_GROUPS: readonly HeavyRosterGroup[] = [
   { role: 'spear', tier: 2, count: 26 }, { role: 'spear', tier: 3, count: 3 }, { role: 'spear', tier: 4, count: 1 },
   { role: 'melee', tier: 2, count: 23 }, { role: 'melee', tier: 3, count: 3 },
   { role: 'archer', tier: 2, count: 16 }, { role: 'archer', tier: 3, count: 3 },
+  { role: 'lancer', tier: 2, count: 100 },
 ]
 export const SOLDIER_ENEMY_GROUPS: readonly HeavyRosterGroup[] = [
   { role: 'heavy_cavalry', tier: 3, count: 50 }, { role: 'heavy_cavalry', tier: 4, count: 9 }, { role: 'heavy_cavalry', tier: 5, count: 1 },
@@ -45,6 +46,7 @@ export const VETERAN_FRIENDLY_GROUPS: readonly HeavyRosterGroup[] = [
   { role: 'spear', tier: 3, count: 98 }, { role: 'spear', tier: 4, count: 2 },
   { role: 'melee', tier: 3, count: 98 }, { role: 'melee', tier: 4, count: 2 },
   { role: 'archer', tier: 3, count: 98 }, { role: 'archer', tier: 4, count: 2 },
+  { role: 'lancer', tier: 3, count: 100 },
 ]
 export const VETERAN_ENEMY_GROUPS: readonly HeavyRosterGroup[] = [
   { role: 'heavy_cavalry', tier: 3, count: 70 }, { role: 'heavy_cavalry', tier: 4, count: 25 }, { role: 'heavy_cavalry', tier: 5, count: 5 },
@@ -110,6 +112,7 @@ export function heavyFriendlyActorIds(missionId: HeavyFieldMissionId): string[] 
 export function heavyEnemyActorIds(missionId: HeavyFieldMissionId): string[] { return heavyActorIds(missionId, 'enemy', heavyNpcGroups(missionId, 'enemy')) }
 
 export function heavyPresetId(faction: CharacterFaction, role: HeavyRole): UnitPresetId {
+  if (role === 'lancer') return `${faction}_lancer`
   if (role === 'heavy_cavalry') return `${faction}_heavy_cavalry`
   if (role === 'spear') return `${faction}_spearman`
   if (role === 'archer') return `${faction}_archer`

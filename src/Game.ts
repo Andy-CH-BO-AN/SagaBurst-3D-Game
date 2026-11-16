@@ -2321,7 +2321,15 @@ export class Game {
       const captain = captainId ? this.npcs.find(candidate => candidate.combatantId === captainId && !candidate.dead) : undefined
       const ambush = this.heavyDeployment?.ambushPoint
       if (captain && ambush && npc === captain) npc.assignFormationTarget(-3, new THREE.Vector3(ambush.x, getTerrainHeight(ambush.x, ambush.z), ambush.z), facing, 3.2)
-      else if (captain) npc.assignFollowTarget(captain, this.npcs.indexOf(npc) % 74)
+      else if (captain) {
+        const starts = this.heavyDeployment?.plan.npcSpecs
+        const start = starts?.find(spec => spec.actorId === npc.combatantId)
+        const captainStart = starts?.find(spec => spec.actorId === captainId)
+        const offset = start && captainStart
+          ? new THREE.Vector3((start.x - captainStart.x) * facing.z, 0, (start.z - captainStart.z) * facing.z)
+          : undefined
+        npc.assignFollowTarget(captain, this.npcs.indexOf(npc), offset, 3.2)
+      }
       return
     }
     // Hold: friendly formation slots (Soldier after Formation, Veteran) and Captain enemies where they stand.
