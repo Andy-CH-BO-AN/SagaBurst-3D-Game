@@ -8,6 +8,7 @@ import type { Mount } from '../world/Mount'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
 import { weaponShieldImpact } from './ShieldBlocking'
+import { armorBreakPenetration } from '../rpg/SkillManager'
 import type { DamageReceiver } from './DamageReceiver'
 import type {
   DamageableObstacle,
@@ -67,7 +68,8 @@ function shieldDamage(target: NPC | Player, damage: number, context?: CombatDama
   if (target.dead || context?.contact?.kind !== 'shield'
     || (context.method !== 'melee' && context.method !== 'projectile') || !target.shield?.active) return { damage, blockedImpact: 0 }
   const player = 'blockingLevel' in target ? target : null
-  const result = target.shield.absorb(damage, context.method === 'projectile' || (context.attackSource ?? context.contact?.attackSource) === 'xongkoro' ? 1 : weaponShieldImpact(context.weaponId, context.source.isMounted), player?.blockingLevel ?? 0)
+  const result = target.shield.absorb(damage, context.method === 'projectile' || (context.attackSource ?? context.contact?.attackSource) === 'xongkoro' ? 1 : weaponShieldImpact(context.weaponId, context.source.isMounted), player?.blockingLevel ?? 0,
+    armorBreakPenetration(context.source.armorBreakLevel))
   emitHitBlocked(context, player ? createPlayerCombatTargetRef(player) : createNpcCombatTargetRef(target as NPC), result.blockedImpact)
   target.shieldCollider?.refreshVisibility()
   const hostile = context.hostileToTarget ?? context.source.allegiance === 'ENEMY'

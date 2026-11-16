@@ -41,7 +41,7 @@ import { Player, DEFAULT_PLAYER_MAX_HP } from '../player/Player'
 import { PlayerInput } from '../player/PlayerInput'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
-import { SkillManager } from '../rpg/SkillManager'
+import { SkillManager, syncPlayerSkillCombatLevels } from '../rpg/SkillManager'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { TownEquipment } from '../town/TownEquipment'
 import { ArenaTrialHUD } from '../ui/ArenaTrialHUD'
@@ -274,7 +274,7 @@ export class CareerArenaCombatScene {
     const maxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
     this.player.setMaxHp(maxHp, true)
     this.player.setDamageHud(this.hp)
-    this.player.blockingLevel = this.skills.skillState.blocking.level
+    syncPlayerSkillCombatLevels(this.player, this.skills.skillState)
     this.player.onShieldBlock = impact => this.awardSkillXp({ skill: 'blocking', xp: impact * SHIELD_CONFIG.xpPerBlockedImpact })
     this.player.onFireArrow = event => this.fire(event.origin, event.direction, event.speed, event.damage, 'arrow', undefined, event.visualKind)
     const engaged = trial.stage === 'engaged'
@@ -728,7 +728,7 @@ export class CareerArenaCombatScene {
     if (this.session) { this.session.awardSkillXp({ skill, xp }); return }
     if (xp <= 0 || !canAwardPlayerSkillProgression({ dead: this.player.dead, spectatorOnly: this.player.spectatorOnly, observer: false })) return
     const levels = this.skills.addXp(skill, xp, this.sound)
-    this.player.blockingLevel = this.skills.skillState.blocking.level
+    syncPlayerSkillCombatLevels(this.player, this.skills.skillState)
     this.skillsDirty = true
     if (levels > 0) {
       this.flushSkills()

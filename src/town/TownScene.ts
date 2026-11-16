@@ -104,7 +104,7 @@ import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAwar
 import { EQUIPMENT_CATEGORIES, equipmentSections, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { compareEquipment, equipmentDetails, equipmentTraits } from '../rpg/EquipmentComparison'
 import { compareMounts, mountComparisonText, mountDetails, mountTraits } from '../rpg/MountComparison'
-import { SkillManager } from '../rpg/SkillManager'
+import { SkillManager, syncPlayerSkillCombatLevels } from '../rpg/SkillManager'
 import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ArmyCommandUI } from '../ui/ArmyCommandUI'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
@@ -1153,7 +1153,7 @@ export class TownScene {
 
   private bindBlockingProgression(player = this.player): void {
     player.setDamageHud(this.hp)
-    player.blockingLevel = this.skills.skillState.blocking.level
+    syncPlayerSkillCombatLevels(player, this.skills.skillState)
     player.onShieldBlock = impact => this.awardCareerSkillXp({ skill: 'blocking', xp: impact * SHIELD_CONFIG.xpPerBlockedImpact })
   }
 
@@ -1179,7 +1179,7 @@ export class TownScene {
     const before = this.skills.skillState
     const levelsGained = this.skills.addXp(skill, xp, sound)
     const after = this.skills.skillState
-    this.player.blockingLevel = after.blocking.level
+    syncPlayerSkillCombatLevels(this.player, after)
     if (skillStatesEqual(before, after)) return
 
     const next = cloneCareerProfile(this.profile)

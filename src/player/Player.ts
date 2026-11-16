@@ -125,6 +125,7 @@ export class Player {
   readonly bodyBaseOffset = -PLAYER_HALF_HEIGHT
   bodyHitNodes: THREE.Object3D[] = []
   blockingLevel = 1
+  armorBreakLevel = 1
   onShieldBlock?: (impact: number) => void
   private shieldHud: HTMLElement | null = typeof document === 'undefined' ? null : document.getElementById('shield-hud')
   private currentShieldId: string | null = null

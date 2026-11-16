@@ -647,6 +647,7 @@
         border: 1px solid rgba(255,255,255,0.08);
       }
       .skill-name { font-weight: 600; font-size: 14px; }
+      .skill-detail { font-size: 12px; color: rgba(255,255,255,0.75); }
       .skill-level { font-weight: 700; color: #e8c96a; font-size: 14px; }
       .skill-xp-bar {
         width: 140px;
@@ -1005,43 +1006,7 @@
         </div>
         <div id="equipment-panel-skills" class="equipment-panel" role="tabpanel" aria-labelledby="equipment-tab-skills" hidden>
           <div class="modal-section-title">技能成長 Skills</div>
-          <div class="skill-row" title="每級 +1 HP；每點有效 HP 傷害獲得 2 XP，Lv.50 傷害 ×5">
-            <div><span class="skill-name">🥊 徒手格鬥</span><span id="skill-unarmed-lvl" class="skill-level"> Lv.1/50</span></div>
-            <span id="skill-unarmed-detail">XP 0 / 100 · 傷害 ×1.00</span>
-            <div class="skill-xp-bar"><div id="skill-unarmed-fill" class="skill-xp-fill"></div></div>
-          </div>
-          <div class="skill-row">
-            <div>
-              <span class="skill-name">⚔️ 單手武器 One-Handed</span>
-              <span id="skill-oh-lvl" class="skill-level"> Lv.1</span>
-            </div>
-            <div class="skill-xp-bar"><div id="skill-oh-fill" class="skill-xp-fill"></div></div>
-          </div>
-          <div class="skill-row">
-            <div>
-              <span class="skill-name">🪓 雙手武器 Two-Handed</span>
-              <span id="skill-th-lvl" class="skill-level"> Lv.1</span>
-            </div>
-            <div class="skill-xp-bar"><div id="skill-th-fill" class="skill-xp-fill"></div></div>
-          </div>
-          <div class="skill-row">
-            <div>
-              <span class="skill-name">🏹 遠程 Ranged</span>
-              <span id="skill-ranged-lvl" class="skill-level"> Lv.1</span>
-            </div>
-            <div class="skill-xp-bar"><div id="skill-ranged-fill" class="skill-xp-fill"></div></div>
-          </div>
-          <div class="skill-row">
-            <div>
-              <span class="skill-name">🐎 騎馬衝撞 Mounted Impact</span>
-              <span id="skill-mount-lvl" class="skill-level"> Lv.1</span>
-            </div>
-            <div class="skill-xp-bar"><div id="skill-mount-fill" class="skill-xp-fill"></div></div>
-          </div>
-          <div class="skill-row" title="每級 +1 HP；只降低破盾當次的溢出傷害，每級 1%，最高 50%">
-            <div><span class="skill-name">🛡️ 格擋 Blocking</span><span id="skill-block-lvl" class="skill-level"> Lv.1</span></div>
-            <div class="skill-xp-bar"><div id="skill-block-fill" class="skill-xp-fill"></div></div>
-          </div>
+          <div id="skill-list"></div>
         </div>
         <div id="equipment-panel-items" class="equipment-panel" role="tabpanel" aria-labelledby="equipment-tab-items">
           <div class="modal-section-title">物品欄 Inventory (點擊裝備切換)</div>

@@ -7,7 +7,7 @@ import type { SoundManager } from '../audio/SoundManager'
 import { DEFAULT_PLAYER_MAX_HP, type Player } from '../player/Player'
 import type { PlayerInput } from '../player/PlayerInput'
 import { canAwardPlayerSkillProgression, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
-import type { SkillManager } from '../rpg/SkillManager'
+import { syncPlayerSkillCombatLevels, type SkillManager } from '../rpg/SkillManager'
 
 /** Seconds between best-effort skill saves while nothing levels up. */
 const SKILL_FLUSH_SECONDS = 5
@@ -20,7 +20,7 @@ export interface ArenaSettlement {
   readonly merit: PlayerBattleStats | undefined
 }
 
-export type ArenaSessionPlayer = Pick<Player, 'dead' | 'spectatorOnly' | 'hp' | 'setMaxHp' | 'setHp' | 'clearTownAction'> & { blockingLevel: number }
+export type ArenaSessionPlayer = Pick<Player, 'dead' | 'spectatorOnly' | 'hp' | 'setMaxHp' | 'setHp' | 'clearTownAction'> & { blockingLevel: number; armorBreakLevel: number }
 
 /** The modal the session writes save-failure prompts and retry buttons into. */
 export interface ArenaSessionPanel {
@@ -121,7 +121,7 @@ export class CareerArenaSession<S extends ArenaSettlement> {
     if (xp <= 0 || !canAwardPlayerSkillProgression({ dead: player.dead, spectatorOnly: player.spectatorOnly, observer: false })) return
     const skills = this.host.skills
     const levels = skills.addXp(skill, xp, this.host.sound)
-    player.blockingLevel = skills.skillState.blocking.level
+    syncPlayerSkillCombatLevels(player, skills.skillState)
     this.skillsDirty = true
     if (levels > 0) {
       this.flushSkills()

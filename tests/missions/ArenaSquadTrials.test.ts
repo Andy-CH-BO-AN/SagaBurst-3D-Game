@@ -282,7 +282,7 @@ describe('Arena Squad Trials', () => {
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
     expect(store.save(profile)).toBe(true)
     const result = vi.fn(), live = { ...stats }, capture = vi.fn(() => ({ player: { ...live }, squads: [] }))
-    const player = { dead: false, spectatorOnly: false, hp: 100, blockingLevel: 1, clearTownAction() {}, setHp() {}, setMaxHp() {} }
+    const player = { dead: false, spectatorOnly: false, hp: 100, blockingLevel: 1, armorBreakLevel: 1, clearTownAction() {}, setHp() {}, setMaxHp() {} }
     const session = new CareerArenaSession(profile, { noun: '試煉', store, skills: new SkillManager(), sound: {} as never,
       input: { clear() {} }, player: () => player,
       panel: { isOpen: false, show() {}, button() {}, close() {} }, openResult: result, leave() {} })

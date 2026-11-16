@@ -109,7 +109,7 @@ import { PlayerInput } from './player/PlayerInput'
 import { BATTLE_SCENE_MAX_PIXEL_RATIO, bindWindowResize, createSceneRenderer } from './rendering/SceneRenderer'
 import { resolveActivePlayerSkillProgressionAward, resolveCombatSkill, resolveSkillAdjustedMaxHp, skillStatesEqual } from './rpg/CombatSkillProgression'
 import { InventoryManager } from './rpg/InventoryManager'
-import { SkillManager } from './rpg/SkillManager'
+import { SkillManager, syncPlayerSkillCombatLevels } from './rpg/SkillManager'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from './rpg/WeaponDatabase'
 import { restoreSavedPlayerHp, SaveManager, type PlayerSaveData } from './save/SaveManager'
 import { TOWN_ENTRY_KEY } from './town/CareerTownEntry'
@@ -1435,7 +1435,7 @@ export class Game {
     this.quiverUI         = new QuiverUI()
     this.skillManager     = new SkillManager()
     if (this.careerProfile) this.skillManager.setSkillState(this.careerProfile.skills ?? {})
-    this.player.blockingLevel = this.skillManager.skillState.blocking.level
+    syncPlayerSkillCombatLevels(this.player, this.skillManager.skillState)
     this.player.onShieldBlock = impact => this._applyPlayerSkillAward({ skill: 'blocking', xp: impact * SHIELD_CONFIG.xpPerBlockedImpact })
     if (!this.careerProfile) this.player.setMaxHp(resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, this.skillManager.skillState))
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
@@ -4279,7 +4279,7 @@ export class Game {
     const before = this.skillManager.skillState
     const levelsGained = this.skillManager.addXp(award.skill, award.xp, this.soundManager)
     const after = this.skillManager.skillState
-    this.player.blockingLevel = after.blocking.level
+    syncPlayerSkillCombatLevels(this.player, after)
     if (skillStatesEqual(before, after)) return
 
     if (this.careerProfile) {
@@ -4327,6 +4327,7 @@ export class Game {
         ranged: skills.ranged,
         mountedImpact: skills.mountedImpact,
         blocking: skills.blocking,
+        armorBreak: skills.armorBreak,
       },
       inventory: inv,
       mountData: this.player.isMounted && this.player.currentMount ? {
@@ -4381,7 +4382,7 @@ export class Game {
     this.player.setStamina(data.stamina)
     this.player.setArrowCount(data.arrows)
     this.skillManager.setSkillState(data.skills)
-    this.player.blockingLevel = this.skillManager.skillState.blocking.level
+    syncPlayerSkillCombatLevels(this.player, this.skillManager.skillState)
     if (!this.player.heroAssetId) {
       const faction = data.characterFaction ?? this.player.characterFaction
       const tier = data.characterTier ?? this.player.ordinaryCharacterTier
