@@ -14,7 +14,7 @@ if (args.has('--help')) {
 SagaBurst 標準效能量測
 
 選項：
-  --scenario=D|E|F|G|H|I|K|L|all   預設 all
+  --scenario=D|E|F|G|H|I|K|L|M|all   預設 all
   --phase=before-contact|during-combat
   --runs=N                 Before Contact 預設 3，Combat 預設 1
   --tag=NAME               輸出檔名 tag
@@ -23,7 +23,7 @@ SagaBurst 標準效能量測
   --warmup-ms=N            預設 3000
   --observation-ms=N       預設 20000
   --timeout-ms=N            預設 25000
-  --initial-timeout-ms=N    等待完整生成的時限，預設 15000（K/L 建議 120000）
+  --initial-timeout-ms=N    等待完整生成的時限，預設 15000（K/L/M 建議 120000）
   --out=PATH               指定輸出 JSON 路徑
 `)
   process.exit(0)
@@ -47,6 +47,8 @@ const allScenarios = [
   { id: 'K', query: 'devcombat=k', sideCount: 300, horseCount: 300, explicitOnly: true },
   // L: 300v300 Six Feline Ranger horse archers; every mount is a cat, so Horse Count is 0.
   { id: 'L', query: 'devcombat=l', sideCount: 300, horseCount: 0, explicitOnly: true },
+  // M: scenario L's Rangers on 150 snow leopards + 150 other felines per side (Horse Count 0).
+  { id: 'M', query: 'devcombat=m', sideCount: 300, horseCount: 0, explicitOnly: true },
 ]
 const scenarios = scenarioArg === 'ALL'
   ? allScenarios.filter((scenario) => !scenario.explicitOnly)

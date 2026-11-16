@@ -14,8 +14,22 @@ export const RANGER_HORSE_ARCHER_GROUPS: readonly FelineCavalryGroup[] = FELINE_
 export const RANGER_HORSE_ARCHER_MOUNTS: readonly FelineMountVariant[] = ['black-cat', 'white-cat', 'orange-cat', 'serval', 'caracal']
 export const RANGER_HORSE_ARCHER_HERO_ASSETS: readonly HeroAssetId[] = ['maki-archer-t4']
 
+/** DEV scenario M: scenario L's Rangers and formation, remounted on 150 snow leopards and
+ * 30 of each other feline per side, to stress snow-leopard animation cost. */
+export type RangerHorseArcherMountMix = 'six-feline' | 'snow-leopard'
+export const SNOW_LEOPARD_RANGER_COUNT = 150
+const SNOW_LEOPARD_MIX_CATS = ['black-cat', 'white-cat', 'orange-cat', 'serval', 'caracal'] as const
+
+/** Mount for the side's `sideIndex`-th Ranger (spawn order); the L mix keeps its role/tier mounts. */
+export function rangerHorseArcherMountId(mix: RangerHorseArcherMountMix, sideIndex: number, sixFelineMountId: string): string {
+  if (mix === 'six-feline') return sixFelineMountId
+  if (sideIndex < SNOW_LEOPARD_RANGER_COUNT) return 'snow-leopard'
+  const catShare = (RANGER_HORSE_ARCHER_SIDE_COUNT - SNOW_LEOPARD_RANGER_COUNT) / SNOW_LEOPARD_MIX_CATS.length
+  return SNOW_LEOPARD_MIX_CATS[Math.floor((sideIndex - SNOW_LEOPARD_RANGER_COUNT) / catShare)]
+}
+
 /** Keeps every formation slot (identity, allegiance, squad and position) and replaces only its unit. */
-export function createRangerHorseArcherScenarioPlan(config = PRESET_SCENARIO_L): BattleSpawnPlan {
+export function createRangerHorseArcherScenarioPlan(config = PRESET_SCENARIO_L, mix: RangerHorseArcherMountMix = 'six-feline'): BattleSpawnPlan {
   const template = BattleSpawner.createSpawnPlan(config)
   const npcSpecs = (['roman', 'viking'] as const).flatMap(faction => {
     const cursors = { melee: 0, lancer: 0, horse_archer: 0 }
@@ -24,12 +38,13 @@ export function createRangerHorseArcherScenarioPlan(config = PRESET_SCENARIO_L):
       lancer: felineRoleTemplateSlots(template, faction, 'lancer'),
       horse_archer: felineRoleTemplateSlots(template, faction, 'horse_archer'),
     }
+    let sideIndex = 0
     const side = RANGER_HORSE_ARCHER_GROUPS.flatMap(group => Array.from({ length: group.count }, (_, index) => {
       const slot = slots[group.role][cursors[group.role]++]
       if (!slot) throw new Error(`Scenario L is missing a ${faction} ${group.role} formation slot`)
       const actorId = slot.actorId ?? `scenario-l:${faction}:t${group.tier}:${group.role}:${index}`
       return felineRangerCavalrySpec(slot, actorId, faction, slot.faction, group.role, group.tier,
-        felineFriendlyMountId(group.role, group.tier, index, group.count))
+        rangerHorseArcherMountId(mix, sideIndex++, felineFriendlyMountId(group.role, group.tier, index, group.count)))
     }))
     if (side.length !== RANGER_HORSE_ARCHER_SIDE_COUNT
       || Object.entries(cursors).some(([role, used]) => used !== slots[role as keyof typeof slots].length)) {

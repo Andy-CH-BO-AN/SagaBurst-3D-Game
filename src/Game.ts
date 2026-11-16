@@ -6,7 +6,7 @@ import { outpostCheckpointHeight } from './campaign/OutpostRampartGarrison'
 import { captureCareerAerialState, restoreCareerAerialState } from './career/CareerAerialState'
 import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, careerFieldTacticalOrder, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeOrphanMountPlan, createCareerBridgeSpawnPlan, createCareerFelineOrphanMountPlan, createCareerFelineSpawnPlan, dispatchFelineVanguardCharge, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { CareerCommandHudTypes } from './career/CareerCommandHudTypes'
-import { RANGER_HORSE_ARCHER_HERO_ASSETS, RANGER_HORSE_ARCHER_MOUNTS, createRangerHorseArcherScenarioPlan, rangerHorseArcherEquipmentIds } from './career/RangerHorseArcherScenario'
+import { RANGER_HORSE_ARCHER_HERO_ASSETS, RANGER_HORSE_ARCHER_MOUNTS, createRangerHorseArcherScenarioPlan, rangerHorseArcherEquipmentIds, type RangerHorseArcherMountMix } from './career/RangerHorseArcherScenario'
 import { stageMissionReturnRebuild } from './career/CareerMissionReturnRecovery'
 import { officialCommandHudLabel } from './career/CommanderTownSquadLabels'
 import { refitTownCommandForSceneChange } from './career/SquadRefit'
@@ -272,10 +272,15 @@ export function resolveMountSpawnY(saveData: { mountData: NonNullable<PlayerSave
   return saveData.mountData.position.y
 }
 
-/** `?devcombat=l`: 300v300 Six Feline Ranger horse archers. */
-function isRangerHorseArcherScenario(devcombat: string | null | undefined): boolean {
+/** `?devcombat=l`: 300v300 Six Feline Ranger horse archers; `m`: the same Rangers mostly on snow leopards. */
+function rangerHorseArcherScenarioMix(devcombat: string | null | undefined): RangerHorseArcherMountMix | null {
   const value = devcombat?.toLowerCase()
-  return value === 'l' || value === 'scenariol'
+  if (value === 'l' || value === 'scenariol') return 'six-feline'
+  if (value === 'm' || value === 'scenariom') return 'snow-leopard'
+  return null
+}
+function isRangerHorseArcherScenario(devcombat: string | null | undefined): boolean {
+  return rangerHorseArcherScenarioMix(devcombat) !== null
 }
 
 export class Game {
@@ -352,8 +357,8 @@ export class Game {
       const ownsCareerT4Bow = personalProfile?.ownedWeapons.includes(T4_RANGER_BOW_RANGED_ID) ?? false
       const usesPersonalT4Bow = personalMembers.some(member => member.type === 'ranger' || member.equipment?.ranged === T4_RANGER_BOW_RANGED_ID)
       const isFelineLaunch = Boolean(battleConfig?.careerFelineMissionId)
-      const rangerHorseArcherPlan = !trainingGround && isRangerHorseArcherScenario(query.get('devcombat'))
-        ? createRangerHorseArcherScenarioPlan() : null
+      const rangerHorseArcherMix = trainingGround ? null : rangerHorseArcherScenarioMix(query.get('devcombat'))
+      const rangerHorseArcherPlan = rangerHorseArcherMix ? createRangerHorseArcherScenarioPlan(undefined, rangerHorseArcherMix) : null
       const felineVariants = new Set<FelineMountVariant>(trainingGround ? FELINE_MOUNT_VARIANTS : ['black-cat'])
       if (battleConfig?.careerFelineMissionId) for (const variant of ['white-cat', 'orange-cat', 'serval', 'caracal'] as const) felineVariants.add(variant)
       const devModelFeline = felineVariantFromMountId(query.get('devmodels'))
@@ -1115,7 +1120,7 @@ export class Game {
       }
       activeBattleConfig = scenarioConfig
       battlePlan = scenarioConfig === PRESET_SCENARIO_L
-        ? createRangerHorseArcherScenarioPlan(scenarioConfig) : BattleSpawner.createSpawnPlan(scenarioConfig)
+        ? createRangerHorseArcherScenarioPlan(scenarioConfig, rangerHorseArcherScenarioMix(devVal) ?? 'six-feline') : BattleSpawner.createSpawnPlan(scenarioConfig)
     } else if (battleConfig) {
       battlePlan = BattleSpawner.createSpawnPlan(battleConfig, obstacles)
     }
