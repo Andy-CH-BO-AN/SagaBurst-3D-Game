@@ -62,6 +62,8 @@ export interface HumanoidAnimationPlayOptions {
   startNormalizedTime?: number
 }
 
+export interface HumanoidSeekNextUpdate { dt: number; cameraDistance: number }
+
 export interface HumanoidAnimationController {
   getMeleeTiming?(state: HumanoidAnimationState): HumanoidMeleeTiming | undefined
   /** Authored fist contact times for an imported punch clip; undefined means the procedural fallback owns it. */
@@ -72,8 +74,10 @@ export interface HumanoidAnimationController {
   setPoseLayersEnabled?(enabled: boolean): void
   setBowLocomotion?(state: 'idle' | 'walk' | 'run', timeScale: number): void
   play(state: HumanoidAnimationState, options?: HumanoidAnimationPlayOptions): boolean
-  /** `cameraDistance` lets a far repeated sample of the same state keep the last pose. */
-  seek(state: HumanoidAnimationState, normalizedTime: number, cameraDistance?: number): boolean
+  /** `cameraDistance` lets a far repeated sample of the same state keep the last pose.
+   * `nextUpdate`: the caller calls `update(dt, cameraDistance)` next in this tick, with no other
+   * pose read in between, so the controller may leave this sample to that evaluation. */
+  seek(state: HumanoidAnimationState, normalizedTime: number, cameraDistance?: number, nextUpdate?: HumanoidSeekNextUpdate): boolean
   has(state: HumanoidAnimationState): boolean
   getDuration(state: HumanoidAnimationState): number | undefined
   sampleInitialPose?(): void

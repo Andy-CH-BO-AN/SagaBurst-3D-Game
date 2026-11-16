@@ -8,6 +8,7 @@ import { hideBoneOnlySubtrees } from './BoneRenderTraversal'
 import { RiderSeatContactCache } from './RiderSeatContactCache'
 import {
   isQuadrupedAnimationState,
+  nearRestTrackNames,
   quadrupedLocomotionClipForSpeed,
   type QuadrupedAnimationState,
   type QuadrupedLocomotionState,
@@ -24,6 +25,26 @@ interface QuadrupedVisualConfig {
 }
 
 /** Baked quadruped clips and independent skin instances share one playback/LOD owner. */
+const runtimeClips = new WeakMap<GLTF, THREE.AnimationClip[]>()
+/** Template clips without near-bind properties, shared by every instance of the asset. */
+function runtimeQuadrupedClips(template: GLTF): THREE.AnimationClip[] {
+  let clips = runtimeClips.get(template)
+  if (!clips) {
+    const scene = template.scene
+    const source = template.animations.filter(clip => isQuadrupedAnimationState(clip.name))
+    const omitted = nearRestTrackNames(source, trackName => {
+      const parsed = THREE.PropertyBinding.parseTrackName(trackName)
+      const node = THREE.PropertyBinding.findNode(scene, parsed.nodeName)
+      const value = node?.[parsed.propertyName as 'position' | 'quaternion' | 'scale']
+      return value instanceof THREE.Vector3 || value instanceof THREE.Quaternion ? value.toArray() : undefined
+    })
+    clips = source.map(clip => new THREE.AnimationClip(clip.name, clip.duration,
+      clip.tracks.filter(track => !omitted.has(track.name)), clip.blendMode))
+    runtimeClips.set(template, clips)
+  }
+  return clips
+}
+
 export class QuadrupedVisual {
   readonly root: THREE.Group
   readonly saddleSeat: THREE.Object3D
@@ -104,9 +125,7 @@ export class QuadrupedVisual {
     this.root.add(this.lod)
     this.saddleSeat = this.root.getObjectByName('socket_saddle_seat')!
     this.mixer = new THREE.AnimationMixer(this.root)
-    for (const clip of template.animations) {
-      if (isQuadrupedAnimationState(clip.name)) this.actions.set(clip.name, this.mixer.clipAction(clip))
-    }
+    for (const clip of runtimeQuadrupedClips(template)) this.actions.set(clip.name as QuadrupedAnimationState, this.mixer.clipAction(clip))
     this.currentAction = this.actions.get('idle')!
     this.play('idle', true)
     this.mixer.update(0)

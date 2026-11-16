@@ -3908,11 +3908,13 @@ export class NPC {
       const progress = Math.min(1, this.attackTimer / cooldown)
 
       if (isBow) {
+        const releasing = this.attackTimer >= cooldown - windup
         if (!this.animator.busy) {
           this.bowArrowReleased = false
-          this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18))
+          // Unless the release starts below, animator.update(dt) directly follows and evaluates the draw.
+          this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18), releasing ? undefined : { dt, cameraDistance })
         }
-        if (this.attackTimer >= cooldown - windup && this.animator.currentAction === 'bowAim') {
+        if (releasing && this.animator.currentAction === 'bowAim') {
           // A moving rider can fire forward, to either side, or behind.
           // The ballistic target/LoS remains authoritative, not a shaft pose.
           this.animator.start('bowRelease', getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
@@ -4370,7 +4372,9 @@ export class NPC {
       if (!this.animator.busy) {
         if (kind === 'bow') {
           this.bowArrowReleased = false
-          this.animator.poseBow(Math.min(1, this.attackTimer / cooldown), Math.min(1, this.attackTimer / .18))
+          // Unless the release starts below, animator.update(dt) directly follows and evaluates the draw.
+          const releasing = this.attackTimer >= cooldown - .04
+          this.animator.poseBow(Math.min(1, this.attackTimer / cooldown), Math.min(1, this.attackTimer / .18), releasing ? undefined : { dt, cameraDistance })
         } else if (this.attackTimer >= cooldown - (this.rig.animation?.getDuration('pilumThrow') ?? .45)) {
           if (this.animator.start('pilumThrow')) this.bowPivot.visible = true
         }
