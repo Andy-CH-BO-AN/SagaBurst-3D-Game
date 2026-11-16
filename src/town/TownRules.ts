@@ -4,7 +4,7 @@ import { careerCommanderLoadout } from '../career/CareerCommanderEquipment'
 import { civilianHomeAnchor } from './TownCivilianLife'
 import { assignTownGarrison, type TownGarrisonStation } from './TownGarrison'
 import { townWatchtowerGuardRoster } from './TownWatchtowerGuardPolicy'
-import { townEagleRoster } from './TownEagleGarrison'
+import { townAssaultRequiredActorIds, townEagleRoster } from './TownEagleGarrison'
 import { addCareerItem, availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from '../career/CareerInventory'
 import { canonicalCareerMountId, cloneCareerProfile, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile, type CareerRank, type CareerMountId } from '../career/CareerProfile'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
@@ -215,13 +215,16 @@ export class TownEvent {
   readonly allActors = new Map<string, { dead: boolean }>()
   readonly actors = new Map<string, { dead: boolean }>()
   private readonly expectedIds: Set<string>
+  private readonly requiredIds: Set<string>
   private readonly additionalResidentIds = new Set<string>()
   private excludedActorIds: ReadonlySet<string> = new Set()
   hostile = false
   registrationComplete = false
-  constructor(objectiveRoster: readonly Pick<TownActorSpec, 'id'>[]) {
+  constructor(objectiveRoster: readonly (Pick<TownActorSpec, 'id'> & Partial<Pick<TownActorSpec, 'eagle'>>)[]) {
     this.expectedIds = new Set(objectiveRoster.map(actor => actor.id))
     if (!this.expectedIds.size || this.expectedIds.size !== objectiveRoster.length) throw new Error('Invalid town objective roster')
+    // Keep every resident registered for casualties; native Eagle riders never gate defection.
+    this.requiredIds = townAssaultRequiredActorIds(objectiveRoster, [...this.expectedIds])
   }
   register(id: string, actor: { dead: boolean }): void {
     if (this.allActors.has(id)) throw new Error('Duplicate town actor: ' + id)
@@ -234,6 +237,7 @@ export class TownEvent {
     if (this.expectedIds.has(id)) throw new Error('Duplicate town objective resident: ' + id)
     this.register(id, actor)
     this.expectedIds.add(id)
+    this.requiredIds.add(id)
     this.additionalResidentIds.add(id)
     this.actors.set(id, actor)
   }
@@ -241,6 +245,7 @@ export class TownEvent {
   unregisterAdditionalResident(id: string): void {
     if (!this.additionalResidentIds.delete(id)) return
     this.expectedIds.delete(id)
+    this.requiredIds.delete(id)
     this.allActors.delete(id)
     this.actors.delete(id)
   }
@@ -256,7 +261,7 @@ export class TownEvent {
   evaluate(playerDead: boolean): TownResult | null {
     if (!this.hostile) return null
     if (playerDead) return 'player_defeated'
-    return this.registrationComplete && [...this.expectedIds].every(id => this.excludedActorIds.has(id) || this.actors.get(id)?.dead === true) ? 'town_defeated' : null
+    return this.registrationComplete && [...this.requiredIds].every(id => this.excludedActorIds.has(id) || this.actors.get(id)?.dead === true) ? 'town_defeated' : null
   }
 }
 /** Defer only presentation/transition; preserve the native first outcome across race reloads. */

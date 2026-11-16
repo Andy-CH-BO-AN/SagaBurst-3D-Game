@@ -68,6 +68,18 @@ describe('canonical free Town conquest population', () => {
 })
 
 describe('full population conquest outcomes and registration', () => {
+  it('allows defection with all native Eagle riders alive while retaining the remaining resident objectives', () => {
+    const survivors = ['town-eagle-rider:1', 'town-eagle-rider:2', 'town-eagle-rider:3', 'town-eagle-rider:4', 'town-eagle-rider:5',
+      'watchtower-archer:1', 'civilian-0', 'merchant', 'cat']
+    const event = eventWithSurvivors(survivors)
+    for (const id of ['watchtower-archer:1', 'civilian-0', 'merchant', 'cat']) {
+      expect(event.evaluate(false)).toBeNull()
+      event.actors.get(id)!.dead = true
+    }
+    expect(event.evaluate(false)).toBe('town_defeated')
+    expect(event.evaluate(true)).toBe('player_defeated')
+    expect(event.allActors.get('town-eagle-rider:1')?.dead).toBe(false)
+  })
   it('requires the last living formal resident before declaring town defeat', () => {
     // The outcome rule is identity-independent; full roster membership and registration are tested above.
     const id = 'gate:east:0'

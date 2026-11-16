@@ -216,7 +216,7 @@ Career 城鎮劇情事件（`CareerStoryEvents`／`CareerStoryGuidance`／`TownS
 - Bandit 與雙方 roaming cavalry 全滅後各自等 60 秒才從 map edge 整隊回補；被 Siege claim 者直到結束才歸還外圍生命週期。Captain 敵巡為 T2；正式 Commander 敵巡為三隊各五名 T4 Captain、五名 T4 Ranger，使用各自獨立英雄坐騎。編制變更等既有 encounter 結束後進入 RETIRING，實際返回 map edge 才換新 generation；冷卻不因任命重設。Town 保存敵巡 tier、generation、部署／退場／交戰狀態、HP／ammo／失馬與剩餘冷卻，尚未 materialize 的已保存成員也保留。正式 Siege 只接管已保存 claim 的 squads／精確 actor IDs，未接管的 Commander 敵巡繼續正常巡邏與冷卻；不借其英雄填普通攻方 slots，Captain 舊 T2 借兵照舊；Bandit 仍僅保存原 timer／generation。
 - `CareerMissionCheckpoint` 擁有 controller checkpoint 的 5 秒 clock、立即／週期保存資格、profile clone 與同步提交，成功才重設 clock；失敗由 controller 下次提供最新快照重試。各任務保留快照生產、phase guard 及保存頻率：Bandit 的 route／傷亡立即保存，stats／騎兵位置走週期；城防時間每 1 秒、傷亡等變化立即保存；Duel 的 HP／ammo、死亡、phase／結果變化立即保存，位置、倒數與體力走 5 秒週期；Town combat 於 actor 更新後提交最新快照。立即保存也包含當前完整快照，force 只提前已變更的週期資料，不改存檔格式。
 - visual faction 與 `CombatFaction` 分開；城鎮平時不敵視 Player。首次有效犯罪先保存 hostile event，保存失敗則不施加第一擊；只在死亡／建物摧毀時保存終止狀態。自由遭遇與官方任務不等同城鎮犯罪。
-- `TownEvent` 結算要求完整居民登記；玩家死亡優先。結算按 event ID 冪等，先保存再轉場；不是每個角色 HP／位置的完整快照。
+- `TownEvent` 結算要求完整居民登記；跳槽勝利僅排除原生巨鷹騎手（依名冊的 eagle 身份，不因降落或失去坐騎而改變），其餘原有居民目標維持不變，巨鷹騎手仍登記與保存傷亡；玩家死亡優先。結算按 event ID 冪等，先保存再轉場；不是每個角色 HP／位置的完整快照。
 - `CareerTownDialogue` 集中和平對話與 rank 選擇；`TownEquipment` 只允許已擁有且有可分配份數的裝備，正常武器與盾牌不限制使用軍階，不把城鎮拔武器狀態寫進其他模式。
 
 | 任務模組 | 契約 |
