@@ -8,6 +8,14 @@ export function hasAerialCombatPower(actor: Pick<NPC, 'dead'> & { mount: AerialC
   return !actor.dead && actor.mount?.isFlyingMount === true && !actor.mount.dead
 }
 
+/**
+ * Private eagle knights still riding a living eagle never block a defeat: ground enemies
+ * cannot reach them, so once the player and every other friendly falls the mission fails.
+ */
+export function blocksPlayerSideDefeat(actor: Pick<NPC, 'dead'> & { mount: AerialCombatant['mount'] }): boolean {
+  return !actor.dead && !hasAerialCombatPower(actor)
+}
+
 export function hasPlayerAerialCombatPower(player: Pick<Player, 'dead'> & { currentMount?: AerialCombatant['mount'] }): boolean {
   const mount = player.currentMount
   return !player.dead && mount?.isFlyingMount === true && !mount.dead

@@ -215,8 +215,11 @@ export function commitCareerBridgeBattleResult(store: Pick<CareerProfileStore, '
   const mission = profile?.activeMission
   if (!profile || !mission || mission.id !== missionId || !isCareerBridgeBattle(mission)) return null
   const runtime = new CareerBridgeBattleRuntime(mission)
+  const eagleKnights = new Set((profile.personalSquad?.members ?? []).filter(member => member.equipment?.mount === 'xongkoro').map(member => member.id))
   const personalAlive = mission.personalSquad?.memberIds.filter(id => {
     const actor = mission.personalSquad!.members[id]
+    // Matches PersonalSquadRuntime.defeatBlockingCombatants: a private knight on a living eagle never blocks defeat.
+    if (eagleKnights.has(id) && actor?.mount && actor.mount.hp > 0 && actor.mount.mounted) return false
     return actor && actor.hp !== 0 && (actor.status === 'deployed'
       || actor.status === 'reserve' && mission.personalSquad!.pendingMemberIds?.includes(id))
   }).length ?? 0

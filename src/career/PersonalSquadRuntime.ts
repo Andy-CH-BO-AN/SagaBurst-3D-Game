@@ -22,6 +22,7 @@ import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import { getTerrainHeight } from '../world/Terrain'
 import { refitCommandActor, refitCommandCheckpoint, restoreShieldDurability, savedShieldDurability } from './CareerCommandActorCheckpoint'
+import { blocksPlayerSideDefeat } from './CaptainEagleBattleOutcome'
 import { careerMountType } from './CareerMountController'
 import { PERSONAL_SQUAD_LIMIT, type CareerPersonalSquadMember } from './CareerPersonalSquad'
 import { clonePersonalMission, preparePersonalMissionAcceptance, snapshotPersonalMission, type PersonalActorCheckpoint, type PersonalActorPosition, type PersonalSquadMission, type PersonalSquadState } from './CareerPersonalSquadMission'
@@ -167,6 +168,16 @@ export class PersonalSquadRuntime {
       if (this.pending.get(id)?.status !== 'pending') return false
       const saved = this.mission?.members[id]
       return saved?.status !== 'dead' && saved?.status !== 'exited' && saved?.hp !== 0
+    }).length
+  }
+  /** Private fighters that keep a mission from failing after the player dies; airborne eagle knights are excluded. */
+  get defeatBlockingCombatants(): number {
+    const owned = new Map((this.read().personalSquad?.members ?? []).map(member => [member.id, member]))
+    return this.actors.filter(blocksPlayerSideDefeat).length + [...this.pending.keys()].filter(id => {
+      if (this.pending.get(id)?.status !== 'pending') return false
+      const saved = this.mission?.members[id]
+      if (saved?.status === 'dead' || saved?.status === 'exited' || saved?.hp === 0) return false
+      return !(owned.get(id)?.equipment?.mount === 'xongkoro' && saved?.mount?.hp !== 0 && saved?.mount?.mounted !== false)
     }).length
   }
   get sceneKey(): string { return this.options.sceneKey ?? 'town-home' }

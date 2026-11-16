@@ -748,7 +748,7 @@ export class TownScene {
       this.retirementFinale = new TownRetirementFinaleController({
         read: () => this.profile, publish: next => { this.profile = next },
         capture: next => this.captureRetirementResources(next),
-        privateFightersAlive: () => (this.personalSquad?.aliveCombatants ?? 0) > 0,
+        privateFightersAlive: () => (this.personalSquad?.defeatBlockingCombatants ?? 0) > 0,
         privateSquad: () => this.personalSquad?.hudMission,
         save: next => {
           if (!this.store.save(next)) { this.careerSaveFailures++; return false }
@@ -4013,7 +4013,8 @@ export class TownScene {
     const townOutcome = this.event.evaluate(this.player.dead)
     if (townOutcome && !this.panel) this.finish(townOutcome)
     else if (!this.event.hostile) {
-      const personalAlive = this.personalSquad?.aliveCombatants ?? 0
+      // Sky Raid keeps private eagle knights in the count and ends a no-damage stalemate instead.
+      const personalAlive = (this.defense.active?.kind === 'commander-sky-raid' ? this.personalSquad?.aliveCombatants : this.personalSquad?.defeatBlockingCombatants) ?? 0
       const missionOutcome = this.captainPatrol?.active ? this.captainPatrol.evaluateOutcome() : this.duel?.active ? this.duel.evaluate(this.player.dead) : this.defense.active ? this.defense.evaluate(this.player.dead, personalAlive) : this.mission.evaluate(this.player.dead, personalAlive)
       if (missionOutcome && !this.panel) this.finishMission(missionOutcome)
       else if (!this.profile.activeMission && this.player.dead && !this.panel) this.showAmbientDefeat()
