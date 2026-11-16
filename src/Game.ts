@@ -52,6 +52,7 @@ import { resolveDefenseCampaignAttackerDeployment } from './campaign/DefenseCamp
 import { createDefenseCampaignWaveConfig, defenseCampaignCapabilities, positionDefenseCampaignAttackers, positionDefenseCampaignDefenders, positionDefenseCampaignReinforcements, type DefenseCampaignLaunchConfig } from './campaign/DefenseCampaignLaunch'
 import { DefenseCampaignRuntime } from './campaign/DefenseCampaignRuntime'
 import { applyCaptainFrontlineEnemyHeroes, captainFrontlineEnemyHeroAsset, createCaptainEagleSpawnPlan, createCaptainFrontlineSpawnPlan } from './career/CaptainBattleLaunch'
+import { hasAerialCombatPower, hasPlayerAerialCombatPower, resolveCaptainEagleBattleOutcome } from './career/CaptainEagleBattleOutcome'
 import { snapshotCheckpointMount, snapshotCheckpointPlayer, type CaptainEagleCheckpoint } from './career/CaptainEagleCheckpoint'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './career/CaptainMissionCatalog'
 import { restoreCommandActor, snapshotCommandActor } from './career/CareerCommandActorCheckpoint'
@@ -2928,7 +2929,17 @@ export class Game {
           : 'attack')
       }
     }
-    if (enemyAlive === 0) this._showFieldBattleResult('victory')
+    if (mission.kind === 'captain-eagle-battle') {
+      // Eagle Battle is decided by aerial combat power only: ground riders and riders whose eagle is gone do not count.
+      const personalActors = this.personalSquad?.actors ?? []
+      const personalPending = Math.max(0, (this.personalSquad?.aliveCombatants ?? 0) - personalActors.filter(npc => !npc.dead).length)
+      const outcome = resolveCaptainEagleBattleOutcome(
+        this.npcs.filter(npc => enemyIds.has(npc.combatantId)).filter(hasAerialCombatPower).length,
+        this.npcs.filter(npc => officialIds.has(npc.combatantId)).filter(hasAerialCombatPower).length
+          + personalActors.filter(hasAerialCombatPower).length + personalPending
+          + (hasPlayerAerialCombatPower(this.player) ? 1 : 0))
+      if (outcome) this._showFieldBattleResult(outcome)
+    } else if (enemyAlive === 0) this._showFieldBattleResult('victory')
     else if (this.player.dead && officialAlive === 0 && (this.personalSquad?.aliveCombatants ?? 0) === 0) this._showFieldBattleResult('failure')
     void dt
   }

@@ -1,6 +1,7 @@
 import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it } from 'vitest'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
+import { hasAerialCombatPower, resolveCaptainEagleBattleOutcome } from '../../src/career/CaptainEagleBattleOutcome'
 import { CAPTAIN_EAGLE_BATTLE_ID, commanderGateDefenseSlots, commanderGateDefenseSquads, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../../src/career/CaptainMissionCatalog'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -57,4 +58,13 @@ describe('Commander accepted production rosters without actor materialization', 
     expect(specs.find(spec => spec.actorId === last)!.squadId).toBe(1)
   })
 
+  it('decides Eagle Battle by aerial combat power only, ignoring ground and grounded riders', () => {
+    const eagle = { isFlyingMount: true, dead: false }
+    expect(hasAerialCombatPower({ dead: false, mount: eagle })).toBe(true)
+    expect(hasAerialCombatPower({ dead: false, mount: null })).toBe(false)
+    expect(hasAerialCombatPower({ dead: false, mount: { ...eagle, dead: true } })).toBe(false)
+    expect(resolveCaptainEagleBattleOutcome(0, 3)).toBe('victory')
+    expect(resolveCaptainEagleBattleOutcome(4, 0)).toBe('failure')
+    expect(resolveCaptainEagleBattleOutcome(4, 3)).toBeNull()
+  })
 })
