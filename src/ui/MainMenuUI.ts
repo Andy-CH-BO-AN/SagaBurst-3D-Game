@@ -6,6 +6,7 @@ export interface MainMenuActions {
   onReference: () => void
   onCareer?: () => void
   onTrainingGround?: () => void
+  onCoop?: () => void
 }
 
 export class MainMenuUI {
@@ -46,6 +47,11 @@ export class MainMenuUI {
           <span>TRAINING GROUND</span>
           <small>自由練習所有武器與坐騎，測試 0–100m 假人傷害</small>
         </button>
+        <button type="button" class="main-menu-card" id="main-menu-coop">
+          <strong>區網合作</strong>
+          <span>LAN CO-OP</span>
+          <small>兩台電腦連同一個 WiFi，一起出戰生涯任務</small>
+        </button>
       </div>
     `
     parent.appendChild(container)
@@ -56,6 +62,7 @@ export class MainMenuUI {
     container.querySelector('#main-menu-campaign')?.addEventListener('click', actions.onCampaign)
     container.querySelector('#main-menu-reference')?.addEventListener('click', actions.onReference)
     container.querySelector('#main-menu-training')?.addEventListener('click', () => actions.onTrainingGround?.())
+    container.querySelector('#main-menu-coop')?.addEventListener('click', () => actions.onCoop?.())
   }
 
   destroy(): void {

@@ -1,3 +1,4 @@
+import { LiveActorRegistry } from './LiveActorRegistry'
 import * as THREE from 'three'
 import { getScenePlayableWorldBound, clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData } from './Terrain'
 import { collideMountBody, MOUNT_MOVEMENT_RADIUS, settleMountOnTerrain } from './MountGroundBody'
@@ -201,6 +202,7 @@ export class Mount {
     this.armor = new MountArmor(type)
     this.appearanceVariant = type === MountType.HORSE ? horseVariantFromSave(appearanceVariant) : 0
     this.group = new THREE.Group()
+    Mount.live.add(this)
     this.group.name = `mount_${type}`
     skipHiddenCorpseMatrices(this.group, () => this.deathPresentationComplete)
     const stats = mountStats(type)
@@ -453,6 +455,7 @@ export class Mount {
   }
 
   dispose(): void {
+    Mount.live.delete(this)
     if (this.disposed) return
     this.riderNpc?.dismountFromMount({ forceFall: this.isFlyingMount })
     this.riderPlayer?.dismountFromMount({ forceFall: this.isFlyingMount })
@@ -584,6 +587,42 @@ export class Mount {
       this.proceduralVisual?.playOnce('hit')
     }
     return true
+  }
+
+  /** Every constructed, undisposed mount; co-op scene snapshots read it. */
+  static readonly live = new LiveActorRegistry<Mount>()
+  /** Co-op: a peer owns this mount's transform; it never wanders or collides here. */
+  coopPuppet = false
+
+  /** Co-op mirror/proxy: present a peer-owned frame and advance only the visual. */
+  updateCoopPuppet(dt: number, x: number, y: number, z: number, yaw: number, pitch: number, speed: number, dead: boolean, airborne: boolean): void {
+    if (this.disposed) return
+    if (dead) {
+      if (!this.dead) this.takeDamage(Infinity)
+      this.update(dt, this.collisionObstacles as ObstacleData[])
+      return
+    }
+    this.currentHp = Math.max(1, this.currentHp)
+    this.previousPosition.copy(this.group.position)
+    this.group.position.set(x, y, z)
+    this.group.rotation.y = yaw
+    if (this.eagleVisual) this.group.rotation.x = pitch
+    this.movementSpeed = speed
+    this.onGround = !airborne
+    if (this.flight) this.flight.phase = airborne ? 'cruise' : 'grounded'
+    if (this.eagleVisual) {
+      this.eagleVisual.update(dt, { flying: airborne, sprinting: false, attackWeight: 0, dead: false,
+        groundClearance: this.group.position.y - getTerrainHeight(x, z) })
+      return
+    }
+    if (this.proceduralVisual) {
+      this.proceduralVisual.setLocomotion(speed)
+      this.updateProceduralVisual(dt)
+    }
+    if (this.horseVisual) {
+      this.horseVisual.setLocomotion(speed)
+      this.horseVisual.update(dt, this.cameraDistance)
+    }
   }
 
   beginControlledFrame(): void {

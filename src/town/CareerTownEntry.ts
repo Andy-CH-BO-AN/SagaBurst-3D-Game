@@ -339,6 +339,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       if (!current()) { town.dispose(); loading.remove(); return false }
       if (import.meta.env.DEV) (window as unknown as { town: TownScene }).town = town
       loading.remove()
+      if (import.meta.env.DEV) (window as unknown as { town: TownScene }).town = town
       town.start()
       const recoveredMessage = sessionStorage.getItem(CAREER_RECOVERY_NOTICE_KEY)
       if (recoveredMessage) {

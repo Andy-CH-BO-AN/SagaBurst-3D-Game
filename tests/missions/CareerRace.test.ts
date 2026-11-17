@@ -10,7 +10,8 @@ import { createCareerProfile, cloneCareerProfile, type CareerProfile } from '../
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
-import { canEnterRace, finalizeRaceDeployment, advanceRaceClock, advanceRaceRider, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance, type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
+import { applyCoopRaceAward, parseCoopRaceAward } from '../../src/coop/CoopRaceAward'
+import { canEnterRace, coopGuestWinsRace, finalizeRaceDeployment, advanceRaceClock, advanceRaceRider, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance, type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
 import { RACE_START_SLOTS, RACE_LINES, raceWaypoints, raceMovementIsLegal, illegalTownCrossing, raceMountPoseLegal, resolveRaceMountSpawn, type RacePosition } from '../../src/career/CareerRaceRoute'
 import { collideMountBody, settleMountOnTerrain } from '../../src/world/MountGroundBody'
 import { architectureSpec, DEEP } from '../../src/town/architecture/ArchitectureSpecs'
@@ -174,6 +175,27 @@ describe('Mounted race outcome ownership', () => {
     expect(s3.player.finishSeconds).toBe(79.5); expect(s3.result).toBe('win')
     cross(s3.opponent, pos(0, -120), pos(0, -110), 85); resolveRace(s3)
     expect(s3.opponent.finishSeconds).toBe(84.5); expect(s3.phase).toBe('result')
+  })
+  it('rewards a co-op guest only for the fastest legal finish, once, in its own save', () => {
+    const s = session(); s.phase = 'racing'; s.id = 'host-race-session-1'
+    s.opponent.finishSeconds = 70
+    expect(coopGuestWinsRace(s, 72)).toBe(false)
+    expect(coopGuestWinsRace(s, 69)).toBe(true)
+    s.player.finishSeconds = 68
+    expect(coopGuestWinsRace(s, 69)).toBe(false)
+    expect(coopGuestWinsRace(s, undefined)).toBe(false)
+
+    const guest = profile(), before = guest.totalMerit
+    const award = parseCoopRaceAward({ sessionId: s.id, raceId: s.raceId, scheduleVersion: s.scheduleVersion, guestSeconds: 69, opponentSeconds: 70 })!
+    const won = applyCoopRaceAward(guest, award)!
+    const merit = raceDefinitionForSchedule(s.raceId, s.scheduleVersion)!.merit
+    expect(won.totalMerit - before).toBe(merit)
+    expect(won.raceRecords).toEqual([expect.objectContaining({ sessionId: s.id, result: 'win', playerSeconds: 69, merit })])
+    expect(parseCareerProfile(won)).not.toBeNull()
+    // A resent award for the same host session never pays twice.
+    expect(applyCoopRaceAward(won, award)).toBe(won)
+    expect(applyCoopRaceAward(guest, { ...award, raceId: 'race-unknown' })).toBeNull()
+    expect(parseCoopRaceAward({ ...award, guestSeconds: -1 })).toBeNull()
   })
 })
 

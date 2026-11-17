@@ -18,7 +18,7 @@ import { canonicalCareerMountId,cloneCareerProfile } from './CareerProfile'
 import { raceReturnProfile } from './CareerRaceReturn'
 import { legalRaceStart,RACE_START,RACE_START_SLOTS,raceCheckpointTarget,raceMountPoseLegal,raceMovementIsLegal,raceWaypoints,resolveRaceMountSpawn,type RaceMountSpawnOptions,type RacePoint,type RacePosition } from './CareerRaceRoute'
 import {
-advanceRaceClock,advanceRaceRider,canEnterRace,finalizeRaceDeployment,lockRace,MOUNTED_RACES,pickRaceOpponentMount,RACE_SCHEDULE_VERSION,RACE_STORY_ID,RACE_STORY_RACE_ID,
+advanceRaceClock,advanceRaceRider,canEnterRace,coopGuestWinsRace,finalizeRaceDeployment,lockRace,MOUNTED_RACES,pickRaceOpponentMount,RACE_SCHEDULE_VERSION,RACE_STORY_ID,RACE_STORY_RACE_ID,
 raceIsRunning,
 raceOpponentCanSprint,raceRecordProfile,
 raceRiderDone,resolveRace,selectRaceCommander,updateRaceGuidance,
@@ -58,6 +58,19 @@ export class CareerRaceController {
   private preloadInFlight = false
   error = ''
   saveFailed = false
+  /**
+   * LAN co-op: the guest races too. Runtime only, never saved: a reload drops the guest from
+   * this race. If the guest finishes first, the host's race is a loss and onCoopGuestWin fires once.
+   */
+  coopRacer: { position(): RacePosition | null; airborne(): boolean; baseSpeed(): number } | null = null
+  onCoopGuestWin?: (session: CareerRaceSession, guestSeconds: number) => void
+  private coopRider?: RaceRider
+  private coopRiderSession?: string
+  /** The guest's checkpoint progress in the current race, for the guest's own HUD. */
+  get coopProgress(): { checkpoint: number; finishSeconds?: number; dnf?: string } | null {
+    const rider = this.coopRider
+    return rider && this.coopRiderSession === this.session?.id ? { checkpoint: rider.checkpoint, finishSeconds: rider.finishSeconds, dnf: rider.dnf } : null
+  }
   /** Unridden mounts and other floor occupants the Town knows about; part of every return clearance. */
   parkedBlockers?: (except?: Mount | null) => { x: number; z: number; radius: number }[]
   /** Town return candidates may stand on the Town Center floor instead of terrain. */
@@ -408,6 +421,28 @@ export class CareerRaceController {
       && (s.player.dead || s.opponent.dead || Math.hypot(s.player.position.x - s.opponent.position.x, s.player.position.z - s.opponent.position.z) > 2.1))
     advanceRaceClock(s, dt, ready)
     if (raceIsRunning(s) && (this.framePhase === 'racing' || this.framePhase === 'finishing')) this.progress('player', previous, mountingDistance)
+    this.progressCoopRacer(s)
+  }
+  private progressCoopRacer(s: CareerRaceSession): void {
+    const racer = this.coopRacer, point = racer?.position()
+    if (!racer || !point) return
+    if (s.phase !== 'racing' && s.phase !== 'finishing') {
+      // Each race starts the guest at its current place; the start line is still the first checkpoint.
+      if (this.coopRiderSession !== s.id || !raceIsRunning(s)) {
+        this.coopRiderSession = s.id
+        this.coopRider = { actorId: 'coop-guest', mountId: s.player.mountId, position: { ...point }, mountPosition: { ...point },
+          hp: 1, mountHp: 1, stamina: 100, mounted: true, dead: false, checkpoint: 0 }
+      }
+      return
+    }
+    const rider = this.coopRider
+    if (!rider || this.coopRiderSession !== s.id || raceRiderDone(rider)) return
+    const previous = rider.routePosition ?? rider.position
+    rider.position = { ...point }
+    // The guest's position arrives over the LAN: allow twice the speed for network jitter.
+    advanceRaceRider(rider, previous, s.elapsedSeconds, this.frameDt,
+      raceMovementIsLegal(previous, rider.position, this.obstacles) && !racer.airborne(),
+      racer.baseSpeed() * 5 * Math.min(1, this.frameMovementDt / Math.max(this.frameDt, .001)), CAREER_MOUNT_INTERACTION_DISTANCE)
   }
   observeActorMovement(actor: NPC): void {
     if (actor !== this.racer || !this.session || !raceIsRunning(this.session)) return
@@ -445,6 +480,13 @@ export class CareerRaceController {
       if (s.elapsedSeconds > 900) for (const rider of [s.player, s.opponent]) if (!raceRiderDone(rider)) rider.dnf = '超過賽事時間'
       // Entering another gate or an illegal route is an explicit player disqualification.
       if (!s.result && s.player.dnf && !s.player.dead && s.player.dnf !== '超過賽事時間') lockRace(s, 'loss', s.player.dnf)
+      // Co-op: only the fastest of the three is rewarded. A guest finishing first ends the host's race as a loss.
+      const guest = this.coopRiderSession === s.id ? this.coopRider : undefined
+      const guestTime = guest?.finishSeconds
+      if (coopGuestWinsRace(s, guestTime)) {
+        lockRace(s, 'loss', '隊友率先完賽')
+        this.onCoopGuestWin?.(s, guestTime!)
+      }
       resolveRace(s)
     }
     this.saveElapsed += dt

@@ -1,3 +1,4 @@
+import { LiveActorRegistry } from './LiveActorRegistry'
 import { RangedSightReuse } from '../combat/RangedSightReuse'
 import { traceFistStrike, UNARMED_ATTACK_DISTANCE, UNARMED_DAMAGE, UNARMED_RANGE, UNARMED_STOP_DISTANCE } from '../combat/UnarmedCombat'
 import { resolveOrdinaryNpcHp } from '../combat/OrdinarySoldierProfile'
@@ -255,6 +256,50 @@ interface CombatEquipmentSnapshot {
   shieldId: string | null
   ammo: number
   rangedActive: boolean
+}
+
+/** Co-op: the serializable construction arguments a peer needs to build the same-looking actor. */
+export interface NpcNetworkDescriptor {
+  x: number
+  z: number
+  y?: number
+  faction: Faction
+  characterFaction: CharacterFaction
+  aiType: AIType
+  name: string
+  tier: UnitTier
+  cavalry?: boolean
+  loadout?: UnitLoadout
+  presetId?: UnitPresetId
+  squadId?: SquadId
+  combatantId?: string
+  visualAssetId?: HeroAssetId
+  combatProfileId?: HeroCombatProfileId
+  specialCombatProfile?: 'maki-ranger'
+  townCategory?: 'civilian'
+  civilianStyle?: CharacterFaction
+  townCombatRole?: 'merchant'
+  characterTier?: CharacterTier
+  heroArchetype?: HeroArchetype
+}
+
+/** Co-op: one peer-owned presentation frame (already smoothed by the caller). */
+export interface NpcPuppetFrame {
+  x: number
+  y: number
+  z: number
+  yaw: number
+  speed: number
+  action: CombatAction
+  ranged: boolean
+  shieldRaised: boolean
+  sprinting: boolean
+  draw: number
+  hp: number
+  dead: boolean
+  /** Players only: weapon/shield put away; undefined keeps the NPC's own equipment visibility. */
+  meleeStowed?: boolean
+  shieldStowed?: boolean
 }
 
 export class NPC {
@@ -931,6 +976,11 @@ export class NPC {
     characterTier?: CharacterTier,
     heroArchetype?: HeroArchetype,
   ) {
+    this.networkDescriptor = {
+      x: spawnX, z: spawnZ, y: spawnPlacement?.y, faction, characterFaction, aiType, name, tier, cavalry,
+      loadout: loadout ? { ...loadout } : undefined, presetId, squadId, combatantId, visualAssetId, combatProfileId,
+      specialCombatProfile, townCategory, civilianStyle, townCombatRole, characterTier, heroArchetype,
+    }
     const identity = resolveCharacterIdentity({ characterFaction, characterTier, heroArchetype, tier,
       visualAssetId, combatProfileId, specialCombatProfile })
     this._characterTier = identity.characterTier
@@ -1003,6 +1053,7 @@ export class NPC {
     this.waypoints = [basePos.clone(), wp1, wp2]
 
     this.group = new THREE.Group()
+    NPC.live.add(this)
     this.group.name = `npc_${faction}_${aiType}`
     skipHiddenCorpseMatrices(this.group, () => this.deathPresentationComplete)
 
@@ -1336,7 +1387,89 @@ export class NPC {
     this.updateTownPeace(dt, distance, false, false, this.mount?.movementSpeed ?? this.visualMovementSpeed)
   }
 
+  /** Every constructed, undisposed NPC; co-op scene snapshots read it. */
+  static readonly live = new LiveActorRegistry<NPC>()
+  /** Co-op wire identity; see NPC.fromNetworkDescriptor. */
+  readonly networkDescriptor: NpcNetworkDescriptor
+  /** Co-op: a peer owns this actor's movement and actions; Game never runs its AI. */
+  coopPuppet = false
+  /** Co-op host: the guest commands this actor (its proxy and its own squad); the host's command menu never does. */
+  coopRemoteCommand = false
+  private coopLastAction: CombatAction = 'idle'
+
+  static fromNetworkDescriptor(scene: THREE.Scene, d: NpcNetworkDescriptor, combatEventSink?: CombatEventSink): NPC {
+    return new NPC(scene, d.x, d.z, d.faction, d.characterFaction, d.aiType, d.name, d.tier, d.cavalry, d.loadout,
+      d.presetId, d.squadId, d.combatantId, combatEventSink, d.visualAssetId, d.combatProfileId, d.specialCombatProfile,
+      d.townCategory, d.civilianStyle, d.townCombatRole, d.y !== undefined ? { y: d.y } : undefined, d.characterTier, d.heroArchetype)
+  }
+
+  /** Co-op proxy: the guest player's own max HP; current HP keeps its ratio. */
+  applyCoopMaxHp(maxHp: number): void {
+    if (!Number.isFinite(maxHp) || maxHp <= 0 || maxHp === this._maxHp || this.dead) return
+    const ratio = this.currentHp / this._maxHp
+    this._maxHp = maxHp
+    this.currentHp = Math.max(1, Math.round(maxHp * ratio))
+  }
+
+  /** Planar presentation speed this frame (feet), for co-op snapshots. */
+  get networkMovementSpeed(): number { return this.visualMovementSpeed }
+
+  /** Current weapons, for a peer that must show the same held equipment. */
+  get networkEquipment(): { melee: string | null; ranged: string | null; shield: string | null } {
+    return { melee: this.meleeWeaponId, ranged: this.rangedWeaponId ?? null, shield: this.selectedShieldId }
+  }
+
+  /** Co-op mirror/proxy: present a peer-owned frame. No AI, targeting, navigation or damage runs here. */
+  updateCoopPuppet(dt: number, cameraDistance: number, frame: NpcPuppetFrame): void {
+    if (this.pendingFall.active) this.pendingFall.clear()
+    if (frame.dead) {
+      if (!this.dead) this._applyDamage(Infinity, true)
+      if (!this.deathFade.update(this.group, dt)) this.animator.update(dt, cameraDistance)
+      this.coopLastAction = 'idle'
+      return
+    }
+    if (this.dead) this.respawn({ x: frame.x, y: frame.y, z: frame.z, yaw: frame.yaw })
+    this.currentHp = Math.max(1, Math.min(this.maxHp, frame.hp))
+    if (this.mount?.dead) this.dismountFromMount()
+    const wantsRanged = frame.ranged && Boolean(this.rangedWeaponId)
+    if (wantsRanged) this.arrows = Math.max(this.arrows, 1)
+    if (wantsRanged !== this.rangedActive && !this.animator.busy) {
+      if (wantsRanged) { this.rangedActive = true; this._restoreCombatReadyRangedVisual() }
+      else this._switchToMelee(false)
+    }
+    const shieldOn = this.shield.active && frame.shieldStowed !== true
+    this.shield.shieldRaised = shieldOn && frame.shieldRaised
+    this.shieldCollider.refreshVisibility()
+    this.animator.setEquipment(this.isUsingLance && frame.meleeStowed !== true, shieldOn, this.mount?.type as MountedPoseKind | undefined, true)
+    this.animator.setShieldRaised(this.shield.shieldRaised)
+    this.rig.animation?.setEquipmentState?.({ mounted: this.isMounted })
+    if (!this.isMounted) {
+      this.group.position.set(frame.x, frame.y, frame.z)
+      this.group.rotation.set(0, frame.yaw, 0)
+    }
+    this.visualMovementSpeed = frame.speed
+    this.isSprinting = frame.sprinting
+    this.animator.setLocomotion(frame.speed, this.isMounted, frame.sprinting && frame.speed > 0)
+    // Actions start on the peer's edge only, so a finished clip never replays.
+    if (frame.action !== this.coopLastAction && frame.action !== 'idle' && frame.action !== 'bowAim') {
+      if (this.animator.busy) this.animator.cancel()
+      this.animator.start(frame.action)
+    }
+    this.coopLastAction = frame.action
+    if (frame.action === 'bowAim' && this.hasActiveRangedWeapon && this.rangedCombatKind === 'bow' && !this.animator.busy) {
+      this.animator.poseBow(frame.draw)
+      this._tmpRangedTarget.set(0, 1.3, 6).applyQuaternion(this.group.quaternion).add(this.group.position)
+      this.bowVisual?.update(frame.draw, this._tmpRangedTarget, true)
+    } else if (!this.animator.busy && this.isUsingLance && !this.hasActiveRangedWeapon && frame.meleeStowed !== true) this.animator.poseLanceReady(this.isMounted)
+    this.animator.update(dt, cameraDistance)
+    if (this.isMounted) this._syncToMount()
+    // A player's put-away weapons stay out of its hands on the peer's screen too.
+    if (frame.meleeStowed !== undefined) this.swordPivot.visible = !frame.meleeStowed && this.meleeWeaponId !== null && !this.rangedActive
+    if (frame.shieldStowed !== undefined) this.shieldPivot.visible = shieldOn
+  }
+
   dispose(): void {
+    NPC.live.delete(this)
     releaseAllEquipmentDemands(this)
     this.bowVisual?.dispose()
     this.combatEventBindingsClosed = true

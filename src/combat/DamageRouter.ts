@@ -52,6 +52,19 @@ export interface DamageResult {
   mountDied: boolean
 }
 
+/**
+ * LAN co-op guest: the host owns every NPC/mount HP, so the guest forwards its
+ * hits instead of applying them. A hook returns a presentation-only result, or
+ * undefined to fall through to normal local damage.
+ */
+export interface DamageInterceptor {
+  npc?(npc: NPC, damage: number, context?: CombatDamageContext): DamageResult | undefined
+  mount?(mount: Mount, damage: number, context?: CombatDamageContext): DamageResult | undefined
+  player?(player: Player, damage: number, context?: CombatDamageContext): DamageResult | undefined
+}
+let damageInterceptor: DamageInterceptor | null = null
+export function setDamageInterceptor(next: DamageInterceptor | null): void { damageInterceptor = next }
+
 /** Receiver owns its lifetime; combat callers retain their existing damage formulas. */
 export function damageReceiver(target: DamageReceiver, damage: number, context?: CombatDamageContext): DamageResult {
   const appliedDamage = target.receiveDamage(damage)
@@ -89,6 +102,8 @@ function routedMount(attached: Mount | null, context?: CombatDamageContext): Mou
 
 /** Independent mount target: no rider HP damage, shield mitigation or actor-killed event. */
 export function damageMount(mount: Mount, damage: number, context?: CombatDamageContext, owner: CombatActorRef | undefined = mount.combatOwner): DamageResult {
+  const intercepted = damageInterceptor?.mount?.(mount, damage, context)
+  if (intercepted) return intercepted
   const target = createMountCombatTargetRef(mount, owner)
   const beforeHp = mount.currentHp, wasDead = mount.dead
   // Capture the original attacker before Mount releases its rider. The later
@@ -114,6 +129,8 @@ export function damageNpc(
   damage: number,
   context?: CombatDamageContext,
 ): DamageResult {
+  const intercepted = damageInterceptor?.npc?.(npc, damage, context)
+  if (intercepted) return intercepted
   const requestedDamage = damage
   const shield = shieldDamage(npc, damage, context), finalDamage = shield.damage
 
@@ -158,6 +175,8 @@ export function damagePlayer(
   _equippedShieldId: string | null,
   context?: CombatDamageContext,
 ): DamageResult {
+  const intercepted = damageInterceptor?.player?.(player, damage, context)
+  if (intercepted) return intercepted
   const requestedDamage = damage
   if (player.spectatorOnly || player.dead) {
     return {
