@@ -59,6 +59,10 @@ import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import { SnowLeopardVisual } from '../world/SnowLeopardVisual'
 import { resolveEntityCollision, type ObstacleData } from '../world/Terrain'
 import { bindWindowResize, createSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO } from '../rendering/SceneRenderer'
+import { coopSession } from '../coop/CoopLink'
+import { announceCoopScene, coopGuestCharacterAssets, coopGuestPlayerSource, isCoopGuestLaunch, showCoopGuestEnd, type CoopPlayerSource } from '../coop/CoopLaunch'
+import { felineVariantFromMountId } from '../world/Mount'
+import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeer, type CoopGamePort } from '../coop/CoopMission'
 
 const PLAYER_HALF_HEIGHT = 0.95
 
@@ -141,6 +145,17 @@ export class CareerDuelArenaScene {
   private readonly stairNavigation = new NavigationWorld({ minX: -120, maxX: 120, minZ: -120, maxZ: 120 })
   private shots: Shot[] = []
   private elapsed = 0
+  /** LAN co-op: the host bridge (2v1), or this page's mirror of the host's arena. */
+  private coopHost?: CoopHostMission
+  private coopGuest?: CoopGuestMission
+  private readonly coopArrows: ArrowProjectile[] = []
+  /** Co-op guest: the guest's own character profile (in memory); the host's profile still runs the duel. */
+  private coopPlayerSource: CoopPlayerSource | null = null
+  private get playerProfile(): CareerProfile { return this.coopPlayerSource?.read() ?? this.profile }
+  private commitPlayerProfile(next: CareerProfile): boolean { return this.coopPlayerSource ? this.coopPlayerSource.commit(next) : this.commit(next) }
+  private readonly coopVisualArrows = new Set<ArrowProjectile>()
+  private readonly coopGuestNpcs: NPC[] = []
+  private readonly coopGuestMounts: Mount[] = []
   private raf = 0
   private last = 0
   private disposed = false
@@ -202,13 +217,17 @@ export class CareerDuelArenaScene {
     progress(`正在載入${DUEL_ARENA_LABELS[this.arenaId]}、對手與坐騎…`)
     const hero = active.duelClassId ? resolveCareerDuelClass(faction, active.duelPresetId, active.duelTier, active.duelClassId) : undefined
     const selected = duelLoadout(active.duelPresetId, active.duelTier, hero)
-    const heroAssets = new Set([resolveCareerHeroAsset(this.profile), townCaptainProfile(faction).visualAssetId, 'maki-archer-t4' as const,
+    // Co-op guest: its own character (from its own save) fights on the host's side.
+    this.coopPlayerSource = isCoopGuestLaunch() ? coopGuestPlayerSource(this.profile) : null
+    const coopCharacter = coopGuestCharacterAssets()
+    const coopFeline = felineVariantFromMountId(coopCharacter?.mountId)
+    const heroAssets = new Set([resolveCareerHeroAsset(this.profile), coopCharacter?.hero, townCaptainProfile(faction).visualAssetId, 'maki-archer-t4' as const,
       townCommanderHeroAsset(faction), hero?.visualAssetId].filter((id): id is NonNullable<typeof id> => Boolean(id)))
     const [, equipment] = await Promise.all([
       Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(this.renderer), preloadPaladinEquipment(), preloadHighTierEquipment(),
-        preloadMakiRangerBow(), BlackCatVisual.preloadVariants(new Set(['black-cat'])), CorgiVisual.preload(), SnowLeopardVisual.preload(),
+        preloadMakiRangerBow(), BlackCatVisual.preloadVariants(new Set(['black-cat', ...(coopFeline ? [coopFeline] : [])])), CorgiVisual.preload(), SnowLeopardVisual.preload(),
         ...[...heroAssets].map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))]),
-      prepareByzantineEquipment([selected.meleeWeaponId, selected.shieldId, this.profile.equipment?.melee, this.profile.equipment?.shield]),
+      prepareByzantineEquipment([selected.meleeWeaponId, selected.shieldId, this.profile.equipment?.melee, this.profile.equipment?.shield, ...(coopCharacter?.equipmentIds ?? [])]),
     ])
     if (equipment !== 'ready') throw new Error('單挑裝備資源載入失敗')
     if (this.disposed) return
@@ -217,10 +236,11 @@ export class CareerDuelArenaScene {
     this.arena = createDuelArena(this.arenaId, this.scene)
     this.navigation.sync(this.arena.obstacles)
     this.stairNavigation.sync([])
-    this.skills.setSkillState(this.profile.skills ?? {})
-    this.inventory = new TownEquipment(() => this.profile, next => this.commit(next))
-    this.player = new Player(this.scene, faction, resolveCareerHeroAsset(this.profile), resolveCareerOrdinaryTier(this.profile))
-    this.player.setMaxHp(resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP), true)
+    const body = this.playerProfile
+    this.skills.setSkillState(body.skills ?? {})
+    this.inventory = new TownEquipment(() => this.playerProfile, next => this.commitPlayerProfile(next))
+    this.player = new Player(this.scene, body.faction, resolveCareerHeroAsset(body), resolveCareerOrdinaryTier(body))
+    this.player.setMaxHp(resolveCareerPlayerMaxHp(body, DEFAULT_PLAYER_MAX_HP), true)
     this.player.setDamageHud(this.hp)
     syncPlayerSkillCombatLevels(this.player, this.skills.skillState)
     this.player.onShieldBlock = impact => this.session.awardSkillXp({ skill: 'blocking', xp: impact * SHIELD_CONFIG.xpPerBlockedImpact })
@@ -232,7 +252,7 @@ export class CareerDuelArenaScene {
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
     this.orbit.setYaw(spawn.yaw + Math.PI)
     this.party = this.createParty(active, selected)
-    this.careerMounts = new CareerMountController(this.scene, () => this.player, () => this.profile, next => this.commit(next),
+    this.careerMounts = new CareerMountController(this.scene, () => this.player, () => this.playerProfile, next => this.commitPlayerProfile(next),
       // Overhead roof volumes cannot block summoning a mount on the floor below them.
       () => this.mountObstacles, () => this.party.residents.map(resident => resident.npc.combatPosition), () => `duel-arena:${this.arenaId}`)
     // A ridden ground mount comes along to an armed duel; eagles never fly inside an arena.
@@ -332,7 +352,12 @@ export class CareerDuelArenaScene {
 
   start(): void {
     this.last = performance.now()
-    if (this.profile.activeMission?.result) this.openResult(this.profile.activeMission.result)
+    if (!this.coopGuest && coopSession().isHost) {
+      this.coopHost = new CoopHostMission(this.coopPort(false))
+      this.duel.coopPartnerAlive = () => Boolean(this.coopPartner)
+      announceCoopScene('arena')
+    }
+    if (this.profile.activeMission?.result && !this.coopGuest) this.openResult(this.profile.activeMission.result)
     const frame = (time: number): void => {
       if (this.disposed) return
       this.raf = requestAnimationFrame(frame)
@@ -347,6 +372,7 @@ export class CareerDuelArenaScene {
   /** One gameplay step (also used by DEV QA at a fixed rate). */
   update(dt: number): void {
     if (this.disposed) return
+    if (this.coopGuest) { this.updateCoopGuest(dt); return }
     if (this.equipment?.visible) { this.input.clear(); return }
     if (this.pendingSettlement) {
       // Only presentation moves while the decided result waits for its save.
@@ -355,6 +381,8 @@ export class CareerDuelArenaScene {
       return
     }
     this.elapsed += dt
+    // Co-op 2v1 bridge: after the freezes above, so a paused duel never advances for the guest either.
+    if (this.coopHost) { this.coopHost.update(dt); this.updateCoopArrows(dt) }
     const active = this.profile.activeMission
     if (!this.panel) this.orbit.update(this.input, dt, this.arena.obstacles)
     if (!this.player.dead && !this.panel) {
@@ -377,13 +405,15 @@ export class CareerDuelArenaScene {
       this.melee()
       this.resolveBodies()
     }
+    separateLocalPlayerFromPeer(this.player, this.coopHost?.guestProxy, this.arena.obstacles)
     this.updateShots(dt)
     this.careerMounts.update(dt)
     this.player.fitMountedSeat()
     this.arena.update(dt)
     if (combat) {
       this.duel.update(dt)
-      this.settleFrame(this.duel.evaluate(this.player.dead))
+      // In co-op 2v1 the duel is lost only when both players are down.
+      this.settleFrame(this.duel.evaluate())
     }
     this.damageNumbers.update(dt, this.camera)
     const phase = this.duel?.active && !this.panel ? this.duel.phase : null
@@ -416,8 +446,13 @@ export class CareerDuelArenaScene {
       const distance = actor.group.position.distanceTo(this.camera.position)
       if (actor.dead) { actor.update(dt, this.player, [], [], this.arena.obstacles, this.hp, () => {}, () => false, false, distance); continue }
       const combatant = actor === this.duel.opponent && this.duel.combatEnabled
+      // Co-op 2v1: the opponent fights whichever living player is nearer.
+      const partner = combatant ? this.coopPartner : null
+      const onPartner = Boolean(partner && (this.player.dead
+        || partner.combatPosition.distanceToSquared(actor.combatPosition) < this.player.combatPosition.distanceToSquared(actor.combatPosition)))
+      if (combatant) actor.setMissionCombatTarget(onPartner ? partner : undefined)
       // Raised stands/dais are reached by their stairs; the route holds its flight until the far end.
-      const chase = combatant && !this.player.dead
+      const chase = combatant && !this.player.dead && !onPartner
       if (!chase && actor === this.duel.opponent) this.chaseRoute.reset()
       const waypoint = chase ? this.chaseRoute.next(
         { x: actor.combatPosition.x, y: actor.combatPosition.y, z: actor.combatPosition.z },
@@ -435,10 +470,11 @@ export class CareerDuelArenaScene {
       }
       if (this.chaseWaypoint && actor === this.duel.opponent) { this.chaseWaypoint = null; actor.setTacticalOrder('attack') }
       if (combatant) {
-        actor.update(dt, this.player, this.duel.actors, [], this.arena.obstacles, this.hp,
-          // A 1v1 opponent can only reach the player or the player's mount.
-          (damage, isPlayer, _target, targetMount) => {
+        actor.update(dt, this.player, partner ? [...this.duel.actors, partner] : this.duel.actors, [], this.arena.obstacles, this.hp,
+          // The opponent can only reach the players (host or co-op partner) or their mounts.
+          (damage, isPlayer, target, targetMount) => {
             if (isPlayer) this.damagePlayerFrom(actor, damage, 'melee')
+            else if (partner && (target === partner || targetMount === partner.mount)) this.damagePartnerFrom(actor, damage, 'melee')
             else if (targetMount) this.hitMount(targetMount, damage, 'melee', actor)
           },
           (origin, direction, kind) => this.fire(origin, direction, actor.rangedProjectileSpeed, actor.rangedDamage, kind, actor),
@@ -465,8 +501,110 @@ export class CareerDuelArenaScene {
     }
   }
 
+  /** Host: the guest's living proxy fighting on this side of a 2v1 duel. */
+  private get coopPartner(): NPC | null {
+    const proxy = this.coopHost?.guestProxy
+    return proxy && !proxy.dead ? proxy : null
+  }
+
+  private damagePartnerFrom(source: NPC, amount: number, method: CombatDamageMethod, contact?: CombatContact): void {
+    const partner = this.coopPartner
+    contact ??= source.unarmedContact
+    if (!partner || !this.duel.canDamagePlayer(source) || amount <= 0) return
+    const result = damageNpc(partner, amount, {
+      contact: contact ?? (method === 'melee' ? source.weaponSweep?.contact : undefined), hostileToTarget: true,
+      source: createNpcCombatActorRef(source), method,
+      weaponId: (method === 'projectile' ? source.rangedWeaponId : (contact?.attackSource === 'unarmed' ? 'unarmed' : source.meleeWeaponId)) ?? undefined,
+      emit: event => this.emit(event, source.currentLod),
+    })
+    if (result.appliedDamage > 0 && method !== 'projectile') this.sound.playSwordHit(partner.currentLod, false)
+  }
+
+  private coopPort(guest: boolean): CoopGamePort {
+    const arena = this, scene = this.scene
+    const inScene = (group: THREE.Object3D): boolean => {
+      for (let node: THREE.Object3D | null = group; node; node = node.parent) if (node === scene) return true
+      return false
+    }
+    const hostNpcs: NPC[] = [], hostMounts: Mount[] = []
+    return {
+      scene, camera: this.camera, hpBar: this.hp,
+      get player() { return arena.player },
+      get npcs() { return guest ? arena.coopGuestNpcs : NPC.live.collect(npc => inScene(npc.group), hostNpcs) },
+      get mounts() { return guest ? arena.coopGuestMounts : Mount.live.collect(mount => !mount.disposed && inScene(mount.group), hostMounts) },
+      arrows: this.coopArrows, selfUpdatesPuppets: true, guestSquad: false,
+      // Only the duel opponent (and its mount), only while the duel is live.
+      acceptsGuestHit: target => this.duel.canDamageOpponent(target),
+      guestTarget: npc => npc === this.duel.opponent,
+      // The guest earns its own duel merit once the host's claim is saved.
+      missionSettlement: () => {
+        const missionId = this.profile.activeMission?.id
+        const saved = missionId ? new CareerProfileStore().loadChecked().profile : null
+        if (!missionId || !saved?.claimedBattleIds.includes(missionId)) return null
+        return { missionId, kind: 'duel' as const, victory: saved.activeMission?.result?.outcome === 'victory' }
+      },
+      combatEmit: event => this.emit(event),
+      get ownMount() { return arena.careerMounts?.activeMount ?? null },
+      equippedWeapons: () => ({ melee: this.inventory.activeMelee?.id ?? null, ranged: this.inventory.selectedRanged?.id ?? null, shield: this.inventory.shieldEnabled ? this.inventory.equippedShield?.id ?? null : null }),
+      weaponsDrawn: () => ({ melee: this.inventory.meleeEnabled, shield: this.inventory.shieldEnabled }),
+      registerNpc: () => {}, unregisterNpc: () => {}, registerMount: () => {}, unregisterMount: () => {},
+      markVisualArrow: arrow => { this.coopVisualArrows.add(arrow) },
+    }
+  }
+
+  private updateCoopArrows(dt: number): void {
+    for (let i = this.coopArrows.length - 1; i >= 0; i--) {
+      const arrow = this.coopArrows[i]
+      if (this.coopVisualArrows.has(arrow)) arrow.update(dt, this.player, [], this.arena.obstacles, () => {}, () => damagePlayer(this.player, 0, this.hp, null), undefined, true)
+      if (!arrow.isAlive) { this.coopArrows.splice(i, 1); this.coopVisualArrows.delete(arrow) }
+    }
+  }
+
+  /** LAN co-op guest: show the host's arena; this page's own duel actors leave the scene. */
+  startCoopGuest(): void {
+    const own = new Set([this.careerMounts?.activeMount, this.player.currentMount].filter((mount): mount is Mount => Boolean(mount)))
+    for (const npc of NPC.live.collect(() => true)) npc.group.removeFromParent()
+    for (const mount of Mount.live.collect(mount => !own.has(mount))) mount.group.removeFromParent()
+    for (const shot of this.shots) shot.arrow.destroy()
+    this.shots = []
+    // Stand beside the host instead of inside it.
+    const body = this.player.currentMount?.group.position ?? this.player.group.position
+    body.x += 2.5
+    this.coopGuest = new CoopGuestMission(this.coopPort(true), reason => showCoopGuestEnd(reason))
+    this.start()
+  }
+
+  /** Guest frame: own movement and attacks; the host owns the opponent, the timer and the result. */
+  private updateCoopGuest(dt: number): void {
+    if (this.equipment?.visible) { this.input.clear(); return }
+    this.elapsed += dt
+    this.orbit.update(this.input, dt, this.arena.obstacles)
+    if (!this.player.dead) {
+      let step: ReturnType<PlayerInput['consumeWheelStep']>
+      while ((step = this.input.consumeWheelStep()) !== 0) this.weaponWheel.cycle(this.inventory, step)
+    }
+    this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(this.aimPoint), this.arena.obstacles,
+      this.stamina, this.quiver, this.sound, this.inventory, this.skills.getRangedMultiplier(), true)
+    if (!this.player.dead && this.player.isGrounded) {
+      const mount = this.player.currentMount
+      if (mount) { if (this.arena.constrainGroundedBody(mount.group.position)) this.player.syncMountTransform() }
+      else this.arena.constrainGroundedBody(this.player.group.position)
+    }
+    this.coopGuest!.updateWorld(dt)
+    separateLocalPlayerFromPeer(this.player, this.coopGuest!.hostAvatar, this.arena.obstacles)
+    this.melee()
+    this.updateShots(dt)
+    this.updateCoopArrows(dt)
+    this.careerMounts.update(dt)
+    this.player.fitMountedSeat()
+    this.arena.update(dt)
+    this.damageNumbers.update(dt, this.camera)
+    this.weaponWheelUI.update(this.inventory, !this.player.dead)
+    this.hp.setFill(this.player.hpRatio)
+  }
+
   private melee(): void {
-    const opponent = this.duel.opponent
+    const opponent = this.coopGuest ? this.coopGuest.targets.find(npc => !npc.dead) ?? null : this.duel.opponent
     if (this.player.dead || !opponent) { this.player.consumeFistStrikes(); return }
     const targets = opponent.dead ? [] : [opponent]
     const mounts = opponent.mount && !opponent.mount.dead ? [opponent.mount] : []
@@ -500,7 +638,12 @@ export class CareerDuelArenaScene {
   }
 
   private emit(event: CombatEvent, lod = 0): void {
-    this.duel.recordCombatEvent(event)
+    this.coopHost?.recordCombatEvent(event)
+    // The co-op partner follows the player's unarmed-duel rule, not the "commanded helper" one;
+    // its damage still never counts toward the player's own stats or merit.
+    const partner = this.coopPartner
+    this.duel.recordCombatEvent(partner && event.source.actorId === partner.combatantId
+      ? { ...event, source: { ...event.source, actorType: 'player' } } : event)
     playAppliedPunchHit(event, this.sound, lod, event.source.actorType === 'player')
     const weapon = event.type === 'damage_applied' && event.weaponId ? WEAPONS[event.weaponId] : this.inventory.activeMelee
     const award = resolveActivePlayerSkillProgressionAward(event, { dead: this.player.dead, spectatorOnly: this.player.spectatorOnly, observer: false },
@@ -510,7 +653,8 @@ export class CareerDuelArenaScene {
   }
 
   private hitOpponent(target: NPC, amount: number, method: CombatDamageMethod, contact?: CombatContact): void {
-    if (!this.duel.canDamageOpponent(target) || target.dead || amount <= 0) return
+    // Co-op guest: the host judges the duel; DamageRouter forwards this hit.
+    if (!(this.coopGuest ? this.coopGuest.targets.includes(target) : this.duel.canDamageOpponent(target)) || target.dead || amount <= 0) return
     const playerAmount = method === 'mount-impact' ? Math.round(amount * this.skills.getMountedImpactMultiplier()) : amount
     const result = damageNpc(target, playerAmount, {
       contact: contact ?? (method === 'melee' ? this.player.weaponSweep?.contact : undefined),
@@ -534,7 +678,7 @@ export class CareerDuelArenaScene {
     if (source) {
       // The opponent may only strike the player's own mount, during live combat.
       if (mount !== this.player.currentMount || !this.duel.canDamagePlayer(source)) return
-    } else if (!this.duel.canDamageOpponent(mount)) return
+    } else if (!(this.coopGuest ? this.coopGuest.targets.some(npc => npc.mount === mount) : this.duel.canDamageOpponent(mount))) return
     const result = damageMount(mount, amount, {
       contact, source: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player), method,
       weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined
@@ -571,13 +715,15 @@ export class CareerDuelArenaScene {
     if (!source && this.player.dead) return this.projectileAdmission.reject()
     return this.projectileAdmission.launch(this.shots.length, 0, false, () => {
       this.shots.push({ arrow: new ArrowProjectile(this.scene, origin, direction, speed, damage, source ? Faction.TOWN : Faction.PLAYER, !source, visualKind ?? kind), player: !source, source, age: 0 })
+      this.coopHost?.onProjectile(origin, direction, speed, visualKind ?? kind, source ? Faction.ENEMY : Faction.PLAYER)
+      if (!source) this.coopGuest?.onProjectile(origin, direction, speed, visualKind ?? kind)
       this.sound.playBowRelease(source ? source.currentLod : 0, !source, source ? origin.distanceTo(this.player.combatPosition) : 0)
     })
   }
 
   private updateShots(dt: number): void {
     if (!this.shots.length) return
-    const opponent = this.duel.opponent
+    const opponent = this.coopGuest ? this.coopGuest.targets.find(npc => !npc.dead) ?? null : this.duel.opponent
     for (const shot of this.shots) {
       if (!shot.arrow.isAlive) continue
       const from = shot.arrow.mesh.position.clone()
@@ -587,7 +733,7 @@ export class CareerDuelArenaScene {
       const to = shot.arrow.mesh.position
       const targets: (Player | NPC | Mount)[] = shot.player
         ? [...(opponent ? [opponent] : []), ...(opponent?.mount ? [opponent.mount] : [])]
-        : [this.player, ...(this.player.currentMount ? [this.player.currentMount] : [])]
+        : [this.player, ...(this.player.currentMount ? [this.player.currentMount] : []), ...(this.coopPartner ? [this.coopPartner] : [])]
       const hit = this.shotContacts.find(from, to, {
         world: { kind: 'town', practiceTargets: [], traceSiege: () => null },
         obstacles: this.arena.obstacles,
@@ -597,8 +743,9 @@ export class CareerDuelArenaScene {
       if (hit) {
         if (hit.kind === 'actor') {
           const { target, contact } = hit
-          if (contact.kind === 'mount' && contact.mount) this.hitMount(contact.mount, shot.arrow.damage, 'projectile', shot.source, contact)
+          if (contact.kind === 'mount' && contact.mount && contact.mount !== this.coopPartner?.mount) this.hitMount(contact.mount, shot.arrow.damage, 'projectile', shot.source, contact)
           else if (target instanceof Player && shot.source) this.damagePlayerFrom(shot.source, shot.arrow.damage, 'projectile', contact)
+          else if (target instanceof NPC && shot.source && target === this.coopPartner) this.damagePartnerFrom(shot.source, shot.arrow.damage, 'projectile', contact)
           else if (target instanceof NPC && shot.player) this.hitOpponent(target, shot.arrow.damage, 'projectile', contact)
         }
         shot.arrow.destroy()
@@ -659,7 +806,11 @@ export class CareerDuelArenaScene {
 
   dispose(): void {
     if (this.disposed) return
-    this.persistNow()
+    if (!this.coopGuest) this.persistNow()
+    // A return to Town announces the Town; only the end of co-op itself sends 'end'.
+    this.coopHost?.dispose(false); this.coopHost = undefined
+    this.coopGuest?.dispose(); this.coopGuest = undefined
+    for (const arrow of this.coopArrows) arrow.destroy()
     this.disposed = true
     cancelAnimationFrame(this.raf)
     this.listeners.abort()

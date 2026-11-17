@@ -866,6 +866,7 @@ export class ArmyCommandController {
   }
 
   private _acceptsNpc(npc: NPC): boolean {
+    if (npc.coopRemoteCommand) return false
     return this.commandAuthority ? this.commandAuthority.accepts(npc) : npc.faction === Faction.PLAYER
   }
 

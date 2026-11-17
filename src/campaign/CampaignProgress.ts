@@ -1,3 +1,4 @@
+import { gameStorageOverride } from '../save/GameStorage'
 import {
   isCampaignStageId,
   type CampaignFaction,
@@ -43,7 +44,7 @@ function defaultProgress(): DefenseCampaignProgressState {
 function browserStorage(): CampaignProgressStorage | null {
   if (typeof window === 'undefined') return null
   try {
-    return window.localStorage
+    return gameStorageOverride() ?? window.localStorage
   } catch {
     return null
   }
