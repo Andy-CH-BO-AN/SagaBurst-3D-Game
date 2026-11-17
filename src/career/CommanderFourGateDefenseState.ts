@@ -3,7 +3,7 @@ import type { CombatEvent } from '../combat/CombatAttribution'
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
 import { TOWN_HR_OFFICER_ID } from '../town/TownHRLayout'
 import { TOWN_AUTONOMOUS_GUARD_IDS } from '../town/TownNativeGuardIdentity'
-import { townRoster } from '../town/TownRules'
+import { townRosterIdentity } from '../town/TownRules'
 import { parseCaptainEagleCheckpoint, type CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import { parseCommandActorCheckpoint } from './CareerCommandAuthority'
 import type { CareerMissionOutcome, CareerMissionPhase } from './CareerMissionState'
@@ -189,7 +189,7 @@ export function parseCommanderFourGateDefenseState(value: unknown,
     || raw.deploymentComplete && raw.registeredTargetActorIds.length !== targets.size) return undefined
   // The actual Home Town adds this service resident beyond the base roster.
   // It is checkpointed as a person, never added to official military authority.
-  const townIds = [TOWN_HR_OFFICER_ID, ...townRoster().filter(actor => actor.role !== 'cat').map(actor => actor.id),
+  const townIds = [TOWN_HR_OFFICER_ID, ...townRosterIdentity().filter(actor => actor.role !== 'cat').map(actor => actor.id),
     ...context.friendlyActorIds, ...context.civilianActorIds]
   const allowed = new Set([...townIds, ...targets, ...(context.personalActorIds ?? [])])
   if (allowed.size > 1024 || [...allowed].some(id => !safeId(id))) return undefined
