@@ -16,7 +16,7 @@ import { UNIT_PRESETS, type UnitPresetId, type UnitLoadout } from '../battle/Uni
 import { AIType, Faction } from '../world/NPC'
 import { townCommanderHeroAsset } from '../town/TownCommander'
 import { TOWN_COMMANDER_ID, TOWN_COMMANDER_MOUNT_ID } from '../town/TownCommanderIdentity'
-import { townRoster } from '../town/TownRules'
+import { townRosterIdentity } from '../town/TownRules'
 import { createMissionCommandAuthority, officialMissionSourcePolicy, type OfficialCommandSquad } from './CareerCommandAuthority'
 import { personalMissionSourcePolicy, snapshotPersonalMission } from './CareerPersonalSquadMission'
 import { CAREER_RANK_THRESHOLDS, cloneCareerProfile, enlistmentMerit, type CareerProfile } from './CareerProfile'
@@ -196,7 +196,7 @@ function commandSquads(ids: readonly string[], sizes: readonly number[]): Offici
 
 /** Stable native identities; the runtime may append conquest residents before the first checkpoint. */
 export function skyRaidNativeActorIds(): string[] {
-  return [...new Set([...townRoster().filter(spec => spec.role !== 'cat').map(spec => spec.id), TOWN_COMMANDER_ID, 'hr-officer', 'eagle-trainer'])]
+  return [...new Set([...townRosterIdentity().filter(spec => spec.role !== 'cat').map(spec => spec.id), TOWN_COMMANDER_ID, 'hr-officer', 'eagle-trainer'])]
 }
 
 export function createCommanderMission(profile: CareerProfile, templateId: string,
@@ -240,7 +240,7 @@ export function createCommanderMission(profile: CareerProfile, templateId: strin
       ...(templateId === COMMANDER_IRON_LEGION_ID ? { felineVanguardActorId: ironLegionVanguardActorId(id), felineChargeTriggered: false } : {}) },
     ...(templateId === COMMANDER_FOUR_GATE_DEFENSE_ID ? {
       fourGateDefense: createCommanderFourGateDefenseState(),
-      civilianActorIds: townRoster().filter(actor => actor.role === 'civilian').map(actor => actor.id),
+      civilianActorIds: townRosterIdentity().filter(actor => actor.role === 'civilian').map(actor => actor.id),
     } : {}),
     ...(templateId === COMMANDER_BRIDGEHEAD_ID ? {
       bridgeDeployment: { phase: 'preparing' as const, preparationRemainingSeconds: BRIDGEHEAD_PREPARATION_SECONDS },

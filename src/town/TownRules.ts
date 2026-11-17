@@ -172,6 +172,13 @@ export function townRoster(): TownActorSpec[] {
   result.splice(civilianStart, 0, ...civilians)
   return result
 }
+type TownRosterIdentity = Readonly<Pick<TownActorSpec, 'id' | 'role'>>
+let rosterIdentity: readonly TownRosterIdentity[] | undefined
+/** IDs and roles only. They come from the authored roster and fixed civilian slots, never from
+ * placement, so save validation and mission catalogs share one result instead of re-placing the Town. */
+export function townRosterIdentity(): readonly TownRosterIdentity[] {
+  return rosterIdentity ??= Object.freeze(townRoster().map(({ id, role }) => Object.freeze({ id, role })))
+}
 export function townAssaultObjectiveRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => isTownMilitary(actor) || actor.role === 'ranger' || actor.role === 'eagle-trainer') }
 /** Catalogs use authored natives; live boards pass the same residents as acceptance,
  * including any service defenders added by the built Town. Player is counted once. */

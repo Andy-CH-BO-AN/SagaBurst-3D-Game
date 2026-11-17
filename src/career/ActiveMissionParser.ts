@@ -9,7 +9,7 @@ import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { parseCampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
 import { TOWN_WATCHTOWER_ARCHER_IDS } from '../town/TownNativeGuardIdentity'
 import { parseTownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
-import { townRoster } from '../town/TownRules'
+import { townRosterIdentity } from '../town/TownRules'
 import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import { parseCaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import { arenaTrialRoster, arenaTrialTierFromTemplateId, parseArenaTrialState } from './CareerArenaTrials'
@@ -464,7 +464,7 @@ export function parseActiveMission(value: unknown, faction: CareerProfile['facti
   const bridgeBattle = parseCaptainEagleCheckpoint(raw.bridgeBattle, BRIDGEHEAD_FRIENDLIES + BRIDGEHEAD_ENEMIES)
   const felineBattle = parseCaptainEagleCheckpoint(raw.felineBattle, FELINE_FRIENDLY_TOTAL + FELINE_ENEMY_TOTAL)
   const civilianActorIds = uniqueStrings(raw.civilianActorIds)
-  const nativeCivilianIds = fourGateMission ? townRoster().filter(actor => actor.role === 'civilian').map(actor => actor.id) : []
+  const nativeCivilianIds = fourGateMission ? townRosterIdentity().filter(actor => actor.role === 'civilian').map(actor => actor.id) : []
   const fourGateDefense = fourGateMission ? parseCommanderFourGateDefenseState(raw.fourGateDefense, {
     missionId: raw.id, faction, phase: raw.phase as CareerMissionPhase, targetActorIds, friendlyActorIds, civilianActorIds,
     personalActorIds: personalSquad?.memberIds, personalActors: personalSquad?.members, deadTargetActorIds: uniqueStrings(raw.deadTargetActorIds),
