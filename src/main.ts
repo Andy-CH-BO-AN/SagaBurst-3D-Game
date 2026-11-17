@@ -226,6 +226,7 @@ async function bootstrap(): Promise<void> {
     if (coopLaunch.scene === 'game' && coopLaunch.config) await launchCareerCombat(coopLaunch.config)
     else if (coopLaunch.scene === 'town') await (await import('./coop/CoopGuestScenes')).launchCoopGuestTown(container!)
     else if (coopLaunch.scene === 'trial') await (await import('./coop/CoopGuestScenes')).launchCoopGuestTrial(container!)
+    else if (coopLaunch.scene === 'prison') await (await import('./coop/CoopGuestScenes')).launchCoopGuestPrison(container!)
     else await (await import('./coop/CoopGuestScenes')).launchCoopGuestArena(container!)
     return
   }

@@ -10,7 +10,7 @@ import { InventoryManager } from '../../src/rpg/InventoryManager'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { acceptHeavyFieldMission } from '../../src/career/HeavyFieldMission'
 import { createCareerProfile } from '../../src/career/CareerProfile'
-import { beginPrisonBreak, claimCareerFieldResult, prisonRoster, prisonResultDescription, settlePrisonBreak } from '../../src/career/CareerPrisonBreak'
+import { beginPrisonBreak, claimCareerFieldResult, prisonRoster, prisonResultDescription, settlePrisonBreak, PRISON_COOP_PARTNER } from '../../src/career/CareerPrisonBreak'
 import { CareerProfileStore, CAREER_STORAGE_KEY } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 const stats = { damageDealt: 10, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
@@ -325,6 +325,74 @@ describe('Prison encounter persistence', () => {
     expect(returned.totalMerit).toBe(settled.totalMerit)
     expect(returned.lifetimeStats).toEqual(settled.lifetimeStats)
     expect(settled.activeMission!.result!.outcome).toBe('failure')
+  })
+
+  it('合作客機拾劍只是請求：主機在距離內保存為隊友歸屬，客機只在記憶體副本裝備且不寫存檔', () => {
+    const { profile, store, storage } = fixture(), state = profile.activeMission!.prisonBreak!
+    state.swords = {}; state.gateOpen = false
+    expect(store.save(profile)).toBe(true)
+    const swords = [{ position: new Vector3(0, 0, 1), visible: true }, { position: new Vector3(6, 0, 6), visible: true }]
+    const props = { swords, setSelectedSword: vi.fn(), syncSwords: (saved: typeof state) => swords.forEach((sword, i) => { sword.visible = saved.swords[i] === undefined }) }
+    const partner = { dead: false, combatPosition: new Vector3(0, 0, 2) }
+    const host = Object.assign(Object.create(CareerArenaCombatScene.prototype) as { pickupSwords(pressed: boolean): void; coopPrisonKey: string }, {
+      profile, store, props, pickupFocus: new InteractionFocus(), phase: 'fight', panel: null, bodies: [],
+      player: { position: new Vector3(9, 0, 9), dead: false }, input: { isLocked: true },
+      coopHost: { guestProxy: partner }, coopPickupRequests: [1, 0], coopPrisonKey: 'sent',
+    })
+    host.pickupSwords(false)
+    // Sword 1 is beyond the guest's reach on the host; sword 0 is saved for the partner and re-sent at once.
+    expect(store.load()!.activeMission!.prisonBreak!.swords).toEqual({ 0: PRISON_COOP_PARTNER })
+    expect(swords.map(sword => sword.visible)).toEqual([false, true])
+    expect(host.coopPrisonKey).toBe('')
+    partner.combatPosition.set(6, 0, 5)
+    Object.assign(host, { coopPickupRequests: [1] }); host.pickupSwords(false)
+    expect(store.load()!.activeMission!.prisonBreak!.swords).toEqual({ 0: PRISON_COOP_PARTNER })
+    expect(store.loadChecked().error).toBeFalsy()
+
+    // The guest page holds a copy of the host's save; the host's prison state arms its Player there only.
+    const hostBytes = storage.getItem(CAREER_STORAGE_KEY)
+    const inventory = new InventoryManager({ meleeWeaponId: '', rangedWeaponId: '', shieldId: null })
+    const notify = vi.fn(), guestProps = { ...props, setOpen: vi.fn(), syncSwords: vi.fn() }
+    const guest = Object.assign(Object.create(CareerArenaCombatScene.prototype) as { applyCoopPrisonState(message: unknown): void }, {
+      profile: structuredClone(profile), store, props: guestProps, inventory, pickupHud: { notify, show() {} }, pickupFocus: new InteractionFocus(),
+    })
+    guest.applyCoopPrisonState({ t: 'prisonState', swords: { 0: PRISON_COOP_PARTNER }, gateOpen: true, fight: true, guards: 0, outcome: null })
+    expect(inventory.activeMelee?.id).toBe('gladius_rusty')
+    expect(notify).toHaveBeenCalledOnce()
+    expect(guestProps.setOpen).toHaveBeenCalledWith(true, true)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(hostBytes)
+    inventory.dispose()
+  })
+
+  it('合作隊友存活時主機與戰俘全倒不算失敗，隊友實際過門才結算成功並記錄隊友逃脫', () => {
+    const { profile, store } = fixture()
+    vi.stubGlobal('document', { exitPointerLock() {} })
+    const state = profile.activeMission!.prisonBreak!
+    Object.assign(state.combat.player!, { knocked: true, hp: 0 })
+    for (const entry of prisonRoster(state)) Object.assign(state.combat.actors[entry.actorId], { status: 'knocked', hp: 0 })
+    expect(store.save(profile)).toBe(true)
+    const position = new Vector3(4, .95, -30)
+    const player = { position, group: { position }, dead: true, hp: 0, staminaValue: 71, facingYaw: 0, arrowCount: 0,
+      shield: { shieldImpactRemaining: 0, captureDurability: () => ({}) },
+      captureFootFall: () => ({ grounded: true, velocityY: 0, apexY: null }), clearTownAction() {} }
+    const partner = { dead: false, combatPosition: new Vector3(0, 0, -37) }, notifySettled = vi.fn(), published = vi.fn()
+    const scene = Object.assign(Object.create(CareerArenaCombatScene.prototype) as { resolvePrisonResult(): boolean }, {
+      profile, store, player, bodies: [], phase: 'fight', combatElapsed: 5, knocked: new Set(Object.keys(state.combat.actors)),
+      previousPlayerPosition: position.clone(), previousPartnerPosition: new Vector3(0, 0, -37), arenaId: state.combat.arenaId,
+      coopHost: { guestProxy: partner, notifySettled }, input: { clear() {} }, pickupFocus: new InteractionFocus(),
+      openPanel() {}, button() {}, openPrisonResult: published,
+    })
+    expect(scene.resolvePrisonResult()).toBe(false)
+    expect(store.load()!.activeMission!.prisonBreak!.result).toBeUndefined()
+    partner.combatPosition.set(0, 0, -39.5)
+    expect(scene.resolvePrisonResult()).toBe(true)
+    const saved = store.loadChecked()
+    expect(saved.error).toBeFalsy()
+    expect(saved.profile!.activeMission!.prisonBreak!.result).toEqual({ outcome: 'victory', merit: 100, escapedBy: PRISON_COOP_PARTNER })
+    expect(saved.profile!.totalMerit - profile.totalMerit).toBe(100)
+    expect(prisonResultDescription(saved.profile!.activeMission!.prisonBreak!)).toBe('隊友成功逃脫，你未能逃出')
+    expect(notifySettled).toHaveBeenCalledOnce()
+    expect(published).toHaveBeenCalledOnce()
   })
 
 })
