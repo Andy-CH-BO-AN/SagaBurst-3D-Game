@@ -4384,6 +4384,12 @@ export class Game {
       this.careerSkillSaveTimer = null
     }
     if (!this.careerProfile || !this.careerSkillsDirty) return true
+    // Co-op guest: the skills are its own character's, saved (skills only) into its own save.
+    // Best effort: a failed write stays dirty for the next flush and never blocks the mission's own flows.
+    if (this.coopPlayerSource) {
+      if (this.coopPlayerSource.commitSkills(this.skillManager.skillState)) this.careerSkillsDirty = false
+      return true
+    }
 
     const fresh = this.careerStore.loadChecked().profile ?? this.careerProfile
     const next = cloneCareerProfile(fresh)

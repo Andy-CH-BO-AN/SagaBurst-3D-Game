@@ -173,6 +173,7 @@ export class CareerDuelArenaScene {
     this.session = new CareerArenaSession<ArenaSettlement>(profile, {
       noun: '單挑', panel: new ArenaPanel('duel-arena-panel'), store: this.store, skills: this.skills, sound: this.sound, input: this.input,
       player: () => this.player,
+      coopCharacter: () => this.coopPlayerSource,
       prepareReturn: (next, active) => {
         // A finished duel returns the mount armour it borrowed for the fight.
         if (active.result || this.profile.claimedBattleIds.includes(active.id)) delete next.mountArmor
@@ -601,6 +602,7 @@ export class CareerDuelArenaScene {
     this.damageNumbers.update(dt, this.camera)
     this.weaponWheelUI.update(this.inventory, !this.player.dead)
     this.hp.setFill(this.player.hpRatio)
+    this.session.tickSkillFlush(this.elapsed, dt)
   }
 
   private melee(): void {
@@ -806,7 +808,9 @@ export class CareerDuelArenaScene {
 
   dispose(): void {
     if (this.disposed) return
-    if (!this.coopGuest) this.persistNow()
+    // A co-op guest saves only its own skill progress; the duel itself is the host's.
+    if (this.coopGuest) this.session.flushSkills()
+    else this.persistNow()
     // A return to Town announces the Town; only the end of co-op itself sends 'end'.
     this.coopHost?.dispose(false); this.coopHost = undefined
     this.coopGuest?.dispose(); this.coopGuest = undefined

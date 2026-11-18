@@ -216,6 +216,7 @@ export class CareerArenaCombatScene {
     if (!profile.activeMission?.prisonBreak) this.session = new CareerArenaSession<TrialSettlement>(profile, {
       noun: '試煉', panel: new ArenaPanel('arena-trial-panel'), store: this.store, skills: this.skills, sound: this.sound, input: this.input,
       player: () => this.player,
+      coopCharacter: () => this.coopPlayerSource,
       onClaiming: () => { this.phase = 'result' },
       stageClaim: (staged, settlement) => {
         if (settlement.reason && staged.activeMission?.arenaTrial) staged.activeMission.arenaTrial.endReason = settlement.reason
@@ -963,7 +964,9 @@ export class CareerArenaCombatScene {
   }
 
   private persistNow(): void {
-    if (this.disposed || this.coopGuest || !this.tracker || !this.initializationComplete || this.settlementPending || this.pickupRetry) return
+    // A co-op guest saves only its own skill progress (into its own save); the trial is the host's.
+    if (this.coopGuest) { if (!this.disposed) this.flushSkills(); return }
+    if (this.disposed || !this.tracker || !this.initializationComplete || this.settlementPending || this.pickupRetry) return
     this.flushSkills()
     if (this.phase === 'fight' || this.resumeGrace) this.persistProgress()
   }
@@ -1342,6 +1345,7 @@ export class CareerArenaCombatScene {
     this.damageNumbers.update(dt, this.camera)
     this.weaponWheelUI.update(this.inventory, !this.player.dead)
     this.hp.setFill(this.player.hpRatio)
+    this.session?.tickSkillFlush(this.elapsed, dt)
   }
 
   /** DEV QA: advance the real gameplay step at a fixed 60 Hz with held key codes. */

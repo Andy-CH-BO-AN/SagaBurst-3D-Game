@@ -12,6 +12,7 @@ import type { CareerPersonalSquadMember } from '../career/CareerPersonalSquad'
 import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import { resolveCareerHeroAsset } from '../career/CareerPlayerProfile'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
+import { normalizeSkillState, type SkillState, type SkillStateInput } from '../rpg/SkillManager'
 import { CAREER_STORAGE_KEY, CareerProfileStore } from '../career/CareerProfileStore'
 import { DEFENSE_CAMPAIGN_PROGRESS_STORAGE_KEY } from '../campaign/CampaignProgress'
 import { installGameStorageOverride, MemoryStorage } from '../save/GameStorage'
@@ -115,6 +116,36 @@ export interface CoopPlayerSource {
   read(): CareerProfile
   /** Equipment / mount changes stay in this page: the guest's own save is never written by them. */
   commit(next: CareerProfile): boolean
+  /** Skill progress is the guest's own: it is written (skills only) into the guest's own save. */
+  commitSkills(skills: SkillState): boolean
+}
+
+/** Per skill, the further of the two (level, then XP): a save never loses progress made elsewhere. */
+export function mergeSkillProgress(saved: SkillStateInput | undefined, gained: SkillState): SkillState {
+  const out = normalizeSkillState(gained)
+  const prior = normalizeSkillState(saved)
+  for (const id of Object.keys(out) as (keyof SkillState)[]) {
+    const a = out[id], b = prior[id]
+    if (b.level > a.level || b.level === a.level && b.xp > a.xp) out[id] = { ...b }
+  }
+  return out
+}
+
+/**
+ * Co-op guest: writes its skill progress into its own Career save. Only `skills` changes; the rest of
+ * the guest's save (merit, equipment, missions) is left exactly as it is. False outside a guest page, when
+ * this computer has no Career save, or when that save now belongs to another career.
+ */
+export function commitCoopGuestSkills(skills: SkillState): boolean {
+  if (!guestLaunchId || !guestOwnProfile) return false
+  const store = new CareerProfileStore(localStorage)
+  const latest = store.loadChecked().profile
+  if (!latest || latest.tutorial?.careerId !== guestOwnProfile.tutorial?.careerId) return false
+  const next = cloneCareerProfile(latest)
+  next.skills = mergeSkillProgress(latest.skills, skills)
+  if (!store.save(next)) return false
+  guestOwnProfile = next
+  return true
 }
 
 /**
@@ -129,7 +160,15 @@ export function coopGuestPlayerSource(host: CareerProfile | null | undefined): C
   working.activeMission = host?.activeMission ? { ...structuredClone(host.activeMission), mountState: undefined } : undefined
   working.activeOutpostMission = host?.activeOutpostMission ? structuredClone(host.activeOutpostMission) : undefined
   working.activeRace = host?.activeRace ? structuredClone(host.activeRace) : undefined
-  return { read: () => working, commit: next => { working = next; return true } }
+  return {
+    read: () => working,
+    commit: next => { working = next; return true },
+    commitSkills: skills => {
+      // The working copy follows at once (max HP reads it); the save is retried on the next flush if it fails.
+      working = { ...cloneCareerProfile(working), skills: normalizeSkillState(skills) }
+      return commitCoopGuestSkills(skills)
+    },
+  }
 }
 
 /** Assets the guest's own character needs before its scene builds the Player (hero body, gear, mount). */
