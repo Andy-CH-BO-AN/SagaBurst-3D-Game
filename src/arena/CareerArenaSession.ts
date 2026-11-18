@@ -7,7 +7,7 @@ import type { SoundManager } from '../audio/SoundManager'
 import { DEFAULT_PLAYER_MAX_HP, type Player } from '../player/Player'
 import type { PlayerInput } from '../player/PlayerInput'
 import { canAwardPlayerSkillProgression, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
-import { syncPlayerSkillCombatLevels, type SkillManager } from '../rpg/SkillManager'
+import { syncPlayerSkillCombatLevels, type SkillManager, type SkillState } from '../rpg/SkillManager'
 
 /** Seconds between best-effort skill saves while nothing levels up. */
 const SKILL_FLUSH_SECONDS = 5
@@ -39,6 +39,11 @@ export interface CareerArenaSessionHost<S extends ArenaSettlement> {
   readonly sound: SoundManager
   readonly input: Pick<PlayerInput, 'clear'>
   player(): ArenaSessionPlayer
+  /**
+   * Co-op guest: the guest's own character, whose skill progress is saved into its own save instead of
+   * the scene's (host) profile. Undefined everywhere else.
+   */
+  coopCharacter?(): { read(): CareerProfile; commitSkills(skills: SkillState): boolean } | null
   /** Runs once a claim is really about to be attempted (not when already settled). */
   onClaiming?(): void
   /** Adds scene-specific fields to the profile that is claimed, in the same save transaction. */
@@ -126,7 +131,7 @@ export class CareerArenaSession<S extends ArenaSettlement> {
     if (levels > 0) {
       this.flushSkills()
       const before = player.hp
-      const maxHp = resolveCareerPlayerMaxHp(this.currentProfile, DEFAULT_PLAYER_MAX_HP)
+      const maxHp = resolveCareerPlayerMaxHp(this.host.coopCharacter?.()?.read() ?? this.currentProfile, DEFAULT_PLAYER_MAX_HP)
       player.setMaxHp(maxHp, false)
       player.setHp(Math.min(maxHp, before + levels))
     }
@@ -134,6 +139,8 @@ export class CareerArenaSession<S extends ArenaSettlement> {
 
   flushSkills(): void {
     if (!this.skillsDirty) return
+    const character = this.host.coopCharacter?.()
+    if (character) { if (character.commitSkills(this.host.skills.skillState)) this.skillsDirty = false; return }
     const next = cloneCareerProfile(this.currentProfile)
     next.skills = this.host.skills.skillState
     if (this.commit(next)) this.skillsDirty = false
