@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { consumeCoopGuestLaunch, coopGuestPlayerSource, exitCoopGuestMission, isCoopGuestLaunch, parseCoopLaunchPayload } from '../../src/coop/CoopLaunch'
+import { normalizeSkillState } from '../../src/rpg/SkillManager'
 import { COOP_PROTOCOL_VERSION } from '../../src/coop/CoopProtocol'
 import { installGameStorageOverride } from '../../src/save/GameStorage'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -60,5 +61,33 @@ describe('Co-op guest save isolation', () => {
     expect(parseCoopLaunchPayload({ ...base, scene: 'trial', config: {} })).toBeNull()
     expect(parseCoopLaunchPayload({ ...base, scene: 'game' })).toBeNull()
     expect(parseCoopLaunchPayload({ ...base, scene: 'prison' })).toBeNull()
+  })
+  it('writes only the guest\'s skill progress into its own save, never losing progress saved elsewhere', () => {
+    const own = createCareerProfile('roman')
+    own.availableMerit = 1234
+    const local = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify(own)]] })
+    globals.localStorage = local; globals.sessionStorage = new MemoryStorage()
+    const host = createCareerProfile('viking')
+    host.availableMerit = 999
+    sessionStorage.setItem('sagaburst_coop_guest_launch', JSON.stringify({
+      id: 'm2', version: COOP_PROTOCOL_VERSION, scene: 'trial', local: { [CAREER_STORAGE_KEY]: JSON.stringify(host) }, session: {} }))
+    expect(consumeCoopGuestLaunch()?.scene).toBe('trial')
+    const character = coopGuestPlayerSource(host)!
+    // Another page raised ranged meanwhile; this mission raised one-handed.
+    const elsewhere = JSON.parse(local.getItem(CAREER_STORAGE_KEY)!)
+    elsewhere.skills.ranged = { level: 6, xp: 3 }
+    local.setItem(CAREER_STORAGE_KEY, JSON.stringify(elsewhere))
+    expect(character.commitSkills(normalizeSkillState({ oneHanded: { level: 3, xp: 10 }, ranged: { level: 5, xp: 90 } }))).toBe(true)
+    const saved = new CareerProfileStore(local).load()!
+    expect(saved.skills!.oneHanded).toEqual({ level: 3, xp: 10 })
+    expect(saved.skills!.ranged).toEqual({ level: 6, xp: 3 })
+    expect(saved.availableMerit).toBe(1234)
+    expect(saved.faction).toBe('roman')
+    expect(character.read().skills!.oneHanded.level).toBe(3)
+    // The save now belongs to another career: nothing is written.
+    const before = JSON.stringify(createCareerProfile('viking'))
+    local.setItem(CAREER_STORAGE_KEY, before)
+    expect(character.commitSkills(normalizeSkillState({ oneHanded: { level: 9, xp: 0 } }))).toBe(false)
+    expect(local.getItem(CAREER_STORAGE_KEY)).toBe(before)
   })
 })
