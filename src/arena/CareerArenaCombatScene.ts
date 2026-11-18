@@ -926,7 +926,8 @@ export class CareerArenaCombatScene {
   private flushSkills(): void {
     if (this.session) { this.session.flushSkills(); return }
     if (!this.skillsDirty) return
-    // A co-op guest's skills belong to its own character (kept in this page's memory).
+    // A co-op guest keeps its skill progress in its own save (skills only); the host's prison save is never touched.
+    if (this.coopPlayerSource) { if (this.coopPlayerSource.commitSkills(this.skills.skillState)) this.skillsDirty = false; return }
     const next = cloneCareerProfile(this.playerProfile)
     next.skills = this.skills.skillState
     if (this.commitPlayerProfile(next)) this.skillsDirty = false
@@ -1345,7 +1346,8 @@ export class CareerArenaCombatScene {
     this.damageNumbers.update(dt, this.camera)
     this.weaponWheelUI.update(this.inventory, !this.player.dead)
     this.hp.setFill(this.player.hpRatio)
-    this.session?.tickSkillFlush(this.elapsed, dt)
+    if (this.session) this.session.tickSkillFlush(this.elapsed, dt)
+    else if (this.skillsDirty && this.elapsed % 5 < dt) this.flushSkills()
   }
 
   /** DEV QA: advance the real gameplay step at a fixed 60 Hz with held key codes. */

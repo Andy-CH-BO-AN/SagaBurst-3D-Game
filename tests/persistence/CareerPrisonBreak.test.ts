@@ -395,4 +395,22 @@ describe('Prison encounter persistence', () => {
     expect(published).toHaveBeenCalledOnce()
   })
 
+  it('合作客機的技能進度只經 commitSkills 存入客機自己的存檔，不寫主機越獄存檔，寫入失敗保持待存', () => {
+    const { profile, store, storage } = fixture()
+    expect(store.save(profile)).toBe(true)
+    const hostBytes = storage.getItem(CAREER_STORAGE_KEY)
+    const skillState = { oneHanded: { level: 3, xp: 10 } }
+    const commitSkills = vi.fn(() => false)
+    const guest = Object.assign(Object.create(CareerArenaCombatScene.prototype) as { flushSkills(): void; skillsDirty: boolean }, {
+      profile, store, skills: { skillState }, skillsDirty: true, coopPlayerSource: { read: () => profile, commit: vi.fn(), commitSkills },
+    })
+    guest.flushSkills()
+    expect(commitSkills).toHaveBeenLastCalledWith(skillState)
+    expect(guest.skillsDirty).toBe(true)
+    commitSkills.mockReturnValue(true)
+    guest.flushSkills()
+    expect(guest.skillsDirty).toBe(false)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(hostBytes)
+  })
+
 })
