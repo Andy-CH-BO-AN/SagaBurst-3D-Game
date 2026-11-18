@@ -79,11 +79,11 @@ describe('Co-op guest save isolation', () => {
     local.setItem(CAREER_STORAGE_KEY, JSON.stringify(elsewhere))
     expect(character.commitSkills(normalizeSkillState({ oneHanded: { level: 3, xp: 10 }, ranged: { level: 5, xp: 90 } }))).toBe(true)
     const saved = new CareerProfileStore(local).load()!
-    expect(saved.skills.oneHanded).toEqual({ level: 3, xp: 10 })
-    expect(saved.skills.ranged).toEqual({ level: 6, xp: 3 })
+    expect(saved.skills!.oneHanded).toEqual({ level: 3, xp: 10 })
+    expect(saved.skills!.ranged).toEqual({ level: 6, xp: 3 })
     expect(saved.availableMerit).toBe(1234)
     expect(saved.faction).toBe('roman')
-    expect(character.read().skills.oneHanded.level).toBe(3)
+    expect(character.read().skills!.oneHanded.level).toBe(3)
     // The save now belongs to another career: nothing is written.
     const before = JSON.stringify(createCareerProfile('viking'))
     local.setItem(CAREER_STORAGE_KEY, before)
