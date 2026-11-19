@@ -60,7 +60,9 @@ describe('Co-op guest save isolation', () => {
     expect(parseCoopLaunchPayload({ ...base, scene: 'trial' })?.scene).toBe('trial')
     expect(parseCoopLaunchPayload({ ...base, scene: 'trial', config: {} })).toBeNull()
     expect(parseCoopLaunchPayload({ ...base, scene: 'game' })).toBeNull()
-    expect(parseCoopLaunchPayload({ ...base, scene: 'prison' })).toBeNull()
+    expect(parseCoopLaunchPayload({ ...base, scene: 'prison' })?.scene).toBe('prison')
+    expect(parseCoopLaunchPayload({ ...base, scene: 'prison', config: {} })).toBeNull()
+    expect(parseCoopLaunchPayload({ ...base, scene: 'tutorial' })).toBeNull()
   })
   it('writes only the guest\'s skill progress into its own save, never losing progress saved elsewhere', () => {
     const own = createCareerProfile('roman')

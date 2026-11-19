@@ -7,7 +7,7 @@ import * as THREE from 'three'
 import { PrisonBreakProps } from './PrisonBreakProps'
 import { InteractionFocus, type InteractionCandidate } from '../world/InteractionFocus'
 import { PickupPrompt } from '../ui/PickupPrompt'
-import { prisonGuardCount, prisonRoster, prisonUnitSpec, claimPrisonSword, crossedPrisonExit, prisonOutcome, prisonTaunt, prisonResultDescription, settlePrisonBreak, PRISON_SWORD_ID } from '../career/CareerPrisonBreak'
+import { prisonGuardCount, prisonRoster, prisonUnitSpec, claimPrisonSword, crossedPrisonExit, prisonOutcome, prisonTaunt, prisonResultDescription, settlePrisonBreak, PRISON_COOP_PARTNER, PRISON_SWORD_ID } from '../career/CareerPrisonBreak'
 import { InventoryManager } from '../rpg/InventoryManager'
 
 import { createDuelArena, type DuelArenaEnvironment } from './DuelArena'
@@ -65,7 +65,7 @@ import { Mount } from '../world/Mount'
 import { Faction, NPC } from '../world/NPC'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import { resolveEntityCollision, type ObstacleData } from '../world/Terrain'
-import { coopSession } from '../coop/CoopLink'
+import { coopSession, type CoopMessage } from '../coop/CoopLink'
 import { announceCoopScene, coopGuestCharacterAssets, coopGuestPlayerSource, isCoopGuestLaunch, showCoopGuestEnd, type CoopPlayerSource } from '../coop/CoopLaunch'
 import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeer, type CoopGamePort } from '../coop/CoopMission'
 
@@ -74,6 +74,8 @@ const RESUME_GRACE_SECONDS = 3
 const CHECKPOINT_SECONDS = 2
 /** A fall changes quickly, so it is saved far more often than a quiet fight. */
 const AIRBORNE_CHECKPOINT_SECONDS = 0.25
+/** The guest's pickup reach as seen on the host: the player's 2m prompt plus snapshot latency. */
+const COOP_PRISON_PICKUP_RANGE = 3
 
 export interface CareerArenaTrialCallbacks {
   /** The trial is settled (or cancelled) and saved; Town may be rebuilt. */
@@ -173,7 +175,7 @@ export class CareerArenaCombatScene {
   private pickupRetry: (() => void) | null = null
   private initializationComplete = false
   private readonly aimPoint = new THREE.Vector3()
-  /** LAN co-op (squad trials only, never the prison): the host bridge, or this page's mirror of the host's trial. */
+  /** LAN co-op (squad trials and the prison break): the host bridge, or this page's mirror of the host's encounter. */
   private coopHost?: CoopHostMission
   private coopGuest?: CoopGuestMission
   private readonly coopArrows: ArrowProjectile[] = []
@@ -184,7 +186,23 @@ export class CareerArenaCombatScene {
   private readonly coopMarkers = new Map<NPC, THREE.Sprite>()
   /** Co-op guest: its own character profile (in memory); the host's profile still runs the trial. */
   private coopPlayerSource: CoopPlayerSource | null = null
+  /** This page mirrors the host's encounter; known before the guest bridge exists. */
+  private readonly coopGuestPage = isCoopGuestLaunch()
+  private readonly coopUnsubscribe: Array<() => void> = []
+  /** Host: prison swords the guest asked for, claimed in the frame like the player's own. */
+  private readonly coopPickupRequests: number[] = []
+  private coopPrisonKey = ''
+  private coopPrisonClock = 0
+  /** Host: the guest proxy's position before this frame, for the exit crossing. */
+  private previousPartnerPosition: THREE.Vector3 | null = null
+  /** Guest: the host's standing guards and saved escape result, for this page's prison HUD. */
+  private coopPrisonGuards: number | null = null
+  private coopPrisonOutcome: CareerMissionOutcome | null = null
+  /** Guest: whether the host's fight is live (its opening and result belong to the host). */
+  private coopPrisonFighting = false
   private get playerProfile(): CareerProfile { return this.coopPlayerSource?.read() ?? this.profile }
+  /** Whose prison sword this page's Player holds: the host's own, or the co-op partner's. */
+  private get prisonSwordOwner(): string { return this.coopGuestPage ? PRISON_COOP_PARTNER : 'player' }
   private commitPlayerProfile(next: CareerProfile): boolean { return this.coopPlayerSource ? this.coopPlayerSource.commit(next) : this.commit(next) }
 
   /** Ordinary trials keep dev's shared save/session owner; prison has a different fixed-reward receipt. */
@@ -275,7 +293,7 @@ export class CareerArenaCombatScene {
     const settled = this.prison ? Boolean(this.prison.result) : Boolean(mission.result)
     progress(`正在載入${DUEL_ARENA_LABELS[this.arenaId]}與雙方部隊…`)
     // Co-op guest: its own character (from its own save) joins the host's team.
-    this.coopPlayerSource = !this.prison && isCoopGuestLaunch() ? coopGuestPlayerSource(this.profile) : null
+    this.coopPlayerSource = this.coopGuestPage ? coopGuestPlayerSource(this.profile) : null
     await this.preloadCombatAssets()
     if (this.disposed) return
     this.container.appendChild(this.renderer.domElement)
@@ -292,7 +310,7 @@ export class CareerArenaCombatScene {
       : new TownEquipment(() => this.playerProfile, next => this.commitPlayerProfile(next))
     if (this.prison) {
       this.inventory.meleeEnabled = this.inventory.rangedEnabled = this.inventory.shieldEnabled = false
-      if (Object.values(this.prison.swords).includes('player')) { this.inventory.addWeapon(PRISON_SWORD_ID); this.inventory.equipWeapon(PRISON_SWORD_ID); this.inventory.meleeEnabled = true }
+      if (Object.values(this.prison.swords).includes(this.prisonSwordOwner)) { this.inventory.addWeapon(PRISON_SWORD_ID); this.inventory.equipWeapon(PRISON_SWORD_ID); this.inventory.meleeEnabled = true }
       this.props = new PrisonBreakProps(this.arena, this.prison)
       this.pickupHud = new PickupPrompt()
       this.prisonHud = document.createElement('div'); this.prisonHud.id = 'prison-break-hud'
@@ -309,7 +327,7 @@ export class CareerArenaCombatScene {
     this.player.onFireArrow = event => this.fire(event.origin, event.direction, event.speed, event.damage, 'arrow', undefined, event.visualKind)
     const engaged = trial.stage === 'engaged'
     // The saved player state is the host's own; a co-op guest always starts fresh.
-    const saved = engaged && !this.coopPlayerSource ? trial.player : undefined
+    const saved = engaged && !this.coopGuestPage ? trial.player : undefined
     const spawn = saved ?? { x: formation.player.x, z: formation.player.z, yaw: formation.player.yaw }
     this.player.resetForScene(spawn.x, saved?.y ?? this.arena.spawns.player.y + PLAYER_HALF_HEIGHT, spawn.z)
     this.player.faceDirection(Math.sin(spawn.yaw), Math.cos(spawn.yaw))
@@ -350,7 +368,8 @@ export class CareerArenaCombatScene {
     this.bindInput()
     this.previousPlayerPosition.copy(this.player.position)
     this.initializationComplete = true
-    if (this.prison && !settled) {
+    // A co-op guest mirrors the host's encounter and never checkpoints it.
+    if (this.prison && !settled && !this.coopGuestPage) {
       // Unlike a trial's deployment, confinement is already live: even the first countdown
       // and every resume grace preserve health, position and fall state on pagehide.
       this.resumeGrace = true
@@ -447,9 +466,13 @@ export class CareerArenaCombatScene {
   start(): void {
     this.started = true
     this.last = performance.now()
-    if (!this.prison && !this.coopGuest && coopSession().isHost) {
+    if (!this.coopGuest && coopSession().isHost) {
       this.coopHost = new CoopHostMission(this.coopPort(false))
-      announceCoopScene('trial')
+      // The guest's sword pickups are requests: the host claims and saves them like its own.
+      if (this.prison) this.coopUnsubscribe.push(coopSession().on('prisonPickup', message => {
+        if (this.phase === 'fight' && Number.isInteger(message.index) && this.coopPickupRequests.length < 4) this.coopPickupRequests.push(message.index as number)
+      }))
+      announceCoopScene(this.prison ? 'prison' : 'trial')
     }
     // A co-op guest never opens a result: the host owns it.
     if (!this.coopGuest && this.prison?.result) this.openPrisonResult()
@@ -481,7 +504,11 @@ export class CareerArenaCombatScene {
     const pickupPressed = this.prison ? this.input.consumeKeyE() : false
     this.elapsed += dt
     // Co-op bridge: after the freezes above, so a paused trial never advances for the guest either.
-    if (this.coopHost) { this.coopHost.update(dt); this.updateCoopArrows(dt) }
+    if (this.coopHost) {
+      const partner = this.coopPartner
+      this.previousPartnerPosition = partner ? (this.previousPartnerPosition ?? new THREE.Vector3()).copy(partner.combatPosition) : null
+      this.coopHost.update(dt); this.updateCoopArrows(dt); this.syncCoopPrison(dt)
+    }
     const fighting = this.phase === 'fight'
     this.updateCamera(dt)
     if (!this.player.dead && !this.panelOpen) {
@@ -567,7 +594,13 @@ export class CareerArenaCombatScene {
     if (!this.prisonHud || !this.prison) return
     this.prisonHud.hidden = this.phase === 'result'
     const total = this.mission.targetActorIds.length
-    this.prisonHud.textContent = this.prison.gateOpen ? '鐵門已開｜穿過出口' : `越獄目標｜擊倒看守 ${total - this.counts().enemyActive}／${total}`
+    // A co-op guest shows the host's count: its own page has only mirrors of the standing guards.
+    const standing = this.coopGuest ? this.coopPrisonGuards ?? total : this.counts().enemyActive
+    this.prisonHud.textContent = this.prison.gateOpen ? '鐵門已開｜穿過出口' : `越獄目標｜擊倒看守 ${total - standing}／${total}`
+    if (this.coopGuest && this.coopPrisonOutcome) {
+      this.prisonHud.textContent = `${this.coopPrisonOutcome === 'victory' ? '逃出牢籠' : '逃脫失敗'}｜等待主機返回小鎮`
+      return
+    }
     if (this.player.dead) this.prisonHud.textContent += '\n你已倒下，正在觀戰；友軍仍可逃脫（WASD 移動視角）'
   }
 
@@ -577,9 +610,14 @@ export class CareerArenaCombatScene {
         { x: body.previousPosition.x, y: body.previousPosition.y + PLAYER_HALF_HEIGHT, z: body.previousPosition.z },
         { x: body.npc.combatPosition.x, y: body.npc.combatPosition.y + PLAYER_HALF_HEIGHT, z: body.npc.combatPosition.z }))
       const playerCrossed = !this.player.dead && crossedPrisonExit(this.arenaId, this.previousPlayerPosition, this.player.position)
+      // The co-op partner is one more living prisoner: its proxy crossing the exit frees the team.
+      const partner = this.coopPartner, before = this.previousPartnerPosition
+      const partnerCrossed = Boolean(partner && before && crossedPrisonExit(this.arenaId,
+        { x: before.x, y: before.y + PLAYER_HALF_HEIGHT, z: before.z },
+        { x: partner.combatPosition.x, y: partner.combatPosition.y + PLAYER_HALF_HEIGHT, z: partner.combatPosition.z }))
       const result = prisonOutcome({ playerDead: this.player.dead, friendlyAlive: this.counts().friendlyActive,
-        gateOpen: this.prison.gateOpen, playerCrossed, friendlyCrossed: Boolean(friend) })
-      if (result) { this.finishPrison(result, playerCrossed ? 'player' : friend?.actorId); return true }
+        gateOpen: this.prison.gateOpen, playerCrossed, friendlyCrossed: Boolean(friend) || partnerCrossed })
+      if (result) { this.finishPrison(result, playerCrossed ? 'player' : friend?.actorId ?? (partnerCrossed ? PRISON_COOP_PARTNER : undefined)); return true }
     }
     return false
   }
@@ -879,7 +917,7 @@ export class CareerArenaCombatScene {
     if (levels > 0) {
       this.flushSkills()
       const before = this.player.hp
-      const maxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
+      const maxHp = resolveCareerPlayerMaxHp(this.playerProfile, DEFAULT_PLAYER_MAX_HP)
       this.player.setMaxHp(maxHp, false)
       this.player.setHp(Math.min(maxHp, before + levels))
     }
@@ -888,9 +926,11 @@ export class CareerArenaCombatScene {
   private flushSkills(): void {
     if (this.session) { this.session.flushSkills(); return }
     if (!this.skillsDirty) return
-    const next = cloneCareerProfile(this.profile)
+    // A co-op guest keeps its skill progress in its own save (skills only); the host's prison save is never touched.
+    if (this.coopPlayerSource) { if (this.coopPlayerSource.commitSkills(this.skills.skillState)) this.skillsDirty = false; return }
+    const next = cloneCareerProfile(this.playerProfile)
     next.skills = this.skills.skillState
-    if (this.commit(next)) this.skillsDirty = false
+    if (this.commitPlayerProfile(next)) this.skillsDirty = false
   }
 
   /** The roster checkpoint: knocked-out actors stay knocked, everyone else keeps HP and place. Best effort between frames. */
@@ -948,8 +988,8 @@ export class CareerArenaCombatScene {
 
   private prisonPickupCandidates(): InteractionCandidate<THREE.Group>[] {
     const prison = this.prison
-    if (!prison || prison.gateOpen || this.phase !== 'fight' || this.pickupRetry || this.panelOpen
-      || this.player.dead || !this.input.isLocked || Object.values(prison.swords).includes('player')) return []
+    if (!prison || prison.gateOpen || (this.coopGuest ? !this.coopPrisonFighting : this.phase !== 'fight') || this.pickupRetry || this.panelOpen
+      || this.player.dead || !this.input.isLocked || Object.values(prison.swords).includes(this.prisonSwordOwner)) return []
     return this.props!.swords.filter(sword => sword.visible).map(sword => ({
       target: sword, position: sword.position, range: 2, action: 'equip',
       prompt: `[E] 拾起並裝備 · ${WEAPONS[PRISON_SWORD_ID].name}`,
@@ -982,6 +1022,11 @@ export class CareerArenaCombatScene {
       const owner = selected?.target === mesh ? 'player' : npc?.actorId
       if (owner && !this.equipPrisonSword(i, owner)) return
     }
+    if (this.coopHost) for (const index of this.coopPickupRequests.splice(0)) {
+      const partner = this.coopPartner, mesh = this.props!.swords[index]
+      if (!partner || !mesh?.visible || mesh.position.distanceTo(partner.combatPosition) > COOP_PRISON_PICKUP_RANGE) continue
+      if (!this.equipPrisonSword(index, PRISON_COOP_PARTNER)) return
+    }
   }
 
   private equipPrisonSword(index: number, owner: string): boolean {
@@ -990,16 +1035,55 @@ export class CareerArenaCombatScene {
     const next = cloneCareerProfile(this.profile); next.activeMission!.prisonBreak = claimed
     if (!this.commit(next)) { this.pauseForPrisonSave(() => this.equipPrisonSword(index, owner)); return false }
     this.props!.syncSwords(claimed)
-    if (owner === 'player') {
-      this.inventory.addWeapon(PRISON_SWORD_ID); this.inventory.equipWeapon(PRISON_SWORD_ID); this.inventory.meleeEnabled = true
-      this.pickupHud?.notify(`已裝備 · ${WEAPONS[PRISON_SWORD_ID].name}`)
-    } else {
+    if (owner === 'player') this.armPrisonSword()
+    // The guest arms itself from the next prison state, sent at once.
+    else if (owner === PRISON_COOP_PARTNER) this.coopPrisonKey = ''
+    else {
       const npc = this.bodies.find(body => body.actorId === owner)!.npc
       npc.battlefieldUnarmed = false
       npc.applyCareerEquipment({ meleeWeaponId: PRISON_SWORD_ID, rangedWeaponId: null, shieldId: null, mountId: null })
       npc.setTacticalOrder('attack')
     }
     return true
+  }
+
+  private armPrisonSword(): void {
+    this.inventory.addWeapon(PRISON_SWORD_ID); this.inventory.equipWeapon(PRISON_SWORD_ID); this.inventory.meleeEnabled = true
+    this.pickupHud?.notify(`已裝備 · ${WEAPONS[PRISON_SWORD_ID].name}`)
+  }
+
+  /** Host: the guest's view of the saved encounter (swords, gate, guards, result), on change and once a second. */
+  private syncCoopPrison(dt: number): void {
+    const prison = this.prison
+    if (!prison || !this.coopHost) return
+    const state = { swords: prison.swords, gateOpen: prison.gateOpen, fight: this.phase === 'fight', guards: this.counts().enemyActive, outcome: prison.result?.outcome ?? null }
+    const key = JSON.stringify(state)
+    this.coopPrisonClock += dt
+    if (key === this.coopPrisonKey && this.coopPrisonClock < 1) return
+    this.coopPrisonKey = key; this.coopPrisonClock = 0
+    coopSession().send({ t: 'prisonState', ...state })
+  }
+
+  /** Guest: apply the host's encounter to this page's in-memory copy only; the host alone saves it. */
+  private applyCoopPrisonState(message: CoopMessage): void {
+    const prison = this.prison
+    const raw = message.swords
+    if (!prison || !this.props || this.disposed || !raw || typeof raw !== 'object' || Array.isArray(raw) || typeof message.gateOpen !== 'boolean') return
+    const swords: Record<string, string> = {}
+    for (const [index, owner] of Object.entries(raw as Record<string, unknown>)) if (/^[0-5]$/.test(index) && typeof owner === 'string') swords[index] = owner
+    this.coopPrisonGuards = typeof message.guards === 'number' && Number.isFinite(message.guards) ? Math.max(0, message.guards) : null
+    this.coopPrisonOutcome = message.outcome === 'victory' || message.outcome === 'failure' ? message.outcome : null
+    this.coopPrisonFighting = message.fight === true
+    const opening = message.gateOpen && !prison.gateOpen
+    if (!opening && JSON.stringify(swords) === JSON.stringify(prison.swords)) return
+    const armed = !Object.values(prison.swords).includes(PRISON_COOP_PARTNER) && Object.values(swords).includes(PRISON_COOP_PARTNER)
+    const next = cloneCareerProfile(this.profile), state = next.activeMission!.prisonBreak!
+    state.swords = swords
+    state.gateOpen ||= message.gateOpen
+    this.profile = next
+    this.props.syncSwords(state)
+    if (opening) { this.props.setOpen(true, true); this.clearPickupFocus() }
+    if (armed) this.armPrisonSword()
   }
 
   private finishPrison(outcome: CareerMissionOutcome, escapedBy?: string): void {
@@ -1030,6 +1114,7 @@ export class CareerArenaCombatScene {
       return
     }
     this.profile = saved; this.pendingSettlement = null; this.pendingPrisonProfile = null; this.settled = true
+    this.coopHost?.notifySettled()
     this.openPrisonResult()
   }
 
@@ -1125,6 +1210,7 @@ export class CareerArenaCombatScene {
     if (this.disposed) return
     this.persistNow()
     // A return to Town announces the Town; only the end of co-op itself sends 'end'.
+    for (const off of this.coopUnsubscribe.splice(0)) off()
     this.coopHost?.dispose(false); this.coopHost = undefined
     this.coopGuest?.dispose(); this.coopGuest = undefined
     for (const arrow of this.coopArrows) arrow.destroy()
@@ -1170,10 +1256,15 @@ export class CareerArenaCombatScene {
       acceptsGuestHit: target => this.phase === 'fight' && !target.dead
         && (target instanceof NPC ? enemyBody(target) : this.bodies.some(body => body.team === 'enemy' && body.npc.mount === target)),
       guestTarget: npc => enemyBody(npc),
-      // The guest earns its own trial merit (solo rules) once the host's claim is saved.
+      // The guest earns its own merit (solo rules) once the host's claim or escape result is saved.
       missionSettlement: () => {
-        const missionId = this.profile.activeMission?.id
+        const missionId = this.profile.activeMission?.id, prison = this.prison
         const saved = missionId ? new CareerProfileStore().loadChecked().profile : null
+        if (prison) {
+          // Its own receipt: the parent battle's id is already the receipt of that lost battle.
+          const result = saved?.activeMission?.id === missionId ? saved?.activeMission?.prisonBreak?.result : undefined
+          return result ? { missionId: `${missionId}:prison-break`, kind: 'prison-break' as const, victory: result.outcome === 'victory', prison: prison.templateId } : null
+        }
         if (!missionId || !saved?.claimedBattleIds.includes(missionId)) return null
         return { missionId, kind: 'arena-squad-trial' as const, victory: saved.activeMission?.result?.outcome === 'victory' }
       },
@@ -1208,6 +1299,7 @@ export class CareerArenaCombatScene {
     body.x += 2.5
     this.phase = 'fight'
     this.coopGuest = new CoopGuestMission(this.coopPort(true), reason => showCoopGuestEnd(reason))
+    if (this.prison) this.coopUnsubscribe.push(coopSession().on('prisonState', message => this.applyCoopPrisonState(message)))
     this.start()
   }
 
@@ -1215,7 +1307,9 @@ export class CareerArenaCombatScene {
   private updateCoopGuest(dt: number): void {
     if (this.equipment?.visible) { this.input.clear(); return }
     this.elapsed += dt
-    this.orbit.update(this.input, dt, this.arena.obstacles)
+    // Read before the Player's own update, as the host does, so E is the sword's.
+    const pickupPressed = this.prison ? this.input.consumeKeyE() : false
+    this.updateCamera(dt)
     if (!this.player.dead) {
       let step: ReturnType<PlayerInput['consumeWheelStep']>
       while ((step = this.input.consumeWheelStep()) !== 0) this.weaponWheel.cycle(this.inventory, step)
@@ -1233,6 +1327,11 @@ export class CareerArenaCombatScene {
     separateLocalPlayerFromPeer(this.player, guest.hostAvatar, this.arena.obstacles)
     this.melee()
     this.mountImpacts()
+    // A sword pickup is a request; the host claims it and the next prison state arms this Player.
+    if (this.prison) {
+      const selected = this.pickupFocus.pressed(pickupPressed, this.prisonPickupCandidates(), this.player.position)
+      if (selected) coopSession().send({ t: 'prisonPickup', index: this.props!.swords.indexOf(selected.target) })
+    }
     this.updateShots(dt)
     this.updateCoopArrows(dt)
     if (this.careerMounts) {
@@ -1240,11 +1339,15 @@ export class CareerArenaCombatScene {
       this.player.fitMountedSeat()
     }
     this.arena.update(dt)
+    this.props?.update(dt)
+    if (this.prison) this.updatePickupFocus()
+    this.updatePrisonHud()
     this.syncCoopMarkers(this.coopGuestNpcs.map(npc => [npc, guest.targets.includes(npc) ? 'enemy' : 'friendly'] as const))
     this.damageNumbers.update(dt, this.camera)
     this.weaponWheelUI.update(this.inventory, !this.player.dead)
     this.hp.setFill(this.player.hpRatio)
-    this.session?.tickSkillFlush(this.elapsed, dt)
+    if (this.session) this.session.tickSkillFlush(this.elapsed, dt)
+    else if (this.skillsDirty && this.elapsed % 5 < dt) this.flushSkills()
   }
 
   /** DEV QA: advance the real gameplay step at a fixed 60 Hz with held key codes. */

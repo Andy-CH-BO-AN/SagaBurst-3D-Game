@@ -26,9 +26,9 @@ const GUEST_RESTORE_KEY = 'sagaburst_coop_session_restore'
 const COOP_SESSION_KEYS = new Set([GUEST_LAUNCH_KEY, GUEST_SESSION_BACKUP_KEY, GUEST_RESTORE_KEY, 'sagaburst_coop_link'])
 const SHARED_LOCAL_KEYS = [CAREER_STORAGE_KEY, SAVE_KEY, DEFENSE_CAMPAIGN_PROGRESS_STORAGE_KEY]
 
-/** The host scene the guest mirrors: a Game battlefield, the Career Town, a duel arena or an Arena Squad Trial. */
-export type CoopSceneKind = 'game' | 'town' | 'arena' | 'trial'
-const COOP_SCENES: ReadonlySet<string> = new Set<CoopSceneKind>(['game', 'town', 'arena', 'trial'])
+/** The host scene the guest mirrors: a Game battlefield, the Career Town, a duel arena, an Arena Squad Trial or a prison break. */
+export type CoopSceneKind = 'game' | 'town' | 'arena' | 'trial' | 'prison'
+const COOP_SCENES: ReadonlySet<string> = new Set<CoopSceneKind>(['game', 'town', 'arena', 'trial', 'prison'])
 
 export interface CoopLaunchPayload {
   scene: CoopSceneKind

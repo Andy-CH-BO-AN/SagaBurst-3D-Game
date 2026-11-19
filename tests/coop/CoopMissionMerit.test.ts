@@ -29,4 +29,18 @@ describe('Co-op guest mission merit', () => {
     expect(applyCoopMissionMerit(awarded.profile, record)).toEqual({ profile: awarded.profile, merit: 0 })
     expect(parseCoopMissionMerit({ ...record, stats: { ...stats, kills: -1 } })).toBeNull()
   })
+
+  it('pays a prison escape the fixed single-player reward under its own receipt, once, without touching battle stats', () => {
+    const profile = createCareerProfile('viking')
+    profile.claimedBattleIds.push('host-mission-2') // the lost parent battle's own receipt
+    const record = parseCoopMissionMerit({ missionId: 'host-mission-2:prison-break', kind: 'prison-break', victory: true, prison: 'veteran-iron-tide', stats: emptyCoopStats() })!
+    const awarded = applyCoopMissionMerit(profile, record)
+    expect(awarded.merit).toBe(200)
+    expect(awarded.profile.availableMerit - profile.availableMerit).toBe(200)
+    expect(awarded.profile.lifetimeStats).toEqual(profile.lifetimeStats)
+    expect(applyCoopMissionMerit(awarded.profile, record).merit).toBe(0)
+    expect(applyCoopMissionMerit(profile, { ...record, missionId: 'host-mission-3:prison-break', victory: false }).merit).toBe(0)
+    expect(parseCoopMissionMerit({ ...record, prison: 'arena-trial' })).toBeNull()
+    expect(parseCoopMissionMerit({ ...record, prison: undefined })).toBeNull()
+  })
 })

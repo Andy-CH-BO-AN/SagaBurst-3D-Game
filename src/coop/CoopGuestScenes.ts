@@ -1,4 +1,4 @@
-/** Guest entries for host scenes that are not Game battlefields (Town, duel arena, squad trial). */
+/** Guest entries for host scenes that are not Game battlefields (Town, duel arena, squad trial, prison break). */
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { TownScene } from '../town/TownScene'
 import { showCoopGuestEnd } from './CoopLaunch'
@@ -62,5 +62,22 @@ export async function launchCoopGuestTrial(container: HTMLElement): Promise<void
     loading.remove()
     console.error('[coop] guest trial failed', error)
     showCoopGuestEnd('無法載入主機的競技場試煉')
+  }
+}
+
+/** The host's prison break, as one more prisoner on the host's side (unarmed until it picks up a sword). */
+export async function launchCoopGuestPrison(container: HTMLElement): Promise<void> {
+  const loading = loadingOverlay('正在跟隨主機進入關押場景…')
+  try {
+    const { CareerPrisonBreakScene } = await import('../arena/CareerPrisonBreakScene')
+    // The host's return re-announces the Town and reloads this page.
+    const prison = await CareerPrisonBreakScene.create(container, { returnToTown: () => {} }, text => loading.set(text))
+    loading.remove()
+    if (import.meta.env.DEV) (window as unknown as { __coopGuestPrison?: unknown }).__coopGuestPrison = prison
+    prison.startCoopGuest()
+  } catch (error) {
+    loading.remove()
+    console.error('[coop] guest prison failed', error)
+    showCoopGuestEnd('無法載入主機的關押場景')
   }
 }

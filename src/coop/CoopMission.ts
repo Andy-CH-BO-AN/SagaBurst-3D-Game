@@ -39,6 +39,7 @@ import { preloadPersonalSquadMember, spawnPersonalSquadActor } from '../career/P
 import { coopSession, type CoopMessage, type CoopSession } from './CoopLink'
 import { commitCoopMissionMerit, emptyCoopStats, parseCoopMissionMerit, recordCoopGuestEvent, type CoopMissionKind } from './CoopMissionMerit'
 import { showCoopToast } from './CoopLobbyUI'
+import type { PrisonBattleId } from '../career/CareerPrisonBreak'
 import type { CombatEvent } from '../combat/CombatAttribution'
 import {
   ACTOR_DEAD, ACTOR_HIDDEN, ACTOR_MELEE_STOWED, ACTOR_RANGED, ACTOR_SHIELD_STOWED, ACTOR_SHIELD, ACTOR_SPRINT, COOP_NO_ID, COOP_SNAPSHOT_HZ, CoopIdRegistry, MOUNT_AIRBORNE, MOUNT_DEAD, MOUNT_HIDDEN,
@@ -79,7 +80,7 @@ export interface CoopGamePort {
   /** Host: actors the guest's own melee/shots may target in scenes without a faction rule (arena opponent). */
   readonly guestTarget?: (npc: NPC) => boolean
   /** Host: this scene's formal mission once its own claim is saved, so the guest earns its own merit. */
-  readonly missionSettlement?: () => { missionId: string; kind: CoopMissionKind; victory: boolean } | null
+  readonly missionSettlement?: () => { missionId: string; kind: CoopMissionKind; victory: boolean; prison?: PrisonBattleId } | null
 }
 
 interface CoopLook {
@@ -245,6 +246,12 @@ export class CoopHostMission {
   /** Host scenes route every combat event here (Game's stream, the arena's emit). */
   recordCombatEvent(event: CombatEvent): void {
     recordCoopGuestEvent(this.guestStats, event, this.guestActorIds)
+  }
+
+  /** The host's result was just saved: send the guest's record now rather than on the next poll. */
+  notifySettled(): void {
+    this.settlementTimer = 1
+    this.sendMissionMerit(0)
   }
 
   /** Once the host's own mission claim is saved, the guest gets its record and earns by the same rules. */

@@ -10,8 +10,9 @@ import type { ActiveCareerMission } from '../career/CareerMissionState'
 import { careerMissionMerit, cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { calculateMerit } from '../career/MeritCalculator'
+import { isPrisonBattleId, prisonEscapeMerit, type PrisonBattleId } from '../career/CareerPrisonBreak'
 
-export type CoopMissionKind = ActiveCareerMission['kind'] | 'outpost-defense' | 'outpost-relief'
+export type CoopMissionKind = ActiveCareerMission['kind'] | 'outpost-defense' | 'outpost-relief' | 'prison-break'
 
 export interface CoopMissionMerit {
   /** The host's mission id: the receipt that keeps the award single. */
@@ -19,6 +20,8 @@ export interface CoopMissionMerit {
   kind: CoopMissionKind
   victory: boolean
   stats: PlayerBattleStats
+  /** Prison break only: the encounter whose fixed escape reward applies. */
+  prison?: PrisonBattleId
 }
 
 export function emptyCoopStats(): PlayerBattleStats {
@@ -37,6 +40,7 @@ export function recordCoopGuestEvent(stats: PlayerBattleStats, event: CombatEven
 
 /** The same merit the host's own claim would give for these stats. */
 export function coopMissionMeritTotal(record: CoopMissionMerit): number {
+  if (record.kind === 'prison-break') return record.prison ? prisonEscapeMerit(record.prison, record.victory ? 'victory' : 'failure') : 0
   if (record.kind === 'outpost-defense' || record.kind === 'outpost-relief') {
     return calculateMerit({ player: record.stats, squads: [] }, record.victory ? 'victory' : 'defeat', 'defense', 'mission').total
   }
@@ -50,7 +54,8 @@ export function parseCoopMissionMerit(value: unknown): CoopMissionMerit | null {
   const s = r.stats as Partial<PlayerBattleStats> | undefined
   const numbers = ['damageDealt', 'damageTaken', 'kills', 'structureDamage', 'structuresDestroyed', 'gateBreaches'] as const
   if (!s || numbers.some(key => typeof s[key] !== 'number' || !Number.isFinite(s[key]) || s[key]! < 0) || typeof s.survived !== 'boolean') return null
-  return { missionId: r.missionId, kind: r.kind as CoopMissionKind, victory: r.victory,
+  if ((r.kind === 'prison-break') !== (r.prison !== undefined) || r.prison !== undefined && !isPrisonBattleId(r.prison)) return null
+  return { missionId: r.missionId, kind: r.kind as CoopMissionKind, victory: r.victory, ...(r.prison ? { prison: r.prison } : {}),
     stats: { damageDealt: s.damageDealt!, damageTaken: s.damageTaken!, kills: Math.floor(s.kills!), structureDamage: s.structureDamage!,
       structuresDestroyed: Math.floor(s.structuresDestroyed!), gateBreaches: Math.floor(s.gateBreaches!), survived: s.survived } }
 }
@@ -63,6 +68,8 @@ export function applyCoopMissionMerit(profile: CareerProfile, record: CoopMissio
   next.totalMerit += merit
   next.availableMerit += merit
   next.claimedBattleIds.push(record.missionId)
+  // The single-player escape writes only its fixed reward; the lost parent battle already counted.
+  if (record.kind === 'prison-break') return { profile: next, merit }
   next.lifetimeStats.battles += 1
   if (record.victory) next.lifetimeStats.victories += 1
   if (!record.stats.survived) next.lifetimeStats.deaths += 1
