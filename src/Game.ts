@@ -74,7 +74,7 @@ import { CareerProfileStore } from './career/CareerProfileStore'
 import type { CareerTutorialLaunch } from './career/CareerTutorialLaunch'
 import { careerVeteranOutpostOwner, createCareerVeteranOutpostReinforcementPlan, createCareerVeteranOutpostSpawnPlan } from './career/CareerVeteranOutpost'
 import { createBridgeheadRoster } from './career/CommanderMissionCatalog'
-import { createCareerCommanderOutpostSpawnPlan, remainingCommanderAttackers } from './career/CommanderOutpost'
+import { commanderOutpostCombatLocked, createCareerCommanderOutpostSpawnPlan, remainingCommanderAttackers } from './career/CommanderOutpost'
 import { COMMANDER_IRON_LEGION_ID, HEAVY_FIELD_SPECS, heavyCommandPlan, heavyFrontlineDistance, isHeavyFormationComplete, planVeteranCaltropDefense, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, VETERAN_IRON_TIDE_ID, veteranCaltropWorldRects, type HeavyPoint } from './career/HeavyCavalryMissions'
 import { careerHeavyPreloadPlan } from './career/HeavyCavalrySpawn'
 import { createHeavyFieldDeployment, getHeavyFieldMissionDefinition, isCareerHeavyFieldBattle, type HeavyFieldDeployment } from './career/HeavyFieldMission'
@@ -3365,15 +3365,12 @@ export class Game {
     ]
   }
 
-  /** Last Stand's preparation clock is a ceasefire: actors may reposition, but
-   * no side can attack or deal mount-impact damage before the shared assault.
-   * A restored assault remains locked until its complete roster is registered. */
+  /** Last Stand's shared ceasefire; the decision belongs to `commanderOutpostCombatLocked`. */
   private _commanderOutpostCombatLocked(): boolean {
-    if (this.coopGuest) return false
-    return Boolean(this.defenseCampaignConfig?.careerCommanderOutpost
-      && (this.defenseCampaignRuntime?.getSnapshot().activePhase === 'deployment'
-        || !this.commanderOutpostDeploymentBatch?.ready
-        || Boolean(this.personalSquad && !this.personalSquad.ready)))
+    return commanderOutpostCombatLocked({
+      coopGuest: Boolean(this.coopGuest), launch: this.defenseCampaignConfig, runtime: this.defenseCampaignRuntime,
+      deploymentBatch: this.commanderOutpostDeploymentBatch, personalSquad: this.personalSquad,
+    })
   }
 
   private _applyCampaignBreachOrders(attackerFaction: CampaignFaction): void {
@@ -4749,9 +4746,7 @@ export class Game {
 
   // ── Melee Combat Hit Detection (Player Sword -> Enemies / Damageable Obstacles) ──
   private _checkPlayerMeleeHits(): void {
-    // Some focused contact owners borrow this method without constructing Game;
-    // a real Game always supplies the shared Last Stand lock.
-    if (this._commanderOutpostCombatLocked?.()) return
+    if (this._commanderOutpostCombatLocked()) return
     if (this.fieldMissionId && this.careerProfile?.activeMission?.phase !== 'ENGAGING') return
     const eagle = this.player.currentMount
     if (eagle?.isFlyingMount && !this.player.dead) {

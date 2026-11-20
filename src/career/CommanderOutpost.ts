@@ -1,5 +1,6 @@
 import { deployOutpostRampartArchers } from '../campaign/OutpostRampartGarrison'
 import type { BattleSpawnPlan, NpcSpawnSpec } from '../battle/BattleSpawner'
+import type { DefenseCampaignRuntimeSnapshot } from '../campaign/DefenseCampaignRuntime'
 import type { PlayerLoadoutConfig } from '../battle/BattleConfig'
 import { getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
 import { createDefaultDefensePlayerLoadout, positionDefenseCampaignAttackers, type DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
@@ -138,4 +139,25 @@ export function remainingCommanderAttackers(mission: ActiveCareerMission,
 
 export function careerCommanderOutpostOwner(launch: DefenseCampaignLaunchConfig) {
   return launch.careerCommanderOutpost?.outpostFaction
+}
+
+/** The runtime state Last Stand's ceasefire reads; every field is optional because a battle may not own it. */
+export interface CommanderOutpostCombatLockState {
+  readonly coopGuest: boolean
+  readonly launch?: { readonly careerCommanderOutpost?: object } | null
+  readonly runtime?: { getSnapshot(): Pick<DefenseCampaignRuntimeSnapshot, 'activePhase'> } | null
+  readonly deploymentBatch?: { readonly ready: boolean }
+  readonly personalSquad?: { readonly ready: boolean }
+}
+
+/** Last Stand's preparation clock is a ceasefire: actors may reposition, but
+ * no side can attack or deal mount-impact damage before the shared assault.
+ * A restored assault remains locked until its complete roster is registered.
+ * A co-op guest mirrors the host's combat and never holds the lock itself. */
+export function commanderOutpostCombatLocked(state: CommanderOutpostCombatLockState): boolean {
+  if (state.coopGuest) return false
+  return Boolean(state.launch?.careerCommanderOutpost
+    && (state.runtime?.getSnapshot().activePhase === 'deployment'
+      || !state.deploymentBatch?.ready
+      || Boolean(state.personalSquad && !state.personalSquad.ready)))
 }
