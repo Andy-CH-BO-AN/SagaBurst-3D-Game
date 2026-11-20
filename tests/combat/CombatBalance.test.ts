@@ -4,8 +4,7 @@ import { calculateLanceChargeDamage, getAntiCavalryMultiplier, getBerserkerModif
 import { applyHeroIncomingDamage, applyHeroMeleeDamage, applyHeroOutgoingDamage, getHeroCombatModifiers, heroMeleeAttackSpeed, HERO_COMBAT_PROFILE_BY_ASSET, HERO_COMBAT_PROFILES } from '../../src/battle/HeroCombatProfile'
 import { resolveSkillAdjustedMaxHp } from '../../src/rpg/CombatSkillProgression'
 import { resolveCareerCombatProfile, resolveCareerPlayerMaxHp } from '../../src/career/CareerPlayerProfile'
-import { calculatePlayerMeleeDamage } from '../../src/combat/PlayerMeleeDamage'
-import { NPC } from '../../src/world/NPC'
+import { calculateNpcMeleeDamage, calculatePlayerMeleeDamage } from '../../src/combat/PlayerMeleeDamage'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { punchEventsBetween, punchExtension, unarmedDamage } from '../../src/combat/UnarmedCombat'
 import { parsePunchTiming } from '../../src/world/HumanoidAssetRegistry'
@@ -81,19 +80,17 @@ describe('Combat damage eligibility', () => {
     const input = { baseDamage: WEAPONS.axe_t5.damageMax, combatKind: WEAPONS.axe_t5.combatKind,
       isLance: false, isMounted: false, mountSpeed: 0, oneHandedMultiplier: 1,
       faction: 'viking' as const, hasShield: true, heroAssetId: 'viking-hero-t5' as const }
-    // Call the real scalar damage method without constructing an actor or model.
-    const npcDamage = (NPC.prototype as unknown as { _calcLanceDamage(damage: number, mounted: boolean): number })._calcLanceDamage
-    const npc = { meleeCombatKind: 'sword', hasActiveShield: true, characterFaction: 'viking',
-      isMounted: false, pendingLanceChargeSpeed: 0, combatProfileId: 'viking-commander' }
+    const npc = { baseDamage: 80, combatKind: 'sword' as const, isMounted: false, chargeSpeed: 0,
+      faction: 'viking' as const, hasShield: true, targetIsMounted: false, combatProfileId: 'viking-commander' as const }
     expect(calculatePlayerMeleeDamage(input).damage).toBe(208)
-    expect(npcDamage.call(npc, 80, false)).toBe(208)
+    expect(calculateNpcMeleeDamage(npc)).toEqual({ damage: 208, skipImpact: false })
     expect(heroMeleeAttackSpeed('viking-commander')).toBe(1.7)
     expect(getHeroCombatModifiers('viking-commander')).toMatchObject({ maxHp: 900, attackSpeedMultiplier: 1.55, moveSpeedMultiplier: 1.2, rangedAttackRangeMultiplier: 1 })
     expect(applyHeroOutgoingDamage(80, 'viking-commander')).toBe(176)
     expect(applyHeroIncomingDamage(100, 'viking-commander')).toBe(80)
-    input.hasShield = npc.hasActiveShield = false
+    input.hasShield = npc.hasShield = false
     expect(calculatePlayerMeleeDamage(input).damage).toBeCloseTo(249.6)
-    expect(npcDamage.call(npc, 80, false)).toBeCloseTo(249.6)
+    expect(calculateNpcMeleeDamage(npc).damage).toBeCloseTo(249.6)
     const berserker = getBerserkerModifiers('viking', false, 'sword', false)
     expect(heroMeleeAttackSpeed('viking-commander') * berserker.meleeAttackRateMultiplier).toBe(2.04)
     for (const [id, damage, speed] of [[null, 80, 1], ['varangian', 160, 1.5], ['praetorian', 160, 1], ['ranger', 104, 1], ['roman-commander', 176, 1.15]] as const) {
@@ -138,5 +135,13 @@ describe('Combat damage eligibility', () => {
     const regularResult = calculatePlayerMeleeDamage({ ...input, heroAssetId: 'roman-hero-t4' as any })
     expect(byzantineResult.isCharge).toBe(true)
     expect(byzantineResult.damage).toBeGreaterThan(regularResult.damage)
+
+    // NPC lances: a mounted charge above 10 m/s triples damage and suppresses that frame's mount impact;
+    // a foot lance doubles against a mounted target; the sword-only berserker bonus never applies to a lance.
+    const npcLance = { baseDamage: 45, combatKind: 'lance' as const, isMounted: true, chargeSpeed: 10,
+      faction: 'viking' as const, hasShield: false, targetIsMounted: false }
+    expect(calculateNpcMeleeDamage(npcLance)).toEqual({ damage: 45, skipImpact: false })
+    expect(calculateNpcMeleeDamage({ ...npcLance, chargeSpeed: 10.01 })).toEqual({ damage: 135, skipImpact: true })
+    expect(calculateNpcMeleeDamage({ ...npcLance, isMounted: false, chargeSpeed: 12, targetIsMounted: true })).toEqual({ damage: 90, skipImpact: false })
   })
 })
