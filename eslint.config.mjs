@@ -60,7 +60,7 @@ const CAREER_PROFILE_STORE_METHODS = new Set(['load', 'loadChecked', 'save'])
 const PROTOTYPE_HARNESS_BASELINE = new Map([
   ['tests/actors/NPCEquipmentLifecycle.test.ts', 1],
   ['tests/combat/CombatAttribution.test.ts', 13],
-  ['tests/combat/CommanderWeaponSwitching.test.ts', 4],
+  ['tests/combat/CommanderWeaponSwitching.test.ts', 2],
   ['tests/integration/GameInventoryLifecycle.test.ts', 2],
   ['tests/integration/GameWeaponPickup.test.ts', 2],
   ['tests/integration/MissionModeRouting.test.ts', 4],

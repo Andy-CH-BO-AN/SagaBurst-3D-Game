@@ -1,4 +1,4 @@
-import { Box3, Vector3, type Object3D } from 'three'
+import { Box3, Euler, Vector3, type Group, type Object3D } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { resolveT4UnitLoadout } from '../../src/battle/T4HeroCatalog'
 import type { UnitLoadout } from '../../src/battle/UnitPresetCatalog'
@@ -7,12 +7,14 @@ import { Faction } from '../../src/combat/CombatFaction'
 import { ShieldState } from '../../src/combat/ShieldBlocking'
 import type { OutpostLayeredNavigation } from '../../src/navigation/OutpostLayeredNavigation'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
-import { Player } from '../../src/player/Player'
+import type { Player } from '../../src/player/Player'
+import { resolveRangedAim } from '../../src/player/RangedAimGate'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
 import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, meleeActionTimeScale, PILUM_THROW_RELEASE_TIME } from '../../src/world/CharacterCombatAnimator'
 import { type EquipmentPoseState } from '../../src/world/CharacterEquipmentPose'
-import type { HumanoidAnimationController } from '../../src/world/CharacterVisuals'
+import type { CharacterRig, HumanoidAnimationController, HumanoidAnimationPlayOptions, HumanoidAnimationState } from '../../src/world/CharacterVisuals'
+import type { EquipmentGripFrames } from '../../src/world/EquipmentAttachmentContract'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { MixerController } from '../../src/world/HumanoidAssetRegistry'
 import { AIState, AIType, NPC } from '../../src/world/NPC'
@@ -20,31 +22,39 @@ import { RampartDuty } from '../../src/battle/RampartDuty'
 import { axeRecoveryWeight } from '../../src/world/SwordAttachmentContract'
 import type { ObstacleData } from '../../src/world/Terrain'
 
-/** Real animation state owner; only the external clip/pose boundary is doubled. */
+/** Clip and update requests the animator made to its external animation boundary. */
+interface AnimationRecord {
+  lastPlay?: { clip: HumanoidAnimationState } & HumanoidAnimationPlayOptions
+  readonly updates: { dt: number; cameraDistance?: number }[]
+  seeks: number
+}
+
+/** Real animator constructor; only the clip/pose controller and attachment markers are doubled. */
 function combatAnimator(getMeleeTiming?: HumanoidAnimationController['getMeleeTiming'], weapon: 'lance' | 'axe' = 'lance') {
   const state: Partial<EquipmentPoseState> = {}
   const attachment: Record<string, unknown> = weapon === 'lance'
     ? { equipmentAttachmentOwned: 'lance' }
     : { swordAttachmentOwned: true, meleeAnimationKind: 'axe' }
-  const meleePivot = { visible: true, userData: attachment }
+  const meleePivot = { visible: true, userData: attachment, position: new Vector3(), rotation: new Euler() }
+  const bowPivot = { visible: false, userData: {}, position: new Vector3(), rotation: new Euler() }
+  const record: AnimationRecord = { updates: [], seeks: 0 }
   const animation = {
     setEquipmentState: (update: Partial<EquipmentPoseState>) => Object.assign(state, update),
-    play: vi.fn(() => true), seek: vi.fn(() => true), has: () => true,
-    setBowLocomotion: vi.fn(), update: vi.fn(), getDuration: () => undefined, stop: vi.fn(),
+    play: (clip, options) => { record.lastPlay = { clip, ...options }; return true },
+    seek: () => { record.seeks++; return true },
+    has: () => true,
+    setBowLocomotion: () => {},
+    update: (dt, cameraDistance) => { record.updates.push({ dt, cameraDistance }) },
+    getDuration: () => undefined, stop: () => {},
     getMeleeTiming,
   } satisfies HumanoidAnimationController
-  // No constructor, rig, bones or mixer: the production methods need only this
-  // equipment ownership marker and scalar action/locomotion state.
-  const animator = Object.assign(Object.create(CharacterCombatAnimator.prototype), {
-    rig: { animation, equipmentGripFrames: {} },
-    meleePivot,
-    bowPivot: { visible: false, userData: {} },
-    action: 'idle', ownership: 'procedural', elapsed: 0, actionTimeScale: 1,
-    shieldGuardEnabled: false, shieldRaised: false, lanceEquipped: false,
-    locomotion: 'idle', mountKind: 'HORSE', locomotionTimeScale: 1,
-    events: { hitActiveStarted: false, projectileRelease: false, actionCompleted: false, fists: [] },
-  }) as CharacterCombatAnimator
-  return { animator, animation, state, attachment, meleePivot }
+  // Imported-rig path only: no bones, mixer or Object3D. Grip frames mark
+  // equipment-owned hand poses, so procedural arm rotation is never reached.
+  const rig: Pick<CharacterRig, 'animation' | 'equipmentGripFrames'> & { right: { handSocket: Pick<Object3D, 'userData'> } } = {
+    animation, equipmentGripFrames: {} as EquipmentGripFrames, right: { handSocket: { userData: {} } },
+  }
+  const animator = new CharacterCombatAnimator(rig as unknown as CharacterRig, meleePivot as unknown as Group, bowPivot as unknown as Group)
+  return { animator, animation: record, state, attachment, meleePivot }
 }
 
 function lanceAnimator() {
@@ -81,9 +91,7 @@ describe('Combat animator imported melee clock', () => {
     const timeScale = meleeActionTimeScale('axeAttack2H', WEAPONS.axe_t5, 2.25)
     expect(timeScale).toBe(2)
     expect(animator.start('axeAttack2H', timeScale)).toBe(true)
-    expect(animation.play).toHaveBeenLastCalledWith('axeAttack2H', {
-      fadeSeconds: .03, loop: false, timeScale: 2,
-    })
+    expect(animation.lastPlay).toEqual({ clip: 'axeAttack2H', fadeSeconds: .03, loop: false, timeScale: 2 })
     expect(animator.update(.059, 100).hitActiveStarted).toBe(false)
     expect(animator.meleeHitActive).toBe(false)
     // Source .175s is active, but must not use the legacy .17s fallback hit.
@@ -93,7 +101,7 @@ describe('Combat animator imported melee clock', () => {
     expect(animator.update(.1525, 100)).toEqual({
       hitActiveStarted: true, projectileRelease: false, actionCompleted: true, fists: [],
     })
-    expect(animation.update).toHaveBeenCalledWith(.1525, 0)
+    expect(animation.updates).toContainEqual({ dt: .1525, cameraDistance: 0 })
     expect(animator.busy).toBe(false)
     expect(animator.meleeHitActive).toBe(false)
     expect(animator.update(1, 100)).toEqual({
@@ -120,111 +128,74 @@ describe('Combat animator imported melee clock', () => {
     expect(state.elapsed).toBeCloseTo(.45)
     expect(animator.update(.014, 100).actionCompleted).toBe(false)
     expect(state.elapsed).toBeCloseTo(.478)
-    expect(animation.update).toHaveBeenLastCalledWith(.014, 0)
+    expect(animation.updates.at(-1)).toEqual({ dt: .014, cameraDistance: 0 })
     animator.cancel()
     expect(state.elapsed).toBeCloseTo(.478)
-    // None/bow can hide the old axe without replacing its visual identity.
-    const holdsTail = Object.getOwnPropertyDescriptor(CharacterCombatAnimator.prototype, 'hasCanceledAxePose')!.get!
+    // None/bow can hide the old axe without replacing its visual identity:
+    // the idle pose drops the tail while hidden or replaced, then resumes it.
     meleePivot.visible = false
-    expect(holdsTail.call(animator)).toBe(false)
+    animator.poseIdle()
+    expect(state).toMatchObject({ action: 'idle', elapsed: 0 })
     meleePivot.visible = true
     attachment.meleeAnimationKind = 'sword'
-    expect(holdsTail.call(animator)).toBe(false)
+    animator.poseIdle()
+    expect(state).toMatchObject({ action: 'idle', elapsed: 0 })
     attachment.meleeAnimationKind = 'axe'
-    expect(holdsTail.call(animator)).toBe(true)
+    animator.poseIdle()
+    expect(state.action).toBe('axeAttack2H')
+    expect(state.elapsed).toBeCloseTo(.478)
     expect(animator.update(1, 100)).toEqual({ hitActiveStarted: false, projectileRelease: false, actionCompleted: false, fists: [] })
     expect(state).toMatchObject({ action: 'idle', elapsed: 0, continuousAxeAction: false })
   })
 })
 
 describe('Combat animator bow-to-lance recovery', () => {
-  interface AimState {
-    animator: CharacterCombatAnimator
-    isSwinging: boolean
-    rangedAimRequiresRmbRelease: boolean
-    nockedArrowReleased: boolean
-    rangedAimViewActive: boolean
-    readonly isAiming: boolean
-    readonly isRangedAimViewActive: boolean
-    _updateRangedAim(rightMouseDown: boolean, wantAim: boolean): void
-  }
+  const rmbHeld = { rightMouseDown: true, wantAim: true, swinging: false } as const
+  const rmbUp = { rightMouseDown: false, wantAim: false, swinging: false } as const
 
-  function aimState(animator: CharacterCombatAnimator): AimState {
-    // Scalar state only; bypass Player's scene/model constructor.
-    return Object.assign(Object.create(Player.prototype) as AimState, {
-      animator, isSwinging: false, rangedAimRequiresRmbRelease: false,
-      nockedArrowReleased: false, rangedAimViewActive: false,
-    })
-  }
-
-  it('射箭與連射的收招維持右鍵視角，收招中放開右鍵立即退出且箭矢事件仍發生', () => {
-    const { animator } = lanceAnimator()
-    const player = aimState(animator)
-    const profile = COMBAT_ANIMATION_PROFILES.bowRelease
-    player._updateRangedAim(true, true)
-    expect(player.isAiming).toBe(true)
-    expect(player.isRangedAimViewActive).toBe(true)
-    animator.poseBow(1)
-    expect(animator.start('bowRelease')).toBe(true)
-    player._updateRangedAim(true, true)
-    expect(player.isAiming).toBe(false)
-    expect(player.isRangedAimViewActive).toBe(true)
-    expect(animator.update(profile.windup).projectileRelease).toBe(true)
-    player.nockedArrowReleased = true
-    player._updateRangedAim(true, true)
-    expect(player.isRangedAimViewActive).toBe(true)
-    expect(animator.update(profile.recovery).actionCompleted).toBe(true)
-    player._updateRangedAim(true, true)
-    expect(player.isAiming).toBe(true)
-    expect(player.isRangedAimViewActive).toBe(true)
-
-    animator.poseBow(1)
-    expect(animator.start('bowRelease')).toBe(true)
-    player._updateRangedAim(true, true)
-    expect(player.isRangedAimViewActive).toBe(true)
-    player._updateRangedAim(false, false)
-    expect(player.isRangedAimViewActive).toBe(false)
-    expect(animator.update(profile.windup).projectileRelease).toBe(true)
-    player._updateRangedAim(false, false)
-    expect(player.isRangedAimViewActive).toBe(false)
-    expect(animator.update(profile.recovery).actionCompleted).toBe(true)
-    player._updateRangedAim(false, false)
-    expect(player.isAiming).toBe(false)
-    expect(player.isRangedAimViewActive).toBe(false)
+  it('射箭與連射的收招維持右鍵視角，收招中放開右鍵立即退出', () => {
+    const fresh = { requiresRmbRelease: false } as const
+    expect(resolveRangedAim({ ...rmbHeld, ...fresh, action: 'idle', viewActive: false }))
+      .toEqual({ aiming: true, viewActive: true, requiresRmbRelease: false })
+    expect(resolveRangedAim({ ...rmbHeld, ...fresh, action: 'bowAim', viewActive: true }))
+      .toEqual({ aiming: true, viewActive: true, requiresRmbRelease: false })
+    // Release and recovery block a new draw but keep the held view for rapid fire.
+    expect(resolveRangedAim({ ...rmbHeld, ...fresh, action: 'bowRelease', viewActive: true }))
+      .toEqual({ aiming: false, viewActive: true, requiresRmbRelease: false })
+    // Letting go of RMB mid-recovery leaves the view on that same frame.
+    expect(resolveRangedAim({ ...rmbUp, ...fresh, action: 'bowRelease', viewActive: true }))
+      .toEqual({ aiming: false, viewActive: false, requiresRmbRelease: false })
+    expect(resolveRangedAim({ ...rmbUp, ...fresh, action: 'idle', viewActive: false }))
+      .toEqual({ aiming: false, viewActive: false, requiresRmbRelease: false })
+    // A melee swing never opens the ranged view.
+    expect(resolveRangedAim({ ...rmbHeld, ...fresh, swinging: true, action: 'swordSlash', viewActive: false }))
+      .toEqual({ aiming: false, viewActive: false, requiresRmbRelease: false })
   })
 
   it('標槍投擲維持既有釋放前視角與右鍵重新按壓限制', () => {
     const { animator } = lanceAnimator()
-    const player = aimState(animator)
-    player._updateRangedAim(true, true)
+    const frame = (input: typeof rmbHeld | typeof rmbUp, requiresRmbRelease: boolean, viewActive: boolean) =>
+      resolveRangedAim({ ...input, action: animator.currentAction, requiresRmbRelease, viewActive })
+    expect(frame(rmbHeld, false, false)).toEqual({ aiming: true, viewActive: true, requiresRmbRelease: false })
     animator.posePilum(0)
     expect(animator.start('pilumThrow')).toBe(true)
-    player.rangedAimRequiresRmbRelease = true
-    player._updateRangedAim(true, true)
-    expect(player.isAiming).toBe(false)
-    expect(player.isRangedAimViewActive).toBe(true)
+    // Starting the throw locks RMB; the pre-release view stays while RMB is held.
+    expect(frame(rmbHeld, true, true)).toEqual({ aiming: false, viewActive: true, requiresRmbRelease: true })
     const profile = COMBAT_ANIMATION_PROFILES.pilumThrow
     expect(animator.update(PILUM_THROW_RELEASE_TIME).projectileRelease).toBe(true)
-    player.rangedAimViewActive = false
-    player._updateRangedAim(false, false)
-    expect(player.rangedAimRequiresRmbRelease).toBe(true)
-    expect(player.isRangedAimViewActive).toBe(false)
+    // The projectile event ended the view; releasing RMB mid-throw keeps the lock.
+    expect(frame(rmbUp, true, false)).toEqual({ aiming: false, viewActive: false, requiresRmbRelease: true })
     expect(animator.update(profile.windup + profile.recovery - PILUM_THROW_RELEASE_TIME).actionCompleted).toBe(true)
-    player._updateRangedAim(true, true)
-    expect(player.isAiming).toBe(false)
-    expect(player.isRangedAimViewActive).toBe(false)
-    player._updateRangedAim(false, false)
-    expect(player.rangedAimRequiresRmbRelease).toBe(false)
-    player._updateRangedAim(true, true)
-    expect(player.isAiming).toBe(true)
-    expect(player.isRangedAimViewActive).toBe(true)
+    expect(frame(rmbHeld, true, false)).toEqual({ aiming: false, viewActive: false, requiresRmbRelease: true })
+    expect(frame(rmbUp, true, false)).toEqual({ aiming: false, viewActive: false, requiresRmbRelease: false })
+    expect(frame(rmbHeld, false, false)).toEqual({ aiming: true, viewActive: true, requiresRmbRelease: false })
   })
 
   it('ends the fresh bow aim after a shot and permits another mounted shot', () => {
     const { animator, animation, state } = lanceAnimator()
     animator.poseBow(1)
     expect(animator.start('bowRelease')).toBe(true)
-    expect(animation.play).toHaveBeenLastCalledWith('bowRelease', { fadeSeconds: .1, loop: false })
+    expect(animation.lastPlay).toEqual({ clip: 'bowRelease', fadeSeconds: .1, loop: false })
     animator.poseLanceReady(true)
     expect(animator.currentAction).toBe('bowRelease')
     const profile = COMBAT_ANIMATION_PROFILES.bowRelease
@@ -241,7 +212,7 @@ describe('Combat animator bow-to-lance recovery', () => {
     animator.update(0)
     expect(animator.currentAction).toBe('idle')
     expect(state).toMatchObject({ action: 'idle', mounted: true, lance: true, elapsed: 0 })
-    expect(animation.play).toHaveBeenLastCalledWith('mounted', expect.objectContaining({ loop: true }))
+    expect(animation.lastPlay).toMatchObject({ clip: 'mounted', loop: true })
     expect(animator.update(.1).projectileRelease).toBe(false)
 
     animator.poseBow(1)
@@ -258,7 +229,7 @@ describe('Combat animator bow-to-lance recovery', () => {
     animator.setLocomotion(4, true)
     expect(animator.currentAction).toBe('idle')
     expect(state.action).toBe('idle')
-    expect(animation.play).toHaveBeenLastCalledWith('mounted', expect.objectContaining({ loop: true }))
+    expect(animation.lastPlay).toMatchObject({ clip: 'mounted', loop: true })
 
     // The next draw ends while dismounting; the current walking state wins.
     animator.poseBow(.5)
@@ -267,7 +238,7 @@ describe('Combat animator bow-to-lance recovery', () => {
     animator.setLocomotion(2, false)
     expect(animator.currentAction).toBe('idle')
     expect(state).toMatchObject({ action: 'idle', mounted: false, lance: true, elapsed: 0 })
-    expect(animation.play).toHaveBeenLastCalledWith('walk', expect.objectContaining({ loop: true, timeScale: 1 }))
+    expect(animation.lastPlay).toMatchObject({ clip: 'walk', loop: true, timeScale: 1 })
     expect(animator.update(.5)).toEqual({ hitActiveStarted: false, projectileRelease: false, actionCompleted: false, fists: [] })
   })
 })
@@ -299,12 +270,12 @@ describe('NPC non-combat locomotion ownership', () => {
     const { actor, animator, animation, bowVisual } = mountedTravelPose()
     actor._updateIdleLocomotion(false)
     expect(animator.currentAction).toBe('idle')
-    expect(animation.seek).not.toHaveBeenCalled()
+    expect(animation.seeks).toBe(0)
     animator.poseBow(0)
     actor._updateIdleLocomotion(false)
     expect(animator.currentAction).toBe('idle')
     expect(bowVisual.update).toHaveBeenCalledWith(0, undefined, false)
-    expect(animation.play).toHaveBeenLastCalledWith('mounted', expect.objectContaining({ loop: true }))
+    expect(animation.lastPlay).toMatchObject({ clip: 'mounted', loop: true })
     expect(animator.update(.1).projectileRelease).toBe(false)
     actor._updateIdleLocomotion(false)
     expect(animator.currentAction).toBe('idle')
