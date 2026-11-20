@@ -4,13 +4,14 @@ import { resolveT4UnitLoadout } from '../../src/battle/T4HeroCatalog'
 import type { UnitLoadout } from '../../src/battle/UnitPresetCatalog'
 import { careerCommanderLoadout } from '../../src/career/CareerCommanderEquipment'
 import { Faction } from '../../src/combat/CombatFaction'
+import { chooseReversibleWeaponMode, needsWeaponModeDecision, type WeaponModeDecisionGate, withinRangedMeleeThreatReach } from '../../src/combat/ReversibleWeaponMode'
 import { ShieldState } from '../../src/combat/ShieldBlocking'
 import type { OutpostLayeredNavigation } from '../../src/navigation/OutpostLayeredNavigation'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import type { Player } from '../../src/player/Player'
 import { resolveRangedAim } from '../../src/player/RangedAimGate'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
-import { townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
+import { chooseMerchantMelee, isTownMerchantLoadout, townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
 import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, meleeActionTimeScale, PILUM_THROW_RELEASE_TIME } from '../../src/world/CharacterCombatAnimator'
 import { type EquipmentPoseState } from '../../src/world/CharacterEquipmentPose'
 import type { CharacterRig, HumanoidAnimationController, HumanoidAnimationPlayOptions, HumanoidAnimationState } from '../../src/world/CharacterVisuals'
@@ -243,6 +244,14 @@ describe('Combat animator bow-to-lance recovery', () => {
   })
 })
 
+/**
+ * The one unconstructed-NPC seam: only model, scene and mount construction are
+ * bypassed. Each caller passes the plain state and boundary doubles its entry reads.
+ */
+function unconstructedNpc<T>(state: object): T {
+  return Object.assign(Object.create(NPC.prototype) as object, state) as T
+}
+
 interface IdleLocomotionActor {
   animator: CharacterCombatAnimator
   bowPivot: { visible: boolean }
@@ -250,19 +259,22 @@ interface IdleLocomotionActor {
   characterFaction: 'viking'
   isUsingLance: boolean
   visualMovementSpeed: number
-  isMounted: boolean
+  readonly isMounted: boolean
   isSprinting: boolean
   _updateIdleLocomotion(animationAdvanced: boolean): void
 }
 function mountedTravelPose() {
   const { animator, animation } = lanceAnimator()
   animator.setEquipment(false, false, 'HORSE')
-  const bowVisual = { update: vi.fn() }
-  const actor = Object.assign(Object.create(NPC.prototype) as IdleLocomotionActor, {
-    animator, bowVisual, bowPivot: { visible: true }, characterFaction: 'viking' as const,
-    visualMovementSpeed: 5, isSprinting: false,
+  const bowVisual = {
+    shown: undefined as { draw: number; target: Vector3 | undefined; arrow: boolean } | undefined,
+    update(draw: number, target: Vector3 | undefined, arrow: boolean) { bowVisual.shown = { draw, target, arrow } },
+  }
+  const actor = unconstructedNpc<IdleLocomotionActor>({
+    animator, bowVisual, bowPivot: { visible: true }, characterFaction: 'viking',
+    visualMovementSpeed: 5, isSprinting: false, isUsingLance: false,
   })
-  Object.defineProperties(actor, { isUsingLance: { value: false }, isMounted: { value: true } })
+  Object.defineProperty(actor, 'isMounted', { value: true })
   return { actor, animator, animation, bowVisual }
 }
 describe('NPC non-combat locomotion ownership', () => {
@@ -274,7 +286,7 @@ describe('NPC non-combat locomotion ownership', () => {
     animator.poseBow(0)
     actor._updateIdleLocomotion(false)
     expect(animator.currentAction).toBe('idle')
-    expect(bowVisual.update).toHaveBeenCalledWith(0, undefined, false)
+    expect(bowVisual.shown).toEqual({ draw: 0, target: undefined, arrow: false })
     expect(animation.lastPlay).toMatchObject({ clip: 'mounted', loop: true })
     expect(animator.update(.1).projectileRelease).toBe(false)
     actor._updateIdleLocomotion(false)
@@ -398,117 +410,126 @@ interface TemporaryLoadoutActor {
   rangedWeaponId?: string
   loadout: UnitLoadout
   townCategory?: 'civilian'
-  townArmed: boolean
   swordPivot: { visible: boolean }
   bowPivot: { visible: boolean }
   shieldPivot: { visible: boolean }
-  _usesReversibleRangedSwitch(): boolean
-  _switchToMelee(): void
   applyTemporaryCombatLoadout(loadout: UnitLoadout): void
   restoreCombatLoadout(): void
 }
-/** Actual temporary-loadout transaction; only mesh rebuilding is an external boundary. */
+/** Actual temporary-loadout transaction; only weapon and shield model rebuilding are external boundaries. */
 function temporaryLoadoutActor(): TemporaryLoadoutActor {
-  return Object.assign(Object.create(NPC.prototype) as TemporaryLoadoutActor, {
-    _tier: 4, _faction: Faction.ENEMY, _aiType: AIType.RANGED, state: AIState.IDLE,
-    arrows: 7, rangedActive: true, _rangedDamage: 20, meleeWeaponId: 'steel_sword', rangedWeaponId: 'recurve_longbow',
+  return unconstructedNpc<TemporaryLoadoutActor>({
+    state: AIState.IDLE, arrows: 7, rangedActive: true, _rangedDamage: 20, meleeWeaponId: 'steel_sword', rangedWeaponId: 'recurve_longbow',
     shieldId: null, originalCombatEquipment: null, townArmed: false,
     loadout: { meleeWeaponId: 'steel_sword', rangedWeaponId: 'recurve_longbow', reversibleRangedSwitch: true },
-    animator: { cancel: vi.fn(), setEquipment: vi.fn() }, bowVisual: { hideArrow: vi.fn() }, rig: {},
+    animator: { cancel() {}, setEquipment() {} }, bowVisual: { hideArrow() {} }, rig: {},
     swordPivot: { visible: false }, bowPivot: { visible: true }, shieldPivot: { visible: false },
-    _setActiveMeleeWeapon(this: TemporaryLoadoutActor, id: string | null) { this.meleeWeaponId = id },
-    _rebuildActiveRangedVisual: vi.fn(), rebuildShield: vi.fn(), _refreshActiveShield: vi.fn(),
+    _rebuildActiveMeleeVisual() {}, _rebuildActiveRangedVisual() {}, rebuildShield() {},
   })
 }
 
 describe('Reversible NPC weapon choice', () => {
-  it('repeats Commander shielded hybrid switching with hysteresis and preserves ammo and damaged shield', () => {
+  it('keeps the active weapon inside the 6-9 m hysteresis band and re-equips ranged only for a live target in bow range', () => {
+    const mode = (rangedActive: boolean, threat: number, target: number | null = 20, arrows = 12) => chooseReversibleWeaponMode({
+      arrows, rangedActive, threatDistanceSq: threat ** 2, targetDistanceSq: target === null ? null : target ** 2, maxRangedAttackDistance: 30,
+    })
+    // Shooting continues until a threat closes to 6 m.
+    expect(mode(true, Infinity)).toBe('ranged')
+    expect(mode(true, 6.01)).toBe('ranged')
+    expect(mode(true, 6)).toBe('melee')
+    // Melee holds through 8.99 m and re-equips the bow from 9 m.
+    expect(mode(false, 7)).toBe('melee')
+    expect(mode(false, 8.99)).toBe('melee')
+    expect(mode(false, 9)).toBe('ranged')
+    expect(mode(false, Infinity, 30)).toBe('ranged')
+    expect(mode(false, Infinity, 30.01)).toBe('melee')
+    expect(mode(false, Infinity, null)).toBe('melee')
+    // An empty quiver never keeps or re-equips the bow.
+    expect(mode(true, Infinity, 20, 0)).toBe('melee')
+    expect(mode(false, Infinity, 20, 0)).toBe('melee')
+  })
+
+  it('counts a hostile as a melee threat only within 9 m, at melee height and when an eagle rider can dive', () => {
+    const rider = new Vector3(0, 5, 0)
+    expect(withinRangedMeleeThreatReach(rider, new Vector3(0, 5, 2), 1.8, true)).toBe(true)
+    // An eagle that cannot dive keeps its bow even against an adjacent hostile.
+    expect(withinRangedMeleeThreatReach(rider, new Vector3(0, 5, 2), 1.8, false)).toBe(false)
+    // A ground threat 5 m below is close in 3D but out of melee height.
+    expect(withinRangedMeleeThreatReach(rider, new Vector3(0, 0, 2), 1.8, true)).toBe(false)
+    expect(withinRangedMeleeThreatReach(rider, new Vector3(0, 6.5, 2), 1.8, true)).toBe(true)
+    expect(withinRangedMeleeThreatReach(rider, new Vector3(0, 7, 2), 1.8, true)).toBe(false)
+    expect(withinRangedMeleeThreatReach(rider, new Vector3(0, 5, 9), 1.8, true)).toBe(true)
+    expect(withinRangedMeleeThreatReach(rider, new Vector3(0, 5, 12), 1.8, true)).toBe(false)
+  })
+
+  it('decides weapon mode only between committed actions and skips a melee fighter with no ammunition', () => {
+    const gate = (update: Partial<WeaponModeDecisionGate> = {}) => needsWeaponModeDecision({
+      hasRangedWeapon: true, hasMeleeWeapon: true, busy: false, arrows: 12, rangedActive: true, ...update,
+    })
+    expect(gate()).toBe(true)
+    expect(gate({ rangedActive: false })).toBe(true)
+    // Arrow recovery and melee swings finish before any re-equip.
+    expect(gate({ busy: true })).toBe(false)
+    expect(gate({ busy: true, rangedActive: false })).toBe(false)
+    expect(gate({ hasMeleeWeapon: false })).toBe(false)
+    expect(gate({ hasRangedWeapon: false })).toBe(false)
+    // An empty bow still switches away; an empty melee fighter has nothing to switch to.
+    expect(gate({ arrows: 0 })).toBe(true)
+    expect(gate({ arrows: 0, rangedActive: false })).toBe(false)
+  })
+
+  it('applies the chosen mode to a shielded Commander, keeps ammunition and shield damage, and skips the threat scan without ammunition', () => {
     const loadout = careerCommanderLoadout('viking')
     const h = selection({ shieldId: loadout.shieldId, meleeWeaponId: loadout.meleeWeaponId,
       rangedWeaponId: loadout.rangedWeaponId!, tacticalOrder: 'defend' })
-    expect(h.actor._usesReversibleRangedSwitch()).toBe(true)
-    expect(h.actor.hasActiveRangedWeapon).toBe(true)
-    expect(h.actor.shield.active).toBe(false)
+    const pivots = () => [h.actor.swordPivot.visible, h.actor.bowPivot.visible, h.actor.shieldPivot.visible]
     expect(h.actor.shield.absorb(20, 2)).toEqual({ damage: 20, blockedImpact: 0 })
-    const hostile = { faction: Faction.PLAYER, dead: false, combatPosition: new Vector3(0, 0, 6) } as NPC
+    const hostile = { faction: Faction.PLAYER, dead: false, combatPosition: new Vector3(0, 0, 4) } as NPC
     h.select([hostile])
-    expect(h.actor.rangedActive).toBe(false)
-    expect(h.actor.shieldPivot.visible).toBe(true)
+    expect(h.actor).toMatchObject({ rangedActive: false, arrows: 12, state: AIState.CHASE, attackTimer: 0, attackHitProcessed: false,
+      bowArrowReleased: false, pendingLanceChargeSpeed: 0, meleeApproachLimit: Infinity, meleeApproachTarget: null })
+    expect(pivots()).toEqual([true, false, true])
     expect(h.actor.shield.shieldRaised).toBe(true)
-    const initial = h.actor.shield.shieldImpactRemaining
+    expect(h.actor.animator.cancel).toHaveBeenCalled()
+    expect(h.actor.bowVisual.hideArrow).toHaveBeenCalledOnce()
     expect(h.actor.shield.absorb(20, 2).blockedImpact).toBe(2)
-    hostile.combatPosition.z = 8.99
-    h.select([hostile])
-    expect(h.actor.rangedActive).toBe(false)
-    hostile.combatPosition.z = 9
+    const damaged = h.actor.shield.shieldImpactRemaining
+    hostile.combatPosition.z = 12
     h.select([hostile])
     expect(h.actor.hasActiveRangedWeapon).toBe(true)
-    expect([h.actor.swordPivot.visible, h.actor.bowPivot.visible, h.actor.shieldPivot.visible]).toEqual([false, true, false])
+    expect(pivots()).toEqual([false, true, false])
     expect(h.actor.shield.shieldRaised).toBe(false)
-    hostile.combatPosition.z = 7
-    h.select([hostile])
-    expect(h.actor.rangedActive).toBe(true)
     hostile.combatPosition.z = 4
     h.select([hostile])
     expect(h.actor.shield.active).toBe(true)
-    expect(h.actor.shield.shieldImpactRemaining).toBe(initial - 2)
+    expect(h.actor.shield.shieldImpactRemaining).toBe(damaged)
     expect(h.actor.arrows).toBe(12)
-    expect(h.actor.shieldId).toBe('viking_berserker_shield_t5')
+    // Melee with an empty quiver returns before iterating its neighborhood.
     h.actor.arrows = 0
     hostile.combatPosition.z = 12
-    h.select([hostile])
+    const nearby = [hostile]
+    const iterate = vi.spyOn(nearby, Symbol.iterator)
+    h.select(nearby)
     expect(h.actor.rangedActive).toBe(false)
+    expect(iterate).not.toHaveBeenCalled()
   })
 
-  it('keeps the eagle bow for vertically separated ground threats until physical melee contact is possible', () => {
-    const h = selection({ mount: { flight: {} }, eaglePilot: { canUseMelee: false }, combatPosition: new Vector3(0, 5, 0) })
-    h.target.position.set(0, 0, 2)
-    h.select()
-    expect(h.actor.hasActiveRangedWeapon).toBe(true)
-    h.actor.eaglePilot!.canUseMelee = true
-    h.select()
-    expect(h.actor.hasActiveRangedWeapon).toBe(true)
-    h.target.position.y = 5
-    h.select()
-    expect(h.actor.rangedActive).toBe(false)
-    h.target.position.z = 12
-    h.select()
-    expect(h.actor.hasActiveRangedWeapon).toBe(true)
-  })
-
-  it('switches a Ranger to real melee for a nearby hostile without spending ammunition', () => {
-    const h = selection({ specialCombatProfile: 'maki-ranger', rangedWeaponId: 'maki-ranger-bow-ranged', meleeWeaponId: 'viking_axe_t3' })
-    const hostile = { faction: Faction.PLAYER, dead: false, combatPosition: new Vector3(0, 0, 5) } as NPC
-    h.select([hostile])
-    expect(h.actor.rangedActive).toBe(false)
-    expect(h.actor.arrows).toBe(12)
-    expect(h.actor.swordPivot.visible).toBe(true)
-    expect(h.actor.bowPivot.visible).toBe(false)
-    expect(h.actor.animator.cancel).toHaveBeenCalled()
-    expect(h.actor.bowVisual.hideArrow).toHaveBeenCalledOnce()
-    expect(h.actor).toMatchObject({ state: AIState.CHASE, attackTimer: 0, attackHitProcessed: false,
-      bowArrowReleased: false, pendingLanceChargeSpeed: 0, meleeApproachLimit: Infinity, meleeApproachTarget: null })
-  })
-
-  it('automatically switches temporary hybrid loadouts and restores original equipment and ammunition', () => {
+  it('applies temporary hybrid loadouts with fresh ammunition and restores the equipment and ammunition held before the first override', () => {
     const actor = temporaryLoadoutActor(), original = { ...actor.loadout }
+    const pivots = () => [actor.swordPivot.visible, actor.bowPivot.visible, actor.shieldPivot.visible]
     actor.townCategory = 'civilian'
     actor.applyTemporaryCombatLoadout({ meleeWeaponId: 'heavy_lance', rangedWeaponId: 'recurve_longbow' })
-    expect([actor.swordPivot.visible, actor.bowPivot.visible, actor.shieldPivot.visible]).toEqual([false, false, false])
-    actor._switchToMelee()
-    expect(actor.arrows).toBe(30)
+    expect(actor).toMatchObject({ rangedWeaponId: 'recurve_longbow', arrows: 30, rangedActive: true })
+    expect(pivots()).toEqual([false, false, false])
+    // Ammunition spent and a melee switch during the first override are not restored.
+    Object.assign(actor, { arrows: 12, rangedActive: false })
     actor.applyTemporaryCombatLoadout(resolveT4UnitLoadout('roman_archer'))
-    expect(actor.bowPivot.visible).toBe(false)
-    actor._switchToMelee()
-    expect(actor.arrows).toBe(30)
-    expect(actor.rangedActive).toBe(false)
-    expect(actor.swordPivot.visible).toBe(false)
-    expect(actor._usesReversibleRangedSwitch()).toBe(true)
+    expect(actor).toMatchObject({ arrows: 30, rangedActive: true })
+    expect(pivots()).toEqual([false, false, false])
     actor.restoreCombatLoadout()
     expect(actor).toMatchObject({ meleeWeaponId: 'steel_sword', rangedWeaponId: 'recurve_longbow', arrows: 7, rangedActive: true })
     expect(actor.loadout).toEqual(original)
-    expect([actor.swordPivot.visible, actor.bowPivot.visible, actor.shieldPivot.visible]).toEqual([false, false, false])
-    expect(actor._usesReversibleRangedSwitch()).toBe(true)
+    expect(pivots()).toEqual([false, false, false])
   })
 
   it('ignores peaceful, dead and below-rampart threats until a live hostile reaches the deck', () => {
@@ -622,65 +643,18 @@ describe('Reversible NPC weapon choice', () => {
     expect(h.actor.arrows).toBe(12)
   })
 
-  it('falls back to melee when ammunition is exhausted', () => {
-    const h = selection({ arrows: 0 })
-    const nearby: NPC[] = []
-    const scan = vi.spyOn(h.actor, '_isRangedMeleeThreat')
-    const iterate = vi.spyOn(nearby, Symbol.iterator)
-    h.select(nearby)
-    expect(h.actor.rangedActive).toBe(false)
-    expect(h.actor.arrows).toBe(0)
-    scan.mockClear(); iterate.mockClear()
-    h.select(nearby)
-    expect(h.actor.rangedActive).toBe(false)
-    expect(scan).not.toHaveBeenCalled()
-    expect(iterate).not.toHaveBeenCalled()
-  })
-
-  it('preserves active ranged recovery and active melee swing before re-equipping', () => {
-    // Arrow recovery preserved
-    const h1 = selection({ bowArrowReleased: false, animator: { busy: true, cancel: vi.fn(), setEquipment: vi.fn(), setShieldRaised: vi.fn() } })
-    h1.target.position.z = 2
-    h1.select()
-    expect(h1.actor.rangedActive).toBe(true)
-    expect(h1.actor.bowArrowReleased).toBe(false)
-    h1.actor.bowArrowReleased = true
-    h1.select()
-    expect(h1.actor.rangedActive).toBe(true)
-    expect(h1.actor.animator.cancel).not.toHaveBeenCalled()
-
-    // Melee swing preserved
-    const h2 = selection({ rangedActive: false, animator: { busy: true, cancel: vi.fn(), setEquipment: vi.fn(), setShieldRaised: vi.fn() } })
-    h2.select()
-    expect(h2.actor.rangedActive).toBe(false)
-    expect(h2.actor.animator.cancel).not.toHaveBeenCalled()
-  })
 })
 
 it('preserves merchant fixed gear with a purchased horse and switches only its existing melee weapon between attacks', () => {
-  const actor = { townCombatRole: 'merchant', originalCombatEquipment: null,
-    animator: { busy: false }, loadout: townMerchantLoadout('horse'), meleeWeaponId: 'sword_t5',
-    dead: false, isFalling: false,
-    _setActiveMeleeWeapon(id: string) { this.meleeWeaponId = id },
-  }
-  interface MerchantSelection {
-    _selectMerchantMeleeWeapon(this: typeof actor, target: { shield: { active: boolean } } | null): void
-  }
-  const choose = (NPC.prototype as unknown as MerchantSelection)._selectMerchantMeleeWeapon
-  expect(NPC.prototype.canApplyCareerEquipment.call(actor as unknown as NPC, townMerchantLoadout('horse'))).toBe(true)
-  expect(NPC.prototype.canApplyCareerEquipment.call(actor as unknown as NPC, { ...actor.loadout, secondaryMeleeWeaponId: 'paladin_mace_t4' })).toBe(false)
-  expect(NPC.prototype.canApplyCareerEquipment.call(actor as unknown as NPC, { ...actor.loadout, mountId: 'black-cat' })).toBe(false)
-  const target = { shield: { active: true } }
-  choose.call(actor, target)
-  expect(actor.meleeWeaponId).toBe('axe_t5')
-  actor.animator.busy = true; target.shield.active = false
-  choose.call(actor, target)
-  expect(actor.meleeWeaponId).toBe('axe_t5')
-  actor.animator.busy = false
-  choose.call(actor, target)
-  expect(actor.meleeWeaponId).toBe('sword_t5')
-  expect(actor.loadout).toEqual({ meleeWeaponId: 'sword_t5', secondaryMeleeWeaponId: 'axe_t5',
-    shieldId: 'paladin_shield_t4', rangedWeaponId: null, mountId: 'horse' })
+  const loadout = townMerchantLoadout('horse')
+  expect(isTownMerchantLoadout(loadout)).toBe(true)
+  expect(isTownMerchantLoadout({ ...loadout, secondaryMeleeWeaponId: 'paladin_mace_t4' })).toBe(false)
+  expect(isTownMerchantLoadout({ ...loadout, mountId: 'black-cat' })).toBe(false)
+  expect(chooseMerchantMelee(loadout, true, false)).toBe('axe_t5')
+  // A committed swing keeps the held weapon whatever the target does.
+  expect(chooseMerchantMelee(loadout, false, true)).toBeNull()
+  expect(chooseMerchantMelee(loadout, true, true)).toBeNull()
+  expect(chooseMerchantMelee(loadout, false, false)).toBe('sword_t5')
 })
 
 describe('NPC shield durability before the model arrives', () => {
