@@ -460,6 +460,14 @@ describe('Reversible NPC weapon choice', () => {
     expect(withinRangedMeleeThreatReach(rider, new Vector3(0, 7, 2), 1.8, true)).toBe(false)
     expect(withinRangedMeleeThreatReach(rider, new Vector3(0, 5, 9), 1.8, true)).toBe(true)
     expect(withinRangedMeleeThreatReach(rider, new Vector3(0, 5, 12), 1.8, true)).toBe(false)
+    // The rider passes its eagle's live dive state into that gate.
+    const h = selection({ mount: { flight: {} }, eaglePilot: { canUseMelee: false }, combatPosition: rider })
+    h.target.position.set(0, 5, 2)
+    h.select()
+    expect(h.actor.hasActiveRangedWeapon).toBe(true)
+    h.actor.eaglePilot!.canUseMelee = true
+    h.select()
+    expect(h.actor.rangedActive).toBe(false)
   })
 
   it('decides weapon mode only between committed actions and skips a melee fighter with no ammunition', () => {
