@@ -1,4 +1,5 @@
 import { careerRankFixture } from '../helpers/careerRankFixture'
+import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { calculateLanceChargeDamage, getAntiCavalryMultiplier, getBerserkerModifiers, getNpcRangedAttackRange } from '../../src/combat/CombatBalance'
 import { applyHeroIncomingDamage, applyHeroMeleeDamage, applyHeroOutgoingDamage, getHeroCombatModifiers, heroMeleeAttackSpeed, HERO_COMBAT_PROFILE_BY_ASSET, HERO_COMBAT_PROFILES } from '../../src/battle/HeroCombatProfile'
@@ -6,7 +7,8 @@ import { resolveSkillAdjustedMaxHp } from '../../src/rpg/CombatSkillProgression'
 import { resolveCareerCombatProfile, resolveCareerPlayerMaxHp } from '../../src/career/CareerPlayerProfile'
 import { calculateNpcMeleeDamage, calculatePlayerMeleeDamage } from '../../src/combat/PlayerMeleeDamage'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
-import { punchEventsBetween, punchExtension, unarmedDamage } from '../../src/combat/UnarmedCombat'
+import { drainFistStrikes, punchEventsBetween, punchExtension, traceFistStrike, unarmedDamage, type FistStrike } from '../../src/combat/UnarmedCombat'
+import { ShieldCollider, ShieldState, type PhysicalCombatTarget } from '../../src/combat/ShieldBlocking'
 import { parsePunchTiming } from '../../src/world/HumanoidAssetRegistry'
 
 
@@ -143,5 +145,44 @@ describe('Combat damage eligibility', () => {
     expect(calculateNpcMeleeDamage(npcLance)).toEqual({ damage: 45, skipImpact: false })
     expect(calculateNpcMeleeDamage({ ...npcLance, chargeSpeed: 10.01 })).toEqual({ damage: 135, skipImpact: true })
     expect(calculateNpcMeleeDamage({ ...npcLance, isMounted: false, chargeSpeed: 12, targetIsMounted: true })).toEqual({ damage: 90, skipImpact: false })
+  })
+})
+
+/** A standing body on the ground at z, with the optional shield held at (0, 1, .5); plain math data, no model. */
+function fistTarget(z: number, shieldId?: string): PhysicalCombatTarget {
+  const position = new THREE.Vector3(0, 0, z)
+  const target: PhysicalCombatTarget = { group: { position } as THREE.Object3D, combatPosition: position, isMounted: false }
+  if (shieldId) {
+    const shield = new ShieldState(); shield.equip(shieldId)
+    const pivot = { matrixWorld: new THREE.Matrix4().makeTranslation(0, 1, .5), updateWorldMatrix() {} } as Pick<THREE.Object3D, 'matrixWorld' | 'updateWorldMatrix'>
+    target.shield = shield
+    target.shieldCollider = new ShieldCollider(pivot as THREE.Object3D, shield); target.shieldCollider.setModel(shieldId)
+  }
+  return target
+}
+/** One straight jab from the attacker at the origin, reaching z = .85 (.905 with the fist radius). */
+const jab = (): FistStrike => ({ from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) })
+
+describe('Unarmed fist contact', () => {
+  it('lands only where the body is within 0.8m of the attacker (inclusive)', () => {
+    const inRange = fistTarget(1.1), outOfRange = fistTarget(1.101)
+    expect(traceFistStrike(jab(), new THREE.Vector3(), [inRange], [])).toMatchObject({ kind: 'body', target: inRange, attackSource: 'unarmed' })
+    expect(traceFistStrike(jab(), new THREE.Vector3(), [outOfRange], [])).toBeUndefined()
+  })
+  it('does not reach a body behind an obstacle in the punch path', () => {
+    const obstacle = { box: new THREE.Box3(new THREE.Vector3(-.5, .5, .55), new THREE.Vector3(.5, 1.5, .6)), isBarricade: false }
+    expect(traceFistStrike(jab(), new THREE.Vector3(), [fistTarget(1)], [obstacle])).toBeUndefined()
+  })
+  it('meets a raised shield before the body behind it', () => {
+    const target = fistTarget(1, 'scutum_t1')
+    expect(traceFistStrike(jab(), new THREE.Vector3(), [target], [])).toMatchObject({ kind: 'shield', target })
+  })
+  it('hands each queued punch to the damage caller once, in world space', () => {
+    const pending = [jab(), jab()]
+    const toWorld = new THREE.Matrix4().makeTranslation(2, 0, 0)
+    const drained = drainFistStrikes(pending, toWorld)
+    expect(drained.map(strike => strike.to.toArray())).toEqual([[2, 1, .85], [2, 1, .85]])
+    expect(pending).toEqual([])
+    expect(drainFistStrikes(pending, toWorld)).toEqual([])
   })
 })

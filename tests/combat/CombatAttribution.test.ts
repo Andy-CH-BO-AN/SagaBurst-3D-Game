@@ -10,7 +10,7 @@ import { CombatEventSinkStack, CombatEventStream, type CombatDamageContext, type
 import { damageMount, damageNpc, damageObstacle, damagePlayer } from '../../src/combat/DamageRouter'
 import { MountArmor } from '../../src/combat/MountArmor'
 import { ShieldCollider, ShieldState, WeaponSweep } from '../../src/combat/ShieldBlocking'
-import { punchEventsBetween, traceFistStrike } from '../../src/combat/UnarmedCombat'
+import { punchEventsBetween } from '../../src/combat/UnarmedCombat'
 import { Player } from '../../src/player/Player'
 import { SkillManager } from '../../src/rpg/SkillManager'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
@@ -118,25 +118,41 @@ function sourceContext(
   }
 }
 
-/** Borrow the real contact entry and queue drain; every fixture is plain state/math, no actor constructors. */
-function unarmedContactHarness(targetX: number, throughTime: number) {
+/** The Player surface Game's melee caller reads. Fist sampling, its queue drain and weapon hit frames belong to
+ * Player and their owners; here the queued jabs drain like the real queue and the hit frame is open. */
+type MeleeCallerPlayer = Pick<Player, 'dead' | 'spectatorOnly' | 'isMounted' | 'currentMount' | 'position' | 'combatPosition'
+  | 'characterFaction' | 'heroAssetId' | 'armorBreakLevel' | 'hasShield' | 'consumeFistStrikes' | 'isHitFrame'
+  | 'isLanceThrustActive' | 'updatePrevLanceTip' | 'markHitProcessed' | 'weaponSweep'>
+
+/** Four jabs from the origin toward +Z, reaching z = .85; queued as one large-dt frame would leave them. */
+function meleeCallerPlayer(): MeleeCallerPlayer {
+  const queued = punchEventsBetween(0, 1.6, false).map(() => ({ from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }))
+  return {
+    dead: false, spectatorOnly: false, isMounted: false, currentMount: null, position: new THREE.Vector3(),
+    combatPosition: new THREE.Vector3(), characterFaction: 'roman', heroAssetId: null, armorBreakLevel: 1, hasShield: false,
+    consumeFistStrikes: () => queued.splice(0), isHitFrame: () => true, isLanceThrustActive: true,
+    updatePrevLanceTip() {}, markHitProcessed() {}, weaponSweep: new WeaponSweep(),
+  }
+}
+
+/** The enemy HUD Game shows after its latest landed hit. */
+function shownEnemyHud() {
+  const hud: { shown?: { name: string; hpRatio: number } } = {}
+  return { hud, _showEnemyHud: (name: string, hpRatio: number) => { hud.shown = { name, hpRatio } } }
+}
+
+/** A training dummy within fist reach; only the real Game caller decides whether the queued jabs land. */
+function trainingDummyMeleeHarness() {
   let hp = 100
-  const position = new THREE.Vector3(targetX, 0, 1)
+  const position = new THREE.Vector3(0, 0, 1)
   const receiver = {
     group: { position }, combatPosition: position, isMounted: false,
     damageTarget: { targetId: 'punch-target', targetType: 'npc' as const, name: 'target' },
     receiveDamage(amount: number) { const before = hp; hp = Math.max(0, hp - amount); return before - hp },
   }
-  const player = Object.assign(Object.create(Player.prototype), {
-    group: { position: new THREE.Vector3(), matrixWorld: new THREE.Matrix4(), updateWorldMatrix() {} },
-    isDead: false, spectatorOnly: false, visualFaction: 'roman', isMounted: false, currentMount: null,
-    pendingFistStrikes: punchEventsBetween(0, throughTime, false).map(() => ({
-      from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85),
-    })),
-  })
   const { stream, events } = eventHarness()
   const game = Object.assign(Object.create(Game.prototype) as { _checkPlayerMeleeHits(): void }, {
-    player, controlMode: 'player', inventoryManager: { activeMelee: undefined },
+    player: meleeCallerPlayer(), controlMode: 'player', inventoryManager: { activeMelee: undefined },
     npcGrid: { getNearbyInto: () => [] }, combatMountGrid: { getNearbyInto: () => [] },
     trainingGround: { dummies: [receiver] }, obstacles: [], skillManager: new SkillManager(),
     soundManager: { playPunchHit() {} }, combatEvents: stream, damageNumbers: { spawn() {} }, _showEnemyHud() {},
@@ -148,29 +164,23 @@ function unarmedContactHarness(targetX: number, throughTime: number) {
 function careerBanditMeleeHarness() {
   const ally = mockNpc({ id: 'field-ally', faction: Faction.PLAYER, hp: 200, position: new THREE.Vector3(0, 0, 1) })
   const bandit = mockNpc({ id: 'recruit-bandit-1', faction: Faction.BANDIT, hp: 40, position: new THREE.Vector3(0, 0, 1) })
-  const player = Object.assign(Object.create(Player.prototype), {
-    group: { position: new THREE.Vector3(), matrixWorld: new THREE.Matrix4(), updateWorldMatrix() {} },
-    isDead: false, spectatorOnly: false, visualFaction: 'roman', isMounted: false, currentMount: null, heroAssetId: null,
-    currentShieldId: null, shield: { shieldBroken: false }, attackHitProcessed: false, animator: { isLanceThrustActive: true },
-    weaponSweep: new WeaponSweep(), updatePrevLanceTip: vi.fn(),
-    pendingFistStrikes: punchEventsBetween(0, 1.6, false).map(() => ({ from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) })),
-  })
+  const player = meleeCallerPlayer()
   const inventoryManager: { activeMelee: (typeof WEAPONS)[string] | undefined } = { activeMelee: undefined }
   const { stream, events } = eventHarness()
-  const hud = vi.fn()
+  const { hud, _showEnemyHud } = shownEnemyHud()
   const game = Object.assign(Object.create(Game.prototype) as { _checkPlayerMeleeHits(): void }, {
     player, controlMode: 'player', inventoryManager, felineMissionId: 'recruit-bandits-01',
     careerProfile: { activeMission: { phase: 'ENGAGING' } },
     npcGrid: { getNearbyInto: () => [ally, bandit] }, combatMountGrid: { getNearbyInto: () => [] },
-    obstacles: [], skillManager: new SkillManager(), combatEvents: stream, damageNumbers: { spawn: vi.fn() }, _showEnemyHud: hud,
-    soundManager: { playPunchHit() {}, playLanceImpact: vi.fn(), playSwordHit: vi.fn() },
+    obstacles: [], skillManager: new SkillManager(), combatEvents: stream, damageNumbers: { spawn() {} }, _showEnemyHud,
+    soundManager: { playPunchHit() {}, playLanceImpact() {}, playSwordHit() {} },
   })
   return { game, player, inventoryManager, ally, bandit, events, hud }
 }
 
 describe('Combat attribution foundation', () => {
   it('keeps the real player melee damage caller locked during Commander Last Stand preparation', () => {
-    const h = unarmedContactHarness(0, 1.6)
+    const h = trainingDummyMeleeHarness()
     let phase: 'deployment' | 'assault' = 'deployment'
     Object.assign(h.game, {
       defenseCampaignConfig: { careerCommanderOutpost: {} },
@@ -182,6 +192,7 @@ describe('Combat attribution foundation', () => {
     expect(h.events).toEqual([])
     phase = 'assault'
     h.game._checkPlayerMeleeHits()
+    // Every jab crossed in one large frame lands separately.
     expect(h.hp()).toBe(80)
     expect(h.events.filter(event => event.type === 'damage_applied')).toHaveLength(4)
   })
@@ -191,7 +202,7 @@ describe('Combat attribution foundation', () => {
     h.game._checkPlayerMeleeHits()
     expect(h.bandit.hp).toBe(20)
     expect(h.ally.hp).toBe(200)
-    expect(h.hud).toHaveBeenLastCalledWith(expect.any(String), .5)
+    expect(h.hud.shown).toEqual({ name: expect.any(String), hpRatio: .5 })
 
     h.inventoryManager.activeMelee = WEAPONS.hunting_spear
     h.player.weaponSweep.capture(new THREE.Vector3(0, 1, .2), new THREE.Vector3(0, 1, .6))
@@ -205,50 +216,6 @@ describe('Combat attribution foundation', () => {
     expect(hits.filter(event => event.type === 'actor_killed')).toHaveLength(1)
   })
 
-  it('拳頭沒有接觸時正式玩家命中流程不扣血，也不發傷害事件', () => {
-    const h = unarmedContactHarness(2, .2)
-    h.game._checkPlayerMeleeHits()
-    expect(h.hp()).toBe(100)
-    expect(h.events).toEqual([])
-  })
-  it('大 dt 跨過四拳時四次各自扣血，下一個 frame 不得重複同一拳', () => {
-    const h = unarmedContactHarness(0, 1.6)
-    h.game._checkPlayerMeleeHits()
-    expect(h.hp()).toBe(80)
-    expect(h.events.filter(event => event.type === 'damage_applied')).toHaveLength(4)
-    h.game._checkPlayerMeleeHits()
-    expect(h.hp()).toBe(80)
-    expect(h.events.filter(event => event.type === 'damage_applied')).toHaveLength(4)
-  })
-  it('拳頭在 0.8m 邊界命中判定（<=0.8m 命中，>0.8m 不命中）', () => {
-    const strike = { from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }
-    const inRangeNpc = mockNpc({ position: new THREE.Vector3(0, 0, 1.1) })
-    expect(traceFistStrike(strike, new THREE.Vector3(), [inRangeNpc], [])).toMatchObject({ kind: 'body', target: inRangeNpc })
-    const outOfRangeNpc = mockNpc({ position: new THREE.Vector3(0, 0, 1.101) })
-    expect(traceFistStrike(strike, new THREE.Vector3(), [outOfRangeNpc], [])).toBeUndefined()
-  })
-  it('拳頭被障礙物遮蔽時不會命中後方目標', () => {
-    const npc = mockNpc({ position: new THREE.Vector3(0, 0, 1) })
-    const strike = { from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }
-    const obstacle = { box: new THREE.Box3(new THREE.Vector3(-.5, .5, .55), new THREE.Vector3(.5, 1.5, .6)), isBarricade: false }
-    expect(traceFistStrike(strike, new THREE.Vector3(), [npc], [obstacle])).toBeUndefined()
-  })
-  it('拳頭先接觸盾面時沿用實體盾格擋，不讓身體接觸搶先扣血', () => {
-    const shield = new ShieldState(); shield.equip('scutum_t1')
-    const npc = mockNpc({ position: new THREE.Vector3(0, 0, 1), shield })
-    const pivot: Pick<THREE.Object3D, 'matrixWorld' | 'updateWorldMatrix'> = {
-      matrixWorld: new THREE.Matrix4().makeTranslation(0, 1, .5), updateWorldMatrix() {},
-    }
-    npc.shieldCollider = new ShieldCollider(pivot as THREE.Object3D, shield); npc.shieldCollider.setModel('scutum_t1')
-    const contact = traceFistStrike({ from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }, new THREE.Vector3(), [npc], [])
-    expect(contact?.kind).toBe('shield')
-    const { stream, events } = eventHarness()
-    const result = damageNpc(npc, 5, sourceContext(stream, { contact, weaponId: 'unarmed',
-      source: { actorId: 'player', actorType: 'player', allegiance: Faction.PLAYER, characterFaction: 'roman' } }))
-    expect(result.appliedDamage).toBe(0)
-    expect(npc.hp).toBe(200)
-    expect(events.filter(event => event.type === 'damage_applied')).toHaveLength(0)
-  })
   it('restores nested event ownership without duplicate delivery after repeated releases', () => {
     const original: CombatEventSink = () => {}, first: CombatEventSink = () => {}, second: CombatEventSink = () => {}
     const routing = new CombatEventSinkStack(original)

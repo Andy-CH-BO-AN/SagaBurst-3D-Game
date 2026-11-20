@@ -59,7 +59,7 @@ const CAREER_PROFILE_STORE_METHODS = new Set(['load', 'loadChecked', 'save'])
 // its count, and a lower count asks for the entry to shrink. Never raise or add entries.
 const PROTOTYPE_HARNESS_BASELINE = new Map([
   ['tests/actors/NPCEquipmentLifecycle.test.ts', 1],
-  ['tests/combat/CombatAttribution.test.ts', 13],
+  ['tests/combat/CombatAttribution.test.ts', 11],
   ['tests/combat/CommanderWeaponSwitching.test.ts', 1],
   ['tests/integration/GameInventoryLifecycle.test.ts', 2],
   ['tests/integration/GameWeaponPickup.test.ts', 2],
