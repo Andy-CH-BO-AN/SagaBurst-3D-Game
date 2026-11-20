@@ -6,7 +6,7 @@ import type { HeroCombatProfileId } from '../../src/battle/HeroCombatProfile'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { claimCareerMission, createCareerProfile } from '../../src/career/CareerProfile'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
-import { CombatEventStream, type CombatDamageContext, type CombatEventSink } from '../../src/combat/CombatAttribution'
+import { CombatEventSinkStack, CombatEventStream, type CombatDamageContext, type CombatEventSink } from '../../src/combat/CombatAttribution'
 import { damageMount, damageNpc, damageObstacle, damagePlayer } from '../../src/combat/DamageRouter'
 import { MountArmor } from '../../src/combat/MountArmor'
 import { ShieldCollider, ShieldState, WeaponSweep } from '../../src/combat/ShieldBlocking'
@@ -250,20 +250,21 @@ describe('Combat attribution foundation', () => {
     expect(events.filter(event => event.type === 'damage_applied')).toHaveLength(0)
   })
   it('restores nested event ownership without duplicate delivery after repeated releases', () => {
-    const original = vi.fn<CombatEventSink>(), first = vi.fn<CombatEventSink>(), second = vi.fn<CombatEventSink>()
-    const routing = { originalCombatEventSink: original, combatEventBindings: [], combatEventBindingsClosed: false }
-    // Existing routing owner has no actor, model, animation or scene dependencies.
-    const owner = routing as unknown as NPC
-    const sink = () => Object.getOwnPropertyDescriptor(NPC.prototype, 'combatEventSink')!.get!.call(owner) as CombatEventSink
-    const releaseFirst = NPC.prototype.bindCombatEventSink.call(owner, first)
-    const releaseSecond = NPC.prototype.bindCombatEventSink.call(owner, second)
-    expect(sink()).toBe(second)
+    const original: CombatEventSink = () => {}, first: CombatEventSink = () => {}, second: CombatEventSink = () => {}
+    const routing = new CombatEventSinkStack(original)
+    const releaseFirst = routing.bind(first)
+    const releaseSecond = routing.bind(second)
+    expect(routing.current).toBe(second)
     releaseFirst(); releaseFirst()
-    expect(sink()).toBe(second)
+    expect(routing.current).toBe(second)
     releaseSecond(); releaseSecond()
-    expect(sink()).toBe(original)
-    routing.combatEventBindingsClosed = true
-    expect(() => NPC.prototype.bindCombatEventSink.call(owner, first)).toThrow('disposed NPC')
+    expect(routing.current).toBe(original)
+    const releaseLate = routing.bind(first)
+    routing.close()
+    expect(routing.current).toBe(original)
+    releaseLate()
+    expect(routing.current).toBe(original)
+    expect(() => routing.bind(first)).toThrow('disposed NPC')
   })
 
   it('preserves the mounted rider display through lethal dismount and emits actual HP loss with one kill', () => {
