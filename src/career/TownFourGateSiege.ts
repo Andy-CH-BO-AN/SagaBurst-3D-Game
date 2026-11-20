@@ -27,7 +27,7 @@ export interface TownSiegeSectorRoster {
 }
 export type TownSiegeAttackerRole = 'siege-infantry' | 'gate-cavalry' | 'ranged' | 'air'
 export type TownSiegeGate = Pick<CampaignGateController, 'state' | 'siegeObstacle' | 'open' | 'close' | 'destroy' | 'onStateChange'>
-  & { readonly damageable: Pick<CampaignGateController['damageable'], 'currentHp' | 'takeDamage'> }
+  & { readonly damageable: { readonly currentHp: number; takeDamage(amount: number): unknown } }
 /** The opt-in siege TownWorld parts this adapter reads and mutates. */
 export interface TownSiegeWorld {
   readonly obstacles: ObstacleData[]

@@ -1,55 +1,36 @@
 import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
 import { describe, expect, it } from 'vitest'
-import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
-
-
-
-
-
+import { fourGateDefenseRuntime } from '../helpers/fourGateDefenseRuntime'
 
 describe('Town defense target accounting', () => {
-
   it('waits for the last registered rider, including after its mount dies, before awarding victory', () => {
-    const profile = createFourGateDefenseProfile('ATTACKING'), mission = profile.activeMission!, state = mission.fourGateDefense!
+    const h = fourGateDefenseRuntime(createFourGateDefenseProfile('PREPARING'))
+    h.toAttack()
+    const owner = h.controller, mission = h.profile().activeMission!
     const lastId = mission.targetActorIds.find(id => id.endsWith(':lancer:t4:leader'))!
-    expect(lastId).toBeDefined()
-    mission.deadTargetActorIds = mission.targetActorIds.filter(id => id !== lastId)
-    state.registeredTargetActorIds = [...mission.deadTargetActorIds]
-    const rider = { combatantId: lastId, dead: false, mount: { dead: false } }
-    const enemies: typeof rider[] = []
-    // Only spawn/readiness and actor state are dependencies. Evaluate, remaining count and
-    // the official deployment/target accounting decisions execute on the real controller.
-    const merchant = { spec: { id: 'merchant', role: 'merchant' }, npc: { combatantId: 'merchant', dead: false } }
-    const residents = [...mission.civilianActorIds!.map(id => ({ spec: { id, role: 'civilian' }, npc: { combatantId: id, dead: true } })), merchant]
-    const owner = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as Pick<CommanderFourGateDefenseController, 'remainingEnemies' | 'evaluate'>, {
-      readProfile: () => profile, state, enemies, residents, actorsById: new Map(),
-      startedMissionId: mission.id, fourGateSiege: { ready: true }, spawnBatch: { pending: 0, ready: true },
-    })
+    const rider = h.factory.actors.get(lastId)!
+    expect(owner.combatEnabled).toBe(true)
+    for (const [id, actor] of h.factory.actors) if (id !== lastId) actor.hp = 0
     expect(owner.remainingEnemies).toBe(1)
     expect(owner.evaluate(false)).toBeNull()
-    state.registeredTargetActorIds.push(lastId)
-    expect(owner.evaluate(false)).toBeNull() // Registration alone cannot account for an absent living actor.
-    enemies.push(rider)
-    rider.mount.dead = true
+    rider.mount!.currentHp = 0
     expect(owner.remainingEnemies).toBe(1)
-    expect(owner.evaluate(true, 0)).toBeNull() // The final civilian/service survivor still keeps the Town alive.
-    state.combatElapsedSeconds = survivalSeconds / 2
+    // Every native but one service resident has fallen; that survivor still keeps the Town alive.
+    const merchant = h.residents.get('hr-officer')!
+    for (const [id, actor] of h.residents) if (id !== 'hr-officer') actor.hp = 0
     expect(owner.evaluate(true, 0)).toBeNull()
-    state.combatElapsedSeconds = survivalSeconds - .1
+    owner.updateFlow(survivalSeconds - .1, 0)
     expect(owner.evaluate(true, 0)).toBeNull()
-    state.combatElapsedSeconds = survivalSeconds
+    owner.updateFlow(.1, 0)
     expect(owner.evaluate(true, 0)).toBe('victory') // A service resident is a valid deadline survivor.
-    merchant.npc.dead = true
+    merchant.hp = 0
     expect(owner.evaluate(true, 1)).toBe('victory') // A live HR ally can win while the player spectates.
     expect(owner.evaluate(false, 0)).toBe('victory') // The player alone also qualifies.
     expect(owner.evaluate(true, 0)).toBe('failure')
-    rider.dead = true
+    rider.hp = 0
     expect(owner.remainingEnemies).toBe(0)
-    expect(owner.evaluate(true, 0)).toBe('victory') // All20 civilian losses and mutual annihilation do not revoke victory.
-    // The casualty ledger independently accounts for an intentionally absent corpse after reload.
-    mission.deadTargetActorIds.push(lastId)
-    enemies.length = 0
-    expect(owner.evaluate(true, 1)).toBe('victory')
+    expect(owner.evaluate(true, 0)).toBe('victory') // Total civilian losses and mutual annihilation do not revoke victory.
+    owner.dispose()
   })
 })

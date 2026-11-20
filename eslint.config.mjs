@@ -72,7 +72,6 @@ const PROTOTYPE_HARNESS_BASELINE = new Map([
   ['tests/missions/CareerFelineLoading.test.ts', 1],
   ['tests/missions/CareerRace.test.ts', 11],
   ['tests/missions/SiegeRampPolicy.test.ts', 8],
-  ['tests/missions/TownDefenseOutcome.test.ts', 1],
   ['tests/missions/TownSiegePolicy.test.ts', 6],
   ['tests/movement/FriendlyMovementBypass.test.ts', 1],
   ['tests/movement/SweptBodyCollision.test.ts', 1],
@@ -80,7 +79,6 @@ const PROTOTYPE_HARNESS_BASELINE = new Map([
   ['tests/persistence/CareerPrisonBreak.test.ts', 9],
   ['tests/progression/CombatSkills.test.ts', 1],
   ['tests/town/TownConquest.test.ts', 1],
-  ['tests/town/TownGameplayReadiness.test.ts', 2],
   ['tests/town/TownTutorialUX.test.ts', 1],
 ])
 const NODE_TEST_APIS = new Set(['test', 'it', 'describe', 'suite'])

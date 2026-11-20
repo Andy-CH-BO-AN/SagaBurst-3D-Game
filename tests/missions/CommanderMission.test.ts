@@ -1,8 +1,8 @@
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { personalSquadFixture } from '../helpers/personalSquadFixture'
 import { careerRankFixture } from '../helpers/careerRankFixture'
-import type { Scene } from 'three'
 import { Box3, Vector3 } from 'three'
+import { recordingActorFactory } from '../helpers/careerActorDoubles'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { ActiveMissionClock } from '../../src/career/ActiveMissionClock'
 import type { CaptainEagleCheckpoint } from '../../src/career/CaptainEagleCheckpoint'
@@ -150,7 +150,7 @@ describe('Commander objective, merit and persistence', () => {
       beginExternalThreat: vi.fn(), setMissionCombatTarget: vi.fn(), setTacticalOrder: vi.fn() }
     const spec: TownActorSpec = { ...townRoster()[0], id: 'commander', role: 'commander' }
     // No jobs are materialized and no scene, Player or NPC constructor is used.
-    const controller = new CommanderTownMissionController(null as unknown as Scene,
+    const controller = new CommanderTownMissionController(recordingActorFactory(),
       [{ spec, npc: npc as unknown as NPC }], () => ({}) as Player,
       () => profile, next => { profile = next; return true }, {} as NavigationWorld, new NpcSpawnScheduler())
     onTestFinished(() => controller.dispose())
