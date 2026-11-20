@@ -68,7 +68,6 @@ const PROTOTYPE_HARNESS_BASELINE = new Map([
   ['tests/integration/ReliefResultSettlement.test.ts', 1],
   ['tests/missions/ArenaSquadTrials.test.ts', 2],
   ['tests/missions/CareerDuelState.test.ts', 1],
-  ['tests/missions/CareerFelineLoading.test.ts', 1],
   ['tests/missions/SiegeRampPolicy.test.ts', 7],
   ['tests/missions/TownDefenseOutcome.test.ts', 1],
   ['tests/movement/FriendlyMovementBypass.test.ts', 1],

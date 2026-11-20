@@ -58,5 +58,10 @@ describe('Town gameplay deployment readiness', () => {
     h.town.personalSquad.ready = true
     expect(h.ready()).toBe(true)
     h.defense.dispose()
+    // The home-Town four-gate defense holds for its personal squad the same way.
+    const fourGate = { ...h.profile().activeMission!, kind: 'commander-four-gate-defense' as const }
+    const held = (personalReady: boolean) => townDeploymentReady({ mission: { ready: true }, defense: { active: fourGate, ready: true },
+      personalSquad: { ready: personalReady }, activeMission: fourGate })
+    expect([held(false), held(true)]).toEqual([false, true])
   })
 })
