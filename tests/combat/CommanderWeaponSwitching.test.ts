@@ -8,7 +8,7 @@ import { chooseReversibleWeaponMode, needsWeaponModeDecision, withinRangedMeleeT
 import { ShieldState } from '../../src/combat/ShieldBlocking'
 import type { OutpostLayeredNavigation } from '../../src/navigation/OutpostLayeredNavigation'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
-import type { Player } from '../../src/player/Player'
+import { Player } from '../../src/player/Player'
 import { resolveRangedAim } from '../../src/player/RangedAimGate'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { chooseMerchantMelee, isTownMerchantLoadout, townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
@@ -156,6 +156,18 @@ describe('Combat animator bow-to-lance recovery', () => {
   interface AimFrame { action: CombatAction; rightMouseDown: boolean; wantAim: boolean; requiresRmbRelease: boolean; swinging: boolean; viewActive: boolean }
   const aim = (f: AimFrame) => ({ ...resolveRangedAim(f.action, f.rightMouseDown, f.wantAim, f.requiresRmbRelease, f.swinging, f.viewActive) })
 
+  /** The fields Player's real per-frame aim update reads and writes; its scene/model constructor is bypassed. */
+  interface AimFields {
+    animator: Pick<CharacterCombatAnimator, 'currentAction'>
+    isSwinging: boolean
+    aiming: boolean
+    rangedAimViewActive: boolean
+    rangedAimRequiresRmbRelease: boolean
+  }
+  const playerAimUpdate = (Player.prototype as unknown as {
+    _updateRangedAim(this: AimFields, rightMouseDown: boolean, wantAim: boolean): void
+  })._updateRangedAim
+
   it('射箭與連射的收招維持右鍵視角，收招中放開右鍵立即退出', () => {
     const fresh = { requiresRmbRelease: false } as const
     expect(aim({ ...rmbHeld, ...fresh, action: 'idle', viewActive: false }))
@@ -189,9 +201,16 @@ describe('Combat animator bow-to-lance recovery', () => {
     // The projectile event ended the view; releasing RMB mid-throw keeps the lock.
     expect(frame(rmbUp, true, false)).toEqual({ aiming: false, viewActive: false, requiresRmbRelease: true })
     expect(animator.update(profile.windup + profile.recovery - PILUM_THROW_RELEASE_TIME).actionCompleted).toBe(true)
-    expect(frame(rmbHeld, true, false)).toEqual({ aiming: false, viewActive: false, requiresRmbRelease: true })
-    expect(frame(rmbUp, true, false)).toEqual({ aiming: false, viewActive: false, requiresRmbRelease: false })
-    expect(frame(rmbHeld, false, false)).toEqual({ aiming: true, viewActive: true, requiresRmbRelease: false })
+    // After recovery, the real Player update keeps the lock while RMB stays held,
+    // clears it on release and aims on the next press, storing all three fields.
+    const player: AimFields = { animator, isSwinging: false,
+      aiming: false, rangedAimViewActive: false, rangedAimRequiresRmbRelease: true }
+    playerAimUpdate.call(player, true, true)
+    expect(player).toMatchObject({ aiming: false, rangedAimViewActive: false, rangedAimRequiresRmbRelease: true })
+    playerAimUpdate.call(player, false, false)
+    expect(player).toMatchObject({ aiming: false, rangedAimViewActive: false, rangedAimRequiresRmbRelease: false })
+    playerAimUpdate.call(player, true, true)
+    expect(player).toMatchObject({ aiming: true, rangedAimViewActive: true, rangedAimRequiresRmbRelease: false })
   })
 
   it('ends the fresh bow aim after a shot and permits another mounted shot', () => {
@@ -417,14 +436,16 @@ interface TemporaryLoadoutActor {
   shieldPivot: { visible: boolean }
   applyTemporaryCombatLoadout(loadout: UnitLoadout): void
   restoreCombatLoadout(): void
+  _switchToMelee(): void
 }
 /** Actual temporary-loadout transaction; only weapon and shield model rebuilding are external boundaries. */
 function temporaryLoadoutActor(): TemporaryLoadoutActor {
   return unconstructedNpc<TemporaryLoadoutActor>({
     state: AIState.IDLE, arrows: 7, rangedActive: true, _rangedDamage: 20, meleeWeaponId: 'steel_sword', rangedWeaponId: 'recurve_longbow',
-    shieldId: null, originalCombatEquipment: null, townArmed: false,
+    shieldId: null, originalCombatEquipment: null, townArmed: false, tacticalOrder: 'attack',
     loadout: { meleeWeaponId: 'steel_sword', rangedWeaponId: 'recurve_longbow', reversibleRangedSwitch: true },
-    animator: { cancel() {}, setEquipment() {} }, bowVisual: { hideArrow() {} }, rig: {},
+    animator: { busy: false, cancel() {}, setEquipment() {}, setShieldRaised() {} }, bowVisual: { hideArrow() {} }, rig: {},
+    shield: new ShieldState(), shieldCollider: { refreshVisibility() {} },
     swordPivot: { visible: false }, bowPivot: { visible: true }, shieldPivot: { visible: false },
     _rebuildActiveMeleeVisual() {}, _rebuildActiveRangedVisual() {}, rebuildShield() {},
   })
@@ -532,8 +553,12 @@ describe('Reversible NPC weapon choice', () => {
     actor.applyTemporaryCombatLoadout({ meleeWeaponId: 'heavy_lance', rangedWeaponId: 'recurve_longbow' })
     expect(actor).toMatchObject({ rangedWeaponId: 'recurve_longbow', arrows: 30, rangedActive: true })
     expect(pivots()).toEqual([false, false, false])
-    // Ammunition spent and a melee switch during the first override are not restored.
-    Object.assign(actor, { arrows: 12, rangedActive: false })
+    // An unarmed civilian keeps its weapon hidden on the real melee switch, which spends no ammunition.
+    actor._switchToMelee()
+    expect(actor).toMatchObject({ rangedActive: false, arrows: 30 })
+    expect(pivots()).toEqual([false, false, false])
+    // Ammunition spent and the melee switch during the first override are not restored.
+    actor.arrows = 12
     actor.applyTemporaryCombatLoadout(resolveT4UnitLoadout('roman_archer'))
     expect(actor).toMatchObject({ arrows: 30, rangedActive: true })
     expect(pivots()).toEqual([false, false, false])
