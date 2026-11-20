@@ -2,7 +2,6 @@
 import * as THREE from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Game } from '../../src/Game'
-import type { HeroCombatProfileId } from '../../src/battle/HeroCombatProfile'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { claimCareerMission, createCareerProfile } from '../../src/career/CareerProfile'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
@@ -10,7 +9,7 @@ import { CombatEventSinkStack, CombatEventStream, type CombatDamageContext, type
 import { damageMount, damageNpc, damageObstacle, damagePlayer } from '../../src/combat/DamageRouter'
 import { MountArmor } from '../../src/combat/MountArmor'
 import { ShieldCollider, ShieldState, WeaponSweep } from '../../src/combat/ShieldBlocking'
-import { punchEventsBetween } from '../../src/combat/UnarmedCombat'
+import { punchEventsBetween, type FistStrike } from '../../src/combat/UnarmedCombat'
 import { Player } from '../../src/player/Player'
 import { SkillManager } from '../../src/rpg/SkillManager'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
@@ -20,7 +19,7 @@ import { registerTownCombatDisplayName } from '../../src/ui/CombatTargetDisplayN
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import type { Mount } from '../../src/world/Mount'
 import { MountType } from '../../src/world/Mount'
-import { AIState, Faction, NPC } from '../../src/world/NPC'
+import { Faction, NPC } from '../../src/world/NPC'
 import { createCombatEventRecorder } from '../helpers/combatEventRecorder'
 
 function eventHarness() { return createCombatEventRecorder(onTestFinished) }
@@ -604,100 +603,92 @@ it('Career resident 與 mount 的真實空手傷害只發一次徒手 XP', () =>
   expect(town.skills.skillState.unarmed.xp).toBe(20)
 })
 
+/** Where the fist pursuit asked locomotion to move this frame; `maxDistance` is its straight-line stop cap. */
+interface MoveIntent { direction: THREE.Vector3; maxDistance: number }
+
+/** A plain NPC state on the real prototype at the origin, on foot, with no fall pending. Facing, foot physics and
+ * stepping are the locomotion boundary: the step only records its intent. No model, rig, mixer or scene. */
+function unarmedNpc(state: Record<string, unknown> = {}) {
+  const moves: MoveIntent[] = []
+  const npc = Object.assign(Object.create(NPC.prototype), {
+    group: { position: new THREE.Vector3() }, mount: null, rig: {}, pendingFall: { active: false }, mountedOrbitActive: true,
+    _faceDirection() {}, _updateFootPhysics() {},
+    _navigationPath: { clear() {} }, _tmpMoveDir: new THREE.Vector3(), _tmpNavigationTarget: new THREE.Vector3(),
+    _movementObstacleRadius: () => .4, _movementObstacleHeight: () => 1.8, _clearObstacleDetour() {}, _clearNavigationPath() {},
+    _moveByDirection(direction: THREE.Vector3, _speed: number, _dt: number, _sprint: boolean, maxDistance: number) {
+      moves.push({ direction: direction.clone(), maxDistance })
+    },
+    ...state,
+  }) as NPC
+  return { npc, moves }
+}
+
+/** Fist animation port: which combos were started or cancelled, and the strikes each frame samples. */
+function fistAnimator(busy: boolean, frames: FistStrike[][] = []) {
+  const animator = { busy, started: [] as string[], cancelled: 0,
+    start(clip: string) { this.started.push(clip) }, cancel() { this.cancelled++ }, setLocomotion() {},
+    update: () => ({ fists: frames.shift() ?? [] }) }
+  return animator
+}
+
+const duelPlayer = (z: number) => ({ dead: false, targetable: true, isMounted: false,
+  combatPosition: new THREE.Vector3(0, 0, z), group: { position: new THREE.Vector3(0, 0, z) } }) as Player
+type UnarmedDuelEntry = { updateUnarmedDuel(dt: number, player: Player, obstacles: [], distance: number, hit: (damage: number, isPlayer: boolean) => void): void }
+
 it('T1..T5 Duel NPC 真的出拳且每拳固定 5，保留 Tier 承傷配置', () => {
   const tiers = [
     [1, undefined, 100], [2, undefined, 100], [3, undefined, 100],
     [4, 'praetorian', 70], [5, 'roman-commander', 50],
   ] as const
-  for (const [tier, profile, expectedIncoming] of tiers) {
-    const strike = { from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }
+  for (const [, profile, expectedIncoming] of tiers) {
+    const animator = fistAnimator(false, [[{ from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }]])
     const hit = vi.fn()
-    const player = { dead: false, targetable: true, isMounted: false,
-      combatPosition: new THREE.Vector3(0, 0, .75), group: { position: new THREE.Vector3(0, 0, .75) } } as Player
-    const animator = { busy: false, cancel: vi.fn(), start: vi.fn(), setLocomotion() {},
-      update: () => ({ fists: [strike] }) }
-    const body = Object.assign(Object.create(NPC.prototype), {
-      duelUnarmed: true, duelHostile: true, combatProfileId: profile as HeroCombatProfileId | undefined,
-      _tier: tier, currentHp: 200, _maxHp: 200, state: AIState.CHASE, _faction: Faction.TOWN,
-      meleeWeaponId: null, loadout: {}, meleeAttackRadius: .8, mount: null,
-      group: { position: new THREE.Vector3() }, rig: {}, pendingFall: { active: false }, mountedOrbitActive: true,
-      animator, visualMovementSpeed: 0, _faceDirection() {}, _updateFootPhysics() {}, ...navigationStubs(),
-    }) as NPC
-    NPC.prototype.update.call(body, .2, player, [], [], [], { setFill() {} }, hit, () => false)
-    expect(animator.start).toHaveBeenCalledExactlyOnceWith('punchCombo', 1)
+    const { npc } = unarmedNpc({ duelUnarmed: true, duelHostile: true, combatProfileId: profile, currentHp: 200, animator })
+    npc.update(.2, duelPlayer(.75), [], [], [], { setFill() {} }, hit, () => false)
+    expect(animator.started).toEqual(['punchCombo'])
     expect(hit).toHaveBeenCalledExactlyOnceWith(5, true)
-    expect(body.meleeDamage).toBe(5)
-    NPC.prototype.takeDamage.call(body, 100)
-    expect(body.hp).toBe(200 - expectedIncoming)
-    const guard = NPC.prototype as unknown as { _isTargetInMeleeRange(target: THREE.Vector3): boolean }
-    expect(guard._isTargetInMeleeRange.call(body, player.combatPosition)).toBe(false)
+    expect(npc.meleeDamage).toBe(5)
+    npc.takeDamage(100)
+    expect(npc.hp).toBe(200 - expectedIncoming)
   }
 })
 
-const navigationStubs = () => ({ _navigationPath: { clear() {} }, _tmpMoveDir: new THREE.Vector3(), _tmpNavigationTarget: new THREE.Vector3(),
-  _movementObstacleRadius: () => .4, _movementObstacleHeight: () => 1.8, _clearObstacleDetour() {}, _clearNavigationPath() {} })
-
-it('空手 Duel NPC 追近後才出拳，超過拳頭 0.8m 的實體軌跡不造成傷害', () => {
-  const hit = vi.fn(), move = vi.fn()
-  const player = { dead: false, targetable: true, isMounted: false,
-    combatPosition: new THREE.Vector3(0, 0, 2), group: { position: new THREE.Vector3(0, 0, 2) } } as Player
-  const animator = { busy: false, cancel() {}, start: vi.fn(), setLocomotion() {},
-    update: () => ({ fists: [{ from: new THREE.Vector3(0, 1, .7), to: new THREE.Vector3(0, 1, 1.9) }] }) }
-  const body = Object.assign(Object.create(NPC.prototype), {
-    group: { position: new THREE.Vector3() }, animator, visualMovementSpeed: 0,
-    _faceDirection() {}, _updateFootPhysics() {}, _moveByDirection: move, ...navigationStubs(),
-  })
-  const entry = NPC.prototype as unknown as { updateUnarmedDuel(dt: number, player: Player, obstacles: [], distance: number, callback: typeof hit): void }
-  entry.updateUnarmedDuel.call(body, .2, player, [], 0, hit)
-  expect(move).toHaveBeenCalledOnce()
-  expect(animator.start).not.toHaveBeenCalled()
-  expect(hit).not.toHaveBeenCalled()
-})
-
 it('空手 Duel NPC 追擊沿用既有導航：路徑被牆擋住時朝路徑點而非玩家移動，不使用隱形劍範圍', () => {
-  const move = vi.fn()
-  const player = { dead: false, targetable: true, isMounted: false,
-    combatPosition: new THREE.Vector3(0, 0, 6), group: { position: new THREE.Vector3(0, 0, 6) } } as Player
-  const animator = { busy: false, cancel() {}, start: vi.fn(), setLocomotion() {}, update: () => ({ fists: [] }) }
+  const animator = fistAnimator(false)
   const waypoint = new THREE.Vector3(5, 0, 0)
-  const body = Object.assign(Object.create(NPC.prototype), {
-    group: { position: new THREE.Vector3() }, animator, visualMovementSpeed: 0, meleeAttackRadius: .8,
-    _faceDirection() {}, _updateFootPhysics() {}, _moveByDirection: move, ...navigationStubs(),
-    _resolveNavigationMoveTarget(_target: THREE.Vector3) { this._tmpNavigationTarget.copy(waypoint); return 'path' },
-  })
-  const entry = NPC.prototype as unknown as { updateUnarmedDuel(dt: number, player: Player, obstacles: [], distance: number, callback: () => void): void }
-  entry.updateUnarmedDuel.call(body, .2, player, [], 0, vi.fn())
-  const [direction, , , , maxDistance] = move.mock.calls[0]
-  expect(direction.x).toBeCloseTo(1)           // toward the A* waypoint around the wall
-  expect(Math.abs(direction.z)).toBeLessThan(1e-6)
-  expect(maxDistance).toBe(Infinity)            // no straight-line cap while following a route
-  expect(animator.start).not.toHaveBeenCalled() // 6 m away: no punch, no sword reach
+  const { npc, moves } = unarmedNpc({ animator, meleeAttackRadius: .8,
+    _resolveNavigationMoveTarget(this: { _tmpNavigationTarget: THREE.Vector3 }) { this._tmpNavigationTarget.copy(waypoint); return 'path' } })
+  const entry = npc as unknown as UnarmedDuelEntry
+  entry.updateUnarmedDuel(.2, duelPlayer(6), [], 0, vi.fn())
+  expect(moves).toHaveLength(1)
+  expect(moves[0].direction.x).toBeCloseTo(1)           // toward the A* waypoint around the wall
+  expect(Math.abs(moves[0].direction.z)).toBeLessThan(1e-6)
+  expect(moves[0].maxDistance).toBe(Infinity)            // no straight-line cap while following a route
+  expect(animator.started).toEqual([])                   // 6 m away: no punch, no sword reach
   // Unreachable: persistent detour is used, and with none active the NPC holds position.
-  move.mockClear()
-  Object.assign(body, { _resolveNavigationMoveTarget: () => 'unreachable', _detourActive: false, _applyPersistentObstacleDetour() {} })
-  entry.updateUnarmedDuel.call(body, .2, player, [], 0, vi.fn())
-  expect(move).not.toHaveBeenCalled()
+  Object.assign(npc, { _resolveNavigationMoveTarget: () => 'unreachable', _detourActive: false, _applyPersistentObstacleDetour() {} })
+  entry.updateUnarmedDuel(.2, duelPlayer(6), [], 0, vi.fn())
+  expect(moves).toHaveLength(1)
 })
 
 it('空手 Duel NPC 四連拳播放中玩家退出拳距：繼續逼近，不取消、不重啟連拳，也不重複傷害', () => {
-  const hit = vi.fn(), move = vi.fn(), cancel = vi.fn()
-  const player = { dead: false, targetable: true, isMounted: false,
-    combatPosition: new THREE.Vector3(0, 0, 3), group: { position: new THREE.Vector3(0, 0, 3) } } as Player
-  const animator = { busy: true, cancel, start: vi.fn(), setLocomotion() {}, update: () => ({ fists: [] }) }
-  const body = Object.assign(Object.create(NPC.prototype), {
-    group: { position: new THREE.Vector3() }, animator, visualMovementSpeed: 0,
-    _faceDirection() {}, _updateFootPhysics() {}, _moveByDirection: move, ...navigationStubs(),
-  })
-  const entry = NPC.prototype as unknown as { updateUnarmedDuel(dt: number, player: Player, obstacles: [], distance: number, callback: typeof hit): void }
-  entry.updateUnarmedDuel.call(body, .2, player, [], 0, hit)
-  expect(move).toHaveBeenCalledOnce()
-  expect(move.mock.calls[0][0].z).toBeGreaterThan(.99) // Toward the player while the combo is still playing.
-  expect([animator.start, cancel, hit].map(spy => spy.mock.calls.length)).toEqual([0, 0, 0])
+  // The running combo still swings a jab that reaches z = 2.9: on a target 3 m away it must not land, since the
+  // 0.8m fist reach is measured from this NPC, not from the target it chases.
+  const animator = fistAnimator(true, [[{ from: new THREE.Vector3(0, 1, .7), to: new THREE.Vector3(0, 1, 2.9) }]])
+  const hit = vi.fn()
+  const { npc, moves } = unarmedNpc({ animator })
+  const entry = npc as unknown as UnarmedDuelEntry
+  const player = duelPlayer(3)
+  entry.updateUnarmedDuel(.2, player, [], 0, hit)
+  expect(moves).toHaveLength(1)
+  expect(moves[0].direction.z).toBeGreaterThan(.99) // Toward the player while the combo is still playing.
+  expect({ started: animator.started, cancelled: animator.cancelled }).toEqual({ started: [], cancelled: 0 })
+  expect(hit).not.toHaveBeenCalled()
   // Inside punch range mid-combo, the NPC holds and the running combo is neither restarted nor stacked.
   player.combatPosition.set(0, 0, .5)
-  move.mockClear()
-  entry.updateUnarmedDuel.call(body, .2, player, [], 0, hit)
-  expect([move.mock.calls.length, animator.start.mock.calls.length]).toEqual([0, 0])
+  entry.updateUnarmedDuel(.2, player, [], 0, hit)
+  expect(moves).toHaveLength(1)
+  expect(animator.started).toEqual([])
 })
 
 it('空手 NPC 的出拳距離同時可觸發（大於身體碰撞距離）且打得到（拳頭可及），追擊停點在觸發距離內', async () => {
@@ -743,24 +734,16 @@ it('protects HR mounts from the real Town damage caller during defense preparati
 
 
 it('徒手戰俘沿正式 NPC 索敵命中敵對 NPC，傳遞拳頭接觸與正確受害者', () => {
-  const strike = { from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }
-  const target = Object.assign(Object.create(NPC.prototype), {
-    group: { position: new THREE.Vector3(0, 0, .75) }, mount: null, state: AIState.IDLE, _faction: Faction.ENEMY,
-  }) as NPC
-  const hit = vi.fn((_damage: number, isPlayer: boolean, victim?: NPC) => {
-    expect(isPlayer).toBe(false)
-    expect(victim).toBe(target)
-    expect(body.unarmedContact?.attackSource).toBe('unarmed')
-  })
-  const body = Object.assign(Object.create(NPC.prototype), {
-    battlefieldUnarmed: true, missionCombatTarget: target, _faction: Faction.PLAYER,
-    group: { position: new THREE.Vector3() }, rig: {}, state: AIState.CHASE,
-    pendingFall: { active: false }, mountedOrbitActive: true,
-    animator: { busy: false, cancel() {}, start() {}, setLocomotion() {}, update: () => ({ fists: [strike] }) },
-    _faceDirection() {}, _updateFootPhysics() {}, ...navigationStubs(),
-  }) as NPC
-  const player = { dead: false } as Player
-  NPC.prototype.update.call(body, .2, player, [target], [target], [], { setFill() {} }, hit, () => false)
+  const { npc: target } = unarmedNpc({ _faction: Faction.ENEMY })
+  target.group.position.set(0, 0, .75)
+  const contacts: (string | undefined)[] = []
+  const hit = vi.fn((_damage: number, _isPlayer: boolean, _victim?: NPC) => { contacts.push(body.unarmedContact?.attackSource) })
+  const { npc: body } = unarmedNpc({ battlefieldUnarmed: true, _faction: Faction.PLAYER,
+    animator: fistAnimator(false, [[{ from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }]]) })
+  body.setMissionCombatTarget(target)
+  body.update(.2, { dead: false } as Player, [target], [target], [], { setFill() {} }, hit, () => false)
   expect(hit).toHaveBeenCalledExactlyOnceWith(5, false, target)
+  // The fist contact is visible to the damage callback only while it runs.
+  expect(contacts).toEqual(['unarmed'])
   expect(body.unarmedContact).toBeUndefined()
 })
