@@ -51,6 +51,7 @@ import { CareerProfileStore } from '../career/CareerProfileStore'
 import { canAppointCareerRank, type CareerAppointingRole } from '../career/CareerPromotionAuthority'
 import { CareerRaceController } from '../career/CareerRaceController'
 import { sceneCareerActorFactory } from '../career/CareerActorFactory'
+import { townDeploymentReady } from './TownDeploymentReady'
 import { MobileSiegeRamp } from '../campaign/MobileSiegeRamp'
 import { raceReturnAction } from '../career/CareerRaceReturn'
 import { RACE_LINES } from '../career/CareerRaceRoute'
@@ -356,10 +357,7 @@ export class TownScene {
   private residentSpawnBatch?: NpcSpawnBatch
   private commanderReturnPending = false
   private get deploymentReady(): boolean {
-    // An idle Commander controller has no deployed roster. Only its active
-    // mission may hold Town simulation while that roster is being prepared.
-    return (this.mission?.ready ?? true) && (!this.defense?.active || this.defense.ready)
-      && (!(isCommanderTownMission(this.profile.activeMission) || this.profile.activeMission?.kind === 'commander-four-gate-defense') || (this.personalSquad?.ready ?? true))
+    return townDeploymentReady({ mission: this.mission, defense: this.defense, personalSquad: this.personalSquad, activeMission: this.profile.activeMission })
   }
   private get deploymentFailed(): boolean {
     return [...(this.mission?.spawnBatches ?? []), ...(this.defense?.spawnBatches ?? []), ...(this.outskirts?.batches ?? []), ...(this.enemyEaglePatrol?.batches ?? [])]
