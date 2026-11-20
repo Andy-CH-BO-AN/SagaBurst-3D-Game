@@ -1,7 +1,8 @@
 import { afterEach,beforeEach,describe,expect,it,onTestFinished,vi } from 'vitest'
 import { playAppliedPunchHit, SoundManager } from '../../src/audio/SoundManager'
 
-type ResumeOutcome = 'granted' | 'stays-suspended' | 'rejects'
+/** 'pending': autoplay is denied and resume() stays unsettled until a later user gesture. */
+type ResumeOutcome = 'granted' | 'stays-suspended' | 'rejects' | 'pending'
 
 /** Follows AudioBufferSourceNode rules: one start, no stop before start, and stop ends asynchronously. */
 class Source extends EventTarget {
@@ -38,11 +39,19 @@ class FakeAudioContext {
   currentTime = 0
   destination = {}
   readonly sources: Source[] = []
+  private readonly pendingResumes: (() => void)[] = []
   readonly resume = vi.fn(async (): Promise<void> => {
     await Promise.resolve()
     if (this.resumeOutcome === 'rejects') throw new DOMException('Autoplay denied', 'NotAllowedError')
+    if (this.resumeOutcome === 'pending') return new Promise<void>(resolve => this.pendingResumes.push(resolve))
     if (this.resumeOutcome === 'granted') this.state = 'running'
   })
+
+  /** A later user gesture finally grants playback to every still-pending resume(). */
+  gestureGrantsPendingResumes(): void {
+    if (this.pendingResumes.length > 0) this.state = 'running'
+    for (const resolve of this.pendingResumes.splice(0)) resolve()
+  }
 
   constructor(private readonly resumeOutcome: ResumeOutcome = 'granted') {}
 
@@ -62,7 +71,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) })))
   vi.spyOn(Date, 'now').mockReturnValue(10000)
 })
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 function managerFixture() {
   const manager = new SoundManager()
@@ -137,7 +146,10 @@ describe('Lazy Career audio runtime', () => {
   })
 
   it('drops Follow and the town alarm without starting audio when the browser keeps autoplay suspended', async () => {
-    for (const resumeOutcome of ['stays-suspended', 'rejects'] as const) {
+    // A cue more than half a second late no longer matches its event; it must be dropped by then.
+    const LATE_CUE_MS = 500
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    for (const [resumeOutcome, resumeSettles] of [['stays-suspended', true], ['rejects', true], ['pending', false]] as const) {
       ctx = new FakeAudioContext(resumeOutcome)
       sources = ctx.sources
       const manager = managerFixture()
@@ -148,12 +160,20 @@ describe('Lazy Career audio runtime', () => {
       const alarmPlayed = vi.fn()
       void manager.playTownAlarm(true).then(alarmPlayed)
       await flush()
+      expect(vi.getTimerCount() > 0, 'only a still-pending resume() keeps its drop timer armed').toBe(!resumeSettles)
+      await vi.advanceTimersByTimeAsync(LATE_CUE_MS)
 
       expect(ctx.resume).toHaveBeenCalled()
       expect(ctx.state).toBe('suspended')
       expect(finished).toHaveBeenCalledExactlyOnceWith()
       expect(alarmPlayed).toHaveBeenCalledExactlyOnceWith(false)
+
+      // A gesture that finally grants the old resume() must not start the dropped cues.
+      ctx.gestureGrantsPendingResumes()
+      await flush()
       expect(sources.filter(source => source.started)).toEqual([])
+      expect(finished).toHaveBeenCalledTimes(1)
+      expect(alarmPlayed).toHaveBeenCalledTimes(1)
     }
   })
 })

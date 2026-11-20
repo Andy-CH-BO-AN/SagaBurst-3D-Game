@@ -31,6 +31,12 @@ const EAGLE_WINGBEAT = { volume: 0.5, nearDistance: 12, farDistance: 140, maxNpc
 const MAX_BATTLE_IMPACT_VOICES = 16
 const TOWN_ALARM_STRIKES = 6
 const TOWN_ALARM_INTERVAL_SECONDS = 1
+/**
+ * A granted resume() settles within a frame or two; one denied by autoplay policy may stay
+ * pending until a user gesture. Past this bound the Career cue is already out of sync with
+ * the event it narrates (and would hold the commander after the alarm), so it is dropped.
+ */
+const CAREER_AUDIO_RESUME_TIMEOUT_MS = 250
 
 type AudioAsset =
   | 'punchHit'
@@ -406,7 +412,7 @@ export class SoundManager {
       if (!this.ctx) this.unlockAudio()
       const ctx = this.ctx
       if (!ctx) return false
-      if (ctx.state === 'suspended') await ctx.resume()
+      if (ctx.state === 'suspended') await resumeWithin(ctx, CAREER_AUDIO_RESUME_TIMEOUT_MS)
       return ctx.state === 'running'
     } catch {
       return false
@@ -653,6 +659,16 @@ export class SoundManager {
     }
     this.gallopLoops.delete(id)
   }
+}
+
+/**
+ * Wait for resume() to settle, but no longer than timeoutMs; rejection still propagates.
+ * The bound's timer is cleared as soon as either side settles, so none outlives the wait.
+ */
+function resumeWithin(ctx: AudioContext, timeoutMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<void>(resolve => { timer = setTimeout(resolve, timeoutMs) })
+  return Promise.race([ctx.resume(), expired]).finally(() => clearTimeout(timer))
 }
 
 /** A punch sound is emitted only for real, effective fist contact. */
