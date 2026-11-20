@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Vector3 } from 'three'
 import { Game } from '../../src/Game'
+import { commanderOutpostCombatLocked } from '../../src/career/CommanderOutpost'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
 import { InteractionFocus } from '../../src/world/InteractionFocus'
 import { WeaponPickup } from '../../src/world/WeaponPickup'
@@ -42,13 +43,14 @@ describe('Game pickup caller', () => {
       isMounted: true, currentMount: h.mount,
       dismountFromMount: () => { Object.assign(h.player, { isMounted: false, currentMount: null }) },
     })
+    // The same preparation state Game hands to the Last Stand lock owner.
+    const lock = { coopGuest: false, launch: { careerCommanderOutpost: {} },
+      runtime: { getSnapshot: () => ({ activePhase: 'deployment' as const }) }, deploymentBatch: { ready: true } }
     Object.assign(h.game, {
-      defenseCampaignConfig: { careerCommanderOutpost: {} },
-      defenseCampaignRuntime: { getSnapshot: () => ({ activePhase: 'deployment' }) },
-      commanderOutpostDeploymentBatch: { ready: true },
+      defenseCampaignConfig: lock.launch, defenseCampaignRuntime: lock.runtime, commanderOutpostDeploymentBatch: lock.deploymentBatch,
       _aimTargetRegistry: { registerMount }, mountHud: { classList: { remove: hideMountHud } },
     })
-    const combatLocked = () => (h.game as unknown as { _commanderOutpostCombatLocked(): boolean })._commanderOutpostCombatLocked()
+    const combatLocked = () => commanderOutpostCombatLocked(lock)
     expect(combatLocked()).toBe(true)
     h.game._updateInteractions(0)
     expect(h.prompt()).toBe('[E] 下騎')
