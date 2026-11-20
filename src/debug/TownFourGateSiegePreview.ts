@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import { resolveT4UnitLoadout,T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
 import { TownFourGateSiege,type TownSiegeSectorRoster } from '../career/TownFourGateSiege'
+import { MobileSiegeRamp } from '../campaign/MobileSiegeRamp'
 import { parseTownFourGateSiegeCheckpoint } from '../career/TownFourGateSiegeCheckpoint'
 import { createTownSiegeCrewSlots,townSiegeFrame } from '../career/TownFourGateSiegePolicy'
 import { damageNpc,damagePlayer } from '../combat/DamageRouter'
@@ -78,7 +79,7 @@ export async function launchTownFourGateSiegePreview(container: HTMLElement): Pr
     navigation.setTownRamparts(world.fortifications.rampartLayout); navigation.sync(world.obstacles)
     const sectors: TownSiegeSectorRoster[] = TOWN_GATES.map(gate => ({ gateId: gate.id,
       wallActorIds: [-1, 1].map(side => `preview:wall:${gate.id}:${side}`), cavalryActorIds: [`preview:cavalry:${gate.id}`] }))
-    siege = new TownFourGateSiege({ scene, world, navigation, grid, actors: () => actors, sectors,
+    siege = new TownFourGateSiege({ createRamp: (...ramp) => new MobileSiegeRamp(scene, ...ramp), world, navigation, grid, actors: () => actors, sectors,
       acceptsOrders: () => true, registerHit: ramp => { hitTargets.add(ramp.damageable) }, unregisterHit: ramp => { hitTargets.delete(ramp.damageable) } }, saved)
     const slots = createTownSiegeCrewSlots(attacker)
     siege.prepare(slots)

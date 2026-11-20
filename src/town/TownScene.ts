@@ -50,6 +50,8 @@ import { CAREER_RANK_LABELS, CAREER_RANK_THRESHOLDS, CAREER_RANKS, clearCareerMi
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { canAppointCareerRank, type CareerAppointingRole } from '../career/CareerPromotionAuthority'
 import { CareerRaceController } from '../career/CareerRaceController'
+import { sceneCareerActorFactory } from '../career/CareerActorFactory'
+import { MobileSiegeRamp } from '../campaign/MobileSiegeRamp'
 import { raceReturnAction } from '../career/CareerRaceReturn'
 import { RACE_LINES } from '../career/CareerRaceRoute'
 import { RACE_STORY_RACE_ID, raceDefinitionForSchedule, type RaceId } from '../career/CareerRaceState'
@@ -606,9 +608,11 @@ export class TownScene {
     this.duel.resolvePlayerHomeMount = () => this.careerMounts?.activeMount ?? null
     this.duel.onMarchStarted = () => this.playMissionVoice('follow')
     this.duel.onReturnStarted = () => this.playMissionVoice('return')
+    const missionActors = sceneCareerActorFactory(this.scene)
     this.defense = this.profile.activeMission?.kind === 'commander-four-gate-defense'
-      ? new CommanderFourGateDefenseController(this.scene, this.residents, () => this.player, () => this.profile,
-        p => this.commit(p), this.navigation, { world: this.world, patrol: this.patrol, outskirts: this.outskirts,
+      ? new CommanderFourGateDefenseController(missionActors, this.residents, () => this.player, () => this.profile,
+        p => this.commit(p), this.navigation, { world: this.world, createRamp: (...ramp) => new MobileSiegeRamp(this.scene, ...ramp),
+          patrol: this.patrol, outskirts: this.outskirts,
           blockers: () => this.siegeMovementBlockers(),
           registerHit: ramp => {
             this.siegeHitTargets.add(ramp.damageable)
@@ -617,7 +621,7 @@ export class TownScene {
               ramp.surface.topY - ramp.surface.startY) + ramp.bridgeSurface.length + 8)
           },
           unregisterHit: ramp => { this.siegeHitTargets.delete(ramp.damageable) } })
-      : new CommanderTownMissionController(this.scene, this.residents, () => this.player, () => this.profile,
+      : new CommanderTownMissionController(missionActors, this.residents, () => this.player, () => this.profile,
         p => this.commit(p), this.navigation, undefined, { obstacles: this.world.obstacles,
           otherThreats: () => [...this.mission.ambientBandits, ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? [])]
             .filter(npc => !npc.dead && (npc.faction === Faction.ENEMY || npc.faction === Faction.BANDIT))
@@ -634,7 +638,7 @@ export class TownScene {
     })
     this.defense.civilianCommandOwns = npc => Boolean(this.civilianCommand?.ownsPlayerCommand(npc) || this.civilianCommand?.ownsPeacefulTravel(npc))
     this.initializeCareerMounts()
-    this.race = new CareerRaceController(this.scene, this.navigation, this.world.obstacles, this.residents,
+    this.race = new CareerRaceController(missionActors, this.navigation, this.world.obstacles, this.residents,
       () => this.player, this.hp, this.careerMounts, () => this.profile, p => this.commit(p, this.player.dead && this.profile.activeRace && !p.activeRace ? 'grounded-return' : 'ordinary'))
     this.race.parkedBlockers = except => [...this.townReturnBlockers(except)]
     this.race.returnGroundHeight = (x, z) => this.sergeantReturnGroundHeight(x, z)
