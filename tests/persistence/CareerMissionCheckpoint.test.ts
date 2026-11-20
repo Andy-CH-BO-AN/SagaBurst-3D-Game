@@ -294,9 +294,11 @@ describe('CareerMissionCheckpoint', () => {
     controller.setPreparationElapsed(0)
     controller.updateFlow(20, 0)
     expect(controller.survivalRemaining).toBe(survivalSeconds)
-    controller.setPreparationElapsed(2.5)
+    controller.setPreparationElapsed(survivalSeconds)
     controller.updateFlow(.05, 0)
-    expect(controller.survivalRemaining).toBe(survivalSeconds - 2.5)
+    expect(controller.survivalRemaining).toBe(0)
+    // The live frame's snapshot, not a caller-supplied result, owns the saved survival receipt.
+    expect(h.profile().activeMission!.fourGateDefense!.victoryReason).toBe('survival')
 
     // An escort release is a one-shot receipt in the same checkpoint: a refused save keeps the
     // escort holding, and the retried frame releases the group once.
