@@ -4,7 +4,7 @@ import { resolveT4UnitLoadout } from '../../src/battle/T4HeroCatalog'
 import type { UnitLoadout } from '../../src/battle/UnitPresetCatalog'
 import { careerCommanderLoadout } from '../../src/career/CareerCommanderEquipment'
 import { Faction } from '../../src/combat/CombatFaction'
-import { chooseReversibleWeaponMode, needsWeaponModeDecision, type WeaponModeDecisionGate, withinRangedMeleeThreatReach } from '../../src/combat/ReversibleWeaponMode'
+import { chooseReversibleWeaponMode, needsWeaponModeDecision, withinRangedMeleeThreatReach } from '../../src/combat/ReversibleWeaponMode'
 import { ShieldState } from '../../src/combat/ShieldBlocking'
 import type { OutpostLayeredNavigation } from '../../src/navigation/OutpostLayeredNavigation'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
@@ -12,7 +12,7 @@ import type { Player } from '../../src/player/Player'
 import { resolveRangedAim } from '../../src/player/RangedAimGate'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { chooseMerchantMelee, isTownMerchantLoadout, townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
-import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, meleeActionTimeScale, PILUM_THROW_RELEASE_TIME } from '../../src/world/CharacterCombatAnimator'
+import { CharacterCombatAnimator, type CombatAction, COMBAT_ANIMATION_PROFILES, meleeActionTimeScale, PILUM_THROW_RELEASE_TIME } from '../../src/world/CharacterCombatAnimator'
 import { type EquipmentPoseState } from '../../src/world/CharacterEquipmentPose'
 import type { CharacterRig, HumanoidAnimationController, HumanoidAnimationPlayOptions, HumanoidAnimationState } from '../../src/world/CharacterVisuals'
 import type { EquipmentGripFrames } from '../../src/world/EquipmentAttachmentContract'
@@ -153,30 +153,32 @@ describe('Combat animator imported melee clock', () => {
 describe('Combat animator bow-to-lance recovery', () => {
   const rmbHeld = { rightMouseDown: true, wantAim: true, swinging: false } as const
   const rmbUp = { rightMouseDown: false, wantAim: false, swinging: false } as const
+  interface AimFrame { action: CombatAction; rightMouseDown: boolean; wantAim: boolean; requiresRmbRelease: boolean; swinging: boolean; viewActive: boolean }
+  const aim = (f: AimFrame) => ({ ...resolveRangedAim(f.action, f.rightMouseDown, f.wantAim, f.requiresRmbRelease, f.swinging, f.viewActive) })
 
   it('射箭與連射的收招維持右鍵視角，收招中放開右鍵立即退出', () => {
     const fresh = { requiresRmbRelease: false } as const
-    expect(resolveRangedAim({ ...rmbHeld, ...fresh, action: 'idle', viewActive: false }))
+    expect(aim({ ...rmbHeld, ...fresh, action: 'idle', viewActive: false }))
       .toEqual({ aiming: true, viewActive: true, requiresRmbRelease: false })
-    expect(resolveRangedAim({ ...rmbHeld, ...fresh, action: 'bowAim', viewActive: true }))
+    expect(aim({ ...rmbHeld, ...fresh, action: 'bowAim', viewActive: true }))
       .toEqual({ aiming: true, viewActive: true, requiresRmbRelease: false })
     // Release and recovery block a new draw but keep the held view for rapid fire.
-    expect(resolveRangedAim({ ...rmbHeld, ...fresh, action: 'bowRelease', viewActive: true }))
+    expect(aim({ ...rmbHeld, ...fresh, action: 'bowRelease', viewActive: true }))
       .toEqual({ aiming: false, viewActive: true, requiresRmbRelease: false })
     // Letting go of RMB mid-recovery leaves the view on that same frame.
-    expect(resolveRangedAim({ ...rmbUp, ...fresh, action: 'bowRelease', viewActive: true }))
+    expect(aim({ ...rmbUp, ...fresh, action: 'bowRelease', viewActive: true }))
       .toEqual({ aiming: false, viewActive: false, requiresRmbRelease: false })
-    expect(resolveRangedAim({ ...rmbUp, ...fresh, action: 'idle', viewActive: false }))
+    expect(aim({ ...rmbUp, ...fresh, action: 'idle', viewActive: false }))
       .toEqual({ aiming: false, viewActive: false, requiresRmbRelease: false })
     // A melee swing never opens the ranged view.
-    expect(resolveRangedAim({ ...rmbHeld, ...fresh, swinging: true, action: 'swordSlash', viewActive: false }))
+    expect(aim({ ...rmbHeld, ...fresh, swinging: true, action: 'swordSlash', viewActive: false }))
       .toEqual({ aiming: false, viewActive: false, requiresRmbRelease: false })
   })
 
   it('標槍投擲維持既有釋放前視角與右鍵重新按壓限制', () => {
     const { animator } = lanceAnimator()
     const frame = (input: typeof rmbHeld | typeof rmbUp, requiresRmbRelease: boolean, viewActive: boolean) =>
-      resolveRangedAim({ ...input, action: animator.currentAction, requiresRmbRelease, viewActive })
+      aim({ ...input, action: animator.currentAction, requiresRmbRelease, viewActive })
     expect(frame(rmbHeld, false, false)).toEqual({ aiming: true, viewActive: true, requiresRmbRelease: false })
     animator.posePilum(0)
     expect(animator.start('pilumThrow')).toBe(true)
@@ -430,9 +432,8 @@ function temporaryLoadoutActor(): TemporaryLoadoutActor {
 
 describe('Reversible NPC weapon choice', () => {
   it('keeps the active weapon inside the 6-9 m hysteresis band and re-equips ranged only for a live target in bow range', () => {
-    const mode = (rangedActive: boolean, threat: number, target: number | null = 20, arrows = 12) => chooseReversibleWeaponMode({
-      arrows, rangedActive, threatDistanceSq: threat ** 2, targetDistanceSq: target === null ? null : target ** 2, maxRangedAttackDistance: 30,
-    })
+    const mode = (rangedActive: boolean, threat: number, target: number | null = 20, arrows = 12) =>
+      chooseReversibleWeaponMode(arrows, rangedActive, threat ** 2, target === null ? null : target ** 2, 30)
     // Shooting continues until a threat closes to 6 m.
     expect(mode(true, Infinity)).toBe('ranged')
     expect(mode(true, 6.01)).toBe('ranged')
@@ -471,9 +472,11 @@ describe('Reversible NPC weapon choice', () => {
   })
 
   it('decides weapon mode only between committed actions and skips a melee fighter with no ammunition', () => {
-    const gate = (update: Partial<WeaponModeDecisionGate> = {}) => needsWeaponModeDecision({
-      hasRangedWeapon: true, hasMeleeWeapon: true, busy: false, arrows: 12, rangedActive: true, ...update,
-    })
+    const hybrid = { hasRangedWeapon: true, hasMeleeWeapon: true, busy: false, arrows: 12, rangedActive: true }
+    const gate = (update: Partial<typeof hybrid> = {}) => {
+      const g = { ...hybrid, ...update }
+      return needsWeaponModeDecision(g.hasRangedWeapon, g.hasMeleeWeapon, g.busy, g.arrows, g.rangedActive)
+    }
     expect(gate()).toBe(true)
     expect(gate({ rangedActive: false })).toBe(true)
     // Arrow recovery and melee swings finish before any re-equip.

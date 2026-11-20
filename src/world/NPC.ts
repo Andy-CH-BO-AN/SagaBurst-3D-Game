@@ -5156,8 +5156,8 @@ export class NPC {
     player: Player, nearby: readonly NPC[], obstacles: ObstacleData[],
   ): void {
     // Committed releases and swings finish before any equipment decision or threat scan.
-    if (!needsWeaponModeDecision({ hasRangedWeapon: Boolean(this.rangedWeaponId), hasMeleeWeapon: Boolean(this.meleeWeaponId),
-      busy: this.animator.busy, arrows: this.arrows, rangedActive: this.rangedActive })) return
+    if (!needsWeaponModeDecision(Boolean(this.rangedWeaponId), Boolean(this.meleeWeaponId),
+      this.animator.busy, this.arrows, this.rangedActive)) return
     // Siege targets remain valid for ranged/obstacle attacks; only hostile actors threaten melee contact.
     // Player proximity is checked independently below, including when an obstacle is the selected target.
     let threatSq = target && !target.isDead && target.npc && !target.npc.dead
@@ -5173,9 +5173,9 @@ export class NPC {
         threatSq = Math.min(threatSq, this.combatPosition.distanceToSquared(other.combatPosition))
       }
     }
-    let ranged = chooseReversibleWeaponMode({ arrows: this.arrows, rangedActive: this.rangedActive, threatDistanceSq: threatSq,
-      targetDistanceSq: target && !target.isDead ? this.combatPosition.distanceToSquared(target.position) : null,
-      maxRangedAttackDistance: this.maxRangedAttackDistance }) === 'ranged'
+    let ranged = chooseReversibleWeaponMode(this.arrows, this.rangedActive, threatSq,
+      target && !target.isDead ? this.combatPosition.distanceToSquared(target.position) : null,
+      this.maxRangedAttackDistance) === 'ranged'
     if (ranged && !this.rangedActive && target) {
       const blocker = this._findRangedTrajectoryBlocker(target.position, obstacles)
       // Hitting the assigned siege target is a valid shot, matching obstacle attack fallback.

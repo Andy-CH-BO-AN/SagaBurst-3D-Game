@@ -5,33 +5,16 @@ export const RANGED_REEQUIP_MIN = RANGED_ATTACK_MIN + 3
 
 export type ReversibleWeaponMode = 'ranged' | 'melee'
 
-export interface WeaponModeDecisionGate {
-  readonly hasRangedWeapon: boolean
-  readonly hasMeleeWeapon: boolean
-  /** A committed release or swing is still playing. */
-  readonly busy: boolean
-  readonly arrows: number
-  readonly rangedActive: boolean
-}
-
 /**
  * Whether a hybrid should evaluate its weapon mode this frame. Callers check it
- * before any threat scan: committed actions finish first, and a melee fighter
- * with no ammunition has nothing to switch to.
+ * before any threat scan: committed actions (`busy`) finish first, and a melee
+ * fighter with no ammunition has nothing to switch to. Positional primitives
+ * keep the per-frame NPC path allocation-free.
  */
-export function needsWeaponModeDecision(gate: WeaponModeDecisionGate): boolean {
-  if (!gate.hasRangedWeapon || !gate.hasMeleeWeapon || gate.busy) return false
-  return !(gate.arrows <= 0 && !gate.rangedActive)
-}
-
-export interface ReversibleWeaponModeInput {
-  readonly arrows: number
-  readonly rangedActive: boolean
-  /** Squared distance to the nearest hostile that can reach melee contact; Infinity when none. */
-  readonly threatDistanceSq: number
-  /** Squared distance to the live selected target; null when there is none. */
-  readonly targetDistanceSq: number | null
-  readonly maxRangedAttackDistance: number
+export function needsWeaponModeDecision(hasRangedWeapon: boolean, hasMeleeWeapon: boolean, busy: boolean,
+  arrows: number, rangedActive: boolean): boolean {
+  if (!hasRangedWeapon || !hasMeleeWeapon || busy) return false
+  return !(arrows <= 0 && !rangedActive)
 }
 
 /**
@@ -39,12 +22,15 @@ export interface ReversibleWeaponModeInput {
  * beyond RANGED_ATTACK_MIN, and melee re-equips ranged only when every threat
  * is at RANGED_REEQUIP_MIN or more and a live target is within bow range.
  * A ranged re-equip still needs the caller's clear-shot check.
+ * @param threatDistanceSq nearest hostile that can reach melee contact; Infinity when none.
+ * @param targetDistanceSq the live selected target; null when there is none.
  */
-export function chooseReversibleWeaponMode(input: ReversibleWeaponModeInput): ReversibleWeaponMode {
-  if (!(input.arrows > 0)) return 'melee'
-  if (input.rangedActive) return input.threatDistanceSq > RANGED_ATTACK_MIN ** 2 ? 'ranged' : 'melee'
-  return input.threatDistanceSq >= RANGED_REEQUIP_MIN ** 2 && input.targetDistanceSq !== null
-    && input.targetDistanceSq <= input.maxRangedAttackDistance ** 2 ? 'ranged' : 'melee'
+export function chooseReversibleWeaponMode(arrows: number, rangedActive: boolean, threatDistanceSq: number,
+  targetDistanceSq: number | null, maxRangedAttackDistance: number): ReversibleWeaponMode {
+  if (!(arrows > 0)) return 'melee'
+  if (rangedActive) return threatDistanceSq > RANGED_ATTACK_MIN ** 2 ? 'ranged' : 'melee'
+  return threatDistanceSq >= RANGED_REEQUIP_MIN ** 2 && targetDistanceSq !== null
+    && targetDistanceSq <= maxRangedAttackDistance ** 2 ? 'ranged' : 'melee'
 }
 
 /**

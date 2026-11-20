@@ -739,10 +739,8 @@ export class Player {
   }
 
   private _updateRangedAim(rightMouseDown: boolean, wantAim: boolean): void {
-    const aim = resolveRangedAim({
-      action: this.animator.currentAction, rightMouseDown, wantAim,
-      requiresRmbRelease: this.rangedAimRequiresRmbRelease, swinging: this.isSwinging, viewActive: this.rangedAimViewActive,
-    })
+    const aim = resolveRangedAim(this.animator.currentAction, rightMouseDown, wantAim,
+      this.rangedAimRequiresRmbRelease, this.isSwinging, this.rangedAimViewActive)
     this.aiming = aim.aiming
     this.rangedAimViewActive = aim.viewActive
     this.rangedAimRequiresRmbRelease = aim.requiresRmbRelease
