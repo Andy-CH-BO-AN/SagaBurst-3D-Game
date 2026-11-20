@@ -10,11 +10,12 @@ import { PickupPrompt } from '../ui/PickupPrompt'
 import { prisonGuardCount, prisonRoster, prisonUnitSpec, claimPrisonSword, crossedPrisonExit, prisonOutcome, prisonTaunt, prisonResultDescription, settlePrisonBreak, PRISON_COOP_PARTNER, PRISON_SWORD_ID } from '../career/CareerPrisonBreak'
 import { InventoryManager } from '../rpg/InventoryManager'
 
+import { arenaCombatPreloadPlan, loadArenaCombatAssets } from './ArenaCombatPreloadPlan'
 import { createDuelArena, type DuelArenaEnvironment } from './DuelArena'
 import { DUEL_ARENA_LABELS, type DuelArenaId } from './DuelArenaCatalog'
 import { assignArenaTrialSlots, planArenaTrialFormation, type ArenaTrialFormation } from './ArenaTrialFormation'
 import {
-  ARENA_TRIAL_COUNTDOWN_SECONDS, ARENA_TRIAL_DEFINITIONS, ARENA_TRIAL_TIME_LIMIT_SECONDS, arenaTrialCounts, arenaTrialPreloadPlan,
+  ARENA_TRIAL_COUNTDOWN_SECONDS, ARENA_TRIAL_DEFINITIONS, ARENA_TRIAL_TIME_LIMIT_SECONDS, arenaTrialCounts,
   arenaTrialRestorablePlan, arenaTrialRoster, arenaTrialUnitSpec, careerArenaTrial, resolveArenaTrialEnd,
   type ArenaTrialActorState, type ArenaTrialEndReason, type ArenaTrialState,
 } from '../career/CareerArenaTrials'
@@ -44,7 +45,7 @@ import { PlayerInput } from '../player/PlayerInput'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
 import { SkillManager, syncPlayerSkillCombatLevels } from '../rpg/SkillManager'
-import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 import { TownEquipment } from '../town/TownEquipment'
 import { ArenaEquipmentMenu } from './ArenaEquipmentMenu'
 import { ArenaTrialHUD } from '../ui/ArenaTrialHUD'
@@ -59,7 +60,7 @@ import { ArrowProjectile } from '../world/ArrowProjectile'
 import { HERO_ASSETS } from '../world/HeroAssetCatalog'
 import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
-import { HIGH_TIER_WEAPON_ASSETS, prepareByzantineEquipment, preloadHighTierEquipment } from '../world/HighTierEquipment'
+import { prepareByzantineEquipment, preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
 import { Mount } from '../world/Mount'
 import { Faction, NPC } from '../world/NPC'
@@ -264,28 +265,16 @@ export class CareerArenaCombatScene {
 
   /** Wait only for equipment that the encounter actually uses; ordinary trials keep their original barrier. */
   private async preloadCombatAssets(): Promise<void> {
-    const plan = arenaTrialPreloadPlan(this.trial.tier, this.profile.faction, this.trial.rosterVersion ?? 1)
-    if (this.prison) {
-      const specs = prisonRoster(this.prison).filter(entry => !this.prison!.result && this.prison!.combat.actors[entry.actorId]?.status !== 'knocked')
-        .map(entry => prisonUnitSpec(this.prison!, entry, this.profile.faction))
-      plan.heroAssets = [...new Set(specs.flatMap(spec => spec.visualAssetId ? [spec.visualAssetId] : []))]
-      plan.equipmentIds = specs.flatMap(spec => [spec.loadout?.meleeWeaponId, spec.loadout?.rangedWeaponId, spec.loadout?.shieldId].filter((id): id is string => Boolean(id)))
-    }
-    const coopCharacter = this.coopPlayerSource ? coopGuestCharacterAssets() : null
-    if (coopCharacter?.hero) plan.heroAssets = [...new Set([...plan.heroAssets, coopCharacter.hero])]
-    const equipmentIds = this.prison ? plan.equipmentIds : [...plan.equipmentIds, this.profile.equipment?.melee, this.profile.equipment?.shield, ...(coopCharacter?.equipmentIds ?? [])]
-    const requires = (predicate: (id: string) => boolean) => !this.prison || equipmentIds.some(id => typeof id === 'string' && predicate(id))
-    const [, equipment] = await Promise.all([
-      Promise.all([HumanoidAssetRegistry.preload(),
-        ...(this.prison ? [] : [HorseAssetRegistry.preload(this.renderer)]),
-        ...(requires(id => id.startsWith('paladin_')) ? [preloadPaladinEquipment()] : []),
-        ...(requires(id => id in HIGH_TIER_WEAPON_ASSETS) ? [preloadHighTierEquipment()] : []),
-        ...(requires(id => id === T4_RANGER_BOW_RANGED_ID) ? [preloadMakiRangerBow()] : []),
-        resolveCareerHeroAsset(this.profile) ? HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[resolveCareerHeroAsset(this.profile)!].descriptor) : Promise.resolve(),
-        ...plan.heroAssets.map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))]),
-      prepareByzantineEquipment(equipmentIds),
-    ])
-    if (equipment !== 'ready') throw new Error('試煉裝備資源載入失敗')
+    const plan = arenaCombatPreloadPlan(this.profile, this.trial, this.prison, this.coopPlayerSource ? coopGuestCharacterAssets() : null)
+    await loadArenaCombatAssets(plan, {
+      humanoids: () => HumanoidAssetRegistry.preload(),
+      heroAsset: id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor),
+      horses: () => HorseAssetRegistry.preload(this.renderer),
+      paladin: () => preloadPaladinEquipment(),
+      highTier: () => preloadHighTierEquipment(),
+      makiBow: () => preloadMakiRangerBow(),
+      equipment: ids => prepareByzantineEquipment(ids),
+    })
   }
 
   private async initialize(progress: (text: string) => void): Promise<void> {
