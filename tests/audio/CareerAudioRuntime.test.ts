@@ -1,33 +1,63 @@
 import { afterEach,beforeEach,describe,expect,it,onTestFinished,vi } from 'vitest'
 import { playAppliedPunchHit, SoundManager } from '../../src/audio/SoundManager'
 
+type ResumeOutcome = 'granted' | 'stays-suspended' | 'rejects'
+
+/** Follows AudioBufferSourceNode rules: one start, no stop before start, and stop ends asynchronously. */
 class Source extends EventTarget {
-  buffer: unknown
+  buffer: unknown = null
   connect = vi.fn()
-  start = vi.fn()
-  stop = vi.fn(() => this.dispatchEvent(new Event('ended')))
   disconnect = vi.fn()
+  private phase: 'idle' | 'playing' | 'ended' = 'idle'
+
+  get started(): boolean { return this.phase !== 'idle' }
+
+  start(_when = 0): void {
+    if (this.phase !== 'idle') throw new DOMException('start() may only be called once', 'InvalidStateError')
+    this.phase = 'playing'
+  }
+
+  stop(_when = 0): void {
+    if (this.phase === 'idle') throw new DOMException('stop() before start()', 'InvalidStateError')
+    if (this.phase === 'ended') return
+    this.phase = 'ended'
+    queueMicrotask(() => this.dispatchEvent(new Event('ended')))
+  }
+
+  /** The buffer reached its natural end. */
+  finishPlayback(): void {
+    if (this.phase !== 'playing') throw new Error('Only a playing source can finish')
+    this.phase = 'ended'
+    this.dispatchEvent(new Event('ended'))
+  }
 }
+
+/** Starts suspended like a real context; resume() changes state only when the browser grants playback. */
+class FakeAudioContext {
+  state: AudioContextState = 'suspended'
+  currentTime = 0
+  destination = {}
+  readonly sources: Source[] = []
+  readonly resume = vi.fn(async (): Promise<void> => {
+    await Promise.resolve()
+    if (this.resumeOutcome === 'rejects') throw new DOMException('Autoplay denied', 'NotAllowedError')
+    if (this.resumeOutcome === 'granted') this.state = 'running'
+  })
+
+  constructor(private readonly resumeOutcome: ResumeOutcome = 'granted') {}
+
+  decodeAudioData = vi.fn(async (_data: ArrayBuffer) => ({ duration: 2 }))
+  createBufferSource(): Source { const source = new Source(); this.sources.push(source); return source }
+  createGain() { return { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() } }
+}
+
 let sources: Source[]
-let ctx: {
-  state: string
-  currentTime: number
-  resume: ReturnType<typeof vi.fn>
-  destination: object
-  decodeAudioData: ReturnType<typeof vi.fn>
-  createBufferSource: ReturnType<typeof vi.fn>
-  createGain: ReturnType<typeof vi.fn>
-}
+let ctx: FakeAudioContext
 const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve() }
 
 beforeEach(() => {
-  sources = []
-  ctx = {
-    state: 'running', currentTime: 0, resume: vi.fn(async () => {}), destination: {},
-    decodeAudioData: vi.fn(async () => ({ duration: 2 })),
-    createBufferSource: vi.fn(() => { const source = new Source(); sources.push(source); return source }),
-    createGain: vi.fn(() => ({ gain: { value: 1 }, connect: vi.fn() })),
-  }
+  ctx = new FakeAudioContext()
+  sources = ctx.sources
   vi.stubGlobal('window', { AudioContext: class { constructor() { return ctx } } })
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) })))
   vi.spyOn(Date, 'now').mockReturnValue(10000)
@@ -51,7 +81,7 @@ describe('Lazy Career audio runtime', () => {
     await flush()
     expect(sources).toHaveLength(1)
     expect(finished).not.toHaveBeenCalled()
-    sources[0].dispatchEvent(new Event('ended'))
+    sources[0].finishPlayback()
     await flush()
     expect(finished).toHaveBeenCalledExactlyOnceWith()
 
@@ -98,12 +128,33 @@ describe('Lazy Career audio runtime', () => {
     await flush()
     const count = sources.length
     expect(count).toBeGreaterThan(0)
-    for (const source of sources.slice(0, count - 1)) source.dispatchEvent(new Event('ended'))
+    for (const source of sources.slice(0, count - 1)) source.finishPlayback()
     await flush()
     expect(completed).toBe(false)
-    sources[count - 1].dispatchEvent(new Event('ended'))
+    sources[count - 1].finishPlayback()
     expect(await alarm).toBe(true)
     expect(completed).toBe(true)
+  })
+
+  it('drops Follow and the town alarm without starting audio when the browser keeps autoplay suspended', async () => {
+    for (const resumeOutcome of ['stays-suspended', 'rejects'] as const) {
+      ctx = new FakeAudioContext(resumeOutcome)
+      sources = ctx.sources
+      const manager = managerFixture()
+      await manager.preload()
+
+      const finished = vi.fn()
+      manager.playCareerMissionVoice('roman', 'follow', finished)
+      const alarmPlayed = vi.fn()
+      void manager.playTownAlarm(true).then(alarmPlayed)
+      await flush()
+
+      expect(ctx.resume).toHaveBeenCalled()
+      expect(ctx.state).toBe('suspended')
+      expect(finished).toHaveBeenCalledExactlyOnceWith()
+      expect(alarmPlayed).toHaveBeenCalledExactlyOnceWith(false)
+      expect(sources.filter(source => source.started)).toEqual([])
+    }
   })
 })
 
