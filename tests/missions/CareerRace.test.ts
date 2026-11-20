@@ -664,11 +664,16 @@ describe('Race return and deferred native Town outcomes', () => {
     let committedProfile = walkProfile
     const walker = new PlayerDouble(); walker.group.position.set(captainSpec.x + 2, 0, captainSpec.z)
     const captain = new ActorDouble('captain', { x: captainSpec.x, z: captainSpec.z })
-    const walk = raceController({ read: () => committedProfile, commit: next => { committedProfile = next; return true }, player: walker, groundAt: () => 4,
-      residents: [{ spec: captainSpec, npc: captain }, { spec: sergeantSpec, npc: new ActorDouble(sergeantSpec.id, { x: sergeantSpec.x, z: sergeantSpec.z }) }] }).controller
-    walk.restore()
+    const walkRace = raceController({ read: () => committedProfile, commit: next => { committedProfile = next; return true }, player: walker, groundAt: () => 4,
+      residents: [{ spec: captainSpec, npc: captain }, { spec: sergeantSpec, npc: new ActorDouble(sergeantSpec.id, { x: sergeantSpec.x, z: sergeantSpec.z }) },
+        resident(TOWN_COMMANDER_ID, 300, 300)] })
+    const walk = walkRace.controller
+    walk.restore() // Queues the reloaded racer for the next spawn frame.
     expect(walk.returnComplete).toBe(true)
     expect(walk.clear(false)).toBe(true)
+    // The settled return cancels the queued racer: later spawn frames materialize nothing.
+    while (gameplayNpcSpawns.pending > 0) tickRaceSpawns()
+    expect(walkRace.factory.mounts.size).toBe(0)
     const settledPos = committedProfile.racePlayerState!.position
     expect(settledPos.y).toBeCloseTo(4 + PLAYER_FOOT_OFFSET)
     expect(Math.hypot(settledPos.x - sergeantSpec.x, settledPos.z - sergeantSpec.z)).toBeGreaterThanOrEqual(3.0)
