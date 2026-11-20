@@ -37,9 +37,11 @@ export function fourGateDefenseRuntime(initial: CareerProfile, commit: (next: Ca
     controller, player, world, factory, ramps: createRamp.ramps,
     residents: new Map(residents.map(r => [r.spec.id, r.actor])),
     profile: () => profile, setProfile: (next: CareerProfile) => { profile = next },
-    /** Runs every queued spawn job, one per frame as the Town loop would. */
-    materialize: () => {
-      for (const batch of controller.spawnBatches) for (let jobs = batch.actors.size; jobs > 0 && batch.status === 'pending'; jobs--) scheduler.tick(++frame)
+    /** Runs queued spawn jobs (all, or the first `frames`), one per frame as the Town loop would. */
+    materialize: (frames = Infinity) => {
+      for (const batch of controller.spawnBatches) {
+        for (let jobs = Math.min(frames, batch.actors.size); jobs > 0 && batch.status === 'pending'; jobs--) scheduler.tick(++frame)
+      }
     },
     /** Natives deployed, preparation spent, attackers materialized and released by the real flow. */
     toAttack() {
