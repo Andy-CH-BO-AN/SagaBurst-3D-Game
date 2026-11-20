@@ -2,6 +2,7 @@ import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { Box3, Matrix4, Vector3, type Object3D } from 'three'
 import { campaignInitialOrder } from '../../src/campaign/CampaignInitialOrder'
+import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 import { createDefaultDefensePlayerLoadout, type DefenseCampaignLaunchConfig } from '../../src/campaign/DefenseCampaignLaunch'
 import { allocateSiegeRampCrews, getSiegeRampPlacement, isMobileSiegeRampEnabled, placeSiegeRampCrew, siegeRampDeckHeightAt, siegeRampRearHeightAt, SIEGE_RAMP } from '../../src/campaign/MobileSiegeRampPolicy'
 import { getOutpostWalkwayLayout, isOutpostWalkwayEnabled, OUTPOST_WALKWAY, type OutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkways'
@@ -342,6 +343,37 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(advanceCommanderCavalryEscort(advanced.checkpoint, 0, actors, ramps).releasedActorIds).toEqual([])
     expect(advanced.checkpoint.actors[north[1].actorId]).toMatchObject({ slot: 1, side: -1, mode: 'released' })
 
+    // The caller's save is the external boundary: a rejected release cannot alter
+    // live charge/routing, and a successful retry delivers the same group once.
+    let accept = false
+    const effects: string[] = []
+    const npc = { combatantId: north[0].actorId, dead: false, combatPosition: { x: 0, z: -215 }, missionMovement: true,
+      setMissionCombatTarget(value: unknown) { expect(value).toBeUndefined(); effects.push('target') },
+      setTacticalOrder(order: string) { effects.push(order) } }
+    interface ReleaseEntry {
+      state: { cavalryEscort: typeof initial; enemyRosterVersion: 2 }
+      pendingEscortReleases?: readonly string[]
+      updateCavalryEscort(dt: number): void
+    }
+    const owner = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as ReleaseEntry, {
+      state: { cavalryEscort: initial, enemyRosterVersion: 2 }, enemies: [npc], actorsById: new Map([[npc.combatantId, npc]]), escortAssignments: [],
+      fourGateSiege: { ramps: new Map([[north[0].rampId, { position: { x: 0, z: -165 },
+        controller: { state: 'PUSHING', distance: 0, alivePushers: 4 } }]]), resumeExternalMovement() { effects.push('route') } },
+      saveProgress(this: ReleaseEntry) {
+        expect(this.pendingEscortReleases).toEqual(north.map(a => a.actorId))
+        expect(this.state.cavalryEscort.actors[npc.combatantId].mode).toBe('released')
+        expect(npc.missionMovement).toBe(true)
+        effects.push(accept ? 'commit' : 'reject'); return accept
+      },
+    })
+    owner.updateCavalryEscort(0)
+    expect(owner.state.cavalryEscort).toBe(initial)
+    expect(owner.pendingEscortReleases).toBeUndefined()
+    expect(effects).toEqual(['reject'])
+    accept = true
+    owner.updateCavalryEscort(0); owner.updateCavalryEscort(0)
+    expect(effects).toEqual(['reject', 'commit', 'target', 'charge', 'route'])
+    expect(npc.missionMovement).toBe(false)
   })
 
   it('releases trailing cavalry when their own ramp front reaches the hundred-metre gate radius', () => {

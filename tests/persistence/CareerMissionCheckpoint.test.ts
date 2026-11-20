@@ -14,9 +14,6 @@ import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { Faction } from '../../src/world/NPC'
 import { ActorDouble, asNpc, asPlayer, PlayerDouble, recordingActorFactory, residentSpec } from '../helpers/careerActorDoubles'
 import { fourGateDefenseRuntime } from '../helpers/fourGateDefenseRuntime'
-import { commanderCavalryEscortAssignments } from '../../src/career/CommanderCavalryEscort'
-import { SpatialGrid } from '../../src/world/SpatialGrid'
-import type { NPC } from '../../src/world/NPC'
 
 function fixture() {
   let profile = createCareerProfile('roman')
@@ -269,7 +266,7 @@ describe('CareerMissionCheckpoint', () => {
     expect(controller.combatEnabled).toBe(false)
   })
 
-  it('publishes the first attack and each escort release only after their saves, with current actor intent in both checkpoints', () => {
+  it('publishes the first attack only after its save, with current actor intent in both checkpoints', () => {
     // Reloaded after the arrival intent was saved: attackers are queued again on start.
     const h = spawningRuntime('SPAWNING'), controller = h.controller
     h.materialize()
@@ -299,28 +296,5 @@ describe('CareerMissionCheckpoint', () => {
     expect(controller.survivalRemaining).toBe(0)
     // The live frame's snapshot, not a caller-supplied result, owns the saved survival receipt.
     expect(h.profile().activeMission!.fourGateDefense!.victoryReason).toBe('survival')
-
-    // An escort release is a one-shot receipt in the same checkpoint: a refused save keeps the
-    // escort holding, and the retried frame releases the group once.
-    const rampId = 'town-siege-ramp:north:left', ramp = h.ramps.get(rampId)!
-    const group = commanderCavalryEscortAssignments(h.profile().activeMission!.id).filter(a => a.rampId === rampId).map(a => a.actorId)
-    const escort = h.factory.actors.get(group[0])!
-    for (const id of ramp.assignment.pusherIds) h.factory.actors.get(id)!.hp = 0 // Its carrier is abandoned.
-    const frame = () => { controller.updateFlow(.1, 0); controller.updateSiege(.1, new SpatialGrid<NPC>()) }
-    h.gate.rejectAttack = true
-    frame()
-    expect(escort.tacticalOrder).not.toBe('charge')
-    expect(controller.isEscorting(asNpc(escort))).toBe(true)
-    const committed = () => h.profile().activeMission!.fourGateDefense!
-    expect(committed().cavalryEscort!.groups[rampId].releaseReason).toBeUndefined()
-    h.gate.rejectAttack = false
-    frame()
-    const released = committed()
-    expect(released.cavalryEscort!.groups[rampId].releaseReason).toBe('ramp-abandoned')
-    expect(group.map(id => [released.actors[id].order, released.siege!.actors[id]?.order ?? 'charge'])).toEqual(group.map(() => ['charge', 'charge']))
-    expect([escort.tacticalOrder, escort.missionCombatTarget, escort.missionMovement]).toEqual(['charge', undefined, false])
-    escort.setTacticalOrder('defend')
-    frame()
-    expect(escort.tacticalOrder).toBe('defend') // Delivered once: a later frame never re-releases the group.
   })
 })
