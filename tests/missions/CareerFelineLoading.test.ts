@@ -1,5 +1,5 @@
 import { careerRankFixture } from '../helpers/careerRankFixture'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Vector3 } from 'three'
 import { HorseAssetRegistry } from '../../src/world/HorseAssetRegistry'
 import { BlackCatVisual, type FelineMountVariant } from '../../src/world/BlackCatVisual'
@@ -10,7 +10,11 @@ import { addCareerItem } from '../../src/career/CareerInventory'
 import { applyTownEquipmentRuntime, getTownEquipmentRuntimeStatus, resetTownEquipmentRuntimeState } from '../../src/town/TownEquipmentRuntime'
 import { updateTownEquipmentVisibleStatus } from '../../src/town/TownSquadEquipmentUI'
 import type { TownCombatResident } from '../../src/town/TownMissionCombat'
-import type { Mount } from '../../src/world/Mount'
+import { mountTypeFromId, type Mount } from '../../src/world/Mount'
+import { RACE_STORY_ID, type RaceRider } from '../../src/career/CareerRaceState'
+import { gameplayNpcSpawns } from '../../src/world/NpcSpawnScheduler'
+import type { HpBar } from '../../src/ui/HpBar'
+import { ActorDouble, asNpc, asPlayer, PlayerDouble, recordingActorFactory } from '../helpers/careerActorDoubles'
 
 // The Mount constructor needs rendered assets; this suite owns only the request lifecycle.
 vi.mock('../../src/world/Mount', async importOriginal => {
@@ -175,43 +179,56 @@ describe('Town startup feline preload set', () => {
 })
 
 describe('Race opponent feline load failure recovery', () => {
-  interface RaceInternals { session?: unknown; deploy(initial: boolean, restoring: boolean): void }
-  function raceOwner() {
-    const session = { id: 'race-session', opponent: { mountId: 'caracal', actorId: 'commander' } }
-    const enqueueDeployment = vi.fn()
-    const owner = Object.create(CareerRaceController.prototype) as CareerRaceController
-    const internals = owner as unknown as RaceInternals
-    Object.assign(internals, { session, enqueueDeployment, preloadInFlight: false, error: '' })
-    return { owner, internals, session, enqueueDeployment }
+  /** A saved, already running race whose opponent rides a caracal; the real controller restores it. */
+  function raceOwner(story = false) {
+    const point = { x: -3, y: 0, z: 100, yaw: 0 }
+    const rider = (actorId: string): RaceRider => ({ actorId, mountId: 'caracal', position: { ...point }, mountPosition: { ...point },
+      hp: 100, mountHp: 100, stamina: 100, mounted: true, dead: false, checkpoint: 1 })
+    let profile = createCareerProfile('roman')
+    profile.activeRace = { version: 1, deployed: true, id: 'race-session', raceId: 'race-6', scheduleVersion: 3, phase: 'racing',
+      countdownSeconds: 0, elapsedSeconds: 30, gameSeconds: 40, phaseSeconds: 30, waypoint: 1, ...(story ? { story: RACE_STORY_ID } : {}),
+      player: { ...rider('player'), mountId: 'horse' }, opponent: rider('commander'),
+      opponentHome: { position: { ...point }, hp: 100, mounted: false } }
+    const factory = recordingActorFactory()
+    const owner = new CareerRaceController(factory, { sync: () => false, areConnected: () => true }, [],
+      [{ spec: { id: 'commander', x: -3, z: 100 }, npc: asNpc(new ActorDouble('commander', { x: -3, z: 100 })) }],
+      () => asPlayer(new PlayerDouble()), {} as unknown as HpBar, { activeMountId: null, activeMount: null, restoreRaceMount: () => true },
+      () => profile, next => { profile = next; return true })
+    onTestFinished(() => owner.dispose())
+    return { owner, factory }
   }
+  let frame = performance.now() + 1e9
 
   it('retries deployment after delay when load fails', async () => {
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(0)
-    const { owner, internals, session, enqueueDeployment } = raceOwner()
-    internals.deploy(false, true)
+    const { owner, factory } = raceOwner()
+    owner.restore()
     gates.get('caracal')!.reject(new Error('transient')); await flush()
     expect(owner.deploymentRetryPending).toBe(true)
     expect(owner.error).toContain('重試')
-    expect(session.opponent.mountId).toBe('caracal')
-    expect(enqueueDeployment).not.toHaveBeenCalled()
+    expect(owner.session!.opponent.mountId).toBe('caracal')
 
     owner.prepare(); expect(preloadCalls).toEqual(['caracal'])
     vi.setSystemTime(3001); owner.prepare()
     expect(preloadCalls).toEqual(['caracal', 'caracal'])
     gates.get('caracal')!.resolve(); await flush()
-    expect(enqueueDeployment).toHaveBeenCalledExactlyOnceWith(session, false, true)
     expect(owner.deploymentRetryPending).toBe(false)
+    gameplayNpcSpawns.tick(++frame)
+    expect(owner.ready).toBe(true)
+    expect([...factory.mounts.values()].map(mount => mount.type)).toEqual([mountTypeFromId('caracal')])
   })
 
   it('drops the retry when the session is gone', async () => {
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(0)
-    const { owner, internals, enqueueDeployment } = raceOwner()
-    internals.deploy(true, false)
+    const { owner, factory } = raceOwner(true)
+    owner.restore()
     gates.get('caracal')!.reject(new Error('transient')); await flush()
-    internals.session = undefined
+    expect(owner.cancelFailedStoryRace()).toBe(true)
     vi.setSystemTime(5000); owner.prepare()
     expect(owner.deploymentRetryPending).toBe(false)
-    expect(enqueueDeployment).not.toHaveBeenCalled()
+    expect(preloadCalls).toEqual(['caracal'])
+    gameplayNpcSpawns.tick(++frame)
+    expect(factory.mounts.size).toBe(0)
   })
 })
 

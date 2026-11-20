@@ -2,24 +2,29 @@ import { careerRankFixture } from '../helpers/careerRankFixture'
 import { raceReturnAction, raceReturnProfile } from '../../src/career/CareerRaceReturn'
 import { CareerRaceController } from '../../src/career/CareerRaceController'
 import { TOWN_COMMANDER_ID } from '../../src/town/TownCommanderIdentity'
-import { gameplayNpcSpawns, NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
+import { gameplayNpcSpawns } from '../../src/world/NpcSpawnScheduler'
 import { deferTownResult, TownEvent } from '../../src/town/TownRules'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Box3, Vector3 } from 'three'
 import { createCareerProfile, cloneCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { applyCoopRaceAward, parseCoopRaceAward } from '../../src/coop/CoopRaceAward'
-import { canEnterRace, coopGuestWinsRace, finalizeRaceDeployment, advanceRaceClock, advanceRaceRider, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance, type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
+import { canEnterRace, coopGuestWinsRace, advanceRaceClock, advanceRaceRider, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance, type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
 import { RACE_START_SLOTS, RACE_LINES, raceWaypoints, raceMovementIsLegal, illegalTownCrossing, raceMountPoseLegal, resolveRaceMountSpawn, type RacePosition } from '../../src/career/CareerRaceRoute'
 import { collideMountBody, settleMountOnTerrain } from '../../src/world/MountGroundBody'
 import { architectureSpec, DEEP } from '../../src/town/architecture/ArchitectureSpecs'
-import type { ObstacleData } from '../../src/world/Terrain'
+import { getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
 import { findSergeantResident } from '../../src/town/SergeantReturn'
 import { PLAYER_FOOT_OFFSET } from '../../src/player/PlayerFootBody'
 import { townRoster } from '../../src/town/TownRules'
+import { BlackCatVisual } from '../../src/world/BlackCatVisual'
+import type { HpBar } from '../../src/ui/HpBar'
+import type { CareerMountId } from '../../src/career/CareerProfile'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { ActorDouble, asMount, asNpc, asPlayer, MountDouble, PlayerDouble, recordingActorFactory } from '../helpers/careerActorDoubles'
+
 
 const pos = (x: number, z: number): RacePosition => ({ x, z, y: 0, yaw: 0 })
 function rider(actorId: string): RaceRider {
@@ -37,6 +42,33 @@ const mount = { id: 'horse' as const, ownedActive: true, mounted: true, dead: fa
 function cross(r: RaceRider, from: RacePosition, to: RacePosition, time = 20): void {
   r.position = to; advanceRaceRider(r, from, time, 1, true, 100)
 }
+
+/** Actual racing caller; residents, player and mounts are plain bodies and only the race mount is materialized. */
+interface RaceSetup {
+  read: () => CareerProfile
+  commit?: (next: CareerProfile) => boolean
+  residents?: { npc: ActorDouble; homeMount?: MountDouble; spec: { id: string; role?: string; x: number; z: number; yaw?: number } }[]
+  player?: PlayerDouble
+  activeMountId?: CareerMountId | null
+  activeMount?: MountDouble | null
+  connected?: () => boolean
+  obstacles?: ObstacleData[]
+  groundAt?: (x: number, z: number) => number
+}
+let spawnFrame = performance.now() + 1e9
+/** One Town render frame of the shared gameplay spawn queue. */
+const tickRaceSpawns = () => gameplayNpcSpawns.tick(++spawnFrame)
+function raceController(setup: RaceSetup) {
+  const factory = recordingActorFactory(), player = setup.player ?? new PlayerDouble()
+  const mounts = { activeMountId: setup.activeMountId ?? null, activeMount: setup.activeMount ? asMount(setup.activeMount) : null, restoreRaceMount: () => true }
+  const controller = new CareerRaceController(factory, { sync: () => false, areConnected: setup.connected ?? (() => true) }, setup.obstacles ?? [],
+    (setup.residents ?? []).map(r => ({ ...r, npc: asNpc(r.npc), homeMount: r.homeMount && asMount(r.homeMount) })),
+    () => asPlayer(player), {} as unknown as HpBar, mounts, setup.read, setup.commit ?? (() => true))
+  if (setup.groundAt) controller.returnGroundHeight = setup.groundAt
+  onTestFinished(() => controller.dispose())
+  return { controller, factory, player, raceMount: () => factory.mounts.values().next().value }
+}
+const resident = (id: string, x = 25, z = -20) => ({ spec: { id, x, z }, npc: new ActorDouble(id, { x, z }) })
 
 describe('Mounted race policy and countdown', () => {
   it('selects the actual Commander and never substitutes another living resident', () => {
@@ -79,52 +111,45 @@ describe('Mounted race policy and countdown', () => {
     advanceRaceClock(s2, .02, true); expect(s2.result).toBe('loss')
   })
   it('continues after losing the owned mount and validates movement against the actual borrowed mount', () => {
-    const s = session(); s.phase = 'guiding'; s.guideFallback = 'Captain unavailable'
-    const point = new Vector3(-3, 0, -80)
-    const ownedMount = { group: { position: new Vector3(-3, 0, -100), rotation: { y: 0 } },
-      currentHp: 0, dead: true, isAirborne: false, baseSpeed: 1 }
-    const borrowedMount = { group: { position: point, rotation: { y: 0 } },
-      currentHp: 73, dead: false, isAirborne: false, baseSpeed: 8 }
-    let activeMount: typeof borrowedMount | null = null
-    const player = { get currentMount() { return activeMount }, combatPosition: point,
-      hp: 81, dead: false, staminaValue: 67, facingYaw: 0 }
-    const opponentPoint = new Vector3(3, 0, RACE_START_SLOTS[1].z)
-    const opponentMount = { group: { position: opponentPoint, rotation: { y: 0 } },
-      currentHp: 100, dead: false, isAirborne: false, baseSpeed: 10 }
-    const racer = { mount: opponentMount, combatPosition: opponentPoint, group: { rotation: { y: 0 } },
-      hp: 100, dead: false, staminaValue: 100 }
-    let current = profile()
-    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
-    Object.assign(controller, { session: s, racer, mount: opponentMount, batch: { ready: true },
-      mounts: { activeMount: ownedMount, activeMountId: 'horse' }, obstacles: [],
-      player: () => player, read: () => current, commit: (next: CareerProfile) => { current = next; return true },
-      saveElapsed: 0, stallSeconds: 0 })
-    // Real frame/snapshot calls cover all pre-race phases without constructing actors or scenes.
+    const saved = session(); saved.phase = 'guiding'; saved.guideFallback = 'Captain unavailable'
+    const start = pos(3, RACE_START_SLOTS[1].z); start.y = getTerrainHeight(start.x, start.z)
+    saved.opponent.position = { ...start }; saved.opponent.mountPosition = { ...start }
+    let current = profile(); current.activeRace = saved
+    const ownedMount = Object.assign(new MountDouble('horse', -3, -100), { currentHp: 0, baseSpeed: 1 })
+    const borrowedMount = Object.assign(new MountDouble('horse', -3, -80), { currentHp: 73, baseSpeed: 8 })
+    const player = Object.assign(new PlayerDouble(), { hp: 81, staminaValue: 67 })
+    const moveTo = (z: number) => { player.group.position.set(-3, 0, z); borrowedMount.group.position.set(-3, 0, z) }
+    moveTo(-80)
+    const { controller } = raceController({ read: () => current, commit: next => { current = next; return true }, player,
+      activeMountId: 'horse', activeMount: ownedMount, residents: [resident(TOWN_COMMANDER_ID)] })
+    controller.restore(); tickRaceSpawns()
+    expect(controller.ready).toBe(true)
+    const s = () => controller.session!
     controller.beginFrame(.1, .1); controller.advance(.1)
-    expect(s.phase).toBe('guiding'); expect(s.player.dnf).toBeUndefined()
-    point.z = RACE_START_SLOTS[0].z
+    expect(s().phase).toBe('guiding'); expect(s().player.dnf).toBeUndefined()
+    moveTo(RACE_START_SLOTS[0].z)
     controller.beginFrame(.1, .1); controller.advance(.1)
-    expect(s.phase).toBe('countdown'); expect(s.player.dnf).toBeUndefined()
+    expect(s().phase).toBe('countdown'); expect(s().player.dnf).toBeUndefined()
     controller.beginFrame(10, .05); controller.advance(10)
-    expect(s.phase).toBe('racing'); expect(s.player.dnf).toBeUndefined()
-    point.z = RACE_LINES[0].center.z + 1
+    expect(s().phase).toBe('racing'); expect(s().player.dnf).toBeUndefined()
+    moveTo(RACE_LINES[0].center.z + 1)
     controller.beginFrame(.5, .5); controller.advance(.5)
-    expect(s.player.checkpoint).toBe(0); expect(s.player.dnf).toBeUndefined()
+    expect(s().player.checkpoint).toBe(0); expect(s().player.dnf).toBeUndefined()
     // Mounting within interaction distance can snap the rider farther than one walking frame.
-    activeMount = borrowedMount; point.z -= 2.9
+    moveTo(RACE_LINES[0].center.z + 1 - 2.9); player.mountVehicle(borrowedMount)
     controller.beginFrame(1 / 60, 1 / 60); controller.advance(1 / 60)
-    expect(s.player.checkpoint).toBe(1); expect(s.player.dnf).toBeUndefined()
-    expect(s.player.position.z).toBeCloseTo(RACE_LINES[0].center.z - 1.9)
-    borrowedMount.baseSpeed = 40; point.z -= 10
+    expect(s().player.checkpoint).toBe(1); expect(s().player.dnf).toBeUndefined()
+    expect(s().player.position.z).toBeCloseTo(RACE_LINES[0].center.z - 1.9)
+    borrowedMount.baseSpeed = 40; moveTo(RACE_LINES[0].center.z - 11.9)
     controller.beginFrame(.1, .1); controller.advance(.1)
-    expect(s.player).toMatchObject({ checkpoint: 1, hp: 81, stamina: 67, mountId: 'horse',
+    expect(s().player).toMatchObject({ checkpoint: 1, hp: 81, stamina: 67, mountId: 'horse',
       mounted: false, mountHp: 0, mountPosition: pos(-3, -100) })
-    expect(s.player.position.z).toBeCloseTo(RACE_LINES[0].center.z - 11.9)
-    expect(s.player.dnf).toBeUndefined(); expect(s.result).toBeUndefined()
+    expect(s().player.position.z).toBeCloseTo(RACE_LINES[0].center.z - 11.9)
+    expect(s().player.dnf).toBeUndefined(); expect(s().result).toBeUndefined()
     // Using the dead owned mount's speed would reject the preceding legal 10 m segment.
-    borrowedMount.isAirborne = true; point.z -= 1
+    borrowedMount.isAirborne = true; moveTo(RACE_LINES[0].center.z - 12.9)
     controller.beginFrame(.1, .1); controller.advance(.1)
-    expect(s.player.dnf).toBe('不合法路線或位移'); expect(s.result).toBe('loss')
+    expect(s().player.dnf).toBe('不合法路線或位移'); expect(s().result).toBe('loss')
     expect(ownedMount.currentHp).toBe(0); expect(borrowedMount.currentHp).toBe(73)
     expect(ownedMount.group.position).toEqual(new Vector3(-3, 0, -100))
   })
@@ -204,26 +229,23 @@ describe('Race persistence independent of hostility and Duel', () => {
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage), p = profile(), s = session()
     s.deployed = false; s.phase = 'guiding'; p.activeRace = s
     expect(store.save(p)).toBe(true)
-    const scheduler = new NpcSpawnScheduler(), batch = scheduler.batch(), create = vi.fn()
-    batch.enqueue(s.opponent.actorId, create)
-    batch.seal(() => finalizeRaceDeployment(s, () => store.save(raceRecordProfile(p, s))))
-    storage.failWrites = true; scheduler.tick(16)
-    expect(batch.ready).toBe(false); expect(batch.status).toBe('failed'); expect(s.deployed).toBe(false)
-    // Call the actual simulation entry with only its pre-readiness inputs; no models or scene.
-    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
-    Object.assign(controller, { session: s, batch, racer: {} })
-    controller.beginFrame(10, .05); controller.advance(10)
-    expect(controller.ready).toBe(false); expect(s.phase).toBe('guiding')
-    expect(s.countdownSeconds).toBe(10); expect(s.gameSeconds).toBe(0)
-    const loaded = store.load()!, resumed = loaded.activeRace!
+    const reload = () => raceController({ read: () => store.load()!, commit: next => store.save(next), residents: [resident(TOWN_COMMANDER_ID)] }).controller
+    const first = reload()
+    first.restore()
+    storage.failWrites = true; tickRaceSpawns()
+    expect(first.ready).toBe(false); expect(first.allMounts).toEqual([])
+    // The actual simulation entry is inert before readiness: no countdown or game time is consumed.
+    first.beginFrame(10, .05); first.advance(10)
+    expect(first.session).toMatchObject({ phase: 'guiding', countdownSeconds: 10, gameSeconds: 0, deployed: false })
+    const resumed = store.load()!.activeRace!
     expect(resumed.deployed).toBe(false); expect(resumed.id).toBe(s.id)
     storage.failWrites = false
-    const retry = scheduler.batch(); retry.enqueue(resumed.opponent.actorId, create)
-    retry.seal(() => finalizeRaceDeployment(resumed, () => store.save(raceRecordProfile(loaded, resumed))))
-    scheduler.tick(32); scheduler.tick(32)
-    Object.assign(controller, { session: resumed, batch: retry })
-    expect(controller.ready).toBe(true); expect(store.load()!.activeRace!.deployed).toBe(true)
-    expect(create).toHaveBeenCalledTimes(2); expect(store.load()!.raceRecords).toBeUndefined()
+    first.dispose()
+    const retry = reload()
+    retry.restore(); tickRaceSpawns()
+    expect(retry.ready).toBe(true); expect(retry.allMounts).toHaveLength(1)
+    expect(store.load()!.activeRace).toMatchObject({ id: s.id, deployed: true })
+    expect(store.load()!.raceRecords).toBeUndefined()
     expect(store.load()!.availableMerit).toBe(p.availableMerit)
   })
   it('keeps a hostile countdown running when Captain becomes unavailable', () => {
@@ -256,18 +278,14 @@ describe('Race persistence independent of hostility and Duel', () => {
   it('accepts the current sprint schedule with assigned opponent mounts and saves its reward once after reload', () => {
     const store = new CareerProfileStore(new MemoryStorage())
     let current = profile(); addCareerItem(current, 'serval', 1); current.selectedMountId = 'serval'
-    const point = new Vector3(25, 0, -20)
-    const groundMount = { group: { position: point, rotation: { y: 0 } }, currentHp: 100, dead: false, isAirborne: false }
-    const player = { currentMount: groundMount, isMounted: true, dead: false, hp: 80, staminaValue: 70 }
-    const residents = ['captain', 'commander'].map(id => ({ spec: { id }, npc: {
-      combatPosition: point, group: { rotation: { y: 0 } }, hp: 100, staminaValue: 60, combatAmmo: 7,
-      dead: false, hostileToPlayer: false, isFalling: false,
-    } }))
-    // Acceptance is real; only model deployment is replaced at the rendering boundary.
-    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
-    Object.assign(controller, { player: () => player, mounts: { activeMountId: 'serval', activeMount: groundMount },
-      navigation: { sync: vi.fn(), areConnected: () => true }, obstacles: [], residents, waypoints: raceWaypoints(),
-      commit: (next: CareerProfile) => { if (!store.save(next)) return false; current = store.load()!; return true }, deploy: vi.fn() })
+    const groundMount = new MountDouble('serval', 25, -20), player = Object.assign(new PlayerDouble(), { hp: 80, staminaValue: 70 })
+    player.mountVehicle(groundMount)
+    // The feline asset loader is the rendering boundary; acceptance and its saved session are real.
+    vi.spyOn(BlackCatVisual, 'isPreloaded').mockReturnValue(true)
+    onTestFinished(() => { vi.restoreAllMocks() })
+    const { controller } = raceController({ read: () => current, player, activeMountId: 'serval', activeMount: groundMount,
+      residents: [resident('captain'), resident('commander')],
+      commit: next => { if (!store.save(next)) return false; current = store.load()!; return true } })
     expect(controller.accept('race-6', current)).toBe(true)
     const resumed = store.load()!.activeRace!
     expect(['serval', 'caracal']).toContain(resumed.opponent.mountId)
@@ -311,7 +329,7 @@ describe('Race persistence independent of hostility and Duel', () => {
 
 
 /** Town Center-like hall: a solid plinth whose floor stands 1.4m above the terrain, and a side wall at x 8.2–9. */
-function raisedHallRace(phase: CareerRaceSession['phase'], saved: RacePosition) {
+function raisedHallRace(phase: CareerRaceSession['phase'], saved: RacePosition, deployed: boolean) {
   const floor = 1.4
   const obstacles: ObstacleData[] = [
     { isBarricade: false, navigationPassable: true, solidBelow: -.2, box: new Box3(new Vector3(-9, -.2, -12), new Vector3(9, floor, 12)),
@@ -319,14 +337,17 @@ function raisedHallRace(phase: CareerRaceSession['phase'], saved: RacePosition) 
     { isBarricade: false, box: new Box3(new Vector3(8.2, -.2, -12), new Vector3(9, floor + 11, 12)) },
   ]
   // The Commander stood on his home mount at (5.4, 0); it stays there while he switches to the race horse.
-  const homeMount = { dead: false, combatRadius: 2, group: { position: new Vector3(5.4, floor, 0) } }
-  const rider = { dead: false, combatPosition: new Vector3(5.4, floor, 0), mount: homeMount }
-  const controller = Object.assign(Object.create(CareerRaceController.prototype), {
-    obstacles, residents: [{ npc: rider, homeMount, spec: { id: 'commander', x: 5.4, z: 0 } }], borrowedCommander: { npc: rider, homeMount },
-    navigation: { areConnected: () => true }, returnGroundHeight: (x: number, z: number) => Math.abs(x) <= 9 && Math.abs(z) <= 12 ? floor : 0,
-  }) as { raceMountSpawn(s: CareerRaceSession, rider: unknown, initial: boolean): RacePosition | null }
-  const session = { phase, opponent: { mountId: 'horse', mounted: true, mountPosition: { ...saved }, position: { ...saved } } } as CareerRaceSession
-  return { obstacles, controller, rider, session }
+  const homeMount = new MountDouble('horse', 5.4, 0, floor), rider = new ActorDouble(TOWN_COMMANDER_ID, { x: 5.4, y: floor, z: 0 })
+  rider.mountVehicle(homeMount)
+  const s = session(); s.phase = phase; s.deployed = deployed
+  s.opponent = { ...s.opponent, actorId: TOWN_COMMANDER_ID, mountPosition: { ...saved }, position: { ...saved } }
+  const p = profile(); p.activeRace = s
+  const race = raceController({ read: () => p, obstacles, residents: [{ npc: rider, homeMount, spec: { id: TOWN_COMMANDER_ID, x: 5.4, z: 0 } }],
+    groundAt: (x, z) => Math.abs(x) <= 9 && Math.abs(z) <= 12 ? floor : 0 })
+  race.controller.restore(); tickRaceSpawns()
+  const mount = race.raceMount()!
+  const spawn: RacePosition = { x: mount.group.position.x, y: mount.group.position.y, z: mount.group.position.z, yaw: mount.group.rotation.y }
+  return { obstacles, spawn, session: race.controller.session! }
 }
 /** One real ground-mount frame: gravity and the terrain heightmap, then obstacle and walk-surface collision. */
 function firstMountStep(spawn: RacePosition, obstacles: ObstacleData[]) {
@@ -337,8 +358,7 @@ function firstMountStep(spawn: RacePosition, obstacles: ObstacleData[]) {
 
 describe('Commander invitation race', () => {
   it('spawns the Commander race horse on the raised hall floor beside his home mount and keeps it there through the first collision step', () => {
-    const h = raisedHallRace('guiding', { x: 5.4, y: 1.4, z: 0, yaw: .3 })
-    const spawn = h.controller.raceMountSpawn(h.session, h.rider, true)!
+    const h = raisedHallRace('guiding', { x: 5.4, y: 1.4, z: 0, yaw: .3 }, false), spawn = h.spawn
     expect(spawn.y).toBe(1.4)
     expect(spawn.yaw).toBe(.3)
     expect(Math.hypot(spawn.x - 5.4, spawn.z)).toBeGreaterThanOrEqual(4)
@@ -377,14 +397,14 @@ describe('Commander invitation race', () => {
     expect(step.position.toArray().map(v => +v.toFixed(6))).toEqual([spawn.x, F, spawn.z].map(v => +v.toFixed(6)))
   })
   it('restores a saved pre-start race mount from under the hall floor to a legal floor spot, but keeps legal or running poses', () => {
-    const legal = raisedHallRace('guiding', { x: 0, y: 1.4, z: 6, yaw: 0 })
-    expect(legal.controller.raceMountSpawn(legal.session, legal.rider, false)).toBe(legal.session.opponent.mountPosition)
-    const sunk = raisedHallRace('countdown', { x: 0, y: .06, z: 6, yaw: 0 })
-    expect(sunk.controller.raceMountSpawn(sunk.session, sunk.rider, false)).toEqual({ x: 0, y: 1.4, z: 6, yaw: 0 })
+    const legal = raisedHallRace('guiding', { x: 0, y: 1.4, z: 6, yaw: 0 }, true)
+    expect(legal.spawn).toEqual({ x: 0, y: 1.4, z: 6, yaw: 0 })
+    const sunk = raisedHallRace('countdown', { x: 0, y: .06, z: 6, yaw: 0 }, true)
+    expect(sunk.spawn).toEqual({ x: 0, y: 1.4, z: 6, yaw: 0 })
     expect(sunk.session.opponent.mountPosition.y).toBe(1.4)
     // Once racing, the saved progress pose is restored exactly as played.
-    const running = raisedHallRace('racing', { x: 0, y: .06, z: 6, yaw: 0 })
-    expect(running.controller.raceMountSpawn(running.session, running.rider, false)).toEqual({ x: 0, y: .06, z: 6, yaw: 0 })
+    const running = raisedHallRace('racing', { x: 0, y: .06, z: 6, yaw: 0 }, true)
+    expect(running.spawn).toEqual({ x: 0, y: .06, z: 6, yaw: 0 })
   })
   const EVENT = 'commander-circuit-race' as const
   const pending = (p: CareerProfile): CareerProfile => { p.careerStory = { version: 1, events: { [EVENT]: { status: 'pending' } } }; return p }
@@ -405,20 +425,12 @@ describe('Commander invitation race', () => {
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
     let current = pending(profile()); addCareerItem(current, 'armored-horse', 1)
     expect(store.save(current)).toBe(true)
-    const point = new Vector3(25, 0, -20)
-    const groundMount = { group: { position: point, rotation: { y: 0 } }, currentHp: 100, dead: false, isAirborne: false }
-    const player = { currentMount: groundMount, isMounted: true, dead: false, hp: 80, staminaValue: 70 }
-    const residents = ['captain', 'commander'].map(id => ({ spec: { id }, npc: {
-      combatPosition: point, group: { rotation: { y: 0 } }, hp: 100, staminaValue: 60, combatAmmo: 7,
-      dead: false, hostileToPlayer: false, isFalling: false,
-    } }))
-    const enter = (mountId: string): CareerRaceController => {
-      const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
-      Object.assign(controller, { player: () => player, mounts: { activeMountId: mountId, activeMount: groundMount },
-        navigation: { sync: vi.fn(), areConnected: () => true }, obstacles: [], residents, waypoints: raceWaypoints(),
-        commit: (next: CareerProfile) => { if (!store.save(next)) return false; current = store.load()!; return true }, deploy: vi.fn() })
-      return controller
-    }
+    const groundMount = new MountDouble('horse', 25, -20), player = Object.assign(new PlayerDouble(), { hp: 80, staminaValue: 70 })
+    player.mountVehicle(groundMount)
+    const residents = [resident('captain'), resident('commander')]
+    const enter = (mountId: CareerMountId): CareerRaceController => raceController({ read: () => current, player, residents,
+      activeMountId: mountId, activeMount: groundMount,
+      commit: next => { if (!store.save(next)) return false; current = store.load()!; return true } }).controller
     const stillOpen = () => { const saved = store.load()!; return !saved.activeRace && saved.careerStory!.events[EVENT]!.status === 'pending' }
     expect(enter('armored-horse').accept('race-1', current, { story: true })).toBe(false)
     expect(enter('horse').accept('race-2', current, { story: true })).toBe(false)
@@ -439,17 +451,17 @@ describe('Commander invitation race', () => {
   })
 
   it('lets the Commander sprint in the invitation race only after the start', () => {
-    const s: CareerRaceSession = { ...session(), scheduleVersion: 3, story: EVENT,
-      opponent: rider('commander') }
-    const npc = { combatPosition: new Vector3(), missionMovement: false, assignFormationTarget: vi.fn() }
-    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
-    Object.assign(controller, { session: s, racer: npc, batch: { ready: true },
-      commanded: new Map(), waypoints: [RACE_START_SLOTS[1]] })
-    controller.prepare()
-    expect(npc.missionMovement).toBe(false)
-    s.phase = 'racing'
-    controller.prepare()
-    expect(npc.missionMovement).toBe(true)
+    const racer = (phase: CareerRaceSession['phase']) => {
+      const s: CareerRaceSession = { ...session(), scheduleVersion: 3, story: EVENT, phase, opponent: rider(TOWN_COMMANDER_ID) }
+      const p = profile(); p.activeRace = s
+      const commander = resident(TOWN_COMMANDER_ID)
+      const { controller } = raceController({ read: () => p, residents: [commander] })
+      controller.restore(); tickRaceSpawns()
+      controller.prepare()
+      return commander.npc
+    }
+    expect(racer('countdown').missionMovement).toBe(false)
+    expect(racer('racing').missionMovement).toBe(true)
   })
 
   it('pays 500 for a win and 29 for a defeat instead of the ordinary award, returns a draw unused, and leaves other entries alone', () => {
@@ -483,20 +495,18 @@ describe('Commander invitation race', () => {
     current.careerStory!.events[EVENT] = { status: 'active', sourceId: s.id }
     current.totalMerit = 150; current.availableMerit = 75
     expect(store.save(current)).toBe(true)
-    const batch = { status: 'pending', ready: false, cancel: vi.fn() }
-    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
-    Object.assign(controller, { session: s, batch, read: () => current,
-      player: () => ({ currentMount: null, combatPosition: new Vector3(2, 1, -3), facingYaw: 0,
-        hp: 73, maxHp: 100, dead: false, staminaValue: 60 }), mounts: { activeMount: null },
-      commit: (next: CareerProfile) => { if (!store.save(next)) return false; current = next; return true } })
-    expect(controller.cancelFailedStoryRace()).toBe(false)
-    batch.status = 'failed'
+    const player = Object.assign(new PlayerDouble(), { hp: 73, staminaValue: 60 }); player.group.position.set(2, 1, -3)
+    // No reachable start: the racer's deployment fails on its spawn frame.
+    const { controller } = raceController({ read: () => current, player, connected: () => false, residents: [resident(TOWN_COMMANDER_ID)],
+      commit: next => { if (!store.save(next)) return false; current = next; return true } })
+    controller.restore()
+    expect(controller.cancelFailedStoryRace()).toBe(false) // Still deploying.
+    tickRaceSpawns()
     storage.failWrites = true
     expect(controller.canCancelFailedStoryRace).toBe(true)
     expect(controller.cancelFailedStoryRace()).toBe(false)
     expect(controller.session?.id).toBe(s.id)
     expect(store.load()!.careerStory!.events[EVENT]).toEqual({ status: 'active', sourceId: s.id })
-    expect(batch.cancel).not.toHaveBeenCalled()
     storage.failWrites = false
     expect(controller.cancelFailedStoryRace()).toBe(true)
     const saved = store.load()!
@@ -504,7 +514,6 @@ describe('Commander invitation race', () => {
     expect(saved.careerStory!.events[EVENT]).toEqual({ status: 'pending' })
     expect(saved.raceRecords).toBeUndefined(); expect([saved.availableMerit, saved.totalMerit]).toEqual([75, 150])
     expect(saved.racePlayerState).toMatchObject({ hp: 73, position: { x: 2, y: 1, z: -3 } })
-    expect(batch.cancel).toHaveBeenCalledOnce()
   })
 
   it('reloads a saved unstarted story race whose racer has no legal spot, fails its deployment and still cancels without a result', async () => {
@@ -519,17 +528,12 @@ describe('Commander invitation race', () => {
     current.careerStory!.events[EVENT] = { status: 'active', sourceId: s.id }
     current.totalMerit = 150; current.availableMerit = 75
     expect(store.save(current)).toBe(true)
-    const commander = { dead: false, hostileToPlayer: false, combatPosition: new Vector3(5.4, 1.4, 0), group: { position: new Vector3(), rotation: { y: 0 } },
-      setTacticalOrder: vi.fn(), dismountFromMount: vi.fn(), mountVehicle: vi.fn() }
-    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
-    Object.assign(controller, {
-      residents: [{ npc: commander, spec: { id: TOWN_COMMANDER_ID, x: 5.4, z: 0 } }], obstacles: [], commanded: new Map(),
-      navigation: { areConnected: () => false }, returnGroundHeight: () => 1.4, read: () => current,
-      player: () => ({ currentMount: null, combatPosition: new Vector3(2, 1, -3), facingYaw: 0, hp: 73, maxHp: 100, dead: false, staminaValue: 60 }),
-      mounts: { activeMount: null, activeMountId: 'horse' },
-      commit: (next: CareerProfile) => { if (!store.save(next)) return false; current = next; return true } })
+    const player = Object.assign(new PlayerDouble(), { hp: 73, staminaValue: 60 }); player.group.position.set(2, 1, -3)
+    const { controller } = raceController({ read: () => current, player, connected: () => false, groundAt: () => 1.4,
+      activeMountId: 'horse', residents: [{ spec: { id: TOWN_COMMANDER_ID, x: 5.4, z: 0 }, npc: new ActorDouble(TOWN_COMMANDER_ID, { x: 5.4, y: 1.4, z: 0 }) }],
+      commit: next => { if (!store.save(next)) return false; current = next; return true } })
     controller.restore()
-    gameplayNpcSpawns.tick(performance.now() + 1e9)
+    tickRaceSpawns()
     await expect(controller.waitForDeployment()).rejects.toThrow('no legal spawn')
     expect(controller.ready).toBe(false)
     expect(controller.error).toContain('可取消本次賽馬')
@@ -633,7 +637,6 @@ describe('Race return and deferred native Town outcomes', () => {
   })
 
   it('uses the Sergeant’s floor for formal return restore and walked race settlement', () => {
-    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
     const p = profile()
     p.racePlayerState = {
       actorId: 'player', mountId: 'horse',
@@ -641,36 +644,14 @@ describe('Race return and deferred native Town outcomes', () => {
       mountPosition: { x: 18, z: -24, y: 1.5, yaw: 1.2 },
       hp: 84, mountHp: 65, stamina: 72, mounted: true, dead: false, checkpoint: 0,
     }
-    const playerPos = new Vector3(60, 0.9, -5.5)
-    const mountPos = new Vector3(0, 0, 0)
-    const activeMount = { group: { position: mountPos, rotation: { y: 0 } }, dead: false }
-    const faceDirection = vi.fn(), syncMountTransform = vi.fn(), mountVehicle = vi.fn(), dismountFromMount = vi.fn()
-    const setStamina = vi.fn(), setHp = vi.fn()
-    const playerDouble = {
-      group: { position: playerPos, rotation: { y: Math.PI } },
-      combatPosition: playerPos,
-      facingYaw: Math.PI,
-      faceDirection, syncMountTransform, mountVehicle, dismountFromMount, setStamina, setHp,
-      currentMount: null, dead: false, hp: 100, maxHp: 100, staminaValue: 100,
-    }
-    Object.assign(controller, {
-      session: undefined,
-      obstacles: [],
-      read: () => p,
-      player: () => playerDouble,
-      mounts: { restoreRaceMount: vi.fn(), activeMount },
-      returnGroundHeight: () => 4,
-    })
-
-    controller.restorePlayer({ preservePlacement: true })
-    expect(playerPos.x).toBe(60)
-    expect(playerPos.z).toBe(-5.5)
-    expect(mountPos.x).toBe(60)
-    expect(mountPos.z).toBe(-5.5)
-    expect(mountPos.y).toBe(4)
-    expect(mountVehicle).toHaveBeenCalledWith(activeMount)
-    expect(setHp).toHaveBeenCalledWith(84)
-    expect(setStamina).toHaveBeenCalledWith(72)
+    const player = new PlayerDouble(), activeMount = new MountDouble('horse')
+    player.group.position.set(60, 0.9, -5.5)
+    const formal = raceController({ read: () => p, player, activeMount, groundAt: () => 4 }).controller
+    formal.restorePlayer({ preservePlacement: true })
+    expect([player.group.position.x, player.group.position.z]).toEqual([60, -5.5])
+    expect(activeMount.group.position.toArray()).toEqual([60, 4, -5.5])
+    expect(player.currentMount).toBe(activeMount)
+    expect([player.hp, player.staminaValue]).toEqual([84, 72])
 
     const roster = townRoster()
     const captainSpec = roster.find(r => r.id === 'captain')!
@@ -681,26 +662,13 @@ describe('Race return and deferred native Town outcomes', () => {
     const walkProfile = raceRecordProfile(profile(), walkSession)
     walkProfile.activeRace = walkSession
     let committedProfile = walkProfile
-    const walkController = Object.create(CareerRaceController.prototype) as CareerRaceController
-    Object.assign(walkController, {
-      session: walkSession,
-      captain: { spec: captainSpec, npc: { combatPosition: new Vector3(captainSpec.x, 0, captainSpec.z), dead: false, hostileToPlayer: false } },
-      residents: [
-        { spec: captainSpec, npc: { combatPosition: new Vector3(captainSpec.x, 0, captainSpec.z), dead: false } },
-        { spec: sergeantSpec, npc: { combatPosition: new Vector3(sergeantSpec.x, 0, sergeantSpec.z), dead: false, group: { rotation: { y: sergeantSpec.yaw ?? 0 } } } },
-      ],
-      obstacles: [],
-      legalSegment: () => true,
-      player: () => ({ ...playerDouble, combatPosition: new Vector3(captainSpec.x + 2, 0, captainSpec.z), maxHp: 100 }),
-      returnGroundHeight: () => 4,
-      mounts: { activeMount: null, activeMountId: undefined },
-      read: () => committedProfile,
-      commit: (next: CareerProfile) => { committedProfile = next; return true },
-      snapshot: vi.fn(),
-      disposeRacer: vi.fn(),
-    })
-    expect(walkController.returnComplete).toBe(true)
-    expect(walkController.clear(false)).toBe(true)
+    const walker = new PlayerDouble(); walker.group.position.set(captainSpec.x + 2, 0, captainSpec.z)
+    const captain = new ActorDouble('captain', { x: captainSpec.x, z: captainSpec.z })
+    const walk = raceController({ read: () => committedProfile, commit: next => { committedProfile = next; return true }, player: walker, groundAt: () => 4,
+      residents: [{ spec: captainSpec, npc: captain }, { spec: sergeantSpec, npc: new ActorDouble(sergeantSpec.id, { x: sergeantSpec.x, z: sergeantSpec.z }) }] }).controller
+    walk.restore()
+    expect(walk.returnComplete).toBe(true)
+    expect(walk.clear(false)).toBe(true)
     const settledPos = committedProfile.racePlayerState!.position
     expect(settledPos.y).toBeCloseTo(4 + PLAYER_FOOT_OFFSET)
     expect(Math.hypot(settledPos.x - sergeantSpec.x, settledPos.z - sergeantSpec.z)).toBeGreaterThanOrEqual(3.0)
@@ -709,7 +677,6 @@ describe('Race return and deferred native Town outcomes', () => {
   })
 
   it('dismounts cleanly at Sergeant when only walking Sergeant placement is safe', () => {
-    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
     const p = profile()
     p.racePlayerState = {
       actorId: 'player', mountId: 'horse',
@@ -717,32 +684,12 @@ describe('Race return and deferred native Town outcomes', () => {
       mountPosition: { x: 18, z: -24, y: 1.5, yaw: 1.2 },
       hp: 84, mountHp: 65, stamina: 72, mounted: true, dead: false, checkpoint: 0,
     }
-    const playerPos = new Vector3(60, 0.9, -5.5)
-    const mountPos = new Vector3(0, 0, 0)
-    const activeMount = { group: { position: mountPos, rotation: { y: 0 } }, dead: false }
-    const mountVehicle = vi.fn()
-    const dismountFromMount = vi.fn()
-    const playerDouble = {
-      group: { position: playerPos, rotation: { y: Math.PI } },
-      combatPosition: playerPos,
-      facingYaw: Math.PI,
-      faceDirection: vi.fn(), syncMountTransform: vi.fn(), mountVehicle, dismountFromMount,
-      setStamina: vi.fn(), setHp: vi.fn(),
-      currentMount: null, dead: false, hp: 100, maxHp: 100, staminaValue: 100,
-    }
-    Object.assign(controller, {
-      session: undefined,
-      obstacles: [],
-      read: () => p,
-      player: () => playerDouble,
-      mounts: { restoreRaceMount: vi.fn(), activeMount },
-    })
-
+    const player = new PlayerDouble(), activeMount = new MountDouble('horse')
+    player.group.position.set(60, 0.9, -5.5)
+    const { controller } = raceController({ read: () => p, player, activeMount })
     controller.restorePlayer({ preservePlacement: true, dismount: true })
-    expect(mountVehicle).not.toHaveBeenCalled()
-    expect(playerDouble.currentMount).toBeNull()
-    expect(playerPos.x).toBe(60)
-    expect(playerPos.z).toBe(-5.5)
-    expect(Math.hypot(mountPos.x - playerPos.x, mountPos.z - playerPos.z)).toBeGreaterThan(1.5)
+    expect(player.currentMount).toBeNull()
+    expect([player.group.position.x, player.group.position.z]).toEqual([60, -5.5])
+    expect(Math.hypot(activeMount.group.position.x - 60, activeMount.group.position.z + 5.5)).toBeGreaterThan(1.5)
   })
 })
