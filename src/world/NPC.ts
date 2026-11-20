@@ -8,7 +8,7 @@ import { INFANTRY_MOVE_SPEED } from '../movement/MovementBalance'
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
 import { RANGED_ATTACK_MIN, chooseReversibleWeaponMode, needsWeaponModeDecision, withinRangedMeleeThreatReach } from '../combat/ReversibleWeaponMode'
 import { CIVILIAN_PROFILE } from '../town/TownRules'
-import { townMerchantLoadout, isTownMerchantLoadout } from '../town/TownMerchantEquipment'
+import { townMerchantLoadout, isTownMerchantLoadout, chooseMerchantMelee } from '../town/TownMerchantEquipment'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
 /**
@@ -1718,8 +1718,8 @@ export class NPC {
 
   /** Select between the Merchant's own weapons only between swings; never repair or remove the shield. */
   private _selectMerchantMeleeWeapon(target: Player | NPC | null): void {
-    if (this.townCombatRole !== 'merchant' || this.originalCombatEquipment || this.animator.busy) return
-    const id = target?.shield.active ? this.loadout?.secondaryMeleeWeaponId : this.loadout?.meleeWeaponId
+    if (this.townCombatRole !== 'merchant' || this.originalCombatEquipment) return
+    const id = chooseMerchantMelee(this.loadout, Boolean(target?.shield.active), this.animator.busy)
     if (id && id !== this.meleeWeaponId) this._setActiveMeleeWeapon(id)
   }
 
