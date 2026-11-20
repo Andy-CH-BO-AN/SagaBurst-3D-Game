@@ -3,7 +3,7 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { CareerMissionCheckpoint } from '../../src/career/CareerMissionCheckpoint'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
 import { CommanderTownMissionController } from '../../src/career/CommanderTownMissionController'
@@ -11,9 +11,12 @@ import { acceptCommanderMission, COMMANDER_DECAPITATION_ID } from '../../src/car
 import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
-import { Faction } from '../../src/world/NPC'
+import { Faction, type NPC } from '../../src/world/NPC'
 import { ActorDouble, asNpc, asPlayer, PlayerDouble, recordingActorFactory, residentSpec } from '../helpers/careerActorDoubles'
 import { fourGateDefenseRuntime } from '../helpers/fourGateDefenseRuntime'
+import { createCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
+import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
+import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
 
 function fixture() {
   let profile = createCareerProfile('roman')
@@ -167,6 +170,24 @@ describe('CareerMissionCheckpoint', () => {
     expect(commits).toBe(deployed + 4)
   })
 
+  it('acknowledges fresh native deployment with the actual HR service resident without cancelling the mission', () => {
+    const profile = createFourGateDefenseProfile('PREPARING'), active = profile.activeMission!
+    active.phase = 'DEPLOYING'; active.fourGateDefense!.phase = 'DEPLOYING'
+    const store = new CareerProfileStore(new MemoryStorage())
+    // Every native identity row is real saved data; the HR officer is one of the deployed natives.
+    const h = fourGateDefenseRuntime(profile, next => store.save(next))
+    onTestFinished(() => h.controller.dispose())
+    expect(h.controller.startActiveMission()).toBe(true)
+    h.controller.completeInitialDeployment()
+    const restored = store.load()!.activeMission!
+    expect(restored.id).toBe(active.id)
+    expect(restored.fourGateDefense).toMatchObject({ phase: 'PREPARING', preparationRemainingSeconds: 180,
+      deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [],
+      actors: { 'hr-officer': { status: 'deployed', hp: 100, position: { x: 20, z: 30 } } } })
+    expect(restored.friendlyActorIds).toContain('hr-officer')
+    expect(restored.officialSquad!.squads!.find(squad => squad.squadId === 8)!.actorIds).toContain('hr-officer')
+  })
+
   it('captures Four-gate death after an early save and forces a fresh exit snapshot without reviving the player', () => {
     let commits = 0
     const h = fourGateDefenseRuntime(createFourGateDefenseProfile('PREPARING'), () => { commits++; return true }), controller = h.controller
@@ -205,96 +226,193 @@ describe('CareerMissionCheckpoint', () => {
     expect(commits).toBe(deployed + 3)
   })
 
-  it('acknowledges fresh native deployment with the actual HR service resident without cancelling the mission', () => {
-    const profile = createFourGateDefenseProfile('PREPARING'), active = profile.activeMission!
-    active.phase = 'DEPLOYING'; active.fourGateDefense!.phase = 'DEPLOYING'
-    const store = new CareerProfileStore(new MemoryStorage())
-    // Every native identity row is real saved data; the HR officer is one of the deployed natives.
-    const h = fourGateDefenseRuntime(profile, next => store.save(next))
-    onTestFinished(() => h.controller.dispose())
-    expect(h.controller.startActiveMission()).toBe(true)
-    h.controller.completeInitialDeployment()
-    const restored = store.load()!.activeMission!
-    expect(restored.id).toBe(active.id)
-    expect(restored.fourGateDefense).toMatchObject({ phase: 'PREPARING', preparationRemainingSeconds: 180,
-      deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [],
-      actors: { 'hr-officer': { status: 'deployed', hp: 100, position: { x: 20, z: 30 } } } })
-    expect(restored.friendlyActorIds).toContain('hr-officer')
-    expect(restored.officialSquad!.squads!.find(squad => squad.squadId === 8)!.actorIds).toContain('hr-officer')
-  })
-
-  /** Native deployment saved through a storage boundary that can fail writes or reject the first attack commit. */
-  function spawningRuntime(phase: 'PREPARING' | 'SPAWNING', preparationSeconds = 0) {
-    const initial = createFourGateDefenseProfile(phase)
-    initial.activeMission!.fourGateDefense!.preparationRemainingSeconds = preparationSeconds
-    const storage = new MemoryStorage(), gate = { rejectAttack: false }
-    const h = fourGateDefenseRuntime(initial, next => {
-      if (gate.rejectAttack && next.activeMission!.phase === 'ATTACKING') return false
+  it('retries a failed first-attack save with current actor intent in both checkpoints before publishing combat', () => {
+    const initialProfile = createFourGateDefenseProfile('ATTACKING')
+    Object.assign(initialProfile.activeMission!.fourGateDefense!, { phase: 'SPAWNING', deploymentComplete: false, attackStarted: false, combatElapsedSeconds: 0 })
+    for (const ramp of initialProfile.activeMission!.fourGateDefense!.siege!.ramps) ramp.state = 'DEPLOYING'
+    initialProfile.activeMission!.phase = 'SPAWNING'
+    initialProfile.activeMission!.commanderMission!.deploymentComplete = false
+    let profile = parseCareerProfile(initialProfile)!
+    const state = profile.activeMission!.fourGateDefense!
+    profile.activeMission!.fourGateDefense = state; profile.activeMission!.phase = 'SPAWNING'
+    profile.activeMission!.commanderMission!.deploymentComplete = false
+    const initial = profile
+    const archerId = 'four-gate-save:east:archer:t3:1', lancerId = 'four-gate-save:east:lancer:t3:1'
+    // Only dependencies read by the real snapshot owner; no actor, mount or scene constructor.
+    const dataActor = (id: string, saved: PersonalActorCheckpoint): NPC => ({
+      combatantId: id, hp: saved.hp, dead: false, combatPosition: { ...saved.position },
+      group: { rotation: { y: saved.position!.yaw } }, combatAmmo: saved.ammo,
+      shield: { shieldImpactRemaining: saved.shieldImpact }, tacticalOrder: 'defend',
+      hasActiveRangedWeapon: id === archerId, siegeTransport: null,
+      mount: saved.mount ? { dead: false, currentHp: saved.mount.hp,
+        group: { position: { ...saved.mount.position }, rotation: { y: saved.mount.position.yaw } } } : null,
+    } as unknown as NPC)
+    const enemies = [dataActor(archerId, state.actors[archerId]), dataActor(lancerId, state.actors[lancerId])]
+    state.actors[archerId].order = 'defend'; state.actors[lancerId].order = 'defend'
+    state.siege!.actors[archerId].order = 'defend'; state.siege!.actors[lancerId].order = 'defend'
+    const player = { hp: 85, dead: false, staminaValue: 70, position: { x: 12, y: 10, z: 18 },
+      facingYaw: .5, arrowCount: 7, shield: { shieldImpactRemaining: 2 }, currentMount: null }
+    const residents = profile.activeMission!.civilianActorIds!.map(id => ({ spec: { id, role: 'civilian' }, npc: dataActor(id, state.actors[id]) }))
+    const controller = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as Pick<CommanderFourGateDefenseController, 'snapshotActiveMission' | 'combatEnabled'>, {
+      readProfile: () => profile, player: () => player, enemies, personalActors: () => [],
+      residents,
+      actorMounts: new Map(), tracker: null, startedMissionId: profile.activeMission!.id,
+      spawnBatch: { pending: 0, ready: true },
+      fourGateSiege: { ready: true, snapshot: () => structuredClone(state.siege!) },
+      state: { ...state, registeredTargetActorIds: [] },
+    })
+    // Reload may finish the attacker batch before native/player finalization saves.
+    // The actual snapshot owner must acknowledge that full roster even while still SPAWNING.
+    const readySnapshot = controller.snapshotActiveMission()
+    expect(readySnapshot.fourGateDefense).toMatchObject({ phase: 'SPAWNING', deploymentComplete: false })
+    expect(readySnapshot.fourGateDefense!.registeredTargetActorIds).toHaveLength(280)
+    const liveState = { ...readySnapshot.fourGateDefense!, phase: 'ATTACKING' as const, attackStarted: true, deploymentComplete: true }
+    Object.assign(controller, { state: liveState })
+    // The same production snapshot must withhold the new escort's initial Charge,
+    // then stage its durable one-shot release in both actor owners.
+    liveState.cavalryEscort = createCommanderCavalryEscort(profile.activeMission!.id)
+    const held = controller.snapshotActiveMission().fourGateDefense!
+    expect(held.actors[lancerId].order).toBe('defend')
+    expect(held.siege!.actors[lancerId].order).toBe('defend')
+    Object.assign(controller, { pendingEscortReleases: [lancerId] })
+    const storage = new MemoryStorage({ failWrites: true })
+    // This case owns snapshot ordering and checkpoint acknowledgement, not the
+    // profile-store parser matrix. The real legacy parser above covers decoding;
+    // a narrow storage boundary preserves throwing writes and exact durable bytes.
+    const checkpoint = new CareerMissionCheckpoint(() => profile, next => {
       try { storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(next)) } catch { return false }
+      profile = next
       return true
     })
-    onTestFinished(() => h.controller.dispose())
-    expect(h.controller.startActiveMission()).toBe(true)
-    h.controller.completeInitialDeployment()
-    const durable = () => (JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!) as CareerProfile).activeMission!.fourGateDefense!
-    return { ...h, storage, gate, durable }
-  }
-
-  it('saves spawning intent before enqueueing and keeps a partial attacker batch out of the checkpoint', () => {
-    const h = spawningRuntime('PREPARING', .25), controller = h.controller
-    const deployed = h.storage.getItem(CAREER_STORAGE_KEY)
-    h.storage.failWrites = true
-    controller.updateFlow(.25, 0)
-    expect(h.factory.actors.size).toBe(0)
-    expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(deployed)
-    expect(h.profile().activeMission!.phase).toBe('PREPARING')
-    expect(controller.preparationRemaining).toBe(0)
-    h.storage.failWrites = false
-    controller.updateFlow(0, 0)
-    const spawning = h.durable()
-    expect(spawning).toMatchObject({ phase: 'SPAWNING', preparationRemainingSeconds: 0,
-      deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [] })
-    expect(spawning.siege).toBeUndefined()
-    // Partial scheduler work is transient: the periodic checkpoint keeps only the durable arrival intent.
-    h.materialize(40)
-    expect(h.factory.actors.size).toBe(40)
-    controller.updateFlow(5, 0)
-    const partial = h.durable()
-    expect(partial.phase).toBe('SPAWNING')
-    expect([...h.factory.actors.keys()].filter(id => partial.actors[id])).toEqual([])
-    expect(partial.registeredTargetActorIds).toEqual([])
+    checkpoint.advance(5)
+    let attempted: ReturnType<typeof controller.snapshotActiveMission> | undefined
+    const snapshot = () => (attempted = controller.snapshotActiveMission())
+    expect(checkpoint.persist(snapshot, { immediate: false, periodic: true })).toBe(false)
+    const released = attempted!.fourGateDefense!
+    expect(released.actors[lancerId].order).toBe('charge')
+    expect(released.siege!.actors[lancerId].order).toBe('charge')
+    expect(released.actors[lancerId].formation).toBeUndefined()
+    Object.assign(controller, { pendingEscortReleases: undefined })
+    delete liveState.cavalryEscort
+    expect(profile).toBe(initial)
+    expect(profile.activeMission!.phase).toBe('SPAWNING')
     expect(controller.combatEnabled).toBe(false)
+    expect(state.siege!.actors[archerId].order).toBe('defend')
+    expect(storage.length).toBe(0)
+    player.hp = 70
+    storage.failWrites = false
+    expect(checkpoint.persist(snapshot, { immediate: false, periodic: true })).toBe(true)
+    expect(Array.from({ length: storage.length }, (_, index) => storage.key(index))).toEqual([CAREER_STORAGE_KEY])
+    expect(JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!)).toMatchObject({ version: 2, activeMission: { id: 'four-gate-save', phase: 'ATTACKING' } })
+    // Inspect durable bytes from the successful retry, including the fresh actor intent.
+    const saved = (JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!) as CareerProfile).activeMission!.fourGateDefense!
+    expect(saved).toMatchObject({ phase: 'ATTACKING', attackStarted: true, preparationRemainingSeconds: 0, player: { hp: 70 } })
+    expect(saved.actors[archerId].order).toBe('attack')
+    expect(saved.siege!.actors[archerId].order).toBe('attack')
+    expect(saved.actors[lancerId].order).toBe('charge')
+    expect(saved.siege!.actors[lancerId].order).toBe('charge')
+    expect(controller.combatEnabled).toBe(true)
+    // The live final-frame snapshot, not a caller-supplied result, owns the
+    // survival receipt. These are plain actor ports for the canonical full roster.
+    enemies.push(...profile.activeMission!.targetActorIds.filter(id => id !== archerId && id !== lancerId)
+      .map(id => dataActor(id, state.actors[id])))
+    liveState.combatElapsedSeconds = survivalSeconds
+    expect(controller.snapshotActiveMission().fourGateDefense!.victoryReason).toBe('survival')
+    player.dead = true; player.hp = 0
+    for (const resident of residents) Object.assign(resident.npc, { dead: true, hp: 0 })
+    liveState.victoryReason = 'survival'
+    expect(controller.snapshotActiveMission().fourGateDefense!.victoryReason).toBeUndefined()
+
   })
 
-  it('publishes the first attack only after its save, with current actor intent in both checkpoints', () => {
-    // Reloaded after the arrival intent was saved: attackers are queued again on start.
-    const h = spawningRuntime('SPAWNING'), controller = h.controller
-    h.materialize()
-    const archerId = 'four-gate-save:east:archer:t3:1', lancerId = 'four-gate-save:east:lancer:t3:1'
-    const archer = h.factory.actors.get(archerId)!
-    h.gate.rejectAttack = true
+  it('saves spawning intent before enqueueing and holds combat through reload, incomplete deployment and failed attack commit', () => {
+    let profile = createFourGateDefenseProfile('ATTACKING')
+    // One materialization dependency set serves the later scheduler completion.
+    // The accepted preparation itself contains only native data, never these enemies/ramps.
+    const materialized = profile.activeMission!.fourGateDefense!
+    profile.activeMission!.phase = 'PREPARING'; profile.activeMission!.commanderMission!.deploymentComplete = false
+    profile.activeMission!.fourGateDefense = { ...materialized, phase: 'PREPARING', preparationRemainingSeconds: .25,
+      deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [], siege: undefined,
+      actors: Object.fromEntries([...profile.activeMission!.friendlyActorIds, ...(materialized.autonomousActorIds ?? []), ...profile.activeMission!.civilianActorIds!]
+        .map(id => [id, materialized.actors[id]])) }
+    const before = JSON.stringify(profile)
+    const storage = new MemoryStorage({ failWrites: true, initialValues: [[CAREER_STORAGE_KEY, before]] })
+    const store = new CareerProfileStore(storage)
+    let batches = 0, releases = 0, rejectAttack = false
+    const commit = (next: CareerProfile) => {
+      if (rejectAttack && next.activeMission!.phase === 'ATTACKING') return false
+      try { storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(next)) } catch { return false }
+      profile = next; return true
+    }
+    type FlowEntry = Pick<CommanderFourGateDefenseController, 'updateFlow' | 'combatEnabled' | 'setPreparationElapsed'> & {
+      state: NonNullable<NonNullable<CareerProfile['activeMission']>['fourGateDefense']>
+      spawnBatch?: { pending: number; ready: boolean; status: string }
+      fourGateSiege?: { ready: boolean }
+    }
+    // Rendering/materialization and actor snapshot production are dependencies here;
+    // real updateFlow, readiness, checkpoint cadence and storage acknowledgement decide the
+    // transition. The single partial-deployment reload below exercises the real store parser.
+    const controller = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as FlowEntry, {
+      readProfile: () => profile, player: () => ({ dead: false }), startedMissionId: profile.activeMission!.id,
+      friendlyReady: true, state: structuredClone(profile.activeMission!.fourGateDefense!),
+      checkpoint: new CareerMissionCheckpoint(() => profile, commit),
+      beginAttackers(this: FlowEntry) { batches++; this.spawnBatch = { pending: 1, ready: false, status: 'pending' }; this.fourGateSiege = { ready: false } },
+      releaseCombat() { releases++ },
+      snapshotActiveMission(this: FlowEntry) {
+        const state = this.state.phase === 'ATTACKING'
+          ? { ...this.state, actors: materialized.actors, siege: materialized.siege }
+          : this.state
+        return { ...profile.activeMission!, phase: state.phase, fourGateDefense: state,
+          commanderMission: { ...profile.activeMission!.commanderMission!, deploymentComplete: state.deploymentComplete } }
+      },
+    })
+    controller.updateFlow(.25, 0)
+    expect(batches).toBe(0); expect(releases).toBe(0)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(before)
+    expect(profile.activeMission!.phase).toBe('PREPARING')
+    expect(controller.state).toMatchObject({ phase: 'PREPARING', preparationRemainingSeconds: 0, attackStarted: false })
+    storage.failWrites = false
     controller.updateFlow(0, 0)
-    expect(h.profile().activeMission!.phase).toBe('SPAWNING')
-    expect(controller.combatEnabled).toBe(false)
-    expect(archer.tacticalOrder).toBe('defend')
-    h.gate.rejectAttack = false
+    expect(batches).toBe(1)
+    expect(profile.activeMission!.fourGateDefense).toMatchObject({ phase: 'SPAWNING', preparationRemainingSeconds: 0,
+      deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [] })
+    expect(profile.activeMission!.fourGateDefense!.siege).toBeUndefined()
+    expect(profile.activeMission!.targetActorIds.some(id => profile.activeMission!.fourGateDefense!.actors[id])).toBe(false)
+
+    const target = 'four-gate-save:east:lancer:t3:1'
+    const partialActor: PersonalActorCheckpoint = { status: 'deployed', hp: 43, order: 'defend',
+      position: { x: 190, y: 0, z: 60, yaw: 0 },
+      mount: { hp: 0, mounted: false, position: { x: 189, y: 0, z: 60, yaw: 0 } } }
+    controller.state.registeredTargetActorIds = [target]; controller.state.actors[target] = partialActor
+    controller.updateFlow(5, 0)
+    profile = store.load()!
+    controller.state = structuredClone(profile.activeMission!.fourGateDefense!)
+    expect(controller.state.actors[target]).toEqual(partialActor)
+    expect(controller.state.registeredTargetActorIds).toEqual([target])
+    controller.updateFlow(1, 0)
+    expect(controller.state).toMatchObject({ phase: 'SPAWNING', preparationRemainingSeconds: 0 })
+    expect(batches).toBe(1); expect(releases).toBe(0); expect(controller.combatEnabled).toBe(false)
+
+    materialized.actors[target] = partialActor
+    materialized.siege!.actors[target] = { ...partialActor, entranceId: null, breachCompleted: false }
+    controller.spawnBatch!.pending = 0; controller.spawnBatch!.ready = true; controller.fourGateSiege!.ready = true
+    rejectAttack = true
+    controller.updateFlow(0, 0)
+    expect(profile.activeMission!.phase).toBe('SPAWNING')
+    expect(controller.state.phase).toBe('SPAWNING'); expect(controller.combatEnabled).toBe(false); expect(releases).toBe(0)
+    rejectAttack = false
     controller.updateFlow(8, 0)
-    expect(controller.combatEnabled).toBe(true)
-    expect(archer.tacticalOrder).toBe('attack')
-    // Durable bytes of the retried start carry the fresh intent in both actor owners; escorts stay held.
-    const started = h.durable()
-    expect(started).toMatchObject({ phase: 'ATTACKING', attackStarted: true, preparationRemainingSeconds: 0, combatElapsedSeconds: 0 })
-    expect(started.registeredTargetActorIds).toHaveLength(280)
-    expect([started.actors[archerId].order, started.siege!.actors[archerId].order]).toEqual(['attack', 'attack'])
-    expect([started.actors[lancerId].order, started.siege!.actors[lancerId].order]).toEqual(['defend', 'defend'])
-    // Loading time cannot be earned; only released combat time counts.
+    expect(controller.state.combatElapsedSeconds).toBe(0)
     controller.setPreparationElapsed(0)
     controller.updateFlow(20, 0)
-    expect(controller.survivalRemaining).toBe(survivalSeconds)
-    controller.setPreparationElapsed(survivalSeconds)
+    expect(controller.state.combatElapsedSeconds).toBe(0)
+    controller.setPreparationElapsed(12.5)
     controller.updateFlow(.05, 0)
-    expect(controller.survivalRemaining).toBe(0)
-    // The live frame's snapshot, not a caller-supplied result, owns the saved survival receipt.
-    expect(h.profile().activeMission!.fourGateDefense!.victoryReason).toBe('survival')
+    expect(controller.state.combatElapsedSeconds).toBe(12.5)
+    expect(profile.activeMission!.fourGateDefense!.combatElapsedSeconds).toBe(12.5)
+    expect(profile.activeMission!.phase).toBe('ATTACKING')
+    expect(profile.activeMission!.fourGateDefense!.registeredTargetActorIds).toHaveLength(280)
+    expect(controller.combatEnabled).toBe(true)
+    expect(batches).toBe(1); expect(releases).toBe(1)
   })
 })

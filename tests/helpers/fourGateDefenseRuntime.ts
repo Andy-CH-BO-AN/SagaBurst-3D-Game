@@ -14,8 +14,8 @@ const SERVICE_ROLES: Record<string, TownRole> = { commander: 'commander', 'hr-of
 
 /**
  * The real home-Town four-gate owner over the real rampart layout and an open Town field. Residents
- * and attackers are plain bodies, vehicles run the real crew controller, and spawning uses a
- * private scheduler the case ticks itself. Only the case's own calls move the mission forward.
+ * and attackers are plain bodies, vehicles run the real crew controller, and attacker spawning
+ * uses a private scheduler. Only the case's own calls move the mission forward.
  */
 export function fourGateDefenseRuntime(initial: CareerProfile, commit: (next: CareerProfile) => boolean = () => true) {
   let profile = initial
@@ -33,16 +33,5 @@ export function fourGateDefenseRuntime(initial: CareerProfile, commit: (next: Ca
   const controller = new CommanderFourGateDefenseController(factory, residents.map(r => ({ spec: r.spec, npc: asNpc(r.actor) })),
     () => asPlayer(player), () => profile, next => { if (!commit(next)) return false; profile = next; return true }, navigation,
     { world, createRamp, registerHit: () => {}, unregisterHit: () => {} }, scheduler)
-  let frame = 0
-  return {
-    controller, player, factory,
-    residents: new Map(residents.map(r => [r.spec.id, r.actor])),
-    profile: () => profile,
-    /** Runs queued spawn jobs (all, or the first `frames`), one per frame as the Town loop would. */
-    materialize: (frames = Infinity) => {
-      for (const batch of controller.spawnBatches) {
-        for (let jobs = Math.min(frames, batch.actors.size); jobs > 0 && batch.status === 'pending'; jobs--) scheduler.tick(++frame)
-      }
-    },
-  }
+  return { controller, player, residents: new Map(residents.map(r => [r.spec.id, r.actor])), profile: () => profile }
 }
