@@ -25,7 +25,7 @@ export class MountDouble {
   baseSpeed = 10
   combatRadius = 2
   isAirborne = false
-  readonly isFlyingMount = false
+  isFlyingMount = false
   readonly flight = undefined
   visualHold = false
   reservedForTown = false
@@ -99,7 +99,7 @@ export class ActorDouble {
   readonly townCategory?: 'civilian'
   get dead(): boolean { return this.hp <= 0 }
   get position(): Vector3 { return this.group.position }
-  get combatPosition(): Vector3 { return this.mount ? this.mount.group.position : this.group.position }
+  get combatPosition(): Vector3 { return this.mount && !this.mount.isFlyingMount ? this.mount.group.position : this.group.position }
   get isMounted(): boolean { return this.mount !== null && !this.mount.dead }
   get hasFormationTarget(): boolean { return this.formationTarget !== undefined }
   get combatFormationCheckpoint(): undefined { return undefined }

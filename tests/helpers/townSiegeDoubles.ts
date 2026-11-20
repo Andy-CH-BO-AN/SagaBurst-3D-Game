@@ -9,13 +9,25 @@ import { TOWN_GATES, type TownGateId } from '../../src/town/TownLayout'
 import type { TownRampartLayout } from '../../src/town/TownRamparts'
 import type { CampaignGateState } from '../../src/campaign/CampaignGate'
 import type { ObstacleData, WalkRampSurface } from '../../src/world/Terrain'
+import type { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import type { NPC } from '../../src/world/NPC'
+import { TownFourGateSiege } from '../../src/career/TownFourGateSiege'
+import { createTownSiegeCrewSlots } from '../../src/career/TownFourGateSiegePolicy'
+import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
+import { getTownRampartLayout } from '../../src/town/TownRamparts'
+import { SpatialGrid } from '../../src/world/SpatialGrid'
+import { ActorDouble, asNpc } from './careerActorDoubles'
 
 /** Gate leaf state and HP with the real one-way destroyed rule; no hinges or meshes. */
 export class GateDouble implements TownSiegeGate {
   private current: CampaignGateState = 'closed'
   private readonly listeners = new Set<(state: CampaignGateState) => void>()
-  readonly siegeObstacle: ObstacleData = { box: new Box3(), isBarricade: true }
+  /** The gate leaves' hit volume; attackable while the gate stands. */
+  readonly siegeObstacle: ObstacleData = { box: new Box3(), isBarricade: true, damageable: this.leafHits() }
+  private leafHits(): DamageableObstacle {
+    const destroyed = () => this.current === 'destroyed'
+    return { get destroyed() { return destroyed() }, isDamageableBy: () => true } as unknown as DamageableObstacle
+  }
   readonly damageable = { currentHp: 2080, takeDamage: (amount: number) => {
     this.damageable.currentHp = Math.max(0, this.damageable.currentHp - amount)
     if (this.damageable.currentHp === 0) this.destroy()
@@ -37,11 +49,11 @@ export class GateDouble implements TownSiegeGate {
 }
 
 /** Opt-in siege world: the real rampart layout, gate doubles, and dock passages that enforce the eight-site rule. */
-export function townSiegeWorld(layout: TownRampartLayout): TownSiegeWorld & { gates: Map<TownGateId, GateDouble>; openDocks: Set<TownSiegeRampId> } {
+export function townSiegeWorld(layout: TownRampartLayout, obstacles: ObstacleData[] = []): TownSiegeWorld & { gates: Map<TownGateId, GateDouble>; openDocks: Set<TownSiegeRampId> } {
   let configured = false
   const openDocks = new Set<TownSiegeRampId>()
   return {
-    obstacles: [], fortifications: { rampartLayout: layout }, openDocks,
+    obstacles, fortifications: { rampartLayout: layout }, openDocks,
     gates: new Map(TOWN_GATES.map(gate => [gate.id, new GateDouble()])),
     siegeDockPassages: {
       isRailObstacle: () => false,
@@ -69,7 +81,8 @@ export class SiegeRampDouble {
   readonly crew = new Map<string, NPC>()
   readonly damageable = { destroyed: false, currentHp: 520 }
   disposed = false
-  constructor(readonly assignment: TownSiegeRampAssignment, readonly placement: TownSiegeRampPlacement, changed: Changed) {
+  constructor(readonly assignment: TownSiegeRampAssignment, readonly placement: TownSiegeRampPlacement, changed: Changed,
+    private readonly onUpdate: (ramp: SiegeRampDouble) => void = () => {}) {
     this.position = placement.start.clone()
     const s = placement.surface
     this.surface = { ...s, startX: s.startX + placement.start.x - placement.dock.x, startZ: s.startZ + placement.start.z - placement.dock.z }
@@ -98,6 +111,7 @@ export class SiegeRampDouble {
     this.damageable.currentHp = saved.hp; this.damageable.destroyed = saved.hp === 0
   }
   update(dt: number): void {
+    this.onUpdate(this)
     const movement = this.controller.advance(Math.min(dt, .1), () => true)
     if (movement <= 0) return
     this.position.x += movement * (this.placement.dirX ?? 0); this.position.z += movement * this.placement.dirZ
@@ -107,14 +121,36 @@ export class SiegeRampDouble {
 }
 
 /** Production-shaped createRamp port that records each vehicle by assignment id. */
-export function recordingRampFactory(): TownFourGateSiegeOptions['createRamp'] & { ramps: Map<TownSiegeRampId, SiegeRampDouble> } {
+export function recordingRampFactory(onUpdate?: (ramp: SiegeRampDouble) => void): TownFourGateSiegeOptions['createRamp'] & { ramps: Map<TownSiegeRampId, SiegeRampDouble> } {
   const ramps = new Map<TownSiegeRampId, SiegeRampDouble>()
   const create = (assignment: TownSiegeRampAssignment, placement: TownSiegeRampPlacement, _faction: 'roman' | 'viking',
     _shared: ObstacleData[], changed: Changed) => {
-    const ramp = new SiegeRampDouble(assignment, placement, changed)
+    const ramp = new SiegeRampDouble(assignment, placement, changed, onUpdate)
     ramps.set(assignment.id, ramp)
     return ramp.asRamp()
   }
   return Object.assign(create, { ramps })
 }
 
+
+type SiegeSetup = Pick<TownFourGateSiegeOptions, 'sectors'> & Partial<Pick<TownFourGateSiegeOptions, 'actors' | 'attackerRole' | 'navigation' | 'acceptsOrders'>>
+  & { obstacles?: ObstacleData[]; layout?: TownRampartLayout; onRampUpdate?: (ramp: SiegeRampDouble) => void }
+
+/** The real siege adapter over the gate/dock world doubles; `townNav` defaults to the real layered navigation. */
+export function townSiege(setup: SiegeSetup) {
+  const layout = setup.layout ?? getTownRampartLayout(), world = townSiegeWorld(layout, setup.obstacles)
+  const createRamp = recordingRampFactory(setup.onRampUpdate)
+  const navigation = setup.navigation ?? { townNav: new TownLayeredNavigation(layout, () => true), areConnected: () => true, sync: () => false }
+  const siege = new TownFourGateSiege({ createRamp, world, navigation, grid: new SpatialGrid<NPC>(), actors: setup.actors ?? (() => []),
+    sectors: setup.sectors, acceptsOrders: setup.acceptsOrders ?? (() => true), attackerRole: setup.attackerRole,
+    registerHit: () => {}, unregisterHit: () => {} })
+  return { siege, world, navigation, ramps: createRamp.ramps }
+}
+
+/** A prepared siege whose eighty vehicle crew are registered, so update() runs. */
+export function preparedTownSiege(setup: SiegeSetup) {
+  const h = townSiege(setup), slots = createTownSiegeCrewSlots('viking')
+  h.siege.prepare(slots)
+  for (const slot of slots) h.siege.register(asNpc(new ActorDouble(slot.spec.actorId!, { faction: slot.spec.faction, characterFaction: 'viking', x: slot.spec.x, z: slot.spec.z })))
+  return h
+}

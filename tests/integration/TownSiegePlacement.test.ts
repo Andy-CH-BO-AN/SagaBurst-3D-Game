@@ -1,13 +1,13 @@
 import { Box3, Vector3 } from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
-import { TownFourGateSiege } from '../../src/career/TownFourGateSiege'
 import { isTownSiegeDockConnected } from '../../src/career/TownFourGateSiegePolicy'
 
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 
-import type { TownRampartLayout } from '../../src/town/TownRamparts'
+import { getTownRampartLayout, type TownRampartLayout } from '../../src/town/TownRamparts'
+import { preparedTownSiege } from '../helpers/townSiegeDoubles'
 
 
 
@@ -27,25 +27,22 @@ describe('Town Siege placement and readiness', () => {
 it('synchronizes moving siege hulls before the next actor query without an entrance change', () => {
   const world = new NavigationWorld({ minX: -12, maxX: 12, minZ: -12, maxZ: 12 })
   const moving = { box: new Box3(new Vector3(-1.8, 0, -12), new Vector3(-.2, 3, 12)), isBarricade: true, dynamic: true }
-  const obstacles = [moving], events: string[] = []
-  world.sync(obstacles)
-  world.townNav = new TownLayeredNavigation({ decks: [], ramps: [], corners: [], lengths: [], perimeter: 1, wallSpans: [] })
+  const events: string[] = []
+  world.townNav = new TownLayeredNavigation(getTownRampartLayout())
+  // A real prepared siege; its first vehicle's move carries this hull out of the grid.
+  const h = preparedTownSiege({ obstacles: [moving], navigation: world, sectors: [],
+    onRampUpdate: ramp => { events.push('move'); if (ramp.assignment.id === 'town-siege-ramp:north:left') moving.box.translate(new Vector3(0, 0, 26)) } })
+  onTestFinished(() => h.siege.dispose())
   const revision = world.revision
+  expect(world.grid.isBlocked(world.grid.worldToCell({ x: -1, z: 0 })!)).toBe(true)
   const synchronize = world.sync.bind(world)
   const sync = vi.spyOn(world, 'sync').mockImplementation(source => {
     events.push('sync')
     return synchronize(source)
   })
   onTestFinished(() => sync.mockRestore())
-  const siege = Object.assign(Object.create(TownFourGateSiege.prototype) as Pick<TownFourGateSiege, 'update'>, {
-    prepared: true, disposed: false, pending: new Set(), neighbors: [], actorsById: new Map(),
-    observedRevision: world.townNav.siegeEntrances.revision,
-    options: { world: { obstacles }, navigation: world, grid: { getNearbyInto: () => [] }, actors: () => [] },
-    ramps: new Map([['moving', { position: new Vector3(), surface: { length: 24, landing: 6 },
-      update() { events.push('move'); moving.box.translate(new Vector3(0, 0, 26)) } }]]),
-  })
-  siege.update(.1)
-  expect(events).toEqual(['move', 'sync'])
+  h.siege.update(.1)
+  expect(events).toEqual([...Array.from({ length: 8 }, () => 'move'), 'sync'])
   expect(world.revision).toBe(revision + 1)
   expect(world.grid.isBlocked(world.grid.worldToCell({ x: -1, z: 0 })!)).toBe(false)
   expect(world.townNav.siegeEntrances.revision).toBe(0)
