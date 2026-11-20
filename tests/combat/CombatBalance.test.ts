@@ -10,6 +10,8 @@ import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { drainFistStrikes, punchEventsBetween, punchExtension, traceFistStrike, unarmedDamage, type FistStrike } from '../../src/combat/UnarmedCombat'
 import { ShieldCollider, ShieldState, type PhysicalCombatTarget } from '../../src/combat/ShieldBlocking'
 import { parsePunchTiming } from '../../src/world/HumanoidAssetRegistry'
+import { NPC } from '../../src/world/NPC'
+import { Player } from '../../src/player/Player'
 
 
 describe('Combat damage eligibility', () => {
@@ -145,6 +147,18 @@ describe('Combat damage eligibility', () => {
     expect(calculateNpcMeleeDamage(npcLance)).toEqual({ damage: 45, skipImpact: false })
     expect(calculateNpcMeleeDamage({ ...npcLance, chargeSpeed: 10.01 })).toEqual({ damage: 135, skipImpact: true })
     expect(calculateNpcMeleeDamage({ ...npcLance, isMounted: false, chargeSpeed: 12, targetIsMounted: true })).toEqual({ damage: 90, skipImpact: false })
+
+    // The NPC contact caller: a charge latched before the contact frame is spent once, and its hit
+    // suppresses the ridden mount's impact for that frame. Plain rider state, no actor construction.
+    const npcContact = NPC.prototype as unknown as { _calcLanceDamage(this: object, baseDamage: number, targetIsMounted: boolean): number }
+    const rider = { meleeCombatKind: 'lance', hasActiveShield: false, characterFaction: 'viking', isMounted: true,
+      combatProfileId: undefined, pendingLanceChargeSpeed: 10.01, mount: { movementSpeed: 0, skipImpactThisFrame: false } }
+    expect(npcContact._calcLanceDamage.call(rider, 45, false)).toBe(135)
+    expect(rider.pendingLanceChargeSpeed).toBe(0)
+    expect(rider.mount.skipImpactThisFrame).toBe(true)
+    rider.mount.skipImpactThisFrame = false
+    expect(npcContact._calcLanceDamage.call(rider, 45, false)).toBe(45)
+    expect(rider.mount.skipImpactThisFrame).toBe(false)
   })
 })
 
@@ -184,5 +198,10 @@ describe('Unarmed fist contact', () => {
     expect(drained.map(strike => strike.to.toArray())).toEqual([[2, 1, .85], [2, 1, .85]])
     expect(pending).toEqual([])
     expect(drainFistStrikes(pending, toWorld)).toEqual([])
+    // Player's queue is drained the same way: the frame after a punch lands, nothing is replayed.
+    const playerQueue = { group: { matrixWorld: toWorld, updateWorldMatrix() {} }, pendingFistStrikes: [jab()] }
+    const consume = () => (Player.prototype.consumeFistStrikes as (this: object) => FistStrike[]).call(playerQueue)
+    expect(consume().map(strike => strike.from.toArray())).toEqual([[2, 1, .4]])
+    expect(consume()).toEqual([])
   })
 })

@@ -5,7 +5,7 @@ import { Game } from '../../src/Game'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { claimCareerMission, createCareerProfile } from '../../src/career/CareerProfile'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
-import { CombatEventSinkStack, CombatEventStream, type CombatDamageContext, type CombatEventSink } from '../../src/combat/CombatAttribution'
+import { CombatEventSinkStack, CombatEventStream, type CombatDamageContext, type CombatEvent, type CombatEventSink } from '../../src/combat/CombatAttribution'
 import { damageMount, damageNpc, damageObstacle, damagePlayer } from '../../src/combat/DamageRouter'
 import { MountArmor } from '../../src/combat/MountArmor'
 import { ShieldCollider, ShieldState, WeaponSweep } from '../../src/combat/ShieldBlocking'
@@ -216,21 +216,35 @@ describe('Combat attribution foundation', () => {
   })
 
   it('restores nested event ownership without duplicate delivery after repeated releases', () => {
-    const original: CombatEventSink = () => {}, first: CombatEventSink = () => {}, second: CombatEventSink = () => {}
-    const routing = new CombatEventSinkStack(original)
-    const releaseFirst = routing.bind(first)
-    const releaseSecond = routing.bind(second)
-    expect(routing.current).toBe(second)
+    const received: string[] = []
+    const sink = (name: string): CombatEventSink => () => { received.push(name) }
+    const original = sink('original'), first = sink('first'), second = sink('second')
+    // As constructed with its original sink; dispose reaches only plain lifecycle ports.
+    const { npc } = unarmedNpc({ combatEvents: new CombatEventSinkStack(original), animator: fistAnimator(false),
+      pendingFall: { active: false, clear() {} }, characterVisualGroup: { traverse() {} },
+      alertSprite: { material: { dispose() {} } }, group: { position: new THREE.Vector3(), removeFromParent() {} } })
+    const event: CombatEvent = { type: 'structure_destroyed', method: 'siege',
+      source: { actorId: 'routing-npc', actorType: 'npc', allegiance: Faction.ENEMY, characterFaction: 'viking' },
+      target: { targetId: 'structure:gate', targetType: 'structure', name: 'gate' } }
+    // The sink every NPC damage context (siege strike, eagle dive) emits through.
+    const emitFromNpc = () => (npc as unknown as { readonly combatEventSink?: CombatEventSink }).combatEventSink?.(event)
+    emitFromNpc()
+    const releaseFirst = npc.bindCombatEventSink(first)
+    const releaseSecond = npc.bindCombatEventSink(second)
+    emitFromNpc()
     releaseFirst(); releaseFirst()
-    expect(routing.current).toBe(second)
+    emitFromNpc()
     releaseSecond(); releaseSecond()
-    expect(routing.current).toBe(original)
-    const releaseLate = routing.bind(first)
-    routing.close()
-    expect(routing.current).toBe(original)
+    emitFromNpc()
+    expect(received).toEqual(['original', 'second', 'second', 'original'])
+    // Disposal drops a still-bound owner and refuses new ones.
+    const releaseLate = npc.bindCombatEventSink(first)
+    npc.dispose()
+    emitFromNpc()
     releaseLate()
-    expect(routing.current).toBe(original)
-    expect(() => routing.bind(first)).toThrow('disposed NPC')
+    emitFromNpc()
+    expect(received.slice(4)).toEqual(['original', 'original'])
+    expect(() => npc.bindCombatEventSink(first)).toThrow('disposed NPC')
   })
 
   it('preserves the mounted rider display through lethal dismount and emits actual HP loss with one kill', () => {
@@ -651,6 +665,13 @@ it('T1..T5 Duel NPC 真的出拳且每拳固定 5，保留 Tier 承傷配置', (
     npc.takeDamage(100)
     expect(npc.hp).toBe(200 - expectedIncoming)
   }
+  // The punch is the only reach a loadout without a melee weapon has: no sword contact, even at 0.75m inside a 0.8m radius.
+  const { npc: bareHanded } = unarmedNpc({ loadout: {}, meleeWeaponId: null, meleeAttackRadius: .8 })
+  const swordContact = (npc: NPC) => (npc as unknown as { _isTargetInMeleeRange(target: THREE.Vector3): boolean })
+    ._isTargetInMeleeRange(new THREE.Vector3(0, 0, .75))
+  expect(swordContact(bareHanded)).toBe(false)
+  Object.assign(bareHanded, { meleeWeaponId: 'gladius_rusty' })
+  expect(swordContact(bareHanded)).toBe(true)
 })
 
 it('空手 Duel NPC 追擊沿用既有導航：路徑被牆擋住時朝路徑點而非玩家移動，不使用隱形劍範圍', () => {
