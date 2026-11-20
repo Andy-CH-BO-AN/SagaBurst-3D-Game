@@ -13,7 +13,7 @@ import { heroMeleeAttackSpeed } from '../battle/HeroCombatProfile'
  * Exposes combat events for the Game audio bridge.
  */
 import * as THREE from 'three'
-import type { FistStrike } from '../combat/UnarmedCombat'
+import { drainFistStrikes, type FistStrike } from '../combat/UnarmedCombat'
 import { ShieldState, ShieldCollider, WeaponSweep } from '../combat/ShieldBlocking'
 import { DeathFadeController } from '../world/DeathFade'
 
@@ -108,9 +108,7 @@ export class Player {
   private readonly pendingFistStrikes: FistStrike[] = []
   consumeFistStrikes(): FistStrike[] {
     this.group.updateWorldMatrix(true, false)
-    return this.pendingFistStrikes.splice(0).map(strike => ({
-      from: strike.from.applyMatrix4(this.group.matrixWorld), to: strike.to.applyMatrix4(this.group.matrixWorld),
-    }))
+    return drainFistStrikes(this.pendingFistStrikes, this.group.matrixWorld)
   }
 
   private bowPivot!: THREE.Group
