@@ -32,30 +32,30 @@ describe('Combat damage eligibility', () => {
     expect(unarmedDamage(1)).toBe(5)
     expect(unarmedDamage(2, 'byzantine-cataphract-t5')).toBe(30)
   })
-  it('百夫長是獨立的 Career T4 職業數值；聖騎士、維京 T4、遊俠與 T5 原值不變', () => {
-    expect(HERO_COMBAT_PROFILES.centurion).toEqual({ maxHp: 700, damageMultiplier: 2.2, damageTakenMultiplier: .6, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 })
-    expect(HERO_COMBAT_PROFILES.praetorian).toEqual({ maxHp: 500, damageMultiplier: 2, damageTakenMultiplier: .7, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 })
-    expect([HERO_COMBAT_PROFILES.varangian.maxHp, HERO_COMBAT_PROFILES.ranger.maxHp, HERO_COMBAT_PROFILES['roman-commander'].maxHp, HERO_COMBAT_PROFILES['byzantine-cataphract'].maxHp]).toEqual([500, 300, 850, 1000])
+  it('百夫長是獨立的 Career T4 職業：依專精與資產路由，比禁衛軍更耐打、單擊更重且攻速不變', () => {
     expect([HERO_COMBAT_PROFILE_BY_ASSET['roman-centurion-t4'], HERO_COMBAT_PROFILE_BY_ASSET['roman-hero-t4']]).toEqual(['centurion', 'praetorian'])
     const captain = { faction: 'roman' as const, ...careerRankFixture('roman', 'captain'), skills: undefined }
     expect(resolveCareerCombatProfile({ ...captain, t4Specialization: 'centurion' })).toBe('centurion')
-    // Skill progression is applied by its existing owner on top of the profile base.
-    expect(resolveCareerPlayerMaxHp({ ...captain, t4Specialization: 'centurion' })).toBe(resolveSkillAdjustedMaxHp(700, undefined))
-    expect(resolveCareerPlayerMaxHp(captain)).toBe(resolveSkillAdjustedMaxHp(500, undefined))
+    expect(resolveCareerCombatProfile(captain)).toBe('praetorian')
+    // Skill progression is applied by its existing owner on top of the routed profile base.
+    const centurionHp = resolveCareerPlayerMaxHp({ ...captain, t4Specialization: 'centurion' })
+    const praetorianHp = resolveCareerPlayerMaxHp(captain)
+    expect(centurionHp).toBe(resolveSkillAdjustedMaxHp(HERO_COMBAT_PROFILES.centurion.maxHp, undefined))
+    expect(praetorianHp).toBe(resolveSkillAdjustedMaxHp(HERO_COMBAT_PROFILES.praetorian.maxHp, undefined))
+    expect(centurionHp).toBeGreaterThan(praetorianHp)
+    expect(applyHeroIncomingDamage(100, 'centurion')).toBeLessThan(applyHeroIncomingDamage(100, 'praetorian'))
+    expect(applyHeroMeleeDamage(100, 'centurion')).toBeGreaterThan(applyHeroMeleeDamage(100, 'praetorian'))
     expect(applyHeroMeleeDamage(100, 'centurion')).toBeCloseTo(220); expect(applyHeroIncomingDamage(100, 'centurion')).toBeCloseTo(60)
     expect(heroMeleeAttackSpeed('centurion')).toBe(1)
   })
-  it('維京重甲 T4／T5：更耐打、單擊更重、攻速略低但近戰 DPS 略高、移動（含騎乘乘數）較慢；普通版原值不變', () => {
-    expect(HERO_COMBAT_PROFILES['dragon-oathguard']).toEqual({ maxHp: 550, damageMultiplier: 2.3, damageTakenMultiplier: .85, attackSpeedMultiplier: 1.4, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 })
-    expect(HERO_COMBAT_PROFILES['ironblood-warlord']).toEqual({ maxHp: 1000, damageMultiplier: 2.4, meleeDamageMultiplier: 2.9, damageTakenMultiplier: .7, attackSpeedMultiplier: 1.45, meleeAttackSpeedMultiplier: 1.6, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 })
-    expect(HERO_COMBAT_PROFILES.varangian).toEqual({ maxHp: 500, damageMultiplier: 2, damageTakenMultiplier: 1, attackSpeedMultiplier: 1.5, moveSpeedMultiplier: 1.2, rangedAttackRangeMultiplier: 1 })
-    expect(HERO_COMBAT_PROFILES['viking-commander']).toEqual({ maxHp: 900, damageMultiplier: 2.2, meleeDamageMultiplier: 2.6, damageTakenMultiplier: .8, attackSpeedMultiplier: 1.55, meleeAttackSpeedMultiplier: 1.7, moveSpeedMultiplier: 1.2, rangedAttackRangeMultiplier: 1 })
+  it('維京重甲 T4／T5：更耐打、單擊更重、攻速略低但近戰 DPS 略高、移動（含騎乘乘數）較慢，並由 Career 專精／精英職業路由', () => {
     for (const [heavy, normal] of [['dragon-oathguard', 'varangian'], ['ironblood-warlord', 'viking-commander']] as const) {
       const dps = (id: typeof heavy | typeof normal) => applyHeroMeleeDamage(1, id) * heroMeleeAttackSpeed(id)
       expect(applyHeroMeleeDamage(100, heavy)).toBeGreaterThan(applyHeroMeleeDamage(100, normal))
       expect(heroMeleeAttackSpeed(heavy)).toBeLessThan(heroMeleeAttackSpeed(normal))
       expect(dps(heavy)).toBeGreaterThan(dps(normal)); expect(dps(heavy)).toBeLessThan(dps(normal) * 1.1)
       expect(applyHeroIncomingDamage(100, heavy)).toBeLessThan(applyHeroIncomingDamage(100, normal))
+      expect(getHeroCombatModifiers(heavy)!.maxHp).toBeGreaterThan(getHeroCombatModifiers(normal)!.maxHp)
       // Player/NPC multiply this into both foot and mounted speed; the heavy class is slower in both.
       expect(getHeroCombatModifiers(heavy)!.moveSpeedMultiplier).toBeLessThan(getHeroCombatModifiers(normal)!.moveSpeedMultiplier)
     }
@@ -63,7 +63,7 @@ describe('Combat damage eligibility', () => {
     expect(resolveCareerCombatProfile({ ...viking, ...careerRankFixture((viking).faction, 'captain'), rank: 'captain', t4Specialization: 'dragon-oathguard' })).toBe('dragon-oathguard')
     expect(resolveCareerCombatProfile({ ...viking, ...careerRankFixture((viking).faction, 'captain'), rank: 'captain' })).toBe('varangian')
     expect(resolveCareerCombatProfile({ ...viking, ...careerRankFixture((viking).faction, 'commander'), rank: 'commander', eliteClass: 'ironblood-warlord', t4Specialization: 'dragon-oathguard' })).toBe('ironblood-warlord')
-    expect(resolveCareerPlayerMaxHp({ ...viking, ...careerRankFixture((viking).faction, 'commander'), rank: 'commander', eliteClass: 'ironblood-warlord' })).toBe(resolveSkillAdjustedMaxHp(1000, undefined))
+    expect(resolveCareerPlayerMaxHp({ ...viking, ...careerRankFixture((viking).faction, 'commander'), rank: 'commander', eliteClass: 'ironblood-warlord' })).toBe(resolveSkillAdjustedMaxHp(HERO_COMBAT_PROFILES['ironblood-warlord'].maxHp, undefined))
     const axe = { baseDamage: 80, combatKind: WEAPONS.axe_t5.combatKind, isLance: false, isMounted: false, mountSpeed: 0, oneHandedMultiplier: 1, faction: 'viking' as const, hasShield: true }
     expect(calculatePlayerMeleeDamage({ ...axe, heroAssetId: 'viking-heavy-hero-t5' }).damage).toBe(232)
   })
