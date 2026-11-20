@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CombatEventSinkStack } from '../../src/combat/CombatAttribution'
 import { showEquipmentLoadNotice } from '../../src/ui/EquipmentLoadNotice'
 import { BYZANTINE_EQUIPMENT_RETRY_MS, BYZANTINE_EQUIPMENT_WAIT_MS, byzantineEquipmentStatus, isEquipmentDemanded, resetHighTierEquipmentForTest } from '../../src/world/HighTierEquipment'
 import { NPC } from '../../src/world/NPC'
@@ -30,7 +31,7 @@ function actorHolding(shieldId: string | null): GatedActor {
     rangedActive: false, townArmed: false,
     heldMeleeWeaponId: 'steel_lance', selectedMeleeWeaponId: 'steel_lance', heldShieldId: null, selectedShieldId: null,
     animator: { cancel: vi.fn(), setEquipment: vi.fn() }, rebuildShield: vi.fn(),
-    combatEventBindings: [], pendingFall: { clear: vi.fn() }, mount: null, rig: { animation: { stop: vi.fn() } },
+    combatEvents: new CombatEventSinkStack(), pendingFall: { clear: vi.fn() }, mount: null, rig: { animation: { stop: vi.fn() } },
     characterVisualGroup: { traverse: vi.fn(), removeFromParent: vi.fn() },
     alertSprite: { material: { map: { dispose: vi.fn() }, dispose: vi.fn() } },
     group: { removeFromParent: vi.fn() },

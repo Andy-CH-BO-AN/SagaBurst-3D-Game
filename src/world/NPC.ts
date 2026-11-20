@@ -102,7 +102,7 @@ import {
   layerSide,
 } from '../navigation/OutpostLayeredNavigation'
 import { damageObstacle, damageNpc, damageMount } from '../combat/DamageRouter'
-import { createNpcCombatActorRef, type CombatEventSink, type CombatDamageContext } from '../combat/CombatAttribution'
+import { CombatEventSinkStack, createNpcCombatActorRef, type CombatEventSink, type CombatDamageContext } from '../combat/CombatAttribution'
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
 import { EagleFlightAI, type EagleFlightCommand, type EagleTactic } from '../movement/EagleFlightAI'
 import type { EagleTraffic } from './EagleAirspace'
@@ -379,24 +379,11 @@ export class NPC {
   setCommandSquad(squadId: SquadId | undefined): void { this._squadId = squadId }
   combatOwnership?: import('../combat/CombatFaction').CombatOwnership
   readonly combatantId: string
-  private readonly originalCombatEventSink?: CombatEventSink
-  private readonly combatEventBindings: { sink: CombatEventSink }[] = []
-  private combatEventBindingsClosed = false
-  private get combatEventSink(): CombatEventSink | undefined {
-    return this.combatEventBindings[this.combatEventBindings.length - 1]?.sink ?? this.originalCombatEventSink
-  }
+  private readonly combatEvents: CombatEventSinkStack
+  private get combatEventSink(): CombatEventSink | undefined { return this.combatEvents.current }
 
   /** Borrowed ownership replaces routing for its lifetime without subscribing a second listener. */
-  bindCombatEventSink(sink: CombatEventSink): () => void {
-    if (this.combatEventBindingsClosed) throw new Error('Cannot bind combat events to a disposed NPC')
-    const binding = { sink }
-    this.combatEventBindings.push(binding)
-    return () => {
-      const index = this.combatEventBindings.indexOf(binding)
-      // Token identity makes cleanup idempotent and keeps an older owner from restoring over a newer one.
-      if (index >= 0) this.combatEventBindings.splice(index, 1)
-    }
-  }
+  bindCombatEventSink(sink: CombatEventSink): () => void { return this.combatEvents.bind(sink) }
 
   private _meleeDamageOverride: number | undefined
   get meleeDamage(): number {
@@ -994,7 +981,7 @@ export class NPC {
     this.presetId = presetId
     this._squadId = squadId
     this.combatantId = combatantId ?? `npc-${NPC.nextCombatantSerial++}`
-    this.originalCombatEventSink = combatEventSink
+    this.combatEvents = new CombatEventSinkStack(combatEventSink)
     this._generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
     this._initialStaggerPhase = computeDeterministicPhase(spawnX, spawnZ, name)
 
@@ -1457,8 +1444,7 @@ export class NPC {
     NPC.live.delete(this)
     releaseAllEquipmentDemands(this)
     this.bowVisual?.dispose()
-    this.combatEventBindingsClosed = true
-    this.combatEventBindings.length = 0
+    this.combatEvents.close()
     this.pendingFall.clear()
     this.fallContext = undefined
     this.mount?.releaseRider()
