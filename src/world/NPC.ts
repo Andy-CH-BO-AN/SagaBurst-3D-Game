@@ -6,6 +6,7 @@ import { resolveCharacterIdentity, type CharacterIdentity, type CharacterTier, t
 import { FriendlyMovementBypass } from '../navigation/FriendlyMovementBypass'
 import { INFANTRY_MOVE_SPEED } from '../movement/MovementBalance'
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
+import { RANGED_ATTACK_MIN, chooseReversibleWeaponMode, needsWeaponModeDecision, withinRangedMeleeThreatReach } from '../combat/ReversibleWeaponMode'
 import { CIVILIAN_PROFILE } from '../town/TownRules'
 import { townMerchantLoadout, isTownMerchantLoadout } from '../town/TownMerchantEquipment'
 import { ARMORS } from '../rpg/ArmorDatabase'
@@ -189,8 +190,6 @@ export function isHostileCombatMount(attacker: NPC, mount: Mount, player?: Playe
 }
 
 const DETECTION_RADIUS = 300.0
-const RANGED_ATTACK_MIN = 6.0
-const RANGED_REEQUIP_MIN = RANGED_ATTACK_MIN + 3
 const RANGED_AIM_LIFT_PER_METER_SQ = 0.015
 const PROJECTILE_GRAVITY = 9.8
 const NPC_FALLBACK_PROJECTILE_SPEED = 20.0
@@ -5139,9 +5138,8 @@ export class NPC {
   }
 
   private _isRangedMeleeThreat(position: THREE.Vector3, targetBodyBaseOffset = 0): boolean {
-    if (this.combatPosition.distanceToSquared(position) > RANGED_REEQUIP_MIN ** 2
-      || Math.abs(position.y - this.combatPosition.y) > this.meleeAttackRadius) return false
-    if (this.mount?.flight && !this.eaglePilot.canUseMelee) return false
+    if (!withinRangedMeleeThreatReach(this.combatPosition, position, this.meleeAttackRadius,
+      !this.mount?.flight || this.eaglePilot.canUseMelee)) return false
     if (this.holdsRampartFirePosition) return this._isRampartMeleeThreat(position, targetBodyBaseOffset)
     const town = this._activeNavigationWorld?.townNav
     if (town && town.isElevated(this.combatPosition) !== town.isElevated(position)) return false
@@ -5157,9 +5155,9 @@ export class NPC {
     target: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null,
     player: Player, nearby: readonly NPC[], obstacles: ObstacleData[],
   ): void {
-    // Committed releases and swings finish before any equipment decision.
-    if (!this.rangedWeaponId || !this.meleeWeaponId || this.animator.busy) return
-    if (this.arrows <= 0 && !this.rangedActive) return
+    // Committed releases and swings finish before any equipment decision or threat scan.
+    if (!needsWeaponModeDecision({ hasRangedWeapon: Boolean(this.rangedWeaponId), hasMeleeWeapon: Boolean(this.meleeWeaponId),
+      busy: this.animator.busy, arrows: this.arrows, rangedActive: this.rangedActive })) return
     // Siege targets remain valid for ranged/obstacle attacks; only hostile actors threaten melee contact.
     // Player proximity is checked independently below, including when an obstacle is the selected target.
     let threatSq = target && !target.isDead && target.npc && !target.npc.dead
@@ -5175,9 +5173,9 @@ export class NPC {
         threatSq = Math.min(threatSq, this.combatPosition.distanceToSquared(other.combatPosition))
       }
     }
-    let ranged = this.arrows > 0 && (this.rangedActive ? threatSq > RANGED_ATTACK_MIN ** 2
-      : threatSq >= RANGED_REEQUIP_MIN ** 2 && target !== null && !target.isDead
-        && this.combatPosition.distanceToSquared(target.position) <= this.maxRangedAttackDistance ** 2)
+    let ranged = chooseReversibleWeaponMode({ arrows: this.arrows, rangedActive: this.rangedActive, threatDistanceSq: threatSq,
+      targetDistanceSq: target && !target.isDead ? this.combatPosition.distanceToSquared(target.position) : null,
+      maxRangedAttackDistance: this.maxRangedAttackDistance }) === 'ranged'
     if (ranged && !this.rangedActive && target) {
       const blocker = this._findRangedTrajectoryBlocker(target.position, obstacles)
       // Hitting the assigned siege target is a valid shot, matching obstacle attack fallback.
