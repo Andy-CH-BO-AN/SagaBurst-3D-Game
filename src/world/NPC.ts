@@ -76,6 +76,7 @@ import type { BaseUnitTier, UnitLoadout, UnitPresetId, UnitTier } from '../battl
 import type { SquadIdentity as SquadId } from '../battle/CommandTarget'
 import { DEFAULT_TACTICAL_ORDER, type TacticalOrder } from '../battle/TacticalOrder'
 import { RampartDuty } from '../battle/RampartDuty'
+import { createFormationTarget, formationCheckpoint, refreshFormationTarget, type FormationCheckpoint, type FormationTarget } from '../battle/FormationOrder'
 import { hasOutpostMeleeConnection } from '../combat/MeleeContactQuery'
 import { FOLLOW_THRESHOLDS, followLocalOffset, followSlotWorldPosition } from '../battle/FollowOrder'
 import { FORMATION_ARRIVAL_DISTANCE } from '../battle/FormationMath'
@@ -483,14 +484,7 @@ export class NPC {
         && isRampartLayer(this._activeNavigationWorld.outpostNav.getNavLayer(this.combatPosition))))
   }
 
-  private formationTarget: {
-    commandId: number
-    position: THREE.Vector3
-    facing: THREE.Vector3
-    reached: boolean
-    speedLimit?: number
-    arrivalOrder?: TacticalOrder
-  } | null = null
+  private formationTarget: FormationTarget | null = null
   private followTarget: NPC | Player | null = null
   private followSlotIndex = -1
   private followLocalOffset = new THREE.Vector3()
@@ -843,12 +837,10 @@ export class NPC {
   get activeFollowTarget(): NPC | Player | null { return this.followTarget }
   get activeFollowSlotIndex(): number { return this.followSlotIndex }
   get activeFollowLocalOffset(): THREE.Vector3 { return this.followLocalOffset.clone() }
-  get combatFormationCheckpoint(): { commandId: number; position: { x: number; y?: number; z: number; yaw: number }; reached: boolean; speedLimit?: number; arrivalOrder?: TacticalOrder } | undefined {
+  get combatFormationCheckpoint(): FormationCheckpoint | undefined {
     const target = this.formationTarget
     if (!target || this.tacticalOrder === 'follow') return undefined
-    return { commandId: target.commandId,
-      position: { x: target.position.x, y: target.position.y, z: target.position.z, yaw: Math.atan2(target.facing.x, target.facing.z) },
-      reached: target.reached, speedLimit: target.speedLimit, arrivalOrder: target.arrivalOrder }
+    return formationCheckpoint(target)
   }
   get encounterIsAlerted(): boolean { return this.encounterOrigin !== null && this.encounterAggro !== 'idle' }
   get encounterAggroState(): BanditAggroState { return this.encounterAggro }
@@ -1969,30 +1961,17 @@ export class NPC {
     this.followCombatActive = false
     this._resetFollowNavigation()
     this._friendlyBypass.clear()
-    this.formationTarget = {
-      commandId,
-      position: target.clone(),
-      facing: facing.clone().setY(0).normalize(),
-      reached,
-      speedLimit,
-      arrivalOrder,
-    }
+    this.formationTarget = createFormationTarget(commandId, target, facing, speedLimit, arrivalOrder, reached)
     this.state = AIState.CHASE
     this._restoreCombatReadyRangedVisual()
   }
 
   /** Refresh a moving slot without restarting recovery for the same live order. */
   refreshFormationTarget(commandId: number, position: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number, arrivalOrder?: TacticalOrder): boolean {
-    const target = this.formationTarget
-    if (this.dead || !target || target.commandId !== commandId || target.arrivalOrder !== arrivalOrder
-      || this.tacticalOrder !== (arrivalOrder ?? 'formation')) return false
-    target.position.copy(position)
-    target.facing.copy(facing).setY(0).normalize()
-    target.speedLimit = speedLimit
-    target.reached = false
-    // The endpoint changed, so validate a fresh A* route. Local detours and
-    // stalled-friendly recovery keep their progress and revalidate live blockers.
-    this._clearNavigationPath()
+    // Local detours and stalled-friendly recovery keep their progress and
+    // revalidate live blockers; only the moved endpoint's A* route is dropped.
+    if (this.dead || !refreshFormationTarget(this.formationTarget, this.tacticalOrder, commandId, position, facing,
+      speedLimit, arrivalOrder, this._navigationPath)) return false
     this.state = AIState.CHASE
     return true
   }
