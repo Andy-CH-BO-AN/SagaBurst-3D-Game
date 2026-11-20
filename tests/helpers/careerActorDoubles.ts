@@ -144,8 +144,6 @@ export class ActorDouble {
 /** The single unsafe seam: these plain bodies stand in for the rendered NPC/Mount classes. */
 export const asNpc = (actor: ActorDouble): NPC => actor as unknown as NPC
 export const asMount = (mount: MountDouble): Mount => mount as unknown as Mount
-export const actorOf = (npc: NPC): ActorDouble => npc as unknown as ActorDouble
-export const mountOf = (mount: Mount): MountDouble => mount as unknown as MountDouble
 
 /** Records every body a mission controller materializes, keyed by its stable identity. */
 export function recordingActorFactory(): CareerActorFactory & { actors: Map<string, ActorDouble>; mounts: Map<string, MountDouble> } {
