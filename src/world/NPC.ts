@@ -69,10 +69,9 @@ import {
   getRangedDamageMultiplier,
   getNpcRangedAttackRange,
   getRangedCooldown,
-  getAntiCavalryMultiplier,
   getBerserkerModifiers,
-  calculateLanceChargeDamage,
 } from '../combat/CombatBalance'
+import { calculateNpcMeleeDamage } from '../combat/PlayerMeleeDamage'
 import type { BaseUnitTier, UnitLoadout, UnitPresetId, UnitTier } from '../battle/UnitPresetCatalog'
 import type { SquadIdentity as SquadId } from '../battle/CommandTarget'
 import { DEFAULT_TACTICAL_ORDER, type TacticalOrder } from '../battle/TacticalOrder'
@@ -5009,29 +5008,14 @@ export class NPC {
 
   /** Returns damage after applying lance charge, anti-cavalry, and berserker multipliers. */
   private _calcLanceDamage(baseDamage: number, targetIsMounted: boolean): number {
-    const combatKind = this.meleeCombatKind
-    const hasShield = this.hasActiveShield
-    const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, combatKind, hasShield)
-
-    let dmg = baseDamage * berserker.meleeDamageMultiplier
-
-    // Lance charge (mounted)
     const chargeSpeed = Math.max(this.mount?.movementSpeed ?? 0, this.pendingLanceChargeSpeed)
     this.pendingLanceChargeSpeed = 0
-
-    const chargeResult = calculateLanceChargeDamage(baseDamage, combatKind, this.isMounted, chargeSpeed)
-    if (chargeResult.isCharge) {
-      if (this.mount && chargeResult.skipImpact) {
-        this.mount.skipImpactThisFrame = true
-      }
-      dmg = chargeResult.damage * berserker.meleeDamageMultiplier
-    }
-
-    // Anti-cavalry (foot lance vs mounted target)
-    const antiCav = getAntiCavalryMultiplier(combatKind, this.isMounted, targetIsMounted)
-    dmg *= antiCav
-
-    return applyHeroMeleeDamage(Math.round(dmg), this.combatProfileId)
+    const { damage, skipImpact } = calculateNpcMeleeDamage({
+      baseDamage, combatKind: this.meleeCombatKind, isMounted: this.isMounted, chargeSpeed,
+      faction: this.characterFaction, hasShield: this.hasActiveShield, targetIsMounted, combatProfileId: this.combatProfileId,
+    })
+    if (this.mount && skipImpact) this.mount.skipImpactThisFrame = true
+    return damage
   }
 
   private _hasOutpostMeleeConnection(targetPos: THREE.Vector3, targetBodyBaseOffset = 0): boolean {
