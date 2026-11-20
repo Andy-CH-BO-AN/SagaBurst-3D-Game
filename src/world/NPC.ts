@@ -76,6 +76,7 @@ import type { BaseUnitTier, UnitLoadout, UnitPresetId, UnitTier } from '../battl
 import type { SquadIdentity as SquadId } from '../battle/CommandTarget'
 import { DEFAULT_TACTICAL_ORDER, type TacticalOrder } from '../battle/TacticalOrder'
 import { RampartDuty } from '../battle/RampartDuty'
+import { hasOutpostMeleeConnection } from '../combat/MeleeContactQuery'
 import { FOLLOW_THRESHOLDS, followLocalOffset, followSlotWorldPosition } from '../battle/FollowOrder'
 import { FORMATION_ARRIVAL_DISTANCE } from '../battle/FormationMath'
 import {
@@ -5072,11 +5073,8 @@ export class NPC {
   private _hasOutpostMeleeConnection(targetPos: THREE.Vector3, targetBodyBaseOffset = 0): boolean {
     const nav = this._activeNavigationWorld?.outpostNav
     if (!nav) return true
-    // Combat keeps its existing aim/root coordinates; only support queries use feet.
-    const support = targetBodyBaseOffset === 0 ? targetPos
-      : this._meleeTargetSupportPosition.copy(targetPos).setY(targetPos.y + targetBodyBaseOffset)
-    return nav.hasDirectMeleeConnection(this.combatPosition, support,
-      this._movementObstacleHeight(), this.fallObstacles)
+    return hasOutpostMeleeConnection(nav, this.combatPosition, targetPos, targetBodyBaseOffset,
+      this._movementObstacleHeight(), this.fallObstacles, this._meleeTargetSupportPosition)
   }
 
   private _isRampartMeleeThreat(targetPos: THREE.Vector3, targetBodyBaseOffset = 0): boolean {

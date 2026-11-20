@@ -14,6 +14,7 @@ import type { BreachEntrance } from '../../src/navigation/AvailableBreachEntranc
 import { getTownRampartLayout, surfaceBox } from '../../src/town/TownRamparts'
 import { isTownSiegeDockConnected, planTownSiegeRamps } from '../../src/career/TownFourGateSiegePolicy'
 import { NPC } from '../../src/world/NPC'
+import { hasOutpostMeleeConnection } from '../../src/combat/MeleeContactQuery'
 
 function box(x0: number, z0: number, x1: number, z1: number): Box3 {
   return new Box3(new Vector3(x0, -10, z0), new Vector3(x1, 15, z1))
@@ -106,11 +107,11 @@ function outpostLayout(): OutpostWalkwayLayout {
     bridge: { topY: 10, slab: new Box3(new Vector3(-4, 9.5, 0), new Vector3(4, 10, 6)), walkSurface: { ...flat, halfWidth: 4 }, ...extras } }
 }
 
-interface MeleeContactActor {
+/** Narrow port for NPC's existing melee-range caller; the contact query itself is the shared owner. */
+interface MeleeRangeActor {
   combatPosition: Vector3
   meleeAttackRadius: number
   mount: null
-  holdsRampartFirePosition: boolean
   equipmentRequiredForCombat: boolean
   isUsingLance: boolean
   _activeNavigationWorld: { outpostNav: OutpostLayeredNavigation }
@@ -119,37 +120,20 @@ interface MeleeContactActor {
   _movementObstacleHeight(): number
   _hasOutpostMeleeConnection(position: Vector3, targetBodyBaseOffset?: number): boolean
 }
-type ContactPlayer = { isMounted: boolean; currentMount: null; group: { position: Vector3 }; bodyBaseOffset: number }
-const meleeContact = NPC.prototype as unknown as {
-  _getPlayerPosition(player: ContactPlayer, out: Vector3): Vector3
-  _hasOutpostMeleeConnection(this: MeleeContactActor, position: Vector3, targetBodyBaseOffset?: number): boolean
-  _isRangedMeleeThreat(this: MeleeContactActor, position: Vector3, targetBodyBaseOffset?: number): boolean
-  _isTargetInMeleeRange(this: MeleeContactActor, position: Vector3, extraReach?: number, targetBodyBaseOffset?: number): boolean
-}
-function meleeContactActor(nav: OutpostLayeredNavigation, combatPosition: Vector3): MeleeContactActor {
-  return { combatPosition, meleeAttackRadius: 1.8, mount: null,
-    holdsRampartFirePosition: false, equipmentRequiredForCombat: false, isUsingLance: false,
-    _activeNavigationWorld: { outpostNav: nav }, fallObstacles: [], _meleeTargetSupportPosition: new Vector3(),
-    _movementObstacleHeight: () => 2.3, _hasOutpostMeleeConnection: meleeContact._hasOutpostMeleeConnection }
+const meleeRange = NPC.prototype as unknown as Pick<MeleeRangeActor, '_hasOutpostMeleeConnection'> & {
+  _isTargetInMeleeRange(this: MeleeRangeActor, position: Vector3, extraReach?: number, targetBodyBaseOffset?: number): boolean
 }
 
 it('allows local melee across a supported deck/bridge seam while rejecting a rail, gap or lower floor', () => {
   const layout = outpostLayout(), nav = new OutpostLayeredNavigation(layout)
   const deck = new Vector3(-4.8, 10, 3), bridge = new Vector3(-3.7, 10, 3)
-  const actor = meleeContactActor(nav, deck)
   expect(nav.getNavLayer(deck)).toBe('rampart_left')
   expect(nav.getNavLayer(bridge)).toBe('rampart_gate')
   expect(nav.hasDirectMeleeConnection(deck, bridge, 2.3, [])).toBe(true)
   expect(nav.hasDirectMeleeConnection(bridge, deck, 2.3, [])).toBe(true)
-  expect(meleeContact._isRangedMeleeThreat.call(actor, bridge)).toBe(true)
-  expect(meleeContact._isTargetInMeleeRange.call(actor, bridge)).toBe(true)
   const rail: ObstacleData = { box: new Box3(new Vector3(-4.3, 10, 0), new Vector3(-4.2, 11, 6)),
     isBarricade: false, navigationPassable: true }
   expect(nav.hasDirectMeleeConnection(deck, bridge, 2.3, [rail])).toBe(false)
-  actor.fallObstacles = [rail]
-  expect(meleeContact._isRangedMeleeThreat.call(actor, bridge)).toBe(false)
-  expect(meleeContact._isTargetInMeleeRange.call(actor, bridge)).toBe(false)
-  actor.fallObstacles = []
   expect(nav.hasDirectMeleeConnection(deck, new Vector3(-3.7, 0, 3), 2.3, [])).toBe(false)
   // Nav's body margin still labels the endpoints elevated, but a real 0.2m gap
   // in their support surfaces cannot grant contact across an absent connection.
@@ -158,21 +142,25 @@ it('allows local melee across a supported deck/bridge seam while rejecting a rai
   expect(nav.hasDirectMeleeConnection(deck, bridge, 2.3, [])).toBe(false)
 })
 
-it('uses Player feet for supported melee without changing the combat target root', () => {
+it('uses Player feet and live fall rails for supported melee without changing the combat target root', () => {
   const nav = new OutpostLayeredNavigation(outpostLayout())
-  const actor = meleeContactActor(nav, new Vector3(-8, 10, 3))
-  const player: ContactPlayer = { isMounted: false, currentMount: null,
-    group: { position: new Vector3(-7, 10.95, 3) }, bodyBaseOffset: -.95 }
-  const target = meleeContact._getPlayerPosition(player, new Vector3())
-  expect(target.toArray()).toEqual([-7, 10.95, 3])
-  expect(nav.hasDirectMeleeConnection(actor.combatPosition, target, 2.3, [])).toBe(false)
-  expect(meleeContact._isRangedMeleeThreat.call(actor, target, player.bodyBaseOffset)).toBe(true)
-  expect(meleeContact._isTargetInMeleeRange.call(actor, target, 0, player.bodyBaseOffset)).toBe(true)
-  expect(target.toArray()).toEqual([-7, 10.95, 3])
-  expect(player.group.position.toArray()).toEqual([-7, 10.95, 3])
-  target.y = .95
-  expect(meleeContact._isRangedMeleeThreat.call(actor, target, player.bodyBaseOffset)).toBe(false)
-  expect(meleeContact._isTargetInMeleeRange.call(actor, target, 0, player.bodyBaseOffset)).toBe(false)
+  const attacker = new Vector3(-8, 10, 3), playerRoot = new Vector3(-7, 10.95, 3), feetOffset = -.95
+  const rail: ObstacleData = { box: new Box3(new Vector3(-7.6, 10, 0), new Vector3(-7.5, 11, 6)),
+    isBarricade: false, navigationPassable: true }
+  expect(nav.hasDirectMeleeConnection(attacker, playerRoot, 2.3, [])).toBe(false)
+  expect(hasOutpostMeleeConnection(nav, attacker, playerRoot, feetOffset, 2.3, [], new Vector3())).toBe(true)
+  expect(hasOutpostMeleeConnection(nav, attacker, playerRoot, feetOffset, 2.3, [rail], new Vector3())).toBe(false)
+  expect(playerRoot.toArray()).toEqual([-7, 10.95, 3])
+  expect(hasOutpostMeleeConnection(nav, attacker, new Vector3(-7, .95, 3), feetOffset, 2.3, [], new Vector3())).toBe(false)
+  // NPC's melee-range caller forwards the same body offset and its live fall obstacles.
+  const actor: MeleeRangeActor = { combatPosition: attacker, meleeAttackRadius: 1.8, mount: null,
+    equipmentRequiredForCombat: false, isUsingLance: false, _activeNavigationWorld: { outpostNav: nav },
+    fallObstacles: [], _meleeTargetSupportPosition: new Vector3(), _movementObstacleHeight: () => 2.3,
+    _hasOutpostMeleeConnection: meleeRange._hasOutpostMeleeConnection }
+  expect(meleeRange._isTargetInMeleeRange.call(actor, playerRoot, 0, feetOffset)).toBe(true)
+  actor.fallObstacles = [rail]
+  expect(meleeRange._isTargetInMeleeRange.call(actor, playerRoot, 0, feetOffset)).toBe(false)
+  expect(playerRoot.toArray()).toEqual([-7, 10.95, 3])
 })
 
 it('keeps an Outpost ground approach blocked unless the caller explicitly skips ground navigation', () => {
