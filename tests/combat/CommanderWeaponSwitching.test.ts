@@ -16,6 +16,7 @@ import type { HumanoidAnimationController } from '../../src/world/CharacterVisua
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { MixerController } from '../../src/world/HumanoidAssetRegistry'
 import { AIState, AIType, NPC } from '../../src/world/NPC'
+import { RampartDuty } from '../../src/battle/RampartDuty'
 import { axeRecoveryWeight } from '../../src/world/SwordAttachmentContract'
 import type { ObstacleData } from '../../src/world/Terrain'
 
@@ -573,7 +574,7 @@ describe('Reversible NPC weapon choice', () => {
     // Formation completion has set Defend and released native duty. Navigation
     // classification and path-clearing effects are the only targeting boundaries.
     const actor = Object.assign(h.actor, {
-      _aiType: AIType.RANGED, mount: null, townRampartGarrison: false, outpostRampartGarrison: false,
+      _aiType: AIType.RANGED, mount: null, rampartDuty: new RampartDuty(),
       targetsPlayer: false, missionCombatTarget: undefined, _cachedTargetIsPlayer: false,
       _pursuitTargetAllowed: NPC.prototype['_pursuitTargetAllowed'],
       _cachedTargetNpc: below, _rangedTargetCandidates: [] as NPC[],

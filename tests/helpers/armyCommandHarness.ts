@@ -7,6 +7,7 @@ import { NPC, Faction, AIType, AIState } from '../../src/world/NPC'
 import { Vector3 } from 'three'
 import { NavigationPathFollower } from '../../src/navigation/NavigationPathFollower'
 import { FriendlyMovementBypass } from '../../src/navigation/FriendlyMovementBypass'
+import { RampartDuty } from '../../src/battle/RampartDuty'
 import type { PlayerInput } from '../../src/player/PlayerInput'
 import type { ArmyCommandUI, OfficialSquadLabelOption } from '../../src/ui/ArmyCommandUI'
 import type { FormationController } from '../../src/battle/FormationController'
@@ -122,11 +123,11 @@ export function createArmyCommandHarness(
 
 /** Real command/duty/checkpoint methods on data; rendering and animation are effect ports. */
 export function createRampartCommandActor(id: string, characterFaction: 'roman' | 'viking' = 'roman', aiType = AIType.RANGED): NPC {
-  return Object.assign(Object.create(NPC.prototype) as NPC, {
-    combatantId: id, characterFaction, presetId: `${characterFaction}_archer`, _squadId: 1,
+  const actor: NPC = Object.assign(Object.create(NPC.prototype) as NPC, {
+    combatantId: id, characterFaction, presetId: `${characterFaction}_archer`,
     _faction: Faction.PLAYER, _aiType: aiType, state: AIState.IDLE, currentHp: 80, _maxHp: 100,
     group: { position: new Vector3(0, 8, 0), rotation: { y: 0 } }, mount: null,
-    townRampartGarrison: false, outpostRampartGarrison: false, pendingFall: { active: false },
+    rampartDuty: new RampartDuty(), pendingFall: { active: false },
     formationTarget: null, followNavigationGoal: new Vector3(), _navigationPath: new NavigationPathFollower(),
     _friendlyBypass: new FriendlyMovementBypass(), rangedActive: true, rangedWeaponId: 'shortbow', arrows: 9,
     shield: { active: false, shieldImpactRemaining: 0, shieldImpactMax: 100 },
@@ -134,4 +135,6 @@ export function createRampartCommandActor(id: string, characterFaction: 'roman' 
     shieldCollider: { refreshVisibility() {} },
     animator: { cancel() {}, setEquipment() {}, setShieldRaised() {} },
   })
+  actor.setCommandSquad(1)
+  return actor
 }

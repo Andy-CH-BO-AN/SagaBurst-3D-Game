@@ -75,6 +75,7 @@ import {
 import type { BaseUnitTier, UnitLoadout, UnitPresetId, UnitTier } from '../battle/UnitPresetCatalog'
 import type { SquadIdentity as SquadId } from '../battle/CommandTarget'
 import { DEFAULT_TACTICAL_ORDER, type TacticalOrder } from '../battle/TacticalOrder'
+import { RampartDuty } from '../battle/RampartDuty'
 import { FOLLOW_THRESHOLDS, followLocalOffset, followSlotWorldPosition } from '../battle/FollowOrder'
 import { FORMATION_ARRIVAL_DISTANCE } from '../battle/FormationMath'
 import {
@@ -435,14 +436,12 @@ export class NPC {
   townSiegeGateId: import('../town/TownLayout').TownGateId | null = null
   campaignEntranceId: string | null = null
   campaignBreachCompleted = false
-  private townRampartGarrison = false
-  private townRampartMounted = false
-  get isTownRampartGarrisonActive(): boolean { return this.townRampartGarrison && (!this.isMounted || this.townRampartMounted) }
-  get isMountedTownRampartGarrisonEnabled(): boolean { return this.townRampartGarrison && this.townRampartMounted }
+  private readonly rampartDuty = new RampartDuty()
+  get isTownRampartGarrisonActive(): boolean { return this.rampartDuty.isTownActive(this) }
+  get isMountedTownRampartGarrisonEnabled(): boolean { return this.rampartDuty.isMountedTownEnabled }
   activateTownRampartGarrison(order: 'defend' | 'attack' = 'defend', allowMounted = false): void {
     this.setTacticalOrder(order)
-    this.townRampartGarrison = true
-    this.townRampartMounted = allowMounted
+    this.rampartDuty.activateTown(allowMounted)
   }
   get alertRange(): number { return this.isTownRampartGarrisonActive ? this.maxRangedAttackDistance : DETECTION_RADIUS }
   private battlefieldEngagementRangeSq: number | null = null
@@ -464,22 +463,16 @@ export class NPC {
       : chasing ? DETECTION_RADIUS * 1.5 : this.alertRange
     return this.combatPosition.distanceToSquared(position) <= range * range
   }
-  private outpostRampartGarrison = false
-  get isOutpostRampartGarrisonActive(): boolean { return this.outpostRampartGarrison }
+  get isOutpostRampartGarrisonActive(): boolean { return this.rampartDuty.isOutpostActive }
   activateOutpostRampartGarrison(order: 'defend' | 'attack' = 'defend'): void {
     this.setTacticalOrder(order)
-    this.outpostRampartGarrison = true
+    this.rampartDuty.activateOutpost()
   }
-  releaseOutpostRampartGarrison(): void {
-    this.outpostRampartGarrison = false; this.townRampartGarrison = false; this.townRampartMounted = false
-  }
+  releaseOutpostRampartGarrison(): void { this.rampartDuty.release() }
   private rampartThreat: ObstacleData | null = null
   private rampartScanFrames = 0
   private readonly obstacleLocalToWorld = new THREE.Matrix4()
-  get holdsRampartPosition(): boolean {
-    return (this.tacticalOrder === 'defend' || this.tacticalOrder === 'attack')
-      && (this.isTownRampartGarrisonActive || !this.isMounted && this.outpostRampartGarrison)
-  }
+  get holdsRampartPosition(): boolean { return this.rampartDuty.holdsPosition(this) }
 
   get holdsRampartFirePosition(): boolean {
     // An explicit Defend command owns stationary fire even after a formation

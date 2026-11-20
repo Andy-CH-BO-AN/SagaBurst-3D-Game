@@ -8,6 +8,7 @@ import { describe, expect, it, onTestFinished } from 'vitest'
 import { TownFourGateSiege, type TownSiegeAttackerRole } from '../../src/career/TownFourGateSiege'
 import { planCommanderFourGateDefenseDeployment } from '../../src/career/CommanderFourGateDefenseDeployment'
 import { AIType, NPC, Faction } from '../../src/world/NPC'
+import { RampartDuty, type RampartDutyActor } from '../../src/battle/RampartDuty'
 import { parseCommandActorCheckpoint } from '../../src/career/CareerCommandAuthority'
 import { Vector3 } from 'three'
 import { AvailableBreachEntrances } from '../../src/navigation/AvailableBreachEntrances'
@@ -49,54 +50,40 @@ describe('Siege deployment and shared rule ownership', () => {
   })
 
   it('requires explicit mounted wall permission, preserves it in checkpoints and clears it when command ownership is released', () => {
-    type GarrisonActor = Pick<NPC, 'activateTownRampartGarrison' | 'releaseOutpostRampartGarrison'
-      | 'isTownRampartGarrisonActive' | 'isMountedTownRampartGarrisonEnabled' | 'holdsRampartPosition'
-      | 'holdsRampartFirePosition' | 'tacticalOrder' | 'setTacticalOrder'> & { mount: { dead: boolean } | null; aiType: AIType }
-    // Only the order boundary is supplied; the real garrison activation/getters/release run.
-    const actor: GarrisonActor = Object.assign(Object.create(NPC.prototype) as GarrisonActor, {
-      mount: { dead: false },
-      setTacticalOrder(this: GarrisonActor, order: NPC['tacticalOrder']) { this.tacticalOrder = order },
-    })
-    Object.defineProperty(actor, 'aiType', { value: AIType.RANGED })
-    actor.activateTownRampartGarrison()
-    expect(actor.isTownRampartGarrisonActive).toBe(false)
-    expect(actor.holdsRampartPosition).toBe(false)
-    actor.activateTownRampartGarrison('defend', true)
-    expect(actor.isTownRampartGarrisonActive).toBe(true)
-    expect(actor.holdsRampartFirePosition).toBe(true)
+    // RampartDuty is the duty state NPC delegates to; the actor supplies only its live order and mount.
+    const actor: RampartDutyActor = { tacticalOrder: 'defend', isMounted: true }, duty = new RampartDuty()
+    duty.activateTown(false)
+    expect(duty.isTownActive(actor)).toBe(false)
+    expect(duty.holdsPosition(actor)).toBe(false)
+    duty.activateTown(true)
+    expect(duty.isTownActive(actor)).toBe(true)
+    expect(duty.holdsPosition(actor)).toBe(true)
     const saved = parseCommandActorCheckpoint({ status: 'deployed', order: actor.tacticalOrder,
-      townRampartGarrison: actor.isTownRampartGarrisonActive, townRampartMounted: actor.isMountedTownRampartGarrisonEnabled })!
+      townRampartGarrison: duty.isTownActive(actor), townRampartMounted: duty.isMountedTownEnabled })!
     expect(saved).toEqual({ status: 'deployed', order: 'defend', townRampartGarrison: true, townRampartMounted: true })
-    actor.releaseOutpostRampartGarrison()
-    expect(actor.isMountedTownRampartGarrisonEnabled).toBe(false)
-    expect(actor.holdsRampartFirePosition).toBe(false)
-    actor.activateTownRampartGarrison('defend', saved.townRampartMounted)
-    expect(actor.holdsRampartFirePosition).toBe(true)
-    actor.releaseOutpostRampartGarrison(); actor.mount = null; actor.activateTownRampartGarrison()
-    expect(actor.holdsRampartFirePosition).toBe(true)
-    expect(actor.isMountedTownRampartGarrisonEnabled).toBe(false)
+    duty.release()
+    expect(duty.isMountedTownEnabled).toBe(false)
+    expect(duty.holdsPosition(actor)).toBe(false)
+    duty.activateTown(saved.townRampartMounted === true)
+    expect(duty.holdsPosition(actor)).toBe(true)
+    duty.release(); const dismounted = { ...actor, isMounted: false }; duty.activateTown(false)
+    expect(duty.holdsPosition(dismounted)).toBe(true)
+    expect(duty.holdsPosition(actor)).toBe(false)
+    expect(duty.isMountedTownEnabled).toBe(false)
   })
 
   it('requires explicit Outpost duty and does not reclaim a ranged melee attacker still standing on the rampart after release', () => {
-    type GarrisonActor = Pick<NPC, 'activateOutpostRampartGarrison' | 'releaseOutpostRampartGarrison'
-      | 'isOutpostRampartGarrisonActive' | 'holdsRampartPosition' | 'tacticalOrder' | 'setTacticalOrder'>
-    // Only order side effects are a boundary. The real duty lifecycle and hold policy run
-    // on a ranged actor that has already drawn melee, without constructing a scene/model.
-    const actor = Object.assign(Object.create(NPC.prototype) as GarrisonActor, {
-      mount: null, rangedActive: false, tacticalOrder: 'attack',
-      townRampartGarrison: false, outpostRampartGarrison: false,
-      group: { position: new Vector3(4, 8, -20) },
-      _activeNavigationWorld: { outpostNav: { getNavLayer: () => 'rampart_left' } },
-      setTacticalOrder(this: GarrisonActor, order: NPC['tacticalOrder']) { this.tacticalOrder = order },
-    })
-    Object.defineProperty(actor, 'aiType', { value: AIType.RANGED })
-    expect(actor.holdsRampartPosition).toBe(false)
-    actor.activateOutpostRampartGarrison('attack')
-    expect(actor.isOutpostRampartGarrisonActive).toBe(true)
-    expect(actor.holdsRampartPosition).toBe(true)
-    actor.releaseOutpostRampartGarrison()
-    expect(actor.isOutpostRampartGarrisonActive).toBe(false)
-    expect(actor.holdsRampartPosition).toBe(false)
+    const actor: RampartDutyActor = { tacticalOrder: 'attack', isMounted: false }, duty = new RampartDuty()
+    expect(duty.holdsPosition(actor)).toBe(false)
+    duty.activateOutpost()
+    expect(duty.isOutpostActive).toBe(true)
+    expect(duty.holdsPosition(actor)).toBe(true)
+    // Outpost duty never holds a mounted body, and movement orders always leave the wall.
+    expect(duty.holdsPosition({ ...actor, isMounted: true })).toBe(false)
+    expect(duty.holdsPosition({ ...actor, tacticalOrder: 'charge' })).toBe(false)
+    duty.release()
+    expect(duty.isOutpostActive).toBe(false)
+    expect(duty.holdsPosition(actor)).toBe(false)
   })
 
   it('releases wall defenders and gate cavalry on ramp dock or gate destruction without event replay', () => {
