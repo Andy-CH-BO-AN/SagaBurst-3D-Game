@@ -5,7 +5,7 @@ import { fourGateDefenseRuntime } from '../helpers/fourGateDefenseRuntime'
 
 describe('Town defense target accounting', () => {
   it('waits for the last registered rider, including after its mount dies, before awarding victory', () => {
-    const h = fourGateDefenseRuntime(createFourGateDefenseProfile('PREPARING'))
+    const h = fourGateDefenseRuntime(createFourGateDefenseProfile('SPAWNING')) // Reloaded after the arrival intent was saved.
     h.toAttack()
     const owner = h.controller, mission = h.profile().activeMission!
     const lastId = mission.targetActorIds.find(id => id.endsWith(':lancer:t4:leader'))!

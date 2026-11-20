@@ -227,8 +227,8 @@ describe('CareerMissionCheckpoint', () => {
   })
 
   /** Native deployment saved through a storage boundary that can fail writes or reject the first attack commit. */
-  function spawningRuntime(preparationSeconds: number) {
-    const initial = createFourGateDefenseProfile('PREPARING')
+  function spawningRuntime(phase: 'PREPARING' | 'SPAWNING', preparationSeconds = 0) {
+    const initial = createFourGateDefenseProfile(phase)
     initial.activeMission!.fourGateDefense!.preparationRemainingSeconds = preparationSeconds
     const storage = new MemoryStorage(), gate = { rejectAttack: false }
     const h = fourGateDefenseRuntime(initial, next => {
@@ -244,7 +244,7 @@ describe('CareerMissionCheckpoint', () => {
   }
 
   it('saves spawning intent before enqueueing and keeps a partial attacker batch out of the checkpoint', () => {
-    const h = spawningRuntime(.25), controller = h.controller
+    const h = spawningRuntime('PREPARING', .25), controller = h.controller
     const deployed = h.storage.getItem(CAREER_STORAGE_KEY)
     h.storage.failWrites = true
     controller.updateFlow(.25, 0)
@@ -270,8 +270,8 @@ describe('CareerMissionCheckpoint', () => {
   })
 
   it('publishes the first attack and each escort release only after their saves, with current actor intent in both checkpoints', () => {
-    const h = spawningRuntime(0), controller = h.controller
-    controller.updateFlow(0, 0)
+    // Reloaded after the arrival intent was saved: attackers are queued again on start.
+    const h = spawningRuntime('SPAWNING'), controller = h.controller
     h.materialize()
     const archerId = 'four-gate-save:east:archer:t3:1', lancerId = 'four-gate-save:east:lancer:t3:1'
     const archer = h.factory.actors.get(archerId)!
@@ -309,10 +309,11 @@ describe('CareerMissionCheckpoint', () => {
     frame()
     expect(escort.tacticalOrder).not.toBe('charge')
     expect(controller.isEscorting(asNpc(escort))).toBe(true)
-    expect(h.durable().cavalryEscort!.groups[rampId].releaseReason).toBeUndefined()
+    const committed = () => h.profile().activeMission!.fourGateDefense!
+    expect(committed().cavalryEscort!.groups[rampId].releaseReason).toBeUndefined()
     h.gate.rejectAttack = false
     frame()
-    const released = h.durable()
+    const released = committed()
     expect(released.cavalryEscort!.groups[rampId].releaseReason).toBe('ramp-abandoned')
     expect(group.map(id => [released.actors[id].order, released.siege!.actors[id]?.order ?? 'charge'])).toEqual(group.map(() => ['charge', 'charge']))
     expect([escort.tacticalOrder, escort.missionCombatTarget, escort.missionMovement]).toEqual(['charge', undefined, false])

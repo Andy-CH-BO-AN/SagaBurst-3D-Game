@@ -44,11 +44,11 @@ export function fourGateDefenseRuntime(initial: CareerProfile, commit: (next: Ca
         for (let jobs = Math.min(frames, batch.actors.size); jobs > 0 && batch.status === 'pending'; jobs--) scheduler.tick(++frame)
       }
     },
-    /** Natives deployed, preparation spent, attackers materialized and released by the real flow. */
+    /** Natives deployed, any preparation spent, attackers materialized and released by the real flow. */
     toAttack() {
       if (!controller.startActiveMission()) throw new Error('four-gate mission did not start')
       controller.completeInitialDeployment()
-      controller.updateFlow(controller.preparationRemaining, 0)
+      if (profile.activeMission!.phase === 'PREPARING') controller.updateFlow(controller.preparationRemaining, 0)
       this.materialize()
       controller.updateFlow(0, 0)
     },
