@@ -62,18 +62,15 @@ async function flush() {
   for (let turn = 0; turn < 6; turn++) await Promise.resolve()
 }
 
-function mountOwner() {
+/** Real controller over a saved profile; `prepare` writes the save it starts from. */
+function mountOwner(prepare?: (profile: CareerProfile) => void) {
   let current = createCareerProfile('roman')
   for (const id of ['serval', 'orange-cat', 'white-cat', 'armored-horse'] as const) addCareerItem(current, id, 1)
+  prepare?.(current)
   const player = { isFalling: false, currentMount: null as Mount | null, mountVehicle: vi.fn(), dismountFromMount: vi.fn(), isMounted: false,
     combatPosition: new Vector3(), position: new Vector3(), facingYaw: 0 }
   player.mountVehicle.mockImplementation((mount: Mount) => { player.currentMount = mount; player.isMounted = true })
-  const owner = Object.create(CareerMountController.prototype) as CareerMountController
-  Object.assign(owner as unknown as object, {
-    scene: {}, player: () => player, readProfile: () => current, commit: (next: CareerProfile) => { current = next; return true },
-    obstacles: () => [], occupied: () => [], sceneKey: () => 'town-home', options: {},
-    hp: new Map(), armorImpact: new Map(), unavailable: new Set(), active: null, requestSeq: 0, pending: null, statusText: '',
-  })
+  const owner = new CareerMountController({} as never, () => player as never, () => current, next => { current = next; return true }, () => [], () => [])
   return { owner, player, profile: () => current }
 }
 
@@ -118,11 +115,11 @@ describe('feline mount activation under asynchronous asset loading', () => {
 
 describe('Career saved mounts after the shared preload barrier', () => {
   it('restores mission HP and zero armor once without changing the selected mount or spending merit', () => {
-    const h = mountOwner(), profile = h.profile()
-    profile.selectedMountId = 'armored-horse'
-    profile.activeMission = { id: 'restore-mission', templateId: 'outpost-relief', targetCampId: 0, phase: 'ENGAGING', acceptedAt: 1,
-      targetActorIds: [], friendlyActorIds: [], mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 317 }, armorImpact: { 'armored-horse': 0 }, unavailable: [] } }
-    Object.assign(h.owner, { hp: new Map([['armored-horse', 317]]), armorImpact: new Map([['armored-horse', 0]]) })
+    const h = mountOwner(profile => {
+      profile.selectedMountId = 'armored-horse'
+      profile.activeMission = { id: 'restore-mission', templateId: 'outpost-relief', targetCampId: 0, phase: 'ENGAGING', acceptedAt: 1,
+        targetActorIds: [], friendlyActorIds: [], mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 317 }, armorImpact: { 'armored-horse': 0 }, unavailable: [] } }
+    }), profile = h.profile()
     vi.spyOn(HorseAssetRegistry, 'armoredReady', 'get').mockReturnValue(true)
     const preload = vi.spyOn(HorseAssetRegistry, 'preloadArmored')
     const saved = structuredClone(profile)
@@ -139,14 +136,15 @@ describe('Career saved mounts after the shared preload barrier', () => {
 
   it('restores retirement resources, coordinates, heading and mounted status synchronously', () => {
     for (const mounted of [true, false]) {
-      const h = mountOwner(), p = h.profile()
-      p.selectedMountId = 'armored-horse'
-      p.careerRetirement = { version: 1, phase: 'final-stand', acceptedAt: 1, combatElapsedSeconds: 0 }
-      p.retirementRuntime = {
-        mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 219 }, armorImpact: { 'armored-horse': 0 }, unavailable: [] },
-        player: { position: { x: 4, y: 0, z: 5, yaw: .3 }, hp: 50, stamina: 30, arrows: 5, shieldImpact: 3, mounted },
-        mount: { position: { x: 11, y: 2, z: 13, yaw: 1.2 }, hp: 219, armorImpactRemaining: 0 },
-      }
+      const h = mountOwner(p => {
+        p.selectedMountId = 'armored-horse'
+        p.careerRetirement = { version: 1, phase: 'final-stand', acceptedAt: 1, combatElapsedSeconds: 0 }
+        p.retirementRuntime = {
+          mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 219 }, armorImpact: { 'armored-horse': 0 }, unavailable: [] },
+          player: { position: { x: 4, y: 0, z: 5, yaw: .3 }, hp: 50, stamina: 30, arrows: 5, shieldImpact: 3, mounted },
+          mount: { position: { x: 11, y: 2, z: 13, yaw: 1.2 }, hp: 219, armorImpactRemaining: 0 },
+        }
+      }), p = h.profile()
       vi.spyOn(HorseAssetRegistry, 'armoredReady', 'get').mockReturnValue(true)
       const saved = structuredClone(p)
       expect(h.owner.restoreActiveMount()).toBe(true)
