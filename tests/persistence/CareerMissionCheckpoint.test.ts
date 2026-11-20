@@ -14,6 +14,9 @@ import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { Faction } from '../../src/world/NPC'
 import { ActorDouble, asNpc, asPlayer, PlayerDouble, recordingActorFactory, residentSpec } from '../helpers/careerActorDoubles'
 import { fourGateDefenseRuntime } from '../helpers/fourGateDefenseRuntime'
+import { commanderCavalryEscortAssignments } from '../../src/career/CommanderCavalryEscort'
+import { SpatialGrid } from '../../src/world/SpatialGrid'
+import type { NPC } from '../../src/world/NPC'
 
 function fixture() {
   let profile = createCareerProfile('roman')
@@ -251,20 +254,22 @@ describe('CareerMissionCheckpoint', () => {
     expect(controller.preparationRemaining).toBe(0)
     h.storage.failWrites = false
     controller.updateFlow(0, 0)
-    expect(h.durable()).toMatchObject({ phase: 'SPAWNING', preparationRemainingSeconds: 0,
+    const spawning = h.durable()
+    expect(spawning).toMatchObject({ phase: 'SPAWNING', preparationRemainingSeconds: 0,
       deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [] })
-    expect(h.durable().siege).toBeUndefined()
+    expect(spawning.siege).toBeUndefined()
     // Partial scheduler work is transient: the periodic checkpoint keeps only the durable arrival intent.
     h.materialize(40)
     expect(h.factory.actors.size).toBe(40)
     controller.updateFlow(5, 0)
-    expect(h.durable().phase).toBe('SPAWNING')
-    expect([...h.factory.actors.keys()].filter(id => h.durable().actors[id])).toEqual([])
-    expect(h.durable().registeredTargetActorIds).toEqual([])
+    const partial = h.durable()
+    expect(partial.phase).toBe('SPAWNING')
+    expect([...h.factory.actors.keys()].filter(id => partial.actors[id])).toEqual([])
+    expect(partial.registeredTargetActorIds).toEqual([])
     expect(controller.combatEnabled).toBe(false)
   })
 
-  it('publishes the first attack only after its save, with current actor intent in both checkpoints', () => {
+  it('publishes the first attack and each escort release only after their saves, with current actor intent in both checkpoints', () => {
     const h = spawningRuntime(0), controller = h.controller
     controller.updateFlow(0, 0)
     h.materialize()
@@ -280,10 +285,11 @@ describe('CareerMissionCheckpoint', () => {
     expect(controller.combatEnabled).toBe(true)
     expect(archer.tacticalOrder).toBe('attack')
     // Durable bytes of the retried start carry the fresh intent in both actor owners; escorts stay held.
-    expect(h.durable()).toMatchObject({ phase: 'ATTACKING', attackStarted: true, preparationRemainingSeconds: 0, combatElapsedSeconds: 0 })
-    expect(h.durable().registeredTargetActorIds).toHaveLength(280)
-    expect([h.durable().actors[archerId].order, h.durable().siege!.actors[archerId].order]).toEqual(['attack', 'attack'])
-    expect([h.durable().actors[lancerId].order, h.durable().siege!.actors[lancerId].order]).toEqual(['defend', 'defend'])
+    const started = h.durable()
+    expect(started).toMatchObject({ phase: 'ATTACKING', attackStarted: true, preparationRemainingSeconds: 0, combatElapsedSeconds: 0 })
+    expect(started.registeredTargetActorIds).toHaveLength(280)
+    expect([started.actors[archerId].order, started.siege!.actors[archerId].order]).toEqual(['attack', 'attack'])
+    expect([started.actors[lancerId].order, started.siege!.actors[lancerId].order]).toEqual(['defend', 'defend'])
     // Loading time cannot be earned; only released combat time counts.
     controller.setPreparationElapsed(0)
     controller.updateFlow(20, 0)
@@ -291,5 +297,27 @@ describe('CareerMissionCheckpoint', () => {
     controller.setPreparationElapsed(2.5)
     controller.updateFlow(.05, 0)
     expect(controller.survivalRemaining).toBe(survivalSeconds - 2.5)
+
+    // An escort release is a one-shot receipt in the same checkpoint: a refused save keeps the
+    // escort holding, and the retried frame releases the group once.
+    const rampId = 'town-siege-ramp:north:left', ramp = h.ramps.get(rampId)!
+    const group = commanderCavalryEscortAssignments(h.profile().activeMission!.id).filter(a => a.rampId === rampId).map(a => a.actorId)
+    const escort = h.factory.actors.get(group[0])!
+    for (const id of ramp.assignment.pusherIds) h.factory.actors.get(id)!.hp = 0 // Its carrier is abandoned.
+    const frame = () => { controller.updateFlow(.1, 0); controller.updateSiege(.1, new SpatialGrid<NPC>()) }
+    h.gate.rejectAttack = true
+    frame()
+    expect(escort.tacticalOrder).not.toBe('charge')
+    expect(controller.isEscorting(asNpc(escort))).toBe(true)
+    expect(h.durable().cavalryEscort!.groups[rampId].releaseReason).toBeUndefined()
+    h.gate.rejectAttack = false
+    frame()
+    const released = h.durable()
+    expect(released.cavalryEscort!.groups[rampId].releaseReason).toBe('ramp-abandoned')
+    expect(group.map(id => [released.actors[id].order, released.siege!.actors[id]?.order ?? 'charge'])).toEqual(group.map(() => ['charge', 'charge']))
+    expect([escort.tacticalOrder, escort.missionCombatTarget, escort.missionMovement]).toEqual(['charge', undefined, false])
+    escort.setTacticalOrder('defend')
+    frame()
+    expect(escort.tacticalOrder).toBe('defend') // Delivered once: a later frame never re-releases the group.
   })
 })

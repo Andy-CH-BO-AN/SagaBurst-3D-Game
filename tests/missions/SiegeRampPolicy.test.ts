@@ -1,7 +1,7 @@
 import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { Box3, Matrix4, Vector3, type Object3D } from 'three'
-import { Game } from '../../src/Game'
+import { campaignInitialOrder } from '../../src/campaign/CampaignInitialOrder'
 import { createDefaultDefensePlayerLoadout, type DefenseCampaignLaunchConfig } from '../../src/campaign/DefenseCampaignLaunch'
 import { allocateSiegeRampCrews, getSiegeRampPlacement, isMobileSiegeRampEnabled, placeSiegeRampCrew, siegeRampDeckHeightAt, siegeRampRearHeightAt, SIEGE_RAMP } from '../../src/campaign/MobileSiegeRampPolicy'
 import { getOutpostWalkwayLayout, isOutpostWalkwayEnabled, OUTPOST_WALKWAY, type OutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkways'
@@ -31,7 +31,6 @@ import { TOWN_GATES } from '../../src/town/TownLayout'
 import { advanceCommanderInfantryEscort, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, parseCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT } from '../../src/career/CommanderInfantryEscort'
 import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, createCommanderCavalryEscort, type CommanderCavalryEscortActorFrame, type CommanderCavalryEscortRampFrame } from '../../src/career/CommanderCavalryEscort'
 import type { TownSiegeRampId } from '../../src/campaign/MobileSiegeRampPolicy'
-import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 
 function watchdogCrew(): SiegeRampAssignment {
   return { id: 'siege-ramp-left', side: -1,
@@ -105,41 +104,31 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(saved.actors['legacy-melee'].checkpoint).toBeUndefined()
     expect(saved.actors['legacy-ranged'].checkpoint?.order).toBeUndefined()
     expect(saved.actors['saved-formation'].checkpoint?.order).toBeUndefined()
-    const legacyMelee = createRampartCommandActor('legacy-melee', 'viking', AIType.MELEE)
-    const legacyRanged = createRampartCommandActor('legacy-ranged', 'viking')
-    const savedDefend = createRampartCommandActor('saved-defend', 'viking')
-    const savedFormation = createRampartCommandActor('saved-formation', 'viking')
-    const controlled = createRampartCommandActor('controlled')
-    controlled.combatOwnership = 'mission-official'
-    const nativeAttackers = [legacyMelee, legacyRanged, savedDefend, savedFormation]
-    for (const actor of nativeAttackers) actor.setCommandSquad(undefined)
+    const attacker = (combatantId: string) => ({ combatantId, characterFaction: 'viking' as const, squadId: undefined })
     const profile = createCareerProfile('roman')
     Object.assign(profile, careerRankFixture(profile.faction, 'commander'));
     profile.activeOutpostMission = { id: 'relief', kind: 'outpost-relief', stageId: 3, acceptedAt: 0, battle: saved,
       officialSquad: { type: 'mission-official', missionId: 'relief', townFaction: 'roman', squadId: 1,
-        commandRank: 'commander', actorIds: [controlled.combatantId], commandedSquadIds: [1],
-        squads: [{ squadId: 1, actorIds: [controlled.combatantId] }], contribution: emptyPersonalContribution(),
+        commandRank: 'commander', actorIds: ['controlled'], commandedSquadIds: [1],
+        squads: [{ squadId: 1, actorIds: ['controlled'] }], contribution: emptyPersonalContribution(),
         members: { controlled: { status: 'deployed', hp: 80, order: 'defend' } } } }
     const campaign: DefenseCampaignLaunchConfig = { type: 'defense', defenderFaction: 'roman', stageId: 3,
       defenderArmy: {}, playerLoadout: createDefaultDefensePlayerLoadout('roman'),
       careerMissionKind: 'outpost-relief', careerMissionId: 'relief' }
-    // The real per-actor restore caller owns fallback orders. Only its stored scene data is supplied.
-    interface InitialNpcRestorePort { _configureCampaignInitialNpc(npc: NPC, campaign: DefenseCampaignLaunchConfig): void }
-    const game = Object.assign(Object.create(Game.prototype) as InitialNpcRestorePort, {
-      defenseCampaignConfig: campaign, careerProfile: profile, campaignOriginalDefenders: [],
-      careerVeteranActorMounts: new Map(), previewCampaignBreachController: restoredBreach,
-    })
+    // Game's per-actor restore applies this decision: the fallback order, then the breach orders again
+    // only for restored Relief attackers with no saved intent, never for a player-owned official.
+    const initial = (id: string, faction: 'roman' | 'viking' = 'viking') =>
+      campaignInitialOrder({ ...attacker(id), characterFaction: faction }, campaign, profile)
+    expect(initial('legacy-melee')).toEqual({ outpostOwner: false, order: 'defend', breachOrders: true })
+    expect(initial('legacy-ranged')).toEqual({ outpostOwner: false, order: 'defend', breachOrders: true })
+    expect(initial('saved-defend').breachOrders).toBe(false)
+    expect(initial('saved-formation').breachOrders).toBe(false)
+    expect(initial('controlled', 'roman')).toEqual({ outpostOwner: true, order: 'defend', breachOrders: false })
+    expect(initial('guard', 'roman')).toEqual({ outpostOwner: true, order: 'defend', breachOrders: true })
+    // A restored breach is not replayed by the Relief battlefield either.
     restoreCampaignBreachCheckpoint(restoredBreach, saved.outpostSiege, saved.gate)
-    const restoredActors = [...nativeAttackers, controlled]
-    for (const actor of restoredActors) game._configureCampaignInitialNpc(actor, campaign)
     const reliefGate = { attackerFaction: 'viking', damageable: { destroy: () => restoredBreach.trigger() } }
-    initializeCareerReliefBattlefield(reliefGate as unknown as CampaignGateController, [restoredGuard, ...restoredActors], restoredBreach)
-    expect(legacyMelee.tacticalOrder).toBe('charge')
-    expect(legacyRanged.tacticalOrder).toBe('attack')
-    expect(savedDefend.tacticalOrder).toBe('defend')
-    expect(savedFormation.tacticalOrder).toBe('formation')
-    expect(savedFormation.formationCommandId).toBe(91)
-    expect(controlled.tacticalOrder).toBe('defend')
+    initializeCareerReliefBattlefield(reliefGate as unknown as CampaignGateController, [restoredGuard], restoredBreach)
     expect(restoredGuard.tacticalOrder).toBe('defend')
     expect(restoredBreach.trigger()).toBe(false)
     expect(dispatches).toBe(1)
@@ -353,37 +342,6 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(advanceCommanderCavalryEscort(advanced.checkpoint, 0, actors, ramps).releasedActorIds).toEqual([])
     expect(advanced.checkpoint.actors[north[1].actorId]).toMatchObject({ slot: 1, side: -1, mode: 'released' })
 
-    // The caller's save is the external boundary: a rejected release cannot alter
-    // live charge/routing, and a successful retry delivers the same group once.
-    let accept = false
-    const effects: string[] = []
-    const npc = { combatantId: north[0].actorId, dead: false, combatPosition: { x: 0, z: -215 }, missionMovement: true,
-      setMissionCombatTarget(value: unknown) { expect(value).toBeUndefined(); effects.push('target') },
-      setTacticalOrder(order: string) { effects.push(order) } }
-    interface ReleaseEntry {
-      state: { cavalryEscort: typeof initial; enemyRosterVersion: 2 }
-      pendingEscortReleases?: readonly string[]
-      updateCavalryEscort(dt: number): void
-    }
-    const owner = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as ReleaseEntry, {
-      state: { cavalryEscort: initial, enemyRosterVersion: 2 }, enemies: [npc], actorsById: new Map([[npc.combatantId, npc]]), escortAssignments: [],
-      fourGateSiege: { ramps: new Map([[north[0].rampId, { position: { x: 0, z: -165 },
-        controller: { state: 'PUSHING', distance: 0, alivePushers: 4 } }]]), resumeExternalMovement() { effects.push('route') } },
-      saveProgress(this: ReleaseEntry) {
-        expect(this.pendingEscortReleases).toEqual(north.map(a => a.actorId))
-        expect(this.state.cavalryEscort.actors[npc.combatantId].mode).toBe('released')
-        expect(npc.missionMovement).toBe(true)
-        effects.push(accept ? 'commit' : 'reject'); return accept
-      },
-    })
-    owner.updateCavalryEscort(0)
-    expect(owner.state.cavalryEscort).toBe(initial)
-    expect(owner.pendingEscortReleases).toBeUndefined()
-    expect(effects).toEqual(['reject'])
-    accept = true
-    owner.updateCavalryEscort(0); owner.updateCavalryEscort(0)
-    expect(effects).toEqual(['reject', 'commit', 'target', 'charge', 'route'])
-    expect(npc.missionMovement).toBe(false)
   })
 
   it('releases trailing cavalry when their own ramp front reaches the hundred-metre gate radius', () => {

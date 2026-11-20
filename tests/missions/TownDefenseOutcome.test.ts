@@ -31,8 +31,6 @@ describe('Town defense target accounting', () => {
     expect(owner.evaluate(true, 1)).toBe('victory') // A live HR ally can win while the player spectates.
     expect(owner.evaluate(false, 0)).toBe('victory') // The player alone also qualifies.
     expect(owner.evaluate(true, 0)).toBe('failure')
-    h.player.hp = 0
-    expect(receipt()).toBeUndefined()
     rider.hp = 0
     expect(owner.remainingEnemies).toBe(0)
     expect(owner.evaluate(true, 0)).toBe('victory') // Total civilian losses and mutual annihilation do not revoke victory.

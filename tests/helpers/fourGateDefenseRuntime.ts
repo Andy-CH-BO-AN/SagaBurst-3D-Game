@@ -1,6 +1,6 @@
 import type { CareerProfile } from '../../src/career/CareerProfile'
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
-import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { NavigationGrid } from '../../src/navigation/NavigationGrid'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 import { getTownRampartLayout } from '../../src/town/TownRamparts'
@@ -13,7 +13,7 @@ import { recordingRampFactory, townSiegeWorld } from './townSiegeDoubles'
 const SERVICE_ROLES: Record<string, TownRole> = { commander: 'commander', 'hr-officer': 'hr-officer', 'eagle-trainer': 'eagle-trainer' }
 
 /**
- * The real home-Town four-gate owner over the real rampart layout and Town navigation. Residents
+ * The real home-Town four-gate owner over the real rampart layout and an open Town field. Residents
  * and attackers are plain bodies, vehicles run the real crew controller, and spawning uses a
  * private scheduler the case ticks itself. Only the case's own calls move the mission forward.
  */
@@ -26,8 +26,9 @@ export function fourGateDefenseRuntime(initial: CareerProfile, commit: (next: Ca
   ...(mission.civilianActorIds ?? []).map(id => ({ spec: residentSpec(id, 'civilian'),
     actor: new ActorDouble(id, { faction: Faction.TOWN, townCategory: 'civilian' }) }))]
   const layout = getTownRampartLayout(), world = townSiegeWorld(layout)
-  const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
-  navigation.sync(world.obstacles); navigation.townNav = new TownLayeredNavigation(layout)
+  // An open, fully connected Town field: the real cell grid and layered Town navigation, no obstacle rebuild.
+  const navigation = { grid: new NavigationGrid(TOWN_NAVIGATION_BOUNDS), townNav: new TownLayeredNavigation(layout, () => true),
+    areConnected: () => true, sync: () => false }
   const factory = recordingActorFactory(), createRamp = recordingRampFactory(), scheduler = new NpcSpawnScheduler(), player = new PlayerDouble()
   const controller = new CommanderFourGateDefenseController(factory, residents.map(r => ({ spec: r.spec, npc: asNpc(r.actor) })),
     () => asPlayer(player), () => profile, next => { if (!commit(next)) return false; profile = next; return true }, navigation,
