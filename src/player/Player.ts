@@ -26,6 +26,7 @@ import type { InventoryManager } from '../rpg/InventoryManager'
 import { WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
 import { getScenePlayableWorldBound, clampToPlayableWorld, getTerrainHeight, ObstacleData } from '../world/Terrain'
 import { PLAYER_FOOT_OFFSET, standingPlayerY, stepPlayerFootBody } from './PlayerFootBody'
+import { resolveRangedAim } from './RangedAimGate'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
@@ -738,13 +739,13 @@ export class Player {
   }
 
   private _updateRangedAim(rightMouseDown: boolean, wantAim: boolean): void {
-    const rangedReleasing = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
-    if (!rightMouseDown && !rangedReleasing) this.rangedAimRequiresRmbRelease = false
-    const canAim = wantAim && !this.rangedAimRequiresRmbRelease && !this.isSwinging
-    this.aiming = canAim && !rangedReleasing
-    // Bow recovery blocks another draw, but must not interrupt the held aim view.
-    // Pilum keeps its existing view until the projectile event ends it.
-    if (this.animator.currentAction !== 'pilumThrow') this.rangedAimViewActive = canAim
+    const aim = resolveRangedAim({
+      action: this.animator.currentAction, rightMouseDown, wantAim,
+      requiresRmbRelease: this.rangedAimRequiresRmbRelease, swinging: this.isSwinging, viewActive: this.rangedAimViewActive,
+    })
+    this.aiming = aim.aiming
+    this.rangedAimViewActive = aim.viewActive
+    this.rangedAimRequiresRmbRelease = aim.requiresRmbRelease
   }
 
   private _startBowRelease(
