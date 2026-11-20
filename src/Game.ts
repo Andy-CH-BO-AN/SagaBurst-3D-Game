@@ -43,7 +43,8 @@ import type { UnitPresetId } from './battle/UnitPresetCatalog'
 import { SpectatorCameraController } from './camera/SpectatorCameraController'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
 import type { CampaignFaction } from './campaign/CampaignConfig'
-import { DEFENSE_CAMPAIGN_RULES, opposingCampaignFaction } from './campaign/CampaignConfig'
+import { opposingCampaignFaction } from './campaign/CampaignConfig'
+import { campaignInitialOrder } from './campaign/CampaignInitialOrder'
 import { applyCampaignBreachOrders, isCampaignGateOccupied, reconcileCampaignGateSiege, restoreCampaignBreachCheckpoint, type CampaignBreachController, type CampaignGateController } from './campaign/CampaignGate'
 import { createCampaignOutpost, getCampaignDefenderFacingYaw, getCampaignOutpostPlacement } from './campaign/CampaignOutpost'
 import { getOutpostWalkwayLayout, isOutpostWalkwayEnabled } from './campaign/CampaignOutpostWalkways'
@@ -2254,7 +2255,7 @@ export class Game {
 
   private _configureCampaignInitialNpc(npc: NPC, campaign: DefenseCampaignLaunchConfig, restorePosition = true): void {
     const careerOutpost = campaign.careerVeteranOutpost ?? campaign.careerCommanderOutpost
-    const isOutpostOwner = npc.characterFaction === careerVeteranOutpostOwner(campaign)
+    const initial = campaignInitialOrder(npc, campaign, this.careerProfile), isOutpostOwner = initial.outpostOwner
     if (isOutpostOwner && (campaign.careerMissionKind !== 'outpost-relief' || !this._originalCareerSquadId(npc))) {
       this.campaignOriginalDefenders.push(npc)
     }
@@ -2264,26 +2265,12 @@ export class Game {
       : careerOutpost && !isOutpostOwner ? defenderFacingYaw + Math.PI : defenderFacingYaw
     npc.group.rotation.y = heading
     if (npc.mount) npc.mount.group.rotation.y = heading
-    const commanderAssault = campaign.careerCommanderOutpost?.runtimeState.activePhase === 'assault'
-    npc.setTacticalOrder(isOutpostOwner
-      ? DEFENSE_CAMPAIGN_RULES.initialDefenderOrder
-      : campaign.careerCommanderOutpost
-        ? commanderAssault ? npc.squadId === 7 ? 'attack' : 'charge' : 'defend'
-        : campaign.careerVeteranOutpost ? 'attack' : DEFENSE_CAMPAIGN_RULES.initialDefenderOrder)
+    npc.setTacticalOrder(initial.order)
     if (careerOutpost) this._restoreCareerVeteranNpcState(npc, restorePosition)
     else this._restorePersonalOutpostNpc(npc)
     // Rebuild automatic post-breach intent without replaying the global event.
-    // Saved player-owned orders remain authoritative, including Defend/Follow.
-    const authority = this._careerCommandMission()?.officialSquad
-    if (this.previewCampaignBreachController?.breached && !officialPlayerOwnsActor(authority, npc.combatantId)) {
-      const saved = this._personalOutpostMission()?.battle?.actors[npc.combatantId]
-      const command = saved ? authority?.members?.[npc.combatantId] ?? saved.checkpoint : undefined
-      const hasRestoredIntent = !authority?.actorIds.includes(npc.combatantId) && Boolean(command?.order || command?.formation)
-      // Legacy Relief attackers may only have resources saved. Keep restored commands,
-      // but give actors with no saved intent the same orders as a fresh breached battle.
-      if (isOutpostOwner || campaign.careerMissionKind === 'outpost-relief' && !hasRestoredIntent) {
-        applyCampaignBreachOrders([npc], opposingCampaignFaction(careerVeteranOutpostOwner(campaign)))
-      }
+    if (this.previewCampaignBreachController?.breached && initial.breachOrders) {
+      applyCampaignBreachOrders([npc], opposingCampaignFaction(careerVeteranOutpostOwner(campaign)))
     }
   }
 
