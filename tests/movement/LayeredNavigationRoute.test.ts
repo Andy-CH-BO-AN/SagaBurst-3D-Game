@@ -177,6 +177,23 @@ it('keeps an Outpost ground approach blocked unless the caller explicitly skips 
   expect(out.x).toBe(-8); expect(out.z).toBeCloseTo(18.2)
 })
 
+it('forgets a remembered Town transit entrance once a Town step reports the route blocked', () => {
+  const steps = [{ ground: false, entranceId: 'ramp-a' }, { ground: false }, { ground: true, blocked: true }, { ground: false }]
+  const townNav = { resolveMoveTarget: vi.fn((_from: Vector3, _to: Vector3, _out: Vector3, _entranceId?: string | null,
+    _mounted?: boolean, _sectorId?: string | null, _actorId?: string) => steps.shift() ?? null) }
+  const world = { townNav } as unknown as NavigationWorld
+  const input = request(world, new Vector3(), new Vector3(10, 0, 0))
+  const route = new LayeredNavigationRoute(new NavigationPathFollower()), out = new Vector3()
+  const lastEntrance = (entranceId: string | null) => expect(townNav.resolveMoveTarget).toHaveBeenLastCalledWith(
+    expect.anything(), expect.anything(), expect.anything(), entranceId, false, null, 'route-test')
+  route.resolve(input, [], out)
+  route.resolve(input, [], out)
+  expect(route.resolve(input, [], out)?.route).toBe('unreachable')
+  lastEntrance('ramp-a')
+  route.resolve(input, [], out)
+  lastEntrance(null)
+})
+
 it('permits mounted melee at valid body spacing when a rail lies behind the defender', () => {
   const nav = new OutpostLayeredNavigation(outpostLayout())
   const attacker = new Vector3(-8, 10, 1.65), defender = new Vector3(-8, 10, 3.2)
@@ -391,8 +408,7 @@ it('Outpost 前牆與側牆木牆破口在城門關閉時仍由共用 A* 引出�
     const input = { ...request(world, position, goal), outpost: nav, mounted: side !== 'front', outpostMounted: side !== 'front',
       radius: .4, height: 2.3, entranceId: 'gate', actorId: 'native-defender' }
     world.beginFrame()
-    const sealed = route.resolve(input, walls, out)
-    console.log('SEALED', sealed)
+    route.resolve(input, walls, out)
     walls.splice(walls.indexOf(opening), 1)
     const centre = opening.box.getCenter(new Vector3()).setY(0), approach = centre.clone(), exit = centre.clone()
     if (side === 'side') { approach.x += 3; exit.x -= 3 }
