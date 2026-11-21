@@ -12,13 +12,16 @@ describe('Army command and weapon input ownership', () => {
     const equip = vi.spyOn(inventory, 'equipWeapon')
     const h = controllerHarness([{ faction: Faction.PLAYER, presetId: 'viking_spearman' }], null, null, inventory)
 
+    // The newest HUD frame the real controller rendered, by its named render parameters.
+    const hud = () => { const [, , , highlightedTarget, highlightedCommandIndex, wheelMode] = h.ui.render.mock.lastCall!
+      return { highlightedTarget, highlightedCommandIndex, wheelMode } }
     h.input.pressKey('KeyQ')
     h.controller.update()
     expect(h.controller.wheelMode).toBe('command')
-    expect(h.ui.render.mock.calls.at(-1)?.[5]).toBe('command')
+    expect(hud().wheelMode).toBe('command')
     h.input.wheel(-1)
     h.controller.update()
-    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('all')
+    expect(hud().highlightedTarget).toBe('all')
     expect(equip).not.toHaveBeenCalled()
 
     h.input.clickMiddle()
@@ -26,7 +29,7 @@ describe('Army command and weapon input ownership', () => {
     expect(h.controller.isSubmenuOpen).toBe(true)
     h.input.wheel(1)
     h.controller.update()
-    expect(h.ui.render.mock.calls.at(-1)?.[4]).toBe(1)
+    expect(hud().highlightedCommandIndex).toBe(1)
     h.input.pressKey('KeyQ')
     h.controller.update()
     expect(h.controller.isSubmenuOpen).toBe(false)

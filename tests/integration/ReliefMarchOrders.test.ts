@@ -19,9 +19,12 @@ describe('shared relief march orders', () => {
   const faction = 'roman'
   it('marches using mount speed and charges both squads exactly once when Follow finishes, regardless of distance', () => {
     const plan = createCareerReliefSpawnPlan(launch(faction))
-    const rescue = plan.npcSpecs.filter(spec => spec.squadId).map(spec => ({ ...spec, dead: false,
-      combatPosition: new THREE.Vector3(spec.x, 0, spec.z), mount: { baseSpeed: 12 },
-      assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(), setTacticalOrder: vi.fn() }))
+    const rescue = plan.npcSpecs.filter(spec => spec.squadId).map(spec => {
+      const followTargets: unknown[] = []
+      return { ...spec, dead: false, combatPosition: new THREE.Vector3(spec.x, 0, spec.z), mount: { baseSpeed: 12 },
+        followTargets, assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn((target: unknown) => { followTargets.push(target) }),
+        setTacticalOrder: vi.fn() }
+    })
     const captain = rescue.find(npc => npc.name === 'Captain')!, maki = rescue.find(npc => npc.specialCombatProfile === 'maki-ranger')!
     const follow = vi.fn(), charge = vi.fn(), breach = new THREE.Vector3(0, 0, getCampaignOutpostPlacement(faction).frontZ)
     const triggered = vi.fn()
@@ -29,16 +32,17 @@ describe('shared relief march orders', () => {
     controller.start(); controller.start()
     expect(follow).toHaveBeenCalledTimes(1)
     expect(captain.assignFormationTarget).toHaveBeenCalled()
-    expect(maki.assignFollowTarget.mock.calls[0][0]).toBe(captain)
+    expect(maki.followTargets[0]).toBe(captain)
     for (const rider of rescue.filter(npc => npc !== captain && npc !== maki)) {
-      expect(rider.assignFollowTarget.mock.calls[0][0]).toBe(rider.squadId === 1 ? captain : maki)
+      expect(rider.followTargets[0]).toBe(rider.squadId === 1 ? captain : maki)
     }
     captain.combatPosition.copy(breach).add(new THREE.Vector3(0, 0, 50.1)); controller.update()
     expect(charge).not.toHaveBeenCalled()
     captain.combatPosition.copy(breach); controller.update()
     expect(charge).not.toHaveBeenCalled()
     captain.combatPosition.copy(breach).add(new THREE.Vector3(0, 0, 300))
-    follow.mock.calls[0][0]!()
+    const [finishFollow] = follow.mock.calls[0]
+    finishFollow!()
     controller.update(); controller.update()
     expect(triggered).toHaveBeenCalledTimes(1)
     expect(charge).toHaveBeenCalledTimes(1); expect(controller.hasCharged).toBe(true)

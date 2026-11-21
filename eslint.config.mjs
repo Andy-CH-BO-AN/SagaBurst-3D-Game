@@ -67,7 +67,7 @@ const PROTOTYPE_HARNESS_BASELINE = new Map([
   ['tests/combat/CombatBalance.test.ts', 2],
   ['tests/combat/CommanderWeaponSwitching.test.ts', 9],
   ['tests/combat/MountArmor.test.ts', 2],
-  ['tests/integration/GameInventoryLifecycle.test.ts', 3],
+  ['tests/integration/GameInventoryLifecycle.test.ts', 2],
   ['tests/integration/GameWeaponPickup.test.ts', 1],
   ['tests/integration/MissionModeRouting.test.ts', 3],
   ['tests/integration/PersonalSquadCommandRouting.test.ts', 1],

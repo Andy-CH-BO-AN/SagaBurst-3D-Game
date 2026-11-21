@@ -16,7 +16,7 @@ import { standbyHarness } from '../helpers/personalSquadRuntimeHarness'
 import { recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
 
 /** Only command ports are installed; no TownScene/actor constructor runs. */
-function nativeDismissFixture() {
+function nativeDismissFixture(saves = true) {
   const profile = createCareerProfile('roman')
   Object.assign(profile, careerRankFixture(profile.faction, 'commander'));
   const squads = commanderGateDefenseSlots()
@@ -27,7 +27,7 @@ function nativeDismissFixture() {
   profile.activeMission = mission
   const actor = { combatantId: squads.find(squad => squad.squadId === 8)!.actorIds[0], dead: false,
     squadId: 8, faction: Faction.TOWN, combatOwnership: 'mission-official' }
-  const returned = vi.fn(), commit = vi.fn((next: CareerProfile) => { scene.profile = next; return true })
+  const returned = vi.fn(), commit = vi.fn((next: CareerProfile) => { if (saves) scene.profile = next; return saves })
   const scene = Object.assign(Object.create(TownScene.prototype) as {
     profile: CareerProfile
     issuePartyOrder(order: 'dismiss', target: ArmyCommandTarget): boolean
@@ -55,6 +55,16 @@ describe('Personal Squad command lifecycle routing', () => {
     expect(h.commit).toHaveBeenCalledOnce()
     expect(h.returned).toHaveBeenCalledExactlyOnceWith(h.actor)
     expect(h.commit.mock.invocationCallOrder[0]).toBeLessThan(h.returned.mock.invocationCallOrder[0])
+  })
+
+  it('keeps a live west ground squad owned by its official command when the Dismiss save is refused', () => {
+    const h = nativeDismissFixture(false); h.activate()
+    const before = h.scene.profile
+    expect(h.scene.issuePartyOrder('dismiss', 'squad:8')).toBe(false)
+    expect(h.commit).toHaveBeenCalledOnce()
+    expect(h.returned).not.toHaveBeenCalled()
+    expect(h.scene.profile).toBe(before)
+    expect(h.scene.profile.activeMission!.officialSquad!.commandedSquadIds).toEqual([8])
   })
 
   it('keeps personal ALL identity and preserves its command when Dismiss through either selection is rejected', () => {
