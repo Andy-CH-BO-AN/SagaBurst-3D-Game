@@ -39,18 +39,21 @@ describe('CareerSkillSaveScheduler', () => {
     scheduler.markDirty(); scheduler.schedule()
     vi.advanceTimersByTime(599)
     expect(scheduler.flush()).toBe(true)
+    scheduler.markDirty() // new XP after the flush: the stale 600ms timer must not save it
     vi.advanceTimersByTime(5000)
     expect(state.saves).toBe(1)
+    expect(scheduler.flush()).toBe(true)
+    expect(state.saves).toBe(2)
 
     state.accept = false
     scheduler.markDirty()
     expect(scheduler.flush()).toBe(false)
-    expect(state).toMatchObject({ saves: 2, notices: 1 })
+    expect(state).toMatchObject({ saves: 3, notices: 1 })
     expect(scheduler.dirty).toBe(true)
     state.accept = true
     expect(scheduler.flush()).toBe(true)
-    expect(state).toMatchObject({ saves: 3, notices: 1 })
+    expect(state).toMatchObject({ saves: 4, notices: 1 })
     expect(scheduler.flush()).toBe(true) // nothing dirty: no further write
-    expect(state.saves).toBe(3)
+    expect(state.saves).toBe(4)
   })
 })
