@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { careerRankFixture } from '../helpers/careerRankFixture'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerSkillSaveScheduler } from '../../src/career/CareerSkillSaveScheduler'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { TemporaryBattlefieldMounts } from '../../src/career/TemporaryBattlefieldMounts'
+import { SkillManager } from '../../src/rpg/SkillManager'
 import { TownScene } from '../../src/town/TownScene'
 import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
 import { TownEvent, townRoster } from '../../src/town/TownRules'
@@ -76,6 +77,20 @@ interface TownSettleEntry {
   restoreTownCasualties(): void
 }
 
+interface TownSkillEntry {
+  profile: CareerProfile
+  notice: string
+  careerSkillSave: CareerSkillSaveScheduler
+  skills: SkillManager
+  awardCareerSkillXp(award: { skill: 'oneHanded'; xp: number }): void
+  saveCareerSkills(): boolean
+}
+
+/** The production TownScene methods over a plain-data state; no scene, world or actor is built. */
+function townEntry<T extends object>(state: T) {
+  return Object.assign(Object.create(TownScene.prototype) as TownSettleEntry & TownSkillEntry, state)
+}
+
 describe('TownScene hostile result caller', () => {
   it('restores saved casualties, refuses a stale save, retries a failed write once, then restarts', () => {
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
@@ -85,7 +100,7 @@ describe('TownScene hostile result caller', () => {
     expect(store.save(profile)).toBe(true)
     const damaged: string[] = [], destroyed: string[] = [], panels: string[] = [], buttons: Array<{ label: string; action: () => void }> = []
     const restarts: Array<{ profile: CareerProfile; reason?: string }> = []
-    const town = Object.assign(Object.create(TownScene.prototype) as TownSettleEntry, {
+    const town = townEntry({
       profile: store.load()!, store, notice: '', skills: { skillState: profile.skills }, careerSaveFailures: 0, careerSkillSave: new CareerSkillSaveScheduler({ save: () => true }), player: { dead: false }, temporaryMounts: new TemporaryBattlefieldMounts(), missionBoard: { page: undefined },
       cat: { takeDamage: () => { damaged.push('cat') } },
       residents: [{ spec: { id: 'merchant' }, npc: { takeDamage: () => { damaged.push('merchant') } } }],
@@ -120,5 +135,36 @@ describe('TownScene hostile result caller', () => {
     expect(store.load()!.availableMerit).toBe(80); expect(panels).toHaveLength(3)
     buttons.at(-1)!.action()
     expect(restarts).toEqual([{ profile: town.profile, reason: 'death-return' }])
+  })
+})
+
+describe('TownScene career skill saves', () => {
+  it('routes awards through the shared debounce and saves the in-memory profile at 600ms without publishing a rejected write', () => {
+    vi.useFakeTimers()
+    onTestFinished(() => { vi.clearAllTimers(); vi.useRealTimers() })
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    const profile = createCareerProfile('roman')
+    expect(store.save(profile)).toBe(true)
+    const town = townEntry({
+      profile: store.load()!, store, notice: '', skills: new SkillManager(), spectator: undefined,
+      player: { dead: false, spectatorOnly: false, blockingLevel: 1, armorBreakLevel: 1 },
+      synchronizeEaglePatrolPolicy() {},
+    })
+    town.careerSkillSave = new CareerSkillSaveScheduler({
+      save: () => town.saveCareerSkills(),
+    })
+    town.awardCareerSkillXp({ skill: 'oneHanded', xp: 7 })
+    vi.advanceTimersByTime(599)
+    expect(store.load()!.skills!.oneHanded.xp).toBe(0)
+    vi.advanceTimersByTime(1)
+    expect(store.load()!.skills!.oneHanded.xp).toBe(7)
+    expect(town.profile.skills!.oneHanded.xp).toBe(7)
+
+    storage.failWrites = true
+    town.awardCareerSkillXp({ skill: 'oneHanded', xp: 3 })
+    vi.advanceTimersByTime(600)
+    expect(town.profile.skills!.oneHanded.xp).toBe(10) // the live profile keeps the XP; only the durable write failed
+    expect(store.load()!.skills!.oneHanded.xp).toBe(7)
+    expect(town.careerSkillSave.dirty).toBe(true)
   })
 })

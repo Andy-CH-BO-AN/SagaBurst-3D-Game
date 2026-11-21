@@ -2,9 +2,10 @@ import { careerRankFixture } from '../helpers/careerRankFixture'
 import { acceptHeavyFieldMission } from '../../src/career/HeavyFieldMission'
 import { CareerSkillSaveScheduler } from '../../src/career/CareerSkillSaveScheduler'
 import { Faction } from '../../src/world/NPC'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { shouldResumeCareerTown } from '../../src/career/CareerResumeRouting'
 import { Game } from '../../src/Game'
+import { SkillManager } from '../../src/rpg/SkillManager'
 import { getDefenseCampaignUnlockedStage } from '../../src/campaign/CampaignProgress'
 import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
@@ -192,7 +193,12 @@ describe('Career reload routing', () => {
 })
 
 
-interface FieldResultEntry { _showFieldBattleResult(outcome: 'victory' | 'failure'): void }
+interface FieldResultEntry {
+  _showFieldBattleResult(outcome: 'victory' | 'failure'): void
+  _applyPlayerSkillAward(award: { skill: 'oneHanded'; xp: number }): void
+  _saveCareerSkills(): boolean
+  careerSkillSave: CareerSkillSaveScheduler
+}
 
 const prisonerStats = { damageDealt: 20, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
 
@@ -284,5 +290,28 @@ describe('Heavy field defeat capture at the production Game caller', () => {
     expect(dispose).toHaveBeenCalledOnce()
     expect(session.get('sagaburst_career_town')).toBe('1')
     expect(window.location.href).toBe('/game/')
+  })
+})
+
+describe('Game career skill saves', () => {
+  it('debounces an XP award through the shared owner and keeps newer stored state the cached profile lacks', () => {
+    vi.useFakeTimers()
+    onTestFinished(() => { vi.clearAllTimers(); vi.useRealTimers() })
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    const cached = createCareerProfile('roman')
+    expect(store.save(cached)).toBe(true)
+    const newer = { ...cached, totalMerit: 777 } // another battle flow wrote the store behind the cached profile
+    expect(store.save(newer)).toBe(true)
+    const game = fieldResultGame(store, 'unused', {}, {
+      careerProfile: cached, skillManager: new SkillManager(), controlMode: 'player', coopPlayerSource: null,
+      player: { dead: false, spectatorOnly: false, blockingLevel: 1, armorBreakLevel: 1 },
+    })
+    game.careerSkillSave = new CareerSkillSaveScheduler({ save: () => game._saveCareerSkills(), blocked: () => !(game as unknown as { careerProfile: unknown }).careerProfile })
+    game._applyPlayerSkillAward({ skill: 'oneHanded', xp: 6 })
+    vi.advanceTimersByTime(599)
+    expect(store.load()!.skills!.oneHanded.xp).toBe(0)
+    vi.advanceTimersByTime(1)
+    expect(store.load()!.skills!.oneHanded.xp).toBe(6)
+    expect(store.load()!.totalMerit).toBe(777)
   })
 })
