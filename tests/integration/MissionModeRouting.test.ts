@@ -329,6 +329,7 @@ describe('Game career skill saves', () => {
     // Without a profile there is nothing to save and the flush succeeds.
     Object.assign(game, { coopPlayerSource: null, careerProfile: null })
     expect(game._flushCareerSkillProgression()).toBe(true)
+    expect(game.careerSkillSave.dirty).toBe(true)
     expect(storage.getItem(CAREER_STORAGE_KEY)).toBe('{corrupt')
   })
 })
