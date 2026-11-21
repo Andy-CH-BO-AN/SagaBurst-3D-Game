@@ -43,14 +43,15 @@ export class MobileSiegeRampRenderer implements MobileSiegeRampRender {
       mesh.castShadow = true; mesh.receiveShadow = true
       // Three raycasts these original layer-0 targets independently of visibility.
       mesh.visible = false
+      // The carrier composes this board's matrices once per update; the mesh only receives them.
+      mesh.matrixAutoUpdate = false
       this.root.add(mesh)
       this.parts.push({ mesh, renderMatrix: new THREE.Matrix4() })
     }
-    const { radius, height, radialSegments, rotationZ } = SIEGE_RAMP_WHEEL
-    for (const body of carrier.wheels) {
+    const { radius, height, radialSegments } = SIEGE_RAMP_WHEEL
+    for (let i = 0; i < carrier.wheels.length; i++) {
       const wheel = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, radialSegments), this.iron)
-      wheel.rotation.z = rotationZ
-      wheel.position.copy(body.position)
+      wheel.matrixAutoUpdate = false
       this.root.add(wheel); this.wheels.push(wheel)
     }
     // Render only: original part meshes retain their collision and hit ownership.
@@ -62,18 +63,21 @@ export class MobileSiegeRampRenderer implements MobileSiegeRampRender {
       root: this.root, hitMeshes: [...this.parts.map(p => p.mesh), ...this.wheels], ownerFaction: faction })
   }
 
-  /** Mirrors the carrier's already-published transforms onto the hit meshes and instanced timber. */
+  /** Copies the carrier's already-composed matrices onto the hit meshes; nothing is recomposed here. */
   syncGeometry(): void {
     this.root.position.copy(this.carrier.position)
+    this.root.updateWorldMatrix(true, false)
     const parts = this.carrier.parts
     for (let i = 0; i < parts.length; i++) {
-      const { mesh } = this.parts[i], part = parts[i]
-      mesh.position.copy(part.position)
-      mesh.scale.copy(part.scale)
-      mesh.rotation.x = part.rotationX
+      const { mesh } = this.parts[i]
+      mesh.matrix.copy(parts[i].local)
+      mesh.matrixWorld.copy(parts[i].world)
     }
-    for (let i = 0; i < this.wheels.length; i++) this.wheels[i].position.copy(this.carrier.wheels[i].position)
-    this.root.updateWorldMatrix(true, true)
+    const wheels = this.carrier.wheels
+    for (let i = 0; i < this.wheels.length; i++) {
+      this.wheels[i].matrix.copy(wheels[i].local)
+      this.wheels[i].matrixWorld.copy(wheels[i].world)
+    }
     this.updateTimberInstances()
   }
 
@@ -86,7 +90,7 @@ export class MobileSiegeRampRenderer implements MobileSiegeRampRender {
       const part = this.parts[i]
       // Parts are direct root children. Their original box dimensions precede
       // the authored local transform, including its nonuniform scale/rotation.
-      this.timberMatrix.copy(part.mesh.matrix).scale(this.carrier.parts[i].size)
+      this.timberMatrix.copy(this.carrier.parts[i].local).scale(this.carrier.parts[i].size)
       if (!initial && this.timberMatrix.equals(part.renderMatrix)) continue
       part.renderMatrix.copy(this.timberMatrix)
       this.timber.setMatrixAt(i, this.timberMatrix)
