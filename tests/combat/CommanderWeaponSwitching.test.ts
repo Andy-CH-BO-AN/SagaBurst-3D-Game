@@ -592,35 +592,35 @@ describe('Reversible NPC weapon choice', () => {
     expect(h.actor.arrows).toBe(12)
   })
 
-  it('keeps a player-commanded wall defender shooting a visible hostile beyond a closer enemy below without reclaiming native duty', () => {
+  it('keeps a player-commanded wall defender shooting a visible hostile beyond a closer enemy below', () => {
     const h = selection({ tacticalOrder: 'defend', combatPosition: new Vector3(0, 5, 0),
       _activeNavigationWorld: { outpostNav: { getNavLayer: () => 'rampart_left' } },
       _findRangedTrajectoryBlocker: methods._findRangedTrajectoryBlocker })
     h.target.position.set(0, 0, 0)
     const below = h.target.npc!
     const shootable = { faction: Faction.PLAYER, dead: false, combatPosition: new Vector3(0, 5, 18) } as NPC
-    // Formation completion has set Defend and released native duty. Navigation
-    // classification and path-clearing effects are the only targeting boundaries.
+    // NPC's own getters feed RampartDuty (the policy is tested below); other wall-state fields are plain data.
     const actor = Object.assign(h.actor, {
-      _aiType: AIType.RANGED, mount: null, rampartDuty: new RampartDuty(),
-      targetsPlayer: false, missionCombatTarget: undefined, _cachedTargetIsPlayer: false,
+      aiType: AIType.RANGED, isMounted: false, mount: null, isTownRampartGarrisonActive: false, holdsRampartPosition: false,
+      rampartDuty: new RampartDuty(), holdsRampartFirePosition: false, targetsPlayer: false, missionCombatTarget: undefined, _cachedTargetIsPlayer: false,
       _pursuitTargetAllowed: NPC.prototype['_pursuitTargetAllowed'],
       _cachedTargetNpc: below, _rangedTargetCandidates: [] as NPC[],
       _rangedTargetEligible: [] as NPC[], _rangedTargetEligibleDistSq: [] as number[], _rangedTargetEligibleOrder: [] as number[],
       _clearObstacleDetour() {}, _clearNavigationPath() {}, _clearSiegeFallback() {},
     })
-    Object.defineProperties(actor, Object.fromEntries([
-      'aiType', 'isMounted', 'isTownRampartGarrisonActive', 'holdsRampartPosition', 'holdsRampartFirePosition',
-    ].map(name => [name, Object.getOwnPropertyDescriptor(NPC.prototype, name)!])))
     const targeting = NPC.prototype as unknown as {
       _findTarget(this: typeof actor, player: Player, npcs: NPC[]): SelectionTarget | null
       _trySwitchToVisibleRangedTarget(this: typeof actor, player: Player, npcs: NPC[], grid: null, obstacles: ObstacleData[]): boolean
       _isTargetInDefendRange(this: typeof actor, position: Vector3): boolean
     }
     const player = h.player as Player
-    expect(targeting._findTarget.call(actor, player, [below, shootable])?.npc).toBe(below)
-    expect(actor.holdsRampartPosition).toBe(false)
+    const wallState = (name: 'standsOnOutpostRampart' | 'holdsRampartFirePosition') => Reflect.get(NPC.prototype, name, actor) as boolean
+    expect(wallState('standsOnOutpostRampart')).toBe(true)
+    Object.assign(actor, { standsOnOutpostRampart: true })
+    actor.holdsRampartFirePosition = wallState('holdsRampartFirePosition')
     expect(actor.holdsRampartFirePosition).toBe(true)
+    // The nearest hostile is the one below, yet it is outside bow reach; the visible one is chosen instead.
+    expect(targeting._findTarget.call(actor, player, [below, shootable])?.npc).toBe(below)
     expect(targeting._isTargetInDefendRange.call(actor, below.combatPosition)).toBe(false)
     expect(targeting._trySwitchToVisibleRangedTarget.call(actor, player, [below, shootable], null, [])).toBe(true)
     expect(actor._cachedTargetNpc).toBe(shootable)
@@ -629,18 +629,35 @@ describe('Reversible NPC weapon choice', () => {
     expect(actor.rangedActive).toBe(true)
     expect(actor.arrows).toBe(12)
     actor.tacticalOrder = 'attack'
-    expect(actor.holdsRampartPosition).toBe(false)
-    expect(actor.holdsRampartFirePosition).toBe(false)
+    expect(wallState('holdsRampartFirePosition')).toBe(false)
+    actor.tacticalOrder = 'defend'
+    actor.aiType = AIType.MELEE
+    expect(wallState('holdsRampartFirePosition')).toBe(false)
+    actor.aiType = AIType.RANGED
+    actor._activeNavigationWorld = { outpostNav: { getNavLayer: () => 'ground' } }
+    expect(wallState('standsOnOutpostRampart')).toBe(false)
+  })
+
+  it('Defend 命令下的城牆弓手釋放原生守城後仍保有射擊位但不死守原位，Attack 與騎乘不獲此權', () => {
+    const released = new RampartDuty(), onWall = { tacticalOrder: 'defend' as const, isMounted: false, standsOnOutpostRampart: true }
+    expect([released.holdsPosition(onWall), released.holdsFirePosition(onWall)]).toEqual([false, true])
+    expect(released.holdsFirePosition({ ...onWall, standsOnOutpostRampart: false })).toBe(false)
+    expect(released.holdsFirePosition({ ...onWall, isMounted: true })).toBe(false)
+    expect(released.holdsFirePosition({ ...onWall, tacticalOrder: 'attack' })).toBe(false)
+    expect(released.holdsFirePosition({ ...onWall, tacticalOrder: 'follow' })).toBe(false)
+    // Native Outpost duty holds position and fire for Attack as well, and never for a mounted body.
+    const duty = new RampartDuty()
+    duty.activateOutpost()
+    const attacking = { ...onWall, tacticalOrder: 'attack' as const, standsOnOutpostRampart: false }
+    expect([duty.holdsPosition(attacking), duty.holdsFirePosition(attacking)]).toEqual([true, true])
+    expect(duty.holdsFirePosition({ ...attacking, isMounted: true })).toBe(false)
   })
 
   it('excludes friendly structures while retaining hostile and unowned siege blockers', () => {
-    const { actor } = selection()
     const root: Pick<Object3D, 'parent'> = { parent: null }
-    const candidates = (['roman', 'viking', null] as const).map(ownerFaction => ({
-      box: new Box3(new Vector3(-1, -1, 3), new Vector3(1, 3, 5)), isBarricade: true,
-      damageable: new DamageableObstacle({ kind: 'siege_ramp', maxHp: 100, root: root as Object3D, ownerFaction }),
-    }))
-    expect(candidates.filter(obstacle => actor._isAttackableObstacle(obstacle))).toEqual([candidates[1], candidates[2]])
+    const damageableBy = (ownerFaction: 'roman' | 'viking' | null) =>
+      new DamageableObstacle({ kind: 'siege_ramp', maxHp: 100, root: root as Object3D, ownerFaction }).isDamageableBy('roman')
+    expect([damageableBy('roman'), damageableBy('viking'), damageableBy(null)]).toEqual([false, true, true])
   })
 
   it('resumes shooting its assigned siege target after a hostile retreats without allowing unrelated blockers', () => {
