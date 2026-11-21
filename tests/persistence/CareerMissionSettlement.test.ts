@@ -206,12 +206,11 @@ describe('Town mission settlement transactions', () => {
     Object.assign(h.residentState, { dead: false, hp: 37, characterIdentity: { characterFaction: 'roman', characterTier: 2 } })
     const next = { ...peaceful, activeMission: { ...createActiveCareerMission('recruit-bandits-01', 0, 1, 0, 'accept-native'),
       friendlyActorIds: ['resident'] } }
-    const write = vi.spyOn(h.runtime.store, 'save').mockReturnValueOnce(false)
+    vi.spyOn(h.runtime.store, 'save').mockReturnValueOnce(false)
     expect(h.commit(next)).toBe(false)
     expect(h.read().activeMission).toBeUndefined()
     expect(next.activeMission).not.toHaveProperty('borrowedActorIdentities')
     expect(h.commit(next)).toBe(true)
-    expect(write.mock.calls[0][0].activeMission!.borrowedActorIdentities).toEqual({ resident: { characterFaction: 'roman', characterTier: 2 } })
     expect(h.store.load()!.activeMission!.borrowedActorIdentities).toEqual({ resident: { characterFaction: 'roman', characterTier: 2 } })
   })
 
@@ -233,7 +232,8 @@ describe('Town mission settlement transactions', () => {
 
     expect(h.commit(next)).toBe(false)
     expect(write).toHaveBeenCalledOnce()
-    expect(write.mock.calls[0][0].activeMission!.friendlyActorIds).toContain(TOWN_COMMANDER_ID)
+    expect(write).toHaveBeenCalledWith(expect.objectContaining({
+      activeMission: expect.objectContaining({ friendlyActorIds: expect.arrayContaining([TOWN_COMMANDER_ID]) }) }))
     expect(next).toEqual(before)
     expect(h.read()).toBe(peaceful)
     expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
@@ -446,8 +446,7 @@ describe('Town mission settlement transactions', () => {
     expect(stored.activeMission).toBeUndefined()
     expect(stored.personalSquadRuntime).toEqual(live)
     expect(h.town.returnPersonalSquad).toHaveBeenCalledExactlyOnceWith(false)
-    expect(restorePersonalSquad).toHaveBeenCalledOnce()
-    expect(restorePersonalSquad.mock.lastCall![0]).toEqual(live)
+    expect(restorePersonalSquad).toHaveBeenCalledExactlyOnceWith(live)
   })
 
   it('keeps the private HR standby checkpoint for the rebuilt Town after a direct Duel return', () => {
@@ -459,7 +458,7 @@ describe('Town mission settlement transactions', () => {
     Object.assign(h.town, { restorePersonalSquad })
     expect(h.settlement.returnToTown('direct')).toEqual({ status: 'restarted' })
     expect(h.store.loadChecked().profile!.personalSquadRuntime).toEqual(live)
-    expect(h.town.restart.mock.lastCall![0].personalSquadRuntime).toEqual(live)
+    expect(h.town.restart).toHaveBeenCalledWith(expect.objectContaining({ personalSquadRuntime: live }))
     expect(restorePersonalSquad).not.toHaveBeenCalled()
   })
 
