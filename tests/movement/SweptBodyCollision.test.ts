@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { intersectsSweptPart } from '../../src/movement/SweptBodyCollision'
 import { siegeRampFrontSkirtBox, siegeRampSideSkirtBox, siegeRampUnderfillBounds } from '../../src/campaign/MobileSiegeRampPolicy'
-import { MobileSiegeRamp } from '../../src/campaign/MobileSiegeRamp'
+import { createSiegeCarrier, crewAssignment, rampPlacement } from '../helpers/siegeRampCarrierHarness'
 import { getWalkRampHeight, resolveObstacleCollision, findBlockingProjectileObstacleAlongPath, TERRAIN_MIN_HEIGHT, type EntityCollisionBody, type ObstacleData } from '../../src/world/Terrain'
 
 describe('vehicle part swept body collision (pure geometry)', () => {
@@ -99,25 +99,18 @@ describe('vehicle part swept body collision (pure geometry)', () => {
     expect(position.toArray()).toEqual([0, 4, 4])
   })
 
-  it('stops the actual carrier for a body wholly inside its undercroft even when no shell part touches it', () => {
-    const surface = { startX: 0, startZ: 0, startY: .04, topY: 8.04, dirX: 0, dirZ: 1,
-      length: 20, landing: 6, halfWidth: 2.5 }
-    const box = new THREE.Box3(new THREE.Vector3(-2.5, -.21, 0), new THREE.Vector3(2.5, 8.04, 26))
-    interface MovementEntry { canMove(dt: number, actors: readonly never[], blockers: readonly EntityCollisionBody[]): boolean }
-    // Numeric shell boundaries only: the real movement gate executes without
-    // creating a renderer, scene, actor or vehicle model.
-    const owner = Object.assign(Object.create(MobileSiegeRamp.prototype) as MovementEntry, {
-      surface, position: new THREE.Vector3(0, 8.04, 26), placement: { dirZ: 1 },
-      deck: { obstacle: { box } }, run: { obstacle: { box } }, scratch: new THREE.Vector3(),
-      parts: [], wheelBodies: [], shared: [], obstacles: [], crew: new Map(),
-    })
-    const body = { position: new THREE.Vector3(0, 0, 23), radius: .5, height: 2.3, bottomOffset: 0 }
-    expect(owner.canMove(.1, [], [body])).toBe(false)
-    body.position.set(0, 8.04, 23)
-    expect(owner.canMove(.1, [], [body])).toBe(true)
-    body.position.set(-1, 0, -1.6)
-    expect(owner.canMove(.1, [], [body])).toBe(true)
+  it('stops the real carrier for a body inside its undercroft or touching a shell part, not beside the tail or tower', () => {
+    const placement = rampPlacement({ id: 'siege-ramp-left', start: new THREE.Vector3(0, 8.04, 26), travel: 70, length: 20, dirZ: 1 })
+    const { carrier } = createSiegeCarrier({ placement, assignment: crewAssignment('siege-ramp-left') })
+    const body = (x: number, y: number, z: number): EntityCollisionBody => ({ position: new THREE.Vector3(x, y, z), radius: .5, height: 2.3, bottomOffset: 0 })
+    // Wholly under the deck plane: no shell board touches it, only the undercroft fill does.
+    expect(carrier.canMove(.1, [], [body(0, 0, 23)])).toBe(false)
+    // Beyond the undercroft fill, a rider-height body beside the front edge only meets boards laid out by the carrier.
+    expect(carrier.canMove(.1, [], [body(-1, 9, 26.5)])).toBe(false)
+    expect(carrier.canMove(.1, [], [body(3.9, 0, 23)])).toBe(true)
+    expect(carrier.canMove(.1, [], [body(-1, 0, -1.6)])).toBe(true)
   })
+
 
   it('sweeps an East/West oriented part along X without treating that travel as Z', () => {
     const part = new THREE.Box3(new THREE.Vector3(-1, 0, -1), new THREE.Vector3(1, 2, 1))
