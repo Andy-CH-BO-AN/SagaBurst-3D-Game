@@ -168,6 +168,7 @@ import { townMerchantLoadout } from './TownMerchantEquipment'
 import { TownMissionBoard, type MissionBoardHost, type MissionBoardRequest } from './TownMissionBoard'
 import { TownMissionCombat, type TownCombatResident as Resident } from './TownMissionCombat'
 import { restoreMissionReturnResident, TownMissionSettlement } from './TownMissionSettlement'
+import { restoreTownCasualties, TownResultSettlement } from './TownResultSettlement'
 import { isAutonomousTownGuard } from './TownNativeGuardIdentity'
 import { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController'
 import { personalMemberLoadout, TownPersonalSquadController } from './TownPersonalSquadController'
@@ -178,7 +179,7 @@ import { warmTownRenderResources } from './TownRenderWarmup'
 import { TownRetirementFinaleController } from './TownRetirementFinaleController'
 import { TownRetirementMobilizationController } from './TownRetirementMobilizationController'
 import { appendCommanderRetirementOption } from './TownRetirementUI'
-import { deferTownResult, isCivilian, isTownProductOwned, productStatus, purchaseTownEquipment, purchaseTownMount, sellTownProduct, sellTownProducts, settleTown, stableHorsePositions, TOWN_RESALE_PERCENT, TOWN_RULES, townActorHeroProfile, townCaptainProfile, TownEvent, townHoldingText, townMilitaryEquipment, townName, townOfficerPreload, townPlayerEntryPoint, townProductUnit, townResalePrice, townRoster, townSaleStatus, townShopProducts, townSitePoint, updateRangerMount, withTownCommandSquadRoster, type TownActorSpec, type TownResult } from './TownRules'
+import { deferTownResult, isCivilian, isTownProductOwned, productStatus, purchaseTownEquipment, purchaseTownMount, sellTownProduct, sellTownProducts, stableHorsePositions, TOWN_RESALE_PERCENT, TOWN_RULES, townActorHeroProfile, townCaptainProfile, TownEvent, townHoldingText, townMilitaryEquipment, townName, townOfficerPreload, townPlayerEntryPoint, townProductUnit, townResalePrice, townRoster, townSaleStatus, townShopProducts, townSitePoint, updateRangerMount, withTownCommandSquadRoster, type TownActorSpec, type TownResult } from './TownRules'
 import { appendTownSaleDropdown } from './TownSaleUI'
 import { updateTownEquipmentVisibleStatus } from './TownSquadEquipmentUI'
 import { TownStoryController } from './TownStoryController'
@@ -309,6 +310,11 @@ export class TownScene {
   private defense!: CommanderTownMissionController | CommanderFourGateDefenseController
   private careerMounts!: CareerMountController
   private missionSettlement!: TownMissionSettlement
+  private readonly townResult = new TownResultSettlement({
+    read: () => this.profile, commit: profile => this.commit(profile),
+    announce: outcome => { if (this.coopHost) coopSession().send({ t: 'townResult', outcome }) },
+    dispose: () => this.dispose(), restart: (profile, reason) => this.onRestart(profile, reason),
+  })
   private patrol!: TownCavalryPatrolController
   private squadRefitSafety = new SquadRefitSafety()
   private townCommand?: TownCommandSquadController
@@ -3507,12 +3513,10 @@ export class TownScene {
     }
   }
   private restoreTownCasualties(): void {
-    if (this.profile.townEvent?.state !== 'hostile') return
-    for (const id of this.profile.townEvent.deadActorIds ?? []) {
-      const actor = id === 'cat' ? this.cat : this.residents.find(r => r.spec.id === id)?.npc
-      actor?.takeDamage(999999)
-    }
-    for (const id of this.profile.townEvent.destroyedBuildingIds ?? []) this.world.buildings.find(b => b.id === id)?.hp.destroy()
+    restoreTownCasualties(this.profile, {
+      actor: id => id === 'cat' ? this.cat : this.residents.find(r => r.spec.id === id)?.npc,
+      building: id => this.world.buildings.find(b => b.id === id),
+    })
   }
   private hitFieldNpc(target: NPC, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
     contact ??= source?.unarmedContact
@@ -4133,10 +4137,9 @@ export class TownScene {
   private finish(result: TownResult): void {
     if (this.profile.townEvent?.state !== 'hostile') return
     this.result = result
-    const next = settleTown(this.profile, this.profile.townEvent!.id, result)
-    if (!this.commit(next)) { const p = this.openPanel('結算尚未保存', '保存失敗；尚未扣款或轉場。'); this.button(p, '重試保存', () => this.finish(result)); return }
-    // Co-op: the same outcome (penalty or defection) for the guest, in its own save.
-    if (this.coopHost && next.townEvent?.result) coopSession().send({ t: 'townResult', outcome: { id: next.townEvent.id, result: next.townEvent.result } })
+    const finished = this.townResult.finish(result)
+    if (finished.status === 'ignored') return
+    if (finished.status === 'save-failed') { const p = this.openPanel('結算尚未保存', '保存失敗；尚未扣款或轉場。'); this.button(p, '重試保存', () => this.finish(result)); return }
     this.showTownResult(result)
   }
   private showTownResult(result: TownResult): void {
@@ -4144,7 +4147,7 @@ export class TownScene {
     const next = this.profile
     this.temporaryMounts.cleanup()
     const panel = this.openPanel(result === 'player_defeated' ? '弱者必須服從法律' : '小鎮已擊敗', result === 'player_defeated' ? '實際扣除 ' + next.townEvent!.penalty + ' 可用軍功，餘額 ' + next.availableMerit : '轉投 ' + next.faction + '，軍階 Recruit。本次入伍軍功歸零；歷史軍功與收藏保留。')
-    this.button(panel, (result === 'player_defeated' ? '返回 ' : '前往 ') + (next.faction === 'viking' ? 'økse 村' : 'vinum 村'), () => { this.dispose(); this.onRestart(this.profile, result === 'player_defeated' ? 'death-return' : undefined) })
+    this.button(panel, (result === 'player_defeated' ? '返回 ' : '前往 ') + (next.faction === 'viking' ? 'økse 村' : 'vinum 村'), () => this.townResult.leave(result))
   }
   private showAmbientDefeat(): void {
     if (this.ambientDefeatShown) return
