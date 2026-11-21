@@ -11,8 +11,8 @@ import { createCareerVeteranOutpostLaunch } from '../../src/career/CareerVeteran
 import { CareerMissionCheckpoint } from '../../src/career/CareerMissionCheckpoint'
 import { acceptVeteranMission } from '../../src/career/VeteranMission'
 import { acceptCareerOutpost } from '../../src/career/CareerOutpostMission'
-import { createCareerProfile } from '../../src/career/CareerProfile'
-import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { CaptainEagleHUD } from '../../src/ui/CaptainEagleHUD'
@@ -31,10 +31,16 @@ function harness(career = true) {
   const config = createCareerOutpostLaunch(profile)
   if (!career) { delete config.capabilities; delete config.careerMissionId }
   const snapshot = { player: { damageDealt: 200, damageTaken: 10, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }, squads: [] }
+  // What the HUD was shown, with the durable profile as it stood at that moment.
+  const shown: { outcome: string; onExit(): void; onNext?: () => void; durable: CareerProfile | null }[] = []
+  const gates: boolean[] = []
   const game = Object.assign(Object.create(Game.prototype) as CampaignSettlementEntry, {
     spawnBatches: [], initializing: false, spawningStopped: false,
     defenseCampaignConfig: config, defenseCampaignRuntime: new DefenseCampaignRuntime(config.capabilities),
-    defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn(), destroy: vi.fn() },
+    defenseCampaignHud: {
+      showResult: (outcome: string, _reload: () => void, onExit: () => void, _observe: boolean, onNext?: () => void) => { shown.push({ outcome, onExit, onNext, durable: store.load() }) },
+      update: vi.fn(), updateGate: (_state: unknown, _unlocked: boolean, canOperate: boolean) => { gates.push(canOperate) }, destroy: vi.fn(),
+    },
     careerStore: store, careerProfile: profile, careerMeritAwarded: 0,
     battleStats: { snapshot: () => snapshot, checkpoint: () => snapshot.player, freeze: vi.fn() }, npcs: [], mounts: [], player: careerCheckpointPlayer(), controlMode: 'player',
     campaignOriginalDefenders: Array.from({ length: 80 }, () => ({ dead: false })),
@@ -45,28 +51,29 @@ function harness(career = true) {
     _campaignFactionAlive: (faction: string) => faction === 'roman' ? 80 : 0,
   })
   game.defenseCampaignRuntime.update(60, { playerDead: false, originalDefendersAlive: 80, defendersAlive: 80, attackersAlive: 100, reinforcementSpawned: false })
-  return { game, storage, store, snapshot }
+  return { game, storage, store, snapshot, shown, gates }
 }
 
 afterEach(() => vi.unstubAllGlobals())
 
 describe('Game routes Campaign and Career separately', () => {
   it('settles a Career win without Campaign mutation or Next Stage flow', () => {
-    const { game, store, storage } = harness()
+    const { game, store, storage, shown, gates } = harness()
     game._updateDefenseCampaign(1)
     expect(game.battleStats.freeze).toHaveBeenCalledOnce()
     expect(getDefenseCampaignUnlockedStage('roman', storage)).toBe(1)
     const settled = store.load()!
     expect(settled.completedOutpostStages).toEqual([1])
-    expect(game.defenseCampaignHud.showResult.mock.calls[0][4]).toBeUndefined()
-    expect(game.defenseCampaignHud.updateGate.mock.calls[0][2]).toBe(false)
+    expect(shown[0].durable).toEqual(settled)
+    expect(shown[0].onNext).toBeUndefined()
+    expect(gates[0]).toBe(false)
     game._showDefenseCampaignResult('victory')
     const recorded = store.load()!
     expect(recorded.totalMerit).toBe(settled.totalMerit)
     expect(recorded.outpostBattleRecords).toHaveLength(1)
   })
   it('keeps formal Campaign progress and Next Stage behavior and leaves Career untouched', () => {
-    const { game, store, storage } = harness(false)
+    const { game, store, storage, shown, gates } = harness(false)
     const completed = store.load()!
     Object.assign(completed, careerRankFixture(completed.faction, 'commander')); completed.totalMerit = completed.availableMerit = 20000
     delete completed.activeOutpostMission
@@ -76,17 +83,40 @@ describe('Game routes Campaign and Career separately', () => {
     game._updateDefenseCampaign(1)
     expect(getDefenseCampaignUnlockedStage('roman', storage)).toBe(2)
     expect(store.load()).toEqual(careerBefore)
-    expect(game.defenseCampaignHud.showResult.mock.calls[0][4]).toBeTypeOf('function')
-    expect(game.defenseCampaignHud.updateGate.mock.calls[0][2]).toBe(true)
+    expect(shown[0].onNext).toBeTypeOf('function')
+    expect(gates[0]).toBe(true)
+  })
+  it('keeps a Career outpost result unclaimed and unpublished while the save fails, then claims it once from the retry', () => {
+    const { game, store, storage, shown } = harness()
+    const created: { id: string; textContent: string; onclick?: () => void; append(): void; remove(): void }[] = []
+    const removed: string[] = []
+    vi.stubGlobal('document', { pointerLockElement: null, body: { append() {} }, createElement: () => {
+      const el = { id: '', className: '', textContent: '', onclick: undefined, append() {}, remove() { removed.push(el.id) } }
+      created.push(el); return el
+    } })
+    const before = storage.getItem(CAREER_STORAGE_KEY)
+    storage.failWrites = true
+    game._showDefenseCampaignResult('victory')
+    expect(shown).toEqual([])
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(before)
+    expect(created.map(el => el.textContent)).toContain('Career 結算尚未保存，請重試。')
+    storage.failWrites = false
+    created.find(el => el.textContent === '重試保存軍功')!.onclick!()
+    expect(removed).toEqual(['campaign-result-modal'])
+    expect(shown).toHaveLength(1)
+    const saved = store.load()!
+    expect(shown[0].durable).toEqual(saved)
+    expect(saved.outpostBattleRecords).toHaveLength(1)
+    expect(saved.totalMerit).toBe(300 + saved.outpostBattleRecords![0].merit.total)
   })
   it('returns to the same faction town, clears only the active duty and keeps claimed merit', () => {
-    const { game, store } = harness()
+    const { game, store, shown } = harness()
     const session = new Map<string, string>()
     vi.stubGlobal('sessionStorage', { setItem: (key: string, value: string) => session.set(key, value), removeItem: (key: string) => session.delete(key) })
     Reflect.set(window, 'location', { pathname: '/game/', href: '' })
     game._updateDefenseCampaign(1)
     const merit = store.load()!.totalMerit
-    game.defenseCampaignHud.showResult.mock.calls[0][2]()
+    shown[0].onExit()
     expect(session.get('sagaburst_career_town')).toBe('1')
     expect(window.location.href).toBe('/game/')
     const returned = store.load()!
@@ -161,13 +191,25 @@ describe('Career reload routing', () => {
 })
 
 
+interface FieldResultEntry { _showFieldBattleResult(outcome: 'victory' | 'failure'): void }
+
+const prisonerStats = { damageDealt: 20, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
+
+/** The real field result caller: Game's own skill flush and battle persist run, only the scene and HUD are narrow doubles. */
+function fieldResultGame<T extends object>(store: CareerProfileStore, missionId: string, hud: object, extra?: T) {
+  return Object.assign(Object.create(Game.prototype) as FieldResultEntry, {
+    felineMissionId: missionId, bridgeLaunch: undefined, careerStore: store, careerSkillSaveTimer: null,
+    npcs: [{ faction: Faction.ENEMY, characterFaction: 'viking' }], player: { dead: true },
+    fieldBattleHud: hud, battleStats: { freeze() {}, snapshot: () => ({ player: prisonerStats, squads: [] }) },
+  }, extra)
+}
+
 describe('Heavy field defeat capture at the production Game caller', () => {
   it('正式結果保存失敗不離場，重試後保存一次被俘資格，玩家倒下的勝利不進戰俘流程', () => {
     for (const outcome of ['failure', 'victory'] as const) {
       const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
       const profile = acceptHeavyFieldMission({ ...createCareerProfile('roman'), ...careerRankFixture('roman', 'soldier'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 'soldier-iron-encounter', `field-${outcome}`)!
       expect(store.save(profile)).toBe(true)
-      const player = { damageDealt: 20, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
       const elements: { innerHTML: string }[] = []
       vi.stubGlobal('document', { pointerLockElement: null, body: { append: vi.fn() }, createElement: () => {
         const el = { id: '', className: '', style: { cssText: '' }, innerHTML: '', remove: vi.fn(),
@@ -175,26 +217,29 @@ describe('Heavy field defeat capture at the production Game caller', () => {
         elements.push(el); return el
       } })
       const hud = new CaptainEagleHUD('feline')
-      const showResult = vi.spyOn(hud, 'showResult')
-      const entry = Object.assign(Object.create(Game.prototype) as { _showFieldBattleResult(outcome: 'victory' | 'failure'): void }, {
-        felineMissionId: profile.activeMission!.id, bridgeLaunch: undefined, careerStore: store,
-        npcs: [{ faction: Faction.ENEMY, characterFaction: 'viking' }], player: { dead: true },
-        fieldBattleHud: hud, battleStats: { freeze() {}, snapshot: () => ({ player, squads: [] }) },
-        _flushCareerSkillProgression: () => true, _persistCareerBattle: () => true,
-      })
+      const shown: { merit: number; guards?: number; durableMerit?: number }[] = []
+      const realShowResult = hud.showResult.bind(hud)
+      hud.showResult = (shownOutcome, merit, stats, onReturn, guards) => {
+        shown.push({ merit, guards, durableMerit: store.load()!.activeMission!.result?.merit.total })
+        realShowResult(shownOutcome, merit, stats, onReturn, guards)
+      }
+      const retries: (() => void)[] = []
+      const realShowSaveRetry = hud.showSaveRetry.bind(hud)
+      hud.showSaveRetry = onRetry => { retries.push(onRetry); realShowSaveRetry(onRetry) }
+      const entry = fieldResultGame(store, profile.activeMission!.id, hud)
       storage.failWrites = true
       entry._showFieldBattleResult(outcome)
-      expect(showResult).not.toHaveBeenCalled()
+      expect(shown).toEqual([])
+      expect(retries).toHaveLength(1)
       expect(store.load()!.activeMission!.result).toBeUndefined()
       expect(store.load()!.activeMission!.prisonBreak).toBeUndefined()
       storage.failWrites = false
-      entry._showFieldBattleResult(outcome)
+      retries[0]()
       const saved = store.load()!
       expect(saved.activeMission!.result!.outcome).toBe(outcome)
       expect(saved.activeMission!.prisonBreak?.captor).toBe(outcome === 'failure' ? 'viking' : undefined)
       expect(saved.claimedBattleIds).toEqual([profile.activeMission!.id])
-      expect(showResult.mock.lastCall?.[4]).toBe(outcome === 'failure' ? 10 : undefined)
-      expect(showResult.mock.lastCall?.[1]).toBe(saved.activeMission!.result!.merit.total)
+      expect(shown).toEqual([{ merit: saved.activeMission!.result!.merit.total, guards: outcome === 'failure' ? 10 : undefined, durableMerit: saved.activeMission!.result!.merit.total }])
       const resultMarkup = elements.at(-1)!.innerHTML
       expect(resultMarkup).toContain('戰鬥統計')
       expect(resultMarkup).toContain(`Career 軍功 +${saved.activeMission!.result!.merit.total}`)
@@ -218,26 +263,20 @@ describe('Heavy field defeat capture at the production Game caller', () => {
     vi.stubGlobal('sessionStorage', { setItem: (key: string, value: string) => session.set(key, value), removeItem: (key: string) => session.delete(key) })
     const profile = acceptHeavyFieldMission({ ...createCareerProfile('roman'), ...careerRankFixture('roman', 'soldier'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 'soldier-iron-encounter', 'field-return')!
     expect(store.save(profile)).toBe(true)
-    const player = { damageDealt: 20, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
-    const hud = { showResult: vi.fn(), showSaveRetry: vi.fn() }, dispose = vi.fn()
-    const entry = Object.assign(Object.create(Game.prototype) as { _showFieldBattleResult(outcome: 'failure'): void }, {
-      felineMissionId: profile.activeMission!.id, bridgeLaunch: undefined, careerStore: store,
-      npcs: [{ faction: Faction.ENEMY, characterFaction: 'viking' }], player: { dead: true },
-      fieldBattleHud: hud, battleStats: { freeze() {}, snapshot: () => ({ player, squads: [] }) },
-      _flushCareerSkillProgression: () => true, _persistCareerBattle: () => true,
-      _disposeCareerOutpostBattleActors: dispose, _showNotify: vi.fn(),
-    })
+    let shown: { onContinue(): void; guards?: number } | undefined
+    const hud = { showResult: (_outcome: string, _merit: number, _stats: unknown, onContinue: () => void, guards?: number) => { shown = { onContinue, guards } }, showSaveRetry() {} }
+    const dispose = vi.fn()
+    const entry = fieldResultGame(store, profile.activeMission!.id, hud, { _disposeCareerOutpostBattleActors: dispose, _showNotify: vi.fn() })
     entry._showFieldBattleResult('failure')
     const claimed = store.load()!
-    expect(hud.showResult.mock.lastCall?.[4]).toBe(10)
-    const continueFromDefeat = hud.showResult.mock.lastCall![3] as () => void
+    expect(shown?.guards).toBe(10)
     storage.failWrites = true
-    continueFromDefeat()
+    shown!.onContinue()
     expect(store.load()).toEqual(claimed)
     expect(dispose).not.toHaveBeenCalled()
     expect(window.location.href).toBe('')
     storage.failWrites = false
-    continueFromDefeat()
+    shown!.onContinue()
     const continued = store.load()!
     expect(continued.activeMission).toEqual({ ...claimed.activeMission, prisonBreak: { ...claimed.activeMission!.prisonBreak, stage: 'escape' } })
     expect({ ...continued, activeMission: claimed.activeMission }).toEqual(claimed)

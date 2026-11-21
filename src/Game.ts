@@ -64,6 +64,7 @@ import { CareerMissionCheckpoint, type CareerMissionCheckpointReason } from './c
 import type { ActiveCareerMission, BridgeBattleDeployment } from './career/CareerMissionState'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy } from './career/CareerMissionState'
 import { officialPlayerOwnsActor, stageOfficialCommandOrder } from './career/CareerOfficialCommandOrder'
+import { settleCareerBattleResult } from './career/CareerBattleResultSettlement'
 import { CAREER_OUTPOST_SESSION_KEY, careerOutpostCommandMeritPolicy, claimCareerOutpost, clearCareerOutpost } from './career/CareerOutpostMission'
 import { CareerReliefMarchController, createCareerReliefSpawnPlan, initializeCareerReliefBattlefield } from './career/CareerOutpostRelief'
 import { careerOutpostActorId } from './career/CareerOutpostRoster'
@@ -3060,13 +3061,17 @@ export class Game {
     this.battleStats.freeze()
     const stats = this.careerResultStats ??= this.battleStats.snapshot(this.npcs, this.player)
     const retry = () => this.fieldBattleHud?.showSaveRetry(() => this._showFieldBattleResult(outcome))
-    if (!this._flushCareerSkillProgression() || !this._persistCareerBattle(true)) { retry(); return }
-    const fresh = this.careerStore.loadChecked().profile
-    if (!fresh) { retry(); return }
-    const claim = this.bridgeLaunch ? commitCareerBridgeBattleResult(this.careerStore, this.fieldMissionId!, stats)
-      : claimCareerFieldResult(fresh, this.fieldMissionId!, outcome, stats.player, stats.meritPlayer ?? stats.player, this.npcs.find(npc => npc.faction === Faction.ENEMY)?.characterFaction)
-    if (!claim) { retry(); return }
-    if (!this.bridgeLaunch && !this.careerStore.save(claim.profile)) { retry(); return }
+    const claim = settleCareerBattleResult({
+      store: this.careerStore,
+      flushSkills: () => this._flushCareerSkillProgression(),
+      persistBattle: () => this._persistCareerBattle(true),
+      claim: fresh => {
+        const claimed = this.bridgeLaunch ? commitCareerBridgeBattleResult(this.careerStore, this.fieldMissionId!, stats)
+          : claimCareerFieldResult(fresh, this.fieldMissionId!, outcome, stats.player, stats.meritPlayer ?? stats.player, this.npcs.find(npc => npc.faction === Faction.ENEMY)?.characterFaction)
+        return claimed && { profile: claimed.profile, durable: !!this.bridgeLaunch }
+      },
+    })
+    if (claim.status !== 'saved') { retry(); return }
     this.careerProfile = claim.profile
     this.fieldResultPending = undefined
     const mission = claim.profile.activeMission!
@@ -3814,22 +3819,16 @@ export class Game {
     const stats = this.careerResultStats ?? this.battleStats.snapshot(this.npcs, this.player)
     if (campaign?.careerMissionId) this.careerResultStats = stats
     if (campaign?.careerMissionId) {
-      if (!this._flushCareerSkillProgression()) {
-        this._showCareerOutpostSaveRetry(result)
-        return
-      }
       const careerMissionOutpost = campaign.careerVeteranOutpost ?? campaign.careerCommanderOutpost
-      if (careerMissionOutpost && !this._persistCareerVeteranOutpostCheckpoint({ immediate: true })) {
-        this._showCareerOutpostSaveRetry(result)
-        return
-      }
-      if (!careerMissionOutpost && !this._persistPersonalOutpost(true)) { this._showCareerOutpostSaveRetry(result); return }
-      const fresh = this.careerStore.loadChecked().profile
-      if (!fresh) { this._showCareerOutpostSaveRetry(result); return }
-      const claim = careerMissionOutpost || this.careerBattleCheckpoint
-        ? claimCareerMission(fresh, campaign.careerMissionId, result === 'victory' ? 'victory' : 'failure', stats.player, stats.meritPlayer)
-        : claimCareerOutpost(fresh, campaign.careerMissionId, result, stats)
-      if (!this.careerStore.save(claim.profile)) { this._showCareerOutpostSaveRetry(result); return }
+      const claim = settleCareerBattleResult({
+        store: this.careerStore,
+        flushSkills: () => this._flushCareerSkillProgression(),
+        persistBattle: () => careerMissionOutpost ? this._persistCareerVeteranOutpostCheckpoint({ immediate: true }) : this._persistPersonalOutpost(true),
+        claim: fresh => careerMissionOutpost || this.careerBattleCheckpoint
+          ? claimCareerMission(fresh, campaign.careerMissionId!, result === 'victory' ? 'victory' : 'failure', stats.player, stats.meritPlayer)
+          : claimCareerOutpost(fresh, campaign.careerMissionId!, result, stats),
+      })
+      if (claim.status !== 'saved') { this._showCareerOutpostSaveRetry(result); return }
       this.careerProfile = claim.profile
       this.careerMeritAwarded = careerMissionOutpost || this.careerBattleCheckpoint
         ? claim.profile.activeMission?.result?.merit.total ?? 0
