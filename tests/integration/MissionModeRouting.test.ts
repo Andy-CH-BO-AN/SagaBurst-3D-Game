@@ -1,5 +1,6 @@
 import { careerRankFixture } from '../helpers/careerRankFixture'
 import { acceptHeavyFieldMission } from '../../src/career/HeavyFieldMission'
+import { CareerSkillSaveScheduler } from '../../src/career/CareerSkillSaveScheduler'
 import { Faction } from '../../src/world/NPC'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { shouldResumeCareerTown } from '../../src/career/CareerResumeRouting'
@@ -35,7 +36,7 @@ function harness(career = true) {
   const shown: { outcome: string; onExit(): void; onNext?: () => void; durable: CareerProfile | null }[] = []
   const gates: boolean[] = []
   const game = Object.assign(Object.create(Game.prototype) as CampaignSettlementEntry, {
-    spawnBatches: [], initializing: false, spawningStopped: false,
+    spawnBatches: [], careerSkillSave: new CareerSkillSaveScheduler({ save: () => true }), initializing: false, spawningStopped: false,
     defenseCampaignConfig: config, defenseCampaignRuntime: new DefenseCampaignRuntime(config.capabilities),
     defenseCampaignHud: {
       showResult: (outcome: string, _reload: () => void, onExit: () => void, _observe: boolean, onNext?: () => void) => { shown.push({ outcome, onExit, onNext, durable: store.load() }) },
@@ -198,7 +199,7 @@ const prisonerStats = { damageDealt: 20, damageTaken: 100, kills: 0, structureDa
 /** The real field result caller: Game's own skill flush and battle persist run, only the scene and HUD are narrow doubles. */
 function fieldResultGame<T extends object>(store: CareerProfileStore, missionId: string, hud: object, extra?: T) {
   return Object.assign(Object.create(Game.prototype) as FieldResultEntry, {
-    felineMissionId: missionId, bridgeLaunch: undefined, careerStore: store, careerSkillSaveTimer: null,
+    felineMissionId: missionId, bridgeLaunch: undefined, careerStore: store, careerSkillSave: new CareerSkillSaveScheduler({ save: () => true }),
     npcs: [{ faction: Faction.ENEMY, characterFaction: 'viking' }], player: { dead: true },
     fieldBattleHud: hud, battleStats: { freeze() {}, snapshot: () => ({ player: prisonerStats, squads: [] }) },
   }, extra)

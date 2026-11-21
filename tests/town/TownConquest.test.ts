@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { careerRankFixture } from '../helpers/careerRankFixture'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { CareerSkillSaveScheduler } from '../../src/career/CareerSkillSaveScheduler'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { TemporaryBattlefieldMounts } from '../../src/career/TemporaryBattlefieldMounts'
 import { TownScene } from '../../src/town/TownScene'
@@ -85,8 +86,7 @@ describe('TownScene hostile result caller', () => {
     const damaged: string[] = [], destroyed: string[] = [], panels: string[] = [], buttons: Array<{ label: string; action: () => void }> = []
     const restarts: Array<{ profile: CareerProfile; reason?: string }> = []
     const town = Object.assign(Object.create(TownScene.prototype) as TownSettleEntry, {
-      profile: store.load()!, store, notice: '', skills: { skillState: profile.skills }, careerSaveFailures: 0, careerSkillsDirty: false,
-      clearCareerSkillSaveTimer() {}, player: { dead: false }, temporaryMounts: new TemporaryBattlefieldMounts(), missionBoard: { page: undefined },
+      profile: store.load()!, store, notice: '', skills: { skillState: profile.skills }, careerSaveFailures: 0, careerSkillSave: new CareerSkillSaveScheduler({ save: () => true }), player: { dead: false }, temporaryMounts: new TemporaryBattlefieldMounts(), missionBoard: { page: undefined },
       cat: { takeDamage: () => { damaged.push('cat') } },
       residents: [{ spec: { id: 'merchant' }, npc: { takeDamage: () => { damaged.push('merchant') } } }],
       world: { buildings: [{ id: 'tower-1', hp: { destroy: () => { destroyed.push('tower-1') } } }] },

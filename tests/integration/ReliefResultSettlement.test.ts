@@ -8,6 +8,7 @@ import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerP
 import { Game } from '../../src/Game'
 import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { CareerSkillSaveScheduler } from '../../src/career/CareerSkillSaveScheduler'
 
 function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
   return { ...createCareerProfile(faction), ...careerRankFixture(faction, 'soldier'), rank: 'soldier', totalMerit: 300, availableMerit: 300,
@@ -29,7 +30,7 @@ describe('Relief result settlement wiring', () => {
     let enemies = 60, allies = 49
     const shown: { outcome: string; onExit(): void; durable: CareerProfile | null }[] = []
     const game = Object.assign(Object.create(Game.prototype) as ReliefSettlementEntry, {
-    spawnBatches: [], initializing: false, spawningStopped: false,
+    spawnBatches: [], careerSkillSave: new CareerSkillSaveScheduler({ save: () => true }), initializing: false, spawningStopped: false,
       defenseCampaignConfig: config, defenseCampaignRuntime: new DefenseCampaignRuntime({ eliminationObjective: true, reinforcementsEnabled: false }),
       defenseCampaignHud: {
         showResult: (shownOutcome: string, _reload: () => void, onExit: () => void) => { shown.push({ outcome: shownOutcome, onExit, durable: store.load() }) },

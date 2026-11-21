@@ -4,6 +4,7 @@ import { CampaignSiegeAssault } from './campaign/CampaignSiegeAssault'
 import { getSiegeApproachClearances, isMobileSiegeRampEnabled, isSiegeRampCrewCandidate } from './campaign/MobileSiegeRampPolicy'
 import { outpostCheckpointHeight } from './campaign/OutpostRampartGarrison'
 import { captureCareerAerialState, restoreCareerAerialState } from './career/CareerAerialState'
+import { CareerSkillSaveScheduler } from './career/CareerSkillSaveScheduler'
 import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, careerFieldTacticalOrder, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeOrphanMountPlan, createCareerBridgeSpawnPlan, createCareerFelineOrphanMountPlan, createCareerFelineSpawnPlan, dispatchFelineVanguardCharge, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { CareerCommandHudTypes } from './career/CareerCommandHudTypes'
 import { RANGER_HORSE_ARCHER_HERO_ASSETS, RANGER_HORSE_ARCHER_MOUNTS, createRangerHorseArcherScenarioPlan, rangerHorseArcherEquipmentIds, type RangerHorseArcherMountMix } from './career/RangerHorseArcherScenario'
@@ -651,8 +652,10 @@ export class Game {
   private careerProfile: CareerProfile | null = null
   private careerMeritAwarded = 0
   private readonly careerStore = new CareerProfileStore()
-  private careerSkillsDirty = false
-  private careerSkillSaveTimer: number | null = null
+  private readonly careerSkillSave = new CareerSkillSaveScheduler({
+    save: () => this._saveCareerSkills(),
+    blocked: () => !this.careerProfile,
+  })
   private readonly flushCareerSkillsOnPageHide = (): void => {
     this._flushCareerSkillProgression()
   }
@@ -4354,33 +4357,30 @@ export class Game {
   }
 
   private _scheduleCareerSkillProgressionFlush(): void {
-    if (!this.careerProfile || !this.careerSkillsDirty || this.careerSkillSaveTimer !== null) return
-    this.careerSkillSaveTimer = window.setTimeout(() => {
-      this.careerSkillSaveTimer = null
-      this._flushCareerSkillProgression()
-    }, 600)
+    if (!this.careerProfile) return
+    this.careerSkillSave.schedule()
   }
 
   private _flushCareerSkillProgression(): boolean {
-    if (this.careerSkillSaveTimer !== null) {
-      clearTimeout(this.careerSkillSaveTimer)
-      this.careerSkillSaveTimer = null
-    }
-    if (!this.careerProfile || !this.careerSkillsDirty) return true
+    const saved = this.careerSkillSave.flush()
     // Co-op guest: the skills are its own character's, saved (skills only) into its own save.
     // Best effort: a failed write stays dirty for the next flush and never blocks the mission's own flows.
-    if (this.coopPlayerSource) {
-      if (this.coopPlayerSource.commitSkills(this.skillManager.skillState)) this.careerSkillsDirty = false
-      return true
-    }
+    return saved || this.coopPlayerSource !== null
+  }
 
+  /**
+   * Unlike Town, this scene's cached `careerProfile` can be stale: battle, outpost and result flows write
+   * the store directly. Re-read the stored profile so a skill flush never overwrites newer stored state.
+   */
+  private _saveCareerSkills(): boolean {
+    if (this.coopPlayerSource) return this.coopPlayerSource.commitSkills(this.skillManager.skillState)
     const fresh = this.careerStore.loadChecked().profile ?? this.careerProfile
+    if (!fresh) return true
     const next = cloneCareerProfile(fresh)
     next.skills = this.skillManager.skillState
     if (!this.careerStore.save(next)) return false
 
     this.careerProfile = next
-    this.careerSkillsDirty = false
     return true
   }
 
@@ -4418,7 +4418,7 @@ export class Game {
       const next = cloneCareerProfile(this.careerProfile)
       next.skills = after
       this.careerProfile = next
-      this.careerSkillsDirty = true
+      this.careerSkillSave.markDirty()
       if (levelsGained > 0) this._flushCareerSkillProgression()
       else this._scheduleCareerSkillProgressionFlush()
     }
