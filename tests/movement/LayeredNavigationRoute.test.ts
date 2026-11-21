@@ -172,6 +172,10 @@ it('keeps an Outpost ground approach blocked unless the caller explicitly skips 
   const route = new LayeredNavigationRoute(new NavigationPathFollower()), out = new Vector3()
   expect(route.resolve(input, obstacles, out)).toEqual({ route: 'unreachable', confirmedLayeredStep: false, tower: false })
   expect(out.x).toBe(-8); expect(out.z).toBeCloseTo(18.2)
+  // The coarse grid still holds the wall, but a body-clear physical path to the same approach goes direct.
+  expect(route.resolve(input, [], out)).toEqual({ route: 'direct', confirmedLayeredStep: false, tower: false })
+  expect(out.x).toBe(-8); expect(out.z).toBeCloseTo(18.2)
+  expect(route.resolve(input, obstacles, out)?.route).toBe('unreachable')
   input.skipGroundNavigation = true
   expect(route.resolve(input, obstacles, out)).toEqual({ route: 'direct', confirmedLayeredStep: false, tower: false })
   expect(out.x).toBe(-8); expect(out.z).toBeCloseTo(18.2)
