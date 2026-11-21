@@ -86,9 +86,6 @@ export class LayeredNavigationRoute {
     }
     if (!request.skipGroundNavigation || layered.step === 'ground_cross' || layered.entranceId) {
       step.route = this.groundRoute(request, obstacles, out)
-      // A coarse ground cell can reject a physically clear approach. Only this
-      // Outpost handoff may recover direct travel; Town blocked routes stay closed.
-      if (step.route === 'unreachable' && !this.blocked(request, obstacles, out)) step.route = 'direct'
     }
     return step
   }
