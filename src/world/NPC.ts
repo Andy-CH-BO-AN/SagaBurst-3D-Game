@@ -90,6 +90,9 @@ import {
 import { WEAPONS, type WeaponCombatKind } from '../rpg/WeaponDatabase'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { ChaseTargetCoordinator } from '../navigation/ChaseTargetCoordinator'
+import { PursuitBlockList } from '../navigation/PursuitBlockList'
+import { DETECTION_RADIUS, isWithinEngagementRange, pursuitMayBreachGate } from '../navigation/PursuitPolicy'
+import { TargetReacquireSchedule } from '../navigation/TargetReacquireSchedule'
 import { NavigationPathFollower, type NavigationRouteKind } from '../navigation/NavigationPathFollower'
 import { LayeredNavigationRoute, type LayeredNavigationRequest, type LayeredNavigationStep } from '../navigation/LayeredNavigationRoute'
 import {
@@ -188,7 +191,6 @@ export function isHostileCombatMount(attacker: NPC, mount: Mount, player?: Playe
   return false
 }
 
-const DETECTION_RADIUS = 300.0
 const RANGED_AIM_LIFT_PER_METER_SQ = 0.015
 const PROJECTILE_GRAVITY = 9.8
 const NPC_FALLBACK_PROJECTILE_SPEED = 20.0
@@ -216,20 +218,8 @@ const RANGED_TRAJECTORY_MAX_SEGMENTS = 16
 export const RANGED_AI_LAUNCH_HEIGHT = 1.25
 const RANGED_AI_TARGET_HEIGHT = 1.4
 
-export const TARGET_REACQUIRE_NEAR_DISTANCE = 50
-export const TARGET_REACQUIRE_MID_DISTANCE = 100
-export const TARGET_REACQUIRE_NEAR_FRAMES = 2
-export const TARGET_REACQUIRE_MID_FRAMES = 8
-export const TARGET_REACQUIRE_FAR_FRAMES = 16
 export const NPC_SEPARATION_RADIUS = 1.2
 export const NPC_NEIGHBOR_QUERY_RADIUS = 2.0
-
-export function getTargetReacquireFrameInterval(distance: number | null): number {
-  if (distance === null || !Number.isFinite(distance)) return TARGET_REACQUIRE_FAR_FRAMES
-  if (distance <= TARGET_REACQUIRE_NEAR_DISTANCE) return TARGET_REACQUIRE_NEAR_FRAMES
-  if (distance <= TARGET_REACQUIRE_MID_DISTANCE) return TARGET_REACQUIRE_MID_FRAMES
-  return TARGET_REACQUIRE_FAR_FRAMES
-}
 
 export function computeDeterministicPhase(spawnX: number, spawnZ: number, name: string): number {
   let hash = 2166136261 >>> 0
@@ -440,15 +430,8 @@ export class NPC {
   }
 
   private _isTargetWithinEngagementRange(position: THREE.Vector3, chasing: boolean): boolean {
-    if (this.tacticalOrder === 'charge') return true
-    if (this.tacticalOrder === 'attack' && this.battlefieldEngagementRangeSq !== null
-      && !this.encounterOrigin && !this.mount?.isFlyingMount && !this.holdsRampartPosition) {
-      const dx = position.x - this.combatPosition.x, dz = position.z - this.combatPosition.z
-      return dx * dx + dz * dz <= this.battlefieldEngagementRangeSq
-    }
-    const range = this.tacticalOrder === 'follow' ? (chasing ? 36 : 24)
-      : chasing ? DETECTION_RADIUS * 1.5 : this.alertRange
-    return this.combatPosition.distanceToSquared(position) <= range * range
+    return isWithinEngagementRange(this, this.battlefieldEngagementRangeSq,
+      Boolean(this.encounterOrigin) || Boolean(this.mount?.isFlyingMount), position, chasing)
   }
   get isOutpostRampartGarrisonActive(): boolean { return this.rampartDuty.isOutpostActive }
   activateOutpostRampartGarrison(order: 'defend' | 'attack' = 'defend'): void {
@@ -663,8 +646,7 @@ export class NPC {
   private _cachedTargetIsPlayer: boolean = false
   private _cachedTargetNpc: NPC | null = null
   private _targetAcquisitionInitialized: boolean = false
-  private _targetReacquireFramesRemaining: number = 0
-  private _targetReacquireIntervalFrames: number = TARGET_REACQUIRE_FAR_FRAMES
+  private readonly targetReacquire = new TargetReacquireSchedule()
   private readonly _initialStaggerPhase: number
   private readonly _detourWaypoint = new THREE.Vector3()
   private readonly _detourProgressAnchor = new THREE.Vector3()
@@ -720,23 +702,15 @@ export class NPC {
   combatTargetPriority?: (target: NPC | Player) => number | null
   private priorityCombatTarget: NPC | Player | null = null
   private layeredCombatMovement = false
-  private readonly pursuitBlockedTargets = new Map<NPC | Player, { target: THREE.Vector3; from: THREE.Vector3; revision: number; entrances: number }>()
+  private readonly pursuitBlockedTargets = new PursuitBlockList<NPC | Player>()
   private _pursuitTargetAllowed(target: NPC | Player): boolean {
     if (this.combatTargetPriority?.(target) === null) return false
-    const blocked = this.pursuitBlockedTargets?.get(target), world = this._activeNavigationWorld
-    if (!blocked || !world) return true
-    if (blocked.revision !== world.revision || blocked.entrances !== (world.townNav?.siegeEntrances.revision ?? world.outpostNav?.entrances?.revision ?? -1)
-      || blocked.target.distanceToSquared(target.combatPosition) > 16 || blocked.from.distanceToSquared(this.combatPosition) > 64) {
-      this.pursuitBlockedTargets.delete(target)
-      return true
-    }
-    return false
+    return this.pursuitBlockedTargets?.allows(target, this.combatPosition, this._activeNavigationWorld) ?? true
   }
   private _deferUnreachableTarget(target: NPC | Player): void {
     const world = this._activeNavigationWorld
     if (!world) return
-    this.pursuitBlockedTargets.set(target, { target: target.combatPosition.clone(), from: this.combatPosition.clone(),
-      revision: world.revision, entrances: world.townNav?.siegeEntrances.revision ?? world.outpostNav?.entrances?.revision ?? -1 })
+    this.pursuitBlockedTargets.defer(target, this.combatPosition, world)
   }
   setMissionCombatTarget(target: NPC | Player | null | undefined): void {
     if (this.missionCombatTarget === target) return
@@ -899,7 +873,7 @@ export class NPC {
     this._cachedTargetIsPlayer = true
     this._cachedTargetNpc = null
     this._targetAcquisitionInitialized = true
-    this._targetReacquireFramesRemaining = 0
+    this.targetReacquire.expedite()
     if (this.missionMovement) return
     this.formationTarget = null
     if (this.state === AIState.IDLE) this.state = AIState.CHASE
@@ -2313,9 +2287,7 @@ export class NPC {
   /** Join human pursuit to the same follower's legal gate approach before
    * classifying the human as unreachable. Explicit travel/duty keeps its owner. */
   private _resolveChaseNavigation(request: LayeredNavigationRequest, obstacles: ObstacleData[]): typeof this._chaseNavigation {
-    request.attackableGate = !this.missionMovement && !this.encounterOrigin && !this.holdsRampartPosition
-      && !this.hasSiegeObstacle && (this.tacticalOrder === 'attack' || this.tacticalOrder === 'charge')
-      ? this._gateDamageAllowed : undefined
+    request.attackableGate = pursuitMayBreachGate(this, Boolean(this.encounterOrigin)) ? this._gateDamageAllowed : undefined
     const result = this._chaseNavigation
     result.step = this._layeredNavigationRoute.resolve(request, obstacles, this._tmpNavigationTarget)
     result.route = result.step?.route ?? (this.hasSiegeObstacle ? 'unreachable' : !request.skipGroundNavigation
@@ -2745,16 +2717,8 @@ export class NPC {
     return null
   }
 
-  private _staggeredTargetReacquireDelay(intervalFrames: number): number {
-    return 1 + Math.floor(this._initialStaggerPhase * intervalFrames)
-  }
-
   private _scheduleTargetReacquire(player: Player, staggered: boolean): void {
-    const intervalFrames = getTargetReacquireFrameInterval(this._getCachedTargetDistance(player))
-    this._targetReacquireIntervalFrames = intervalFrames
-    this._targetReacquireFramesRemaining = staggered
-      ? this._staggeredTargetReacquireDelay(intervalFrames)
-      : intervalFrames
+    this.targetReacquire.schedule(this._getCachedTargetDistance(player), staggered, this._initialStaggerPhase)
   }
 
   private _getTarget(
@@ -2783,20 +2747,7 @@ export class NPC {
         // nearer but wall-blocked target on the next reacquisition frame.
         this._rangedVisibleTargetHoldFrames -= 1
       } else {
-        const intervalFrames = getTargetReacquireFrameInterval(this._getCachedTargetDistance(player))
-
-        // Moving into a closer band raises AI decision frequency immediately.
-        // Moving farther away does not postpone an already-scheduled near-term scan.
-        if (intervalFrames < this._targetReacquireIntervalFrames) {
-          this._targetReacquireFramesRemaining = Math.min(
-            this._targetReacquireFramesRemaining,
-            intervalFrames,
-          )
-        }
-        this._targetReacquireIntervalFrames = intervalFrames
-        this._targetReacquireFramesRemaining -= 1
-
-        if (this._targetReacquireFramesRemaining <= 0) {
+        if (this.targetReacquire.tick(this._getCachedTargetDistance(player))) {
           this._acquireTarget(player, allNPCs, hostileNpcGrid, chaseTargetCoordinator)
           this._scheduleTargetReacquire(player, false)
         }
@@ -3567,7 +3518,7 @@ export class NPC {
       if (target) this._deferUnreachableTarget(target)
       // No direct/local detour through a sealed wall. The next sensor decision
       // can acquire another target, or wait for a live topology/position change.
-      this._targetReacquireFramesRemaining = 0
+      this.targetReacquire.expedite()
       return
     }
     const moveDir = this._tmpMoveDir
@@ -3845,7 +3796,7 @@ export class NPC {
         this.cavalryPassthroughTimer = Math.max(this.cavalryPassthroughTimer, CAVALRY_PASSTHROUGH_DURATION)
         this._cachedTargetNpc = null
         this._cachedTargetIsPlayer = false
-        this._targetReacquireFramesRemaining = 0
+        this.targetReacquire.expedite()
       }
       return animationAdvanced
     }
@@ -4198,7 +4149,7 @@ export class NPC {
               this.cavalryContactPoint.copy(this.combatPosition)
               this._cachedTargetNpc = null
               this._cachedTargetIsPlayer = false
-              this._targetReacquireFramesRemaining = 0
+              this.targetReacquire.expedite()
             }
           }
         } else if (this._isTargetInMeleeRange(targetInfo.position, 0.4, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
@@ -4243,7 +4194,7 @@ export class NPC {
           this.cavalryPassthroughTimer = Math.max(this.cavalryPassthroughTimer, CAVALRY_PASSTHROUGH_DURATION)
           this._cachedTargetNpc = null
           this._cachedTargetIsPlayer = false
-          this._targetReacquireFramesRemaining = 0
+          this.targetReacquire.expedite()
           this.state = AIState.CHASE
         } else if (!siegeObstacle && !this.attackHitProcessed) {
           // Weapon length is only an initial estimate: actual arcs, shields
