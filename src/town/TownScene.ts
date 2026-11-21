@@ -14,6 +14,7 @@ import { AerialViewPolicy, usesAerialView } from '../camera/AerialViewPolicy'
 import { SpectatorCameraController } from '../camera/SpectatorCameraController'
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
 import { ActiveMissionClock } from '../career/ActiveMissionClock'
+import { CareerSkillSaveScheduler } from '../career/CareerSkillSaveScheduler'
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
 import { CAPTAIN_CAVALRY_COMMAND_ID, CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID, CAPTAIN_PATROL_COMMAND_ID, createCaptainPatrolCommandMission, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../career/CaptainMissionCatalog'
@@ -306,8 +307,7 @@ export class TownScene {
   private store = new CareerProfileStore()
   private tutorial?: TownTutorialController
   private story?: TownStoryController
-  private careerSkillsDirty = false
-  private careerSkillSaveTimer: number | null = null
+  private readonly careerSkillSave = this.createCareerSkillSaveScheduler()
   private mission!: BanditMissionController
   private duel!: CareerDuelController
   private defense!: CommanderTownMissionController | CommanderFourGateDefenseController
@@ -575,7 +575,7 @@ export class TownScene {
       npcPosition: id => { const npc = this.residents.find(resident => resident.spec.id === id)?.npc; return npc && !npc.dead ? npc.combatPosition : null },
       tower: this.world.commandWatchtower, roster: () => this.commandHudRoster(),
       launch: (stage, replay) => {
-        if (!canStartCareerTutorial(this.profile) || !this.flushCareerSkillProgression()
+        if (!canStartCareerTutorial(this.profile) || !this.careerSkillSave.flush()
           || !this.onTutorialLaunch?.(stage, replay)) return false
         // The route owner just saved a session against the latest profile. Disposal must retain it.
         const latest = this.store.loadChecked().profile
@@ -777,7 +777,7 @@ export class TownScene {
           next.playerAerialState = captureCareerAerialState(this.player, this.personalSquad?.sceneKey ?? 'town-home')
           if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '退役動員保存失敗，尚未進行整補。'; return false }
           this.profile = next
-          this.careerSkillsDirty = false
+          this.careerSkillSave.clearDirty()
           this.applyRetirementDeparture()
           return true
         },
@@ -799,7 +799,7 @@ export class TownScene {
         privateSquad: () => this.personalSquad?.hudMission,
         save: next => {
           if (!this.store.save(next)) { this.careerSaveFailures++; return false }
-          this.clearCareerSkillSaveTimer(); this.careerSkillsDirty = false
+          this.careerSkillSave.cancel(); this.careerSkillSave.clearDirty()
           return true
         },
         residents: this.residents, mobilization: this.retirementMobilization, eagles: this.eagleGarrison!,
@@ -835,7 +835,7 @@ export class TownScene {
     window.addEventListener('focus', () => this.preparationClock.reset(), opts)
     window.addEventListener('keydown', e => this.key(e), opts)
     window.addEventListener('pagehide', () => {
-      this.flushCareerSkillProgression()
+      this.careerSkillSave.flush()
       this.persistPersonalSquad(0, true)
       this.captainPatrol?.persist(true)
       this.race?.snapshot(); this.race?.persist()
@@ -1209,34 +1209,27 @@ export class TownScene {
     const played = await sound.playTownAlarm(true)
     if (played && !this.disposed && this.profile.activeMission?.id === missionId && !this.profile.activeMission?.result) sound.playCommanderCommand(this.profile.faction, 'attack')
   }
-  private clearCareerSkillSaveTimer(): void {
-    if (this.careerSkillSaveTimer === null) return
-    clearTimeout(this.careerSkillSaveTimer)
-    this.careerSkillSaveTimer = null
+  private createCareerSkillSaveScheduler(): CareerSkillSaveScheduler {
+    return new CareerSkillSaveScheduler({
+      save: () => this.saveCareerSkills(),
+      blocked: () => Boolean(this.retirementFinale?.frozen),
+      onSaveFailed: () => { this.notice = '技能進度保存失敗，請稍後重試。' },
+    })
   }
 
-  private scheduleCareerSkillProgressionFlush(): void {
-    if (!this.careerSkillsDirty || this.careerSkillSaveTimer !== null) return
-    this.careerSkillSaveTimer = window.setTimeout(() => {
-      this.careerSkillSaveTimer = null
-      this.flushCareerSkillProgression()
-    }, 600)
-  }
-
-  private flushCareerSkillProgression(): boolean {
-    this.clearCareerSkillSaveTimer()
-    if (this.retirementFinale?.frozen || !this.careerSkillsDirty) return true
+  /**
+   * Town is the only writer of this profile while the scene lives (every other save publishes `this.profile`
+   * first), so cloning the in-memory profile cannot drop newer stored state. Unlike the battle scene it
+   * therefore does not re-read the store; the publish happens only after the write succeeded.
+   */
+  private saveCareerSkills(): boolean {
     const next = cloneCareerProfile(this.profile)
     next.skills = this.skills.skillState
     if (next.careerRetirement?.phase === 'final-stand' && !this.retirementFinale?.frozen) this.captureRetirementResources(next)
-    if (!this.store.save(next)) {
-      this.notice = '技能進度保存失敗，請稍後重試。'
-      return false
-    }
+    if (!this.store.save(next)) return false
     this.profile = next
     this.synchronizeEaglePatrolPolicy()
     this.outskirts?.synchronizeRank()
-    this.careerSkillsDirty = false
     return true
   }
 
@@ -1361,10 +1354,10 @@ export class TownScene {
       get careerMounts() { return scene.careerMounts },
       get careerSaveFailures() { return scene.careerSaveFailures },
       set careerSaveFailures(value) { scene.careerSaveFailures = value },
-      get careerSkillsDirty() { return scene.careerSkillsDirty },
-      set careerSkillsDirty(value) { scene.careerSkillsDirty = value },
+      get careerSkillsDirty() { return scene.careerSkillSave.dirty },
+      set careerSkillsDirty(value) { if (value) scene.careerSkillSave.markDirty(); else scene.careerSkillSave.clearDirty() },
       get civilianCommand() { return scene.civilianCommand },
-      clearCareerSkillSaveTimer: () => scene.clearCareerSkillSaveTimer(),
+      clearCareerSkillSaveTimer: () => scene.careerSkillSave.cancel(),
       get defense() { return scene.defense },
       get deploymentPage() { return scene.missionBoard.page },
       set deploymentPage(value) { scene.missionBoard.page = value },
@@ -1449,8 +1442,8 @@ export class TownScene {
       profile: () => this.profile, publishProfile: next => { this.profile = next },
       skillState: () => this.skills.skillState, addXp: (skill, xp) => this.skills.addXp(skill, xp, sound),
       syncPlayerLevels: state => syncPlayerSkillCombatLevels(this.player, state),
-      markDirty: () => { this.careerSkillsDirty = true },
-      flushNow: () => { this.flushCareerSkillProgression() }, scheduleFlush: () => this.scheduleCareerSkillProgressionFlush(),
+      markDirty: () => this.careerSkillSave.markDirty(),
+      flushNow: () => { this.careerSkillSave.flush() }, scheduleFlush: () => this.careerSkillSave.schedule(),
       onLevelUp: levelsGained => {
         const oldHp = this.player.hp
         const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
@@ -1566,7 +1559,7 @@ export class TownScene {
   private returnHome(): void {
     if (this.disposed || this.retirementFinale?.frozen || this.result || this.missionResultOpen) return
     const failures = this.careerSaveFailures
-    const skillsSaved = this.flushCareerSkillProgression()
+    const skillsSaved = this.careerSkillSave.flush()
     this.persistPersonalSquad(0, true)
     if (this.captainPatrol?.active) this.captainPatrol.persist(true)
     else if (this.duel?.active) this.duel.persistRuntimeProgress(true)
@@ -4116,7 +4109,7 @@ export class TownScene {
     next.skills = this.skills.skillState
     if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
     this.profile = next
-    this.careerSkillsDirty = false
+    this.careerSkillSave.clearDirty()
     return true
   }
 
@@ -4476,7 +4469,7 @@ export class TownScene {
     this.projectileObstacles.clear()
     this.promotionAttempt = null
     this.cancelPendingSpawns()
-    this.flushCareerSkillProgression()
+    this.careerSkillSave.flush()
     sound?.updateHorseGallopLoops([])
     sound?.updateEagleWingbeats([])
     if (this.disposed) return

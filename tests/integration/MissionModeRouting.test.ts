@@ -1,9 +1,11 @@
 import { careerRankFixture } from '../helpers/careerRankFixture'
 import { acceptHeavyFieldMission } from '../../src/career/HeavyFieldMission'
+import { CareerSkillSaveScheduler } from '../../src/career/CareerSkillSaveScheduler'
 import { Faction } from '../../src/world/NPC'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { shouldResumeCareerTown } from '../../src/career/CareerResumeRouting'
 import { Game } from '../../src/Game'
+import { SkillManager } from '../../src/rpg/SkillManager'
 import { getDefenseCampaignUnlockedStage } from '../../src/campaign/CampaignProgress'
 import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
@@ -35,7 +37,7 @@ function harness(career = true) {
   const shown: { outcome: string; onExit(): void; onNext?: () => void; durable: CareerProfile | null }[] = []
   const gates: boolean[] = []
   const game = Object.assign(Object.create(Game.prototype) as CampaignSettlementEntry, {
-    spawnBatches: [], initializing: false, spawningStopped: false,
+    spawnBatches: [], careerSkillSave: new CareerSkillSaveScheduler({ save: () => true }), initializing: false, spawningStopped: false,
     defenseCampaignConfig: config, defenseCampaignRuntime: new DefenseCampaignRuntime(config.capabilities),
     defenseCampaignHud: {
       showResult: (outcome: string, _reload: () => void, onExit: () => void, _observe: boolean, onNext?: () => void) => { shown.push({ outcome, onExit, onNext, durable: store.load() }) },
@@ -191,14 +193,20 @@ describe('Career reload routing', () => {
 })
 
 
-interface FieldResultEntry { _showFieldBattleResult(outcome: 'victory' | 'failure'): void }
+interface FieldResultEntry {
+  _showFieldBattleResult(outcome: 'victory' | 'failure'): void
+  _applyPlayerSkillAward(award: { skill: 'oneHanded'; xp: number }): void
+  _flushCareerSkillProgression(): boolean
+  createCareerSkillSaveScheduler(): CareerSkillSaveScheduler
+  careerSkillSave: CareerSkillSaveScheduler
+}
 
 const prisonerStats = { damageDealt: 20, damageTaken: 100, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
 
 /** The real field result caller: Game's own skill flush and battle persist run, only the scene and HUD are narrow doubles. */
 function fieldResultGame<T extends object>(store: CareerProfileStore, missionId: string, hud: object, extra?: T) {
   return Object.assign(Object.create(Game.prototype) as FieldResultEntry, {
-    felineMissionId: missionId, bridgeLaunch: undefined, careerStore: store, careerSkillSaveTimer: null,
+    felineMissionId: missionId, bridgeLaunch: undefined, careerStore: store, careerSkillSave: new CareerSkillSaveScheduler({ save: () => true }),
     npcs: [{ faction: Faction.ENEMY, characterFaction: 'viking' }], player: { dead: true },
     fieldBattleHud: hud, battleStats: { freeze() {}, snapshot: () => ({ player: prisonerStats, squads: [] }) },
   }, extra)
@@ -283,5 +291,45 @@ describe('Heavy field defeat capture at the production Game caller', () => {
     expect(dispose).toHaveBeenCalledOnce()
     expect(session.get('sagaburst_career_town')).toBe('1')
     expect(window.location.href).toBe('/game/')
+  })
+})
+
+describe('Game career skill saves', () => {
+  it('debounces an XP award through the shared owner and keeps newer stored state and unreadable bytes, with the co-op and no-profile rules', () => {
+    vi.useFakeTimers()
+    onTestFinished(() => { vi.clearAllTimers(); vi.useRealTimers() })
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    const cached = createCareerProfile('roman')
+    expect(store.save(cached)).toBe(true)
+    const newer = { ...cached, totalMerit: 777 } // another battle flow wrote the store behind the cached profile
+    expect(store.save(newer)).toBe(true)
+    const game = fieldResultGame(store, 'unused', {}, {
+      careerProfile: cached, skillManager: new SkillManager(), controlMode: 'player', coopPlayerSource: null,
+      player: { dead: false, spectatorOnly: false, blockingLevel: 1, armorBreakLevel: 1 },
+    })
+    game.careerSkillSave = game.createCareerSkillSaveScheduler()
+    game._applyPlayerSkillAward({ skill: 'oneHanded', xp: 6 })
+    vi.advanceTimersByTime(599)
+    expect(store.load()!.skills!.oneHanded.xp).toBe(0)
+    vi.advanceTimersByTime(1)
+    expect(store.load()!.skills!.oneHanded.xp).toBe(6)
+    expect(store.load()!.totalMerit).toBe(777)
+
+    // An unreadable stored save is never overwritten: the flush is refused and the XP stays dirty.
+    storage.setItem(CAREER_STORAGE_KEY, '{corrupt')
+    game._applyPlayerSkillAward({ skill: 'oneHanded', xp: 2 })
+    vi.advanceTimersByTime(600)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe('{corrupt')
+    expect(game.careerSkillSave.dirty).toBe(true)
+    expect(game._flushCareerSkillProgression()).toBe(false)
+    // A co-op guest saves into its own save: a refused write never blocks the mission's flows.
+    Object.assign(game, { coopPlayerSource: { commitSkills: () => false, read: () => cached } })
+    expect(game._flushCareerSkillProgression()).toBe(true)
+    expect(game.careerSkillSave.dirty).toBe(true)
+    // Without a profile there is nothing to save and the flush succeeds.
+    Object.assign(game, { coopPlayerSource: null, careerProfile: null })
+    expect(game._flushCareerSkillProgression()).toBe(true)
+    expect(game.careerSkillSave.dirty).toBe(true)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe('{corrupt')
   })
 })

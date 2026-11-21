@@ -1,4 +1,5 @@
 
+import { CareerSkillSaveScheduler } from '../../src/career/CareerSkillSaveScheduler'
 import * as THREE from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Game } from '../../src/Game'
@@ -565,7 +566,7 @@ it('Career melee → NPC 傷害 → CombatEvent → 單挑統計、軍功與徒�
     world: { obstacles: [] }, event: { hostile: false }, defense: { active: false },
     mission: { events: stream, isRetirementEvacuating: () => false }, runtimeCombatActors: () => [target],
     isProtectedTownAlly: () => false, squadRefitSafety: { note() {} },
-    scheduleCareerSkillProgressionFlush() {}, damageNumbers: { spawn() {} }, showCombatTarget() {},
+    careerSkillSave: new CareerSkillSaveScheduler({ save: () => true, timers: { set: () => 0, clear() {} } }), damageNumbers: { spawn() {} }, showCombatTarget() {},
   })
   town.melee(); town.melee()
   expect(target.hp).toBe(0)
@@ -593,7 +594,7 @@ it('Career resident 與 mount 的真實空手傷害只發一次徒手 XP', () =>
     world: { obstacles: [] }, residents: [], mounts: [], event: { hostile: true },
     prepareDamage: () => true, isProtectedTownAlly: () => false, canHitTownMount: () => true,
     activateHostility() {}, persistCasualties() {}, showCombatTarget() {},
-    scheduleCareerSkillProgressionFlush() {}, damageNumbers: { spawn() {} }, squadRefitSafety: { note() {} },
+    careerSkillSave: new CareerSkillSaveScheduler({ save: () => true, timers: { set: () => 0, clear() {} } }), damageNumbers: { spawn() {} }, squadRefitSafety: { note() {} },
     mission: { events: new CombatEventStream() },
   })
   const contact = { kind: 'body' as const, time: .5, attackSource: 'unarmed' as const }
