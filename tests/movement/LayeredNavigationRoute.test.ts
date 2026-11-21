@@ -374,41 +374,43 @@ it('Town 封門追擊沿共用 A* 走到合法城門 approach，突破後釋放�
   expect(route.closedGateObstacle).toBeNull()
 })
 
-it.each(['front', 'side'] as const)('Outpost %s 木牆破口在城門關閉時仍由共用 A* 引出城，不要求重下命令', side => {
-  const world = new NavigationWorld({ minX: -18, maxX: 18, minZ: -6, maxZ: 30, cellSize: 1 }, 2)
-  world.setOutpostWalkways(getOutpostWalkwayLayout({ centerX: 0, halfWidth: 12, frontZ: 0, backZ: 24, gateWidth: 8, stakeLineZ: -7 }))
-  const nav = world.outpostNav!
-  // The perimeter with each removable section sealed; only the tested one opens, and the front gate stays shut.
-  const sections = { front: box(-8, 0, -4, 1), side: box(11, 10, 12, 14), rear: box(-8, 23, -4, 24) }
-  const wall = (b: Box3): ObstacleData => ({ box: b, isBarricade: true })
-  const walls = [box(-12, 0, -8, 1), box(-4, 0, 12, 1), box(-12, 23, -8, 24), box(-4, 23, 12, 24),
-    box(-12, 1, -11, 24), box(11, 1, 12, 10), box(11, 14, 12, 24), ...Object.values(sections)].map(wall)
-  const opening = walls[walls.length - 3 + (side === 'front' ? 0 : 1)]
-  world.rebuild(walls)
-  const position = new Vector3(0, 0, 10), goal = side === 'front' ? new Vector3(6, 0, -4) : new Vector3(16, 0, 18)
-  const route = new LayeredNavigationRoute(new NavigationPathFollower()), out = new Vector3()
-  const input = { ...request(world, position, goal), outpost: nav, mounted: side !== 'front', outpostMounted: side !== 'front',
-    radius: .4, height: 2.3, entranceId: 'gate', actorId: 'native-defender' }
-  world.beginFrame()
-  const sealed = route.resolve(input, walls, out)
-  console.log('SEALED', sealed)
-  walls.splice(walls.indexOf(opening), 1)
-  const centre = opening.box.getCenter(new Vector3()).setY(0), approach = centre.clone(), exit = centre.clone()
-  if (side === 'side') { approach.x += 3; exit.x -= 3 }
-  else { approach.z -= 3; exit.z += 3 }
-  nav.entrances.set({ id: side + '-gap', type: 'palisade', position: centre, approach, exit,
-    mounted: true, walkable: true, faction: null, connectionId: side + '-gap' })
-  world.sync(walls); world.beginFrame(); input.skipGroundNavigation = true
-  let step = route.resolve(input, walls, out)
-  expect(step?.route).toBe('path')
-  let crossedWall = false
-  for (let frame = 0; frame < 65 && position.distanceTo(goal) > .6; frame++) {
-    const delta = out.clone().sub(position), distance = delta.length()
-    if (distance > .001) position.addScaledVector(delta, Math.min(.8, distance) / distance)
-    expect(world.grid.isBlocked(world.grid.worldToCell(position)!)).toBe(false)
-    crossedWall ||= side === 'side' ? position.x > 12 : position.z < 0
-    world.beginFrame(); step = route.resolve(input, walls, out)
+it('Outpost 前牆與側牆木牆破口在城門關閉時仍由共用 A* 引出城，不要求重下命令', () => {
+  for (const side of ['front', 'side'] as const) {
+    const world = new NavigationWorld({ minX: -18, maxX: 18, minZ: -6, maxZ: 30, cellSize: 1 }, 2)
+    world.setOutpostWalkways(getOutpostWalkwayLayout({ centerX: 0, halfWidth: 12, frontZ: 0, backZ: 24, gateWidth: 8, stakeLineZ: -7 }))
+    const nav = world.outpostNav!
+    // The perimeter with each removable section sealed; only the tested one opens, and the front gate stays shut.
+    const sections = { front: box(-8, 0, -4, 1), side: box(11, 10, 12, 14), rear: box(-8, 23, -4, 24) }
+    const wall = (b: Box3): ObstacleData => ({ box: b, isBarricade: true })
+    const walls = [box(-12, 0, -8, 1), box(-4, 0, 12, 1), box(-12, 23, -8, 24), box(-4, 23, 12, 24),
+      box(-12, 1, -11, 24), box(11, 1, 12, 10), box(11, 14, 12, 24), ...Object.values(sections)].map(wall)
+    const opening = walls[walls.length - 3 + (side === 'front' ? 0 : 1)]
+    world.rebuild(walls)
+    const position = new Vector3(0, 0, 10), goal = side === 'front' ? new Vector3(6, 0, -4) : new Vector3(16, 0, 18)
+    const route = new LayeredNavigationRoute(new NavigationPathFollower()), out = new Vector3()
+    const input = { ...request(world, position, goal), outpost: nav, mounted: side !== 'front', outpostMounted: side !== 'front',
+      radius: .4, height: 2.3, entranceId: 'gate', actorId: 'native-defender' }
+    world.beginFrame()
+    const sealed = route.resolve(input, walls, out)
+    console.log('SEALED', sealed)
+    walls.splice(walls.indexOf(opening), 1)
+    const centre = opening.box.getCenter(new Vector3()).setY(0), approach = centre.clone(), exit = centre.clone()
+    if (side === 'side') { approach.x += 3; exit.x -= 3 }
+    else { approach.z -= 3; exit.z += 3 }
+    nav.entrances.set({ id: side + '-gap', type: 'palisade', position: centre, approach, exit,
+      mounted: true, walkable: true, faction: null, connectionId: side + '-gap' })
+    world.sync(walls); world.beginFrame(); input.skipGroundNavigation = true
+    let step = route.resolve(input, walls, out)
+    expect(step?.route).toBe('path')
+    let crossedWall = false
+    for (let frame = 0; frame < 65 && position.distanceTo(goal) > .6; frame++) {
+      const delta = out.clone().sub(position), distance = delta.length()
+      if (distance > .001) position.addScaledVector(delta, Math.min(.8, distance) / distance)
+      expect(world.grid.isBlocked(world.grid.worldToCell(position)!)).toBe(false)
+      crossedWall ||= side === 'side' ? position.x > 12 : position.z < 0
+      world.beginFrame(); step = route.resolve(input, walls, out)
+    }
+    expect(crossedWall, side).toBe(true)
+    expect(position.distanceTo(goal), side).toBeLessThan(.6)
   }
-  expect(crossedWall).toBe(true)
-  expect(position.distanceTo(goal)).toBeLessThan(.6)
 })

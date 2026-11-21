@@ -19,6 +19,7 @@ import { getTerrainHeight } from '../../src/world/Terrain'
 import { SiegeConvoy } from '../../src/campaign/SiegeConvoy'
 import { ActorDouble, asNpc, MountDouble } from '../helpers/careerActorDoubles'
 import { preparedTownSiege, townSiege } from '../helpers/townSiegeDoubles'
+import { PursuitBlockList } from '../../src/navigation/PursuitBlockList'
 
 const EMPTY_LAYOUT = { decks: [], ramps: [], corners: [], lengths: [], perimeter: 1, wallSpans: [] }
 /** An attacker body with its fixed sector role; cavalry rides a ground mount. */
@@ -95,6 +96,16 @@ describe('Siege deployment and shared rule ownership', () => {
     duty.release()
     expect(duty.isOutpostActive).toBe(false)
     expect(duty.holdsPosition(actor)).toBe(false)
+    // Once released, only an explicit Defend order keeps a foot archer's stationary fire on the wall; it never holds position.
+    const defender = { tacticalOrder: 'defend' as const, isMounted: false, standsOnOutpostRampart: true }
+    expect([duty.holdsPosition(defender), duty.holdsFirePosition(defender)]).toEqual([false, true])
+    expect(duty.holdsFirePosition({ ...defender, standsOnOutpostRampart: false })).toBe(false)
+    expect(duty.holdsFirePosition({ ...defender, isMounted: true })).toBe(false)
+    expect(duty.holdsFirePosition({ ...defender, tacticalOrder: 'attack' })).toBe(false)
+    expect(duty.holdsFirePosition({ ...defender, tacticalOrder: 'follow' })).toBe(false)
+    duty.activateOutpost()
+    const attacking = { ...defender, tacticalOrder: 'attack' as const, standsOnOutpostRampart: false }
+    expect([duty.holdsPosition(attacking), duty.holdsFirePosition(attacking)]).toEqual([true, true])
   })
 
   it('releases wall defenders and gate cavalry on ramp dock or gate destruction without event replay', () => {
@@ -246,7 +257,7 @@ it('四門騎兵先攔截本區城外敵人，清除後恢復攻門，突破後�
     combatTargetPriority: undefined as NPC['combatTargetPriority'], assignedSiegeObstacle: null as unknown,
     faction: Faction.ENEMY, targetsPlayer: false, missionCombatTarget: undefined,
     isTownRampartGarrisonActive: false, holdsRampartPosition: false, hasActiveRangedWeapon: false,
-    hasSiegeObstacle: true, _pursuitTargetAllowed: NPC.prototype['_pursuitTargetAllowed'],
+    hasSiegeObstacle: true, _pursuitTargetAllowed: NPC.prototype['_pursuitTargetAllowed'], pursuitBlockedTargets: new PursuitBlockList<NPC>(),
     priorityCombatTarget: null as unknown, get hasTacticalCombatPriority() {
       return Object.getOwnPropertyDescriptor(NPC.prototype, 'hasTacticalCombatPriority')!.get!.call(this)
     }, _isAttackableObstacle: NPC.prototype['_isAttackableObstacle'],

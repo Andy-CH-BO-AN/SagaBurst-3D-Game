@@ -10,6 +10,7 @@ import type { Player } from '../../src/player/Player'
 import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
 import { TownScene } from '../../src/town/TownScene'
 import { NPC, AIState } from '../../src/world/NPC'
+import { PursuitBlockList } from '../../src/navigation/PursuitBlockList'
 import { RampartDuty } from '../../src/battle/RampartDuty'
 import { townDefenseThreatInRange, townDefenseThreatResponse } from '../../src/town/TownGarrison'
 import { Vector3 } from 'three'
@@ -27,7 +28,7 @@ function borrowedTownCombat(phase: ActiveCareerMission['phase'], kind: ActiveCar
     combatantId: id, faction, dead: false, mount: null, combatPosition: new Vector3(x, 0, 0),
     characterFaction: 'roman', rangedActive: false, arrows: 0, state: AIState.IDLE, tacticalOrder: 'follow',
     shield: { active: false, shieldRaised: false }, alertSprite: { visible: false }, followNavigationGoal: new Vector3(),
-    _friendlyBypass: new Map(), _navigationPath: { clear() {} }, rampartDuty: new RampartDuty(),
+    _friendlyBypass: new Map(), _navigationPath: { clear() {} }, rampartDuty: new RampartDuty(), pursuitBlockedTargets: new PursuitBlockList<NPC>(),
   })
   const captain = actor('captain'), soldier = actor(spec.id), bandit = actor('mission-bandit', Faction.BANDIT, 112)
   const profile: { activeMission: ActiveCareerMission } = { activeMission: {

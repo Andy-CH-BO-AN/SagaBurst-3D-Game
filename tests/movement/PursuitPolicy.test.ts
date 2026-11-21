@@ -9,7 +9,7 @@ function actor(tacticalOrder: string, at: Vector3, over: Partial<EngagementActor
   return { tacticalOrder, combatPosition: at, holdsRampartPosition: false, alertRange: 300, ...over }
 }
 
-it('Attack 在正式戰場以整張地圖對角線判斷接敵，Charge 不限距，Follow／Rampart／受限單位維持原半徑', () => {
+it('追擊策略：Attack 以整張地圖對角線判斷接敵、Follow／Rampart／受限單位維持原半徑，且只有自由的 Attack／Charge 可攻擊關閉的城門', () => {
   const origin = new Vector3(-200, 0, -200), far = new Vector3(200, 80, 200)
   const within = (a: EngagementActor, rangeSq: number | null, confined: boolean, chasing: boolean, to = far) =>
     isWithinEngagementRange(a, rangeSq, confined, to, chasing)
@@ -34,9 +34,8 @@ it('Attack 在正式戰場以整張地圖對角線判斷接敵，Charge 不限�
   expect(within(actor('follow', here), null, false, false, target(25))).toBe(false)
   expect(within(actor('follow', here), null, false, true, target(36))).toBe(true)
   expect(within(actor('follow', here), null, false, true, target(37))).toBe(false)
-})
-
-it('只有自由的 Attack／Charge 追擊可前往並攻擊關閉的城門，任務、遭遇戰、Rampart 與攻城任務保留各自 owner', () => {
+  // Closed-gate breach is open only to free Attack/Charge pursuit; mission travel, encounters,
+  // rampart duty and an active siege task keep their own owners.
   const free: PursuitGateActor = { missionMovement: false, holdsRampartPosition: false, hasSiegeObstacle: false, tacticalOrder: 'attack' }
   expect(pursuitMayBreachGate(free, false)).toBe(true)
   expect(pursuitMayBreachGate({ ...free, tacticalOrder: 'charge' }, false)).toBe(true)

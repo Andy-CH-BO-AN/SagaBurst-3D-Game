@@ -705,7 +705,7 @@ export class NPC {
   private readonly pursuitBlockedTargets = new PursuitBlockList<NPC | Player>()
   private _pursuitTargetAllowed(target: NPC | Player): boolean {
     if (this.combatTargetPriority?.(target) === null) return false
-    return this.pursuitBlockedTargets?.allows(target, this.combatPosition, this._activeNavigationWorld) ?? true
+    return this.pursuitBlockedTargets.allows(target, this.combatPosition, this._activeNavigationWorld)
   }
   private _deferUnreachableTarget(target: NPC | Player): void {
     const world = this._activeNavigationWorld
@@ -714,7 +714,7 @@ export class NPC {
   }
   setMissionCombatTarget(target: NPC | Player | null | undefined): void {
     if (this.missionCombatTarget === target) return
-    this.pursuitBlockedTargets?.clear()
+    this.pursuitBlockedTargets.clear()
     this.missionCombatTarget = target
     this._targetAcquisitionInitialized = false
     this._cachedTargetIsPlayer = false
@@ -1878,7 +1878,7 @@ export class NPC {
   }
 
   setTacticalOrder(order: TacticalOrder): void {
-    this.pursuitBlockedTargets?.clear()
+    this.pursuitBlockedTargets.clear()
     this.layeredCombatMovement = false
     if (order !== 'attack' && order !== 'defend') this.releaseOutpostRampartGarrison()
     if (this.mount?.isFlyingMount) this.setEagleFlightOrder(null)
@@ -1906,7 +1906,7 @@ export class NPC {
 
   assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number, arrivalOrder?: TacticalOrder, reached = false): void {
     if (this.dead) return
-    this.pursuitBlockedTargets?.clear()
+    this.pursuitBlockedTargets.clear()
     this.releaseOutpostRampartGarrison()
     this._clearNavigationPath()
     this._clearObstacleDetour()
@@ -1937,7 +1937,7 @@ export class NPC {
   assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted), marchSpeed?: number,
     anchor?: { position: THREE.Vector3; yaw: number }): void {
     if (this.dead || target === this) return
-    this.pursuitBlockedTargets?.clear()
+    this.pursuitBlockedTargets.clear()
     this.releaseOutpostRampartGarrison()
     if (this.mount?.isFlyingMount) this.setEagleFlightOrder(null)
     this._clearNavigationPath()
@@ -2878,7 +2878,7 @@ export class NPC {
       }
 
       if (hostileNpcGrid) {
-        const npc = chaseTargetCoordinator && !this.combatTargetAllowed && !this.combatTargetPriority && (this.pursuitBlockedTargets?.size ?? 0) === 0
+        const npc = chaseTargetCoordinator && !this.combatTargetAllowed && !this.combatTargetPriority && this.pursuitBlockedTargets.size === 0
           ? chaseTargetCoordinator.findGroupTarget(this, hostileNpcGrid, groundOnly)
           : hostileNpcGrid.findNearest(this.combatPosition, candidate => !candidate.dead
             && combatAllegiancesHostile(this, candidate) && this.combatTargetAllowed?.(candidate) !== false && (!groundOnly || !candidate.mount?.isFlyingMount)

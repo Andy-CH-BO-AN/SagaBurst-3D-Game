@@ -20,6 +20,7 @@ import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import type { Mount } from '../../src/world/Mount'
 import { MountType } from '../../src/world/Mount'
 import { Faction, NPC } from '../../src/world/NPC'
+import { PursuitBlockList } from '../../src/navigation/PursuitBlockList'
 import { createCombatEventRecorder } from '../helpers/combatEventRecorder'
 
 function eventHarness() { return createCombatEventRecorder(onTestFinished) }
@@ -626,6 +627,7 @@ function unarmedNpc(state: Record<string, unknown> = {}) {
   const moves: MoveIntent[] = []
   const npc = Object.assign(Object.create(NPC.prototype), {
     group: { position: new THREE.Vector3() }, mount: null, rig: {}, pendingFall: { active: false }, mountedOrbitActive: true,
+    pursuitBlockedTargets: new PursuitBlockList<NPC>(),
     _faceDirection() {}, _updateFootPhysics() {},
     _navigationPath: { clear() {} }, _tmpMoveDir: new THREE.Vector3(), _tmpNavigationTarget: new THREE.Vector3(),
     _movementObstacleRadius: () => .4, _movementObstacleHeight: () => 1.8, _clearObstacleDetour() {}, _clearNavigationPath() {},

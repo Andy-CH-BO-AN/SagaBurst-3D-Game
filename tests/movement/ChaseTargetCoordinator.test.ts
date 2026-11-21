@@ -98,7 +98,10 @@ it('NPC 依重掃節奏改選更近目標，無法抵達的目標被擱置並在
   // Phase .5 on a 60 m target: the first scan after acquisition is 1 + floor(.5 * 8) = 5 frames away.
   const { body, calls, actor } = pursuitActor('attack', .5), grid = new SpatialGrid<NPC>(20)
   const current = npc(320, 240, Faction.ENEMY), alternate = npc(280, 240, Faction.ENEMY)
-  grid.insert(current)
+  // A closer hostile the duty policy forbids is never chosen over the permitted distant one.
+  const denied = npc(270, 240, Faction.ENEMY)
+  Object.assign(body, { combatTargetAllowed: (target: NPC) => target !== denied })
+  grid.insert(current); grid.insert(denied)
   const player = { dead: true, targetable: false } as Player
   const sense = () => NPC.prototype['_getTarget'].call(actor, 1 / 60, player, [current, alternate], grid)
   expect(sense()?.npc).toBe(current)

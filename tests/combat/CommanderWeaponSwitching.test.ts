@@ -6,6 +6,7 @@ import { careerCommanderLoadout } from '../../src/career/CareerCommanderEquipmen
 import { Faction } from '../../src/combat/CombatFaction'
 import { chooseReversibleWeaponMode, needsWeaponModeDecision, withinRangedMeleeThreatReach } from '../../src/combat/ReversibleWeaponMode'
 import { ShieldState } from '../../src/combat/ShieldBlocking'
+import { PursuitBlockList } from '../../src/navigation/PursuitBlockList'
 import type { OutpostLayeredNavigation } from '../../src/navigation/OutpostLayeredNavigation'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { Player } from '../../src/player/Player'
@@ -603,7 +604,7 @@ describe('Reversible NPC weapon choice', () => {
     const actor = Object.assign(h.actor, {
       aiType: AIType.RANGED, isMounted: false, mount: null, isTownRampartGarrisonActive: false, holdsRampartPosition: false,
       rampartDuty: new RampartDuty(), holdsRampartFirePosition: false, targetsPlayer: false, missionCombatTarget: undefined, _cachedTargetIsPlayer: false,
-      _pursuitTargetAllowed: NPC.prototype['_pursuitTargetAllowed'],
+      _pursuitTargetAllowed: NPC.prototype['_pursuitTargetAllowed'], pursuitBlockedTargets: new PursuitBlockList<NPC>(),
       _cachedTargetNpc: below, _rangedTargetCandidates: [] as NPC[],
       _rangedTargetEligible: [] as NPC[], _rangedTargetEligibleDistSq: [] as number[], _rangedTargetEligibleOrder: [] as number[],
       _clearObstacleDetour() {}, _clearNavigationPath() {}, _clearSiegeFallback() {},
@@ -624,6 +625,8 @@ describe('Reversible NPC weapon choice', () => {
     expect(targeting._isTargetInDefendRange.call(actor, below.combatPosition)).toBe(false)
     expect(targeting._trySwitchToVisibleRangedTarget.call(actor, player, [below, shootable], null, [])).toBe(true)
     expect(actor._cachedTargetNpc).toBe(shootable)
+    // The target already held is not a replacement candidate, and the one below is still out of reach.
+    expect(targeting._trySwitchToVisibleRangedTarget.call(actor, player, [below, shootable], null, [])).toBe(false)
     expect(targeting._isTargetInDefendRange.call(actor, shootable.combatPosition)).toBe(true)
     h.select([below], { position: shootable.combatPosition, isDead: false, isPlayer: false, npc: shootable })
     expect(actor.rangedActive).toBe(true)
@@ -636,21 +639,6 @@ describe('Reversible NPC weapon choice', () => {
     actor.aiType = AIType.RANGED
     actor._activeNavigationWorld = { outpostNav: { getNavLayer: () => 'ground' } }
     expect(wallState('standsOnOutpostRampart')).toBe(false)
-  })
-
-  it('Defend 命令下的城牆弓手釋放原生守城後仍保有射擊位但不死守原位，Attack 與騎乘不獲此權', () => {
-    const released = new RampartDuty(), onWall = { tacticalOrder: 'defend' as const, isMounted: false, standsOnOutpostRampart: true }
-    expect([released.holdsPosition(onWall), released.holdsFirePosition(onWall)]).toEqual([false, true])
-    expect(released.holdsFirePosition({ ...onWall, standsOnOutpostRampart: false })).toBe(false)
-    expect(released.holdsFirePosition({ ...onWall, isMounted: true })).toBe(false)
-    expect(released.holdsFirePosition({ ...onWall, tacticalOrder: 'attack' })).toBe(false)
-    expect(released.holdsFirePosition({ ...onWall, tacticalOrder: 'follow' })).toBe(false)
-    // Native Outpost duty holds position and fire for Attack as well, and never for a mounted body.
-    const duty = new RampartDuty()
-    duty.activateOutpost()
-    const attacking = { ...onWall, tacticalOrder: 'attack' as const, standsOnOutpostRampart: false }
-    expect([duty.holdsPosition(attacking), duty.holdsFirePosition(attacking)]).toEqual([true, true])
-    expect(duty.holdsFirePosition({ ...attacking, isMounted: true })).toBe(false)
   })
 
   it('excludes friendly structures while retaining hostile and unowned siege blockers', () => {

@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest'
 import { Box3, Vector3 } from 'three'
 import { NPC, AIState } from '../../src/world/NPC'
+import { PursuitBlockList } from '../../src/navigation/PursuitBlockList'
 import type { TacticalOrder } from '../../src/battle/TacticalOrder'
 import { NavigationPathFollower } from '../../src/navigation/NavigationPathFollower'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
@@ -124,7 +125,7 @@ function formationActor(id: string) {
     formationTarget: createFormationTarget(-4900, new Vector3(1, 0, -250), new Vector3(0, 0, 1), 4.8, 'defend') as FormationTarget | null,
     _navigationPath: { clear() { pathResets.count++ } }, _friendlyBypass: new FriendlyMovementBypass(),
     _detourActive: true, _detourObstacle: null, _detourStuckElapsed: .6, followNavigationGoal: new Vector3(),
-    assignedSiegeObstacle: null,
+    assignedSiegeObstacle: null, pursuitBlockedTargets: new PursuitBlockList<NPC>(),
     _clearNavigationPath: NPC.prototype['_clearNavigationPath'],
     _clearObstacleDetour: NPC.prototype['_clearObstacleDetour'],
     _clearSiegeFallback: NPC.prototype['_clearSiegeFallback'],

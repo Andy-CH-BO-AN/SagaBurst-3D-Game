@@ -11,6 +11,7 @@ import { RampartDuty } from '../../src/battle/RampartDuty'
 import type { PlayerInput } from '../../src/player/PlayerInput'
 import type { ArmyCommandUI, OfficialSquadLabelOption } from '../../src/ui/ArmyCommandUI'
 import type { FormationController } from '../../src/battle/FormationController'
+import { PursuitBlockList } from '../../src/navigation/PursuitBlockList'
 import type { InventoryManager } from '../../src/rpg/InventoryManager'
 
 /** Dispatch-only records; these do not stand in for real actor AI, HP or movement. */
@@ -127,7 +128,7 @@ export function createRampartCommandActor(id: string, characterFaction: 'roman' 
     combatantId: id, characterFaction, presetId: `${characterFaction}_archer`,
     _faction: Faction.PLAYER, _aiType: aiType, state: AIState.IDLE, currentHp: 80, _maxHp: 100,
     group: { position: new Vector3(0, 8, 0), rotation: { y: 0 } }, mount: null,
-    rampartDuty: new RampartDuty(), pendingFall: { active: false },
+    rampartDuty: new RampartDuty(), pursuitBlockedTargets: new PursuitBlockList<NPC>(), pendingFall: { active: false },
     formationTarget: null, followNavigationGoal: new Vector3(), _navigationPath: new NavigationPathFollower(),
     _friendlyBypass: new FriendlyMovementBypass(), rangedActive: true, rangedWeaponId: 'shortbow', arrows: 9,
     shield: { active: false, shieldImpactRemaining: 0, shieldImpactMax: 100 },
