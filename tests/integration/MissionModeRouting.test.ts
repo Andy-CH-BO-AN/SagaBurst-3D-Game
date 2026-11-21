@@ -223,14 +223,18 @@ describe('Heavy field defeat capture at the production Game caller', () => {
         shown.push({ merit, guards, durableMerit: store.load()!.activeMission!.result?.merit.total })
         realShowResult(shownOutcome, merit, stats, onReturn, guards)
       }
+      const retries: (() => void)[] = []
+      const realShowSaveRetry = hud.showSaveRetry.bind(hud)
+      hud.showSaveRetry = onRetry => { retries.push(onRetry); realShowSaveRetry(onRetry) }
       const entry = fieldResultGame(store, profile.activeMission!.id, hud)
       storage.failWrites = true
       entry._showFieldBattleResult(outcome)
       expect(shown).toEqual([])
+      expect(retries).toHaveLength(1)
       expect(store.load()!.activeMission!.result).toBeUndefined()
       expect(store.load()!.activeMission!.prisonBreak).toBeUndefined()
       storage.failWrites = false
-      entry._showFieldBattleResult(outcome)
+      retries[0]()
       const saved = store.load()!
       expect(saved.activeMission!.result!.outcome).toBe(outcome)
       expect(saved.activeMission!.prisonBreak?.captor).toBe(outcome === 'failure' ? 'viking' : undefined)
