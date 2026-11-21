@@ -781,21 +781,7 @@ export class Game {
   private mountHpFill!: HTMLElement
 
   private pickupHud!: PickupPrompt
-  private readonly interactions = new PlayerInteractionController<WeaponPickup, Mount>({
-    player: () => this.player,
-    pickups: () => this.pickups,
-    mounts: () => this.mounts,
-    inventory: () => this.inventoryManager,
-    customPickupPolicy: () => this.customPickupPolicy,
-    hud: { show: text => this.pickupHud?.show(text), notify: text => this.pickupHud.notify(text) },
-    quiver: { setArrowCount: count => this.quiverUI.setArrowCount(count) },
-    onDismounted: prevMount => {
-      if (!this.player.isMounted && prevMount.type === MountType.HORSE && this.trainingGround?.mounts.includes(prevMount)) this.tutorialScene?.operation('dismounted')
-      this._aimTargetRegistry.registerMount(prevMount)
-      this.mountHud.classList.remove('visible')
-    },
-    mountPlayer: mount => this._mountPlayer(mount),
-  })
+  private readonly interactions = this._createInteractionController()
   private readonly customPickupPolicy: boolean
   private interactionInputCaptured = false
 
@@ -4869,6 +4855,24 @@ export class Game {
     }
 
     this.interactions.update(pressed, this.thirdPersonCamera.cameraYaw)
+  }
+
+  private _createInteractionController(): PlayerInteractionController<WeaponPickup, Mount> {
+    return new PlayerInteractionController<WeaponPickup, Mount>({
+      player: () => this.player,
+      pickups: () => this.pickups,
+      mounts: () => this.mounts,
+      inventory: () => this.inventoryManager,
+      customPickupPolicy: () => this.customPickupPolicy,
+      hud: { show: text => this.pickupHud?.show(text), notify: text => this.pickupHud.notify(text) },
+      quiver: { setArrowCount: count => this.quiverUI.setArrowCount(count) },
+      onDismounted: prevMount => {
+        if (!this.player.isMounted && prevMount.type === MountType.HORSE && this.trainingGround?.mounts.includes(prevMount)) this.tutorialScene?.operation('dismounted')
+        this._aimTargetRegistry.registerMount(prevMount)
+        this.mountHud.classList.remove('visible')
+      },
+      mountPlayer: mount => this._mountPlayer(mount),
+    })
   }
 
   private _clearPickupFocus(): void {
