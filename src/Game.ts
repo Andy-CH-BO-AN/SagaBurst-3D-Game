@@ -147,7 +147,7 @@ import { HERO_ASSETS, type HeroAssetId, type PlayerHeroId } from './world/HeroAs
 import { HorseAssetRegistry, horseVariantForStableKey, horseVariantFromSave } from './world/HorseAssetRegistry'
 import { isPlayerHostileNpc, populateNpcFactionGrids, selectHostileNpcGrid } from './world/HostileNpcGrid'
 import { HumanoidAssetRegistry } from './world/HumanoidAssetRegistry'
-import { InteractionFocus, type InteractionCandidate } from './world/InteractionFocus'
+import { PlayerInteractionController } from './world/PlayerInteractionController'
 import { preloadMakiRangerBow } from './world/MakiRangerEquipment'
 import { DEFAULT_MOUNT_TYPE, felineVariantFromMountId, Mount, MountState, MountType, mountTypeFromId, mountTypeFromSave } from './world/Mount'
 import { AIState, AIType, Faction, NPC, NPC_NEIGHBOR_QUERY_RADIUS } from './world/NPC'
@@ -781,7 +781,21 @@ export class Game {
   private mountHpFill!: HTMLElement
 
   private pickupHud!: PickupPrompt
-  private readonly pickupFocus = new InteractionFocus<WeaponPickup | Mount>()
+  private readonly interactions = new PlayerInteractionController<WeaponPickup, Mount>({
+    player: () => this.player,
+    pickups: () => this.pickups,
+    mounts: () => this.mounts,
+    inventory: () => this.inventoryManager,
+    customPickupPolicy: () => this.customPickupPolicy,
+    hud: { show: text => this.pickupHud?.show(text), notify: text => this.pickupHud.notify(text) },
+    quiver: { setArrowCount: count => this.quiverUI.setArrowCount(count) },
+    onDismounted: prevMount => {
+      if (!this.player.isMounted && prevMount.type === MountType.HORSE && this.trainingGround?.mounts.includes(prevMount)) this.tutorialScene?.operation('dismounted')
+      this._aimTargetRegistry.registerMount(prevMount)
+      this.mountHud.classList.remove('visible')
+    },
+    mountPlayer: mount => this._mountPlayer(mount),
+  })
   private readonly customPickupPolicy: boolean
   private interactionInputCaptured = false
 
@@ -4854,62 +4868,11 @@ export class Game {
       return
     }
 
-    // The press belongs to the target and action displayed in the preceding frame.
-    const action = this.pickupFocus.pressed(pressed, this._pickupCandidates(), this.player.position)
-    if (action?.action === 'dismount') {
-      const prevMount = this.player.currentMount!
-      this.player.dismountFromMount()
-      if (!this.player.isMounted && prevMount.type === MountType.HORSE && this.trainingGround?.mounts.includes(prevMount)) this.tutorialScene?.operation('dismounted')
-      this._aimTargetRegistry.registerMount(prevMount)
-      this.mountHud.classList.remove('visible')
-    } else if (action?.target instanceof WeaponPickup) {
-      const pickup = action.target
-      if (pickup.isArrowPack) {
-        this.player.setArrowCount(this.player.arrowCount + pickup.arrowQuantity)
-        this.quiverUI.setArrowCount(this.player.arrowCount)
-        this.pickupHud.notify(`已補充箭矢 · +${pickup.arrowQuantity}`)
-      } else {
-        this.inventoryManager.addWeapon(pickup.weaponId)
-        if (action.action === 'equip') this.inventoryManager.equipWeapon(pickup.weaponId)
-        this.pickupHud.notify(`${action.action === 'equip' ? '已裝備' : '已收進背包'} · ${pickup.name}`)
-      }
-      pickup.destroy()
-      const idx = this.pickups.indexOf(pickup)
-      if (idx !== -1) this.pickups.splice(idx, 1)
-    } else if (action?.action === 'mount') {
-      this._mountPlayer(action.target as Mount)
-    }
-
-    const yaw = this.thirdPersonCamera.cameraYaw
-    const selected = this.pickupFocus.select(this._pickupCandidates(), this.player.position,
-      { x: -Math.sin(yaw), z: -Math.cos(yaw) })
-    for (const pickup of this.pickups) pickup.setSelected(selected?.target === pickup)
-    this.pickupHud.show(selected?.prompt ?? null)
-  }
-
-  private _pickupCandidates(): InteractionCandidate<WeaponPickup | Mount>[] {
-    const position = this.player.position
-    if (this.player.isMounted && this.player.currentMount) return [{
-      target: this.player.currentMount, position, range: 2.5, action: 'dismount', prompt: '[E] 下騎',
-    }]
-    const items: InteractionCandidate<WeaponPickup | Mount>[] = []
-    for (const pickup of this.pickups) {
-      if (!pickup.isAlive) continue
-      const action = pickup.isArrowPack ? 'arrows' : this.customPickupPolicy ? this.inventoryManager.pickupDisposition(pickup.weaponId) : 'backpack'
-      const text = action === 'arrows' ? `補充箭矢 · +${pickup.arrowQuantity}`
-        : `${action === 'equip' ? '拾起並裝備' : '收進背包'} · ${pickup.name}`
-      items.push({ target: pickup, position: pickup.position, range: 2.5, action, prompt: `[E] ${text}` })
-    }
-    for (const mount of this.mounts) if (mount.availableForPlayer && !mount.coopPuppet) items.push({
-      target: mount, position: mount.group.position, range: 2.5, action: 'mount', prompt: `[E] 騎乘：${mount.displayName}`,
-    })
-    return items
+    this.interactions.update(pressed, this.thirdPersonCamera.cameraYaw)
   }
 
   private _clearPickupFocus(): void {
-    this.pickupFocus.clear()
-    this.pickupHud?.show(null)
-    for (const pickup of this.pickups) pickup.setSelected(false)
+    this.interactions.clear()
   }
 
   /** Prevent living people, NPCs, and mounts from occupying the same space. */
