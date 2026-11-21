@@ -1,10 +1,10 @@
 import { describe,expect,it } from 'vitest'
 import { type CombatEvent } from '../../src/combat/CombatAttribution'
-import { resolveSkillProgressionAward } from '../../src/rpg/CombatSkillProgression'
+import { resolveActivePlayerSkillProgressionAward, resolveSkillProgressionAward } from '../../src/rpg/CombatSkillProgression'
 import { normalizeSkillState, SkillManager } from '../../src/rpg/SkillManager'
 import { skillStatesEqual } from '../../src/rpg/CombatSkillProgression'
 import { unarmedDamage } from '../../src/combat/UnarmedCombat'
-import { TownScene } from '../../src/town/TownScene'
+import { applyTownSkillXp, type TownSkillXpPorts } from '../../src/town/TownSkillProgression'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 
@@ -34,26 +34,36 @@ function damageEvent(
   }
 }
 
+/** The real skills and profile; only the scene's save scheduling and player effects are recorded. */
+function townSkillPorts() {
+  const skills = new SkillManager(), live = { profile: createCareerProfile('roman') }
+  const record = { eligible: true, dirty: false, scheduled: 0, flushed: 0, levelUps: [] as number[] }
+  const ports: TownSkillXpPorts = {
+    canAward: () => record.eligible, profile: () => live.profile, publishProfile: next => { live.profile = next },
+    skillState: () => skills.skillState, addXp: (skill, xp) => skills.addXp(skill, xp), syncPlayerLevels() {},
+    markDirty: () => { record.dirty = true }, flushNow: () => { record.flushed++ },
+    scheduleFlush: () => { record.scheduled++ }, onLevelUp: levels => { record.levelUps.push(levels) },
+  }
+  return { ports, record, skills, live }
+}
+
 describe('Career skill progression', () => {
-  it('Town 的權威傷害事件只發一次徒手 XP，後續擊殺事件不重發也不遺失戰鬥統計', () => {
-    let forwarded = 0
-    const town = Object.assign(Object.create(TownScene.prototype) as {
-      emitCombatEvent(event: CombatEvent): void; skills: SkillManager; profile: ReturnType<typeof createCareerProfile>; careerSkillsDirty: boolean
-    }, {
-      skills: new SkillManager(), profile: createCareerProfile('roman'),
-      player: { dead: false, spectatorOnly: false, hasShield: true }, inventory: { activeMelee: WEAPONS.viking_axe_t3 },
-      squadRefitSafety: { note() {} }, mission: { events: { emit() { forwarded++ } } },
-      scheduleCareerSkillProgressionFlush() {},
-    })
+  it('applies a player unarmed XP award to live skills and the Town profile, saved lazily', () => {
+    const { ports, record, skills, live } = townSkillPorts()
     const event = damageEvent('melee', 'npc', 5, 'unarmed')
-    town.emitCombatEvent(event)
-    town.emitCombatEvent({ type: 'actor_killed', source: event.source, target: event.target, method: 'melee', weaponId: 'unarmed' })
-    expect(town.skills.skillState.unarmed).toEqual({ level: 1, xp: 10 })
-    expect(town.skills.skillState.oneHanded.xp).toBe(0)
-    expect(town.skills.skillState.twoHanded.xp).toBe(0)
-    expect(town.profile.skills!.unarmed.xp).toBe(10)
-    expect(town.careerSkillsDirty).toBe(true)
-    expect(forwarded).toBe(2)
+    applyTownSkillXp(resolveActivePlayerSkillProgressionAward(event, { dead: false, spectatorOnly: false, observer: false }, WEAPONS.viking_axe_t3, true)!, ports)
+    expect(skills.skillState.unarmed).toEqual({ level: 1, xp: 10 })
+    expect(skills.skillState.oneHanded.xp).toBe(0); expect(skills.skillState.twoHanded.xp).toBe(0)
+    expect(live.profile.skills!.unarmed.xp).toBe(10)
+    expect(record).toMatchObject({ dirty: true, scheduled: 1, flushed: 0, levelUps: [] })
+  })
+  it('flushes at once and reports the levels when an XP award levels a skill', () => {
+    const { ports, record, skills, live } = townSkillPorts()
+    skills.addXp('unarmed', skills.getXpNeeded(1) - 1)
+    applyTownSkillXp({ skill: 'unarmed', xp: 2 }, ports)
+    expect(skills.skillState.unarmed.level).toBe(2)
+    expect(live.profile.skills!.unarmed.level).toBe(2)
+    expect(record).toMatchObject({ dirty: true, scheduled: 0, flushed: 1, levelUps: [1] })
   })
   it('徒手技能倍率、傷害事件雙倍 XP 結算與升級曲線完整驗證', () => {
     const manager = new SkillManager()

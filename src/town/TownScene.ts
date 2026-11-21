@@ -103,7 +103,7 @@ import { PlayerInput } from '../player/PlayerInput'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { bindWindowResize, configureSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO } from '../rendering/SceneRenderer'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, skillStatesEqual, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
+import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
 import { EQUIPMENT_CATEGORIES, equipmentSections, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { compareEquipment, equipmentDetails, equipmentTraits } from '../rpg/EquipmentComparison'
 import { compareMounts, mountComparisonText, mountDetails, mountTraits } from '../rpg/MountComparison'
@@ -169,6 +169,8 @@ import { TownMissionBoard, type MissionBoardHost, type MissionBoardRequest } fro
 import { TownMissionCombat, type TownCombatResident as Resident } from './TownMissionCombat'
 import { restoreMissionReturnResident, TownMissionSettlement } from './TownMissionSettlement'
 import { restoreTownCasualties, TownResultSettlement } from './TownResultSettlement'
+import { routeTownCombatEvent } from './TownCombatEventRouter'
+import { applyTownSkillXp } from './TownSkillProgression'
 import { isAutonomousTownGuard } from './TownNativeGuardIdentity'
 import { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController'
 import { personalMemberLoadout, TownPersonalSquadController } from './TownPersonalSquadController'
@@ -1437,33 +1439,22 @@ export class TownScene {
     if (award) this.awardCareerSkillXp(award)
   }
 
-  private awardCareerSkillXp({ skill, xp }: SkillProgressionAward): void {
-    if (!canAwardPlayerSkillProgression({
-      dead: this.player.dead,
-      spectatorOnly: this.player.spectatorOnly,
-      observer: Boolean(this.spectator),
-    })) return
-    if (xp <= 0 || this.profile.activeMission?.duelTutorialCareerId) return
-
-    const before = this.skills.skillState
-    const levelsGained = this.skills.addXp(skill, xp, sound)
-    const after = this.skills.skillState
-    syncPlayerSkillCombatLevels(this.player, after)
-    if (skillStatesEqual(before, after)) return
-
-    const next = cloneCareerProfile(this.profile)
-    next.skills = after
-    this.profile = next
-    this.careerSkillsDirty = true
-    if (levelsGained > 0) this.flushCareerSkillProgression()
-    else this.scheduleCareerSkillProgressionFlush()
-
-    if (levelsGained <= 0) return
-    const oldHp = this.player.hp
-    const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
-    this.player.setMaxHp(newMaxHp, false)
-    this.player.setHp(Math.min(newMaxHp, oldHp + levelsGained))
-    this.hp.setFill(this.player.hpRatio)
+  private awardCareerSkillXp(award: SkillProgressionAward): void {
+    applyTownSkillXp(award, {
+      canAward: () => canAwardPlayerSkillProgression({ dead: this.player.dead, spectatorOnly: this.player.spectatorOnly, observer: Boolean(this.spectator) }),
+      profile: () => this.profile, publishProfile: next => { this.profile = next },
+      skillState: () => this.skills.skillState, addXp: (skill, xp) => this.skills.addXp(skill, xp, sound),
+      syncPlayerLevels: state => syncPlayerSkillCombatLevels(this.player, state),
+      markDirty: () => { this.careerSkillsDirty = true },
+      flushNow: () => { this.flushCareerSkillProgression() }, scheduleFlush: () => this.scheduleCareerSkillProgressionFlush(),
+      onLevelUp: levelsGained => {
+        const oldHp = this.player.hp
+        const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
+        this.player.setMaxHp(newMaxHp, false)
+        this.player.setHp(Math.min(newMaxHp, oldHp + levelsGained))
+        this.hp.setFill(this.player.hpRatio)
+      },
+    })
   }
 
   private enterMissionObserver(): void {
@@ -2096,12 +2087,11 @@ export class TownScene {
       && !this.shots.some(shot => !shot.training && (shot.player || actors.some(actor => actor.combatantId === shot.sourceRef?.actorId)))
   }
   private emitCombatEvent(event: CombatEvent, lod = 0, priority = event.source.actorType === 'player'): void {
-    this.duel?.recordCombatEvent(event)
-    this.awardCareerDamageXp(event, lod, priority);
-    (this.squadRefitSafety ??= new SquadRefitSafety()).note(event)
-    if (this.retirementFinale?.active) { this.retirementFinale.recordEvent(event); return }
-    if (this.captainPatrol?.active) this.captainPatrol.recordEvent(event)
-    else (this.duel?.active ? this.duel.events : this.defense?.active ? this.defense.events : this.mission?.events)?.emit(event)
+    routeTownCombatEvent(event, {
+      duel: this.duel, retirementFinale: this.retirementFinale, captainPatrol: this.captainPatrol, defense: this.defense, mission: this.mission,
+      refitSafety: this.squadRefitSafety ??= new SquadRefitSafety(),
+      awardXp: () => this.awardCareerDamageXp(event, lod, priority),
+    })
   }
   private recruitmentChoice: PersonalRecruitmentChoice = { characterTier: 1, recruitmentRole: 'swordsman' }
   private openRecruitmentPanel(response?: string): void {
