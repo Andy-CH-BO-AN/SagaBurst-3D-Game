@@ -554,13 +554,14 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(crew[0].position.x).toBeCloseTo(195.02); expect(crew[0].position.z).toBe(62)
     expect(passenger.position.x).toBeCloseTo(193.52); expect(passenger.position.z).toBe(62)
     expect(carrier.platform.position).toEqual(carrier.position)
-    const withdrawn = crew[0]
-    carrier.releaseCrew(withdrawn)
-    const releasedPosition = withdrawn.position.clone()
+    const withdrawn = crew[0], alighted = crew[5]
+    carrier.releaseCrew(withdrawn); carrier.releaseCrew(alighted)
+    const releasedPosition = withdrawn.position.clone(), alightedPosition = alighted.position.clone()
     carrier.update(.1, [])
     expect(controller.alivePushers).toBe(3)
     expect(carrier.position.x).toBeCloseTo(191.06)
     expect(withdrawn.position).toEqual(releasedPosition)
+    expect(alighted.position).toEqual(alightedPosition)
     expect(withdrawn.siegeTransport).toBeNull(); expect(withdrawn.siegeTransportSpeed).toBe(0)
     expect(() => controller.register(withdrawn)).toThrow('Invalid siege crew registration')
     // The departed actor now has ordinary body ownership and must stop the convoy;
@@ -582,7 +583,7 @@ describe('shared siege crew and vehicle lifecycle', () => {
     damageable.takeDamage(520)
     expect(states).toEqual(['PUSHING', 'DESTROYED'])
     expect(render.hides).toBe(1)
-    expect(passenger.falls).toHaveLength(1); expect(crew[1].falls).toHaveLength(0)
+    expect(passenger.falls).toHaveLength(1); expect([crew[1], alighted].map(actor => actor.falls.length)).toEqual([0, 0])
     expect(shared).toEqual([])
     const stoppedDistance = controller.distance
     carrier.update(20, [])

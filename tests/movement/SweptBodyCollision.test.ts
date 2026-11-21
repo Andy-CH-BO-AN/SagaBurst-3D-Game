@@ -105,8 +105,8 @@ describe('vehicle part swept body collision (pure geometry)', () => {
     const body = (x: number, y: number, z: number): EntityCollisionBody => ({ position: new THREE.Vector3(x, y, z), radius: .5, height: 2.3, bottomOffset: 0 })
     // Wholly under the deck plane: no shell board touches it, only the undercroft fill does.
     expect(carrier.canMove(.1, [], [body(0, 0, 23)])).toBe(false)
-    // Outside the hull but overlapping a tower side board published by the carrier's own layout.
-    expect(carrier.canMove(.1, [], [body(3.1, 0, 23)])).toBe(false)
+    // Beyond the undercroft fill, a rider-height body beside the front edge only meets boards laid out by the carrier.
+    expect(carrier.canMove(.1, [], [body(-1, 9, 26.5)])).toBe(false)
     expect(carrier.canMove(.1, [], [body(3.9, 0, 23)])).toBe(true)
     expect(carrier.canMove(.1, [], [body(-1, 0, -1.6)])).toBe(true)
   })
