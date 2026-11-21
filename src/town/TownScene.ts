@@ -169,6 +169,7 @@ import { TownMissionBoard, type MissionBoardHost, type MissionBoardRequest } fro
 import { TownMissionCombat, type TownCombatResident as Resident } from './TownMissionCombat'
 import { restoreMissionReturnResident, TownMissionSettlement } from './TownMissionSettlement'
 import { restoreTownCasualties, TownResultSettlement } from './TownResultSettlement'
+import { openDeploymentVisit } from './TownDeploymentVisit'
 import { routeTownCombatEvent } from './TownCombatEventRouter'
 import { applyTownSkillXp } from './TownSkillProgression'
 import { isAutonomousTownGuard } from './TownNativeGuardIdentity'
@@ -2230,21 +2231,29 @@ export class TownScene {
     this.button(panel, '重新整理', () => this.openSquadRefitPanel())
   }
   private openDeploymentPanel(greeting: string, context: DialogueContext, firstOutpost: boolean, bypassIntro = this.tutorialBypass): void {
-    if (this.player.dead || !this.serviceAvailable('deployment')) return
+    openDeploymentVisit(bypassIntro, {
+      available: () => !this.player.dead && this.serviceAvailable('deployment'),
+      showPendingResult: () => {
+        const result = this.profile.activeMission?.result
+        if (result) this.openMissionResult(result, true)
+        return Boolean(result)
+      },
+      story: this.story, tutorial: this.tutorial,
+      showStory: () => {
+        const panel = this.openPanel('士官長', '')
+        panel.querySelector('.town-panel > button')?.remove()
+        this.story!.renderDialogue(panel, 'deployment')
+      },
+      showTutorial: () => {
+        const panel = this.openPanel('士官長', '')
+        panel.querySelector('.town-panel > button')?.remove()
+        this.tutorial!.renderDialogue(panel, 'deployment')
+      },
+      showServices: reopen => this.openDeploymentServices(greeting, context, firstOutpost, bypassIntro, reopen),
+    })
+  }
+  private openDeploymentServices(greeting: string, context: DialogueContext, firstOutpost: boolean, bypassIntro: boolean, reopen: () => void): void {
     const active = this.profile.activeMission
-    if (active?.result) { this.openMissionResult(active.result, true); return }
-    if (!bypassIntro && this.story?.hasDialogue('deployment')) {
-      const panel = this.openPanel('士官長', '')
-      panel.querySelector('.town-panel > button')?.remove()
-      this.story.renderDialogue(panel, 'deployment')
-      return
-    }
-    if (!bypassIntro && this.tutorial?.hasDialogue('deployment')) {
-      const panel = this.openPanel('士官長', '')
-      panel.querySelector('.town-panel > button')?.remove()
-      this.tutorial.renderDialogue(panel, 'deployment')
-      return
-    }
     const line = this.profile.tutorial?.town.step === 'weapon' ? '空手也可以接取任務；武器購買教學可稍後完成。' : greeting
     const panel = this.openPanel('士官長', line)
     this.tutorial?.appendPanel(panel, 'deployment', bypassIntro)
@@ -2270,7 +2279,7 @@ export class TownScene {
       return
     }
     // The board's later tab clicks outlive talk()'s temporary bypass. Keep this visit in the service panel.
-    this.missionBoard.render(panel, { context, firstOutpost, reopen: () => this.openDeploymentPanel(greeting, context, firstOutpost, bypassIntro) })
+    this.missionBoard.render(panel, { context, firstOutpost, reopen })
   }
   private missionBoardHost(): MissionBoardHost {
     const scene = this
