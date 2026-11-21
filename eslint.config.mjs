@@ -85,7 +85,6 @@ const PROTOTYPE_HARNESS_BASELINE = new Map([
   ['tests/persistence/CareerMissionCheckpoint.test.ts', 2],
   ['tests/persistence/CareerMissionSettlement.test.ts', 2],
   ['tests/persistence/CareerPrisonBreak.test.ts', 9],
-  ['tests/progression/CombatSkills.test.ts', 1],
   ['tests/town/TownCommandWatchtower.test.ts', 2],
   ['tests/town/TownConquest.test.ts', 1],
   ['tests/town/TownPatrolRoster.test.ts', 3],
