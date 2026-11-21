@@ -56,16 +56,16 @@ const CROSS_OWNER_WARNING_PATTERNS = [
 const CAREER_PROFILE_STORE_MODULE = '/src/career/CareerProfileStore'
 const CAREER_PROFILE_STORE_METHODS = new Set(['load', 'loadChecked', 'save'])
 // Ratchet for existing prototype harnesses: Object.create(Class.prototype) and, counted from the
-// re-baseline commit "test(lint): count prototype method borrowing", borrowed production methods
-// (Class.prototype.m.call/apply/bind, assigned/spread into objects, or passed to
-// Object.getOwnPropertyDescriptor/defineProperty). A file warns once it exceeds its count, and a
+// re-baseline commit "test(lint): flag every src class prototype reference", any other src/ class
+// `.prototype` reference (.call/.apply, aliasing, setPrototypeOf, descriptor copy...) except
+// instanceof, vi.spyOn and Object.getPrototypeOf comparisons. A file warns once it exceeds its count, and a
 // lower count asks for the entry to shrink. That re-baseline was one-time; never raise or add entries.
 const PROTOTYPE_HARNESS_BASELINE = new Map([
   ['tests/actors/MountDeathPresentation.test.ts', 10],
   ['tests/actors/NPCEquipmentLifecycle.test.ts', 1],
-  ['tests/combat/CombatAttribution.test.ts', 6],
-  ['tests/combat/CombatBalance.test.ts', 1],
-  ['tests/combat/CommanderWeaponSwitching.test.ts', 6],
+  ['tests/combat/CombatAttribution.test.ts', 9],
+  ['tests/combat/CombatBalance.test.ts', 2],
+  ['tests/combat/CommanderWeaponSwitching.test.ts', 9],
   ['tests/combat/MountArmor.test.ts', 2],
   ['tests/integration/GameInventoryLifecycle.test.ts', 3],
   ['tests/integration/GameWeaponPickup.test.ts', 2],
@@ -73,19 +73,25 @@ const PROTOTYPE_HARNESS_BASELINE = new Map([
   ['tests/integration/PersonalSquadCommandRouting.test.ts', 1],
   ['tests/integration/ReliefResultSettlement.test.ts', 1],
   ['tests/missions/ArenaSquadTrials.test.ts', 2],
-  ['tests/missions/CareerDuelState.test.ts', 1],
-  ['tests/missions/SiegeRampPolicy.test.ts', 7],
+  ['tests/missions/CareerDuelState.test.ts', 2],
+  ['tests/missions/SiegeRampPolicy.test.ts', 8],
   ['tests/missions/TownDefenseOutcome.test.ts', 1],
   ['tests/missions/TownSiegePolicy.test.ts', 8],
-  ['tests/movement/ChaseTargetCoordinator.test.ts', 20],
+  ['tests/movement/ChaseTargetCoordinator.test.ts', 22],
+  ['tests/movement/EagleFlightController.test.ts', 2],
   ['tests/movement/FriendlyMovementBypass.test.ts', 8],
+  ['tests/movement/LayeredNavigationRoute.test.ts', 1],
   ['tests/movement/SweptBodyCollision.test.ts', 1],
   ['tests/persistence/CareerMissionCheckpoint.test.ts', 2],
   ['tests/persistence/CareerMissionSettlement.test.ts', 2],
   ['tests/persistence/CareerPrisonBreak.test.ts', 9],
   ['tests/progression/CombatSkills.test.ts', 1],
+  ['tests/town/TownCommandWatchtower.test.ts', 2],
   ['tests/town/TownConquest.test.ts', 1],
+  ['tests/town/TownPatrolRoster.test.ts', 3],
   ['tests/town/TownTutorialUX.test.ts', 1],
+  ['tests/ui/TownDuelSelection.test.ts', 2],
+  ['tests/world/DuelArenaLayout.test.ts', 1],
 ])
 const NODE_TEST_APIS = new Set(['test', 'it', 'describe', 'suite'])
 const NODE_TEST_CASE_APIS = new Set(['test', 'it'])
@@ -235,12 +241,10 @@ function productionBindingRoot(sourceCode, expression) {
   return { root: node, binding, members }
 }
 
-const PROTOTYPE_DESCRIPTOR_APIS = new Set(['getOwnPropertyDescriptor', 'getOwnPropertyDescriptors', 'defineProperty', 'defineProperties'])
-
 function wrappedParent(node) {
   let current = node
   let parent = node.parent
-  while (['ChainExpression', 'ParenthesizedExpression', 'TSAsExpression', 'TSTypeAssertion',
+  while (['ChainExpression', 'ParenthesizedExpression', 'TSAsExpression', 'TSTypeAssertion', 'TSSatisfiesExpression',
     'TSNonNullExpression', 'TSInstantiationExpression'].includes(parent?.type)) {
     current = parent
     parent = parent.parent
@@ -248,25 +252,37 @@ function wrappedParent(node) {
   return { current, parent }
 }
 
-// `node` is X.prototype.name (isMethod) or X.prototype; decide whether it is borrowed onto another object.
-function isPrototypeBorrow(node, prototype, isMethod) {
+function isCallTo(node, objectName, methodName) {
+  node = unwrapExpression(node)
+  const callee = node?.type === 'CallExpression' ? unwrapExpression(node.callee) : null
+  return callee?.type === 'MemberExpression' && staticMemberName(callee) === methodName &&
+    unwrapExpression(callee.object)?.type === 'Identifier' && unwrapExpression(callee.object).name === objectName
+}
+
+// Every reference to a src/ class's `X.prototype` is a harness site except these inspection contexts:
+// right operand of instanceof, first argument of vi.spyOn, and ===/!== against Object.getPrototypeOf(...).
+function isAllowedPrototypeReference(node) {
   const { current, parent } = wrappedParent(node)
   if (!parent) return false
-  if (isMethod) {
-    if (parent.type === 'MemberExpression' && parent.object === current &&
-        ['call', 'apply', 'bind'].includes(staticMemberName(parent))) return true
-    if (parent.type === 'Property' && parent.value === current) return true
-    if (parent.type === 'AssignmentExpression' && parent.right === current) return true
+  if (parent.type === 'BinaryExpression') {
+    if (parent.operator === 'instanceof') return parent.right === current
+    if (['===', '!==', '==', '!='].includes(parent.operator)) {
+      return isCallTo(parent.left === current ? parent.right : parent.left, 'Object', 'getPrototypeOf')
+    }
     return false
   }
-  // Bare X.prototype: spread into an object, or an Object.getOwnPropertyDescriptor/defineProperty argument.
-  if (parent.type === 'SpreadElement' && parent.parent?.type === 'ObjectExpression') return true
   if (parent.type === 'CallExpression' && parent.arguments[0] === current) {
     const callee = unwrapExpression(parent.callee)
-    return callee.type === 'MemberExpression' && PROTOTYPE_DESCRIPTOR_APIS.has(staticMemberName(callee)) &&
-      unwrapExpression(callee.object).type === 'Identifier' && unwrapExpression(callee.object).name === 'Object'
+    return callee.type === 'MemberExpression' && staticMemberName(callee) === 'spyOn' &&
+      unwrapExpression(callee.object)?.type === 'Identifier' && unwrapExpression(callee.object).name === 'vi'
   }
   return false
+}
+
+// Object.create(X.prototype) is reported by the CallExpression visitor instead.
+function isObjectCreateArgument(node) {
+  const { current, parent } = wrappedParent(node)
+  return parent?.type === 'CallExpression' && parent.arguments[0] === current && isCallTo(parent, 'Object', 'create')
 }
 
 // Short all-caps names without an underscore (NPC, HUD) are usually classes, not constants.
@@ -858,8 +874,8 @@ const testAuthoring = {
         messages: {
           harness: 'Object.create({{name}}.prototype) bypasses the production constructor and couples the test to private fields. Use a small production entry point or narrow dependency instead.',
           aboveBaseline: 'Object.create({{name}}.prototype) bypasses the production constructor; this file now has {{count}} prototype harnesses (baseline: {{baseline}}). Do not add new ones.',
-          borrowed: '{{name}} borrows a production prototype method onto a plain object (.call/.apply/.bind, assignment or descriptor copy); it bypasses the constructor and couples the test to private fields. Use a small production entry point or narrow dependency instead.',
-          borrowedAboveBaseline: '{{name}} borrows a production prototype method onto a plain object; this file now has {{count}} prototype harnesses (baseline: {{baseline}}). Do not add new ones.',
+          borrowed: '{{name}} reuses a production class prototype outside its constructor (.call/.apply, alias, setPrototypeOf, descriptor copy); it bypasses the constructor and couples the test to private fields. Use a small production entry point or narrow dependency instead.',
+          borrowedAboveBaseline: '{{name}} reuses a production class prototype; this file now has {{count}} prototype harnesses (baseline: {{baseline}}). Do not add new ones.',
           staleBaseline: 'This file has {{count}} prototype harnesses but the baseline allows {{baseline}}; lower its no-prototype-harness baseline entry.',
         },
       },
@@ -870,15 +886,12 @@ const testAuthoring = {
         const harnesses = []
         return {
           MemberExpression(node) {
-            // X.prototype.name (or X.prototype itself for descriptor/spread use) from a src/ class.
-            const inner = unwrapExpression(node.object)
-            const isMethod = inner?.type === 'MemberExpression' && staticMemberName(inner) === 'prototype'
-            const prototype = staticMemberName(node) === 'prototype' ? node : isMethod ? inner : null
-            if (!prototype) return
-            const target = productionBindingRoot(sourceCode, prototype.object)
+            // Any other X.prototype reference (method borrowing, aliasing, setPrototypeOf, descriptor copy...).
+            if (staticMemberName(node) !== 'prototype') return
+            const target = productionBindingRoot(sourceCode, node.object)
             if (!target || (target.binding.namespace && target.members.length === 0)) return
-            if (!isPrototypeBorrow(node, prototype, isMethod)) return
-            harnesses.push({ node, name: sourceCode.getText(prototype.object) + '.prototype', borrowed: true })
+            if (isAllowedPrototypeReference(node) || isObjectCreateArgument(node)) return
+            harnesses.push({ node, name: sourceCode.getText(node), borrowed: true })
           },
           CallExpression(node) {
             const callee = unwrapExpression(node.callee)
