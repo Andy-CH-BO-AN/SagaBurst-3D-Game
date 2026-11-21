@@ -28,7 +28,7 @@ import type { CareerProfile } from './CareerProfile'
 import { advanceCommanderCavalryEscort, COMMANDER_CAVALRY_ESCORT, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, createCommanderCavalryEscort, isCommanderCavalryEscorting } from './CommanderCavalryEscort'
 import { planCommanderFourGateDefenseDeployment } from './CommanderFourGateDefenseDeployment'
 import { COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, createCommanderFourGateDefenseRoster } from './CommanderFourGateDefenseRoster'
-import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, recordNativeTownGuardCombat, resolveCommanderFourGateDefenseOutcome } from './CommanderFourGateDefenseState'
+import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, fourGateRemainingTargets, fourGateTargetsAccounted, recordNativeTownGuardCombat, resolveCommanderFourGateDefenseOutcome } from './CommanderFourGateDefenseState'
 import { advanceCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, isCommanderInfantryEscorting } from './CommanderInfantryEscort'
 import type { CommanderTownResident } from './CommanderTownMissionController'
 import { civilianShelterSlots } from './TownCivilianShelter'
@@ -116,9 +116,7 @@ export class CommanderFourGateDefenseController {
   get enemyRosterVersion(): 2 { return 2 }
   get enemyTotal(): number { return this.active?.targetActorIds.length ?? COMMANDER_FOUR_GATE_DEFENSE_ENEMIES }
   get remainingEnemies(): number {
-    const dead = new Set(this.active?.deadTargetActorIds ?? [])
-    for (const npc of this.enemies) if (npc.dead) dead.add(npc.combatantId)
-    return (this.active?.targetActorIds ?? []).filter(id => !dead.has(id)).length
+    return fourGateRemainingTargets(this.active?.targetActorIds ?? [], this.active?.deadTargetActorIds ?? [], this.enemies)
   }
   get remainingAirAttackers(): number { return 0 }
   get reserveHasCharged(): boolean { return [...this.fourGateSiege?.policy.gates.values() ?? []].some(gate => gate.cavalryEventHandled) }
@@ -522,10 +520,8 @@ export class CommanderFourGateDefenseController {
 
   evaluate(playerDead: boolean, personalAlive = 0): CareerMissionOutcome | null {
     if (!this.combatEnabled || !this.state || !this.active) return null
-    const ids = new Set(this.state.registeredTargetActorIds)
-    const accounted = new Set([...(this.active.deadTargetActorIds ?? []), ...this.enemies.map(npc => npc.combatantId)])
-    const complete = ids.size === this.active.targetActorIds.length
-      && this.active.targetActorIds.every(id => ids.has(id) && accounted.has(id))
+    const complete = fourGateTargetsAccounted(this.active.targetActorIds, this.state.registeredTargetActorIds,
+      this.active.deadTargetActorIds ?? [], this.enemies.map(npc => npc.combatantId))
     return resolveCommanderFourGateDefenseOutcome(playerDead, complete, this.remainingEnemies,
       new Set(this.residents.filter(r => !r.npc.dead).map(r => r.npc.combatantId)).size, personalAlive, this.state.combatElapsedSeconds ?? 0)
   }

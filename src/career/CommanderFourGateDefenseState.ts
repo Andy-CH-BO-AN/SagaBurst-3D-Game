@@ -93,6 +93,22 @@ export function advanceCommanderFourGateDefenseCombat(state: CommanderFourGateDe
   return combatElapsedSeconds === state.combatElapsedSeconds ? state : { ...state, combatElapsedSeconds }
 }
 
+/** Every attacker must be registered and either recorded dead or still present as an actor. */
+export function fourGateTargetsAccounted(targetActorIds: readonly string[], registeredIds: Iterable<string>,
+  deadIds: Iterable<string>, presentIds: Iterable<string>): boolean {
+  const registered = new Set(registeredIds), accounted = new Set([...deadIds, ...presentIds])
+  return registered.size === targetActorIds.length
+    && targetActorIds.every(id => registered.has(id) && accounted.has(id))
+}
+
+/** Attackers not yet dead, by the saved casualty ledger or by a live actor's own state. */
+export function fourGateRemainingTargets(targetActorIds: readonly string[], deadIds: Iterable<string>,
+  enemies: Iterable<{ combatantId: string; dead: boolean }>): number {
+  const dead = new Set(deadIds)
+  for (const npc of enemies) if (npc.dead) dead.add(npc.combatantId)
+  return targetActorIds.filter(id => !dead.has(id)).length
+}
+
 /** Final enemy death still wins ties. Otherwise a living ally must reach the active combat deadline. */
 export function resolveCommanderFourGateDefenseOutcome(playerDead: boolean, registrationComplete: boolean,
   enemiesRemaining: number, aliveTownPeople: number, alivePersonal = 0,
