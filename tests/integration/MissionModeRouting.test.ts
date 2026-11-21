@@ -196,7 +196,8 @@ describe('Career reload routing', () => {
 interface FieldResultEntry {
   _showFieldBattleResult(outcome: 'victory' | 'failure'): void
   _applyPlayerSkillAward(award: { skill: 'oneHanded'; xp: number }): void
-  _saveCareerSkills(): boolean
+  _flushCareerSkillProgression(): boolean
+  createCareerSkillSaveScheduler(): CareerSkillSaveScheduler
   careerSkillSave: CareerSkillSaveScheduler
 }
 
@@ -294,7 +295,7 @@ describe('Heavy field defeat capture at the production Game caller', () => {
 })
 
 describe('Game career skill saves', () => {
-  it('debounces an XP award through the shared owner and keeps newer stored state the cached profile lacks', () => {
+  it('debounces an XP award through the shared owner and keeps newer stored state and unreadable bytes, with the co-op and no-profile rules', () => {
     vi.useFakeTimers()
     onTestFinished(() => { vi.clearAllTimers(); vi.useRealTimers() })
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
@@ -306,12 +307,28 @@ describe('Game career skill saves', () => {
       careerProfile: cached, skillManager: new SkillManager(), controlMode: 'player', coopPlayerSource: null,
       player: { dead: false, spectatorOnly: false, blockingLevel: 1, armorBreakLevel: 1 },
     })
-    game.careerSkillSave = new CareerSkillSaveScheduler({ save: () => game._saveCareerSkills(), blocked: () => !(game as unknown as { careerProfile: unknown }).careerProfile })
+    game.careerSkillSave = game.createCareerSkillSaveScheduler()
     game._applyPlayerSkillAward({ skill: 'oneHanded', xp: 6 })
     vi.advanceTimersByTime(599)
     expect(store.load()!.skills!.oneHanded.xp).toBe(0)
     vi.advanceTimersByTime(1)
     expect(store.load()!.skills!.oneHanded.xp).toBe(6)
     expect(store.load()!.totalMerit).toBe(777)
+
+    // An unreadable stored save is never overwritten: the flush is refused and the XP stays dirty.
+    storage.setItem(CAREER_STORAGE_KEY, '{corrupt')
+    game._applyPlayerSkillAward({ skill: 'oneHanded', xp: 2 })
+    vi.advanceTimersByTime(600)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe('{corrupt')
+    expect(game.careerSkillSave.dirty).toBe(true)
+    expect(game._flushCareerSkillProgression()).toBe(false)
+    // A co-op guest saves into its own save: a refused write never blocks the mission's flows.
+    Object.assign(game, { coopPlayerSource: { commitSkills: () => false, read: () => cached } })
+    expect(game._flushCareerSkillProgression()).toBe(true)
+    expect(game.careerSkillSave.dirty).toBe(true)
+    // Without a profile there is nothing to save and the flush succeeds.
+    Object.assign(game, { coopPlayerSource: null, careerProfile: null })
+    expect(game._flushCareerSkillProgression()).toBe(true)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe('{corrupt')
   })
 })

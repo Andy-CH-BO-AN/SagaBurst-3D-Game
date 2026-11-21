@@ -307,11 +307,7 @@ export class TownScene {
   private store = new CareerProfileStore()
   private tutorial?: TownTutorialController
   private story?: TownStoryController
-  private readonly careerSkillSave = new CareerSkillSaveScheduler({
-    save: () => this.saveCareerSkills(),
-    blocked: () => Boolean(this.retirementFinale?.frozen),
-    onSaveFailed: () => { this.notice = '技能進度保存失敗，請稍後重試。' },
-  })
+  private readonly careerSkillSave = this.createCareerSkillSaveScheduler()
   private mission!: BanditMissionController
   private duel!: CareerDuelController
   private defense!: CommanderTownMissionController | CommanderFourGateDefenseController
@@ -1213,6 +1209,14 @@ export class TownScene {
     const played = await sound.playTownAlarm(true)
     if (played && !this.disposed && this.profile.activeMission?.id === missionId && !this.profile.activeMission?.result) sound.playCommanderCommand(this.profile.faction, 'attack')
   }
+  private createCareerSkillSaveScheduler(): CareerSkillSaveScheduler {
+    return new CareerSkillSaveScheduler({
+      save: () => this.saveCareerSkills(),
+      blocked: () => Boolean(this.retirementFinale?.frozen),
+      onSaveFailed: () => { this.notice = '技能進度保存失敗，請稍後重試。' },
+    })
+  }
+
   /**
    * Town is the only writer of this profile while the scene lives (every other save publishes `this.profile`
    * first), so cloning the in-memory profile cannot drop newer stored state. Unlike the battle scene it

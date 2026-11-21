@@ -652,10 +652,7 @@ export class Game {
   private careerProfile: CareerProfile | null = null
   private careerMeritAwarded = 0
   private readonly careerStore = new CareerProfileStore()
-  private readonly careerSkillSave = new CareerSkillSaveScheduler({
-    save: () => this._saveCareerSkills(),
-    blocked: () => !this.careerProfile,
-  })
+  private readonly careerSkillSave = this.createCareerSkillSaveScheduler()
   private readonly flushCareerSkillsOnPageHide = (): void => {
     this._flushCareerSkillProgression()
   }
@@ -4354,6 +4351,13 @@ export class Game {
         }
       }
     }, { signal: this.sceneListeners.signal })
+  }
+
+  private createCareerSkillSaveScheduler(): CareerSkillSaveScheduler {
+    return new CareerSkillSaveScheduler({
+      save: () => this._saveCareerSkills(),
+      blocked: () => !this.careerProfile,
+    })
   }
 
   private _scheduleCareerSkillProgressionFlush(): void {

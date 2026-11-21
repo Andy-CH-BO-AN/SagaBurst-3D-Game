@@ -83,7 +83,8 @@ interface TownSkillEntry {
   careerSkillSave: CareerSkillSaveScheduler
   skills: SkillManager
   awardCareerSkillXp(award: { skill: 'oneHanded'; xp: number }): void
-  saveCareerSkills(): boolean
+  retirementFinale?: { frozen: boolean }
+  createCareerSkillSaveScheduler(): CareerSkillSaveScheduler
 }
 
 /** The production TownScene methods over a plain-data state; no scene, world or actor is built. */
@@ -139,7 +140,7 @@ describe('TownScene hostile result caller', () => {
 })
 
 describe('TownScene career skill saves', () => {
-  it('routes awards through the shared debounce and saves the in-memory profile at 600ms without publishing a rejected write', () => {
+  it('routes awards through the shared debounce, saves at 600ms, reports a rejected write and holds while the finale is frozen', () => {
     vi.useFakeTimers()
     onTestFinished(() => { vi.clearAllTimers(); vi.useRealTimers() })
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
@@ -150,9 +151,7 @@ describe('TownScene career skill saves', () => {
       player: { dead: false, spectatorOnly: false, blockingLevel: 1, armorBreakLevel: 1 },
       synchronizeEaglePatrolPolicy() {},
     })
-    town.careerSkillSave = new CareerSkillSaveScheduler({
-      save: () => town.saveCareerSkills(),
-    })
+    town.careerSkillSave = town.createCareerSkillSaveScheduler()
     town.awardCareerSkillXp({ skill: 'oneHanded', xp: 7 })
     vi.advanceTimersByTime(599)
     expect(store.load()!.skills!.oneHanded.xp).toBe(0)
@@ -164,6 +163,13 @@ describe('TownScene career skill saves', () => {
     town.awardCareerSkillXp({ skill: 'oneHanded', xp: 3 })
     vi.advanceTimersByTime(600)
     expect(town.profile.skills!.oneHanded.xp).toBe(10) // the live profile keeps the XP; only the durable write failed
+    expect(store.load()!.skills!.oneHanded.xp).toBe(7)
+    expect(town.careerSkillSave.dirty).toBe(true)
+    expect(town.notice).toBe('技能進度保存失敗，請稍後重試。')
+
+    storage.failWrites = false
+    town.retirementFinale = { frozen: true } // a frozen finale owns the profile: flush is a no-op that keeps the XP dirty
+    expect(town.careerSkillSave.flush()).toBe(true)
     expect(store.load()!.skills!.oneHanded.xp).toBe(7)
     expect(town.careerSkillSave.dirty).toBe(true)
   })
