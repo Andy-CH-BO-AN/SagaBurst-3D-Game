@@ -445,11 +445,11 @@ export class NPC {
   get holdsRampartPosition(): boolean { return this.rampartDuty.holdsPosition(this) }
 
   get holdsRampartFirePosition(): boolean {
-    // An explicit Defend command owns stationary fire even after a formation
-    // released native duty. This never grants Attack a movement-hold policy.
-    return this.aiType === AIType.RANGED && (this.holdsRampartPosition
-      || this.tacticalOrder === 'defend' && !this.isMounted && Boolean(this._activeNavigationWorld?.outpostNav
-        && isRampartLayer(this._activeNavigationWorld.outpostNav.getNavLayer(this.combatPosition))))
+    return this.aiType === AIType.RANGED && this.rampartDuty.holdsFirePosition(this)
+  }
+  get standsOnOutpostRampart(): boolean {
+    const nav = this._activeNavigationWorld?.outpostNav
+    return Boolean(nav && isRampartLayer(nav.getNavLayer(this.combatPosition)))
   }
 
   private formationTarget: FormationTarget | null = null

@@ -6,6 +6,11 @@ export interface RampartDutyActor {
   readonly isMounted: boolean
 }
 
+/** Adds the lazily read ground fact the fire-position policy needs. */
+export interface RampartFireActor extends RampartDutyActor {
+  readonly standsOnOutpostRampart: boolean
+}
+
 /**
  * Native wall duty owned by one actor. Town walls admit a mounted body only with
  * explicit permission; Outpost duty holds foot soldiers only. Release clears both,
@@ -38,5 +43,12 @@ export class RampartDuty {
   holdsPosition(actor: RampartDutyActor): boolean {
     return (actor.tacticalOrder === 'defend' || actor.tacticalOrder === 'attack')
       && (this.isTownActive(actor) || !actor.isMounted && this.outpost)
+  }
+
+  /** An explicit Defend command owns stationary fire even after a formation
+   * released native duty. This never grants Attack a movement-hold policy. */
+  holdsFirePosition(actor: RampartFireActor): boolean {
+    return this.holdsPosition(actor)
+      || actor.tacticalOrder === 'defend' && !actor.isMounted && actor.standsOnOutpostRampart
   }
 }
