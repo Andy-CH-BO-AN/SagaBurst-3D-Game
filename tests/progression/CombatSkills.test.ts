@@ -56,6 +56,12 @@ describe('Career skill progression', () => {
     expect(skills.skillState.oneHanded.xp).toBe(0); expect(skills.skillState.twoHanded.xp).toBe(0)
     expect(live.profile.skills!.unarmed.xp).toBe(10)
     expect(record).toMatchObject({ dirty: true, scheduled: 1, flushed: 0, levelUps: [] })
+    // A dead, spectating or observing player, and the duel tutorial, earn nothing further.
+    record.eligible = false
+    applyTownSkillXp({ skill: 'unarmed', xp: 10 }, ports)
+    record.eligible = true; live.profile.activeMission = { duelTutorialCareerId: 'career' } as never
+    applyTownSkillXp({ skill: 'unarmed', xp: 10 }, ports)
+    expect(skills.skillState.unarmed.xp).toBe(10); expect(record.scheduled).toBe(1)
   })
   it('flushes at once and reports the levels when an XP award levels a skill', () => {
     const { ports, record, skills, live } = townSkillPorts()
