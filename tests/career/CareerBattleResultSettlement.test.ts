@@ -52,5 +52,16 @@ describe('Career battle result settlement', () => {
     expect(settle().status).toBe('saved')
     expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(settledBytes)
     expect(store.load()!.totalMerit).toBe(stored.totalMerit)
+
+    // A claim that already saved itself (bridge battles) is acknowledged without a second write.
+    writes.mockClear()
+    let own: ReturnType<typeof store.load> = null
+    const durable = settleCareerBattleResult({
+      store, flushSkills: () => true, persistBattle: () => true,
+      claim: fresh => { own = { ...fresh, availableMerit: fresh.availableMerit + 1 }; expect(store.save(own)).toBe(true); return { profile: own, durable: true } },
+    })
+    expect(writes).toHaveBeenCalledOnce()
+    expect(durable).toEqual({ status: 'saved', profile: own })
+    expect(store.load()).toEqual(own)
   })
 })
