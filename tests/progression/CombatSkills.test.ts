@@ -48,7 +48,7 @@ function townSkillPorts() {
 }
 
 describe('Career skill progression', () => {
-  it('applies a player unarmed XP award to live skills and the Town profile, saved lazily', () => {
+  it('applies a player unarmed XP award to the live skills and Town profile: lazy save, gates, then an immediate level-up flush', () => {
     const { ports, record, skills, live } = townSkillPorts()
     const event = damageEvent('melee', 'npc', 5, 'unarmed')
     applyTownSkillXp(resolveActivePlayerSkillProgressionAward(event, { dead: false, spectatorOnly: false, observer: false }, WEAPONS.viking_axe_t3, true)!, ports)
@@ -62,14 +62,11 @@ describe('Career skill progression', () => {
     record.eligible = true; live.profile.activeMission = { duelTutorialCareerId: 'career' } as never
     applyTownSkillXp({ skill: 'unarmed', xp: 10 }, ports)
     expect(skills.skillState.unarmed.xp).toBe(10); expect(record.scheduled).toBe(1)
-  })
-  it('flushes at once and reports the levels when an XP award levels a skill', () => {
-    const { ports, record, skills, live } = townSkillPorts()
-    skills.addXp('unarmed', skills.getXpNeeded(1) - 1)
-    applyTownSkillXp({ skill: 'unarmed', xp: 2 }, ports)
-    expect(skills.skillState.unarmed.level).toBe(2)
-    expect(live.profile.skills!.unarmed.level).toBe(2)
-    expect(record).toMatchObject({ dirty: true, scheduled: 0, flushed: 1, levelUps: [1] })
+    // A level-up saves at once instead of lazily and reports the levels gained.
+    delete live.profile.activeMission
+    applyTownSkillXp({ skill: 'unarmed', xp: skills.getXpNeeded(1) }, ports)
+    expect(skills.skillState.unarmed.level).toBe(2); expect(live.profile.skills!.unarmed.level).toBe(2)
+    expect(record).toMatchObject({ scheduled: 1, flushed: 1, levelUps: [1] })
   })
   it('徒手技能倍率、傷害事件雙倍 XP 結算與升級曲線完整驗證', () => {
     const manager = new SkillManager()

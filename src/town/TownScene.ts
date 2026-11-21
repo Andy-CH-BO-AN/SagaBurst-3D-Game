@@ -313,11 +313,14 @@ export class TownScene {
   private defense!: CommanderTownMissionController | CommanderFourGateDefenseController
   private careerMounts!: CareerMountController
   private missionSettlement!: TownMissionSettlement
-  private readonly townResult = new TownResultSettlement({
-    read: () => this.profile, commit: profile => this.commit(profile),
-    announce: outcome => { if (this.coopHost) coopSession().send({ t: 'townResult', outcome }) },
-    dispose: () => this.dispose(), restart: (profile, reason) => this.onRestart(profile, reason),
-  })
+  private readonly townResult = this.createTownResultSettlement()
+  private createTownResultSettlement(): TownResultSettlement {
+    return new TownResultSettlement({
+      read: () => this.profile, commit: profile => this.commit(profile),
+      announce: outcome => { if (this.coopHost) coopSession().send({ t: 'townResult', outcome }) },
+      dispose: () => this.dispose(), restart: (profile, reason) => this.onRestart(profile, reason),
+    })
+  }
   private patrol!: TownCavalryPatrolController
   private squadRefitSafety = new SquadRefitSafety()
   private townCommand?: TownCommandSquadController

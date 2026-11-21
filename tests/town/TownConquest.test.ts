@@ -1,4 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { careerRankFixture } from '../helpers/careerRankFixture'
+import { MemoryStorage } from '../helpers/memoryStorage'
+import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { TemporaryBattlefieldMounts } from '../../src/career/TemporaryBattlefieldMounts'
+import { TownScene } from '../../src/town/TownScene'
 import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
 import { TownEvent, townRoster } from '../../src/town/TownRules'
 
@@ -57,5 +63,62 @@ describe('full population conquest outcomes and registration', () => {
     event.register(id, { dead: true }); expect(event.evaluate(false)).toBeNull()
     event.complete(); expect(event.evaluate(false)).toBe('town_defeated')
     event.actors.delete(id); expect(event.evaluate(false)).toBeNull()
+  })
+})
+
+interface TownSettleEntry {
+  profile: CareerProfile
+  notice: string
+  townResult: unknown
+  createTownResultSettlement(): unknown
+  finish(result: 'town_defeated' | 'player_defeated'): void
+  restoreTownCasualties(): void
+}
+
+describe('TownScene hostile result caller', () => {
+  it('restores saved casualties, refuses a stale save, retries a failed write once, then restarts', () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    const profile = createCareerProfile('roman')
+    profile.totalMerit = 22000; profile.availableMerit = 180; Object.assign(profile, careerRankFixture(profile.faction, 'commander'))
+    profile.townEvent = { id: 'conquest', state: 'hostile', deadActorIds: ['cat', 'merchant'], destroyedBuildingIds: ['tower-1'] }
+    expect(store.save(profile)).toBe(true)
+    const damaged: string[] = [], destroyed: string[] = [], panels: string[] = [], buttons: Array<{ label: string; action: () => void }> = []
+    const restarts: Array<{ profile: CareerProfile; reason?: string }> = []
+    const town = Object.assign(Object.create(TownScene.prototype) as TownSettleEntry, {
+      profile: store.load()!, store, notice: '', skills: { skillState: profile.skills }, careerSaveFailures: 0, careerSkillsDirty: false,
+      clearCareerSkillSaveTimer() {}, player: { dead: false }, temporaryMounts: new TemporaryBattlefieldMounts(), missionBoard: { page: undefined },
+      cat: { takeDamage: () => { damaged.push('cat') } },
+      residents: [{ spec: { id: 'merchant' }, npc: { takeDamage: () => { damaged.push('merchant') } } }],
+      world: { buildings: [{ id: 'tower-1', hp: { destroy: () => { destroyed.push('tower-1') } } }] },
+      onRestart: (next: CareerProfile, reason?: string) => { restarts.push({ profile: next, reason }) }, dispose() {},
+      openPanel: (title: string) => { panels.push(title); return {} },
+      button: (_panel: unknown, label: string, action: () => void) => { buttons.push({ label, action }) },
+    })
+    town.townResult = town.createTownResultSettlement()
+    town.restoreTownCasualties()
+    expect(damaged).toEqual(['cat', 'merchant']); expect(destroyed).toEqual(['tower-1'])
+
+    // Another tab already settled this event: the stale scene must not overwrite it.
+    const other = JSON.parse(JSON.stringify(town.profile)) as CareerProfile
+    other.townEvent = { id: 'conquest', state: 'settled', result: 'town_defeated', penalty: 0 }
+    expect(store.save(other)).toBe(true)
+    const otherBytes = JSON.stringify(store.load())
+    town.finish('player_defeated')
+    expect(town.profile.townEvent?.state).toBe('hostile'); expect(JSON.stringify(store.load())).toBe(otherBytes)
+    expect(town.notice).not.toBe(''); expect(panels).toEqual(['結算尚未保存']); expect(restarts).toEqual([])
+
+    expect(store.save(profile)).toBe(true) // the stored event is ours again; the write itself now fails once
+    storage.failWrites = true
+    town.finish('player_defeated')
+    expect(restarts).toEqual([]); expect(panels).toHaveLength(2)
+    storage.failWrites = false
+    buttons.at(-1)!.action() // 重試保存
+    expect(store.load()!.townEvent).toMatchObject({ state: 'settled', result: 'player_defeated' })
+    expect(store.load()!.availableMerit).toBe(80)
+    expect(panels).toHaveLength(3)
+    town.finish('player_defeated') // settled once: no second penalty or panel
+    expect(store.load()!.availableMerit).toBe(80); expect(panels).toHaveLength(3)
+    buttons.at(-1)!.action()
+    expect(restarts).toEqual([{ profile: town.profile, reason: 'death-return' }])
   })
 })

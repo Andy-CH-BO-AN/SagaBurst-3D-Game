@@ -7,7 +7,7 @@ import { startCareerTutorial } from '../../src/career/CareerTutorial'
 import { TownTutorialController, type TownTutorialHost } from '../../src/town/TownTutorialController'
 import { getTownCommandWatchtowerLayout } from '../../src/town/TownCommandWatchtowerLayout'
 import { townAuthoredRoster } from '../../src/town/TownRules'
-import { openDeploymentVisit } from '../../src/town/TownDeploymentVisit'
+import { TownScene } from '../../src/town/TownScene'
 import { TownMissionBoard } from '../../src/town/TownMissionBoard'
 import { storyDialogueOpen } from '../../src/career/CareerStoryGuidance'
 
@@ -194,20 +194,20 @@ describe('TownTutorialUX', () => {
     let panel = new MockElement('div')
     const board = new TownMissionBoard({ profile, tutorial: undefined, captainPatrol: undefined,
       defenseForce: () => ({ friendlyCombatants: 0 }), accept: vi.fn() })
-    const shown = { invitation: 0, services: 0 }
+    const scene = Object.create(TownScene.prototype) as TownScene
+    const invitation = vi.fn()
+    Object.assign(scene, { profile, missionBoard: board, player: { dead: false }, serviceAvailable: () => true,
+      story: { hasDialogue: (id: string) => storyDialogueOpen(profile, id), renderDialogue: invitation },
+      openPanel: () => { panel = new MockElement('div'); return panel }, tutorialBypass: true })
     const context = { townFaction: 'roman', npcRole: 'deployment', playerRank: 'soldier', firstMeet: false, promotionEligible: false } as const
-    const visit = (bypassIntro: boolean) => openDeploymentVisit(bypassIntro, {
-      available: () => true, showPendingResult: () => false,
-      story: { hasDialogue: id => storyDialogueOpen(profile, id) }, showStory: () => { shown.invitation++ }, showTutorial() {},
-      showServices: reopen => { shown.services++; panel = new MockElement('div'); board.render(panel as unknown as HTMLElement, { context, firstOutpost: false, reopen }) },
-    })
-    visit(true) // talk()'s one-shot bypass is active only for this first open; later tab clicks must not need it.
+    scene['openDeploymentPanel']('正式任務', context, false)
+    Object.assign(scene, { tutorialBypass: false }) // The one-shot talk() bypass has ended before the next click.
     panel.querySelectorAll('button').find(button => button.textContent === '新兵任務')!.onclick!()
     expect(board.page).toBe('recruit')
     expect(panel.querySelectorAll('button').some(button => button.textContent === '士兵任務')).toBe(true)
-    expect(shown).toEqual({ invitation: 0, services: 2 })
-    visit(false)
-    expect(shown).toEqual({ invitation: 1, services: 2 })
+    expect(invitation).not.toHaveBeenCalled()
+    scene['openDeploymentPanel']('正式任務', context, false)
+    expect(invitation).toHaveBeenCalledOnce()
   })
 
   it('可延後買武器直接開任務服務，日後實際購買仍只領一次獎勵', () => {

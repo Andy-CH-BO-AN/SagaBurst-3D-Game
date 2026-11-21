@@ -4,7 +4,7 @@ import { createCareerProfile, enlistmentMerit, type CareerProfile } from '../../
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { createDefaultSkillState } from '../../src/rpg/SkillManager'
 import { commitTownProfile, type TownProfileCommitRuntime } from '../../src/town/TownProfileCommit'
-import { restoreTownCasualties, TownResultSettlement } from '../../src/town/TownResultSettlement'
+import { TownResultSettlement } from '../../src/town/TownResultSettlement'
 import type { TownResult } from '../../src/town/TownRules'
 import { careerRankFixture } from '../helpers/careerRankFixture'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -51,7 +51,8 @@ function settledTown(profile: CareerProfile) {
 }
 
 describe('Town result settlement', () => {
-  it.each(['town_defeated', 'player_defeated'] as const)('claims %s only by a successful save, settles once on retry, then allows the transition', result => {
+  it('claims a result only by a successful save, settles once on retry, then allows the transition', () => {
+    for (const result of ['town_defeated', 'player_defeated'] as const) {
     const profile = hostileProfile(), original = JSON.parse(JSON.stringify(profile)) as CareerProfile
     const { settlement, storage, store, live, record } = settledTown(profile)
     storage.failWrites = true
@@ -86,22 +87,6 @@ describe('Town result settlement', () => {
     expect(record.disposed).toBe(1)
     expect(record.restarts).toEqual([{ profile: live.profile, reason: result === 'player_defeated' ? 'death-return' : undefined }])
     expect(live.profile.townEvent?.result).toBe(result)
-  })
-
-  it('re-applies only the saved casualties of a hostile Town event', () => {
-    const damaged: string[] = [], destroyed: string[] = []
-    const ports = {
-      actor: (id: string) => id === 'missing' ? undefined : { takeDamage: (amount: number) => { damaged.push(`${id}:${amount > 100000}`) } },
-      building: (id: string) => ({ hp: { destroy: () => { destroyed.push(id) } } }),
     }
-    const profile = hostileProfile()
-    profile.townEvent = { id: 'conquest', state: 'hostile', deadActorIds: ['cat', 'gate:east:0', 'missing'], destroyedBuildingIds: ['tower-1'] }
-    restoreTownCasualties(profile, ports)
-    expect(damaged).toEqual(['cat:true', 'gate:east:0:true']); expect(destroyed).toEqual(['tower-1'])
-
-    damaged.length = 0; destroyed.length = 0
-    profile.townEvent = { id: 'conquest', state: 'settled', result: 'town_defeated', penalty: 0, deadActorIds: ['cat'], destroyedBuildingIds: ['tower-1'] }
-    restoreTownCasualties(profile, ports)
-    expect(damaged).toEqual([]); expect(destroyed).toEqual([])
   })
 })
