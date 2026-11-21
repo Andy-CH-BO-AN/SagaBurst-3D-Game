@@ -12,14 +12,13 @@ import { TOWN_GATES } from '../town/TownLayout'
 import { isAutonomousTownGuard } from '../town/TownNativeGuardIdentity'
 import type { TownOutskirtsWarfareController } from '../town/TownOutskirtsWarfareController'
 import { civilianShouldFight, civilianWartimeWeapon, townWartimePeers } from '../town/TownWartime'
-import type { TownWorld } from '../town/TownWorld'
-import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
-import { Mount, mountTypeFromId } from '../world/Mount'
-import { NPC } from '../world/NPC'
+import type { Mount } from '../world/Mount'
+import type { NPC } from '../world/NPC'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import { SpatialGrid } from '../world/SpatialGrid'
 import { getTerrainHeight, type EntityCollisionBody } from '../world/Terrain'
 import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
+import type { CareerActorFactory } from './CareerActorFactory'
 import { restoreCommandActor, snapshotCommandActor } from './CareerCommandActorCheckpoint'
 import { officialActorSquadId, officialCommandIsPlayerControlled } from './CareerCommandAuthority'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
@@ -33,16 +32,21 @@ import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefenseP
 import { advanceCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, isCommanderInfantryEscorting } from './CommanderInfantryEscort'
 import type { CommanderTownResident } from './CommanderTownMissionController'
 import { civilianShelterSlots } from './TownCivilianShelter'
-import { TownFourGateSiege, type TownFourGateSiegeOptions } from './TownFourGateSiege'
+import { TownFourGateSiege, type TownFourGateSiegeOptions, type TownSiegeNavigation, type TownSiegeWorld } from './TownFourGateSiege'
 
 export interface CommanderFourGateDefenseContext {
-  world: TownWorld
+  world: TownSiegeWorld
+  /** Builds each of the eight siege vehicles; production renders them into the Town scene. */
+  createRamp: TownFourGateSiegeOptions['createRamp']
   patrol?: TownCavalryPatrolController
   outskirts?: TownOutskirtsWarfareController
   blockers?(): readonly EntityCollisionBody[]
   registerHit: TownFourGateSiegeOptions['registerHit']
   unregisterHit: TownFourGateSiegeOptions['unregisterHit']
 }
+
+/** Shelter/muster cells plus everything the siege adapter routes through. */
+export type CommanderFourGateNavigation = TownSiegeNavigation & { grid: Pick<NavigationWorld['grid'], 'findNearestWalkableCell' | 'cellToWorld'> }
 
 /** The formal home-Town mission owns deployment and Career transactions. PR7 remains
  * the sole owner of the eight vehicles, passages, convoy, topology and breach events. */
@@ -78,9 +82,9 @@ export class CommanderFourGateDefenseController {
   private pendingEscortReleases?: readonly string[]
   private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
 
-  constructor(private readonly scene: THREE.Scene, private readonly residents: readonly CommanderTownResident[],
+  constructor(private readonly actorFactory: CareerActorFactory, private readonly residents: readonly CommanderTownResident[],
     private readonly player: () => Player, private readonly readProfile: () => CareerProfile,
-    private readonly commit: (profile: CareerProfile) => boolean, private readonly navigation: NavigationWorld,
+    private readonly commit: (profile: CareerProfile) => boolean, private readonly navigation: CommanderFourGateNavigation,
     private readonly context: CommanderFourGateDefenseContext, private readonly scheduler: NpcSpawnScheduler = gameplayNpcSpawns) {}
 
   get active(): ActiveCareerMission | undefined {
@@ -191,7 +195,7 @@ export class CommanderFourGateDefenseController {
     const rangedIds = new Set(this.roster!.archers.map(spec => spec.actorId!))
     const sectors = this.deployment!.sectors.map(sector => ({ ...sector,
       attackerActorIds: this.roster!.ground.filter(spec => this.roster!.gateByActorId.get(spec.actorId!) === sector.gateId).map(spec => spec.actorId!) }))
-    this.fourGateSiege = new TownFourGateSiege({ scene: this.scene, world: this.context.world,
+    this.fourGateSiege = new TownFourGateSiege({ createRamp: this.context.createRamp, world: this.context.world,
       navigation: this.navigation, grid: new SpatialGrid<NPC>(), actors: () => this.fieldNpcs,
       sectors, acceptsOrders: npc => !this.playerIssuedCommands.has(npc.combatantId) && !this.civilianCommandOwns(npc),
       attackerRole: npc => cavalryIds.has(npc.combatantId) ? 'gate-cavalry'
@@ -300,8 +304,7 @@ export class CommanderFourGateDefenseController {
 
   private materializeMount(spec: NpcSpawnSpec, saved?: PersonalActorCheckpoint): Mount | undefined {
     if (!spec.loadout?.mountId) return undefined
-    const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(spec.loadout.mountId), spec.x, spec.z,
-      undefined, horseVariantForStableKey(spec.actorId!)))
+    const mount = trackNpcSpawn(this.actorFactory.mount(spec.loadout.mountId, spec.x, spec.z, undefined, spec.actorId!))
     mount.temporaryCombatId = `${spec.actorId}:mount`
     this.enemyMounts.push(mount); this.actorMounts.set(spec.actorId!, mount)
     if (saved?.mount) {
@@ -317,10 +320,7 @@ export class CommanderFourGateDefenseController {
 
   private materializeEnemy(spec: NpcSpawnSpec, crew: boolean): void {
     const id = spec.actorId!, saved = this.state!.actors[id]
-    const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, spec.faction, spec.characterFaction, spec.aiType,
-      spec.name, spec.tier, spec.cavalry, spec.loadout, spec.presetId, spec.squadId, id, this.events.emit,
-      spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile, undefined, undefined, undefined,
-      spec.spawnY === undefined ? undefined : { y: spec.spawnY }, spec.characterTier, spec.heroArchetype))
+    const npc = trackNpcSpawn(this.actorFactory.npc(spec, id, this.events.emit, spec.spawnY === undefined ? undefined : { y: spec.spawnY }))
     npc.enableBattlefieldEngagement()
     npc.respawnEnabled = false
     const mount = this.materializeMount(spec)

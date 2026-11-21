@@ -50,6 +50,9 @@ import { CAREER_RANK_LABELS, CAREER_RANK_THRESHOLDS, CAREER_RANKS, clearCareerMi
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { canAppointCareerRank, type CareerAppointingRole } from '../career/CareerPromotionAuthority'
 import { CareerRaceController } from '../career/CareerRaceController'
+import { sceneCareerActorFactory } from '../career/CareerActorFactory'
+import { townDeploymentReady } from './TownDeploymentReady'
+import { MobileSiegeRamp } from '../campaign/MobileSiegeRamp'
 import { raceReturnAction } from '../career/CareerRaceReturn'
 import { RACE_LINES } from '../career/CareerRaceRoute'
 import { RACE_STORY_RACE_ID, raceDefinitionForSchedule, type RaceId } from '../career/CareerRaceState'
@@ -100,7 +103,7 @@ import { PlayerInput } from '../player/PlayerInput'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { bindWindowResize, configureSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO } from '../rendering/SceneRenderer'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, skillStatesEqual, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
+import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
 import { EQUIPMENT_CATEGORIES, equipmentSections, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { compareEquipment, equipmentDetails, equipmentTraits } from '../rpg/EquipmentComparison'
 import { compareMounts, mountComparisonText, mountDetails, mountTraits } from '../rpg/MountComparison'
@@ -165,6 +168,10 @@ import { townMerchantLoadout } from './TownMerchantEquipment'
 import { TownMissionBoard, type MissionBoardHost, type MissionBoardRequest } from './TownMissionBoard'
 import { TownMissionCombat, type TownCombatResident as Resident } from './TownMissionCombat'
 import { restoreMissionReturnResident, TownMissionSettlement } from './TownMissionSettlement'
+import { restoreTownCasualties, TownResultSettlement } from './TownResultSettlement'
+import { openDeploymentVisit } from './TownDeploymentVisit'
+import { routeTownCombatEvent } from './TownCombatEventRouter'
+import { applyTownSkillXp } from './TownSkillProgression'
 import { isAutonomousTownGuard } from './TownNativeGuardIdentity'
 import { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController'
 import { personalMemberLoadout, TownPersonalSquadController } from './TownPersonalSquadController'
@@ -175,7 +182,7 @@ import { warmTownRenderResources } from './TownRenderWarmup'
 import { TownRetirementFinaleController } from './TownRetirementFinaleController'
 import { TownRetirementMobilizationController } from './TownRetirementMobilizationController'
 import { appendCommanderRetirementOption } from './TownRetirementUI'
-import { deferTownResult, isCivilian, isTownProductOwned, productStatus, purchaseTownEquipment, purchaseTownMount, sellTownProduct, sellTownProducts, settleTown, stableHorsePositions, TOWN_RESALE_PERCENT, TOWN_RULES, townActorHeroProfile, townCaptainProfile, TownEvent, townHoldingText, townMilitaryEquipment, townName, townOfficerPreload, townPlayerEntryPoint, townProductUnit, townResalePrice, townRoster, townSaleStatus, townShopProducts, townSitePoint, updateRangerMount, withTownCommandSquadRoster, type TownActorSpec, type TownResult } from './TownRules'
+import { deferTownResult, isCivilian, isTownProductOwned, productStatus, purchaseTownEquipment, purchaseTownMount, sellTownProduct, sellTownProducts, stableHorsePositions, TOWN_RESALE_PERCENT, TOWN_RULES, townActorHeroProfile, townCaptainProfile, TownEvent, townHoldingText, townMilitaryEquipment, townName, townOfficerPreload, townPlayerEntryPoint, townProductUnit, townResalePrice, townRoster, townSaleStatus, townShopProducts, townSitePoint, updateRangerMount, withTownCommandSquadRoster, type TownActorSpec, type TownResult } from './TownRules'
 import { appendTownSaleDropdown } from './TownSaleUI'
 import { updateTownEquipmentVisibleStatus } from './TownSquadEquipmentUI'
 import { TownStoryController } from './TownStoryController'
@@ -306,6 +313,14 @@ export class TownScene {
   private defense!: CommanderTownMissionController | CommanderFourGateDefenseController
   private careerMounts!: CareerMountController
   private missionSettlement!: TownMissionSettlement
+  private readonly townResult = this.createTownResultSettlement()
+  private createTownResultSettlement(): TownResultSettlement {
+    return new TownResultSettlement({
+      read: () => this.profile, commit: profile => this.commit(profile),
+      announce: outcome => { if (this.coopHost) coopSession().send({ t: 'townResult', outcome }) },
+      dispose: () => this.dispose(), restart: (profile, reason) => this.onRestart(profile, reason),
+    })
+  }
   private patrol!: TownCavalryPatrolController
   private squadRefitSafety = new SquadRefitSafety()
   private townCommand?: TownCommandSquadController
@@ -354,10 +369,7 @@ export class TownScene {
   private residentSpawnBatch?: NpcSpawnBatch
   private commanderReturnPending = false
   private get deploymentReady(): boolean {
-    // An idle Commander controller has no deployed roster. Only its active
-    // mission may hold Town simulation while that roster is being prepared.
-    return (this.mission?.ready ?? true) && (!this.defense?.active || this.defense.ready)
-      && (!(isCommanderTownMission(this.profile.activeMission) || this.profile.activeMission?.kind === 'commander-four-gate-defense') || (this.personalSquad?.ready ?? true))
+    return townDeploymentReady({ mission: this.mission, defense: this.defense, personalSquad: this.personalSquad, activeMission: this.profile.activeMission })
   }
   private get deploymentFailed(): boolean {
     return [...(this.mission?.spawnBatches ?? []), ...(this.defense?.spawnBatches ?? []), ...(this.outskirts?.batches ?? []), ...(this.enemyEaglePatrol?.batches ?? [])]
@@ -606,9 +618,11 @@ export class TownScene {
     this.duel.resolvePlayerHomeMount = () => this.careerMounts?.activeMount ?? null
     this.duel.onMarchStarted = () => this.playMissionVoice('follow')
     this.duel.onReturnStarted = () => this.playMissionVoice('return')
+    const missionActors = sceneCareerActorFactory(this.scene)
     this.defense = this.profile.activeMission?.kind === 'commander-four-gate-defense'
-      ? new CommanderFourGateDefenseController(this.scene, this.residents, () => this.player, () => this.profile,
-        p => this.commit(p), this.navigation, { world: this.world, patrol: this.patrol, outskirts: this.outskirts,
+      ? new CommanderFourGateDefenseController(missionActors, this.residents, () => this.player, () => this.profile,
+        p => this.commit(p), this.navigation, { world: this.world, createRamp: (...ramp) => new MobileSiegeRamp(this.scene, ...ramp),
+          patrol: this.patrol, outskirts: this.outskirts,
           blockers: () => this.siegeMovementBlockers(),
           registerHit: ramp => {
             this.siegeHitTargets.add(ramp.damageable)
@@ -617,7 +631,7 @@ export class TownScene {
               ramp.surface.topY - ramp.surface.startY) + ramp.bridgeSurface.length + 8)
           },
           unregisterHit: ramp => { this.siegeHitTargets.delete(ramp.damageable) } })
-      : new CommanderTownMissionController(this.scene, this.residents, () => this.player, () => this.profile,
+      : new CommanderTownMissionController(missionActors, this.residents, () => this.player, () => this.profile,
         p => this.commit(p), this.navigation, undefined, { obstacles: this.world.obstacles,
           otherThreats: () => [...this.mission.ambientBandits, ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? [])]
             .filter(npc => !npc.dead && (npc.faction === Faction.ENEMY || npc.faction === Faction.BANDIT))
@@ -634,7 +648,7 @@ export class TownScene {
     })
     this.defense.civilianCommandOwns = npc => Boolean(this.civilianCommand?.ownsPlayerCommand(npc) || this.civilianCommand?.ownsPeacefulTravel(npc))
     this.initializeCareerMounts()
-    this.race = new CareerRaceController(this.scene, this.navigation, this.world.obstacles, this.residents,
+    this.race = new CareerRaceController(missionActors, this.navigation, this.world.obstacles, this.residents,
       () => this.player, this.hp, this.careerMounts, () => this.profile, p => this.commit(p, this.player.dead && this.profile.activeRace && !p.activeRace ? 'grounded-return' : 'ordinary'))
     this.race.parkedBlockers = except => [...this.townReturnBlockers(except)]
     this.race.returnGroundHeight = (x, z) => this.sergeantReturnGroundHeight(x, z)
@@ -1429,33 +1443,22 @@ export class TownScene {
     if (award) this.awardCareerSkillXp(award)
   }
 
-  private awardCareerSkillXp({ skill, xp }: SkillProgressionAward): void {
-    if (!canAwardPlayerSkillProgression({
-      dead: this.player.dead,
-      spectatorOnly: this.player.spectatorOnly,
-      observer: Boolean(this.spectator),
-    })) return
-    if (xp <= 0 || this.profile.activeMission?.duelTutorialCareerId) return
-
-    const before = this.skills.skillState
-    const levelsGained = this.skills.addXp(skill, xp, sound)
-    const after = this.skills.skillState
-    syncPlayerSkillCombatLevels(this.player, after)
-    if (skillStatesEqual(before, after)) return
-
-    const next = cloneCareerProfile(this.profile)
-    next.skills = after
-    this.profile = next
-    this.careerSkillsDirty = true
-    if (levelsGained > 0) this.flushCareerSkillProgression()
-    else this.scheduleCareerSkillProgressionFlush()
-
-    if (levelsGained <= 0) return
-    const oldHp = this.player.hp
-    const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
-    this.player.setMaxHp(newMaxHp, false)
-    this.player.setHp(Math.min(newMaxHp, oldHp + levelsGained))
-    this.hp.setFill(this.player.hpRatio)
+  private awardCareerSkillXp(award: SkillProgressionAward): void {
+    applyTownSkillXp(award, {
+      canAward: () => canAwardPlayerSkillProgression({ dead: this.player.dead, spectatorOnly: this.player.spectatorOnly, observer: Boolean(this.spectator) }),
+      profile: () => this.profile, publishProfile: next => { this.profile = next },
+      skillState: () => this.skills.skillState, addXp: (skill, xp) => this.skills.addXp(skill, xp, sound),
+      syncPlayerLevels: state => syncPlayerSkillCombatLevels(this.player, state),
+      markDirty: () => { this.careerSkillsDirty = true },
+      flushNow: () => { this.flushCareerSkillProgression() }, scheduleFlush: () => this.scheduleCareerSkillProgressionFlush(),
+      onLevelUp: levelsGained => {
+        const oldHp = this.player.hp
+        const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
+        this.player.setMaxHp(newMaxHp, false)
+        this.player.setHp(Math.min(newMaxHp, oldHp + levelsGained))
+        this.hp.setFill(this.player.hpRatio)
+      },
+    })
   }
 
   private enterMissionObserver(): void {
@@ -2088,12 +2091,11 @@ export class TownScene {
       && !this.shots.some(shot => !shot.training && (shot.player || actors.some(actor => actor.combatantId === shot.sourceRef?.actorId)))
   }
   private emitCombatEvent(event: CombatEvent, lod = 0, priority = event.source.actorType === 'player'): void {
-    this.duel?.recordCombatEvent(event)
-    this.awardCareerDamageXp(event, lod, priority);
-    (this.squadRefitSafety ??= new SquadRefitSafety()).note(event)
-    if (this.retirementFinale?.active) { this.retirementFinale.recordEvent(event); return }
-    if (this.captainPatrol?.active) this.captainPatrol.recordEvent(event)
-    else (this.duel?.active ? this.duel.events : this.defense?.active ? this.defense.events : this.mission?.events)?.emit(event)
+    routeTownCombatEvent(event, {
+      duel: this.duel, retirementFinale: this.retirementFinale, captainPatrol: this.captainPatrol, defense: this.defense, mission: this.mission,
+      refitSafety: this.squadRefitSafety ??= new SquadRefitSafety(),
+      awardXp: () => this.awardCareerDamageXp(event, lod, priority),
+    })
   }
   private recruitmentChoice: PersonalRecruitmentChoice = { characterTier: 1, recruitmentRole: 'swordsman' }
   private openRecruitmentPanel(response?: string): void {
@@ -2232,21 +2234,29 @@ export class TownScene {
     this.button(panel, '重新整理', () => this.openSquadRefitPanel())
   }
   private openDeploymentPanel(greeting: string, context: DialogueContext, firstOutpost: boolean, bypassIntro = this.tutorialBypass): void {
-    if (this.player.dead || !this.serviceAvailable('deployment')) return
+    openDeploymentVisit(bypassIntro, {
+      available: () => !this.player.dead && this.serviceAvailable('deployment'),
+      showPendingResult: () => {
+        const result = this.profile.activeMission?.result
+        if (result) this.openMissionResult(result, true)
+        return Boolean(result)
+      },
+      story: this.story, tutorial: this.tutorial,
+      showStory: () => {
+        const panel = this.openPanel('士官長', '')
+        panel.querySelector('.town-panel > button')?.remove()
+        this.story!.renderDialogue(panel, 'deployment')
+      },
+      showTutorial: () => {
+        const panel = this.openPanel('士官長', '')
+        panel.querySelector('.town-panel > button')?.remove()
+        this.tutorial!.renderDialogue(panel, 'deployment')
+      },
+      showServices: reopen => this.openDeploymentServices(greeting, context, firstOutpost, bypassIntro, reopen),
+    })
+  }
+  private openDeploymentServices(greeting: string, context: DialogueContext, firstOutpost: boolean, bypassIntro: boolean, reopen: () => void): void {
     const active = this.profile.activeMission
-    if (active?.result) { this.openMissionResult(active.result, true); return }
-    if (!bypassIntro && this.story?.hasDialogue('deployment')) {
-      const panel = this.openPanel('士官長', '')
-      panel.querySelector('.town-panel > button')?.remove()
-      this.story.renderDialogue(panel, 'deployment')
-      return
-    }
-    if (!bypassIntro && this.tutorial?.hasDialogue('deployment')) {
-      const panel = this.openPanel('士官長', '')
-      panel.querySelector('.town-panel > button')?.remove()
-      this.tutorial.renderDialogue(panel, 'deployment')
-      return
-    }
     const line = this.profile.tutorial?.town.step === 'weapon' ? '空手也可以接取任務；武器購買教學可稍後完成。' : greeting
     const panel = this.openPanel('士官長', line)
     this.tutorial?.appendPanel(panel, 'deployment', bypassIntro)
@@ -2272,7 +2282,7 @@ export class TownScene {
       return
     }
     // The board's later tab clicks outlive talk()'s temporary bypass. Keep this visit in the service panel.
-    this.missionBoard.render(panel, { context, firstOutpost, reopen: () => this.openDeploymentPanel(greeting, context, firstOutpost, bypassIntro) })
+    this.missionBoard.render(panel, { context, firstOutpost, reopen })
   }
   private missionBoardHost(): MissionBoardHost {
     const scene = this
@@ -3505,12 +3515,10 @@ export class TownScene {
     }
   }
   private restoreTownCasualties(): void {
-    if (this.profile.townEvent?.state !== 'hostile') return
-    for (const id of this.profile.townEvent.deadActorIds ?? []) {
-      const actor = id === 'cat' ? this.cat : this.residents.find(r => r.spec.id === id)?.npc
-      actor?.takeDamage(999999)
-    }
-    for (const id of this.profile.townEvent.destroyedBuildingIds ?? []) this.world.buildings.find(b => b.id === id)?.hp.destroy()
+    restoreTownCasualties(this.profile, {
+      actor: id => id === 'cat' ? this.cat : this.residents.find(r => r.spec.id === id)?.npc,
+      building: id => this.world.buildings.find(b => b.id === id),
+    })
   }
   private hitFieldNpc(target: NPC, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
     contact ??= source?.unarmedContact
@@ -4131,10 +4139,9 @@ export class TownScene {
   private finish(result: TownResult): void {
     if (this.profile.townEvent?.state !== 'hostile') return
     this.result = result
-    const next = settleTown(this.profile, this.profile.townEvent!.id, result)
-    if (!this.commit(next)) { const p = this.openPanel('結算尚未保存', '保存失敗；尚未扣款或轉場。'); this.button(p, '重試保存', () => this.finish(result)); return }
-    // Co-op: the same outcome (penalty or defection) for the guest, in its own save.
-    if (this.coopHost && next.townEvent?.result) coopSession().send({ t: 'townResult', outcome: { id: next.townEvent.id, result: next.townEvent.result } })
+    const finished = this.townResult.finish(result)
+    if (finished.status === 'ignored') return
+    if (finished.status === 'save-failed') { const p = this.openPanel('結算尚未保存', '保存失敗；尚未扣款或轉場。'); this.button(p, '重試保存', () => this.finish(result)); return }
     this.showTownResult(result)
   }
   private showTownResult(result: TownResult): void {
@@ -4142,7 +4149,7 @@ export class TownScene {
     const next = this.profile
     this.temporaryMounts.cleanup()
     const panel = this.openPanel(result === 'player_defeated' ? '弱者必須服從法律' : '小鎮已擊敗', result === 'player_defeated' ? '實際扣除 ' + next.townEvent!.penalty + ' 可用軍功，餘額 ' + next.availableMerit : '轉投 ' + next.faction + '，軍階 Recruit。本次入伍軍功歸零；歷史軍功與收藏保留。')
-    this.button(panel, (result === 'player_defeated' ? '返回 ' : '前往 ') + (next.faction === 'viking' ? 'økse 村' : 'vinum 村'), () => { this.dispose(); this.onRestart(this.profile, result === 'player_defeated' ? 'death-return' : undefined) })
+    this.button(panel, (result === 'player_defeated' ? '返回 ' : '前往 ') + (next.faction === 'viking' ? 'økse 村' : 'vinum 村'), () => this.townResult.leave(result))
   }
   private showAmbientDefeat(): void {
     if (this.ambientDefeatShown) return

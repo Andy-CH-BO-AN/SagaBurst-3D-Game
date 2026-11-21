@@ -11,6 +11,7 @@ import { createValhallaObstacles } from '../../src/arena/ValhallaLayout'
 import { Faction } from '../../src/world/NPC'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { PlayerInput } from '../../src/player/PlayerInput'
+import { ArenaOpeningGate, type ArenaOpeningHost } from '../../src/arena/ArenaOpeningGate'
 
 // Replace only the rendered panel; arena input, menu listeners and countdown decisions remain real.
 vi.mock('../../src/ui/EquipmentUI', () => ({ EquipmentUI: class {
@@ -28,121 +29,157 @@ function profileAt(rank: CareerProfile['rank']): CareerProfile {
   return profile
 }
 
-/** Exercises the actual scene input and phase methods without constructing a rendered scene. */
-function openingHarness(search: string, seconds: number, prison = false) {
-  const win = Object.assign(new EventTarget(), { location: { search } })
+/**
+ * Thin scene caller for the opening gate: the real bindInput listeners and advancePhase hand the pointer-lock events
+ * and frames to the gate, and the real checkpoint caller pauses the countdown on a refused prison save.
+ */
+function prisonOpeningHarness(seconds: number) {
+  const win = Object.assign(new EventTarget(), { location: { search: '' } })
   const doc = Object.assign(new EventTarget(), { pointerLockElement: null as EventTarget | null })
   const canvas = Object.assign(new EventTarget(), { requestPointerLock: vi.fn(() => Promise.reject(new Error('denied'))) })
   vi.stubGlobal('window', win); vi.stubGlobal('location', win.location); vi.stubGlobal('document', doc)
   const input = new PlayerInput(), listeners = new AbortController()
-  const attack = vi.fn(), save = vi.fn(), checkpoint = vi.fn(), openingHud = { update: vi.fn() }
+  const attack = vi.fn(), save = vi.fn()
   const scene = Object.assign(Object.create(CareerArenaCombatScene.prototype) as {
-    bindInput(): void; advancePhase(dt: number): void; phase: string; countdownRemaining: number
-    equipment?: { dispose(): void }
+    bindInput(): void; advancePhase(dt: number): void; opening: ArenaOpeningGate; openingHost(): ArenaOpeningHost
   }, {
     renderer: { domElement: canvas }, input, listeners, camera: {}, sound: { unlockAudio() {} },
-    openingHud, started: true, panel: null, localProfile: { activeMission: prison ? { prisonBreak: {} } : {} },
-    phase: 'waiting', countdownRemaining: seconds, resumeGrace: prison, pickupRetry: null,
-    player: { dead: prison }, bodies: [{ npc: { dead: false, setTacticalOrder: attack } }],
-    resolvePrisonResult: () => false, checkpointFight: checkpoint, persistProgress: save, saveProgressWithRetry: save,
+    openingHud: { update() {} }, started: true, panel: null, localProfile: { activeMission: { prisonBreak: {} } },
+    resumeGrace: true, pickupRetry: null, player: { dead: true }, bodies: [{ npc: { dead: false, setTacticalOrder: attack } }],
+    persistProgress: save, encounter: { resolveResult: () => false, clearPickupFocus() {}, settlementPending: false },
   })
-  onTestFinished(() => { scene.equipment?.dispose(); listeners.abort(); input.dispose(); vi.unstubAllGlobals() })
+  scene.opening = new ArenaOpeningGate(scene.openingHost(), seconds)
+  onTestFinished(() => { listeners.abort(); input.dispose(); vi.unstubAllGlobals() })
   scene.bindInput()
-  return { scene, input, canvas, win, doc, attack, save, checkpoint, openingHud }
+  return { scene, canvas, doc, attack, save, win, input }
+}
+
+/** The gate is driven through a host double that obeys the real pointer-lock rule: only a lock held by this canvas counts. */
+function gateHarness(seconds: number, lockOptional = false, input?: PlayerInput) {
+  const state = { lockedBy: null as 'canvas' | 'other' | null, retryPending: false, guest: false }
+  const record = { lockRequests: 0, gestures: 0, clears: 0, fightStarts: 0, held: [] as number[], rendered: [] as [string, number][] }
+  const host: ArenaOpeningHost = {
+    isGuest: () => state.guest, blocked: () => false, lockOptional: () => lockOptional,
+    hasPointerLock: () => state.lockedBy === 'canvas',
+    requestPointerLock: () => { record.lockRequests++ }, unlockAudio() {},
+    clearInput: () => { record.clears++ }, consumeLeftGesture: () => { record.gestures++; input?.consumeLeftGesture() }, resetClock() {},
+    render: (phase, remaining) => { record.rendered.push([phase, remaining]) },
+    holdOpening: dt => { record.held.push(dt); return state.retryPending },
+    fightStarted: () => { record.fightStarts++ },
+  }
+  const gate = new ArenaOpeningGate(host, seconds)
+  const lock = (lockedBy: 'canvas' | 'other' | null) => { state.lockedBy = lockedBy; gate.lockChanged() }
+  return { gate, state, record, lock }
 }
 
 describe('Arena Squad Trials', () => {
   it('waits for actual pointer lock and starts fighting only after the full opening countdown', () => {
-    const h = openingHarness('', 5)
-    h.scene.advancePhase(8)
-    h.canvas.dispatchEvent(new Event('click')) // A rejected request must not start the clock.
-    h.scene.advancePhase(8)
-    expect(h.canvas.requestPointerLock).toHaveBeenCalledOnce()
-    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['waiting', 5])
-    h.doc.pointerLockElement = new EventTarget(); h.doc.dispatchEvent(new Event('pointerlockchange'))
-    expect(h.scene.phase).toBe('waiting') // Lock held by a different element is not control of this arena.
-    h.canvas.dispatchEvent(new Event('click'))
-    expect(h.canvas.requestPointerLock).toHaveBeenCalledTimes(2)
-    h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
-    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['countdown', 5])
-    h.scene.advancePhase(1)
-    expect(h.scene.countdownRemaining).toBe(4)
-    h.doc.pointerLockElement = null; h.doc.dispatchEvent(new Event('pointerlockchange'))
-    expect(h.scene.phase).toBe('paused')
-    expect(h.openingHud.update).toHaveBeenLastCalledWith('paused', 4)
-    h.scene.advancePhase(8)
-    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['paused', 4])
-    expect(h.attack).not.toHaveBeenCalled(); expect(h.save).not.toHaveBeenCalled()
-    h.canvas.dispatchEvent(new Event('click')) // Another rejected lock does not consume the remaining seconds.
-    h.scene.advancePhase(8)
-    expect(h.scene.countdownRemaining).toBe(4)
-    h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
-    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['countdown', 4])
-    h.scene.advancePhase(1)
-    expect(h.scene.countdownRemaining).toBe(3)
-    h.doc.pointerLockElement = new EventTarget() // Recheck the canvas even before a change event arrives.
-    h.scene.advancePhase(8)
-    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['paused', 3])
-    h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
-    for (const expected of [2, 1]) { h.scene.advancePhase(1); expect(Math.ceil(h.scene.countdownRemaining)).toBe(expected) }
-    expect(h.attack).not.toHaveBeenCalled(); expect(h.save).not.toHaveBeenCalled()
-    h.scene.advancePhase(1)
-    expect(h.scene.phase).toBe('fight')
-    expect(h.attack).toHaveBeenCalledOnce(); expect(h.save).toHaveBeenCalledOnce()
-    h.doc.pointerLockElement = null; h.doc.dispatchEvent(new Event('pointerlockchange'))
-    h.canvas.dispatchEvent(new Event('click'))
-    expect(h.scene.phase).toBe('fight')
+    const h = gateHarness(5)
+    h.gate.advance(8)
+    h.gate.click() // A rejected request must not start the clock.
+    h.gate.advance(8)
+    expect(h.record.lockRequests).toBe(1)
+    expect([h.gate.phase, h.gate.remaining]).toEqual(['waiting', 5])
+    h.lock('other')
+    expect(h.gate.phase).toBe('waiting') // Lock held by a different element is not control of this arena.
+    h.gate.click()
+    expect(h.record.lockRequests).toBe(2)
+    h.lock('canvas')
+    expect([h.gate.phase, h.gate.remaining]).toEqual(['countdown', 5])
+    h.gate.advance(1)
+    expect(h.gate.remaining).toBe(4)
+    h.lock(null)
+    expect(h.gate.phase).toBe('paused')
+    expect(h.record.rendered.at(-1)).toEqual(['paused', 4])
+    h.gate.advance(8)
+    expect([h.gate.phase, h.gate.remaining]).toEqual(['paused', 4])
+    h.gate.click() // Another rejected lock does not consume the remaining seconds.
+    h.gate.advance(8)
+    expect(h.gate.remaining).toBe(4)
+    h.lock('canvas')
+    expect([h.gate.phase, h.gate.remaining]).toEqual(['countdown', 4])
+    h.gate.advance(1)
+    expect(h.gate.remaining).toBe(3)
+    h.state.lockedBy = 'other' // Recheck the canvas even before a change event arrives.
+    h.gate.advance(8)
+    expect([h.gate.phase, h.gate.remaining]).toEqual(['paused', 3])
+    h.lock('canvas')
+    for (const expected of [2, 1]) { h.gate.advance(1); expect(Math.ceil(h.gate.remaining)).toBe(expected) }
+    expect(h.record.fightStarts).toBe(0)
+    h.gate.advance(1)
+    expect(h.gate.phase).toBe('fight')
+    expect(h.record.fightStarts).toBe(1)
+    h.lock(null)
+    h.gate.click()
+    expect(h.gate.phase).toBe('fight')
+    expect(h.record.fightStarts).toBe(1)
+  })
+
+  it('opens in ?nolock on the click that also belongs to the opening, and a pending save retry holds the countdown', () => {
+    const win = Object.assign(new EventTarget(), { location: { search: '?nolock' } })
+    vi.stubGlobal('window', win); vi.stubGlobal('document', new EventTarget())
+    const input = new PlayerInput()
+    onTestFinished(() => { input.dispose(); vi.unstubAllGlobals() })
+    const h = gateHarness(3, true, input)
+    h.gate.advance(8)
+    expect([h.gate.phase, h.gate.remaining]).toEqual(['waiting', 3])
+    expect(h.record.held).toEqual([8]) // Waiting still gives the host its resume-checkpoint turn.
+    win.dispatchEvent(Object.assign(new Event('mousedown'), { button: 0 }))
+    expect(input.isLeftMouseDown).toBe(true)
+    h.gate.click()
+    expect(input.consumeLeftClick()).toBe(false) // The opening click must not start an attack.
+    expect(input.isLeftMouseDown).toBe(false)
+    expect(h.record.gestures).toBe(1)
+    expect(h.record.lockRequests).toBe(0)
+    expect([h.gate.phase, h.gate.remaining]).toEqual(['countdown', 3])
+    h.state.retryPending = true
+    h.gate.advance(8)
+    expect(h.gate.remaining).toBe(3)
+    h.state.retryPending = false
+    h.gate.advance(2.9)
+    expect(h.gate.phase).toBe('countdown'); expect(h.record.fightStarts).toBe(0)
+    h.gate.advance(0.11)
+    expect(h.gate.phase).toBe('fight'); expect(h.record.fightStarts).toBe(1)
+    h.gate.click()
+    expect(h.gate.phase).toBe('fight')
+    expect(h.record.lockRequests).toBe(0)
   })
 
   it('keeps a prison resume countdown paused after a checkpoint save fails and is retried', () => {
-    const h = openingHarness('', 3, true)
+    const h = prisonOpeningHarness(3)
     let retry: () => void = () => { throw new Error('retry not installed') }
     Object.assign(h.doc, { exitPointerLock() { h.doc.pointerLockElement = null; h.doc.dispatchEvent(new Event('pointerlockchange')) } })
     Object.assign(h.scene, {
       knocked: new Set(), player: { dead: true, hp: 0, isGrounded: true, currentMount: null },
       lastPlayerSignature: 'true|0', checkpointClock: 0,
-      clearPickupFocus() {}, openPanel() { Object.assign(h.scene, { panel: {} }) },
+      openPanel() { Object.assign(h.scene, { panel: {} }) },
       closePanel() { Object.assign(h.scene, { panel: null }) },
       button(_label: string, action: () => void) { retry = action },
     })
-    Reflect.deleteProperty(h.scene, 'checkpointFight')
-    Reflect.deleteProperty(h.scene, 'saveProgressWithRetry')
     h.save.mockReturnValueOnce(false).mockReturnValue(true)
+    h.doc.pointerLockElement = new EventTarget() // Input counts as locked, but not by this arena's canvas.
+    h.doc.dispatchEvent(new Event('pointerlockchange'))
+    h.win.dispatchEvent(Object.assign(new Event('mousedown'), { button: 0 }))
+    expect(h.input.isLeftMouseDown).toBe(true)
+    h.canvas.dispatchEvent(new Event('click')) // The opening click is the opening's, not an attack.
+    expect(h.input.isLeftMouseDown).toBe(false)
+    h.doc.pointerLockElement = null; h.doc.dispatchEvent(new Event('pointerlockchange'))
     h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
     h.scene.advancePhase(1)
-    expect(h.scene.countdownRemaining).toBe(2)
+    expect(h.scene.opening.remaining).toBe(2)
     h.scene.advancePhase(1) // The real checkpoint caller fails its save and opens the retry panel.
-    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['paused', 2])
+    expect([h.scene.opening.phase, h.scene.opening.remaining]).toEqual(['paused', 2])
     expect(h.save).toHaveBeenCalledTimes(1)
     retry()
     expect(h.save).toHaveBeenCalledTimes(2)
     h.scene.advancePhase(8)
-    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['paused', 2])
+    expect([h.scene.opening.phase, h.scene.opening.remaining]).toEqual(['paused', 2])
     expect(h.attack).not.toHaveBeenCalled()
     h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
     h.scene.advancePhase(1.9)
-    expect(h.scene.phase).toBe('countdown'); expect(h.attack).not.toHaveBeenCalled()
+    expect(h.scene.opening.phase).toBe('countdown'); expect(h.attack).not.toHaveBeenCalled()
     h.scene.advancePhase(0.11)
-    expect(h.scene.phase).toBe('fight'); expect(h.attack).toHaveBeenCalledOnce()
-  })
-
-  it('starts a fallen prisoner’s restored three-second grace in nolock without passing the click to combat', () => {
-    const h = openingHarness('?nolock', 3, true)
-    h.scene.advancePhase(8)
-    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['waiting', 3])
-    expect(h.checkpoint).toHaveBeenCalled() // Waiting does not remove the existing resume checkpoint path.
-    h.win.dispatchEvent(Object.assign(new Event('mousedown'), { button: 0 }))
-    h.canvas.dispatchEvent(new Event('click'))
-    expect(h.input.consumeLeftClick()).toBe(false)
-    expect(h.input.isLeftMouseDown).toBe(false)
-    expect([h.scene.phase, h.scene.countdownRemaining]).toEqual(['countdown', 3])
-    h.scene.advancePhase(2.9)
-    expect(h.scene.phase).toBe('countdown'); expect(h.attack).not.toHaveBeenCalled()
-    h.scene.advancePhase(0.11)
-    expect(h.scene.phase).toBe('fight'); expect(h.attack).toHaveBeenCalledOnce()
-    expect(h.save).toHaveBeenCalledOnce()
-    h.canvas.dispatchEvent(new Event('click'))
-    expect(h.scene.phase).toBe('fight')
+    expect(h.scene.opening.phase).toBe('fight'); expect(h.attack).toHaveBeenCalledOnce()
   })
 
   it('fields the five agreed team sizes with same-culture bodies split only by team allegiance', () => {

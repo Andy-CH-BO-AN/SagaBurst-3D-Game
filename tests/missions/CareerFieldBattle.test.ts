@@ -12,7 +12,7 @@ import { CAPTAIN_PATROL_COMMAND_ID } from '../../src/career/CaptainMissionCatalo
 import { COMMANDER_DECAPITATION_ID, COMMANDER_SKY_RAID_ID } from '../../src/career/CommanderMissionCatalog'
 import { townCaptainProfile } from '../../src/town/TownRules'
 import { acceptVeteranMission, getVeteranMissionDefinition } from '../../src/career/VeteranMission'
-import { FIELD_SWEEP_CHARGE_DISTANCE, FIELD_SWEEP_DETECTION_RANGE, MIGRATED_CAREER_FIELD_TEMPLATE_IDS, careerFieldBattleHeroAssetIds, careerFieldBattleMapId, createCareerFieldCheckpointSeed, createCareerFieldDeployment, findVeteranSquadsInRange, isCareerFieldNoCommandMission, isMigratedCareerFieldMission, isMigratedCareerFieldTemplate, resolveFieldDamagedTargetId, shouldTriggerSweepAlert } from '../../src/career/CareerFieldBattle'
+import { MIGRATED_CAREER_FIELD_TEMPLATE_IDS, careerFieldBattleHeroAssetIds, careerFieldBattleMapId, createCareerFieldCheckpointSeed, createCareerFieldDeployment, findVeteranSquadsInRange, isCareerFieldNoCommandMission, isMigratedCareerFieldMission, isMigratedCareerFieldTemplate, resolveFieldDamagedTargetId, shouldTriggerSweepAlert } from '../../src/career/CareerFieldBattle'
 import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
 import { Faction } from '../../src/world/NPC'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
@@ -279,13 +279,10 @@ describe('Phase 2B migrated career field battles', () => {
 
   })
 
-  test('keeps 80m sweep camp alert distinct from 60m friendly charge distance and preserves one-shot alert state', () => {
-    expect(FIELD_SWEEP_DETECTION_RANGE).toBe(80)
-    expect(FIELD_SWEEP_CHARGE_DISTANCE).toBe(60)
+  test('alerts the sweep camp at 75m but not 85m and keeps the one-shot alert once set', () => {
     const campCenter = { x: 0, z: 0 }
     expect(shouldTriggerSweepAlert([{ x: 0, z: 85 }], campCenter, false)).toBe(false)
     expect(shouldTriggerSweepAlert([{ x: 0, z: 75 }], campCenter, false)).toBe(true)
-    expect(75 <= FIELD_SWEEP_CHARGE_DISTANCE).toBe(false)
     expect(shouldTriggerSweepAlert([{ x: 0, z: 200 }], campCenter, true)).toBe(true)
   })
 })

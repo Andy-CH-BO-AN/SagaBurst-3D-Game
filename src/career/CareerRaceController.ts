@@ -7,11 +7,11 @@ import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { townPlayerEntryPoint } from '../town/TownRules'
 import type { HpBar } from '../ui/HpBar'
 import { BlackCatVisual } from '../world/BlackCatVisual'
-import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
-import { felineVariantFromMountId,Mount,mountCombatRadius,mountTypeFromId } from '../world/Mount'
-import { NPC } from '../world/NPC'
+import { felineVariantFromMountId,mountCombatRadius,mountTypeFromId,type Mount } from '../world/Mount'
+import type { NPC } from '../world/NPC'
 import { gameplayNpcSpawns,trackNpcSpawn,type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
 import { getTerrainHeight,type ObstacleData } from '../world/Terrain'
+import type { CareerActorFactory } from './CareerActorFactory'
 import { canUseCareerMount,CAREER_MOUNT_INTERACTION_DISTANCE,findSafeCareerMountPosition,type CareerMountController } from './CareerMountController'
 import type { CareerProfile } from './CareerProfile'
 import { canonicalCareerMountId,cloneCareerProfile } from './CareerProfile'
@@ -78,9 +78,10 @@ export class CareerRaceController {
   /** Everyone and every mount already standing in Town except `rider` itself; the race mount must not overlap them. */
   spawnBlockers?: (rider: NPC) => { x: number; z: number; radius: number }[]
 
-  constructor(private readonly scene: THREE.Scene, private readonly navigation: NavigationWorld,
+  constructor(private readonly actorFactory: Pick<CareerActorFactory, 'mount'>, private readonly navigation: Pick<NavigationWorld, 'sync' | 'areConnected'>,
     private readonly obstacles: readonly ObstacleData[], private readonly residents: readonly RaceResident[],
-    private readonly player: () => Player, private readonly hp: HpBar, private readonly mounts: CareerMountController,
+    private readonly player: () => Player, private readonly hp: HpBar,
+    private readonly mounts: Pick<CareerMountController, 'activeMountId' | 'activeMount' | 'restoreRaceMount'>,
     private readonly read: () => CareerProfile, private readonly commit: (p: CareerProfile) => boolean) {}
 
   get actors(): NPC[] { return [...(this.racer ? [this.racer] : []), ...(this.ownsCaptain && this.captain ? [this.captain.npc] : [])] }
@@ -260,7 +261,7 @@ export class CareerRaceController {
         }
         npc.dismountFromMount()
       }
-      const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(s.opponent.mountId), spawn.x, spawn.z, spawn.y, horseVariantForStableKey(`town:${this.read().faction}:${s.opponent.actorId}`)))
+      const mount = trackNpcSpawn(this.actorFactory.mount(s.opponent.mountId, spawn.x, spawn.z, spawn.y, `town:${this.read().faction}:${s.opponent.actorId}`))
       mount.group.rotation.y = spawn.yaw
       mount.reservedForTown = true; this.mount = mount
       if (!npc.dead) npc.mountVehicle(mount)

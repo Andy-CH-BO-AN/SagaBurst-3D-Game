@@ -92,14 +92,17 @@ function setupMockDOM() {
     },
   }
   vi.stubGlobal('document', doc)
-  const addEventListener = vi.fn(), removeEventListener = vi.fn()
+  // A real listener registry: a handler is removed only by the same type and function it was added with.
+  const registered = new Map<string, Set<unknown>>()
+  const addEventListener = (type: string, handler: unknown) => { registered.set(type, (registered.get(type) ?? new Set()).add(handler)) }
+  const removeEventListener = (type: string, handler: unknown) => { registered.get(type)?.delete(handler) }
   const disconnectResize = vi.fn(), disconnectState = vi.fn()
   const viewport = { innerWidth:1366, innerHeight:768, addEventListener, removeEventListener }
   vi.stubGlobal('window', viewport)
   vi.stubGlobal('getComputedStyle', (el: MockElement) => ({ display:el.style.display ?? '', visibility:el.style.visibility ?? '', opacity:el.style.opacity ?? '1' }))
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect = disconnectResize })
   vi.stubGlobal('MutationObserver', class { observe() {} disconnect = disconnectState })
-  return { body, elements, viewport, addEventListener, removeEventListener, disconnectResize, disconnectState }
+  return { body, elements, viewport, registered, disconnectResize, disconnectState }
 }
 
 function createHostHarness(initialProfile?: CareerProfile) {
@@ -780,9 +783,10 @@ describe('TownTutorialUX', () => {
     ctrl.update()
     expect(notice.hidden).toBe(true)
     expect(root.hidden).toBe(false)
+    expect(dom.registered.get('resize')?.size).toBe(1)
     ctrl.dispose()
     expect(dom.body.children).toHaveLength(0)
-    expect(dom.removeEventListener).toHaveBeenCalledWith('resize', dom.addEventListener.mock.calls[0][1])
+    expect(dom.registered.get('resize')?.size ?? 0).toBe(0)
     expect(dom.disconnectResize).toHaveBeenCalledOnce()
     expect(dom.disconnectState).toHaveBeenCalledOnce()
     const reentry = new TownTutorialController(harness.host)

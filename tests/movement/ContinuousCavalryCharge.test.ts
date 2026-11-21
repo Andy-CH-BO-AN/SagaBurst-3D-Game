@@ -3,9 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { Faction } from '../../src/combat/CombatFaction'
 import { WeaponSweep } from '../../src/combat/ShieldBlocking'
 import {
-  CAVALRY_FORWARD_CONE_COS,
   CAVALRY_MAX_TURN_RATE,
-  CAVALRY_PASSTHROUGH_DURATION,
   cavalryTurnRate,
   findCavalryChargeTarget,
   isEligibleMeleeCavalry,
@@ -19,9 +17,6 @@ import { SpatialGrid } from '../../src/world/SpatialGrid'
 
 describe('Continuous Melee Cavalry Charge', () => {
   it('identifies eligible ground melee cavalry while excluding ranged, flying, defense, and siege units', () => {
-    expect(CAVALRY_PASSTHROUGH_DURATION).toBe(1.0)
-    expect(CAVALRY_FORWARD_CONE_COS).toBe(0.2)
-
     // Eligible: ground mount, melee, attack/charge
     expect(isEligibleMeleeCavalry(true, { isFlyingMount: false }, false, 'attack', false, false)).toBe(true)
     expect(isEligibleMeleeCavalry(true, { isFlyingMount: false }, false, 'charge', false, false)).toBe(true)
@@ -71,6 +66,17 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(isTargetInForwardCone(cavalryPos, yaw, forwardTarget)).toBe(true)
     expect(isTargetInForwardCone(cavalryPos, yaw, rearTarget)).toBe(false)
     expect(isTargetInForwardCone(cavalryPos, yaw, sideTarget)).toBe(false)
+
+    // Requirement: ~78° half-angle forward cone, symmetric on both flanks and shared by pass-through scoring.
+    const atBearing = (deg: number) => new THREE.Vector3(Math.sin(deg * Math.PI / 180) * 10, 0, Math.cos(deg * Math.PI / 180) * 10)
+    for (const side of [1, -1]) {
+      const justInside = atBearing(75 * side)
+      const justOutside = atBearing(82 * side)
+      expect(isTargetInForwardCone(cavalryPos, yaw, justInside)).toBe(true)
+      expect(isTargetInForwardCone(cavalryPos, yaw, justOutside)).toBe(false)
+      expect(Number.isFinite(scoreCavalryTarget(0, 0, yaw, justInside.x, justInside.z, true))).toBe(true)
+      expect(scoreCavalryTarget(0, 0, yaw, justOutside.x, justOutside.z, true)).toBe(Infinity)
+    }
 
     // In passthrough: rear target must return Infinity (disqualified)
     expect(scoreCavalryTarget(0, 10, yaw, 0, 8, true)).toBe(Infinity)

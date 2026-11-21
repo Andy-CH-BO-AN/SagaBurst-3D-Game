@@ -13,7 +13,7 @@ import { heroMeleeAttackSpeed } from '../battle/HeroCombatProfile'
  * Exposes combat events for the Game audio bridge.
  */
 import * as THREE from 'three'
-import type { FistStrike } from '../combat/UnarmedCombat'
+import { drainFistStrikes, type FistStrike } from '../combat/UnarmedCombat'
 import { ShieldState, ShieldCollider, WeaponSweep } from '../combat/ShieldBlocking'
 import { DeathFadeController } from '../world/DeathFade'
 
@@ -26,6 +26,7 @@ import type { InventoryManager } from '../rpg/InventoryManager'
 import { WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
 import { getScenePlayableWorldBound, clampToPlayableWorld, getTerrainHeight, ObstacleData } from '../world/Terrain'
 import { PLAYER_FOOT_OFFSET, standingPlayerY, stepPlayerFootBody } from './PlayerFootBody'
+import { resolveRangedAim } from './RangedAimGate'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
@@ -107,9 +108,7 @@ export class Player {
   private readonly pendingFistStrikes: FistStrike[] = []
   consumeFistStrikes(): FistStrike[] {
     this.group.updateWorldMatrix(true, false)
-    return this.pendingFistStrikes.splice(0).map(strike => ({
-      from: strike.from.applyMatrix4(this.group.matrixWorld), to: strike.to.applyMatrix4(this.group.matrixWorld),
-    }))
+    return drainFistStrikes(this.pendingFistStrikes, this.group.matrixWorld)
   }
 
   private bowPivot!: THREE.Group
@@ -738,13 +737,11 @@ export class Player {
   }
 
   private _updateRangedAim(rightMouseDown: boolean, wantAim: boolean): void {
-    const rangedReleasing = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
-    if (!rightMouseDown && !rangedReleasing) this.rangedAimRequiresRmbRelease = false
-    const canAim = wantAim && !this.rangedAimRequiresRmbRelease && !this.isSwinging
-    this.aiming = canAim && !rangedReleasing
-    // Bow recovery blocks another draw, but must not interrupt the held aim view.
-    // Pilum keeps its existing view until the projectile event ends it.
-    if (this.animator.currentAction !== 'pilumThrow') this.rangedAimViewActive = canAim
+    const aim = resolveRangedAim(this.animator.currentAction, rightMouseDown, wantAim,
+      this.rangedAimRequiresRmbRelease, this.isSwinging, this.rangedAimViewActive)
+    this.aiming = aim.aiming
+    this.rangedAimViewActive = aim.viewActive
+    this.rangedAimRequiresRmbRelease = aim.requiresRmbRelease
   }
 
   private _startBowRelease(

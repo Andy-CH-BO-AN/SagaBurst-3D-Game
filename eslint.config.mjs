@@ -55,6 +55,43 @@ const CROSS_OWNER_WARNING_PATTERNS = [
 ]
 const CAREER_PROFILE_STORE_MODULE = '/src/career/CareerProfileStore'
 const CAREER_PROFILE_STORE_METHODS = new Set(['load', 'loadChecked', 'save'])
+// Ratchet for existing prototype harnesses: Object.create(Class.prototype) and, counted from the
+// re-baseline commit "test(lint): flag every src class prototype reference", any other src/ class
+// `.prototype` reference (.call/.apply, aliasing, setPrototypeOf, descriptor copy...) except
+// instanceof, vi.spyOn and Object.getPrototypeOf comparisons. A file warns once it exceeds its count, and a
+// lower count asks for the entry to shrink. That re-baseline was one-time; never raise or add entries.
+const PROTOTYPE_HARNESS_BASELINE = new Map([
+  ['tests/actors/MountDeathPresentation.test.ts', 10],
+  ['tests/actors/NPCEquipmentLifecycle.test.ts', 1],
+  ['tests/combat/CombatAttribution.test.ts', 9],
+  ['tests/combat/CombatBalance.test.ts', 2],
+  ['tests/combat/CommanderWeaponSwitching.test.ts', 9],
+  ['tests/combat/MountArmor.test.ts', 2],
+  ['tests/integration/GameInventoryLifecycle.test.ts', 3],
+  ['tests/integration/GameWeaponPickup.test.ts', 1],
+  ['tests/integration/MissionModeRouting.test.ts', 4],
+  ['tests/integration/PersonalSquadCommandRouting.test.ts', 1],
+  ['tests/integration/ReliefResultSettlement.test.ts', 1],
+  ['tests/missions/ArenaSquadTrials.test.ts', 2],
+  ['tests/missions/CareerDuelState.test.ts', 2],
+  ['tests/missions/SiegeRampPolicy.test.ts', 8],
+  ['tests/missions/TownDefenseOutcome.test.ts', 1],
+  ['tests/missions/TownSiegePolicy.test.ts', 8],
+  ['tests/movement/ChaseTargetCoordinator.test.ts', 12],
+  ['tests/movement/EagleFlightController.test.ts', 2],
+  ['tests/movement/FriendlyMovementBypass.test.ts', 8],
+  ['tests/movement/LayeredNavigationRoute.test.ts', 1],
+  ['tests/movement/SweptBodyCollision.test.ts', 1],
+  ['tests/persistence/CareerMissionCheckpoint.test.ts', 2],
+  ['tests/persistence/CareerMissionSettlement.test.ts', 2],
+  ['tests/persistence/CareerPrisonBreak.test.ts', 3],
+  ['tests/town/TownCommandWatchtower.test.ts', 2],
+  ['tests/town/TownConquest.test.ts', 1],
+  ['tests/town/TownPatrolRoster.test.ts', 3],
+  ['tests/town/TownTutorialUX.test.ts', 1],
+  ['tests/ui/TownDuelSelection.test.ts', 2],
+  ['tests/world/DuelArenaLayout.test.ts', 1],
+])
 const NODE_TEST_APIS = new Set(['test', 'it', 'describe', 'suite'])
 const NODE_TEST_CASE_APIS = new Set(['test', 'it'])
 const NODE_TEST_SUITE_APIS = new Set(['describe', 'suite'])
@@ -177,6 +214,139 @@ function calledOwnerEntryPoint(sourceCode, expression) {
 function moduleMatches(source, suffix) {
   return Boolean(suffix && typeof source === 'string' &&
     source.replaceAll('\\', '/').replace(/\.(?:[cm]?[jt]sx?)$/, '').endsWith(suffix))
+}
+
+function relativeLintPath(context) {
+  const cwd = context.cwd.replaceAll('\\', '/').replace(/\/?$/, '/')
+  const file = context.filename.replaceAll('\\', '/')
+  return file.startsWith(cwd) ? file.slice(cwd.length) : file
+}
+
+function isProductionSource(source) {
+  if (typeof source !== 'string') return false
+  const normalized = source.replaceAll('\\', '/')
+  return normalized.startsWith('src/') || normalized.includes('/src/')
+}
+
+function productionBindingRoot(sourceCode, expression) {
+  let node = unwrapExpression(expression)
+  const members = []
+  while (node?.type === 'MemberExpression') {
+    members.unshift(staticMemberName(node))
+    node = unwrapExpression(node.object)
+  }
+  const binding = importedBinding(sourceCode, node)
+  if (!binding || binding.typeOnly || !isProductionSource(binding.source)) return null
+  return { root: node, binding, members }
+}
+
+function wrappedParent(node) {
+  let current = node
+  let parent = node.parent
+  while (['ChainExpression', 'ParenthesizedExpression', 'TSAsExpression', 'TSTypeAssertion', 'TSSatisfiesExpression',
+    'TSNonNullExpression', 'TSInstantiationExpression'].includes(parent?.type)) {
+    current = parent
+    parent = parent.parent
+  }
+  return { current, parent }
+}
+
+function isCallTo(node, objectName, methodName) {
+  node = unwrapExpression(node)
+  const callee = node?.type === 'CallExpression' ? unwrapExpression(node.callee) : null
+  return callee?.type === 'MemberExpression' && staticMemberName(callee) === methodName &&
+    unwrapExpression(callee.object)?.type === 'Identifier' && unwrapExpression(callee.object).name === objectName
+}
+
+// Every reference to a src/ class's `X.prototype` is a harness site except these inspection contexts:
+// right operand of instanceof, first argument of vi.spyOn, and ===/!== against Object.getPrototypeOf(...).
+function isAllowedPrototypeReference(node) {
+  const { current, parent } = wrappedParent(node)
+  if (!parent) return false
+  if (parent.type === 'BinaryExpression') {
+    if (parent.operator === 'instanceof') return parent.right === current
+    if (['===', '!==', '==', '!='].includes(parent.operator)) {
+      return isCallTo(parent.left === current ? parent.right : parent.left, 'Object', 'getPrototypeOf')
+    }
+    return false
+  }
+  if (parent.type === 'CallExpression' && parent.arguments[0] === current) {
+    const callee = unwrapExpression(parent.callee)
+    return callee.type === 'MemberExpression' && staticMemberName(callee) === 'spyOn' &&
+      unwrapExpression(callee.object)?.type === 'Identifier' && unwrapExpression(callee.object).name === 'vi'
+  }
+  return false
+}
+
+// Object.create(X.prototype) is reported by the CallExpression visitor instead.
+function isObjectCreateArgument(node) {
+  const { current, parent } = wrappedParent(node)
+  return parent?.type === 'CallExpression' && parent.arguments[0] === current && isCallTo(parent, 'Object', 'create')
+}
+
+// Short all-caps names without an underscore (NPC, HUD) are usually classes, not constants.
+const SCREAMING_SNAKE_CASE = /^(?=.*_|.{4,})[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$/
+
+function isLiteralValue(node) {
+  node = unwrapExpression(node)
+  if (node?.type === 'Literal') return !node.regex
+  if (node?.type === 'TemplateLiteral') return node.expressions.length === 0
+  if (node?.type === 'UnaryExpression') return ['-', '+'].includes(node.operator) && isLiteralValue(node.argument)
+  if (node?.type === 'ArrayExpression') return node.elements.every(element => element && isLiteralValue(element))
+  if (node?.type === 'ObjectExpression') {
+    return node.properties.every(property => property.type === 'Property' && !property.computed &&
+      property.kind === 'init' && !property.method && isLiteralValue(property.value))
+  }
+  return false
+}
+
+function productionConstantName(sourceCode, expression) {
+  const target = productionBindingRoot(sourceCode, expression)
+  if (!target) return null
+  // A namespace import names the module, so the constant is its first member.
+  const name = target.binding.namespace ? target.members[0] : target.root.name
+  return name && SCREAMING_SNAKE_CASE.test(name) ? name : null
+}
+
+const FS_MODULES = new Set(['fs', 'node:fs', 'fs/promises', 'node:fs/promises'])
+const FS_READ_FUNCTIONS = new Set(['readFileSync', 'readFile'])
+
+function isFsReadCall(sourceCode, callee) {
+  callee = unwrapExpression(callee)
+  if (callee.type === 'Identifier') {
+    const binding = importedBinding(sourceCode, callee)
+    return Boolean(binding && !binding.namespace && FS_MODULES.has(binding.source) &&
+      FS_READ_FUNCTIONS.has(binding.imported))
+  }
+  if (callee.type !== 'MemberExpression' || !FS_READ_FUNCTIONS.has(staticMemberName(callee))) return false
+  let object = unwrapExpression(callee.object)
+  // fs.promises.readFile(...)
+  if (object.type === 'MemberExpression' && staticMemberName(object) === 'promises') object = unwrapExpression(object.object)
+  const binding = importedBinding(sourceCode, object)
+  // Namespace, require(), default import (imported === null) or a named `promises` import.
+  return Boolean(binding && !binding.typeOnly && FS_MODULES.has(binding.source) &&
+    (binding.namespace || binding.imported === null || ['default', 'promises'].includes(binding.imported)))
+}
+
+function mentionsProductionSourcePath(node) {
+  const pending = [node]
+  while (pending.length) {
+    const current = pending.pop()
+    if (!current || typeof current !== 'object') continue
+    if (current.type === 'Literal' && typeof current.value === 'string') {
+      const value = current.value.replaceAll('\\', '/')
+      if (value === 'src' || value.startsWith('src/') || value.includes('/src/') || value.endsWith('/src')) return true
+    } else if (current.type === 'TemplateElement') {
+      const value = current.value.cooked?.replaceAll('\\', '/') ?? ''
+      if (value.startsWith('src/') || value.includes('/src/')) return true
+    }
+    for (const [key, child] of Object.entries(current)) {
+      if (key === 'parent' || key === 'loc' || key === 'range') continue
+      if (Array.isArray(child)) pending.push(...child)
+      else if (child && typeof child.type === 'string') pending.push(child)
+    }
+  }
+  return false
 }
 
 function isHeavyImportedConstructor(sourceCode, node) {
@@ -665,6 +835,112 @@ const testAuthoring = {
         }
       },
     },
+    'no-constant-literal-assert': {
+      meta: {
+        type: 'suggestion',
+        docs: { description: 'Warn when a production SCREAMING_SNAKE_CASE constant is asserted against a copied literal' },
+        schema: [],
+        messages: {
+          tautological: '{{name}} is compared with a literal copied from production; assert the behavior that depends on it instead of restating its value.',
+        },
+      },
+      create(context) {
+        const sourceCode = context.sourceCode
+        return {
+          CallExpression(node) {
+            const callee = unwrapExpression(node.callee)
+            if (callee.type !== 'MemberExpression' ||
+                !['toBe', 'toEqual', 'toStrictEqual'].includes(staticMemberName(callee))) return
+            const subject = unwrapExpression(callee.object)
+            if (subject.type !== 'CallExpression' || unwrapExpression(subject.callee).type !== 'Identifier' ||
+                unwrapExpression(subject.callee).name !== 'expect' || node.arguments.length !== 1 ||
+                !isLiteralValue(node.arguments[0])) return
+            const name = productionConstantName(sourceCode, subject.arguments[0])
+            if (name) context.report({ node, messageId: 'tautological', data: { name } })
+          },
+        }
+      },
+    },
+    'no-prototype-harness': {
+      meta: {
+        type: 'suggestion',
+        docs: { description: 'Warn when a test builds a production class instance with Object.create(Class.prototype) or borrows Class.prototype methods onto plain objects' },
+        schema: [{
+          type: 'object',
+          properties: { baseline: { type: 'object', additionalProperties: { type: 'integer', minimum: 1 } } },
+          additionalProperties: false,
+        }],
+        messages: {
+          harness: 'Object.create({{name}}.prototype) bypasses the production constructor and couples the test to private fields. Use a small production entry point or narrow dependency instead.',
+          aboveBaseline: 'Object.create({{name}}.prototype) bypasses the production constructor; this file now has {{count}} prototype harnesses (baseline: {{baseline}}). Do not add new ones.',
+          borrowed: '{{name}} reuses a production class prototype outside its constructor (.call/.apply, alias, setPrototypeOf, descriptor copy); it bypasses the constructor and couples the test to private fields. Use a small production entry point or narrow dependency instead.',
+          borrowedAboveBaseline: '{{name}} reuses a production class prototype; this file now has {{count}} prototype harnesses (baseline: {{baseline}}). Do not add new ones.',
+          staleBaseline: 'This file has {{count}} prototype harnesses but the baseline allows {{baseline}}; lower its no-prototype-harness baseline entry.',
+        },
+      },
+      create(context) {
+        const sourceCode = context.sourceCode
+        const file = relativeLintPath(context)
+        const baseline = context.options[0]?.baseline?.[file] ?? 0
+        const harnesses = []
+        return {
+          MemberExpression(node) {
+            // Any other X.prototype reference (method borrowing, aliasing, setPrototypeOf, descriptor copy...).
+            if (staticMemberName(node) !== 'prototype') return
+            const target = productionBindingRoot(sourceCode, node.object)
+            if (!target || (target.binding.namespace && target.members.length === 0)) return
+            if (isAllowedPrototypeReference(node) || isObjectCreateArgument(node)) return
+            harnesses.push({ node, name: sourceCode.getText(node), borrowed: true })
+          },
+          CallExpression(node) {
+            const callee = unwrapExpression(node.callee)
+            if (callee.type !== 'MemberExpression' || staticMemberName(callee) !== 'create' ||
+                unwrapExpression(callee.object).type !== 'Identifier' || unwrapExpression(callee.object).name !== 'Object') return
+            const prototype = unwrapExpression(node.arguments[0])
+            if (prototype?.type !== 'MemberExpression' || staticMemberName(prototype) !== 'prototype') return
+            const target = productionBindingRoot(sourceCode, prototype.object)
+            if (!target || (target.binding.namespace && target.members.length === 0)) return
+            harnesses.push({ node, name: sourceCode.getText(prototype.object) })
+          },
+          'Program:exit'(program) {
+            if (harnesses.length > baseline) {
+              for (const { node, name, borrowed } of harnesses) {
+                const messageId = borrowed ? (baseline ? 'borrowedAboveBaseline' : 'borrowed')
+                  : (baseline ? 'aboveBaseline' : 'harness')
+                context.report({ node, messageId, data: { name, count: harnesses.length, baseline } })
+              }
+            } else if (harnesses.length < baseline) {
+              context.report({
+                node: program,
+                loc: { line: 1, column: 0 },
+                messageId: 'staleBaseline',
+                data: { count: harnesses.length, baseline },
+              })
+            }
+          },
+        }
+      },
+    },
+    'no-production-source-read': {
+      meta: {
+        type: 'suggestion',
+        docs: { description: 'Warn when a Vitest test reads production source files to assert on their text' },
+        schema: [],
+        messages: {
+          sourceRead: 'This test reads a src/ file; asserting on source text breaks on refactors that keep behavior. Call the production code and assert its observable result.',
+        },
+      },
+      create(context) {
+        const sourceCode = context.sourceCode
+        return {
+          CallExpression(node) {
+            if (isFsReadCall(sourceCode, node.callee) && mentionsProductionSourcePath(node.arguments[0])) {
+              context.report({ node, messageId: 'sourceRead' })
+            }
+          },
+        }
+      },
+    },
   },
 }
 
@@ -682,6 +958,8 @@ const sharedTestRules = {
   'test-authoring/large-test-body': 'warn',
   'test-authoring/no-real-timer-sleep': 'warn',
   'test-authoring/warn-cross-owner-test-calls': 'warn',
+  'test-authoring/no-constant-literal-assert': 'warn',
+  'test-authoring/no-prototype-harness': ['warn', { baseline: Object.fromEntries(PROTOTYPE_HARNESS_BASELINE) }],
 }
 
 export default [
@@ -698,6 +976,7 @@ export default [
       ...sharedTestRules,
       ...vitestBlockers,
       'vitest/expect-expect': 'warn',
+      'test-authoring/no-production-source-read': 'warn',
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/ban-ts-comment': ['warn', {
         'ts-ignore': true,

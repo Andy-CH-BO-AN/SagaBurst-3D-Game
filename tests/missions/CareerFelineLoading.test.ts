@@ -1,5 +1,5 @@
 import { careerRankFixture } from '../helpers/careerRankFixture'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Vector3 } from 'three'
 import { HorseAssetRegistry } from '../../src/world/HorseAssetRegistry'
 import { BlackCatVisual, type FelineMountVariant } from '../../src/world/BlackCatVisual'
@@ -10,7 +10,11 @@ import { addCareerItem } from '../../src/career/CareerInventory'
 import { applyTownEquipmentRuntime, getTownEquipmentRuntimeStatus, resetTownEquipmentRuntimeState } from '../../src/town/TownEquipmentRuntime'
 import { updateTownEquipmentVisibleStatus } from '../../src/town/TownSquadEquipmentUI'
 import type { TownCombatResident } from '../../src/town/TownMissionCombat'
-import type { Mount } from '../../src/world/Mount'
+import { mountTypeFromId, type Mount } from '../../src/world/Mount'
+import { RACE_STORY_ID, type RaceRider } from '../../src/career/CareerRaceState'
+import { gameplayNpcSpawns } from '../../src/world/NpcSpawnScheduler'
+import type { HpBar } from '../../src/ui/HpBar'
+import { ActorDouble, asNpc, asPlayer, PlayerDouble, recordingActorFactory } from '../helpers/careerActorDoubles'
 
 // The Mount constructor needs rendered assets; this suite owns only the request lifecycle.
 vi.mock('../../src/world/Mount', async importOriginal => {
@@ -62,18 +66,15 @@ async function flush() {
   for (let turn = 0; turn < 6; turn++) await Promise.resolve()
 }
 
-function mountOwner() {
+/** Real controller over a saved profile; `prepare` writes the save it starts from. */
+function mountOwner(prepare?: (profile: CareerProfile) => void) {
   let current = createCareerProfile('roman')
   for (const id of ['serval', 'orange-cat', 'white-cat', 'armored-horse'] as const) addCareerItem(current, id, 1)
+  prepare?.(current)
   const player = { isFalling: false, currentMount: null as Mount | null, mountVehicle: vi.fn(), dismountFromMount: vi.fn(), isMounted: false,
     combatPosition: new Vector3(), position: new Vector3(), facingYaw: 0 }
   player.mountVehicle.mockImplementation((mount: Mount) => { player.currentMount = mount; player.isMounted = true })
-  const owner = Object.create(CareerMountController.prototype) as CareerMountController
-  Object.assign(owner as unknown as object, {
-    scene: {}, player: () => player, readProfile: () => current, commit: (next: CareerProfile) => { current = next; return true },
-    obstacles: () => [], occupied: () => [], sceneKey: () => 'town-home', options: {},
-    hp: new Map(), armorImpact: new Map(), unavailable: new Set(), active: null, requestSeq: 0, pending: null, statusText: '',
-  })
+  const owner = new CareerMountController({} as never, () => player as never, () => current, next => { current = next; return true }, () => [], () => [])
   return { owner, player, profile: () => current }
 }
 
@@ -118,11 +119,11 @@ describe('feline mount activation under asynchronous asset loading', () => {
 
 describe('Career saved mounts after the shared preload barrier', () => {
   it('restores mission HP and zero armor once without changing the selected mount or spending merit', () => {
-    const h = mountOwner(), profile = h.profile()
-    profile.selectedMountId = 'armored-horse'
-    profile.activeMission = { id: 'restore-mission', templateId: 'outpost-relief', targetCampId: 0, phase: 'ENGAGING', acceptedAt: 1,
-      targetActorIds: [], friendlyActorIds: [], mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 317 }, armorImpact: { 'armored-horse': 0 }, unavailable: [] } }
-    Object.assign(h.owner, { hp: new Map([['armored-horse', 317]]), armorImpact: new Map([['armored-horse', 0]]) })
+    const h = mountOwner(profile => {
+      profile.selectedMountId = 'armored-horse'
+      profile.activeMission = { id: 'restore-mission', templateId: 'outpost-relief', targetCampId: 0, phase: 'ENGAGING', acceptedAt: 1,
+        targetActorIds: [], friendlyActorIds: [], mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 317 }, armorImpact: { 'armored-horse': 0 }, unavailable: [] } }
+    }), profile = h.profile()
     vi.spyOn(HorseAssetRegistry, 'armoredReady', 'get').mockReturnValue(true)
     const preload = vi.spyOn(HorseAssetRegistry, 'preloadArmored')
     const saved = structuredClone(profile)
@@ -139,14 +140,15 @@ describe('Career saved mounts after the shared preload barrier', () => {
 
   it('restores retirement resources, coordinates, heading and mounted status synchronously', () => {
     for (const mounted of [true, false]) {
-      const h = mountOwner(), p = h.profile()
-      p.selectedMountId = 'armored-horse'
-      p.careerRetirement = { version: 1, phase: 'final-stand', acceptedAt: 1, combatElapsedSeconds: 0 }
-      p.retirementRuntime = {
-        mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 219 }, armorImpact: { 'armored-horse': 0 }, unavailable: [] },
-        player: { position: { x: 4, y: 0, z: 5, yaw: .3 }, hp: 50, stamina: 30, arrows: 5, shieldImpact: 3, mounted },
-        mount: { position: { x: 11, y: 2, z: 13, yaw: 1.2 }, hp: 219, armorImpactRemaining: 0 },
-      }
+      const h = mountOwner(p => {
+        p.selectedMountId = 'armored-horse'
+        p.careerRetirement = { version: 1, phase: 'final-stand', acceptedAt: 1, combatElapsedSeconds: 0 }
+        p.retirementRuntime = {
+          mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 219 }, armorImpact: { 'armored-horse': 0 }, unavailable: [] },
+          player: { position: { x: 4, y: 0, z: 5, yaw: .3 }, hp: 50, stamina: 30, arrows: 5, shieldImpact: 3, mounted },
+          mount: { position: { x: 11, y: 2, z: 13, yaw: 1.2 }, hp: 219, armorImpactRemaining: 0 },
+        }
+      }), p = h.profile()
       vi.spyOn(HorseAssetRegistry, 'armoredReady', 'get').mockReturnValue(true)
       const saved = structuredClone(p)
       expect(h.owner.restoreActiveMount()).toBe(true)
@@ -177,43 +179,56 @@ describe('Town startup feline preload set', () => {
 })
 
 describe('Race opponent feline load failure recovery', () => {
-  interface RaceInternals { session?: unknown; deploy(initial: boolean, restoring: boolean): void }
-  function raceOwner() {
-    const session = { id: 'race-session', opponent: { mountId: 'caracal', actorId: 'commander' } }
-    const enqueueDeployment = vi.fn()
-    const owner = Object.create(CareerRaceController.prototype) as CareerRaceController
-    const internals = owner as unknown as RaceInternals
-    Object.assign(internals, { session, enqueueDeployment, preloadInFlight: false, error: '' })
-    return { owner, internals, session, enqueueDeployment }
+  /** A saved, already running race whose opponent rides a caracal; the real controller restores it. */
+  function raceOwner(story = false) {
+    const point = { x: -3, y: 0, z: 100, yaw: 0 }
+    const rider = (actorId: string): RaceRider => ({ actorId, mountId: 'caracal', position: { ...point }, mountPosition: { ...point },
+      hp: 100, mountHp: 100, stamina: 100, mounted: true, dead: false, checkpoint: 1 })
+    let profile = createCareerProfile('roman')
+    profile.activeRace = { version: 1, deployed: true, id: 'race-session', raceId: 'race-6', scheduleVersion: 3, phase: 'racing',
+      countdownSeconds: 0, elapsedSeconds: 30, gameSeconds: 40, phaseSeconds: 30, waypoint: 1, ...(story ? { story: RACE_STORY_ID } : {}),
+      player: { ...rider('player'), mountId: 'horse' }, opponent: rider('commander'),
+      opponentHome: { position: { ...point }, hp: 100, mounted: false } }
+    const factory = recordingActorFactory()
+    const owner = new CareerRaceController(factory, { sync: () => false, areConnected: () => true }, [],
+      [{ spec: { id: 'commander', x: -3, z: 100 }, npc: asNpc(new ActorDouble('commander', { x: -3, z: 100 })) }],
+      () => asPlayer(new PlayerDouble()), {} as unknown as HpBar, { activeMountId: null, activeMount: null, restoreRaceMount: () => true },
+      () => profile, next => { profile = next; return true })
+    onTestFinished(() => owner.dispose())
+    return { owner, factory }
   }
+  let frame = performance.now() + 1e9
 
   it('retries deployment after delay when load fails', async () => {
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(0)
-    const { owner, internals, session, enqueueDeployment } = raceOwner()
-    internals.deploy(false, true)
+    const { owner, factory } = raceOwner()
+    owner.restore()
     gates.get('caracal')!.reject(new Error('transient')); await flush()
     expect(owner.deploymentRetryPending).toBe(true)
     expect(owner.error).toContain('重試')
-    expect(session.opponent.mountId).toBe('caracal')
-    expect(enqueueDeployment).not.toHaveBeenCalled()
+    expect(owner.session!.opponent.mountId).toBe('caracal')
 
     owner.prepare(); expect(preloadCalls).toEqual(['caracal'])
     vi.setSystemTime(3001); owner.prepare()
     expect(preloadCalls).toEqual(['caracal', 'caracal'])
     gates.get('caracal')!.resolve(); await flush()
-    expect(enqueueDeployment).toHaveBeenCalledExactlyOnceWith(session, false, true)
     expect(owner.deploymentRetryPending).toBe(false)
+    gameplayNpcSpawns.tick(++frame)
+    expect(owner.ready).toBe(true)
+    expect([...factory.mounts.values()].map(mount => mount.type)).toEqual([mountTypeFromId('caracal')])
   })
 
   it('drops the retry when the session is gone', async () => {
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(0)
-    const { owner, internals, enqueueDeployment } = raceOwner()
-    internals.deploy(true, false)
+    const { owner, factory } = raceOwner(true)
+    owner.restore()
     gates.get('caracal')!.reject(new Error('transient')); await flush()
-    internals.session = undefined
+    expect(owner.cancelFailedStoryRace()).toBe(true)
     vi.setSystemTime(5000); owner.prepare()
     expect(owner.deploymentRetryPending).toBe(false)
-    expect(enqueueDeployment).not.toHaveBeenCalled()
+    expect(preloadCalls).toEqual(['caracal'])
+    gameplayNpcSpawns.tick(++frame)
+    expect(factory.mounts.size).toBe(0)
   })
 })
 
