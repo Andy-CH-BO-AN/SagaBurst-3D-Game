@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 import {
   COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, fourGateRemainingTargets, fourGateTargetsAccounted,
   resolveCommanderFourGateDefenseOutcome as resolve,
@@ -26,6 +27,36 @@ describe('Town defense target accounting', () => {
     expect(fourGateRemainingTargets(targets, ['a'], [{ combatantId: 'b', dead: true }, { combatantId: 'c', dead: true }])).toBe(0)
     expect(fourGateRemainingTargets(targets, [], [{ combatantId: 'outsider', dead: true }])).toBe(3)
     expect(fourGateRemainingTargets([], [], [live('a')])).toBe(0)
+
+    // The real controller must feed those helpers and the outcome in the right order. Only its
+    // dependencies (profile, residents, spawn readiness) are supplied; evaluate/remainingEnemies are real.
+    const mission = { kind: 'commander-four-gate-defense', phase: 'ATTACKING', targetActorIds: targets, deadTargetActorIds: ['a'] }
+    const state = { attackStarted: true, registeredTargetActorIds: [...targets], combatElapsedSeconds: 0 }
+    const enemies = [{ combatantId: 'b', dead: false }], resident = { npc: { combatantId: 'r', dead: false } }
+    const owner = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as
+      Pick<CommanderFourGateDefenseController, 'remainingEnemies' | 'evaluate'>, {
+      readProfile: () => ({ activeMission: mission }), state, enemies, residents: [resident],
+      startedMissionId: 'm', fourGateSiege: { ready: true }, spawnBatch: { pending: 0, ready: true } })
+    expect(owner.remainingEnemies).toBe(2)
+    expect(owner.evaluate(false)).toBeNull() // c is registered but neither dead nor present
+    enemies.push({ combatantId: 'c', dead: false })
+    expect(owner.evaluate(false)).toBeNull() // accounted, two attackers still alive
+    expect(owner.evaluate(true, 0)).toBeNull() // a living resident keeps the town alive
+    resident.npc.dead = true
+    expect(owner.evaluate(true, 0)).toBe('failure')
+    expect(owner.evaluate(true, 1)).toBeNull() // so does a living personal ally
+    state.registeredTargetActorIds = ['a', 'b'] // incomplete registration blocks both victory routes
+    state.combatElapsedSeconds = survivalSeconds
+    expect(owner.evaluate(false, 0)).toBeNull()
+    state.registeredTargetActorIds = [...targets]
+    expect(owner.evaluate(false, 0)).toBe('victory')
+    state.combatElapsedSeconds = 0
+    for (const enemy of enemies) enemy.dead = true
+    expect(owner.remainingEnemies).toBe(0)
+    state.registeredTargetActorIds = ['a', 'b']
+    expect(owner.evaluate(false, 0)).toBeNull()
+    state.registeredTargetActorIds = [...targets]
+    expect(owner.evaluate(true, 0)).toBe('victory')
   })
 
   it('wins on the last enemy death or the survival deadline, and fails only when no defender remains', () => {
