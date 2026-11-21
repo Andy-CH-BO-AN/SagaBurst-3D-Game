@@ -1,6 +1,6 @@
 import { careerRankFixture } from '../helpers/careerRankFixture'
-import { describe, expect, it, onTestFinished } from 'vitest'
-import { Box3, Matrix4, Vector3, type Object3D } from 'three'
+import { describe, expect, it } from 'vitest'
+import { Box3, Vector3, type Object3D, type Scene } from 'three'
 import { campaignInitialOrder } from '../../src/campaign/CampaignInitialOrder'
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 import { createDefaultDefensePlayerLoadout, type DefenseCampaignLaunchConfig } from '../../src/campaign/DefenseCampaignLaunch'
@@ -8,8 +8,8 @@ import { allocateSiegeRampCrews, getSiegeRampPlacement, isMobileSiegeRampEnabled
 import { getOutpostWalkwayLayout, isOutpostWalkwayEnabled, OUTPOST_WALKWAY, type OutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkways'
 import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
 import { MobileSiegeRamp } from '../../src/campaign/MobileSiegeRamp'
-import { MovingPlatformSupport } from '../../src/movement/MovingPlatformSupport'
-import { MobileSiegeRampController } from '../../src/campaign/MobileSiegeRampController'
+import { MobileSiegeRampController, type MobileSiegeRampState } from '../../src/campaign/MobileSiegeRampController'
+import { bodyAhead, createCrewDouble, createSiegeCarrier, crewAssignment, rampPlacement, type CrewDouble } from '../helpers/siegeRampCarrierHarness'
 import { evacuateAbandonedRamp } from '../../src/campaign/SiegeConvoy'
 import type { SiegeRampAssignment } from '../../src/campaign/MobileSiegeRampPolicy'
 import { parseCampaignSiegeCheckpoint } from '../../src/campaign/CampaignSiegeCheckpoint'
@@ -31,7 +31,21 @@ import { TOWN_PLAYABLE_WORLD_BOUND } from '../../src/town/TownBounds'
 import { TOWN_GATES } from '../../src/town/TownLayout'
 import { advanceCommanderInfantryEscort, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, parseCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT } from '../../src/career/CommanderInfantryEscort'
 import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, createCommanderCavalryEscort, type CommanderCavalryEscortActorFrame, type CommanderCavalryEscortRampFrame } from '../../src/career/CommanderCavalryEscort'
-import type { TownSiegeRampId } from '../../src/campaign/MobileSiegeRampPolicy'
+import type { MobileSiegeRampId, SiegeRampPlacement, TownSiegeRampId } from '../../src/campaign/MobileSiegeRampPolicy'
+
+const noScene = {} as Scene
+const asNpc = (actor: CrewDouble) => actor as unknown as NPC
+
+/** Production facade over a replaced render side: the recorded events are everything the meshes would have been told. */
+function createRampFacade<Id extends MobileSiegeRampId>(placement: SiegeRampPlacement<Id>, assignment: SiegeRampAssignment<Id>) {
+  const renders: string[] = [], changes: { ramp: MobileSiegeRamp<Id>; state: MobileSiegeRampState }[] = []
+  const root = { visible: true, parent: null, removeFromParent() {} } as unknown as Object3D
+  const damageable = new DamageableObstacle({ kind: 'siege_ramp', maxHp: 520, root })
+  const ramp = new MobileSiegeRamp<Id>(noScene, assignment, placement, 'roman', [],
+    (changed, state) => changes.push({ ramp: changed, state }),
+    () => ({ root, damageable, syncGeometry() { renders.push('sync') }, hide() { renders.push('hide') }, dispose() { renders.push('dispose') } }))
+  return { ramp, renders, changes }
+}
 
 function watchdogCrew(): SiegeRampAssignment {
   return { id: 'siege-ramp-left', side: -1,
@@ -136,21 +150,21 @@ describe('shared siege crew and vehicle lifecycle', () => {
   })
 
   it('abandons a fully deployed carrier after immobile simulation seconds, resetting observation across checkpoint restore', () => {
-    const assignment = watchdogCrew(), events: string[] = []
-    const controller = new MobileSiegeRampController(assignment, 100, state => events.push(state))
-    controller.observeMovement(20, 0, 0, 0, 0)
-    expect(controller.state).toBe('DEPLOYING')
-    for (const combatantId of [...assignment.pusherIds, ...assignment.assaultIds]) controller.register({ combatantId, dead: false })
-    const position = new Vector3()
-    const owner = Object.assign(Object.create(MobileSiegeRamp.prototype) as Pick<MobileSiegeRamp, 'update'>, {
-      disposed: false, controller, position, assignment, crew: new Map(), canMove: () => false,
-    })
-    for (let frame = 0; frame < 99; frame++) owner.update(.1, [])
-    expect(controller.state).toBe('PUSHING')
-    owner.update(.1, [])
-    expect(controller.state).toBe('ABANDONED')
-    expect(controller.currentSpeed).toBe(0)
-    expect(events).toEqual(['PUSHING', 'ABANDONED'])
+    const assignment = crewAssignment('siege-ramp-left')
+    const placement = rampPlacement({ id: assignment.id, start: new Vector3(0, 8, 26), travel: 100, length: 20, dirZ: 1 })
+    const { carrier, states } = createSiegeCarrier({ placement, assignment })
+    carrier.controller.observeMovement(20, 0, 0, 0, 0)
+    expect(carrier.controller.state).toBe('DEPLOYING')
+    for (const id of [...assignment.pusherIds, ...assignment.assaultIds]) carrier.register(createCrewDouble(id, 0, 8, 24))
+    // A bystander wedged against the front keeps the real swept gate closed.
+    const blocker = bodyAhead(carrier.position, 0, 1, .3)
+    expect(carrier.canMove(.1, [], [blocker])).toBe(false)
+    for (let frame = 0; frame < 99; frame++) carrier.update(.1, [], [blocker])
+    expect(carrier.controller.state).toBe('PUSHING')
+    carrier.update(.1, [], [blocker])
+    expect(carrier.controller.state).toBe('ABANDONED')
+    expect(carrier.controller.currentSpeed).toBe(0)
+    expect(states).toEqual(['PUSHING', 'ABANDONED'])
 
     // Checkpoint restore resets unfinished observation
     const controller2 = new MobileSiegeRampController(assignment, 100)
@@ -177,67 +191,70 @@ describe('shared siege crew and vehicle lifecycle', () => {
   })
 
   it('repairs only a living assigned passenger saved inside the hull before binding the restored platform', () => {
-    const assignment = watchdogCrew(), controller = new MobileSiegeRampController(assignment, 100)
-    controller.restore({ state: 'PUSHING', distance: 12, dockingProgress: 0 })
-    const position = new Vector3(0, 8, 26), platform = new MovingPlatformSupport(position)
-    const surface = { startX: 0, startZ: 0, startY: 0, topY: 8, dirX: 0, dirZ: 1,
-      length: 20, landing: 6, halfWidth: 2.5 }
+    const assignment = crewAssignment('siege-ramp-left')
+    const placement = rampPlacement({ id: assignment.id, start: new Vector3(0, 8, 26), travel: 70, length: 20, dirZ: 1 })
+    // The facade runs for real over a replaced render side: no scene, mesh or geometry exists.
+    const { ramp, renders, changes } = createRampFacade(placement, assignment)
+    expect(renders).toEqual(['sync'])
+    ramp.restore({ assignment, stagingZ: 26, position: { x: 0, y: 8, z: 26 }, hp: 520, state: 'PUSHING', distance: 12, dockingProgress: 0 })
+    expect(renders).toEqual(['sync', 'sync'])
     const actors = [
-      { combatantId: 'a0', dead: false, position: new Vector3(1, 0, 19.8) },
-      { combatantId: 'a1', dead: false, position: new Vector3(-1, 8, 24) },
-      { combatantId: 'p0', dead: false, position: new Vector3(-1, 0, -1.6) },
-      { combatantId: 'a2', dead: true, position: new Vector3(0, 0, 22) },
-      { combatantId: 'a3', dead: false, position: new Vector3(2.6, 0, 23) },
-    ].map(actor => ({ ...actor, group: { rotation: { y: 0 } }, siegeTransport: null as string | null,
-      hp: 73, tacticalOrder: 'defend', assignSiegeObstacle() {} }))
-    const owner = Object.assign(Object.create(MobileSiegeRamp.prototype) as Pick<MobileSiegeRamp, 'register'>, {
-      controller, assignment, platform, surface, placement: { dirZ: 1 }, crew: new Map(),
-    })
+      createCrewDouble('a0', 1, 0, 19.8),
+      createCrewDouble('a1', -1, 8, 24),
+      createCrewDouble('p0', -1, 0, -1.6),
+      createCrewDouble('a2', 0, 0, 22),
+      createCrewDouble('a3', 2.6, 0, 23),
+    ]
+    actors[3].dead = true
     const savedPositions = actors.map(actor => actor.position.clone())
-    for (const actor of actors) owner.register(actor as unknown as Parameters<MobileSiegeRamp['register']>[0])
+    for (const actor of actors) ramp.register(asNpc(actor))
     expect(actors[0].position.toArray()).toEqual([-1, 8, 25])
     expect(actors.slice(1, 4).map(actor => actor.position)).toEqual(savedPositions.slice(1, 4))
     expect(actors[4].position.toArray()).toEqual([1, 8, 23.5])
-    expect(platform.size).toBe(3)
+    expect(ramp.platform.size).toBe(3)
     expect(actors.every(actor => actor.hp === 73 && actor.tacticalOrder === 'defend')).toBe(true)
     expect(actors[3].siegeTransport).toBeNull()
-    platform.moveTo(position.clone().add(new Vector3(0, 0, 1)))
+    ramp.platform.moveTo(new Vector3(0, 8, 27))
     expect(actors[0].position.toArray()).toEqual([-1, 8, 26])
     expect(actors[1].position.toArray()).toEqual([-1, 8, 25])
+
+    // End of life reaches the render side once and is not repeated by disposal.
+    ramp.damageable.takeDamage(520)
+    expect(changes.map(change => change.state)).toEqual(['DESTROYED'])
+    expect(changes[0].ramp).toBe(ramp)
+    expect(renders).toEqual(['sync', 'sync', 'hide'])
+    expect([actors[0], actors[1], actors[4]].map(actor => actor.falls.length)).toEqual([1, 1, 1])
+    ramp.dispose(); ramp.dispose()
+    expect(renders).toEqual(['sync', 'sync', 'hide', 'dispose'])
   })
 
   it('releases surviving crew down the rear lane without withdrawing them and restores abandonment without rebinding', () => {
-    const assignment = watchdogCrew(), position = new Vector3(0, 10, 30)
-    const surface = { startX: 0, startZ: 0, startY: getTerrainHeight(0, 0) + .04,
-      dirX: 0, dirZ: 1, halfWidth: 2.5, length: 24, landing: 6, topY: 10 }
-    const crew = [...assignment.pusherIds, ...assignment.assaultIds].map((combatantId, index) => ({
-      combatantId, dead: index === 9, position: index < 4 ? new Vector3(index % 2 ? 1 : -1, getTerrainHeight(0, -3), -3)
-        : new Vector3(index % 2 ? 1 : -1, 10, 26),
-      siegeTransport: assignment.id as string | null, siegeTransportSpeed: 2,
-      siegeEvacuation: null as Vector3 | null, siegeBypassTarget: null as Vector3 | null,
-      tacticalOrder: 'defend',
-    }))
-    const platform = new MovingPlatformSupport(position)
-    for (const npc of crew.slice(4)) platform.attach(npc)
-    interface ReleaseEntry { transition(state: 'ABANDONED'): void }
-    const hull = { box: new Box3(new Vector3(-2.5, -10, 0), new Vector3(2.5, 10, 30)),
-      walkSurface: surface, solidBelow: -10, isBarricade: true, navigationPassable: true }
-    let releases = 0
-    const owner = Object.assign(Object.create(MobileSiegeRamp.prototype) as ReleaseEntry, {
-      crew: new Map(crew.map(npc => [npc.combatantId, npc])), platform, obstacles: [hull], shared: [hull],
-      changed() { releases++; for (const npc of crew) evacuateAbandonedRamp(npc, { assignment, surface }) },
+    const assignment = crewAssignment('siege-ramp-left')
+    const placement = rampPlacement({ id: assignment.id, start: new Vector3(0, 10, 30), travel: 70, length: 24, dirZ: 1 })
+    const makeCrew = () => [...assignment.pusherIds, ...assignment.assaultIds].map((combatantId, index) => {
+      const actor = index < 4 ? createCrewDouble(combatantId, index % 2 ? 1 : -1, getTerrainHeight(0, -3), -3)
+        : createCrewDouble(combatantId, index % 2 ? 1 : -1, 10, 26)
+      actor.dead = index === 9; actor.siegeTransport = assignment.id; actor.siegeTransportSpeed = 2
+      return actor
     })
-    const controller = new MobileSiegeRampController(assignment, 100, state => {
-      if (state === 'ABANDONED') owner.transition(state)
-    })
-    for (const npc of crew) controller.register(npc)
-    controller.advance(.1, false); controller.observeMovement(10, 0, 0, 0, 0)
-    expect(platform.size).toBe(0)
-    expect(hull.navigationPassable).toBe(false)
-    expect(controller.alivePushers).toBe(4)
+    const crew = makeCrew()
+    const abandoned = createSiegeCarrier({ placement, assignment, onChanged: (state, carrier) => {
+      if (state === 'ABANDONED') for (const npc of crew) evacuateAbandonedRamp(npc, carrier)
+    } })
+    const { carrier } = abandoned
+    for (const npc of crew) carrier.register(npc)
+    expect(carrier.platform.size).toBe(5)
+    const blocker = bodyAhead(carrier.position, 0, 1, .3)
+    expect(carrier.canMove(.1, [], [blocker])).toBe(false)
+    for (let frame = 0; frame < 100; frame++) carrier.update(.1, [], [blocker])
+    expect(abandoned.states).toEqual(['PUSHING', 'ABANDONED'])
+    expect(carrier.platform.size).toBe(0)
+    expect(carrier.obstacles.every(obstacle => obstacle.navigationPassable === false)).toBe(true)
+    expect(carrier.controller.alivePushers).toBe(4)
     expect(crew.every(npc => npc.siegeTransport === null && npc.siegeTransportSpeed === 0 && npc.tacticalOrder === 'defend')).toBe(true)
     expect(crew.filter(npc => npc.dead)).toHaveLength(1)
     expect(crew.slice(0, 4).every(npc => npc.siegeEvacuation === null)).toBe(true)
+    const surface = carrier.surface
     for (const npc of crew.slice(4, 9)) {
       const target = npc.siegeEvacuation!
       expect(target.z).toBeLessThan(0)
@@ -245,32 +262,26 @@ describe('shared siege crew and vehicle lifecycle', () => {
       expect(target.y).toBe(getTerrainHeight(target.x, target.z))
     }
     expect(crew[9].siegeEvacuation).toBeNull()
-    controller.advance(20); controller.observeMovement(20, 0, 0, 0, 0)
-    expect(releases).toBe(1)
+    carrier.controller.advance(20); carrier.controller.observeMovement(20, 0, 0, 0, 0)
+    expect(abandoned.states).toEqual(['PUSHING', 'ABANDONED'])
 
-    const restored = new MobileSiegeRampController(assignment, 100, () => { throw new Error('Abandonment replayed') })
-    restored.restore({ state: 'ABANDONED', distance: 0, dockingProgress: 0 })
-    const restoredHull = { ...hull, navigationPassable: true }
-    const restoredOwner = Object.assign(Object.create(MobileSiegeRamp.prototype) as Pick<MobileSiegeRamp, 'register' | 'restore'>, {
-      controller: restored, assignment, crew: new Map(), platform, position, surface: { ...surface },
-      placement: { dock: position.clone(), surface }, obstacles: [restoredHull], shared: [restoredHull],
-      damageable: { currentHp: 520 }, updateGeometry() {},
-    })
-    restoredOwner.restore({ assignment, stagingZ: 30, position: { x: 0, y: 10, z: 30 },
+    const restoredCrew = makeCrew()
+    const restored = createSiegeCarrier({ placement, assignment, onChanged: () => { throw new Error('Abandonment replayed') } })
+    restored.carrier.restore({ assignment, stagingZ: 30, position: { x: 0, y: 10, z: 30 },
       hp: 520, state: 'ABANDONED', distance: 0, dockingProgress: 0 })
-    expect(restoredHull.navigationPassable).toBe(false)
-    const savedPositions = crew.map(npc => npc.position.clone())
-    for (const npc of crew) {
-      // Named registration adapter stops at the terminal-state gate, before NPC presentation dependencies.
-      restoredOwner.register(npc as unknown as Parameters<MobileSiegeRamp['register']>[0])
-    }
-    expect(platform.size).toBe(0)
-    expect(restored.advance(20)).toBe(0)
-    restored.observeMovement(20, 0, 0, 0, 0)
-    expect(restored.state).toBe('ABANDONED')
-    expect(crew.map(npc => npc.position)).toEqual(savedPositions)
+    expect(restored.carrier.obstacles.every(obstacle => obstacle.navigationPassable === false)).toBe(true)
+    const savedPositions = restoredCrew.map(npc => npc.position.clone())
+    // Registration stops at the terminal-state gate: nothing is bound or moved.
+    for (const npc of restoredCrew) restored.carrier.register(npc)
+    expect(restored.carrier.platform.size).toBe(0)
+    expect(restored.carrier.controller.advance(20)).toBe(0)
+    restored.carrier.controller.observeMovement(20, 0, 0, 0, 0)
+    expect(restored.carrier.controller.state).toBe('ABANDONED')
+    expect(restoredCrew.map(npc => npc.position)).toEqual(savedPositions)
     // Conservative numeric side/front skirts leave only the actual rear walk
     // lane open. Exercise the production foot collider without an actor/model.
+    const hull = { box: new Box3(new Vector3(-2.5, -10, 0), new Vector3(2.5, 10, 30)),
+      walkSurface: surface, solidBelow: -10, isBarricade: true, navigationPassable: true }
     const obstacles: ObstacleData[] = [hull,
       { box: new Box3(new Vector3(-2.7, -10, 0), new Vector3(-2.5, 10.9, 30)), isBarricade: true },
       { box: new Box3(new Vector3(2.5, -10, 0), new Vector3(2.7, 10.9, 30)), isBarricade: true },
@@ -531,84 +542,69 @@ describe('shared siege crew and vehicle lifecycle', () => {
   })
 
   it('moves the shared X carrier but releases a withdrawn pusher from transport and body-collision exemptions', () => {
-    const assignment = allocateTownSiegeCrews(createTownSiegeCrewSlots('roman')).find(a => a.id === 'town-siege-ramp:east:left')!
-    const controller = new MobileSiegeRampController(assignment, 40)
-    const crew = [...assignment.pusherIds, ...assignment.assaultIds].map(combatantId => ({ combatantId, dead: false,
-      position: new Vector3(190, 10, 62), get combatPosition() { return this.position }, isMounted: false,
-      siegeTransport: assignment.id as string | null, siegeTransportSpeed: 0 }))
-    for (const actor of crew) controller.register(actor)
-    const position = new Vector3(191.9, 12, 62), passenger = crew[4], platform = new MovingPlatformSupport(position)
-    platform.attach(passenger)
-    const box = new Box3(new Vector3(189, 0, 60), new Vector3(192, 12, 65))
-    const parts: { localBox: Box3; obstacle: { projectileWorldToLocal: Matrix4 } }[] = []
-    // The renderer/part-mesh boundary is omitted; real update, readiness, terrain, sweep query and carrier math execute.
-    interface VehicleEntry {
-      position: Vector3
-      update(dt: number, actors: readonly typeof crew[number][]): void
-      releaseCrew(actor: typeof crew[number]): void
-    }
-    const owner = Object.assign(Object.create(MobileSiegeRamp.prototype) as VehicleEntry, {
-      disposed: false, position, controller, assignment, placement: { dirX: -1, dirZ: 0,
-        dock: new Vector3(151.9, 10, 62), surface: { startX: 182, startZ: 62, topY: 10, startY: 0 } },
-      surface: { startX: 222, startZ: 62 }, platform, crew: new Map(crew.map(n => [n.combatantId, n])),
-      shared: [], obstacles: [], parts, wheelBodies: [], deck: { obstacle: { box } }, run: { obstacle: { box } },
-      scratch: new Vector3(), updateGeometry() {},
-    })
-    owner.update(.1, [])
-    expect(owner.position.x).toBeCloseTo(191.42); expect(owner.position.z).toBe(62)
-    expect(crew[0].position.x).toBeCloseTo(189.52); expect(crew[0].position.z).toBe(62)
-    expect(passenger.position.x).toBeCloseTo(189.52); expect(passenger.position.z).toBe(62)
-    expect(platform.position).toEqual(position)
+    const assignment = crewAssignment('town-siege-ramp:east:left')
+    const placement = rampPlacement({ id: assignment.id, start: new Vector3(191.9, 12, 62), dirX: -1, dirZ: 0, travel: 40, length: 20 })
+    const { carrier, shared, states, render, damageable } = createSiegeCarrier({ placement, assignment })
+    const crew = [...assignment.pusherIds, ...assignment.assaultIds].map((id, index) =>
+      createCrewDouble(id, index < 4 ? 195.5 : 194, 12, 62))
+    for (const actor of crew) carrier.register(actor)
+    const passenger = crew[4], controller = carrier.controller
+    carrier.update(.1, [])
+    expect(carrier.position.x).toBeCloseTo(191.42); expect(carrier.position.z).toBe(62)
+    expect(crew[0].position.x).toBeCloseTo(195.02); expect(crew[0].position.z).toBe(62)
+    expect(passenger.position.x).toBeCloseTo(193.52); expect(passenger.position.z).toBe(62)
+    expect(carrier.platform.position).toEqual(carrier.position)
     const withdrawn = crew[0]
-    owner.releaseCrew(withdrawn)
+    carrier.releaseCrew(withdrawn)
     const releasedPosition = withdrawn.position.clone()
-    owner.update(.1, [])
+    carrier.update(.1, [])
     expect(controller.alivePushers).toBe(3)
-    expect(owner.position.x).toBeCloseTo(191.06)
+    expect(carrier.position.x).toBeCloseTo(191.06)
     expect(withdrawn.position).toEqual(releasedPosition)
     expect(withdrawn.siegeTransport).toBeNull(); expect(withdrawn.siegeTransportSpeed).toBe(0)
     expect(() => controller.register(withdrawn)).toThrow('Invalid siege crew registration')
-    // The departed actor now has ordinary body ownership and must stop the convoy.
-    withdrawn.position.set(190, 0, 62)
-    parts.push({ localBox: box, obstacle: { projectileWorldToLocal: new Matrix4() } })
-    const stoppedAt = owner.position.clone()
-    owner.update(.1, [withdrawn])
-    expect(owner.position).toEqual(stoppedAt)
+    // The departed actor now has ordinary body ownership and must stop the convoy;
+    // a crew member standing on the same spot is still exempt.
+    const front = bodyAhead(carrier.position, -1, 0, .6).position
+    crew[1].position.copy(front)
+    expect(carrier.canMove(.1, [crew[1]], [])).toBe(true)
+    withdrawn.position.copy(front)
+    const stoppedAt = carrier.position.clone()
+    carrier.update(.1, [withdrawn])
+    expect(carrier.position).toEqual(stoppedAt)
     expect(controller.currentSpeed).toBe(0)
-    parts.length = 0
-    for (let frame = 0; frame < 100; frame++) owner.update(.1, [])
+    // Three live pushers advance at three quarters of the full 0.48 m per 0.1 s frame.
+    const distanceBefore = controller.distance
+    for (let frame = 0; frame < 10; frame++) carrier.update(.1, [])
     expect(controller.state).toBe('PUSHING')
-    expect(controller.distance).toBeGreaterThan(36)
-    controller.dispose()
+    expect(controller.distance).toBeCloseTo(distanceBefore + 10 * .36)
+    // Destruction releases riders into a fall, hides the carrier and frees its collision volumes.
+    damageable.takeDamage(520)
+    expect(states).toEqual(['PUSHING', 'DESTROYED'])
+    expect(render.hides).toBe(1)
+    expect(passenger.falls).toHaveLength(1); expect(crew[1].falls).toHaveLength(0)
+    expect(shared).toEqual([])
     const stoppedDistance = controller.distance
-    owner.update(20, [])
+    carrier.update(20, [])
     expect(controller.distance).toBe(stoppedDistance)
-    expect(controller.state).toBe('PUSHING')
   })
 
   it('restores a destroyed carrier as hidden and collision-free without replaying transitions', () => {
-    const assignment = allocateSiegeRampCrews(createTownSiegeCrewSlots('viking').slice(0, 20).map(({ spec }) => ({ ...spec, tier: 3 as const })))[0]
-    const controller = new MobileSiegeRampController(assignment, 40, () => { throw new Error('restore replayed transition') })
-    let removals = 0
-    // Only the render lifecycle handle is doubled; no Object3D, model or scene is constructed.
-    const root = { visible: true, parent: null, removeFromParent() { removals++ } }
-    const damageable = new DamageableObstacle({ kind: 'siege_ramp', maxHp: 520, root: root as unknown as Object3D })
-    onTestFinished(damageable.onDestroyed(() => controller.destroy()))
-    const box = new Box3(), obstacle = { box, isBarricade: true }, neighbor = { box, isBarricade: true }
-    const position = new Vector3(), shared = [obstacle, neighbor]
-    const owner = Object.assign(Object.create(MobileSiegeRamp.prototype) as Pick<MobileSiegeRamp, 'restore'>, {
-      controller, damageable, position, root, shared, obstacles: [obstacle], surface: {},
-      placement: { dock: new Vector3(), surface: { startX: 0, startZ: 0 } },
-      platform: new MovingPlatformSupport(position), updateGeometry() {},
-    })
+    const assignment = crewAssignment('siege-ramp-left')
+    const placement = rampPlacement({ id: assignment.id, start: new Vector3(0, 10, -15), travel: 40, length: 20, dirZ: 1 })
+    const neighbor: ObstacleData = { box: new Box3(), isBarricade: true }
+    const { carrier, shared, states, render, damageable, root } = createSiegeCarrier({ placement, assignment, neighbors: [neighbor],
+      onChanged: state => { throw new Error(`restore replayed ${state}`) } })
+    expect(shared).toEqual([neighbor, ...carrier.obstacles])
     const saved = { assignment, stagingZ: -40, position: { x: 0, y: 10, z: -15 }, hp: 0,
       state: 'DESTROYED' as const, distance: 25, dockingProgress: 0 }
-    owner.restore(saved); owner.restore(saved)
-    expect(root.visible).toBe(false); expect(removals).toBe(1)
+    carrier.restore(saved); carrier.restore(saved)
+    expect(root.visible).toBe(false); expect(root.removals).toBe(1)
     expect(damageable.destroyed).toBe(true); expect(damageable.currentHp).toBe(0)
     expect(shared).toEqual([neighbor])
-    expect(position).toEqual(new Vector3(0, 10, -15)); expect(controller.state).toBe('DESTROYED')
-    controller.observeMovement(20, 0, 0, 0, 0); expect(controller.state).toBe('DESTROYED')
+    expect(carrier.position).toEqual(new Vector3(0, 10, -15)); expect(carrier.controller.state).toBe('DESTROYED')
+    carrier.controller.observeMovement(20, 0, 0, 0, 0); expect(carrier.controller.state).toBe('DESTROYED')
+    expect(states).toEqual([]); expect(render.hides).toBe(0)
   })
 
   it('unifies all formal Outpost missions on latest walkways while disabling mobile siege ramps for relief', () => {
