@@ -1,4 +1,3 @@
-import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import * as THREE from 'three'
 import { officialActorSquadId, officialCommandIsPlayerControlled } from './CareerCommandAuthority'
 import { restoreCommandActor, snapshotCommandActor } from './CareerCommandActorCheckpoint'
@@ -15,9 +14,10 @@ import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import { eagleBowEngagementRange } from '../combat/EagleRangedCombat'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
-import { Faction, NPC } from '../world/NPC'
-import { Mount, mountTypeFromId } from '../world/Mount'
+import { Faction, type NPC } from '../world/NPC'
+import type { Mount } from '../world/Mount'
 import { XONGKORO } from '../movement/XongkoroConfig'
+import type { CareerActorFactory } from './CareerActorFactory'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy, resolveCareerMissionOutcome, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
@@ -54,7 +54,7 @@ export class CommanderTownMissionController {
   initialDeployment?: DecapitationDeployment
 
   constructor(
-    private readonly scene: THREE.Scene,
+    private readonly actorFactory: CareerActorFactory,
     private readonly residents: readonly CommanderTownResident[],
     private readonly player: () => Player,
     private readonly readProfile: () => CareerProfile,
@@ -251,17 +251,14 @@ export class CommanderTownMissionController {
 
   private materializeOfficial(spec: NpcSpawnSpec, active: ActiveCareerMission): void {
     const actorId = spec.actorId!
-    const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, spec.faction, spec.characterFaction, spec.aiType,
-      spec.name, spec.tier, spec.cavalry, spec.loadout, spec.presetId, spec.squadId, actorId, this.events.emit,
-      spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile, undefined, undefined, undefined, undefined,
-      spec.characterTier, spec.heroArchetype))
+    const npc = trackNpcSpawn(this.actorFactory.npc(spec, actorId, this.events.emit))
     npc.respawnEnabled = false
     npc.combatOwnership = 'mission-official'
     const squadId = active.officialSquad && officialActorSquadId(active.officialSquad, actorId)
     if (squadId !== undefined) npc.setCommandSquad(squadId)
     let mount: Mount | undefined
     if (spec.loadout?.mountId) {
-      mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(spec.loadout.mountId), spec.x, spec.z, undefined, horseVariantForStableKey(actorId)))
+      mount = trackNpcSpawn(this.actorFactory.mount(spec.loadout.mountId, spec.x, spec.z, undefined, actorId))
       mount.temporaryCombatId = `${actorId}:mount`
       npc.mountVehicle(mount)
       this.enemyMounts.push(mount); this.actorMounts.set(npc, mount)

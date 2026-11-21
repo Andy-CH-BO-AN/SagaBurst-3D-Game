@@ -43,7 +43,8 @@ import type { UnitPresetId } from './battle/UnitPresetCatalog'
 import { SpectatorCameraController } from './camera/SpectatorCameraController'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
 import type { CampaignFaction } from './campaign/CampaignConfig'
-import { DEFENSE_CAMPAIGN_RULES, opposingCampaignFaction } from './campaign/CampaignConfig'
+import { opposingCampaignFaction } from './campaign/CampaignConfig'
+import { campaignInitialOrder } from './campaign/CampaignInitialOrder'
 import { applyCampaignBreachOrders, isCampaignGateOccupied, reconcileCampaignGateSiege, restoreCampaignBreachCheckpoint, type CampaignBreachController, type CampaignGateController } from './campaign/CampaignGate'
 import { createCampaignOutpost, getCampaignDefenderFacingYaw, getCampaignOutpostPlacement } from './campaign/CampaignOutpost'
 import { getOutpostWalkwayLayout, isOutpostWalkwayEnabled } from './campaign/CampaignOutpostWalkways'
@@ -74,7 +75,7 @@ import { CareerProfileStore } from './career/CareerProfileStore'
 import type { CareerTutorialLaunch } from './career/CareerTutorialLaunch'
 import { careerVeteranOutpostOwner, createCareerVeteranOutpostReinforcementPlan, createCareerVeteranOutpostSpawnPlan } from './career/CareerVeteranOutpost'
 import { createBridgeheadRoster } from './career/CommanderMissionCatalog'
-import { createCareerCommanderOutpostSpawnPlan, remainingCommanderAttackers } from './career/CommanderOutpost'
+import { commanderOutpostCombatLocked, createCareerCommanderOutpostSpawnPlan, remainingCommanderAttackers } from './career/CommanderOutpost'
 import { COMMANDER_IRON_LEGION_ID, HEAVY_FIELD_SPECS, heavyCommandPlan, heavyFrontlineDistance, isHeavyFormationComplete, planVeteranCaltropDefense, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, VETERAN_IRON_TIDE_ID, veteranCaltropWorldRects, type HeavyPoint } from './career/HeavyCavalryMissions'
 import { careerHeavyPreloadPlan } from './career/HeavyCavalrySpawn'
 import { createHeavyFieldDeployment, getHeavyFieldMissionDefinition, isCareerHeavyFieldBattle, type HeavyFieldDeployment } from './career/HeavyFieldMission'
@@ -146,7 +147,7 @@ import { HERO_ASSETS, type HeroAssetId, type PlayerHeroId } from './world/HeroAs
 import { HorseAssetRegistry, horseVariantForStableKey, horseVariantFromSave } from './world/HorseAssetRegistry'
 import { isPlayerHostileNpc, populateNpcFactionGrids, selectHostileNpcGrid } from './world/HostileNpcGrid'
 import { HumanoidAssetRegistry } from './world/HumanoidAssetRegistry'
-import { InteractionFocus, type InteractionCandidate } from './world/InteractionFocus'
+import { PlayerInteractionController } from './world/PlayerInteractionController'
 import { preloadMakiRangerBow } from './world/MakiRangerEquipment'
 import { DEFAULT_MOUNT_TYPE, felineVariantFromMountId, Mount, MountState, MountType, mountTypeFromId, mountTypeFromSave } from './world/Mount'
 import { AIState, AIType, Faction, NPC, NPC_NEIGHBOR_QUERY_RADIUS } from './world/NPC'
@@ -780,7 +781,7 @@ export class Game {
   private mountHpFill!: HTMLElement
 
   private pickupHud!: PickupPrompt
-  private readonly pickupFocus = new InteractionFocus<WeaponPickup | Mount>()
+  private readonly interactions = this._createInteractionController()
   private readonly customPickupPolicy: boolean
   private interactionInputCaptured = false
 
@@ -2254,7 +2255,7 @@ export class Game {
 
   private _configureCampaignInitialNpc(npc: NPC, campaign: DefenseCampaignLaunchConfig, restorePosition = true): void {
     const careerOutpost = campaign.careerVeteranOutpost ?? campaign.careerCommanderOutpost
-    const isOutpostOwner = npc.characterFaction === careerVeteranOutpostOwner(campaign)
+    const initial = campaignInitialOrder(npc, campaign, this.careerProfile), isOutpostOwner = initial.outpostOwner
     if (isOutpostOwner && (campaign.careerMissionKind !== 'outpost-relief' || !this._originalCareerSquadId(npc))) {
       this.campaignOriginalDefenders.push(npc)
     }
@@ -2264,26 +2265,12 @@ export class Game {
       : careerOutpost && !isOutpostOwner ? defenderFacingYaw + Math.PI : defenderFacingYaw
     npc.group.rotation.y = heading
     if (npc.mount) npc.mount.group.rotation.y = heading
-    const commanderAssault = campaign.careerCommanderOutpost?.runtimeState.activePhase === 'assault'
-    npc.setTacticalOrder(isOutpostOwner
-      ? DEFENSE_CAMPAIGN_RULES.initialDefenderOrder
-      : campaign.careerCommanderOutpost
-        ? commanderAssault ? npc.squadId === 7 ? 'attack' : 'charge' : 'defend'
-        : campaign.careerVeteranOutpost ? 'attack' : DEFENSE_CAMPAIGN_RULES.initialDefenderOrder)
+    npc.setTacticalOrder(initial.order)
     if (careerOutpost) this._restoreCareerVeteranNpcState(npc, restorePosition)
     else this._restorePersonalOutpostNpc(npc)
     // Rebuild automatic post-breach intent without replaying the global event.
-    // Saved player-owned orders remain authoritative, including Defend/Follow.
-    const authority = this._careerCommandMission()?.officialSquad
-    if (this.previewCampaignBreachController?.breached && !officialPlayerOwnsActor(authority, npc.combatantId)) {
-      const saved = this._personalOutpostMission()?.battle?.actors[npc.combatantId]
-      const command = saved ? authority?.members?.[npc.combatantId] ?? saved.checkpoint : undefined
-      const hasRestoredIntent = !authority?.actorIds.includes(npc.combatantId) && Boolean(command?.order || command?.formation)
-      // Legacy Relief attackers may only have resources saved. Keep restored commands,
-      // but give actors with no saved intent the same orders as a fresh breached battle.
-      if (isOutpostOwner || campaign.careerMissionKind === 'outpost-relief' && !hasRestoredIntent) {
-        applyCampaignBreachOrders([npc], opposingCampaignFaction(careerVeteranOutpostOwner(campaign)))
-      }
+    if (this.previewCampaignBreachController?.breached && initial.breachOrders) {
+      applyCampaignBreachOrders([npc], opposingCampaignFaction(careerVeteranOutpostOwner(campaign)))
     }
   }
 
@@ -3365,15 +3352,12 @@ export class Game {
     ]
   }
 
-  /** Last Stand's preparation clock is a ceasefire: actors may reposition, but
-   * no side can attack or deal mount-impact damage before the shared assault.
-   * A restored assault remains locked until its complete roster is registered. */
+  /** Last Stand's shared ceasefire; the decision belongs to `commanderOutpostCombatLocked`. */
   private _commanderOutpostCombatLocked(): boolean {
-    if (this.coopGuest) return false
-    return Boolean(this.defenseCampaignConfig?.careerCommanderOutpost
-      && (this.defenseCampaignRuntime?.getSnapshot().activePhase === 'deployment'
-        || !this.commanderOutpostDeploymentBatch?.ready
-        || Boolean(this.personalSquad && !this.personalSquad.ready)))
+    return commanderOutpostCombatLocked({
+      coopGuest: Boolean(this.coopGuest), launch: this.defenseCampaignConfig, runtime: this.defenseCampaignRuntime,
+      deploymentBatch: this.commanderOutpostDeploymentBatch, personalSquad: this.personalSquad,
+    })
   }
 
   private _applyCampaignBreachOrders(attackerFaction: CampaignFaction): void {
@@ -4749,9 +4733,7 @@ export class Game {
 
   // ── Melee Combat Hit Detection (Player Sword -> Enemies / Damageable Obstacles) ──
   private _checkPlayerMeleeHits(): void {
-    // Some focused contact owners borrow this method without constructing Game;
-    // a real Game always supplies the shared Last Stand lock.
-    if (this._commanderOutpostCombatLocked?.()) return
+    if (this._commanderOutpostCombatLocked()) return
     if (this.fieldMissionId && this.careerProfile?.activeMission?.phase !== 'ENGAGING') return
     const eagle = this.player.currentMount
     if (eagle?.isFlyingMount && !this.player.dead) {
@@ -4872,62 +4854,29 @@ export class Game {
       return
     }
 
-    // The press belongs to the target and action displayed in the preceding frame.
-    const action = this.pickupFocus.pressed(pressed, this._pickupCandidates(), this.player.position)
-    if (action?.action === 'dismount') {
-      const prevMount = this.player.currentMount!
-      this.player.dismountFromMount()
-      if (!this.player.isMounted && prevMount.type === MountType.HORSE && this.trainingGround?.mounts.includes(prevMount)) this.tutorialScene?.operation('dismounted')
-      this._aimTargetRegistry.registerMount(prevMount)
-      this.mountHud.classList.remove('visible')
-    } else if (action?.target instanceof WeaponPickup) {
-      const pickup = action.target
-      if (pickup.isArrowPack) {
-        this.player.setArrowCount(this.player.arrowCount + pickup.arrowQuantity)
-        this.quiverUI.setArrowCount(this.player.arrowCount)
-        this.pickupHud.notify(`已補充箭矢 · +${pickup.arrowQuantity}`)
-      } else {
-        this.inventoryManager.addWeapon(pickup.weaponId)
-        if (action.action === 'equip') this.inventoryManager.equipWeapon(pickup.weaponId)
-        this.pickupHud.notify(`${action.action === 'equip' ? '已裝備' : '已收進背包'} · ${pickup.name}`)
-      }
-      pickup.destroy()
-      const idx = this.pickups.indexOf(pickup)
-      if (idx !== -1) this.pickups.splice(idx, 1)
-    } else if (action?.action === 'mount') {
-      this._mountPlayer(action.target as Mount)
-    }
-
-    const yaw = this.thirdPersonCamera.cameraYaw
-    const selected = this.pickupFocus.select(this._pickupCandidates(), this.player.position,
-      { x: -Math.sin(yaw), z: -Math.cos(yaw) })
-    for (const pickup of this.pickups) pickup.setSelected(selected?.target === pickup)
-    this.pickupHud.show(selected?.prompt ?? null)
+    this.interactions.update(pressed, this.thirdPersonCamera.cameraYaw)
   }
 
-  private _pickupCandidates(): InteractionCandidate<WeaponPickup | Mount>[] {
-    const position = this.player.position
-    if (this.player.isMounted && this.player.currentMount) return [{
-      target: this.player.currentMount, position, range: 2.5, action: 'dismount', prompt: '[E] 下騎',
-    }]
-    const items: InteractionCandidate<WeaponPickup | Mount>[] = []
-    for (const pickup of this.pickups) {
-      if (!pickup.isAlive) continue
-      const action = pickup.isArrowPack ? 'arrows' : this.customPickupPolicy ? this.inventoryManager.pickupDisposition(pickup.weaponId) : 'backpack'
-      const text = action === 'arrows' ? `補充箭矢 · +${pickup.arrowQuantity}`
-        : `${action === 'equip' ? '拾起並裝備' : '收進背包'} · ${pickup.name}`
-      items.push({ target: pickup, position: pickup.position, range: 2.5, action, prompt: `[E] ${text}` })
-    }
-    for (const mount of this.mounts) if (mount.availableForPlayer && !mount.coopPuppet) items.push({
-      target: mount, position: mount.group.position, range: 2.5, action: 'mount', prompt: `[E] 騎乘：${mount.displayName}`,
+  private _createInteractionController(): PlayerInteractionController<WeaponPickup, Mount> {
+    return new PlayerInteractionController<WeaponPickup, Mount>({
+      player: () => this.player,
+      pickups: () => this.pickups,
+      mounts: () => this.mounts,
+      inventory: () => this.inventoryManager,
+      customPickupPolicy: () => this.customPickupPolicy,
+      hud: { show: text => this.pickupHud?.show(text), notify: text => this.pickupHud.notify(text) },
+      quiver: { setArrowCount: count => this.quiverUI.setArrowCount(count) },
+      onDismounted: prevMount => {
+        if (!this.player.isMounted && prevMount.type === MountType.HORSE && this.trainingGround?.mounts.includes(prevMount)) this.tutorialScene?.operation('dismounted')
+        this._aimTargetRegistry.registerMount(prevMount)
+        this.mountHud.classList.remove('visible')
+      },
+      mountPlayer: mount => this._mountPlayer(mount),
     })
-    return items
   }
 
   private _clearPickupFocus(): void {
-    this.pickupFocus.clear()
-    this.pickupHud?.show(null)
-    for (const pickup of this.pickups) pickup.setSelected(false)
+    this.interactions.clear()
   }
 
   /** Prevent living people, NPCs, and mounts from occupying the same space. */

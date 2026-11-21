@@ -1,13 +1,18 @@
 import { careerRankFixture } from '../helpers/careerRankFixture'
 import { Box3, Vector3 } from 'three'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { commanderGateDefenseSlots } from '../../src/career/CaptainMissionCatalog'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { beginCommanderRetirementFinalStand } from '../../src/career/CareerRetirementFinale'
 import { hasCompleteRetirementMobilizationCheckpoint, retirementAssaultFormations, retirementGroundStaging, retirementMobilizationNeedsPreparation } from '../../src/career/CareerRetirementMobilization'
-import { townDefaultActorLoadout, townEquipmentActorSpecs } from '../../src/career/CareerTownEquipmentState'
+import { createTownEquipmentRefsResolver, townDefaultActorLoadout, townEquipmentActorSpecs } from '../../src/career/CareerTownEquipmentState'
 import { TOWN_CENTER_FRAME, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, townHousing } from '../../src/town/TownLayout'
 import { TOWN_WATCHTOWER_ARCHER_IDS } from '../../src/town/TownNativeGuardIdentity'
+import { TownRetirementMobilizationController } from '../../src/town/TownRetirementMobilizationController'
 import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
+import { townWatchtowerGuardRoster } from '../../src/town/TownWatchtowerGuardPolicy'
+import type { Mount } from '../../src/world/Mount'
+import type { NPC } from '../../src/world/NPC'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { withNativeRetirementCheckpoints } from '../helpers/RetirementMobilizationFixture'
 
@@ -91,3 +96,49 @@ it('assigns every native retirement humanoid exactly once and stops preparation 
   })
 
 const commander = (): CareerProfile => ({ ...createCareerProfile('roman'), ...careerRankFixture('roman', 'commander'), rank: 'commander', totalMerit: 20000 })
+
+type MobilizationDependencies = ConstructorParameters<typeof TownRetirementMobilizationController>[0]
+
+/** Plain state and no-op ports for the checkpoint fields; native actors/physics own nothing asserted here. */
+function nativeResident(spec: TownActorSpec, mounted: boolean) {
+  const transform = () => ({ position: new Vector3(spec.x, spec.y ?? 0, spec.z), rotation: { y: spec.yaw ?? 0 } })
+  const homeMount = mounted ? { dead: false, currentHp: 40, maxHp: 80, armorImpactRemaining: 5, armorImpactMax: 10,
+    group: transform(), riderPlayer: null, riderNpc: null, restoreArmor() {} } : undefined
+  const group = transform()
+  const npc = { combatantId: spec.id, dead: false, hp: 10, maxHp: 50, combatAmmo: 1, combatAmmoCapacity: 30,
+    mount: homeMount ?? null, isMounted: mounted, group, combatPosition: group.position, characterFaction: 'roman' as const,
+    shield: { shieldImpactRemaining: 0, shieldImpactMax: 20 }, tacticalOrder: 'defend',
+    restoreCombatHealth() {}, restoreCombatAmmo() {}, assignFormationTarget() {}, setTacticalOrder() {},
+    setTownPeaceful() {}, setMissionCombatTarget() {} }
+  return { spec, npc: npc as unknown as NPC, homeMount: homeMount as unknown as Mount | undefined }
+}
+
+it('admits the final stand from the receipt written by Town mobilization and refuses it once a ground actor is lost', () => {
+  let profile: CareerProfile = { ...commander(), careerRetirement: { version: 1, phase: 'departing', acceptedAt: 123, combatElapsedSeconds: 0 } }
+  const mountOf = createTownEquipmentRefsResolver(profile, 'roman')
+  const residents = [...townEquipmentActorSpecs('roman').filter(spec => spec.role !== 'cat')
+    .map(spec => nativeResident(spec, Boolean(mountOf(spec).mount))), ...townWatchtowerGuardRoster().map(spec => nativeResident(spec, false))]
+  // Eagle refill belongs to TownEagleGarrisonController; supply its completed native state.
+  const eagleRefill = withNativeRetirementCheckpoints(profile).townEagleGarrisons!.roman!
+  const saves: CareerProfile[] = []
+  const controller = new TownRetirementMobilizationController({
+    residents, read: () => profile, save: (next: CareerProfile) => { saves.push(next); profile = next; return true }, revoke: vi.fn(),
+    patrol: { recallForSiege: vi.fn(), reconcileRetirementMobilization: () => true },
+    eagles: { setAmbientPatrolAllowed: vi.fn(), setRecoveryAllowed: vi.fn(), stageRetirementRefill: () => eagleRefill,
+      reconcileRetirementMobilization: () => true },
+    navigation: { areConnected: () => true, townNav: null }, obstacles: [], nearby: () => [],
+  } as unknown as MobilizationDependencies)
+  expect(controller.updateBoundary({ x: 0, z: -400 })).toBe(true)
+  expect(saves.map(saved => [saved.careerRetirement?.phase, Boolean(saved.careerRetirement?.mobilization)]))
+    .toEqual([['mobilizing', false], ['mobilizing', true]])
+  const written = saves[1], original = JSON.stringify(written)
+  const started = beginCommanderRetirementFinalStand(written)
+  expect(started?.careerRetirement).toEqual({ version: 1, phase: 'final-stand', acceptedAt: 123, combatElapsedSeconds: 0,
+    mobilization: { version: 1, commandRevoked: true, refillCompleted: true, formationPrepared: true } })
+  expect(started?.townCommandSquad).toEqual(written.townCommandSquad)
+  expect(JSON.stringify(written)).toBe(original)
+  const lost = commanderGateDefenseSlots()[0].actorIds[0]
+  const { [lost]: _lostMember, ...remaining } = written.townCommandSquad!.members!
+  expect(beginCommanderRetirementFinalStand({ ...written, townCommandSquad: { ...written.townCommandSquad!,
+    actorIds: written.townCommandSquad!.actorIds.filter(id => id !== lost), members: remaining } })).toBeNull()
+})

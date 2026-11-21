@@ -53,8 +53,10 @@ export function retirementGroundStaging(formations: readonly RetirementAssaultFo
   const radius = (id: string) => mountedIds.has(id) ? 1.8 : .7
   const usable = (point: Vector3, id: string): boolean => {
     const r = radius(id)
-    if (point.x < -15 + r || point.x > 90 - r || point.z < -105 + r || point.z > 28 - r
-      || townRampGroundExcluded(layout, point, Math.max(1.8, r))
+    if (point.x < -15 + r || point.x > 90 - r || point.z < -105 + r || point.z > 28 - r) return false
+    // Pure checks only; the cheap overlap test rejects most crowded candidates before the geometry scans.
+    if (!occupied.every(other => (point.x - other.point.x) ** 2 + (point.z - other.point.z) ** 2 >= (r + other.radius) ** 2 - .0001)) return false
+    if (townRampGroundExcluded(layout, point, Math.max(1.8, r))
       || !civilianBodyClear(point, obstacles, { radius: r, height: mountedIds.has(id) ? 2.6 : 2.3 })) return false
     if (towerBoxes.some(box => point.x > box.min.x - r && point.x < box.max.x + r
       && point.z > box.min.z - r - 2 && point.z < box.max.z + r + 2)) return false
@@ -67,8 +69,7 @@ export function retirementGroundStaging(formations: readonly RetirementAssaultFo
       const along = (pad.z - point.z) * Math.cos(pad.yaw)
       if (Math.abs(point.x - pad.x) < 16 + r && along >= -15 - r && along <= EAGLE_APPROACH.terminalDistance + r) return false
     }
-    return occupied.every(other => (point.x - other.point.x) ** 2 + (point.z - other.point.z) ** 2 >= (r + other.radius) ** 2 - .0001)
-      && navigation.areConnected(anchor, point)
+    return navigation.areConnected(anchor, point)
   }
   let mountedBank = 0, footBank = 0
   for (const formation of ground) {

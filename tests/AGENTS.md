@@ -74,6 +74,14 @@
 - 優先斷言公開狀態與輸出；副作用順序本身是契約時明確驗證。Regression 必須在對應錯誤行為下失敗，不能只檢查呼叫或沒有 throw。
 - 可設定 A*、scheduler 預算由測試自行指定 n，驗證同 frame 最多 n 筆、第 n + 1 筆保留、合法下一 frame 繼續及重複 timestamp 不重複耗用預算；不寫死 production 當前數值。
 
+### 不得出現的三種壞測試
+
+新增或 review 案例時逐一自問；答案不成立就改寫或刪除，不以補 assertions 掩蓋。
+
+- **套套邏輯測試**：expected 抄自實作，例如斷言常數等於其字面值、以同一公式重算 expected、只斷言實作自己的呼叫發生過、首次執行即接受的 snapshot。自問：**除了「程式碼長這樣」還說了什麼？**
+- **對結構過度敏感的測試**：讀 source 檔斷言文字、斷言私有欄位名稱、新案例以 `Object.create(X.prototype)` 加指派私有欄位組裝重型 class，或已有具名／可觀察結果時仍以 `mock.calls[i][j]` 位置斷言內部呼叫。自問：**只重構不改行為，會紅嗎？**
+- **不可能失敗的測試**：double 接受一切，使正式環境的壞法無從發生，例如 AudioContext 永遠 `running`、以 module mock 讓相鄰決策對真實版本會拒絕的 fixture 回傳 `true`。外部邊界的 fake 必須遵守真實規則，違反時 throw。自問：**正式環境的壞法，這裡有可能發生嗎？**
+
 ## 非同步、資源與生命週期 Regression
 
 - 先區分**唯讀查詢**與**會改變狀態的操作**。查看 UI／狀態不得暗中建立 demand、啟動載入／重試或改變 ownership，除非這就是明示的產品契約；測試要能抓到「僅查看未選裝備卻觸發載入或通知」這類副作用。
@@ -96,6 +104,7 @@
 - 執行 `npm run lint:test`；範圍需與 runner 收檔一致，涵蓋 Vitest `.test`／`.spec` 測試檔與遞迴發現的 Node `.test.cjs`，不因 `tests/` 子目錄漏掉案例。CI 會在既有 logic gate 的 `npm ci` 後執行，不會新增測試案例或另一個 Full Test Job。
 - ESLint Error 會阻擋 Vitest focused／disabled／重複標題／條件式註冊（含 namespace 與 named/namespace 混用）、Unit Test 重型 3D constructor，以及 Node `test`／`describe` 的 `.only`／`.skip`／`.todo` 和明確啟用的停用 options。
 - Test body 超過 120 行、`expect-expect`、真實 timer wait pattern、`any` 與 `@ts-ignore` 僅輸出 Warning；不可為了消除 Warning 刪除重要 assertions 或大規模改寫既有案例。
+- [三種壞測試](#不得出現的三種壞測試)的可辨識樣式也只輸出 Warning：`no-constant-literal-assert`（`src/` 匯入的 `SCREAMING_SNAKE_CASE` 常數以 `toBe`／`toEqual`／`toStrictEqual` 比對字面值）、`no-prototype-harness`（`Object.create(<src/ class>.prototype)`，以及任何其他 `<src/ class>.prototype` 引用，如 `.prototype.method.call`／`.apply`、別名、`Object.setPrototypeOf`、descriptor 複製；`instanceof`、`vi.spyOn` 與 `Object.getPrototypeOf` 比對除外）與 `no-production-source-read`（Vitest 以 `fs.readFile*` 讀 `src/`）。`no-prototype-harness` 的既有用法由 `eslint.config.mjs` 的 `PROTOTYPE_HARNESS_BASELINE` 逐檔 ratchet：超過即警告，低於即要求調降該項；只減不增，不為新檔案加項目。
 - Owner 歸屬、failure mode 是否重複、正式 caller 覆蓋、Regression 是否能攔截 Bug、現行格式完整性及跨模組 Import 是否合理，仍須依本文件由人工 Review。
 
 ## 刪除政策與防規避

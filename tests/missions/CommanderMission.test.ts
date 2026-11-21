@@ -1,8 +1,8 @@
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { personalSquadFixture } from '../helpers/personalSquadFixture'
 import { careerRankFixture } from '../helpers/careerRankFixture'
-import type { Scene } from 'three'
 import { Box3, Vector3 } from 'three'
+import { recordingActorFactory } from '../helpers/careerActorDoubles'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { ActiveMissionClock } from '../../src/career/ActiveMissionClock'
 import type { CaptainEagleCheckpoint } from '../../src/career/CaptainEagleCheckpoint'
@@ -14,7 +14,7 @@ import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../.
 import { needsDecapitationDeployment, planDecapitationDeployment } from '../../src/career/CommanderDecapitationDeployment'
 import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, createCommanderFourGateDefenseState, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
 import { acceptCommanderMission, availableCommanderMissions, COMMANDER_BRIDGEHEAD_ID, COMMANDER_DECAPITATION_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_FORMER_COMMANDER_SLOT, COMMANDER_IRON_LEGION_ID, COMMANDER_LAST_STAND_ID, COMMANDER_MISSION_CATALOG, COMMANDER_SKY_RAID_ID, createBridgeheadRoster, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_FRIENDLY_TOTAL, FELINE_T4_MOUNTS, FELINE_T5_MOUNTS, FELINE_VANGUARD_ADVANCE_METERS, recordCommanderObjectiveDeath } from '../../src/career/CommanderMissionCatalog'
-import { remainingCommanderAttackers } from '../../src/career/CommanderOutpost'
+import { commanderOutpostCombatLocked, createCareerCommanderOutpostLaunch, remainingCommanderAttackers } from '../../src/career/CommanderOutpost'
 import { CommanderTownMissionController } from '../../src/career/CommanderTownMissionController'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
 import { CombatEventStream, type CombatActorRef, type CombatEvent } from '../../src/combat/CombatAttribution'
@@ -150,7 +150,7 @@ describe('Commander objective, merit and persistence', () => {
       beginExternalThreat: vi.fn(), setMissionCombatTarget: vi.fn(), setTacticalOrder: vi.fn() }
     const spec: TownActorSpec = { ...townRoster()[0], id: 'commander', role: 'commander' }
     // No jobs are materialized and no scene, Player or NPC constructor is used.
-    const controller = new CommanderTownMissionController(null as unknown as Scene,
+    const controller = new CommanderTownMissionController(recordingActorFactory(),
       [{ spec, npc: npc as unknown as NPC }], () => ({}) as Player,
       () => profile, next => { profile = next; return true }, {} as NavigationWorld, new NpcSpawnScheduler())
     onTestFinished(() => controller.dispose())
@@ -283,6 +283,22 @@ describe('Last Stand stable objective recovery', () => {
     expect(remainingCommanderAttackers(mission, actors.slice(0, 99))).toBe(1)
     expect(remainingCommanderAttackers(mission, [...actors.slice(0, 99), { combatantId: 'mount', dead: true }])).toBe(1)
     expect(remainingCommanderAttackers(mission, actors)).toBe(0)
+  })
+
+  it('holds the Last Stand ceasefire through preparation and any unregistered roster, never for a co-op guest or another battle', () => {
+    const phase = (activePhase: 'deployment' | 'assault') => ({ getSnapshot: () => ({ activePhase }) })
+    const launch = createCareerCommanderOutpostLaunch(accepted(COMMANDER_LAST_STAND_ID))
+    const assault = { coopGuest: false, launch, runtime: phase('assault'), deploymentBatch: { ready: true }, personalSquad: { ready: true } }
+    expect(commanderOutpostCombatLocked(assault)).toBe(false)
+    expect(commanderOutpostCombatLocked({ ...assault, runtime: phase('deployment') })).toBe(true)
+    expect(commanderOutpostCombatLocked({ ...assault, deploymentBatch: { ready: false } })).toBe(true)
+    expect(commanderOutpostCombatLocked({ ...assault, deploymentBatch: undefined })).toBe(true)
+    expect(commanderOutpostCombatLocked({ ...assault, personalSquad: { ready: false } })).toBe(true)
+    expect(commanderOutpostCombatLocked({ ...assault, personalSquad: undefined })).toBe(false)
+    const preparing = { ...assault, runtime: phase('deployment'), deploymentBatch: { ready: false } }
+    expect(commanderOutpostCombatLocked({ ...preparing, coopGuest: true })).toBe(false)
+    expect(commanderOutpostCombatLocked({ ...preparing, launch: { ...launch, careerCommanderOutpost: undefined } })).toBe(false)
+    expect(commanderOutpostCombatLocked({ ...preparing, launch: null })).toBe(false)
   })
 })
 

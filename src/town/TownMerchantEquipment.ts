@@ -13,3 +13,14 @@ export function isTownMerchantLoadout(loadout: UnitLoadout): boolean {
   return (Object.keys(fixed) as (keyof UnitLoadout)[]).every(slot => slot === 'mountId'
     || (loadout[slot] ?? null) === (fixed[slot] ?? null))
 }
+
+/**
+ * The Merchant's own weapon for the next swing: the secondary against a raised
+ * shield, otherwise the primary. Null keeps the held weapon, including during a
+ * committed swing.
+ */
+export function chooseMerchantMelee(loadout: Pick<UnitLoadout, 'meleeWeaponId' | 'secondaryMeleeWeaponId'> | undefined,
+  targetShieldActive: boolean, busy: boolean): string | null {
+  if (busy) return null
+  return (targetShieldActive ? loadout?.secondaryMeleeWeaponId : loadout?.meleeWeaponId) ?? null
+}
