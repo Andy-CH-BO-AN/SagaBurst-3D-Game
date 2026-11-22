@@ -31,7 +31,7 @@ export class CaptainEagleHUD {
     const seconds = Math.ceil(deployment.preparationRemainingSeconds)
     const countdown = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
     const status = deployment.phase === 'preparing'
-      ? `準備 ${countdown} · 敵騎尚未進場`
+      ? `準備 ${countdown} · 敵騎尚未進場 · H 跳過準備`
       : deployment.phase === 'spawning' ? '南岸敵騎集結中' : '敵軍進攻中'
     this.root.textContent = `COMMANDER IV · BRIDGEHEAD BATTLE\n${status}\n目標：殲滅敵騎 · 剩餘 ${enemyAlive} / 200`
   }

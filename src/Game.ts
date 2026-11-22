@@ -4363,6 +4363,14 @@ export class Game {
         return
       }
 
+      if (e.code === 'KeyH' && this.bridgeRuntime?.deployment.phase === 'preparing' && !this.coopGuest) {
+        e.preventDefault()
+        if (!e.repeat && !this.equipmentUI.visible && !this.fieldResultPending && this.bridgeRuntime.skipPreparation()) {
+          this._showNotify('已跳過準備，南岸敵騎即將進場', 1500)
+        }
+        return
+      }
+
       if (e.code === 'Tab' || e.code === 'KeyI') {
         e.preventDefault()
         if (e.repeat || this.player.dead || this.controlMode === 'spectator') return

@@ -12,7 +12,7 @@ import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy } from '../..
 import { claimCareerMission, clearCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { needsDecapitationDeployment, planDecapitationDeployment } from '../../src/career/CommanderDecapitationDeployment'
-import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, createCommanderFourGateDefenseState, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
+import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, createCommanderFourGateDefenseState, skipCommanderFourGateDefensePreparation, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
 import { acceptCommanderMission, availableCommanderMissions, COMMANDER_BRIDGEHEAD_ID, COMMANDER_DECAPITATION_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_FORMER_COMMANDER_SLOT, COMMANDER_IRON_LEGION_ID, COMMANDER_LAST_STAND_ID, COMMANDER_MISSION_CATALOG, COMMANDER_SKY_RAID_ID, createBridgeheadRoster, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_FRIENDLY_TOTAL, FELINE_T4_MOUNTS, FELINE_T5_MOUNTS, FELINE_VANGUARD_ADVANCE_METERS, recordCommanderObjectiveDeath } from '../../src/career/CommanderMissionCatalog'
 import { commanderOutpostCombatLocked, createCareerCommanderOutpostLaunch, remainingCommanderAttackers } from '../../src/career/CommanderOutpost'
 import { CommanderTownMissionController } from '../../src/career/CommanderTownMissionController'
@@ -91,6 +91,20 @@ describe('Commander mission board policy', () => {
     expect(spawning.siege).toBeUndefined()
     expect(advanceCommanderFourGateDefensePreparation(spawning, 100, true)).toBe(spawning)
     expect(ready.preparationRemainingSeconds).toBe(180)
+  })
+
+  it('skips only the PREPARING countdown and still records SPAWNING through the next ready preparation frame', () => {
+    const deploying = createCommanderFourGateDefenseState()
+    expect(skipCommanderFourGateDefensePreparation(deploying)).toBe(deploying)
+    const preparing = { ...deploying, phase: 'PREPARING' as const }
+    const skipped = skipCommanderFourGateDefensePreparation(preparing)
+    expect(skipped).toMatchObject({ phase: 'PREPARING', attackStarted: false, preparationRemainingSeconds: 0 })
+    expect(preparing.preparationRemainingSeconds).toBe(180)
+    expect(skipCommanderFourGateDefensePreparation(skipped)).toBe(skipped)
+    expect(advanceCommanderFourGateDefensePreparation(skipped, 0, false)).toBe(skipped)
+    expect(advanceCommanderFourGateDefensePreparation(skipped, 0, true)).toMatchObject({ phase: 'SPAWNING', attackStarted: false, deploymentComplete: false })
+    const attacking = { ...skipped, phase: 'ATTACKING' as const, attackStarted: true, deploymentComplete: true }
+    expect(skipCommanderFourGateDefensePreparation(attacking)).toBe(attacking)
   })
 
   it('counts ready combat through survival deadline, excluding paused gaps and freezing result clock', () => {
@@ -537,6 +551,19 @@ describe('Bridgehead official field battle', () => {
     const corrupted = structuredClone(resumed)
     corrupted.activeMission!.bridgeBattle!.player.mountActorId = 'personal:unaccepted'
     expect(parseCareerProfile(corrupted)?.activeMission).toBeUndefined()
+  })
+
+  it('skips the remaining Bridgehead preparation without bypassing the enemy deployment save', () => {
+    const runtime = new CareerBridgeBattleRuntime(accepted(COMMANDER_BRIDGEHEAD_ID).activeMission!)
+    runtime.advancePreparation(20)
+    expect(runtime.skipPreparation()).toBe(true)
+    expect(runtime.deployment).toEqual({ phase: 'preparing', preparationRemainingSeconds: 0 })
+    expect(runtime.skipPreparation()).toBe(false)
+    expect(runtime.beginEnemyDeployment(() => false)).toBe(false)
+    expect(runtime.deployment.phase).toBe('preparing')
+    expect(runtime.beginEnemyDeployment(() => true)).toBe(true)
+    expect(runtime.skipPreparation()).toBe(false)
+    expect(runtime.deployment).toEqual({ phase: 'spawning', preparationRemainingSeconds: 0 })
   })
 
   it('spawns only friendlies during three-minute preparation and resumes the saved remaining time', () => {
