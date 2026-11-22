@@ -1,6 +1,6 @@
 import { careerRankFixture } from '../helpers/careerRankFixture'
 import { raceReturnAction, raceReturnProfile } from '../../src/career/CareerRaceReturn'
-import { CareerRaceController } from '../../src/career/CareerRaceController'
+import { CAREER_RACE_COMMAND_ID, CareerRaceController } from '../../src/career/CareerRaceController'
 import { TOWN_COMMANDER_ID } from '../../src/town/TownCommanderIdentity'
 import { gameplayNpcSpawns } from '../../src/world/NpcSpawnScheduler'
 import { deferTownResult, TownEvent } from '../../src/town/TownRules'
@@ -679,6 +679,28 @@ describe('Race return and deferred native Town outcomes', () => {
     expect(Math.hypot(settledPos.x - sergeantSpec.x, settledPos.z - sergeantSpec.z)).toBeGreaterThanOrEqual(3.0)
     expect(Math.hypot(settledPos.x - sergeantSpec.x, settledPos.z - sergeantSpec.z)).toBeLessThanOrEqual(4.1)
     expect(Math.hypot(settledPos.x - captainSpec.x, settledPos.z - captainSpec.z)).toBeGreaterThan(10)
+  })
+
+  it('walks a reloaded Captain home when a Town checkpoint saved him mid-return at the North Gate', () => {
+    // Town command restores the Captain at the gate with the race's unfinished order; the race is already settled.
+    const home = { id: 'captain', x: 46.6, z: -31.5 }
+    const reloaded = (order: number) => {
+      const captain = new ActorDouble('captain', { x: 0.4, z: -97.9 })
+      captain.assignFormationTarget(order, new Vector3(home.x, 0, home.z))
+      const { controller } = raceController({ read: () => profile(), residents: [{ spec: home, npc: captain }] })
+      controller.restore(); controller.prepare()
+      return { captain, controller }
+    }
+    const { captain, controller } = reloaded(CAREER_RACE_COMMAND_ID)
+    expect(controller.owns(asNpc(captain))).toBe(true)
+    expect([captain.formationTarget?.x, captain.formationTarget?.z]).toEqual([home.x, home.z])
+    captain.group.position.set(home.x, 0, home.z); controller.prepare()
+    expect(controller.owns(asNpc(captain))).toBe(false)
+    expect(captain.tacticalOrder).toBe('attack')
+    // Any other owner's order is left alone.
+    const patrol = reloaded(-3)
+    expect(patrol.controller.owns(asNpc(patrol.captain))).toBe(false)
+    expect(patrol.captain.formationCommandId).toBe(-3)
   })
 
   it('dismounts cleanly at Sergeant when only walking Sergeant placement is safe', () => {
