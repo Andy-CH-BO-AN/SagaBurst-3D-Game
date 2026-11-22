@@ -197,6 +197,7 @@ import { commitCoopRaceAward, parseCoopRaceAward } from '../coop/CoopRaceAward'
 import { commitCoopTownResult, parseCoopTownResult } from '../coop/CoopTownResult'
 import type { CombatDamageContext } from '../combat/CombatAttribution'
 import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeer, type CoopGamePort } from '../coop/CoopMission'
+import { CoopSiegeMirror, coopSiegeWire, parseCoopSiegeWire } from '../coop/CoopSiegeMirror'
 
 let sound: SoundManager
 interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; readonly sourceRef?: CombatActorRef; age: number; maxLifetimeSeconds?: number }
@@ -255,6 +256,10 @@ export class TownScene {
   private get playerProfile(): CareerProfile { return this.coopPlayerSource?.read() ?? this.profile }
   private commitPlayerProfile(next: CareerProfile): boolean { return this.coopPlayerSource ? this.coopPlayerSource.commit(next) : this.commit(next) }
   private readonly coopGuestMounts: Mount[] = []
+  /** Guest: the host's siege vehicles and gates. */
+  private coopSiege?: CoopSiegeMirror
+  /** Guest: a local stable/field horse it rode; shown and synced as its own mount. */
+  private coopBorrowedMount: Mount | null = null
   private coopRaceStatusTimer = 0
   /** Guest: the host's Town is hostile; every service is closed. */
   private coopHostHostile = false
@@ -689,6 +694,7 @@ export class TownScene {
         clearCombatShots: () => this.clearMissionCombatShots(),
         hitNpc: (target, damage, method, source) => this.hitFieldNpc(target, damage, method, source),
         damagePlayer: (source, damage, method) => this.damagePlayerFromNpc(source, damage, method),
+        coopPartner: () => this.coopPartner,
         fireNpc: (origin, direction, kind, source, lifecycle) => this.fire(origin, direction, source.rangedProjectileSpeed, source.rangedDamage, false, false, kind, source, lifecycle),
       },
     )
@@ -979,7 +985,7 @@ export class TownScene {
       // The guest's hits follow the host's own Town rules: hitting a resident starts the shared hostility.
       applyGuestHit: (target, damage, context) => this.coopGuestHitsTown(target, damage, context),
       combatEmit: () => {},
-      get ownMount() { return town.careerMounts?.activeMount ?? null },
+      get ownMount() { return town.coopBorrowedMount ?? town.careerMounts?.activeMount ?? null },
       equippedWeapons: () => ({ melee: this.inventory.equippedMelee?.id ?? null, ranged: this.inventory.selectedRanged?.id ?? null, shield: this.inventory.equippedShield?.id ?? null }),
       weaponsDrawn: () => ({ melee: this.inventory.meleeEnabled, shield: this.inventory.shieldEnabled }),
       registerNpc: () => {}, unregisterNpc: () => {}, registerMount: () => {}, unregisterMount: () => {}, markVisualArrow: () => {},
@@ -1012,6 +1018,8 @@ export class TownScene {
     if (this.coopRaceStatusTimer < .4) return
     this.coopRaceStatusTimer = 0
     coopSession().send({ t: 'townState', hostile: this.event.hostile })
+    const siege = coopSiegeWire(this.defense instanceof CommanderFourGateDefenseController ? this.defense.fourGateSiege : undefined, this.world.gates)
+    if (siege) coopSession().send({ t: 'siege', siege })
     const session = this.race?.session
     if (!session) return
     const progress = this.race?.coopProgress
@@ -1045,6 +1053,8 @@ export class TownScene {
     if (this.player.currentMount) { this.player.currentMount.group.position.x += 2.5; this.player.syncMountTransform() }
     else this.player.group.position.x += 2.5
     this.coopGuest = new CoopGuestMission(this.coopPort(true), reason => showCoopGuestEnd(reason))
+    // The host simulates the siege; this page's own vehicles give way to the host's mirror.
+    if (this.defense instanceof CommanderFourGateDefenseController) this.defense.releaseForCoopGuest()
     this.personalCommandUI?.setEnabled(false)
     this.player.onFireArrow = event => {
       const arrow = new ArrowProjectile(this.scene, event.origin, event.direction, event.speed, event.damage, Faction.PLAYER, true, event.visualKind,
@@ -1065,6 +1075,13 @@ export class TownScene {
           : `你們被城鎮擊敗：扣除 ${applied.penalty} 可用軍功（已存入你自己的生涯存檔）。`
       }),
       link.on('raceStatus', message => this.showCoopRaceStatus(message)),
+      link.on('siege', message => {
+        const wire = parseCoopSiegeWire(message.siege)
+        if (!wire || this.disposed) return
+        this.coopSiege ??= new CoopSiegeMirror(this.world,
+          (assignment, placement, faction, shared) => new MobileSiegeRamp(this.scene, assignment, placement, faction, shared, () => {}))
+        this.coopSiege.apply(wire)
+      }),
       link.on('townState', message => {
         this.coopHostHostile = message.hostile === true
         if (this.coopHostHostile && this.panel && !this.result) this.closePanel()
@@ -1092,10 +1109,27 @@ export class TownScene {
       this.player.group.updateWorldMatrix(true, true)
       this.interaction()
     }
+    this.keepCoopBorrowedMount()
     this.careerMounts.update(dt)
+    this.coopSiege?.update(dt)
     this.coopGuest!.updateWorld(dt)
     this.updateCoopGuestCombat(dt)
     if (this.coopGuestRaceText) { this.hint.textContent = this.coopGuestRaceText; this.hint.style.display = '' }
+  }
+
+  /**
+   * Guest: a stable or field horse this page built left the scene with the other local actors, so
+   * riding it would move an invisible body. The ridden horse rejoins the scene and stays the guest's
+   * own (the host shows it from the guest's state) until another one is taken.
+   */
+  private keepCoopBorrowedMount(): void {
+    const ridden = this.player.currentMount
+    if (!ridden || ridden === this.careerMounts?.activeMount || ridden === this.coopBorrowedMount) return
+    this.coopBorrowedMount?.group.removeFromParent()
+    this.coopBorrowedMount = null
+    if (ridden.group.parent || this.coopGuestMounts.includes(ridden)) return
+    this.scene.add(ridden.group)
+    this.coopBorrowedMount = ridden
   }
 
   /** Co-op host: menus never freeze the Town for the guest; only this player's control pauses. */
@@ -1113,13 +1147,30 @@ export class TownScene {
   /** Host: the shared Town is lost only when both players are down. */
   private get coopTeamDown(): boolean { return this.player.dead && !this.coopPartner }
 
-  /** Host: the guest hit a resident or a Town animal; the same rules as the host's own hit. */
+  /**
+   * Host: the guest's hit, by the host's own Town routing. Field enemies (bandits, siege attackers,
+   * roaming armies and their mounts) take it as the partner's hit; residents and Town animals start
+   * the shared hostility exactly like the host's own hit.
+   */
   private coopGuestHitsTown(target: NPC | Mount, amount: number, context: CombatDamageContext): void {
-    if (this.duel?.active || this.retirementFinale?.active || this.defense?.active || this.profile.activeRace || this.result) return
+    if (this.duel?.active || this.retirementFinale?.active || this.profile.activeRace || this.result) return
+    const partner = this.coopPartner
+    if (!partner || target.dead || amount <= 0) return
+    if (target instanceof NPC && (this.outskirts?.owns(target) || this.enemyEaglePatrol?.owns(target)
+      || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY)) {
+      this.hitFieldNpc(target, amount, context.method, partner, context.contact, context.source)
+      // Like the host's own hit: the struck camp turns on the two players.
+      if (target.faction === Faction.BANDIT && !this.isRetirementEvacuating(target)) this.mission.provokeGroupFor(target)
+      return
+    }
     const townOwned = target instanceof NPC
       ? this.residents.some(resident => resident.npc === target)
       : target === this.cat || this.stableHorses.includes(target) || this.residents.some(resident => resident.homeMount === target)
-    if (!townOwned || target.dead || amount <= 0 || this.isProtectedTownAlly(target) || !this.prepareDamage()) return
+    if (!townOwned) {
+      if (target instanceof Mount) this.hitBattlefieldMount(target, amount, context.method, partner, context.contact, context.source)
+      return
+    }
+    if (this.defense?.active || this.isProtectedTownAlly(target) || !this.prepareDamage()) return
     const result = target instanceof NPC ? damageNpc(target, amount, context) : damageMount(target, amount, context)
     if (result.appliedDamage > 0) this.damageNumbers.spawn(result.appliedDamage, (target instanceof NPC ? target.combatPosition : target.group.position).clone())
     this.activateHostility(); this.persistCasualties()
@@ -3517,6 +3568,7 @@ export class TownScene {
     contact ??= source?.unarmedContact
     if (this.duel?.isParkedResident(target)) return // Parked residents are untouchable by every source.
     if (this.retirementFinale?.frozen || this.fourGateCombatHeld || source && this.isRetirementEvacuating(source)) return
+    if (source && target === this.coopPartner) { this.damageCoopPartner(source, amount, method, contact); return }
     if (this.defense?.phase === 'PREPARING' && (source?.combatOwnership === 'player-personal' || target.combatOwnership === 'player-personal')) return
     contact ??= method === 'melee' ? (source ?? this.player).weaponSweep?.contact : undefined
     if (contact?.kind === 'mount' && contact.mount) {
@@ -3671,13 +3723,15 @@ export class TownScene {
     }
     this.shots = this.shots.filter(s => s.arrow.isAlive)
   }
-  private readonly shotPlayerTarget: Player[] = []
+  private readonly shotPlayerTarget: (Player | NPC)[] = []
   private readonly shotTargetGroups: (readonly (Player | NPC | Mount)[])[] = [this.shotPlayerTarget, [], []]
   private readonly shotTargetInput: ProjectileTargetGroups<Player | NPC | Mount> = { groups: this.shotTargetGroups }
   /** Runtime snapshot order, visited in place: player prefix, actor membership order, then independent mounts. */
   private runtimeShotTargets(s: Shot, runtimeActors: readonly NPC[]): ProjectileTargetGroups<Player | NPC | Mount> {
     this.shotPlayerTarget.length = 0
     if (!s.player && (!s.source || s.source.hostileToPlayer)) this.shotPlayerTarget.push(this.player)
+    const partner = this.coopPartner
+    if (partner && s.source && townWartimeHostile(s.source, partner)) this.shotPlayerTarget.push(partner)
     this.shotTargetGroups[1] = s.player || s.source ? runtimeActors : EMPTY_SHOT_ACTORS
     this.shotTargetGroups[2] = this.combatMounts
     return this.shotTargetInput
@@ -3706,7 +3760,7 @@ export class TownScene {
           : [this.player]
     targets.push(...this.combatMounts.filter(mount => this.canHitTownMount(mount, s.source)))
     const partner = this.coopPartner
-    if (partner && s.source?.hostileToPlayer && this.event.hostile) targets.push(partner)
+    if (partner && s.source && townWartimeHostile(s.source, partner)) targets.push(partner)
     return targets
   }
 
@@ -4476,6 +4530,7 @@ export class TownScene {
     // Moving to another co-op scene announces itself; leaving Career entirely is announced by returnHome.
     this.coopHost?.dispose(false); this.coopHost = undefined
     this.coopGuest?.dispose(); this.coopGuest = undefined
+    this.coopSiege?.dispose(); this.coopSiege = undefined
     for (const off of this.coopUnsubscribe.splice(0)) off()
     this.combatTargetHud.dispose()
     this.compass?.dispose()

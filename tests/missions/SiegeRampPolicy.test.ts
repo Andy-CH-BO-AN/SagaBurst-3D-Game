@@ -608,6 +608,26 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(states).toEqual([]); expect(render.hides).toBe(0)
   })
 
+  it('mirrors a host carrier at its reported distance, walks its docked bridge and removes it once the host destroys it', () => {
+    const assignment = crewAssignment('siege-ramp-left')
+    const placement = rampPlacement({ id: assignment.id, start: new Vector3(0, 10, -15), travel: 40, length: 20, dirZ: 1 })
+    const neighbor: ObstacleData = { box: new Box3(), isBarricade: true }
+    const { carrier, shared, states, render, damageable } = createSiegeCarrier({ placement, assignment, neighbors: [neighbor] })
+    // No crew is registered on a co-op guest: the host's distance alone places the vehicle.
+    carrier.mirror({ state: 'PUSHING', distance: 12, dockingProgress: 0, hp: 400 })
+    expect(carrier.position.x).toBe(0); expect(carrier.position.z).toBe(-3)
+    expect(carrier.position.y).toBeCloseTo(siegeRampDeckHeightAt(placement, 0, -3), 6)
+    expect(carrier.surface.startZ).toBeCloseTo(placement.surface.startZ - 28, 6)
+    expect(damageable.currentHp).toBe(400); expect(carrier.bridgeSurface.mounted).toBe(false)
+    carrier.mirror({ state: 'DOCKED', distance: 40, dockingProgress: 1, hp: 400 })
+    expect(carrier.position.z).toBe(25); expect(carrier.bridgeSurface.mounted).toBe(true)
+    expect(shared).toEqual([neighbor, ...carrier.obstacles])
+    carrier.mirror({ state: 'DESTROYED', distance: 40, dockingProgress: 1, hp: 0 })
+    expect(damageable.destroyed).toBe(true); expect(render.hides).toBe(1); expect(shared).toEqual([neighbor])
+    carrier.mirror({ state: 'PUSHING', distance: 5, dockingProgress: 0, hp: 400 })
+    expect(carrier.position.z).toBe(25); expect(states).toEqual(['DESTROYED'])
+  })
+
   it('unifies all formal Outpost missions on latest walkways while disabling mobile siege ramps for relief', () => {
     for (const careerMissionKind of [
       'outpost-defense',

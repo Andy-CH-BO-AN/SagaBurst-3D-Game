@@ -14,6 +14,12 @@ describe('Combat allegiance', () => {
       expect(combatAllegiancesHostile(ally, town)).toBe(expected)
       expect(combatAllegiancesHostile(town, ally)).toBe(expected)
     }
+    // A co-op partner's body sides with the players exactly like an owned party.
+    for (const hostileToPlayer of [false, true]) {
+      const partner = { faction: Faction.PLAYER, coopPuppet: true }, town = { faction: Faction.TOWN, hostileToPlayer }
+      expect(combatAllegiancesHostile(partner, town)).toBe(hostileToPlayer)
+      expect(combatAllegiancesHostile(town, partner)).toBe(hostileToPlayer)
+    }
     // Unowned player troops default to hostile against Town residents (#495 merged)
     expect(combatAllegiancesHostile({ faction: Faction.PLAYER }, { faction: Faction.TOWN })).toBe(true)
     expect(combatAllegiancesHostile({ faction: Faction.TOWN }, { faction: Faction.PLAYER })).toBe(true)

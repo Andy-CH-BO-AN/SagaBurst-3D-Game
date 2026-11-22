@@ -244,6 +244,25 @@ export class MobileSiegeRampCarrier<Id extends MobileSiegeRampId = SiegeRampId, 
     } else if (saved.hp < this.damageable.currentHp) this.damageable.takeDamage(this.damageable.currentHp - saved.hp)
   }
 
+  /**
+   * Co-op guest: shows the host's carrier at `distance` along its own placement. No crew, movement
+   * gate or checkpoint rule runs here; HP loss and destruction go through the same damage owner.
+   */
+  mirror(view: { state: MobileSiegeRampState; distance: number; dockingProgress: number; hp: number }): void {
+    if (this.disposed || this.controller.state === 'DESTROYED') return
+    if (view.hp <= 0 || view.state === 'DESTROYED') { this.damageable.destroy(); return }
+    if (view.hp < this.damageable.currentHp) this.damageable.takeDamage(this.damageable.currentHp - view.hp)
+    this.controller.restore(view)
+    const distance = this.controller.distance, dx = this.placement.dirX ?? 0, dz = this.placement.dirZ
+    this.position.x = this.placement.start.x + dx * distance
+    this.position.z = this.placement.start.z + dz * distance
+    this.position.y = siegeRampDeckHeightAt(this.placement, this.position.x, this.position.z)
+    this.surface.startX = this.placement.surface.startX + this.position.x - this.placement.dock.x
+    this.surface.startZ = this.placement.surface.startZ + this.position.z - this.placement.dock.z
+    this.platform.moveTo(this.position)
+    this.updateGeometry()
+  }
+
   update(dt: number, actors: readonly Actor[], blockers: readonly EntityCollisionBody[] = []): void {
     if (this.disposed || !Number.isFinite(dt) || dt <= 0) return
     const simulationDt = Math.min(dt, .1)
