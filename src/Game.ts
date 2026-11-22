@@ -675,8 +675,6 @@ export class Game {
   private readonly coopVisualArrows = new WeakSet<ArrowProjectile>()
   /** Co-op guest: its own character's profile (in memory), separate from the host's mission profile. */
   private coopPlayerSource: CoopPlayerSource | null = null
-  /** Co-op host: each player commands only their own personal squad, never the mission's official troops. */
-  private readonly coopPersonalCommandOnly = coopSession().isHost && !isCoopGuestLaunch()
   private commandTerrainMesh?: THREE.Mesh
   private personalSquad?: PersonalSquadRuntime
   private personalCheckpointElapsed = 0
@@ -2583,8 +2581,8 @@ export class Game {
         : this.captainEagleMissionId ? `eagle:${this.captainEagleMissionId}` : `outpost:${mission?.id ?? 'free'}`,
       faction: profile.faction,
       ...(mission ? { missionId: mission.id } : {}),
-      official: this.coopPersonalCommandOnly ? undefined : official,
-      officialPending: Boolean(official && !this.coopPersonalCommandOnly && !this._careerCommandFinished() && !this.spawningStopped && (
+      official,
+      officialPending: Boolean(official && !this._careerCommandFinished() && !this.spawningStopped && (
         !this.bridgeLaunch && this.fieldRosterBatch && !this.fieldRosterBatch.ready
         || this.defenseCampaignConfig?.careerCommanderOutpost && !this.commanderOutpostDeploymentBatch?.ready
         || this.defenseCampaignConfig?.careerMissionId && !this.defenseCampaignConfig.careerCommanderOutpost
@@ -2620,7 +2618,6 @@ export class Game {
   }
 
   private _acceptsOfficialCommand(npc: NPC): boolean {
-    if (this.coopPersonalCommandOnly) return false
     const mission = this._careerCommandMission(), authority = mission?.officialSquad
     return Boolean(mission && !this._careerCommandFinished() && authority?.missionId === mission.id
       && (authority.commandRank !== 'commander' || this.careerProfile?.rank === 'commander')
