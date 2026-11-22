@@ -37,6 +37,7 @@ import type { TacticalOrder } from '../battle/TacticalOrder'
 import { parsePersonalSquad, type CareerPersonalSquadMember } from '../career/CareerPersonalSquad'
 import { preloadPersonalSquadMember, spawnPersonalSquadActor } from '../career/PersonalSquadRuntime'
 import { coopSession, type CoopMessage, type CoopSession } from './CoopLink'
+import { coopGuestLaunchId } from './CoopLaunch'
 import { commitCoopMissionMerit, emptyCoopStats, parseCoopMissionMerit, recordCoopGuestEvent, type CoopMissionKind } from './CoopMissionMerit'
 import { showCoopToast } from './CoopLobbyUI'
 import type { PrisonBattleId } from '../career/CareerPrisonBreak'
@@ -640,9 +641,16 @@ export class CoopGuestMission {
   hostAvatar: NPC | null = null
   private readonly orderKeys = new WeakMap<NPC, string>()
   private readonly unsubscribe: Array<() => void> = []
+  private squadMembers: readonly CareerPersonalSquadMember[] = []
 
   constructor(private readonly port: CoopGamePort, private readonly onEnd: (reason: string) => void, private readonly link: CoopSession = coopSession()) {
     this.unsubscribe.push(
+      // The host re-announced the scene this page already mirrors: it got there after this page (the Town
+      // return loads on both sides at once), so its new host bridge has not heard this guest yet.
+      link.on('launch', message => {
+        const id = (message.payload as { id?: unknown } | null | undefined)?.id
+        if (typeof id === 'string' && id === coopGuestLaunchId() && !this.ended) this.join()
+      }),
       link.on('spawn', message => this.applySpawns(message)),
       link.on('ev', message => this.applyEvents(message)),
       link.on('end', () => this.end('主機已結束任務')),
@@ -662,11 +670,17 @@ export class CoopGuestMission {
       player: (_player, damage, context) => this.localPlayerDamage(damage, context),
     })
     this.lastPos.copy(port.player.position)
-    link.send({ t: 'ready' })
+    this.join()
+  }
+
+  private join(): void {
+    this.link.send({ t: 'ready' })
+    if (this.squadMembers.length) this.link.send({ t: 'guestSquad', members: this.squadMembers })
   }
 
   /** Brings the guest's own HR squad into the host's mission. */
   deploySquad(members: readonly CareerPersonalSquadMember[]): void {
+    this.squadMembers = members
     if (members.length) this.link.send({ t: 'guestSquad', members })
   }
 

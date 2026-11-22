@@ -162,7 +162,7 @@ import { WeaponPickup } from './world/WeaponPickup'
 import { XongkoroVisual } from './world/XongkoroVisual'
 import { coopSession } from './coop/CoopLink'
 import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeer, type CoopGamePort } from './coop/CoopMission'
-import { coopGuestCharacterAssets, coopGuestOwnSquad, coopGuestPlayerSource, isCoopGuestLaunch, showCoopGuestEnd, type CoopPlayerSource } from './coop/CoopLaunch'
+import { announceCoopTownReturn, coopGuestCharacterAssets, coopGuestOwnSquad, coopGuestPlayerSource, isCoopGuestLaunch, showCoopGuestEnd, type CoopPlayerSource } from './coop/CoopLaunch'
 
 const NO_PROJECTILE_RECEIVERS: readonly DamageReceiver[] = []
 
@@ -2828,7 +2828,7 @@ export class Game {
       const previous = this.fieldCheckpoint!
       if (!previous) return mission
       const actors = { ...previous.actors }
-      for (const npc of this.npcs) if (npc.combatOwnership !== 'player-personal') actors[npc.combatantId] = snapshotCommandActor(npc,
+      for (const npc of this.npcs) if (Game._isMissionRosterActor(npc)) actors[npc.combatantId] = snapshotCommandActor(npc,
         this.careerVeteranActorMounts.get(npc.combatantId) ?? undefined)
       if (this.bridgeLaunch || this.felineMissionId) for (const [id, homeMount] of this.careerVeteranActorMounts) {
         const saved = actors[id] ?? mission.personalSquad?.members[id]
@@ -2860,7 +2860,7 @@ export class Game {
       const runtime = this.defenseCampaignRuntime?.getSnapshot()
       if (!runtime) return null
       const actors = { ...mission.battle?.actors }
-      for (const npc of this.npcs) if (npc.combatOwnership !== 'player-personal') {
+      for (const npc of this.npcs) if (Game._isMissionRosterActor(npc)) {
         const ownedMount = this.careerVeteranActorMounts.get(npc.combatantId)
         actors[npc.combatantId] = { hp: npc.hp, x: npc.combatPosition.x, y: npc.combatPosition.y, z: npc.combatPosition.z,
           ...(npc.isOutpostRampartGarrisonActive ? { outpostRampartGarrison: true } : {}),
@@ -3033,7 +3033,7 @@ export class Game {
     }
     if (mission.phase !== 'ENGAGING') {
       if (!this._persistCareerBattle(true)) return
-      for (const npc of this.npcs) if (!npc.dead && npc.combatOwnership !== 'player-personal' && !officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) {
+      for (const npc of this.npcs) if (!npc.dead && Game._isMissionRosterActor(npc) && !officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) {
         if (this.felineMissionId && isCareerHeavyFieldBattle(mission)) this._applyHeavyFieldOrder(npc, mission)
         else npc.setTacticalOrder(this.felineMissionId
           ? careerFieldTacticalOrder(mission, npc.faction)
@@ -3318,7 +3318,7 @@ export class Game {
     this._snapshotOfficialCommand(mission.officialSquad)
     next.playerAerialState = captureCareerAerialState(this.player, `outpost:${this.defenseCampaignConfig.careerMissionId}`)
     mission.battle = {
-      runtime, outpostSiege: this.campaignSiegeAssault?.snapshot(), actors: { ...mission.battle?.actors, ...Object.fromEntries(this.npcs.filter(npc => npc.combatOwnership !== 'player-personal').map(npc => {
+      runtime, outpostSiege: this.campaignSiegeAssault?.snapshot(), actors: { ...mission.battle?.actors, ...Object.fromEntries(this.npcs.filter(Game._isMissionRosterActor).map(npc => {
         const mount = this.careerVeteranActorMounts.get(npc.combatantId)
         return [npc.combatantId, { hp: npc.hp, x: npc.combatPosition.x, y: npc.combatPosition.y, z: npc.combatPosition.z,
           yaw: npc.mount?.group.rotation.y ?? npc.group.rotation.y,
@@ -3337,6 +3337,14 @@ export class Game {
     if (!this.careerStore.save(next)) return false
     this.careerProfile = next; this.personalCheckpointElapsed = 0; this.personalCriticalState = critical
     return true
+  }
+
+  /**
+   * Actors of the mission's own roster: not the Player's HR squad, and not the co-op guest's puppet or its own
+   * HR squad. Checkpoints keep only these; the strict roster parsers reject a save holding any other actor.
+   */
+  private static _isMissionRosterActor(npc: NPC): boolean {
+    return npc.combatOwnership !== 'player-personal' && !npc.coopRemoteCommand
   }
 
   private _campaignFactionAlive(faction: 'roman' | 'viking'): number {
@@ -3509,7 +3517,7 @@ export class Game {
     const campaign = this.defenseCampaignConfig
     const data = campaign?.careerVeteranOutpost
     if (!campaign || data?.templateId !== 'veteran-outpost-assault') return
-    const attackers = this.npcs.filter(npc => npc.combatOwnership !== 'player-personal' && npc.characterFaction === data.playerFaction)
+    const attackers = this.npcs.filter(npc => Game._isMissionRosterActor(npc) && npc.characterFaction === data.playerFaction)
     const placement = getCampaignOutpostPlacement(data.outpostFaction)
     const target = new THREE.Vector3(placement.centerX, 0, placement.frontZ)
     this.veteranOutpostMarch = new MountedMissionMarchController(
@@ -3902,6 +3910,8 @@ export class Game {
     sessionStorage.removeItem('sagaburst_battle_config_v2')
     sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
     if (completed) markCareerMissionReturnToSergeant()
+    // Co-op host: the guest loads the Town now, alongside this page, instead of after the host's Town is ready.
+    if (this.coopHost) { announceCoopTownReturn(); this.coopHost.dispose(false); this.coopHost = undefined }
     window.location.href = window.location.pathname
   }
 

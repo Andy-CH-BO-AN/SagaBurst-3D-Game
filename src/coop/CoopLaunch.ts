@@ -23,7 +23,9 @@ import { COOP_PROTOCOL_VERSION } from './CoopProtocol'
 const GUEST_LAUNCH_KEY = 'sagaburst_coop_guest_launch'
 const GUEST_SESSION_BACKUP_KEY = 'sagaburst_coop_session_backup'
 const GUEST_RESTORE_KEY = 'sagaburst_coop_session_restore'
-const COOP_SESSION_KEYS = new Set([GUEST_LAUNCH_KEY, GUEST_SESSION_BACKUP_KEY, GUEST_RESTORE_KEY, 'sagaburst_coop_link'])
+/** Host: the Town launch id announced as the host left its mission; the Town page re-announces under it. */
+const HOST_TOWN_RETURN_KEY = 'sagaburst_coop_town_return'
+const COOP_SESSION_KEYS = new Set([GUEST_LAUNCH_KEY, GUEST_SESSION_BACKUP_KEY, GUEST_RESTORE_KEY, HOST_TOWN_RETURN_KEY, 'sagaburst_coop_link'])
 const SHARED_LOCAL_KEYS = [CAREER_STORAGE_KEY, SAVE_KEY, DEFENSE_CAMPAIGN_PROGRESS_STORAGE_KEY]
 
 /** The host scene the guest mirrors: a Game battlefield, the Career Town, a duel arena, an Arena Squad Trial or a prison break. */
@@ -86,10 +88,13 @@ export function announceCoopLaunch(config: CareerCombatLaunch): void { announceC
 export function announceCoopScene(scene: CoopSceneKind, config?: CareerCombatLaunch): void {
   const link = coopSession()
   if (!link.isHost) return
+  let returnId: string | null = null
+  try { returnId = sessionStorage.getItem(HOST_TOWN_RETURN_KEY); sessionStorage.removeItem(HOST_TOWN_RETURN_KEY) } catch { returnId = null }
   const local: Record<string, string | null> = {}
   for (const key of SHARED_LOCAL_KEYS) local[key] = localStorage.getItem(key)
   hostLaunch = {
-    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    // The Town the guest already joined when the host left its mission keeps that id: the guest stays put.
+    id: scene === 'town' && returnId ? returnId : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     version: COOP_PROTOCOL_VERSION, scene, ...(config ? { config: structuredClone(config) } : {}), local, session: sessionEntries(sessionStorage),
   }
   if (!hostListening) {
@@ -100,6 +105,17 @@ export function announceCoopScene(scene: CoopSceneKind, config?: CareerCombatLau
   link.send({ t: 'launch', payload: hostLaunch })
 }
 
+/**
+ * Host: leaving a mission for the Town. The guest follows now, in parallel with the host's own Town load,
+ * from the return save just written; the host's Town re-announces under the same id when it is ready.
+ */
+export function announceCoopTownReturn(): void {
+  if (!coopSession().isHost) return
+  announceCoopScene('town')
+  try { if (hostLaunch) sessionStorage.setItem(HOST_TOWN_RETURN_KEY, hostLaunch.id) }
+  catch (error) { console.warn('[coop] could not keep the Town return id', error) }
+}
+
 // ── Guest ─────────────────────────────────────────────────────────────────
 
 let guestLaunchId: string | null = null
@@ -108,6 +124,8 @@ let guestOwnProfile: CareerProfile | null = null
 let guestScene: CoopSceneKind | null = null
 
 export function isCoopGuestLaunch(): boolean { return guestLaunchId !== null }
+/** The host launch this guest page mirrors, or null outside co-op. */
+export function coopGuestLaunchId(): string | null { return guestLaunchId }
 /** The host scene this guest page mirrors, or null outside co-op. */
 export function coopGuestScene(): CoopSceneKind | null { return guestScene }
 
