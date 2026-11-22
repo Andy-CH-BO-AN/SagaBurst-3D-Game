@@ -30,7 +30,8 @@ type RaceRider
 import { activateCareerStoryEvent,careerStoryPending } from './CareerStoryEvents'
 
 interface RaceResident { npc: NPC; homeMount?: Mount; spec: { id: string; role?: string; x: number; z: number; yaw?: number } }
-const commandId = -7400
+/** Formation order the race gives its actors; Town command checkpoints save it with the Captain. */
+export const CAREER_RACE_COMMAND_ID = -7400
 const RACE_DEPLOY_RETRY_MS = 3000
 function vector(p: RacePoint): THREE.Vector3 { return new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z), p.z) }
 function position(p: THREE.Vector3, yaw: number): RacePosition { return { x: p.x, y: p.y, z: p.z, yaw } }
@@ -172,7 +173,7 @@ export class CareerRaceController {
 
   restore(): void {
     const saved = this.read().activeRace
-    if (!saved) return
+    if (!saved) { this.resumeCaptainReturn(); return }
     this.session = structuredClone(saved)
     this.captain = this.residents.find(r => r.spec.id === 'captain')
     this.captainHp = this.captain?.npc.hp
@@ -191,6 +192,17 @@ export class CareerRaceController {
       this.captainHp = npc.hp
     }
     this.deploy(!saved.deployed, true)
+  }
+
+  /**
+   * A Town command checkpoint can save the Captain mid-walk after the race was settled, still holding this
+   * controller's order. Nothing else drives that order, so resume the walk home instead of leaving him at the gate.
+   */
+  private resumeCaptainReturn(): void {
+    const captain = this.residents.find(r => r.spec.id === 'captain')
+    if (!captain || captain.npc.dead || captain.npc.hostileToPlayer || captain.npc.formationCommandId !== CAREER_RACE_COMMAND_ID) return
+    this.captain = captain
+    this.captainReturning = true
   }
 
   private preloadPromise?: Promise<void>
@@ -401,8 +413,8 @@ export class CareerRaceController {
   private order(npc: NPC, point: RacePoint, sprint: boolean, speed?: number, facing = new THREE.Vector3(0, 0, -1)): void {
     const key = `${point.x}:${point.z}:${sprint}:${speed}`
     npc.missionMovement = sprint
-    if (this.commanded.get(npc) === key && npc.formationCommandId === commandId) return
-    npc.assignFormationTarget(commandId, vector(point), facing, speed)
+    if (this.commanded.get(npc) === key && npc.formationCommandId === CAREER_RACE_COMMAND_ID) return
+    npc.assignFormationTarget(CAREER_RACE_COMMAND_ID, vector(point), facing, speed)
     this.commanded.set(npc, key)
   }
 
