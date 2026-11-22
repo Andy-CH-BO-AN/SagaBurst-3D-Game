@@ -35,6 +35,10 @@ export function recordCoopGuestEvent(stats: PlayerBattleStats, event: CombatEven
     if (guestActorIds.has(event.target.targetId)) stats.damageTaken += Math.max(0, event.appliedDamage)
   } else if (event.type === 'actor_killed' && guestActorIds.has(event.source.actorId) && event.target.allegiance !== event.source.allegiance) {
     stats.kills += 1
+  } else if (event.type === 'structure_damaged' && guestActorIds.has(event.source.actorId)) {
+    stats.structureDamage += Math.max(0, event.appliedDamage)
+  } else if (event.type === 'structure_destroyed' && guestActorIds.has(event.source.actorId)) {
+    stats.structuresDestroyed += 1
   }
 }
 

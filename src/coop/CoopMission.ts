@@ -64,6 +64,8 @@ export interface CoopGamePort {
   readonly combatEmit: CombatEventSink
   /** The guest's own (local, non-mirrored) mount, if the mission gave it one. */
   readonly ownMount: Mount | null
+  /** Guest: which of the scene's shared horses its own mount is (Town stable), so the host hides its copy. */
+  readonly borrowedMountKey?: () => string | null
   readonly equippedWeapons: () => { melee: string | null; ranged: string | null; shield: string | null }
   /** Whether this player's melee weapon and shield are drawn (not put away). */
   readonly weaponsDrawn: () => { melee: boolean; shield: boolean }
@@ -120,6 +122,8 @@ interface CoopGuestState {
   look: CoopLook
   /** The guest player's own max HP (career rank, skills); its proxy uses it. */
   maxHp: number
+  /** The scene horse the guest took as its own mount (Town stable), by the scene's key. */
+  borrowed?: string
 }
 
 interface SpawnActor { id: number; d: NpcNetworkDescriptor; hp: number; /** The guest's own personal squad member. */ own?: boolean; /** A target for the guest's attacks. */ target?: boolean; /** The host player's body. */ avatar?: boolean }
@@ -263,6 +267,12 @@ export class CoopHostMission {
   }
 
   get guestProxy(): NPC | null { return this.proxy }
+
+  /** The scene horse the connected guest took as its own mount; its proxy shows that horse. */
+  get guestBorrowedMount(): string | null {
+    const key = this.guestState?.borrowed
+    return this.link.peerConnected && this.proxy && typeof key === 'string' ? key : null
+  }
 
   /** Host scenes route every combat event here (Game's stream, the arena's emit). */
   recordCombatEvent(event: CombatEvent): void {
@@ -959,6 +969,7 @@ export class CoopGuestMission {
       mount: ownMount && !ownMount.disposed && !this.isMirrorMount(ownMount) ? mountState(ownMount) : null,
       look: playerLook(this.port),
       maxHp: player.maxHp,
+      ...(this.port.borrowedMountKey?.() ? { borrowed: this.port.borrowedMountKey()! } : {}),
     }
     this.link.send({ t: 'guest', s: state })
   }
