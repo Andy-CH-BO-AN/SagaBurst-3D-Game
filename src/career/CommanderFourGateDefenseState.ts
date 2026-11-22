@@ -82,6 +82,13 @@ export function advanceCommanderFourGateDefensePreparation(state: CommanderFourG
   return preparationRemainingSeconds === state.preparationRemainingSeconds ? state : { ...state, preparationRemainingSeconds }
 }
 
+/** Player-requested skip (H): only an unreleased PREPARING countdown can end early; the next ready
+ * preparation frame still records SPAWNING before any enemy or ramp is created. */
+export function skipCommanderFourGateDefensePreparation(state: CommanderFourGateDefenseState): CommanderFourGateDefenseState {
+  if (state.phase !== 'PREPARING' || state.attackStarted || state.preparationRemainingSeconds <= 0) return state
+  return { ...state, preparationRemainingSeconds: 0 }
+}
+
 /** Called only for a frame that began in active combat; preparation and spawn time never count. */
 export function advanceCommanderFourGateDefenseCombat(state: CommanderFourGateDefenseState,
   dt: number, ready: boolean): CommanderFourGateDefenseState {

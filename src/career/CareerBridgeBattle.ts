@@ -170,6 +170,13 @@ export class CareerBridgeBattleRuntime {
     }
   }
 
+  /** Player-requested skip (H): ends the remaining preparation; the normal deployment transaction still saves and spawns. */
+  skipPreparation(): boolean {
+    if (this.deploymentState.phase !== 'preparing' || this.deploymentState.preparationRemainingSeconds <= 0) return false
+    this.deploymentState.preparationRemainingSeconds = 0
+    return true
+  }
+
   beginEnemyDeployment(save: (state: BridgeBattleDeployment) => boolean): boolean {
     if (this.deploymentState.phase !== 'preparing' || this.deploymentState.preparationRemainingSeconds > 0) return false
     return this.transition('spawning', save)

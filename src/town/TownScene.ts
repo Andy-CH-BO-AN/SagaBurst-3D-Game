@@ -1614,12 +1614,17 @@ export class TownScene {
       return
     }
     // The co-op guest has no equipment, command or service access in the host's Town.
-    if (this.coopGuest && ['KeyQ', 'KeyG'].includes(e.code)) { e.preventDefault(); e.stopImmediatePropagation(); return }
+    if (this.coopGuest && ['KeyQ', 'KeyG', 'KeyH'].includes(e.code)) { e.preventDefault(); e.stopImmediatePropagation(); return }
     if (this.player.dead) {
       if (['Tab', 'KeyE', 'KeyQ', 'KeyG'].includes(e.code)) { e.preventDefault(); e.stopImmediatePropagation() }
       return
     }
     if (e.repeat) return
+    if (e.code === 'KeyH' && this.defense instanceof CommanderFourGateDefenseController && this.defense.phase === 'PREPARING') {
+      e.preventDefault(); e.stopImmediatePropagation()
+      this.defense.skipPreparation()
+      return
+    }
     if (e.code === 'Tab') {
       e.preventDefault(); e.stopImmediatePropagation(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
       const adapters = createTownCareerEquipmentUI(() => this.profile, () => this.townEquipmentContext(),
@@ -4281,7 +4286,7 @@ export class TownScene {
   private fourGateDefenseHud(): string {
     if (!(this.defense instanceof CommanderFourGateDefenseController)) return ''
     const defense = this.defense
-    const phase = defense.phase === 'PREPARING' ? `準備 ${Math.ceil(defense.preparationRemaining)} 秒`
+    const phase = defense.phase === 'PREPARING' ? `準備 ${Math.ceil(defense.preparationRemaining)} 秒 · H 跳過準備`
       : defense.phase === 'DEPLOYING' ? '守方部署中' : defense.phase === 'SPAWNING' ? '敵軍抵達中' : defense.phase === 'ATTACKING' ? `守住 ${Math.ceil(defense.survivalRemaining)} 秒即可獲勝` : '戰鬥結束'
     const ramps = defense.fourGateSiege?.ramps
     const gateNames = { north: '北', east: '東', south: '南', west: '西' } as const

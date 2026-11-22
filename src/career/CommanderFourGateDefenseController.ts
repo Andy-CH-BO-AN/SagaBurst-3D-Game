@@ -28,7 +28,7 @@ import type { CareerProfile } from './CareerProfile'
 import { advanceCommanderCavalryEscort, COMMANDER_CAVALRY_ESCORT, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, createCommanderCavalryEscort, isCommanderCavalryEscorting } from './CommanderCavalryEscort'
 import { planCommanderFourGateDefenseDeployment } from './CommanderFourGateDefenseDeployment'
 import { COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, createCommanderFourGateDefenseRoster } from './CommanderFourGateDefenseRoster'
-import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, fourGateRemainingTargets, fourGateTargetsAccounted, recordNativeTownGuardCombat, resolveCommanderFourGateDefenseOutcome } from './CommanderFourGateDefenseState'
+import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, skipCommanderFourGateDefensePreparation, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, fourGateRemainingTargets, fourGateTargetsAccounted, recordNativeTownGuardCombat, resolveCommanderFourGateDefenseOutcome } from './CommanderFourGateDefenseState'
 import { advanceCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, isCommanderInfantryEscorting } from './CommanderInfantryEscort'
 import type { CommanderTownResident } from './CommanderTownMissionController'
 import { civilianShelterSlots } from './TownCivilianShelter'
@@ -357,6 +357,15 @@ export class CommanderFourGateDefenseController {
   }
 
   setPreparationElapsed(seconds: number): void { this.preparationElapsed = seconds }
+
+  /** Ends the remaining PREPARING countdown; the next updateFlow saves SPAWNING and starts the attackers. */
+  skipPreparation(): boolean {
+    if (!this.ready || !this.friendlyReady || !this.state || !this.active || this.active.result) return false
+    const next = skipCommanderFourGateDefensePreparation(this.state)
+    if (next === this.state) return false
+    this.state = next
+    return true
+  }
 
   updateFlow(dt: number, _cameraYaw: number): void {
     const elapsed = this.preparationElapsed ?? dt
