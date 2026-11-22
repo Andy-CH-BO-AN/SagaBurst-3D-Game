@@ -60,7 +60,7 @@ export function showCoopLobby(onBack: () => void, onEnterCareer: () => void, onG
   const desktop = Boolean((window as unknown as { sagaburstCoop?: unknown }).sagaburstCoop)
   card.append(
     el('h1', { textContent: '區網合作 CO-OP' }),
-    el('p', { className: 'coop-muted', textContent: '兩台電腦連同一個 WiFi／區網。隊友會跟著主機進入同一個城鎮、戰場或競技場：城鎮裡可以一起走動；競技場單挑變成 2v1；賽馬三人同場，最快的人才有獎勵。合作中每個人只能指揮自己的 HR 私兵（隊友會帶自己存檔裡的私兵參戰）。除了隊友贏得的賽馬獎勵，合作模式不會寫入隊友的存檔。' }),
+    el('p', { className: 'coop-muted', textContent: '兩台電腦連同一個 WiFi／區網。隊友會跟著主機進入同一個城鎮、戰場或競技場：城鎮裡可以一起走動；競技場單挑變成 2v1；賽馬三人同場，最快的人才有獎勵。主機照自己的階級指揮任務部隊與私兵；隊友只能指揮自己的 HR 私兵（隊友會帶自己存檔裡的私兵參戰）。除了隊友贏得的賽馬獎勵，合作模式不會寫入隊友的存檔。' }),
     el('div', { className: 'coop-row' }, hostButton),
     el('div', { className: 'coop-row' }, address, joinButton),
     status, error,
