@@ -13,7 +13,8 @@
  */
 import * as THREE from 'three'
 import { createNpcCombatActorRef, type CombatDamageContext, type CombatEventSink } from '../combat/CombatAttribution'
-import { damageMount, damageNpc, setDamageInterceptor, type DamageResult } from '../combat/DamageRouter'
+import { damageMount, damageNpc, damageObstacle, setDamageInterceptor, type DamageResult } from '../combat/DamageRouter'
+import type { DamageableObstacle, DamageableObstacleHitResult } from '../world/DamageableObstacle'
 import type { CharacterTier } from '../combat/CharacterIdentity'
 import type { UnitTier } from '../battle/UnitPresetCatalog'
 import { Faction } from '../combat/CombatFaction'
@@ -40,6 +41,9 @@ import { coopSession, type CoopMessage, type CoopSession } from './CoopLink'
 import { coopGuestLaunchId } from './CoopLaunch'
 import { commitCoopMissionMerit, emptyCoopStats, parseCoopMissionMerit, recordCoopGuestEvent, type CoopMissionKind } from './CoopMissionMerit'
 import { showCoopToast } from './CoopLobbyUI'
+import { CoopSiegeMirror, coopSiegeStructures, coopSiegeWire, parseCoopSiegeWire, type CoopSiegeGate, type CoopSiegeWorld } from './CoopSiegeMirror'
+import type { MobileSiegeRamp } from '../campaign/MobileSiegeRamp'
+import type { MobileSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
 import type { PrisonBattleId } from '../career/CareerPrisonBreak'
 import type { CombatEvent } from '../combat/CombatAttribution'
 import {
@@ -80,6 +84,19 @@ export interface CoopGamePort {
   readonly guestSquad?: boolean
   /** Host: actors the guest's own melee/shots may target in scenes without a faction rule (arena opponent). */
   readonly guestTarget?: (npc: NPC) => boolean
+  /**
+   * Other breakable structures both pages built the same way (palisades, towers), by a key both agree
+   * on. With the siege vehicles and gates, the guest's hits on them go to the host and HP comes back.
+   */
+  readonly structures?: () => ReadonlyMap<string, DamageableObstacle>
+  /** Host: the live mobile siege vehicles (Town four-gate, Outpost assault). */
+  readonly siegeRamps?: () => Iterable<MobileSiegeRamp<MobileSiegeRampId>>
+  /** Both: the scene's gates by an id both pages share. */
+  readonly siegeGates?: () => ReadonlyMap<string, CoopSiegeGate>
+  /** Guest: how this scene builds and docks mirrored siege vehicles. */
+  readonly siegeMirror?: Omit<CoopSiegeWorld, 'gates'>
+  /** Host: scenes with their own structure rules (Town siege) apply the guest's structure hit themselves. */
+  readonly applyGuestStructureHit?: (target: DamageableObstacle, damage: number, context: CombatDamageContext) => void
   /** Host: this scene's formal mission once its own claim is saved, so the guest earns its own merit. */
   readonly missionSettlement?: () => { missionId: string; kind: CoopMissionKind; victory: boolean; prison?: PrisonBattleId } | null
 }
@@ -222,12 +239,15 @@ export class CoopHostMission {
   private readonly guestActorIds = new Set<string>()
   private settlementTimer = 0
   private meritSent = false
+  /** Structure HP last sent to the guest, by structure key. */
+  private readonly sentStructureHp = new Map<string, number>()
+  private siegeTimer = 0
   private readonly target = new THREE.Vector3()
   private readonly unsubscribe: Array<() => void> = []
 
   constructor(private readonly port: CoopGamePort, private readonly link: CoopSession = coopSession()) {
     this.unsubscribe.push(
-      link.on('ready', () => { this.guestReady = true; this.sentNpcs.clear(); this.sentMounts.clear(); this.hostAvatarKey = '' }),
+      link.on('ready', () => { this.guestReady = true; this.sentNpcs.clear(); this.sentMounts.clear(); this.sentStructureHp.clear(); this.hostAvatarKey = '' }),
       link.on('guest', message => { this.guestState = message.s as CoopGuestState }),
       link.on('hit', message => this.applyGuestHit(message)),
       link.on('selfDamage', message => {
@@ -333,6 +353,8 @@ export class CoopHostMission {
     this.snapshotTimer %= SNAPSHOT_INTERVAL
     this.sendSpawns()
     this.sendSnapshot()
+    this.sendStructures()
+    this.sendSiege(SNAPSHOT_INTERVAL)
     if (this.fire.length) { this.link.send({ t: 'ev', fire: this.fire }); this.fire = [] }
   }
 
@@ -495,6 +517,32 @@ export class CoopHostMission {
     this.link.sendBinary(encodeSnapshot({ time: this.elapsed, guestHp: proxy?.hp ?? -1, guestMaxHp: proxy?.maxHp ?? 0, actors, mounts }))
   }
 
+  /** Every structure the guest may hit, by key: scene structures, siege vehicles and gates. */
+  structures(): Map<string, DamageableObstacle> {
+    return coopSiegeStructures(this.port.siegeRamps?.() ?? [], this.port.siegeGates?.() ?? new Map(), new Map(this.port.structures?.() ?? []))
+  }
+
+  private sendSiege(dt: number): void {
+    if (!this.port.siegeRamps && !this.port.siegeGates) return
+    this.siegeTimer += dt
+    if (this.siegeTimer < .4) return
+    this.siegeTimer = 0
+    const siege = coopSiegeWire(this.port.siegeRamps?.() ?? [], this.port.siegeGates?.() ?? new Map())
+    if (siege) this.link.send({ t: 'siege', siege })
+  }
+
+  private sendStructures(): void {
+    const structures = this.structures()
+    const hp: Array<[string, number]> = []
+    for (const [key, structure] of structures) {
+      const current = structure.currentHp
+      if (this.sentStructureHp.get(key) === current) continue
+      this.sentStructureHp.set(key, current)
+      hp.push([key, current])
+    }
+    if (hp.length) this.link.send({ t: 'structures', hp })
+  }
+
   private lastPlayerPos = new THREE.Vector3()
   private lastPlayerTime = 0
   private lastPlayerSpeed = 0
@@ -593,6 +641,13 @@ export class CoopHostMission {
       contact: { kind: contactKind, time: 0 },
       ...(message.attackSource === 'unarmed' ? { attackSource: 'unarmed' as const } : {}),
     }
+    if (message.kind === 'structure') {
+      const structure = typeof message.key === 'string' ? this.structures().get(message.key) : undefined
+      if (!structure || structure.destroyed) return
+      if (this.port.applyGuestStructureHit) this.port.applyGuestStructureHit(structure, damage, context)
+      else if (structure.isDamageableBy(proxy.characterFaction)) damageObstacle(structure, damage, context)
+      return
+    }
     if (message.kind === 'mount') {
       const mount = this.sentMounts.get(id)
       if (!mount || mount.dead || this.port.acceptsGuestHit?.(mount) === false) return
@@ -642,6 +697,8 @@ export class CoopGuestMission {
   private readonly orderKeys = new WeakMap<NPC, string>()
   private readonly unsubscribe: Array<() => void> = []
   private squadMembers: readonly CareerPersonalSquadMember[] = []
+  /** The host's siege vehicles and gates on this screen, once the host sends them. */
+  private siege: CoopSiegeMirror | null = null
 
   constructor(private readonly port: CoopGamePort, private readonly onEnd: (reason: string) => void, private readonly link: CoopSession = coopSession()) {
     this.unsubscribe.push(
@@ -661,6 +718,8 @@ export class CoopGuestMission {
         const result = commitCoopMissionMerit(record)
         showCoopToast('merit' in result ? `任務${record.victory ? '勝利' : '結束'}：你獲得 ${result.merit} 軍功（已存入你自己的生涯存檔）` : result.error)
       }),
+      link.on('structures', message => this.applyStructures(message.hp)),
+      link.on('siege', message => this.applySiege(message.siege)),
       link.onBinary(bytes => this.applySnapshot(bytes)),
       link.onChange(() => { if (!link.peerConnected) this.end('與主機的連線已中斷') }),
     )
@@ -668,6 +727,7 @@ export class CoopGuestMission {
       npc: (npc, damage, context) => this.forwardNpcHit(npc, damage, context),
       mount: (mount, damage, context) => this.forwardMountHit(mount, damage, context),
       player: (_player, damage, context) => this.localPlayerDamage(damage, context),
+      obstacle: (obstacle, damage, context) => this.forwardStructureHit(obstacle, damage, context),
     })
     this.lastPos.copy(port.player.position)
     this.join()
@@ -719,6 +779,20 @@ export class CoopGuestMission {
   dispose(): void {
     setDamageInterceptor(null)
     for (const off of this.unsubscribe) off()
+    this.siege?.dispose()
+    this.siege = null
+  }
+
+  /** Every structure this guest may hit, by the host's keys. */
+  structures(): Map<string, DamageableObstacle> {
+    return coopSiegeStructures(this.siege?.ramps ?? [], this.port.siegeGates?.() ?? new Map(), new Map(this.port.structures?.() ?? []))
+  }
+
+  private applySiege(value: unknown): void {
+    const wire = parseCoopSiegeWire(value)
+    if (!wire || !this.port.siegeMirror || this.ended) return
+    this.siege ??= new CoopSiegeMirror({ ...this.port.siegeMirror, gates: this.port.siegeGates?.() ?? new Map() })
+    this.siege.apply(wire)
   }
 
   isMirrorMount(mount: Mount): boolean { return this.mountIdOf.has(mount) }
@@ -755,6 +829,7 @@ export class CoopGuestMission {
           ? { meleeStowed: (frame.flags & ACTOR_MELEE_STOWED) !== 0, shieldStowed: (frame.flags & ACTOR_SHIELD_STOWED) !== 0 } : {}),
       })
     }
+    this.siege?.update(dt)
     this.applyHostHp()
     this.sendSquadOrders()
     this.sendState(dt)
@@ -918,6 +993,30 @@ export class CoopGuestMission {
       hitSuccess: !mount.dead, requestedDamage: damage, appliedDamage: mount.dead ? 0 : Math.min(mount.currentHp, damage), blockedImpact: 0,
       targetId: `mount:${id}`, targetName: mount.mountDisplayName, killed: false,
       hpRatio: Math.max(0, (mount.currentHp - damage) / mount.maxHp), isMountHit: true, mountDied: false,
+    }
+  }
+
+  /** Structures break only on the host; the guest's own hit is a request, its HP comes back from the host. */
+  private forwardStructureHit(structure: DamageableObstacle, damage: number, context?: CombatDamageContext): DamageableObstacleHitResult {
+    const unchanged = { appliedDamage: 0, remainingHp: structure.currentHp, hpRatio: structure.hpRatio, destroyed: structure.destroyed }
+    if (structure.destroyed || context?.source.actorType !== 'player' || !Number.isFinite(damage) || damage <= 0) return unchanged
+    let key: string | undefined
+    for (const [candidate, value] of this.structures()) if (value === structure) { key = candidate; break }
+    if (!key) return unchanged
+    this.link.send({ t: 'hit', kind: 'structure', key, damage, method: context.method, weaponId: context.weaponId })
+    const applied = Math.min(structure.currentHp, damage)
+    return { appliedDamage: applied, remainingHp: structure.currentHp - applied, hpRatio: (structure.currentHp - applied) / structure.maxHp, destroyed: false }
+  }
+
+  private applyStructures(value: unknown): void {
+    if (!Array.isArray(value)) return
+    const structures = this.structures()
+    for (const entry of value) {
+      if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !Number.isFinite(entry[1])) continue
+      const structure = structures.get(entry[0]), hp = Number(entry[1])
+      if (!structure || structure.destroyed) continue
+      if (hp <= 0) structure.destroy()
+      else if (hp < structure.currentHp) structure.takeDamage(structure.currentHp - hp)
     }
   }
 

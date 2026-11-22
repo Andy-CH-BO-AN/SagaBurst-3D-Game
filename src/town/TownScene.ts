@@ -197,7 +197,8 @@ import { commitCoopRaceAward, parseCoopRaceAward } from '../coop/CoopRaceAward'
 import { commitCoopTownResult, parseCoopTownResult } from '../coop/CoopTownResult'
 import type { CombatDamageContext } from '../combat/CombatAttribution'
 import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeer, type CoopGamePort } from '../coop/CoopMission'
-import { CoopSiegeMirror, coopSiegeWire, parseCoopSiegeWire } from '../coop/CoopSiegeMirror'
+import { coopSiegePlacement } from '../coop/CoopSiegeMirror'
+import type { TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
 
 let sound: SoundManager
 interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; readonly sourceRef?: CombatActorRef; age: number; maxLifetimeSeconds?: number }
@@ -256,8 +257,6 @@ export class TownScene {
   private get playerProfile(): CareerProfile { return this.coopPlayerSource?.read() ?? this.profile }
   private commitPlayerProfile(next: CareerProfile): boolean { return this.coopPlayerSource ? this.coopPlayerSource.commit(next) : this.commit(next) }
   private readonly coopGuestMounts: Mount[] = []
-  /** Guest: the host's siege vehicles and gates. */
-  private coopSiege?: CoopSiegeMirror
   /** Guest: a local stable/field horse it rode; shown and synced as its own mount. */
   private coopBorrowedMount: Mount | null = null
   private coopRaceStatusTimer = 0
@@ -984,6 +983,27 @@ export class TownScene {
       arrows: [], projectiles: false, selfUpdatesPuppets: true, guestSquad: false,
       // The guest's hits follow the host's own Town rules: hitting a resident starts the shared hostility.
       applyGuestHit: (target, damage, context) => this.coopGuestHitsTown(target, damage, context),
+      // Four-gate vehicles and the Town gates: the host applies the guest's hit by its own siege rules.
+      siegeRamps: () => this.defense instanceof CommanderFourGateDefenseController ? this.defense.fourGateSiege?.ramps.values() ?? [] : [],
+      siegeGates: () => this.world.gates,
+      applyGuestStructureHit: (target, damage, context) => {
+        const partner = this.coopPartner
+        if (partner) this.damageSiegeStructure(target, damage, target.root.position.clone(), partner, context.source, context.method)
+      },
+      siegeMirror: {
+        obstacles: this.world.obstacles,
+        createRamp: (assignment, placement, faction, shared) => new MobileSiegeRamp(this.scene, assignment, placement, faction, shared, () => {}),
+        configureDocks: ramps => {
+          const passages = this.world.siegeDockPassages
+          if (passages && !passages.isConfigured && ramps.length === 8) passages.configure(ramps.map(ramp => coopSiegePlacement(ramp).passage!))
+        },
+        setDockOpen: (ramp, open) => {
+          const passages = this.world.siegeDockPassages
+          if (passages?.isConfigured) passages.setOpen(ramp.assignment.id as TownSiegeRampId, open)
+        },
+        addAirspace: obstacles => this.world.siegeAirspace?.add(obstacles),
+        removeAirspace: obstacles => this.world.siegeAirspace?.remove(obstacles),
+      },
       combatEmit: () => {},
       get ownMount() { return town.coopBorrowedMount ?? town.careerMounts?.activeMount ?? null },
       equippedWeapons: () => ({ melee: this.inventory.equippedMelee?.id ?? null, ranged: this.inventory.selectedRanged?.id ?? null, shield: this.inventory.equippedShield?.id ?? null }),
@@ -1018,8 +1038,6 @@ export class TownScene {
     if (this.coopRaceStatusTimer < .4) return
     this.coopRaceStatusTimer = 0
     coopSession().send({ t: 'townState', hostile: this.event.hostile })
-    const siege = coopSiegeWire(this.defense instanceof CommanderFourGateDefenseController ? this.defense.fourGateSiege : undefined, this.world.gates)
-    if (siege) coopSession().send({ t: 'siege', siege })
     const session = this.race?.session
     if (!session) return
     const progress = this.race?.coopProgress
@@ -1075,13 +1093,7 @@ export class TownScene {
           : `你們被城鎮擊敗：扣除 ${applied.penalty} 可用軍功（已存入你自己的生涯存檔）。`
       }),
       link.on('raceStatus', message => this.showCoopRaceStatus(message)),
-      link.on('siege', message => {
-        const wire = parseCoopSiegeWire(message.siege)
-        if (!wire || this.disposed) return
-        this.coopSiege ??= new CoopSiegeMirror(this.world,
-          (assignment, placement, faction, shared) => new MobileSiegeRamp(this.scene, assignment, placement, faction, shared, () => {}))
-        this.coopSiege.apply(wire)
-      }),
+
       link.on('townState', message => {
         this.coopHostHostile = message.hostile === true
         if (this.coopHostHostile && this.panel && !this.result) this.closePanel()
@@ -1111,7 +1123,6 @@ export class TownScene {
     }
     this.keepCoopBorrowedMount()
     this.careerMounts.update(dt)
-    this.coopSiege?.update(dt)
     this.coopGuest!.updateWorld(dt)
     this.updateCoopGuestCombat(dt)
     if (this.coopGuestRaceText) { this.hint.textContent = this.coopGuestRaceText; this.hint.style.display = '' }
@@ -1220,7 +1231,15 @@ export class TownScene {
       faction: player.characterFaction, hasShield: this.inventory.shieldEnabled, heroAssetId: player.heroAssetId ?? undefined,
     })
     const contact = player.weaponSweep.traceFirst(targets, mounts, player.currentMount)
-    if (!contact) return
+    if (!contact) {
+      // Siege vehicles and gates: the host judges the hit by its own siege rules.
+      const structure = this.coopGuestStructureContact(player.getWeaponGripPosition(new THREE.Vector3()), player.getSwordTipPosition())
+      if (!structure) return
+      player.markHitProcessed()
+      const result = damageObstacle(structure.target, damage.damage, { source, method: 'melee', weaponId: weapon.id })
+      if (result.appliedDamage > 0) { this.damageNumbers.spawn(result.appliedDamage, structure.point); sound?.playSwordHit(0, true) }
+      return
+    }
     player.markHitProcessed()
     const target = contact.target as NPC | Mount
     const amount = Math.round(damage.damage * getAntiCavalryMultiplier(weapon.combatKind, player.isMounted, contact.kind === 'mount' || target.isMounted))
@@ -1230,6 +1249,21 @@ export class TownScene {
       this.damageNumbers.spawn(result.appliedDamage, (target instanceof NPC ? target.combatPosition : target.group.position).clone().add(new THREE.Vector3(0, 1, 0)))
       sound?.playSwordHit(0, true)
     }
+  }
+
+  /** Guest: the first mirrored siege vehicle or gate box the blade crosses. */
+  private coopGuestStructureContact(from: THREE.Vector3, to: THREE.Vector3): { target: DamageableObstacle; point: THREE.Vector3 } | null {
+    const structures = new Set(this.coopGuest?.structures().values() ?? [])
+    if (!structures.size) return null
+    const direction = to.clone().sub(from), length = direction.length()
+    if (length < 1e-6) return null
+    const ray = new THREE.Ray(from, direction.multiplyScalar(1 / length)), box = new THREE.Box3(), point = new THREE.Vector3()
+    for (const obstacle of this.world.obstacles) {
+      const target = obstacle.damageable
+      if (!target || target.destroyed || !structures.has(target) || !target.isDamageableBy(this.player.characterFaction)) continue
+      if (ray.intersectBox(box.copy(obstacle.box).expandByScalar(.45), point) && point.distanceTo(from) <= length) return { target, point: point.clone() }
+    }
+    return null
   }
 
   private openCoopGuestMenu(): void {
@@ -4530,7 +4564,6 @@ export class TownScene {
     // Moving to another co-op scene announces itself; leaving Career entirely is announced by returnHome.
     this.coopHost?.dispose(false); this.coopHost = undefined
     this.coopGuest?.dispose(); this.coopGuest = undefined
-    this.coopSiege?.dispose(); this.coopSiege = undefined
     for (const off of this.coopUnsubscribe.splice(0)) off()
     this.combatTargetHud.dispose()
     this.compass?.dispose()
