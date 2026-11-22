@@ -86,6 +86,8 @@ interface TownCombatScene {
   hitNpc(target: NPC, damage: number, method: CombatDamageMethod, source?: NPC): void
   damagePlayer(source: NPC, damage: number, method: CombatDamageMethod): void
   fireNpc(origin: THREE.Vector3, direction: THREE.Vector3, kind: 'arrow' | 'pilum', source: NPC, lifecycle?: ProjectileFlightBudget): boolean | void
+  /** Co-op host: the guest's living body, a target for whoever is hostile to it; never updated here. */
+  coopPartner?(): NPC | null
 }
 
 const EXTERNAL_GARRISON_RETURN_ID = -4401
@@ -407,7 +409,7 @@ export class TownMissionCombat {
       const peers = warfareActive ? this.runtimeActors : veteranField
         ? veteranMarching && !veteranSurvival ? veteranMarchingPeers! : actorIsVeteranHostile ? veteranEnemyPeers! : veteranFriendlyPeers!
         : actor.faction === Faction.BANDIT
-          ? [...new Set([...field.combatPeersFor(actor), ...this.externalThreatActors])]
+          ? [...new Set([...field.combatPeersFor(actor), ...this.externalThreatActors, ...this.livingCoopPartner()])]
           : this.externalThreatActors.has(actor)
             ? [...field.ambientBandits, ...field.missionBandits, ...this.externalThreatActors]
             : field.combatPeersFor(actor)
@@ -525,6 +527,9 @@ export class TownMissionCombat {
       ...participants.filter(actor => !previousOutskirts.has(actor)),
       ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? []),
     ]))
+    // Hostile actors acquire the co-op guest like any other foe; its own movement comes from the network.
+    const partner = this.town.coopPartner?.()
+    if (partner && !partner.dead) this.runtimeActors.push(partner)
     this.warfareGrid.clear(); this.outskirtsGrid.clear()
     for (const actor of this.runtimeActors) if (!actor.dead) this.warfareGrid.insert(actor)
     for (const actor of [...(outskirts?.actors ?? []), ...(air?.actors ?? [])]) if (!actor.dead && !this.isEvacuatingThreat(actor)) this.outskirtsGrid.insert(actor)
@@ -602,6 +607,11 @@ export class TownMissionCombat {
         break
     }
     return true
+  }
+
+  private livingCoopPartner(): NPC[] {
+    const partner = this.town.coopPartner?.()
+    return partner && !partner.dead ? [partner] : []
   }
 
   private actorObstacles(actor: NPC): ObstacleData[] {

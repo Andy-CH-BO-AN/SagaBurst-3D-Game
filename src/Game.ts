@@ -143,6 +143,7 @@ import { createCaltropBarrier } from './world/CaltropBarrier'
 import { CombatRenderWarmup } from './world/CombatRenderWarmup'
 import { CorgiVisual } from './world/CorgiVisual'
 import { DamageableObstacle } from './world/DamageableObstacle'
+import { MobileSiegeRamp } from './campaign/MobileSiegeRamp'
 import { EntityCollisionBroadPhase } from './world/EntityCollisionBroadPhase'
 import { createCampfireVisual } from './world/EnvironmentVisuals'
 import { HERO_ASSETS, type HeroAssetId, type PlayerHeroId } from './world/HeroAssetCatalog'
@@ -359,6 +360,19 @@ export class Game {
       registerMount: mount => this._aimTargetRegistry.registerMount(mount),
       unregisterMount: mount => this._aimTargetRegistry.unregisterMount(mount),
       markVisualArrow: arrow => { this.coopVisualArrows.add(arrow) },
+      // Palisades, towers, the Outpost gate and siege vehicles: the guest's hits go to the host.
+      structures: () => new Map(this.coopStructureObstacles.map((structure, index) => [`obstacle:${index}`, structure])),
+      siegeRamps: () => this.campaignSiegeAssault?.ramps ?? [],
+      siegeGates: () => new Map(this.previewCampaignGate ? [['outpost', this.previewCampaignGate]] : []),
+      applyGuestStructureHit: (target, damage, context) => {
+        if (this._commanderOutpostCombatLocked() || !target.isDamageableBy(context.source.characterFaction)) return
+        damageObstacle(target, damage, context)
+      },
+      siegeMirror: {
+        obstacles: this.obstacles,
+        createRamp: (assignment, placement, faction, shared) => new MobileSiegeRamp(this.scene, assignment, placement, faction, shared, () => {}),
+        setDockOpen: (ramp, open) => this.campaignSiegeAssault?.walkways.setDockPassage(ramp.assignment.side, open),
+      },
     }
     if (host) {
       const coopHost = this.coopHost = new CoopHostMission(port)
@@ -383,6 +397,8 @@ export class Game {
     // Stand beside the host instead of inside it.
     const body = this.player.isMounted && this.player.currentMount ? this.player.currentMount.group.position : this.player.position
     body.x += 3
+    // The host simulates the siege; this page's own vehicles give way to the host's mirror.
+    this.campaignSiegeAssault?.dispose()
     const mirror = this.coopGuest = new CoopGuestMission(port, reason => showCoopGuestEnd(reason))
     this._bindCoopGuestCommands(mirror)
     mirror.deploySquad(coopGuestOwnSquad())
@@ -736,6 +752,8 @@ export class Game {
   }
   private campaignSiegeAssault: CampaignSiegeAssault | null = null
   private previewCampaignGate: CampaignGateController | null = null
+  /** Breakable scene structures in build order; co-op host and guest key them by index. */
+  private coopStructureObstacles: readonly DamageableObstacle[] = []
   private previewCampaignBreachController: CampaignBreachController | null = null
   private readonly navigationWorld = new NavigationWorld()
   private readonly chaseTargetCoordinator = new ChaseTargetCoordinator()
@@ -1121,6 +1139,7 @@ export class Game {
     for (const obstacleMesh of obstacleMeshes) {
       this._aimTargetRegistry.addStaticTarget(obstacleMesh)
     }
+    this.coopStructureObstacles = [...new Set(damageableObstacles)]
     for (const damageable of damageableObstacles) {
       damageable.onDestroyed(() => {
         for (const hitMesh of damageable.hitMeshes) {
@@ -2148,7 +2167,8 @@ export class Game {
   /** All Career initial/wave callers prepare before construction; restore uses the original crew IDs. */
   private _prepareCampaignSiegePlan(plan: BattleSpawnPlan, restorePositions = true): void {
     const campaign = this.defenseCampaignConfig
-    if (!campaign || !this.campaignSiegeAssault) return
+    // A co-op guest released its own assault: the host's vehicles are mirrored instead.
+    if (!campaign || !this.campaignSiegeAssault || this.coopGuest) return
     const saved = campaign.careerVeteranOutpost || campaign.careerCommanderOutpost
       ? this.careerProfile?.activeMission?.outpostSiege : this._personalOutpostMission()?.battle?.outpostSiege
     if (this.campaignSiegeAssault.isPrepared) this.campaignSiegeAssault.trackDeployment(plan.npcSpecs)

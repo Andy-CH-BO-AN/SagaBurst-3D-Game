@@ -17,6 +17,13 @@ describe('Co-op guest mission merit', () => {
     recordCoopGuestEvent(stats, damage('enemy-1', 'proxy-1', 'ENEMY', 'PLAYER', 40), guest)
     recordCoopGuestEvent(stats, { type: 'actor_killed', source: actor('proxy-1', 'PLAYER'), target: target('enemy-1', 'ENEMY'), method: 'melee' } as CombatEvent, guest)
     expect([stats.damageDealt, stats.damageTaken, stats.kills]).toEqual([150, 40, 1])
+    // Siege vehicles the guest breaks count as its structure contribution; the host's do not.
+    const structure = (source: string, type: 'structure_damaged' | 'structure_destroyed') => ({ type, source: actor(source, 'PLAYER'),
+      target: target('ramp:west', 'ENEMY'), method: 'melee', requestedDamage: 80, appliedDamage: 80, hpRatio: 0 }) as CombatEvent
+    recordCoopGuestEvent(stats, structure('proxy-1', 'structure_damaged'), guest)
+    recordCoopGuestEvent(stats, structure('proxy-1', 'structure_destroyed'), guest)
+    recordCoopGuestEvent(stats, structure('host-squad', 'structure_damaged'), guest)
+    expect([stats.structureDamage, stats.structuresDestroyed]).toEqual([80, 1])
 
     const record = parseCoopMissionMerit({ missionId: 'host-mission-1', kind: 'captain-outpost-defense', victory: true, stats })!
     const expected = careerMissionMerit('captain-outpost-defense', 'victory', stats).total

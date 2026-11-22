@@ -55,6 +55,8 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
   snapshot(): MobileSiegeRampSnapshot<Id> { return this.carrier.snapshot() }
   /** Restore carrier geometry before actor construction, without moving surviving/departed actors. */
   restore(saved: MobileSiegeRampSnapshot<Id>): void { this.carrier.restore(saved) }
+  /** Co-op guest: present the host's pose and lifecycle; see `MobileSiegeRampCarrier.mirror`. */
+  mirror(view: Parameters<MobileSiegeRampCarrier<Id, NPC>['mirror']>[0]): void { this.carrier.mirror(view) }
   update(dt: number, actors: readonly NPC[], blockers: readonly EntityCollisionBody[] = []): void {
     this.carrier.update(dt, actors, blockers)
   }

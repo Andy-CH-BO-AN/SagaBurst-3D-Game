@@ -61,6 +61,7 @@ export interface DamageInterceptor {
   npc?(npc: NPC, damage: number, context?: CombatDamageContext): DamageResult | undefined
   mount?(mount: Mount, damage: number, context?: CombatDamageContext): DamageResult | undefined
   player?(player: Player, damage: number, context?: CombatDamageContext): DamageResult | undefined
+  obstacle?(obstacle: DamageableObstacle, damage: number, context?: CombatDamageContext): DamageableObstacleHitResult | undefined
 }
 let damageInterceptor: DamageInterceptor | null = null
 export function setDamageInterceptor(next: DamageInterceptor | null): void { damageInterceptor = next }
@@ -233,6 +234,8 @@ export function damageObstacle(
   damage: number,
   context?: CombatDamageContext,
 ): DamageableObstacleHitResult {
+  const intercepted = damageInterceptor?.obstacle?.(obstacle, damage, context)
+  if (intercepted) return intercepted
   const result = obstacle.takeDamage(damage)
   const target = createStructureCombatTargetRef(obstacle)
   emitStructureDamage(

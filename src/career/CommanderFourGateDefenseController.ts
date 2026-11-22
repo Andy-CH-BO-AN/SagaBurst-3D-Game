@@ -743,6 +743,8 @@ export class CommanderFourGateDefenseController {
     for (const { npc } of this.residents) { npc.setMissionCombatTarget(undefined); npc.missionMovement = false; npc.assignSiegeObstacle(null); npc.endExternalThreat() }
     this.context.patrol?.releaseSiegeOwnership(); this.context.outskirts?.releaseSiegeOwnership()
   }
+  /** Co-op guest: the host simulates the attack; this page's own vehicles and attackers give way to its mirror. */
+  releaseForCoopGuest(): void { this.disposeAttackers() }
   private disposeAttackers(): void {
     this.spawnBatch?.cancel(); this.spawnBatch = undefined
     this.fourGateSiege?.dispose(); this.fourGateSiege = undefined
