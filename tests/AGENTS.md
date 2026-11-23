@@ -33,11 +33,7 @@
 
 ### Cross-owner lint warning
 
-- `npm run lint:test` 會對少量明確列出的 production 入口加上非阻擋 Warning；目前只有同一 Vitest leaf 直接呼叫 `CareerBridgeBattle.careerFieldTacticalOrder` 與 `CareerFieldBattle.resolveFieldDamagedTargetId` 這個試行組合會命中。前者決定小隊戰術命令，後者將傷害事件對應到目標 actor；`tests/missions/CareerFieldBattle.test.ts` 的「supports ambush alerts and squad engagement」同時直接驗證兩者，且各自涵蓋不同決策，值得 reviewer 確認是否為同一正式路徑。Warning 只指出入口，請 reviewer 判斷，不自動判定案例放錯檔，也不要求拆 case。
-- 舊的任務分類 leaf 同時呼叫 `CareerFieldBattle.isMigratedCareerFieldTemplate`／`isMigratedCareerFieldMission` 與 `CareerBridgeBattle.isCareerFelineBattle`，但這些分類呼叫組成同一條任務路由，現在不會命中 Warning。#490 的 Bridgehead「keeps Bridgehead victory unclaimed after a failed result save and retries it once」則以 `commitCareerBridgeBattleResult` 搭配真正的 `CareerProfileStore` 驗證同一結算交易可重試，也不會命中。跨檔案或跨模組本身不是警告條件。
-- 只 import 未呼叫、type-only import、同一 Owner 的多個入口，以及 fixture helper、`beforeEach`／`afterEach` setup／cleanup、巢狀 helper／延遲 callback 或資料轉換 callback 不會觸發。這條規則依既有 callback 與 import binding 辨識實際呼叫，不依目錄或 import 數量推測 Owner，且每個 leaf 最多報一個 Warning。
-- Warning 只提供 review 線索。**Owner 歸屬、failure mode 是否獨立、caller 是否真的有覆蓋，仍由 review 判斷**；Warning 不增加 leaf 數、不阻擋 CI，也不改變既有 Error 規則。
-- 本次 PR 最新分支 head 的 CI：[test/warn-cross-owner-test-calls Actions runs](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/workflows/ci.yml?query=branch%3Atest%2Fwarn-cross-owner-test-calls)。
+- `npm run lint:test` 會對少數跨模組呼叫做非阻擋提示（`warn-cross-owner-test-calls`）：只偵測同一 leaf 直接呼叫特定組合入口（例如同時呼叫戰術命令與傷害對應入口），type-only／未呼叫 import、同 Owner 多入口、`beforeEach`／`afterEach` 與 helper／callback 均不觸發，且每個 leaf 最多報一個 Warning；是否需拆案由人工 review 判斷，不阻擋 CI。
 
 - 同一不可分交易可有多個 assertions，同一不變量可使用少量資料變體；部署容量、投射物遮擋、地形切換與落水死亡等不同原因的失敗必須能獨立定位。把 200 行以上的大型 `it` 搬進正確檔案，不代表已完成責任整理。
 - 搬移／刪除前核對「原案例與 assertions → 保留案例 → production consumer」，不能只比較名稱或 leaf 數；保留現行存檔、權限、錯誤恢復與正式 Game call path 的唯一 regression；純歷史格式遷移及已退役 production owner 的案例一併刪除。刪除自建決策流程時，指出真正 owner 的保護位置；沒有等效保護就明列風險，不宣稱已替代。
@@ -126,7 +122,7 @@
 - 全庫 Full Test 必須驗證所有 discovered files 及 leaves 恰好執行一次，再允許 publish。
 - main Full gate 只執行一次：`push → main` 由 `ci.yml` 跑 Full，Pages 與 Release 於同一 workflow run 以 `needs` 共用、不再各自重跑；Pages 與 Release 僅接受綁定同一精確 SHA 的 Full 驗證（`verified-sha`），失敗、取消、SHA 不符或缺少驗證即自行跑 Full 或失敗（Pages 另在部署前確認 `GITHUB_SHA` 仍為最新 `origin/main`，過期則 skip 以免舊 commit 覆蓋新版網站）。手動 `v*` tag 無同 run 證明，必須 Full。
 - 嚴格文件／CSS、經證明的 HTML inline style、獨立資產驗證通過的 asset-only 與 SHA 證據完整的真正空 Diff，允許各自明確標記的 empty plan；不可混為 docs-only。保留單檔／指定案例開發能力。
-- 開發中可先跑受影響 suite（`rtk npm test -- <file-or-directory>` 或 `-t`，屬局部驗證），再依需要本地跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build` 作快速回饋；**不要求本地完整測試執行三次，也不以本地全量重跑作合併必要條件**。
+- 開發中可先以指定檔案／目錄執行受影響 suite（`npx vitest run <files...>`；不可使用 `vitest -t` 過濾單一案例，跳過的案例會觸發 `BudgetReporter` 失敗），且本地量測 100ms 單 leaf 預算時須單獨執行 `vitest`，避免與 `eslint`／`npm run build` 併行搶佔 CPU 造成誤判超時；再依需要本地跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build` 作快速回饋；**不要求本地完整測試執行三次，也不以本地全量重跑作合併必要條件**。
 - **PR 驗收以對應最新 PR head 的 GitHub Actions CI 為準**（含該 head 對應的 GitHub PR merge ref）；檢查適用的 web、desktop jobs 結果。CI 必須通過 `logic / gate`（plan、執行、完整性驗證與 1,000 cases 上限）、`npm run typecheck:test`、`npm run build` 及適用的 smoke。PR → dev／main 與合併後 push → dev 不安裝 Chromium 或執行 Web smoke，但保留 Typecheck、Build；push → main、Pages、Release 與手動 Full validation 仍執行 Web smoke。PR 中所有 selected logic cases 只在 logic gate 執行一次；Windows／macOS Desktop PR jobs 只在 PR → main 驗證 package／smoke，不重跑 Node logic；PR → dev 與 push → dev 不跑 Desktop。Windows／macOS Node component 驗證保留在正式 Release、完整測試與發佈閘門。不得用舊 commit、先前綠燈或單一 subset 冒充目前 PR 已驗證。
 - 檢視同一次 CI 中的 mode、base/head、selection reasons、case count、max leaf 時間及 **Top 10 slow leaf**（完整名稱、檔案、hooks/cleanup 含入）；有 case 達 70ms 為非阻擋預警，應標記優化方向。每個 case >100ms、Case count >1000 或任一適用 CI job 失敗仍不得宣稱通過；不靠重跑三次、只挑最好的一次或增加 retry 掩蓋不穩定。只有 CI 失敗／平台異常／結果過期或有明確疑慮才重跑或補充診斷。
 - 僅在重大核心邏輯變更或新測試難確認有效性時，可對少量關鍵 owner 作受控負向驗證，確認測試真的會失敗再還原；不把 mutation check 當作每 PR 必經步驟，也不引入大型 mutation framework。
