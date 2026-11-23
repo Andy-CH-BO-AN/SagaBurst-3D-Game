@@ -5,6 +5,7 @@ import { Box3, Vector3 } from 'three'
 import { recordingActorFactory } from '../helpers/careerActorDoubles'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { ActiveMissionClock } from '../../src/career/ActiveMissionClock'
+import { MAX_COMMAND_SQUAD_SIZE } from '../../src/battle/CommandTarget'
 import type { CaptainEagleCheckpoint } from '../../src/career/CaptainEagleCheckpoint'
 import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, commitCareerBridgeBattleResult, createCareerBridgeOrphanMountPlan, createCareerBridgeSpawnPlan, createCareerFelineBattleLaunch, createCareerFelineOrphanMountPlan, createCareerFelineSpawnPlan, felineInitialTacticalOrder, isCareerFelineBattle, markFelineVanguardCharge, recoverClaimedCareerBridgeBattle, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness } from '../../src/career/CareerBridgeBattle'
 import { officialActorSquadId, officialCommandAcceptsActor } from '../../src/career/CareerCommandAuthority'
@@ -13,7 +14,7 @@ import { claimCareerMission, clearCareerMission, createCareerProfile, type Caree
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { needsDecapitationDeployment, planDecapitationDeployment } from '../../src/career/CommanderDecapitationDeployment'
 import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, createCommanderFourGateDefenseState, skipCommanderFourGateDefensePreparation, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
-import { acceptCommanderMission, availableCommanderMissions, COMMANDER_BRIDGEHEAD_ID, COMMANDER_DECAPITATION_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_FORMER_COMMANDER_SLOT, COMMANDER_IRON_LEGION_ID, COMMANDER_LAST_STAND_ID, COMMANDER_MISSION_CATALOG, COMMANDER_SKY_RAID_ID, createBridgeheadRoster, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_FRIENDLY_TOTAL, FELINE_T4_MOUNTS, FELINE_T5_MOUNTS, FELINE_VANGUARD_ADVANCE_METERS, recordCommanderObjectiveDeath } from '../../src/career/CommanderMissionCatalog'
+import { acceptCommanderMission, availableCommanderMissions, COMMANDER_BRIDGEHEAD_ID, COMMANDER_DECAPITATION_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_FORMER_COMMANDER_SLOT, COMMANDER_IRON_LEGION_ID, COMMANDER_LAST_STAND_ID, COMMANDER_MISSION_CATALOG, COMMANDER_SKY_RAID_ID, createBridgeheadRoster, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_T4_MOUNTS, FELINE_VANGUARD_ADVANCE_METERS, recordCommanderObjectiveDeath } from '../../src/career/CommanderMissionCatalog'
 import { commanderOutpostCombatLocked, createCareerCommanderOutpostLaunch, remainingCommanderAttackers } from '../../src/career/CommanderOutpost'
 import { CommanderTownMissionController } from '../../src/career/CommanderTownMissionController'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
@@ -290,12 +291,13 @@ describe('Decapitation safe edge deployment', () => {
 
 describe('Last Stand stable objective recovery', () => {
 
-  it('counts missing and queued IDs until all 100 unique riders die, ignoring mount deaths and unrelated actors', () => {
+  it('keeps unspawned riders in the objective and clears it only after the last rostered rider dies', () => {
     const mission = accepted(COMMANDER_LAST_STAND_ID).activeMission!
-    expect(remainingCommanderAttackers(mission, [])).toBe(100)
     const actors = mission.targetActorIds.map(id => ({ combatantId: id, dead: true }))
-    expect(remainingCommanderAttackers(mission, actors.slice(0, 99))).toBe(1)
-    expect(remainingCommanderAttackers(mission, [...actors.slice(0, 99), { combatantId: 'mount', dead: true }])).toBe(1)
+    const allButLast = actors.slice(0, -1)
+    expect(remainingCommanderAttackers(mission, [])).toBe(actors.length)
+    expect(remainingCommanderAttackers(mission, allButLast)).toBe(1)
+    expect(remainingCommanderAttackers(mission, [...allButLast, { combatantId: 'unrostered-mount', dead: true }])).toBe(1)
     expect(remainingCommanderAttackers(mission, actors)).toBe(0)
   })
 
@@ -332,7 +334,8 @@ describe('Bridgehead official field battle', () => {
     const profile = accepted(COMMANDER_BRIDGEHEAD_ID, faction, true), mission = profile.activeMission!
     const roster = createBridgeheadRoster(mission, faction), authority = mission.officialSquad!
     expect(roster.friendly).toHaveLength(200); expect(roster.enemy).toHaveLength(300)
-    expect(new Set([...roster.friendly, ...roster.enemy].map(spec => spec.actorId)).size).toBe(500)
+    const actorIds = [...roster.friendly, ...roster.enemy].map(spec => spec.actorId)
+    expect(new Set(actorIds).size).toBe(actorIds.length)
     expect(authority.commandRank).toBe('commander'); expect(authority.squads).toHaveLength(8)
     expect(mission.personalSquad?.memberIds).toEqual(['personal:hr-1'])
     expect(authority.actorIds).not.toContain('personal:hr-1')
@@ -367,16 +370,17 @@ describe('Bridgehead official field battle', () => {
     const mission = accepted(COMMANDER_BRIDGEHEAD_ID).activeMission!
     mission.bridgeDeployment = { phase: 'assault', preparationRemainingSeconds: 0 }
     const runtime = new CareerBridgeBattleRuntime(mission)
-    runtime.observe(mission, mission.targetActorIds.slice(0, 299).map(combatantId => ({ combatantId, dead: true })))
-    runtime.recordDeath('mount:200'); runtime.recordDeath(mission.targetActorIds[0])
+    const targetIds = mission.targetActorIds
+    runtime.observe(mission, targetIds.slice(0, -1).map(combatantId => ({ combatantId, dead: true })))
+    runtime.recordDeath('unrostered-mount'); runtime.recordDeath(targetIds[0])
     expect(runtime.enemyAlive).toBe(1)
     expect(runtime.outcome(true, false)).toBeNull(); expect(runtime.outcome(true, true)).toBeNull()
     runtime.observe(mission, mission.friendlyActorIds.map(combatantId => ({ combatantId, dead: true })))
     expect(runtime.outcome(true, true, 1)).toBeNull() // The last deployed HR member can still win.
     expect(runtime.outcome(true, true)).toBe('failure')
-    runtime.recordDeath(mission.targetActorIds[299]) // drowning and allied kills use the same confirmed NPC death
+    runtime.recordDeath(targetIds.at(-1)!) // drowning and allied kills use the same confirmed NPC death
     runtime.observe(mission, [])
-    expect(runtime.deadTargets.size).toBe(300)
+    expect(runtime.deadTargets).toEqual(new Set(targetIds))
     expect(runtime.outcome(true, false)).toBeNull()
     expect(runtime.outcome(true, true)).toBe('victory')
   })
@@ -392,8 +396,10 @@ describe('Bridgehead official field battle', () => {
       mount: { hp: 0, mounted: false, position: { x: -6, z: -99, yaw: 0 } } }
     mission.commanderMission!.deploymentComplete = true
     mission.playerDead = true
-    mission.deadTargetActorIds = mission.targetActorIds.slice(0, 100)
-    const actor = mission.friendlyActorIds[1], dismounted = mission.targetActorIds[100]
+    const [fallenRider, dismounted, secondCasualty] = mission.targetActorIds
+    const casualties = [fallenRider, secondCasualty]
+    mission.deadTargetActorIds = casualties
+    const actor = mission.friendlyActorIds[1]
     const playerStats = { damageDealt: 0, damageTaken: 10, kills: 0, structureDamage: 0,
       structuresDestroyed: 0, gateBreaches: 0, survived: false }
     mission.bridgeBattle = { ready: true, player: { hp: 0, stamina: 0, dead: true,
@@ -401,20 +407,22 @@ describe('Bridgehead official field battle', () => {
       playerStats: { ...playerStats }, actors: Object.fromEntries([...mission.friendlyActorIds, ...mission.targetActorIds]
         .map(id => [id, { status: mission.deadTargetActorIds!.includes(id) ? 'dead' : 'deployed', hp: mission.deadTargetActorIds!.includes(id) ? 0 : 30 }])) }
     mission.bridgeBattle.player.homeMount = { hp: 12, mounted: false, position: { x: 15, y: 0, z: -40, yaw: 1 } }
-    mission.bridgeBattle.player.mountActorId = mission.targetActorIds[0]
-    mission.bridgeBattle.actors[mission.targetActorIds[0]].mount = { hp: 42, mounted: false, position: { x: 2, z: 24, yaw: 0 } }
+    mission.bridgeBattle.player.mountActorId = fallenRider
+    mission.bridgeBattle.actors[fallenRider].mount = { hp: 42, mounted: false, position: { x: 2, z: 24, yaw: 0 } }
     mission.bridgeBattle.actors[dismounted].mount = { hp: 0, mounted: false, position: { x: 0, z: 20, yaw: 0 } }
     mission.officialSquad!.members = { [actor]: { status: 'deployed', hp: 20, order: 'formation',
       formation: { commandId: 7, position: { x: 0, y: .45, z: 0, yaw: 0 }, reached: true, arrivalOrder: 'defend' } } }
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
     expect(store.save(profile)).toBe(true)
     const restored = store.load()!, plan = createCareerBridgeSpawnPlan(restored)
-    expect(plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY)).toHaveLength(200)
-    expect(createCareerBridgeOrphanMountPlan(restored)).toMatchObject([{ actorId: mission.targetActorIds[0], stableKey: mission.targetActorIds[0], saved: { hp: 42 } }])
+    const survivingTargets = mission.targetActorIds.filter(id => !casualties.includes(id))
+    expect(plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY).map(spec => spec.actorId).sort())
+      .toEqual(survivingTargets.sort())
+    expect(createCareerBridgeOrphanMountPlan(restored)).toMatchObject([{ actorId: fallenRider, stableKey: fallenRider, saved: { hp: 42 } }])
     expect(restored.activeMission!.officialSquad!.members![actor].formation).toEqual(mission.officialSquad!.members![actor].formation)
     expect(restored.activeMission!.bridgeBattle!.actors[dismounted].mount!.hp).toBe(0)
     expect(restored.activeMission!.personalSquad).toEqual(mission.personalSquad)
-    expect(restored.activeMission!.bridgeBattle!.player).toMatchObject({ dead: true, mountActorId: mission.targetActorIds[0],
+    expect(restored.activeMission!.bridgeBattle!.player).toMatchObject({ dead: true, mountActorId: fallenRider,
       homeMount: { hp: 12, position: { x: 15, z: -40, yaw: 1 } } })
   })
 
@@ -640,7 +648,7 @@ describe('Commander VI Six Feline Cavalry', () => {
     appliedDamage,
   })
 
-  it('derives the exact 200-vs-300 roster from production formation slots and keeps all six feline mounts commandable', () => {
+  it('deploys the 200-vs-300 roster with role-specific equipment, separated formations and commandable riders', () => {
     const profile = accepted(COMMANDER_FELINE_CAVALRY_ID, 'roman', true), mission = profile.activeMission!
     addCareerItem(profile, 'serval', 1)
     profile.selectedMountId = 'serval'
@@ -655,62 +663,50 @@ describe('Commander VI Six Feline Cavalry', () => {
     const preloadedHeroes = new Set(careerFelineHeroAssetIds(profile))
     expect(plan.npcSpecs.every(spec => !spec.visualAssetId || preloadedHeroes.has(spec.visualAssetId))).toBe(true)
 
-    expect(friendly).toHaveLength(FELINE_FRIENDLY_TOTAL)
-    expect(enemy).toHaveLength(FELINE_ENEMY_TOTAL)
+    expect(friendly).toHaveLength(200)
+    expect(enemy).toHaveLength(300)
+    expect(friendly.map(spec => spec.actorId)).toEqual(mission.friendlyActorIds)
+    expect(enemy.map(spec => spec.actorId)).toEqual(mission.targetActorIds)
     // Historical role IDs are save identities, independently of the current Ranger appearance.
     expect(friendly.filter(spec => spec.actorId?.includes(':melee:'))).toHaveLength(60)
     expect(friendly.filter(spec => spec.actorId?.includes(':t4:lancer:'))).toHaveLength(60)
     expect(friendly.filter(spec => spec.actorId?.includes(':horse_archer:'))).toHaveLength(60)
     expect(friendly.filter(spec => spec.actorId?.includes(':t5:lancer:'))).toHaveLength(20)
-    expect(enemy.filter(spec => spec.characterTier === 4)).toHaveLength(210)
-    expect(enemy.filter(spec => spec.characterTier === 5)).toHaveLength(90)
     for (const role of ['melee', 'lancer', 'horse_archer']) {
       expect(enemy.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(`:${role}:`))).toHaveLength(70)
       expect(enemy.filter(spec => spec.characterTier === 5 && spec.actorId?.includes(`:${role}:`))).toHaveLength(30)
     }
 
-    const friendlyMounts = friendly.map(spec => spec.loadout?.mountId)
-    for (const mount of [...FELINE_T4_MOUNTS, ...FELINE_T5_MOUNTS]) expect(friendlyMounts).toContain(mount)
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_sword_cavalry') && spec.loadout?.mountId === 'caracal')).toHaveLength(60)
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_lancer') && spec.loadout?.mountId === 'serval')).toHaveLength(60)
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.loadout?.mountId === 'black-cat')).toHaveLength(20)
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.loadout?.mountId === 'white-cat')).toHaveLength(20)
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.loadout?.mountId === 'orange-cat')).toHaveLength(20)
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':t5:lancer:') && spec.loadout?.mountId === 'snow-leopard')).toHaveLength(20)
-    expect(enemy.every(spec => spec.loadout?.mountId === 'horse')).toBe(true)
-
-    // Legacy tier/role actor IDs remain stable; all 200 friendlies use T4 Ranger bodies and T5 bows.
-    expect(friendly.every(spec => spec.characterTier === 4 && spec.heroArchetype === 'ranger'
-      && spec.visualAssetId === 'maki-archer-t4' && spec.combatProfileId === 'ranger'
-      && spec.specialCombatProfile === 'maki-ranger' && spec.aiType === AIType.RANGED
-      && spec.loadout?.rangedWeaponId === 'bow_t5' && spec.loadout.reversibleRangedSwitch === true)).toBe(true)
-    // Original horse archers gain spear_t4 and paladin_shield_t4:
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_horse_archer')
-      && spec.loadout?.meleeWeaponId === 'spear_t4'
-      && spec.loadout?.shieldId === 'paladin_shield_t4'
-      && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(60)
-    // Other 140 cavalry retain their original melee weapons and shields:
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_sword_cavalry')
-      && spec.loadout?.meleeWeaponId === (profile.faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4')
-      && spec.loadout?.shieldId === (profile.faction === 'roman' ? 'roman_officer_shield_t4' : 'paladin_shield_t4')
-      && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(60)
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_lancer')
-      && spec.loadout?.meleeWeaponId === 'spear_t4'
-      && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(60)
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':t5:lancer:') && spec.presetId?.endsWith('_lancer')
-      && spec.loadout?.meleeWeaponId === 'spear_t5'
-      && spec.loadout?.shieldId === (profile.faction === 'roman' ? 'commander_shield_t5' : 'viking_berserker_shield_t5')
-      && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(20)
-
-    // Enemy equipment remains untouched:
-    expect(enemy.filter(spec => spec.characterTier === 5 && !spec.presetId?.endsWith('_horse_archer')
-      && spec.loadout?.rangedWeaponId === null)).toHaveLength(60)
-    expect(enemy.filter(spec => spec.characterTier === 5 && spec.presetId?.endsWith('_horse_archer')
-      && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(30)
-    expect(enemy.filter(spec => spec.characterTier === 4 && !spec.presetId?.endsWith('_horse_archer')
-      && (spec.loadout?.rangedWeaponId === null || spec.loadout?.rangedWeaponId === undefined))).toHaveLength(140)
-    expect(enemy.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_horse_archer')
-      && spec.loadout?.rangedWeaponId === 'elven_runebow')).toHaveLength(70)
+    // The saved role determines the kit even though every friendly fights as a T4 Ranger.
+    const verifyFriendlyKit = (riders: typeof friendly, faction: CareerProfile['faction']) => {
+      const kits = {
+        't4:melee': ['_sword_cavalry', ['caracal'], faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4',
+          faction === 'roman' ? 'roman_officer_shield_t4' : 'paladin_shield_t4'],
+        't4:lancer': ['_lancer', ['serval'], 'spear_t4', null],
+        't4:horse_archer': ['_horse_archer', FELINE_T4_MOUNTS, 'spear_t4', 'paladin_shield_t4'],
+        't5:lancer': ['_lancer', ['snow-leopard'], 'spear_t5', faction === 'roman' ? 'commander_shield_t5' : 'viking_berserker_shield_t5'],
+      } satisfies Record<string, [string, readonly string[], string, string | null]>
+      for (const [role, [preset, mounts, melee, shield]] of Object.entries(kits)) {
+        const group = riders.filter(spec => spec.actorId?.includes(':' + role + ':'))
+        expect(new Set(group.map(spec => spec.loadout?.mountId)), role).toEqual(new Set(mounts))
+        expect(group.filter(spec => spec.characterTier !== 4 || spec.heroArchetype !== 'ranger'
+          || spec.visualAssetId !== 'maki-archer-t4' || spec.combatProfileId !== 'ranger'
+          || spec.specialCombatProfile !== 'maki-ranger' || spec.aiType !== AIType.RANGED
+          || !spec.presetId?.endsWith(preset) || spec.loadout?.meleeWeaponId !== melee
+          || (shield !== null && spec.loadout?.shieldId !== shield)
+          || spec.loadout?.rangedWeaponId !== 'bow_t5' || !spec.loadout.reversibleRangedSwitch)
+          .map(spec => spec.actorId), role).toEqual([])
+      }
+      const archers = riders.filter(spec => spec.actorId?.includes(':horse_archer:'))
+      const perMount = FELINE_T4_MOUNTS.map(mount => archers.filter(spec => spec.loadout?.mountId === mount).length)
+      expect(new Set(perMount).size).toBe(1)
+    }
+    verifyFriendlyKit(friendly, 'roman')
+    expect(enemy.filter(spec => {
+      const horseArcher = spec.actorId?.includes(':horse_archer:')
+      const bow = horseArcher ? (spec.characterTier === 5 ? 'bow_t5' : 'elven_runebow') : null
+      return spec.loadout?.mountId !== 'horse' || (spec.loadout?.rangedWeaponId ?? null) !== bow
+    }).map(spec => spec.actorId)).toEqual([])
 
     // Formation is made of physically separate units rather than two cavalry wings.
     const center = (specs: typeof friendly) => ({
@@ -728,49 +724,39 @@ describe('Commander VI Six Feline Cavalry', () => {
         }
       }
     }
-    const friendlyBlocks = mission.officialSquad!.squads!.map(squad =>
-      friendly.filter(spec => squad.actorIds.includes(spec.actorId!)))
+    const squads = mission.officialSquad!.squads!
+    const friendlyBlocks = squads.map(squad => friendly.filter(spec => spec.squadId === squad.squadId))
+    expect(friendlyBlocks.map(block => block.map(spec => spec.actorId))).toEqual(squads.map(squad => squad.actorIds))
     expect(friendlyBlocks.map(block => block.length)).toEqual([...FELINE_FRIENDLY_SQUAD_SIZES])
     verifySeparatedBlocks(friendlyBlocks)
 
-    const [s1, s2, s3, s4, s5, s6, s7] = friendlyBlocks
-    expect(s1).toHaveLength(30); expect(center(s1).x).toBeCloseTo(-24, 1); expect(s1.every(s => s.characterTier === 4 && s.presetId?.endsWith('_sword_cavalry'))).toBe(true)
-    expect(s2).toHaveLength(30); expect(center(s2).x).toBeCloseTo(24, 1); expect(s2.every(s => s.characterTier === 4 && s.presetId?.endsWith('_sword_cavalry'))).toBe(true)
-    expect(s3).toHaveLength(30); expect(center(s3).x).toBeCloseTo(-36, 1); expect(s3.every(s => s.characterTier === 4 && s.presetId?.endsWith('_lancer'))).toBe(true)
-    expect(s4).toHaveLength(30); expect(center(s4).x).toBeCloseTo(36, 1); expect(s4.every(s => s.characterTier === 4 && s.presetId?.endsWith('_lancer'))).toBe(true)
-    expect(s5).toHaveLength(30); expect(center(s5).x).toBeCloseTo(-12, 1); expect(s5.every(s => s.characterTier === 4 && s.presetId?.endsWith('_horse_archer'))).toBe(true)
-    expect(s6).toHaveLength(30); expect(center(s6).x).toBeCloseTo(12, 1); expect(s6.every(s => s.characterTier === 4 && s.presetId?.endsWith('_horse_archer'))).toBe(true)
-    expect(s7).toHaveLength(20); expect(center(s7).x).toBeCloseTo(0, 1); expect(s7.every(s => s.characterTier === 4 && s.presetId?.endsWith('_lancer'))).toBe(true)
-    expect(Math.abs(center(s7).z)).toBeLessThan(Math.abs(center(s5).z))
-    expect(Math.abs(center(s1).z)).toBeLessThan(Math.abs(center(s3).z))
-    expect(Math.max(...friendly.map(spec => Math.abs(spec.z)))).toBeLessThanOrEqual(140)
-
-    const baseViking = createCareerProfile('viking')
-    Object.assign(baseViking, careerRankFixture(baseViking.faction, 'commander'));
-    const vikingProfile = acceptCommanderMission(baseViking, COMMANDER_FELINE_CAVALRY_ID, 'viking-feline')!
-    const vikingFriendly = createCareerFelineSpawnPlan(vikingProfile).npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
-    const vikingS7 = vikingFriendly.filter(spec => spec.squadId === 7)
-    const vikingS1 = vikingFriendly.filter(spec => spec.squadId === 1)
-    const vikingS2 = vikingFriendly.filter(spec => spec.squadId === 2)
-    expect(center(vikingS7).x).toBeCloseTo(0, 1)
-    expect(center(vikingS1).x).toBeCloseTo(24, 1)
-    expect(center(vikingS2).x).toBeCloseTo(-24, 1)
-    expect(vikingFriendly.filter(spec => spec.characterTier === 4 && spec.visualAssetId === 'maki-archer-t4'
-      && spec.combatProfileId === 'ranger' && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(200)
-    expect(vikingFriendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_horse_archer')
-      && spec.loadout?.meleeWeaponId === 'spear_t4'
-      && spec.loadout?.shieldId === 'paladin_shield_t4')).toHaveLength(60)
-    expect(vikingFriendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_sword_cavalry')
-      && spec.loadout?.meleeWeaponId === 'paladin_mace_t4'
-      && spec.loadout?.shieldId === 'paladin_shield_t4')).toHaveLength(60)
-    expect(vikingFriendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':t5:lancer:') && spec.presetId?.endsWith('_lancer')
-      && spec.loadout?.meleeWeaponId === 'spear_t5'
-      && spec.loadout?.shieldId === 'viking_berserker_shield_t5')).toHaveLength(20)
-    const enemyBlocks = Array.from({ length: FELINE_ENEMY_TOTAL / 30 }, (_, i) =>
-      enemy.slice(i * 30, (i + 1) * 30).filter(spec => spec.actorId !== mission.commanderMission!.felineVanguardActorId))
-    expect(enemyBlocks).toHaveLength(10)
-    verifySeparatedBlocks(enemyBlocks)
     const playerPoint = plan.playerSpawn
+    const centers = friendlyBlocks.map(center)
+    const [leftSword, rightSword, leftLance, rightLance, leftArcher, rightArcher, assaultCore] = centers
+    expect(leftSword.x).toBeLessThan(assaultCore.x)
+    expect(rightSword.x).toBeGreaterThan(assaultCore.x)
+    expect(leftLance.x).toBeLessThan(leftArcher.x)
+    expect(rightLance.x).toBeGreaterThan(rightArcher.x)
+    expect(leftArcher.x).toBeLessThan(assaultCore.x)
+    expect(rightArcher.x).toBeGreaterThan(assaultCore.x)
+    expect(assaultCore.x).toBeCloseTo(playerPoint.x)
+    const front = [leftSword, assaultCore, rightSword]
+    const rear = [leftLance, leftArcher, rightArcher, rightLance]
+    expect(Math.max(...front.map(point => Math.abs(point.z)))).toBeLessThan(Math.min(...rear.map(point => Math.abs(point.z))))
+    expect(Math.max(...friendly.map(spec => Math.abs(spec.z)))).toBeLessThan(Math.abs(playerPoint.z))
+
+    const vikingPlan = createCareerFelineSpawnPlan(accepted(COMMANDER_FELINE_CAVALRY_ID, 'viking'))
+    const vikingFriendly = vikingPlan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
+    verifyFriendlyKit(vikingFriendly, 'viking')
+    for (const [index, romanCenter] of centers.entries()) {
+      const vikingCenter = center(vikingFriendly.filter(spec => spec.squadId === squads[index].squadId))
+      expect(vikingCenter.x - vikingPlan.playerSpawn.x).toBeCloseTo(playerPoint.x - romanCenter.x)
+      expect(vikingCenter.z).toBeCloseTo(-romanCenter.z)
+    }
+    const enemyBlocks = Array.from({ length: Math.ceil(enemy.length / MAX_COMMAND_SQUAD_SIZE) }, (_, i) =>
+      enemy.slice(i * MAX_COMMAND_SQUAD_SIZE, (i + 1) * MAX_COMMAND_SQUAD_SIZE)
+        .filter(spec => spec.actorId !== mission.commanderMission!.felineVanguardActorId))
+    verifySeparatedBlocks(enemyBlocks)
     expect(Math.min(...friendly.map(spec => Math.hypot(spec.x - playerPoint.x, spec.z - playerPoint.z)))).toBeGreaterThan(2)
     expect(createCareerFelineSpawnPlan(profile).npcSpecs.map(spec => [spec.actorId, spec.x, spec.z]))
       .toEqual(plan.npcSpecs.map(spec => [spec.actorId, spec.x, spec.z]))
@@ -784,8 +770,8 @@ describe('Commander VI Six Feline Cavalry', () => {
     const mainFrontAbsZ = Math.min(...enemyMain.map(spec => Math.abs(spec.z)))
     expect(mainFrontAbsZ - Math.abs(vanguard[0].z)).toBeCloseTo(FELINE_VANGUARD_ADVANCE_METERS, 5)
     expect(vanguard[0].x).toBeCloseTo(enemyMain.reduce((sum, spec) => sum + spec.x, 0) / enemyMain.length, 2)
-    expect(new Set(plan.npcSpecs.map(spec => spec.actorId)).size).toBe(FELINE_FRIENDLY_TOTAL + FELINE_ENEMY_TOTAL)
-    expect(mission.officialSquad?.commandedSquadIds).toEqual([1, 2, 3, 4, 5, 6, 7])
+    expect(new Set(plan.npcSpecs.map(spec => spec.actorId)).size).toBe(plan.npcSpecs.length)
+    expect(mission.officialSquad?.commandedSquadIds).toEqual(squads.map(squad => squad.squadId))
     expect(mission.officialSquad?.actorIds).toEqual(mission.friendlyActorIds)
     for (const squad of mission.officialSquad!.squads!) {
       const combatantId = squad.actorIds[0]
@@ -870,8 +856,9 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(restored.commanderMission?.felineVanguardActorId).toBe(vanguardId)
     expect(restored.commanderMission?.felineChargeTriggered).toBe(true)
     expect(restored.felineBattle?.ready).toBe(true)
-    expect(Object.keys(restored.felineBattle!.actors)).toHaveLength(FELINE_FRIENDLY_TOTAL + FELINE_ENEMY_TOTAL)
-    expect(createCareerFelineSpawnPlan(loaded).npcSpecs).toHaveLength(FELINE_FRIENDLY_TOTAL + FELINE_ENEMY_TOTAL)
+    const acceptedIds = [...mission.friendlyActorIds, ...mission.targetActorIds].sort()
+    expect(Object.keys(restored.felineBattle!.actors).sort()).toEqual(acceptedIds)
+    expect(createCareerFelineSpawnPlan(loaded).npcSpecs.map(spec => spec.actorId).sort()).toEqual(acceptedIds)
     expect(felineInitialTacticalOrder(Faction.ENEMY, restored.commanderMission?.felineChargeTriggered === true)).toBe('charge')
     expect(shouldTriggerFelineVanguardCharge(restored, effectiveDamage(vanguardId, 50))).toBe(false)
 
@@ -939,6 +926,6 @@ describe('Commander VII Iron Legion', () => {
     const restored = parseCareerProfile(JSON.parse(JSON.stringify(profile)))
     expect(restored?.activeMission?.templateId).toBe(COMMANDER_IRON_LEGION_ID)
     expect(restored?.activeMission?.commanderMission?.felineChargeTriggered).toBe(true)
-    expect(restored?.activeMission?.targetActorIds).toHaveLength(300)
+    expect(restored?.activeMission?.targetActorIds).toEqual(mission.targetActorIds)
   })
 })

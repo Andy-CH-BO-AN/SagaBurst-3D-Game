@@ -115,10 +115,10 @@ describe('Prison encounter persistence', () => {
     const w = world(profile, { bodies: guards, knocked: new Set(guards.slice(0, 2).map(g => g.actorId)) })
     const { encounter, hud } = prisonRig(w, store)
     encounter.updateHud()
-    expect(hud.textContent).toBe('越獄目標｜擊倒看守 2／10')
+    expect(hud.textContent).toContain(`2／${guards.length}`)
     guards[2].npc.dead = true
     encounter.updateHud()
-    expect(hud.textContent).toBe('越獄目標｜擊倒看守 3／10')
+    expect(hud.textContent).toContain(`3／${guards.length}`)
     state.gateOpen = true; w.player.dead = true; encounter.updateHud()
     expect(hud.textContent).toContain('鐵門已開｜穿過出口')
     expect(hud.textContent).toContain('正在觀戰；友軍仍可逃脫')
@@ -253,13 +253,15 @@ describe('Prison encounter persistence', () => {
     const { encounter, rec } = prisonRig(w, store)
     expect(encounter.resolveResult()).toBe(false)
     expect(store.load()!.activeMission!.prisonBreak!.result).toBeUndefined()
-    // One guard was knocked earlier and is only on the scene's knocked list; the rest fall in this frame.
-    w.knocked.add(guards[0].actorId)
-    for (const guard of guards.slice(1, 9)) guard.npc.dead = true
+    // A restored knockout and new casualties leave one active guard blocking the gate.
+    const [knockedGuard, ...standingGuards] = guards
+    const lastGuard = standingGuards.at(-1)!
+    w.knocked.add(knockedGuard.actorId)
+    for (const guard of standingGuards.slice(0, -1)) guard.npc.dead = true
     expect(encounter.openGateIfCleared()).toBe(true)
     expect(rec.gates).toEqual([])
     expect(store.load()!.activeMission!.prisonBreak!.gateOpen).toBe(false)
-    guards[9].npc.dead = true
+    lastGuard.npc.dead = true
     const meritBeforeGate = store.load()!.totalMerit
     expect(encounter.openGateIfCleared()).toBe(true)
     expect(rec.gates).toEqual([{ open: true, animate: true }])

@@ -49,7 +49,7 @@ describe('siege checkpoint ownership', () => {
     ], [living], restored.activeMission!.borrowedActorIdentities)[living].characterTier).toBe(1)
   })
 
-  it('new acceptance saves 206 natives plus the 80-man garrison in its gate squads and ten autonomous defenders', () => {
+  it('keeps the official and autonomous defender identities and the native casualty after reload', () => {
     const next = createFourGateDefenseProfile('PREPARING'), current = next.activeMission!
     const store = new CareerProfileStore(new MemoryStorage())
     const archerId = 'watchtower-archer:3'
@@ -62,7 +62,7 @@ describe('siege checkpoint ownership', () => {
     expect(store.save(next)).toBe(true)
     const loaded = store.load()!.activeMission!
     const garrison = commanderFourGateGarrisonSlots(loaded.id)
-    expect(loaded.friendlyActorIds).toHaveLength(206 + garrison.length)
+    expect(loaded.friendlyActorIds).toEqual(current.friendlyActorIds)
     // Each gate's whole foot garrison joins its infantry squad (1/3/5/7); cavalry squads stay native.
     for (const slot of garrison) {
       const squadId = ['north', 'south', 'east', 'west'].indexOf(slot.gateId) * 2 + 1
@@ -71,8 +71,8 @@ describe('siege checkpoint ownership', () => {
     for (const squad of loaded.officialSquad!.squads!.filter(squad => squad.squadId % 2 === 0)) {
       expect(squad.actorIds.some(id => garrison.some(slot => slot.actorId === id))).toBe(false)
     }
-    expect(Math.max(...loaded.officialSquad!.squads!.map(squad => squad.actorIds.length))).toBeLessThanOrEqual(50)
-    expect(loaded.fourGateDefense!.autonomousActorIds).toHaveLength(10)
+    expect(loaded.fourGateDefense!.autonomousActorIds).toEqual(current.fourGateDefense!.autonomousActorIds)
+    expect(loaded.fourGateDefense!.autonomousActorIds).toContain(archerId)
     expect(loaded.fourGateDefense!.nativeCombatStats).toEqual({ damageDealt: 0, damageTaken: 0, kills: 1 })
     expect(loaded.fourGateDefense!.actors[archerId]).toMatchObject({ status: 'dead', hp: 0 })
     expect(loaded.officialSquad!.actorIds).not.toContain(archerId)

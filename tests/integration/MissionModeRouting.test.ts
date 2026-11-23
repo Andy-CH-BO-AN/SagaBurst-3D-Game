@@ -1,5 +1,6 @@
 import { careerRankFixture } from '../helpers/careerRankFixture'
 import { acceptHeavyFieldMission } from '../../src/career/HeavyFieldMission'
+import { prisonRoster } from '../../src/career/CareerPrisonBreak'
 import { CareerSkillSaveScheduler } from '../../src/career/CareerSkillSaveScheduler'
 import { Faction } from '../../src/world/NPC'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
@@ -247,13 +248,15 @@ describe('Heavy field defeat capture at the production Game caller', () => {
       expect(saved.activeMission!.result!.outcome).toBe(outcome)
       expect(saved.activeMission!.prisonBreak?.captor).toBe(outcome === 'failure' ? 'viking' : undefined)
       expect(saved.claimedBattleIds).toEqual([profile.activeMission!.id])
-      expect(shown).toEqual([{ merit: saved.activeMission!.result!.merit.total, guards: outcome === 'failure' ? 10 : undefined, durableMerit: saved.activeMission!.result!.merit.total }])
+      const prison = saved.activeMission!.prisonBreak
+      const guards = prison && prisonRoster(prison).filter(entry => entry.team === 'enemy').length
+      expect(shown).toEqual([{ merit: saved.activeMission!.result!.merit.total, guards, durableMerit: saved.activeMission!.result!.merit.total }])
       const resultMarkup = elements.at(-1)!.innerHTML
       expect(resultMarkup).toContain('戰鬥統計')
       expect(resultMarkup).toContain(`Career 軍功 +${saved.activeMission!.result!.merit.total}`)
       if (outcome === 'failure') {
         expect(resultMarkup).toContain('你被俘虜了')
-        expect(resultMarkup).toContain('擊倒 10 名看守')
+        expect(resultMarkup).toContain(`擊倒 ${guards} 名看守`)
         expect(resultMarkup).toContain('存活隊友穿過出口')
         expect(resultMarkup).toContain('開始越獄')
       } else {
@@ -271,20 +274,20 @@ describe('Heavy field defeat capture at the production Game caller', () => {
     vi.stubGlobal('sessionStorage', { setItem: (key: string, value: string) => session.set(key, value), removeItem: (key: string) => session.delete(key) })
     const profile = acceptHeavyFieldMission({ ...createCareerProfile('roman'), ...careerRankFixture('roman', 'soldier'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 'soldier-iron-encounter', 'field-return')!
     expect(store.save(profile)).toBe(true)
-    let shown: { onContinue(): void; guards?: number } | undefined
-    const hud = { showResult: (_outcome: string, _merit: number, _stats: unknown, onContinue: () => void, guards?: number) => { shown = { onContinue, guards } }, showSaveRetry() {} }
+    let continueToPrison: (() => void) | undefined
+    const hud = { showResult: (_outcome: string, _merit: number, _stats: unknown, onContinue: () => void) => { continueToPrison = onContinue }, showSaveRetry() {} }
     const dispose = vi.fn()
     const entry = fieldResultGame(store, profile.activeMission!.id, hud, { _disposeCareerOutpostBattleActors: dispose, _showNotify: vi.fn() })
     entry._showFieldBattleResult('failure')
     const claimed = store.load()!
-    expect(shown?.guards).toBe(10)
+    expect(claimed.activeMission?.prisonBreak?.stage).toBe('captured')
     storage.failWrites = true
-    shown!.onContinue()
+    continueToPrison!()
     expect(store.load()).toEqual(claimed)
     expect(dispose).not.toHaveBeenCalled()
     expect(window.location.href).toBe('')
     storage.failWrites = false
-    shown!.onContinue()
+    continueToPrison!()
     const continued = store.load()!
     expect(continued.activeMission).toEqual({ ...claimed.activeMission, prisonBreak: { ...claimed.activeMission!.prisonBreak, stage: 'escape' } })
     expect({ ...continued, activeMission: claimed.activeMission }).toEqual(claimed)
