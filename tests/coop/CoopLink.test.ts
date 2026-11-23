@@ -41,3 +41,23 @@ describe('Co-op session handshake', () => {
     expect(sent).toEqual([])
   })
 })
+
+describe('Co-op session attempts', () => {
+  it('ignores the late result of a superseded join', async () => {
+    const state = (address: string): CoopLinkState => ({ role: 'guest', status: 'connected', address, port: DEFAULT_COOP_PORT, error: null })
+    const resolvers: Array<(s: CoopLinkState) => void> = []
+    const bridge: CoopBridge = {
+      status: async () => state('x'), host: async () => state('x'),
+      join: () => new Promise(resolve => { resolvers.push(resolve) }),
+      leave: async () => {}, send: () => {}, onMessage: () => () => {}, onState: () => () => {},
+    }
+    const session = new CoopSession(bridge)
+    const first = session.join('1.1.1.1'), second = session.join('2.2.2.2')
+    resolvers[1](state('2.2.2.2'))
+    await second
+    resolvers[0]({ ...state('1.1.1.1'), status: 'closed' })
+    await first
+    expect(session.state.address).toBe('2.2.2.2')
+    expect(session.connected).toBe(true)
+  })
+})

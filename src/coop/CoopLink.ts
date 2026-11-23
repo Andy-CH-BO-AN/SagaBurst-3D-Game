@@ -182,9 +182,17 @@ export class CoopSession {
   get isHost(): boolean { return this.role === 'host' }
   get isGuest(): boolean { return this.role === 'guest' }
 
-  async host(port?: number): Promise<CoopLinkState> { this.linkState = await this.bridge.host(port); this.changed(); return this.linkState }
-  async join(address: string, port?: number): Promise<CoopLinkState> { this.linkState = await this.bridge.join(address, port); this.changed(); return this.linkState }
-  async leave(): Promise<void> { await this.bridge.leave(); this.peer = false; this.changed() }
+  /** Counts host/join/leave calls: a superseded attempt's late result never overwrites a newer one. */
+  private attempt = 0
+
+  async host(port?: number): Promise<CoopLinkState> { const n = ++this.attempt; return this.settle(n, await this.bridge.host(port)) }
+  async join(address: string, port?: number): Promise<CoopLinkState> { const n = ++this.attempt; return this.settle(n, await this.bridge.join(address, port)) }
+  async leave(): Promise<void> { this.attempt++; await this.bridge.leave(); this.peer = false; this.changed() }
+
+  private settle(attempt: number, state: CoopLinkState): CoopLinkState {
+    if (attempt === this.attempt) { this.linkState = state; this.changed() }
+    return this.linkState
+  }
 
   send(message: CoopMessage): void { if (this.connected) this.bridge.send(JSON.stringify(message)) }
   sendBinary(data: Uint8Array): void { if (this.connected) this.bridge.send(data) }
