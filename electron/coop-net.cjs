@@ -21,18 +21,40 @@ function installCoopNet(getWindow) {
     socket = null
     if (old) { old.removeAllListeners(); old.on('error', () => {}); old.terminate() }
   }
-  const leave = async () => {
+  // The attempt (host/join/leave) that owns the link; an older attempt that wakes up later must stop.
+  let epoch = 0
+  // Settles a connect() whose socket was replaced or closed, so its IPC handler never hangs.
+  let settleConnect = null
+  const settlePending = () => { const settle = settleConnect; settleConnect = null; settle?.() }
+  const teardown = async () => {
     closeSocket()
     const oldHub = hub
     hub = null
     if (oldHub) await oldHub.close()
     setState({ role: null, status: 'idle', address: null, error: null })
+    settlePending()
   }
+  // The newest in-flight hub start; a superseded owner closes its hub before it settles, so the next host can reuse the port.
+  let hubStarting = null
+  const startOwnedHub = (mine, hubPort) => {
+    const run = (async () => {
+      let started
+      try { started = await startHub(hubPort) }
+      catch (error) { if (mine !== epoch) return null; throw error }
+      if (mine !== epoch) { await started.close(); return null }
+      return started
+    })()
+    hubStarting = run.catch(() => null)
+    return run
+  }
+  const leave = () => { epoch++; return teardown() }
   const connect = (url, role, address, port) => new Promise(resolve => {
     closeSocket()
     const next = new WebSocket(`${url}/?role=${role}`)
     socket = next
     setState({ role, status: 'connecting', address, port, error: null })
+    settlePending()
+    settleConnect = () => resolve(snapshot())
     next.on('open', () => { if (socket === next) { setState({ status: 'connected' }); resolve(snapshot()) } })
     next.on('message', (data, isBinary) => {
       if (socket !== next) return
@@ -50,14 +72,22 @@ function installCoopNet(getWindow) {
 
   ipcMain.handle('coop:status', () => snapshot())
   ipcMain.handle('coop:host', async (_event, port) => {
-    await leave()
+    const mine = ++epoch
+    if (hubStarting) await hubStarting
+    await teardown()
+    if (mine !== epoch) return snapshot()
     const hubPort = Number.isInteger(port) && port > 1024 && port < 65536 ? port : DEFAULT_COOP_PORT
-    try { hub = await startHub(hubPort) }
+    let started
+    try { started = await startOwnedHub(mine, hubPort) }
     catch (error) { setState({ status: 'closed', error: `無法開啟連接埠 ${hubPort}：${error?.message ?? error}` }); return snapshot() }
+    if (!started || mine !== epoch) { if (started) await started.close(); return snapshot() }
+    hub = started
     return connect(`ws://127.0.0.1:${hubPort}`, 'host', '127.0.0.1', hubPort)
   })
   ipcMain.handle('coop:join', async (_event, address, port) => {
-    await leave()
+    const mine = ++epoch
+    await teardown()
+    if (mine !== epoch) return snapshot()
     const host = String(address ?? '').trim()
     if (!/^[A-Za-z0-9.:-]+$/.test(host)) { setState({ status: 'closed', error: '主機位址格式不正確' }); return snapshot() }
     const hubPort = Number.isInteger(port) && port > 0 && port < 65536 ? port : DEFAULT_COOP_PORT

@@ -21,10 +21,9 @@ import { emptyPersonalContribution } from '../combat/CommandMerit'
 import type { Player } from '../player/Player'
 import { standingPlayerY } from '../player/PlayerFootBody'
 import type { SkillManager } from '../rpg/SkillManager'
-import { getTerrainHeight } from '../world/Terrain'
 import type { CivilianCommandSquadController } from './CivilianCommandSquadController'
 import type { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
-import { sergeantReturnFromResidents, type SergeantReturnPoint } from './SergeantReturn'
+import { applyReturnLanding, sergeantReturnFromResidents, type SergeantReturnPoint } from './SergeantReturn'
 
 import type { TownCavalryPatrolController } from './TownCavalryPatrolController'
 import type { TownCommandSquadController } from './TownCommandSquadController'
@@ -307,11 +306,8 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
       const resolver = runtime.resolveSergeantReturnPoint
       const entry = resolver ? resolver.call(runtime) : sergeantReturnFromResidents(runtime.residents) ?? townPlayerEntryPoint()
       if (entry) {
-        const ground = 'y' in entry && typeof entry.y === 'number' ? entry.y : getTerrainHeight(entry.x, entry.z)
-        runtime.player.resetForScene(entry.x, standingPlayerY(ground), entry.z)
-        runtime.player.group.rotation.y = entry.yaw
-        runtime.player.faceDirection?.(Math.sin(entry.yaw), Math.cos(entry.yaw))
-        runtime.orbit?.setYaw(entry.yaw + Math.PI)
+        const player = runtime.player
+        applyReturnLanding(entry, player, runtime.orbit, (x, ground, z) => player.resetForScene(x, standingPlayerY(ground), z))
       } else {
         const here = runtime.player.group.position
         runtime.player.resetForScene(here.x, here.y, here.z)

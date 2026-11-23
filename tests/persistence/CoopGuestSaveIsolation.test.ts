@@ -55,6 +55,23 @@ describe('Co-op guest save isolation', () => {
     expect(session.getItem('sagaburst_coop_session_backup')).toBeNull()
   })
 
+  it('drops a staged host mission without installing host saves when the page is no longer a guest', () => {
+    const own = JSON.stringify(createCareerProfile('roman'))
+    const local = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, own]] })
+    const session = new MemoryStorage({ initialValues: [['sagaburst_coop_session_backup', JSON.stringify({ sagaburst_career_town: '1' })]] })
+    globals.localStorage = local; globals.sessionStorage = session
+    session.setItem('sagaburst_coop_guest_launch', JSON.stringify({
+      id: 'm3', version: COOP_PROTOCOL_VERSION, scene: 'town', local: { [CAREER_STORAGE_KEY]: JSON.stringify(createCareerProfile('viking')) },
+      session: { sagaburst_campaign_config_v2: 'host' } }))
+
+    expect(consumeCoopGuestLaunch(false)).toBeNull()
+    expect(new CareerProfileStore().load()?.faction).toBe('roman')
+    expect(session.getItem('sagaburst_career_town')).toBe('1')
+    expect(session.getItem('sagaburst_campaign_config_v2')).toBeNull()
+    expect(session.getItem('sagaburst_coop_guest_launch')).toBeNull()
+    expect(session.getItem('sagaburst_coop_session_backup')).toBeNull()
+  })
+
   it('accepts only the known host scenes, with a launch config for battlefields alone', () => {
     const base = { id: 'x', version: COOP_PROTOCOL_VERSION, local: {}, session: {} }
     expect(parseCoopLaunchPayload({ ...base, scene: 'trial' })?.scene).toBe('trial')

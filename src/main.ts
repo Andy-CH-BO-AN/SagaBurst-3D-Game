@@ -22,10 +22,10 @@ import { createCareerOutpostLaunch } from './career/CareerOutpostLaunch'
 import { CAREER_OUTPOST_SESSION_KEY,clearCareerOutpost } from './career/CareerOutpostMission'
 import { clearCareerMission } from './career/CareerProfile'
 import { CareerProfileStore } from './career/CareerProfileStore'
-import { shouldResumeCareerTown } from './career/CareerResumeRouting'
+import { careerVeteranOutpostResumeAction,shouldResumeCareerTown } from './career/CareerResumeRouting'
 import { commitCareerTutorial,deferCareerTutorial } from './career/CareerTutorial'
 import { createCareerCaptainTutorialConfig,type CareerTutorialLaunch } from './career/CareerTutorialLaunch'
-import { createCareerVeteranOutpostLaunch,isCareerVeteranOutpostMission,shouldResumeCareerVeteranOutpost } from './career/CareerVeteranOutpost'
+import { createCareerVeteranOutpostLaunch } from './career/CareerVeteranOutpost'
 import { createCareerCommanderOutpostLaunch,isCareerCommanderOutpostMission } from './career/CommanderOutpost'
 import { Game } from './Game'
 import { coopSession } from './coop/CoopLink'
@@ -221,8 +221,8 @@ async function bootstrap(): Promise<void> {
   await coop.init()
   mountCoopBadge()
   listenForCoopLaunch()
-  const coopLaunch = consumeCoopGuestLaunch()
-  if (coopLaunch && coop.isGuest) {
+  const coopLaunch = consumeCoopGuestLaunch(coop.isGuest)
+  if (coopLaunch) {
     if (coopLaunch.scene === 'game' && coopLaunch.config) await launchCareerCombat(coopLaunch.config)
     else if (coopLaunch.scene === 'town') await (await import('./coop/CoopGuestScenes')).launchCoopGuestTown(container!)
     else if (coopLaunch.scene === 'trial') await (await import('./coop/CoopGuestScenes')).launchCoopGuestTrial(container!)
@@ -350,15 +350,12 @@ async function bootstrap(): Promise<void> {
       return
     }
   }
-  if (outpostProfile && isCareerVeteranOutpostMission(activeCareerMission)) {
-    if (shouldResumeCareerVeteranOutpost(activeCareerMission)) {
-      await resumeStoredCareerMission(activeCareerMission.id, () => createCareerVeteranOutpostLaunch(outpostProfile))
-      return
-    }
-    if (outpostProfile.claimedBattleIds.includes(activeCareerMission.id)) {
+  const veteranAction = outpostProfile ? careerVeteranOutpostResumeAction(activeCareerMission, outpostProfile.claimedBattleIds) : null
+  if (outpostProfile && activeCareerMission && veteranAction) {
+    if (veteranAction === 'settle') {
       if (!settleClaimedOnStartup(clearCareerMission(outpostProfile, activeCareerMission.id), activeCareerMission.personalSquad, '無法保存 Veteran Outpost 返回狀態，已領獎紀錄與軍功均已保留。')) return
     } else {
-      // A terminal battle whose claim could not be saved must return to its result screen for retry.
+      // A defeat lock or a terminal battle whose claim could not be saved must return to its battle for spectating or retry.
       await resumeStoredCareerMission(activeCareerMission.id, () => createCareerVeteranOutpostLaunch(outpostProfile))
       return
     }

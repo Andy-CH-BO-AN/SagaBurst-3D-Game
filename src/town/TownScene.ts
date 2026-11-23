@@ -192,7 +192,7 @@ import { installTownStyles } from './TownUI'
 import { townWartimeHostile } from './TownWartime'
 import { TownWorld } from './TownWorld'
 import { coopSession } from '../coop/CoopLink'
-import { announceCoopScene, coopGuestCharacterAssets, coopGuestPlayerSource, isCoopGuestLaunch, showCoopGuestEnd, type CoopPlayerSource } from '../coop/CoopLaunch'
+import { announceCoopScene, coopGuestCharacterAssets, coopGuestPlayerSource, isCoopGuestLaunch, leaveCoopGuestRoom, showCoopGuestEnd, type CoopPlayerSource } from '../coop/CoopLaunch'
 import { commitCoopRaceAward, parseCoopRaceAward } from '../coop/CoopRaceAward'
 import { commitCoopTownResult, parseCoopTownResult } from '../coop/CoopTownResult'
 import type { CombatDamageContext } from '../combat/CombatAttribution'
@@ -1300,7 +1300,7 @@ export class TownScene {
     const panel = this.openPanel('合作模式', '你正在主機的城鎮裡。城鎮服務、指揮與任務都由主機操作。')
     const resume = panel.querySelector('button')
     if (resume) resume.textContent = '繼續'
-    this.button(panel, '離開房間', () => { void coopSession().leave().then(() => window.location.assign(window.location.pathname)) })
+    this.button(panel, '離開房間', () => { void leaveCoopGuestRoom() })
   }
 
   private siegeOpeningPending = false
@@ -3746,11 +3746,11 @@ export class TownScene {
     for (const s of this.shots) {
       if (!s.arrow.isAlive) continue
       if (!s.training && this.fourGateCombatHeld) { s.arrow.destroy(); continue }
-      const from = s.arrow.mesh.position.clone(); s.age += dt
+      s.age += dt
       if (!s.training && s.age > (s.maxLifetimeSeconds ?? 5)) { s.arrow.destroy(); continue }
-      s.arrow.update(dt, this.player, [], [], () => {}, damage => damagePlayer(this.player, damage, this.hp, null), undefined, true)
-      if (!s.arrow.isAlive) continue
-      const to = s.arrow.mesh.position
+      const step = s.arrow.stepFlight(dt)
+      if (!step) continue
+      const { from, to } = step
       if (s.training) { if (s.age > .3) s.arrow.destroy(); continue }
       const hit = this.shotContacts.find(from, to, {
         world: { kind: 'town', practiceTargets: this.world.targets,

@@ -222,13 +222,15 @@ export function listenForCoopLaunch(): () => void {
  * (after the old page's pagehide writes) or returns the staged mission and
  * switches this page to the host's saves.
  */
-export function consumeCoopGuestLaunch(): { scene: CoopSceneKind; config?: CareerCombatLaunch } | null {
-  if (sessionStorage.getItem(GUEST_RESTORE_KEY) !== null) {
+export function consumeCoopGuestLaunch(asGuest = true): { scene: CoopSceneKind; config?: CareerCombatLaunch } | null {
+  // A staged mission on a page that is no longer a guest (left the room, link lost) is dropped like a finished exit.
+  if (sessionStorage.getItem(GUEST_RESTORE_KEY) !== null || !asGuest && sessionStorage.getItem(GUEST_LAUNCH_KEY) !== null) {
     let backup: Record<string, string> = {}
     try {
       const parsed = JSON.parse(sessionStorage.getItem(GUEST_SESSION_BACKUP_KEY) ?? '{}') as unknown
       if (parsed && typeof parsed === 'object') backup = parsed as Record<string, string>
     } catch { backup = {} }
+    // A missing or corrupt backup still clears the host's session entries.
     replaceSessionEntries(sessionStorage, backup)
     for (const key of [GUEST_LAUNCH_KEY, GUEST_SESSION_BACKUP_KEY, GUEST_RESTORE_KEY]) sessionStorage.removeItem(key)
     return null
@@ -252,6 +254,12 @@ export function exitCoopGuestMission(): void {
   sessionStorage.removeItem(GUEST_LAUNCH_KEY)
   sessionStorage.setItem(GUEST_RESTORE_KEY, '1')
   window.location.assign(window.location.pathname)
+}
+
+/** Guest: leave the room itself (the link closes first), then restore this page's own session like any other exit. */
+export async function leaveCoopGuestRoom(): Promise<void> {
+  try { await coopSession().leave() } catch (error) { console.warn('[coop] leave failed', error) }
+  exitCoopGuestMission()
 }
 
 export function showCoopGuestEnd(reason: string): void {

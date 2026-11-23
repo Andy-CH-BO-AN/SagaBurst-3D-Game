@@ -98,4 +98,10 @@ describe('NPC 裝備採用與需求生命週期', () => {
     second.dispose()
     expect(isEquipmentDemanded(SHIELD)).toBe(false)
   })
+  it('已離場的 NPC 再換盾不會重新登記需求', () => {
+    const actor = actorHolding(null)
+    actor.dispose()
+    actor.shieldId = SHIELD
+    expect(isEquipmentDemanded(SHIELD)).toBe(false)
+  })
 })

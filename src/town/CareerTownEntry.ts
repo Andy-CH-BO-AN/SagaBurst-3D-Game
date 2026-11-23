@@ -6,6 +6,8 @@ import { DUEL_ARENA_RETURN_KEY } from '../arena/DuelArenaReturn'
 import { createCaptainEagleLaunch,createCaptainFrontlineLaunch,type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
 import { CAPTAIN_EAGLE_BATTLE_ID,CAPTAIN_FRONTLINE_COMMAND_ID } from '../career/CaptainMissionCatalog'
 import { careerArenaTrial } from '../career/CareerArenaTrials'
+import { careerVeteranOutpostResumeAction } from '../career/CareerResumeRouting'
+import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
 import { createCareerBridgeBattleLaunch,createCareerFelineBattleLaunch,isCareerBridgeBattle,isCareerFelineBattle } from '../career/CareerBridgeBattle'
 import { createAndSaveCareer } from '../career/CareerCreation'
 import { careerDuelArena } from '../career/CareerDuelState'
@@ -160,6 +162,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       }
     }
     // An Arena Squad Trial is its own scene too: accepted, mid-fight and settled saves all load the arena.
+    const failedMissionId = profile.activeMission?.id
     const trial = careerArenaTrial(profile.activeMission)
     if (trial) {
       form.remove()
@@ -192,6 +195,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
         const cancel = document.createElement('button'); cancel.className = 'town-button'; cancel.textContent = '取消本次試煉（不計勝負）'
         cancel.onclick = () => {
           const latest = store.loadChecked().profile ?? profile
+          if (latest.activeMission?.id !== failedMissionId) { text.textContent = '任務存檔已更新，請重新載入。'; return }
           const mission = latest.activeMission
           const next = mission ? clearCareerMission(latest, mission.id) : latest
           if (mission && !store.save(next)) { text.textContent = '取消尚未保存，請重試。'; return }
@@ -234,6 +238,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
         const cancel = document.createElement('button'); cancel.className = 'town-button'; cancel.textContent = '取消本次單挑（不計勝負）'
         cancel.onclick = () => {
           const latest = store.loadChecked().profile ?? profile
+          if (latest.activeMission?.id !== failedMissionId) { text.textContent = '任務存檔已更新，請重新載入。'; return }
           const mission = latest.activeMission
           const next = mission ? clearCareerMission(latest, mission.id) : latest
           if (mission && !store.save(next)) { text.textContent = '取消尚未保存，請重試。'; return }
@@ -244,14 +249,17 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       }
     }
     const active = profile.activeMission
-    const captainLaunch = active?.templateId === CAPTAIN_FRONTLINE_COMMAND_ID && active.kind === 'captain-outpost-defense'
+    const veteranAction = careerVeteranOutpostResumeAction(active, profile.claimedBattleIds)
+    const missionLaunch = active?.templateId === CAPTAIN_FRONTLINE_COMMAND_ID && active.kind === 'captain-outpost-defense'
       ? () => createCaptainFrontlineLaunch(profile)
       : active?.templateId === CAPTAIN_EAGLE_BATTLE_ID && active.kind === 'captain-eagle-battle' ? () => createCaptainEagleLaunch(profile)
+      : veteranAction ? () => createCareerVeteranOutpostLaunch(profile)
       : isCareerBridgeBattle(active) ? () => createCareerBridgeBattleLaunch(profile)
       : isCareerFelineBattle(active) ? () => createCareerFelineBattleLaunch(profile)
       : active?.templateId === COMMANDER_LAST_STAND_ID && active.kind === 'commander-outpost-last-stand' ? () => createCareerCommanderOutpostLaunch(profile) : null
-    if (active && captainLaunch) {
-      if (profile.claimedBattleIds.includes(active.id)) {
+    // The main-menu entry must resume exactly what a page reload resumes, or the saved mission stays active behind Town.
+    if (active && missionLaunch) {
+      if (veteranAction ? veteranAction === 'settle' : profile.claimedBattleIds.includes(active.id)) {
         const recovered = recoverSettledStartupMissionReturn(
           clearCareerMission(profile, active.id),
           store,
@@ -269,7 +277,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
         form.remove()
         sessionStorage.setItem(CAREER_OUTPOST_SESSION_KEY, active.id)
         sessionStorage.removeItem(TOWN_ENTRY_KEY)
-        try { await launchCampaign(captainLaunch()); return current() }
+        try { await launchCampaign(missionLaunch()); return current() }
         catch (error) {
           if (!current()) return false
           if (onMissionLaunchError) onMissionLaunchError(active.id, error)

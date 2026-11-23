@@ -728,11 +728,11 @@ export class CareerDuelArenaScene {
     const opponent = this.coopGuest ? this.coopGuest.targets.find(npc => !npc.dead) ?? null : this.duel.opponent
     for (const shot of this.shots) {
       if (!shot.arrow.isAlive) continue
-      const from = shot.arrow.mesh.position.clone()
       shot.age += dt
-      shot.arrow.update(dt, this.player, [], [], () => {}, amount => damagePlayer(this.player, amount, this.hp, null), undefined, true)
-      if (!shot.arrow.isAlive) continue
-      const to = shot.arrow.mesh.position
+      const step = shot.arrow.stepFlight(dt)
+      if (!step) continue
+      const { from } = step
+      const to = step.to
       const targets: (Player | NPC | Mount)[] = shot.player
         ? [...(opponent ? [opponent] : []), ...(opponent?.mount ? [opponent.mount] : [])]
         : [this.player, ...(this.player.currentMount ? [this.player.currentMount] : []), ...(this.coopPartner ? [this.coopPartner] : [])]
