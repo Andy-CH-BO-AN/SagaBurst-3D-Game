@@ -1,5 +1,5 @@
 import { Vector3, type Object3D } from 'three'
-import { DamageableObstacle } from '../../src/world/DamageableObstacle'
+import { DAMAGEABLE_OBSTACLE_HP, DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { getTerrainHeight, type EntityCollisionBody, type ObstacleData } from '../../src/world/Terrain'
 import { MobileSiegeRampCarrier, type SiegeRampCrewActor } from '../../src/campaign/MobileSiegeRampCarrier'
 import type { MobileSiegeRampState } from '../../src/campaign/MobileSiegeRampController'
@@ -73,7 +73,7 @@ export function createSiegeCarrier<Id extends MobileSiegeRampId>(options: SiegeC
   const states: MobileSiegeRampState[] = []
   const render = { syncs: 0, hides: 0 }
   const root = { visible: true, parent: null, removals: 0, removeFromParent() { this.removals++ } }
-  const damageable = new DamageableObstacle({ kind: 'siege_ramp', maxHp: 520, root: root as unknown as Object3D })
+  const damageable = new DamageableObstacle({ kind: 'siege_ramp', maxHp: DAMAGEABLE_OBSTACLE_HP.siege_ramp, root: root as unknown as Object3D })
   const shared = [...(options.neighbors ?? [])]
   const carrier = new MobileSiegeRampCarrier<Id, CrewDouble>(options.assignment, options.placement, shared,
     { syncGeometry() { render.syncs++ }, hide() { render.hides++ } },

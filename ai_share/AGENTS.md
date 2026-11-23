@@ -23,6 +23,9 @@
 - 正式人物與坐騎以 local `+Z` 為前方；heading 用 `atan2(dx, dz)`。匯出軸向錯誤應修資產，不加個別 runtime 翻轉補丁。
 - 保留現役裝備、坐騎與 Actor ID 及所有權契約；存檔只支援現行 schema，不讀取、轉換、補發或覆寫歷史格式，格式不相容時以穩定 key／版本隔離；共享資產的 geometry/material/texture 不可當作實例專屬資源銷毀。
 - 一次性截圖、探針、量測 JSON 及驗收腳本放在 ignored `output/`。可重建工具、持續維護的測試與必要授權／來源證據才進版控；不強制加入被忽略的診斷產物。
+- 凡涉及 `[0] 平民 / 商人` 的歸屬、避難或狀態恢復，一律使用 `TownRules.isCivilian(role)`（涵蓋 `'civilian'` 與 `'merchant'`），避免只比對 `role === 'civilian'` 而遺漏武器商人。
+- 修改正式任務的開局滿狀態／隔離契約時，須同步檢查 `TownScene` 載入順序中的所有城鎮層級 `restore()`（`townCommand`、`civilianCommand`、`eagleGarrison`、`restoreTownCasualties`），避免先前城鎮的死亡或站位在任務控制器接手前被寫回。
+- 在不升級存檔版本／key 的前提下增減 `ActiveMissionParser` 的名單檢核（如 `civilianActorIds`）時，必須明確評估對現行進行中存檔的影響，並以 `parseCareerProfile` 測試覆蓋（相容舊名單或明確升級版本隔離）。
 
 ## 任務相關流程
 

@@ -24,14 +24,17 @@ export class TownGateBreachPolicy {
       : { gateId: gate.id, gateState: 'closed', dockedRampIds: [], wallEventHandled: false, cavalryEventHandled: false,
         releasedWallActorIds: [], releasedCavalryActorIds: [] })
   }
+  releaseWall(gateId: TownGateId): void {
+    const state = this.gates.get(gateId)!
+    if (state.wallEventHandled) return
+    state.wallEventHandled = true
+    state.releasedWallActorIds = [...this.dispatch({ gateId, kind: 'wall' })]
+  }
   ramp(gateId: TownGateId, side: -1 | 1, docked: boolean): void {
     const state = this.gates.get(gateId)!, id = townSiegeRampId(gateId, side)
     state.dockedRampIds = state.dockedRampIds.filter(rampId => rampId !== id)
     if (docked) state.dockedRampIds.push(id)
-    if (docked && !state.wallEventHandled) {
-      state.wallEventHandled = true
-      state.releasedWallActorIds = [...this.dispatch({ gateId, kind: 'wall' })]
-    }
+    if (docked) this.releaseWall(gateId)
   }
   gate(gateId: TownGateId, value: CampaignGateState): void {
     const state = this.gates.get(gateId)!

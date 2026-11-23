@@ -94,7 +94,7 @@ export class ActorDouble {
     this.squadId = options.squadId
     this.group = transform(options.x, options.y, options.z)
   }
-  readonly faction: Faction
+  faction: Faction
   readonly aiType: AIType
   readonly townCategory?: 'civilian'
   get dead(): boolean { return this.hp <= 0 }
@@ -115,6 +115,7 @@ export class ActorDouble {
   mountVehicle(mount: MountDouble): void { if (!mount.dead) this.mount = mount }
   dismountFromMount(): void { if (this.mount) this.group.position.copy(this.mount.group.position); this.mount = null }
   setCommandSquad(squadId: NPC['squadId']): void { this.squadId = squadId }
+  setCommandAllegiance(faction: Faction): void { this.faction = faction }
   bindCombatEventSink(sink: CombatEventSink): () => void { this.eventSink = sink; return () => { this.eventSink = undefined } }
   activateTownRampartGarrison(order: 'defend' | 'attack' = 'defend', mounted = false): void {
     if (this.isMounted && !mounted) return

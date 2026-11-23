@@ -16,7 +16,7 @@ export function buildCommanderAuthorityForMission(profile: Pick<CareerProfile, '
   if (mission.kind === 'commander-four-gate-defense') {
     if (!residentSpecs) return undefined
     squads = commanderGateDefenseSquads(residentSpecs, mission.friendlyActorIds,
-      new Set(mission.deadFriendlyActorIds))
+      new Set(mission.deadFriendlyActorIds), mission.id)
   } else if (mission.kind === 'cavalry-sweep') {
     squads = commandSquadsFromSlots(mission.friendlyActorIds, createSweepRoster(profile.faction))
   } else {

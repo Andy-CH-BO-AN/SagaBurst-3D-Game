@@ -9,7 +9,7 @@ import { TOWN_GATES, type TownGateId } from '../../src/town/TownLayout'
 import type { TownRampartLayout } from '../../src/town/TownRamparts'
 import type { CampaignGateState } from '../../src/campaign/CampaignGate'
 import type { ObstacleData, WalkRampSurface } from '../../src/world/Terrain'
-import type { DamageableObstacle } from '../../src/world/DamageableObstacle'
+import { DAMAGEABLE_OBSTACLE_HP, type DamageableObstacle } from '../../src/world/DamageableObstacle'
 import type { NPC } from '../../src/world/NPC'
 import { TownFourGateSiege } from '../../src/career/TownFourGateSiege'
 import { createTownSiegeCrewSlots } from '../../src/career/TownFourGateSiegePolicy'
@@ -79,7 +79,7 @@ export class SiegeRampDouble {
   readonly controller: MobileSiegeRampController<TownSiegeRampId>
   readonly obstacles: ObstacleData[] = []
   readonly crew = new Map<string, NPC>()
-  readonly damageable = { destroyed: false, currentHp: 520 }
+  readonly damageable = { destroyed: false, currentHp: DAMAGEABLE_OBSTACLE_HP.siege_ramp }
   disposed = false
   constructor(readonly assignment: TownSiegeRampAssignment, readonly placement: TownSiegeRampPlacement, changed: Changed,
     private readonly onUpdate: (ramp: SiegeRampDouble) => void = () => {}) {

@@ -34,10 +34,16 @@ export class SiegeConvoy<Id extends MobileSiegeRampId> {
     }
     if (bypass) {
       const r = bypass.ramp, dx = r.placement.dirX ?? 0, dz = r.placement.dirZ
-      const forward = Math.abs(lateral(r) - bypass.lateral) > .8 ? along(r, r.position.x, r.position.z) : 6
+      const currentAlong = along(r, r.position.x, r.position.z)
+      const currentLateral = lateral(r)
+      const noseHalfWidth = r.surface.halfWidth + (npc.isMounted ? 1.5 : 1)
+      const inFrontPocket = currentAlong >= -.25 && Math.abs(currentLateral) < noseHalfWidth
+      const targetLateral = inFrontPocket ? currentLateral : bypass.lateral
+      const forward = inFrontPocket ? frontClearance + .5
+        : Math.abs(currentLateral - bypass.lateral) > .8 ? currentAlong : 6
       npc.siegeBypassTarget ??= new THREE.Vector3()
-      npc.siegeBypassTarget.set(r.position.x + dz * bypass.lateral + dx * forward, p.y,
-        r.position.z - dx * bypass.lateral + dz * forward)
+      npc.siegeBypassTarget.set(r.position.x + dz * targetLateral + dx * forward, p.y,
+        r.position.z - dx * targetLateral + dz * forward)
     }
   }
   release(npc: NPC): void { if (this.bypassing.delete(npc)) npc.siegeBypassTarget = null }

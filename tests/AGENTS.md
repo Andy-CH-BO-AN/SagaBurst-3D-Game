@@ -86,13 +86,13 @@
 - `npm run lint:test` 範圍與 runner 收檔一致（Vitest `.test`／`.spec` 與遞迴發現的 Node `.test.cjs`），CI 在 logic gate 的 `npm ci` 後執行。
 - **Error（阻擋）**：Vitest focused／disabled／重複標題／條件式註冊、Unit Test 重型 3D constructor、Node `test`／`describe` 的 `.only`／`.skip`／`.todo` 與停用 options。
 - **Warning（不阻擋）**：body 超過 120 行、`expect-expect`、真實 timer wait、`any`、`@ts-ignore`，以及三種壞測試的可辨識樣式 `no-constant-literal-assert`、`no-prototype-harness`、`no-production-source-read`。`no-prototype-harness` 既有用法由 `eslint.config.mjs` 的 `PROTOTYPE_HARNESS_BASELINE` 逐檔 ratchet，只減不增。
-- **Cross-owner Warning**：同一 leaf 直接呼叫 `eslint.config.mjs` 列出的不同 owner 入口時提示 reviewer 確認是否為同一正式路徑；不自動判定放錯檔、不要求拆 case。
+- **Cross-owner Warning**（`warn-cross-owner-test-calls`）：同一 leaf 直接呼叫 `eslint.config.mjs` 列出的不同 owner 入口組合時提示 reviewer 確認是否為同一正式路徑；type-only／未呼叫 import、同 Owner 多入口、hooks 與 helper／callback 不觸發，每 leaf 最多一個。不自動判定放錯檔、不要求拆 case。
 - 不為消除 Warning 刪重要 assertions 或大改既有案例。Owner 歸屬、failure mode 是否重複、caller 覆蓋與 regression 有效性仍由人工 review 判斷。
 
 ## CI 與誠實驗證
 
 - 所有 PR 與 push 執行 **Full Test CI**，全部 logic cases 在單一 `logic / gate` job 執行恰好一次並驗證完整性；Desktop jobs 不重跑。Runner 實際 collection 為數量依據，報告缺失、過期、collection error 或空 suite 都不通過；超過 100ms 的 case 輸出檔案、名稱、耗時並失敗，不吞 runner 退出碼。workflow 細節見 `.github/workflows/ci.yml`。
-- 開發中可跑受影響 suite（`rtk npm test -- <path>` 或 `-t`），視需要跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build`；**不要求本地全量或重跑三次**。
+- 開發中以指定檔案／目錄跑受影響 suite（`npx vitest run <files...>`）；**不可用 `vitest -t`**，被跳過的案例會使 `BudgetReporter` 失敗。本地量測 100ms 預算時單獨執行 vitest，不與 eslint／build 併行搶 CPU。視需要再跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build`；**不要求本地全量或重跑三次**。
 - **PR 驗收以最新 PR head 的 GitHub Actions CI 為準**：`logic / gate`、typecheck:test、build 與適用 smoke 皆通過；不得用舊 commit、先前綠燈或 subset 冒充。檢視 case count、max leaf 與 Top 10 slow leaf；達 70ms 標記優化方向。只在 CI 失敗、平台異常或有明確疑慮時重跑。
 - 重大核心邏輯或難確認有效性的新測試，可對少量關鍵 owner 做受控負向驗證後還原；不當每 PR 必經步驟。
 - PR 記錄 CI run URL、驗證 commit、結果、保留／刪除的 failure mode、已知失敗與未驗證範圍；一次性量測放 PR 或 ignored `output/`。

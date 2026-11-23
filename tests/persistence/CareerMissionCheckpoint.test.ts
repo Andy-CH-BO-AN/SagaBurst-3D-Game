@@ -9,14 +9,18 @@ import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefens
 import { CommanderTownMissionController } from '../../src/career/CommanderTownMissionController'
 import { acceptCommanderMission, COMMANDER_DECAPITATION_ID } from '../../src/career/CommanderMissionCatalog'
 import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
+import { commanderFourGateGarrisonSlots } from '../../src/career/CommanderFourGateDefenseRoster'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { Faction, type NPC } from '../../src/world/NPC'
-import { ActorDouble, asNpc, asPlayer, PlayerDouble, recordingActorFactory, residentSpec } from '../helpers/careerActorDoubles'
+import { ActorDouble, asMount, asNpc, asPlayer, MountDouble, PlayerDouble, recordingActorFactory, residentSpec } from '../helpers/careerActorDoubles'
 import { fourGateDefenseRuntime } from '../helpers/fourGateDefenseRuntime'
 import { createCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
+import { CivilianCommandSquadController } from '../../src/town/CivilianCommandSquadController'
+import { TownCommandSquadController } from '../../src/town/TownCommandSquadController'
+import { freshCommanderFourGateDefenseEntry } from '../../src/career/CommanderFourGateDefenseEntry'
 
 function fixture() {
   let profile = createCareerProfile('roman')
@@ -256,7 +260,7 @@ describe('CareerMissionCheckpoint', () => {
     const residents = profile.activeMission!.civilianActorIds!.map(id => ({ spec: { id, role: 'civilian' }, npc: dataActor(id, state.actors[id]) }))
     const controller = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as Pick<CommanderFourGateDefenseController, 'snapshotActiveMission' | 'combatEnabled'>, {
       readProfile: () => profile, player: () => player, enemies, personalActors: () => [],
-      residents,
+      residents, reinforcements: [],
       actorMounts: new Map(), tracker: null, startedMissionId: profile.activeMission!.id,
       spawnBatch: { pending: 0, ready: true },
       fourGateSiege: { ready: true, snapshot: () => structuredClone(state.siege!) },
@@ -335,7 +339,8 @@ describe('CareerMissionCheckpoint', () => {
     profile.activeMission!.phase = 'PREPARING'; profile.activeMission!.commanderMission!.deploymentComplete = false
     profile.activeMission!.fourGateDefense = { ...materialized, phase: 'PREPARING', preparationRemainingSeconds: .25,
       deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [], siege: undefined,
-      actors: Object.fromEntries([...profile.activeMission!.friendlyActorIds, ...(materialized.autonomousActorIds ?? []), ...profile.activeMission!.civilianActorIds!]
+      actors: Object.fromEntries([...profile.activeMission!.friendlyActorIds, ...(materialized.autonomousActorIds ?? []),
+        ...commanderFourGateGarrisonSlots(profile.activeMission!.id).map(slot => slot.actorId), ...profile.activeMission!.civilianActorIds!]
         .map(id => [id, materialized.actors[id]])) }
     const before = JSON.stringify(profile)
     const storage = new MemoryStorage({ failWrites: true, initialValues: [[CAREER_STORAGE_KEY, before]] })
@@ -416,5 +421,206 @@ describe('CareerMissionCheckpoint', () => {
     expect([...profile.activeMission!.fourGateDefense!.registeredTargetActorIds].sort()).toEqual(acceptedTargetIds)
     expect(controller.combatEnabled).toBe(true)
     expect(batches).toBe(1); expect(releases).toBe(1)
+  })
+
+  it('spawns mounted and foot civilians at Town Center refuge posts on fresh four-gate start and preserves them across pre-mission squad handoff', () => {
+    let profile = createFourGateDefenseProfile('PREPARING')
+    const active = profile.activeMission!
+    active.phase = 'DEPLOYING'; active.fourGateDefense!.phase = 'DEPLOYING'
+    const civilianIds = active.civilianActorIds!
+    expect(civilianIds).toContain('merchant')
+    for (const id of civilianIds) delete active.fourGateDefense!.actors[id]
+    profile.civilianCommandSquad = {
+      type: 'civilian-command', squadId: 'civilians', townFaction: 'roman', sceneKey: 'town:roman',
+      actorIds: [...civilianIds],
+      owners: Object.fromEntries(civilianIds.map(id => [id, 'daily' as const])),
+      members: Object.fromEntries(civilianIds.map(id => [id, {
+        status: 'deployed' as const, hp: 100, order: 'attack' as const,
+        position: { x: 60, y: 0, z: 20, yaw: 0 },
+        ...(id === civilianIds[0] ? { mount: { hp: 100, mounted: true, position: { x: 60, y: 0, z: 20, yaw: 0 } } } : {}),
+      }])),
+    }
+    const h = fourGateDefenseRuntime(profile, next => { profile = next; return true }, {
+      civilianRefuge: count => Array.from({ length: count }, (_, index) => ({ x: -2 + index * 2, y: 1, z: -8, yaw: Math.PI })),
+    })
+    onTestFinished(() => h.controller.dispose())
+    const mountedCiv = h.residents.get(civilianIds[0])!, footCiv = h.residents.get(civilianIds[1])!, merchant = h.residents.get('merchant')!
+    const merchantPostX = -2 + civilianIds.indexOf('merchant') * 2
+    const horse = new MountDouble('horse', 60, 20)
+    mountedCiv.mountVehicle(horse); mountedCiv.group.position.set(60, 0, 20)
+    footCiv.group.position.set(55, 0, 15)
+    merchant.group.position.set(45, 0, 10)
+    expect(h.controller.startActiveMission()).toBe(true)
+    expect(mountedCiv.group.position.toArray()).toEqual([-2, 1, -8])
+    expect(horse.group.position.toArray()).toEqual([-2, 1, -8])
+    expect(footCiv.group.position.toArray()).toEqual([0, 1, -8])
+    expect(merchant.group.position.toArray()).toEqual([merchantPostX, 1, -8])
+    expect(mountedCiv.formationCommandId).toBe(-4802)
+    expect(mountedCiv.formationTarget?.toArray()).toEqual([-2, 1, -8])
+    expect(footCiv.formationCommandId).toBe(-4803)
+    expect(footCiv.formationTarget?.toArray()).toEqual([0, 1, -8])
+
+    const civilianCommand = new CivilianCommandSquadController(
+      civilianIds.map(id => ({
+        spec: residentSpec(id, id === 'merchant' ? 'merchant' : 'civilian'), npc: asNpc(h.residents.get(id)!),
+        ...(id === civilianIds[0] ? { homeMount: asMount(horse) } : {}),
+      })),
+      () => asPlayer(h.player), () => profile, next => { profile = next; return true },
+      { sceneKey: 'town:roman', townFaction: 'roman' },
+    )
+    expect(civilianCommand.restore()).toBe(true)
+    expect(mountedCiv.group.position.toArray()).toEqual([-2, 1, -8])
+    expect(horse.group.position.toArray()).toEqual([-2, 1, -8])
+    expect(footCiv.group.position.toArray()).toEqual([0, 1, -8])
+    expect(merchant.group.position.toArray()).toEqual([merchantPostX, 1, -8])
+    expect(profile.civilianCommandSquad?.missionId).toBe(active.id)
+    expect(profile.civilianCommandSquad?.owners[civilianIds[0]]).toBe('evacuation')
+    expect(profile.civilianCommandSquad?.owners.merchant).toBe('evacuation')
+    expect(profile.civilianCommandSquad?.members[civilianIds[0]].position).toMatchObject({ x: -2, y: 1, z: -8 })
+  })
+
+  it('keeps civilians at Town Center refuge posts on restore when pre-restart commit already stamped missionId before initial deployment completes', () => {
+    let profile = createFourGateDefenseProfile('PREPARING')
+    const active = profile.activeMission!
+    active.phase = 'DEPLOYING'; active.fourGateDefense!.phase = 'DEPLOYING'
+    active.fourGateDefense!.deploymentComplete = false
+    const civilianIds = active.civilianActorIds!
+    for (const id of civilianIds) delete active.fourGateDefense!.actors[id]
+    profile.civilianCommandSquad = {
+      type: 'civilian-command', squadId: 'civilians', townFaction: 'roman', sceneKey: 'town:roman',
+      missionId: active.id,
+      actorIds: [...civilianIds],
+      owners: Object.fromEntries(civilianIds.map(id => [id, 'evacuation' as const])),
+      members: Object.fromEntries(civilianIds.map(id => [id, {
+        status: 'deployed' as const, hp: 100, order: 'attack' as const,
+        position: { x: 40, y: 0, z: 12, yaw: 0 },
+        ...(id === civilianIds[0] ? { mount: { hp: 100, mounted: true, position: { x: 40, y: 0, z: 12, yaw: 0 } } } : {}),
+      }])),
+    }
+    const h = fourGateDefenseRuntime(profile, next => { profile = next; return true }, {
+      civilianRefuge: count => Array.from({ length: count }, (_, index) => ({ x: -2 + index * 2, y: 1, z: -8, yaw: Math.PI })),
+    })
+    onTestFinished(() => h.controller.dispose())
+    const mountedCiv = h.residents.get(civilianIds[0])!, footCiv = h.residents.get(civilianIds[1])!
+    const horse = new MountDouble('horse', 40, 12)
+    mountedCiv.mountVehicle(horse); mountedCiv.group.position.set(40, 0, 12)
+    footCiv.group.position.set(40, 0, 12)
+    expect(h.controller.startActiveMission()).toBe(true)
+
+    const controller = () => new CivilianCommandSquadController(
+      civilianIds.map(id => ({
+        spec: residentSpec(id, 'civilian'), npc: asNpc(h.residents.get(id)!),
+        ...(id === civilianIds[0] ? { homeMount: asMount(horse) } : {}),
+      })),
+      () => asPlayer(h.player), () => profile, next => { profile = next; return true },
+      { sceneKey: 'town:roman', townFaction: 'roman' },
+    )
+    const initialRestore = controller()
+    expect(initialRestore.restore()).toBe(true)
+    expect(mountedCiv.group.position.toArray()).toEqual([-2, 1, -8])
+    expect(horse.group.position.toArray()).toEqual([-2, 1, -8])
+    expect(footCiv.group.position.toArray()).toEqual([0, 1, -8])
+    expect(initialRestore.checkpoint()?.members[civilianIds[0]].position).toMatchObject({ x: -2, y: 1, z: -8 })
+
+    active.fourGateDefense!.deploymentComplete = true
+    expect(controller().restore()).toBe(true)
+    expect(mountedCiv.group.position.toArray()).toEqual([40, 0, 12])
+    expect(horse.group.position.toArray()).toEqual([40, 0, 12])
+    expect(footCiv.group.position.toArray()).toEqual([40, 0, 12])
+  })
+
+  it('does not carry prior Town soldier, civilian, or merchant deaths into a fresh four-gate entry while preserving mid-mission reload deaths', () => {
+    let profile = createFourGateDefenseProfile('PREPARING')
+    const active = profile.activeMission!
+    active.deadFriendlyActorIds = ['melee_infantry-0']
+    active.deadCivilianActorIds = ['civilian-0']
+    freshCommanderFourGateDefenseEntry(active)
+    expect(active.deadFriendlyActorIds).toBeUndefined()
+    expect(active.deadCivilianActorIds).toBeUndefined()
+
+    active.phase = 'DEPLOYING'
+    active.fourGateDefense!.phase = 'DEPLOYING'
+    active.fourGateDefense!.deploymentComplete = false
+    const [civId, merchantId] = active.civilianActorIds!
+    const soldierId = active.friendlyActorIds[0]
+    const civ = new ActorDouble(civId, { faction: Faction.TOWN, townCategory: 'civilian', x: -2, y: 1, z: -8 })
+    const merchant = Object.assign(
+      new ActorDouble(merchantId, { faction: Faction.TOWN, townCategory: 'civilian', x: 0, y: 1, z: -8 }),
+      { disarmTownCivilian(this: { armedWith?: unknown }) { this.armedWith = undefined }, setTownPeaceful() {} },
+    )
+    const soldier = new ActorDouble(soldierId, { faction: Faction.TOWN, x: 4, y: 1, z: -80 })
+    const player = new PlayerDouble()
+
+    profile.civilianCommandSquad = {
+      type: 'civilian-command', squadId: 'civilians', townFaction: 'roman', sceneKey: 'town:roman',
+      actorIds: [civId, merchantId],
+      owners: { [civId]: 'daily', [merchantId]: 'daily' },
+      members: {
+        [civId]: { status: 'dead', hp: 0, order: 'defend', position: { x: 60, y: 0, z: 20, yaw: 0 } },
+        [merchantId]: { status: 'dead', hp: 0, order: 'defend', position: { x: 62, y: 0, z: 20, yaw: 0 } },
+      },
+    }
+    profile.townCommandSquad = {
+      type: 'town-command', squadId: 1, townFaction: 'roman', sceneKey: 'town-home', commandRank: 'commander',
+      state: 'TRAINING', authorized: false, actorIds: [soldierId],
+      contribution: structuredClone(active.officialSquad!.contribution),
+      members: {
+        [soldierId]: { status: 'dead', hp: 0, ammo: 0, shieldImpact: 0, order: 'defend', position: { x: 20, y: 0, z: 10, yaw: 0 } },
+      },
+    }
+
+    const townCommand = new TownCommandSquadController(
+      [{ spec: residentSpec(soldierId, 'melee_infantry'), npc: asNpc(soldier) }],
+      () => asPlayer(player), () => profile, next => { profile = next; return true },
+      { sceneKey: 'town-home' },
+    )
+    expect(townCommand.restore()).toBe(true)
+    expect(townCommand.hasCheckpoint).toBe(true)
+    expect(soldier.dead).toBe(false)
+    expect(soldier.hp).toBe(100)
+
+    const createCivCommand = () => new CivilianCommandSquadController(
+      [
+        { spec: residentSpec(civId, 'civilian'), npc: asNpc(civ) },
+        { spec: residentSpec(merchantId, 'merchant'), npc: asNpc(merchant) },
+      ],
+      () => asPlayer(player), () => profile, next => { profile = next; return true },
+      { sceneKey: 'town:roman', townFaction: 'roman' },
+    )
+    const freshCiv = createCivCommand()
+    expect(freshCiv.restore()).toBe(true)
+    expect(civ.dead).toBe(false)
+    expect(civ.hp).toBe(100)
+    expect(merchant.dead).toBe(false)
+    expect(merchant.hp).toBe(100)
+    expect(freshCiv.checkpoint()?.members[civId].status).toBe('deployed')
+    expect(freshCiv.checkpoint()?.members[merchantId].status).toBe('deployed')
+
+    // Mid-mission reload (same missionId + deploymentComplete) must still restore mid-mission civilian casualties.
+    profile.activeMission!.fourGateDefense!.deploymentComplete = true
+    profile.civilianCommandSquad!.members[civId] = {
+      status: 'dead', hp: 0, order: 'defend', position: { x: -2, y: 1, z: -8, yaw: 0 },
+    }
+    expect(createCivCommand().restore()).toBe(true)
+    expect(civ.dead).toBe(true)
+    expect(civ.hp).toBe(0)
+  })
+
+  it('reads only the current four-gate civilian roster: merchant-less, missing or unknown civilians are rejected', () => {
+    const current = createFourGateDefenseProfile('ATTACKING')
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(current)))?.activeMission?.civilianActorIds).toContain('merchant')
+    // A roster without the merchant is an older, unsupported format: rejected, never converted.
+    const legacy = structuredClone(current), active = legacy.activeMission!
+    active.civilianActorIds = active.civilianActorIds!.filter(id => id !== 'merchant')
+    delete active.fourGateDefense!.actors.merchant
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(legacy)))).toBeNull()
+
+    const missing = structuredClone(current)
+    missing.activeMission!.civilianActorIds = missing.activeMission!.civilianActorIds!.filter(id => id !== 'civilian-0')
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(missing)))).toBeNull()
+
+    const unknown = structuredClone(current)
+    unknown.activeMission!.civilianActorIds = unknown.activeMission!.civilianActorIds!.map(id => id === 'civilian-0' ? 'unknown' : id)
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(unknown)))).toBeNull()
   })
 })
