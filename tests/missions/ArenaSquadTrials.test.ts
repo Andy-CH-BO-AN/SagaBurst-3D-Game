@@ -195,19 +195,29 @@ describe('Arena Squad Trials', () => {
     expect(heavyT5.visualAssetId).toBe('byzantine-cataphract-t5')
   })
 
-  it('lays out every team on both arenas with legal, separate slots and archers behind the melee ranks', () => {
+  it('fits trial deployment capacity in both arenas and places Recruit archers behind melee', () => {
+    const roster = arenaTrialRoster('m', 1)
+    const friendly = roster.filter(entry => entry.team === 'friendly')
+    const enemy = roster.filter(entry => entry.team === 'enemy')
+    const teamSizes = ARENA_TRIAL_TIERS.map(arenaTrialTeamSizes)
+    const maxFriendlyNpcs = Math.max(...teamSizes.map(size => size.friendly - 1))
+    const maxEnemies = Math.max(...teamSizes.map(size => size.enemy))
     for (const [arenaId, obstacles] of [['roman-colosseum', createColosseumObstacles()], ['viking-valhalla', createValhallaObstacles()]] as const) {
-      const formation = planArenaTrialFormation(arenaId, obstacles, 19, 20)!
-      expect(formation).not.toBeNull()
-      const all = [formation.player, ...formation.friendly, ...formation.enemy]
+      const fullFormation = planArenaTrialFormation(arenaId, obstacles, maxFriendlyNpcs, maxEnemies)!
+      expect(fullFormation.friendly).toHaveLength(maxFriendlyNpcs)
+      expect(fullFormation.enemy).toHaveLength(maxEnemies)
+      const all = [fullFormation.player, ...fullFormation.friendly, ...fullFormation.enemy]
       let closest = Infinity
       for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++)
         closest = Math.min(closest, Math.hypot(all[i].x - all[j].x, all[i].z - all[j].z))
       expect(closest, arenaId).toBeGreaterThan(2)
-      expect(Math.min(...formation.enemy.map(s => s.z)) - Math.max(...formation.friendly.map(s => s.z))).toBeGreaterThan(8)
-      const roster = arenaTrialRoster('m', 1)
-      const slots = assignArenaTrialSlots(roster, planArenaTrialFormation(arenaId, obstacles, 19, 15)!)
-      const frontZ = (role: string) => Math.max(...roster.filter(e => e.team === 'friendly' && e.group.role === role).map(e => slots.get(e.actorId)!.z))
+      expect(Math.min(...fullFormation.enemy.map(s => s.z)) - Math.max(...fullFormation.friendly.map(s => s.z))).toBeGreaterThan(8)
+      const recruitFormation = planArenaTrialFormation(arenaId, obstacles, friendly.length, enemy.length)!
+      const slots = assignArenaTrialSlots(roster, recruitFormation)
+      expect(new Set(slots.keys())).toEqual(new Set(roster.map(entry => entry.actorId)))
+      const assignedPositions = Array.from(slots.values(), slot => `${slot.x},${slot.z}`)
+      expect(new Set(assignedPositions).size).toBe(roster.length)
+      const frontZ = (role: 'archer' | 'melee') => Math.max(...friendly.filter(entry => entry.group.role === role).map(entry => slots.get(entry.actorId)!.z))
       expect(frontZ('archer')).toBeLessThan(frontZ('melee'))
     }
   })

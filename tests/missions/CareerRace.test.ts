@@ -556,10 +556,14 @@ describe('Commander invitation race', () => {
     const unsaved = store.load()!
     expect(unsaved.availableMerit).toBe(p.availableMerit); expect(unsaved.careerStory!.events[EVENT]!.status).toBe('active')
     storage.failWrites = false; expect(store.save(raceRecordProfile(store.load()!, s))).toBe(true)
+    const claimed = store.load()!
+    expect(claimed.raceRecords).toEqual([result.raceRecords![0]])
+    const { merit } = claimed.raceRecords![0]
+    expect(merit).toBeGreaterThan(0)
+    expect([claimed.totalMerit, claimed.availableMerit]).toEqual([p.totalMerit + merit, p.availableMerit + merit])
+    expect(claimed.careerStory!.events[EVENT]).toMatchObject({ status: 'settled', outcome: 'victory', merit })
     expect(store.save(raceRecordProfile(store.load()!, s))).toBe(true)
-    const saved = store.load()!
-    expect(saved.raceRecords).toHaveLength(1); expect(saved.availableMerit).toBe(p.availableMerit + 500)
-    expect(saved.careerStory!.events[EVENT]).toMatchObject({ status: 'settled', outcome: 'victory', merit: 500 })
+    expect(store.load()).toEqual(claimed)
   })
 })
 
