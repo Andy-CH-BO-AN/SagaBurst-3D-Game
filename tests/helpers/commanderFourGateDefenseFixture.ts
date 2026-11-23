@@ -9,6 +9,7 @@ import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSqu
 import type { TownFourGateSiegeCheckpoint } from '../../src/career/TownFourGateSiegeCheckpoint'
 import { allocateTownSiegeCrews, townSiegeFrame } from '../../src/career/TownFourGateSiegePolicy'
 import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
+import { DAMAGEABLE_OBSTACLE_HP } from '../../src/world/DamageableObstacle'
 
 /** Saved data at a stated boundary, never a simulated deployment or a scene/actor constructor. */
 export function createFourGateDefenseProfile(phase: 'PREPARING' | 'SPAWNING' | 'ATTACKING' = 'PREPARING'): CareerProfile {
@@ -41,7 +42,7 @@ export function createFourGateDefenseProfile(phase: 'PREPARING' | 'SPAWNING' | '
       const f = townSiegeFrame(assignment.gateId)
       const position = { x: f.gate.x + f.outward.x * 41.9 + f.tangent.x * assignment.side * 25,
         y: 10, z: f.gate.z + f.outward.z * 41.9 + f.tangent.z * assignment.side * 25 }
-      return { assignment, stagingZ: position.z, position, hp: 520, state: 'PUSHING',
+      return { assignment, stagingZ: position.z, position, hp: DAMAGEABLE_OBSTACLE_HP.siege_ramp, state: 'PUSHING',
         distance: 0, travelDistance: 40, dockingProgress: 0 }
     }),
     gates: new TownGateBreachPolicy(() => []).snapshot().map(gate => ({ ...gate, hp: 2080 })),

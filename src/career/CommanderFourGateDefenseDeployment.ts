@@ -61,15 +61,17 @@ function clearOutwardShot(station: Station, outward: THREE.Vector3, mounted: boo
   return !findBlockingProjectileObstacleAlongPath(origin, target, obstacles)
 }
 
-/** Gate-local gallery posts between the two towers, clear of the centre statue: a parapet rank
- * and a staggered rear rank. The rear rank shoots over the parapet only at longer range. */
+/** Gate-local archer posts: first the two windows of each gate tower (|x| 8.3 / 12.3, between them
+ * is solid wall), then the gallery between the towers, clear of the centre statue: a parapet rank and
+ * a staggered rear rank. Window and rear posts shoot out only at longer range. */
 const GATEHOUSE_ARCHER_POSTS = [
+  ...[8.3, -8.3, 12.3, -12.3].map(lateral => ({ lateral, local: 2.6, reach: 60 })),
   // 2.35m apart: the station allocator needs at least 2.3m between foot bodies, with float margin.
   ...[1.65, -1.65, 4, -4, 6.35, -6.35].map(lateral => ({ lateral, local: 3.15, reach: 24 })),
   ...[2.825, -2.825, 5.175, -5.175].map(lateral => ({ lateral, local: 1.1, reach: 90 })),
 ] as const
 
-/** Foot archers' first posts: the gatehouse gallery between the two gate towers, parapet rank first.
+/** Foot archers' first posts: the gate tower windows, then the gallery between the towers.
  * The same body, support and outward-shot checks as wall posts decide which remain legal. */
 function gatehouseArcherStations(gateId: TownGateId, layout: TownRampartLayout, obstacles: readonly ObstacleData[]): Station[] {
   const house = layout.gatehouses?.find(house => house.gate.id === gateId)
@@ -237,7 +239,7 @@ export function planCommanderFourGateDefenseDeployment(roster: readonly TownActo
     // firing gaps, infantry the melee lane, then the spear lane. A docked ramp releases them with the sector.
     const members = garrison.filter(member => member.gateId === sector.gateId)
     if (members.length) {
-      const ranged = wallStations(sector.gateId, 'ranged', layout, obstacles, false)
+      const ranged = [...gatehouseArcherStations(sector.gateId, layout, obstacles), ...wallStations(sector.gateId, 'ranged', layout, obstacles, false)]
       const melee = [...wallStations(sector.gateId, 'melee', layout, obstacles, false), ...wallStations(sector.gateId, 'spear', layout, obstacles, false)]
       for (const member of members) {
         assign({ id: member.actorId } as TownActorSpec, member.role === 'archer' ? ranged : melee, FOOT_RADIUS)

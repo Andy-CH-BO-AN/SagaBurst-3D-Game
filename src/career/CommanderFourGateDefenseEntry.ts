@@ -13,6 +13,7 @@ export function freshCommanderFourGateDefenseEntry(mission: ActiveCareerMission)
   delete mission.playerStamina
   delete mission.actorHealth
   delete mission.deadFriendlyActorIds
+  delete mission.deadCivilianActorIds
   if (mission.officialSquad) delete mission.officialSquad.members
   if (mission.mountState) {
     const { activeMountId, armorImpact } = mission.mountState

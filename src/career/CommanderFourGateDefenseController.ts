@@ -10,6 +10,7 @@ import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { TownCavalryPatrolController } from '../town/TownCavalryPatrolController'
 import { TOWN_GATES } from '../town/TownLayout'
 import { isAutonomousTownGuard } from '../town/TownNativeGuardIdentity'
+import { isCivilian } from '../town/TownRules'
 import type { TownOutskirtsWarfareController } from '../town/TownOutskirtsWarfareController'
 import { civilianShouldFight, civilianWartimeWeapon, townWartimePeers } from '../town/TownWartime'
 import type { Mount } from '../world/Mount'
@@ -28,7 +29,7 @@ import type { CareerProfile } from './CareerProfile'
 import { advanceCommanderCavalryEscort, COMMANDER_CAVALRY_ESCORT, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, createCommanderCavalryEscort, isCommanderCavalryEscorting } from './CommanderCavalryEscort'
 import { planCommanderFourGateDefenseDeployment } from './CommanderFourGateDefenseDeployment'
 import { COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION, commanderArcherScreenSide, commanderArcherScreenTarget, commanderFourGateDefenseSlots, commanderFourGateGarrisonSlots, createCommanderFourGateDefenseRoster, createCommanderFourGateGarrison, type CommanderEnemyRosterVersion } from './CommanderFourGateDefenseRoster'
-import { townSiegeRampId } from './TownFourGateSiegePolicy'
+import { TOWN_SIEGE_WORLD_EDGE_INSET, townSiegeRampId } from './TownFourGateSiegePolicy'
 import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, skipCommanderFourGateDefensePreparation, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, fourGateRemainingTargets, fourGateTargetsAccounted, recordNativeTownGuardCombat, resolveCommanderFourGateDefenseOutcome } from './CommanderFourGateDefenseState'
 import { advanceCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, isCommanderInfantryEscorting } from './CommanderInfantryEscort'
 import type { CommanderTownResident } from './CommanderTownMissionController'
@@ -113,7 +114,7 @@ export class CommanderFourGateDefenseController {
     return [...this.residents.filter(r => ids.has(r.spec.id)).map(r => r.npc), ...this.reinforcements]
   }
   get defenders(): NPC[] { return this.military }
-  get civilians(): NPC[] { return this.residents.filter(r => r.spec.role === 'civilian').map(r => r.npc) }
+  get civilians(): NPC[] { return this.residents.filter(r => isCivilian(r.spec.role)).map(r => r.npc) }
   get fieldNpcs(): NPC[] { return [...this.residents.map(r => r.npc), ...this.reinforcements, ...this.enemies] }
   get playerEnemies(): NPC[] { return this.enemies }
   get civilianDeaths(): number { return this.civilians.filter(npc => npc.dead).length }
@@ -246,7 +247,11 @@ export class CommanderFourGateDefenseController {
       const slot = archerSlots.get(spec.actorId!)!
       const gateId = this.roster.gateByActorId.get(spec.actorId!)!
       const ramp = this.fourGateSiege.ramps.get(townSiegeRampId(gateId, commanderArcherScreenSide(slot)))!
-      const target = commanderArcherScreenTarget(slot, ramp.position, { x: ramp.surface.dirX, z: ramp.surface.dirZ })
+      const anchor = {
+        x: ramp.position.x - ramp.surface.dirX * TOWN_SIEGE_WORLD_EDGE_INSET,
+        z: ramp.position.z - ramp.surface.dirZ * TOWN_SIEGE_WORLD_EDGE_INSET,
+      }
+      const target = commanderArcherScreenTarget(slot, anchor, { x: ramp.surface.dirX, z: ramp.surface.dirZ })
       spec.x = target.x; spec.z = target.z
     }
     const occupied = this.roster.crew.map(slot => new THREE.Vector3(slot.spec.x, 0, slot.spec.z))
@@ -319,9 +324,12 @@ export class CommanderFourGateDefenseController {
     const civilians = this.civilians
     this.civilianPosts = this.context.civilianRefuge?.(civilians.length) ?? []
     if (!this.state!.deploymentComplete) civilians.forEach((npc, index) => {
-      // A fresh battle starts with every civilian already inside the hall, not walking there.
+      // A fresh battle starts with every civilian (and their mount) already inside the hall, not walking there.
       const post = this.civilianPosts[index]
       if (post && !npc.dead && !this.state!.actors[npc.combatantId]) {
+        // A mounted civilian rides its own horse: move the horse too, or the rider snaps back onto it.
+        const mount = npc.mount
+        if (mount) { mount.group.position.set(post.x, post.y, post.z); mount.group.rotation.y = post.yaw }
         npc.group.position.set(post.x, post.y, post.z); npc.group.rotation.y = post.yaw
       }
       this.shelterCivilian(npc)

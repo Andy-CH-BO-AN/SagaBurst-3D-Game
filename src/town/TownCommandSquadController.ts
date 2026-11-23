@@ -164,8 +164,13 @@ export class TownCommandSquadController {
 
   /** Initial load restores saved residents before granting. No casualty is healed here. */
   restore(): boolean {
-    const saved = this.read().townCommandSquad
-    if (saved?.townFaction === this.read().faction) this.applySavedState(saved, true)
+    const profile = this.read(), saved = profile.townCommandSquad
+    if (profile.activeMission?.kind === 'commander-four-gate-defense' && !profile.activeMission.result) {
+      this.synchronizeResidents()
+      this.value = saved?.townFaction === profile.faction ? cloneTownCommandSquad(saved) : undefined
+      return true
+    }
+    if (saved?.townFaction === profile.faction) this.applySavedState(saved, true)
     return this.grant()
   }
 

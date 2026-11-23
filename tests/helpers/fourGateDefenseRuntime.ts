@@ -1,6 +1,6 @@
 import { commanderFourGateGarrisonSlots } from '../../src/career/CommanderFourGateDefenseRoster'
 import type { CareerProfile } from '../../src/career/CareerProfile'
-import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
+import { CommanderFourGateDefenseController, type CommanderFourGateDefenseContext } from '../../src/career/CommanderFourGateDefenseController'
 import { NavigationGrid } from '../../src/navigation/NavigationGrid'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
@@ -18,7 +18,8 @@ const SERVICE_ROLES: Record<string, TownRole> = { commander: 'commander', 'hr-of
  * and attackers are plain bodies, vehicles run the real crew controller, and attacker spawning
  * uses a private scheduler. Only the case's own calls move the mission forward.
  */
-export function fourGateDefenseRuntime(initial: CareerProfile, commit: (next: CareerProfile) => boolean = () => true) {
+export function fourGateDefenseRuntime(initial: CareerProfile, commit: (next: CareerProfile) => boolean = () => true,
+  context?: Pick<CommanderFourGateDefenseContext, 'civilianRefuge'>) {
   let profile = initial
   const mission = initial.activeMission!, authored = new Map(townAuthoredRoster().map(spec => [spec.id, spec]))
   // The mission garrison is spawned by the controller itself, never a Town resident.
@@ -26,7 +27,7 @@ export function fourGateDefenseRuntime(initial: CareerProfile, commit: (next: Ca
   const nativeIds = [...mission.friendlyActorIds.filter(id => !garrison.has(id)), ...(mission.fourGateDefense?.autonomousActorIds ?? [])]
   const residents = [...nativeIds.map(id => ({ spec: authored.get(id) ?? residentSpec(id, SERVICE_ROLES[id] ?? 'melee_infantry'),
     actor: new ActorDouble(id, { faction: Faction.TOWN }) })),
-  ...(mission.civilianActorIds ?? []).map(id => ({ spec: residentSpec(id, 'civilian'),
+  ...(mission.civilianActorIds ?? []).map(id => ({ spec: residentSpec(id, id === 'merchant' ? 'merchant' : 'civilian'),
     actor: new ActorDouble(id, { faction: Faction.TOWN, townCategory: 'civilian' }) }))]
   const layout = getTownRampartLayout(), world = townSiegeWorld(layout)
   // An open, fully connected Town field: the real cell grid and layered Town navigation, no obstacle rebuild.
@@ -35,6 +36,6 @@ export function fourGateDefenseRuntime(initial: CareerProfile, commit: (next: Ca
   const factory = recordingActorFactory(), createRamp = recordingRampFactory(), scheduler = new NpcSpawnScheduler(), player = new PlayerDouble()
   const controller = new CommanderFourGateDefenseController(factory, residents.map(r => ({ spec: r.spec, npc: asNpc(r.actor) })),
     () => asPlayer(player), () => profile, next => { if (!commit(next)) return false; profile = next; return true }, navigation,
-    { world, createRamp, registerHit: () => {}, unregisterHit: () => {} }, scheduler)
+    { world, createRamp, registerHit: () => {}, unregisterHit: () => {}, ...context }, scheduler)
   return { controller, player, residents: new Map(residents.map(r => [r.spec.id, r.actor])), profile: () => profile }
 }

@@ -434,3 +434,44 @@ it('Outpost 前牆與側牆木牆破口在城門關閉時仍由共用 A* 引出�
     expect(position.distanceTo(goal), side).toBeLessThan(.6)
   }
 })
+
+it('routes exterior ground attackers toward closed north gate when targeting overhanging gatehouse gallery', () => {
+  const layout = getTownRampartLayout()
+  const northGatehouse = layout.gatehouses?.find(g => g.gate.id === 'north')
+  expect(northGatehouse).toBeDefined()
+  const world = new NavigationWorld({ minX: -120, maxX: 40, minZ: -165, maxZ: -95, cellSize: 2 }, 2)
+  world.setTownRamparts(layout)
+  world.townNav!.siegeActive = true
+  const baseY = getTerrainHeight(0, -115)
+  const gateObstacle = { box: new Box3(new Vector3(-7, baseY, -116), new Vector3(7, baseY + 8, -114)), isBarricade: true,
+    damageable: { destroyed: false, isDamageableBy: (faction: string) => faction === 'roman' } } as unknown as ObstacleData
+  const wall = (x0: number, z0: number, x1: number, z1: number): ObstacleData => ({ box: box(x0, z0, x1, z1), isBarricade: true })
+  const obstacles = [wall(-120, -116, -7, -114), wall(7, -116, 40, -114), gateObstacle]
+  world.townNav!.setSiegeGates(new Map([['north', { state: 'closed', siegeObstacle: gateObstacle }]]))
+  world.rebuild(obstacles)
+  world.beginFrame()
+
+  const position = new Vector3(0, getTerrainHeight(0, -155), -155)
+  const elevatedGoal = new Vector3(4, northGatehouse!.floorY, -118.15)
+  expect(world.townNav!.isElevated(elevatedGoal)).toBe(true)
+
+  const route = new LayeredNavigationRoute(new NavigationPathFollower()), out = new Vector3()
+  const accepts = (o: ObstacleData) => o.damageable?.isDamageableBy('roman') === true
+  const input = { ...request(world, position, elevatedGoal), actorId: 'archer-1', attackableGate: accepts }
+  expect(route.resolve(input, obstacles, out)?.route).toBe('unreachable')
+
+  const breach = route.resolveBlockedPursuit(input, obstacles, out)
+  expect(breach?.route).toBe('direct')
+  expect(breach?.breach).toBe(gateObstacle)
+  expect(out.x).toBeCloseTo(0, 1)
+  expect(out.z).toBeCloseTo(-127, 1)
+
+  const groundGoal = new Vector3(4, getTerrainHeight(4, -118.15), -118.15)
+  expect(world.townNav!.isElevated(groundGoal)).toBe(false)
+  expect(world.townNav!.selectClosedGateApproach(position, groundGoal, accepts)).toBeNull()
+
+  const groundRoute = new LayeredNavigationRoute(new NavigationPathFollower())
+  const groundInput = { ...input, goal: groundGoal }
+  expect(groundRoute.resolve(groundInput, obstacles, out)).toBeNull()
+  expect(groundRoute.resolveBlockedPursuit(groundInput, obstacles, out)).toBeNull()
+})

@@ -91,10 +91,11 @@ import { WEAPONS, type WeaponCombatKind } from '../rpg/WeaponDatabase'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { ChaseTargetCoordinator } from '../navigation/ChaseTargetCoordinator'
 import { PursuitBlockList } from '../navigation/PursuitBlockList'
-import { DETECTION_RADIUS, isWithinEngagementRange, pursuitMayBreachGate } from '../navigation/PursuitPolicy'
+import { DETECTION_RADIUS, isWithinEngagementRange, pursuitMayBreachGate, shouldRetainLayeredPursuitTarget } from '../navigation/PursuitPolicy'
 import { TargetReacquireSchedule } from '../navigation/TargetReacquireSchedule'
 import { NavigationPathFollower, type NavigationRouteKind } from '../navigation/NavigationPathFollower'
 import { LayeredNavigationRoute, type LayeredNavigationRequest, type LayeredNavigationStep } from '../navigation/LayeredNavigationRoute'
+import { applyTownRampSeparation } from '../navigation/TownLayeredNavigation'
 import {
   clampFollowSlotToDeck,
   clampFollowSlotToBridge,
@@ -2672,6 +2673,37 @@ export class NPC {
     return false
   }
 
+  private _shouldRetainLayeredTarget(previousPosition: THREE.Vector3, nextPosition: THREE.Vector3): boolean {
+    const world = this._activeNavigationWorld
+    if (!world) return false
+    const directRange = this.hasActiveRangedWeapon ? Math.max(12, this.maxRangedAttackDistance) : 12
+    const directEngageRangeSq = directRange * directRange
+    if (world.townNav) {
+      return shouldRetainLayeredPursuitTarget({
+        selfPosition: this.combatPosition,
+        nextPosition,
+        selfOnRamp: Boolean(world.townNav.rampAt(this.combatPosition)),
+        selfElevated: world.townNav.isElevated(this.combatPosition),
+        previousElevated: world.townNav.isElevated(previousPosition),
+        nextElevated: world.townNav.isElevated(nextPosition),
+        directEngageRangeSq,
+      })
+    }
+    if (world.outpostNav) {
+      const selfLayer = world.outpostNav.getNavLayer(this.combatPosition)
+      return shouldRetainLayeredPursuitTarget({
+        selfPosition: this.combatPosition,
+        nextPosition,
+        selfOnRamp: isStairLayer(selfLayer),
+        selfElevated: isRampartLayer(selfLayer),
+        previousElevated: isRampartLayer(world.outpostNav.getNavLayer(previousPosition)),
+        nextElevated: isRampartLayer(world.outpostNav.getNavLayer(nextPosition)),
+        directEngageRangeSq,
+      })
+    }
+    return false
+  }
+
   private _acquireTarget(
     player: Player,
     allNPCs: NPC[],
@@ -2694,7 +2726,8 @@ export class NPC {
       const nextRank = next ? this.combatTargetPriority?.(next) ?? 0 : Infinity
       const close = this.combatPosition.distanceToSquared(previous.combatPosition) <= 12 * 12
       if (nextRank >= previousRank && (close || !target
-        || this.combatPosition.distanceToSquared(target.position) >= this.combatPosition.distanceToSquared(previous.combatPosition) * .5)) return
+        || this.combatPosition.distanceToSquared(target.position) >= this.combatPosition.distanceToSquared(previous.combatPosition) * .5
+        || this._shouldRetainLayeredTarget(previous.combatPosition, target.position))) return
     }
     if (target === null) {
       this._cachedTargetIsPlayer = false
@@ -3669,7 +3702,8 @@ export class NPC {
       }
       if (sepCount > 0) {
         this._tmpSep.divideScalar(sepCount)
-        moveDir.add(this._tmpSep).normalize()
+        const onTownRamp = Boolean(layeredStep?.confirmedLayeredStep && navigationWorld?.townNav?.rampAt(this.combatPosition))
+        applyTownRampSeparation(moveDir, this._tmpSep, onTownRamp)
       }
       if (import.meta.env.DEV && _collector) { _collector.endPhase('separation', _tSep!) }
 
@@ -4735,7 +4769,11 @@ export class NPC {
           sepCount++
         }
       }
-      if (sepCount > 0) moveDir.add(this._tmpSep.divideScalar(sepCount)).normalize()
+      if (sepCount > 0) {
+        this._tmpSep.divideScalar(sepCount)
+        const onTownRamp = Boolean(isConfirmedLayeredStep && navigationWorld?.townNav?.rampAt(this.combatPosition))
+        applyTownRampSeparation(moveDir, this._tmpSep, onTownRamp)
+      }
       // A soldier already in its firing slot must not become a permanent
       // one-dimensional roadblock for another formation member on the deck.
       if (!this.mount && layeredNav && isRampartLayer(npcLayer) && Math.abs(target.position.x - this.combatPosition.x) > 1.6) {

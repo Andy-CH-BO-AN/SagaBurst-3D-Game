@@ -302,22 +302,22 @@ export class TownWorld {
     return floor.topY
   }
   /** Clear standing posts on the Town Center hall floor, nearest the hall centre first: a refuge that
-   * keeps every body off walls, furniture and the service officers' posts. Deterministic for one layout. */
-  townCenterRefugePosts(count: number, spacing = 1.6): { x: number; y: number; z: number; yaw: number }[] {
+   * keeps every body, mounted ones included, off walls, furniture and the service officers' posts. Deterministic. */
+  townCenterRefugePosts(count: number, spacing = 3, radius = 1.3): { x: number; y: number; z: number; yaw: number }[] {
     const bounds = this.civicShapes.find(shape => shape.id === 'town-center')?.bounds
     if (!bounds) return []
     const officers = [...this.serviceStations.values()]
     const posts: { x: number; y: number; z: number; yaw: number }[] = []
     for (let x = bounds.min.x + 1; x <= bounds.max.x - 1; x += spacing) for (let z = bounds.min.z + 1; z <= bounds.max.z - 1; z += spacing) {
       const y = this.civicSupportY('town-center', { x, z })
-      if (y === undefined || [[.5, 0], [-.5, 0], [0, .5], [0, -.5]].some(([dx, dz]) => {
+      if (y === undefined || [[radius, 0], [-radius, 0], [0, radius], [0, -radius]].some(([dx, dz]) => {
         const h = this.civicSupportY('town-center', { x: x + dx, z: z + dz })
         return h === undefined || Math.abs(h - y) > .05
       })) continue
       if (officers.some(o => Math.hypot(o.x - x, o.z - z) < 2.4)) continue
       if (this.obstacles.some(o => !o.walkSurface && !o.physicalPassable
-        && x + .6 > o.box.min.x && x - .6 < o.box.max.x && z + .6 > o.box.min.z && z - .6 < o.box.max.z
-        && y + 1.8 > o.box.min.y && y + .05 < o.box.max.y)) continue
+        && x + radius > o.box.min.x && x - radius < o.box.max.x && z + radius > o.box.min.z && z - radius < o.box.max.z
+        && y + 3.4 > o.box.min.y && y + .05 < o.box.max.y)) continue
       posts.push({ x, y, z, yaw: Math.atan2(TOWN_CENTER.x - x, TOWN_CENTER.z - z) })
     }
     return posts.sort((a, b) => Math.hypot(a.x - TOWN_CENTER.x, a.z - TOWN_CENTER.z) - Math.hypot(b.x - TOWN_CENTER.x, b.z - TOWN_CENTER.z)

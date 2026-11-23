@@ -302,7 +302,7 @@ function fourGateCheckpoint(): TownFourGateSiegeCheckpoint {
     const f = townSiegeFrame(assignment.gateId)
     const position = new Vector3(f.gate.x, 10, f.gate.z).addScaledVector(f.outward, 41.9).addScaledVector(f.tangent, assignment.side * 25)
     return { assignment, stagingZ: position.z, position: { x: position.x, y: position.y, z: position.z },
-      hp: 520, state: 'PUSHING', distance: 0, travelDistance: 40, dockingProgress: 0 }
+      hp: 3000, state: 'PUSHING', distance: 0, travelDistance: 40, dockingProgress: 0 }
   }), gates: policy.snapshot().map(gate => ({ ...gate, hp: 2080 })), playerCommandedActorIds: [],
   actors: Object.fromEntries(assignments.flatMap(a => [...a.pusherIds, ...a.assaultIds]).map(id => [id,
     { status: 'deployed', hp: 100, order: 'attack', position: { x: 0, y: 0, z: 0, yaw: 0 }, entranceId: null, breachCompleted: false }])) }
@@ -324,7 +324,7 @@ describe('four-gate checkpoint boundary', () => {
     expect(loaded.ramps.find(r => r.assignment.id === east.assignment.id)).toMatchObject({ hp: 237, distance: 17 })
     expect(loaded.actors[east.assignment.pusherIds[0]]).toMatchObject({ status: 'dead', hp: 0 })
     expect(loaded.actors[east.assignment.pusherIds[1]].status).toBe('exited')
-    loaded.ramps[0].hp = 2; expect(saved.ramps[0].hp).toBe(520)
+    loaded.ramps[0].hp = 2; expect(saved.ramps[0].hp).toBe(3000)
   })
   it('rejects duplicated crew membership, missing eighth vehicle, and invalid dock states at bounded parser boundary', () => {
     const saved = fourGateCheckpoint()

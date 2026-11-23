@@ -182,7 +182,9 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   // The existing service Commander joins only a newly accepted Commander defense.
   // Save its actual resources before any restart; failed saves never grant live authority.
   const defenseCommanderId = startsDefense ? townDefenseCommanderIds(next, (runtime.residents ?? []).map(r => r.spec),
-    new Set((runtime.residents ?? []).filter(r => r.npc.dead).map(r => r.spec.id)))[0] : undefined
+    next.activeMission?.kind === 'commander-four-gate-defense'
+      ? new Set()
+      : new Set((runtime.residents ?? []).filter(r => r.npc.dead).map(r => r.spec.id)))[0] : undefined
   if (defenseCommanderId && next.activeMission && !next.activeMission.friendlyActorIds.includes(defenseCommanderId)) {
     next.activeMission.friendlyActorIds.push(defenseCommanderId)
   }

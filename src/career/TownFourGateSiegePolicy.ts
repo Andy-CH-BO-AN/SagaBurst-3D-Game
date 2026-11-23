@@ -12,6 +12,7 @@ import { AIType,Faction } from '../world/NPC'
 import { getTerrainHeight,getWalkRampHeight,type ObstacleData,type WalkRampSurface } from '../world/Terrain'
 
 export const TOWN_SIEGE_DOCK_INWARD = TOWN_RAMPART.inward - TOWN_RAMPART.width / 2 + .9
+export const TOWN_SIEGE_WORLD_EDGE_INSET = 50
 export type TownSiegeApproach = 'near-wall' | 'world-edge'
 /** Optional mounted escort envelope behind the complete vehicle, including body radius. */
 export interface TownSiegeEscortClearance {
@@ -148,7 +149,7 @@ function placementAt(layout: TownRampartLayout, gateId: TownGateId, side: -1 | 1
       surface.startX = dock.x - inward.x * (SIEGE_RAMP.platformLength + length)
       surface.startZ = dock.z - inward.z * (SIEGE_RAMP.platformLength + length)
       surface.startY = siegeRampRearHeightAt(p, surface.startX, surface.startZ)
-      const frontBound = TOWN_PLAYABLE_WORLD_BOUND - Math.max(8, rearClearance + 2) - SIEGE_RAMP.platformLength - length
+      const frontBound = TOWN_PLAYABLE_WORLD_BOUND - TOWN_SIEGE_WORLD_EDGE_INSET - Math.max(8, rearClearance + 2) - SIEGE_RAMP.platformLength - length
       p.start.copy(dock)
       if (inward.x) p.start.x = -inward.x * frontBound
       else p.start.z = -inward.z * frontBound

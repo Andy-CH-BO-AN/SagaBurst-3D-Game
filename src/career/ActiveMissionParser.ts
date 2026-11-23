@@ -9,7 +9,7 @@ import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { parseCampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
 import { TOWN_WATCHTOWER_ARCHER_IDS } from '../town/TownNativeGuardIdentity'
 import { parseTownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
-import { townRosterIdentity } from '../town/TownRules'
+import { isCivilian, townRosterIdentity } from '../town/TownRules'
 import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import { parseCaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import { arenaTrialRoster, arenaTrialTierFromTemplateId, parseArenaTrialState } from './CareerArenaTrials'
@@ -206,9 +206,11 @@ function rejectsCommanderRoster({ raw, template, fourGateMission, friendlyActorI
 /** Four-gate defense state must agree with the roster, civilians and the commander checkpoint. */
 function rejectsFourGateDefense({ raw, friendlyActorIds, personalSquad }: MissionParseContext,
   fourGateDefense: ActiveCareerMission['fourGateDefense'], commanderState: CommanderMissionState | undefined,
-  civilianActorIds: string[], nativeCivilianIds: string[]): boolean {
+  civilianActorIds: string[], nativeCivilianIds: string[], legacyCivilianIds: string[] = []): boolean {
+  const matchesCivilians = (expected: readonly string[]) =>
+    expected.length > 0 && civilianActorIds.length === expected.length && civilianActorIds.every(id => expected.includes(id))
   return Boolean(!fourGateDefense || commanderState?.deploymentComplete !== fourGateDefense.deploymentComplete
-    || civilianActorIds.length !== nativeCivilianIds.length || civilianActorIds.some(id => !nativeCivilianIds.includes(id))
+    || (!matchesCivilians(nativeCivilianIds) && !matchesCivilians(legacyCivilianIds))
     || uniqueStrings(raw.deadFriendlyActorIds).some(id => !friendlyActorIds.includes(id))
     || uniqueStrings(raw.deadCivilianActorIds).some(id => !civilianActorIds.includes(id))
     || raw.personalSquad !== undefined && !personalSquad)
@@ -464,12 +466,13 @@ export function parseActiveMission(value: unknown, faction: CareerProfile['facti
   const bridgeBattle = parseCaptainEagleCheckpoint(raw.bridgeBattle, BRIDGEHEAD_FRIENDLIES + BRIDGEHEAD_ENEMIES)
   const felineBattle = parseCaptainEagleCheckpoint(raw.felineBattle, FELINE_FRIENDLY_TOTAL + FELINE_ENEMY_TOTAL)
   const civilianActorIds = uniqueStrings(raw.civilianActorIds)
-  const nativeCivilianIds = fourGateMission ? townRosterIdentity().filter(actor => actor.role === 'civilian').map(actor => actor.id) : []
+  const nativeCivilianIds = fourGateMission ? townRosterIdentity().filter(actor => isCivilian(actor.role)).map(actor => actor.id) : []
+  const legacyCivilianIds = fourGateMission ? townRosterIdentity().filter(actor => actor.role === 'civilian').map(actor => actor.id) : []
   const fourGateDefense = fourGateMission ? parseCommanderFourGateDefenseState(raw.fourGateDefense, {
     missionId: raw.id, faction, phase: raw.phase as CareerMissionPhase, targetActorIds, friendlyActorIds, civilianActorIds,
     personalActorIds: personalSquad?.memberIds, personalActors: personalSquad?.members, deadTargetActorIds: uniqueStrings(raw.deadTargetActorIds),
   }) : undefined
-  if (fourGateMission && rejectsFourGateDefense(ctx, fourGateDefense, commanderState, civilianActorIds, nativeCivilianIds)) return undefined
+  if (fourGateMission && rejectsFourGateDefense(ctx, fourGateDefense, commanderState, civilianActorIds, nativeCivilianIds, legacyCivilianIds)) return undefined
   const bridgeDeployment = parseBridgeDeployment(raw)
   if (template?.kind === 'commander-bridgehead-battle' && rejectsBridgehead(ctx, bridgeBattle, bridgeDeployment)) return undefined
   const felineFamily = template?.kind === COMMANDER_FELINE_CAVALRY_KIND || template?.kind === COMMANDER_IRON_LEGION_KIND

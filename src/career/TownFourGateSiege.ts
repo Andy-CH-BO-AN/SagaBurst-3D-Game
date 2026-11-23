@@ -275,6 +275,16 @@ export class TownFourGateSiege {
     if (!this.restoring) this.policy.gate(gateId, gate.state)
     else this.policy.gates.get(gateId)!.gateState = gate.state
   }
+  private gateRampsDisabled(gateId: TownGateId): boolean {
+    let count = 0
+    for (const ramp of this.rampList) {
+      if ((ramp.assignment as TownSiegeRampAssignment).gateId !== gateId) continue
+      count++
+      const state = ramp.controller.state
+      if (state !== 'ABANDONED' && state !== 'DESTROYED') return false
+    }
+    return count > 0
+  }
   private onRampState(ramp: MobileSiegeRamp<TownSiegeRampId>, state: MobileSiegeRampState): void {
     const assignment = ramp.assignment as TownSiegeRampAssignment, passages = this.options.world.siegeDockPassages!
     if (state === 'DOCKED') {
@@ -291,12 +301,14 @@ export class TownFourGateSiege {
     } else if (state === 'ABANDONED') {
       passages.setOpen(assignment.id, false); this.entrances.remove(assignment.id)
       this.options.navigation.sync(this.options.world.obstacles)
+      if (!this.restoring && this.gateRampsDisabled(assignment.gateId)) this.policy.releaseWall(assignment.gateId)
     } else if (state === 'DESTROYED') {
       passages.setOpen(assignment.id, false); this.entrances.remove(assignment.id)
       this.options.world.siegeAirspace?.remove(ramp.obstacles)
       if (this.hitRegistered.delete(assignment.id)) this.options.unregisterHit(ramp)
       if (!this.restoring) {
         this.policy.ramp(assignment.gateId, assignment.side, false)
+        if (this.gateRampsDisabled(assignment.gateId)) this.policy.releaseWall(assignment.gateId)
         for (const npc of this.options.actors()) fallFromDestroyedRamp(npc, ramp)
       }
     }
@@ -380,6 +392,9 @@ export class TownFourGateSiege {
       // Enough radius for the full sloped carrier; reuse caller grid and scratch array.
       const radius = ramp.surface.length + ramp.surface.landing + 10
       ramp.update(dt, grid.getNearbyInto(ramp.position, radius, this.neighbors), blockers)
+    }
+    for (const [gateId, gateState] of this.policy.gates) {
+      if (!gateState.wallEventHandled && this.gateRampsDisabled(gateId)) this.policy.releaseWall(gateId)
     }
     // Observe moving ground footprints before this frame's actor routes. The
     // navigation owner ignores sub-cell motion and retains the existing budget.

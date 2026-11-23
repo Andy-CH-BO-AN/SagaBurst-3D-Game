@@ -11,7 +11,7 @@ export type DamageableObstacleKind =
   | 'campfire'
 
 export const DAMAGEABLE_OBSTACLE_HP: Readonly<Record<DamageableObstacleKind, number>> = {
-  siege_ramp: 520,
+  siege_ramp: 3000,
   tree: 180,
   // Palisade wall sections are deliberately tougher than the gate so the
   // intended breach point is also the cheaper structure to destroy.

@@ -45,3 +45,25 @@ export function pursuitMayBreachGate(actor: PursuitGateActor, hasEncounterOrigin
   return !actor.missionMovement && !hasEncounterOrigin && !actor.holdsRampartPosition
     && !actor.hasSiegeObstacle && (actor.tacticalOrder === 'attack' || actor.tacticalOrder === 'charge')
 }
+
+export interface LayeredPursuitTargetContext {
+  readonly selfPosition: Vector3
+  readonly nextPosition: Vector3
+  readonly selfOnRamp: boolean
+  readonly selfElevated: boolean
+  readonly previousElevated: boolean
+  readonly nextElevated: boolean
+  readonly directEngageRangeSq: number
+}
+
+/** Avoid oscillating up and down ramps when switching between distant vertical layers. */
+export function shouldRetainLayeredPursuitTarget(context: LayeredPursuitTargetContext): boolean {
+  if (context.selfPosition.distanceToSquared(context.nextPosition) <= context.directEngageRangeSq) {
+    return false
+  }
+  if (context.selfOnRamp) {
+    return context.previousElevated !== context.nextElevated
+  }
+  return context.previousElevated === context.selfElevated
+    && context.nextElevated !== context.selfElevated
+}

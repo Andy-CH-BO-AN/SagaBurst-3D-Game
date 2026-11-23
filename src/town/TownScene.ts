@@ -773,7 +773,7 @@ export class TownScene {
     this.input.clear()
     if (!context.missionOnlyResidents) this.event.complete()
     this.restoreEagleGarrison()
-    this.restoreTownCasualties()
+    if (this.profile.activeMission?.kind !== 'commander-four-gate-defense' || this.profile.activeMission.result) this.restoreTownCasualties()
     this.civilianCommand.restore()
     this.townCommand.resumeRefits()
     if (this.world.faction === this.profile.faction && !this.sceneContext.missionOnlyResidents) {

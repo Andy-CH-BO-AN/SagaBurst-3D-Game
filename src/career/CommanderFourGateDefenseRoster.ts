@@ -5,7 +5,7 @@ import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
 import { TOWN_GATES, townGatePoint, type TownGateId } from '../town/TownLayout'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { AIType, Faction } from '../world/NPC'
-import { createTownSiegeCrewSlots, type TownSiegeCrewSlot } from './TownFourGateSiegePolicy'
+import { createTownSiegeCrewSlots, TOWN_SIEGE_WORLD_EDGE_INSET, type TownSiegeCrewSlot } from './TownFourGateSiegePolicy'
 import type { OfficialCommandSquad } from './CareerCommandAuthority'
 import { COMMANDER_TOWN_GATE_ORDER, commanderGateDefenseSlots } from './CommanderTownRoster'
 
@@ -73,7 +73,7 @@ function infantry(slot: CommanderFourGateDefenseSlot, faction: CharacterFaction)
   const gateLabel = `${slot.gateId[0].toUpperCase()}${slot.gateId.slice(1)}`
   // Placeholder muster behind the gate; the controller moves each to its vehicle's rear slot.
   const gate = TOWN_GATES.find(gate => gate.id === slot.gateId)!
-  const point = townGatePoint(gate, (slot.side ?? 1) * 20, -(TOWN_PLAYABLE_WORLD_BOUND - 40))
+  const point = townGatePoint(gate, (slot.side ?? 1) * 20, -(TOWN_PLAYABLE_WORLD_BOUND - TOWN_SIEGE_WORLD_EDGE_INSET - 40))
   return { actorId: slot.actorId, x: point.x, z: point.z, faction: Faction.ENEMY, characterFaction: faction,
     aiType: AIType.MELEE, name: `${gateLabel} Siege Escort T3`, tier: 3, characterTier: 3,
     cavalry: false, respawnEnabled: false, presetId, loadout }
@@ -84,7 +84,7 @@ function vanguard(slot: CommanderFourGateDefenseSlot, faction: CharacterFaction)
   const presetId: UnitPresetId = faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker'
   const gate = TOWN_GATES.find(gate => gate.id === slot.gateId)!
   const gateCoordinate = Math.max(Math.abs(Math.sin(gate.yaw) * gate.x), Math.abs(Math.cos(gate.yaw) * gate.z))
-  const point = townGatePoint(gate, (slot.slot % 5 - 2) * 3, -(TOWN_PLAYABLE_WORLD_BOUND - 8 - Math.floor((slot.slot - 1) / 5) * 3 - gateCoordinate))
+  const point = townGatePoint(gate, (slot.slot % 5 - 2) * 3, -(TOWN_PLAYABLE_WORLD_BOUND - TOWN_SIEGE_WORLD_EDGE_INSET - 8 - Math.floor((slot.slot - 1) / 5) * 3 - gateCoordinate))
   const gateLabel = `${gate.id[0].toUpperCase()}${gate.id.slice(1)}`
   return { actorId: slot.actorId, x: point.x, z: point.z, faction: Faction.ENEMY, characterFaction: faction,
     aiType: AIType.MELEE, name: `${gateLabel} Vanguard T3`, tier: 3, characterTier: 3,
