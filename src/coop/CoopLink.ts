@@ -34,6 +34,8 @@ const BROWSER_LINK_KEY = 'sagaburst_coop_link'
 /** Browser fallback: same contract as the Electron bridge, direct WebSocket. */
 class BrowserCoopBridge implements CoopBridge {
   private socket: WebSocket | null = null
+  /** Settles the open() whose socket was replaced or left, so its caller never waits forever. */
+  private settleOpen: (() => void) | null = null
   private state: CoopLinkState = { role: null, status: 'idle', address: null, port: DEFAULT_COOP_PORT, error: null }
   private readonly messageListeners = new Set<(data: CoopFrame) => void>()
   private readonly stateListeners = new Set<(state: CoopLinkState) => void>()
@@ -58,6 +60,7 @@ class BrowserCoopBridge implements CoopBridge {
     this.storage?.removeItem(BROWSER_LINK_KEY)
     this.closeSocket()
     this.setState({ role: null, status: 'idle', address: null, error: null })
+    this.settlePendingOpen()
   }
 
   send(data: CoopFrame): void {
@@ -79,6 +82,12 @@ class BrowserCoopBridge implements CoopBridge {
     for (const listener of this.stateListeners) listener(this.state)
   }
 
+  private settlePendingOpen(): void {
+    const settle = this.settleOpen
+    this.settleOpen = null
+    settle?.()
+  }
+
   private closeSocket(): void {
     const old = this.socket
     this.socket = null
@@ -89,7 +98,9 @@ class BrowserCoopBridge implements CoopBridge {
     this.closeSocket()
     this.storage?.setItem(BROWSER_LINK_KEY, JSON.stringify({ role, address, port }))
     this.setState({ role, status: 'connecting', address, port, error: null })
+    this.settlePendingOpen()
     return new Promise(resolve => {
+      this.settleOpen = () => resolve(this.state)
       let socket: WebSocket
       try { socket = new WebSocket(`ws://${address}:${port}/?role=${role}`) }
       catch (error) { this.setState({ status: 'closed', error: String(error) }); resolve(this.state); return }
