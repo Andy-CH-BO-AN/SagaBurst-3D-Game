@@ -8,7 +8,7 @@ import { INFANTRY_MOVE_SPEED } from '../movement/MovementBalance'
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
 import { RANGED_ATTACK_MIN, chooseReversibleWeaponMode, needsWeaponModeDecision, withinRangedMeleeThreatReach } from '../combat/ReversibleWeaponMode'
 import { CIVILIAN_PROFILE } from '../town/TownRules'
-import { townMerchantLoadout, isTownMerchantLoadout, chooseMerchantMelee } from '../town/TownMerchantEquipment'
+import { townMerchantLoadout, isTownMerchantLoadout, isTownMerchantMountId, chooseMerchantMelee } from '../town/TownMerchantEquipment'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
 /**
@@ -933,7 +933,7 @@ export class NPC {
     visualAssetId = identity.visualAssetId
     combatProfileId = identity.combatProfileId
     specialCombatProfile = identity.specialCombatProfile
-    if (townCombatRole === 'merchant') loadout = townMerchantLoadout(loadout?.mountId === 'horse' ? 'horse' : null)
+    if (townCombatRole === 'merchant') loadout = townMerchantLoadout(isTownMerchantMountId(loadout?.mountId) ? loadout.mountId : null)
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.spawnX = spawnX
     this.spawnZ = spawnZ

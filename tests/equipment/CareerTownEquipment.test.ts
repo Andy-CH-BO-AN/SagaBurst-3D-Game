@@ -293,19 +293,20 @@ describe('Commander native equipment resale and permanent token ownership', () =
 })
 
 describe('Resident native equipment and military horse ownership', () => {
-  it('keeps merchant weapons fixed while allocating, releasing and rolling back a purchased horse', () => {
+  it('keeps merchant weapons fixed while allocating, releasing and rolling back purchased mounts', () => {
     const h = harness(); h.context.safeActorIds = new Set(['merchant', 'civilian-0'])
     const merchant = resolveTownActorEquipment(h.read(), 'roman', 'merchant')
     expect(merchant).toMatchObject({ readOnly: false, fixedWeapons: true, loadout: {
-      meleeWeaponId: 'sword_t5', secondaryMeleeWeaponId: 'axe_t5', shieldId: 'paladin_shield_t4', rangedWeaponId: null, mountId: null,
+      meleeWeaponId: 'sword_t5', secondaryMeleeWeaponId: 'axe_t5', shieldId: 'byzantine_eagle_shield_t5', rangedWeaponId: null, mountId: null,
     } })
     expect(careerItemTotal(h.read(), 'sword_t5')).toBe(0)
     expect(h.change('merchant', 'melee', 'paladin_sword_t4').reason).toBe('fixed-equipment')
     expect(h.change('merchant', 'shield', null).reason).toBe('fixed-equipment')
     expect(h.change('merchant', 'ranged', 'bow_t5').reason).toBe('fixed-equipment')
-    expect(h.change('merchant', 'mount', 'black-cat').reason).toBe('invalid-item')
+    h.buy('xongkoro')
+    expect(h.change('merchant', 'mount', 'xongkoro').reason).toBe('invalid-item')
     expect(h.change('merchant', 'mount', 'horse').reason).toBe('no-available-item')
-    h.buy('horse')
+    h.buy('horse'); h.buy('black-cat')
     const before = cloneCareerProfile(h.read()); h.storage.failWrites = true
     expect(h.change('merchant', 'mount', 'horse').reason).toBe('save-failed')
     expect(h.read()).toEqual(before)
@@ -314,8 +315,36 @@ describe('Resident native equipment and military horse ownership', () => {
     expect(careerItemAllocated(h.read(), 'horse')).toBe(1)
     expect(h.change('civilian-0', 'mount', 'horse').reason).toBe('no-available-item')
     expect(resolveTownActorEquipment(h.reload(), 'roman', 'merchant').loadout.mountId).toBe('horse')
-    expect(h.change('merchant', 'mount', null).changed).toBe(true)
+    expect(h.change('merchant', 'mount', 'black-cat').changed).toBe(true)
     expect(availableCareerItem(h.read(), 'horse')).toBe(1)
+    expect(resolveTownActorEquipment(h.reload(), 'roman', 'merchant').loadout.mountId).toBe('black-cat')
+    expect(h.change('merchant', 'mount', null).changed).toBe(true)
+    expect(availableCareerItem(h.read(), 'black-cat')).toBe(1)
+  })
+
+  it('migrates legacy saved paladin_shield_t4 on merchant to byzantine_eagle_shield_t5', () => {
+    const h = harness()
+    h.buy('black-cat')
+    const legacy = cloneCareerProfile(h.read())
+    legacy.townEquipment = {
+      roman: {
+        version: 2,
+        nativeReserve: [],
+        actors: {
+          merchant: {
+            melee: { itemId: 'sword_t5', source: 'native', nativeId: 'roman/merchant/melee' },
+            ranged: null,
+            shield: { itemId: 'paladin_shield_t4', source: 'native', nativeId: 'roman/merchant/shield' },
+            mount: { itemId: 'black-cat', source: 'inventory' },
+          },
+        },
+      },
+    }
+    h.save(h.read())
+    h.storage.setItem(h.storage.key(0)!, JSON.stringify(legacy))
+    const reloaded = resolveTownActorEquipment(h.reload(), 'roman', 'merchant')
+    expect(reloaded.loadout.shieldId).toBe('byzantine_eagle_shield_t5')
+    expect(reloaded.loadout.mountId).toBe('black-cat')
   })
 
   it('retains each civilian native token in reserve or sold ownership after deliberate unequip and reload', () => {

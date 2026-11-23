@@ -686,11 +686,13 @@ describe('Reversible NPC weapon choice', () => {
 
 })
 
-it('preserves merchant fixed gear with a purchased horse and switches only its existing melee weapon between attacks', () => {
+it('preserves merchant fixed gear with purchased mounts and switches only its existing melee weapon between attacks', () => {
   const loadout = townMerchantLoadout('horse')
+  expect(loadout.shieldId).toBe('byzantine_eagle_shield_t5')
   expect(isTownMerchantLoadout(loadout)).toBe(true)
   expect(isTownMerchantLoadout({ ...loadout, secondaryMeleeWeaponId: 'paladin_mace_t4' })).toBe(false)
-  expect(isTownMerchantLoadout({ ...loadout, mountId: 'black-cat' })).toBe(false)
+  expect(isTownMerchantLoadout({ ...loadout, mountId: 'black-cat' })).toBe(true)
+  expect(isTownMerchantLoadout({ ...loadout, mountId: 'xongkoro' })).toBe(false)
   expect(chooseMerchantMelee(loadout, true, false)).toBe('axe_t5')
   // A committed swing keeps the held weapon whatever the target does.
   expect(chooseMerchantMelee(loadout, false, true)).toBeNull()
