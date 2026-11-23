@@ -7,7 +7,7 @@ import { getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { ChaseTargetCoordinator } from '../../src/navigation/ChaseTargetCoordinator'
-import { Faction, NPC } from '../../src/world/NPC'
+import { AIState, Faction, NPC } from '../../src/world/NPC'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
 import type { Player } from '../../src/player/Player'
 
@@ -213,4 +213,21 @@ it('弓騎兵沿攻門 approach 接近，僅在實際射程與彈道 LOS 允許�
   h.body.tacticalOrder = 'defend'
   expect(h.navigate().step?.breach).toBeUndefined()
   expect(h.route.closedGateObstacle).toBeNull()
+})
+
+it('NPC 攻門中城門被突破後，ATTACK 重新詢問路線並回到 CHASE，不再以城門為目標', () => {
+  const h = blockedTownPursuit('attack'), methods = NPC.prototype, cancel = vi.fn()
+  expect(methods['_readyPursuitGate'].call(h.actor, h.arrive().step, h.obstacles)).toBe(h.gateObstacle)
+  Object.assign(h.body, {
+    state: AIState.ATTACK, _siegeTargetObstacle: h.gateObstacle, layeredCombatMovement: false,
+    animator: { cancel }, _clearSiegeFallback: methods['_clearSiegeFallback'],
+  })
+  h.gate.state = 'destroyed'
+  h.obstacles.splice(h.obstacles.indexOf(h.gateObstacle), 1)
+  h.world.rebuild(h.obstacles); h.world.beginFrame()
+  const target = { position: h.guard.combatPosition, isDead: false, isPlayer: false, npc: h.guard }
+  methods['_updateAttackState'].call(h.actor, 1 / 60, {}, [], h.obstacles, () => {}, () => {}, false, 0, null, null, h.world, target as never, 0)
+  expect(h.body['state']).toBe(AIState.CHASE)
+  expect(h.body['_siegeTargetObstacle']).toBeNull()
+  expect(cancel).toHaveBeenCalled()
 })
