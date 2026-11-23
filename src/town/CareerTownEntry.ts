@@ -160,6 +160,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       }
     }
     // An Arena Squad Trial is its own scene too: accepted, mid-fight and settled saves all load the arena.
+    const failedMissionId = profile.activeMission?.id
     const trial = careerArenaTrial(profile.activeMission)
     if (trial) {
       form.remove()
@@ -192,6 +193,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
         const cancel = document.createElement('button'); cancel.className = 'town-button'; cancel.textContent = '取消本次試煉（不計勝負）'
         cancel.onclick = () => {
           const latest = store.loadChecked().profile ?? profile
+          if (latest.activeMission?.id !== failedMissionId) { text.textContent = '任務存檔已更新，請重新載入。'; return }
           const mission = latest.activeMission
           const next = mission ? clearCareerMission(latest, mission.id) : latest
           if (mission && !store.save(next)) { text.textContent = '取消尚未保存，請重試。'; return }
@@ -234,6 +236,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
         const cancel = document.createElement('button'); cancel.className = 'town-button'; cancel.textContent = '取消本次單挑（不計勝負）'
         cancel.onclick = () => {
           const latest = store.loadChecked().profile ?? profile
+          if (latest.activeMission?.id !== failedMissionId) { text.textContent = '任務存檔已更新，請重新載入。'; return }
           const mission = latest.activeMission
           const next = mission ? clearCareerMission(latest, mission.id) : latest
           if (mission && !store.save(next)) { text.textContent = '取消尚未保存，請重試。'; return }
