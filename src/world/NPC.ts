@@ -391,14 +391,17 @@ export class NPC {
   /** What this actor has selected, and what it really holds. They differ only while a selected item's model is loading. */
   private selectedMeleeWeaponId: string | null = 'steel_sword'
   private heldMeleeWeaponId: string | null = 'steel_sword'
+  private equipmentDisposed = false
   get meleeWeaponId(): string | null { return this.heldMeleeWeaponId }
   set meleeWeaponId(id: string | null) {
     if (this.selectedMeleeWeaponId && this.selectedMeleeWeaponId !== id) {
       releaseEquipmentDemand(this.selectedMeleeWeaponId, this)
     }
     this.selectedMeleeWeaponId = id
-    if (id) acquireEquipmentDemand(id, this)
-    this.heldMeleeWeaponId = resolveEquipmentSlot(id, this.heldMeleeWeaponId, this)
+    // A disposed NPC has released all demand and must never re-acquire it.
+    const demandOwner = this.equipmentDisposed ? undefined : this
+    if (id && demandOwner) acquireEquipmentDemand(id, demandOwner)
+    this.heldMeleeWeaponId = resolveEquipmentSlot(id, this.heldMeleeWeaponId, demandOwner)
   }
   public rangedWeaponId?: string
   public loadout?: UnitLoadout
@@ -566,8 +569,9 @@ export class NPC {
       releaseEquipmentDemand(this.selectedShieldId, this)
     }
     this.selectedShieldId = id
-    if (id) acquireEquipmentDemand(id, this)
-    this.heldShieldId = resolveEquipmentSlot(id, this.heldShieldId, this)
+    const demandOwner = this.equipmentDisposed ? undefined : this
+    if (id && demandOwner) acquireEquipmentDemand(id, demandOwner)
+    this.heldShieldId = resolveEquipmentSlot(id, this.heldShieldId, demandOwner)
   }
   readonly equipmentVisualLOD = new EquipmentVisualLODController()
   private builtShieldId: string | null | undefined = undefined
@@ -1416,6 +1420,7 @@ export class NPC {
 
   dispose(): void {
     NPC.live.delete(this)
+    this.equipmentDisposed = true
     releaseAllEquipmentDemands(this)
     this.bowVisual?.dispose()
     this.combatEvents.close()
