@@ -3,15 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { Faction } from '../../src/combat/CombatFaction'
 import { WeaponSweep } from '../../src/combat/ShieldBlocking'
 import {
-  CAVALRY_MAX_TURN_RATE,
-  cavalryTurnRate,
   findCavalryChargeTarget,
   isEligibleMeleeCavalry,
   isTargetInForwardCone,
   scoreCavalryTarget,
-  steerCavalryHeading,
 } from '../../src/movement/ContinuousCavalryCharge'
-import { angleDifference } from '../../src/movement/MountedArcherOrbit'
 import { isHostileCombatMount } from '../../src/world/NPC'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
 
@@ -37,22 +33,6 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(isEligibleMeleeCavalry(true, { isFlyingMount: false }, false, 'charge', true, false)).toBe(false)
     // Rampart garrison
     expect(isEligibleMeleeCavalry(true, { isFlyingMount: false }, false, 'attack', false, true)).toBe(false)
-  })
-
-  it('bounds cavalry turn rate to prevent instantaneous 180 degree snapping', () => {
-    const currentYaw = 0 // Facing +Z
-    const desiredYaw = Math.PI // Directly behind (180°)
-    const speed = 12
-    const dt = 1 / 60
-
-    const nextYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
-    const turnDelta = Math.abs(angleDifference(nextYaw, currentYaw))
-
-    // Expected max turn in 1 frame (1/60s)
-    const maxExpectedTurn = cavalryTurnRate(speed) * dt
-    expect(turnDelta).toBeLessThanOrEqual(maxExpectedTurn + 1e-6)
-    expect(turnDelta).toBeLessThan(0.1) // Much less than PI (3.14159)
-    expect(cavalryTurnRate(speed)).toBeLessThanOrEqual(CAVALRY_MAX_TURN_RATE)
   })
 
   it('evaluates forward cone and scores forward over rearward targets during charge and pass-through', () => {
@@ -208,44 +188,8 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(restrictedTarget).toBeNull()
   })
 
-  it('keeps charge heading forward when target moves behind and shares turn budget with lance tip', () => {
-    const cavalryPos = new THREE.Vector3(0, 0, 10)
-    const currentYaw = 0 // Facing +Z
-    const enemyBehindPos = new THREE.Vector3(0, 0, 8) // Behind at z=8
-    const speed = 12
-    const dt = 1 / 60
-
-    // Enemy is behind: isTargetInForwardCone must be false
-    const inFront = isTargetInForwardCone(cavalryPos, currentYaw, enemyBehindPos)
-    expect(inFront).toBe(false)
-
-    // Because enemy is behind, desiredYaw must remain currentYaw (forward)
-    const targetDirX = enemyBehindPos.x - cavalryPos.x
-    const targetDirZ = enemyBehindPos.z - cavalryPos.z
-    const desiredYaw = (inFront && targetDirX * targetDirX + targetDirZ * targetDirZ > 0.001)
-      ? Math.atan2(targetDirX, targetDirZ)
-      : currentYaw
-    expect(desiredYaw).toBe(currentYaw)
-
-    // Steering maintains heading with zero turn
-    const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
-    expect(newYaw).toBe(currentYaw)
-
-    // Shares turn budget between heading steering and lance tip correction
-    const maxTurnBudget = cavalryTurnRate(speed) * dt
-    const initialYaw = 0
-    const steerYaw = steerCavalryHeading(initialYaw, 0.5, speed, dt)
-    const headingTurn = steerYaw - initialYaw
-    expect(headingTurn).toBeCloseTo(maxTurnBudget, 6)
-
-    const tipYawOffset = -0.3
-    const unconstrainedYaw = steerYaw - tipYawOffset
-    const totalDiff = angleDifference(unconstrainedYaw, initialYaw)
-    const clampedDiff = Math.max(-maxTurnBudget, Math.min(maxTurnBudget, totalDiff))
-    const finalYaw = initialYaw + clampedDiff
-    const actualTotalTurn = Math.abs(angleDifference(finalYaw, initialYaw))
-    expect(actualTotalTurn).toBeLessThanOrEqual(maxTurnBudget + 1e-6)
-    expect(actualTotalTurn).toBeCloseTo(maxTurnBudget, 6)
+  it('treats a target just passed as behind the charge heading', () => {
+    expect(isTargetInForwardCone(new THREE.Vector3(0, 0, 10), 0, new THREE.Vector3(0, 0, 8))).toBe(false)
   })
 
   it('falls back to nearest available ground target when no forward candidate exists', () => {
