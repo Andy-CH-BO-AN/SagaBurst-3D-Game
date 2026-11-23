@@ -228,6 +228,7 @@ describe('CareerMissionCheckpoint', () => {
 
   it('retries a failed first-attack save with current actor intent in both checkpoints before publishing combat', () => {
     const initialProfile = createFourGateDefenseProfile('ATTACKING')
+    const acceptedTargetIds = [...initialProfile.activeMission!.targetActorIds].sort()
     Object.assign(initialProfile.activeMission!.fourGateDefense!, { phase: 'SPAWNING', deploymentComplete: false, attackStarted: false, combatElapsedSeconds: 0 })
     for (const ramp of initialProfile.activeMission!.fourGateDefense!.siege!.ramps) ramp.state = 'DEPLOYING'
     initialProfile.activeMission!.phase = 'SPAWNING'
@@ -265,7 +266,7 @@ describe('CareerMissionCheckpoint', () => {
     // The actual snapshot owner must acknowledge that full roster even while still SPAWNING.
     const readySnapshot = controller.snapshotActiveMission()
     expect(readySnapshot.fourGateDefense).toMatchObject({ phase: 'SPAWNING', deploymentComplete: false })
-    expect(readySnapshot.fourGateDefense!.registeredTargetActorIds).toHaveLength(280)
+    expect([...readySnapshot.fourGateDefense!.registeredTargetActorIds].sort()).toEqual(acceptedTargetIds)
     const liveState = { ...readySnapshot.fourGateDefense!, phase: 'ATTACKING' as const, attackStarted: true, deploymentComplete: true }
     Object.assign(controller, { state: liveState })
     // The same production snapshot must withhold the new escort's initial Charge,
@@ -327,6 +328,7 @@ describe('CareerMissionCheckpoint', () => {
 
   it('saves spawning intent before enqueueing and holds combat through reload, incomplete deployment and failed attack commit', () => {
     let profile = createFourGateDefenseProfile('ATTACKING')
+    const acceptedTargetIds = [...profile.activeMission!.targetActorIds].sort()
     // One materialization dependency set serves the later scheduler completion.
     // The accepted preparation itself contains only native data, never these enemies/ramps.
     const materialized = profile.activeMission!.fourGateDefense!
@@ -411,7 +413,7 @@ describe('CareerMissionCheckpoint', () => {
     expect(controller.state.combatElapsedSeconds).toBe(12.5)
     expect(profile.activeMission!.fourGateDefense!.combatElapsedSeconds).toBe(12.5)
     expect(profile.activeMission!.phase).toBe('ATTACKING')
-    expect(profile.activeMission!.fourGateDefense!.registeredTargetActorIds).toHaveLength(280)
+    expect([...profile.activeMission!.fourGateDefense!.registeredTargetActorIds].sort()).toEqual(acceptedTargetIds)
     expect(controller.combatEnabled).toBe(true)
     expect(batches).toBe(1); expect(releases).toBe(1)
   })

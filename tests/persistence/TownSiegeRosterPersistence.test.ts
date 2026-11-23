@@ -48,7 +48,7 @@ describe('siege checkpoint ownership', () => {
     ], [living], restored.activeMission!.borrowedActorIdentities)[living].characterTier).toBe(1)
   })
 
-  it('new acceptance saves 206 plus ten autonomous defenders and keeps the native casualty', () => {
+  it('keeps the official and autonomous defender identities and the native casualty after reload', () => {
     const next = createFourGateDefenseProfile('PREPARING'), current = next.activeMission!
     const store = new CareerProfileStore(new MemoryStorage())
     const archerId = 'watchtower-archer:3'
@@ -60,8 +60,9 @@ describe('siege checkpoint ownership', () => {
       new Set(current.fourGateDefense!.autonomousActorIds), new Set(current.targetActorIds))
     expect(store.save(next)).toBe(true)
     const loaded = store.load()!.activeMission!
-    expect(loaded.friendlyActorIds).toHaveLength(206)
-    expect(loaded.fourGateDefense!.autonomousActorIds).toHaveLength(10)
+    expect(loaded.friendlyActorIds).toEqual(current.friendlyActorIds)
+    expect(loaded.fourGateDefense!.autonomousActorIds).toEqual(current.fourGateDefense!.autonomousActorIds)
+    expect(loaded.fourGateDefense!.autonomousActorIds).toContain(archerId)
     expect(loaded.fourGateDefense!.nativeCombatStats).toEqual({ damageDealt: 0, damageTaken: 0, kills: 1 })
     expect(loaded.fourGateDefense!.actors[archerId]).toMatchObject({ status: 'dead', hp: 0 })
     expect(loaded.officialSquad!.actorIds).not.toContain(archerId)
