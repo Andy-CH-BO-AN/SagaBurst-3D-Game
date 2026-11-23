@@ -15,9 +15,10 @@ import { stageOfficialCommandOrder } from '../../src/career/CareerOfficialComman
 import { Faction, type NPC } from '../../src/world/NPC'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
-import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, createCommanderCavalryEscort, isCommanderCavalryEscorting, parseCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
+import { advanceCommanderCavalryEscort, COMMANDER_CAVALRY_ESCORT, commanderCavalryEscortAssignments, createCommanderCavalryEscort, isCommanderCavalryEscorting, parseCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
 import { commanderInfantryEscortAssignments, createCommanderInfantryEscort, isCommanderInfantryEscorting } from '../../src/career/CommanderInfantryEscort'
 import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, parseCommanderFourGateDefenseState, recordNativeTownGuardCombat } from '../../src/career/CommanderFourGateDefenseState'
+import { commanderFourGateGarrisonSlots } from '../../src/career/CommanderFourGateDefenseRoster'
 
 describe('siege checkpoint ownership', () => {
   it('restores a native identity receipt independently of slot equipment and preserves wounds and deaths', () => {
@@ -48,7 +49,7 @@ describe('siege checkpoint ownership', () => {
     ], [living], restored.activeMission!.borrowedActorIdentities)[living].characterTier).toBe(1)
   })
 
-  it('new acceptance saves 206 plus ten autonomous defenders and keeps the native casualty', () => {
+  it('new acceptance saves 206 natives plus the 80-man garrison in its gate squads and ten autonomous defenders', () => {
     const next = createFourGateDefenseProfile('PREPARING'), current = next.activeMission!
     const store = new CareerProfileStore(new MemoryStorage())
     const archerId = 'watchtower-archer:3'
@@ -60,7 +61,17 @@ describe('siege checkpoint ownership', () => {
       new Set(current.fourGateDefense!.autonomousActorIds), new Set(current.targetActorIds))
     expect(store.save(next)).toBe(true)
     const loaded = store.load()!.activeMission!
-    expect(loaded.friendlyActorIds).toHaveLength(206)
+    const garrison = commanderFourGateGarrisonSlots(loaded.id)
+    expect(loaded.friendlyActorIds).toHaveLength(206 + garrison.length)
+    // Each gate's whole foot garrison joins its infantry squad (1/3/5/7); cavalry squads stay native.
+    for (const slot of garrison) {
+      const squadId = ['north', 'south', 'east', 'west'].indexOf(slot.gateId) * 2 + 1
+      expect(loaded.officialSquad!.squads!.find(squad => squad.squadId === squadId)!.actorIds).toContain(slot.actorId)
+    }
+    for (const squad of loaded.officialSquad!.squads!.filter(squad => squad.squadId % 2 === 0)) {
+      expect(squad.actorIds.some(id => garrison.some(slot => slot.actorId === id))).toBe(false)
+    }
+    expect(Math.max(...loaded.officialSquad!.squads!.map(squad => squad.actorIds.length))).toBeLessThanOrEqual(50)
     expect(loaded.fourGateDefense!.autonomousActorIds).toHaveLength(10)
     expect(loaded.fourGateDefense!.nativeCombatStats).toEqual({ damageDealt: 0, damageTaken: 0, kills: 1 })
     expect(loaded.fourGateDefense!.actors[archerId]).toMatchObject({ status: 'dead', hp: 0 })
@@ -91,7 +102,9 @@ describe('siege checkpoint ownership', () => {
     expect(parseCommanderFourGateDefenseState(state, context)?.victoryReason).toBe('survival')
     expect(parseCommanderFourGateDefenseState({ ...state, victoryReason: 'elimination' }, context)).toBeUndefined()
     state.player!.dead = true; state.player!.hp = 0
-    for (const id of [...mission.friendlyActorIds, ...(state.autonomousActorIds ?? []), ...mission.civilianActorIds!]) {
+    // The mission garrison is living defense too; every defender must be down to reject survival.
+    for (const id of [...mission.friendlyActorIds, ...(state.autonomousActorIds ?? []), ...mission.civilianActorIds!,
+      ...commanderFourGateGarrisonSlots(mission.id).map(slot => slot.actorId)]) {
       Object.assign(state.actors[id], { status: 'dead', hp: 0 })
       if (state.siege!.actors[id]) Object.assign(state.siege!.actors[id], { status: 'dead', hp: 0 })
     }
@@ -114,8 +127,9 @@ describe('siege checkpoint ownership', () => {
     // Keep the restored convoy outside the gate release radius while its stall clock resumes.
     for (const ramp of state.siege!.ramps) {
       const { outward } = townSiegeFrame(ramp.assignment.gateId)
-      ramp.travelDistance += 100; ramp.position.x += outward.x * 100; ramp.position.z += outward.z * 100
-      ramp.stagingZ += outward.z * 100
+      const out = COMMANDER_CAVALRY_ESCORT.releaseDistance
+      ramp.travelDistance += out; ramp.position.x += outward.x * out; ramp.position.z += outward.z * out
+      ramp.stagingZ += outward.z * out
     }
     const east = state.siege!.ramps.find(r => r.assignment.id === 'town-siege-ramp:east:left')!
     east.distance = 17; east.position.x -= 17

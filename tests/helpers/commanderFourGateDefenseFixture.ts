@@ -1,7 +1,7 @@
 import { careerRankFixture } from './careerRankFixture'
 
 import { acceptCommanderMission } from '../../src/career/CommanderMissionCatalog'
-import { COMMANDER_FOUR_GATE_DEFENSE_ID, createCommanderFourGateDefenseRoster } from '../../src/career/CommanderFourGateDefenseRoster'
+import { COMMANDER_FOUR_GATE_DEFENSE_ID, commanderFourGateGarrisonSlots, createCommanderFourGateDefenseRoster } from '../../src/career/CommanderFourGateDefenseRoster'
 import { createCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
 import { createCommanderInfantryEscort } from '../../src/career/CommanderInfantryEscort'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -20,14 +20,15 @@ export function createFourGateDefenseProfile(phase: 'PREPARING' | 'SPAWNING' | '
     status: 'deployed', hp: 100, position: { x: 20, y: 10, z: 30, yaw: .3 },
     ...(mounted ? { mount: { hp: 90, mounted: true, position: { x: 20, y: 10, z: 30, yaw: .3 } } } : {}),
   })
-  for (const id of [...mission.friendlyActorIds, ...(state.autonomousActorIds ?? []), ...(mission.civilianActorIds ?? [])]) {
+  for (const id of [...mission.friendlyActorIds, ...(state.autonomousActorIds ?? []), ...commanderFourGateGarrisonSlots(mission.id).map(slot => slot.actorId),
+    ...(mission.civilianActorIds ?? [])]) {
     state.actors[id] = actor(false)
   }
   mission.phase = phase
   Object.assign(state, { phase, preparationRemainingSeconds: phase === 'PREPARING' ? 180 : 0,
     player: { hp: 85, stamina: 70, dead: false, position: { x: 12, y: 10, z: 18, yaw: .5 }, ammo: 7, shieldImpact: 2 } })
   if (phase !== 'ATTACKING') return profile
-  const roster = createCommanderFourGateDefenseRoster(mission.id, 'viking', 2)
+  const roster = createCommanderFourGateDefenseRoster(mission.id, 'viking')
   for (const spec of roster.all) state.actors[spec.actorId!] = actor(Boolean(spec.loadout?.mountId))
   // The bounded parser requires all crew; other ground records are present only when
   // a case exercises their route/command mirror. Full actor identity capacity stays real.

@@ -1,4 +1,5 @@
 import { SpatialGrid } from '../../src/world/SpatialGrid'
+import { commanderFourGateGarrisonSlots } from '../../src/career/CommanderFourGateDefenseRoster'
 import type { Player } from '../../src/player/Player'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { gateBreachLane } from '../../src/navigation/GateBreachPortal'
@@ -15,7 +16,7 @@ import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
 import { townAuthoredRoster, type TownActorSpec } from '../../src/town/TownRules'
 import { getTownRampartLayout, townRampartHeight } from '../../src/town/TownRamparts'
 
-import { getTerrainHeight } from '../../src/world/Terrain'
+import { getTerrainHeight, getWalkRampHeight } from '../../src/world/Terrain'
 import { SiegeConvoy } from '../../src/campaign/SiegeConvoy'
 import { ActorDouble, asNpc, MountDouble } from '../helpers/careerActorDoubles'
 import { preparedTownSiege, townSiege } from '../helpers/townSiegeDoubles'
@@ -59,6 +60,39 @@ describe('Siege deployment and shared rule ownership', () => {
     }
     expect(Math.hypot(wall[0].x - wall[1].x, wall[0].z - wall[1].z)).toBeGreaterThanOrEqual(3.6)
     expect(residents).toEqual(original)
+  })
+
+  it('posts each gate\'s foot archers in its gatehouse gallery first and sends only the overflow to the wall', () => {
+    const layout = getTownRampartLayout(), roster = townAuthoredRoster()
+    const deployment = planCommanderFourGateDefenseDeployment(roster, layout, [])
+    const byId = new Map(roster.map(actor => [actor.id, actor]))
+    for (const sector of deployment.sectors) {
+      const house = layout.gatehouses!.find(house => house.gate.id === sector.gateId)!
+      const archers = sector.wallActorIds.filter(id => ['ranged', 'archer'].includes(byId.get(id)!.unitKind ?? '') && !byId.get(id)!.mounted)
+      const onGallery = archers.filter(id => {
+        const station = deployment.stations.get(id)!
+        return getWalkRampHeight(house.deck, station.x, station.z) !== null && Math.hypot(station.x - house.gate.x, station.z - house.gate.z) < 8
+      })
+      expect(archers.length).toBeGreaterThan(0)
+      expect(onGallery.length).toBe(Math.min(archers.length, 10))
+      const posts = onGallery.map(id => deployment.stations.get(id)!)
+      for (const [i, a] of posts.entries()) for (const b of posts.slice(i + 1)) expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThanOrEqual(2.3)
+    }
+  })
+
+  it('posts the whole mission garrison on its own gate\'s wall after every native post', () => {
+    const layout = getTownRampartLayout(), roster = townAuthoredRoster()
+    const garrison = commanderFourGateGarrisonSlots('garrison')
+    const deployment = planCommanderFourGateDefenseDeployment(roster, layout, [], undefined, 2, garrison)
+    const native = planCommanderFourGateDefenseDeployment(roster, layout, [])
+    for (const [id, station] of native.stations) expect(deployment.stations.get(id)).toEqual(station)
+    for (const member of garrison) {
+      const station = deployment.stations.get(member.actorId)!, sector = deployment.sectors.find(s => s.gateId === member.gateId)!
+      expect(station.gateId).toBe(member.gateId)
+      expect(station.kind).toBe('wall')
+      expect(townRampartHeight(layout, station.x, station.z)).not.toBeNull()
+      expect(sector.wallActorIds).toContain(member.actorId)
+    }
   })
 
   it('requires explicit mounted wall permission, preserves it in checkpoints and clears it when command ownership is released', () => {

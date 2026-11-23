@@ -27,7 +27,8 @@ import type { PersonalActorCheckpoint } from './CareerPersonalSquadMission'
 import type { CareerProfile } from './CareerProfile'
 import { advanceCommanderCavalryEscort, COMMANDER_CAVALRY_ESCORT, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, createCommanderCavalryEscort, isCommanderCavalryEscorting } from './CommanderCavalryEscort'
 import { planCommanderFourGateDefenseDeployment } from './CommanderFourGateDefenseDeployment'
-import { COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, createCommanderFourGateDefenseRoster } from './CommanderFourGateDefenseRoster'
+import { COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION, commanderArcherScreenSide, commanderArcherScreenTarget, commanderFourGateDefenseSlots, commanderFourGateGarrisonSlots, createCommanderFourGateDefenseRoster, createCommanderFourGateGarrison, type CommanderEnemyRosterVersion } from './CommanderFourGateDefenseRoster'
+import { townSiegeRampId } from './TownFourGateSiegePolicy'
 import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, skipCommanderFourGateDefensePreparation, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, fourGateRemainingTargets, fourGateTargetsAccounted, recordNativeTownGuardCombat, resolveCommanderFourGateDefenseOutcome } from './CommanderFourGateDefenseState'
 import { advanceCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, isCommanderInfantryEscorting } from './CommanderInfantryEscort'
 import type { CommanderTownResident } from './CommanderTownMissionController'
@@ -43,6 +44,8 @@ export interface CommanderFourGateDefenseContext {
   blockers?(): readonly EntityCollisionBody[]
   registerHit: TownFourGateSiegeOptions['registerHit']
   unregisterHit: TownFourGateSiegeOptions['unregisterHit']
+  /** Standing posts inside the Town Center hall; civilians start and stay there. */
+  civilianRefuge?(count: number): readonly { x: number; y: number; z: number; yaw: number }[]
 }
 
 /** Shelter/muster cells plus everything the siege adapter routes through. */
@@ -59,6 +62,8 @@ export class CommanderFourGateDefenseController {
   personalActors: () => readonly NPC[] = () => []
   civilianCommandOwns: (npc: NPC) => boolean = () => false
   fourGateSiege?: TownFourGateSiege
+  /** Mission-only T3 garrison (20 per gate), outside the official squads and the Town roster. */
+  readonly reinforcements: NPC[] = []
   private state?: NonNullable<ActiveCareerMission['fourGateDefense']>
   private deployment?: ReturnType<typeof planCommanderFourGateDefenseDeployment>
   private roster?: ReturnType<typeof createCommanderFourGateDefenseRoster>
@@ -80,6 +85,7 @@ export class CommanderFourGateDefenseController {
   private escortAssignments: ReturnType<typeof commanderCavalryEscortAssignments> = []
   private infantryAssignments: ReturnType<typeof commanderInfantryEscortAssignments> = []
   private pendingEscortReleases?: readonly string[]
+  private civilianPosts: readonly { x: number; y: number; z: number; yaw: number }[] = []
   private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
 
   constructor(private readonly actorFactory: CareerActorFactory, private readonly residents: readonly CommanderTownResident[],
@@ -104,16 +110,16 @@ export class CommanderFourGateDefenseController {
   get survivalRemaining(): number { return Math.max(0, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS - (this.state?.combatElapsedSeconds ?? 0)) }
   get military(): NPC[] {
     const ids = new Set([...(this.active?.friendlyActorIds ?? []), ...(this.active?.fourGateDefense?.autonomousActorIds ?? [])])
-    return this.residents.filter(r => ids.has(r.spec.id)).map(r => r.npc)
+    return [...this.residents.filter(r => ids.has(r.spec.id)).map(r => r.npc), ...this.reinforcements]
   }
   get defenders(): NPC[] { return this.military }
   get civilians(): NPC[] { return this.residents.filter(r => r.spec.role === 'civilian').map(r => r.npc) }
-  get fieldNpcs(): NPC[] { return [...this.residents.map(r => r.npc), ...this.enemies] }
+  get fieldNpcs(): NPC[] { return [...this.residents.map(r => r.npc), ...this.reinforcements, ...this.enemies] }
   get playerEnemies(): NPC[] { return this.enemies }
   get civilianDeaths(): number { return this.civilians.filter(npc => npc.dead).length }
   get civilianSurvived(): number { return this.civilians.length - this.civilianDeaths }
-  /** Current 280-person attacker roster with both siege escort groups. */
-  get enemyRosterVersion(): 2 { return 2 }
+  /** Current attacker roster version (440 with vanguard, archer screen and both siege escort groups). */
+  get enemyRosterVersion(): CommanderEnemyRosterVersion { return COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION }
   get enemyTotal(): number { return this.active?.targetActorIds.length ?? COMMANDER_FOUR_GATE_DEFENSE_ENEMIES }
   get remainingEnemies(): number {
     return fourGateRemainingTargets(this.active?.targetActorIds ?? [], this.active?.deadTargetActorIds ?? [], this.enemies)
@@ -141,7 +147,9 @@ export class CommanderFourGateDefenseController {
     this.infantryAssignments = commanderInfantryEscortAssignments(active.id)
     const native = this.residents.filter(r => active.friendlyActorIds.includes(r.spec.id))
     // A missing native member is a recoverable deployment error, never permission to shrink the army.
-    if (new Set(native.map(r => r.spec.id)).size !== active.friendlyActorIds.length) return false
+    // The mission garrison is spawned below, never a Town resident.
+    const garrisonIds = new Set(commanderFourGateGarrisonSlots(active.id).map(slot => slot.actorId))
+    if (new Set(native.map(r => r.spec.id)).size !== active.friendlyActorIds.filter(id => !garrisonIds.has(id)).length) return false
     const nativeById = new Map(native.map(r => [r.spec.id, r]))
     this.deployment = planCommanderFourGateDefenseDeployment(native.map(r => r.spec),
       this.context.world.fortifications.rampartLayout, this.context.world.obstacles, spec => {
@@ -150,7 +158,7 @@ export class CommanderFourGateDefenseController {
         return { mounted: saved?.mount ? saved.mount.mounted && saved.mount.hp > 0 : npc.isMounted, ranged: npc.hasActiveRangedWeapon,
           spear: npc.meleeWeaponId ? WEAPONS[npc.meleeWeaponId]?.combatKind === 'lance' : false,
           flying: Boolean(npc.mount?.isFlyingMount || spec.duty === 'eagle_garrison') }
-      }, this.state.rosterVersion)
+      }, this.state.rosterVersion, commanderFourGateGarrisonSlots(active.id))
     this.roster = createCommanderFourGateDefenseRoster(active.id, this.readProfile().faction === 'roman' ? 'viking' : 'roman',
       this.enemyRosterVersion)
     const targetIds = new Set(active.targetActorIds)
@@ -158,6 +166,7 @@ export class CommanderFourGateDefenseController {
     this.startedMissionId = active.id
     this.context.patrol?.recallForSiege()
     this.restoreNativeActors(active)
+    this.spawnGarrison(active)
     this.tracker = new BattleStatsTracker(this.events, false, event => acceptsCareerMissionStat(this.active ?? active, event),
       active.playerStats, careerMissionCommandMeritPolicy(active, () => this.active ?? active))
     for (const npc of [...this.military, ...this.personalActors()]) this.tracker.registerNpc(npc, true)
@@ -230,8 +239,18 @@ export class CommanderFourGateDefenseController {
         { x: ramp.surface.startX, z: ramp.surface.startZ }, { x: ramp.surface.dirX, z: ramp.surface.dirZ })
       spec.x = target.x; spec.z = target.z
     }
+    const archerSlots = new Map(commanderFourGateDefenseSlots(active.id, this.enemyRosterVersion)
+      .filter(slot => slot.role === 'archer').map(slot => [slot.actorId, slot.slot]))
+    for (const spec of this.roster.archers) {
+      if (this.state.actors[spec.actorId!]?.position) continue
+      const slot = archerSlots.get(spec.actorId!)!
+      const gateId = this.roster.gateByActorId.get(spec.actorId!)!
+      const ramp = this.fourGateSiege.ramps.get(townSiegeRampId(gateId, commanderArcherScreenSide(slot)))!
+      const target = commanderArcherScreenTarget(slot, ramp.position, { x: ramp.surface.dirX, z: ramp.surface.dirZ })
+      spec.x = target.x; spec.z = target.z
+    }
     const occupied = this.roster.crew.map(slot => new THREE.Vector3(slot.spec.x, 0, slot.spec.z))
-    for (const spec of [...this.roster.cavalry, ...this.roster.infantry, ...this.roster.archers]) {
+    for (const spec of [...this.roster.cavalry, ...this.roster.infantry, ...this.roster.archers, ...this.roster.vanguard]) {
       const saved = this.state.actors[spec.actorId!]
       if (saved?.position) { spec.x = saved.position.x; spec.z = saved.position.z; continue }
       // Escort slots are planned with the complete vehicle+mounted rear envelope;
@@ -297,7 +316,48 @@ export class CommanderFourGateDefenseController {
     for (const sector of this.deployment!.sectors) this.groups.push({ id: sector.gateId,
       members: sector.wallActorIds.map(id => this.actorsById.get(id)!).filter(Boolean),
       cavalry: sector.cavalryActorIds.map(id => this.actorsById.get(id)!).filter(Boolean), leader: null })
-    if (!this.state!.deploymentComplete) this.civilians.forEach(npc => this.shelterCivilian(npc))
+    const civilians = this.civilians
+    this.civilianPosts = this.context.civilianRefuge?.(civilians.length) ?? []
+    if (!this.state!.deploymentComplete) civilians.forEach((npc, index) => {
+      // A fresh battle starts with every civilian already inside the hall, not walking there.
+      const post = this.civilianPosts[index]
+      if (post && !npc.dead && !this.state!.actors[npc.combatantId]) {
+        npc.group.position.set(post.x, post.y, post.z); npc.group.rotation.y = post.yaw
+      }
+      this.shelterCivilian(npc)
+    })
+  }
+
+  /** The mission garrison stands at its planned posts; a saved battle restores its exact bodies. */
+  private spawnGarrison(active: ActiveCareerMission): void {
+    const sectorIds = new Set(this.deployment!.sectors.flatMap(s => [...s.wallActorIds, ...s.cavalryActorIds]))
+    for (const spec of createCommanderFourGateGarrison(active.id, this.readProfile().faction)) {
+      const id = spec.actorId!, saved = this.state!.actors[id], station = this.deployment!.stations.get(id)!
+      spec.x = station.x; spec.z = station.z
+      const npc = trackNpcSpawn(this.actorFactory.npc(spec, id, this.events.emit, { y: station.y }))
+      npc.enableBattlefieldEngagement()
+      npc.respawnEnabled = false
+      // Commanded through the gate's official squad, exactly like the native members.
+      if (active.officialSquad?.actorIds.includes(id)) {
+        npc.setCommandSquad(officialActorSquadId(active.officialSquad, id)); npc.combatOwnership = 'mission-official'
+      }
+      if (saved) restoreCommandActor(npc, saved)
+      else {
+        npc.group.rotation.y = station.yaw
+        npc.setTacticalOrder('defend')
+        if (station.kind === 'wall') npc.activateTownRampartGarrison('defend', true)
+      }
+      npc.setMissionCombatTarget(null)
+      this.reinforcements.push(npc); this.actorsById.set(id, npc)
+      if (sectorIds.has(id) && !npc.dead) this.fourGateSiege?.register(npc)
+      if (this.state!.siege?.playerCommandedActorIds.includes(id) || saved && this.isPlayerCommanded(npc)) {
+        this.playerIssuedCommands.add(id); this.fourGateSiege?.notifyPlayerOrder(npc)
+        if (saved?.order === 'follow') {
+          const index = active.officialSquad?.actorIds.indexOf(id) ?? -1
+          if (index >= 0) npc.assignFollowTarget(this.player(), index, officialFollowLocalOffset(index, false, Boolean(this.readProfile().personalSquad?.members.length)))
+        }
+      }
+    }
   }
 
   private materializeMount(spec: NpcSpawnSpec, saved?: PersonalActorCheckpoint): Mount | undefined {
@@ -532,7 +592,8 @@ export class CommanderFourGateDefenseController {
     const complete = fourGateTargetsAccounted(this.active.targetActorIds, this.state.registeredTargetActorIds,
       this.active.deadTargetActorIds ?? [], this.enemies.map(npc => npc.combatantId))
     return resolveCommanderFourGateDefenseOutcome(playerDead, complete, this.remainingEnemies,
-      new Set(this.residents.filter(r => !r.npc.dead).map(r => r.npc.combatantId)).size, personalAlive, this.state.combatElapsedSeconds ?? 0)
+      new Set(this.residents.filter(r => !r.npc.dead).map(r => r.npc.combatantId)).size + this.reinforcements.filter(npc => !npc.dead).length,
+      personalAlive, this.state.combatElapsedSeconds ?? 0)
   }
 
   peersFor(npc: NPC): NPC[] { return townWartimePeers(npc, this.fieldNpcs) }
@@ -597,6 +658,13 @@ export class CommanderFourGateDefenseController {
     if (npc.dead || this.civilianCommandOwns(npc)) return
     const index = this.civilians.indexOf(npc)
     if (index < 0) return
+    const post = this.civilianPosts[index]
+    if (post) {
+      // Hold the hall post: the formation target is the post itself, so a sheltered civilian does not walk.
+      npc.assignFormationTarget(-4802 - index, new THREE.Vector3(post.x, post.y, post.z),
+        new THREE.Vector3(Math.sin(post.yaw), 0, Math.cos(post.yaw)), undefined, 'defend')
+      return
+    }
     const point = civilianShelterSlots(this.civilians.length)[index].multiplyScalar(2.5).add(new THREE.Vector3(20, 0, 0))
     const cell = this.navigation.grid.findNearestWalkableCell(point, 8)
     if (!cell) throw new Error('No legal civilian shelter')
@@ -686,7 +754,7 @@ export class CommanderFourGateDefenseController {
       state.registeredTargetActorIds = [...active.targetActorIds]
     }
     state.player = this.playerCheckpoint()
-    for (const npc of [...this.residents.map(r => r.npc), ...(this.attackersReady ? this.enemies : []), ...this.personalActors()]) {
+    for (const npc of [...this.residents.map(r => r.npc), ...this.reinforcements, ...(this.attackersReady ? this.enemies : []), ...this.personalActors()]) {
       state.actors[npc.combatantId] = snapshotCommandActor(npc, this.actorMounts.get(npc.combatantId))
       const mount = state.actors[npc.combatantId].mount
       if (mount?.hp === 0) mount.mounted = false
@@ -767,6 +835,8 @@ export class CommanderFourGateDefenseController {
     for (const release of this.releaseNativeEventBindings.splice(0)) release()
     for (const npc of this.enemies) npc.dispose()
     for (const mount of this.enemyMounts) mount.dispose()
+    for (const npc of this.reinforcements) npc.dispose()
+    this.reinforcements.length = 0
     this.enemies.length = 0; this.enemyMounts.length = 0; this.groups.length = 0; this.plannedPositions.length = 0
     this.actorsById.clear(); this.actorMounts.clear(); this.playerIssuedCommands.clear(); this.civilianCombat.clear(); this.nativeReturns.clear(); this.checkpoint.reset()
   }

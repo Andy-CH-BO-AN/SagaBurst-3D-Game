@@ -35,7 +35,7 @@ describe('Town defense target accounting', () => {
     const enemies = [{ combatantId: 'b', dead: false }], resident = { npc: { combatantId: 'r', dead: false } }
     const owner = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as
       Pick<CommanderFourGateDefenseController, 'remainingEnemies' | 'evaluate'>, {
-      readProfile: () => ({ activeMission: mission }), state, enemies, residents: [resident],
+      readProfile: () => ({ activeMission: mission }), state, enemies, residents: [resident], reinforcements: [],
       startedMissionId: 'm', fourGateSiege: { ready: true }, spawnBatch: { pending: 0, ready: true } })
     expect(owner.remainingEnemies).toBe(2)
     expect(owner.evaluate(false)).toBeNull() // c is registered but neither dead nor present

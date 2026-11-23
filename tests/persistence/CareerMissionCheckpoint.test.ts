@@ -9,6 +9,7 @@ import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefens
 import { CommanderTownMissionController } from '../../src/career/CommanderTownMissionController'
 import { acceptCommanderMission, COMMANDER_DECAPITATION_ID } from '../../src/career/CommanderMissionCatalog'
 import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
+import { COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, commanderFourGateGarrisonSlots } from '../../src/career/CommanderFourGateDefenseRoster'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { Faction, type NPC } from '../../src/world/NPC'
@@ -255,7 +256,7 @@ describe('CareerMissionCheckpoint', () => {
     const residents = profile.activeMission!.civilianActorIds!.map(id => ({ spec: { id, role: 'civilian' }, npc: dataActor(id, state.actors[id]) }))
     const controller = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as Pick<CommanderFourGateDefenseController, 'snapshotActiveMission' | 'combatEnabled'>, {
       readProfile: () => profile, player: () => player, enemies, personalActors: () => [],
-      residents,
+      residents, reinforcements: [],
       actorMounts: new Map(), tracker: null, startedMissionId: profile.activeMission!.id,
       spawnBatch: { pending: 0, ready: true },
       fourGateSiege: { ready: true, snapshot: () => structuredClone(state.siege!) },
@@ -265,7 +266,7 @@ describe('CareerMissionCheckpoint', () => {
     // The actual snapshot owner must acknowledge that full roster even while still SPAWNING.
     const readySnapshot = controller.snapshotActiveMission()
     expect(readySnapshot.fourGateDefense).toMatchObject({ phase: 'SPAWNING', deploymentComplete: false })
-    expect(readySnapshot.fourGateDefense!.registeredTargetActorIds).toHaveLength(280)
+    expect(readySnapshot.fourGateDefense!.registeredTargetActorIds).toHaveLength(COMMANDER_FOUR_GATE_DEFENSE_ENEMIES)
     const liveState = { ...readySnapshot.fourGateDefense!, phase: 'ATTACKING' as const, attackStarted: true, deploymentComplete: true }
     Object.assign(controller, { state: liveState })
     // The same production snapshot must withhold the new escort's initial Charge,
@@ -333,7 +334,8 @@ describe('CareerMissionCheckpoint', () => {
     profile.activeMission!.phase = 'PREPARING'; profile.activeMission!.commanderMission!.deploymentComplete = false
     profile.activeMission!.fourGateDefense = { ...materialized, phase: 'PREPARING', preparationRemainingSeconds: .25,
       deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [], siege: undefined,
-      actors: Object.fromEntries([...profile.activeMission!.friendlyActorIds, ...(materialized.autonomousActorIds ?? []), ...profile.activeMission!.civilianActorIds!]
+      actors: Object.fromEntries([...profile.activeMission!.friendlyActorIds, ...(materialized.autonomousActorIds ?? []),
+        ...commanderFourGateGarrisonSlots(profile.activeMission!.id).map(slot => slot.actorId), ...profile.activeMission!.civilianActorIds!]
         .map(id => [id, materialized.actors[id]])) }
     const before = JSON.stringify(profile)
     const storage = new MemoryStorage({ failWrites: true, initialValues: [[CAREER_STORAGE_KEY, before]] })
@@ -411,7 +413,7 @@ describe('CareerMissionCheckpoint', () => {
     expect(controller.state.combatElapsedSeconds).toBe(12.5)
     expect(profile.activeMission!.fourGateDefense!.combatElapsedSeconds).toBe(12.5)
     expect(profile.activeMission!.phase).toBe('ATTACKING')
-    expect(profile.activeMission!.fourGateDefense!.registeredTargetActorIds).toHaveLength(280)
+    expect(profile.activeMission!.fourGateDefense!.registeredTargetActorIds).toHaveLength(COMMANDER_FOUR_GATE_DEFENSE_ENEMIES)
     expect(controller.combatEnabled).toBe(true)
     expect(batches).toBe(1); expect(releases).toBe(1)
   })

@@ -14,6 +14,7 @@ import type { CareerProfileStore } from '../career/CareerProfileStore'
 import type { CareerRaceController } from '../career/CareerRaceController'
 import { validateOrdinaryRetirementCommit } from '../career/CareerRetirement'
 import { isTownCommandRevokedByRetirement } from '../career/CareerRetirementCommand'
+import { freshCommanderFourGateDefenseEntry, healFourGateEagleGarrison } from '../career/CommanderFourGateDefenseEntry'
 import { buildCommanderAuthorityForMission } from '../career/CommanderMissionAcceptance'
 import type { CommanderTownMissionController } from '../career/CommanderTownMissionController'
 import { townDefenseCommanderIds } from '../career/TownDefenseRoster'
@@ -273,6 +274,17 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   // casualties, mounts) so the return restores the same HR standby.
   if (newMission || newOutpost) next.personalSquadRuntime = next.activeMission?.kind === 'duel' || arenaTrial
     ? runtime.personalSquad?.checkpoint() ?? next.personalSquadRuntime : undefined
+  if (startsDefense && next.activeMission?.kind === 'commander-four-gate-defense') {
+    freshCommanderFourGateDefenseEntry(next.activeMission)
+    const faction = runtime.world.faction, eagles = next.townEagleGarrisons?.[faction]
+    if (eagles) {
+      const live = new Map((runtime.residents ?? []).map(r => [r.spec.id.replace(/^enemy-town:/, ''), r]))
+      next.townEagleGarrisons = { ...next.townEagleGarrisons, [faction]: healFourGateEagleGarrison(eagles, id => {
+        const resident = live.get(id)
+        return resident && !resident.npc.dead ? { hp: resident.npc.maxHp, mountHp: resident.homeMount?.maxHp } : undefined
+      }) }
+    }
+  }
   const townClaimStateChanged = JSON.stringify([
     next.townCommandSquad?.commandedActorIds,
     next.townCommandSquad?.nativeReturnStates,

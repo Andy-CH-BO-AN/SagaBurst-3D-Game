@@ -29,7 +29,7 @@ import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { resolveTownActorEquipment } from '../../src/career/CareerTownEquipmentState'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
-import { COMMANDER_FOUR_GATE_DEFENSE_ID } from '../../src/career/CommanderFourGateDefenseRoster'
+import { COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, COMMANDER_FOUR_GATE_DEFENSE_ID } from '../../src/career/CommanderFourGateDefenseRoster'
 import { TOWN_COMMANDER_ID, townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 
 import { acceptCommanderMission, COMMANDER_FELINE_CAVALRY_ID, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_TOTAL } from '../../src/career/CommanderMissionCatalog'
@@ -237,6 +237,30 @@ describe('Town mission settlement transactions', () => {
     expect(next).toEqual(before)
     expect(h.read()).toBe(peaceful)
     expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
+  })
+
+  it('saves a fresh Commander defense at full strength instead of the live Town wounds and casualties', () => {
+    const h = fixture()
+    const peaceful = cloneCareerProfile(h.read()); delete peaceful.activeMission
+    Object.assign(peaceful, careerRankFixture(peaceful.faction, 'commander'), { totalMerit: 20000, availableMerit: 20000 })
+    expect(h.store.save(peaceful)).toBe(true); h.publish(peaceful)
+    h.resident.spec = townCommanderSpec({ x: 2, z: 3, yaw: .5 })
+    // The native Commander died in Town; the player is wounded and the owned horse is spent.
+    Object.assign(h.residentState, { dead: true, hp: 0, maxHp: 900, combatPosition: new Vector3(2, 0, 3), combatAmmo: 3,
+      shield: { shieldImpactRemaining: 2, reset: vi.fn() } })
+    Object.assign(h.player, { hp: 12, staminaValue: 4 }); Object.assign(h.player.shield, { reset: vi.fn() })
+    h.runtime.careerMounts = { checkpoint: () => ({ activeMountId: 'horse', hp: { horse: 3 }, unavailable: ['corgi'] }) }
+    const next = acceptCommanderMission(peaceful, COMMANDER_FOUR_GATE_DEFENSE_ID, 'fresh-defense')!
+
+    expect(h.commit(next)).toBe(true)
+    const saved = h.store.load()!.activeMission!
+    expect(saved.friendlyActorIds).toContain(TOWN_COMMANDER_ID)
+    expect(saved.deadFriendlyActorIds ?? []).toEqual([])
+    expect(saved.actorHealth).toBeUndefined()
+    expect(saved.officialSquad?.members).toBeUndefined()
+    expect(saved.playerHp).toBeUndefined()
+    expect(saved.playerStamina).toBeUndefined()
+    expect(saved.mountState).toEqual({ activeMountId: 'horse', hp: {}, unavailable: [] })
   })
 
   it('saves and applies full player HP before reentrant completed-arrival handoffs without losing flight or other resources', () => {
@@ -576,8 +600,8 @@ describe('Town mission settlement transactions', () => {
   it('atomically captures Commander V final casualties and grants defense merit and Tier 5 completion once after retry', () => {
     const h = fixture('commander-four-gate-defense'), before = h.read(), active = before.activeMission!
     const missionId = active.id, templateId = active.templateId, lastTargetId = active.targetActorIds.find(id => id.endsWith(':lancer:t4:leader'))!
-    expect(active.targetActorIds).toHaveLength(280)
-    // The durable frame has 279 deaths. Only the controller boundary knows the final contact.
+    expect(active.targetActorIds).toHaveLength(COMMANDER_FOUR_GATE_DEFENSE_ENEMIES)
+    // The durable frame has every death but one. Only the controller boundary knows the final contact.
     fourGateCasualties(active, active.targetActorIds.filter(id => id !== lastTargetId))
     h.storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(before))
     const savedBefore = h.storage.getItem(CAREER_STORAGE_KEY), latest = structuredClone(active)
@@ -601,7 +625,7 @@ describe('Town mission settlement transactions', () => {
     expect(h.settlement.finish('victory')).toEqual({ status: 'save-failed' })
     expect(h.read()).toBe(before)
     expect(h.read().activeMission!.result).toBeUndefined()
-    expect(h.read().activeMission!.deadTargetActorIds).toHaveLength(279)
+    expect(h.read().activeMission!.deadTargetActorIds).toHaveLength(COMMANDER_FOUR_GATE_DEFENSE_ENEMIES - 1)
     expect(h.read().activeMission!.fourGateDefense!.phase).toBe('ATTACKING')
     expect(h.read().claimedBattleIds).not.toContain(missionId)
     expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(savedBefore)
@@ -610,7 +634,7 @@ describe('Town mission settlement transactions', () => {
     expect(h.settlement.finish('victory').status).toBe('saved')
     const savedBytes = h.storage.getItem(CAREER_STORAGE_KEY)!
     const saved = JSON.parse(savedBytes) as CareerProfile, result = saved.activeMission!.result!
-    expect(saved.activeMission!.deadTargetActorIds).toHaveLength(280)
+    expect(saved.activeMission!.deadTargetActorIds).toHaveLength(COMMANDER_FOUR_GATE_DEFENSE_ENEMIES)
     expect(saved.activeMission!.deadTargetActorIds).toContain(lastTargetId)
     expect(saved.activeMission).toMatchObject({ phase: 'RESULT',
       fourGateDefense: { phase: 'RESULT', attackStarted: true, actors: { [lastTargetId]: { status: 'dead', hp: 0, mount: { hp: 22, mounted: false } } },

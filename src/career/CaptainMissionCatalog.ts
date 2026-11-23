@@ -6,6 +6,7 @@ import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { snapshotPersonalMission } from './CareerPersonalSquadMission'
 import { CAREER_RANKS,type CareerProfile } from './CareerProfile'
 import { commanderGateDefenseSlots } from './CommanderTownRoster'
+import { commanderFourGateGarrisonSlots, commanderFourGateMissionSquads } from './CommanderFourGateDefenseRoster'
 export { commanderGateDefenseSlots } from './CommanderTownRoster'
 
 export const CAPTAIN_PATROL_COMMAND_ID = 'captain-patrol-command'
@@ -55,10 +56,13 @@ export function getCaptainMissionAvailability(profile: CareerProfile, templateId
 export function availableCaptainMissions(profile: CareerProfile): CaptainMissionDefinition[] {
   return CAPTAIN_MISSION_CATALOG.filter(template => getCaptainMissionAvailability(profile, template.id).unlocked)
 }
-export function commanderGateDefenseSquads(residents: readonly TownActorSpec[], friendlyActorIds: readonly string[], unavailableActorIds: ReadonlySet<string> = new Set()): OfficialCommandSquad[] {
+export function commanderGateDefenseSquads(residents: readonly TownActorSpec[], friendlyActorIds: readonly string[], unavailableActorIds: ReadonlySet<string> = new Set(),
+  missionId?: string): OfficialCommandSquad[] {
   const residentIds = new Set(residents.map(actor => actor.id)), accepted = new Set(friendlyActorIds)
-  return commanderGateDefenseSlots().map(squad => ({ ...squad,
-    actorIds: squad.actorIds.filter(id => residentIds.has(id) && accepted.has(id) && !unavailableActorIds.has(id)),
+  // The mission garrison is spawned by the mission itself, never a Town resident.
+  const garrison = new Set(missionId ? commanderFourGateGarrisonSlots(missionId).map(slot => slot.actorId) : [])
+  return (missionId ? commanderFourGateMissionSquads(missionId) : commanderGateDefenseSlots()).map(squad => ({ ...squad,
+    actorIds: squad.actorIds.filter(id => (residentIds.has(id) || garrison.has(id)) && accepted.has(id) && !unavailableActorIds.has(id)),
   })).filter(squad => squad.actorIds.length > 0)
 }
 export function createCaptainPatrolCommandMission(profile: CareerProfile, patrolActorIds: readonly string[], id = createCareerMissionId(CAPTAIN_PATROL_COMMAND_ID)): ActiveCareerMission {

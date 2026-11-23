@@ -5,6 +5,7 @@ import type { OfficialCommandSquad } from './CareerCommandAuthority'
 import type { TownSiegeSectorRoster } from './TownFourGateSiege'
 import { TOWN_CITY, TOWN_GATES, TOWN_GARRISON_EAGLE_SITES, TOWN_PRIVATE_EAGLE_SITES, townGatePoint, type TownGateId } from '../town/TownLayout'
 import { surfaceBox, townRampartHeight, type TownRampartLayout } from '../town/TownRamparts'
+import { gatehousePoint } from '../town/TownGatehouse'
 import type { TownActorSpec } from '../town/TownRules'
 import { eagleLandingFootprint } from '../world/EagleLanding'
 import { EAGLE_APPROACH, eagleApproachDistance } from '../world/EagleApproach'
@@ -53,6 +54,41 @@ function clearStation(station: Station, radius: number, height: number, obstacle
   return true
 }
 
+function clearOutwardShot(station: Station, outward: THREE.Vector3, mounted: boolean, obstacles: readonly ObstacleData[], reach = 24): boolean {
+  const origin = new THREE.Vector3(station.x, station.y + (mounted ? 2.6 : 1.6), station.z)
+  const target = origin.clone().addScaledVector(outward, reach)
+  target.y = getTerrainHeight(target.x, target.z) + 1.3
+  return !findBlockingProjectileObstacleAlongPath(origin, target, obstacles)
+}
+
+/** Gate-local gallery posts between the two towers, clear of the centre statue: a parapet rank
+ * and a staggered rear rank. The rear rank shoots over the parapet only at longer range. */
+const GATEHOUSE_ARCHER_POSTS = [
+  // 2.35m apart: the station allocator needs at least 2.3m between foot bodies, with float margin.
+  ...[1.65, -1.65, 4, -4, 6.35, -6.35].map(lateral => ({ lateral, local: 3.15, reach: 24 })),
+  ...[2.825, -2.825, 5.175, -5.175].map(lateral => ({ lateral, local: 1.1, reach: 90 })),
+] as const
+
+/** Foot archers' first posts: the gatehouse gallery between the two gate towers, parapet rank first.
+ * The same body, support and outward-shot checks as wall posts decide which remain legal. */
+function gatehouseArcherStations(gateId: TownGateId, layout: TownRampartLayout, obstacles: readonly ObstacleData[]): Station[] {
+  const house = layout.gatehouses?.find(house => house.gate.id === gateId)
+  if (!house) return []
+  const gate = house.gate, outward = new THREE.Vector3(Math.round(Math.sin(gate.yaw)), 0, Math.round(Math.cos(gate.yaw)))
+  const stations: Station[] = []
+  for (const { lateral, local, reach } of GATEHOUSE_ARCHER_POSTS) {
+    const point = gatehousePoint(gate, lateral, local, 0)
+    const y = getWalkRampHeight(house.deck, point.x, point.z)
+    if (y === null || [[FOOT_RADIUS, 0], [-FOOT_RADIUS, 0], [0, FOOT_RADIUS], [0, -FOOT_RADIUS]].some(([dx, dz]) => {
+      const h = getWalkRampHeight(house.deck, point.x + dx, point.z + dz)
+      return h === null || Math.abs(h - y) > .4
+    })) continue
+    const station: Station = { gateId, kind: 'wall', x: point.x, y, z: point.z, yaw: gate.yaw }
+    if (clearStation(station, FOOT_RADIUS, 2.3, obstacles) && clearOutwardShot(station, outward, false, obstacles, reach)) stations.push(station)
+  }
+  return stations
+}
+
 function wallStations(gateId: TownGateId, role: 'melee' | 'spear' | 'ranged', layout: TownRampartLayout,
   obstacles: readonly ObstacleData[], mounted: boolean): Station[] {
   const gate = TOWN_GATES.find(g => g.id === gateId)!
@@ -93,12 +129,7 @@ function wallStations(gateId: TownGateId, role: 'melee' | 'spear' | 'ranged', la
       })) continue
       const station: Station = { gateId, kind: 'wall', x, y, z, yaw: gate.yaw }
       if (!clearStation(station, radius, mounted ? 3.6 : 2.3, obstacles)) continue
-      if (role === 'ranged') {
-        const origin = new THREE.Vector3(x, y + (mounted ? 2.6 : 1.6), z)
-        const target = origin.clone().addScaledVector(outward, 24)
-        target.y = getTerrainHeight(target.x, target.z) + 1.3
-        if (findBlockingProjectileObstacleAlongPath(origin, target, obstacles)) continue
-      }
+      if (role === 'ranged' && !clearOutwardShot(station, outward, mounted, obstacles)) continue
       stations.push(station)
     }
   }
@@ -135,8 +166,11 @@ function cavalryStations(gateId: TownGateId, obstacles: readonly ObstacleData[])
  * Live equipment only changes the supported body envelope and firing position.
  * Air riders retain their native eagle owner and are intentionally absent from ground sectors.
  */
+export interface CommanderFourGateGarrisonMember { actorId: string; gateId: TownGateId; role: 'archer' | 'infantry' }
+
 export function planCommanderFourGateDefenseDeployment(roster: readonly TownActorSpec[], layout: TownRampartLayout,
-  obstacles: readonly ObstacleData[], equipment?: (actor: TownActorSpec) => CommanderFourGateDefenseEquipment, rosterVersion: CommanderTownRosterVersion = 2): CommanderFourGateDefenseDeployment {
+  obstacles: readonly ObstacleData[], equipment?: (actor: TownActorSpec) => CommanderFourGateDefenseEquipment, rosterVersion: CommanderTownRosterVersion = 2,
+  garrison: readonly CommanderFourGateGarrisonMember[] = []): CommanderFourGateDefenseDeployment {
   if (new Set(roster.map(actor => actor.id)).size !== roster.length) throw new Error('Duplicate native Town actor identity')
   const byId = new Map(roster.map(actor => [actor.id, actor]))
   // Acceptance uses canonical authored slots, then intersects with actual residents.
@@ -192,13 +226,23 @@ export function planCommanderFourGateDefenseDeployment(roster: readonly TownActo
       for (const mounted of [true, false]) {
         const matching = members.filter(({ state }) => state.mounted === mounted)
         if (!matching.length) continue
-        const candidates = wallStations(sector.gateId, role, layout, obstacles, mounted)
+        const candidates = [...(role === 'ranged' && !mounted ? gatehouseArcherStations(sector.gateId, layout, obstacles) : []),
+          ...wallStations(sector.gateId, role, layout, obstacles, mounted)]
         for (const { actor } of matching) assign(actor, candidates, mounted ? MOUNT_RADIUS : FOOT_RADIUS)
       }
     }
-    if (cavalry.length) {
-      const candidates = cavalryStations(sector.gateId, obstacles)
-      for (const { actor } of cavalry) assign(actor, candidates, MOUNT_RADIUS)
+    const yard = cavalryStations(sector.gateId, obstacles)
+    for (const { actor } of cavalry) assign(actor, yard, MOUNT_RADIUS)
+    // Mission garrison after every native post, all on the wall: archers take the next clear
+    // firing gaps, infantry the melee lane, then the spear lane. A docked ramp releases them with the sector.
+    const members = garrison.filter(member => member.gateId === sector.gateId)
+    if (members.length) {
+      const ranged = wallStations(sector.gateId, 'ranged', layout, obstacles, false)
+      const melee = [...wallStations(sector.gateId, 'melee', layout, obstacles, false), ...wallStations(sector.gateId, 'spear', layout, obstacles, false)]
+      for (const member of members) {
+        assign({ id: member.actorId } as TownActorSpec, member.role === 'archer' ? ranged : melee, FOOT_RADIUS)
+        sector.wallActorIds = [...sector.wallActorIds, member.actorId]
+      }
     }
   }
   return { sectors, stations, squads }

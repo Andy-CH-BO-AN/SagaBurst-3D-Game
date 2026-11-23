@@ -1,3 +1,4 @@
+import { commanderFourGateGarrisonSlots } from '../../src/career/CommanderFourGateDefenseRoster'
 import type { CareerProfile } from '../../src/career/CareerProfile'
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 import { NavigationGrid } from '../../src/navigation/NavigationGrid'
@@ -20,7 +21,9 @@ const SERVICE_ROLES: Record<string, TownRole> = { commander: 'commander', 'hr-of
 export function fourGateDefenseRuntime(initial: CareerProfile, commit: (next: CareerProfile) => boolean = () => true) {
   let profile = initial
   const mission = initial.activeMission!, authored = new Map(townAuthoredRoster().map(spec => [spec.id, spec]))
-  const nativeIds = [...mission.friendlyActorIds, ...(mission.fourGateDefense?.autonomousActorIds ?? [])]
+  // The mission garrison is spawned by the controller itself, never a Town resident.
+  const garrison = new Set(commanderFourGateGarrisonSlots(mission.id).map(slot => slot.actorId))
+  const nativeIds = [...mission.friendlyActorIds.filter(id => !garrison.has(id)), ...(mission.fourGateDefense?.autonomousActorIds ?? [])]
   const residents = [...nativeIds.map(id => ({ spec: authored.get(id) ?? residentSpec(id, SERVICE_ROLES[id] ?? 'melee_infantry'),
     actor: new ActorDouble(id, { faction: Faction.TOWN }) })),
   ...(mission.civilianActorIds ?? []).map(id => ({ spec: residentSpec(id, 'civilian'),

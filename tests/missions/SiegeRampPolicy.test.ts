@@ -25,12 +25,12 @@ import { parseCareerOutpostCheckpoint } from '../../src/career/CareerOutpostMiss
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
-import { createCommanderFourGateDefenseRoster } from '../../src/career/CommanderFourGateDefenseRoster'
+import { commanderArcherScreenSide, commanderArcherScreenTarget, createCommanderFourGateDefenseRoster } from '../../src/career/CommanderFourGateDefenseRoster'
 import { getTownRampartLayout } from '../../src/town/TownRamparts'
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../../src/town/TownBounds'
 import { TOWN_GATES } from '../../src/town/TownLayout'
 import { advanceCommanderInfantryEscort, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, parseCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT } from '../../src/career/CommanderInfantryEscort'
-import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, createCommanderCavalryEscort, type CommanderCavalryEscortActorFrame, type CommanderCavalryEscortRampFrame } from '../../src/career/CommanderCavalryEscort'
+import { advanceCommanderCavalryEscort, COMMANDER_CAVALRY_ESCORT, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, createCommanderCavalryEscort, type CommanderCavalryEscortActorFrame, type CommanderCavalryEscortRampFrame } from '../../src/career/CommanderCavalryEscort'
 import type { MobileSiegeRampId, SiegeRampPlacement, TownSiegeRampId } from '../../src/campaign/MobileSiegeRampPolicy'
 
 const noScene = {} as Scene
@@ -309,20 +309,20 @@ describe('shared siege crew and vehicle lifecycle', () => {
 
   it('releases only complete fixed escort groups from their own living gate-range and bounded ramp observations', () => {
     const assignments = commanderCavalryEscortAssignments('escort'), initial = createCommanderCavalryEscort('escort')
-    const roster = createCommanderFourGateDefenseRoster('escort', 'roman')
+    const roster = createCommanderFourGateDefenseRoster('escort', 'roman'), radius = COMMANDER_CAVALRY_ESCORT.releaseDistance
     expect(new Set(assignments.map(a => a.actorId))).toEqual(new Set(roster.cavalry.map(actor => actor.actorId)))
     expect(assignments.filter(a => a.gateId === 'north' && a.side === -1).map(a => a.slot)).toEqual([0, 1, 2, 3, 4, 5, 6])
     expect(assignments.filter(a => a.gateId === 'north' && a.side === 1).map(a => a.slot)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
     const actors = new Map<string, CommanderCavalryEscortActorFrame>(assignments.map(a => {
       const gate = TOWN_GATES.find(g => g.id === a.gateId)!
-      return [a.actorId, { dead: false, position: { x: gate.x + 120, z: gate.z } }]
+      return [a.actorId, { dead: false, position: { x: gate.x + radius + 20, z: gate.z } }]
     }))
     const ramps = new Map<TownSiegeRampId, CommanderCavalryEscortRampFrame>(assignments.map(a => {
       const gate = TOWN_GATES.find(g => g.id === a.gateId)!
-      return [a.rampId, { state: 'PUSHING', position: { x: gate.x + 120, z: gate.z }, distance: 0, alivePushers: 4 }]
+      return [a.rampId, { state: 'PUSHING', position: { x: gate.x + radius + 20, z: gate.z }, distance: 0, alivePushers: 4 }]
     }))
     const north = assignments.filter(a => a.gateId === 'north' && a.side === -1)
-    actors.get(north[0].actorId)!.position = { x: 100.001, z: -115 }
+    actors.get(north[0].actorId)!.position = { x: radius + .001, z: -115 }
     actors.get(north[1].actorId)!.position = { x: 0, z: -115 }
     actors.get(north[1].actorId)!.dead = true
     const movingRear = { x: 270, z: 62 }, inward = { x: -1, z: 0 }
@@ -333,7 +333,7 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(waiting.releasedActorIds).toEqual([])
     expect(initial.groups['town-siege-ramp:north:left'].stallSeconds).toBe(0)
 
-    actors.get(north[0].actorId)!.position.x = 100
+    actors.get(north[0].actorId)!.position.x = radius
     ramps.get('town-siege-ramp:north:right')!.distance = .5
     ramps.get('town-siege-ramp:south:left')!.state = 'DESTROYED'
     ramps.get('town-siege-ramp:south:right')!.state = 'ABANDONED'
@@ -387,18 +387,19 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(npc.missionMovement).toBe(false)
   })
 
-  it('releases trailing cavalry when their own ramp front reaches the hundred-metre gate radius', () => {
+  it('releases trailing cavalry when their own ramp front reaches the gate release radius', () => {
+    const radius = COMMANDER_CAVALRY_ESCORT.releaseDistance
     const assignments = commanderCavalryEscortAssignments('convoy'), initial = createCommanderCavalryEscort('convoy')
     const north = assignments.filter(a => a.gateId === 'north' && a.side === -1)
     const actors = new Map<string, CommanderCavalryEscortActorFrame>(north.map(a => [a.actorId,
-      { dead: false, position: { x: 30, z: -215 } }]))
+      { dead: false, position: { x: 30, z: -115 - radius } }]))
     const ramp: CommanderCavalryEscortRampFrame = {
-      state: 'PUSHING', position: { x: 0, z: -215.001 }, distance: 10, alivePushers: 4,
+      state: 'PUSHING', position: { x: 0, z: -115 - radius - .001 }, distance: 10, alivePushers: 4,
     }
     const ramps = new Map<TownSiegeRampId, CommanderCavalryEscortRampFrame>([[north[0].rampId, ramp]])
     const waiting = advanceCommanderCavalryEscort(initial, 0, actors, ramps)
     expect(waiting.releasedActorIds).toEqual([])
-    ramp.position.z = -215
+    ramp.position.z = -115 - radius
     const released = advanceCommanderCavalryEscort(waiting.checkpoint, 0, actors, ramps)
     expect(released.releasedActorIds).toEqual(north.map(a => a.actorId))
     expect(released.checkpoint.groups[north[0].rampId].releaseReason).toBe('gate-range')
@@ -406,7 +407,26 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(advanceCommanderCavalryEscort(released.checkpoint, 0, actors, ramps).releasedActorIds).toEqual([])
   })
 
-  it('keeps each ten-man infantry guard on its own vehicle until it docks, behind the lancers and independent of their 100m release', () => {
+  it('screens each vehicle with its own archers ahead of the chassis and outside the moving lane', () => {
+    // Each vehicle leads 15 of its gate's 30 archers: slots 1-7 and 16-23 left, 8-15 and 24-30 right.
+    expect(Array.from({ length: 30 }, (_, i) => commanderArcherScreenSide(i + 1)))
+      .toEqual([...Array(7).fill(-1), ...Array(8).fill(1), ...Array(8).fill(-1), ...Array(7).fill(1)])
+    // A diagonal heading proves the frame is the vehicle's own, not world axes.
+    const front = { x: 40, z: -200 }, inward = { x: Math.SQRT1_2, z: Math.SQRT1_2 }
+    const points = Array.from({ length: 30 }, (_, i) => commanderArcherScreenTarget(i + 1, front, inward))
+    for (const p of points) {
+      const along = (p.x - front.x) * inward.x + (p.z - front.z) * inward.z
+      const lateral = (p.x - front.x) * inward.z - (p.z - front.z) * inward.x
+      expect(along).toBeGreaterThan(SIEGE_RAMP.chassisOverhang + 1)
+      expect(Math.abs(lateral)).toBeGreaterThanOrEqual(SIEGE_RAMP.halfWidth + 3)
+    }
+    const left = points.filter((_, i) => commanderArcherScreenSide(i + 1) < 0), right = points.filter((_, i) => commanderArcherScreenSide(i + 1) > 0)
+    for (const group of [left, right]) for (const [i, a] of group.entries()) for (const b of group.slice(i + 1)) {
+      expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThan(2)
+    }
+  })
+
+  it('keeps each ten-man infantry guard on its own vehicle until it docks, behind the lancers and independent of their gate-range release', () => {
     const assignments = commanderInfantryEscortAssignments('guard'), initial = createCommanderInfantryEscort('guard')
     expect(assignments).toHaveLength(80)
     expect(assignments.filter(a => a.rampId === 'town-siege-ramp:east:right').map(a => a.slot)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
