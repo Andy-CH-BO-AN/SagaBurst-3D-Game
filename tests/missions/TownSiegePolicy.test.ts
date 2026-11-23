@@ -1,3 +1,4 @@
+import { gatehouseLocal } from '../../src/town/TownGatehouse'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
 import { commanderFourGateGarrisonSlots } from '../../src/career/CommanderFourGateDefenseRoster'
 import type { Player } from '../../src/player/Player'
@@ -62,20 +63,24 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(residents).toEqual(original)
   })
 
-  it('posts each gate\'s foot archers in its gatehouse gallery first and sends only the overflow to the wall', () => {
+  it('posts each gate\'s foot archers at the tower windows, then the gallery, and sends only the overflow to the wall', () => {
     const layout = getTownRampartLayout(), roster = townAuthoredRoster()
     const deployment = planCommanderFourGateDefenseDeployment(roster, layout, [])
     const byId = new Map(roster.map(actor => [actor.id, actor]))
     for (const sector of deployment.sectors) {
       const house = layout.gatehouses!.find(house => house.gate.id === sector.gateId)!
       const archers = sector.wallActorIds.filter(id => ['ranged', 'archer'].includes(byId.get(id)!.unitKind ?? '') && !byId.get(id)!.mounted)
-      const onGallery = archers.filter(id => {
+      // The gatehouse floor spans both towers (|local x| <= 13.8); the towers start at |x| 7.
+      const local = (id: string) => gatehouseLocal(house.gate, deployment.stations.get(id)!)
+      const onGatehouse = archers.filter(id => {
         const station = deployment.stations.get(id)!
-        return getWalkRampHeight(house.deck, station.x, station.z) !== null && Math.hypot(station.x - house.gate.x, station.z - house.gate.z) < 8
+        return getWalkRampHeight(house.deck, station.x, station.z) !== null && Math.abs(local(id).x) <= 13.8
       })
+      const inTowers = onGatehouse.filter(id => Math.abs(local(id).x) >= 7)
       expect(archers.length).toBeGreaterThan(0)
-      expect(onGallery.length).toBe(Math.min(archers.length, 10))
-      const posts = onGallery.map(id => deployment.stations.get(id)!)
+      expect(inTowers.length).toBe(Math.min(archers.length, 4))
+      expect(onGatehouse.length).toBeGreaterThanOrEqual(Math.min(archers.length, 10))
+      const posts = onGatehouse.map(id => deployment.stations.get(id)!)
       for (const [i, a] of posts.entries()) for (const b of posts.slice(i + 1)) expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThanOrEqual(2.3)
     }
   })
@@ -90,7 +95,8 @@ describe('Siege deployment and shared rule ownership', () => {
       const station = deployment.stations.get(member.actorId)!, sector = deployment.sectors.find(s => s.gateId === member.gateId)!
       expect(station.gateId).toBe(member.gateId)
       expect(station.kind).toBe('wall')
-      expect(townRampartHeight(layout, station.x, station.z)).not.toBeNull()
+      const house = layout.gatehouses!.find(house => house.gate.id === member.gateId)!
+      expect(townRampartHeight(layout, station.x, station.z) ?? getWalkRampHeight(house.deck, station.x, station.z)).not.toBeNull()
       expect(sector.wallActorIds).toContain(member.actorId)
     }
   })

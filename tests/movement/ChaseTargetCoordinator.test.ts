@@ -84,10 +84,11 @@ function pursuitActor(order: NPC['tacticalOrder'], phase = 0) {
     _targetAcquisitionInitialized: false, _initialStaggerPhase: phase, _rangedVisibleTargetHoldFrames: 0,
     targetReacquire: new TargetReacquireSchedule(),
     _liveTargetInfo: {}, _tmpTargetPosition: new THREE.Vector3(), pursuitBlockedTargets: new PursuitBlockList<NPC | Player>(),
-    _activeNavigationWorld: { revision: 1, townNav: { siegeEntrances: { revision: 1 } } },
+    _activeNavigationWorld: { revision: 1, townNav: { siegeEntrances: { revision: 1 }, rampAt: () => undefined, isElevated: () => false } },
     _clearObstacleDetour: () => {}, _clearNavigationPath: () => { calls.pathCleared++ }, _clearSiegeFallback: () => {},
     _pursuitTargetAllowed: methods['_pursuitTargetAllowed'], _findTarget: methods['_findTarget'],
     _acquireTarget: methods['_acquireTarget'], _isCachedTargetValid: methods['_isCachedTargetValid'],
+    _shouldRetainLayeredTarget: methods['_shouldRetainLayeredTarget'],
     _getCachedTargetDistance: methods['_getCachedTargetDistance'], _scheduleTargetReacquire: methods['_scheduleTargetReacquire'],
     _getPlayerPosition: methods['_getPlayerPosition'],
   }

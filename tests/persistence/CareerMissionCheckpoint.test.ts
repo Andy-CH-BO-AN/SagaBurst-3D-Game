@@ -606,22 +606,20 @@ describe('CareerMissionCheckpoint', () => {
     expect(civ.hp).toBe(0)
   })
 
-  it('accepts legacy 20-civilian four-gate saves without merchant while still rejecting tampered civilian rosters', () => {
-    const legacy = createFourGateDefenseProfile('ATTACKING')
-    const active = legacy.activeMission!
+  it('reads only the current four-gate civilian roster: merchant-less, missing or unknown civilians are rejected', () => {
+    const current = createFourGateDefenseProfile('ATTACKING')
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(current)))?.activeMission?.civilianActorIds).toContain('merchant')
+    // A roster without the merchant is an older, unsupported format: rejected, never converted.
+    const legacy = structuredClone(current), active = legacy.activeMission!
     active.civilianActorIds = active.civilianActorIds!.filter(id => id !== 'merchant')
     delete active.fourGateDefense!.actors.merchant
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(legacy)))).toBeNull()
 
-    const parsed = parseCareerProfile(JSON.parse(JSON.stringify(legacy)))
-    expect(parsed).not.toBeNull()
-    expect(parsed!.activeMission!.civilianActorIds).toHaveLength(20)
-    expect(parsed!.activeMission!.civilianActorIds).not.toContain('merchant')
-
-    const missing = structuredClone(legacy)
+    const missing = structuredClone(current)
     missing.activeMission!.civilianActorIds = missing.activeMission!.civilianActorIds!.filter(id => id !== 'civilian-0')
     expect(parseCareerProfile(JSON.parse(JSON.stringify(missing)))).toBeNull()
 
-    const unknown = structuredClone(legacy)
+    const unknown = structuredClone(current)
     unknown.activeMission!.civilianActorIds = unknown.activeMission!.civilianActorIds!.map(id => id === 'civilian-0' ? 'unknown' : id)
     expect(parseCareerProfile(JSON.parse(JSON.stringify(unknown)))).toBeNull()
   })
