@@ -225,15 +225,13 @@ export function listenForCoopLaunch(): () => void {
 export function consumeCoopGuestLaunch(asGuest = true): { scene: CoopSceneKind; config?: CareerCombatLaunch } | null {
   // A staged mission on a page that is no longer a guest (left the room, link lost) is dropped like a finished exit.
   if (sessionStorage.getItem(GUEST_RESTORE_KEY) !== null || !asGuest && sessionStorage.getItem(GUEST_LAUNCH_KEY) !== null) {
-    const rawBackup = sessionStorage.getItem(GUEST_SESSION_BACKUP_KEY)
-    if (rawBackup !== null) {
-      let backup: Record<string, string> = {}
-      try {
-        const parsed = JSON.parse(rawBackup) as unknown
-        if (parsed && typeof parsed === 'object') backup = parsed as Record<string, string>
-      } catch { backup = {} }
-      replaceSessionEntries(sessionStorage, backup)
-    }
+    let backup: Record<string, string> = {}
+    try {
+      const parsed = JSON.parse(sessionStorage.getItem(GUEST_SESSION_BACKUP_KEY) ?? '{}') as unknown
+      if (parsed && typeof parsed === 'object') backup = parsed as Record<string, string>
+    } catch { backup = {} }
+    // A missing or corrupt backup still clears the host's session entries.
+    replaceSessionEntries(sessionStorage, backup)
     for (const key of [GUEST_LAUNCH_KEY, GUEST_SESSION_BACKUP_KEY, GUEST_RESTORE_KEY]) sessionStorage.removeItem(key)
     return null
   }
