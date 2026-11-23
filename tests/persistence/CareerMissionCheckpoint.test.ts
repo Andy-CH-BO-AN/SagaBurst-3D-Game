@@ -546,7 +546,7 @@ describe('CareerMissionCheckpoint', () => {
     const civ = new ActorDouble(civId, { faction: Faction.TOWN, townCategory: 'civilian', x: -2, y: 1, z: -8 })
     const merchant = Object.assign(
       new ActorDouble(merchantId, { faction: Faction.TOWN, townCategory: 'civilian', x: 0, y: 1, z: -8 }),
-      { disarmTownCivilian() { this.armedWith = undefined }, setTownPeaceful() {} },
+      { disarmTownCivilian(this: { armedWith?: unknown }) { this.armedWith = undefined }, setTownPeaceful() {} },
     )
     const soldier = new ActorDouble(soldierId, { faction: Faction.TOWN, x: 4, y: 1, z: -80 })
     const player = new PlayerDouble()

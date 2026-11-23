@@ -227,8 +227,9 @@ it('NPC 攻門中城門被突破後，ATTACK 重新詢問路線並回到 CHASE�
   h.obstacles.splice(h.obstacles.indexOf(h.gateObstacle), 1)
   h.world.rebuild(h.obstacles); h.world.beginFrame()
   const target = { position: h.guard.combatPosition, isDead: false, isPlayer: false, npc: h.guard }
-  methods['_updateAttackState'].call(h.actor, 1 / 60, {}, [], h.obstacles, () => {}, () => {}, false, 0, null, null, h.world, target as never, 0)
-  expect(h.body['state']).toBe(AIState.CHASE)
-  expect(h.body['_siegeTargetObstacle']).toBeNull()
+  methods['_updateAttackState'].call(h.actor, 1 / 60, {} as never, [], h.obstacles, () => {}, () => {}, false, 0, null, null, h.world, target as never, 0)
+  const body = h.body as unknown as Record<string, unknown>
+  expect(body['state']).toBe(AIState.CHASE)
+  expect(body['_siegeTargetObstacle']).toBeNull()
   expect(cancel).toHaveBeenCalled()
 })
