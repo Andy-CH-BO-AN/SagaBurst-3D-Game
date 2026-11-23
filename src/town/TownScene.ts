@@ -192,7 +192,7 @@ import { installTownStyles } from './TownUI'
 import { townWartimeHostile } from './TownWartime'
 import { TownWorld } from './TownWorld'
 import { coopSession } from '../coop/CoopLink'
-import { announceCoopScene, coopGuestCharacterAssets, coopGuestPlayerSource, isCoopGuestLaunch, showCoopGuestEnd, type CoopPlayerSource } from '../coop/CoopLaunch'
+import { announceCoopScene, coopGuestCharacterAssets, coopGuestPlayerSource, isCoopGuestLaunch, leaveCoopGuestRoom, showCoopGuestEnd, type CoopPlayerSource } from '../coop/CoopLaunch'
 import { commitCoopRaceAward, parseCoopRaceAward } from '../coop/CoopRaceAward'
 import { commitCoopTownResult, parseCoopTownResult } from '../coop/CoopTownResult'
 import type { CombatDamageContext } from '../combat/CombatAttribution'
@@ -1300,7 +1300,7 @@ export class TownScene {
     const panel = this.openPanel('合作模式', '你正在主機的城鎮裡。城鎮服務、指揮與任務都由主機操作。')
     const resume = panel.querySelector('button')
     if (resume) resume.textContent = '繼續'
-    this.button(panel, '離開房間', () => { void coopSession().leave().then(() => window.location.assign(window.location.pathname)) })
+    this.button(panel, '離開房間', () => { void leaveCoopGuestRoom() })
   }
 
   private siegeOpeningPending = false

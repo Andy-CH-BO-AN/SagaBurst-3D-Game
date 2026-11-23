@@ -221,8 +221,8 @@ async function bootstrap(): Promise<void> {
   await coop.init()
   mountCoopBadge()
   listenForCoopLaunch()
-  const coopLaunch = consumeCoopGuestLaunch()
-  if (coopLaunch && coop.isGuest) {
+  const coopLaunch = consumeCoopGuestLaunch(coop.isGuest)
+  if (coopLaunch) {
     if (coopLaunch.scene === 'game' && coopLaunch.config) await launchCareerCombat(coopLaunch.config)
     else if (coopLaunch.scene === 'town') await (await import('./coop/CoopGuestScenes')).launchCoopGuestTown(container!)
     else if (coopLaunch.scene === 'trial') await (await import('./coop/CoopGuestScenes')).launchCoopGuestTrial(container!)
