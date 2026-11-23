@@ -3746,11 +3746,11 @@ export class TownScene {
     for (const s of this.shots) {
       if (!s.arrow.isAlive) continue
       if (!s.training && this.fourGateCombatHeld) { s.arrow.destroy(); continue }
-      const from = s.arrow.mesh.position.clone(); s.age += dt
+      s.age += dt
       if (!s.training && s.age > (s.maxLifetimeSeconds ?? 5)) { s.arrow.destroy(); continue }
-      s.arrow.update(dt, this.player, [], [], () => {}, damage => damagePlayer(this.player, damage, this.hp, null), undefined, true)
-      if (!s.arrow.isAlive) continue
-      const to = s.arrow.mesh.position
+      const step = s.arrow.stepFlight(dt)
+      if (!step) continue
+      const { from, to } = step
       if (s.training) { if (s.age > .3) s.arrow.destroy(); continue }
       const hit = this.shotContacts.find(from, to, {
         world: { kind: 'town', practiceTargets: this.world.targets,

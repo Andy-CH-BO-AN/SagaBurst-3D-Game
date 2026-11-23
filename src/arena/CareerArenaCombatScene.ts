@@ -788,10 +788,10 @@ export class CareerArenaCombatScene {
     if (!this.shots.length) return
     for (const shot of this.shots) {
       if (!shot.arrow.isAlive) continue
-      const from = shot.arrow.mesh.position.clone()
       shot.age += dt
-      shot.arrow.update(dt, this.player, [], [], () => {}, amount => damagePlayer(this.player, amount, this.hp, null), undefined, true)
-      if (!shot.arrow.isAlive) continue
+      const step = shot.arrow.stepFlight(dt)
+      if (!step) continue
+      const { from } = step
       const shooterTeam = shot.player ? 'friendly' : shot.source!.faction === Faction.ENEMY ? 'enemy' : 'friendly'
       const playerMount = this.player.currentMount
       const partner = shooterTeam === 'enemy' ? this.coopPartner : null
@@ -801,7 +801,7 @@ export class CareerArenaCombatScene {
         ...(partner ? [partner] : []),
         ...(this.coopGuest && shot.player ? this.enemyTargets() : []),
       ]
-      const hit = this.shotContacts.find(from, shot.arrow.mesh.position, {
+      const hit = this.shotContacts.find(from, step.to, {
         world: { kind: 'town', practiceTargets: [], traceSiege: () => null },
         obstacles: this.arena.obstacles, targets, acceptsTarget: target => !target.dead && !(target instanceof Mount && target.disposed),
       })

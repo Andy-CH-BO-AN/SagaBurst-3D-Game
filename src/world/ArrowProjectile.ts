@@ -228,6 +228,52 @@ export class ArrowProjectile {
       || !Number.isFinite(direction.x + direction.y + direction.z) || direction.lengthSq() < 1e-12) this.destroy()
   }
 
+  /** Shared numeric flight step; false when the arrow is dead, expired this step, or stuck. */
+  private advanceFlight(dt: number): boolean {
+    if (!this.alive) return false
+    if (!Number.isFinite(dt) || dt < 0) { this.destroy(); return false }
+
+    // If stuck in ground or wall, countdown decay
+    if (this.stuck) {
+      this.stuckTimer += dt
+      if (this.stuckTimer >= 5.0) {
+        this.destroy()
+      }
+      return false
+    }
+
+    this.previousPosition.copy(this.mesh.position)
+    // Exact constant-acceleration integration matches the AI's verified arc.
+    // Semi-implicit Euler accumulated metres of drop over a long flight.
+    this.mesh.position.addScaledVector(this.velocity, dt)
+    this.mesh.position.y -= 0.5 * PROJECTILE_GRAVITY * dt * dt
+    this.velocity.y -= PROJECTILE_GRAVITY * dt
+    this.travelledDistance += this.previousPosition.distanceTo(this.mesh.position)
+    this.flightAge += dt
+
+    // Town uses visualOnly movement and owns collision/damage separately, but
+    // still consumes exactly the same finite flight budget and scene bounds.
+    if (!Number.isFinite(this.mesh.position.x + this.mesh.position.y + this.mesh.position.z)
+      || Math.abs(this.mesh.position.x) > this.worldBound || Math.abs(this.mesh.position.z) > this.worldBound
+      || this.flightAge > this.maxFlightLifetimeSeconds || this.travelledDistance > this.maxTravelDistance) {
+      this.destroy()
+      return false
+    }
+
+    // Orient arrow towards velocity
+    this._tmpTargetPos.copy(this.velocity).normalize()
+    this.mesh.quaternion.setFromUnitVectors(ARROW_LOCAL_FORWARD, this._tmpTargetPos)
+    return true
+  }
+
+  /** Advance flight only (no collision/damage). Null when the arrow expired or was already dead. */
+  stepFlight(dt: number): { from: THREE.Vector3; to: THREE.Vector3 } | null {
+    if (!this.alive) return null
+    const from = this.mesh.position.clone()
+    this.advanceFlight(dt)
+    return this.alive ? { from, to: this.mesh.position } : null
+  }
+
   update(
     dt: number,
     player: Player,
@@ -247,39 +293,7 @@ export class ArrowProjectile {
     /** Same player/npcs/mounts/receivers groups, indexed once per frame by the caller. */
     targetIndex?: ProjectileTargetIndex<Player | NPC | Mount | DamageReceiver>,
   ): void {
-    if (!this.alive) return
-    if (!Number.isFinite(dt) || dt < 0) { this.destroy(); return }
-
-    // If stuck in ground or wall, countdown decay
-    if (this.stuck) {
-      this.stuckTimer += dt
-      if (this.stuckTimer >= 5.0) {
-        this.destroy()
-      }
-      return
-    }
-
-    this.previousPosition.copy(this.mesh.position)
-    // Exact constant-acceleration integration matches the AI's verified arc.
-    // Semi-implicit Euler accumulated metres of drop over a long flight.
-    this.mesh.position.addScaledVector(this.velocity, dt)
-    this.mesh.position.y -= 0.5 * PROJECTILE_GRAVITY * dt * dt
-    this.velocity.y -= PROJECTILE_GRAVITY * dt
-    this.travelledDistance += this.previousPosition.distanceTo(this.mesh.position)
-    this.flightAge += dt
-
-    // Town uses visualOnly movement and owns collision/damage separately, but
-    // still consumes exactly the same finite flight budget and scene bounds.
-    if (!Number.isFinite(this.mesh.position.x + this.mesh.position.y + this.mesh.position.z)
-      || Math.abs(this.mesh.position.x) > this.worldBound || Math.abs(this.mesh.position.z) > this.worldBound
-      || this.flightAge > this.maxFlightLifetimeSeconds || this.travelledDistance > this.maxTravelDistance) {
-      this.destroy()
-      return
-    }
-
-    // Orient arrow towards velocity
-    this._tmpTargetPos.copy(this.velocity).normalize()
-    this.mesh.quaternion.setFromUnitVectors(ARROW_LOCAL_FORWARD, this._tmpTargetPos)
+    if (!this.advanceFlight(dt)) return
 
     if (visualOnly) return
 
