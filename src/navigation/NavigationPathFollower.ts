@@ -64,9 +64,9 @@ export class NavigationPathFollower {
       const result = navigationWorld.queryPath(start, goal, this)
 
       if (result.status === 'pending') {
-        // Topology changes invalidate old routes immediately. Goal movement on
-        // unchanged topology may continue following the previous safe route.
-        if (!topologyChanged && this._writePathTarget(start, grid, out, arrivalDistance)) {
+        // Continue following an existing path while its remaining cells stay walkable
+        // on the updated grid; only a newly blocked route must pause for replanning.
+        if ((!topologyChanged || this._remainingPathClear(grid)) && this._writePathTarget(start, grid, out, arrivalDistance)) {
           return 'path'
         }
         out.copy(goal)
@@ -96,6 +96,14 @@ export class NavigationPathFollower {
 
     out.copy(goal)
     return 'path'
+  }
+
+  private _remainingPathClear(grid: NavigationWorld['grid']): boolean {
+    if (!this.path || this.path.length <= 1 || this.pathIndex >= this.path.length) return false
+    for (let i = this.pathIndex; i < this.path.length; i++) {
+      if (grid.isBlocked(this.path[i])) return false
+    }
+    return true
   }
 
   private _writePathTarget(

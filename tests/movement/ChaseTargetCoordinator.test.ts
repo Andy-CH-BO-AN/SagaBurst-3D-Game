@@ -84,10 +84,11 @@ function pursuitActor(order: NPC['tacticalOrder'], phase = 0) {
     _targetAcquisitionInitialized: false, _initialStaggerPhase: phase, _rangedVisibleTargetHoldFrames: 0,
     targetReacquire: new TargetReacquireSchedule(),
     _liveTargetInfo: {}, _tmpTargetPosition: new THREE.Vector3(), pursuitBlockedTargets: new PursuitBlockList<NPC | Player>(),
-    _activeNavigationWorld: { revision: 1, townNav: { siegeEntrances: { revision: 1 } } },
+    _activeNavigationWorld: { revision: 1, townNav: { siegeEntrances: { revision: 1 }, rampAt: () => undefined, isElevated: () => false } },
     _clearObstacleDetour: () => {}, _clearNavigationPath: () => { calls.pathCleared++ }, _clearSiegeFallback: () => {},
     _pursuitTargetAllowed: methods['_pursuitTargetAllowed'], _findTarget: methods['_findTarget'],
     _acquireTarget: methods['_acquireTarget'], _isCachedTargetValid: methods['_isCachedTargetValid'],
+    _shouldRetainLayeredTarget: methods['_shouldRetainLayeredTarget'],
     _getCachedTargetDistance: methods['_getCachedTargetDistance'], _scheduleTargetReacquire: methods['_scheduleTargetReacquire'],
     _getPlayerPosition: methods['_getPlayerPosition'],
   }
@@ -226,8 +227,9 @@ it('NPC 攻門中城門被突破後，ATTACK 重新詢問路線並回到 CHASE�
   h.obstacles.splice(h.obstacles.indexOf(h.gateObstacle), 1)
   h.world.rebuild(h.obstacles); h.world.beginFrame()
   const target = { position: h.guard.combatPosition, isDead: false, isPlayer: false, npc: h.guard }
-  methods['_updateAttackState'].call(h.actor, 1 / 60, {}, [], h.obstacles, () => {}, () => {}, false, 0, null, null, h.world, target as never, 0)
-  expect(h.body['state']).toBe(AIState.CHASE)
-  expect(h.body['_siegeTargetObstacle']).toBeNull()
+  methods['_updateAttackState'].call(h.actor, 1 / 60, {} as never, [], h.obstacles, () => {}, () => {}, false, 0, null, null, h.world, target as never, 0)
+  const body = h.body as unknown as Record<string, unknown>
+  expect(body['state']).toBe(AIState.CHASE)
+  expect(body['_siegeTargetObstacle']).toBeNull()
   expect(cancel).toHaveBeenCalled()
 })

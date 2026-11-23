@@ -9,7 +9,7 @@ import { parseCommandActorCheckpoint } from './CareerCommandAuthority'
 import type { CareerMissionOutcome, CareerMissionPhase } from './CareerMissionState'
 import type { PersonalActorCheckpoint, PersonalActorPosition } from './CareerPersonalSquadMission'
 import { parseCommanderCavalryEscort, type CommanderCavalryEscortCheckpoint } from './CommanderCavalryEscort'
-import { COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS, commanderFourGateDefenseSlots, type CommanderEnemyRosterVersion } from './CommanderFourGateDefenseRoster'
+import { COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION, COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS, commanderFourGateDefenseSlots, commanderFourGateGarrisonSlots, type CommanderEnemyRosterVersion } from './CommanderFourGateDefenseRoster'
 import { parseCommanderInfantryEscort, type CommanderInfantryEscortCheckpoint } from './CommanderInfantryEscort'
 import { COMMANDER_TOWN_ROSTER_VERSION, type CommanderTownRosterVersion } from './CommanderTownRoster'
 import { parseTownFourGateSiegeCheckpoint, type TownFourGateSiegeCheckpoint } from './TownFourGateSiegeCheckpoint'
@@ -24,7 +24,7 @@ export interface CommanderFourGateDefenseState {
   /** Current accepted 206-person official army plus ten autonomous tower guards. */
   rosterVersion: CommanderTownRosterVersion
   /** Current enemy roster, independent of the defender roster. */
-  enemyRosterVersion: 2
+  enemyRosterVersion: CommanderEnemyRosterVersion
   /** Accepted native defenders outside official command; casualties live in actors. */
   autonomousActorIds?: string[]
   nativeCombatStats?: NativeTownGuardCombatStats
@@ -63,7 +63,7 @@ export function recordNativeTownGuardCombat(stats: NativeTownGuardCombatStats, e
 }
 
 export function createCommanderFourGateDefenseState(): CommanderFourGateDefenseState {
-  return { version: 1, rosterVersion: COMMANDER_TOWN_ROSTER_VERSION, enemyRosterVersion: 2, autonomousActorIds: [...TOWN_AUTONOMOUS_GUARD_IDS], phase: 'DEPLOYING', combatElapsedSeconds: 0, preparationRemainingSeconds: COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS,
+  return { version: 1, rosterVersion: COMMANDER_TOWN_ROSTER_VERSION, enemyRosterVersion: COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION, autonomousActorIds: [...TOWN_AUTONOMOUS_GUARD_IDS], phase: 'DEPLOYING', combatElapsedSeconds: 0, preparationRemainingSeconds: COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS,
     deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [], actors: {} }
 }
 
@@ -187,7 +187,7 @@ export function parseCommanderFourGateDefenseState(value: unknown,
     || nativeCombatStats.kills > context.targetActorIds.length)) return undefined
   const combatElapsedSeconds = raw.combatElapsedSeconds
   const enemyVersion: CommanderEnemyRosterVersion = raw.enemyRosterVersion
-  if (enemyVersion !== 2) return undefined
+  if (enemyVersion !== COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION) return undefined
   const slots = commanderFourGateDefenseSlots(context.missionId, enemyVersion), targets = new Set(slots.map(slot => slot.actorId))
   if (context.targetActorIds.length !== targets.size || new Set(context.targetActorIds).size !== targets.size
     || context.targetActorIds.some(id => !targets.has(id))
@@ -214,7 +214,8 @@ export function parseCommanderFourGateDefenseState(value: unknown,
   // It is checkpointed as a person, never added to official military authority.
   const townIds = [TOWN_HR_OFFICER_ID, ...townRosterIdentity().filter(actor => actor.role !== 'cat').map(actor => actor.id),
     ...context.friendlyActorIds, ...context.civilianActorIds]
-  const allowed = new Set([...townIds, ...targets, ...(context.personalActorIds ?? [])])
+  const garrisonIds = commanderFourGateGarrisonSlots(context.missionId).map(slot => slot.actorId)
+  const allowed = new Set([...townIds, ...garrisonIds, ...targets, ...(context.personalActorIds ?? [])])
   if (allowed.size > 1024 || [...allowed].some(id => !safeId(id))) return undefined
   const actors: CommanderFourGateDefenseState['actors'] = {}
   for (const [id, saved] of Object.entries(raw.actors)) {
@@ -234,7 +235,8 @@ export function parseCommanderFourGateDefenseState(value: unknown,
       || actor && target.role === 'infantry' && actor.mount) return undefined
   }
   const nativeReady = raw.phase !== 'DEPLOYING'
-  if (nativeReady && [...context.friendlyActorIds, ...autonomousActorIds, ...context.civilianActorIds].some(id => !actors[id])) return undefined
+  if (nativeReady && [...context.friendlyActorIds, ...autonomousActorIds, ...garrisonIds, ...context.civilianActorIds].some(id => !actors[id])) return undefined
+  if (garrisonIds.some(id => actors[id] && (!['deployed', 'dead'].includes(actors[id].status) || actors[id].mount))) return undefined
   const siege = raw.siege === undefined ? undefined : parseTownFourGateSiegeCheckpoint(raw.siege)
   if (raw.siege !== undefined && !siege || raw.deploymentComplete && !siege) return undefined
   const cavalryEscort = raw.cavalryEscort === undefined ? undefined : parseCommanderCavalryEscort(raw.cavalryEscort, context.missionId)
@@ -249,9 +251,9 @@ export function parseCommanderFourGateDefenseState(value: unknown,
     }
   }
   const infantryEscort = raw.infantryEscort === undefined ? undefined : parseCommanderInfantryEscort(raw.infantryEscort, context.missionId)
-  if (raw.infantryEscort !== undefined && (!infantryEscort || enemyVersion !== 2)) return undefined
-  // A started/deployed 280-man battle without its receipt is corrupt, never "every guard released".
-  if (enemyVersion === 2 && (raw.attackStarted || raw.deploymentComplete) && !infantryEscort) return undefined
+  if (raw.infantryEscort !== undefined && !infantryEscort) return undefined
+  // A started/deployed battle without its receipt is corrupt, never "every guard released".
+  if ((raw.attackStarted || raw.deploymentComplete) && !infantryEscort) return undefined
   if (infantryEscort) {
     if (!raw.attackStarted && (Object.values(infantryEscort.actors).some(actor => actor.mode !== 'escort')
       || Object.values(infantryEscort.groups).some(group => group.lastProgressDistance !== 0 || group.stallSeconds !== 0))) return undefined
@@ -287,12 +289,12 @@ export function parseCommanderFourGateDefenseState(value: unknown,
     if (!raw.attackStarted || !raw.deploymentComplete || !['ATTACKING', 'RESULT'].includes(raw.phase)) return undefined
     const enemiesRemaining = targets.size - dead.size
     const living = (actor: PersonalActorCheckpoint | undefined): boolean => actor?.status === 'deployed' && (actor.hp ?? 0) > 0
-    const allySurvives = player?.dead === false || townIds.some(id => living(actors[id]))
+    const allySurvives = player?.dead === false || [...townIds, ...garrisonIds].some(id => living(actors[id]))
       || (context.personalActorIds ?? []).some(id => living(actors[id] ?? context.personalActors?.[id]))
     if (raw.victoryReason === 'elimination' ? enemiesRemaining !== 0
       : enemiesRemaining === 0 || combatElapsedSeconds < COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS || !allySurvives) return undefined
   }
-  return { version: 1, rosterVersion, enemyRosterVersion: 2, autonomousActorIds: [...autonomousActorIds], phase: raw.phase, preparationRemainingSeconds: raw.preparationRemainingSeconds,
+  return { version: 1, rosterVersion, enemyRosterVersion: enemyVersion, autonomousActorIds: [...autonomousActorIds], phase: raw.phase, preparationRemainingSeconds: raw.preparationRemainingSeconds,
     ...(nativeCombatStats ? { nativeCombatStats: { ...nativeCombatStats } } : {}),
     combatElapsedSeconds, ...(raw.victoryReason ? { victoryReason: raw.victoryReason } : {}),
     deploymentComplete: raw.deploymentComplete, attackStarted: raw.attackStarted,

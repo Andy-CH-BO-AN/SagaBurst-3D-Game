@@ -636,7 +636,8 @@ export class TownScene {
             this.siegeHitRadius.set(ramp.damageable, Math.hypot(ramp.surface.length + ramp.surface.landing,
               ramp.surface.topY - ramp.surface.startY) + ramp.bridgeSurface.length + 8)
           },
-          unregisterHit: ramp => { this.siegeHitTargets.delete(ramp.damageable) } })
+          unregisterHit: ramp => { this.siegeHitTargets.delete(ramp.damageable) },
+          civilianRefuge: count => this.world.townCenterRefugePosts(count) })
       : new CommanderTownMissionController(missionActors, this.residents, () => this.player, () => this.profile,
         p => this.commit(p), this.navigation, undefined, { obstacles: this.world.obstacles,
           otherThreats: () => [...this.mission.ambientBandits, ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? [])]
@@ -772,7 +773,7 @@ export class TownScene {
     this.input.clear()
     if (!context.missionOnlyResidents) this.event.complete()
     this.restoreEagleGarrison()
-    this.restoreTownCasualties()
+    if (this.profile.activeMission?.kind !== 'commander-four-gate-defense' || this.profile.activeMission.result) this.restoreTownCasualties()
     this.civilianCommand.restore()
     this.townCommand.resumeRefits()
     if (this.world.faction === this.profile.faction && !this.sceneContext.missionOnlyResidents) {

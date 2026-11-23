@@ -69,26 +69,26 @@ type EscortActor = BypassActor & Pick<NPC, 'missionMovement' | 'setMissionCombat
 it('keeps blocked mounted escort recovery through moving-slot refreshes while invalidating its old path', () => {
   const assignment = commanderCavalryEscortAssignments('moving-escort')[0], initial = createCommanderCavalryEscort('moving-escort')
   // The live order is the real FormationOrder; the escort's path follower is its navigation-reset port.
-  const order = createFormationTarget(-4900, new Vector3(1, 0, -250), new Vector3(0, 0, 1), 4.8, 'defend')
+  const order = createFormationTarget(-4900, new Vector3(1, 0, -310), new Vector3(0, 0, 1), 4.8, 'defend')
   const path = new NavigationPathFollower(), bypass = new FriendlyMovementBypass()
   const reassigned: number[] = []
-  const escort: EscortActor = { ...actor(assignment.actorId, 1, -260), isMounted: true, missionMovement: true,
+  const escort: EscortActor = { ...actor(assignment.actorId, 1, -320), isMounted: true, missionMovement: true,
     setMissionCombatTarget() {}, assignSiegeObstacle() {},
     get combatFormationCheckpoint() { return formationCheckpoint(order) },
     refreshFormationTarget: (commandId, position, facing, speedLimit, arrivalOrder) =>
       refreshFormationTarget(order, 'defend', commandId, position, facing, speedLimit, arrivalOrder, path),
     assignFormationTarget: commandId => { reassigned.push(commandId) } }
-  const ramp = { surface: { startX: 3.5, startZ: -244, dirX: 0, dirZ: 1 }, position: new Vector3(3.5, 0, -225),
+  const ramp = { surface: { startX: 3.5, startZ: -304, dirX: 0, dirZ: 1 }, position: new Vector3(3.5, 0, -285),
     controller: { state: 'PUSHING', distance: 0, alivePushers: 4, currentSpeed: 4.8 } }
   interface EscortFrame { updateCavalryEscort(dt: number): void }
   const controller = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as EscortFrame, {
     state: { cavalryEscort: initial, actors: {} }, enemies: [escort], actorsById: new Map([[assignment.actorId, escort]]),
     escortAssignments: [assignment], fourGateSiege: { ramps: new Map([[assignment.rampId, ramp]]) },
   })
-  const nearby = [{ ...actor('mounted-blocker', 1, -258.2), isMounted: true }], direction = new Vector3(0, 0, 1)
-  const rock = { box: new Box3(new Vector3(-4.15, -2, -261.35), new Vector3(-.85, 3, -258.65)), isBarricade: false }
+  const nearby = [{ ...actor('mounted-blocker', 1, -318.2), isMounted: true }], direction = new Vector3(0, 0, 1)
+  const rock = { box: new Box3(new Vector3(-4.15, -2, -321.35), new Vector3(-.85, 3, -318.65)), isBarricade: false }
   const clear = (a: Vector3, b: Vector3) => !findBlockingObstacleAlongPath(a, b, 1.2, 2.6, 0, [rock])
-  const navigation = new NavigationWorld({ minX: -10, maxX: 10, minZ: -270, maxZ: -230 })
+  const navigation = new NavigationWorld({ minX: -10, maxX: 10, minZ: -330, maxZ: -290 })
   navigation.sync([rock]); navigation.beginFrame()
   const pathTarget = new Vector3()
   path.resolveMoveTarget(escort.combatPosition, order.position, navigation, true, pathTarget)
@@ -114,7 +114,7 @@ it('keeps blocked mounted escort recovery through moving-slot refreshes while in
   // Each moving slot refreshed the same order; a reassignment would have reset recovery.
   expect(reassigned).toEqual([])
   expect(escort.combatFormationCheckpoint).toMatchObject({ commandId: -4900, reached: false, speedLimit: 4.8, arrivalOrder: 'defend' })
-  expect(escort.combatFormationCheckpoint!.position.z).toBeCloseTo(-242.8)
+  expect(escort.combatFormationCheckpoint!.position.z).toBeCloseTo(-302.8)
 })
 
 /** NPC's own order entries on movement data; rampart, equipment and visual effects are inert ports. */

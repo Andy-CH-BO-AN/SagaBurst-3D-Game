@@ -13,7 +13,7 @@ import type { Mount } from '../world/Mount'
 import { Faction,type NPC } from '../world/NPC'
 import { getTerrainHeight,type ObstacleData } from '../world/Terrain'
 import { CIVILIAN_HOME_LAYOUT_VERSION,restoreCivilianMountClearance } from './TownCivilianLife'
-import { CIVILIAN_PROFILE,townRoster,type TownActorSpec } from './TownRules'
+import { CIVILIAN_PROFILE,isCivilian,townRoster,type TownActorSpec } from './TownRules'
 
 export const CIVILIAN_COMMAND_RETURN_ID = -4500
 export interface CivilianCommandResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
@@ -195,9 +195,17 @@ export class CivilianCommandSquadController {
       }
       this.value = cloneCivilianCommandSquad(restored)
       this.value.actorIds = saved.actorIds.filter(id => this.residentsById.has(id))
+      const fourGateInitialDeploy = profile.activeMission?.kind === 'commander-four-gate-defense'
+        && !profile.activeMission.result
+        && (saved.missionId !== profile.activeMission.id || !profile.activeMission.fourGateDefense?.deploymentComplete)
       for (const npc of this.actors) {
+        const resident = this.residentsById.get(npc.combatantId)
         const member = this.value.members[npc.combatantId]
-        if (member && this.validIdentity(npc)) restoreCommandActor(npc, member, this.residentsById.get(npc.combatantId)?.homeMount)
+        if (fourGateInitialDeploy && resident) {
+          this.value.members[npc.combatantId] = snapshotCommandActor(npc, resident.homeMount)
+          continue
+        }
+        if (member && this.validIdentity(npc)) restoreCommandActor(npc, member, resident?.homeMount)
       }
       if (isTownCommandRevokedByRetirement(profile) || saved.missionId === this.read().activeMission?.id && this.scopeAllowed) this.applyOwners(true)
     }
@@ -232,7 +240,7 @@ export class CivilianCommandSquadController {
       if (!resident) continue
       if (resident.npc.dead) { value.owners[id] = this.defaultOwner(resident.spec); continue }
       const owner = value.owners[id]
-      if ((profile.activeMission?.kind === 'commander-four-gate-defense') && !profile.activeMission.result && resident.spec.role === 'civilian') {
+      if ((profile.activeMission?.kind === 'commander-four-gate-defense') && !profile.activeMission.result && isCivilian(resident.spec.role)) {
         value.owners[id] = 'evacuation'; delete value.members[id].formation
       } else if (owner === 'player' || owner === 'evacuation') this.stageReturn(value, id, resident.spec)
     }
@@ -308,7 +316,7 @@ export class CivilianCommandSquadController {
     if (npc.formationCommandId !== CIVILIAN_COMMAND_RETURN_ID) this.applyReturn(npc, this.value!.members[npc.combatantId])
     npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.actors.filter(other => other !== npc && !other.dead), obstacles, navigation)
     if (npc.isFormationTargetReached(CIVILIAN_COMMAND_RETURN_ID)) {
-      if (resident.spec.role === 'civilian' && Math.hypot(npc.combatPosition.x - resident.spec.x, npc.combatPosition.z - resident.spec.z) > 2) {
+      if (isCivilian(resident.spec.role) && Math.hypot(npc.combatPosition.x - resident.spec.x, npc.combatPosition.z - resident.spec.z) > 2) {
         const value = this.checkpoint()!; this.stageReturn(value, npc.combatantId, resident.spec); this.save(value); return true
       }
       const value = this.checkpoint()!, id = npc.combatantId
@@ -321,7 +329,7 @@ export class CivilianCommandSquadController {
 
   private defaultOwner(spec: TownActorSpec): CivilianCommandOwner {
     const mission = this.read().activeMission
-    return spec.role === 'civilian' && (mission?.kind === 'commander-four-gate-defense') && !mission.result ? 'evacuation' : 'daily'
+    return isCivilian(spec.role) && (mission?.kind === 'commander-four-gate-defense') && !mission.result ? 'evacuation' : 'daily'
   }
   private stageReturn(value: CivilianCommandSquadState, id: string, spec: TownActorSpec): void {
     const member = value.members[id]

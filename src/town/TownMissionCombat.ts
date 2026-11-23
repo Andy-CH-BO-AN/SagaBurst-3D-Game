@@ -4,16 +4,18 @@ import type { CareerDuelController } from '../career/CareerDuelController'
 import type { CareerMountController } from '../career/CareerMountController'
 import type { CommanderTownMissionController } from '../career/CommanderTownMissionController'
 import type { CombatDamageMethod, CombatEvent } from '../combat/CombatAttribution'
+import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
 import { applyMountImpactDamage, checkMountImpact } from '../combat/MountImpact'
 import type { ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
+import { EntityCollisionBroadPhase } from '../world/EntityCollisionBroadPhase'
 import type { Mount } from '../world/Mount'
 import { Faction, type NPC } from '../world/NPC'
 import { SpatialGrid } from '../world/SpatialGrid'
-import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
+import { getTerrainHeight, resolveObstacleCollision, type EntityCollisionBody, type ObstacleData } from '../world/Terrain'
 import { TownActorUpdates, type TownActorUpdate } from './TownActorUpdates'
 import { TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
 import type { TownCavalryPatrolController } from './TownCavalryPatrolController'
@@ -125,6 +127,11 @@ export class TownMissionCombat {
   private eagleSensorRemaining = 0
   private eagleSensorReady = true
   private readonly individualThreats = new Map<NPC, number>()
+  private readonly bodyCollisionBroadPhase = new EntityCollisionBroadPhase()
+  private readonly bodyCollisionList: EntityCollisionBody[] = []
+  private readonly bodyCollisionActors: NPC[] = []
+  private readonly bodyCollisionPrevX: number[] = []
+  private readonly bodyCollisionPrevZ: number[] = []
 
   constructor(private readonly missions: MissionControllers, private readonly town: TownCombatScene) {}
 
@@ -439,6 +446,7 @@ export class TownMissionCombat {
         false, actor.group.position.distanceTo(this.town.cameraPosition), null, hostileGrid, this.town.navigation)
       if (travelOrder && !actor.dead) actor.tacticalOrder = travelOrder
     }
+    this.resolveCombatActorCollisions(actors)
     const mount = player.currentMount
     const playerImpactTargets = [...new Set([
       ...(veteranField ? [...field.missionBandits, ...this.enemyTownHostileActors] : [...field.ambientBandits, ...field.missionBandits]),
@@ -731,6 +739,7 @@ export class TownMissionCombat {
         actor.updateTownPeace(dt, actor.group.position.distanceTo(this.town.cameraPosition), false, false)
       }
     }
+    this.resolveCombatActorCollisions(actors)
     // TownScene owns global/Outskirts mounts; the career controller owns its active mount.
     for (const mount of new Set(duel.allMounts)) {
       if (this.town.mounts?.includes(mount) || outskirts?.mounts.includes(mount) || mount === this.town.careerMounts.activeMount) continue
@@ -1072,6 +1081,7 @@ export class TownMissionCombat {
         false, actor.group.position.distanceTo(this.town.cameraPosition), null, hostileGrid, this.town.navigation)
       if (travelOrder && !actor.dead) actor.tacticalOrder = travelOrder
     }
+    this.resolveCombatActorCollisions(actors)
     for (const enemy of defense.waitingEnemies) {
       if (enemy.dead) continue
       const mount = enemy.mount
@@ -1108,5 +1118,64 @@ export class TownMissionCombat {
       }
     }
     this.town.careerMounts.update(dt)
+  }
+
+  private resolveCombatActorCollisions(actors: readonly NPC[]): void {
+    const obstacles = this.town.obstacles
+    if (!obstacles || actors.length < 2) return
+    const bodies = this.bodyCollisionList
+    const refs = this.bodyCollisionActors
+    const prevX = this.bodyCollisionPrevX
+    const prevZ = this.bodyCollisionPrevZ
+    bodies.length = 0
+    refs.length = 0
+    prevX.length = 0
+    prevZ.length = 0
+    for (const actor of actors) {
+      if (actor.dead || actor.isFalling || actor.mount?.isFlyingMount) continue
+      const mounted = Boolean(actor.isMounted && actor.mount && !actor.mount.dead)
+      const position = mounted ? actor.mount?.group?.position : actor.combatPosition
+      if (!position) continue
+      bodies.push(mounted
+        ? {
+            position,
+            anchored: Boolean(actor.siegeTransport),
+            radius: 1.0,
+            height: 2.6,
+            bottomOffset: 0,
+            mountedSurfaces: true,
+            pushWeight: (actor.mount!.movementSpeed ?? 0) > COMBAT_BALANCE.mountImpact.minSpeed ? 4.0 : 2.0,
+          }
+        : {
+            position,
+            anchored: Boolean(actor.siegeTransport),
+            radius: 0.5,
+            height: 2.3,
+            bottomOffset: 0,
+            walkSurfaces: true,
+            pushWeight: 1.0,
+          })
+      refs.push(actor)
+      prevX.push(position.x)
+      prevZ.push(position.z)
+    }
+    if (bodies.length < 2) return
+    this.bodyCollisionBroadPhase.resolve(bodies, obstacles)
+    for (let i = 0; i < bodies.length; i++) {
+      const body = bodies[i]
+      if (!body.anchored) {
+        resolveObstacleCollision(body.position, body.position, 0, true, body.radius, body.height, body.bottomOffset,
+          obstacles, { walkSurfaces: body.walkSurfaces, mountedSurfaces: body.mountedSurfaces })
+      }
+      const actor = refs[i]
+      if (body.mountedSurfaces && actor.group?.position) {
+        const dx = body.position.x - prevX[i]
+        const dz = body.position.z - prevZ[i]
+        if (dx !== 0 || dz !== 0) {
+          actor.group.position.x += dx
+          actor.group.position.z += dz
+        }
+      }
+    }
   }
 }
