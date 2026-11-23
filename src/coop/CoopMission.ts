@@ -32,7 +32,7 @@ import { resolveEntityCollision, type ObstacleData } from '../world/Terrain'
 import { HERO_ASSETS } from '../world/HeroAssetCatalog'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
 import { prepareByzantineEquipment } from '../world/HighTierEquipment'
-import { gameplayNpcSpawns } from '../world/NpcSpawnScheduler'
+import { gameplayNpcSpawns, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
 import { followLocalOffset } from '../battle/FollowOrder'
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import { parsePersonalSquad, type CareerPersonalSquadMember } from '../career/CareerPersonalSquad'
@@ -237,6 +237,9 @@ export class CoopHostMission {
   /** The guest's own HR squad, simulated here and commanded only by the guest. */
   private readonly guestSquad: NPC[] = []
   private guestSquadKey = ''
+  /** Owns the queued spawn jobs of the current roster; a new generation retires every older async spawn. */
+  private guestSquadBatch: NpcSpawnBatch | null = null
+  private guestSquadGeneration = 0
   private pendingGuestSquad: CareerPersonalSquadMember[] | null = null
   /** The guest's own combat record (its body and its own squad), by the single-player stat rules. */
   private readonly guestStats = emptyCoopStats()
@@ -578,11 +581,12 @@ export class CoopHostMission {
   }
 
   private async spawnGuestSquad(members: CareerPersonalSquadMember[]): Promise<void> {
-    const key = this.guestSquadKey
+    const generation = this.guestSquadGeneration
     try { await Promise.all(members.map(member => preloadPersonalSquadMember(member, member.characterFaction))) }
     catch (error) { console.warn('[coop] guest squad assets failed', error); return }
-    if (key !== this.guestSquadKey || !this.link.peerConnected) return
+    if (generation !== this.guestSquadGeneration || !this.link.peerConnected) return
     const batch = gameplayNpcSpawns.batch()
+    this.guestSquadBatch = batch
     members.forEach((member, index) => batch.enqueue(`coop-guest:${member.id}`, () => {
       const anchor = this.proxy?.combatPosition ?? this.port.player.position
       const yaw = this.proxy?.group.rotation.y ?? 0
@@ -603,6 +607,7 @@ export class CoopHostMission {
   }
 
   private removeGuestSquad(): void {
+    this.cancelGuestSquadSpawn()
     this.pendingGuestSquad = null
     this.guestSquadKey = ''
     for (const npc of this.guestSquad.splice(0)) {
@@ -612,6 +617,12 @@ export class CoopHostMission {
       removeFrom(this.port.npcs, npc)
       npc.dispose()
     }
+  }
+
+  private cancelGuestSquadSpawn(): void {
+    this.guestSquadGeneration++
+    this.guestSquadBatch?.cancel()
+    this.guestSquadBatch = null
   }
 
   private followGuest(): void {
