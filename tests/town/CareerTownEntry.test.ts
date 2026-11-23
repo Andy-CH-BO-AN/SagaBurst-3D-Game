@@ -20,6 +20,7 @@ import { claimCareerFieldResult } from '../../src/career/CareerPrisonBreak'
 import { CareerPrisonBreakScene } from '../../src/arena/CareerPrisonBreakScene'
 import { CareerArenaTrialScene } from '../../src/arena/CareerArenaTrialScene'
 import { createArenaTrialMission } from '../../src/career/CareerArenaTrials'
+import { acceptVeteranMission } from '../../src/career/VeteranMission'
 
 vi.mock('../../src/town/TownScene', () => ({ TownScene: { create: vi.fn() } }))
 vi.mock('../../src/town/TownUI', () => ({ installTownStyles: vi.fn() }))
@@ -463,6 +464,22 @@ describe('Captain battlefield Career entry routing', () => {
       expect(session.getItem(CAREER_OUTPOST_SESSION_KEY)).toBe(accepted.activeMission!.id)
       expect(session.getItem(TOWN_ENTRY_KEY)).toBeNull()
     }
+  })
+  it('main-menu Career entry resumes an unresolved Veteran outpost battle instead of opening Town', async () => {
+    const local = new MemoryStorage(), session = new MemoryStorage(), body = element()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
+    vi.stubGlobal('document', { body, createElement: () => element() })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    const veteran = { ...createCareerProfile('roman'), ...careerRankFixture('roman', 'veteran') }
+    const accepted = acceptVeteranMission(veteran, 'veteran-dread-outpost', { missionId: 'veteran-menu-resume' })!
+    expect(new CareerProfileStore(local).save(accepted)).toBe(true)
+    const launch = vi.fn(async (_config: CareerCombatLaunch) => {})
+    enterCareerTown(element() as unknown as HTMLElement, launch, vi.fn())
+    await Promise.resolve()
+    expect(launch).toHaveBeenCalledOnce()
+    expect(launch.mock.calls[0][0]).toMatchObject({ careerMissionId: 'veteran-menu-resume' })
+    expect(TownScene.create).not.toHaveBeenCalled()
+    expect(session.getItem(CAREER_OUTPOST_SESSION_KEY)).toBe('veteran-menu-resume')
   })
 })
 
