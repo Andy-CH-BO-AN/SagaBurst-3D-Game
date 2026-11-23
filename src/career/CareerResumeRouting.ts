@@ -1,3 +1,4 @@
+import type { ActiveCareerMission } from './CareerMissionState'
 import type { CareerProfile } from './CareerProfile'
 import { isCareerVeteranOutpostMission, shouldResumeCareerVeteranOutpost } from './CareerVeteranOutpost'
 
@@ -10,9 +11,8 @@ export function shouldResumeCareerTown(profile: CareerProfile | null, townSelect
   return Boolean(profile?.activeMission?.prisonBreak) || Boolean(profile?.careerRetirement) || profile?.townEvent?.state === 'hostile' || townSelected
 }
 
-/** Same decision as the full-page startup: a Veteran defeat lock or unclaimed result resumes the battle; a settled claim returns to town. */
-export function careerVeteranOutpostResumeAction(profile: CareerProfile): 'resume' | 'settle' | null {
-  const mission = profile.activeMission
+/** One decision for startup and the main-menu entry: a Veteran defeat lock or unclaimed result resumes the battle; a settled claim returns to town. */
+export function careerVeteranOutpostResumeAction(mission: ActiveCareerMission | undefined, claimedBattleIds: readonly string[]): 'resume' | 'settle' | null {
   if (!isCareerVeteranOutpostMission(mission)) return null
-  return shouldResumeCareerVeteranOutpost(mission) || !profile.claimedBattleIds.includes(mission.id) ? 'resume' : 'settle'
+  return shouldResumeCareerVeteranOutpost(mission) || !claimedBattleIds.includes(mission.id) ? 'resume' : 'settle'
 }

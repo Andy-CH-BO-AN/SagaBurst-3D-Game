@@ -249,7 +249,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       }
     }
     const active = profile.activeMission
-    const veteranAction = careerVeteranOutpostResumeAction(profile)
+    const veteranAction = careerVeteranOutpostResumeAction(active, profile.claimedBattleIds)
     const missionLaunch = active?.templateId === CAPTAIN_FRONTLINE_COMMAND_ID && active.kind === 'captain-outpost-defense'
       ? () => createCaptainFrontlineLaunch(profile)
       : active?.templateId === CAPTAIN_EAGLE_BATTLE_ID && active.kind === 'captain-eagle-battle' ? () => createCaptainEagleLaunch(profile)
