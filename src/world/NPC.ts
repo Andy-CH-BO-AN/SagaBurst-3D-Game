@@ -117,8 +117,6 @@ import { fitStandingRider } from './StandingRider'
 import { angleDifference, steerOrbitForward, orbitRadius, writeOrbitDirection, canUseMountedBowOrbit, isWithinMountedBowOrbitRange, MOUNTED_BOW_MAX_PITCH } from '../movement/MountedArcherOrbit'
 import {
   isEligibleMeleeCavalry,
-  cavalryTurnRate,
-  steerCavalryHeading,
   isTargetInForwardCone,
   findCavalryChargeTarget,
   CAVALRY_PASSTHROUGH_DURATION,
@@ -206,6 +204,9 @@ const RESPAWN_TIME     = 10.0
 const NPC_FOOT_OBSTACLE_RADIUS = 0.5
 const NPC_FOOT_OBSTACLE_HEIGHT = 2.3
 const NPC_MOUNTED_OBSTACLE_RADIUS = 1.0
+/** Riders advance past an A* waypoint within this radius; several mounts
+ * cannot all squeeze into the default sub-cell radius of one shared cell. */
+const NPC_MOUNTED_PATH_ARRIVAL = 3.0
 const NPC_MOUNTED_OBSTACLE_HEIGHT = 2.6
 const NPC_DETOUR_FOOT_LOOKAHEAD = 5.0
 const NPC_DETOUR_MOUNTED_LOOKAHEAD = 8.0
@@ -2281,6 +2282,7 @@ export class NPC {
       navigationWorld,
       directBlocker !== null,
       this._tmpNavigationTarget,
+      this.isMounted ? NPC_MOUNTED_PATH_ARRIVAL : undefined,
     )
   }
 
@@ -3696,25 +3698,35 @@ export class NPC {
         this.mount.group.rotation.y = steerOrbitForward(moveDir, this.mount.group.rotation.y, Math.atan2(moveDir.x, moveDir.z), this.mount.baseSpeed, dt)
         this.group.rotation.y = this.mount.group.rotation.y
         const endpoint = this._tmpFaceDir.copy(this.mount.group.position).addScaledVector(moveDir, this.mount.baseSpeed * (dt + .15))
-        if (findBlockingObstacleAlongPath(this.mount.group.position, endpoint, NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) moveDir.set(0, 0, 0)
+        // Steer around a parapet/tree corner instead of halting in place.
+        if (findBlockingObstacleAlongPath(this.mount.group.position, endpoint, NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) {
+          moveDir.copy(getObstacleAvoidanceDirection(this.mount.group.position, moveDir,
+            NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles))
+        }
+        // The forward turn alone never closed the distance: a horse archer
+        // whose target left bow range stood in place instead of riding back in.
+        this._moveByDirection(moveDir, this.mount.baseSpeed, dt, this.tacticalOrder === 'charge')
       }
     } else if (eligibleCavalry && !siegeObstacle && !this.siegeBypassTarget && !layeredStep?.confirmedLayeredStep) {
-      const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
       const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
       const maxDist = layeredStep?.tower
         ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z)
         : Infinity
 
       if (moveDir.lengthSq() > 0.0001) {
-        const desiredYaw = Math.atan2(moveDir.x, moveDir.z)
-        const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
-        this.group.rotation.y = newYaw
-        if (this.mount) this.mount.group.rotation.y = newYaw
-        moveDir.set(Math.sin(newYaw), 0, Math.cos(newYaw))
-
+        // Face the route directly: a bounded turn rate left a wide turning
+        // circle that orbited close A* waypoints instead of reaching them.
+        // A blocked look-ahead (e.g. a waypoint beside a bridge parapet) steers
+        // around the obstacle instead of halting the rider in place forever.
         const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(moveDir, speed * (dt + 0.15))
         if (findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
-          moveDir.set(0, 0, 0)
+          moveDir.copy(getObstacleAvoidanceDirection(this.combatPosition, moveDir,
+            this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles))
+        }
+        if (moveDir.lengthSq() > 0.0001) {
+          const newYaw = Math.atan2(moveDir.x, moveDir.z)
+          this.group.rotation.y = newYaw
+          if (this.mount) this.mount.group.rotation.y = newYaw
         }
       }
 
@@ -3727,12 +3739,18 @@ export class NPC {
       )
     } else {
       if (this.isMounted && layeredStep?.confirmedLayeredStep && moveDir.lengthSq() > .0001) {
-        // Turn within the landing instead of driving a wide charge arc off
-        // a narrow ramp. Keep the existing turn budget and waypoint cap.
-        const desiredYaw = Math.atan2(moveDir.x, moveDir.z)
-        const yaw = steerCavalryHeading(this.mount!.group.rotation.y, desiredYaw, this.mount!.baseSpeed, dt)
+        // Face the next landing waypoint directly; the waypoint cap still applies.
+        const yaw = Math.atan2(moveDir.x, moveDir.z)
         this.mount!.group.rotation.y = yaw; this.group.rotation.y = yaw
-        if (Math.abs(angleDifference(desiredYaw, yaw)) > .25) moveDir.set(0, 0, 0)
+      } else if (this.mount && !this.mount.isFlyingMount && !siegeObstacle && navigationRoute === 'path'
+        && moveDir.lengthSq() > .0001 && findBlockingObstacleAlongPath(this.mount.group.position,
+          this._tmpFaceDir.copy(this.mount.group.position).addScaledVector(moveDir, this.mount.baseSpeed * (dt + .15)),
+          NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) {
+        // A waypoint hugging a parapet corner pinned the mount's body against
+        // it; slide around the corner along the clear avoidance bearing.
+        moveDir.copy(getObstacleAvoidanceDirection(this.mount.group.position, moveDir,
+          NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles))
+        if (moveDir.lengthSq() > .0001) this._faceDirection(moveDir)
       } else this._faceTarget(movementTarget)
       this._moveByDirection(
         moveDir,
@@ -3873,8 +3891,6 @@ export class NPC {
     )
     if (!mountedBowForward && !eligibleCharge) this._faceTarget(attackTargetPosition)
     const initialYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
-    const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
-    const maxTurnBudget = cavalryTurnRate(speed) * dt
 
     if (eligibleCharge && !siegeObstacle) {
       const inFront = this.cavalryPassthroughTimer <= 0
@@ -3884,9 +3900,8 @@ export class NPC {
       const desiredYaw = (inFront && targetDirX * targetDirX + targetDirZ * targetDirZ > 0.001)
         ? Math.atan2(targetDirX, targetDirZ)
         : initialYaw
-      const newYaw = steerCavalryHeading(initialYaw, desiredYaw, speed, dt)
-      this.group.rotation.y = newYaw
-      if (this.mount) this.mount.group.rotation.y = newYaw
+      this.group.rotation.y = desiredYaw
+      if (this.mount) this.mount.group.rotation.y = desiredYaw
     }
     if (!siegeObstacle && !this.hasActiveRangedWeapon && this.isUsingLance) {
       // The authored spear is held beside the torso. Aim its actual forward
@@ -3900,17 +3915,7 @@ export class NPC {
         const localX = dx * Math.cos(currentYaw) - dz * Math.sin(currentYaw)
         const localZ = dx * Math.sin(currentYaw) + dz * Math.cos(currentYaw)
         if (localZ > 0.1) {
-          const tipYawOffset = Math.atan2(localX, localZ)
-          if (eligibleCharge) {
-            // Share the single-frame turn budget with heading steering:
-            // The net difference between initialYaw and final yaw must not exceed maxTurnBudget.
-            const unconstrainedYaw = this.group.rotation.y - tipYawOffset
-            const totalDiff = angleDifference(unconstrainedYaw, initialYaw)
-            const clampedDiff = Math.max(-maxTurnBudget, Math.min(maxTurnBudget, totalDiff))
-            this.group.rotation.y = initialYaw + clampedDiff
-          } else {
-            this.group.rotation.y -= tipYawOffset
-          }
+          this.group.rotation.y -= Math.atan2(localX, localZ)
           if (this.mount) this.mount.group.rotation.y = this.group.rotation.y
         }
       }
