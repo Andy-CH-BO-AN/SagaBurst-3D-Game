@@ -54,8 +54,7 @@ export class CivilianCommandSquadController {
     const profile = this.read(), mission = profile.activeMission
     return !isTownCommandRevokedByRetirement(profile) && profile.rank === 'commander' && profile.faction === this.options.townFaction
       && profile.townEvent?.state !== 'hostile' && !profile.activeOutpostMission
-      && (!mission || (mission.kind === 'commander-four-gate-defense') && !mission.result && mission.phase !== 'RETURNING'
-        && mission.phase !== 'RESULT' && mission.phase !== 'RESET')
+      && !mission
   }
   private get matchesScene(): boolean {
     return this.value?.sceneKey === this.options.sceneKey && this.value.townFaction === this.options.townFaction
@@ -181,6 +180,7 @@ export class CivilianCommandSquadController {
 
   /** Restore only the same existing objects, including deaths, before resuming ownership. */
   restore(): boolean {
+    if (this.read().activeMission?.kind === 'commander-four-gate-defense') return true
     const saved = this.read().civilianCommandSquad
     if (saved?.sceneKey === this.options.sceneKey && saved.townFaction === this.options.townFaction) {
       let restored = saved
@@ -195,16 +195,9 @@ export class CivilianCommandSquadController {
       }
       this.value = cloneCivilianCommandSquad(restored)
       this.value.actorIds = saved.actorIds.filter(id => this.residentsById.has(id))
-      const fourGateInitialDeploy = profile.activeMission?.kind === 'commander-four-gate-defense'
-        && !profile.activeMission.result
-        && (saved.missionId !== profile.activeMission.id || !profile.activeMission.fourGateDefense?.deploymentComplete)
       for (const npc of this.actors) {
         const resident = this.residentsById.get(npc.combatantId)
         const member = this.value.members[npc.combatantId]
-        if (fourGateInitialDeploy && resident) {
-          this.value.members[npc.combatantId] = snapshotCommandActor(npc, resident.homeMount)
-          continue
-        }
         if (member && this.validIdentity(npc)) restoreCommandActor(npc, member, resident?.homeMount)
       }
       if (isTownCommandRevokedByRetirement(profile) || saved.missionId === this.read().activeMission?.id && this.scopeAllowed) this.applyOwners(true)
@@ -215,7 +208,7 @@ export class CivilianCommandSquadController {
   /** A scene/mission transition releases claims; saving must succeed before any handoff. */
   synchronize(): boolean {
     const profile = this.read()
-    if (profile.faction !== this.options.townFaction) return true
+    if (profile.faction !== this.options.townFaction || profile.activeMission?.kind === 'commander-four-gate-defense') return true
     if (isTownCommandRevokedByRetirement(profile)) { this.applyOwners(); return true }
     if (!this.value) {
       if (!this.scopeAllowed) return true
@@ -225,7 +218,7 @@ export class CivilianCommandSquadController {
         townFaction: profile.faction, sceneKey: this.options.sceneKey, homeLayoutVersion: CIVILIAN_HOME_LAYOUT_VERSION, ...(profile.activeMission ? { missionId: profile.activeMission.id } : {}),
         actorIds, owners: {}, members: {} }
       for (const id of actorIds) {
-        value.owners[id] = this.defaultOwner(this.residentsById.get(id)!.spec)
+        value.owners[id] = 'daily'
         value.members[id] = snapshotCommandActor(this.residentsById.get(id)!.npc, this.residentsById.get(id)!.homeMount)
       }
       return this.save(value)
@@ -238,11 +231,9 @@ export class CivilianCommandSquadController {
     for (const id of value.actorIds) {
       const resident = this.residentsById.get(id)
       if (!resident) continue
-      if (resident.npc.dead) { value.owners[id] = this.defaultOwner(resident.spec); continue }
+      if (resident.npc.dead) { value.owners[id] = 'daily'; continue }
       const owner = value.owners[id]
-      if ((profile.activeMission?.kind === 'commander-four-gate-defense') && !profile.activeMission.result && isCivilian(resident.spec.role)) {
-        value.owners[id] = 'evacuation'; delete value.members[id].formation
-      } else if (owner === 'player' || owner === 'evacuation') this.stageReturn(value, id, resident.spec)
+      if (owner === 'player' || owner === 'evacuation') this.stageReturn(value, id, resident.spec)
     }
     return this.save(value)
   }
@@ -278,9 +269,7 @@ export class CivilianCommandSquadController {
     for (const npc of selected) {
       const id = npc.combatantId, spec = this.residentsById.get(id)!.spec
       if (order === 'dismiss') {
-        if (this.defaultOwner(spec) === 'evacuation') {
-          value.owners[id] = 'evacuation'; value.members[id].order = 'attack'; delete value.members[id].formation
-        } else this.stageReturn(value, id, spec)
+        this.stageReturn(value, id, spec)
       } else {
         value.owners[id] = 'player'; value.members[id].status = 'deployed'; value.members[id].order = order
         if (order !== 'formation') delete value.members[id].formation
@@ -320,17 +309,13 @@ export class CivilianCommandSquadController {
         const value = this.checkpoint()!; this.stageReturn(value, npc.combatantId, resident.spec); this.save(value); return true
       }
       const value = this.checkpoint()!, id = npc.combatantId
-      value.owners[id] = this.defaultOwner(resident.spec)
+      value.owners[id] = 'daily'
       value.members[id].order = 'attack'; delete value.members[id].formation
       this.save(value)
     }
     return true
   }
 
-  private defaultOwner(spec: TownActorSpec): CivilianCommandOwner {
-    const mission = this.read().activeMission
-    return isCivilian(spec.role) && (mission?.kind === 'commander-four-gate-defense') && !mission.result ? 'evacuation' : 'daily'
-  }
   private stageReturn(value: CivilianCommandSquadState, id: string, spec: TownActorSpec): void {
     const member = value.members[id]
     value.owners[id] = 'returning'; member.order = 'formation'
