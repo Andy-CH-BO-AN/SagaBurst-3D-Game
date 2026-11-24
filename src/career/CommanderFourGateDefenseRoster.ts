@@ -185,6 +185,12 @@ export function fourGateFootLoadout(faction: CharacterFaction, role: CommanderFo
   return { presetId, loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[tier], mountId: null } }
 }
 
+/** Mission-only kit: civilian identities keep their stats, but receive a shield as well as a lance and horse. */
+export function fourGateReserveLancerLoadout(faction: CharacterFaction, civilian: boolean) {
+  const lancer = UNIT_PRESETS[`${faction}_lancer`].tierLoadouts[civilian ? 2 : 3]
+  return civilian ? { ...lancer, shieldId: faction === 'roman' ? 'scutum_t2' as const : 'round_shield_t2' as const } : { ...lancer }
+}
+
 export function prepareFourGateGroundResident(spec: TownActorSpec, company: GroundCompany): TownActorSpec {
   const { role, tier } = company
   return { ...spec, mounted: false, garrison: undefined, tier, y: undefined,

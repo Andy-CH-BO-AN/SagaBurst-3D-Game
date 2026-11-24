@@ -1,6 +1,6 @@
 import { gatehouseLocal } from '../../src/town/TownGatehouse'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
-import { commanderFourGateGarrisonSlots } from '../../src/career/CommanderFourGateDefenseRoster'
+import { commanderFourGateGarrisonSlots, fourGateReserveLancerLoadout } from '../../src/career/CommanderFourGateDefenseRoster'
 import type { Player } from '../../src/player/Player'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { gateBreachLane } from '../../src/navigation/GateBreachPortal'
@@ -11,7 +11,7 @@ import { planCommanderFourGateDefenseDeployment } from '../../src/career/Command
 import { AIType, NPC, Faction } from '../../src/world/NPC'
 import { RampartDuty, type RampartDutyActor } from '../../src/battle/RampartDuty'
 import { parseCommandActorCheckpoint } from '../../src/career/CareerCommandAuthority'
-import { Vector3 } from 'three'
+import { Box3, Vector3 } from 'three'
 import { AvailableBreachEntrances } from '../../src/navigation/AvailableBreachEntrances'
 import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
 import type { TownActorSpec } from '../../src/town/TownRules'
@@ -19,15 +19,16 @@ import { getCommanderMissionDefinition, createCommanderMission } from '../../src
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { careerRankFixture } from '../helpers/careerRankFixture'
 import { fourGateNativeSpecs } from '../helpers/fourGateDefenseRuntime'
-import { TOWN_GATES } from '../../src/town/TownLayout'
-import { fourGateGroundFront } from '../../src/town/TownGateBarricades'
+import { TOWN_GATES, townGatePoint } from '../../src/town/TownLayout'
+import { fourGateGroundFront, townFourGateBarricadeRects } from '../../src/town/TownGateBarricades'
 import { getTownRampartLayout, townRampartHeight } from '../../src/town/TownRamparts'
 
-import { getTerrainHeight, getWalkRampHeight } from '../../src/world/Terrain'
+import { findBlockingObstacleAlongPath, getTerrainHeight, getWalkRampHeight } from '../../src/world/Terrain'
 import { SiegeConvoy } from '../../src/campaign/SiegeConvoy'
 import { ActorDouble, asNpc, MountDouble } from '../helpers/careerActorDoubles'
 import { preparedTownSiege, townSiege } from '../helpers/townSiegeDoubles'
 import { PursuitBlockList } from '../../src/navigation/PursuitBlockList'
+import { MOUNT_BODY_HEIGHT, MOUNT_MOVEMENT_RADIUS } from '../../src/world/MountGroundBody'
 
 const EMPTY_LAYOUT = { decks: [], ramps: [], corners: [], lengths: [], perimeter: 1, wallSpans: [] }
 /** An attacker body with its fixed sector role; cavalry rides a ground mount. */
@@ -95,6 +96,36 @@ describe('Siege deployment and shared rule ownership', () => {
         const depth = (gate.x - station.x) * Math.sin(gate.yaw) + (gate.z - station.z) * Math.cos(gate.yaw)
         return station.kind === 'cavalry' && depth >= fourGateGroundFront(sector.gateId) - .001
       })).toBe(true)
+    }
+  })
+
+  it('blocks straight approaches inside each gate opening while leaving mounted passage between the works', () => {
+    const obstacles = townFourGateBarricadeRects().map(rect => ({
+      box: new Box3(new Vector3(rect.minX, -1, rect.minZ), new Vector3(rect.maxX, 3, rect.maxZ)),
+      isBarricade: false,
+    }))
+    for (const gate of TOWN_GATES) {
+      const point = (side: number, inward: number) => {
+        const { x, z } = townGatePoint(gate, side, inward)
+        return new Vector3(x, 0, z)
+      }
+      const blocked = (side: number) => findBlockingObstacleAlongPath(point(side, 2),
+        point(side, fourGateGroundFront(gate.id) - 1), MOUNT_MOVEMENT_RADIUS, MOUNT_BODY_HEIGHT, 0, obstacles)
+      expect(blocked(-4)).not.toBeNull()
+      expect(blocked(4)).not.toBeNull()
+      expect(blocked(0)).toBeNull()
+      expect(blocked(-12)).toBeNull()
+      expect(blocked(12)).toBeNull()
+    }
+  })
+
+  it('equips civilian reserve riders with faction shields without changing regular lancer equipment', () => {
+    for (const faction of ['roman', 'viking'] as const) {
+      const civilian = fourGateReserveLancerLoadout(faction, true)
+      const recruit = fourGateReserveLancerLoadout(faction, false)
+      expect(civilian).toMatchObject({ mountId: 'horse', meleeWeaponId: 'steel_lance',
+        shieldId: faction === 'roman' ? 'scutum_t2' : 'round_shield_t2' })
+      expect(recruit).toMatchObject({ mountId: 'horse', meleeWeaponId: 'heavy_lance', shieldId: null })
     }
   })
 

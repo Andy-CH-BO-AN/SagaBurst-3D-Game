@@ -70,7 +70,7 @@ import { sellTownNativeProducts, townNativeSaleGate, townNativeSaleStock, type T
 import { canStartCareerTutorial } from '../career/CareerTutorial'
 import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
 import { acceptCaptainCavalryCommand, acceptCavalrySweep, CAVALRY_SWEEP_BANDITS, SWEEP_YAW, sweepPlayerSpawn } from '../career/CavalrySweep'
-import { commanderFourGateGroundResidents, fourGateFootLoadout, FOUR_GATE_RESERVE_SQUAD } from '../career/CommanderFourGateDefenseRoster'
+import { commanderFourGateGroundResidents, fourGateFootLoadout, fourGateReserveLancerLoadout, FOUR_GATE_RESERVE_SQUAD } from '../career/CommanderFourGateDefenseRoster'
 import { configureFourGateReserveExit, fourGateScenePopulation } from './FourGateScenePopulation'
 import { CommanderFourGateDefenseController } from '../career/CommanderFourGateDefenseController'
 import { townPersonalCheckpointDue } from './TownPersonalCheckpointCadence'
@@ -934,8 +934,7 @@ export class TownScene {
         const nativeLoadout = careerEquipment?.loadout ?? (spec.role === 'merchant' ? townMerchantLoadout() : civilian || spec.role === 'commander' ? townDefaultActorLoadout(residentArmyFaction, spec) : ranger ? { meleeWeaponId: defaultRangerMeleeWeaponId(residentArmyFaction), rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null, reversibleRangedSwitch: true } : military!.loadout)
         let loadout = infantryEquipment?.loadout ?? (wallDefender ? { ...nativeLoadout, mountId: null } : nativeLoadout)
         if (reserveRider) {
-          const lancer = UNIT_PRESETS[lancerPreset].tierLoadouts[recruit ? 3 : 2]
-          if (civilian || recruit) loadout = { ...lancer, mountId: 'horse' }
+          if (civilian || recruit) loadout = fourGateReserveLancerLoadout(residentArmyFaction, civilian)
           else {
             const nativeMount = loadout.mountId ?? (spec.role === 'ranger' ? 'black-cat' : hero?.mountOverride)
             loadout = { ...loadout, mountId: nativeMount && nativeMount !== 'xongkoro' ? nativeMount : 'horse' }
