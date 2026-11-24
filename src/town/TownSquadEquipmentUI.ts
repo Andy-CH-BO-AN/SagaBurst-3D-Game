@@ -203,7 +203,7 @@ export function townEquipmentUI(bindings: TownEquipmentUIBindings): EquipmentTow
       const members = document.createElement('div'); members.className = 'inventory-grid town-equipment-members'; panel.append(members)
       for (const member of squad.members) {
         const card = document.createElement('article'); card.className = 'inventory-card'; card.dataset.memberId = member.id
-        const title = document.createElement('strong'); title.textContent = member.id === 'merchant' ? '武器商人 · 固定 T5 武器／T4 盾牌' : `${member.name} · ${member.tier ? `T${member.tier}` : '未配武器'}`
+        const title = document.createElement('strong'); title.textContent = member.id === 'merchant' ? '武器商人 · 固定 T5 武器／T5 盾牌' : `${member.name} · ${member.tier ? `T${member.tier}` : '未配武器'}`
         card.append(title)
         if (member.fixedEquipment?.length) {
           const fixed = document.createElement('p'); fixed.className = 'inv-item-desc squad-equipment-summary'

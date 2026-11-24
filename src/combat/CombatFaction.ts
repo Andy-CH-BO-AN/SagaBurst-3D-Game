@@ -12,11 +12,13 @@ export interface CombatAllegiance {
   faction: Faction
   combatOwnership?: CombatOwnership
   hostileToPlayer?: boolean
+  /** A co-op partner's body: a player-side fighter like a player-owned party. */
+  coopPuppet?: boolean
 }
 /** A player-owned Town party is allied to peaceful residents and opposes hostile residents. */
 export function combatAllegiancesHostile(actor: CombatAllegiance, target: CombatAllegiance): boolean {
   if (actor.faction === target.faction) return false
-  if (actor.combatOwnership && actor.faction === Faction.PLAYER && target.faction === Faction.TOWN) return target.hostileToPlayer === true
-  if (target.combatOwnership && target.faction === Faction.PLAYER && actor.faction === Faction.TOWN) return actor.hostileToPlayer === true
+  if ((actor.combatOwnership || actor.coopPuppet) && actor.faction === Faction.PLAYER && target.faction === Faction.TOWN) return target.hostileToPlayer === true
+  if ((target.combatOwnership || target.coopPuppet) && target.faction === Faction.PLAYER && actor.faction === Faction.TOWN) return actor.hostileToPlayer === true
   return true
 }

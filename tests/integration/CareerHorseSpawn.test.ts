@@ -21,14 +21,14 @@ describe('Career horse spawn appearance forwarding', () => {
       const create = captureMountConstruction()
       const profile = createCareerProfile('roman'); addCareerItem(profile, id, 1); profile.horseAppearanceVariant = 2
       vi.spyOn(HorseAssetRegistry, 'armoredReady', 'get').mockReturnValue(true)
-      const owner = Object.assign(Object.create(CareerMountController.prototype) as Pick<CareerMountController, 'restoreRaceMount' | 'activeMount'>, {
-        readProfile: () => profile, hp: new Map(), armorImpact: new Map(), unavailable: new Set(), active: null,
-      })
+      // Real controller; race restore reads only the profile and forwards its scene to the Mount boundary.
+      const scene = {} as never
+      const owner = new CareerMountController(scene, () => { throw new Error('race restore reads no Player') }, () => profile, () => true, () => [], () => [])
       const saved: RaceRider = { actorId: 'player', mountId: id, hp: 80, stamina: 50, mountHp: 37, mountArmorImpact: 0,
         mounted: true, dead: false, checkpoint: 1, position: { x: 1, y: 0, z: 2, yaw: .5 },
         mountPosition: { x: 3, y: 4, z: 5, yaw: 1.2 } }
       expect(owner.restoreRaceMount(saved)).toBe(true)
-      expect(create).toHaveBeenCalledExactlyOnceWith(undefined, id === 'horse' ? MountModule.MountType.HORSE : MountModule.MountType.ARMORED_HORSE, 3, 5, 4, 2)
+      expect(create).toHaveBeenCalledExactlyOnceWith(scene, id === 'horse' ? MountModule.MountType.HORSE : MountModule.MountType.ARMORED_HORSE, 3, 5, 4, 2)
       expect(owner.activeMount?.currentHp).toBe(37)
       expect(owner.activeMount?.group.rotation.y).toBe(1.2)
       expect(owner.activeMount?.restoreArmor).toHaveBeenCalledExactlyOnceWith(0)

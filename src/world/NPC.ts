@@ -1,3 +1,4 @@
+import { LiveActorRegistry } from './LiveActorRegistry'
 import { RangedSightReuse } from '../combat/RangedSightReuse'
 import { traceFistStrike, UNARMED_ATTACK_DISTANCE, UNARMED_DAMAGE, UNARMED_RANGE, UNARMED_STOP_DISTANCE } from '../combat/UnarmedCombat'
 import { resolveOrdinaryNpcHp } from '../combat/OrdinarySoldierProfile'
@@ -5,8 +6,9 @@ import { resolveCharacterIdentity, type CharacterIdentity, type CharacterTier, t
 import { FriendlyMovementBypass } from '../navigation/FriendlyMovementBypass'
 import { INFANTRY_MOVE_SPEED } from '../movement/MovementBalance'
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
+import { RANGED_ATTACK_MIN, chooseReversibleWeaponMode, needsWeaponModeDecision, withinRangedMeleeThreatReach } from '../combat/ReversibleWeaponMode'
 import { CIVILIAN_PROFILE } from '../town/TownRules'
-import { townMerchantLoadout, isTownMerchantLoadout } from '../town/TownMerchantEquipment'
+import { townMerchantLoadout, isTownMerchantLoadout, isTownMerchantMountId, chooseMerchantMelee } from '../town/TownMerchantEquipment'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
 /**
@@ -67,13 +69,15 @@ import {
   getRangedDamageMultiplier,
   getNpcRangedAttackRange,
   getRangedCooldown,
-  getAntiCavalryMultiplier,
   getBerserkerModifiers,
-  calculateLanceChargeDamage,
 } from '../combat/CombatBalance'
+import { calculateNpcMeleeDamage } from '../combat/PlayerMeleeDamage'
 import type { BaseUnitTier, UnitLoadout, UnitPresetId, UnitTier } from '../battle/UnitPresetCatalog'
 import type { SquadIdentity as SquadId } from '../battle/CommandTarget'
 import { DEFAULT_TACTICAL_ORDER, type TacticalOrder } from '../battle/TacticalOrder'
+import { RampartDuty } from '../battle/RampartDuty'
+import { createFormationTarget, formationCheckpoint, refreshFormationTarget, type FormationCheckpoint, type FormationTarget } from '../battle/FormationOrder'
+import { hasOutpostMeleeConnection } from '../combat/MeleeContactQuery'
 import { FOLLOW_THRESHOLDS, followLocalOffset, followSlotWorldPosition } from '../battle/FollowOrder'
 import { FORMATION_ARRIVAL_DISTANCE } from '../battle/FormationMath'
 import {
@@ -86,8 +90,12 @@ import {
 import { WEAPONS, type WeaponCombatKind } from '../rpg/WeaponDatabase'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { ChaseTargetCoordinator } from '../navigation/ChaseTargetCoordinator'
+import { PursuitBlockList } from '../navigation/PursuitBlockList'
+import { DETECTION_RADIUS, isWithinEngagementRange, pursuitMayBreachGate, shouldRetainLayeredPursuitTarget } from '../navigation/PursuitPolicy'
+import { TargetReacquireSchedule } from '../navigation/TargetReacquireSchedule'
 import { NavigationPathFollower, type NavigationRouteKind } from '../navigation/NavigationPathFollower'
 import { LayeredNavigationRoute, type LayeredNavigationRequest, type LayeredNavigationStep } from '../navigation/LayeredNavigationRoute'
+import { applyTownRampSeparation } from '../navigation/TownLayeredNavigation'
 import {
   clampFollowSlotToDeck,
   clampFollowSlotToBridge,
@@ -97,7 +105,7 @@ import {
   layerSide,
 } from '../navigation/OutpostLayeredNavigation'
 import { damageObstacle, damageNpc, damageMount } from '../combat/DamageRouter'
-import { createNpcCombatActorRef, type CombatEventSink, type CombatDamageContext } from '../combat/CombatAttribution'
+import { CombatEventSinkStack, createNpcCombatActorRef, type CombatEventSink, type CombatDamageContext } from '../combat/CombatAttribution'
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
 import { EagleFlightAI, type EagleFlightCommand, type EagleTactic } from '../movement/EagleFlightAI'
 import type { EagleTraffic } from './EagleAirspace'
@@ -110,8 +118,6 @@ import { fitStandingRider } from './StandingRider'
 import { angleDifference, steerOrbitForward, orbitRadius, writeOrbitDirection, canUseMountedBowOrbit, isWithinMountedBowOrbitRange, MOUNTED_BOW_MAX_PITCH } from '../movement/MountedArcherOrbit'
 import {
   isEligibleMeleeCavalry,
-  cavalryTurnRate,
-  steerCavalryHeading,
   isTargetInForwardCone,
   findCavalryChargeTarget,
   CAVALRY_PASSTHROUGH_DURATION,
@@ -184,9 +190,6 @@ export function isHostileCombatMount(attacker: NPC, mount: Mount, player?: Playe
   return false
 }
 
-const DETECTION_RADIUS = 300.0
-const RANGED_ATTACK_MIN = 6.0
-const RANGED_REEQUIP_MIN = RANGED_ATTACK_MIN + 3
 const RANGED_AIM_LIFT_PER_METER_SQ = 0.015
 const PROJECTILE_GRAVITY = 9.8
 const NPC_FALLBACK_PROJECTILE_SPEED = 20.0
@@ -202,6 +205,9 @@ const RESPAWN_TIME     = 10.0
 const NPC_FOOT_OBSTACLE_RADIUS = 0.5
 const NPC_FOOT_OBSTACLE_HEIGHT = 2.3
 const NPC_MOUNTED_OBSTACLE_RADIUS = 1.0
+/** Riders advance past an A* waypoint within this radius; several mounts
+ * cannot all squeeze into the default sub-cell radius of one shared cell. */
+const NPC_MOUNTED_PATH_ARRIVAL = 3.0
 const NPC_MOUNTED_OBSTACLE_HEIGHT = 2.6
 const NPC_DETOUR_FOOT_LOOKAHEAD = 5.0
 const NPC_DETOUR_MOUNTED_LOOKAHEAD = 8.0
@@ -214,20 +220,8 @@ const RANGED_TRAJECTORY_MAX_SEGMENTS = 16
 export const RANGED_AI_LAUNCH_HEIGHT = 1.25
 const RANGED_AI_TARGET_HEIGHT = 1.4
 
-export const TARGET_REACQUIRE_NEAR_DISTANCE = 50
-export const TARGET_REACQUIRE_MID_DISTANCE = 100
-export const TARGET_REACQUIRE_NEAR_FRAMES = 2
-export const TARGET_REACQUIRE_MID_FRAMES = 8
-export const TARGET_REACQUIRE_FAR_FRAMES = 16
 export const NPC_SEPARATION_RADIUS = 1.2
 export const NPC_NEIGHBOR_QUERY_RADIUS = 2.0
-
-export function getTargetReacquireFrameInterval(distance: number | null): number {
-  if (distance === null || !Number.isFinite(distance)) return TARGET_REACQUIRE_FAR_FRAMES
-  if (distance <= TARGET_REACQUIRE_NEAR_DISTANCE) return TARGET_REACQUIRE_NEAR_FRAMES
-  if (distance <= TARGET_REACQUIRE_MID_DISTANCE) return TARGET_REACQUIRE_MID_FRAMES
-  return TARGET_REACQUIRE_FAR_FRAMES
-}
 
 export function computeDeterministicPhase(spawnX: number, spawnZ: number, name: string): number {
   let hash = 2166136261 >>> 0
@@ -255,6 +249,50 @@ interface CombatEquipmentSnapshot {
   shieldId: string | null
   ammo: number
   rangedActive: boolean
+}
+
+/** Co-op: the serializable construction arguments a peer needs to build the same-looking actor. */
+export interface NpcNetworkDescriptor {
+  x: number
+  z: number
+  y?: number
+  faction: Faction
+  characterFaction: CharacterFaction
+  aiType: AIType
+  name: string
+  tier: UnitTier
+  cavalry?: boolean
+  loadout?: UnitLoadout
+  presetId?: UnitPresetId
+  squadId?: SquadId
+  combatantId?: string
+  visualAssetId?: HeroAssetId
+  combatProfileId?: HeroCombatProfileId
+  specialCombatProfile?: 'maki-ranger'
+  townCategory?: 'civilian'
+  civilianStyle?: CharacterFaction
+  townCombatRole?: 'merchant'
+  characterTier?: CharacterTier
+  heroArchetype?: HeroArchetype
+}
+
+/** Co-op: one peer-owned presentation frame (already smoothed by the caller). */
+export interface NpcPuppetFrame {
+  x: number
+  y: number
+  z: number
+  yaw: number
+  speed: number
+  action: CombatAction
+  ranged: boolean
+  shieldRaised: boolean
+  sprinting: boolean
+  draw: number
+  hp: number
+  dead: boolean
+  /** Players only: weapon/shield put away; undefined keeps the NPC's own equipment visibility. */
+  meleeStowed?: boolean
+  shieldStowed?: boolean
 }
 
 export class NPC {
@@ -332,24 +370,11 @@ export class NPC {
   setCommandSquad(squadId: SquadId | undefined): void { this._squadId = squadId }
   combatOwnership?: import('../combat/CombatFaction').CombatOwnership
   readonly combatantId: string
-  private readonly originalCombatEventSink?: CombatEventSink
-  private readonly combatEventBindings: { sink: CombatEventSink }[] = []
-  private combatEventBindingsClosed = false
-  private get combatEventSink(): CombatEventSink | undefined {
-    return this.combatEventBindings[this.combatEventBindings.length - 1]?.sink ?? this.originalCombatEventSink
-  }
+  private readonly combatEvents: CombatEventSinkStack
+  private get combatEventSink(): CombatEventSink | undefined { return this.combatEvents.current }
 
   /** Borrowed ownership replaces routing for its lifetime without subscribing a second listener. */
-  bindCombatEventSink(sink: CombatEventSink): () => void {
-    if (this.combatEventBindingsClosed) throw new Error('Cannot bind combat events to a disposed NPC')
-    const binding = { sink }
-    this.combatEventBindings.push(binding)
-    return () => {
-      const index = this.combatEventBindings.indexOf(binding)
-      // Token identity makes cleanup idempotent and keeps an older owner from restoring over a newer one.
-      if (index >= 0) this.combatEventBindings.splice(index, 1)
-    }
-  }
+  bindCombatEventSink(sink: CombatEventSink): () => void { return this.combatEvents.bind(sink) }
 
   private _meleeDamageOverride: number | undefined
   get meleeDamage(): number {
@@ -367,14 +392,17 @@ export class NPC {
   /** What this actor has selected, and what it really holds. They differ only while a selected item's model is loading. */
   private selectedMeleeWeaponId: string | null = 'steel_sword'
   private heldMeleeWeaponId: string | null = 'steel_sword'
+  private equipmentDisposed = false
   get meleeWeaponId(): string | null { return this.heldMeleeWeaponId }
   set meleeWeaponId(id: string | null) {
     if (this.selectedMeleeWeaponId && this.selectedMeleeWeaponId !== id) {
       releaseEquipmentDemand(this.selectedMeleeWeaponId, this)
     }
     this.selectedMeleeWeaponId = id
-    if (id) acquireEquipmentDemand(id, this)
-    this.heldMeleeWeaponId = resolveEquipmentSlot(id, this.heldMeleeWeaponId, this)
+    // A disposed NPC has released all demand and must never re-acquire it.
+    const demandOwner = this.equipmentDisposed ? undefined : this
+    if (id && demandOwner) acquireEquipmentDemand(id, demandOwner)
+    this.heldMeleeWeaponId = resolveEquipmentSlot(id, this.heldMeleeWeaponId, demandOwner)
   }
   public rangedWeaponId?: string
   public loadout?: UnitLoadout
@@ -390,14 +418,12 @@ export class NPC {
   townSiegeGateId: import('../town/TownLayout').TownGateId | null = null
   campaignEntranceId: string | null = null
   campaignBreachCompleted = false
-  private townRampartGarrison = false
-  private townRampartMounted = false
-  get isTownRampartGarrisonActive(): boolean { return this.townRampartGarrison && (!this.isMounted || this.townRampartMounted) }
-  get isMountedTownRampartGarrisonEnabled(): boolean { return this.townRampartGarrison && this.townRampartMounted }
+  private readonly rampartDuty = new RampartDuty()
+  get isTownRampartGarrisonActive(): boolean { return this.rampartDuty.isTownActive(this) }
+  get isMountedTownRampartGarrisonEnabled(): boolean { return this.rampartDuty.isMountedTownEnabled }
   activateTownRampartGarrison(order: 'defend' | 'attack' = 'defend', allowMounted = false): void {
     this.setTacticalOrder(order)
-    this.townRampartGarrison = true
-    this.townRampartMounted = allowMounted
+    this.rampartDuty.activateTown(allowMounted)
   }
   get alertRange(): number { return this.isTownRampartGarrisonActive ? this.maxRangedAttackDistance : DETECTION_RADIUS }
   private battlefieldEngagementRangeSq: number | null = null
@@ -409,49 +435,29 @@ export class NPC {
   }
 
   private _isTargetWithinEngagementRange(position: THREE.Vector3, chasing: boolean): boolean {
-    if (this.tacticalOrder === 'charge') return true
-    if (this.tacticalOrder === 'attack' && this.battlefieldEngagementRangeSq !== null
-      && !this.encounterOrigin && !this.mount?.isFlyingMount && !this.holdsRampartPosition) {
-      const dx = position.x - this.combatPosition.x, dz = position.z - this.combatPosition.z
-      return dx * dx + dz * dz <= this.battlefieldEngagementRangeSq
-    }
-    const range = this.tacticalOrder === 'follow' ? (chasing ? 36 : 24)
-      : chasing ? DETECTION_RADIUS * 1.5 : this.alertRange
-    return this.combatPosition.distanceToSquared(position) <= range * range
+    return isWithinEngagementRange(this, this.battlefieldEngagementRangeSq,
+      Boolean(this.encounterOrigin) || Boolean(this.mount?.isFlyingMount), position, chasing)
   }
-  private outpostRampartGarrison = false
-  get isOutpostRampartGarrisonActive(): boolean { return this.outpostRampartGarrison }
+  get isOutpostRampartGarrisonActive(): boolean { return this.rampartDuty.isOutpostActive }
   activateOutpostRampartGarrison(order: 'defend' | 'attack' = 'defend'): void {
     this.setTacticalOrder(order)
-    this.outpostRampartGarrison = true
+    this.rampartDuty.activateOutpost()
   }
-  releaseOutpostRampartGarrison(): void {
-    this.outpostRampartGarrison = false; this.townRampartGarrison = false; this.townRampartMounted = false
-  }
+  releaseOutpostRampartGarrison(): void { this.rampartDuty.release() }
   private rampartThreat: ObstacleData | null = null
   private rampartScanFrames = 0
   private readonly obstacleLocalToWorld = new THREE.Matrix4()
-  get holdsRampartPosition(): boolean {
-    return (this.tacticalOrder === 'defend' || this.tacticalOrder === 'attack')
-      && (this.isTownRampartGarrisonActive || !this.isMounted && this.outpostRampartGarrison)
-  }
+  get holdsRampartPosition(): boolean { return this.rampartDuty.holdsPosition(this) }
 
   get holdsRampartFirePosition(): boolean {
-    // An explicit Defend command owns stationary fire even after a formation
-    // released native duty. This never grants Attack a movement-hold policy.
-    return this.aiType === AIType.RANGED && (this.holdsRampartPosition
-      || this.tacticalOrder === 'defend' && !this.isMounted && Boolean(this._activeNavigationWorld?.outpostNav
-        && isRampartLayer(this._activeNavigationWorld.outpostNav.getNavLayer(this.combatPosition))))
+    return this.aiType === AIType.RANGED && this.rampartDuty.holdsFirePosition(this)
+  }
+  get standsOnOutpostRampart(): boolean {
+    const nav = this._activeNavigationWorld?.outpostNav
+    return Boolean(nav && isRampartLayer(nav.getNavLayer(this.combatPosition)))
   }
 
-  private formationTarget: {
-    commandId: number
-    position: THREE.Vector3
-    facing: THREE.Vector3
-    reached: boolean
-    speedLimit?: number
-    arrivalOrder?: TacticalOrder
-  } | null = null
+  private formationTarget: FormationTarget | null = null
   private followTarget: NPC | Player | null = null
   private followSlotIndex = -1
   private followLocalOffset = new THREE.Vector3()
@@ -564,8 +570,9 @@ export class NPC {
       releaseEquipmentDemand(this.selectedShieldId, this)
     }
     this.selectedShieldId = id
-    if (id) acquireEquipmentDemand(id, this)
-    this.heldShieldId = resolveEquipmentSlot(id, this.heldShieldId, this)
+    const demandOwner = this.equipmentDisposed ? undefined : this
+    if (id && demandOwner) acquireEquipmentDemand(id, demandOwner)
+    this.heldShieldId = resolveEquipmentSlot(id, this.heldShieldId, demandOwner)
   }
   readonly equipmentVisualLOD = new EquipmentVisualLODController()
   private builtShieldId: string | null | undefined = undefined
@@ -645,8 +652,7 @@ export class NPC {
   private _cachedTargetIsPlayer: boolean = false
   private _cachedTargetNpc: NPC | null = null
   private _targetAcquisitionInitialized: boolean = false
-  private _targetReacquireFramesRemaining: number = 0
-  private _targetReacquireIntervalFrames: number = TARGET_REACQUIRE_FAR_FRAMES
+  private readonly targetReacquire = new TargetReacquireSchedule()
   private readonly _initialStaggerPhase: number
   private readonly _detourWaypoint = new THREE.Vector3()
   private readonly _detourProgressAnchor = new THREE.Vector3()
@@ -702,27 +708,19 @@ export class NPC {
   combatTargetPriority?: (target: NPC | Player) => number | null
   private priorityCombatTarget: NPC | Player | null = null
   private layeredCombatMovement = false
-  private readonly pursuitBlockedTargets = new Map<NPC | Player, { target: THREE.Vector3; from: THREE.Vector3; revision: number; entrances: number }>()
+  private readonly pursuitBlockedTargets = new PursuitBlockList<NPC | Player>()
   private _pursuitTargetAllowed(target: NPC | Player): boolean {
     if (this.combatTargetPriority?.(target) === null) return false
-    const blocked = this.pursuitBlockedTargets?.get(target), world = this._activeNavigationWorld
-    if (!blocked || !world) return true
-    if (blocked.revision !== world.revision || blocked.entrances !== (world.townNav?.siegeEntrances.revision ?? world.outpostNav?.entrances?.revision ?? -1)
-      || blocked.target.distanceToSquared(target.combatPosition) > 16 || blocked.from.distanceToSquared(this.combatPosition) > 64) {
-      this.pursuitBlockedTargets.delete(target)
-      return true
-    }
-    return false
+    return this.pursuitBlockedTargets.allows(target, this.combatPosition, this._activeNavigationWorld)
   }
   private _deferUnreachableTarget(target: NPC | Player): void {
     const world = this._activeNavigationWorld
     if (!world) return
-    this.pursuitBlockedTargets.set(target, { target: target.combatPosition.clone(), from: this.combatPosition.clone(),
-      revision: world.revision, entrances: world.townNav?.siegeEntrances.revision ?? world.outpostNav?.entrances?.revision ?? -1 })
+    this.pursuitBlockedTargets.defer(target, this.combatPosition, world)
   }
   setMissionCombatTarget(target: NPC | Player | null | undefined): void {
     if (this.missionCombatTarget === target) return
-    this.pursuitBlockedTargets?.clear()
+    this.pursuitBlockedTargets.clear()
     this.missionCombatTarget = target
     this._targetAcquisitionInitialized = false
     this._cachedTargetIsPlayer = false
@@ -804,12 +802,10 @@ export class NPC {
   get activeFollowTarget(): NPC | Player | null { return this.followTarget }
   get activeFollowSlotIndex(): number { return this.followSlotIndex }
   get activeFollowLocalOffset(): THREE.Vector3 { return this.followLocalOffset.clone() }
-  get combatFormationCheckpoint(): { commandId: number; position: { x: number; y?: number; z: number; yaw: number }; reached: boolean; speedLimit?: number; arrivalOrder?: TacticalOrder } | undefined {
+  get combatFormationCheckpoint(): FormationCheckpoint | undefined {
     const target = this.formationTarget
     if (!target || this.tacticalOrder === 'follow') return undefined
-    return { commandId: target.commandId,
-      position: { x: target.position.x, y: target.position.y, z: target.position.z, yaw: Math.atan2(target.facing.x, target.facing.z) },
-      reached: target.reached, speedLimit: target.speedLimit, arrivalOrder: target.arrivalOrder }
+    return formationCheckpoint(target)
   }
   get encounterIsAlerted(): boolean { return this.encounterOrigin !== null && this.encounterAggro !== 'idle' }
   get encounterAggroState(): BanditAggroState { return this.encounterAggro }
@@ -883,7 +879,7 @@ export class NPC {
     this._cachedTargetIsPlayer = true
     this._cachedTargetNpc = null
     this._targetAcquisitionInitialized = true
-    this._targetReacquireFramesRemaining = 0
+    this.targetReacquire.expedite()
     if (this.missionMovement) return
     this.formationTarget = null
     if (this.state === AIState.IDLE) this.state = AIState.CHASE
@@ -931,6 +927,11 @@ export class NPC {
     characterTier?: CharacterTier,
     heroArchetype?: HeroArchetype,
   ) {
+    this.networkDescriptor = {
+      x: spawnX, z: spawnZ, y: spawnPlacement?.y, faction, characterFaction, aiType, name, tier, cavalry,
+      loadout: loadout ? { ...loadout } : undefined, presetId, squadId, combatantId, visualAssetId, combatProfileId,
+      specialCombatProfile, townCategory, civilianStyle, townCombatRole, characterTier, heroArchetype,
+    }
     const identity = resolveCharacterIdentity({ characterFaction, characterTier, heroArchetype, tier,
       visualAssetId, combatProfileId, specialCombatProfile })
     this._characterTier = identity.characterTier
@@ -938,7 +939,7 @@ export class NPC {
     visualAssetId = identity.visualAssetId
     combatProfileId = identity.combatProfileId
     specialCombatProfile = identity.specialCombatProfile
-    if (townCombatRole === 'merchant') loadout = townMerchantLoadout(loadout?.mountId === 'horse' ? 'horse' : null)
+    if (townCombatRole === 'merchant') loadout = townMerchantLoadout(isTownMerchantMountId(loadout?.mountId) ? loadout.mountId : null)
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.spawnX = spawnX
     this.spawnZ = spawnZ
@@ -959,7 +960,7 @@ export class NPC {
     this.presetId = presetId
     this._squadId = squadId
     this.combatantId = combatantId ?? `npc-${NPC.nextCombatantSerial++}`
-    this.originalCombatEventSink = combatEventSink
+    this.combatEvents = new CombatEventSinkStack(combatEventSink)
     this._generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
     this._initialStaggerPhase = computeDeterministicPhase(spawnX, spawnZ, name)
 
@@ -1003,6 +1004,7 @@ export class NPC {
     this.waypoints = [basePos.clone(), wp1, wp2]
 
     this.group = new THREE.Group()
+    NPC.live.add(this)
     this.group.name = `npc_${faction}_${aiType}`
     skipHiddenCorpseMatrices(this.group, () => this.deathPresentationComplete)
 
@@ -1336,11 +1338,93 @@ export class NPC {
     this.updateTownPeace(dt, distance, false, false, this.mount?.movementSpeed ?? this.visualMovementSpeed)
   }
 
+  /** Every constructed, undisposed NPC; co-op scene snapshots read it. */
+  static readonly live = new LiveActorRegistry<NPC>()
+  /** Co-op wire identity; see NPC.fromNetworkDescriptor. */
+  readonly networkDescriptor: NpcNetworkDescriptor
+  /** Co-op: a peer owns this actor's movement and actions; Game never runs its AI. */
+  coopPuppet = false
+  /** Co-op host: the guest commands this actor (its proxy and its own squad); the host's command menu never does. */
+  coopRemoteCommand = false
+  private coopLastAction: CombatAction = 'idle'
+
+  static fromNetworkDescriptor(scene: THREE.Scene, d: NpcNetworkDescriptor, combatEventSink?: CombatEventSink): NPC {
+    return new NPC(scene, d.x, d.z, d.faction, d.characterFaction, d.aiType, d.name, d.tier, d.cavalry, d.loadout,
+      d.presetId, d.squadId, d.combatantId, combatEventSink, d.visualAssetId, d.combatProfileId, d.specialCombatProfile,
+      d.townCategory, d.civilianStyle, d.townCombatRole, d.y !== undefined ? { y: d.y } : undefined, d.characterTier, d.heroArchetype)
+  }
+
+  /** Co-op proxy: the guest player's own max HP; current HP keeps its ratio. */
+  applyCoopMaxHp(maxHp: number): void {
+    if (!Number.isFinite(maxHp) || maxHp <= 0 || maxHp === this._maxHp || this.dead) return
+    const ratio = this.currentHp / this._maxHp
+    this._maxHp = maxHp
+    this.currentHp = Math.max(1, Math.round(maxHp * ratio))
+  }
+
+  /** Planar presentation speed this frame (feet), for co-op snapshots. */
+  get networkMovementSpeed(): number { return this.visualMovementSpeed }
+
+  /** Current weapons, for a peer that must show the same held equipment. */
+  get networkEquipment(): { melee: string | null; ranged: string | null; shield: string | null } {
+    return { melee: this.meleeWeaponId, ranged: this.rangedWeaponId ?? null, shield: this.selectedShieldId }
+  }
+
+  /** Co-op mirror/proxy: present a peer-owned frame. No AI, targeting, navigation or damage runs here. */
+  updateCoopPuppet(dt: number, cameraDistance: number, frame: NpcPuppetFrame): void {
+    if (this.pendingFall.active) this.pendingFall.clear()
+    if (frame.dead) {
+      if (!this.dead) this._applyDamage(Infinity, true)
+      if (!this.deathFade.update(this.group, dt)) this.animator.update(dt, cameraDistance)
+      this.coopLastAction = 'idle'
+      return
+    }
+    if (this.dead) this.respawn({ x: frame.x, y: frame.y, z: frame.z, yaw: frame.yaw })
+    this.currentHp = Math.max(1, Math.min(this.maxHp, frame.hp))
+    if (this.mount?.dead) this.dismountFromMount()
+    const wantsRanged = frame.ranged && Boolean(this.rangedWeaponId)
+    if (wantsRanged) this.arrows = Math.max(this.arrows, 1)
+    if (wantsRanged !== this.rangedActive && !this.animator.busy) {
+      if (wantsRanged) { this.rangedActive = true; this._restoreCombatReadyRangedVisual() }
+      else this._switchToMelee(false)
+    }
+    const shieldOn = this.shield.active && frame.shieldStowed !== true
+    this.shield.shieldRaised = shieldOn && frame.shieldRaised
+    this.shieldCollider.refreshVisibility()
+    this.animator.setEquipment(this.isUsingLance && frame.meleeStowed !== true, shieldOn, this.mount?.type as MountedPoseKind | undefined, true)
+    this.animator.setShieldRaised(this.shield.shieldRaised)
+    this.rig.animation?.setEquipmentState?.({ mounted: this.isMounted })
+    if (!this.isMounted) {
+      this.group.position.set(frame.x, frame.y, frame.z)
+      this.group.rotation.set(0, frame.yaw, 0)
+    }
+    this.visualMovementSpeed = frame.speed
+    this.isSprinting = frame.sprinting
+    this.animator.setLocomotion(frame.speed, this.isMounted, frame.sprinting && frame.speed > 0)
+    // Actions start on the peer's edge only, so a finished clip never replays.
+    if (frame.action !== this.coopLastAction && frame.action !== 'idle' && frame.action !== 'bowAim') {
+      if (this.animator.busy) this.animator.cancel()
+      this.animator.start(frame.action)
+    }
+    this.coopLastAction = frame.action
+    if (frame.action === 'bowAim' && this.hasActiveRangedWeapon && this.rangedCombatKind === 'bow' && !this.animator.busy) {
+      this.animator.poseBow(frame.draw)
+      this._tmpRangedTarget.set(0, 1.3, 6).applyQuaternion(this.group.quaternion).add(this.group.position)
+      this.bowVisual?.update(frame.draw, this._tmpRangedTarget, true)
+    } else if (!this.animator.busy && this.isUsingLance && !this.hasActiveRangedWeapon && frame.meleeStowed !== true) this.animator.poseLanceReady(this.isMounted)
+    this.animator.update(dt, cameraDistance)
+    if (this.isMounted) this._syncToMount()
+    // A player's put-away weapons stay out of its hands on the peer's screen too.
+    if (frame.meleeStowed !== undefined) this.swordPivot.visible = !frame.meleeStowed && this.meleeWeaponId !== null && !this.rangedActive
+    if (frame.shieldStowed !== undefined) this.shieldPivot.visible = shieldOn
+  }
+
   dispose(): void {
+    NPC.live.delete(this)
+    this.equipmentDisposed = true
     releaseAllEquipmentDemands(this)
     this.bowVisual?.dispose()
-    this.combatEventBindingsClosed = true
-    this.combatEventBindings.length = 0
+    this.combatEvents.close()
     this.pendingFall.clear()
     this.fallContext = undefined
     this.mount?.releaseRider()
@@ -1600,8 +1684,8 @@ export class NPC {
 
   /** Select between the Merchant's own weapons only between swings; never repair or remove the shield. */
   private _selectMerchantMeleeWeapon(target: Player | NPC | null): void {
-    if (this.townCombatRole !== 'merchant' || this.originalCombatEquipment || this.animator.busy) return
-    const id = target?.shield.active ? this.loadout?.secondaryMeleeWeaponId : this.loadout?.meleeWeaponId
+    if (this.townCombatRole !== 'merchant' || this.originalCombatEquipment) return
+    const id = chooseMerchantMelee(this.loadout, Boolean(target?.shield.active), this.animator.busy)
     if (id && id !== this.meleeWeaponId) this._setActiveMeleeWeapon(id)
   }
 
@@ -1801,7 +1885,7 @@ export class NPC {
   }
 
   setTacticalOrder(order: TacticalOrder): void {
-    this.pursuitBlockedTargets?.clear()
+    this.pursuitBlockedTargets.clear()
     this.layeredCombatMovement = false
     if (order !== 'attack' && order !== 'defend') this.releaseOutpostRampartGarrison()
     if (this.mount?.isFlyingMount) this.setEagleFlightOrder(null)
@@ -1829,7 +1913,7 @@ export class NPC {
 
   assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number, arrivalOrder?: TacticalOrder, reached = false): void {
     if (this.dead) return
-    this.pursuitBlockedTargets?.clear()
+    this.pursuitBlockedTargets.clear()
     this.releaseOutpostRampartGarrison()
     this._clearNavigationPath()
     this._clearObstacleDetour()
@@ -1842,30 +1926,17 @@ export class NPC {
     this.followCombatActive = false
     this._resetFollowNavigation()
     this._friendlyBypass.clear()
-    this.formationTarget = {
-      commandId,
-      position: target.clone(),
-      facing: facing.clone().setY(0).normalize(),
-      reached,
-      speedLimit,
-      arrivalOrder,
-    }
+    this.formationTarget = createFormationTarget(commandId, target, facing, speedLimit, arrivalOrder, reached)
     this.state = AIState.CHASE
     this._restoreCombatReadyRangedVisual()
   }
 
   /** Refresh a moving slot without restarting recovery for the same live order. */
   refreshFormationTarget(commandId: number, position: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number, arrivalOrder?: TacticalOrder): boolean {
-    const target = this.formationTarget
-    if (this.dead || !target || target.commandId !== commandId || target.arrivalOrder !== arrivalOrder
-      || this.tacticalOrder !== (arrivalOrder ?? 'formation')) return false
-    target.position.copy(position)
-    target.facing.copy(facing).setY(0).normalize()
-    target.speedLimit = speedLimit
-    target.reached = false
-    // The endpoint changed, so validate a fresh A* route. Local detours and
-    // stalled-friendly recovery keep their progress and revalidate live blockers.
-    this._clearNavigationPath()
+    // Local detours and stalled-friendly recovery keep their progress and
+    // revalidate live blockers; only the moved endpoint's A* route is dropped.
+    if (this.dead || !refreshFormationTarget(this.formationTarget, this.tacticalOrder, commandId, position, facing,
+      speedLimit, arrivalOrder, this._navigationPath)) return false
     this.state = AIState.CHASE
     return true
   }
@@ -1873,7 +1944,7 @@ export class NPC {
   assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted), marchSpeed?: number,
     anchor?: { position: THREE.Vector3; yaw: number }): void {
     if (this.dead || target === this) return
-    this.pursuitBlockedTargets?.clear()
+    this.pursuitBlockedTargets.clear()
     this.releaseOutpostRampartGarrison()
     if (this.mount?.isFlyingMount) this.setEagleFlightOrder(null)
     this._clearNavigationPath()
@@ -2217,15 +2288,14 @@ export class NPC {
       navigationWorld,
       directBlocker !== null,
       this._tmpNavigationTarget,
+      this.isMounted ? NPC_MOUNTED_PATH_ARRIVAL : undefined,
     )
   }
 
   /** Join human pursuit to the same follower's legal gate approach before
    * classifying the human as unreachable. Explicit travel/duty keeps its owner. */
   private _resolveChaseNavigation(request: LayeredNavigationRequest, obstacles: ObstacleData[]): typeof this._chaseNavigation {
-    request.attackableGate = !this.missionMovement && !this.encounterOrigin && !this.holdsRampartPosition
-      && !this.hasSiegeObstacle && (this.tacticalOrder === 'attack' || this.tacticalOrder === 'charge')
-      ? this._gateDamageAllowed : undefined
+    request.attackableGate = pursuitMayBreachGate(this, Boolean(this.encounterOrigin)) ? this._gateDamageAllowed : undefined
     const result = this._chaseNavigation
     result.step = this._layeredNavigationRoute.resolve(request, obstacles, this._tmpNavigationTarget)
     result.route = result.step?.route ?? (this.hasSiegeObstacle ? 'unreachable' : !request.skipGroundNavigation
@@ -2603,6 +2673,37 @@ export class NPC {
     return false
   }
 
+  private _shouldRetainLayeredTarget(previousPosition: THREE.Vector3, nextPosition: THREE.Vector3): boolean {
+    const world = this._activeNavigationWorld
+    if (!world) return false
+    const directRange = this.hasActiveRangedWeapon ? Math.max(12, this.maxRangedAttackDistance) : 12
+    const directEngageRangeSq = directRange * directRange
+    if (world.townNav) {
+      return shouldRetainLayeredPursuitTarget({
+        selfPosition: this.combatPosition,
+        nextPosition,
+        selfOnRamp: Boolean(world.townNav.rampAt(this.combatPosition)),
+        selfElevated: world.townNav.isElevated(this.combatPosition),
+        previousElevated: world.townNav.isElevated(previousPosition),
+        nextElevated: world.townNav.isElevated(nextPosition),
+        directEngageRangeSq,
+      })
+    }
+    if (world.outpostNav) {
+      const selfLayer = world.outpostNav.getNavLayer(this.combatPosition)
+      return shouldRetainLayeredPursuitTarget({
+        selfPosition: this.combatPosition,
+        nextPosition,
+        selfOnRamp: isStairLayer(selfLayer),
+        selfElevated: isRampartLayer(selfLayer),
+        previousElevated: isRampartLayer(world.outpostNav.getNavLayer(previousPosition)),
+        nextElevated: isRampartLayer(world.outpostNav.getNavLayer(nextPosition)),
+        directEngageRangeSq,
+      })
+    }
+    return false
+  }
+
   private _acquireTarget(
     player: Player,
     allNPCs: NPC[],
@@ -2625,7 +2726,8 @@ export class NPC {
       const nextRank = next ? this.combatTargetPriority?.(next) ?? 0 : Infinity
       const close = this.combatPosition.distanceToSquared(previous.combatPosition) <= 12 * 12
       if (nextRank >= previousRank && (close || !target
-        || this.combatPosition.distanceToSquared(target.position) >= this.combatPosition.distanceToSquared(previous.combatPosition) * .5)) return
+        || this.combatPosition.distanceToSquared(target.position) >= this.combatPosition.distanceToSquared(previous.combatPosition) * .5
+        || this._shouldRetainLayeredTarget(previous.combatPosition, target.position))) return
     }
     if (target === null) {
       this._cachedTargetIsPlayer = false
@@ -2655,16 +2757,8 @@ export class NPC {
     return null
   }
 
-  private _staggeredTargetReacquireDelay(intervalFrames: number): number {
-    return 1 + Math.floor(this._initialStaggerPhase * intervalFrames)
-  }
-
   private _scheduleTargetReacquire(player: Player, staggered: boolean): void {
-    const intervalFrames = getTargetReacquireFrameInterval(this._getCachedTargetDistance(player))
-    this._targetReacquireIntervalFrames = intervalFrames
-    this._targetReacquireFramesRemaining = staggered
-      ? this._staggeredTargetReacquireDelay(intervalFrames)
-      : intervalFrames
+    this.targetReacquire.schedule(this._getCachedTargetDistance(player), staggered, this._initialStaggerPhase)
   }
 
   private _getTarget(
@@ -2693,20 +2787,7 @@ export class NPC {
         // nearer but wall-blocked target on the next reacquisition frame.
         this._rangedVisibleTargetHoldFrames -= 1
       } else {
-        const intervalFrames = getTargetReacquireFrameInterval(this._getCachedTargetDistance(player))
-
-        // Moving into a closer band raises AI decision frequency immediately.
-        // Moving farther away does not postpone an already-scheduled near-term scan.
-        if (intervalFrames < this._targetReacquireIntervalFrames) {
-          this._targetReacquireFramesRemaining = Math.min(
-            this._targetReacquireFramesRemaining,
-            intervalFrames,
-          )
-        }
-        this._targetReacquireIntervalFrames = intervalFrames
-        this._targetReacquireFramesRemaining -= 1
-
-        if (this._targetReacquireFramesRemaining <= 0) {
+        if (this.targetReacquire.tick(this._getCachedTargetDistance(player))) {
           this._acquireTarget(player, allNPCs, hostileNpcGrid, chaseTargetCoordinator)
           this._scheduleTargetReacquire(player, false)
         }
@@ -2837,7 +2918,7 @@ export class NPC {
       }
 
       if (hostileNpcGrid) {
-        const npc = chaseTargetCoordinator && !this.combatTargetAllowed && !this.combatTargetPriority && (this.pursuitBlockedTargets?.size ?? 0) === 0
+        const npc = chaseTargetCoordinator && !this.combatTargetAllowed && !this.combatTargetPriority && this.pursuitBlockedTargets.size === 0
           ? chaseTargetCoordinator.findGroupTarget(this, hostileNpcGrid, groundOnly)
           : hostileNpcGrid.findNearest(this.combatPosition, candidate => !candidate.dead
             && combatAllegiancesHostile(this, candidate) && this.combatTargetAllowed?.(candidate) !== false && (!groundOnly || !candidate.mount?.isFlyingMount)
@@ -3477,7 +3558,7 @@ export class NPC {
       if (target) this._deferUnreachableTarget(target)
       // No direct/local detour through a sealed wall. The next sensor decision
       // can acquire another target, or wait for a live topology/position change.
-      this._targetReacquireFramesRemaining = 0
+      this.targetReacquire.expedite()
       return
     }
     const moveDir = this._tmpMoveDir
@@ -3621,7 +3702,8 @@ export class NPC {
       }
       if (sepCount > 0) {
         this._tmpSep.divideScalar(sepCount)
-        moveDir.add(this._tmpSep).normalize()
+        const onTownRamp = Boolean(layeredStep?.confirmedLayeredStep && navigationWorld?.townNav?.rampAt(this.combatPosition))
+        applyTownRampSeparation(moveDir, this._tmpSep, onTownRamp)
       }
       if (import.meta.env.DEV && _collector) { _collector.endPhase('separation', _tSep!) }
 
@@ -3655,25 +3737,35 @@ export class NPC {
         this.mount.group.rotation.y = steerOrbitForward(moveDir, this.mount.group.rotation.y, Math.atan2(moveDir.x, moveDir.z), this.mount.baseSpeed, dt)
         this.group.rotation.y = this.mount.group.rotation.y
         const endpoint = this._tmpFaceDir.copy(this.mount.group.position).addScaledVector(moveDir, this.mount.baseSpeed * (dt + .15))
-        if (findBlockingObstacleAlongPath(this.mount.group.position, endpoint, NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) moveDir.set(0, 0, 0)
+        // Steer around a parapet/tree corner instead of halting in place.
+        if (findBlockingObstacleAlongPath(this.mount.group.position, endpoint, NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) {
+          moveDir.copy(getObstacleAvoidanceDirection(this.mount.group.position, moveDir,
+            NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles))
+        }
+        // The forward turn alone never closed the distance: a horse archer
+        // whose target left bow range stood in place instead of riding back in.
+        this._moveByDirection(moveDir, this.mount.baseSpeed, dt, this.tacticalOrder === 'charge')
       }
     } else if (eligibleCavalry && !siegeObstacle && !this.siegeBypassTarget && !layeredStep?.confirmedLayeredStep) {
-      const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
       const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
       const maxDist = layeredStep?.tower
         ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z)
         : Infinity
 
       if (moveDir.lengthSq() > 0.0001) {
-        const desiredYaw = Math.atan2(moveDir.x, moveDir.z)
-        const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
-        this.group.rotation.y = newYaw
-        if (this.mount) this.mount.group.rotation.y = newYaw
-        moveDir.set(Math.sin(newYaw), 0, Math.cos(newYaw))
-
+        // Face the route directly: a bounded turn rate left a wide turning
+        // circle that orbited close A* waypoints instead of reaching them.
+        // A blocked look-ahead (e.g. a waypoint beside a bridge parapet) steers
+        // around the obstacle instead of halting the rider in place forever.
         const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(moveDir, speed * (dt + 0.15))
         if (findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
-          moveDir.set(0, 0, 0)
+          moveDir.copy(getObstacleAvoidanceDirection(this.combatPosition, moveDir,
+            this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles))
+        }
+        if (moveDir.lengthSq() > 0.0001) {
+          const newYaw = Math.atan2(moveDir.x, moveDir.z)
+          this.group.rotation.y = newYaw
+          if (this.mount) this.mount.group.rotation.y = newYaw
         }
       }
 
@@ -3686,12 +3778,18 @@ export class NPC {
       )
     } else {
       if (this.isMounted && layeredStep?.confirmedLayeredStep && moveDir.lengthSq() > .0001) {
-        // Turn within the landing instead of driving a wide charge arc off
-        // a narrow ramp. Keep the existing turn budget and waypoint cap.
-        const desiredYaw = Math.atan2(moveDir.x, moveDir.z)
-        const yaw = steerCavalryHeading(this.mount!.group.rotation.y, desiredYaw, this.mount!.baseSpeed, dt)
+        // Face the next landing waypoint directly; the waypoint cap still applies.
+        const yaw = Math.atan2(moveDir.x, moveDir.z)
         this.mount!.group.rotation.y = yaw; this.group.rotation.y = yaw
-        if (Math.abs(angleDifference(desiredYaw, yaw)) > .25) moveDir.set(0, 0, 0)
+      } else if (this.mount && !this.mount.isFlyingMount && !siegeObstacle && navigationRoute === 'path'
+        && moveDir.lengthSq() > .0001 && findBlockingObstacleAlongPath(this.mount.group.position,
+          this._tmpFaceDir.copy(this.mount.group.position).addScaledVector(moveDir, this.mount.baseSpeed * (dt + .15)),
+          NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) {
+        // A waypoint hugging a parapet corner pinned the mount's body against
+        // it; slide around the corner along the clear avoidance bearing.
+        moveDir.copy(getObstacleAvoidanceDirection(this.mount.group.position, moveDir,
+          NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles))
+        if (moveDir.lengthSq() > .0001) this._faceDirection(moveDir)
       } else this._faceTarget(movementTarget)
       this._moveByDirection(
         moveDir,
@@ -3755,7 +3853,7 @@ export class NPC {
         this.cavalryPassthroughTimer = Math.max(this.cavalryPassthroughTimer, CAVALRY_PASSTHROUGH_DURATION)
         this._cachedTargetNpc = null
         this._cachedTargetIsPlayer = false
-        this._targetReacquireFramesRemaining = 0
+        this.targetReacquire.expedite()
       }
       return animationAdvanced
     }
@@ -3832,8 +3930,6 @@ export class NPC {
     )
     if (!mountedBowForward && !eligibleCharge) this._faceTarget(attackTargetPosition)
     const initialYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
-    const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
-    const maxTurnBudget = cavalryTurnRate(speed) * dt
 
     if (eligibleCharge && !siegeObstacle) {
       const inFront = this.cavalryPassthroughTimer <= 0
@@ -3843,9 +3939,8 @@ export class NPC {
       const desiredYaw = (inFront && targetDirX * targetDirX + targetDirZ * targetDirZ > 0.001)
         ? Math.atan2(targetDirX, targetDirZ)
         : initialYaw
-      const newYaw = steerCavalryHeading(initialYaw, desiredYaw, speed, dt)
-      this.group.rotation.y = newYaw
-      if (this.mount) this.mount.group.rotation.y = newYaw
+      this.group.rotation.y = desiredYaw
+      if (this.mount) this.mount.group.rotation.y = desiredYaw
     }
     if (!siegeObstacle && !this.hasActiveRangedWeapon && this.isUsingLance) {
       // The authored spear is held beside the torso. Aim its actual forward
@@ -3859,17 +3954,7 @@ export class NPC {
         const localX = dx * Math.cos(currentYaw) - dz * Math.sin(currentYaw)
         const localZ = dx * Math.sin(currentYaw) + dz * Math.cos(currentYaw)
         if (localZ > 0.1) {
-          const tipYawOffset = Math.atan2(localX, localZ)
-          if (eligibleCharge) {
-            // Share the single-frame turn budget with heading steering:
-            // The net difference between initialYaw and final yaw must not exceed maxTurnBudget.
-            const unconstrainedYaw = this.group.rotation.y - tipYawOffset
-            const totalDiff = angleDifference(unconstrainedYaw, initialYaw)
-            const clampedDiff = Math.max(-maxTurnBudget, Math.min(maxTurnBudget, totalDiff))
-            this.group.rotation.y = initialYaw + clampedDiff
-          } else {
-            this.group.rotation.y -= tipYawOffset
-          }
+          this.group.rotation.y -= Math.atan2(localX, localZ)
           if (this.mount) this.mount.group.rotation.y = this.group.rotation.y
         }
       }
@@ -4108,7 +4193,7 @@ export class NPC {
               this.cavalryContactPoint.copy(this.combatPosition)
               this._cachedTargetNpc = null
               this._cachedTargetIsPlayer = false
-              this._targetReacquireFramesRemaining = 0
+              this.targetReacquire.expedite()
             }
           }
         } else if (this._isTargetInMeleeRange(targetInfo.position, 0.4, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
@@ -4153,7 +4238,7 @@ export class NPC {
           this.cavalryPassthroughTimer = Math.max(this.cavalryPassthroughTimer, CAVALRY_PASSTHROUGH_DURATION)
           this._cachedTargetNpc = null
           this._cachedTargetIsPlayer = false
-          this._targetReacquireFramesRemaining = 0
+          this.targetReacquire.expedite()
           this.state = AIState.CHASE
         } else if (!siegeObstacle && !this.attackHitProcessed) {
           // Weapon length is only an initial estimate: actual arcs, shields
@@ -4684,7 +4769,11 @@ export class NPC {
           sepCount++
         }
       }
-      if (sepCount > 0) moveDir.add(this._tmpSep.divideScalar(sepCount)).normalize()
+      if (sepCount > 0) {
+        this._tmpSep.divideScalar(sepCount)
+        const onTownRamp = Boolean(isConfirmedLayeredStep && navigationWorld?.townNav?.rampAt(this.combatPosition))
+        applyTownRampSeparation(moveDir, this._tmpSep, onTownRamp)
+      }
       // A soldier already in its firing slot must not become a permanent
       // one-dimensional roadblock for another formation member on the deck.
       if (!this.mount && layeredNav && isRampartLayer(npcLayer) && Math.abs(target.position.x - this.combatPosition.x) > 1.6) {
@@ -4918,39 +5007,21 @@ export class NPC {
 
   /** Returns damage after applying lance charge, anti-cavalry, and berserker multipliers. */
   private _calcLanceDamage(baseDamage: number, targetIsMounted: boolean): number {
-    const combatKind = this.meleeCombatKind
-    const hasShield = this.hasActiveShield
-    const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, combatKind, hasShield)
-
-    let dmg = baseDamage * berserker.meleeDamageMultiplier
-
-    // Lance charge (mounted)
     const chargeSpeed = Math.max(this.mount?.movementSpeed ?? 0, this.pendingLanceChargeSpeed)
     this.pendingLanceChargeSpeed = 0
-
-    const chargeResult = calculateLanceChargeDamage(baseDamage, combatKind, this.isMounted, chargeSpeed)
-    if (chargeResult.isCharge) {
-      if (this.mount && chargeResult.skipImpact) {
-        this.mount.skipImpactThisFrame = true
-      }
-      dmg = chargeResult.damage * berserker.meleeDamageMultiplier
-    }
-
-    // Anti-cavalry (foot lance vs mounted target)
-    const antiCav = getAntiCavalryMultiplier(combatKind, this.isMounted, targetIsMounted)
-    dmg *= antiCav
-
-    return applyHeroMeleeDamage(Math.round(dmg), this.combatProfileId)
+    const { damage, skipImpact } = calculateNpcMeleeDamage({
+      baseDamage, combatKind: this.meleeCombatKind, isMounted: this.isMounted, chargeSpeed,
+      faction: this.characterFaction, hasShield: this.hasActiveShield, targetIsMounted, combatProfileId: this.combatProfileId,
+    })
+    if (this.mount && skipImpact) this.mount.skipImpactThisFrame = true
+    return damage
   }
 
   private _hasOutpostMeleeConnection(targetPos: THREE.Vector3, targetBodyBaseOffset = 0): boolean {
     const nav = this._activeNavigationWorld?.outpostNav
     if (!nav) return true
-    // Combat keeps its existing aim/root coordinates; only support queries use feet.
-    const support = targetBodyBaseOffset === 0 ? targetPos
-      : this._meleeTargetSupportPosition.copy(targetPos).setY(targetPos.y + targetBodyBaseOffset)
-    return nav.hasDirectMeleeConnection(this.combatPosition, support,
-      this._movementObstacleHeight(), this.fallObstacles)
+    return hasOutpostMeleeConnection(nav, this.combatPosition, targetPos, targetBodyBaseOffset,
+      this._movementObstacleHeight(), this.fallObstacles, this._meleeTargetSupportPosition)
   }
 
   private _isRampartMeleeThreat(targetPos: THREE.Vector3, targetBodyBaseOffset = 0): boolean {
@@ -5036,9 +5107,8 @@ export class NPC {
   }
 
   private _isRangedMeleeThreat(position: THREE.Vector3, targetBodyBaseOffset = 0): boolean {
-    if (this.combatPosition.distanceToSquared(position) > RANGED_REEQUIP_MIN ** 2
-      || Math.abs(position.y - this.combatPosition.y) > this.meleeAttackRadius) return false
-    if (this.mount?.flight && !this.eaglePilot.canUseMelee) return false
+    if (!withinRangedMeleeThreatReach(this.combatPosition, position, this.meleeAttackRadius,
+      !this.mount?.flight || this.eaglePilot.canUseMelee)) return false
     if (this.holdsRampartFirePosition) return this._isRampartMeleeThreat(position, targetBodyBaseOffset)
     const town = this._activeNavigationWorld?.townNav
     if (town && town.isElevated(this.combatPosition) !== town.isElevated(position)) return false
@@ -5054,9 +5124,9 @@ export class NPC {
     target: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null,
     player: Player, nearby: readonly NPC[], obstacles: ObstacleData[],
   ): void {
-    // Committed releases and swings finish before any equipment decision.
-    if (!this.rangedWeaponId || !this.meleeWeaponId || this.animator.busy) return
-    if (this.arrows <= 0 && !this.rangedActive) return
+    // Committed releases and swings finish before any equipment decision or threat scan.
+    if (!needsWeaponModeDecision(Boolean(this.rangedWeaponId), Boolean(this.meleeWeaponId),
+      this.animator.busy, this.arrows, this.rangedActive)) return
     // Siege targets remain valid for ranged/obstacle attacks; only hostile actors threaten melee contact.
     // Player proximity is checked independently below, including when an obstacle is the selected target.
     let threatSq = target && !target.isDead && target.npc && !target.npc.dead
@@ -5072,9 +5142,9 @@ export class NPC {
         threatSq = Math.min(threatSq, this.combatPosition.distanceToSquared(other.combatPosition))
       }
     }
-    let ranged = this.arrows > 0 && (this.rangedActive ? threatSq > RANGED_ATTACK_MIN ** 2
-      : threatSq >= RANGED_REEQUIP_MIN ** 2 && target !== null && !target.isDead
-        && this.combatPosition.distanceToSquared(target.position) <= this.maxRangedAttackDistance ** 2)
+    let ranged = chooseReversibleWeaponMode(this.arrows, this.rangedActive, threatSq,
+      target && !target.isDead ? this.combatPosition.distanceToSquared(target.position) : null,
+      this.maxRangedAttackDistance) === 'ranged'
     if (ranged && !this.rangedActive && target) {
       const blocker = this._findRangedTrajectoryBlocker(target.position, obstacles)
       // Hitting the assigned siege target is a valid shot, matching obstacle attack fallback.

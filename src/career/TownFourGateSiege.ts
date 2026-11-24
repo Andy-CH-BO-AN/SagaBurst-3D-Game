@@ -1,18 +1,21 @@
 import * as THREE from 'three'
-import { MobileSiegeRamp } from '../campaign/MobileSiegeRamp'
+import type { CampaignGateController } from '../campaign/CampaignGate'
+import type { MobileSiegeRamp } from '../campaign/MobileSiegeRamp'
 import type { MobileSiegeRampState } from '../campaign/MobileSiegeRampController'
 import { placeSiegeRampCrew,siegeRampDeckHeightAt,type TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
 import { SiegeConvoy,evacuateAbandonedRamp,fallFromDestroyedRamp } from '../campaign/SiegeConvoy'
 import { crossingGateBreach } from '../navigation/GateBreachPortal'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import { TOWN_CITY,TOWN_GATES,type TownGateId } from '../town/TownLayout'
-import type { TownWorld } from '../town/TownWorld'
+import type { TownDockPassages } from '../town/TownDockPassages'
+import type { TownRampartLayout } from '../town/TownRamparts'
+import type { TownSiegeAirspace } from '../town/TownSiegeAirspace'
 import { AIType,type NPC } from '../world/NPC'
 import type { SpatialGrid } from '../world/SpatialGrid'
-import { getTerrainHeight,type EntityCollisionBody } from '../world/Terrain'
+import { getTerrainHeight,type EntityCollisionBody,type ObstacleData } from '../world/Terrain'
 import { restoreCommandActor,snapshotCommandActor } from './CareerCommandActorCheckpoint'
 import { parseTownFourGateSiegeCheckpoint,type TownFourGateSiegeCheckpoint,type TownSiegeActorCheckpoint } from './TownFourGateSiegeCheckpoint'
-import { allocateTownSiegeCrews,isTownSiegeDockConnected,planTownSiegeRamps,townSiegeFrame,townSiegeSectorReceiptsMatch,withinTownSiegeSector,type TownSiegeApproach,type TownSiegeCrewSlot,type TownSiegeEscortClearance,type TownSiegeRampAssignment } from './TownFourGateSiegePolicy'
+import { allocateTownSiegeCrews,isTownSiegeDockConnected,planTownSiegeRamps,townSiegeFrame,townSiegeSectorReceiptsMatch,withinTownSiegeSector,type TownSiegeApproach,type TownSiegeCrewSlot,type TownSiegeEscortClearance,type TownSiegeRampAssignment,type TownSiegeRampPlacement } from './TownFourGateSiegePolicy'
 import { TownGateBreachPolicy,type TownGateBreachEvent } from './TownGateBreachPolicy'
 
 export interface TownSiegeSectorRoster {
@@ -23,10 +26,23 @@ export interface TownSiegeSectorRoster {
   attackerActorIds?: readonly string[]
 }
 export type TownSiegeAttackerRole = 'siege-infantry' | 'gate-cavalry' | 'ranged' | 'air'
+export type TownSiegeGate = Pick<CampaignGateController, 'state' | 'siegeObstacle' | 'open' | 'close' | 'destroy' | 'onStateChange'>
+  & { readonly damageable: { readonly currentHp: number; takeDamage(amount: number): unknown } }
+/** The opt-in siege TownWorld parts this adapter reads and mutates. */
+export interface TownSiegeWorld {
+  readonly obstacles: ObstacleData[]
+  readonly siegeDockPassages?: Pick<TownDockPassages, 'configure' | 'setOpen' | 'isRailObstacle'>
+  readonly siegeAirspace?: Pick<TownSiegeAirspace, 'add' | 'remove'>
+  readonly fortifications: { readonly rampartLayout: TownRampartLayout }
+  readonly gates: ReadonlyMap<TownGateId, TownSiegeGate>
+}
+export type TownSiegeNavigation = Pick<NavigationWorld, 'townNav' | 'areConnected' | 'sync'>
 export interface TownFourGateSiegeOptions {
-  scene: THREE.Scene
-  world: TownWorld
-  navigation: NavigationWorld
+  /** Builds one vehicle; production renders a MobileSiegeRamp into the Town scene. */
+  createRamp(assignment: TownSiegeRampAssignment, placement: TownSiegeRampPlacement, faction: 'roman' | 'viking',
+    shared: ObstacleData[], changed: (ramp: MobileSiegeRamp<TownSiegeRampId>, state: MobileSiegeRampState) => void): MobileSiegeRamp<TownSiegeRampId>
+  world: TownSiegeWorld
+  navigation: TownSiegeNavigation
   /** Reuse the caller's once-per-frame grid, never scan the army separately per vehicle. */
   grid: SpatialGrid<NPC>
   actors(): readonly NPC[]
@@ -127,7 +143,7 @@ export class TownFourGateSiege {
       passages.configure(placements.map(p => p.passage))
       for (const assignment of assignments) {
         const placement = placements.find(p => p.id === assignment.id)!
-        const ramp = new MobileSiegeRamp(this.options.scene, assignment, placement, this.faction, world.obstacles,
+        const ramp = this.options.createRamp(assignment, placement, this.faction, world.obstacles,
           (vehicle, state) => this.onRampState(vehicle, state))
         this.ramps.set(assignment.id, ramp); this.rampList.push(ramp)
         const saved = this.saved?.ramps.find(r => r.assignment.id === assignment.id)
@@ -259,6 +275,16 @@ export class TownFourGateSiege {
     if (!this.restoring) this.policy.gate(gateId, gate.state)
     else this.policy.gates.get(gateId)!.gateState = gate.state
   }
+  private gateRampsDisabled(gateId: TownGateId): boolean {
+    let count = 0
+    for (const ramp of this.rampList) {
+      if ((ramp.assignment as TownSiegeRampAssignment).gateId !== gateId) continue
+      count++
+      const state = ramp.controller.state
+      if (state !== 'ABANDONED' && state !== 'DESTROYED') return false
+    }
+    return count > 0
+  }
   private onRampState(ramp: MobileSiegeRamp<TownSiegeRampId>, state: MobileSiegeRampState): void {
     const assignment = ramp.assignment as TownSiegeRampAssignment, passages = this.options.world.siegeDockPassages!
     if (state === 'DOCKED') {
@@ -275,12 +301,14 @@ export class TownFourGateSiege {
     } else if (state === 'ABANDONED') {
       passages.setOpen(assignment.id, false); this.entrances.remove(assignment.id)
       this.options.navigation.sync(this.options.world.obstacles)
+      if (!this.restoring && this.gateRampsDisabled(assignment.gateId)) this.policy.releaseWall(assignment.gateId)
     } else if (state === 'DESTROYED') {
       passages.setOpen(assignment.id, false); this.entrances.remove(assignment.id)
       this.options.world.siegeAirspace?.remove(ramp.obstacles)
       if (this.hitRegistered.delete(assignment.id)) this.options.unregisterHit(ramp)
       if (!this.restoring) {
         this.policy.ramp(assignment.gateId, assignment.side, false)
+        if (this.gateRampsDisabled(assignment.gateId)) this.policy.releaseWall(assignment.gateId)
         for (const npc of this.options.actors()) fallFromDestroyedRamp(npc, ramp)
       }
     }
@@ -364,6 +392,9 @@ export class TownFourGateSiege {
       // Enough radius for the full sloped carrier; reuse caller grid and scratch array.
       const radius = ramp.surface.length + ramp.surface.landing + 10
       ramp.update(dt, grid.getNearbyInto(ramp.position, radius, this.neighbors), blockers)
+    }
+    for (const [gateId, gateState] of this.policy.gates) {
+      if (!gateState.wallEventHandled && this.gateRampsDisabled(gateId)) this.policy.releaseWall(gateId)
     }
     // Observe moving ground footprints before this frame's actor routes. The
     // navigation owner ignores sub-cell motion and retains the existing budget.

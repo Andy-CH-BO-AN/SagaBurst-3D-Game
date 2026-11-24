@@ -1,15 +1,14 @@
-import { personalSquadFixture } from '../helpers/personalSquadFixture'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { careerRankFixture } from '../helpers/careerRankFixture'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { initialPersonalEquipment } from '../../src/career/CareerInventory'
-import { createCareerProfile, enlistmentMerit, type CareerProfile } from '../../src/career/CareerProfile'
-import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { MemoryStorage } from '../helpers/memoryStorage'
+import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { CareerSkillSaveScheduler } from '../../src/career/CareerSkillSaveScheduler'
+import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { TemporaryBattlefieldMounts } from '../../src/career/TemporaryBattlefieldMounts'
+import { SkillManager } from '../../src/rpg/SkillManager'
+import { TownScene } from '../../src/town/TownScene'
 import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
 import { TownEvent, townRoster } from '../../src/town/TownRules'
-import { MemoryStorage } from '../helpers/memoryStorage'
-import { createDefaultSkillState } from '../../src/rpg/SkillManager'
-import { TownScene } from '../../src/town/TownScene'
-import { TemporaryBattlefieldMounts } from '../../src/career/TemporaryBattlefieldMounts'
 
 const layout = resolveTownHRLayout('roman', [], [])
 const population = townConquestRoster(layout)
@@ -20,37 +19,6 @@ function eventWithSurvivors(survivors: readonly string[] = []) {
   for (const spec of population) event.register(spec.id, { dead: !survivors.includes(spec.id) })
   event.complete(); event.hostile = true
   return event
-}
-
-interface ConquestSettlementEntry {
-  profile: CareerProfile
-  event: TownEvent
-  skills: { skillState: CareerProfile['skills'] }
-  onRestart: ReturnType<typeof vi.fn>
-  dispose: ReturnType<typeof vi.fn>
-  openPanel(title: string, message: string): unknown
-  button(panel: unknown, label: string, callback: () => void): unknown
-  finish(result: 'town_defeated' | 'player_defeated'): void
-  restoreTownCasualties(): void
-}
-
-/** Only finish/commit inputs; no combat, command, world or rendering fixture is constructed. */
-function savedTown() {
-  const store = new CareerProfileStore(new MemoryStorage())
-  const profile = createCareerProfile('roman')
-  profile.totalMerit = 22000; profile.availableMerit = 180; Object.assign(profile, careerRankFixture(profile.faction, 'commander'));
-  profile.townEvent = { id: 'conquest', state: 'hostile' }
-  const event = new TownEvent(population)
-  for (const spec of population) event.register(spec.id, { dead: false })
-  event.complete()
-  const town = Object.assign(Object.create(TownScene.prototype) as ConquestSettlementEntry, {
-    profile, event, store, skills: { skillState: profile.skills },
-    clearCareerSkillSaveTimer: vi.fn(), careerSaveFailures: 0, player: { dead: false },
-    temporaryMounts: new TemporaryBattlefieldMounts(), onRestart: vi.fn(), dispose: vi.fn(),
-    // A promotion clears the Sergeant board's remembered tab.
-    missionBoard: { page: undefined },
-  })
-  return { town, store }
 }
 
 describe('canonical free Town conquest population', () => {
@@ -100,38 +68,109 @@ describe('full population conquest outcomes and registration', () => {
   })
 })
 
-describe('hostile save migration and settlement retries', () => {
-  it.each(['town_defeated', 'player_defeated'] as const)('saves %s once after retry and only then permits transition', result => {
-    const { town, store } = savedTown()
-    town.profile.personalSquad = personalSquadFixture(town.profile, [{ id: 'personal:permanent', type: 'soldier', originalHirePrice: 50,
-      equipment: initialPersonalEquipment('soldier', 'roman') }])
-    town.profile.inventory = { version: 1, quantities: { gladius_rusty: 2,
-      ...Object.fromEntries(Object.values(initialPersonalEquipment('soldier', 'roman')).filter(Boolean).map(id => [id, 1])) } }
-    town.profile.skills = { ...createDefaultSkillState(), ...town.profile.skills, ranged: { level: 4, xp: 20 } }
-    town.profile.claimedBattleIds = ['historical-battle']
-    town.profile = parseCareerProfile(town.profile)!
-    town.skills.skillState = town.profile.skills
-    expect(store.save(town.profile)).toBe(true) // Ensure the authoritative town save exists before retry tests.
-    const before = JSON.stringify(town.profile), original = JSON.parse(before), restartButtons: Array<() => void> = []
-    town.openPanel = vi.fn(() => ({}))
-    town.button = vi.fn((_panel: unknown, _label: string, callback: () => void) => restartButtons.push(callback))
-    const save = vi.spyOn(store, 'save').mockReturnValueOnce(false)
-    town.finish(result)
-    expect(JSON.stringify(town.profile)).toBe(before); expect(town.onRestart).not.toHaveBeenCalled()
-    expect(town.profile.faction).toBe('roman')
-    restartButtons.shift()!() // Retry the real TownScene commit and settlement path.
-    const next = store.load()!
-    expect(next.townEvent?.state).toBe('settled'); expect(next.townEvent?.result).toBe(result)
-    expect(next.faction).toBe(result === 'town_defeated' ? 'viking' : 'roman')
-    expect(next.availableMerit).toBe(result === 'town_defeated' ? 180 : 80)
-    expect(next.totalMerit).toBe(22000); expect(next.personalSquad).toEqual(original.personalSquad)
-    expect(next.skills).toEqual(original.skills); expect(next.ownedWeapons).toEqual(original.ownedWeapons)
-    expect(next.inventory).toEqual(original.inventory); expect(next.lifetimeStats).toEqual(original.lifetimeStats)
-    expect(next.claimedBattleIds).toEqual(['historical-battle'])
-    if (result === 'town_defeated') { expect(next.rank).toBe('recruit'); expect(enlistmentMerit(next)).toBe(0) }
-    town.finish(result); expect(save).toHaveBeenCalledTimes(2)
-    restartButtons.shift()!(); expect(town.onRestart).toHaveBeenCalledExactlyOnceWith(town.profile, result === 'player_defeated' ? 'death-return' : undefined)
-    expect(town.dispose).toHaveBeenCalledOnce()
-    town.restoreTownCasualties(); expect([...town.event.actors.values()].every(actor => !actor.dead)).toBe(true)
+interface TownSettleEntry {
+  profile: CareerProfile
+  notice: string
+  townResult: unknown
+  createTownResultSettlement(): unknown
+  finish(result: 'town_defeated' | 'player_defeated'): void
+  restoreTownCasualties(): void
+}
+
+interface TownSkillEntry {
+  profile: CareerProfile
+  notice: string
+  careerSkillSave: CareerSkillSaveScheduler
+  skills: SkillManager
+  awardCareerSkillXp(award: { skill: 'oneHanded'; xp: number }): void
+  retirementFinale?: { frozen: boolean }
+  createCareerSkillSaveScheduler(): CareerSkillSaveScheduler
+}
+
+/** The production TownScene methods over a plain-data state; no scene, world or actor is built. */
+function townEntry<T extends object>(state: T) {
+  return Object.assign(Object.create(TownScene.prototype) as TownSettleEntry & TownSkillEntry, state)
+}
+
+describe('TownScene hostile result caller', () => {
+  it('restores saved casualties, refuses a stale save, retries a failed write once, then restarts', () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    const profile = createCareerProfile('roman')
+    profile.totalMerit = 22000; profile.availableMerit = 180; Object.assign(profile, careerRankFixture(profile.faction, 'commander'))
+    profile.townEvent = { id: 'conquest', state: 'hostile', deadActorIds: ['cat', 'merchant'], destroyedBuildingIds: ['tower-1'] }
+    expect(store.save(profile)).toBe(true)
+    const damaged: string[] = [], destroyed: string[] = [], panels: string[] = [], buttons: Array<{ label: string; action: () => void }> = []
+    const restarts: Array<{ profile: CareerProfile; reason?: string }> = []
+    const town = townEntry({
+      profile: store.load()!, store, notice: '', skills: { skillState: profile.skills }, careerSaveFailures: 0, careerSkillSave: new CareerSkillSaveScheduler({ save: () => true }), player: { dead: false }, temporaryMounts: new TemporaryBattlefieldMounts(), missionBoard: { page: undefined },
+      cat: { takeDamage: () => { damaged.push('cat') } },
+      residents: [{ spec: { id: 'merchant' }, npc: { takeDamage: () => { damaged.push('merchant') } } }],
+      world: { buildings: [{ id: 'tower-1', hp: { destroy: () => { destroyed.push('tower-1') } } }] },
+      onRestart: (next: CareerProfile, reason?: string) => { restarts.push({ profile: next, reason }) }, dispose() {},
+      openPanel: (title: string) => { panels.push(title); return {} },
+      button: (_panel: unknown, label: string, action: () => void) => { buttons.push({ label, action }) },
+    })
+    town.townResult = town.createTownResultSettlement()
+    town.restoreTownCasualties()
+    expect(damaged).toEqual(['cat', 'merchant']); expect(destroyed).toEqual(['tower-1'])
+
+    // Another tab already settled this event: the stale scene must not overwrite it.
+    const other = JSON.parse(JSON.stringify(town.profile)) as CareerProfile
+    other.townEvent = { id: 'conquest', state: 'settled', result: 'town_defeated', penalty: 0 }
+    expect(store.save(other)).toBe(true)
+    const otherBytes = JSON.stringify(store.load())
+    town.finish('player_defeated')
+    expect(town.profile.townEvent?.state).toBe('hostile'); expect(JSON.stringify(store.load())).toBe(otherBytes)
+    expect(town.notice).not.toBe(''); expect(panels).toEqual(['結算尚未保存']); expect(restarts).toEqual([])
+
+    expect(store.save(profile)).toBe(true) // the stored event is ours again; the write itself now fails once
+    storage.failWrites = true
+    town.finish('player_defeated')
+    expect(restarts).toEqual([]); expect(panels).toHaveLength(2)
+    storage.failWrites = false
+    buttons.at(-1)!.action() // 重試保存
+    expect(store.load()!.townEvent).toMatchObject({ state: 'settled', result: 'player_defeated' })
+    expect(store.load()!.availableMerit).toBe(80)
+    expect(panels).toHaveLength(3)
+    town.finish('player_defeated') // settled once: no second penalty or panel
+    expect(store.load()!.availableMerit).toBe(80); expect(panels).toHaveLength(3)
+    buttons.at(-1)!.action()
+    expect(restarts).toEqual([{ profile: town.profile, reason: 'death-return' }])
+  })
+})
+
+describe('TownScene career skill saves', () => {
+  it('routes awards through the shared debounce, saves at 600ms, reports a rejected write and holds while the finale is frozen', () => {
+    vi.useFakeTimers()
+    onTestFinished(() => { vi.clearAllTimers(); vi.useRealTimers() })
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    const profile = createCareerProfile('roman')
+    expect(store.save(profile)).toBe(true)
+    const town = townEntry({
+      profile: store.load()!, store, notice: '', skills: new SkillManager(), spectator: undefined,
+      player: { dead: false, spectatorOnly: false, blockingLevel: 1, armorBreakLevel: 1 },
+      synchronizeEaglePatrolPolicy() {},
+    })
+    town.careerSkillSave = town.createCareerSkillSaveScheduler()
+    town.awardCareerSkillXp({ skill: 'oneHanded', xp: 7 })
+    vi.advanceTimersByTime(599)
+    expect(store.load()!.skills!.oneHanded.xp).toBe(0)
+    vi.advanceTimersByTime(1)
+    expect(store.load()!.skills!.oneHanded.xp).toBe(7)
+    expect(town.profile.skills!.oneHanded.xp).toBe(7)
+
+    storage.failWrites = true
+    town.awardCareerSkillXp({ skill: 'oneHanded', xp: 3 })
+    vi.advanceTimersByTime(600)
+    expect(town.profile.skills!.oneHanded.xp).toBe(10) // the live profile keeps the XP; only the durable write failed
+    expect(store.load()!.skills!.oneHanded.xp).toBe(7)
+    expect(town.careerSkillSave.dirty).toBe(true)
+    expect(town.notice).toBe('技能進度保存失敗，請稍後重試。')
+
+    storage.failWrites = false
+    town.retirementFinale = { frozen: true } // a frozen finale owns the profile: flush is a no-op that keeps the XP dirty
+    expect(town.careerSkillSave.flush()).toBe(true)
+    expect(store.load()!.skills!.oneHanded.xp).toBe(7)
+    expect(town.careerSkillSave.dirty).toBe(true)
   })
 })

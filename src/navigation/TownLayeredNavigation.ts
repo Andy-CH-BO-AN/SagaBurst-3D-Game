@@ -16,6 +16,34 @@ const GALLERY_EXIT = TOWN_GATEHOUSE.deckRear - 1.6
 const SURFACE_CELL = 4
 const NO_GATEHOUSES: readonly TownGatehouse[] = []
 
+/** Directional slope lanes keep ascending and descending Town ramp streams separated. */
+export function townRampLane(actorId: string | undefined, mounted: boolean, ascending: boolean, halfWidth: number): number {
+  if (!actorId) return 0
+  // Positive lateral points toward the wall opening; negative toward the interior rail.
+  const sign = ascending ? 1 : -1
+  if (mounted) return sign * Math.min(1.1, Math.max(0, halfWidth - 1.25))
+  const minLane = 0.55
+  const maxLane = Math.max(minLane, halfWidth - 0.85)
+  let hash = 2166136261
+  for (let i = 0; i < actorId.length; i++) hash = Math.imul(hash ^ actorId.charCodeAt(i), 16777619)
+  const slot = (hash >>> 0) % 3
+  return sign * (minLane + slot * (maxLane - minLane) / 2)
+}
+
+/** Prevents crowd separation from reversing forward progress along a rail-bounded Town ramp. */
+export function applyTownRampSeparation(moveDir: THREE.Vector3, separation: THREE.Vector3, onTownRamp: boolean): void {
+  if (!onTownRamp) {
+    moveDir.add(separation).normalize()
+    return
+  }
+  separation.y = 0
+  const forwardDot = separation.dot(moveDir)
+  if (forwardDot < 0) separation.addScaledVector(moveDir, -forwardDot)
+  const len = separation.length()
+  if (len > 0.75) separation.multiplyScalar(0.75 / len)
+  moveDir.add(separation).normalize()
+}
+
 type SurfaceBounds = { minX: number; minZ: number; maxX: number; maxZ: number }
 /** getWalkRampHeight's oriented rectangle: along [0, length + landing], lateral ±halfWidth. */
 function surfaceBounds(s: { startX: number; startZ: number; dirX: number; dirZ: number; length: number; landing: number; halfWidth: number }): SurfaceBounds {
@@ -88,7 +116,7 @@ export class TownLayeredNavigation {
       || current.z <= TOWN_CITY.minZ || current.z >= TOWN_CITY.maxZ
     const insideGoal = goal.x > TOWN_CITY.minX && goal.x < TOWN_CITY.maxX
       && goal.z > TOWN_CITY.minZ && goal.z < TOWN_CITY.maxZ
-    if (!outside || !insideGoal || this.isElevated(current) || this.rampAt(current)
+    if (!outside || (!insideGoal && !this.isElevated(goal)) || this.isElevated(current) || this.rampAt(current)
       || Math.abs(current.y - getTerrainHeight(current.x, current.z)) > 1.1) return null
     const valid = (entry: TownGateApproach) => (!sector || entry.id === sector) && entry.gate.state === 'closed'
       && accepts(entry.gate.siegeObstacle) && this.connected(current, entry.approach)
@@ -297,16 +325,29 @@ export class TownLayeredNavigation {
     }, undefined)
     if (!ramp || !this.nativeRampUsable(ramp, mounted)) { out.copy(current); return { ground: true, blocked: true } }
     const s = ramp.surface
+    const lane = townRampLane(actorId, mounted, ascending, s.halfWidth)
+    const offsetLateral = (base: THREE.Vector3, target: THREE.Vector3, groundY = false) => {
+      if (lane === 0) { target.copy(base); return }
+      target.set(base.x - s.dirZ * lane, base.y, base.z + s.dirX * lane)
+      if (groundY) target.y = getTerrainHeight(target.x, target.z)
+    }
     if (onRamp) {
       if (onRamp === toRamp) { out.copy(goal); return { ground: false } }
+      const along = (current.x - s.startX) * s.dirX + (current.z - s.startZ) * s.dirZ
+      const lateral = (current.x - s.startX) * -s.dirZ + (current.z - s.startZ) * s.dirX
       if (ascending) {
-        if ((current.x - s.startX) * s.dirX + (current.z - s.startZ) * s.dirZ >= s.length + .5) out.copy(ramp.connection)
-        else out.copy(ramp.landing)
+        // Clear the landing corner rail post before turning onto the bridge.
+        const turnAlong = s.length + (mounted ? 2.2 : 1.7)
+        if (along >= turnAlong) out.copy(ramp.connection)
+        else offsetLateral(ramp.landing, out)
       } else {
-        const lateral = Math.abs((current.x - s.startX) * -s.dirZ + (current.z - s.startZ) * s.dirX)
-        const along = (current.x - s.startX) * s.dirX + (current.z - s.startZ) * s.dirZ
-        // Finish the turn on the flat landing before a mounted follower descends.
-        out.copy(along >= s.length && lateral > .25 ? ramp.landing : ramp.entrance)
+        const clearLateral = Math.max(0.25, s.halfWidth - (mounted ? 1.15 : 0.65))
+        if (along >= s.length && Math.abs(lateral) > clearLateral) {
+          const stayAlong = Math.min(along, s.length + 4)
+          out.set(s.startX + s.dirX * stayAlong - s.dirZ * lane, s.topY, s.startZ + s.dirZ * stayAlong + s.dirX * lane)
+        } else {
+          offsetLateral(ramp.entrance, out, true)
+        }
       }
       return { ground: false }
     }
@@ -318,8 +359,8 @@ export class TownLayeredNavigation {
     }
     const along = (current.x - s.startX) * s.dirX + (current.z - s.startZ) * s.dirZ
     const lateral = Math.abs((current.x - s.startX) * -s.dirZ + (current.z - s.startZ) * s.dirX)
-    if (!(along >= -3.2 && along <= .6 && lateral < s.halfWidth - .5)) { out.copy(ramp.entrance); return { ground: true } }
-    out.set(s.startX + s.dirX, s.startY + (s.topY - s.startY) / s.length, s.startZ + s.dirZ)
+    if (!(along >= -3.2 && along <= .6 && lateral < s.halfWidth - .5)) { offsetLateral(ramp.entrance, out, true); return { ground: true } }
+    out.set(s.startX + s.dirX - s.dirZ * lane, s.startY + (s.topY - s.startY) / s.length, s.startZ + s.dirZ + s.dirX * lane)
     return { ground: false }
   }
   hasClearedSiegeGate(current: THREE.Vector3, entranceId: string | null, mounted: boolean): boolean {

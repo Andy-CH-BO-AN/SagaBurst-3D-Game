@@ -5,6 +5,7 @@ import { t4EquipmentIdsForArmy } from '../../src/battle/T4HeroCatalog'
 import { availableCareerMissionsForPage } from '../../src/career/CareerMissionCatalog'
 import { careerHeavyPreloadPlan, heavyUnitSpec } from '../../src/career/HeavyCavalrySpawn'
 import { careerMissionTierForTemplateId } from '../../src/career/CareerMissionTier'
+import { officialCommandSquads } from '../../src/career/CareerCommandAuthority'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, CAREER_STORAGE_KEY, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { acceptHeavyFieldMission, createCareerHeavySpawnPlan, createHeavyFieldDeployment, getHeavyFieldMissionAvailability } from '../../src/career/HeavyFieldMission'
@@ -115,11 +116,12 @@ describe('heavy cavalry field missions in Career', () => {
     for (const missionId of missionIds) {
       const rank = missionId === SOLDIER_IRON_ENCOUNTER_ID ? 'soldier' : missionId === VETERAN_IRON_TIDE_ID ? 'veteran' : 'captain'
       const accepted = acceptHeavyFieldMission(profileFor(rank), missionId, `test:${missionId}`)!
+      const mission = accepted.activeMission!
       const { plan, formationSlots } = createHeavyFieldDeployment(accepted)
       const friendly = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER), enemy = plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY)
-      expect(friendly).toHaveLength(accepted.activeMission!.friendlyActorIds.length)
+      expect(friendly.map(spec => spec.actorId).sort()).toEqual([...mission.friendlyActorIds].sort())
       expect(friendly).toHaveLength(missionId === SOLDIER_IRON_ENCOUNTER_ID ? 174 : missionId === VETERAN_IRON_TIDE_ID ? 399 : 29)
-      expect(enemy).toHaveLength(accepted.activeMission!.targetActorIds.length)
+      expect(enemy.map(spec => spec.actorId).sort()).toEqual([...mission.targetActorIds].sort())
       expect(new Set(plan.npcSpecs.map(spec => spec.actorId)).size).toBe(plan.npcSpecs.length)
       if (missionId !== CAPTAIN_STEEL_AVALANCHE_ID) expect(enemy.every(spec => spec.presetId === 'viking_heavy_cavalry' && spec.loadout?.mountId === 'snow-leopard' && spec.loadout.shieldId)).toBe(true)
       else expect(friendly.every(spec => spec.presetId === 'roman_heavy_cavalry' && spec.characterTier === 4 && spec.loadout?.mountId === 'armored-horse')).toBe(true)
@@ -128,13 +130,17 @@ describe('heavy cavalry field missions in Career', () => {
         const infantry = friendly.filter(spec => !spec.cavalry)
         expect(lancers).toHaveLength(100)
         expect(lancers.every(spec => spec.cavalry && spec.loadout?.mountId && spec.characterTier === (rank === 'soldier' ? 2 : 3))).toBe(true)
-        // Both the marching column and final formation keep 50 riders on each wing.
+        // In both deployments the two wings cover every lancer and carry the same strength.
         for (const [mounted, foot] of [
           [lancers, [...infantry, plan.playerSpawn]],
           [lancers.map(spec => formationSlots[spec.actorId!]), infantry.map(spec => formationSlots[spec.actorId!])],
         ]) {
-          expect(mounted.filter(at => at.x <= Math.min(...foot.map(at => at.x)) - 8)).toHaveLength(50)
-          expect(mounted.filter(at => at.x >= Math.max(...foot.map(at => at.x)) + 8)).toHaveLength(50)
+          const leftEdge = Math.min(...foot.map(at => at.x)) - 8
+          const rightEdge = Math.max(...foot.map(at => at.x)) + 8
+          const left = mounted.filter(at => at.x <= leftEdge)
+          const right = mounted.filter(at => at.x >= rightEdge)
+          expect(left).toHaveLength(right.length)
+          expect(left.length + right.length).toBe(mounted.length)
           expect(Math.min(...mounted.map(at => Math.abs(at.z)))).toBe(Math.min(...foot.map(at => Math.abs(at.z))))
         }
         expect(heavyFrontlineDistance(lancers, [...infantry, plan.playerSpawn])).toBeGreaterThanOrEqual(8)
@@ -155,7 +161,7 @@ describe('heavy cavalry field missions in Career', () => {
     }
   })
 
-  it('Veteran 單位不與拒馬重疊，Captain 官方軍令編制為 29 人單隊且私兵另列', () => {
+  it('Veteran 單位不與拒馬重疊，Captain 可指揮正式名冊中的單一小隊且私兵另列', () => {
     const veteran = acceptHeavyFieldMission(profileFor('veteran'), VETERAN_IRON_TIDE_ID, 'v')!
     expect([veteran.activeMission!.officialSquad, veteran.activeMission!.personalSquad]).toEqual([undefined, undefined])
     expect(acceptHeavyFieldMission(profileFor('soldier'), SOLDIER_IRON_ENCOUNTER_ID, 's')!.activeMission!.officialSquad).toBeUndefined()
@@ -166,8 +172,8 @@ describe('heavy cavalry field missions in Career', () => {
     const captainProfile = profileFor('captain')
     captainProfile.personalSquad = personalSquadFixture(captainProfile, [{ id: 'personal:hr-1', type: 'soldier' }])
     const captain = acceptHeavyFieldMission(captainProfile, CAPTAIN_STEEL_AVALANCHE_ID, 'c')!.activeMission!
-    expect(captain.officialSquad?.actorIds).toHaveLength(29)
-    expect(captain.officialSquad?.actorIds.every(id => captain.friendlyActorIds.includes(id))).toBe(true)
+    expect(captain.officialSquad?.actorIds).toEqual(captain.friendlyActorIds)
+    expect(officialCommandSquads(captain.officialSquad!).map(squad => squad.actorIds)).toEqual([captain.friendlyActorIds])
     expect(captain.personalSquad?.memberIds).toEqual(['personal:hr-1'])
   })
 
@@ -183,7 +189,7 @@ describe('heavy cavalry field missions in Career', () => {
     expect(loadedCaptainSoldier.activeMission?.officialSquad).toBeUndefined()
     expect(loadedCaptainSoldier.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
 
-    // 2. Captain accepts Steel Avalanche: save() === true -> loadChecked() keeps 29-man squad
+    // 2. Captain accepts Steel Avalanche: reload keeps the same official squad and separate personal members.
     const store2 = new CareerProfileStore(new MemoryStorage())
     const captainSteel = profileFor('captain')
     captainSteel.personalSquad = personalSquadFixture(captainSteel, [{ id: 'personal:hr-1', type: 'soldier' }])
@@ -191,7 +197,7 @@ describe('heavy cavalry field missions in Career', () => {
     expect(store2.save(acceptedCaptainSteel)).toBe(true)
     const loadedCaptainSteel = store2.loadChecked().profile!
     expect(loadedCaptainSteel.activeMission?.templateId).toBe(CAPTAIN_STEEL_AVALANCHE_ID)
-    expect(loadedCaptainSteel.activeMission?.officialSquad?.actorIds).toHaveLength(29)
+    expect(loadedCaptainSteel.activeMission?.officialSquad).toEqual(acceptedCaptainSteel.activeMission!.officialSquad)
     expect(loadedCaptainSteel.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
   })
 
@@ -213,7 +219,7 @@ describe('heavy cavalry field missions in Career', () => {
     const loadedCmdVeteran = store3.loadChecked().profile!
     expect(loadedCmdVeteran.activeMission?.templateId).toBe(VETERAN_IRON_TIDE_ID)
     expect(loadedCmdVeteran.activeMission?.officialSquad?.commandRank).toBe('commander')
-    expect(loadedCmdVeteran.activeMission?.officialSquad?.squads).toHaveLength(8)
+    expect(loadedCmdVeteran.activeMission?.officialSquad?.squads).toEqual(acceptedCmdVeteran.activeMission!.officialSquad!.squads)
     expect(loadedCmdVeteran.activeMission?.officialSquad?.actorIds).toEqual(acceptedCmdVeteran.activeMission!.friendlyActorIds)
 
     // 3c. Forged Commander Heavy Field claims: injected stranger ID, tampered squad, wrong order, or wrong squad count rejected

@@ -357,23 +357,24 @@ describe('Custom Battle: Ground Scattered Deployment', () => {
     expect(plan.npcSpecs.filter(spec => spec.characterFaction === 'roman' && spec.squadId === 10)).toHaveLength(50)
     expect(plan.npcSpecs.every(spec => spec.cavalry && spec.respawnEnabled && spec.loadout?.mountId === 'horse')).toBe(true)
     const actors = [plan.playerSpawn, ...plan.npcSpecs]
-    let minDistance = Infinity
-    let blocked = false
+    // Collect violations first: one matcher call per invariant keeps the 601-actor scan within budget.
+    const outOfBounds: number[] = []
+    const blocked: number[] = []
+    let minDistanceSq = Infinity
     for (let i = 0; i < actors.length; i++) {
-      const actor = actors[i]
-      expect(Number.isFinite(actor.x) && Number.isFinite(actor.z)).toBe(true)
-      expect(Math.abs(actor.x)).toBeLessThanOrEqual(125)
-      expect(Math.abs(actor.z)).toBeLessThanOrEqual(220)
-      for (const obstacle of obstacles) {
-        if (actor.x + 2.1 >= obstacle.box.min.x && actor.x - 2.1 <= obstacle.box.max.x &&
-            actor.z + 2.1 >= obstacle.box.min.z && actor.z - 2.1 <= obstacle.box.max.z) blocked = true
+      const { x, z } = actors[i]
+      if (!Number.isFinite(x) || !Number.isFinite(z) || Math.abs(x) > 125 || Math.abs(z) > 220) outOfBounds.push(i)
+      for (const { box } of obstacles) {
+        if (x + 2.1 >= box.min.x && x - 2.1 <= box.max.x && z + 2.1 >= box.min.z && z - 2.1 <= box.max.z) blocked.push(i)
       }
       for (let j = 0; j < i; j++) {
-        minDistance = Math.min(minDistance, Math.hypot(actor.x - actors[j].x, actor.z - actors[j].z))
+        const dx = x - actors[j].x, dz = z - actors[j].z
+        if (dx * dx + dz * dz < minDistanceSq) minDistanceSq = dx * dx + dz * dz
       }
     }
-    expect(blocked).toBe(false)
-    expect(minDistance).toBeGreaterThanOrEqual(4.2)
+    expect(outOfBounds).toEqual([])
+    expect(blocked).toEqual([])
+    expect(Math.sqrt(minDistanceSq)).toBeGreaterThanOrEqual(4.2)
   })
 })
 

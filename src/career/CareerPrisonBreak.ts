@@ -20,6 +20,11 @@ export type PrisonBattleId = keyof typeof PRISON_BREAK_DEFINITIONS
 export type PrisonRole = 'melee' | 'spear' | 'archer' | 'javelin'
 export const PRISON_SWORD_ID = 'gladius_rusty'
 export const PRISON_SWORD_COUNT = 6
+/**
+ * LAN co-op: the guest player's sword owner / escaper ID in the host's save. The guest's body is not
+ * part of the saved roster (it always rejoins fresh), so its liveness is judged by the host scene.
+ */
+export const PRISON_COOP_PARTNER = 'coop-partner'
 export interface PrisonBreakState {
   version: 2
   /** Absent for captures that already committed to the original five guards. */
@@ -29,7 +34,7 @@ export interface PrisonBreakState {
   captor: CharacterFaction
   stage: 'captured' | 'escape' | 'result'
   combat: ArenaTrialState
-  /** Sword index → player or permanent encounter actor ID; never an inventory grant. */
+  /** Sword index → player, the co-op partner or a permanent encounter actor ID; never an inventory grant. */
   swords: Record<string, string>
   gateOpen: boolean
   result?: { outcome: CareerMissionOutcome; merit: number; escapedBy?: string }
@@ -101,6 +106,7 @@ export function beginPrisonBreak(profile: CareerProfile, missionId = profile.act
 export function claimPrisonSword(state: PrisonBreakState, index: number, actorId: string): PrisonBreakState | null {
   if (state.stage !== 'escape' || !Number.isInteger(index) || index < 0 || index >= PRISON_SWORD_COUNT
     || state.swords[index] !== undefined || Object.values(state.swords).includes(actorId)) return null
+  if (actorId === PRISON_COOP_PARTNER) return { ...structuredClone(state), swords: { ...state.swords, [index]: actorId } }
   if (actorId === 'player' ? state.combat.player?.knocked : !prisonRoster(state).some(entry => entry.team === 'friendly' && entry.actorId === actorId)
     || state.combat.actors[actorId]?.status === 'knocked') return null
   return { ...structuredClone(state), swords: { ...state.swords, [index]: actorId } }
@@ -119,6 +125,8 @@ export function prisonOutcome(progress: { playerDead: boolean; friendlyAlive: nu
 }
 function livingPrisonEscaper(state: PrisonBreakState, escapedBy: string | undefined): boolean {
   if (!escapedBy) return false
+  // The host scene settles a partner escape only while the partner's live body crossed.
+  if (escapedBy === PRISON_COOP_PARTNER) return true
   if (escapedBy === 'player') return Boolean(state.combat.player && !state.combat.player.knocked)
   return prisonRoster(state).some(entry => entry.team === 'friendly' && entry.actorId === escapedBy)
     && state.combat.actors[escapedBy]?.status === 'active'
@@ -137,6 +145,11 @@ export function prisonTaunt(captor: CharacterFaction, gateOpen: boolean, standin
   return gateOpen || standingGuards <= 0 ? null : captor === 'roman'
     ? '你們以為撿了幾把劍，就能走出羅馬的門？' : '我還以為你們能讓我流點汗。'
 }
+/** The fixed escape reward; a LAN co-op guest earns the same amount in its own save. */
+export function prisonEscapeMerit(templateId: string, outcome: CareerMissionOutcome): number {
+  return outcome === 'victory' ? definition(templateId)?.merit ?? 0 : 0
+}
+export function isPrisonBattleId(id: unknown): id is PrisonBattleId { return typeof id === 'string' && Boolean(definition(id)) }
 /** One profile write owns both the escape receipt and its fixed reward. Original battle totals never change. */
 export function settlePrisonBreak(current: CareerProfile, outcome: CareerMissionOutcome, save: (p: CareerProfile) => boolean, escapedBy?: string): CareerProfile | null {
   const state = current.activeMission?.prisonBreak
@@ -145,7 +158,7 @@ export function settlePrisonBreak(current: CareerProfile, outcome: CareerMission
   if (outcome === 'victory' && (!state.gateOpen || !livingPrisonEscaper(state, escapedBy))
     || outcome === 'failure' && !prisonTeamDown(state)) return null
   const next = cloneCareerProfile(current), prison = next.activeMission!.prisonBreak!
-  const merit = outcome === 'victory' ? definition(state.templateId)!.merit : 0
+  const merit = prisonEscapeMerit(state.templateId, outcome)
   prison.version = 2; prison.stage = 'result'; prison.result = { outcome, merit, ...(outcome === 'victory' ? { escapedBy } : {}) }
   next.totalMerit += merit; next.availableMerit += merit
   return save(next) ? next : null
@@ -165,7 +178,7 @@ export function parsePrisonBreakState(value: unknown, mission: ActiveCareerMissi
   const combat = parseArenaTrialState(raw.combat, { friendlyActorIds, targetActorIds })
   if (!combat || combat.tier !== spec.tier || combat.arenaId !== (raw.captor === 'roman' ? 'roman-colosseum' : 'viking-valhalla')) return undefined
   const swords = Object.entries(raw.swords)
-  if (swords.some(([i, owner]) => !/^[0-5]$/.test(i) || owner !== 'player' && !friendlyActorIds.includes(owner))
+  if (swords.some(([i, owner]) => !/^[0-5]$/.test(i) || owner !== 'player' && owner !== PRISON_COOP_PARTNER && !friendlyActorIds.includes(owner))
     || new Set(swords.map(([,owner]) => owner)).size !== swords.length) return undefined
   if (combat.stage === 'engaged' && (!combat.player || roster.some(e => !combat.actors[e.actorId]))) return undefined
   if (raw.stage === 'captured' && (combat.stage !== 'deploying' || raw.gateOpen || swords.length > 0 || combat.player)) return undefined

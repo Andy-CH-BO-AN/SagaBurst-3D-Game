@@ -51,7 +51,7 @@ const rampId = (gateId: TownGateId, side: -1 | 1): TownSiegeRampId => `town-sieg
 
 /** Identity comes from the authored slot id, never from NPC array order or saved casualties. */
 export function commanderInfantryEscortAssignments(missionId: string): CommanderInfantryEscortAssignment[] {
-  return commanderFourGateDefenseSlots(missionId, 2).filter(slot => slot.role === 'infantry').map(slot => ({
+  return commanderFourGateDefenseSlots(missionId).filter(slot => slot.role === 'infantry').map(slot => ({
     actorId: slot.actorId, gateId: slot.gateId, side: slot.side!, slot: slot.slot - 1, rampId: rampId(slot.gateId, slot.side!) }))
 }
 

@@ -2,21 +2,23 @@ import { ArenaPanel, CareerArenaSession, type ArenaSettlement } from './CareerAr
 import { bindWindowResize, createSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO } from '../rendering/SceneRenderer'
 import { prisonFormation, prisonExitDestination, PRISON_NAV_CELL_SIZE } from './PrisonBreakLayout'
 import { townRoster } from '../town/TownRules'
-import { commitPrisonBreakReturn } from '../career/CareerMissionReturnRecovery'
 import * as THREE from 'three'
+import { ArenaOpeningGate, type ArenaOpeningHost, type ArenaPhase } from './ArenaOpeningGate'
+import { arenaCombatCounts, checkpointArenaActors } from './ArenaCombatProgress'
 import { PrisonBreakProps } from './PrisonBreakProps'
-import { InteractionFocus, type InteractionCandidate } from '../world/InteractionFocus'
+import { PrisonBreakEncounter, type PrisonBreakHost } from './PrisonBreakEncounter'
 import { PickupPrompt } from '../ui/PickupPrompt'
-import { prisonGuardCount, prisonRoster, prisonUnitSpec, claimPrisonSword, crossedPrisonExit, prisonOutcome, prisonTaunt, prisonResultDescription, settlePrisonBreak, PRISON_SWORD_ID } from '../career/CareerPrisonBreak'
+import { prisonGuardCount, prisonRoster, prisonUnitSpec, prisonResultDescription, PRISON_COOP_PARTNER, PRISON_SWORD_ID } from '../career/CareerPrisonBreak'
 import { InventoryManager } from '../rpg/InventoryManager'
 
+import { arenaCombatPreloadPlan, loadArenaCombatAssets } from './ArenaCombatPreloadPlan'
 import { createDuelArena, type DuelArenaEnvironment } from './DuelArena'
 import { DUEL_ARENA_LABELS, type DuelArenaId } from './DuelArenaCatalog'
 import { assignArenaTrialSlots, planArenaTrialFormation, type ArenaTrialFormation } from './ArenaTrialFormation'
 import {
-  ARENA_TRIAL_COUNTDOWN_SECONDS, ARENA_TRIAL_DEFINITIONS, ARENA_TRIAL_TIME_LIMIT_SECONDS, arenaTrialCounts, arenaTrialPreloadPlan,
+  ARENA_TRIAL_COUNTDOWN_SECONDS, ARENA_TRIAL_DEFINITIONS, ARENA_TRIAL_TIME_LIMIT_SECONDS,
   arenaTrialRestorablePlan, arenaTrialRoster, arenaTrialUnitSpec, careerArenaTrial, resolveArenaTrialEnd,
-  type ArenaTrialActorState, type ArenaTrialEndReason, type ArenaTrialState,
+  type ArenaTrialEndReason, type ArenaTrialState,
 } from '../career/CareerArenaTrials'
 import { clearCareerMission, cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import { CareerProfileStore } from '../career/CareerProfileStore'
@@ -24,7 +26,7 @@ import { resolveCareerHeroAsset, resolveCareerOrdinaryTier, resolveCareerPlayerM
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
 import { careerStorySettlement } from '../career/CareerStoryEvents'
 import type { ActiveCareerMission, CareerMissionOutcome } from '../career/CareerMissionState'
-import { BattleStatsTracker, type PlayerBattleStats } from '../combat/BattleStatsTracker'
+import { BattleStatsTracker } from '../combat/BattleStatsTracker'
 import { CombatEventStream, createNpcCombatActorRef, createPlayerCombatActorRef, type CombatDamageMethod, type CombatEvent } from '../combat/CombatAttribution'
 import { getAntiCavalryMultiplier } from '../combat/CombatBalance'
 import { damageMount, damageNpc, damagePlayer } from '../combat/DamageRouter'
@@ -44,7 +46,7 @@ import { PlayerInput } from '../player/PlayerInput'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
 import { SkillManager, syncPlayerSkillCombatLevels } from '../rpg/SkillManager'
-import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 import { TownEquipment } from '../town/TownEquipment'
 import { ArenaEquipmentMenu } from './ArenaEquipmentMenu'
 import { ArenaTrialHUD } from '../ui/ArenaTrialHUD'
@@ -59,12 +61,15 @@ import { ArrowProjectile } from '../world/ArrowProjectile'
 import { HERO_ASSETS } from '../world/HeroAssetCatalog'
 import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
-import { HIGH_TIER_WEAPON_ASSETS, prepareByzantineEquipment, preloadHighTierEquipment } from '../world/HighTierEquipment'
+import { prepareByzantineEquipment, preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
 import { Mount } from '../world/Mount'
 import { Faction, NPC } from '../world/NPC'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import { resolveEntityCollision, type ObstacleData } from '../world/Terrain'
+import { coopSession, type CoopSession } from '../coop/CoopLink'
+import { announceCoopScene, coopGuestCharacterAssets, coopGuestPlayerSource, isCoopGuestLaunch, showCoopGuestEnd, type CoopPlayerSource } from '../coop/CoopLaunch'
+import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeer, type CoopGamePort } from '../coop/CoopMission'
 
 const PLAYER_HALF_HEIGHT = 0.95
 const RESUME_GRACE_SECONDS = 3
@@ -88,7 +93,6 @@ interface Body {
 }
 interface Shot { arrow: ArrowProjectile; player: boolean; source?: NPC; age: number }
 interface TrialSettlement extends ArenaSettlement { readonly reason?: ArenaTrialEndReason }
-interface PendingSettlement { readonly outcome: CareerMissionOutcome; readonly escapedBy?: string; readonly player: PlayerBattleStats }
 
 let markerTexture: THREE.CanvasTexture | null = null
 function teamMarkerTexture(): THREE.CanvasTexture {
@@ -143,8 +147,9 @@ export class CareerArenaCombatScene {
   /** Everyone out of the fight, including bodies knocked before a reload (those are never rebuilt). */
   private readonly knocked = new Set<string>()
   private shots: Shot[] = []
-  private phase: 'waiting' | 'countdown' | 'paused' | 'fight' | 'result' = 'waiting'
-  private countdownRemaining = ARENA_TRIAL_COUNTDOWN_SECONDS
+  private readonly opening = new ArenaOpeningGate(this.openingHost(), ARENA_TRIAL_COUNTDOWN_SECONDS)
+  private get phase(): ArenaPhase { return this.opening.phase }
+  private set phase(next: ArenaPhase) { this.opening.phase = next }
   private resumeGrace = false
   private started = false
   private lastPlayerSignature = ''
@@ -156,20 +161,41 @@ export class CareerArenaCombatScene {
   private disposed = false
   private panel: HTMLElement | null = null
   private settled = false
-  /** A decided result whose save failed: combat stays frozen and only the retry button resends it. */
-  private pendingSettlement: PendingSettlement | null = null
-  private pendingPrisonProfile: CareerProfile | null = null
+  private encounter?: PrisonBreakEncounter
   private skillsDirty = false
   private props?: PrisonBreakProps
   private prisonHud?: HTMLElement
   private pickupHud?: PickupPrompt
-  private readonly pickupFocus = new InteractionFocus<THREE.Group>()
   private subtitle?: HTMLElement
   private dimmer?: HTMLElement
   private previousPlayerPosition = new THREE.Vector3()
   private pickupRetry: (() => void) | null = null
   private initializationComplete = false
   private readonly aimPoint = new THREE.Vector3()
+  /** LAN co-op (squad trials and the prison break): the host bridge, or this page's mirror of the host's encounter. */
+  private coopHost?: CoopHostMission
+  private coopGuest?: CoopGuestMission
+  private readonly coopArrows: ArrowProjectile[] = []
+  private readonly coopVisualArrows = new Set<ArrowProjectile>()
+  private readonly coopGuestNpcs: NPC[] = []
+  private readonly coopGuestMounts: Mount[] = []
+  /** Team markers for co-op bodies the trial roster does not own (the partner, the guest's mirrors). */
+  private readonly coopMarkers = new Map<NPC, THREE.Sprite>()
+  /** Co-op guest: its own character profile (in memory); the host's profile still runs the trial. */
+  private coopPlayerSource: CoopPlayerSource | null = null
+  /** This page mirrors the host's encounter; known before the guest bridge exists. */
+  private readonly coopGuestPage = isCoopGuestLaunch()
+  private readonly coopUnsubscribe: Array<() => void> = []
+  /** Host: prison swords the guest asked for, claimed in the frame like the player's own. */
+  private readonly coopPickupRequests: number[] = []
+  private coopPrisonKey = ''
+  private coopPrisonClock = 0
+  /** Host: the guest proxy's position before this frame, for the exit crossing. */
+  private previousPartnerPosition: THREE.Vector3 | null = null
+  private get playerProfile(): CareerProfile { return this.coopPlayerSource?.read() ?? this.profile }
+  /** Whose prison sword this page's Player holds: the host's own, or the co-op partner's. */
+  private get prisonSwordOwner(): string { return this.coopGuestPage ? PRISON_COOP_PARTNER : 'player' }
+  private commitPlayerProfile(next: CareerProfile): boolean { return this.coopPlayerSource ? this.coopPlayerSource.commit(next) : this.commit(next) }
 
   /** Ordinary trials keep dev's shared save/session owner; prison has a different fixed-reward receipt. */
   private readonly session?: CareerArenaSession<TrialSettlement>
@@ -182,6 +208,7 @@ export class CareerArenaCombatScene {
     if (!profile.activeMission?.prisonBreak) this.session = new CareerArenaSession<TrialSettlement>(profile, {
       noun: '試煉', panel: new ArenaPanel('arena-trial-panel'), store: this.store, skills: this.skills, sound: this.sound, input: this.input,
       player: () => this.player,
+      coopCharacter: () => this.coopPlayerSource,
       onClaiming: () => { this.phase = 'result' },
       stageClaim: (staged, settlement) => {
         if (settlement.reason && staged.activeMission?.arenaTrial) staged.activeMission.arenaTrial.endReason = settlement.reason
@@ -194,7 +221,7 @@ export class CareerArenaCombatScene {
   private get profile(): CareerProfile { return this.session?.profile ?? this.localProfile }
   private set profile(next: CareerProfile) { this.localProfile = next }
   private get panelOpen(): boolean { return this.session?.panel.isOpen ?? Boolean(this.panel) }
-  private get settlementPending() { return this.session?.pendingSettlement ?? this.pendingSettlement }
+  private get settlementPending() { return this.session?.pendingSettlement ?? this.encounter?.settlementPending }
 
   private get prison() { return this.profile.activeMission?.prisonBreak }
   /** A runtime roster view only. The saved parent battle and its stats are never replaced. */
@@ -229,33 +256,24 @@ export class CareerArenaCombatScene {
 
   /** Wait only for equipment that the encounter actually uses; ordinary trials keep their original barrier. */
   private async preloadCombatAssets(): Promise<void> {
-    const plan = arenaTrialPreloadPlan(this.trial.tier, this.profile.faction, this.trial.rosterVersion ?? 1)
-    if (this.prison) {
-      const specs = prisonRoster(this.prison).filter(entry => !this.prison!.result && this.prison!.combat.actors[entry.actorId]?.status !== 'knocked')
-        .map(entry => prisonUnitSpec(this.prison!, entry, this.profile.faction))
-      plan.heroAssets = [...new Set(specs.flatMap(spec => spec.visualAssetId ? [spec.visualAssetId] : []))]
-      plan.equipmentIds = specs.flatMap(spec => [spec.loadout?.meleeWeaponId, spec.loadout?.rangedWeaponId, spec.loadout?.shieldId].filter((id): id is string => Boolean(id)))
-    }
-    const equipmentIds = this.prison ? plan.equipmentIds : [...plan.equipmentIds, this.profile.equipment?.melee, this.profile.equipment?.shield]
-    const requires = (predicate: (id: string) => boolean) => !this.prison || equipmentIds.some(id => typeof id === 'string' && predicate(id))
-    const [, equipment] = await Promise.all([
-      Promise.all([HumanoidAssetRegistry.preload(),
-        ...(this.prison ? [] : [HorseAssetRegistry.preload(this.renderer)]),
-        ...(requires(id => id.startsWith('paladin_')) ? [preloadPaladinEquipment()] : []),
-        ...(requires(id => id in HIGH_TIER_WEAPON_ASSETS) ? [preloadHighTierEquipment()] : []),
-        ...(requires(id => id === T4_RANGER_BOW_RANGED_ID) ? [preloadMakiRangerBow()] : []),
-        resolveCareerHeroAsset(this.profile) ? HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[resolveCareerHeroAsset(this.profile)!].descriptor) : Promise.resolve(),
-        ...plan.heroAssets.map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))]),
-      prepareByzantineEquipment(equipmentIds),
-    ])
-    if (equipment !== 'ready') throw new Error('試煉裝備資源載入失敗')
+    const plan = arenaCombatPreloadPlan(this.profile, this.trial, this.prison, this.coopPlayerSource ? coopGuestCharacterAssets() : null)
+    await loadArenaCombatAssets(plan, {
+      humanoids: () => HumanoidAssetRegistry.preload(),
+      heroAsset: id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor),
+      horses: () => HorseAssetRegistry.preload(this.renderer),
+      paladin: () => preloadPaladinEquipment(),
+      highTier: () => preloadHighTierEquipment(),
+      makiBow: () => preloadMakiRangerBow(),
+      equipment: ids => prepareByzantineEquipment(ids),
+    })
   }
 
   private async initialize(progress: (text: string) => void): Promise<void> {
-    const faction = this.profile.faction
     const trial = this.trial, mission = this.mission
     const settled = this.prison ? Boolean(this.prison.result) : Boolean(mission.result)
     progress(`正在載入${DUEL_ARENA_LABELS[this.arenaId]}與雙方部隊…`)
+    // Co-op guest: its own character (from its own save) joins the host's team.
+    this.coopPlayerSource = this.coopGuestPage ? coopGuestPlayerSource(this.profile) : null
     await this.preloadCombatAssets()
     if (this.disposed) return
     this.container.appendChild(this.renderer.domElement)
@@ -266,28 +284,31 @@ export class CareerArenaCombatScene {
     const formation = this.prison ? prisonFormation(this.arenaId, prisonGuardCount(this.prison)) : planArenaTrialFormation(this.arenaId, this.arena.obstacles, sizes.friendly, sizes.enemy)
     if (!formation) throw new Error(`${DUEL_ARENA_LABELS[this.arenaId]}沒有足夠空間部署雙方部隊`)
     this.formation = formation
-    this.skills.setSkillState(this.profile.skills ?? {})
+    const body = this.playerProfile
+    this.skills.setSkillState(body.skills ?? {})
     this.inventory = this.prison ? new InventoryManager({ meleeWeaponId: '', rangedWeaponId: '', shieldId: null })
-      : new TownEquipment(() => this.profile, next => this.commit(next))
+      : new TownEquipment(() => this.playerProfile, next => this.commitPlayerProfile(next))
     if (this.prison) {
       this.inventory.meleeEnabled = this.inventory.rangedEnabled = this.inventory.shieldEnabled = false
-      if (Object.values(this.prison.swords).includes('player')) { this.inventory.addWeapon(PRISON_SWORD_ID); this.inventory.equipWeapon(PRISON_SWORD_ID); this.inventory.meleeEnabled = true }
+      if (Object.values(this.prison.swords).includes(this.prisonSwordOwner)) { this.inventory.addWeapon(PRISON_SWORD_ID); this.inventory.equipWeapon(PRISON_SWORD_ID); this.inventory.meleeEnabled = true }
       this.props = new PrisonBreakProps(this.arena, this.prison)
       this.pickupHud = new PickupPrompt()
       this.prisonHud = document.createElement('div'); this.prisonHud.id = 'prison-break-hud'
       this.prisonHud.setAttribute('role', 'status')
       this.prisonHud.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);color:#ffe1a0;font:700 23px/1.6 system-ui;text-align:center;white-space:pre-line;text-shadow:0 2px 5px #000;z-index:9991;pointer-events:none'
       document.body.append(this.prisonHud)
+      this.encounter = new PrisonBreakEncounter(this.prisonHost(this.props, this.pickupHud, this.prisonHud))
     }
-    this.player = new Player(this.scene, faction, resolveCareerHeroAsset(this.profile), resolveCareerOrdinaryTier(this.profile))
-    const maxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
+    this.player = new Player(this.scene, body.faction, resolveCareerHeroAsset(body), resolveCareerOrdinaryTier(body))
+    const maxHp = resolveCareerPlayerMaxHp(body, DEFAULT_PLAYER_MAX_HP)
     this.player.setMaxHp(maxHp, true)
     this.player.setDamageHud(this.hp)
     syncPlayerSkillCombatLevels(this.player, this.skills.skillState)
     this.player.onShieldBlock = impact => this.awardSkillXp({ skill: 'blocking', xp: impact * SHIELD_CONFIG.xpPerBlockedImpact })
     this.player.onFireArrow = event => this.fire(event.origin, event.direction, event.speed, event.damage, 'arrow', undefined, event.visualKind)
     const engaged = trial.stage === 'engaged'
-    const saved = engaged ? trial.player : undefined
+    // The saved player state is the host's own; a co-op guest always starts fresh.
+    const saved = engaged && !this.coopGuestPage ? trial.player : undefined
     const spawn = saved ?? { x: formation.player.x, z: formation.player.z, yaw: formation.player.yaw }
     this.player.resetForScene(spawn.x, saved?.y ?? this.arena.spawns.player.y + PLAYER_HALF_HEIGHT, spawn.z)
     this.player.faceDirection(Math.sin(spawn.yaw), Math.cos(spawn.yaw))
@@ -301,12 +322,12 @@ export class CareerArenaCombatScene {
     this.tracker = new BattleStatsTracker(this.events, false, undefined, mission.playerStats)
     if (this.inventory instanceof TownEquipment) this.inventory.prepareForCombat()
     if (!this.prison && !settled) {
-      this.careerMounts = new CareerMountController(this.scene, () => this.player, () => this.profile, next => this.commit(next),
+      this.careerMounts = new CareerMountController(this.scene, () => this.player, () => this.playerProfile, next => this.commitPlayerProfile(next),
         // Overhead roof volumes cannot block summoning a mount on the floor below them.
         () => this.mountObstacles, () => this.bodies.map(body => body.npc.combatPosition), () => `arena-trial:${this.arenaId}`)
       // A ridden ground mount comes along to the trial; eagles never fly inside an arena.
       const mountId = mission.mountState?.activeMountId
-      if (mountId && mountId !== 'xongkoro') this.careerMounts.restoreActiveMount(false)
+      if (mountId && mountId !== 'xongkoro' && !this.coopPlayerSource) this.careerMounts.restoreActiveMount(false)
     }
     // prepareForCombat tops up supplies; a saved fight restores what was really left (0 means spent or broken).
     if (saved) {
@@ -321,14 +342,14 @@ export class CareerArenaCombatScene {
     this.quiver.setArrowCount(this.player.arrowCount)
     this.combatElapsed = trial.combatElapsed
     // A reload never skips the grace: positions and counts are restored exactly, then the fight resumes.
-    this.countdownRemaining = engaged ? RESUME_GRACE_SECONDS : ARENA_TRIAL_COUNTDOWN_SECONDS
-    this.phase = settled ? 'result' : 'waiting'
+    this.opening.reset(settled ? 'result' : 'waiting', engaged ? RESUME_GRACE_SECONDS : ARENA_TRIAL_COUNTDOWN_SECONDS)
     // Only a trial that was already fighting checkpoints during its resume grace; a first deployment countdown never turns `engaged`.
     this.resumeGrace = engaged && !settled
     this.bindInput()
     this.previousPlayerPosition.copy(this.player.position)
     this.initializationComplete = true
-    if (this.prison && !settled) {
+    // A co-op guest mirrors the host's encounter and never checkpoints it.
+    if (this.prison && !settled && !this.coopGuestPage) {
       // Unlike a trial's deployment, confinement is already live: even the first countdown
       // and every resume grace preserve health, position and fall state on pagehide.
       this.resumeGrace = true
@@ -386,46 +407,47 @@ export class CareerArenaCombatScene {
     // Prison break deliberately owns a fixed, scavenged loadout.
     if (!this.prison) this.equipment = new ArenaEquipmentMenu(this.input, this.skills, this.inventory, this.renderer.domElement,
       () => this.started && !this.disposed && !this.player.dead && !this.panelOpen && !this.settlementPending && this.phase !== 'result', this.careerMounts)
-    this.renderer.domElement.addEventListener('click', () => {
-      if (!this.started || this.panelOpen || this.equipment?.visible) return
-      this.sound.unlockAudio()
-      if (this.phase === 'waiting' || this.phase === 'paused') {
-        // This gesture belongs to the opening, including in the unlocked QA path.
-        this.input.consumeLeftGesture()
-        if (location.search.includes('nolock') || document.pointerLockElement === this.renderer.domElement) this.beginCountdown()
-        else this.input.requestPointerLock(this.renderer.domElement)
-      } else if (!location.search.includes('nolock')) this.input.requestPointerLock(this.renderer.domElement)
-    }, { signal })
-    document.addEventListener('pointerlockchange', () => {
-      // A request is not proof of control. Rejected requests leave the prompt available to retry.
-      this.pauseOpeningIfUnlocked()
-      if (document.pointerLockElement === this.renderer.domElement) this.beginCountdown()
-    }, { signal })
+    this.renderer.domElement.addEventListener('click', () => this.opening.click(), { signal })
+    document.addEventListener('pointerlockchange', () => this.opening.lockChanged(), { signal })
     bindWindowResize(this.camera, this.renderer, signal)
     window.addEventListener('pagehide', () => this.persistNow(), { signal })
   }
 
-  private beginCountdown(): void {
-    if (!this.started || this.panelOpen || this.equipment?.visible || this.phase !== 'waiting' && this.phase !== 'paused') return
-    this.input.clear()
-    this.phase = 'countdown'
-    this.last = performance.now()
-    this.openingHud.update(this.phase, this.countdownRemaining)
-  }
-
-  private pauseOpeningIfUnlocked(): void {
-    if (this.phase !== 'countdown' || location.search.includes('nolock') || document.pointerLockElement === this.renderer.domElement) return
-    this.phase = 'paused'
-    this.input.clear()
-    this.openingHud.update(this.phase, this.countdownRemaining)
+  private openingHost(): ArenaOpeningHost {
+    return {
+      isGuest: () => Boolean(this.coopGuest),
+      blocked: () => !this.started || this.panelOpen || Boolean(this.equipment?.visible),
+      lockOptional: () => location.search.includes('nolock'),
+      hasPointerLock: () => document.pointerLockElement === this.renderer.domElement,
+      requestPointerLock: () => this.input.requestPointerLock(this.renderer.domElement),
+      unlockAudio: () => this.sound.unlockAudio(),
+      clearInput: () => this.input.clear(),
+      consumeLeftGesture: () => this.input.consumeLeftGesture(),
+      resetClock: () => { this.last = performance.now() },
+      render: (phase, remaining) => this.openingHud.update(phase, remaining),
+      // The resume grace of an already-fighting trial still keeps the saved fight current: a landing, a knock-out or
+      // a fall under way must survive a second reload. The first deployment countdown saves nothing.
+      holdOpening: dt => { if (this.resumeGrace) this.checkpointFight(dt); return Boolean(this.pickupRetry) },
+      fightStarted: () => {
+        this.resumeGrace = false
+        for (const body of this.bodies) if (!body.npc.dead) body.npc.setTacticalOrder('attack')
+        if (this.prison) this.saveProgressWithRetry(); else this.persistProgress()
+      },
+    }
   }
 
   start(): void {
     this.started = true
     this.last = performance.now()
-    if (this.prison?.result) this.openPrisonResult()
-    else if (!this.prison && this.profile.activeMission?.result) this.openResult(this.profile.activeMission.result)
-    this.openingHud.update(this.phase, this.countdownRemaining)
+    if (!this.coopGuest && coopSession().isHost) {
+      this.coopHost = new CoopHostMission(this.coopPort(false))
+      if (this.prison) this.listenPrisonCoop(coopSession(), 'host')
+      announceCoopScene(this.prison ? 'prison' : 'trial')
+    }
+    // A co-op guest never opens a result: the host owns it.
+    if (!this.coopGuest && this.prison?.result) this.openPrisonResult()
+    else if (!this.coopGuest && !this.prison && this.profile.activeMission?.result) this.openResult(this.profile.activeMission.result)
+    this.openingHud.update(this.phase, this.opening.remaining)
     const frame = (time: number): void => {
       if (this.disposed) return
       this.raf = requestAnimationFrame(frame)
@@ -437,19 +459,35 @@ export class CareerArenaCombatScene {
     this.raf = requestAnimationFrame(frame)
   }
 
+  /** Host: the guest's sword pickups are requests the host claims and saves like its own. Guest: the host's encounter state. */
+  private listenPrisonCoop(session: CoopSession, role: 'host' | 'guest'): void {
+    this.coopUnsubscribe.push(role === 'guest'
+      ? session.on('prisonState', message => { if (!this.disposed) this.encounter?.applyCoopState(message) })
+      : session.on('prisonPickup', message => {
+        if (this.phase === 'fight' && Number.isInteger(message.index) && this.coopPickupRequests.length < 4) this.coopPickupRequests.push(message.index as number)
+      }))
+  }
+
   /** One gameplay step (also used by DEV QA at a fixed rate). */
   update(dt: number): void {
     if (this.disposed) return
+    if (this.coopGuest) { this.updateCoopGuest(dt); return }
     if (this.equipment?.visible) { this.input.clear(); return }
     if (this.settlementPending || this.pickupRetry) {
-      if (this.prison) { this.clearPickupFocus(); this.input.consumeKeyE() }
+      if (this.encounter) { this.encounter.clearPickupFocus(); this.input.consumeKeyE() }
       this.arena.update(dt); this.damageNumbers.update(dt, this.camera); return
     }
-    this.pauseOpeningIfUnlocked()
+    this.opening.pauseIfUnlocked()
     // In ?nolock input is normally active even without pointer lock; the opening still owns it.
     if (this.phase === 'waiting' || this.phase === 'paused') this.input.clear()
     const pickupPressed = this.prison ? this.input.consumeKeyE() : false
     this.elapsed += dt
+    // Co-op bridge: after the freezes above, so a paused trial never advances for the guest either.
+    if (this.coopHost) {
+      const partner = this.coopPartner
+      this.previousPartnerPosition = partner ? (this.previousPartnerPosition ?? new THREE.Vector3()).copy(partner.combatPosition) : null
+      this.coopHost.update(dt); this.updateCoopArrows(dt); this.syncCoopPrison(dt)
+    }
     const fighting = this.phase === 'fight'
     this.updateCamera(dt)
     if (!this.player.dead && !this.panelOpen) {
@@ -465,11 +503,12 @@ export class CareerArenaCombatScene {
       else this.arena.constrainGroundedBody(this.player.group.position)
     }
     this.updateBodies(dt)
-    if (fighting) { this.melee(); this.resolveBodies(); this.mountImpacts(); if (this.prison) this.pickupSwords(pickupPressed) }
+    if (fighting) { this.melee(); this.resolveBodies(); this.mountImpacts(); this.encounter?.pickupSwords(pickupPressed) }
+    separateLocalPlayerFromPeer(this.player, this.coopHost?.guestProxy, this.arena.obstacles)
     if (this.pickupRetry) return
     // A living teammate who has already crossed wins before any in-flight shot
     // can hit them later in this frame. A rejected receipt freezes this same crossing.
-    if (this.prison?.gateOpen && this.resolvePrisonResult()) return
+    if (this.prison?.gateOpen && this.encounter!.resolveResult()) return
     this.updateShots(dt)
     if (this.careerMounts) {
       this.careerMounts.update(dt)
@@ -483,17 +522,17 @@ export class CareerArenaCombatScene {
     this.arena.update(dt)
     this.props?.update(dt)
     this.advancePhase(dt)
-    if (this.prison) this.updatePickupFocus()
+    this.encounter?.updatePickupFocus()
     this.previousPlayerPosition.copy(this.player.position)
     this.updateMarkers()
     this.damageNumbers.update(dt, this.camera)
     this.weaponWheelUI.update(this.inventory, !this.panelOpen && !this.player.dead)
     this.hp.setFill(this.player.hpRatio)
-    this.updatePrisonHud()
-    this.openingHud.update(this.phase, this.countdownRemaining)
+    this.encounter?.updateHud()
+    this.openingHud.update(this.phase, this.opening.remaining)
     this.hud.update({
       phase: this.prison ? null : this.phase, label: ARENA_TRIAL_DEFINITIONS[this.trial.tier].label,
-      friendly: { active: this.counts().friendlyActive + (this.player.dead ? 0 : 1), total: this.mission.friendlyActorIds.length + 1 },
+      friendly: { active: this.counts().friendlyActive + (this.player.dead ? 0 : 1), total: this.mission.friendlyActorIds.length + 1 + (this.coopHost?.guestProxy ? 1 : 0) },
       enemy: { active: this.counts().enemyActive, total: this.mission.targetActorIds.length },
       remainingSeconds: ARENA_TRIAL_TIME_LIMIT_SECONDS - this.combatElapsed, playerKnocked: this.player.dead })
     if (this.session) this.session.tickSkillFlush(this.elapsed, dt)
@@ -512,60 +551,30 @@ export class CareerArenaCombatScene {
   }
 
   private counts() {
-    return arenaTrialCounts(this.mission, { actors: {}, player: { knocked: this.player.dead } as ArenaTrialState['player'] },
-      new Set([...this.knocked, ...this.bodies.filter(body => body.npc.dead).map(body => body.actorId)]))
+    return arenaCombatCounts(this.mission, this.bodies, this.knocked, this.player.dead, Boolean(this.coopPartner))
   }
 
-  private updatePrisonHud(): void {
-    if (!this.prisonHud || !this.prison) return
-    this.prisonHud.hidden = this.phase === 'result'
-    const total = this.mission.targetActorIds.length
-    this.prisonHud.textContent = this.prison.gateOpen ? '鐵門已開｜穿過出口' : `越獄目標｜擊倒看守 ${total - this.counts().enemyActive}／${total}`
-    if (this.player.dead) this.prisonHud.textContent += '\n你已倒下，正在觀戰；友軍仍可逃脫（WASD 移動視角）'
+  /** Host: the guest's living proxy fighting on the player's team. */
+  private get coopPartner(): NPC | null {
+    const proxy = this.coopHost?.guestProxy
+    return proxy && !proxy.dead ? proxy : null
   }
 
-  private resolvePrisonResult(): boolean {
-    if (this.prison && this.phase !== 'result') {
-      const friend = this.bodies.find(body => body.team === 'friendly' && !body.npc.dead && crossedPrisonExit(this.arenaId,
-        { x: body.previousPosition.x, y: body.previousPosition.y + PLAYER_HALF_HEIGHT, z: body.previousPosition.z },
-        { x: body.npc.combatPosition.x, y: body.npc.combatPosition.y + PLAYER_HALF_HEIGHT, z: body.npc.combatPosition.z }))
-      const playerCrossed = !this.player.dead && crossedPrisonExit(this.arenaId, this.previousPlayerPosition, this.player.position)
-      const result = prisonOutcome({ playerDead: this.player.dead, friendlyAlive: this.counts().friendlyActive,
-        gateOpen: this.prison.gateOpen, playerCrossed, friendlyCrossed: Boolean(friend) })
-      if (result) { this.finishPrison(result, playerCrossed ? 'player' : friend?.actorId); return true }
-    }
-    return false
+  /** The bodies this player's own attacks may strike: enemy bodies, or on a co-op guest the host's marked targets. */
+  private enemyTargets(): NPC[] {
+    if (this.coopGuest) return this.coopGuest.targets.filter(npc => !npc.dead && Boolean(npc.group.parent))
+    return this.bodies.filter(body => body.team === 'enemy' && !body.npc.dead).map(body => body.npc)
   }
 
   private advancePhase(dt: number): void {
-    if (this.resolvePrisonResult()) return
-    this.pauseOpeningIfUnlocked()
-    if (this.phase === 'waiting' || this.phase === 'paused' || this.phase === 'countdown') {
-      // The resume grace of an already-fighting trial still keeps the saved fight current: a landing, a knock-out or
-      // a fall under way must survive a second reload. The first deployment countdown saves nothing.
-      if (this.resumeGrace) this.checkpointFight(dt)
-      if (this.pickupRetry) return
-      this.pauseOpeningIfUnlocked()
-      if (this.phase !== 'countdown') return
-      this.countdownRemaining -= dt
-      if (this.countdownRemaining > 0) return
-      this.phase = 'fight'
-      this.resumeGrace = false
-      for (const body of this.bodies) if (!body.npc.dead) body.npc.setTacticalOrder('attack')
-      if (this.prison) this.saveProgressWithRetry(); else this.persistProgress()
-      return
-    }
+    if (this.encounter?.resolveResult()) return
+    if (this.opening.advance(dt)) return
     if (this.phase !== 'fight') return
     this.combatElapsed += dt
     if (this.prison) {
       // Resolve a crossing before any periodic write: a failed result write must never save an
       // already-outside player without the receipt. Final combat state and reward share one commit.
-      if (this.counts().enemyActive === 0 && !this.prison.gateOpen) {
-        const next = this.captureProgress()!
-        next.activeMission!.prisonBreak!.gateOpen = true
-        if (!this.commit(next)) { this.pauseForPrisonSave(() => this.advancePhase(0)); return }
-        this.props?.setOpen(true, true)
-      }
+      if (!this.encounter!.openGateIfCleared()) { this.pauseForPrisonSave(() => this.advancePhase(0)); return }
       this.checkpointFight(dt)
       return
     }
@@ -592,7 +601,8 @@ export class CareerArenaCombatScene {
     // Same per-frame topology sync and path-search budget reset as Town; without it the budget never refills.
     this.navigation.sync(this.arena.obstacles)
     this.navigation.beginFrame()
-    const live = this.bodies.filter(body => !body.npc.dead).map(body => body.npc)
+    const partner = this.coopPartner
+    const live = [...this.bodies.filter(body => !body.npc.dead).map(body => body.npc), ...(partner ? [partner] : [])]
     for (const body of this.bodies) {
       const { npc } = body
       body.previousPosition.copy(npc.combatPosition)
@@ -638,10 +648,31 @@ export class CareerArenaCombatScene {
       body.marker.visible = !body.npc.dead
       if (body.marker.visible) body.marker.position.set(body.npc.group.position.x, body.npc.group.position.y + 2.5, body.npc.group.position.z)
     }
+    const partner = this.coopHost?.guestProxy
+    this.syncCoopMarkers(partner ? [[partner, 'friendly']] : [])
+  }
+
+  /** Same diamond markers for co-op bodies: the partner on the host; the guest's mirrors by their marked side. */
+  private syncCoopMarkers(entries: readonly (readonly [NPC, 'friendly' | 'enemy'])[]): void {
+    const seen = new Set<NPC>()
+    for (const [npc, team] of entries) {
+      seen.add(npc)
+      let marker = this.coopMarkers.get(npc)
+      if (!marker) {
+        marker = new THREE.Sprite(this.markerMaterials[team])
+        marker.scale.set(0.6, 0.6, 1); marker.renderOrder = 10
+        this.scene.add(marker)
+        this.coopMarkers.set(npc, marker)
+      }
+      marker.material = this.markerMaterials[team]
+      marker.visible = !npc.dead && Boolean(npc.group.parent)
+      if (marker.visible) marker.position.set(npc.group.position.x, npc.group.position.y + 2.5, npc.group.position.z)
+    }
+    for (const [npc, marker] of this.coopMarkers) if (!seen.has(npc)) { marker.removeFromParent(); this.coopMarkers.delete(npc) }
   }
 
   private melee(): void {
-    const enemies = this.bodies.filter(body => body.team === 'enemy' && !body.npc.dead).map(body => body.npc)
+    const enemies = this.enemyTargets()
     if (this.player.dead) { this.player.consumeFistStrikes(); return }
     const activeMelee = this.inventory.activeMelee
     if (!activeMelee) {
@@ -670,14 +701,15 @@ export class CareerArenaCombatScene {
   private mountImpacts(): void {
     const mount = this.player.currentMount
     if (!mount || mount.dead || this.player.dead) return
-    for (const { npc, team } of this.bodies) {
-      if (team !== 'enemy' || npc.dead || !checkMountImpact(mount, npc.combatPosition, 0.5)) continue
+    for (const npc of this.enemyTargets()) {
+      if (!checkMountImpact(mount, npc.combatPosition, 0.5)) continue
       applyMountImpactDamage(mount, npc, npc.combatPosition, this.elapsed,
         damage => this.hitEnemy(npc, Math.round(damage * this.skills.getMountedImpactMultiplier()), 'mount-impact'))
     }
   }
 
   private emit(event: CombatEvent, lod = 0): void {
+    this.coopHost?.recordCombatEvent(event)
     playAppliedPunchHit(event, this.sound, lod, event.source.actorType === 'player')
     const weapon = event.type === 'damage_applied' && event.weaponId ? WEAPONS[event.weaponId] : this.inventory.activeMelee
     const award = resolveActivePlayerSkillProgressionAward(event, { dead: this.player.dead, spectatorOnly: this.player.spectatorOnly, observer: false }, weapon, this.player.hasShield)
@@ -686,7 +718,8 @@ export class CareerArenaCombatScene {
   }
 
   private hitEnemy(target: NPC, amount: number, method: CombatDamageMethod, contact?: CombatContact): void {
-    if (this.phase !== 'fight' || target.dead || amount <= 0) return
+    // Co-op guest: the host judges the trial; DamageRouter forwards this hit on its mirror.
+    if ((this.coopGuest ? !this.coopGuest.targets.includes(target) : this.phase !== 'fight') || target.dead || amount <= 0) return
     const result = damageNpc(target, amount, {
       contact: contact ?? (method === 'melee' ? this.player.weaponSweep?.contact : undefined),
       source: createPlayerCombatActorRef(this.player), method,
@@ -742,9 +775,11 @@ export class CareerArenaCombatScene {
 
   private fire(origin: THREE.Vector3, direction: THREE.Vector3, speed: number, damage: number, kind: 'arrow' | 'pilum', source?: NPC,
     visualKind?: 'arrow' | 'pilum'): boolean {
-    if (this.phase !== 'fight' || (!source && this.player.dead)) return this.projectileAdmission.reject()
+    if ((this.phase !== 'fight' && !this.coopGuest) || (!source && this.player.dead)) return this.projectileAdmission.reject()
     return this.projectileAdmission.launch(this.shots.length, 0, false, () => {
       this.shots.push({ arrow: new ArrowProjectile(this.scene, origin, direction, speed, damage, source?.faction ?? Faction.PLAYER, !source, visualKind ?? kind), player: !source, source, age: 0 })
+      this.coopHost?.onProjectile(origin, direction, speed, visualKind ?? kind, source?.faction ?? Faction.PLAYER)
+      if (!source) this.coopGuest?.onProjectile(origin, direction, speed, visualKind ?? kind)
       this.sound.playBowRelease(source ? source.currentLod : 0, !source, source ? origin.distanceTo(this.player.combatPosition) : 0)
     })
   }
@@ -753,17 +788,20 @@ export class CareerArenaCombatScene {
     if (!this.shots.length) return
     for (const shot of this.shots) {
       if (!shot.arrow.isAlive) continue
-      const from = shot.arrow.mesh.position.clone()
       shot.age += dt
-      shot.arrow.update(dt, this.player, [], [], () => {}, amount => damagePlayer(this.player, amount, this.hp, null), undefined, true)
-      if (!shot.arrow.isAlive) continue
+      const step = shot.arrow.stepFlight(dt)
+      if (!step) continue
+      const { from } = step
       const shooterTeam = shot.player ? 'friendly' : shot.source!.faction === Faction.ENEMY ? 'enemy' : 'friendly'
       const playerMount = this.player.currentMount
+      const partner = shooterTeam === 'enemy' ? this.coopPartner : null
       const targets: (Player | NPC | Mount)[] = [
         ...this.bodies.filter(body => body.team !== shooterTeam && !body.npc.dead).map(body => body.npc),
         ...(shooterTeam === 'enemy' && !this.player.dead ? [this.player, ...(playerMount && !playerMount.dead ? [playerMount] : [])] : []),
+        ...(partner ? [partner] : []),
+        ...(this.coopGuest && shot.player ? this.enemyTargets() : []),
       ]
-      const hit = this.shotContacts.find(from, shot.arrow.mesh.position, {
+      const hit = this.shotContacts.find(from, step.to, {
         world: { kind: 'town', practiceTargets: [], traceSiege: () => null },
         obstacles: this.arena.obstacles, targets, acceptsTarget: target => !target.dead && !(target instanceof Mount && target.disposed),
       })
@@ -786,9 +824,11 @@ export class CareerArenaCombatScene {
   private resolveBodies(): void {
     if (this.player.dead || this.player.isFalling) return
     const body = { position: this.player.group.position, radius: 0.42, height: 1.8, bottomOffset: 0.9, walkSurfaces: true }
-    for (const { npc } of this.bodies) {
-      if (npc.dead || npc.combatPosition.distanceTo(this.player.combatPosition) > 3) continue
-      resolveEntityCollision(body, { position: npc.combatPosition, radius: 0.42, height: 1.8, bottomOffset: 0, walkSurfaces: true }, this.arena.obstacles)
+    // A guest's mirrors are placed by the host every frame: only the guest's own body moves.
+    const others = this.coopGuest ? this.coopGuestNpcs : this.bodies.map(entry => entry.npc)
+    for (const npc of others) {
+      if (npc.dead || !npc.group.parent || npc.combatPosition.distanceTo(this.player.combatPosition) > 3) continue
+      resolveEntityCollision(body, { position: npc.combatPosition, radius: 0.42, height: 1.8, bottomOffset: 0, walkSurfaces: true, ...(this.coopGuest ? { anchored: true } : {}) }, this.arena.obstacles)
     }
   }
 
@@ -801,7 +841,7 @@ export class CareerArenaCombatScene {
     if (levels > 0) {
       this.flushSkills()
       const before = this.player.hp
-      const maxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
+      const maxHp = resolveCareerPlayerMaxHp(this.playerProfile, DEFAULT_PLAYER_MAX_HP)
       this.player.setMaxHp(maxHp, false)
       this.player.setHp(Math.min(maxHp, before + levels))
     }
@@ -810,9 +850,11 @@ export class CareerArenaCombatScene {
   private flushSkills(): void {
     if (this.session) { this.session.flushSkills(); return }
     if (!this.skillsDirty) return
-    const next = cloneCareerProfile(this.profile)
+    // A co-op guest keeps its skill progress in its own save (skills only); the host's prison save is never touched.
+    if (this.coopPlayerSource) { if (this.coopPlayerSource.commitSkills(this.skills.skillState)) this.skillsDirty = false; return }
+    const next = cloneCareerProfile(this.playerProfile)
     next.skills = this.skills.skillState
-    if (this.commit(next)) this.skillsDirty = false
+    if (this.commitPlayerProfile(next)) this.skillsDirty = false
   }
 
   /** The roster checkpoint: knocked-out actors stay knocked, everyone else keeps HP and place. Best effort between frames. */
@@ -821,13 +863,7 @@ export class CareerArenaCombatScene {
     if (this.disposed || !mission || this.prison?.result || !this.prison && (mission.result || !careerArenaTrial(mission))) return null
     const next = cloneCareerProfile(this.profile)
     const active = next.activeMission!
-    const actors: Record<string, ArenaTrialActorState> = {}
-    for (const id of [...mission.friendlyActorIds, ...mission.targetActorIds]) {
-      const body = this.bodies.find(candidate => candidate.actorId === id)
-      if (!body || this.knocked.has(id) || body.npc.dead) { actors[id] = { status: 'knocked', hp: 0, x: 0, z: 0, yaw: 0 }; continue }
-      actors[id] = { status: 'active', hp: body.npc.hp, x: body.npc.combatPosition.x, z: body.npc.combatPosition.z, yaw: body.npc.group.rotation.y,
-        y: body.npc.group.position.y, ammo: body.npc.combatAmmo, shieldImpact: body.npc.shield.shieldImpactRemaining }
-    }
+    const actors = checkpointArenaActors([...mission.friendlyActorIds, ...mission.targetActorIds], this.bodies, this.knocked)
     const combat: ArenaTrialState = { ...this.trial, stage: 'engaged', combatElapsed: this.combatElapsed, actors, player: {
       knocked: this.player.dead, hp: this.player.dead ? 0 : this.player.hp, stamina: this.player.staminaValue,
       x: this.player.position.x, z: this.player.position.z, yaw: this.player.facingYaw,
@@ -847,6 +883,8 @@ export class CareerArenaCombatScene {
   }
 
   private persistNow(): void {
+    // A co-op guest saves only its own skill progress (into its own save); the trial is the host's.
+    if (this.coopGuest) { if (!this.disposed) this.flushSkills(); return }
     if (this.disposed || !this.tracker || !this.initializationComplete || this.settlementPending || this.pickupRetry) return
     this.flushSkills()
     if (this.phase === 'fight' || this.resumeGrace) this.persistProgress()
@@ -860,97 +898,59 @@ export class CareerArenaCombatScene {
 
   private pauseForPrisonSave(retry: () => void): void {
     this.pickupRetry = retry
-    this.clearPickupFocus()
+    this.encounter?.clearPickupFocus()
     this.input.clear(); document.exitPointerLock?.()
     this.openPanel('進度尚未保存', '保存失敗；目前戰況保留，請重試。')
     this.button('重試保存進度', () => { this.pickupRetry = null; this.closePanel(); retry() })
   }
 
-  private prisonPickupCandidates(): InteractionCandidate<THREE.Group>[] {
-    const prison = this.prison
-    if (!prison || prison.gateOpen || this.phase !== 'fight' || this.pickupRetry || this.panelOpen
-      || this.player.dead || !this.input.isLocked || Object.values(prison.swords).includes('player')) return []
-    return this.props!.swords.filter(sword => sword.visible).map(sword => ({
-      target: sword, position: sword.position, range: 2, action: 'equip',
-      prompt: `[E] 拾起並裝備 · ${WEAPONS[PRISON_SWORD_ID].name}`,
-    }))
-  }
-
-  private clearPickupFocus(): void {
-    this.pickupFocus.clear()
-    this.pickupHud?.show(null)
-    this.props?.setSelectedSword(null)
-  }
-
-  private updatePickupFocus(): void {
-    const yaw = this.orbit.cameraYaw
-    const selected = this.pickupFocus.select(this.prisonPickupCandidates(), this.player.position,
-      { x: -Math.sin(yaw), z: -Math.cos(yaw) })
-    this.props!.setSelectedSword(selected ? this.props!.swords.indexOf(selected.target) : null)
-    this.pickupHud?.show(selected?.prompt ?? null)
-  }
-
-  private pickupSwords(pressed: boolean): void {
-    const prison = this.prison
-    if (!prison || this.pickupRetry || prison.gateOpen) return
-    const selected = this.pickupFocus.pressed(pressed, this.prisonPickupCandidates(), this.player.position)
-    // Preserve the existing sword order and player-before-NPC priority for each sword.
-    for (let i = 0; i < this.props!.swords.length; i++) {
-      const mesh = this.props!.swords[i]
-      if (!mesh.visible) continue
-      const npc = this.bodies.find(body => body.team === 'friendly' && !body.npc.dead && body.npc.battlefieldUnarmed && mesh.position.distanceTo(body.npc.combatPosition) < 1.4)
-      const owner = selected?.target === mesh ? 'player' : npc?.actorId
-      if (owner && !this.equipPrisonSword(i, owner)) return
-    }
-  }
-
-  private equipPrisonSword(index: number, owner: string): boolean {
-    const claimed = claimPrisonSword(this.prison!, index, owner)
-    if (!claimed) return true
-    const next = cloneCareerProfile(this.profile); next.activeMission!.prisonBreak = claimed
-    if (!this.commit(next)) { this.pauseForPrisonSave(() => this.equipPrisonSword(index, owner)); return false }
-    this.props!.syncSwords(claimed)
-    if (owner === 'player') {
-      this.inventory.addWeapon(PRISON_SWORD_ID); this.inventory.equipWeapon(PRISON_SWORD_ID); this.inventory.meleeEnabled = true
-      this.pickupHud?.notify(`已裝備 · ${WEAPONS[PRISON_SWORD_ID].name}`)
-    } else {
-      const npc = this.bodies.find(body => body.actorId === owner)!.npc
-      npc.battlefieldUnarmed = false
-      npc.applyCareerEquipment({ meleeWeaponId: PRISON_SWORD_ID, rangedWeaponId: null, shieldId: null, mountId: null })
-      npc.setTacticalOrder('attack')
-    }
-    return true
-  }
-
-  private finishPrison(outcome: CareerMissionOutcome, escapedBy?: string): void {
-    const firstAttempt = !this.pendingSettlement
-    if (this.pendingSettlement) { outcome = this.pendingSettlement.outcome; escapedBy = this.pendingSettlement.escapedBy }
-    // Freeze the final snapshot in memory. Exactly one write owns combat, receipt and reward.
-    const staged = this.pendingPrisonProfile ?? this.captureProgress()
-    if (!staged) return
-    const state = staged.activeMission!.prisonBreak!
-    this.phase = 'result'
-    this.clearPickupFocus()
-    this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
-    if (firstAttempt && outcome === 'failure') {
-      const line = prisonTaunt(state.captor, state.gateOpen, this.counts().enemyActive)
-      if (line) {
+  private prisonHost(props: PrisonBreakProps, prompt: PickupPrompt, hud: HTMLElement): PrisonBreakHost {
+    const scene = this
+    return {
+      arenaId: this.arenaId, swordOwner: this.prisonSwordOwner, props, prompt, hud,
+      get inventory() { return scene.inventory },
+      isGuest: () => Boolean(this.coopGuest),
+      phase: () => this.phase,
+      profile: () => this.profile,
+      adoptProfile: next => { this.profile = next },
+      commit: next => this.commit(next),
+      save: next => this.store.save(next),
+      captureProgress: () => this.captureProgress(),
+      pauseForSave: retry => this.pauseForPrisonSave(retry),
+      savePending: () => Boolean(this.pickupRetry),
+      panelOpen: () => this.panelOpen,
+      guards: () => { const counts = this.counts(); return { total: this.mission.targetActorIds.length, standing: counts.enemyActive, friendlyAlive: counts.friendlyActive } },
+      bodies: () => this.bodies,
+      player: () => ({ position: this.player.position, previousPosition: this.previousPlayerPosition, dead: this.player.dead }),
+      partner: () => { const npc = this.coopPartner; return npc ? { combatPosition: npc.combatPosition, previousPosition: this.previousPartnerPosition } : null },
+      takePartnerRequests: () => this.coopHost ? this.coopPickupRequests.splice(0) : [],
+      inputLocked: () => this.input.isLocked,
+      cameraYaw: () => this.orbit.cameraYaw,
+      resyncCoop: () => { this.coopPrisonKey = '' },
+      playerStats: () => this.tracker.snapshot([], this.player).player,
+      freezeForResult: () => { this.phase = 'result'; this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.() },
+      showTaunt: line => {
         this.subtitle = document.createElement('div'); this.subtitle.id = 'prison-guard-subtitle'
         this.subtitle.textContent = line
         this.subtitle.style.cssText = 'position:fixed;bottom:14%;left:50%;transform:translateX(-50%);color:#eee;background:#111b;padding:12px 22px;font:19px system-ui;z-index:10003;pointer-events:none'
         document.body.append(this.subtitle)
-      }
+      },
+      showUnsaved: retry => { this.openPanel('逃脫結果尚未保存', '保存失敗；逃脫軍功尚未入帳。'); this.button('重試保存結算', retry) },
+      settled: () => { this.settled = true; this.coopHost?.notifySettled(); this.openPrisonResult() },
+      townReturn: () => townRoster().map(spec => ({ spec })),
     }
-    const saved = settlePrisonBreak(staged, outcome, next => this.store.save(next), escapedBy)
-    if (!saved) {
-      this.pendingPrisonProfile = staged
-      this.pendingSettlement = { outcome, escapedBy, player: this.tracker.snapshot([], this.player).player }
-      this.openPanel('逃脫結果尚未保存', '保存失敗；逃脫軍功尚未入帳。')
-      this.button('重試保存結算', () => this.finishPrison(outcome, escapedBy))
-      return
-    }
-    this.profile = saved; this.pendingSettlement = null; this.pendingPrisonProfile = null; this.settled = true
-    this.openPrisonResult()
+  }
+
+  /** Host: the guest's view of the saved encounter (swords, gate, guards, result), on change and once a second. */
+  private syncCoopPrison(dt: number): void {
+    const prison = this.prison
+    if (!prison || !this.coopHost) return
+    const state = { swords: prison.swords, gateOpen: prison.gateOpen, fight: this.phase === 'fight', guards: this.counts().enemyActive, outcome: prison.result?.outcome ?? null }
+    const key = JSON.stringify(state)
+    this.coopPrisonClock += dt
+    if (key === this.coopPrisonKey && this.coopPrisonClock < 1) return
+    this.coopPrisonKey = key; this.coopPrisonClock = 0
+    coopSession().send({ t: 'prisonState', ...state })
   }
 
   private openPrisonResult(): void {
@@ -977,7 +977,7 @@ export class CareerArenaCombatScene {
   /** Saves the decided result, or the one already frozen by an earlier failed save. */
   private finish(outcome: CareerMissionOutcome, reason?: ArenaTrialEndReason): void {
     if (this.session) { this.session.finish(() => this.captureSettlement(outcome, reason)); return }
-    if (!this.settled && this.prison) this.finishPrison(outcome)
+    if (!this.settled) this.encounter?.finish(outcome)
   }
 
   private openResult(result: NonNullable<ActiveCareerMission['result']>): void {
@@ -1001,9 +1001,7 @@ export class CareerArenaCombatScene {
     if (this.session) { this.session.returnToTown(); return }
     const active = this.profile.activeMission
     if (!active) { this.leave(); return }
-    const saved = this.prison
-      ? commitPrisonBreakReturn(this.profile, active.id, townRoster().map(spec => ({ spec })), next => this.commit(next))
-      : this.commit(clearCareerMission(this.profile, active.id))
+    const saved = this.encounter ? this.encounter.commitReturn() : this.commit(clearCareerMission(this.profile, active.id))
     if (!saved) {
       this.openPanel('返回狀態尚未保存', '結算仍安全保留。請重試保存後返回小鎮。')
       this.button('重試返回小鎮', () => this.returnToTown())
@@ -1044,6 +1042,13 @@ export class CareerArenaCombatScene {
   dispose(): void {
     if (this.disposed) return
     this.persistNow()
+    // A return to Town announces the Town; only the end of co-op itself sends 'end'.
+    for (const off of this.coopUnsubscribe.splice(0)) off()
+    this.coopHost?.dispose(false); this.coopHost = undefined
+    this.coopGuest?.dispose(); this.coopGuest = undefined
+    for (const arrow of this.coopArrows) arrow.destroy()
+    for (const marker of this.coopMarkers.values()) marker.removeFromParent()
+    this.coopMarkers.clear()
     this.disposed = true
     cancelAnimationFrame(this.raf)
     this.listeners.abort()
@@ -1064,6 +1069,116 @@ export class CareerArenaCombatScene {
     this.arena?.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()
+  }
+
+  private coopPort(guest: boolean): CoopGamePort {
+    const trial = this, scene = this.scene
+    const inScene = (group: THREE.Object3D): boolean => {
+      for (let node: THREE.Object3D | null = group; node; node = node.parent) if (node === scene) return true
+      return false
+    }
+    const enemyBody = (npc: NPC): boolean => this.bodies.some(body => body.team === 'enemy' && body.npc === npc)
+    const hostNpcs: NPC[] = [], hostMounts: Mount[] = []
+    return {
+      scene, camera: this.camera, hpBar: this.hp,
+      get player() { return trial.player },
+      get npcs() { return guest ? trial.coopGuestNpcs : NPC.live.collect(npc => inScene(npc.group), hostNpcs) },
+      get mounts() { return guest ? trial.coopGuestMounts : Mount.live.collect(mount => !mount.disposed && inScene(mount.group), hostMounts) },
+      arrows: this.coopArrows, selfUpdatesPuppets: true, guestSquad: false,
+      // Only the enemy team (and its mounts), only while the fight is live.
+      acceptsGuestHit: target => this.phase === 'fight' && !target.dead
+        && (target instanceof NPC ? enemyBody(target) : this.bodies.some(body => body.team === 'enemy' && body.npc.mount === target)),
+      guestTarget: npc => enemyBody(npc),
+      // The guest earns its own merit (solo rules) once the host's claim or escape result is saved.
+      missionSettlement: () => {
+        const missionId = this.profile.activeMission?.id, prison = this.prison
+        const saved = missionId ? new CareerProfileStore().loadChecked().profile : null
+        if (prison) {
+          // Its own receipt: the parent battle's id is already the receipt of that lost battle.
+          const result = saved?.activeMission?.id === missionId ? saved?.activeMission?.prisonBreak?.result : undefined
+          return result ? { missionId: `${missionId}:prison-break`, kind: 'prison-break' as const, victory: result.outcome === 'victory', prison: prison.templateId } : null
+        }
+        if (!missionId || !saved?.claimedBattleIds.includes(missionId)) return null
+        return { missionId, kind: 'arena-squad-trial' as const, victory: saved.activeMission?.result?.outcome === 'victory' }
+      },
+      combatEmit: event => this.emit(event),
+      get ownMount() { return trial.careerMounts?.activeMount ?? null },
+      equippedWeapons: () => ({ melee: this.inventory.activeMelee?.id ?? null, ranged: this.inventory.selectedRanged?.id ?? null, shield: this.inventory.shieldEnabled ? this.inventory.equippedShield?.id ?? null : null }),
+      weaponsDrawn: () => ({ melee: this.inventory.meleeEnabled, shield: this.inventory.shieldEnabled }),
+      registerNpc: () => {}, unregisterNpc: () => {}, registerMount: () => {}, unregisterMount: () => {},
+      markVisualArrow: arrow => { this.coopVisualArrows.add(arrow) },
+    }
+  }
+
+  private updateCoopArrows(dt: number): void {
+    for (let i = this.coopArrows.length - 1; i >= 0; i--) {
+      const arrow = this.coopArrows[i]
+      if (this.coopVisualArrows.has(arrow)) arrow.update(dt, this.player, [], this.arena.obstacles, () => {}, () => damagePlayer(this.player, 0, this.hp, null), undefined, true)
+      if (!arrow.isAlive) { this.coopArrows.splice(i, 1); this.coopVisualArrows.delete(arrow) }
+    }
+  }
+
+  /** LAN co-op guest: show the host's trial; this page's own bodies leave the scene. */
+  startCoopGuest(): void {
+    const own = new Set([this.careerMounts?.activeMount, this.player.currentMount].filter((mount): mount is Mount => Boolean(mount)))
+    for (const body of this.bodies) { body.marker.removeFromParent(); body.npc.dispose() }
+    this.bodies = []
+    for (const npc of NPC.live.collect(() => true)) npc.group.removeFromParent()
+    for (const mount of Mount.live.collect(mount => !own.has(mount))) mount.group.removeFromParent()
+    for (const shot of this.shots) shot.arrow.destroy()
+    this.shots = []
+    // Stand beside the host instead of inside it; the host's opening and result belong to the host.
+    const body = this.player.currentMount?.group.position ?? this.player.group.position
+    body.x += 2.5
+    this.phase = 'fight'
+    this.coopGuest = new CoopGuestMission(this.coopPort(true), reason => showCoopGuestEnd(reason))
+    if (this.encounter) this.listenPrisonCoop(coopSession(), 'guest')
+    this.start()
+  }
+
+  /** Guest frame: own movement and attacks; the host owns the bodies, the timer and the result. */
+  private updateCoopGuest(dt: number): void {
+    if (this.equipment?.visible) { this.input.clear(); return }
+    this.elapsed += dt
+    // Read before the Player's own update, as the host does, so E is the sword's.
+    const pickupPressed = this.prison ? this.input.consumeKeyE() : false
+    this.updateCamera(dt)
+    if (!this.player.dead) {
+      let step: ReturnType<PlayerInput['consumeWheelStep']>
+      while ((step = this.input.consumeWheelStep()) !== 0) this.weaponWheel.cycle(this.inventory, step)
+    }
+    this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(this.aimPoint), this.arena.obstacles,
+      this.stamina, this.quiver, this.sound, this.inventory, this.skills.getRangedMultiplier(), true)
+    if (!this.player.dead && this.player.isGrounded) {
+      const mount = this.player.currentMount
+      if (mount) { if (this.arena.constrainGroundedBody(mount.group.position)) this.player.syncMountTransform() }
+      else this.arena.constrainGroundedBody(this.player.group.position)
+    }
+    const guest = this.coopGuest!
+    guest.updateWorld(dt)
+    this.resolveBodies()
+    separateLocalPlayerFromPeer(this.player, guest.hostAvatar, this.arena.obstacles)
+    this.melee()
+    this.mountImpacts()
+    // A sword pickup is a request; the host claims it and the next prison state arms this Player.
+    const requested = this.encounter?.requestedSword(pickupPressed) ?? null
+    if (requested !== null) coopSession().send({ t: 'prisonPickup', index: requested })
+    this.updateShots(dt)
+    this.updateCoopArrows(dt)
+    if (this.careerMounts) {
+      this.careerMounts.update(dt)
+      this.player.fitMountedSeat()
+    }
+    this.arena.update(dt)
+    this.props?.update(dt)
+    this.encounter?.updatePickupFocus()
+    this.encounter?.updateHud()
+    this.syncCoopMarkers(this.coopGuestNpcs.map(npc => [npc, guest.targets.includes(npc) ? 'enemy' : 'friendly'] as const))
+    this.damageNumbers.update(dt, this.camera)
+    this.weaponWheelUI.update(this.inventory, !this.player.dead)
+    this.hp.setFill(this.player.hpRatio)
+    if (this.session) this.session.tickSkillFlush(this.elapsed, dt)
+    else if (this.skillsDirty && this.elapsed % 5 < dt) this.flushSkills()
   }
 
   /** DEV QA: advance the real gameplay step at a fixed 60 Hz with held key codes. */

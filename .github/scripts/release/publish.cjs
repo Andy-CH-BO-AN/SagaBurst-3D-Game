@@ -30,7 +30,17 @@ async function inspectRelease(client, tag, names) {
   verifyDownloads(release, tag, names)
   return true
 }
-async function publishRelease(client, tag, paths) {
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+// GitHub's release listing can lag a just-created draft. Wait for it to appear;
+// never create a second draft, and give up with the same safe failure.
+async function readCreatedDraft(client, { wait = sleep, attempts = 6, delayMs = 5000 } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    const release = await client.read()
+    if (release || attempt >= attempts) return release
+    await wait(delayMs)
+  }
+}
+async function publishRelease(client, tag, paths, options) {
   const names = paths.map(path => basename(path))
   let release = await client.read()
   const alreadyPublished = () => {
@@ -39,7 +49,7 @@ async function publishRelease(client, tag, paths) {
     return true
   }
   if (alreadyPublished()) return { changed: false }
-  if (!release) { await client.createDraft(); release = await client.read() }
+  if (!release) { await client.createDraft(); release = await readCreatedDraft(client, options) }
   if (alreadyPublished()) return { changed: false }
   if (!release?.draft || release.tag_name !== tag || release.prerelease) throw new Error('Expected a release draft')
   for (const path of paths) {

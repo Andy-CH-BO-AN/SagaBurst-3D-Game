@@ -1,6 +1,6 @@
 {
   "name": "sagaburst",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "scripts": {
     "dev": "vite",
@@ -8,6 +8,7 @@
     "test": "node tests/tooling/run.cjs",
     "lint:test": "eslint \"tests/**/*.{test,spec}.?(c|m)[jt]s?(x)\"",
     "preview": "vite preview",
+    "coop:hub": "node electron/coop-hub.cjs",
     "build:web": "npm run build",
     "build:desktop": "tsc && vite build --mode desktop",
     "desktop": "npm run build:desktop && electron .",
@@ -19,7 +20,8 @@
     "typecheck:test": "node tests/tooling/typecheck.cjs"
   },
   "dependencies": {
-    "three": "^0.167.0"
+    "three": "^0.167.0",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

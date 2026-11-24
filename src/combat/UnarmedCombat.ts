@@ -33,6 +33,13 @@ export function punchExtension(elapsed: number, hand: PunchHand, shield: boolean
   return clamped * clamped * (3 - 2 * clamped)
 }
 
+/** Hands every queued local-space strike to the damage caller once, in world space, and empties the queue. */
+export function drainFistStrikes(pending: FistStrike[], localToWorld: THREE.Matrix4): FistStrike[] {
+  return pending.splice(0).map(strike => ({
+    from: strike.from.applyMatrix4(localToWorld), to: strike.to.applyMatrix4(localToWorld),
+  }))
+}
+
 export function unarmedDamage(skillMultiplier: number, hero?: HeroAssetId | null): number {
   return applyHeroMeleeDamage(UNARMED_DAMAGE * skillMultiplier, hero ? HERO_COMBAT_PROFILE_BY_ASSET[hero] : null)
 }

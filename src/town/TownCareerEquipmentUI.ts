@@ -70,7 +70,7 @@ export function createTownCareerEquipmentUI(read: () => CareerProfile, context: 
             lockedSlots: resolved.fixedWeapons ? ['melee', 'ranged', 'shield'] : resolved.spec.eagle ? ['mount'] : undefined,
             reason: !resident ? '不在目前場景，保存配置唯讀。' : resident.npc.dead ? '已陣亡，整補後才能換裝。'
               : !state.safeActorIds.has(id) ? '正在交戰、返回或飛行，整補完成後才能換裝。' : undefined,
-            fixedEquipment: merchant ? [itemName(resolved.loadout.meleeWeaponId) + ' · T5', itemName(resolved.loadout.secondaryMeleeWeaponId) + ' · T5', itemName(resolved.loadout.shieldId) + ' · T4'] : undefined }
+            fixedEquipment: merchant ? [itemName(resolved.loadout.meleeWeaponId) + ' · T5', itemName(resolved.loadout.secondaryMeleeWeaponId) + ' · T5', itemName(resolved.loadout.shieldId) + ` · T${ARMORS[resolved.loadout.shieldId ?? '']?.tier ?? 5}`] : undefined }
         })
         return { ...squad, total: squad.actorIds.length,
           alive: squad.id === 'personal' ? profile.personalSquad?.members.length ?? 0 : squad.actorIds.filter(id => live.has(id) && !live.get(id)!.npc.dead).length,
@@ -92,7 +92,7 @@ export function createTownCareerEquipmentUI(read: () => CareerProfile, context: 
       for (const id of Object.keys(careerItemTotals(profile)).sort()) {
         const item = WEAPONS[id] ?? ARMORS[id]
         const fits = slot === 'mount' ? (PLAYER_MOUNT_IDS as readonly string[]).includes(id) && (target === 'personal' || careerEquipmentCategory(id) === 'mount') : item?.type === slot
-        if (fits && (actorId !== 'merchant' || slot !== 'mount' || id === 'horse') && (availableCareerItem(profile, id) > 0 || current === id)) options.push({ id, label: `${itemName(id)} · T${item?.tier ?? careerShopProduct(id)?.tier ?? '?'} · 未分配 ${availableCareerItem(profile, id)}` })
+        if (fits && (availableCareerItem(profile, id) > 0 || current === id)) options.push({ id, label: `${itemName(id)} · T${item?.tier ?? careerShopProduct(id)?.tier ?? '?'} · 未分配 ${availableCareerItem(profile, id)}` })
       }
       return options
     },

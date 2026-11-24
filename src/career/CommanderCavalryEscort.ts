@@ -6,7 +6,7 @@ import { commanderFourGateDefenseSlots } from './CommanderFourGateDefenseRoster'
 /** Mission-only ground escort geometry; mounted movement/collision remains with the actor. */
 export const COMMANDER_CAVALRY_ESCORT = {
   /** Distance to the owning gate at which the lancers leave the vehicle and charge. */
-  releaseDistance: 100,
+  releaseDistance: 150,
   /** Vehicle corridor clipping is separate from the combat release radius. */
   clearanceEndDistance: 50,
   stallSeconds: 20,

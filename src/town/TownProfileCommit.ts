@@ -14,6 +14,7 @@ import type { CareerProfileStore } from '../career/CareerProfileStore'
 import type { CareerRaceController } from '../career/CareerRaceController'
 import { validateOrdinaryRetirementCommit } from '../career/CareerRetirement'
 import { isTownCommandRevokedByRetirement } from '../career/CareerRetirementCommand'
+import { freshCommanderFourGateDefenseEntry, healFourGateEagleGarrison } from '../career/CommanderFourGateDefenseEntry'
 import { buildCommanderAuthorityForMission } from '../career/CommanderMissionAcceptance'
 import type { CommanderTownMissionController } from '../career/CommanderTownMissionController'
 import { townDefenseCommanderIds } from '../career/TownDefenseRoster'
@@ -21,10 +22,9 @@ import { emptyPersonalContribution } from '../combat/CommandMerit'
 import type { Player } from '../player/Player'
 import { standingPlayerY } from '../player/PlayerFootBody'
 import type { SkillManager } from '../rpg/SkillManager'
-import { getTerrainHeight } from '../world/Terrain'
 import type { CivilianCommandSquadController } from './CivilianCommandSquadController'
 import type { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
-import { sergeantReturnFromResidents, type SergeantReturnPoint } from './SergeantReturn'
+import { applyReturnLanding, sergeantReturnFromResidents, type SergeantReturnPoint } from './SergeantReturn'
 
 import type { TownCavalryPatrolController } from './TownCavalryPatrolController'
 import type { TownCommandSquadController } from './TownCommandSquadController'
@@ -182,7 +182,9 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   // The existing service Commander joins only a newly accepted Commander defense.
   // Save its actual resources before any restart; failed saves never grant live authority.
   const defenseCommanderId = startsDefense ? townDefenseCommanderIds(next, (runtime.residents ?? []).map(r => r.spec),
-    new Set((runtime.residents ?? []).filter(r => r.npc.dead).map(r => r.spec.id)))[0] : undefined
+    next.activeMission?.kind === 'commander-four-gate-defense'
+      ? new Set()
+      : new Set((runtime.residents ?? []).filter(r => r.npc.dead).map(r => r.spec.id)))[0] : undefined
   if (defenseCommanderId && next.activeMission && !next.activeMission.friendlyActorIds.includes(defenseCommanderId)) {
     next.activeMission.friendlyActorIds.push(defenseCommanderId)
   }
@@ -274,6 +276,17 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   // casualties, mounts) so the return restores the same HR standby.
   if (newMission || newOutpost) next.personalSquadRuntime = next.activeMission?.kind === 'duel' || arenaTrial
     ? runtime.personalSquad?.checkpoint() ?? next.personalSquadRuntime : undefined
+  if (startsDefense && next.activeMission?.kind === 'commander-four-gate-defense') {
+    freshCommanderFourGateDefenseEntry(next.activeMission)
+    const faction = runtime.world.faction, eagles = next.townEagleGarrisons?.[faction]
+    if (eagles) {
+      const live = new Map((runtime.residents ?? []).map(r => [r.spec.id.replace(/^enemy-town:/, ''), r]))
+      next.townEagleGarrisons = { ...next.townEagleGarrisons, [faction]: healFourGateEagleGarrison(eagles, id => {
+        const resident = live.get(id)
+        return resident && !resident.npc.dead ? { hp: resident.npc.maxHp, mountHp: resident.homeMount?.maxHp } : undefined
+      }) }
+    }
+  }
   const townClaimStateChanged = JSON.stringify([
     next.townCommandSquad?.commandedActorIds,
     next.townCommandSquad?.nativeReturnStates,
@@ -307,11 +320,8 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
       const resolver = runtime.resolveSergeantReturnPoint
       const entry = resolver ? resolver.call(runtime) : sergeantReturnFromResidents(runtime.residents) ?? townPlayerEntryPoint()
       if (entry) {
-        const ground = 'y' in entry && typeof entry.y === 'number' ? entry.y : getTerrainHeight(entry.x, entry.z)
-        runtime.player.resetForScene(entry.x, standingPlayerY(ground), entry.z)
-        runtime.player.group.rotation.y = entry.yaw
-        runtime.player.faceDirection?.(Math.sin(entry.yaw), Math.cos(entry.yaw))
-        runtime.orbit?.setYaw(entry.yaw + Math.PI)
+        const player = runtime.player
+        applyReturnLanding(entry, player, runtime.orbit, (x, ground, z) => player.resetForScene(x, standingPlayerY(ground), z))
       } else {
         const here = runtime.player.group.position
         runtime.player.resetForScene(here.x, here.y, here.z)

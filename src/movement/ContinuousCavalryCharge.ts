@@ -14,12 +14,8 @@ import type { Player } from '../player/Player'
 import type { SpatialGrid } from '../world/SpatialGrid'
 import type { ChaseTargetCoordinator } from '../navigation/ChaseTargetCoordinator'
 
-export const CAVALRY_MAX_TURN_RATE = 2.2 // rad/s
 export const CAVALRY_PASSTHROUGH_DURATION = 1.0 // seconds
 export const CAVALRY_FORWARD_CONE_COS = 0.2 // ~78° forward cone
-
-const angleDifference = (to: number, from: number): number => Math.atan2(Math.sin(to - from), Math.cos(to - from))
-const clamp = (val: number, min: number, max: number): number => Math.max(min, Math.min(max, val))
 
 /**
  * Determines whether an actor is an eligible ground melee cavalry for continuous charge combat.
@@ -37,26 +33,6 @@ export function isEligibleMeleeCavalry(
   if (hasActiveRangedWeapon) return false
   if (hasSiegeObstacle || holdsRampartPosition) return false
   return tacticalOrder === 'attack' || tacticalOrder === 'charge'
-}
-
-/**
- * Calculates turning rate based on mount speed. Faster speeds turn in slightly wider arcs.
- */
-export function cavalryTurnRate(speed: number): number {
-  return Math.min(CAVALRY_MAX_TURN_RATE, Math.max(1.2, 18 / Math.max(1, speed)))
-}
-
-/**
- * Steers yaw toward desiredYaw with a bounded angular velocity. Prevents instant 180° snapping.
- */
-export function steerCavalryHeading(
-  yaw: number,
-  desiredYaw: number,
-  speed: number,
-  dt: number,
-): number {
-  const step = cavalryTurnRate(speed) * clamp(dt, 0, 0.1)
-  return yaw + clamp(angleDifference(desiredYaw, yaw), -step, step)
 }
 
 /**

@@ -184,14 +184,15 @@ describe('Town command watchtower', () => {
 })
 
 it('routes a mounted body up and down connected flights without crossing rails', () => {
+    // The layout and its collision data are identical for both directions; only navigation state is per-direction.
+    const layout = getTownCommandWatchtowerLayout()
+    const obstacles: ObstacleData[] = [{ box: layout.core, isBarricade: false }, ...getTownCommandWatchtowerUnderfill(layout),
+      ...layout.platform.map(surface => ({ box: surfaceBox(surface), walkSurface: surface, isBarricade: false })),
+      ...getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)]
     for (const direction of ['up', 'down'] as const) {
-      const layout = getTownCommandWatchtowerLayout()
       const nav = new TownLayeredNavigation(getTownRampartLayout())
       nav.setWatchtower(layout)
       const tower = nav.watchtower!
-      const obstacles: ObstacleData[] = [{ box: layout.core, isBarricade: false }, ...getTownCommandWatchtowerUnderfill(layout),
-        ...layout.platform.map(surface => ({ box: surfaceBox(surface), walkSurface: surface, isBarricade: false })),
-        ...getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)]
       const top = new THREE.Vector3(-29, layout.platformY, -41)
       const current = (direction === 'up' ? tower.approach : top).clone()
       const goal = direction === 'up' ? top : tower.approach

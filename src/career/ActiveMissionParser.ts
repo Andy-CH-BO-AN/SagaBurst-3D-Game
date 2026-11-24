@@ -9,7 +9,7 @@ import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { parseCampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
 import { TOWN_WATCHTOWER_ARCHER_IDS } from '../town/TownNativeGuardIdentity'
 import { parseTownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
-import { townRoster } from '../town/TownRules'
+import { isCivilian, townRosterIdentity } from '../town/TownRules'
 import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import { parseCaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import { arenaTrialRoster, arenaTrialTierFromTemplateId, parseArenaTrialState } from './CareerArenaTrials'
@@ -29,7 +29,7 @@ import { parsePersonalMission } from './CareerPersonalSquadMission'
 import { parsePrisonBreakState } from './CareerPrisonBreak'
 import type { CareerProfile } from './CareerProfile'
 import { nonNegativeInteger, nonNegativeNumber, parseMissionMountState, parseMissionPlayerStats, uniqueStrings } from './CareerSaveFields'
-import { commanderFourGateDefenseActorIds } from './CommanderFourGateDefenseRoster'
+import { COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION, commanderFourGateDefenseActorIds, commanderFourGateMissionSquads } from './CommanderFourGateDefenseRoster'
 import { parseCommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
 import { COMMANDER_FELINE_CAVALRY_KIND, COMMANDER_IRON_LEGION_KIND, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_FRIENDLY_TOTAL, felineCavalryActorIds, felineVanguardActorId } from './CommanderMissionCatalog'
 import { commanderGateDefenseSlots } from './CommanderTownRoster'
@@ -178,14 +178,14 @@ function parseDuelIdentity(raw: Record<string, unknown>, faction: CareerProfile[
 function rejectsCommanderRoster({ raw, template, fourGateMission, friendlyActorIds, targetActorIds, acceptedOfficialSquad }: MissionParseContext): boolean {
   const rosterVersion = (raw.fourGateDefense as { rosterVersion?: unknown } | undefined)?.rosterVersion
   if (fourGateMission && rosterVersion !== 2) return true
-  const nativeSquads = fourGateMission ? commanderGateDefenseSlots(undefined, rosterVersion as 2) : []
+  const nativeSquads = fourGateMission ? commanderFourGateMissionSquads(raw.id as string, commanderGateDefenseSlots(undefined, rosterVersion as 2)) : []
   const nativeActorIds = nativeSquads.flatMap(squad => squad.actorIds)
   const expectedFriendly = fourGateMission ? nativeActorIds.length : template?.kind === 'commander-sky-raid' ? 50
     : template?.kind === 'commander-decapitation' ? 30 : template?.kind === 'commander-bridgehead-battle' ? BRIDGEHEAD_FRIENDLIES
     : template?.kind === COMMANDER_FELINE_CAVALRY_KIND || template?.kind === COMMANDER_IRON_LEGION_KIND ? FELINE_FRIENDLY_TOTAL : 120
   const enemyVersion = (raw.fourGateDefense as { enemyRosterVersion?: unknown } | undefined)?.enemyRosterVersion
-  if (fourGateMission && enemyVersion !== 2) return true
-  const exactTargets = fourGateMission ? new Set(commanderFourGateDefenseActorIds(raw.id as string, 2)) : undefined
+  if (fourGateMission && enemyVersion !== COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION) return true
+  const exactTargets = fourGateMission ? new Set(commanderFourGateDefenseActorIds(raw.id as string)) : undefined
   const validTargets = exactTargets ? targetActorIds.length === exactTargets.size && targetActorIds.every(id => exactTargets.has(id))
     : template?.kind === 'commander-sky-raid' ? targetActorIds.length >= 100
     : template?.kind === 'commander-decapitation' ? targetActorIds.length === 1 && targetActorIds[0] === 'commander'
@@ -464,7 +464,7 @@ export function parseActiveMission(value: unknown, faction: CareerProfile['facti
   const bridgeBattle = parseCaptainEagleCheckpoint(raw.bridgeBattle, BRIDGEHEAD_FRIENDLIES + BRIDGEHEAD_ENEMIES)
   const felineBattle = parseCaptainEagleCheckpoint(raw.felineBattle, FELINE_FRIENDLY_TOTAL + FELINE_ENEMY_TOTAL)
   const civilianActorIds = uniqueStrings(raw.civilianActorIds)
-  const nativeCivilianIds = fourGateMission ? townRoster().filter(actor => actor.role === 'civilian').map(actor => actor.id) : []
+  const nativeCivilianIds = fourGateMission ? townRosterIdentity().filter(actor => isCivilian(actor.role)).map(actor => actor.id) : []
   const fourGateDefense = fourGateMission ? parseCommanderFourGateDefenseState(raw.fourGateDefense, {
     missionId: raw.id, faction, phase: raw.phase as CareerMissionPhase, targetActorIds, friendlyActorIds, civilianActorIds,
     personalActorIds: personalSquad?.memberIds, personalActors: personalSquad?.members, deadTargetActorIds: uniqueStrings(raw.deadTargetActorIds),

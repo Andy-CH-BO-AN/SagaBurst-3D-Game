@@ -7,7 +7,7 @@ import { grantCommanderMelee } from './CareerCommanderEquipment'
 import type { CareerDuelTier } from './CareerDuelState'
 import { addCareerItem, careerItemTotal, isTradableCareerItem, MAX_PLAYER_OWNED_XONGKORO, normalizeCareerInventory } from './CareerInventory'
 import { calculateRecruitMissionMerit } from './CareerMissionMeritPolicy'
-import type { CareerMissionOutcome } from './CareerMissionState'
+import type { ActiveCareerMission, CareerMissionOutcome } from './CareerMissionState'
 import { careerMissionTierForTemplateId, type CareerMissionTier } from './CareerMissionTier'
 import { clonePersonalMission } from './CareerPersonalSquadMission'
 import type { CareerBattleClaim, CareerBattleResult, CareerMissionClaim, CareerMountId, CareerProfile, CareerPurchaseRequest, CareerPurchaseResult, CareerPurchaseTier, CareerRank } from './CareerProfileTypes'
@@ -164,6 +164,21 @@ export function claimCareerBattle(
   }
 }
 
+/** One player's merit for a formal mission kind and outcome; shared by the claim and a co-op guest's own award. */
+function careerMissionIsOffense(kind: ActiveCareerMission['kind']): boolean {
+  return kind === 'cavalry-sweep' || kind === 'veteran-outpost-assault' || kind === 'captain-eagle-battle'
+    || kind === 'commander-sky-raid' || kind === 'commander-decapitation' || kind === 'commander-six-feline-cavalry' || kind === 'commander-iron-legion' || kind === 'heavy-cavalry-field'
+}
+export function careerMissionMerit(kind: ActiveCareerMission['kind'], outcome: CareerMissionOutcome, contribution: BattleStatsSnapshot['player']) {
+  const offense = careerMissionIsOffense(kind)
+    ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense', 'mission') : null
+  const defense = kind === 'captain-outpost-defense' || kind === 'commander-outpost-last-stand' || kind === 'commander-bridgehead-battle'
+    || kind === 'commander-four-gate-defense'
+    ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'defense', 'mission') : null
+  const battleMerit = offense ?? defense
+  return battleMerit ? { damage: battleMerit.characterDamage + battleMerit.structureDamage, kills: battleMerit.kills, contribution: battleMerit.victory + battleMerit.survival + battleMerit.gateBreaches, total: battleMerit.total } : calculateRecruitMissionMerit(contribution, outcome)
+}
+
 export function claimCareerMission(
   current: CareerProfile,
   missionId: string,
@@ -200,15 +215,8 @@ export function claimCareerMission(
   // The veteran's invitation settles in this same claim: its fixed award replaces the damage/kill reward of this one trial.
   const storyMerit = active.storyEventId && active.kind === 'arena-squad-trial'
     ? settleCareerStoryEvent(profile, active.storyEventId, missionId, outcome === 'victory' ? 'victory' : 'defeat') : null
-  const offense = active.kind === 'cavalry-sweep' || active.kind === 'veteran-outpost-assault' || active.kind === 'captain-eagle-battle'
-    || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation' || active.kind === 'commander-six-feline-cavalry' || active.kind === 'commander-iron-legion' || active.kind === 'heavy-cavalry-field'
-    ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense', 'mission') : null
-  const defense = active.kind === 'captain-outpost-defense' || active.kind === 'commander-outpost-last-stand' || active.kind === 'commander-bridgehead-battle'
-    || active.kind === 'commander-four-gate-defense'
-    ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'defense', 'mission') : null
-  const battleMerit = offense ?? defense
   const merit = storyMerit !== null ? { damage: 0, kills: 0, contribution: storyMerit, total: storyMerit }
-    : battleMerit ? { damage: battleMerit.characterDamage + battleMerit.structureDamage, kills: battleMerit.kills, contribution: battleMerit.victory + battleMerit.survival + battleMerit.gateBreaches, total: battleMerit.total } : calculateRecruitMissionMerit(contribution, outcome)
+    : careerMissionMerit(active.kind, outcome, contribution)
   profile.totalMerit += merit.total
   profile.availableMerit += merit.total
   profile.claimedBattleIds.push(missionId)
@@ -236,7 +244,7 @@ export function claimCareerMission(
   if (!stats.survived && !arenaTrial) profile.lifetimeStats.deaths += 1
   profile.lifetimeStats.kills += Math.max(0, Math.floor(stats.kills))
   profile.lifetimeStats.damage += Math.max(0, stats.damageDealt)
-  if (offense) {
+  if (careerMissionIsOffense(active.kind)) {
     profile.lifetimeStats.structureDamage += Math.max(0, stats.structureDamage)
     profile.lifetimeStats.breaches += Math.max(0, Math.floor(stats.gateBreaches))
   }

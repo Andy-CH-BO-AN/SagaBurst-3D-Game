@@ -18,6 +18,9 @@ import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { acceptHeavyFieldMission } from '../../src/career/HeavyFieldMission'
 import { claimCareerFieldResult } from '../../src/career/CareerPrisonBreak'
 import { CareerPrisonBreakScene } from '../../src/arena/CareerPrisonBreakScene'
+import { CareerArenaTrialScene } from '../../src/arena/CareerArenaTrialScene'
+import { createArenaTrialMission } from '../../src/career/CareerArenaTrials'
+import { acceptVeteranMission } from '../../src/career/VeteranMission'
 
 vi.mock('../../src/town/TownScene', () => ({ TownScene: { create: vi.fn() } }))
 vi.mock('../../src/town/TownUI', () => ({ installTownStyles: vi.fn() }))
@@ -106,6 +109,28 @@ describe('Town load failure recovery', () => {
     expect(local.getItem(CAREER_STORAGE_KEY)).toBe(saved)
   })
 
+  it('refuses a stale arena-load cancel after another tab replaced the saved mission', async () => {
+    const local = new MemoryStorage(), body = element()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
+    vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const base = { ...createCareerProfile('roman'), ...careerRankFixture('roman', 'veteran') }
+    const store = new CareerProfileStore(local)
+    expect(store.save({ ...base, activeMission: createArenaTrialMission(base, 1, 'roman-colosseum', 'trial-old')! })).toBe(true)
+    vi.spyOn(CareerArenaTrialScene, 'create').mockRejectedValue(new Error('arena load failed'))
+    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn())
+    await Promise.resolve(); await Promise.resolve()
+    const cancel = findText(body, '取消本次試煉（不計勝負）')!
+    expect(cancel).toBeDefined()
+    const replacement = { ...base, activeMission: createArenaTrialMission(base, 1, 'roman-colosseum', 'trial-new')! }
+    expect(store.save(replacement)).toBe(true)
+    const saved = local.getItem(CAREER_STORAGE_KEY)
+    cancel.onclick!()
+    expect(local.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+    expect(store.load()!.activeMission!.id).toBe('trial-new')
+  })
+
   it('replaces a completed Career after faction confirmation and saved tutorial routing without issuing weapons', async () => {
     const local = new MemoryStorage(), body = element()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
@@ -183,7 +208,8 @@ describe('Town load failure recovery', () => {
     expect(start).toHaveBeenCalledOnce()
     expect(training).not.toHaveBeenCalled()
     expect(factionViews).toHaveLength(0)
-    expect(vi.mocked(TownScene.create).mock.calls[0][1]).toMatchObject({ faction: 'viking', ownedWeapons: [], equipment: {} })
+    const [, townProfile] = vi.mocked(TownScene.create).mock.calls[0]
+    expect(townProfile).toMatchObject({ faction: 'viking', ownedWeapons: [], equipment: {} })
     const saved = store.loadChecked().profile!
     expect(saved.starterWeaponId).toBeUndefined()
     expect(saved.inventory?.quantities).toEqual({})
@@ -215,7 +241,8 @@ describe('Town load failure recovery', () => {
     try {
       await view.options.onStart('roman')
       expect(training).toHaveBeenCalledTimes(2)
-      expect(training.mock.calls[1][0]).toEqual(training.mock.calls[0][0])
+      const [[failedContext], [retryContext]] = training.mock.calls
+      expect(retryContext).toEqual(failedContext)
       expect(store.loadChecked().profile!.tutorial?.careerId).toBe(first.tutorial!.careerId)
       expect(store.loadChecked().profile!.faction).toBe('viking')
     } finally { finishLaunch(); await retry }
@@ -275,7 +302,8 @@ describe('Town load failure recovery', () => {
     expect(start).toHaveBeenCalledOnce()
     expect(store.load()?.townCommandSquad?.members?.guard.hp).toBe(0)
     local.failWrites = true
-    vi.mocked(TownScene.create).mock.calls[0][2](createCareerOutpostLaunch(acceptCareerOutpostRelief(profile)!))
+    const [, , launchOutpost] = vi.mocked(TownScene.create).mock.calls[0]
+    launchOutpost(createCareerOutpostLaunch(acceptCareerOutpostRelief(profile)!))
     expect(launch).not.toHaveBeenCalled()
     expect(store.load()?.townCommandSquad?.members?.guard.hp).toBe(0)
     local.failWrites = false
@@ -301,7 +329,7 @@ describe('Town load failure recovery', () => {
     })
     enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn())
     await Promise.resolve()
-    const restart = vi.mocked(TownScene.create).mock.calls[0][3]
+    const [, , , restart] = vi.mocked(TownScene.create).mock.calls[0]
     local.failWrites = true
     restart(original, 'death-return')
     await Promise.resolve()
@@ -316,7 +344,8 @@ describe('Town load failure recovery', () => {
     const expected = { ...original, playerAerialState: undefined, racePlayerState: undefined }
     expect(start).toHaveBeenCalledTimes(2)
     expect(savedAtCreation[1]).toEqual(expected)
-    expect(vi.mocked(TownScene.create).mock.calls[1][1]).toEqual(expected)
+    const [, rebuiltProfile] = vi.mocked(TownScene.create).mock.calls[1]
+    expect(rebuiltProfile).toEqual(expected)
     expect(store.load()).toEqual(expected)
     expect(original.racePlayerState).toMatchObject({ hp: 0, dead: true })
     expect(original.playerAerialState).toMatchObject({ hp: 0, dead: true })
@@ -423,17 +452,34 @@ describe('Captain battlefield Career entry routing', () => {
         starterWeaponId: 'gladius_rusty', inventory: { version: 1 as const, quantities: Object.fromEntries(['gladius_rusty', 'xongkoro' as const].map(id => [id, 1])) }, ownedWeapons: ['gladius_rusty'], ownedMounts: ['xongkoro' as const] }
       const accepted = kind === 'eagle' ? acceptCaptainEagle(fresh, 'resume-eagle')! : acceptCaptainFrontline(fresh, 'resume-frontline')!
       expect(new CareerProfileStore(local).save(accepted)).toBe(true)
-      const launch = vi.fn(async (_config: CareerCombatLaunch) => {})
+      let launched: CareerCombatLaunch | undefined
+      const launch = vi.fn(async (config: CareerCombatLaunch) => { launched = config })
       enterCareerTown(element() as unknown as HTMLElement, launch, vi.fn())
       await Promise.resolve()
       expect(launch).toHaveBeenCalledOnce()
       expect(TownScene.create).not.toHaveBeenCalled()
-      expect(launch.mock.calls[0][0]).toMatchObject(kind === 'eagle'
+      expect(launched).toMatchObject(kind === 'eagle'
         ? { type: 'captain-eagle', careerMissionId: 'resume-eagle', battle: { careerEagleMissionId: 'resume-eagle' } }
         : { type: 'defense', careerMissionId: 'resume-frontline', careerMissionKind: 'captain-outpost-defense', stageId: 9 })
       expect(session.getItem(CAREER_OUTPOST_SESSION_KEY)).toBe(accepted.activeMission!.id)
       expect(session.getItem(TOWN_ENTRY_KEY)).toBeNull()
     }
+  })
+  it('main-menu Career entry resumes an unresolved Veteran outpost battle instead of opening Town', async () => {
+    const local = new MemoryStorage(), session = new MemoryStorage(), body = element()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
+    vi.stubGlobal('document', { body, createElement: () => element() })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    const veteran = { ...createCareerProfile('roman'), ...careerRankFixture('roman', 'veteran') }
+    const accepted = acceptVeteranMission(veteran, 'veteran-dread-outpost', { missionId: 'veteran-menu-resume' })!
+    expect(new CareerProfileStore(local).save(accepted)).toBe(true)
+    const launch = vi.fn(async (_config: CareerCombatLaunch) => {})
+    enterCareerTown(element() as unknown as HTMLElement, launch, vi.fn())
+    await Promise.resolve()
+    expect(launch).toHaveBeenCalledOnce()
+    expect(launch.mock.calls[0][0]).toMatchObject({ careerMissionId: 'veteran-menu-resume' })
+    expect(TownScene.create).not.toHaveBeenCalled()
+    expect(session.getItem(CAREER_OUTPOST_SESSION_KEY)).toBe('veteran-menu-resume')
   })
 })
 

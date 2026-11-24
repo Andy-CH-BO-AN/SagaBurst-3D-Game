@@ -49,6 +49,16 @@ rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/compare-b
 
 compare script 計算 median、delta 與百分比，但不驗證兩份輸入的硬體、phase 或場景配置是否可比較；執行前先核對。比較必須同為 baseline/candidate 的配對窗口，不能把舊 PR 報表當當前 baseline。
 
+## 四門總守城戰（Town Commander V）
+
+Town 沒有 `#dev-combat-status` profiler，改用 `four-gate-benchmark.mjs`：每 run 以全新 browser context 載入 DEV `?careerQa=commander-v`，量 preparation（守軍與平民已部署、攻方未生成）與 siege（按 H 跳過準備、攻方全員生成後）兩窗；指標為 rAF callback JS CPU、`renderer.render` 耗時（Renderer Submit）、frame interval FPS、`renderer.info` draw calls／triangles，並記錄雙方存活、任務守軍、平民在大廳數與平民最大位移。攻方生成與否以 `enemiesAlive === enemiesExpected` 驗證；任何 console／page error 即標成失敗。
+
+```sh
+rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/four-gate-benchmark.mjs --host=localhost:PORT --runs=3 --tag=baseline --out=output/local-diagnostics/four-gate-baseline.json
+```
+
+`--skip-preparation` 只量 siege 窗；配對比較兩邊須同設定。插樁不同於 devcombat profiler，數據不可與 D–M 報表直接比較。
+
 ## 指定物種的動態坐騎樣本
 
 黑貓／柯基等少量混合物種動畫驗收，若既有 scenario 無法覆蓋，可在 ignored `output/` 建任務 fixture，依目前正式 API 配置坐騎與路線；保留真正的 Game／NPC／Mount update、LOD、shadow 及騎士連結，不用只有裸模 mixer 的 viewer 推論遊戲成本。物種、數量、tier 與持續移動門檻依任務決定，這種樣本不代替大型戰鬥 benchmark。

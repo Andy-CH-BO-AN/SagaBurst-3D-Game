@@ -14,6 +14,7 @@ import { AerialViewPolicy, usesAerialView } from '../camera/AerialViewPolicy'
 import { SpectatorCameraController } from '../camera/SpectatorCameraController'
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
 import { ActiveMissionClock } from '../career/ActiveMissionClock'
+import { CareerSkillSaveScheduler } from '../career/CareerSkillSaveScheduler'
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
 import { CAPTAIN_CAVALRY_COMMAND_ID, CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID, CAPTAIN_PATROL_COMMAND_ID, createCaptainPatrolCommandMission, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../career/CaptainMissionCatalog'
@@ -50,6 +51,9 @@ import { CAREER_RANK_LABELS, CAREER_RANK_THRESHOLDS, CAREER_RANKS, clearCareerMi
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { canAppointCareerRank, type CareerAppointingRole } from '../career/CareerPromotionAuthority'
 import { CareerRaceController } from '../career/CareerRaceController'
+import { sceneCareerActorFactory } from '../career/CareerActorFactory'
+import { townDeploymentReady } from './TownDeploymentReady'
+import { MobileSiegeRamp } from '../campaign/MobileSiegeRamp'
 import { raceReturnAction } from '../career/CareerRaceReturn'
 import { RACE_LINES } from '../career/CareerRaceRoute'
 import { RACE_STORY_RACE_ID, raceDefinitionForSchedule, type RaceId } from '../career/CareerRaceState'
@@ -100,7 +104,7 @@ import { PlayerInput } from '../player/PlayerInput'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { bindWindowResize, configureSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO } from '../rendering/SceneRenderer'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, skillStatesEqual, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
+import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
 import { EQUIPMENT_CATEGORIES, equipmentSections, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { compareEquipment, equipmentDetails, equipmentTraits } from '../rpg/EquipmentComparison'
 import { compareMounts, mountComparisonText, mountDetails, mountTraits } from '../rpg/MountComparison'
@@ -165,6 +169,10 @@ import { townMerchantLoadout } from './TownMerchantEquipment'
 import { TownMissionBoard, type MissionBoardHost, type MissionBoardRequest } from './TownMissionBoard'
 import { TownMissionCombat, type TownCombatResident as Resident } from './TownMissionCombat'
 import { restoreMissionReturnResident, TownMissionSettlement } from './TownMissionSettlement'
+import { restoreTownCasualties, TownResultSettlement } from './TownResultSettlement'
+import { openDeploymentVisit } from './TownDeploymentVisit'
+import { routeTownCombatEvent } from './TownCombatEventRouter'
+import { applyTownSkillXp } from './TownSkillProgression'
 import { isAutonomousTownGuard } from './TownNativeGuardIdentity'
 import { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController'
 import { personalMemberLoadout, TownPersonalSquadController } from './TownPersonalSquadController'
@@ -175,7 +183,7 @@ import { warmTownRenderResources } from './TownRenderWarmup'
 import { TownRetirementFinaleController } from './TownRetirementFinaleController'
 import { TownRetirementMobilizationController } from './TownRetirementMobilizationController'
 import { appendCommanderRetirementOption } from './TownRetirementUI'
-import { deferTownResult, isCivilian, isTownProductOwned, productStatus, purchaseTownEquipment, purchaseTownMount, sellTownProduct, sellTownProducts, settleTown, stableHorsePositions, TOWN_RESALE_PERCENT, TOWN_RULES, townActorHeroProfile, townCaptainProfile, TownEvent, townHoldingText, townMilitaryEquipment, townName, townOfficerPreload, townPlayerEntryPoint, townProductUnit, townResalePrice, townRoster, townSaleStatus, townShopProducts, townSitePoint, updateRangerMount, withTownCommandSquadRoster, type TownActorSpec, type TownResult } from './TownRules'
+import { deferTownResult, isCivilian, isTownProductOwned, productStatus, purchaseTownEquipment, purchaseTownMount, sellTownProduct, sellTownProducts, stableHorsePositions, TOWN_RESALE_PERCENT, TOWN_RULES, townActorHeroProfile, townCaptainProfile, TownEvent, townHoldingText, townMilitaryEquipment, townName, townOfficerPreload, townPlayerEntryPoint, townProductUnit, townResalePrice, townRoster, townSaleStatus, townShopProducts, townSitePoint, updateRangerMount, withTownCommandSquadRoster, type TownActorSpec, type TownResult } from './TownRules'
 import { appendTownSaleDropdown } from './TownSaleUI'
 import { updateTownEquipmentVisibleStatus } from './TownSquadEquipmentUI'
 import { TownStoryController } from './TownStoryController'
@@ -183,6 +191,14 @@ import { TownTutorialController } from './TownTutorialController'
 import { installTownStyles } from './TownUI'
 import { townWartimeHostile } from './TownWartime'
 import { TownWorld } from './TownWorld'
+import { coopSession } from '../coop/CoopLink'
+import { announceCoopScene, coopGuestCharacterAssets, coopGuestPlayerSource, isCoopGuestLaunch, leaveCoopGuestRoom, showCoopGuestEnd, type CoopPlayerSource } from '../coop/CoopLaunch'
+import { commitCoopRaceAward, parseCoopRaceAward } from '../coop/CoopRaceAward'
+import { commitCoopTownResult, parseCoopTownResult } from '../coop/CoopTownResult'
+import type { CombatDamageContext } from '../combat/CombatAttribution'
+import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeer, type CoopGamePort } from '../coop/CoopMission'
+import { coopSiegePlacement } from '../coop/CoopSiegeMirror'
+import type { TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
 
 let sound: SoundManager
 interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; readonly sourceRef?: CombatActorRef; age: number; maxLifetimeSeconds?: number }
@@ -232,6 +248,28 @@ export class TownScene {
   private readonly navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
   private readonly combatTargetHud = new CombatTargetHud()
   private readonly hp = new HpBar()
+  /** LAN co-op: the host bridge, or this page's mirror of the host's Town. */
+  private coopHost?: CoopHostMission
+  private coopGuest?: CoopGuestMission
+  private readonly coopGuestNpcs: NPC[] = []
+  /** Co-op guest: the guest's own character profile (in memory); the host's profile still builds the Town. */
+  private coopPlayerSource: CoopPlayerSource | null
+  private get playerProfile(): CareerProfile { return this.coopPlayerSource?.read() ?? this.profile }
+  private commitPlayerProfile(next: CareerProfile): boolean { return this.coopPlayerSource ? this.coopPlayerSource.commit(next) : this.commit(next) }
+  private readonly coopGuestMounts: Mount[] = []
+  /** Guest: a local stable/field horse it rode; shown and synced as its own mount. */
+  private coopBorrowedMount: Mount | null = null
+  /** Host: the stable horse the guest took; it leaves this scene while the guest's proxy shows it. */
+  private coopLentHorse: Mount | null = null
+  private coopRaceStatusTimer = 0
+  /** Guest: the host's Town is hostile; every service is closed. */
+  private coopHostHostile = false
+  /** Guest with its own Career save: services commit there, character-only (never the host's world). */
+  private coopOwnSave = false
+  /** Guest: its own arrows in the host's Town; hits are forwarded like its melee. */
+  private readonly coopGuestArrows: ArrowProjectile[] = []
+  private coopGuestRaceText = ''
+  private readonly coopUnsubscribe: Array<() => void> = []
   private readonly stamina = new StaminaBar()
   private readonly quiver = new QuiverUI()
   private readonly equipment = new EquipmentUI()
@@ -272,16 +310,23 @@ export class TownScene {
   private readonly previousTip = new THREE.Vector3()
   private hasPreviousTip = false
   private notice = ''
-  private readonly store = new CareerProfileStore()
+  private store = new CareerProfileStore()
   private tutorial?: TownTutorialController
   private story?: TownStoryController
-  private careerSkillsDirty = false
-  private careerSkillSaveTimer: number | null = null
+  private readonly careerSkillSave = this.createCareerSkillSaveScheduler()
   private mission!: BanditMissionController
   private duel!: CareerDuelController
   private defense!: CommanderTownMissionController | CommanderFourGateDefenseController
   private careerMounts!: CareerMountController
   private missionSettlement!: TownMissionSettlement
+  private readonly townResult = this.createTownResultSettlement()
+  private createTownResultSettlement(): TownResultSettlement {
+    return new TownResultSettlement({
+      read: () => this.profile, commit: profile => this.commit(profile),
+      announce: outcome => { if (this.coopHost) coopSession().send({ t: 'townResult', outcome }) },
+      dispose: () => this.dispose(), restart: (profile, reason) => this.onRestart(profile, reason),
+    })
+  }
   private patrol!: TownCavalryPatrolController
   private squadRefitSafety = new SquadRefitSafety()
   private townCommand?: TownCommandSquadController
@@ -330,10 +375,7 @@ export class TownScene {
   private residentSpawnBatch?: NpcSpawnBatch
   private commanderReturnPending = false
   private get deploymentReady(): boolean {
-    // An idle Commander controller has no deployed roster. Only its active
-    // mission may hold Town simulation while that roster is being prepared.
-    return (this.mission?.ready ?? true) && (!this.defense?.active || this.defense.ready)
-      && (!(isCommanderTownMission(this.profile.activeMission) || this.profile.activeMission?.kind === 'commander-four-gate-defense') || (this.personalSquad?.ready ?? true))
+    return townDeploymentReady({ mission: this.mission, defense: this.defense, personalSquad: this.personalSquad, activeMission: this.profile.activeMission })
   }
   private get deploymentFailed(): boolean {
     return [...(this.mission?.spawnBatches ?? []), ...(this.defense?.spawnBatches ?? []), ...(this.outskirts?.batches ?? []), ...(this.enemyEaglePatrol?.batches ?? [])]
@@ -346,6 +388,10 @@ export class TownScene {
     try {
       progress('載入人物、坐騎與動畫…')
       const playerHero = resolveCareerHeroAsset(profile)
+      // Co-op guest: its own character (from its own save) walks in the host's Town.
+      const coopCharacter = coopGuestCharacterAssets()
+      const coopPreload = coopCharacter ? [...(coopCharacter.hero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[coopCharacter.hero].descriptor)] : []),
+        prepareByzantineEquipment(coopCharacter.equipmentIds)] : []
       const sceneContext = resolveCareerTownSceneContext(profile)
       // Veteran VI includes the opposing native population and may borrow home
       // residents. Resolve their actual civilian styles before queued spawning.
@@ -360,9 +406,12 @@ export class TownScene {
         return hero ? [hero.visualAssetId] : []
       }))
       const felineVariants = new Set([...careerFelineVariants(profile), ...stableHorsePositions(sceneContext.worldFaction).filter(stall => isFelineMountType(stall.type)).map(stall => felineVariantForMountType(stall.type))])
+      const coopFeline = felineVariantFromMountId(coopCharacter?.mountId)
+      if (coopFeline) felineVariants.add(coopFeline)
       // Deployment and Patrol officers are elite heroes: their bodies and Byzantine gear must exist before any resident spawns.
       const officers = [...new Set([sceneContext.residentFaction, sceneContext.worldFaction])].map(townOfficerPreload)
       await Promise.all([...siegeHeroes, ...officers.flatMap(officer => officer.heroAssets.map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))), prepareByzantineEquipment([...officers.flatMap(officer => officer.equipmentIds), profile.equipment?.melee, profile.equipment?.shield, ...(profile.personalSquad?.members ?? []).flatMap(member => { const { loadout } = personalMemberLoadout(member, profile.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), ...[...civilianFactions].map(faction => HumanoidAssetRegistry.preloadAsset(CIVILIAN_HUMANOID_ASSETS[faction])), HorseAssetRegistry.preload(renderer), ...(sceneContext.worldFaction === 'roman' ? [HorseAssetRegistry.preloadArmored(renderer)] : []), BlackCatVisual.preloadVariants(felineVariants), CorgiVisual.preload(), SnowLeopardVisual.preload(), XongkoroVisual.preload(), preloadArchitectureStatues(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(sceneContext.residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(formerCommanderHero && formerCommanderHero !== playerHero && formerCommanderHero !== commanderHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[formerCommanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero && id !== formerCommanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
+      await Promise.all(coopPreload)
       progress('建立村莊與營地…')
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       const town = new TownScene(container, renderer, profile, onCampaign, onRestart, onHome, onTutorialLaunch)
@@ -392,8 +441,9 @@ export class TownScene {
     const residentIds = new Set(this.residentRoster.map(entry => entry.spec.id))
     this.event = new TownEvent(context.missionOnlyResidents ? this.residentRoster.map(entry => entry.spec)
       : population.filter(spec => spec.role === 'cat' || residentIds.has(spec.id)))
-    this.inventory = new TownEquipment(() => this.profile, p => this.commit(p))
-    this.skills.setSkillState(profile.skills ?? {})
+    this.coopPlayerSource = isCoopGuestLaunch() ? coopGuestPlayerSource(profile) : null
+    this.inventory = new TownEquipment(() => this.playerProfile, p => this.commitPlayerProfile(p))
+    this.skills.setSkillState(this.playerProfile.skills ?? {})
   }
   private async initialize(progress: (text: string) => void): Promise<void> {
     const { profile, renderer } = this
@@ -439,9 +489,10 @@ export class TownScene {
     }
     for (const resident of this.residents) { resident.npc.setTownPeaceful(); resident.npc.updateTownPeace(.2, resident.npc.group.position.distanceTo(this.camera.position), false, false) }
     progress('村莊準備完成，生成玩家…')
-    this.player = new Player(this.scene, profile.faction, resolveCareerHeroAsset(profile), resolveCareerOrdinaryTier(profile))
+    const body = this.playerProfile
+    this.player = new Player(this.scene, body.faction, resolveCareerHeroAsset(body), resolveCareerOrdinaryTier(body))
     this.bindBlockingProgression()
-    this.player.setMaxHp(resolveCareerPlayerMaxHp(profile, DEFAULT_PLAYER_MAX_HP), true)
+    this.player.setMaxHp(resolveCareerPlayerMaxHp(body, DEFAULT_PLAYER_MAX_HP), true)
     const missionReturn = this.settleCareerMissionReturnPlan()
     const missionReturnPlan = missionReturn?.status === 'placed' ? missionReturn : null
     // A blocked mission return never starts play on the ordinary entry: hold at the nearest verified point and keep retrying.
@@ -530,7 +581,7 @@ export class TownScene {
       npcPosition: id => { const npc = this.residents.find(resident => resident.spec.id === id)?.npc; return npc && !npc.dead ? npc.combatPosition : null },
       tower: this.world.commandWatchtower, roster: () => this.commandHudRoster(),
       launch: (stage, replay) => {
-        if (!canStartCareerTutorial(this.profile) || !this.flushCareerSkillProgression()
+        if (!canStartCareerTutorial(this.profile) || !this.careerSkillSave.flush()
           || !this.onTutorialLaunch?.(stage, replay)) return false
         // The route owner just saved a session against the latest profile. Disposal must retain it.
         const latest = this.store.loadChecked().profile
@@ -573,9 +624,11 @@ export class TownScene {
     this.duel.resolvePlayerHomeMount = () => this.careerMounts?.activeMount ?? null
     this.duel.onMarchStarted = () => this.playMissionVoice('follow')
     this.duel.onReturnStarted = () => this.playMissionVoice('return')
+    const missionActors = sceneCareerActorFactory(this.scene)
     this.defense = this.profile.activeMission?.kind === 'commander-four-gate-defense'
-      ? new CommanderFourGateDefenseController(this.scene, this.residents, () => this.player, () => this.profile,
-        p => this.commit(p), this.navigation, { world: this.world, patrol: this.patrol, outskirts: this.outskirts,
+      ? new CommanderFourGateDefenseController(missionActors, this.residents, () => this.player, () => this.profile,
+        p => this.commit(p), this.navigation, { world: this.world, createRamp: (...ramp) => new MobileSiegeRamp(this.scene, ...ramp),
+          patrol: this.patrol, outskirts: this.outskirts,
           blockers: () => this.siegeMovementBlockers(),
           registerHit: ramp => {
             this.siegeHitTargets.add(ramp.damageable)
@@ -583,8 +636,9 @@ export class TownScene {
             this.siegeHitRadius.set(ramp.damageable, Math.hypot(ramp.surface.length + ramp.surface.landing,
               ramp.surface.topY - ramp.surface.startY) + ramp.bridgeSurface.length + 8)
           },
-          unregisterHit: ramp => { this.siegeHitTargets.delete(ramp.damageable) } })
-      : new CommanderTownMissionController(this.scene, this.residents, () => this.player, () => this.profile,
+          unregisterHit: ramp => { this.siegeHitTargets.delete(ramp.damageable) },
+          civilianRefuge: count => this.world.townCenterRefugePosts(count) })
+      : new CommanderTownMissionController(missionActors, this.residents, () => this.player, () => this.profile,
         p => this.commit(p), this.navigation, undefined, { obstacles: this.world.obstacles,
           otherThreats: () => [...this.mission.ambientBandits, ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? [])]
             .filter(npc => !npc.dead && (npc.faction === Faction.ENEMY || npc.faction === Faction.BANDIT))
@@ -601,7 +655,7 @@ export class TownScene {
     })
     this.defense.civilianCommandOwns = npc => Boolean(this.civilianCommand?.ownsPlayerCommand(npc) || this.civilianCommand?.ownsPeacefulTravel(npc))
     this.initializeCareerMounts()
-    this.race = new CareerRaceController(this.scene, this.navigation, this.world.obstacles, this.residents,
+    this.race = new CareerRaceController(missionActors, this.navigation, this.world.obstacles, this.residents,
       () => this.player, this.hp, this.careerMounts, () => this.profile, p => this.commit(p, this.player.dead && this.profile.activeRace && !p.activeRace ? 'grounded-return' : 'ordinary'))
     this.race.parkedBlockers = except => [...this.townReturnBlockers(except)]
     this.race.returnGroundHeight = (x, z) => this.sergeantReturnGroundHeight(x, z)
@@ -642,6 +696,7 @@ export class TownScene {
         clearCombatShots: () => this.clearMissionCombatShots(),
         hitNpc: (target, damage, method, source) => this.hitFieldNpc(target, damage, method, source),
         damagePlayer: (source, damage, method) => this.damagePlayerFromNpc(source, damage, method),
+        coopPartner: () => this.coopPartner,
         fireNpc: (origin, direction, kind, source, lifecycle) => this.fire(origin, direction, source.rangedProjectileSpeed, source.rangedDamage, false, false, kind, source, lifecycle),
       },
     )
@@ -718,7 +773,7 @@ export class TownScene {
     this.input.clear()
     if (!context.missionOnlyResidents) this.event.complete()
     this.restoreEagleGarrison()
-    this.restoreTownCasualties()
+    if (this.profile.activeMission?.kind !== 'commander-four-gate-defense' || this.profile.activeMission.result) this.restoreTownCasualties()
     this.civilianCommand.restore()
     this.townCommand.resumeRefits()
     if (this.world.faction === this.profile.faction && !this.sceneContext.missionOnlyResidents) {
@@ -730,7 +785,7 @@ export class TownScene {
           next.playerAerialState = captureCareerAerialState(this.player, this.personalSquad?.sceneKey ?? 'town-home')
           if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '退役動員保存失敗，尚未進行整補。'; return false }
           this.profile = next
-          this.careerSkillsDirty = false
+          this.careerSkillSave.clearDirty()
           this.applyRetirementDeparture()
           return true
         },
@@ -752,7 +807,7 @@ export class TownScene {
         privateSquad: () => this.personalSquad?.hudMission,
         save: next => {
           if (!this.store.save(next)) { this.careerSaveFailures++; return false }
-          this.clearCareerSkillSaveTimer(); this.careerSkillsDirty = false
+          this.careerSkillSave.cancel(); this.careerSkillSave.clearDirty()
           return true
         },
         residents: this.residents, mobilization: this.retirementMobilization, eagles: this.eagleGarrison!,
@@ -788,7 +843,7 @@ export class TownScene {
     window.addEventListener('focus', () => this.preparationClock.reset(), opts)
     window.addEventListener('keydown', e => this.key(e), opts)
     window.addEventListener('pagehide', () => {
-      this.flushCareerSkillProgression()
+      this.careerSkillSave.flush()
       this.persistPersonalSquad(0, true)
       this.captainPatrol?.persist(true)
       this.race?.snapshot(); this.race?.persist()
@@ -915,9 +970,344 @@ export class TownScene {
     await gameplayNpcSpawns.wait(residentBatch, (done, total) => progress(`建立駐軍與居民 ${done} / ${total}…`))
   }
 
+  private coopPort(guest: boolean): CoopGamePort {
+    const town = this, scene = this.scene
+    const inScene = (group: THREE.Object3D): boolean => {
+      for (let node: THREE.Object3D | null = group; node; node = node.parent) if (node === scene) return true
+      return false
+    }
+    const hostNpcs: NPC[] = [], hostMounts: Mount[] = []
+    return {
+      scene, camera: this.camera, hpBar: this.hp,
+      get player() { return town.player },
+      // The host reads every live actor in its Town; the guest only holds its mirrors.
+      get npcs() { return guest ? town.coopGuestNpcs : NPC.live.collect(npc => inScene(npc.group), hostNpcs) },
+      get mounts() { return guest ? town.coopGuestMounts : Mount.live.collect(mount => !mount.disposed && inScene(mount.group), hostMounts) },
+      arrows: [], projectiles: false, selfUpdatesPuppets: true, guestSquad: false,
+      // Host: the four-gate defense, once the host's own claim is saved, by the host's saved result.
+      ...(guest ? {} : { missionSettlement: () => {
+        const active = town.profile.activeMission
+        if (active?.kind !== 'commander-four-gate-defense' || !active.result || !town.profile.claimedBattleIds.includes(active.id)) return null
+        return { missionId: active.id, kind: active.kind, victory: active.result.outcome === 'victory' }
+      } }),
+      // The guest's hits follow the host's own Town rules: hitting a resident starts the shared hostility.
+      applyGuestHit: (target, damage, context) => this.coopGuestHitsTown(target, damage, context),
+      // Four-gate vehicles and the Town gates: the host applies the guest's hit by its own siege rules.
+      siegeRamps: () => this.defense instanceof CommanderFourGateDefenseController ? this.defense.fourGateSiege?.ramps.values() ?? [] : [],
+      siegeGates: () => this.world.gates,
+      applyGuestStructureHit: (target, damage, context) => {
+        const partner = this.coopPartner
+        if (partner) this.damageSiegeStructure(target, damage, target.root.position.clone(), partner, context.source, context.method)
+      },
+      siegeMirror: {
+        obstacles: this.world.obstacles,
+        createRamp: (assignment, placement, faction, shared) => new MobileSiegeRamp(this.scene, assignment, placement, faction, shared, () => {}),
+        configureDocks: ramps => {
+          const passages = this.world.siegeDockPassages
+          if (passages && !passages.isConfigured && ramps.length === 8) passages.configure(ramps.map(ramp => coopSiegePlacement(ramp).passage!))
+        },
+        setDockOpen: (ramp, open) => {
+          const passages = this.world.siegeDockPassages
+          if (passages?.isConfigured) passages.setOpen(ramp.assignment.id as TownSiegeRampId, open)
+        },
+        addAirspace: obstacles => this.world.siegeAirspace?.add(obstacles),
+        removeAirspace: obstacles => this.world.siegeAirspace?.remove(obstacles),
+      },
+      combatEmit: () => {},
+      get ownMount() { return town.coopBorrowedMount ?? town.careerMounts?.activeMount ?? null },
+      borrowedMountKey: () => {
+        const index = town.coopBorrowedMount ? town.stableHorses.indexOf(town.coopBorrowedMount) : -1
+        return index >= 0 ? `stable:${index}` : null
+      },
+      equippedWeapons: () => ({ melee: this.inventory.equippedMelee?.id ?? null, ranged: this.inventory.selectedRanged?.id ?? null, shield: this.inventory.equippedShield?.id ?? null }),
+      weaponsDrawn: () => ({ melee: this.inventory.meleeEnabled, shield: this.inventory.shieldEnabled }),
+      registerNpc: () => {}, unregisterNpc: () => {}, registerMount: () => {}, unregisterMount: () => {}, markVisualArrow: () => {},
+    }
+  }
+
+  private attachCoopHost(): void {
+    const host = this.coopHost = new CoopHostMission(this.coopPort(false))
+    // The guest races beside the host; only the fastest of host, guest and Commander is rewarded.
+    if (this.race) this.race.coopRacer = {
+      position: () => {
+        const proxy = host.guestProxy
+        if (!proxy || proxy.dead) return null
+        const body = proxy.mount ?? proxy
+        return { x: body.group.position.x, y: body.group.position.y, z: body.group.position.z, yaw: body.group.rotation.y }
+      },
+      airborne: () => Boolean(host.guestProxy?.mount?.isAirborne),
+      baseSpeed: () => host.guestProxy?.mount?.baseSpeed ?? 10,
+    }
+    if (this.race) this.race.onCoopGuestWin = (session, guestSeconds) => coopSession().send({ t: 'raceAward', award: {
+      sessionId: session.id, raceId: session.raceId, scheduleVersion: session.scheduleVersion, guestSeconds,
+      ...(session.opponent.finishSeconds !== undefined ? { opponentSeconds: session.opponent.finishSeconds } : {}) } })
+    announceCoopScene('town')
+  }
+
+  /** Host: the guest's own race HUD (phase, its checkpoint, result). */
+  private sendCoopRaceStatus(dt: number): void {
+    if (!this.coopHost) return
+    this.coopRaceStatusTimer += dt
+    if (this.coopRaceStatusTimer < .4) return
+    this.coopRaceStatusTimer = 0
+    coopSession().send({ t: 'townState', hostile: this.event.hostile })
+    const session = this.race?.session
+    if (!session) return
+    const progress = this.race?.coopProgress
+    coopSession().send({ t: 'raceStatus', phase: session.phase, countdown: session.countdownSeconds, elapsed: session.elapsedSeconds,
+      checkpoint: progress?.checkpoint ?? 0, guestSeconds: progress?.finishSeconds, dnf: progress?.dnf, result: session.result, reason: session.reason })
+  }
+
+  private showCoopRaceStatus(message: Record<string, unknown>): void {
+    const phase = String(message.phase ?? '')
+    const checkpoint = Number(message.checkpoint) || 0
+    const next = RACE_LINES[checkpoint]?.label
+    this.coopGuestRaceText = phase === 'guiding' ? '主機報名了賽馬 · 騎上坐騎前往北門起跑線'
+      : phase === 'countdown' ? `賽馬即將開始 · ${Math.ceil(Number(message.countdown) || 0)}`
+      : phase === 'racing' || phase === 'finishing'
+        ? typeof message.dnf === 'string' ? `賽馬：${message.dnf}` : next ? `賽馬 · 下一站：${next}` : '已完賽，等待其他騎手'
+      : phase === 'result' ? `賽馬結束 · ${message.reason === '隊友率先完賽' ? '你最先完賽！' : message.result === 'win' ? '主機獲勝' : '指揮官獲勝或無人完賽'}`
+      : ''
+  }
+
+  /** LAN co-op guest: show the host's Town instead of this page's own simulation. */
+  startCoopGuest(): void {
+    this.cancelPendingSpawns()
+    const own = new Set([this.careerMounts?.activeMount, this.player.currentMount].filter((mount): mount is Mount => Boolean(mount)))
+    // Local actors stay referenced by their controllers but leave the scene; the host's mirrors replace them.
+    for (const npc of NPC.live.collect(() => true)) npc.group.removeFromParent()
+    for (const mount of Mount.live.collect(mount => !own.has(mount))) mount.group.removeFromParent()
+    // Services, equipment and mounts now use the guest's own save; the host's copy only built the world.
+    const ownStore = new CareerProfileStore(localStorage), ownProfile = ownStore.loadChecked().profile
+    if (ownProfile) { this.store = ownStore; this.profile = ownProfile; this.coopPlayerSource = null; this.coopOwnSave = true }
+    // Stand beside the host instead of inside it.
+    if (this.player.currentMount) { this.player.currentMount.group.position.x += 2.5; this.player.syncMountTransform() }
+    else this.player.group.position.x += 2.5
+    this.coopGuest = new CoopGuestMission(this.coopPort(true), reason => showCoopGuestEnd(reason))
+    // The host simulates the siege; this page's own vehicles give way to the host's mirror.
+    if (this.defense instanceof CommanderFourGateDefenseController) this.defense.releaseForCoopGuest()
+    this.personalCommandUI?.setEnabled(false)
+    this.player.onFireArrow = event => {
+      const arrow = new ArrowProjectile(this.scene, event.origin, event.direction, event.speed, event.damage, Faction.PLAYER, true, event.visualKind,
+        { source: createPlayerCombatActorRef(this.player), weaponId: this.inventory.equippedRanged.id })
+      this.coopGuestArrows.push(arrow)
+      this.coopGuest?.onProjectile(event.origin, event.direction, event.speed, event.visualKind)
+    }
+    const link = coopSession()
+    this.coopUnsubscribe.push(
+      link.on('townResult', message => {
+        const outcome = parseCoopTownResult(message.outcome)
+        if (!outcome) return
+        // The shared hostile Town ends for this player too, in its own save.
+        const applied = commitCoopTownResult(outcome)
+        this.reloadCoopGuestProfile()
+        this.coopGuestRaceText = 'error' in applied ? applied.error
+          : applied.defected ? '城鎮已被擊敗：你也一同叛變，以新兵身分轉投對方陣營（已存入你自己的生涯存檔）。'
+          : `你們被城鎮擊敗：扣除 ${applied.penalty} 可用軍功（已存入你自己的生涯存檔）。`
+      }),
+      link.on('raceStatus', message => this.showCoopRaceStatus(message)),
+      // The guest bridge already wrote the award into this player's save; services keep building on it.
+      link.on('missionMerit', () => this.reloadCoopGuestProfile()),
+
+      link.on('townState', message => {
+        this.coopHostHostile = message.hostile === true
+        if (this.coopHostHostile && this.panel && !this.result) this.closePanel()
+      }),
+      link.on('raceAward', message => {
+        const award = parseCoopRaceAward(message.award)
+        if (!award) return
+        // The one write to the guest's own save in co-op: this race's win.
+        const result = commitCoopRaceAward(award)
+        this.reloadCoopGuestProfile()
+        this.coopGuestRaceText = 'merit' in result ? `你贏得賽馬！軍功 +${result.merit}（已存入你自己的生涯存檔）` : result.error
+      }),
+    )
+    this.hud.textContent = ''
+    this.start()
+  }
+
+  /** Guest frame: own walking/riding and the host's mirrored Town; no services, combat or mission rules. */
+  private updateCoopGuestTown(dt: number): void {
+    if (!this.panel && !this.equipment.visible) {
+      this.orbit.update(this.input, dt, this.world.obstacles)
+      if (!this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()),
+        this.player.currentMount?.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles, this.stamina,
+        this.quiver, sound, this.inventory, this.skills.getRangedMultiplier(), true)
+      this.player.group.updateWorldMatrix(true, true)
+      this.interaction()
+    }
+    this.keepCoopBorrowedMount()
+    this.careerMounts.update(dt)
+    this.coopGuest!.updateWorld(dt)
+    this.updateCoopGuestCombat(dt)
+    if (this.coopGuestRaceText) { this.hint.textContent = this.coopGuestRaceText; this.hint.style.display = '' }
+  }
+
+  /**
+   * Guest: a stable or field horse this page built left the scene with the other local actors, so
+   * riding it would move an invisible body. The ridden horse rejoins the scene and stays the guest's
+   * own (the host shows it from the guest's state) until another one is taken.
+   */
+  private keepCoopBorrowedMount(): void {
+    const ridden = this.player.currentMount
+    if (!ridden || ridden === this.careerMounts?.activeMount || ridden === this.coopBorrowedMount) return
+    this.coopBorrowedMount?.group.removeFromParent()
+    this.coopBorrowedMount = null
+    if (ridden.group.parent || this.coopGuestMounts.includes(ridden)) return
+    this.scene.add(ridden.group)
+    this.coopBorrowedMount = ridden
+  }
+
+  /**
+   * Host: the stable horse the guest rides (or left parked) is shown once, as the guest's proxy
+   * mount. This scene's own copy leaves the scene, so nobody here sees, rides or bumps into it,
+   * and the guest's mirror of it is withdrawn; it returns when the guest gives it back.
+   */
+  private syncCoopLentHorse(): void {
+    const key = this.coopHost?.guestBorrowedMount
+    const index = key?.startsWith('stable:') ? Number(key.slice('stable:'.length)) : -1
+    const horse = Number.isInteger(index) && index >= 0 ? this.stableHorses[index] : undefined
+    const lent = horse && !horse.dead && !horse.riderNpc && !horse.riderPlayer ? horse : null
+    if (lent === this.coopLentHorse) return
+    if (this.coopLentHorse && !this.coopLentHorse.disposed && !this.coopLentHorse.group.parent) this.scene.add(this.coopLentHorse.group)
+    this.coopLentHorse = lent
+    lent?.group.removeFromParent()
+  }
+
+  /** Co-op host: menus never freeze the Town for the guest; only this player's control pauses. */
+  private get coopWorldKeepsRunning(): boolean {
+    return Boolean(this.coopHost && coopSession().peerConnected && !this.result && !this.missionResultOpen
+      && !this.spawnErrorShown && !this.deploymentFailed && !this.profile.activeRace && !this.retirementFinale?.active)
+  }
+
+  /** Host: the guest's living proxy, a target and a fighter in a hostile Town. */
+  private get coopPartner(): NPC | null {
+    const proxy = this.coopHost?.guestProxy
+    return proxy && !proxy.dead ? proxy : null
+  }
+
+  /** Host: the shared Town is lost only when both players are down. */
+  private get coopTeamDown(): boolean { return this.player.dead && !this.coopPartner }
+
+  /**
+   * Host: the guest's hit, by the host's own Town routing. Field enemies (bandits, siege attackers,
+   * roaming armies and their mounts) take it as the partner's hit; residents and Town animals start
+   * the shared hostility exactly like the host's own hit.
+   */
+  private coopGuestHitsTown(target: NPC | Mount, amount: number, context: CombatDamageContext): void {
+    if (this.duel?.active || this.retirementFinale?.active || this.profile.activeRace || this.result) return
+    const partner = this.coopPartner
+    if (!partner || target.dead || amount <= 0) return
+    if (target instanceof NPC && (this.outskirts?.owns(target) || this.enemyEaglePatrol?.owns(target)
+      || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY)) {
+      this.hitFieldNpc(target, amount, context.method, partner, context.contact, context.source)
+      // Like the host's own hit: the struck camp turns on the two players.
+      if (target.faction === Faction.BANDIT && !this.isRetirementEvacuating(target)) this.mission.provokeGroupFor(target)
+      return
+    }
+    const townOwned = target instanceof NPC
+      ? this.residents.some(resident => resident.npc === target)
+      : target === this.cat || this.stableHorses.includes(target) || this.residents.some(resident => resident.homeMount === target)
+    if (!townOwned) {
+      if (target instanceof Mount) this.hitBattlefieldMount(target, amount, context.method, partner, context.contact, context.source)
+      return
+    }
+    if (this.defense?.active || this.isProtectedTownAlly(target) || !this.prepareDamage()) return
+    const result = target instanceof NPC ? damageNpc(target, amount, context) : damageMount(target, amount, context)
+    if (result.appliedDamage > 0) this.damageNumbers.spawn(result.appliedDamage, (target instanceof NPC ? target.combatPosition : target.group.position).clone())
+    this.activateHostility(); this.persistCasualties()
+  }
+
+  /** Host: a hostile resident's hit on the guest's proxy (melee, arrow or mount). */
+  private damageCoopPartner(source: NPC, amount: number, method: CombatDamageMethod, contact?: CombatContact): void {
+    const partner = this.coopPartner
+    contact ??= source.unarmedContact
+    if (!partner || !source.hostileToPlayer || amount <= 0) return
+    damageNpc(partner, amount, {
+      contact: contact ?? (method === 'melee' ? source.weaponSweep?.contact : undefined), hostileToTarget: true,
+      source: createNpcCombatActorRef(source), method, emit: event => this.emitCombatEvent(event, source.currentLod, false),
+      weaponId: (method === 'projectile' ? source.rangedWeaponId : (contact?.attackSource === 'unarmed' ? 'unarmed' : source.meleeWeaponId)) ?? undefined,
+    })
+  }
+
+  /** Guest: its own melee, fists and arrows against the host's mirrored Town; the host judges every hit. */
+  private updateCoopGuestCombat(dt: number): void {
+    const player = this.player
+    const targets = this.coopGuestNpcs.filter(npc => !npc.dead && npc.faction !== Faction.PLAYER && npc.group.visible && npc.group.parent)
+    const mounts = this.coopGuestMounts.filter(mount => !mount.dead && mount.group.visible && mount !== player.currentMount)
+    for (let i = this.coopGuestArrows.length - 1; i >= 0; i--) {
+      const arrow = this.coopGuestArrows[i]
+      arrow.update(dt, player, targets, this.world.obstacles, () => {}, () => damagePlayer(player, 0, this.hp, null), undefined, false, mounts)
+      if (!arrow.isAlive) this.coopGuestArrows.splice(i, 1)
+    }
+    if (player.dead) { player.consumeFistStrikes(); return }
+    const source = createPlayerCombatActorRef(player)
+    const weapon = this.inventory.activeMelee
+    if (!weapon) {
+      for (const strike of player.consumeFistStrikes()) {
+        const contact = traceFistStrike(strike, player.position, [...targets, ...mounts], this.world.obstacles)
+        if (!contact) continue
+        const amount = unarmedDamage(this.skills.getMultiplier('unarmed'), player.heroAssetId)
+        const context = { source, method: 'melee' as const, weaponId: 'unarmed', contact }
+        if (contact.kind === 'mount' && contact.mount) damageMount(contact.mount, amount, context)
+        else if (contact.target instanceof NPC) damageNpc(contact.target, amount, context)
+      }
+      return
+    }
+    if (!player.isHitFrame(this.inventory.equippedMelee)) return
+    const damage = calculatePlayerMeleeDamage({
+      baseDamage: weapon.damageMax, combatKind: weapon.combatKind, isLance: weapon.isLance === true,
+      isMounted: player.isMounted, mountSpeed: player.currentMount?.movementSpeed ?? 0,
+      oneHandedMultiplier: this.skills.getMultiplier(resolveCombatSkill('melee', weapon, Boolean(this.inventory.shieldEnabled && this.inventory.equippedShield))!),
+      faction: player.characterFaction, hasShield: this.inventory.shieldEnabled, heroAssetId: player.heroAssetId ?? undefined,
+    })
+    const contact = player.weaponSweep.traceFirst(targets, mounts, player.currentMount)
+    if (!contact) {
+      // Siege vehicles and gates: the host judges the hit by its own siege rules.
+      const structure = this.coopGuestStructureContact(player.getWeaponGripPosition(new THREE.Vector3()), player.getSwordTipPosition())
+      if (!structure) return
+      player.markHitProcessed()
+      const result = damageObstacle(structure.target, damage.damage, { source, method: 'melee', weaponId: weapon.id })
+      if (result.appliedDamage > 0) { this.damageNumbers.spawn(result.appliedDamage, structure.point); sound?.playSwordHit(0, true) }
+      return
+    }
+    player.markHitProcessed()
+    const target = contact.target as NPC | Mount
+    const amount = Math.round(damage.damage * getAntiCavalryMultiplier(weapon.combatKind, player.isMounted, contact.kind === 'mount' || target.isMounted))
+    const context = { source, method: 'melee' as const, weaponId: weapon.id, contact }
+    const result = contact.kind === 'mount' && contact.mount ? damageMount(contact.mount, amount, context) : target instanceof NPC ? damageNpc(target, amount, context) : null
+    if (result?.hitSuccess && result.appliedDamage > 0) {
+      this.damageNumbers.spawn(result.appliedDamage, (target instanceof NPC ? target.combatPosition : target.group.position).clone().add(new THREE.Vector3(0, 1, 0)))
+      sound?.playSwordHit(0, true)
+    }
+  }
+
+  /** Guest: the first mirrored siege vehicle or gate box the blade crosses. */
+  private coopGuestStructureContact(from: THREE.Vector3, to: THREE.Vector3): { target: DamageableObstacle; point: THREE.Vector3 } | null {
+    const structures = new Set(this.coopGuest?.structures().values() ?? [])
+    if (!structures.size) return null
+    const direction = to.clone().sub(from), length = direction.length()
+    if (length < 1e-6) return null
+    const ray = new THREE.Ray(from, direction.multiplyScalar(1 / length)), box = new THREE.Box3(), point = new THREE.Vector3()
+    for (const obstacle of this.world.obstacles) {
+      const target = obstacle.damageable
+      if (!target || target.destroyed || !structures.has(target) || !target.isDamageableBy(this.player.characterFaction)) continue
+      if (ray.intersectBox(box.copy(obstacle.box).expandByScalar(.45), point) && point.distanceTo(from) <= length) return { target, point: point.clone() }
+    }
+    return null
+  }
+
+  private openCoopGuestMenu(): void {
+    const panel = this.openPanel('合作模式', '你正在主機的城鎮裡。城鎮服務、指揮與任務都由主機操作。')
+    const resume = panel.querySelector('button')
+    if (resume) resume.textContent = '繼續'
+    this.button(panel, '離開房間', () => { void leaveCoopGuestRoom() })
+  }
+
   private siegeOpeningPending = false
   /** Called after the entry removes its loading overlay. */
   start(): void {
+    if (!this.coopGuest && coopSession().isHost) this.attachCoopHost()
     this.last = performance.now()
     this.raf = requestAnimationFrame(t => {
       if (this.disposed) return
@@ -935,34 +1325,27 @@ export class TownScene {
     const played = await sound.playTownAlarm(true)
     if (played && !this.disposed && this.profile.activeMission?.id === missionId && !this.profile.activeMission?.result) sound.playCommanderCommand(this.profile.faction, 'attack')
   }
-  private clearCareerSkillSaveTimer(): void {
-    if (this.careerSkillSaveTimer === null) return
-    clearTimeout(this.careerSkillSaveTimer)
-    this.careerSkillSaveTimer = null
+  private createCareerSkillSaveScheduler(): CareerSkillSaveScheduler {
+    return new CareerSkillSaveScheduler({
+      save: () => this.saveCareerSkills(),
+      blocked: () => Boolean(this.retirementFinale?.frozen),
+      onSaveFailed: () => { this.notice = '技能進度保存失敗，請稍後重試。' },
+    })
   }
 
-  private scheduleCareerSkillProgressionFlush(): void {
-    if (!this.careerSkillsDirty || this.careerSkillSaveTimer !== null) return
-    this.careerSkillSaveTimer = window.setTimeout(() => {
-      this.careerSkillSaveTimer = null
-      this.flushCareerSkillProgression()
-    }, 600)
-  }
-
-  private flushCareerSkillProgression(): boolean {
-    this.clearCareerSkillSaveTimer()
-    if (this.retirementFinale?.frozen || !this.careerSkillsDirty) return true
+  /**
+   * Town is the only writer of this profile while the scene lives (every other save publishes `this.profile`
+   * first), so cloning the in-memory profile cannot drop newer stored state. Unlike the battle scene it
+   * therefore does not re-read the store; the publish happens only after the write succeeded.
+   */
+  private saveCareerSkills(): boolean {
     const next = cloneCareerProfile(this.profile)
     next.skills = this.skills.skillState
     if (next.careerRetirement?.phase === 'final-stand' && !this.retirementFinale?.frozen) this.captureRetirementResources(next)
-    if (!this.store.save(next)) {
-      this.notice = '技能進度保存失敗，請稍後重試。'
-      return false
-    }
+    if (!this.store.save(next)) return false
     this.profile = next
     this.synchronizeEaglePatrolPolicy()
     this.outskirts?.synchronizeRank()
-    this.careerSkillsDirty = false
     return true
   }
 
@@ -1060,6 +1443,7 @@ export class TownScene {
   }
 
   private commit(profile: CareerProfile, change: TownProfileChange = 'ordinary'): boolean {
+    if (this.coopGuest) return this.commitCoopGuestProfile(profile)
     const latest = this.store.loadChecked()
     if (latest.error || !latest.profile || latest.profile.tutorial?.careerId !== this.profile.tutorial?.careerId
       || profile.tutorial?.careerId !== this.profile.tutorial?.careerId) {
@@ -1086,10 +1470,10 @@ export class TownScene {
       get careerMounts() { return scene.careerMounts },
       get careerSaveFailures() { return scene.careerSaveFailures },
       set careerSaveFailures(value) { scene.careerSaveFailures = value },
-      get careerSkillsDirty() { return scene.careerSkillsDirty },
-      set careerSkillsDirty(value) { scene.careerSkillsDirty = value },
+      get careerSkillsDirty() { return scene.careerSkillSave.dirty },
+      set careerSkillsDirty(value) { if (value) scene.careerSkillSave.markDirty(); else scene.careerSkillSave.clearDirty() },
       get civilianCommand() { return scene.civilianCommand },
-      clearCareerSkillSaveTimer: () => scene.clearCareerSkillSaveTimer(),
+      clearCareerSkillSaveTimer: () => scene.careerSkillSave.cancel(),
       get defense() { return scene.defense },
       get deploymentPage() { return scene.missionBoard.page },
       set deploymentPage(value) { scene.missionBoard.page = value },
@@ -1168,33 +1552,22 @@ export class TownScene {
     if (award) this.awardCareerSkillXp(award)
   }
 
-  private awardCareerSkillXp({ skill, xp }: SkillProgressionAward): void {
-    if (!canAwardPlayerSkillProgression({
-      dead: this.player.dead,
-      spectatorOnly: this.player.spectatorOnly,
-      observer: Boolean(this.spectator),
-    })) return
-    if (xp <= 0 || this.profile.activeMission?.duelTutorialCareerId) return
-
-    const before = this.skills.skillState
-    const levelsGained = this.skills.addXp(skill, xp, sound)
-    const after = this.skills.skillState
-    syncPlayerSkillCombatLevels(this.player, after)
-    if (skillStatesEqual(before, after)) return
-
-    const next = cloneCareerProfile(this.profile)
-    next.skills = after
-    this.profile = next
-    this.careerSkillsDirty = true
-    if (levelsGained > 0) this.flushCareerSkillProgression()
-    else this.scheduleCareerSkillProgressionFlush()
-
-    if (levelsGained <= 0) return
-    const oldHp = this.player.hp
-    const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
-    this.player.setMaxHp(newMaxHp, false)
-    this.player.setHp(Math.min(newMaxHp, oldHp + levelsGained))
-    this.hp.setFill(this.player.hpRatio)
+  private awardCareerSkillXp(award: SkillProgressionAward): void {
+    applyTownSkillXp(award, {
+      canAward: () => canAwardPlayerSkillProgression({ dead: this.player.dead, spectatorOnly: this.player.spectatorOnly, observer: Boolean(this.spectator) }),
+      profile: () => this.profile, publishProfile: next => { this.profile = next },
+      skillState: () => this.skills.skillState, addXp: (skill, xp) => this.skills.addXp(skill, xp, sound),
+      syncPlayerLevels: state => syncPlayerSkillCombatLevels(this.player, state),
+      markDirty: () => this.careerSkillSave.markDirty(),
+      flushNow: () => { this.careerSkillSave.flush() }, scheduleFlush: () => this.careerSkillSave.schedule(),
+      onLevelUp: levelsGained => {
+        const oldHp = this.player.hp
+        const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
+        this.player.setMaxHp(newMaxHp, false)
+        this.player.setHp(Math.min(newMaxHp, oldHp + levelsGained))
+        this.hp.setFill(this.player.hpRatio)
+      },
+    })
   }
 
   private enterMissionObserver(): void {
@@ -1238,14 +1611,21 @@ export class TownScene {
     }
     if (e.code === 'Escape') {
       e.preventDefault(); e.stopImmediatePropagation()
-      if (!e.repeat) this.openPauseMenu()
+      if (!e.repeat) { if (this.coopGuest) this.openCoopGuestMenu(); else this.openPauseMenu() }
       return
     }
+    // The co-op guest has no equipment, command or service access in the host's Town.
+    if (this.coopGuest && ['KeyQ', 'KeyG', 'KeyH'].includes(e.code)) { e.preventDefault(); e.stopImmediatePropagation(); return }
     if (this.player.dead) {
       if (['Tab', 'KeyE', 'KeyQ', 'KeyG'].includes(e.code)) { e.preventDefault(); e.stopImmediatePropagation() }
       return
     }
     if (e.repeat) return
+    if (e.code === 'KeyH' && this.defense instanceof CommanderFourGateDefenseController && this.defense.phase === 'PREPARING') {
+      e.preventDefault(); e.stopImmediatePropagation()
+      this.defense.skipPreparation()
+      return
+    }
     if (e.code === 'Tab') {
       e.preventDefault(); e.stopImmediatePropagation(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
       const adapters = createTownCareerEquipmentUI(() => this.profile, () => this.townEquipmentContext(),
@@ -1300,7 +1680,7 @@ export class TownScene {
   private returnHome(): void {
     if (this.disposed || this.retirementFinale?.frozen || this.result || this.missionResultOpen) return
     const failures = this.careerSaveFailures
-    const skillsSaved = this.flushCareerSkillProgression()
+    const skillsSaved = this.careerSkillSave.flush()
     this.persistPersonalSquad(0, true)
     if (this.captainPatrol?.active) this.captainPatrol.persist(true)
     else if (this.duel?.active) this.duel.persistRuntimeProgress(true)
@@ -1314,6 +1694,7 @@ export class TownScene {
       this.openPauseMenu('進度保存失敗，尚未返回主選單。請確認儲存空間後，再按「上一頁」重試。')
       return
     }
+    this.coopHost?.dispose()
     this.dispose()
     this.onHome()
   }
@@ -1340,7 +1721,7 @@ export class TownScene {
   private talk(id: string, response?: string, shopPage: 'buy' | 'sell' = 'buy', shopCategory: EquipmentCategory = 'melee'): void {
     if (this.player.dead || !this.serviceAvailable(id)) return
     if (id === 'hr-officer') {
-      if (!this.tutorialBypass && this.tutorial?.hasDialogue('hr-officer')) {
+      if (!this.tutorialBypass && !this.coopGuest && this.tutorial?.hasDialogue('hr-officer')) {
         const panel = this.openPanel('HR Officer · 人力資源官', '')
         panel.querySelector('.town-panel > button')?.remove()
         this.tutorial.renderDialogue(panel, 'hr-officer')
@@ -1364,13 +1745,13 @@ export class TownScene {
     const context: DialogueContext = { townFaction: p.faction, npcRole: role, playerRank: p.rank, firstMeet, promotionEligible: canAppointCareerRank(p, id) || classAppointable }
     const greeting = response ?? (id === 'eagle-trainer' ? `巨鷹訓練場\n隊長與指揮官可用 ${XONGKORO_PRODUCT.price.toLocaleString()} 軍功購買 xongkoro 巨鷹（最多持有 ${MAX_PLAYER_OWNED_XONGKORO} 隻）。請在開闊的起降區召喚；按 W 起飛，滑鼠轉向，按 S 減速降落。` : selectTownDialogue(context))
     if (id === 'captain' || id === 'commander') {
-      if (!this.tutorialBypass && this.story?.hasDialogue(id)) {
+      if (!this.tutorialBypass && !this.coopGuest && this.story?.hasDialogue(id)) {
         const panel = this.openPanel(NAMES[id], '')
         panel.querySelector('.town-panel > button')?.remove()
         this.story.renderDialogue(panel, id)
         return
       }
-      if (!this.tutorialBypass && this.tutorial?.hasDialogue(id)) {
+      if (!this.tutorialBypass && !this.coopGuest && this.tutorial?.hasDialogue(id)) {
         const panel = this.openPanel(id === 'captain' ? '騎兵隊長' : '指揮官', '')
         panel.querySelector('.town-panel > button')?.remove()
         this.tutorial.renderDialogue(panel, id)
@@ -1415,8 +1796,8 @@ export class TownScene {
           }
         })
       }
-      this.tutorial?.appendPanel(panel, id, this.tutorialBypass)
-      if (id === 'commander') appendCommanderRetirementOption(panel, this.profile, {
+      if (!this.coopGuest) this.tutorial?.appendPanel(panel, id, this.tutorialBypass)
+      if (id === 'commander' && !this.coopGuest) appendCommanderRetirementOption(panel, this.profile, {
         available: () => !this.player.dead && this.serviceAvailable('commander'),
         openPanel: (title, text) => this.openPanel(title, text),
         start: () => this.startCommanderRetirement(), leave: () => this.closePanel(),
@@ -1824,12 +2205,13 @@ export class TownScene {
       && !this.shots.some(shot => !shot.training && (shot.player || actors.some(actor => actor.combatantId === shot.sourceRef?.actorId)))
   }
   private emitCombatEvent(event: CombatEvent, lod = 0, priority = event.source.actorType === 'player'): void {
-    this.duel?.recordCombatEvent(event)
-    this.awardCareerDamageXp(event, lod, priority);
-    (this.squadRefitSafety ??= new SquadRefitSafety()).note(event)
-    if (this.retirementFinale?.active) { this.retirementFinale.recordEvent(event); return }
-    if (this.captainPatrol?.active) this.captainPatrol.recordEvent(event)
-    else (this.duel?.active ? this.duel.events : this.defense?.active ? this.defense.events : this.mission?.events)?.emit(event)
+    // Co-op: the guest's own four-gate record, for the merit it earns by the same rules.
+    if (this.profile.activeMission?.kind === 'commander-four-gate-defense') this.coopHost?.recordCombatEvent(event)
+    routeTownCombatEvent(event, {
+      duel: this.duel, retirementFinale: this.retirementFinale, captainPatrol: this.captainPatrol, defense: this.defense, mission: this.mission,
+      refitSafety: this.squadRefitSafety ??= new SquadRefitSafety(),
+      awardXp: () => this.awardCareerDamageXp(event, lod, priority),
+    })
   }
   private recruitmentChoice: PersonalRecruitmentChoice = { characterTier: 1, recruitmentRole: 'swordsman' }
   private openRecruitmentPanel(response?: string): void {
@@ -1875,7 +2257,8 @@ export class TownScene {
         const first = !this.profile.townDialogueSeen?.includes(`${this.profile.faction}:hr-recruit-${type}`)
         const result = recruitPersonalSquadMember(this.profile, choice, next => this.commit(next))
         // Only a saved hire materializes: the new member appears at its HR muster slot without a Follow order.
-        if (result.recruited) { this.inventory.syncOwnership(); this.careerMounts.syncOwnership(); this.personalSquad?.materializeStandby() }
+        // A co-op guest's hire joins its squad in its own save; the host's Town never spawns it.
+        if (result.recruited) { this.inventory.syncOwnership(); this.careerMounts.syncOwnership(); if (!this.coopGuest) this.personalSquad?.materializeStandby() }
         const price = resolvePersonalRecruitment(this.profile.faction, choice)?.price ?? 0
         const message = result.recruited ? first ? PERSONAL_RECRUIT_DIALOGUE[type] : `招募成功！目前私兵 ${this.profile.personalSquad?.members.length ?? 0}/30 人。`
           : result.reason === 'rank-locked' ? choice.characterTier === 5 ? '招募 T5 需要正式任命為指揮官。' : '需要正式任命為隊長才能招募。'
@@ -1885,7 +2268,7 @@ export class TownScene {
       },
     })
     const heading = document.createElement('h3'); heading.textContent = '遣散隊員'; list.append(heading)
-    const canRelease = this.personalSquad?.state === 'RESERVE' && !this.profile.activeMission && !this.profile.activeOutpostMission
+    const canRelease = (this.coopGuest || this.personalSquad?.state === 'RESERVE') && !this.profile.activeMission && !this.profile.activeOutpostMission
     if (members.length && !canRelease) {
       const why = document.createElement('p'); why.className = 'town-summary'
       why.textContent = '私兵尚未全員回營，暫時不能遣散：請先下令「Dismiss · 收隊」，等全員回到人資中心。'
@@ -1918,8 +2301,10 @@ export class TownScene {
     const confirm = this.openPanel(`確定遣散 ${ids.length} 名隊員？`, `將退還 ${refund.toLocaleString()} 軍功。\n注意：隊員目前攜帶的武器、盾牌與坐騎會隨他們離開，不會回到背包；想保留的裝備，請先卸下。\n（非遊俠隊員至少要帶一把武器離開。）\n此操作無法復原。`)
     this.button(confirm, '確認遣散', () => {
       if (this.player.dead || !this.serviceAvailable('hr-officer')) return
-      const result = sellPersonalSquadMembers(() => this.profile, this.personalSquad!, ids, next => this.commit(next))
-      if (result.sold) { this.inventory.syncOwnership(); this.careerMounts.syncOwnership(); this.personalSquad?.materializeStandby() }
+      // A co-op guest's squad lives only in its own save while in the host's Town: always at HR.
+      const authority = this.coopGuest ? { state: 'RESERVE' as const } : this.personalSquad!
+      const result = sellPersonalSquadMembers(() => this.profile, authority, ids, next => this.commit(next))
+      if (result.sold) { this.inventory.syncOwnership(); this.careerMounts.syncOwnership(); if (!this.coopGuest) this.personalSquad?.materializeStandby() }
       this.openRecruitmentPanel(result.sold ? `已遣散 ${result.soldCount} 人，退還 ${result.refund.toLocaleString()} 軍功。` : result.reason === 'save-failed' ? this.notice : result.reason === 'last-weapon' ? '非遊俠隊員至少要帶一把武器離開，請先為他們換上武器。' : '目前無法遣散隊員。')
     })
     this.button(confirm, '取消', () => this.openRecruitmentPanel())
@@ -1965,21 +2350,29 @@ export class TownScene {
     this.button(panel, '重新整理', () => this.openSquadRefitPanel())
   }
   private openDeploymentPanel(greeting: string, context: DialogueContext, firstOutpost: boolean, bypassIntro = this.tutorialBypass): void {
-    if (this.player.dead || !this.serviceAvailable('deployment')) return
+    openDeploymentVisit(bypassIntro, {
+      available: () => !this.player.dead && this.serviceAvailable('deployment'),
+      showPendingResult: () => {
+        const result = this.profile.activeMission?.result
+        if (result) this.openMissionResult(result, true)
+        return Boolean(result)
+      },
+      story: this.story, tutorial: this.tutorial,
+      showStory: () => {
+        const panel = this.openPanel('士官長', '')
+        panel.querySelector('.town-panel > button')?.remove()
+        this.story!.renderDialogue(panel, 'deployment')
+      },
+      showTutorial: () => {
+        const panel = this.openPanel('士官長', '')
+        panel.querySelector('.town-panel > button')?.remove()
+        this.tutorial!.renderDialogue(panel, 'deployment')
+      },
+      showServices: reopen => this.openDeploymentServices(greeting, context, firstOutpost, bypassIntro, reopen),
+    })
+  }
+  private openDeploymentServices(greeting: string, context: DialogueContext, firstOutpost: boolean, bypassIntro: boolean, reopen: () => void): void {
     const active = this.profile.activeMission
-    if (active?.result) { this.openMissionResult(active.result, true); return }
-    if (!bypassIntro && this.story?.hasDialogue('deployment')) {
-      const panel = this.openPanel('士官長', '')
-      panel.querySelector('.town-panel > button')?.remove()
-      this.story.renderDialogue(panel, 'deployment')
-      return
-    }
-    if (!bypassIntro && this.tutorial?.hasDialogue('deployment')) {
-      const panel = this.openPanel('士官長', '')
-      panel.querySelector('.town-panel > button')?.remove()
-      this.tutorial.renderDialogue(panel, 'deployment')
-      return
-    }
     const line = this.profile.tutorial?.town.step === 'weapon' ? '空手也可以接取任務；武器購買教學可稍後完成。' : greeting
     const panel = this.openPanel('士官長', line)
     this.tutorial?.appendPanel(panel, 'deployment', bypassIntro)
@@ -2005,7 +2398,7 @@ export class TownScene {
       return
     }
     // The board's later tab clicks outlive talk()'s temporary bypass. Keep this visit in the service panel.
-    this.missionBoard.render(panel, { context, firstOutpost, reopen: () => this.openDeploymentPanel(greeting, context, firstOutpost, bypassIntro) })
+    this.missionBoard.render(panel, { context, firstOutpost, reopen })
   }
   private missionBoardHost(): MissionBoardHost {
     const scene = this
@@ -2515,8 +2908,8 @@ export class TownScene {
     this.careerMounts = new CareerMountController(
       this.scene,
       () => this.player,
-      () => this.profile,
-      p => this.commit(p),
+      () => this.playerProfile,
+      p => this.commitPlayerProfile(p),
       () => this.careerMounts?.activeMount?.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles,
       () => [
         ...this.residents.filter(r => !r.npc.dead).map(r => r.npc.combatPosition),
@@ -2843,6 +3236,8 @@ export class TownScene {
       this.button(panel, '重試保存結算', () => this.finishMission(outcome))
       return
     }
+    // The host's claim is saved: the guest earns its own merit for this mission now.
+    this.coopHost?.notifySettled()
     this.temporaryMounts.cleanup()
     this.openMissionResult(finished.result, false)
   }
@@ -2971,6 +3366,8 @@ export class TownScene {
     } finally { this.commanderReturnPending = false }
   }
   private serviceAvailable(id: string): boolean {
+    // Co-op guest: shop, mounts, HR and promotion on its own save; missions come from the host.
+    if (this.coopGuest && (id === 'deployment' || this.coopHostHostile || !this.coopOwnSave)) return false
     if (this.sceneContext.missionOnlyResidents || !areOrdinaryTownServicesPeaceful(this.profile, this.event.hostile)) return false
     if (id === 'merchant' && this.civilianCommand?.returningActorIds.includes(id)) return false
     if (id === 'commander' && !this.residents.some(resident => resident.spec.id === id)) return false
@@ -3236,17 +3633,16 @@ export class TownScene {
     }
   }
   private restoreTownCasualties(): void {
-    if (this.profile.townEvent?.state !== 'hostile') return
-    for (const id of this.profile.townEvent.deadActorIds ?? []) {
-      const actor = id === 'cat' ? this.cat : this.residents.find(r => r.spec.id === id)?.npc
-      actor?.takeDamage(999999)
-    }
-    for (const id of this.profile.townEvent.destroyedBuildingIds ?? []) this.world.buildings.find(b => b.id === id)?.hp.destroy()
+    restoreTownCasualties(this.profile, {
+      actor: id => id === 'cat' ? this.cat : this.residents.find(r => r.spec.id === id)?.npc,
+      building: id => this.world.buildings.find(b => b.id === id),
+    })
   }
   private hitFieldNpc(target: NPC, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
     contact ??= source?.unarmedContact
     if (this.duel?.isParkedResident(target)) return // Parked residents are untouchable by every source.
     if (this.retirementFinale?.frozen || this.fourGateCombatHeld || source && this.isRetirementEvacuating(source)) return
+    if (source && target === this.coopPartner) { this.damageCoopPartner(source, amount, method, contact); return }
     if (this.defense?.phase === 'PREPARING' && (source?.combatOwnership === 'player-personal' || target.combatOwnership === 'player-personal')) return
     contact ??= method === 'melee' ? (source ?? this.player).weaponSweep?.contact : undefined
     if (contact?.kind === 'mount' && contact.mount) {
@@ -3351,11 +3747,11 @@ export class TownScene {
     for (const s of this.shots) {
       if (!s.arrow.isAlive) continue
       if (!s.training && this.fourGateCombatHeld) { s.arrow.destroy(); continue }
-      const from = s.arrow.mesh.position.clone(); s.age += dt
+      s.age += dt
       if (!s.training && s.age > (s.maxLifetimeSeconds ?? 5)) { s.arrow.destroy(); continue }
-      s.arrow.update(dt, this.player, [], [], () => {}, damage => damagePlayer(this.player, damage, this.hp, null), undefined, true)
-      if (!s.arrow.isAlive) continue
-      const to = s.arrow.mesh.position
+      const step = s.arrow.stepFlight(dt)
+      if (!step) continue
+      const { from, to } = step
       if (s.training) { if (s.age > .3) s.arrow.destroy(); continue }
       const hit = this.shotContacts.find(from, to, {
         world: { kind: 'town', practiceTargets: this.world.targets,
@@ -3385,7 +3781,8 @@ export class TownScene {
           this.damageSiegeStructure(hit.target, s.arrow.damage, hit.point, s.source, s.sourceRef, 'projectile')
         } else if (hit.kind === 'actor') {
           const { target, contact } = hit
-          if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, s.arrow.damage, 'projectile', s.source, contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
+          if (s.source && target === this.coopPartner) this.damageCoopPartner(s.source, s.arrow.damage, 'projectile', contact)
+          else if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, s.arrow.damage, 'projectile', s.source, contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
           else if (target instanceof Player && s.source) this.damagePlayerFromNpc(s.source, s.arrow.damage, 'projectile', contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
           else if (target instanceof NPC && (this.race?.actors.includes(target) || this.duel?.isMissionTarget(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY || Boolean(s.source && target.faction !== s.source.faction))) this.hitFieldNpc(target, s.arrow.damage, 'projectile', s.source, contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
           else if (target === this.cat && this.defense.active && s.source?.faction === Faction.ENEMY) {
@@ -3400,13 +3797,15 @@ export class TownScene {
     }
     this.shots = this.shots.filter(s => s.arrow.isAlive)
   }
-  private readonly shotPlayerTarget: Player[] = []
+  private readonly shotPlayerTarget: (Player | NPC)[] = []
   private readonly shotTargetGroups: (readonly (Player | NPC | Mount)[])[] = [this.shotPlayerTarget, [], []]
   private readonly shotTargetInput: ProjectileTargetGroups<Player | NPC | Mount> = { groups: this.shotTargetGroups }
   /** Runtime snapshot order, visited in place: player prefix, actor membership order, then independent mounts. */
   private runtimeShotTargets(s: Shot, runtimeActors: readonly NPC[]): ProjectileTargetGroups<Player | NPC | Mount> {
     this.shotPlayerTarget.length = 0
     if (!s.player && (!s.source || s.source.hostileToPlayer)) this.shotPlayerTarget.push(this.player)
+    const partner = this.coopPartner
+    if (partner && s.source && townWartimeHostile(s.source, partner)) this.shotPlayerTarget.push(partner)
     this.shotTargetGroups[1] = s.player || s.source ? runtimeActors : EMPTY_SHOT_ACTORS
     this.shotTargetGroups[2] = this.combatMounts
     return this.shotTargetInput
@@ -3434,6 +3833,8 @@ export class TownScene {
           ? this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
           : [this.player]
     targets.push(...this.combatMounts.filter(mount => this.canHitTownMount(mount, s.source)))
+    const partner = this.coopPartner
+    if (partner && s.source && townWartimeHostile(s.source, partner)) targets.push(partner)
     return targets
   }
 
@@ -3586,7 +3987,7 @@ export class TownScene {
       if (Math.hypot(position.x - playerBody.position.x, position.z - playerBody.position.z) > 3) continue
       resolveEntityCollision(playerBody, { position, radius: r.npc.mount ? .95 : .42, height: r.npc.mount ? 2.8 : 1.8, bottomOffset: 0, anchored: true }, this.world.obstacles)
     }
-    for (const mount of this.townServiceMounts) if (!mount.dead && mount !== this.player.currentMount) resolveEntityCollision(playerBody, { position: mount.group.position, radius: .85, height: 2, bottomOffset: 0, anchored: true }, this.world.obstacles)
+    for (const mount of this.townServiceMounts) if (!mount.dead && mount !== this.player.currentMount && mount !== this.coopLentHorse) resolveEntityCollision(playerBody, { position: mount.group.position, radius: .85, height: 2, bottomOffset: 0, anchored: true }, this.world.obstacles)
     for (const npc of [...this.mission.fieldNpcs, ...this.defense.fieldNpcs, ...(this.duel?.fieldNpcs ?? []), ...(this.race?.actors ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? [])]) if (!npc.dead && npc.combatPosition.distanceTo(this.player.combatPosition) < 3) resolveEntityCollision(playerBody, { position: npc.combatPosition, radius: .42, height: 1.8, bottomOffset: 0, anchored: false }, this.world.obstacles)
     this.player.group.position.y = Math.max(this.player.group.position.y, standingPlayerY(getTerrainHeight(this.player.group.position.x, this.player.group.position.z)))
   }
@@ -3756,10 +4157,14 @@ export class TownScene {
       }
       if (this.updateEagleDuty(r.npc, dt, true)) continue
       const warfare = Boolean(this.outskirts?.actors.length || this.enemyEaglePatrol?.actors.length || this.personalSquad?.actors.length || this.townCommand?.authorizedActorIds.length)
-      r.npc.update(dt, this.player, warfare ? this.missionCombat.runtimeParticipants : [],
+      // Co-op: the whole Town hunts both players.
+      const partner = this.event.hostile && r.npc.hostileToPlayer ? this.coopPartner : null
+      const participants = warfare ? this.missionCombat.runtimeParticipants : []
+      r.npc.update(dt, this.player, partner ? [...participants, partner] : participants,
         this.grid.getNearbyInto(r.npc.combatPosition, 2, this.neighbors), r.npc.mount?.isFlyingMount ? this.world.airspaceObstacles : this.npcObstacles, this.hp,
         (damage, isPlayer, targetNpc, targetMount) => {
           if (isPlayer) this.damagePlayerFromNpc(r.npc, damage, 'melee')
+          else if (partner && (targetNpc === partner || targetMount === partner.mount)) this.damageCoopPartner(r.npc, damage, 'melee')
           else if (targetNpc) this.hitFieldNpc(targetNpc, damage, 'melee', r.npc)
           else if (targetMount) this.hitBattlefieldMount(targetMount, damage, 'melee', r.npc, r.npc.weaponSweep.contact)
         }, (origin, direction, kind, lifecycle) => this.fire(origin, direction, r.npc.rangedProjectileSpeed, r.npc.rangedDamage, false, false, kind, r.npc, lifecycle), false,
@@ -3793,7 +4198,7 @@ export class TownScene {
       let mountDistance = CAREER_MOUNT_INTERACTION_DISTANCE
       const mounts = new Set([this.careerMounts?.activeMount, ...this.temporaryMounts.all, ...this.stableHorses, ...(this.outskirts?.mounts ?? [])])
       for (const mount of mounts) {
-        if (!mount?.availableForPlayer || mount.isAirborne || Math.abs(mount.group.position.y - playerPosition.y) > 3) continue
+        if (!mount?.availableForPlayer || mount === this.coopLentHorse || mount.isAirborne || Math.abs(mount.group.position.y - playerPosition.y) > 3) continue
         const distance = Math.hypot(mount.group.position.x - playerPosition.x, mount.group.position.z - playerPosition.z)
         if (distance < mountDistance) { mountDistance = distance; this.nearbyTemporaryMount = mount }
       }
@@ -3801,7 +4206,8 @@ export class TownScene {
     this.target = null; let nearest = 4.2
     if (!this.profile.activeRace && !this.defense.active && !this.player.isFalling && !this.player.currentMount?.isAirborne) for (const id of ['captain', 'commander', 'deployment', 'merchant', 'ranger', 'cat', 'hr-officer', 'eagle-trainer']) {
       if (!this.serviceAvailable(id)) continue
-      const pos = id === 'cat' ? this.cat.group.position : this.residents.find(r => r.spec.id === id)!.npc.combatPosition
+      const pos = this.servicePoint(id)
+      if (!pos) continue
       // Use the grounded mount's base, so the giant eagle's standing seat can still talk.
       const delta = pos.clone().sub(playerPosition)
       if (Math.abs(delta.y) > 2.6) continue
@@ -3815,11 +4221,48 @@ export class TownScene {
     this.hint.textContent = this.target ? 'E 與 ' + NAMES[this.target] + ' 交談' : this.player.isMounted ? 'E 下馬' : this.nearbyTemporaryMount ? `E 騎乘 ${this.nearbyTemporaryMount.displayName}` : this.event.hostile ? '全鎮追擊中' : this.defense.active ? '城鎮正在遭受攻擊' : ''
     this.hint.style.display = this.hint.textContent ? '' : 'none'
   }
+  /**
+   * Co-op guest: shop, mounts, HR, promotion, equipment and skills on the guest's own save.
+   * The live Town (command squads, patrols, garrisons, missions) is the host's world and is never
+   * captured into it, unlike the ordinary Town commit.
+   */
+  private commitCoopGuestProfile(profile: CareerProfile): boolean {
+    if (!this.coopOwnSave) { this.notice = '這台電腦沒有生涯存檔，合作中無法使用城鎮服務。'; return false }
+    const latest = this.store.loadChecked()
+    if (latest.error || !latest.profile || latest.profile.tutorial?.careerId !== this.profile.tutorial?.careerId
+      || profile.tutorial?.careerId !== this.profile.tutorial?.careerId) {
+      this.notice = '角色存檔已更新，尚未保存這次操作，請重新載入。'; return false
+    }
+    const next = cloneCareerProfile(profile)
+    next.skills = this.skills.skillState
+    if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
+    this.profile = next
+    this.careerSkillSave.clearDirty()
+    return true
+  }
+
+  /** Guest: re-read its own save after a co-op settlement wrote it (race award, Town result). */
+  private reloadCoopGuestProfile(): void {
+    if (!this.coopOwnSave) return
+    const latest = this.store.loadChecked().profile
+    if (latest) this.profile = latest
+  }
+
+  /** Where a service stands; a co-op guest talks to the host's mirrored resident. */
+  private servicePoint(id: string): THREE.Vector3 | null {
+    if (this.coopGuest) {
+      const mirror = id === 'cat' ? this.coopGuestMounts.find(mount => mount.type === MountType.BLACK_CAT) : this.coopGuestNpcs.find(npc => npc.combatantId === id)
+      if (!mirror) return null
+      return mirror instanceof NPC ? mirror.combatPosition : mirror.group.position
+    }
+    return id === 'cat' ? this.cat.group.position : this.residents.find(r => r.spec.id === id)?.npc.combatPosition ?? null
+  }
   private finish(result: TownResult): void {
     if (this.profile.townEvent?.state !== 'hostile') return
     this.result = result
-    const next = settleTown(this.profile, this.profile.townEvent!.id, result)
-    if (!this.commit(next)) { const p = this.openPanel('結算尚未保存', '保存失敗；尚未扣款或轉場。'); this.button(p, '重試保存', () => this.finish(result)); return }
+    const finished = this.townResult.finish(result)
+    if (finished.status === 'ignored') return
+    if (finished.status === 'save-failed') { const p = this.openPanel('結算尚未保存', '保存失敗；尚未扣款或轉場。'); this.button(p, '重試保存', () => this.finish(result)); return }
     this.showTownResult(result)
   }
   private showTownResult(result: TownResult): void {
@@ -3827,7 +4270,7 @@ export class TownScene {
     const next = this.profile
     this.temporaryMounts.cleanup()
     const panel = this.openPanel(result === 'player_defeated' ? '弱者必須服從法律' : '小鎮已擊敗', result === 'player_defeated' ? '實際扣除 ' + next.townEvent!.penalty + ' 可用軍功，餘額 ' + next.availableMerit : '轉投 ' + next.faction + '，軍階 Recruit。本次入伍軍功歸零；歷史軍功與收藏保留。')
-    this.button(panel, (result === 'player_defeated' ? '返回 ' : '前往 ') + (next.faction === 'viking' ? 'økse 村' : 'vinum 村'), () => { this.dispose(); this.onRestart(this.profile, result === 'player_defeated' ? 'death-return' : undefined) })
+    this.button(panel, (result === 'player_defeated' ? '返回 ' : '前往 ') + (next.faction === 'viking' ? 'økse 村' : 'vinum 村'), () => this.townResult.leave(result))
   }
   private showAmbientDefeat(): void {
     if (this.ambientDefeatShown) return
@@ -3844,7 +4287,7 @@ export class TownScene {
   private fourGateDefenseHud(): string {
     if (!(this.defense instanceof CommanderFourGateDefenseController)) return ''
     const defense = this.defense
-    const phase = defense.phase === 'PREPARING' ? `準備 ${Math.ceil(defense.preparationRemaining)} 秒`
+    const phase = defense.phase === 'PREPARING' ? `準備 ${Math.ceil(defense.preparationRemaining)} 秒 · H 跳過準備`
       : defense.phase === 'DEPLOYING' ? '守方部署中' : defense.phase === 'SPAWNING' ? '敵軍抵達中' : defense.phase === 'ATTACKING' ? `守住 ${Math.ceil(defense.survivalRemaining)} 秒即可獲勝` : '戰鬥結束'
     const ramps = defense.fourGateSiege?.ramps
     const gateNames = { north: '北', east: '東', south: '南', west: '西' } as const
@@ -3891,6 +4334,7 @@ export class TownScene {
 
   /** One living-player update per frame, independent of official mission readiness. */
   private updateGameplay(dt: number): void {
+    if (this.coopGuest) { this.updateCoopGuestTown(dt); return }
     if (this.retirementFinale?.frozen) {
       this.retirementFinale.beforeCombat(dt, this.player.combatPosition, this.player.dead)
       this.personalCommandUI?.setEnabled(false)
@@ -3898,22 +4342,19 @@ export class TownScene {
     }
     if (this.panel || this.equipment.visible || this.result || this.spawnErrorShown || this.deploymentFailed) {
       this.personalCommandUI?.setEnabled(false)
+      if (this.coopWorldKeepsRunning && this.deploymentReady) {
+        // The host is in a menu: its own control pauses, the shared Town keeps running for the guest.
+        this.beginReadyFrame(dt)
+        this.updateMissionSimulation(dt)
+        return
+      }
       sound?.updateHorseGallopLoops([])
       sound?.updateEagleWingbeats([])
       this.missionCombat.updateDefeatedActors(dt)
       return
     }
     const ready = this.deploymentReady
-    if (ready) {
-      this.elapsed += dt
-      this.eagleLandingQueue?.beginFrame(dt)
-      this.privateEagleLandingQueue?.beginFrame(dt)
-      this.townCommand?.beginFrame()
-      this.synchronizeEaglePatrolPolicy()
-      this.eagleGarrison?.beginFrame(dt)
-      this.outskirts?.synchronizeRank()
-      this.refreshCombatMounts()
-    }
+    if (ready) this.beginReadyFrame(dt)
     this.updatePlayerCommands()
     this.updateSergeantReturnRetry(dt)
     if (!this.spectator) this.orbit.update(this.input, dt, this.world.obstacles)
@@ -3942,10 +4383,21 @@ export class TownScene {
     }
   }
 
+  private beginReadyFrame(dt: number): void {
+    this.elapsed += dt
+    this.eagleLandingQueue?.beginFrame(dt)
+    this.privateEagleLandingQueue?.beginFrame(dt)
+    this.townCommand?.beginFrame()
+    this.synchronizeEaglePatrolPolicy()
+    this.eagleGarrison?.beginFrame(dt)
+    this.outskirts?.synchronizeRank()
+    this.refreshCombatMounts()
+  }
+
   /** Remember the first native Town outcome without interrupting the trailing racer. */
   private checkpointRaceTownResult(): boolean {
     if (!this.profile.activeRace || this.profile.townEvent?.pendingResult) return true
-    const outcome = this.event.evaluate(this.player.dead)
+    const outcome = this.event.evaluate(this.coopTeamDown)
     if (!outcome) return true
     if (this.commit(deferTownResult(this.profile, outcome))) return true
     const panel = this.openPanel('城鎮結果尚未保存', '賽事仍保留。請重試保存後繼續觀戰或返回。')
@@ -4010,7 +4462,7 @@ export class TownScene {
     if (this.spectator) this.spectator.update(this.input, dt)
     this.interaction()
     if (this.profile.activeRace) return
-    const townOutcome = this.event.evaluate(this.player.dead)
+    const townOutcome = this.event.evaluate(this.coopTeamDown)
     if (townOutcome && !this.panel) this.finish(townOutcome)
     else if (!this.event.hostile) {
       // Sky Raid keeps private eagle knights in the count and ends a no-damage stalemate instead.
@@ -4038,7 +4490,7 @@ export class TownScene {
       this.returnToTown('direct')
       if (this.disposed) return
     }
-    gameplayNpcSpawns.tick(time)
+    if (!this.coopGuest) gameplayNpcSpawns.tick(time)
     if (this.disposed) return
     if (this.raceDeployFailedOnLoad && !this.panel && !this.result) { this.raceDeployFailedOnLoad = false; this.showRaceDeployFailure() }
     if (this.deploymentFailed && !this.spawnErrorShown) {
@@ -4068,6 +4520,8 @@ export class TownScene {
     }
     this.updateGameplay(dt)
     if (this.disposed) return
+    separateLocalPlayerFromPeer(this.player, this.coopHost?.guestProxy ?? this.coopGuest?.hostAvatar,
+      this.player.currentMount?.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles)
     // Lance hits suppress mount impact only for that simulation frame, as in Game.
     // Clear after all Career impact checks so subsequent guarded riding can hit again.
     for (const mount of this.combatMounts) mount.skipImpactThisFrame = false
@@ -4084,10 +4538,12 @@ export class TownScene {
       ? new THREE.Vector3(retirementPoint.x, getTerrainHeight(retirementPoint.x, retirementPoint.z), retirementPoint.z) : null
     this.retirementGuide.updateRetirement(this.player.combatPosition, this.orbit.cameraYaw, retirementTarget)
     this.updateRaceHud()
-    this.story?.update()
-    this.tutorial?.update()
+    if (!this.coopGuest) { this.story?.update(); this.tutorial?.update() }
+    this.syncCoopLentHorse()
+    this.coopHost?.update(dt)
+    this.sendCoopRaceStatus(dt)
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.defense.active && this.serviceAvailable(id)
-    const missionHud = this.profile.activeMission
+    const missionHud = this.profile.activeMission && !this.coopGuest
       ? this.mission?.travelEncounter?.active
         ? '\n途中遇敵 · 協助全隊擊退敵人，之後繼續前進'
         : this.profile.activeMission.kind === 'captain-patrol-command'
@@ -4111,7 +4567,9 @@ export class TownScene {
         )
       : ''
     const compactDefense = this.profile.activeMission?.kind === 'commander-four-gate-defense'
-    this.hud.textContent = compactDefense
+    // The co-op guest sees no host ranks, merit or command lines it cannot use.
+    if (this.coopGuest) this.hud.textContent = `合作模式 · 主機的城鎮\n你的軍階：${CAREER_RANK_LABELS[this.profile.rank]}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${this.coopHostHostile ? '\n全鎮追擊中 · 服務暫停' : '\n可使用商店、坐騎、HR 與晉升；任務由主機接取'}`
+    else this.hud.textContent = compactDefense
       ? `${missionHud.trim()}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
       : `${this.sceneContext.missionOnlyResidents ? '敵境 · 斥候遭遇戰' : this.sceneContext.worldFaction === 'viking' ? 'økse 村' : 'vinum 村'}\n軍階：${CAREER_RANK_LABELS[this.profile.rank]}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${this.townCommand?.authorizedActorIds.length ? `\n${this.profile.townCommandSquad?.commandRank === 'commander' ? '全城正式部隊' : '城防指揮隊'} ${this.townCommand.actors.filter(npc => !npc.dead).length}/${this.townCommand.authorizedActorIds.length} · ${townCommandStateLabel(this.townCommand.state)} · 按 Q 下令` : ''}${this.profile.personalSquad?.members.length ? `\n私兵 ${this.profile.personalSquad.members.length}/30 · ${personalSquadStateLabel(this.personalSquad?.state ?? 'RESERVE')} · 按 Q 下令` : ''}${missionHud}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
     if (this.retirementFinale?.active) {
@@ -4140,10 +4598,14 @@ export class TownScene {
     this.projectileObstacles.clear()
     this.promotionAttempt = null
     this.cancelPendingSpawns()
-    this.flushCareerSkillProgression()
+    this.careerSkillSave.flush()
     sound?.updateHorseGallopLoops([])
     sound?.updateEagleWingbeats([])
     if (this.disposed) return
+    // Moving to another co-op scene announces itself; leaving Career entirely is announced by returnHome.
+    this.coopHost?.dispose(false); this.coopHost = undefined
+    this.coopGuest?.dispose(); this.coopGuest = undefined
+    for (const off of this.coopUnsubscribe.splice(0)) off()
     this.combatTargetHud.dispose()
     this.compass?.dispose()
     this.compass = undefined
