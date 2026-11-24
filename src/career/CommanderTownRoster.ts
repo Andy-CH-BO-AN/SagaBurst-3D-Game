@@ -8,10 +8,19 @@ export const COMMANDER_TOWN_ROSTER_VERSION = 2 as const
 export type CommanderTownRosterVersion = typeof COMMANDER_TOWN_ROSTER_VERSION
 export const COMMANDER_TOWN_GATE_ORDER = ['north', 'south', 'east', 'west'] as const
 
+let authoredGateDefenseSlots: readonly OfficialCommandSquad[] | undefined
+
 /** Fixed native gate membership. Service posts stay unchanged until mission deployment.
  * Never borrow western reserves or infer membership from living actors/equipment. */
-export function commanderGateDefenseSlots(roster: readonly TownActorSpec[] = townAuthoredRoster(),
+export function commanderGateDefenseSlots(roster?: readonly TownActorSpec[],
   _version: CommanderTownRosterVersion = COMMANDER_TOWN_ROSTER_VERSION): OfficialCommandSquad[] {
+  if (roster) return buildCommanderGateDefenseSlots(roster)
+  // The authored roster is fixed, so its squads are built once; every caller still receives fresh, mutable squads.
+  authoredGateDefenseSlots ??= buildCommanderGateDefenseSlots(townAuthoredRoster())
+  return authoredGateDefenseSlots.map(squad => ({ ...squad, actorIds: [...squad.actorIds] }))
+}
+
+function buildCommanderGateDefenseSlots(roster: readonly TownActorSpec[]): OfficialCommandSquad[] {
   const plans = siegeDefensePlans(roster.filter(actor => !['commander', 'hr-officer', 'eagle-trainer'].includes(actor.id)))
   const squads = COMMANDER_TOWN_GATE_ORDER.flatMap((gateId, index) => {
     const plan = plans.find(plan => plan.gateId === gateId)!

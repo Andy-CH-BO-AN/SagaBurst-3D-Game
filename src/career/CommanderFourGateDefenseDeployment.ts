@@ -91,7 +91,9 @@ function gatehouseArcherStations(gateId: TownGateId, layout: TownRampartLayout, 
   return stations
 }
 
-function wallStations(gateId: TownGateId, role: 'melee' | 'spear' | 'ranged', layout: TownRampartLayout,
+type WallRole = 'melee' | 'spear' | 'ranged'
+
+function wallStations(gateId: TownGateId, role: WallRole, layout: TownRampartLayout,
   obstacles: readonly ObstacleData[], mounted: boolean): Station[] {
   const gate = TOWN_GATES.find(g => g.id === gateId)!
   const outward = new THREE.Vector3(Math.round(Math.sin(gate.yaw)), 0, Math.round(Math.cos(gate.yaw)))
@@ -101,12 +103,18 @@ function wallStations(gateId: TownGateId, role: 'melee' | 'spear' | 'ranged', la
   const lateral = mounted ? role === 'spear' ? -2.8 : role === 'ranged' ? 2.9 : 0
     : role === 'spear' ? -2.2 : role === 'ranged' ? 3.8 : 2.9
   const stations: Station[] = []
-  for (const { surface } of layout.wallSpans.filter(span => span.gateId === gateId)) {
+  const spans = layout.wallSpans.filter(span => span.gateId === gateId), reach = Math.abs(lateral) + radius
+  // Every span band below lies inside this gate-wide band, so it keeps exactly the decks any
+  // span can match, in their original order; each span then filters only that shorter list.
+  const gateBand = spans.reduce((box, { surface }) => box.union(surfaceBox(surface)), new THREE.Box3()).expandByScalar(reach)
+  gateBand.min.y = -Infinity; gateBand.max.y = Infinity
+  const gateDecks = layout.decks.filter(deck => gateBand.intersectsBox(deck.box))
+  for (const { surface } of spans) {
     // Every sample of this span stays inside this band, so farther decks can never
     // answer. Retaining deck order keeps the first matching surface unchanged.
-    const band = surfaceBox(surface).expandByScalar(Math.abs(lateral) + radius)
+    const band = surfaceBox(surface).expandByScalar(reach)
     band.min.y = -Infinity; band.max.y = Infinity
-    const decks = layout.decks.filter(deck => band.intersectsBox(deck.box))
+    const decks = gateDecks.filter(deck => band.intersectsBox(deck.box))
     const supportHeight = (x: number, z: number): number | null => {
       if (!mounted) return townRampartHeight({ decks }, x, z)
       for (const deck of decks) if (deck.surface.mounted) {
@@ -135,8 +143,7 @@ function wallStations(gateId: TownGateId, role: 'melee' | 'spear' | 'ranged', la
       stations.push(station)
     }
   }
-  return stations.sort((a, b) => Math.hypot(a.x - gate.x, a.z - gate.z) - Math.hypot(b.x - gate.x, b.z - gate.z)
-    || a.x - b.x || a.z - b.z)
+  return nearestGateFirst(stations, gate)
 }
 
 function cavalryStations(gateId: TownGateId, obstacles: readonly ObstacleData[]): Station[] {
@@ -158,8 +165,42 @@ function cavalryStations(gateId: TownGateId, obstacles: readonly ObstacleData[])
     const station: Station = { gateId, kind: 'cavalry', ...p, y: getTerrainHeight(p.x, p.z) }
     if (clearStation(station, MOUNT_RADIUS, 3.6, obstacles)) stations.push(station)
   }
-  return stations.sort((a, b) => Math.hypot(a.x - gate.x, a.z - gate.z) - Math.hypot(b.x - gate.x, b.z - gate.z)
-    || a.x - b.x || a.z - b.z)
+  return nearestGateFirst(stations, gate)
+}
+
+/** Nearest the gate first, then x, then z; each distance is computed once per station. */
+function nearestGateFirst(stations: Station[], gate: { x: number; z: number }): Station[] {
+  return stations.map(station => ({ station, distance: Math.hypot(station.x - gate.x, station.z - gate.z) }))
+    .sort((a, b) => a.distance - b.distance || a.station.x - b.station.x || a.station.z - b.station.z)
+    .map(({ station }) => station)
+}
+
+/** Largest body separation any occupancy check can require: two mounts plus clearance. */
+const MAX_STATION_SEPARATION = MOUNT_RADIUS * 2 + 1.1
+/** Wider than that separation, so occupants outside the 3x3 neighbouring cells can never conflict. */
+const OCCUPANCY_CELL = Math.ceil(MAX_STATION_SEPARATION + .1)
+
+class StationOccupancy {
+  private readonly cells = new Map<string, OccupiedStation[]>()
+
+  /** Same rule as checking every occupant: a body is clear vertically or by horizontal separation. */
+  isClear(candidate: Station, radius: number): boolean {
+    const cx = Math.floor(candidate.x / OCCUPANCY_CELL), cz = Math.floor(candidate.z / OCCUPANCY_CELL)
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      for (const other of this.cells.get(`${cx + dx},${cz + dz}`) ?? []) {
+        if (!(Math.abs(candidate.y - other.station.y) > 3.6
+          || Math.hypot(candidate.x - other.station.x, candidate.z - other.station.z) >= radius + other.radius + 1.1)) return false
+      }
+    }
+    return true
+  }
+
+  add(station: Station, radius: number): void {
+    const key = `${Math.floor(station.x / OCCUPANCY_CELL)},${Math.floor(station.z / OCCUPANCY_CELL)}`
+    const cell = this.cells.get(key)
+    if (cell) cell.push({ station, radius })
+    else this.cells.set(key, [{ station, radius }])
+  }
 }
 
 /** Relocates the complete native roster only. It never creates, equips or renames an actor.
@@ -190,7 +231,23 @@ export function planCommanderFourGateDefenseDeployment(roster: readonly TownActo
       else nativeCavalryIds.delete(id)
     }
   }
-  const stations = new Map<string, Station>(), occupied: OccupiedStation[] = []
+  const stations = new Map<string, Station>(), occupied = new StationOccupancy()
+  // Within one allocation the layout and obstacles are fixed, so each gate/role/body station list is
+  // computed once and shared by native lanes and the mission garrison. Every consumer gets its own copy.
+  const wallLists = new Map<string, Station[]>(), gatehouseLists = new Map<TownGateId, Station[]>()
+  const wallFor = (gateId: TownGateId, role: WallRole, mounted: boolean): Station[] => {
+    const key = `${gateId}:${role}:${mounted}`
+    let list = wallLists.get(key)
+    if (!list) wallLists.set(key, list = wallStations(gateId, role, layout, obstacles, mounted))
+    return [...list]
+  }
+  const gatehouseFor = (gateId: TownGateId): Station[] => {
+    let list = gatehouseLists.get(gateId)
+    if (!list) gatehouseLists.set(gateId, list = gatehouseArcherStations(gateId, layout, obstacles))
+    return [...list]
+  }
+  // How far each candidate list has been consumed; the rejected prefix is skipped once per list.
+  const consumed = new Map<Station[], number>()
   const sectors: TownSiegeSectorRoster[] = TOWN_GATES.map(gate => ({ gateId: gate.id, wallActorIds: [], cavalryActorIds: [] }))
   for (const sector of sectors) {
     const actors = roster.filter(actor => gatesByActor.get(actor.id) === sector.gateId && actor.duty !== 'eagle_garrison')
@@ -207,18 +264,18 @@ export function planCommanderFourGateDefenseDeployment(roster: readonly TownActo
       // never become legal for the remaining equal-radius members of this group.
       // Discard that prefix once instead of rescanning it for every actor; the
       // first legal candidate and authored placement order stay unchanged.
-      let point: Station | undefined
-      while (candidates.length) {
-        const candidate = candidates[0]
-        if (occupied.every(other => Math.abs(candidate.y - other.station.y) > 3.6
-          || Math.hypot(candidate.x - other.station.x, candidate.z - other.station.z) >= radius + other.radius + 1.1)) {
+      let point: Station | undefined, next = consumed.get(candidates) ?? 0
+      while (next < candidates.length) {
+        const candidate = candidates[next]
+        if (occupied.isClear(candidate, radius)) {
           point = candidate
           break
         }
-        candidates.shift()
+        next++
       }
+      consumed.set(candidates, next)
       if (!point) throw new Error(`No legal ${sector.gateId} defense station for ${actor.id}`)
-      stations.set(actor.id, point); occupied.push({ station: point, radius })
+      stations.set(actor.id, point); occupied.add(point, radius)
     }
     // Allocate limited clear firing gaps first; melee and spears use separate depth lanes.
     for (const role of ['ranged', 'melee', 'spear'] as const) {
@@ -228,8 +285,7 @@ export function planCommanderFourGateDefenseDeployment(roster: readonly TownActo
       for (const mounted of [true, false]) {
         const matching = members.filter(({ state }) => state.mounted === mounted)
         if (!matching.length) continue
-        const candidates = [...(role === 'ranged' && !mounted ? gatehouseArcherStations(sector.gateId, layout, obstacles) : []),
-          ...wallStations(sector.gateId, role, layout, obstacles, mounted)]
+        const candidates = [...(role === 'ranged' && !mounted ? gatehouseFor(sector.gateId) : []), ...wallFor(sector.gateId, role, mounted)]
         for (const { actor } of matching) assign(actor, candidates, mounted ? MOUNT_RADIUS : FOOT_RADIUS)
       }
     }
@@ -239,12 +295,10 @@ export function planCommanderFourGateDefenseDeployment(roster: readonly TownActo
     // firing gaps, infantry the melee lane, then the spear lane. A docked ramp releases them with the sector.
     const members = garrison.filter(member => member.gateId === sector.gateId)
     if (members.length) {
-      const ranged = [...gatehouseArcherStations(sector.gateId, layout, obstacles), ...wallStations(sector.gateId, 'ranged', layout, obstacles, false)]
-      const melee = [...wallStations(sector.gateId, 'melee', layout, obstacles, false), ...wallStations(sector.gateId, 'spear', layout, obstacles, false)]
-      for (const member of members) {
-        assign({ id: member.actorId } as TownActorSpec, member.role === 'archer' ? ranged : melee, FOOT_RADIUS)
-        sector.wallActorIds = [...sector.wallActorIds, member.actorId]
-      }
+      const ranged = [...gatehouseFor(sector.gateId), ...wallFor(sector.gateId, 'ranged', false)]
+      const melee = [...wallFor(sector.gateId, 'melee', false), ...wallFor(sector.gateId, 'spear', false)]
+      for (const member of members) assign({ id: member.actorId } as TownActorSpec, member.role === 'archer' ? ranged : melee, FOOT_RADIUS)
+      sector.wallActorIds = [...sector.wallActorIds, ...members.map(member => member.actorId)]
     }
   }
   return { sectors, stations, squads }
