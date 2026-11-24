@@ -1,6 +1,6 @@
 import { gatehouseLocal } from '../../src/town/TownGatehouse'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
-import { commanderFourGateGarrisonSlots, fourGateReserveLancerLoadout } from '../../src/career/CommanderFourGateDefenseRoster'
+import { commanderFourGateGarrisonSlots, fourGateReserveTrooperLoadout } from '../../src/career/CommanderFourGateDefenseRoster'
 import type { Player } from '../../src/player/Player'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { gateBreachLane } from '../../src/navigation/GateBreachPortal'
@@ -119,13 +119,16 @@ describe('Siege deployment and shared rule ownership', () => {
     }
   })
 
-  it('equips civilian reserve riders with faction shields without changing regular lancer equipment', () => {
+  it('equips reserve riders according to their identity without replacing the Merchant’s native weapons', () => {
     for (const faction of ['roman', 'viking'] as const) {
-      const civilian = fourGateReserveLancerLoadout(faction, true)
-      const recruit = fourGateReserveLancerLoadout(faction, false)
+      const civilian = fourGateReserveTrooperLoadout(faction, 'civilian')
+      const recruit = fourGateReserveTrooperLoadout(faction, 'recruit')
+      const merchant = fourGateReserveTrooperLoadout(faction, 'merchant')
       expect(civilian).toMatchObject({ mountId: 'horse', meleeWeaponId: 'steel_lance',
         shieldId: faction === 'roman' ? 'scutum_t2' : 'round_shield_t2' })
       expect(recruit).toMatchObject({ mountId: 'horse', meleeWeaponId: 'heavy_lance', shieldId: null })
+      expect(merchant).toMatchObject({ mountId: 'horse', meleeWeaponId: 'sword_t5',
+        secondaryMeleeWeaponId: 'axe_t5', shieldId: 'byzantine_eagle_shield_t5', rangedWeaponId: null })
     }
   })
 

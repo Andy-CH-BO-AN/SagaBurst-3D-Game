@@ -7,6 +7,7 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 import { AIType, Faction } from '../world/NPC'
 import { createTownSiegeCrewSlots, TOWN_SIEGE_WORLD_EDGE_INSET, type TownSiegeCrewSlot } from './TownFourGateSiegePolicy'
 import { isCivilian, townRosterIdentity, type TownActorSpec } from '../town/TownRules'
+import { townMerchantLoadout } from '../town/TownMerchantEquipment'
 import type { OfficialCommandSquad } from './CareerCommandAuthority'
 import { COMMANDER_TOWN_GATE_ORDER, commanderGateDefenseSlots } from './CommanderTownRoster'
 
@@ -185,10 +186,11 @@ export function fourGateFootLoadout(faction: CharacterFaction, role: CommanderFo
   return { presetId, loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[tier], mountId: null } }
 }
 
-/** Mission-only kit: civilian identities keep their stats, but receive a shield as well as a lance and horse. */
-export function fourGateReserveLancerLoadout(faction: CharacterFaction, civilian: boolean) {
-  const lancer = UNIT_PRESETS[`${faction}_lancer`].tierLoadouts[civilian ? 2 : 3]
-  return civilian ? { ...lancer, shieldId: faction === 'roman' ? 'scutum_t2' as const : 'round_shield_t2' as const } : { ...lancer }
+/** Mission-only kit: ordinary civilians receive a lance and shield; the Merchant retains his personal weapons. */
+export function fourGateReserveTrooperLoadout(faction: CharacterFaction, role: 'civilian' | 'merchant' | 'recruit') {
+  if (role === 'merchant') return townMerchantLoadout('horse')
+  const lancer = UNIT_PRESETS[`${faction}_lancer`].tierLoadouts[role === 'civilian' ? 2 : 3]
+  return role === 'civilian' ? { ...lancer, shieldId: faction === 'roman' ? 'scutum_t2' : 'round_shield_t2' } : { ...lancer }
 }
 
 export function prepareFourGateGroundResident(spec: TownActorSpec, company: GroundCompany): TownActorSpec {
