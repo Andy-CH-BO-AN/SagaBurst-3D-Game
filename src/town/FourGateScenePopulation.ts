@@ -18,9 +18,10 @@ function reservePosts(world: TownWorld, navigation: NavigationWorld) {
   const radius = MOUNT_MOVEMENT_RADIUS + .02
   const columnSpacing = 1.8, rowSpacing = 2.08
   const posts: { x: number; y: number; z: number; yaw: number }[] = []
-  for (const sign of [-1, 1]) {
-    for (let column = 0; 2.65 + column * columnSpacing + halfLength < interior.maxX; column++) {
-      const lateral = 2.65 + column * columnSpacing
+  for (let column = 0; 2.65 + column * columnSpacing + halfLength < interior.maxX; column++) {
+    const lateral = 2.65 + column * columnSpacing
+    // Fill both banks of the aisle before placing riders behind an outer rank.
+    for (const sign of [-1, 1]) {
       for (let depth = -19 + (column % 2) * rowSpacing / 2; depth + radius < interior.maxZ; depth += rowSpacing) {
         if (depth - radius <= interior.minZ) continue
         const point = townSitePoint('hall', sign * lateral, depth)

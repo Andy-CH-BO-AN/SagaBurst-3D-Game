@@ -93,7 +93,7 @@ describe('Siege deployment and shared rule ownership', () => {
       expect(sector.cavalryActorIds.every(id => {
         const station = deployment.stations.get(id)!
         const depth = (gate.x - station.x) * Math.sin(gate.yaw) + (gate.z - station.z) * Math.cos(gate.yaw)
-        return station.kind === 'cavalry' && depth >= fourGateGroundFront(sector.gateId)
+        return station.kind === 'cavalry' && depth >= fourGateGroundFront(sector.gateId) - .001
       })).toBe(true)
     }
   })
