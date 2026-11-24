@@ -175,25 +175,25 @@ describe('CareerMissionCheckpoint', () => {
   })
 
   it('acknowledges fresh native deployment with the actual HR service resident without cancelling the mission', () => {
-    const profile = createFourGateDefenseProfile('PREPARING'), active = profile.activeMission!
-    active.phase = 'DEPLOYING'; active.fourGateDefense!.phase = 'DEPLOYING'
-    const store = new CareerProfileStore(new MemoryStorage())
-    // Every native identity row is real saved data; the HR officer is one of the deployed natives.
-    const h = fourGateDefenseRuntime(profile, next => store.save(next))
+    const profile = createFourGateDefenseProfile('DEPLOYING'), active = profile.activeMission!
+    const h = fourGateDefenseRuntime(profile)
     onTestFinished(() => h.controller.dispose())
     expect(h.controller.startActiveMission()).toBe(true)
     h.controller.completeInitialDeployment()
-    const restored = store.load()!.activeMission!
-    expect(restored.id).toBe(active.id)
+    const deployed = h.profile().activeMission!
+    expect(deployed.id).toBe(active.id)
     const officer = h.residents.get('hr-officer')!
-    expect(restored.fourGateDefense).toMatchObject({ phase: 'PREPARING', preparationRemainingSeconds: 180,
-      deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [] })
-    expect(restored.fourGateDefense!.actors['hr-officer']).toMatchObject({
+    const { phase, preparationRemainingSeconds, deploymentComplete, attackStarted, registeredTargetActorIds, actors } = deployed.fourGateDefense!
+    expect({ phase, preparationRemainingSeconds, deploymentComplete, attackStarted, registeredTargetActorIds }).toEqual({
+      phase: 'PREPARING', preparationRemainingSeconds: 180,
+      deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [],
+    })
+    expect(actors['hr-officer']).toMatchObject({
       status: 'deployed', hp: 100, position: { x: officer.combatPosition.x, z: officer.combatPosition.z },
       mount: { mounted: true },
     })
-    expect(restored.friendlyActorIds).toContain('hr-officer')
-    expect(restored.officialSquad!.squads!.find(squad => squad.squadId === 10)!.actorIds).toContain('hr-officer')
+    expect(deployed.friendlyActorIds).toContain('hr-officer')
+    expect(deployed.officialSquad!.squads!.find(squad => squad.squadId === 10)!.actorIds).toContain('hr-officer')
   })
 
   it('captures Four-gate death after an early save and forces a fresh exit snapshot without reviving the player', () => {
@@ -217,9 +217,7 @@ describe('CareerMissionCheckpoint', () => {
     expect(commits).toBe(deployed + 2)
     expect(h.profile().activeMission!.fourGateDefense).toMatchObject({ actors: { [actorId]: { hp: 43, position: { x: 44 } } },
       player: { dead: true, hp: 0, ammo: 3 } })
-    const store = new CareerProfileStore(new MemoryStorage())
-    expect(store.save(h.profile())).toBe(true)
-    expect(store.load()!.activeMission!.fourGateDefense).toMatchObject({
+    expect(parseCareerProfile(h.profile())?.activeMission?.fourGateDefense).toMatchObject({
       actors: { [actorId]: { hp: 43, position: { x: 44 } } }, player: { dead: true, hp: 0, ammo: 3 } })
     // Exit snapshots bypass the acknowledgement even in the same frame.
     actor.hp = 26

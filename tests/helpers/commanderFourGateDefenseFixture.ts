@@ -12,10 +12,11 @@ import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
 import { DAMAGEABLE_OBSTACLE_HP } from '../../src/world/DamageableObstacle'
 
 /** Saved data at a stated boundary, never a simulated deployment or a scene/actor constructor. */
-export function createFourGateDefenseProfile(phase: 'PREPARING' | 'SPAWNING' | 'ATTACKING' = 'PREPARING'): CareerProfile {
+export function createFourGateDefenseProfile(phase: 'DEPLOYING' | 'PREPARING' | 'SPAWNING' | 'ATTACKING' = 'PREPARING'): CareerProfile {
   const base = createCareerProfile('roman')
   Object.assign(base, careerRankFixture(base.faction, 'commander')); base.totalMerit = 20_000; base.availableMerit = 20_000
   const profile = acceptCommanderMission(base, COMMANDER_FOUR_GATE_DEFENSE_ID, 'four-gate-save')!
+  if (phase === 'DEPLOYING') return profile
   const mission = profile.activeMission!, state = mission.fourGateDefense!
   const actor = (mounted: boolean): PersonalActorCheckpoint => ({
     status: 'deployed', hp: 100, position: { x: 20, y: 10, z: 30, yaw: .3 },

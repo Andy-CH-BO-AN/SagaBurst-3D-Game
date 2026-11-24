@@ -142,7 +142,8 @@ export class CommanderFourGateDefenseController {
     }
     this.escortAssignments = commanderCavalryEscortAssignments(active.id)
     this.infantryAssignments = commanderInfantryEscortAssignments(active.id)
-    const native = this.residents.filter(r => active.friendlyActorIds.includes(r.spec.id))
+    const friendlyIds = new Set(active.friendlyActorIds)
+    const native = this.residents.filter(r => friendlyIds.has(r.spec.id))
     // A missing native member is a recoverable deployment error, never permission to shrink the army.
     // The mission garrison is spawned below, never a Town resident.
     const garrisonIds = new Set(commanderFourGateGarrisonSlots(active.id).map(slot => slot.actorId))
@@ -665,17 +666,18 @@ export class CommanderFourGateDefenseController {
     npc.assignFollowTarget(this.player(), index, offset)
   }
   releasePlayerCommand(npc: NPC): void {
-    if (!this.isPlayerCommanded(npc) || npc.dead || !this.military.includes(npc)) return
+    if (!this.isPlayerCommanded(npc) || npc.dead || this.actorsById.get(npc.combatantId) !== npc) return
     this.nativeReturns.delete(npc.combatantId)
     this.playerIssuedCommands.add(npc.combatantId); this.fourGateSiege?.notifyPlayerOrder(npc)
     npc.releaseOutpostRampartGarrison()
     npc.missionMovement = false; npc.assignSiegeObstacle(null); npc.setMissionCombatTarget(undefined)
   }
   returnPlayerCommand(npc: NPC): void {
-    if (this.isPlayerCommanded(npc) || npc.dead || !this.military.includes(npc)) return
-    this.playerIssuedCommands.delete(npc.combatantId); this.fourGateSiege?.notifyPlayerReturn(npc)
-    const station = this.deployment?.stations.get(npc.combatantId)
+    const id = npc.combatantId
+    if (this.isPlayerCommanded(npc) || npc.dead || this.actorsById.get(id) !== npc) return
+    const station = this.deployment?.stations.get(id)
     if (!station || npc.mount?.isFlyingMount) return
+    this.playerIssuedCommands.delete(id); this.fourGateSiege?.notifyPlayerReturn(npc)
     const gate = station.kind === 'reserve' ? undefined : this.fourGateSiege?.policy.gates.get(station.gateId)
     const released = station.kind === 'cavalry' ? gate?.cavalryEventHandled : station.kind === 'wall' && gate?.wallEventHandled
     npc.setMissionCombatTarget(this.combatEnabled && (station.kind === 'wall' || released) ? undefined : null)
