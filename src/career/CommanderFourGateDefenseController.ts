@@ -8,7 +8,9 @@ import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { TownCavalryPatrolController } from '../town/TownCavalryPatrolController'
-import { TOWN_GATES } from '../town/TownLayout'
+import { TOWN_GATES, type TownGateId } from '../town/TownLayout'
+import type { CampaignGateState } from '../campaign/CampaignGate'
+import type { FourGateHudSource } from './FourGateDefenseHudModel'
 import { isAutonomousTownGuard } from '../town/TownNativeGuardIdentity'
 import { isCivilian } from '../town/TownRules'
 import type { TownOutskirtsWarfareController } from '../town/TownOutskirtsWarfareController'
@@ -131,6 +133,37 @@ export class CommanderFourGateDefenseController {
   get deploymentPositions(): readonly THREE.Vector3[] { return [...this.fieldNpcs.filter(n => !n.dead).map(n => n.combatPosition), ...this.plannedPositions] }
   get personalContribution() { return this.tracker?.commandCheckpoint() }
   get officialContribution() { return this.tracker?.officialCommandCheckpoint() }
+
+  /** HUD 唯讀來源：守軍以部署時的原始城門歸屬（城牆＋地面＋任務守軍）計算，不隨玩家調動改變；
+   * 尚未生成的敵軍不在 enemies 內，但仍在 targetActorIds 中，因此不會被當成已死亡。 */
+  hudSource(spectating: boolean, gateOf: (id: TownGateId) => { state: CampaignGateState; hpRatio: number } | undefined): FourGateHudSource {
+    const friendly = new Set<string>()
+    let friendlyAlive = this.player().dead ? 0 : 1
+    for (const npc of [...this.military, ...this.personalActors()]) {
+      if (npc.dead || friendly.has(npc.combatantId)) continue
+      friendly.add(npc.combatantId); friendlyAlive++
+    }
+    const rosters = this.gateRosters()
+    return {
+      phase: this.phase, preparationRemaining: this.preparationRemaining, survivalRemaining: this.survivalRemaining, spectating,
+      friendlyAlive, enemyAlive: this.remainingEnemies,
+      gates: rosters.map(({ gateId, ids, npcs }) => {
+        const gate = gateOf(gateId), ramps = this.fourGateSiege?.ramps
+        const state = (side: 'left' | 'right') => ramps?.get(`town-siege-ramp:${gateId}:${side}`)?.controller.state
+        return { id: gateId, defendersTotal: ids.length, defendersAlive: ids.length - npcs.reduce((n, npc) => n + (npc.dead ? 1 : 0), 0),
+          gateState: gate?.state, gateHpRatio: gate?.hpRatio ?? 1, ramps: [state('left'), state('right')] as const }
+      }),
+    }
+  }
+  private gateRosterCache?: { gateId: TownGateId; ids: readonly string[]; npcs: NPC[] }[]
+  /** 每門原始守軍名冊（部署時固定），NPC 實例只解析一次。 */
+  private gateRosters() {
+    if (!this.deployment) return []
+    const cached = this.gateRosterCache
+    if (cached && cached.every(g => g.npcs.length === g.ids.length)) return cached
+    return this.gateRosterCache = this.deployment.sectors.map(sector => ({ gateId: sector.gateId, ids: sector.wallActorIds,
+      npcs: sector.wallActorIds.map(id => this.actorsById.get(id)).filter((npc): npc is NPC => Boolean(npc)) }))
+  }
 
   startActiveMission(): boolean {
     const active = this.active
@@ -848,6 +881,7 @@ export class CommanderFourGateDefenseController {
     for (const npc of this.reinforcements) npc.dispose()
     this.reinforcements.length = 0
     this.enemies.length = 0; this.enemyMounts.length = 0; this.groups.length = 0; this.plannedPositions.length = 0
+    this.gateRosterCache = undefined
     this.actorsById.clear(); this.actorMounts.clear(); this.playerIssuedCommands.clear(); this.civilianCombat.clear(); this.nativeReturns.clear(); this.checkpoint.reset()
   }
   dispose(): void { this.disposeRuntime() }

@@ -117,6 +117,7 @@ import { CareerRaceHUD } from '../ui/CareerRaceHUD'
 import { registerTownCombatDisplayName } from '../ui/CombatTargetDisplayName'
 import { CombatTargetHud } from '../ui/CombatTargetHud'
 import { CompassUI } from '../ui/CompassUI'
+import { FourGateDefenseHUD } from '../ui/FourGateDefenseHUD'
 import { DamageNumbers } from '../ui/DamageNumbers'
 import { EquipmentUI } from '../ui/EquipmentUI'
 import { HpBar } from '../ui/HpBar'
@@ -334,6 +335,8 @@ export class TownScene {
   private race?: CareerRaceController
   private readonly raceGuide = new MissionGuide('career-race-guide')
   private readonly raceHud = new CareerRaceHUD()
+  private fourGateHud?: FourGateDefenseHUD
+  private fourGateHudElapsed = Infinity
   private raceClockDt = 0
   private readonly preparationClock = new ActiveMissionClock()
   private readonly devSkipPreparation = import.meta.env.DEV && new URLSearchParams(location.search).has('skipprep')
@@ -835,7 +838,8 @@ export class TownScene {
     this.pointerPrompt.id = 'town-pointer-prompt'; this.pointerPrompt.textContent = '點擊畫面進入遊戲'; this.pointerPrompt.style.cssText = 'position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:89;color:#fff4d0;background:#201d19e8;border:1px solid #aa9270;padding:14px 22px;font:600 18px system-ui;pointer-events:none'
     this.ambientLabel.className = 'town-ambient'; this.ambientLabel.hidden = true
     document.body.append(this.hud, this.hint, this.pointerPrompt, this.ambientLabel)
-    this.compass = new CompassUI(this.camera, this.raceHud.element)
+    this.syncFourGateHud(this.profile.activeMission?.kind === 'commander-four-gate-defense' && !this.coopGuest)
+    this.compass = new CompassUI(this.camera, this.fourGateHud?.element ?? this.raceHud.element)
     if (!this.spectator) document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · 滾輪 換裝 · 右鍵 舉盾／瞄準 · Tab 裝備 · E 交談 · Q 關閉面板 · Esc 暫停／上一頁'
     const opts = { capture: true, signal: this.listeners.signal }
     document.addEventListener('visibilitychange', () => this.preparationClock.reset(), opts)
@@ -4284,25 +4288,23 @@ export class TownScene {
       this.onRestart(next, 'death-return')
     })
   }
-  private fourGateDefenseHud(): string {
-    if (!(this.defense instanceof CommanderFourGateDefenseController)) return ''
-    const defense = this.defense
-    const phase = defense.phase === 'PREPARING' ? `準備 ${Math.ceil(defense.preparationRemaining)} 秒 · H 跳過準備`
-      : defense.phase === 'DEPLOYING' ? '守方部署中' : defense.phase === 'SPAWNING' ? '敵軍抵達中' : defense.phase === 'ATTACKING' ? `守住 ${Math.ceil(defense.survivalRemaining)} 秒即可獲勝` : '戰鬥結束'
-    const ramps = defense.fourGateSiege?.ramps
-    const gateNames = { north: '北', east: '東', south: '南', west: '西' } as const
-    const gateStatus = { closed: '關閉', open: '開啟', destroyed: '已破' } as const
-    const sectors = (['north', 'east', 'south', 'west'] as const).map(id => {
-      const gate = this.world.gates.get(id)
-      const state = (side: 'left' | 'right') => {
-        const ramp = ramps?.get(`town-siege-ramp:${id}:${side}`)
-        return !ramp ? '未抵達' : ramp.controller.state === 'DOCKED' ? '接牆'
-          : ramp.controller.state === 'DESTROYED' ? '已毀' : ramp.controller.state === 'ABANDONED' ? '停駛'
-            : defense.combatEnabled ? '推進' : '待命'
-      }
-      return `${gateNames[id]}門 ${gate ? gateStatus[gate.state] : '部署'} · 攻城車 ${state('left')}/${state('right')}`
-    })
-    return `\n四門總攻守城戰\n${phase} · 敵軍 ${defense.remainingEnemies}/${defense.enemyTotal}\n${sectors.slice(0, 2).join('　')}\n${sectors.slice(2).join('　')}\n平民死亡 ${defense.civilianDeaths}`
+  /** 比分板只在四門守城戰存在；任務結束、離場或重載時一併釋放。 */
+  private syncFourGateHud(active: boolean): void {
+    if (active && !this.fourGateHud) { this.fourGateHud = new FourGateDefenseHUD(); this.fourGateHudElapsed = Infinity }
+    else if (!active && this.fourGateHud) { this.fourGateHud.dispose(); this.fourGateHud = undefined }
+  }
+  private updateFourGateHud(dt: number, active: boolean): void {
+    this.syncFourGateHud(active)
+    // 4 Hz：倒數與人數對掃視足夠，且避免每幀掃描全部 NPC。
+    if (!this.fourGateHud || !(this.defense instanceof CommanderFourGateDefenseController)) return
+    this.fourGateHudElapsed += dt
+    if (this.fourGateHudElapsed < 0.25) return
+    this.fourGateHudElapsed = 0
+    const gates = this.world.gates
+    this.fourGateHud.update(this.defense.hudSource(Boolean(this.spectator) || this.player.dead, id => {
+      const gate = gates.get(id)
+      return gate ? { state: gate.state, hpRatio: gate.damageable.hpRatio } : undefined
+    }))
   }
 
   private veteranMissionHud(): string {
@@ -4559,7 +4561,7 @@ export class TownScene {
         : this.profile.activeMission.kind === 'commander-decapitation'
         ? `\n斬首行動 · ${this.defense.remainingEnemies ? '敵方指揮官仍存活' : '敵方指揮官已倒下'}\n行動隊 ${this.defense.defenders.filter(npc => !npc.dead).length}/30 人`
         : this.profile.activeMission.kind === 'commander-four-gate-defense'
-        ? this.fourGateDefenseHud()
+        ? ''
         : fieldMissionHud(
           'bandit',
           this.profile.activeMission.phase,
@@ -4570,7 +4572,7 @@ export class TownScene {
     // The co-op guest sees no host ranks, merit or command lines it cannot use.
     if (this.coopGuest) this.hud.textContent = `合作模式 · 主機的城鎮\n你的軍階：${CAREER_RANK_LABELS[this.profile.rank]}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${this.coopHostHostile ? '\n全鎮追擊中 · 服務暫停' : '\n可使用商店、坐騎、HR 與晉升；任務由主機接取'}`
     else this.hud.textContent = compactDefense
-      ? `${missionHud.trim()}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
+      ? ''
       : `${this.sceneContext.missionOnlyResidents ? '敵境 · 斥候遭遇戰' : this.sceneContext.worldFaction === 'viking' ? 'økse 村' : 'vinum 村'}\n軍階：${CAREER_RANK_LABELS[this.profile.rank]}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${this.townCommand?.authorizedActorIds.length ? `\n${this.profile.townCommandSquad?.commandRank === 'commander' ? '全城正式部隊' : '城防指揮隊'} ${this.townCommand.actors.filter(npc => !npc.dead).length}/${this.townCommand.authorizedActorIds.length} · ${townCommandStateLabel(this.townCommand.state)} · 按 Q 下令` : ''}${this.profile.personalSquad?.members.length ? `\n私兵 ${this.profile.personalSquad.members.length}/30 · ${personalSquadStateLabel(this.personalSquad?.state ?? 'RESERVE')} · 按 Q 下令` : ''}${missionHud}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
     if (this.retirementFinale?.active) {
       const seconds = Math.ceil(this.retirementFinale.remainingSeconds)
@@ -4588,6 +4590,8 @@ export class TownScene {
     this.commandSelectionMarker?.update(!this.panel && !this.equipment.visible && !this.result
       && !this.spawnErrorShown && !this.deploymentFailed && !this.retirementFinale?.frozen
       && !this.player.dead && !this.spectator, this.camera, dt)
+    this.hud.style.display = compactDefense ? 'none' : ''
+    this.updateFourGateHud(dt, compactDefense)
     this.hud.style.whiteSpace = 'pre-line'; this.renderer.render(this.scene, this.camera)
     this.scheduleSiegeOpening()
     this.raf = requestAnimationFrame(t => this.frame(t))
@@ -4633,7 +4637,7 @@ export class TownScene {
     const quiverHud = document.getElementById('quiver-hud')
     if (quiverHud) quiverHud.style.display = ''
     this.temporaryMounts.cleanup()
-    this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input?.dispose(); this.panel?.remove(); this.equipment?.close(); this.hud?.remove(); this.hint?.remove(); this.pointerPrompt?.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.duel?.dispose(); this.player?.dispose(); document.getElementById('mount-hud')?.classList.remove('visible'); document.getElementById('enemy-hud')?.classList.remove('visible'); this.ambientLabel?.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove()
+    this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input?.dispose(); this.panel?.remove(); this.equipment?.close(); this.hud?.remove(); this.fourGateHud?.dispose(); this.fourGateHud = undefined; this.hint?.remove(); this.pointerPrompt?.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.duel?.dispose(); this.player?.dispose(); document.getElementById('mount-hud')?.classList.remove('visible'); document.getElementById('enemy-hud')?.classList.remove('visible'); this.ambientLabel?.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove()
     if (!preservePointerLock) document.exitPointerLock?.()
   }
 

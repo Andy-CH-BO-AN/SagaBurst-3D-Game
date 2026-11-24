@@ -1,0 +1,94 @@
+/* 四門守城戰比分板：置中、低高度，不攔截輸入；版面為固定格，數字變化不改變尺寸。 */
+#four-gate-defense-hud {
+  --fg-blue: #5fb0ff;
+  --fg-red: #ff5d4f;
+  --fg-gold: #aa9270;
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  box-sizing: border-box;
+  width: clamp(400px, calc(100vw - 560px), 540px);
+  max-width: calc(100vw - 16px);
+  height: 138px;
+  padding: 6px 10px 8px;
+  background: rgba(24, 21, 17, 0.82);
+  border: 1px solid rgba(170, 146, 112, 0.7);
+  border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+  color: #efe1c3;
+  font: 12px/1.2 'Segoe UI', system-ui, sans-serif;
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+  user-select: none;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+#four-gate-defense-hud .fg-score {
+  display: grid;
+  grid-template-columns: 1fr minmax(120px, auto) 1fr;
+  align-items: center;
+  height: 52px;
+}
+#four-gate-defense-hud .fg-side { display: flex; flex-direction: column; min-width: 0; }
+#four-gate-defense-hud .fg-side strong { font-size: 34px; line-height: 1.05; font-weight: 800; letter-spacing: 0.02em; }
+#four-gate-defense-hud .fg-caption { font-size: 11px; opacity: 0.8; letter-spacing: 0.12em; }
+#four-gate-defense-hud .fg-friendly { align-items: flex-start; color: var(--fg-blue); }
+#four-gate-defense-hud .fg-enemy { align-items: flex-end; color: var(--fg-red); }
+#four-gate-defense-hud .fg-center { display: flex; justify-content: center; height: 100%; flex-direction: column; align-items: center; min-width: 0; }
+#four-gate-defense-hud .fg-clock { font-size: 32px; line-height: 1.05; font-weight: 800; letter-spacing: 0.04em; color: #fff4d0; }
+#four-gate-defense-hud .fg-phase { font-size: 12px; font-weight: 700; color: #e8c96a; white-space: nowrap; }
+#four-gate-defense-hud .fg-phase em { font-style: normal; font-weight: 400; color: #cdbf9f; margin-left: 6px; }
+#four-gate-defense-hud .fg-phase em:empty { display: none; }
+#four-gate-defense-hud .fg-balance {
+  height: 6px; margin: 3px 0 6px; background: var(--fg-red); border-radius: 3px; overflow: hidden;
+}
+#four-gate-defense-hud .fg-balance i { display: block; height: 100%; width: 50%; background: var(--fg-blue); }
+#four-gate-defense-hud .fg-gates { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+#four-gate-defense-hud .fg-gate {
+  box-sizing: border-box; height: 52px; padding: 4px 6px; min-width: 0;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(170, 146, 112, 0.28); border-radius: 3px;
+}
+#four-gate-defense-hud .fg-gate-head { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
+#four-gate-defense-hud .fg-gate-name { font-weight: 700; font-size: 13px; }
+#four-gate-defense-hud .fg-gate-count { font-size: 12px; color: #d9ccae; white-space: nowrap; }
+#four-gate-defense-hud .fg-gate-bar { height: 4px; margin: 3px 0 4px; background: rgba(0, 0, 0, 0.55); border-radius: 2px; overflow: hidden; }
+#four-gate-defense-hud .fg-gate-bar i { display: block; height: 100%; width: 100%; background: var(--fg-blue); }
+#four-gate-defense-hud .fg-gate-foot { display: flex; justify-content: space-between; align-items: center; height: 15px; }
+#four-gate-defense-hud .fg-gate-status { font-size: 12px; font-weight: 700; white-space: nowrap; color: #c9d8c0; }
+#four-gate-defense-hud .fg-gate[data-status="damaged"] .fg-gate-status { color: #f0c05a; }
+#four-gate-defense-hud .fg-gate[data-status="open"] { border-color: rgba(240, 192, 90, 0.7); }
+#four-gate-defense-hud .fg-gate[data-status="open"] .fg-gate-status { color: #ffd37a; }
+#four-gate-defense-hud .fg-gate[data-status="critical"] { border-color: var(--fg-red); background: rgba(255, 93, 79, 0.16); }
+#four-gate-defense-hud .fg-gate[data-status="critical"] .fg-gate-status { color: #ff8b7e; }
+#four-gate-defense-hud .fg-gate[data-status="critical"] .fg-gate-name::before { content: '! '; color: var(--fg-red); }
+#four-gate-defense-hud .fg-gate[data-status="breached"] { border: 2px solid var(--fg-red); padding: 3px 5px; background: rgba(150, 25, 20, 0.5); }
+#four-gate-defense-hud .fg-gate[data-status="breached"] .fg-gate-status { color: #fff; background: var(--fg-red); padding: 0 4px; border-radius: 2px; text-shadow: none; }
+#four-gate-defense-hud .fg-gate[data-status="breached"] .fg-gate-name::before { content: '✕ '; color: var(--fg-red); }
+#four-gate-defense-hud .fg-ramps { display: inline-flex; gap: 6px; }
+#four-gate-defense-hud .fg-ramp { position: relative; display: inline-flex; align-items: center; gap: 1px; color: #d8d4cc; }
+#four-gate-defense-hud .fg-ramp svg { width: 22px; height: 13px; overflow: visible; }
+#four-gate-defense-hud .fg-ramp b { width: 8px; font-size: 10px; line-height: 1; font-weight: 800; text-align: center; }
+#four-gate-defense-hud .fg-ramp .fg-ramp-body { fill: currentColor; stroke: #1a1611; stroke-width: 0.8; }
+#four-gate-defense-hud .fg-ramp .fg-ramp-beam { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+#four-gate-defense-hud .fg-ramp .fg-ramp-wheel { fill: #1a1611; stroke: currentColor; stroke-width: 1.2; }
+#four-gate-defense-hud .fg-ramp .fg-ramp-x { display: none; fill: none; stroke: #ff5d4f; stroke-width: 2.2; stroke-linecap: round; }
+#four-gate-defense-hud .fg-ramp[data-ramp-status="absent"] { opacity: 0.4; }
+#four-gate-defense-hud .fg-ramp[data-ramp-status="absent"] .fg-ramp-body { fill: none; stroke: currentColor; stroke-dasharray: 2 1.6; }
+#four-gate-defense-hud .fg-ramp[data-ramp-status="docked"] { color: #ff5d4f; filter: drop-shadow(0 0 3px rgba(255, 93, 79, 0.85)); }
+#four-gate-defense-hud .fg-ramp[data-ramp-status="abandoned"] { color: #6c675f; }
+#four-gate-defense-hud .fg-ramp[data-ramp-status="destroyed"] { color: #6c675f; }
+#four-gate-defense-hud .fg-ramp[data-ramp-status="destroyed"] .fg-ramp-x { display: inline; }
+#four-gate-defense-hud .fg-ramp[data-ramp-status="docked"] b { color: #ff5d4f; }
+#four-gate-defense-hud .fg-ramp[data-ramp-status="destroyed"] b { color: #ff5d4f; }
+
+/* 目標／坐騎／羅盤保持在比分板下方，不被覆蓋。 */
+body.four-gate-hud-active #mount-hud { top: 196px; }
+body.four-gate-hud-active #enemy-hud { top: 224px; }
+
+@media (max-width: 520px) {
+  #four-gate-defense-hud { width: calc(100vw - 16px); }
+  #four-gate-defense-hud .fg-side strong { font-size: 28px; }
+  #four-gate-defense-hud .fg-gate-name { font-size: 12px; }
+}
