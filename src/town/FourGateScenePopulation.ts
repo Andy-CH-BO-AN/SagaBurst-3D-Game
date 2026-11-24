@@ -1,7 +1,9 @@
+import { Vector3 } from 'three'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import { commanderFourGateGroundResidents, commanderFourGateMissionSquads, commanderFourGateReserveRecruits,
   FOUR_GATE_RESERVE_SQUAD, prepareFourGateGroundResident } from '../career/CommanderFourGateDefenseRoster'
-import { MOUNT_MOVEMENT_RADIUS } from '../world/MountGroundBody'
+import { MOUNT_BODY_HEIGHT, MOUNT_MOVEMENT_RADIUS } from '../world/MountGroundBody'
+import { findBlockingObstacleAlongPath, getTerrainHeight } from '../world/Terrain'
 import { architectureSpec } from './architecture/ArchitectureSpecs'
 import { TOWN_CENTER } from './TownLayout'
 import { townSitePoint, type TownActorSpec } from './TownRules'
@@ -32,6 +34,12 @@ function reservePosts(world: TownWorld, navigation: NavigationWorld) {
           && x + halfLength > box.min.x && x - halfLength < box.max.x
           && z + radius > box.min.z && z - radius < box.max.z
           && y + 3.65 > box.min.y && y + .05 < box.max.y)) continue
+        // The longhouse's post rows create narrow side bays. A mounted
+        // body needs room to leave its rank towards the centre aisle.
+        if (world.faction === 'viking' && findBlockingObstacleAlongPath(
+          new Vector3(x, y, z), new Vector3(TOWN_CENTER.x, y, z),
+          MOUNT_MOVEMENT_RADIUS + .12, MOUNT_BODY_HEIGHT, 0, world.obstacles,
+        )) continue
         posts.push({ x, y, z, yaw: TOWN_CENTER.yaw - sign * Math.PI / 2 })
       }
     }
@@ -65,4 +73,16 @@ export function fourGateScenePopulation(missionId: string, population: readonly 
       role: 'lancer_cavalry', unitKind: 'lancer', duty: 'gate_guard', tier: 3, training: false, assaultObjective: true })
   }
   return residents
+}
+
+/** Register the Viking hall's existing aisle and door with the shared ground follower. */
+export function configureFourGateReserveExit(world: TownWorld, navigation: NavigationWorld, actorIds: readonly string[]): void {
+  if (world.faction !== 'viking') return
+  const { interior, entrance } = architectureSpec(world.faction, 'town-center')
+  if (!interior) throw new Error('Town Center must define an indoor deployment area')
+  const door = townSitePoint('hall', 0, entrance.z + entrance.approach + 2)
+  navigation.townNav!.setMountedMuster({
+    minX: TOWN_CENTER.x + interior.minX, maxX: TOWN_CENTER.x + interior.maxX,
+    minZ: TOWN_CENTER.z + interior.minZ, maxZ: TOWN_CENTER.z + interior.maxZ,
+  }, new Vector3(door.x, getTerrainHeight(door.x, door.z), door.z), actorIds)
 }

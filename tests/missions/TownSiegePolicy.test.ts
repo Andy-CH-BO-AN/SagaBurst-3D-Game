@@ -98,6 +98,19 @@ describe('Siege deployment and shared rule ownership', () => {
     }
   })
 
+  it('routes a mounted reserve rider through the hall aisle before resuming the player order', () => {
+    const nav = new TownLayeredNavigation(EMPTY_LAYOUT)
+    const step = new Vector3(), goal = new Vector3(22, 0, 10), bay = new Vector3(8, 1, -8)
+    const exit = new Vector3(0, 0, 14)
+    nav.setMountedMuster({ minX: -10, maxX: 10, minZ: -15, maxZ: 1 }, exit, ['reserve'])
+    expect(nav.resolveMoveTarget(bay, goal, step, null, true, null, 'reserve')).toEqual({ ground: true })
+    expect(step.toArray()).toEqual([0, 1, -8])
+    expect(nav.resolveMoveTarget(step.clone(), goal, step, null, true, null, 'reserve')).toEqual({ ground: true })
+    expect(step.toArray()).toEqual(exit.toArray())
+    expect(nav.resolveMoveTarget(exit, goal, step, null, true, null, 'reserve')).toBeNull()
+    expect(nav.resolveMoveTarget(bay, goal, step, null, true, null, 'other')).toBeNull()
+  })
+
   it('requires explicit mounted wall permission, preserves it in checkpoints and clears it when command ownership is released', () => {
     // RampartDuty is the duty state NPC delegates to; the actor supplies only its live order and mount.
     const actor: RampartDutyActor = { tacticalOrder: 'defend', isMounted: true }, duty = new RampartDuty()

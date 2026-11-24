@@ -99,7 +99,19 @@ export class TownWorld {
     this.civic('stable', 'stable', TOWN_SITES.stable)
     townHousing(faction).forEach((home, index) => this.civic(home.id, townHomeVariant(index), home))
     this.civic('town-center', 'town-center', TOWN_CENTER)
-    const hall = this.buildings.find(building => building.id === 'town-center')!.hp.root
+    const townCenter = this.buildings.find(building => building.id === 'town-center')!
+    if (options.fourGateSiege && faction === 'viking') {
+      // At two-metre navigation resolution, a centreline beside a timber post
+      // can be legal for infantry yet graze it with a mounted movement body.
+      const floor = this.civicFloorY(townCenter.id)
+      for (const obstacle of townCenter.obstacles) {
+        const { box } = obstacle
+        if (obstacle.navigationPassable || box.max.y <= floor + .05 || box.min.y >= floor + 2.6
+          || box.max.x - box.min.x > 1 || box.max.z - box.min.z > 1) continue
+        obstacle.navigationBox = (obstacle.navigationBox ?? box).clone().expandByVector(new THREE.Vector3(.55, 0, .55))
+      }
+    }
+    const hall = townCenter.hp.root
     this.townCenterHeight = new THREE.Box3().setFromObject(hall).max.y - getTerrainHeight(TOWN_CENTER.x, TOWN_CENTER.z)
     for (const road of TOWN_CITY_ROADS) this.road(road.ax, road.az, road.bx, road.bz, road.width)
     for (const road of TOWN_LOCAL_ROADS) this.road(road.ax, road.az, road.bx, road.bz, road.width)

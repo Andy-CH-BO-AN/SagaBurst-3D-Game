@@ -71,7 +71,7 @@ import { canStartCareerTutorial } from '../career/CareerTutorial'
 import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
 import { acceptCaptainCavalryCommand, acceptCavalrySweep, CAVALRY_SWEEP_BANDITS, SWEEP_YAW, sweepPlayerSpawn } from '../career/CavalrySweep'
 import { commanderFourGateGroundResidents, fourGateFootLoadout, FOUR_GATE_RESERVE_SQUAD } from '../career/CommanderFourGateDefenseRoster'
-import { fourGateScenePopulation } from './FourGateScenePopulation'
+import { configureFourGateReserveExit, fourGateScenePopulation } from './FourGateScenePopulation'
 import { CommanderFourGateDefenseController } from '../career/CommanderFourGateDefenseController'
 import { townPersonalCheckpointDue } from './TownPersonalCheckpointCadence'
 import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_BRIDGEHEAD_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_IRON_LEGION_ID, COMMANDER_LAST_STAND_ID, getCommanderMissionAvailability, getCommanderMissionDefinition, isCommanderTownMission } from '../career/CommanderMissionCatalog'
@@ -441,6 +441,10 @@ export class TownScene {
     const siege = profile.activeMission?.kind === 'commander-four-gate-defense' ? profile.activeMission : undefined
     if (!siege) assignTownCivilianHomes(population, this.world.airspaceObstacles, this.navigation)
     const residents = siege ? fourGateScenePopulation(siege.id, population, this.world, this.navigation) : population
+    if (siege) {
+      const reserve = siege.officialSquad!.squads!.find(squad => squad.squadId === FOUR_GATE_RESERVE_SQUAD)!
+      configureFourGateReserveExit(this.world, this.navigation, reserve.actorIds)
+    }
     this.residentRoster = careerTownSceneRoster(profile, residents)
     const residentIds = new Set(this.residentRoster.map(entry => entry.spec.id))
     this.event = new TownEvent(context.missionOnlyResidents ? this.residentRoster.map(entry => entry.spec)
