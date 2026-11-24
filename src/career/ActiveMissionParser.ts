@@ -192,13 +192,18 @@ function rejectsCommanderRoster({ raw, template, fourGateMission, friendlyActorI
     : template?.kind === 'commander-bridgehead-battle' ? isBridgeheadEnemyCount(targetActorIds.length)
     : template?.kind === COMMANDER_FELINE_CAVALRY_KIND || template?.kind === COMMANDER_IRON_LEGION_KIND ? targetActorIds.length === FELINE_ENEMY_TOTAL : targetActorIds.length === 100
   if (!acceptedOfficialSquad || acceptedOfficialSquad.commandRank !== 'commander'
-    || friendlyActorIds.length !== expectedFriendly || acceptedOfficialSquad.actorIds.length !== expectedFriendly
-    || !friendlyActorIds.every(id => acceptedOfficialSquad.actorIds.includes(id)) || !validTargets) return true
-  if (fourGateMission && (friendlyActorIds.some(id => !nativeActorIds.includes(id))
+    || friendlyActorIds.length !== expectedFriendly || acceptedOfficialSquad.actorIds.length !== expectedFriendly) return true
+  // Set membership: the same SameValueZero test as includes, without rescanning a full roster per id.
+  const acceptedIds = new Set(acceptedOfficialSquad.actorIds)
+  if (!friendlyActorIds.every(id => acceptedIds.has(id)) || !validTargets) return true
+  const nativeIds = new Set(nativeActorIds)
+  if (fourGateMission && (friendlyActorIds.some(id => !nativeIds.has(id))
     || acceptedOfficialSquad.squads?.length !== nativeSquads.length
     || nativeSquads.some(expected => {
       const saved = acceptedOfficialSquad.squads?.find(squad => squad.squadId === expected.squadId)
-      return !saved || saved.actorIds.length !== expected.actorIds.length || saved.actorIds.some(id => !expected.actorIds.includes(id))
+      if (!saved || saved.actorIds.length !== expected.actorIds.length) return true
+      const expectedIds = new Set(expected.actorIds)
+      return saved.actorIds.some(id => !expectedIds.has(id))
     }))) return true
   return false
 }

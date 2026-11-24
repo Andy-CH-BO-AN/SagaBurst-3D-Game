@@ -286,12 +286,13 @@ export class CommanderFourGateDefenseController {
 
   private restoreNativeActors(active: ActiveCareerMission): void {
     const sectorIds = new Set(this.deployment!.sectors.flatMap(s => [...s.wallActorIds, ...s.cavalryActorIds]))
+    const officialIds = new Set(active.officialSquad?.actorIds)
     for (const { npc, spec, homeMount } of this.residents) {
       this.releaseNativeEventBindings.push(npc.bindCombatEventSink(this.events.emit))
       this.actorsById.set(spec.id, npc)
       if (homeMount ?? npc.mount) this.actorMounts.set(spec.id, (homeMount ?? npc.mount)!)
       npc.respawnEnabled = false
-      if (active.officialSquad?.actorIds.includes(spec.id) && !isAutonomousTownGuard(spec.id)) {
+      if (active.officialSquad && officialIds.has(spec.id) && !isAutonomousTownGuard(spec.id)) {
         this.originalSquads.set(npc, npc.squadId)
         npc.setCommandSquad(officialActorSquadId(active.officialSquad, spec.id)); npc.combatOwnership = 'mission-official'
       }
@@ -339,6 +340,7 @@ export class CommanderFourGateDefenseController {
   /** The mission garrison stands at its planned posts; a saved battle restores its exact bodies. */
   private spawnGarrison(active: ActiveCareerMission): void {
     const sectorIds = new Set(this.deployment!.sectors.flatMap(s => [...s.wallActorIds, ...s.cavalryActorIds]))
+    const officialIds = new Set(active.officialSquad?.actorIds)
     for (const spec of createCommanderFourGateGarrison(active.id, this.readProfile().faction)) {
       const id = spec.actorId!, saved = this.state!.actors[id], station = this.deployment!.stations.get(id)!
       spec.x = station.x; spec.z = station.z
@@ -346,7 +348,7 @@ export class CommanderFourGateDefenseController {
       npc.enableBattlefieldEngagement()
       npc.respawnEnabled = false
       // Commanded through the gate's official squad, exactly like the native members.
-      if (active.officialSquad?.actorIds.includes(id)) {
+      if (active.officialSquad && officialIds.has(id)) {
         npc.setCommandSquad(officialActorSquadId(active.officialSquad, id)); npc.combatOwnership = 'mission-official'
       }
       if (saved) restoreCommandActor(npc, saved)
