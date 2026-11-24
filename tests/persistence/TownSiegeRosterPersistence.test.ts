@@ -63,14 +63,14 @@ describe('siege checkpoint ownership', () => {
     const loaded = store.load()!.activeMission!
     const garrison = commanderFourGateGarrisonSlots(loaded.id)
     expect(loaded.friendlyActorIds).toEqual(current.friendlyActorIds)
-    // Each gate's whole foot garrison joins its infantry squad (1/3/5/7); cavalry squads stay native.
+    // Reinforcements retain their accepted wall/ground authority after a round trip.
     for (const slot of garrison) {
-      const squadId = ['north', 'south', 'east', 'west'].indexOf(slot.gateId) * 2 + 1
+      const squadId = ['north', 'south', 'east', 'west'].indexOf(slot.gateId) * 2 + (slot.post === 'wall' ? 1 : 2)
       expect(loaded.officialSquad!.squads!.find(squad => squad.squadId === squadId)!.actorIds).toContain(slot.actorId)
     }
-    for (const squad of loaded.officialSquad!.squads!.filter(squad => squad.squadId % 2 === 0)) {
-      expect(squad.actorIds.some(id => garrison.some(slot => slot.actorId === id))).toBe(false)
-    }
+    const reserve = loaded.officialSquad!.squads!.find(squad => squad.squadId === 10)!
+    expect(reserve.actorIds).toEqual(expect.arrayContaining(['merchant', 'commander', 'deployment', 'eagle-trainer']))
+    expect(new Set(loaded.officialSquad!.squads!.flatMap(squad => squad.actorIds)).size).toBe(loaded.friendlyActorIds.length)
     expect(loaded.fourGateDefense!.autonomousActorIds).toEqual(current.fourGateDefense!.autonomousActorIds)
     expect(loaded.fourGateDefense!.autonomousActorIds).toContain(archerId)
     expect(loaded.fourGateDefense!.nativeCombatStats).toEqual({ damageDealt: 0, damageTaken: 0, kills: 1 })

@@ -6,7 +6,7 @@ import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { snapshotPersonalMission } from './CareerPersonalSquadMission'
 import { CAREER_RANKS,type CareerProfile } from './CareerProfile'
 import { commanderGateDefenseSlots } from './CommanderTownRoster'
-import { commanderFourGateGarrisonSlots, commanderFourGateMissionSquads } from './CommanderFourGateDefenseRoster'
+import { commanderFourGateGarrisonSlots, commanderFourGateMissionSquads, commanderFourGateReserveRecruits } from './CommanderFourGateDefenseRoster'
 export { commanderGateDefenseSlots } from './CommanderTownRoster'
 
 export const CAPTAIN_PATROL_COMMAND_ID = 'captain-patrol-command'
@@ -60,7 +60,7 @@ export function commanderGateDefenseSquads(residents: readonly TownActorSpec[], 
   missionId?: string): OfficialCommandSquad[] {
   const residentIds = new Set(residents.map(actor => actor.id)), accepted = new Set(friendlyActorIds)
   // The mission garrison is spawned by the mission itself, never a Town resident.
-  const garrison = new Set(missionId ? commanderFourGateGarrisonSlots(missionId).map(slot => slot.actorId) : [])
+  const garrison = new Set(missionId ? [...commanderFourGateGarrisonSlots(missionId).map(slot => slot.actorId), ...commanderFourGateReserveRecruits(missionId)] : [])
   return (missionId ? commanderFourGateMissionSquads(missionId) : commanderGateDefenseSlots()).map(squad => ({ ...squad,
     actorIds: squad.actorIds.filter(id => (residentIds.has(id) || garrison.has(id)) && accepted.has(id) && !unavailableActorIds.has(id)),
   })).filter(squad => squad.actorIds.length > 0)

@@ -1,6 +1,6 @@
 import { gatehouseLocal } from '../../src/town/TownGatehouse'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
-import { commanderFourGateGarrisonSlots } from '../../src/career/CommanderFourGateDefenseRoster'
+import { commanderFourGateGarrisonSlots, fourGateReserveTrooperLoadout } from '../../src/career/CommanderFourGateDefenseRoster'
 import type { Player } from '../../src/player/Player'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { gateBreachLane } from '../../src/navigation/GateBreachPortal'
@@ -11,17 +11,24 @@ import { planCommanderFourGateDefenseDeployment } from '../../src/career/Command
 import { AIType, NPC, Faction } from '../../src/world/NPC'
 import { RampartDuty, type RampartDutyActor } from '../../src/battle/RampartDuty'
 import { parseCommandActorCheckpoint } from '../../src/career/CareerCommandAuthority'
-import { Vector3 } from 'three'
+import { Box3, Vector3 } from 'three'
 import { AvailableBreachEntrances } from '../../src/navigation/AvailableBreachEntrances'
 import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
-import { townAuthoredRoster, type TownActorSpec } from '../../src/town/TownRules'
+import type { TownActorSpec } from '../../src/town/TownRules'
+import { getCommanderMissionDefinition, createCommanderMission } from '../../src/career/CommanderMissionCatalog'
+import { createCareerProfile } from '../../src/career/CareerProfile'
+import { careerRankFixture } from '../helpers/careerRankFixture'
+import { fourGateNativeSpecs } from '../helpers/fourGateDefenseRuntime'
+import { TOWN_GATES, townGatePoint } from '../../src/town/TownLayout'
+import { fourGateGroundFront, townFourGateBarricadeRects } from '../../src/town/TownGateBarricades'
 import { getTownRampartLayout, townRampartHeight } from '../../src/town/TownRamparts'
 
-import { getTerrainHeight, getWalkRampHeight } from '../../src/world/Terrain'
+import { findBlockingObstacleAlongPath, getTerrainHeight, getWalkRampHeight } from '../../src/world/Terrain'
 import { SiegeConvoy } from '../../src/campaign/SiegeConvoy'
 import { ActorDouble, asNpc, MountDouble } from '../helpers/careerActorDoubles'
 import { preparedTownSiege, townSiege } from '../helpers/townSiegeDoubles'
 import { PursuitBlockList } from '../../src/navigation/PursuitBlockList'
+import { MOUNT_BODY_HEIGHT, MOUNT_MOVEMENT_RADIUS } from '../../src/world/MountGroundBody'
 
 const EMPTY_LAYOUT = { decks: [], ramps: [], corners: [], lengths: [], perimeter: 1, wallSpans: [] }
 /** An attacker body with its fixed sector role; cavalry rides a ground mount. */
@@ -33,43 +40,24 @@ function attacker(id: string, role: TownSiegeAttackerRole, x = 200, z = 62): Act
   return actor
 }
 
-// Exercise the full authored identity/capacity contract without allocating normal-Town
-// daily garrison or civilian homes. CaptainMissionPolicy keeps exact slot/order parity
-// with the positioned townRoster; TownResidentLayout owns those placement invariants.
+function expandedDeployment() {
+  const profile = createCareerProfile('roman')
+  Object.assign(profile, careerRankFixture('roman', 'commander'), { totalMerit: 20_000, availableMerit: 20_000 })
+  const mission = createCommanderMission(profile, 'commander-four-gate-defense', 'garrison')!
+  const roster = fourGateNativeSpecs(mission), layout = getTownRampartLayout()
+  const kit = (actor: TownActorSpec) => ({ ranged: actor.unitKind === 'archer' || actor.unitKind === 'ranged', spear: actor.unitKind === 'spearman' })
+  return { mission, roster, layout, deployment: planCommanderFourGateDefenseDeployment(mission.id, roster, layout, [], kit) }
+}
 
 describe('Siege deployment and shared rule ownership', () => {
 
-  it('keeps horse-equipped native infantry on supported wall slots and dismounted native cavalry at its gate', () => {
-    const ids = ['gate:north:0', 'gate:north:1', 'gate:north:7', 'captain', 'town-eagle-rider:1']
-    const residents = townAuthoredRoster().filter(actor => ids.includes(actor.id)), original = structuredClone(residents)
-    const layout = getTownRampartLayout()
-    const equipment = (actor: TownActorSpec) => ({ mounted: actor.id !== 'captain',
-      ranged: actor.unitKind === 'archer', flying: actor.duty === 'eagle_garrison' })
-    const deployment = planCommanderFourGateDefenseDeployment(residents, layout, [], equipment)
-    expect(deployment.sectors[0].wallActorIds).toEqual(['gate:north:0', 'gate:north:1', 'gate:north:7'])
-    expect(deployment.sectors.find(sector => sector.gateId === 'east')!.cavalryActorIds).toEqual(['captain'])
-    expect(deployment.stations.get('captain')?.kind).toBe('cavalry')
-    expect(deployment.stations.has('town-eagle-rider:1')).toBe(false)
-    const wall = deployment.sectors[0].wallActorIds.map(id => deployment.stations.get(id)!)
-    for (const station of wall) {
-      expect(station.kind).toBe('wall')
-      for (const [dx, dz] of [[1.25, 0], [-1.25, 0], [0, 1.25], [0, -1.25]]) {
-        const support = townRampartHeight(layout, station.x + dx, station.z + dz)
-        expect(support).not.toBeNull()
-        expect(Math.abs(support! - station.y)).toBeLessThanOrEqual(.4)
-      }
-    }
-    expect(Math.hypot(wall[0].x - wall[1].x, wall[0].z - wall[1].z)).toBeGreaterThanOrEqual(3.6)
-    expect(residents).toEqual(original)
-  })
-
   it('posts each gate\'s foot archers at the tower windows, then the gallery, and sends only the overflow to the wall', () => {
-    const layout = getTownRampartLayout(), roster = townAuthoredRoster()
-    const deployment = planCommanderFourGateDefenseDeployment(roster, layout, [])
-    const byId = new Map(roster.map(actor => [actor.id, actor]))
+    const { mission, roster, layout, deployment } = expandedDeployment()
+    const nativeArchers = new Set(roster.filter(actor => actor.unitKind === 'archer' || actor.unitKind === 'ranged').map(actor => actor.id))
+    const extraArchers = new Set(commanderFourGateGarrisonSlots(mission.id).filter(slot => slot.role === 'archer').map(slot => slot.actorId))
     for (const sector of deployment.sectors) {
       const house = layout.gatehouses!.find(house => house.gate.id === sector.gateId)!
-      const archers = sector.wallActorIds.filter(id => ['ranged', 'archer'].includes(byId.get(id)!.unitKind ?? '') && !byId.get(id)!.mounted)
+      const archers = sector.wallActorIds.filter(id => nativeArchers.has(id) || extraArchers.has(id))
       // The gatehouse floor spans both towers (|local x| <= 13.8); the towers start at |x| 7.
       const local = (id: string) => gatehouseLocal(house.gate, deployment.stations.get(id)!)
       const onGatehouse = archers.filter(id => {
@@ -85,20 +73,76 @@ describe('Siege deployment and shared rule ownership', () => {
     }
   })
 
-  it('posts the whole mission garrison on its own gate\'s wall after every native post', () => {
-    const layout = getTownRampartLayout(), roster = townAuthoredRoster()
-    const garrison = commanderFourGateGarrisonSlots('garrison')
-    const deployment = planCommanderFourGateDefenseDeployment(roster, layout, [], undefined, 2, garrison)
-    const native = planCommanderFourGateDefenseDeployment(roster, layout, [])
-    for (const [id, station] of native.stations) expect(deployment.stations.get(id)).toEqual(station)
-    for (const member of garrison) {
-      const station = deployment.stations.get(member.actorId)!, sector = deployment.sectors.find(s => s.gateId === member.gateId)!
-      expect(station.gateId).toBe(member.gateId)
-      expect(station.kind).toBe('wall')
-      const house = layout.gatehouses!.find(house => house.gate.id === member.gateId)!
-      expect(townRampartHeight(layout, station.x, station.z) ?? getWalkRampHeight(house.deck, station.x, station.z)).not.toBeNull()
-      expect(sector.wallActorIds).toContain(member.actorId)
+  it('deploys and releases the same wall and ground identities reserved by the mission board', () => {
+    const { mission, layout, deployment } = expandedDeployment()
+    const official = mission.officialSquad!.squads!
+    const reserve = official.find(s => s.squadId === 10)!
+    const catalog = getCommanderMissionDefinition(mission.templateId)!
+    expect(catalog.friendlyCombatants).toBe(deployment.stations.size + mission.fourGateDefense!.autonomousActorIds!.length + 1)
+    expect([...deployment.stations.keys()].sort()).toEqual([...mission.friendlyActorIds].sort())
+    expect(reserve.actorIds.every(id => deployment.stations.get(id)?.kind === 'reserve')).toBe(true)
+    for (const [index, sector] of deployment.sectors.entries()) {
+      expect(sector.wallActorIds).toEqual(official[index * 2].actorIds)
+      expect(sector.cavalryActorIds).toEqual(official[index * 2 + 1].actorIds)
+      expect(sector.wallActorIds.every(id => {
+        const station = deployment.stations.get(id)!
+        const house = layout.gatehouses!.find(house => house.gate.id === sector.gateId)!
+        return station.kind === 'wall' && (townRampartHeight(layout, station.x, station.z)
+          ?? getWalkRampHeight(house.deck, station.x, station.z)) !== null
+      })).toBe(true)
+      const gate = TOWN_GATES.find(gate => gate.id === sector.gateId)!
+      expect(sector.cavalryActorIds.every(id => {
+        const station = deployment.stations.get(id)!
+        const depth = (gate.x - station.x) * Math.sin(gate.yaw) + (gate.z - station.z) * Math.cos(gate.yaw)
+        return station.kind === 'cavalry' && depth >= fourGateGroundFront(sector.gateId) - .001
+      })).toBe(true)
     }
+  })
+
+  it('blocks straight approaches inside each gate opening while leaving mounted passage between the works', () => {
+    const obstacles = townFourGateBarricadeRects().map(rect => ({
+      box: new Box3(new Vector3(rect.minX, -1, rect.minZ), new Vector3(rect.maxX, 3, rect.maxZ)),
+      isBarricade: false,
+    }))
+    for (const gate of TOWN_GATES) {
+      const point = (side: number, inward: number) => {
+        const { x, z } = townGatePoint(gate, side, inward)
+        return new Vector3(x, 0, z)
+      }
+      const blocked = (side: number) => findBlockingObstacleAlongPath(point(side, 2),
+        point(side, fourGateGroundFront(gate.id) - 1), MOUNT_MOVEMENT_RADIUS, MOUNT_BODY_HEIGHT, 0, obstacles)
+      expect(blocked(-4)).not.toBeNull()
+      expect(blocked(4)).not.toBeNull()
+      expect(blocked(0)).toBeNull()
+      expect(blocked(-12)).toBeNull()
+      expect(blocked(12)).toBeNull()
+    }
+  })
+
+  it('equips reserve riders according to their identity without replacing the Merchant’s native weapons', () => {
+    for (const faction of ['roman', 'viking'] as const) {
+      const civilian = fourGateReserveTrooperLoadout(faction, 'civilian')
+      const recruit = fourGateReserveTrooperLoadout(faction, 'recruit')
+      const merchant = fourGateReserveTrooperLoadout(faction, 'merchant')
+      expect(civilian).toMatchObject({ mountId: 'horse', meleeWeaponId: 'steel_lance',
+        shieldId: faction === 'roman' ? 'scutum_t2' : 'round_shield_t2' })
+      expect(recruit).toMatchObject({ mountId: 'horse', meleeWeaponId: 'heavy_lance', shieldId: null })
+      expect(merchant).toMatchObject({ mountId: 'horse', meleeWeaponId: 'sword_t5',
+        secondaryMeleeWeaponId: 'axe_t5', shieldId: 'byzantine_eagle_shield_t5', rangedWeaponId: null })
+    }
+  })
+
+  it('routes a mounted reserve rider through the hall aisle before resuming the player order', () => {
+    const nav = new TownLayeredNavigation(EMPTY_LAYOUT)
+    const step = new Vector3(), goal = new Vector3(22, 0, 10), bay = new Vector3(8, 1, -8)
+    const exit = new Vector3(0, 0, 14)
+    nav.setMountedMuster({ minX: -10, maxX: 10, minZ: -15, maxZ: 1 }, exit, ['reserve'])
+    expect(nav.resolveMoveTarget(bay, goal, step, null, true, null, 'reserve')).toEqual({ ground: true })
+    expect(step.toArray()).toEqual([0, 1, -8])
+    expect(nav.resolveMoveTarget(step.clone(), goal, step, null, true, null, 'reserve')).toEqual({ ground: true })
+    expect(step.toArray()).toEqual(exit.toArray())
+    expect(nav.resolveMoveTarget(exit, goal, step, null, true, null, 'reserve')).toBeNull()
+    expect(nav.resolveMoveTarget(bay, goal, step, null, true, null, 'other')).toBeNull()
   })
 
   it('requires explicit mounted wall permission, preserves it in checkpoints and clears it when command ownership is released', () => {

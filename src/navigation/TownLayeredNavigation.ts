@@ -16,6 +16,12 @@ const GALLERY_EXIT = TOWN_GATEHOUSE.deckRear - 1.6
 const SURFACE_CELL = 4
 const NO_GATEHOUSES: readonly TownGatehouse[] = []
 
+interface TownMountedMuster {
+  interior: { minX: number; maxX: number; minZ: number; maxZ: number }
+  exit: THREE.Vector3
+  actors: ReadonlySet<string>
+}
+
 /** Directional slope lanes keep ascending and descending Town ramp streams separated. */
 export function townRampLane(actorId: string | undefined, mounted: boolean, ascending: boolean, halfWidth: number): number {
   if (!actorId) return 0
@@ -96,6 +102,29 @@ export class TownLayeredNavigation {
   /** Empty and inactive in every existing Town mode. */
   readonly siegeEntrances = new AvailableBreachEntrances()
   siegeActive = false
+  private mountedMuster?: TownMountedMuster
+
+  setMountedMuster(interior: TownMountedMuster['interior'], exit: THREE.Vector3, actors: readonly string[]): void {
+    this.mountedMuster = { interior, exit, actors: new Set(actors) }
+  }
+
+  private resolveMountedMusterExit(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3,
+    actorId: string): TownNavigationStep | null {
+    const muster = this.mountedMuster
+    if (!muster?.actors.has(actorId)) return null
+    const { interior, exit } = muster
+    const indoors = ({ x, z }: THREE.Vector3) => x >= interior.minX && x <= interior.maxX
+      && z >= interior.minZ && z <= interior.maxZ
+    const onExitLane = ({ x, z }: THREE.Vector3) => z > interior.maxZ && z < exit.z && Math.abs(x - exit.x) <= 2
+    if (indoors(goal) || onExitLane(goal) || current.z >= exit.z - .75) return null
+    if (!indoors(current) && !onExitLane(current)) return null
+    const inAisle = Math.abs(current.x - exit.x) <= .9
+    // Leave a side bay across its row before following the open aisle through the door.
+    // The existing ground follower and body collision still own both moves.
+    if (inAisle) out.copy(exit)
+    else out.set(exit.x, current.y, current.z)
+    return { ground: true }
+  }
   private readonly gateApproaches = new Map<TownGateId, TownGateApproach>()
   /** Live physical gate state; registration never opens or damages a gate. */
   setSiegeGates(gates: ReadonlyMap<TownGateId, TownGateApproach['gate']>): void {
@@ -292,6 +321,8 @@ export class TownLayeredNavigation {
   }
   /** null means ordinary ground travel; ground=true preserves wall/gate topology. */
   resolveMoveTarget(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3, entranceId?: string | null, mounted = false, sectorId?: TownGateId | null, actorId?: string): TownNavigationStep | null {
+    const musterExit = mounted && actorId ? this.resolveMountedMusterExit(current, goal, out, actorId) : null
+    if (musterExit) return musterExit
     const transfer = this.interiorSiegeExit(current, goal, mounted, entranceId, sectorId)
     if (transfer) {
       const step = this.resolveMoveTarget(current, transfer.exit, out, transfer.id, mounted, sectorId, actorId)

@@ -70,6 +70,8 @@ import { sellTownNativeProducts, townNativeSaleGate, townNativeSaleStock, type T
 import { canStartCareerTutorial } from '../career/CareerTutorial'
 import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
 import { acceptCaptainCavalryCommand, acceptCavalrySweep, CAVALRY_SWEEP_BANDITS, SWEEP_YAW, sweepPlayerSpawn } from '../career/CavalrySweep'
+import { commanderFourGateGroundResidents, fourGateFootLoadout, fourGateReserveTrooperLoadout, FOUR_GATE_RESERVE_SQUAD } from '../career/CommanderFourGateDefenseRoster'
+import { configureFourGateReserveExit, fourGateScenePopulation } from './FourGateScenePopulation'
 import { CommanderFourGateDefenseController } from '../career/CommanderFourGateDefenseController'
 import { townPersonalCheckpointDue } from './TownPersonalCheckpointCadence'
 import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_BRIDGEHEAD_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_IRON_LEGION_ID, COMMANDER_LAST_STAND_ID, getCommanderMissionAvailability, getCommanderMissionDefinition, isCommanderTownMission } from '../career/CommanderMissionCatalog'
@@ -436,8 +438,14 @@ export class TownScene {
       population.push(townCommanderSpec(resolveTownCommanderPosition(this.world.serviceStation('commander'), this.navigation, population)))
     }
     this.navigation.sync(this.world.obstacles)
-    assignTownCivilianHomes(population, this.world.airspaceObstacles, this.navigation)
-    this.residentRoster = careerTownSceneRoster(profile, population)
+    const siege = profile.activeMission?.kind === 'commander-four-gate-defense' ? profile.activeMission : undefined
+    if (!siege) assignTownCivilianHomes(population, this.world.airspaceObstacles, this.navigation)
+    const residents = siege ? fourGateScenePopulation(siege.id, population, this.world, this.navigation) : population
+    if (siege) {
+      const reserve = siege.officialSquad!.squads!.find(squad => squad.squadId === FOUR_GATE_RESERVE_SQUAD)!
+      configureFourGateReserveExit(this.world, this.navigation, reserve.actorIds)
+    }
+    this.residentRoster = careerTownSceneRoster(profile, residents)
     const residentIds = new Set(this.residentRoster.map(entry => entry.spec.id))
     this.event = new TownEvent(context.missionOnlyResidents ? this.residentRoster.map(entry => entry.spec)
       : population.filter(spec => spec.role === 'cat' || residentIds.has(spec.id)))
@@ -543,7 +551,7 @@ export class TownScene {
         nativeReturnState: actorId => this.patrol!.returnStateFor(actorId) ?? undefined,
         restoreNativeReturn: (actorId, state) => this.patrol!.restoreMissionReturn(actorId, state, true),
       })
-    this.townCommand.restore()
+    if (profile.activeMission?.kind !== 'commander-four-gate-defense') this.townCommand.restore()
     this.captainPatrol = new CaptainPatrolCommandController(this.residents, this.patrol, () => this.player, () => this.profile, p => this.commit(p),
       { personalActors: () => this.personalSquad?.actors ?? [],
         resumeFormation: (npc, reference) => this.personalFormation?.joinCommand(npc, reference) ?? false })
@@ -636,8 +644,7 @@ export class TownScene {
             this.siegeHitRadius.set(ramp.damageable, Math.hypot(ramp.surface.length + ramp.surface.landing,
               ramp.surface.topY - ramp.surface.startY) + ramp.bridgeSurface.length + 8)
           },
-          unregisterHit: ramp => { this.siegeHitTargets.delete(ramp.damageable) },
-          civilianRefuge: count => this.world.townCenterRefugePosts(count) })
+          unregisterHit: ramp => { this.siegeHitTargets.delete(ramp.damageable) } })
       : new CommanderTownMissionController(missionActors, this.residents, () => this.player, () => this.profile,
         p => this.commit(p), this.navigation, undefined, { obstacles: this.world.obstacles,
           otherThreats: () => [...this.mission.ambientBandits, ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? [])]
@@ -774,7 +781,7 @@ export class TownScene {
     if (!context.missionOnlyResidents) this.event.complete()
     this.restoreEagleGarrison()
     if (this.profile.activeMission?.kind !== 'commander-four-gate-defense' || this.profile.activeMission.result) this.restoreTownCasualties()
-    this.civilianCommand.restore()
+    if (profile.activeMission?.kind !== 'commander-four-gate-defense') this.civilianCommand.restore()
     this.townCommand.resumeRefits()
     if (this.world.faction === this.profile.faction && !this.sceneContext.missionOnlyResidents) {
       this.retirementMobilization = new TownRetirementMobilizationController({
@@ -886,6 +893,9 @@ export class TownScene {
   private async initializeResidents(roster: ReturnType<typeof careerTownSceneRoster>,
     context: ReturnType<typeof resolveCareerTownSceneContext>, progress: (text: string) => void, additionalPopulation = false): Promise<void> {
     const created: Resident[] = []
+    const fourGate = this.profile.activeMission?.kind === 'commander-four-gate-defense' ? this.profile.activeMission : undefined
+    const reserve = new Set(fourGate?.officialSquad?.squads?.find(squad => squad.squadId === FOUR_GATE_RESERVE_SQUAD)?.actorIds)
+    const ground = fourGate ? commanderFourGateGroundResidents() : new Map()
     const equipmentActorIds = new Set(townEquipmentSquads(this.profile).filter(squad => squad.id !== 'personal').flatMap(squad => squad.actorIds))
     const residentBatch = gameplayNpcSpawns.batch(() => {
       for (const resident of created) {
@@ -908,17 +918,31 @@ export class TownScene {
         const civilian = isCivilian(spec.role), ranger = (spec.role === 'ranger' || spec.role === 'eagle-trainer'), cavalry = spec.mounted
         const residentArmyFaction = context.missionOnlyResidents && !borrowed ? context.worldFaction : context.residentFaction
         const military = !civilian && !ranger ? townMilitaryEquipment(residentArmyFaction, spec) : null
-        const preset = military?.presetId
+        const foot = ground.get(spec.id)
+        const infantryEquipment = foot ? fourGateFootLoadout(residentArmyFaction, foot.role, foot.tier) : undefined
+        const reserveRider = reserve.has(spec.id), recruit = reserveRider && spec.unitKind === 'lancer'
+        const wallDefender = fourGate && !reserveRider && !foot && spec.duty !== 'eagle_garrison'
+        const lancerPreset = `${residentArmyFaction}_lancer` as const
+        const preset = infantryEquipment?.presetId ?? (recruit ? lancerPreset : military?.presetId)
         const hero = townActorHeroProfile(residentArmyFaction, spec)
         const borrowedIdentity = borrowed ? this.profile.activeMission?.borrowedActorIdentities?.[spec.id] : undefined
         const heroAsset = spec.role === 'commander' ? townCommanderHeroAsset(residentArmyFaction) : hero?.visualAssetId
         const combatProfile = heroAsset ? HERO_COMBAT_PROFILE_BY_ASSET[heroAsset] : undefined
-        const careerEquipment = residentArmyFaction === this.profile.faction && equipmentActorIds.has(spec.id)
+        const careerEquipment = !foot && residentArmyFaction === this.profile.faction && equipmentActorIds.has(spec.id)
           && this.profile.townEquipment?.[residentArmyFaction]
           ? resolveTownActorEquipment(this.profile, residentArmyFaction, spec.id) : undefined
-        const loadout = careerEquipment?.loadout ?? (spec.role === 'merchant' ? townMerchantLoadout() : civilian || spec.role === 'commander' ? townDefaultActorLoadout(residentArmyFaction, spec) : ranger ? { meleeWeaponId: defaultRangerMeleeWeaponId(residentArmyFaction), rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null, reversibleRangedSwitch: true } : military!.loadout)
+        const nativeLoadout = careerEquipment?.loadout ?? (spec.role === 'merchant' ? townMerchantLoadout() : civilian || spec.role === 'commander' ? townDefaultActorLoadout(residentArmyFaction, spec) : ranger ? { meleeWeaponId: defaultRangerMeleeWeaponId(residentArmyFaction), rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null, reversibleRangedSwitch: true } : military!.loadout)
+        let loadout = infantryEquipment?.loadout ?? (wallDefender ? { ...nativeLoadout, mountId: null } : nativeLoadout)
+        if (reserveRider) {
+          if (civilian || recruit) loadout = fourGateReserveTrooperLoadout(residentArmyFaction, spec.role === 'merchant' ? 'merchant' : civilian ? 'civilian' : 'recruit')
+          else {
+            const nativeMount = loadout.mountId ?? (spec.role === 'ranger' ? 'black-cat' : hero?.mountOverride)
+            loadout = { ...loadout, mountId: nativeMount && nativeMount !== 'xongkoro' ? nativeMount : 'horse' }
+          }
+        }
+        const missionTier = foot?.tier ?? (recruit ? 3 : undefined)
         spec = townStationSpec(spec, Boolean(loadout.mountId), Boolean(loadout.rangedWeaponId))
-        const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, borrowedIdentity?.characterFaction ?? characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, borrowedIdentity?.visualAssetId ?? (ranger ? 'maki-archer-t4' : heroAsset), borrowedIdentity?.combatProfileId ?? (ranger ? 'ranger' : combatProfile), borrowedIdentity?.specialCombatProfile ?? (ranger ? 'maki-ranger' : undefined), civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined, undefined, borrowedIdentity?.characterTier ?? (civilian ? TOWN_RULES.garrisonTier : spec.role === 'commander' ? 5 : hero ? hero.characterTier : ranger ? 4 : military!.level), borrowedIdentity?.heroArchetype))
+        const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, borrowedIdentity?.characterFaction ?? characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : missionTier ?? careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, borrowedIdentity?.visualAssetId ?? (ranger ? 'maki-archer-t4' : heroAsset), borrowedIdentity?.combatProfileId ?? (ranger ? 'ranger' : combatProfile), borrowedIdentity?.specialCombatProfile ?? (ranger ? 'maki-ranger' : undefined), civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined, undefined, borrowedIdentity?.characterTier ?? (civilian ? TOWN_RULES.garrisonTier : spec.role === 'commander' ? 5 : hero ? hero.characterTier : ranger ? 4 : missionTier ?? military!.level), borrowedIdentity?.heroArchetype))
         npc.enableBattlefieldEngagement()
         if (!spec.eagle && spec.duty !== 'patrol') npc.combatTargetAllowed = target => this.residentCombatTargetAllowed(spec, npc, target)
         if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery, undefined, spec)
@@ -940,15 +964,15 @@ export class TownScene {
           eagle.group.name = mountId; eagle.group.rotation.y = home.yaw; eagle.reservedForTown = true
           homeMount = eagle
         }
-        const equippedMount = careerEquipment || spec.role === 'commander' || spec.role === 'deployment' ? loadout.mountId : cavalry ? hero?.mountOverride ?? 'horse' : null
+        const equippedMount = fourGate && !spec.eagle || careerEquipment || spec.role === 'commander' || spec.role === 'deployment' ? loadout.mountId : cavalry ? hero?.mountOverride ?? 'horse' : null
         if (!spec.eagle && equippedMount) {
-          const nativeRef = careerEquipment?.refs.mount ?? (equipmentActorIds.has(spec.id)
+          const nativeRef = civilian && reserveRider ? null : careerEquipment?.refs.mount ?? (equipmentActorIds.has(spec.id)
             ? resolveTownActorEquipment(this.profile, residentArmyFaction, spec.id).refs.mount : null)
-          const reused = findTownNativeMount(this.mounts, nativeRef)
+          const reused = reserveRider && spec.role === 'ranger' && !careerEquipment ? this.cat : findTownNativeMount(this.mounts, nativeRef)
           const mount = reused ?? trackNpcSpawn(new Mount(this.scene, careerMountType(equippedMount as CareerMountId), spec.x, spec.z, spec.y, horseVariantForStableKey(`town:${residentArmyFaction}:${spec.id}`)))
           if (nativeRef?.source === 'native') registerTownNativeMount(mount, nativeRef.nativeId!)
           mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI
-          if (spec.role !== 'ranger' || mount !== this.cat) {
+          if (reserveRider || spec.role !== 'ranger' || mount !== this.cat) {
             // The shared native Cat starts at the stable; transferred holders need their own spawn baseline before binding.
             // Saved command/mission positions are restored after resident initialization.
             if (reused) mount.group.position.set(spec.x, spec.y ?? getTerrainHeight(spec.x, spec.z), spec.z)
@@ -2140,7 +2164,8 @@ export class TownScene {
         this.defense?.releasePlayerCommand(npc)
         this.mission?.releasePlayerCommand?.(npc)
         this.captainPatrol?.releasePlayerCommand?.(npc)
-        npc.assignFollowTarget(this.player, index, officialFollowLocalOffset(index, npc.isMounted, Boolean(this.profile.personalSquad?.members.length)))
+        if (this.defense instanceof CommanderFourGateDefenseController) this.defense.assignOfficialFollow(npc)
+        else npc.assignFollowTarget(this.player, index, officialFollowLocalOffset(index, npc.isMounted, Boolean(this.profile.personalSquad?.members.length)))
       }
     }
     if (actors.length) accepted = true
@@ -4302,7 +4327,9 @@ export class TownScene {
       }
       return `${gateNames[id]}門 ${gate ? gateStatus[gate.state] : '部署'} · 攻城車 ${state('left')}/${state('right')}`
     })
-    return `\n四門總攻守城戰\n${phase} · 敵軍 ${defense.remainingEnemies}/${defense.enemyTotal}\n${sectors.slice(0, 2).join('　')}\n${sectors.slice(2).join('　')}\n平民死亡 ${defense.civilianDeaths}`
+    const allies = defense.military.filter(npc => !npc.dead).length + (this.player.dead ? 0 : 1)
+      + (this.personalSquad?.actors.filter(npc => !npc.dead).length ?? 0)
+    return `\n四門總攻守城戰\n${phase} · 守軍 ${allies} · 敵軍 ${defense.remainingEnemies}/${defense.enemyTotal}\n${sectors.slice(0, 2).join('　')}\n${sectors.slice(2).join('　')}`
   }
 
   private veteranMissionHud(): string {
