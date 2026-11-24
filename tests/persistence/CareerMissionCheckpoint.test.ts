@@ -192,6 +192,23 @@ describe('CareerMissionCheckpoint', () => {
     expect(restored.officialSquad!.squads!.find(squad => squad.squadId === 8)!.actorIds).toContain('hr-officer')
   })
 
+  it('HUD source counts a gate\'s cavalry-lane ground defenders by their original gate and reports their deaths', () => {
+    const h = fourGateDefenseRuntime(createFourGateDefenseProfile('PREPARING')), controller = h.controller
+    onTestFinished(() => controller.dispose())
+    expect(controller.startActiveMission()).toBe(true)
+    const gateOf = () => undefined
+    const before = controller.hudSource(false, gateOf).gates
+    // Squad 2 is the north cavalry squad: its members belong to the north gate whoever later commands them.
+    const northCavalry = h.profile().activeMission!.officialSquad!.squads!.find(squad => squad.squadId === 2)!.actorIds
+    const victim = northCavalry.find(id => h.residents.has(id) && id !== 'commander')!
+    h.residents.get(victim)!.hp = 0
+    const after = controller.hudSource(false, gateOf).gates
+    const north = (gates: typeof before) => gates.find(gate => gate.id === 'north')!
+    expect(north(after).defendersTotal).toBe(north(before).defendersTotal)
+    expect(north(after).defendersAlive).toBe(north(before).defendersAlive - 1)
+    expect(after.filter(gate => gate.id !== 'north').map(gate => gate.defendersAlive)).toEqual(before.filter(gate => gate.id !== 'north').map(gate => gate.defendersAlive))
+  })
+
   it('captures Four-gate death after an early save and forces a fresh exit snapshot without reviving the player', () => {
     let commits = 0
     const h = fourGateDefenseRuntime(createFourGateDefenseProfile('PREPARING'), () => { commits++; return true }), controller = h.controller

@@ -83,9 +83,22 @@
 #four-gate-defense-hud .fg-ramp[data-ramp-status="docked"] b { color: #ff5d4f; }
 #four-gate-defense-hud .fg-ramp[data-ramp-status="destroyed"] b { color: #ff5d4f; }
 
-/* 目標／坐騎／羅盤保持在比分板下方，不被覆蓋。 */
-body.four-gate-hud-active #mount-hud { top: 196px; }
-body.four-gate-hud-active #enemy-hud { top: 224px; }
+/* 羅盤在比分板下方（約 158–186px）；敵方目標（≤約 48px 高）與坐騎（約 58px 高）依序往下堆疊，不互相重疊。 */
+body.four-gate-hud-active #enemy-hud { top: 196px; }
+body.four-gate-hud-active #mount-hud { top: 252px; }
+
+/* 較窄的畫面（例如 1024px，HUD 約 464px、每門約 93px）縮小攻城車圖示與間距，維持四門固定橫排。 */
+@media (max-width: 1100px) {
+  #four-gate-defense-hud .fg-gate { padding: 4px 4px; }
+  #four-gate-defense-hud .fg-gate[data-status="breached"] { padding: 3px 3px; }
+  #four-gate-defense-hud .fg-ramps { gap: 3px; flex: 0 0 auto; }
+  #four-gate-defense-hud .fg-ramp svg { width: 16px; height: 10px; }
+  #four-gate-defense-hud .fg-ramp b { width: 6px; font-size: 9px; }
+  #four-gate-defense-hud .fg-gate-name { font-size: 12px; }
+  #four-gate-defense-hud .fg-gate-count { font-size: 11px; }
+  #four-gate-defense-hud .fg-gate-status { font-size: 11px; flex: 0 0 auto; }
+  #four-gate-defense-hud .fg-gate[data-status="breached"] .fg-gate-status { padding: 0 3px; }
+}
 
 @media (max-width: 520px) {
   #four-gate-defense-hud { width: calc(100vw - 16px); }

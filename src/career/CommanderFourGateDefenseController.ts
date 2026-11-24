@@ -161,8 +161,11 @@ export class CommanderFourGateDefenseController {
     if (!this.deployment) return []
     const cached = this.gateRosterCache
     if (cached && cached.every(g => g.npcs.length === g.ids.length)) return cached
-    return this.gateRosterCache = this.deployment.sectors.map(sector => ({ gateId: sector.gateId, ids: sector.wallActorIds,
-      npcs: sector.wallActorIds.map(id => this.actorsById.get(id)).filter((npc): npc is NPC => Boolean(npc)) }))
+    // 城牆＋地面（wall）與城門騎兵（cavalry）合併為該門原始守軍，依 Actor ID 去重。
+    return this.gateRosterCache = this.deployment.sectors.map(sector => {
+      const ids = [...new Set([...sector.wallActorIds, ...sector.cavalryActorIds])]
+      return { gateId: sector.gateId, ids, npcs: ids.map(id => this.actorsById.get(id)).filter((npc): npc is NPC => Boolean(npc)) }
+    })
   }
 
   startActiveMission(): boolean {
