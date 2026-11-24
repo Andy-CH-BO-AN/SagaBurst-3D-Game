@@ -79,3 +79,7 @@ Commit 訊息應遵循 Conventional Commits 風格，與分支／PR 語意保持
 - 格式：`<type>: <description>` 或 `<type>(<scope>): <description>`
 - 常用類型：`feat`, `fix`, `refactor`, `docs`, `test`, `style`, `perf`, `chore`, `ci`
 - 保持第一行簡短清楚（建議 50-72 字元內），必要時於空行後補充詳細說明。
+
+## 禁止 AI Session 連結 (No AI Session Links)
+
+本 repo 為公開 repo。Commit 訊息、PR 標題與 PR 內文**不得**包含任何 AI 服務的 session 連結，即 `<名稱>-Session: <網址>` 形式的行（如 `Claude-Session:`、`Codex-Session:`，不分服務與大小寫）。CI 的 `session-links` job（`.github/scripts/lint-session-links.cjs`）會檢查每個 PR／push 新增的 commit 與 PR 文字，違反即使必要的 `web` 檢查失敗。本機可先執行 `node .github/scripts/lint-session-links.cjs origin/dev HEAD`。
