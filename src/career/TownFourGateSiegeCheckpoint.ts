@@ -29,12 +29,12 @@ const point = (value: unknown): boolean => {
 const orders = ['attack', 'charge', 'defend', 'follow', 'formation']
 
 /** Closed, bounded v1 contract, independent of the unchanged two-ramp Campaign parser. */
-export function parseTownFourGateSiegeCheckpoint(value: unknown): TownFourGateSiegeCheckpoint | undefined {
+export function parseTownFourGateSiegeCheckpoint(value: unknown, actorLimit = 1024): TownFourGateSiegeCheckpoint | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   const raw = value as TownFourGateSiegeCheckpoint
   if (raw.version !== 1 || !['roman', 'viking'].includes(raw.faction) || !Array.isArray(raw.ramps) || raw.ramps.length !== 8
     || !Array.isArray(raw.gates) || raw.gates.length !== 4 || !raw.actors || typeof raw.actors !== 'object' || Array.isArray(raw.actors)
-    || Object.keys(raw.actors).length > 1024 || !uniqueIds(raw.playerCommandedActorIds, 1024)) return undefined
+    || Object.keys(raw.actors).length > actorLimit || !uniqueIds(raw.playerCommandedActorIds, 1024)) return undefined
   const rampIds = new Set<string>(), crewIds = new Set<string>(), gateIds = new Set<string>()
   for (const ramp of raw.ramps) {
     const a = ramp?.assignment

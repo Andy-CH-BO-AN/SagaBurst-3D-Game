@@ -6,26 +6,28 @@ import { TOWN_GATES, townGatePoint, type TownGateId } from '../town/TownLayout'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { AIType, Faction } from '../world/NPC'
 import { createTownSiegeCrewSlots, TOWN_SIEGE_WORLD_EDGE_INSET, type TownSiegeCrewSlot } from './TownFourGateSiegePolicy'
+import { isCivilian, townRosterIdentity, type TownActorSpec } from '../town/TownRules'
 import type { OfficialCommandSquad } from './CareerCommandAuthority'
 import { COMMANDER_TOWN_GATE_ORDER, commanderGateDefenseSlots } from './CommanderTownRoster'
 
 export const COMMANDER_FOUR_GATE_DEFENSE_ID = 'commander-four-gate-defense'
-/** Current accepted enemy army: 80 crew, 60 lancers, 120 archers, 80 T3 siege-escort infantry and 100 T3 vanguard. */
-export const COMMANDER_FOUR_GATE_DEFENSE_ENEMIES = 440
-/** v3 adds 40 T3 attackers per gate (25 vanguard, 15 archers) and the 20-per-gate T3 mission garrison. */
-export type CommanderEnemyRosterVersion = 3
-export const COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION: CommanderEnemyRosterVersion = 3
+export const COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION = 4 as const
+export type CommanderEnemyRosterVersion = typeof COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION
+export const COMMANDER_FOUR_GATE_DEFENDER_ROSTER_VERSION = 3 as const
+export const FOUR_GATE_SQUAD_SIZE = 50
+export const FOUR_GATE_RESERVE_SQUAD = 10
+const FLANK_INFANTRY = { melee: 15, spear: 10 } as const
+export const COMMANDER_FOUR_GATE_DEFENSE_ENEMIES = TOWN_GATES.length * (110 + 2 * (FLANK_INFANTRY.melee + FLANK_INFANTRY.spear))
 export const COMMANDER_FOUR_GATE_DEFENSE_ARCHERS_PER_GATE = 30
 export const COMMANDER_FOUR_GATE_DEFENSE_VANGUARD_PER_GATE = 25
-/** Mission-only T3 defenders per gate, outside the eight 30-person official squads. */
-export const COMMANDER_FOUR_GATE_GARRISON_PER_GATE = { archer: 10, infantry: 10 } as const
+export const COMMANDER_FOUR_GATE_GARRISON_PER_GATE = { archer: 10, infantry: 10, spear: 5 } as const
 export const COMMANDER_FOUR_GATE_DEFENSE_INFANTRY_PER_RAMP = 10
 export const COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS = 180
 
 export interface CommanderFourGateDefenseSlot {
   actorId: string
   gateId: TownGateId
-  role: 'pusher' | 'assault' | 'lancer' | 'archer' | 'infantry' | 'vanguard'
+  role: 'pusher' | 'assault' | 'lancer' | 'archer' | 'infantry' | 'vanguard' | 'flank-melee' | 'flank-spear'
   tier: 3 | 4 | 5
   /** Stable authored role slot, not a position in a saved NPC array. */
   slot: number
@@ -42,6 +44,11 @@ export function commanderFourGateDefenseSlots(missionId: string,
       for (let slot = 1; slot <= 4; slot++) slots.push({ actorId: `${prefix}:pusher:${slot}`, gateId: gate.id, side, role: 'pusher', tier: 4, slot })
       for (let slot = 1; slot <= 5; slot++) slots.push({ actorId: `${prefix}:assault:t4:${slot}`, gateId: gate.id, side, role: 'assault', tier: 4, slot })
       slots.push({ actorId: `${prefix}:assault:t5:leader`, gateId: gate.id, side, role: 'assault', tier: 5, slot: 1 })
+      for (const role of ['melee', 'spear'] as const) {
+        for (let slot = 1; slot <= FLANK_INFANTRY[role]; slot++) {
+          slots.push({ actorId: `${prefix}:flank:${role}:${slot}`, gateId: gate.id, side, role: `flank-${role}`, tier: 3, slot })
+        }
+      }
       // Rear guard of this exact vehicle; never Crew. Identity is faction-neutral.
       for (let slot = 1; slot <= COMMANDER_FOUR_GATE_DEFENSE_INFANTRY_PER_RAMP; slot++) {
         slots.push({ actorId: `${prefix}:escort:infantry:${slot}`, gateId: gate.id, side, role: 'infantry', tier: 3, slot })
@@ -91,34 +98,107 @@ function vanguard(slot: CommanderFourGateDefenseSlot, faction: CharacterFaction)
     cavalry: false, respawnEnabled: false, presetId, loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[3], mountId: null } }
 }
 
-export interface CommanderFourGateGarrisonSlot { actorId: string; gateId: TownGateId; role: 'archer' | 'infantry'; slot: number }
-/** Mission-only defenders: identity is gate, role and slot under the accepted mission id. */
-export function commanderFourGateGarrisonSlots(missionId: string): CommanderFourGateGarrisonSlot[] {
-  return TOWN_GATES.flatMap(gate => (['archer', 'infantry'] as const).flatMap(role =>
-    Array.from({ length: COMMANDER_FOUR_GATE_GARRISON_PER_GATE[role] }, (_, i) => ({
-      actorId: `${missionId}:${gate.id}:garrison:${role}:${i + 1}`, gateId: gate.id, role, slot: i + 1 }))))
+export const FOUR_GATE_OFFICER_IDS = [
+  'commander', 'captain', 'town-patrol:a:captain', 'town-patrol:b:captain',
+  'hr-officer', 'deployment', 'ranger', 'eagle-trainer',
+] as const
+
+const reserveNativeIds = () => new Set<string>([
+  ...townRosterIdentity().filter(actor => isCivilian(actor.role)).map(actor => actor.id),
+  ...FOUR_GATE_OFFICER_IDS,
+])
+
+export const FOUR_GATE_GROUND_COMPANIES = [
+  { role: 'spear', tier: 2, count: 5 },
+  { role: 'spear', tier: 3, count: 10 },
+  { role: 'ranged', tier: 2, count: 10 },
+  { role: 'ranged', tier: 3, count: 5 },
+  { role: 'melee', tier: 2, count: 10 },
+  { role: 'melee', tier: 3, count: 10 },
+] as const
+type GroundCompany = typeof FOUR_GATE_GROUND_COMPANIES[number]
+
+export interface CommanderFourGateGarrisonSlot {
+  actorId: string
+  gateId: TownGateId
+  role: 'archer' | 'infantry' | 'spear' | 'ranged' | 'melee'
+  tier: 2 | 3
+  post: 'wall' | 'ground'
+  slot: number
 }
-/** The mission's official squads: each gate's whole 20-man foot garrison joins that gate's native
- * infantry squad (1/3/5/7); the cavalry squads stay native. Commanded through the same eight squads. */
-export function commanderFourGateMissionSquads(missionId: string, nativeSquads: readonly OfficialCommandSquad[] = commanderGateDefenseSlots()): OfficialCommandSquad[] {
-  const garrison = commanderFourGateGarrisonSlots(missionId)
-  return nativeSquads.map(squad => {
-    if (squad.squadId % 2 === 0) return { ...squad, actorIds: [...squad.actorIds] }
-    const gateId = COMMANDER_TOWN_GATE_ORDER[Math.floor((squad.squadId - 1) / 2)]
-    return { ...squad, actorIds: [...squad.actorIds, ...garrison.filter(slot => slot.gateId === gateId).map(slot => slot.actorId)] }
+
+function groundCompanySlots(): GroundCompany[] {
+  return FOUR_GATE_GROUND_COMPANIES.flatMap(company => Array.from({ length: company.count }, () => company))
+}
+
+/** Foot replacements retain the native training/Patrol identity in the accepted mission. */
+export function commanderFourGateGroundResidents(): Map<string, GroundCompany> {
+  const slots = groundCompanySlots(), reserveNative = reserveNativeIds()
+  return new Map(commanderGateDefenseSlots().filter(squad => squad.squadId % 2 === 0)
+    .flatMap(squad => squad.actorIds.filter(id => !reserveNative.has(id)).map((id, i) => [id, slots[i]] as const)))
+}
+
+export function commanderFourGateReserveRecruits(missionId: string): string[] {
+  return Array.from({ length: FOUR_GATE_SQUAD_SIZE - reserveNativeIds().size }, (_, i) => `${missionId}:reserve:lancer:${i + 1}`)
+}
+
+export function commanderFourGateGarrisonSlots(missionId: string): CommanderFourGateGarrisonSlot[] {
+  const native = commanderGateDefenseSlots(), reserveNative = reserveNativeIds()
+  return COMMANDER_TOWN_GATE_ORDER.flatMap((gateId, index) => {
+    const nativeGroundCount = native[index * 2 + 1].actorIds.filter(id => !reserveNative.has(id)).length
+    const wall = (['archer', 'infantry', 'spear'] as const).flatMap(role =>
+      Array.from({ length: COMMANDER_FOUR_GATE_GARRISON_PER_GATE[role] }, (_, i): CommanderFourGateGarrisonSlot => ({
+        actorId: `${missionId}:${gateId}:garrison:${role}:${i + 1}`, gateId, role, slot: i + 1, tier: 3, post: 'wall',
+      })))
+    const ground = groundCompanySlots().slice(nativeGroundCount).map(({ role, tier }, i): CommanderFourGateGarrisonSlot => ({
+      actorId: `${missionId}:${gateId}:ground:${i + nativeGroundCount + 1}`, gateId, role, tier, slot: i + nativeGroundCount + 1, post: 'ground',
+    }))
+    return [...wall, ...ground]
   })
 }
 
-/** T3 defenders of the player's own faction; the deployment plan supplies their real posts. */
+export function commanderFourGateMissionSquads(missionId: string): OfficialCommandSquad[] {
+  const garrison = commanderFourGateGarrisonSlots(missionId), reserveNative = reserveNativeIds()
+  const squads = commanderGateDefenseSlots().map(squad => {
+    const gateId = COMMANDER_TOWN_GATE_ORDER[Math.floor((squad.squadId - 1) / 2)]
+    const post = squad.squadId % 2 === 0 ? 'ground' : 'wall'
+    return { ...squad, actorIds: [...squad.actorIds.filter(id => !reserveNative.has(id)),
+      ...garrison.filter(slot => slot.gateId === gateId && slot.post === post).map(slot => slot.actorId)] }
+  })
+  squads.push({ squadId: FOUR_GATE_RESERVE_SQUAD, actorIds: [...reserveNative, ...commanderFourGateReserveRecruits(missionId)] })
+  const ids = squads.flatMap(squad => squad.actorIds)
+  if (squads.some(squad => squad.actorIds.length !== FOUR_GATE_SQUAD_SIZE) || new Set(ids).size !== ids.length) {
+    throw new Error('Invalid four-gate defense army')
+  }
+  return squads
+}
+
+export function fourGateFootPreset(faction: CharacterFaction, role: CommanderFourGateGarrisonSlot['role']): UnitPresetId {
+  if (role === 'archer' || role === 'ranged' && faction === 'viking') return `${faction}_archer`
+  if (role === 'ranged') return 'roman_javelin_infantry'
+  if (role === 'spear') return `${faction}_spearman`
+  return faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker'
+}
+
+export function fourGateFootLoadout(faction: CharacterFaction, role: CommanderFourGateGarrisonSlot['role'], tier: 2 | 3) {
+  const presetId = fourGateFootPreset(faction, role)
+  return { presetId, loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[tier], mountId: null } }
+}
+
+export function prepareFourGateGroundResident(spec: TownActorSpec, company: GroundCompany): TownActorSpec {
+  const { role, tier } = company
+  return { ...spec, mounted: false, garrison: undefined, tier, y: undefined,
+    unitKind: role === 'spear' ? 'spearman' : role,
+    role: role === 'spear' ? 'spearman_infantry' : role === 'ranged' ? 'ranged_infantry' : 'melee_infantry' }
+}
+
 export function createCommanderFourGateGarrison(missionId: string, faction: CharacterFaction): NpcSpawnSpec[] {
   return commanderFourGateGarrisonSlots(missionId).map(slot => {
-    const presetId: UnitPresetId = slot.role === 'archer' ? `${faction}_archer` : faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker'
-    const gate = TOWN_GATES.find(gate => gate.id === slot.gateId)!, point = townGatePoint(gate, 0, 20)
-    const gateLabel = `${gate.id[0].toUpperCase()}${gate.id.slice(1)}`
-    return { actorId: slot.actorId, x: point.x, z: point.z, faction: Faction.TOWN, characterFaction: faction,
-      aiType: slot.role === 'archer' ? AIType.RANGED : AIType.MELEE,
-      name: `${gateLabel} Garrison ${slot.role === 'archer' ? 'Archer' : 'Infantry'} T3`, tier: 3, characterTier: 3,
-      cavalry: false, respawnEnabled: false, presetId, loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[3], mountId: null } }
+    const gate = TOWN_GATES.find(gate => gate.id === slot.gateId)!
+    return { actorId: slot.actorId, ...townGatePoint(gate, 0, 20), faction: Faction.TOWN, characterFaction: faction,
+      aiType: slot.role === 'archer' || slot.role === 'ranged' ? AIType.RANGED : AIType.MELEE,
+      name: `${gate.id} ${slot.role} T${slot.tier}`, tier: slot.tier, characterTier: slot.tier,
+      cavalry: false, respawnEnabled: false, ...fourGateFootLoadout(faction, slot.role, slot.tier) }
   })
 }
 
@@ -164,6 +244,7 @@ export function commanderArcherScreenTarget(slot: number, front: { x: number; z:
 export function createCommanderFourGateDefenseRoster(missionId: string, faction: CharacterFaction,
   enemyVersion: CommanderEnemyRosterVersion = COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION): {
   crew: TownSiegeCrewSlot[]; cavalry: NpcSpawnSpec[]; archers: NpcSpawnSpec[]; infantry: NpcSpawnSpec[]; vanguard: NpcSpawnSpec[]
+  flanks: { slot: CommanderFourGateDefenseSlot; spec: NpcSpawnSpec }[]
   ground: NpcSpawnSpec[]; all: NpcSpawnSpec[]; gateByActorId: Map<string, TownGateId>
 } {
   const slots = commanderFourGateDefenseSlots(missionId, enemyVersion)
@@ -180,7 +261,11 @@ export function createCommanderFourGateDefenseRoster(missionId: string, faction:
   const archers = slots.filter(slot => slot.role === 'archer').map(slot => troop(slot, faction))
   const infantryTroops = slots.filter(slot => slot.role === 'infantry').map(slot => infantry(slot, faction))
   const vanguardTroops = slots.filter(slot => slot.role === 'vanguard').map(slot => vanguard(slot, faction))
-  const ground = [...crew.map(slot => slot.spec), ...cavalry, ...archers, ...infantryTroops, ...vanguardTroops]
-  return { crew, cavalry, archers, infantry: infantryTroops, vanguard: vanguardTroops, ground, all: [...ground],
+  const flanks = slots.filter(slot => slot.role === 'flank-melee' || slot.role === 'flank-spear').map(slot => ({
+    slot, spec: { ...infantry(slot, faction), name: `${slot.gateId} ${slot.role === 'flank-spear' ? 'Spearman' : 'Infantry'} T3`,
+      ...fourGateFootLoadout(faction, slot.role === 'flank-spear' ? 'spear' : 'melee', 3) },
+  }))
+  const ground = [...crew.map(slot => slot.spec), ...cavalry, ...archers, ...infantryTroops, ...vanguardTroops, ...flanks.map(({ spec }) => spec)]
+  return { crew, cavalry, archers, flanks, infantry: infantryTroops, vanguard: vanguardTroops, ground, all: [...ground],
     gateByActorId: new Map(slots.map(slot => [slot.actorId, slot.gateId])) }
 }

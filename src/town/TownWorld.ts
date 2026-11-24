@@ -8,6 +8,8 @@ import { XONGKORO_LANDING } from '../world/EagleLanding'
 import { eagleLandingFootprint, isEagleLandingClear } from '../world/EagleLanding'
 import { isEagleApproachClear } from '../world/EagleApproach'
 import { resolveTownHRLayout, townHrLocalMuster, type TownHRLayout } from './TownHRLayout'
+import { createCaltropBarrier } from '../world/CaltropBarrier'
+import { townFourGateBarricadeRects } from './TownGateBarricades'
 import { TownDockPassages } from './TownDockPassages'
 import { TownSiegeAirspace } from './TownSiegeAirspace'
 import { createTownFortifications } from './TownFortifications'
@@ -120,6 +122,7 @@ export class TownWorld {
     this.batch(this.fortifications.wallRoot)
     for (const child of this.fortifications.wallRoot.children) if (child instanceof THREE.Group) this.batch(child)
     this.dressFortifications()
+    if (options.fourGateSiege) createCaltropBarrier(this.root, townFourGateBarricadeRects(), this.obstacles)
     const rockGeo = this.geo(new THREE.IcosahedronGeometry(1, 0))
     for (let i = 0; i < 36; i++) {
       const { x, z } = townSceneryPoint(i, 110, 7), y = getTerrainHeight(x, z)
@@ -300,28 +303,6 @@ export class TownWorld {
     const floor = this.buildings.find(building => building.id === id)?.supports[0]?.walkSurface
     if (!floor) throw new Error(`城鎮建築缺少樓板：${id}`)
     return floor.topY
-  }
-  /** Clear standing posts on the Town Center hall floor, nearest the hall centre first: a refuge that
-   * keeps every body, mounted ones included, off walls, furniture and the service officers' posts. Deterministic. */
-  townCenterRefugePosts(count: number, spacing = 3, radius = 1.3): { x: number; y: number; z: number; yaw: number }[] {
-    const bounds = this.civicShapes.find(shape => shape.id === 'town-center')?.bounds
-    if (!bounds) return []
-    const officers = [...this.serviceStations.values()]
-    const posts: { x: number; y: number; z: number; yaw: number }[] = []
-    for (let x = bounds.min.x + 1; x <= bounds.max.x - 1; x += spacing) for (let z = bounds.min.z + 1; z <= bounds.max.z - 1; z += spacing) {
-      const y = this.civicSupportY('town-center', { x, z })
-      if (y === undefined || [[radius, 0], [-radius, 0], [0, radius], [0, -radius]].some(([dx, dz]) => {
-        const h = this.civicSupportY('town-center', { x: x + dx, z: z + dz })
-        return h === undefined || Math.abs(h - y) > .05
-      })) continue
-      if (officers.some(o => Math.hypot(o.x - x, o.z - z) < 2.4)) continue
-      if (this.obstacles.some(o => !o.walkSurface && !o.physicalPassable
-        && x + radius > o.box.min.x && x - radius < o.box.max.x && z + radius > o.box.min.z && z - radius < o.box.max.z
-        && y + 3.4 > o.box.min.y && y + .05 < o.box.max.y)) continue
-      posts.push({ x, y, z, yaw: Math.atan2(TOWN_CENTER.x - x, TOWN_CENTER.z - z) })
-    }
-    return posts.sort((a, b) => Math.hypot(a.x - TOWN_CENTER.x, a.z - TOWN_CENTER.z) - Math.hypot(b.x - TOWN_CENTER.x, b.z - TOWN_CENTER.z)
-      || a.x - b.x || a.z - b.z).slice(0, count)
   }
   /** Surviving floor/ramp height, also used to admit legacy saved actors to HR. */
   civicSupportY(id: string, point: { x: number; z: number }): number | undefined {
