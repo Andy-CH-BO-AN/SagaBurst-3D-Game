@@ -53,6 +53,14 @@ test('a new release remains a draft until both downloads are present', async () 
   assert.deepEqual(await publishRelease(client, tag, paths), { changed: true })
   assert.deepEqual(client.calls, ['draft', ...names.map(name => `upload:${name}`), 'publish'])
 })
+test('a draft that is not yet listed after creation is awaited, never created twice', async () => {
+  const client = fakeClient(null), read = client.read.bind(client), waits = []
+  let lagging = 2
+  client.read = () => client.calls.includes('draft') && lagging-- > 0 ? null : read()
+  assert.deepEqual(await publishRelease(client, tag, paths, { wait: ms => { waits.push(ms) }, delayMs: 7 }), { changed: true })
+  assert.deepEqual(waits, [7, 7])
+  assert.deepEqual(client.calls, ['draft', ...names.map(name => `upload:${name}`), 'publish'])
+})
 test('partial drafts retain the existing download and upload only the missing one', async () => {
   const retained = { ...asset(names[0]), id: 42, digest: `sha256:${'b'.repeat(64)}` }
   const client = fakeClient(release(true, [retained]))

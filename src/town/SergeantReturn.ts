@@ -283,3 +283,21 @@ export function resolveNearestLegalPoint(home: SergeantPose, options: SergeantRe
   }
   return null
 }
+
+export interface ReturnLandingTarget {
+  group: { rotation: { y: number } }
+  faceDirection?(x: number, z: number): void
+}
+
+/** Shared by the pre-save and post-restore completed-return landings: the caller chooses how the body is placed. */
+export function applyReturnLanding(
+  entry: { x: number; z: number; yaw: number; y?: number },
+  player: ReturnLandingTarget,
+  orbit: { setYaw(yaw: number): void } | undefined,
+  place: (x: number, groundY: number, z: number) => void,
+): void {
+  place(entry.x, typeof entry.y === 'number' ? entry.y : getTerrainHeight(entry.x, entry.z), entry.z)
+  player.group.rotation.y = entry.yaw
+  player.faceDirection?.(Math.sin(entry.yaw), Math.cos(entry.yaw))
+  orbit?.setYaw(entry.yaw + Math.PI)
+}

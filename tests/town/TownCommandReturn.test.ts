@@ -89,7 +89,8 @@ it('repairs a stationary garrison on the wrong floor without accepting its stale
   resident.spec = townStationSpec(resident.spec, false, true)
   body.combatPosition.set(resident.spec.x, getTerrainHeight(resident.spec.x, resident.spec.z), resident.spec.z)
   Object.assign(body, { formationCommandId: null, missionMovement: false, tacticalOrder: 'attack' })
-  body.assignFormationTarget.mockImplementation((id, _goal) => { body.formationCommandId = id; body.reached = false })
+  let assignedGoal: Vector3 | undefined
+  body.assignFormationTarget.mockImplementation((id, goal) => { body.formationCommandId = id; body.reached = false; assignedGoal = goal })
   type Inputs = ConstructorParameters<typeof TownMissionCombat>
   // Only the real garrison sensor/return owner runs; no scene or combat engine.
   const combat = new TownMissionCombat({ field: { ambientBandits: [], missionBandits: [], friendlies: [] },
@@ -99,7 +100,7 @@ it('repairs a stationary garrison on the wrong floor without accepting its stale
   const ground = body.combatPosition.clone()
   combat['updateExternalThreatAssignments']()
   expect(body.assignFormationTarget).toHaveBeenCalledOnce()
-  expect(body.assignFormationTarget.mock.calls[0][1].toArray()).toEqual([resident.spec.x, wallY, resident.spec.z])
+  expect(assignedGoal?.toArray()).toEqual([resident.spec.x, wallY, resident.spec.z])
   expect(body.combatPosition).toEqual(ground)
   body.reached = true
   combat['updatePeaceResident'](live, .1)

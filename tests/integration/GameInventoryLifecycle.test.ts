@@ -36,20 +36,20 @@ describe('Game inventory lifecycle callers', () => {
 
   it('releases active inventory demand during the real training exit before leaving the document', () => {
     const events: string[] = []
-    const active = inventory(), release = vi.spyOn(active, 'dispose')
-      .mockImplementation(() => { InventoryManager.prototype.dispose.call(active); events.push('release') })
+    const active = inventory(), dispose = active.dispose.bind(active)
+    const release = vi.spyOn(active, 'dispose').mockImplementation(() => { dispose(); events.push('release') })
     const location = { pathname: '/game/', search: '?nolock', set href(value: string) {
       events.push(value); expect(isEquipmentDemanded(LANCE)).toBe(false)
     } }
     vi.stubGlobal('window', { location })
     vi.stubGlobal('document', { pointerLockElement: null })
-    const dispose = () => ({ dispose: vi.fn() })
+    const disposable = () => ({ dispose: vi.fn() })
     // Only exit dependencies: no Game, scene, actor or renderer is constructed.
     const game = Object.assign(Object.create(Game.prototype) as { _exitTraining(): void }, {
-      trainingGround: dispose(), trainingUI: dispose(), sceneListeners: { abort: vi.fn() }, input: dispose(),
-      equipmentUI: { close: vi.fn() }, _disposeCareerOutpostBattleActors: vi.fn(), player: dispose(),
+      trainingGround: disposable(), trainingUI: disposable(), sceneListeners: { abort: vi.fn() }, input: disposable(),
+      equipmentUI: { close: vi.fn() }, _disposeCareerOutpostBattleActors: vi.fn(), player: disposable(),
       inventoryManager: active, arrows: [], _aimTargetRegistry: { clear: vi.fn() },
-      damageNumbers: { clear: vi.fn() }, weaponWheelUI: dispose(), soundManager: { updateHorseGallopLoops: vi.fn() },
+      damageNumbers: { clear: vi.fn() }, weaponWheelUI: disposable(), soundManager: { updateHorseGallopLoops: vi.fn() },
       hintTimer: null, notifyTimer: null, enemyHudTimer: null, deathBannerTimer: null,
       scene: { clear: vi.fn() }, renderer: { dispose: vi.fn(), forceContextLoss: vi.fn() },
     })

@@ -2,6 +2,9 @@ const { app, BrowserWindow, Menu, net, protocol, session } = require('electron')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const { assetPath } = require('./asset-path.cjs')
+const { installCoopNet } = require('./coop-net.cjs')
+
+let mainWindow = null
 
 // A stable standard origin keeps localStorage and relative URLs working offline.
 protocol.registerSchemesAsPrivileged([{
@@ -13,8 +16,9 @@ async function createWindow() {
   const window = new BrowserWindow({
     title: 'SagaBurst', width: 1440, height: 900, minWidth: 960, minHeight: 640,
     backgroundColor: '#171411',
-    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webviewTag: false },
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webviewTag: false, preload: path.join(__dirname, 'preload.cjs') },
   })
+  mainWindow = window
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event, address) => {
     const url = new URL(address)
@@ -39,6 +43,7 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(allowed(permission, contents.getURL())))
   session.defaultSession.setPermissionCheckHandler((_contents, permission, origin) => allowed(permission, origin + '/'))
   Menu.setApplicationMenu(null)
+  installCoopNet(() => mainWindow)
   await createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow() })
 }).catch(error => { console.error(error); app.exit(1) })

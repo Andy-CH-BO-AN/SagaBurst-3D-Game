@@ -39,6 +39,52 @@ describe('NavigationPathFollower', () => {
     expect(out.equals(goal)).toBe(false)
     expect(world.grid.isBlocked(world.grid.worldToCell(out)!)).toBe(false)
   })
+
+  it('keeps following a clear existing path when unrelated topology changes hit a pending replan, and pauses only when a remaining cell becomes blocked', () => {
+    const budget = 1
+    const world = new NavigationWorld({ minX: -40, maxX: 40, minZ: -40, maxZ: 40, cellSize: 2 }, budget)
+    const wall = obstacle(-1, -8, 1, 8)
+    world.rebuild([wall])
+    world.beginFrame()
+
+    const follower = new NavigationPathFollower()
+    const out = new THREE.Vector3()
+    const start = new THREE.Vector3(-8, 0, 0)
+    const goal = new THREE.Vector3(8, 0, 0)
+
+    expect(follower.resolveMoveTarget(start, goal, world, true, out)).toBe('path')
+    const safeWaypoint = out.clone()
+
+    // Rebuild with a distant obstacle so topology revision changes, then exhaust the 1-request budget.
+    world.rebuild([wall, obstacle(-36, -36, -32, -32)])
+    world.beginFrame()
+    new NavigationPathFollower().resolveMoveTarget(
+      new THREE.Vector3(-20, 0, -20),
+      new THREE.Vector3(-20, 0, 20),
+      world,
+      true,
+      new THREE.Vector3(),
+    )
+
+    expect(follower.resolveMoveTarget(start, goal, world, true, out)).toBe('path')
+    expect(out.toArray()).toEqual(safeWaypoint.toArray())
+
+    // Block a cell directly on the follower's remaining path and exhaust the budget again.
+    world.rebuild([
+      wall,
+      obstacle(safeWaypoint.x - 1.5, safeWaypoint.z - 1.5, safeWaypoint.x + 1.5, safeWaypoint.z + 1.5),
+    ])
+    world.beginFrame()
+    new NavigationPathFollower().resolveMoveTarget(
+      new THREE.Vector3(20, 0, -20),
+      new THREE.Vector3(20, 0, 20),
+      world,
+      true,
+      new THREE.Vector3(),
+    )
+
+    expect(follower.resolveMoveTarget(start, goal, world, true, out)).toBe('pending')
+  })
 })
 
 

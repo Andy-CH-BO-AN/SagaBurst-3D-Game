@@ -11,8 +11,7 @@ import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import type { Mount } from '../world/Mount'
 import { Faction,type NPC } from '../world/NPC'
-import { getTerrainHeight } from '../world/Terrain'
-import { markCareerMissionReturnToSergeant,sergeantReturnFromResidents,type SergeantReturnPoint } from './SergeantReturn'
+import { applyReturnLanding,markCareerMissionReturnToSergeant,sergeantReturnFromResidents,type SergeantReturnPoint } from './SergeantReturn'
 import type { TownEquipment } from './TownEquipment'
 import type { TownGarrisonStation } from './TownGarrison'
 import type { TownProfileChange } from './TownProfileCommit'
@@ -218,11 +217,8 @@ export class TownMissionSettlement {
     if (!entry && completed) this.town.deferSergeantReturn?.()
     if (entry && (active.kind === 'cavalry-sweep' || veteranField || active.kind === 'captain-patrol-command')) {
       // Captain I walk-back (phase RETURNING) also ends in front of the Sergeant once saved.
-      const ground = 'y' in entry && typeof entry.y === 'number' ? entry.y : getTerrainHeight(entry.x, entry.z)
-      this.town.player.standOn(entry.x, ground, entry.z)
-      this.town.player.group.rotation.y = entry.yaw
-      this.town.player.faceDirection?.(Math.sin(entry.yaw), Math.cos(entry.yaw))
-      this.town.orbit?.setYaw(entry.yaw + Math.PI)
+      // Resolved again on purpose: residents are now restored and walking, so the legal point may differ from the pre-save landing.
+      applyReturnLanding(entry, this.town.player, this.town.orbit, (x, ground, z) => this.town.player.standOn(x, ground, z))
     }
     return { status: 'returned', kind: defense ? 'defense' : active.kind === 'cavalry-sweep' ? 'sweep' : 'party' }
   }

@@ -27,6 +27,8 @@ export class NavigationPathFollower {
     navigationWorld: NavigationWorld,
     directPathBlocked: boolean,
     out: THREE.Vector3,
+    /** Mounts cannot crowd into a sub-cell radius; they pass a wider one. */
+    arrivalDistance?: number,
   ): NavigationRouteKind {
     if (!directPathBlocked) {
       this.clear()
@@ -62,9 +64,9 @@ export class NavigationPathFollower {
       const result = navigationWorld.queryPath(start, goal, this)
 
       if (result.status === 'pending') {
-        // Topology changes invalidate old routes immediately. Goal movement on
-        // unchanged topology may continue following the previous safe route.
-        if (!topologyChanged && this._writePathTarget(start, grid, out)) {
+        // Continue following an existing path while its remaining cells stay walkable
+        // on the updated grid; only a newly blocked route must pause for replanning.
+        if ((!topologyChanged || this._remainingPathClear(grid)) && this._writePathTarget(start, grid, out, arrivalDistance)) {
           return 'path'
         }
         out.copy(goal)
@@ -90,20 +92,28 @@ export class NavigationPathFollower {
     }
 
     if (!this.path || this.path.length <= 1) return 'unreachable'
-    if (this._writePathTarget(start, grid, out)) return 'path'
+    if (this._writePathTarget(start, grid, out, arrivalDistance)) return 'path'
 
     out.copy(goal)
     return 'path'
+  }
+
+  private _remainingPathClear(grid: NavigationWorld['grid']): boolean {
+    if (!this.path || this.path.length <= 1 || this.pathIndex >= this.path.length) return false
+    for (let i = this.pathIndex; i < this.path.length; i++) {
+      if (grid.isBlocked(this.path[i])) return false
+    }
+    return true
   }
 
   private _writePathTarget(
     start: THREE.Vector3,
     grid: NavigationWorld['grid'],
     out: THREE.Vector3,
+    arrivalDistance = grid.cellSize * 0.45,
   ): boolean {
     if (!this.path || this.path.length <= 1) return false
 
-    const arrivalDistance = grid.cellSize * 0.45
     const arrivalDistanceSq = arrivalDistance * arrivalDistance
 
     while (this.pathIndex < this.path.length) {

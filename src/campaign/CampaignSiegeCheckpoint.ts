@@ -1,3 +1,4 @@
+import { DAMAGEABLE_OBSTACLE_HP } from '../world/DamageableObstacle'
 import type { MobileSiegeRampState } from './MobileSiegeRampController'
 import type { SiegeRampAssignment } from './MobileSiegeRampPolicy'
 
@@ -35,7 +36,7 @@ export function parseCampaignSiegeCheckpoint(value: unknown): CampaignSiegeCheck
       || !Array.isArray(a.pusherIds) || a.pusherIds.length !== 4
       || !Array.isArray(a.assaultIds) || a.assaultIds.length !== 6
       || !finite(ramp.stagingZ) || !ramp.position || !finite(ramp.position.x) || !finite(ramp.position.y) || !finite(ramp.position.z)
-      || !finite(ramp.hp) || ramp.hp < 0 || ramp.hp > 520 || !finite(ramp.distance) || ramp.distance < 0
+      || !finite(ramp.hp) || ramp.hp < 0 || ramp.hp > DAMAGEABLE_OBSTACLE_HP.siege_ramp || !finite(ramp.distance) || ramp.distance < 0
       || !finite(ramp.dockingProgress) || ramp.dockingProgress < 0 || ramp.dockingProgress > 1
       || !['DEPLOYING', 'PUSHING', 'DOCKING', 'DOCKED', 'ABANDONED', 'DESTROYED'].includes(ramp.state)
       || (ramp.hp === 0) !== (ramp.state === 'DESTROYED')) return undefined

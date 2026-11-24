@@ -1,7 +1,7 @@
 import { careerRankFixture } from './careerRankFixture'
 
 import { acceptCommanderMission } from '../../src/career/CommanderMissionCatalog'
-import { COMMANDER_FOUR_GATE_DEFENSE_ID, createCommanderFourGateDefenseRoster } from '../../src/career/CommanderFourGateDefenseRoster'
+import { COMMANDER_FOUR_GATE_DEFENSE_ID, commanderFourGateGarrisonSlots, createCommanderFourGateDefenseRoster } from '../../src/career/CommanderFourGateDefenseRoster'
 import { createCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
 import { createCommanderInfantryEscort } from '../../src/career/CommanderInfantryEscort'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -9,6 +9,7 @@ import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSqu
 import type { TownFourGateSiegeCheckpoint } from '../../src/career/TownFourGateSiegeCheckpoint'
 import { allocateTownSiegeCrews, townSiegeFrame } from '../../src/career/TownFourGateSiegePolicy'
 import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
+import { DAMAGEABLE_OBSTACLE_HP } from '../../src/world/DamageableObstacle'
 
 /** Saved data at a stated boundary, never a simulated deployment or a scene/actor constructor. */
 export function createFourGateDefenseProfile(phase: 'PREPARING' | 'SPAWNING' | 'ATTACKING' = 'PREPARING'): CareerProfile {
@@ -20,14 +21,15 @@ export function createFourGateDefenseProfile(phase: 'PREPARING' | 'SPAWNING' | '
     status: 'deployed', hp: 100, position: { x: 20, y: 10, z: 30, yaw: .3 },
     ...(mounted ? { mount: { hp: 90, mounted: true, position: { x: 20, y: 10, z: 30, yaw: .3 } } } : {}),
   })
-  for (const id of [...mission.friendlyActorIds, ...(state.autonomousActorIds ?? []), ...(mission.civilianActorIds ?? [])]) {
+  for (const id of [...mission.friendlyActorIds, ...(state.autonomousActorIds ?? []), ...commanderFourGateGarrisonSlots(mission.id).map(slot => slot.actorId),
+    ...(mission.civilianActorIds ?? [])]) {
     state.actors[id] = actor(false)
   }
   mission.phase = phase
   Object.assign(state, { phase, preparationRemainingSeconds: phase === 'PREPARING' ? 180 : 0,
     player: { hp: 85, stamina: 70, dead: false, position: { x: 12, y: 10, z: 18, yaw: .5 }, ammo: 7, shieldImpact: 2 } })
   if (phase !== 'ATTACKING') return profile
-  const roster = createCommanderFourGateDefenseRoster(mission.id, 'viking', 2)
+  const roster = createCommanderFourGateDefenseRoster(mission.id, 'viking')
   for (const spec of roster.all) state.actors[spec.actorId!] = actor(Boolean(spec.loadout?.mountId))
   // The bounded parser requires all crew; other ground records are present only when
   // a case exercises their route/command mirror. Full actor identity capacity stays real.
@@ -40,7 +42,7 @@ export function createFourGateDefenseProfile(phase: 'PREPARING' | 'SPAWNING' | '
       const f = townSiegeFrame(assignment.gateId)
       const position = { x: f.gate.x + f.outward.x * 41.9 + f.tangent.x * assignment.side * 25,
         y: 10, z: f.gate.z + f.outward.z * 41.9 + f.tangent.z * assignment.side * 25 }
-      return { assignment, stagingZ: position.z, position, hp: 520, state: 'PUSHING',
+      return { assignment, stagingZ: position.z, position, hp: DAMAGEABLE_OBSTACLE_HP.siege_ramp, state: 'PUSHING',
         distance: 0, travelDistance: 40, dockingProgress: 0 }
     }),
     gates: new TownGateBreachPolicy(() => []).snapshot().map(gate => ({ ...gate, hp: 2080 })),

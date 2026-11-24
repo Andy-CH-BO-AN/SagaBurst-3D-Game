@@ -193,6 +193,12 @@ export function raceRecordProfile(profile: CareerProfile, session: CareerRaceSes
   }
   return next
 }
+/** LAN co-op: a guest's legal finish beats both the player's and the opponent's; only then is the race the guest's. */
+export function coopGuestWinsRace(session: CareerRaceSession, guestSeconds: number | undefined): boolean {
+  return !session.result && guestSeconds !== undefined
+    && (session.player.finishSeconds === undefined || guestSeconds < session.player.finishSeconds)
+    && (session.opponent.finishSeconds === undefined || guestSeconds < session.opponent.finishSeconds)
+}
 export function lockRace(session: CareerRaceSession, result: RaceOutcome, reason: string): void {
   if (session.result) return
   session.result = result; session.reason = reason; session.phase = 'result'; session.phaseSeconds = 0

@@ -5,7 +5,7 @@ import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '..
 import { TOWN_COMMANDER_MOUNT_ID, townCommanderSpec } from '../town/TownCommanderIdentity'
 import { eagleTrainerSpec } from '../town/TownEagleTrainingGround'
 import { hrOfficerSpec } from '../town/TownHRLayout'
-import { townMerchantLoadout } from '../town/TownMerchantEquipment'
+import { isTownMerchantMountId, townMerchantLoadout } from '../town/TownMerchantEquipment'
 import { isAutonomousTownGuard } from '../town/TownNativeGuardIdentity'
 import { CIVILIAN_PROFILE, townActorHeroProfile, townDeploymentTokenLoadout, townMilitaryEquipment, townRoster, withTownCommandSquadRoster, type TownActorSpec } from '../town/TownRules'
 import type { CharacterFaction } from '../world/CharacterVisuals'
@@ -166,11 +166,14 @@ export function parseTownEquipment(value: unknown): CareerTownEquipment | undefi
         const rawRef = entry[slot]
         if (rawRef === null) { refs[slot] = null; continue }
         if (!object(rawRef) || typeof rawRef.itemId !== 'string' || !['inventory', 'native'].includes(rawRef.source as string)) throw new Error('Invalid equipment reference')
-        const itemId = rawRef.itemId
+        let itemId = rawRef.itemId
         const item = WEAPONS[itemId] ?? ARMORS[itemId]
         if (slot === 'mount' ? !(PLAYER_MOUNT_IDS as readonly string[]).includes(itemId) : !item || item.type !== slot) throw new Error('Invalid equipment slot')
         if (rawRef.source === 'native') {
           const source = native.get(rawRef.nativeId as string)
+          if (actorId === 'merchant' && slot === 'shield' && itemId === 'paladin_shield_t4' && source?.nativeId === `${faction}/merchant/shield`) {
+            itemId = source.itemId
+          }
           if (!source || source.itemId !== itemId || source.slot !== slot || source.squadId !== squadId || claimed.has(source.nativeId)) throw new Error('Invalid native equipment owner')
           claimed.add(source.nativeId); refs[slot] = { itemId, source: 'native', nativeId: source.nativeId }
         } else {
@@ -220,7 +223,7 @@ export function validateTownEquipment(profile: CareerProfile): void {
           if ((ref?.itemId ?? null) !== itemId || ref && (ref.source !== 'native' || ref.nativeId !== `${faction}/${spec.id}/${slot}`)) throw new Error('Changed fixed town equipment')
         }
       }
-      if (spec.role === 'merchant' && refs.mount && (refs.mount.itemId !== 'horse' || refs.mount.source !== 'inventory')) throw new Error('Invalid merchant mount')
+      if (spec.role === 'merchant' && refs.mount && (refs.mount.source !== 'inventory' || !isTownMerchantMountId(refs.mount.itemId))) throw new Error('Invalid merchant mount')
       if (spec.eagle && (refs.mount?.source !== 'native' || refs.mount.nativeId !== `${faction}/${spec.id}/mount`)) throw new Error('Changed garrison eagle')
       if (refs.mount?.source === 'inventory' && refs.mount.itemId === 'xongkoro') throw new Error('Town actors cannot own private eagles')
       if (spec.role !== 'civilian' && !refs.melee && !refs.ranged) throw new Error('Unarmed town soldier')

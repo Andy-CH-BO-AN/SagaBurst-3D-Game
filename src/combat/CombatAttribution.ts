@@ -121,6 +121,36 @@ export class CombatEventStream {
   }
 }
 
+/** Borrowed event ownership: the newest live binding replaces routing for its lifetime without subscribing a
+ * second listener; with none bound, events return to the owner's original sink. */
+export class CombatEventSinkStack {
+  private readonly bindings: { sink: CombatEventSink }[] = []
+  private closed = false
+
+  constructor(private readonly original?: CombatEventSink) {}
+
+  get current(): CombatEventSink | undefined {
+    return this.bindings[this.bindings.length - 1]?.sink ?? this.original
+  }
+
+  bind(sink: CombatEventSink): () => void {
+    if (this.closed) throw new Error('Cannot bind combat events to a disposed NPC')
+    const binding = { sink }
+    this.bindings.push(binding)
+    return () => {
+      const index = this.bindings.indexOf(binding)
+      // Token identity makes cleanup idempotent and keeps an older owner from restoring over a newer one.
+      if (index >= 0) this.bindings.splice(index, 1)
+    }
+  }
+
+  /** The owner is disposed: drop every borrowed binding and refuse new ones. */
+  close(): void {
+    this.closed = true
+    this.bindings.length = 0
+  }
+}
+
 export function createPlayerCombatActorRef(player: Player): CombatActorRef {
   return {
     actorId: 'player',

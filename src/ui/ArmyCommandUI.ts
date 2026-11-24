@@ -56,6 +56,7 @@ export function armyCommandTargetLabel(
 /** Army command HUD. It never owns input or mutates NPC state. */
 export class ArmyCommandUI {
   private readonly root: HTMLElement
+  private readonly targetsLeft?: HTMLElement
   private readonly targets: HTMLElement
   private readonly commands: HTMLElement
   private readonly feedback: HTMLElement
@@ -96,9 +97,14 @@ export class ArmyCommandUI {
     this.root.dataset.faction = faction
     if (townHud) {
       this.root.dataset.layout = 'town'
-      this.townHudObserver = new ResizeObserver(() => {
-        this.root.style.setProperty('--town-command-top', `${townHud.getBoundingClientRect().bottom + 18}px`)
-      })
+      this.targetsLeft = document.createElement('div')
+      this.targetsLeft.className = 'army-command-targets army-command-targets-left'
+      const updateTop = () => {
+        const bottom = townHud.getBoundingClientRect().bottom
+        if (bottom > 0) this.root.style.setProperty('--town-command-top', `${bottom + 18}px`)
+      }
+      updateTop()
+      this.townHudObserver = new ResizeObserver(updateTop)
       this.townHudObserver.observe(townHud)
     }
     this.targets = document.createElement('div')
@@ -109,7 +115,8 @@ export class ArmyCommandUI {
     this.feedback.className = 'army-command-feedback'
     this.wheelHint = document.createElement('div')
     this.wheelHint.className = 'army-command-wheel-hint'
-    this.root.append(this.targets, this.commands, this.feedback)
+    if (this.targetsLeft) this.root.append(this.targetsLeft, this.targets, this.commands, this.feedback)
+    else this.root.append(this.targets, this.commands, this.feedback)
     document.getElementById('hud')?.appendChild(this.root)
   }
 
@@ -138,6 +145,7 @@ export class ArmyCommandUI {
       ? `滾輪：選擇命令　[Q] ${submenuOpen ? '上一頁' : '返回武器切換'}`
       : `滾輪：切換武器／盾牌${selectedWeaponName ? `（${selectedWeaponName}）` : ''}　[Q] ${submenuOpen ? '上一頁' : '滾輪選擇命令'}`
     this.targets.classList.toggle('hidden', submenuOpen)
+    this.targetsLeft?.classList.toggle('hidden', submenuOpen)
     this.commands.classList.toggle('visible', submenuOpen)
 
     if (!submenuOpen) {
@@ -146,14 +154,36 @@ export class ArmyCommandUI {
         ...(allEntry ? [allEntry] : []),
         ...entries.filter(entry => entry.key !== '`'),
       ]
-      this._renderEntries(this.targets, ordered, highlightedTarget)
-      const grouping = document.createElement('div')
-      grouping.className = 'army-command-panel-title'
-      grouping.textContent = groupingMode === 'squad'
+      const groupingText = groupingMode === 'squad'
         ? '命令分組：小隊'
         : '命令分組：兵種'
-      this.targets.prepend(grouping)
-      this.targets.appendChild(this.wheelHint)
+      if (this.targetsLeft && ordered.length > 1) {
+        const split = Math.ceil(ordered.length / 2)
+        this._renderEntries(this.targetsLeft, ordered.slice(0, split), highlightedTarget)
+        const leftTitle = document.createElement('div')
+        leftTitle.className = 'army-command-panel-title'
+        leftTitle.textContent = groupingText
+        this.targetsLeft.prepend(leftTitle)
+        this.targetsLeft.hidden = false
+
+        this._renderEntries(this.targets, ordered.slice(split), highlightedTarget)
+        const rightTitle = document.createElement('div')
+        rightTitle.className = 'army-command-panel-title'
+        rightTitle.textContent = groupingText
+        this.targets.prepend(rightTitle)
+        this.targets.appendChild(this.wheelHint)
+      } else {
+        if (this.targetsLeft) {
+          this.targetsLeft.replaceChildren()
+          this.targetsLeft.hidden = true
+        }
+        this._renderEntries(this.targets, ordered, highlightedTarget)
+        const grouping = document.createElement('div')
+        grouping.className = 'army-command-panel-title'
+        grouping.textContent = groupingText
+        this.targets.prepend(grouping)
+        this.targets.appendChild(this.wheelHint)
+      }
       this.commands.replaceChildren()
       return
     }
@@ -198,6 +228,7 @@ export class ArmyCommandUI {
 
   renderPlacement(target: ArmyCommandTarget): void {
     this.targets.classList.add('hidden')
+    this.targetsLeft?.classList.add('hidden')
     this.commands.classList.add('visible')
     this.commands.replaceChildren()
 
@@ -244,7 +275,7 @@ export class ArmyCommandUI {
       row.className = 'army-command-entry'
       row.classList.toggle('highlighted', entry.target === highlightedTarget)
       const label = document.createElement('span')
-      if (entry.units && entry.units.icons.split(' ').length > 4) row.classList.add('army-command-entry-wide')
+      if (this.root.dataset.layout !== 'town' && entry.units && entry.units.icons.split(' ').length > 4) row.classList.add('army-command-entry-wide')
       label.className = 'army-command-label'
       const name = this.resolveSquadLabel(entry.target) ?? entry.label
       const heading = document.createElement('span')

@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { expect, it } from 'vitest'
 import { AvailableBreachEntrances, type BreachEntrance } from '../../src/navigation/AvailableBreachEntrances'
-import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
+import { applyTownRampSeparation, TownLayeredNavigation, townRampLane } from '../../src/navigation/TownLayeredNavigation'
 import { GATEHOUSE_SHELL, gatehouseLocal, gatehousePoint, townGatehouseParts } from '../../src/town/TownGatehouse'
 import { getTownRampartLayout, townRampartHeight, type TownRampartLayout } from '../../src/town/TownRamparts'
 import { getTerrainHeight, getWalkRampHeight } from '../../src/world/Terrain'
@@ -232,4 +232,84 @@ it('領隊停在塔房時，第一名騎兵的跟隨站位沿塔房開口排在�
     }
     expect(current.distanceTo(out), id).toBeLessThanOrEqual(.05)
   }
+})
+
+it('separates ascending and descending traffic on Town ramps without reversing on the landing', () => {
+  const layout = getTownRampartLayout(), nav = new TownLayeredNavigation(layout)
+  const ramp = layout.ramps.find(r => r.gateId === 'north')!, s = ramp.surface, out = new THREE.Vector3()
+  const atRamp = (along: number, lateral: number) => new THREE.Vector3(
+    s.startX + s.dirX * along - s.dirZ * lateral,
+    Math.min(s.topY, s.startY + (s.topY - s.startY) * Math.max(0, along) / s.length),
+    s.startZ + s.dirZ * along + s.dirX * lateral,
+  )
+  const alongOf = (p: THREE.Vector3) => (p.x - s.startX) * s.dirX + (p.z - s.startZ) * s.dirZ
+  const lateralOf = (p: THREE.Vector3) => (p.x - s.startX) * -s.dirZ + (p.z - s.startZ) * s.dirX
+  const wallGoal = ramp.connection.clone()
+  const groundGoal = ramp.entrance.clone().add(new THREE.Vector3(0, 0, 12))
+  groundGoal.y = getTerrainHeight(groundGoal.x, groundGoal.z)
+
+  expect(townRampLane(undefined, false, true, s.halfWidth)).toBe(0)
+
+  const mid = atRamp(s.length * 0.5, 0)
+  const upLanes = new Set<number>(), downLanes = new Set<number>()
+  for (let i = 0; i < 6; i++) {
+    const id = `foot:${i}`
+    expect(nav.resolveMoveTarget(mid, wallGoal, out, null, false, null, id)).toEqual({ ground: false })
+    const upLat = lateralOf(out)
+    expect(upLat).toBeGreaterThan(0)
+    expect(Math.abs(upLat) + 0.5).toBeLessThan(2.99)
+    upLanes.add(Math.round(upLat * 100))
+
+    expect(nav.resolveMoveTarget(mid, groundGoal, out, null, false, null, id)).toEqual({ ground: false })
+    const downLat = lateralOf(out)
+    expect(downLat).toBeLessThan(0)
+    expect(Math.abs(downLat) + 0.5).toBeLessThan(2.99)
+    downLanes.add(Math.round(downLat * 100))
+  }
+  expect(upLanes.size).toBeGreaterThanOrEqual(3)
+  expect(downLanes.size).toBeGreaterThanOrEqual(3)
+
+  nav.resolveMoveTarget(mid, wallGoal, out, null, true, null, 'rider:0')
+  const mountedUpLat = lateralOf(out)
+  nav.resolveMoveTarget(mid, groundGoal, out, null, true, null, 'rider:1')
+  const mountedDownLat = lateralOf(out)
+  expect(mountedUpLat).toBeGreaterThan(0)
+  expect(mountedDownLat).toBeLessThan(0)
+  expect(mountedUpLat - mountedDownLat).toBeGreaterThan(2)
+  expect(Math.abs(mountedUpLat) + 1).toBeLessThan(2.99)
+  expect(Math.abs(mountedDownLat) + 1).toBeLessThan(2.99)
+
+  // Moderate lateral offset on the landing proceeds downhill rather than reversing uphill.
+  nav.resolveMoveTarget(atRamp(s.length + 1, 1.0), groundGoal, out, null, false, null, 'foot:0')
+  expect(alongOf(out)).toBeLessThan(0)
+  nav.resolveMoveTarget(atRamp(s.length + 1, 1.0), groundGoal, out, null, true, null, 'rider:0')
+  expect(alongOf(out)).toBeLessThan(0)
+
+  // Outer-edge mounted actor aligns inward without stepping back uphill toward landing center.
+  nav.resolveMoveTarget(atRamp(s.length + 2.5, 2.8), groundGoal, out, null, true, null, 'rider:0')
+  expect(alongOf(out)).toBeCloseTo(s.length + 2.5)
+  expect(lateralOf(out)).toBeLessThan(0)
+
+  // Ascending turns toward bridge connection only after clearing the corner rail post.
+  nav.resolveMoveTarget(atRamp(s.length + 0.5, 1), wallGoal, out, null, false, null, 'foot:0')
+  expect(out.equals(ramp.connection)).toBe(false)
+  nav.resolveMoveTarget(atRamp(s.length + 1.75, 1), wallGoal, out, null, false, null, 'foot:0')
+  expect(out).toEqual(ramp.connection)
+  nav.resolveMoveTarget(atRamp(s.length + 1.75, 1), wallGoal, out, null, true, null, 'rider:0')
+  expect(out.equals(ramp.connection)).toBe(false)
+  nav.resolveMoveTarget(atRamp(s.length + 2.25, 1), wallGoal, out, null, true, null, 'rider:0')
+  expect(out).toEqual(ramp.connection)
+})
+
+it('prevents crowd separation from reversing movement along a Town ramp', () => {
+  const rampDir = new THREE.Vector3(1, 0, 0)
+  applyTownRampSeparation(rampDir, new THREE.Vector3(-3, 0.5, 0.4), true)
+  expect(rampDir.x).toBeGreaterThan(0)
+  expect(rampDir.z).toBeGreaterThan(0)
+  expect(rampDir.y).toBe(0)
+  expect(rampDir.length()).toBeCloseTo(1)
+
+  const freeDir = new THREE.Vector3(1, 0, 0)
+  applyTownRampSeparation(freeDir, new THREE.Vector3(-3, 0, 0.4), false)
+  expect(freeDir.x).toBeLessThan(0)
 })

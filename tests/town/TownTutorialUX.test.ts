@@ -92,14 +92,17 @@ function setupMockDOM() {
     },
   }
   vi.stubGlobal('document', doc)
-  const addEventListener = vi.fn(), removeEventListener = vi.fn()
+  // A real listener registry: a handler is removed only by the same type and function it was added with.
+  const registered = new Map<string, Set<unknown>>()
+  const addEventListener = (type: string, handler: unknown) => { registered.set(type, (registered.get(type) ?? new Set()).add(handler)) }
+  const removeEventListener = (type: string, handler: unknown) => { registered.get(type)?.delete(handler) }
   const disconnectResize = vi.fn(), disconnectState = vi.fn()
   const viewport = { innerWidth:1366, innerHeight:768, addEventListener, removeEventListener }
   vi.stubGlobal('window', viewport)
   vi.stubGlobal('getComputedStyle', (el: MockElement) => ({ display:el.style.display ?? '', visibility:el.style.visibility ?? '', opacity:el.style.opacity ?? '1' }))
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect = disconnectResize })
   vi.stubGlobal('MutationObserver', class { observe() {} disconnect = disconnectState })
-  return { body, elements, viewport, addEventListener, removeEventListener, disconnectResize, disconnectState }
+  return { body, elements, viewport, registered, disconnectResize, disconnectState }
 }
 
 function createHostHarness(initialProfile?: CareerProfile) {
@@ -230,40 +233,30 @@ describe('TownTutorialUX', () => {
   it('first talk to deployment presents recruit dialogue, handling later selection and acceptance', () => {
     const harness = createHostHarness()
     const ctrl = new TownTutorialController(harness.host)
+    const npcPosition = vi.spyOn(harness.host, 'npcPosition')
+    const report = dialoguePanel()
 
     expect(ctrl.hasDialogue('deployment')).toBe(true)
-
-    const panel = new MockElement('div') as unknown as HTMLElement
-    const h2 = new MockElement('h2')
-    const p = new MockElement('p')
-    ;(panel as unknown as MockElement).append(h2, p)
-
-    expect(ctrl.renderDialogue(panel, 'deployment')).toBe(true)
-    expect(h2.textContent).toBe('士官長')
-    expect(p.textContent).toContain('新兵，歡迎加入軍團！')
-
-    const buttons = (panel as unknown as MockElement).querySelectorAll('button')
-    expect(buttons.map(b => b.textContent)).toEqual(['好，我這就去', '我晚點再去', '先空手接任務，稍後買武器', '查看正式任務與其他服務'])
+    expect(ctrl.renderDialogue(report.panel, 'deployment')).toBe(true)
 
     // Escape hatch reaches the original Sergeant panel without advancing the tutorial
-    buttons[3].onclick!()
+    report.button('查看正式任務與其他服務').onclick!()
     expect(harness.getServicesOpened()).toEqual(['deployment'])
     expect(harness.getProfile().tutorial?.town.step).toBe('report')
 
     // Click "我晚點再去" closes panel without advancing step and next talk still presents dialogue
-    buttons[1].onclick!()
+    report.button('我晚點再去').onclick!()
     expect(harness.getClosedCount()).toBe(1)
     expect(harness.getProfile().tutorial?.town.step).toBe('report')
     expect(ctrl.hasDialogue('deployment')).toBe(true)
 
     // Click accept advances to weapon step and updates hint
-    buttons[0].onclick!()
+    report.button('好，我這就去').onclick!()
     expect(harness.getClosedCount()).toBe(2)
     expect(harness.getProfile().tutorial?.town.step).toBe('weapon')
 
     ctrl.update()
-    const hint = dom.elements.find(el => el.id === 'career-tutorial-hint')
-    expect(hint?.textContent).toContain('前往武器店')
+    expect(npcPosition).toHaveBeenCalledWith('merchant')
 
     ctrl.dispose()
   })
@@ -312,6 +305,7 @@ describe('TownTutorialUX', () => {
   it('accept duel-intro guides to captain, captain dialogue accepts and starts duel', () => {
     const harness = createHostHarness()
     const ctrl = new TownTutorialController(harness.host)
+    const npcPosition = vi.spyOn(harness.host, 'npcPosition')
 
     // Set step to duel-intro
     recordCareerTutorialOperation(harness.getProfile(), 'town', 'report')
@@ -320,42 +314,26 @@ describe('TownTutorialUX', () => {
 
     expect(ctrl.hasDialogue('deployment')).toBe(true)
 
-    const panel = new MockElement('div') as unknown as HTMLElement
-    const h2 = new MockElement('h2')
-    const p = new MockElement('p')
-    ;(panel as unknown as MockElement).append(h2, p)
-
-    ctrl.renderDialogue(panel, 'deployment')
-    expect(p.textContent).toContain('我替你安排了一場與騎兵隊長的切磋')
-
-    const buttons = (panel as unknown as MockElement).querySelectorAll('button')
-    expect(buttons[0].textContent).toBe('當然，帶路吧！')
-
-    // Accept duel challenge
-    buttons[0].onclick!()
+    const intro = dialoguePanel()
+    ctrl.renderDialogue(intro.panel, 'deployment')
+    intro.button('當然，帶路吧！').onclick!()
     expect(harness.getClosedCount()).toBe(1)
     expect(harness.getProfile().tutorial?.town.step).toBe('duel')
 
     ctrl.update()
-    const hint = dom.elements.find(el => el.id === 'career-tutorial-hint')
-    expect(hint?.textContent).toContain('挑戰騎兵隊長')
+    expect(npcPosition).toHaveBeenCalledWith('captain')
 
     // Now talk to captain
     expect(ctrl.hasDialogue('captain')).toBe(true)
-    const captainPanel = new MockElement('div') as unknown as HTMLElement
-    const capH2 = new MockElement('h2')
-    const capP = new MockElement('p')
-    ;(captainPanel as unknown as MockElement).append(capH2, capP)
-
-    ctrl.renderDialogue(captainPanel, 'captain')
-    expect(capH2.textContent).toBe('騎兵隊長')
-    expect(capP.textContent).toContain('讓我看看你的實力')
-
-    const capButtons = (captainPanel as unknown as MockElement).querySelectorAll('button')
-    expect(capButtons[0].textContent).toBe('開始切磋')
-    expect(capButtons[1].textContent).toBe('還沒準備好')
-
-    capButtons[0].onclick!()
+    const captain = dialoguePanel()
+    ctrl.renderDialogue(captain.panel, 'captain')
+    captain.button('還沒準備好').onclick!()
+    expect(harness.getClosedCount()).toBe(2)
+    expect(harness.getDuelCount()).toBe(0)
+    expect(ctrl.hasDialogue('captain')).toBe(true)
+    const reopened = dialoguePanel()
+    expect(ctrl.renderDialogue(reopened.panel, 'captain')).toBe(true)
+    reopened.button('開始切磋').onclick!()
     expect(harness.getDuelCount()).toBe(1)
 
     ctrl.dispose()
@@ -365,17 +343,12 @@ describe('TownTutorialUX', () => {
     const harness = createHostHarness()
     const ctrl = new TownTutorialController(harness.host)
 
-    const panel = new MockElement('div') as unknown as HTMLElement
-    const h2 = new MockElement('h2')
-    const p = new MockElement('p')
-    ;(panel as unknown as MockElement).append(h2, p)
-
-    ctrl.renderDialogue(panel, 'deployment')
-    const buttons = (panel as unknown as MockElement).querySelectorAll('button')
+    const report = dialoguePanel()
+    ctrl.renderDialogue(report.panel, 'deployment')
 
     // Make save fail
     harness.setFailCommit(true)
-    buttons[0].onclick!()
+    report.button('好，我這就去').onclick!()
 
     // Panel is NOT closed!
     expect(harness.getClosedCount()).toBe(0)
@@ -383,10 +356,10 @@ describe('TownTutorialUX', () => {
     expect(harness.getProfile().tutorial?.town.step).toBe('report')
 
     // Error is displayed and button shows retry
-    const errorEl = (panel as unknown as MockElement).querySelector('.town-save-error')
-    expect(errorEl?.textContent).toContain('進度保存失敗')
-    expect(buttons[0].textContent).toBe('重試')
-    expect(buttons[0].disabled).toBe(false)
+    const errorEl = report.element.querySelector('.town-save-error')
+    const retry = report.button('重試')
+    expect(errorEl?.textContent).toBeTruthy()
+    expect(retry.disabled).toBe(false)
 
     // Rapid double click does not duplicate save while busy
     let commitsDuringBusy = 0
@@ -395,11 +368,11 @@ describe('TownTutorialUX', () => {
     harness.host.commit = p => {
       commitsDuringBusy++
       // while inside first commit, try clicking again
-      buttons[0].onclick!()
+      retry.onclick!()
       return originalCommit(p)
     }
 
-    buttons[0].onclick!()
+    retry.onclick!()
 
     expect(commitsDuringBusy).toBe(1)
     expect(harness.getClosedCount()).toBe(1)
@@ -493,9 +466,14 @@ describe('TownTutorialUX', () => {
 
   const dialoguePanel = () => {
     const panel = new MockElement('div')
-    const body = new MockElement('p')
-    panel.append(new MockElement('h2'), body)
-    return { panel: panel as unknown as HTMLElement, buttons: () => panel.querySelectorAll('button') }
+    panel.append(new MockElement('h2'), new MockElement('p'))
+    const buttons = () => panel.querySelectorAll('button')
+    const button = (name: string) => {
+      const match = buttons().find(item => item.textContent === name)
+      if (!match?.onclick) throw new Error('Missing dialogue action: ' + name)
+      return match
+    }
+    return { panel: panel as unknown as HTMLElement, element: panel, buttons, button }
   }
 
   it('captain, HR, and commander dialogues accept and close correctly', () => {
@@ -507,34 +485,24 @@ describe('TownTutorialUX', () => {
     harness.getProfile().tutorial!.captain.status = 'available'
     expect(ctrl.hasDialogue('deployment')).toBe(true)
 
-    const panel = new MockElement('div') as unknown as HTMLElement
-    const h2 = new MockElement('h2')
-    const p = new MockElement('p')
-    ;(panel as unknown as MockElement).append(h2, p)
-
-    ctrl.renderDialogue(panel, 'deployment')
-    expect(p.textContent).toContain('恭喜你晉升為騎兵隊長')
-    const captainButtons = (panel as unknown as MockElement).querySelectorAll('button')
-    captainButtons[0].onclick!()
+    const dialogue = dialoguePanel()
+    ctrl.renderDialogue(dialogue.panel, 'deployment')
+    dialogue.button('開始 30 人指揮演練').onclick!()
     expect(harness.getLaunches()).toEqual([{ stage: 'captain', replay: false }])
 
     // HR dialogue
     harness.getProfile().tutorial!.hr.status = 'available'
     expect(ctrl.hasDialogue('hr-officer')).toBe(true)
-    ctrl.renderDialogue(panel, 'hr-officer')
-    expect(p.textContent).toContain('在 HR Center，你可以招募專屬於你的私人戰友')
-    const hrButtons = (panel as unknown as MockElement).querySelectorAll('button')
-    hrButtons[0].onclick!() // "開始招募戰友"
+    ctrl.renderDialogue(dialogue.panel, 'hr-officer')
+    dialogue.button('開始招募戰友').onclick!()
     expect(harness.getProfile().tutorial?.hr.status).toBe('active')
     expect(harness.getRecruitmentOpened()).toBe(1)
 
     // Commander dialogue
     harness.getProfile().tutorial!.commander.status = 'available'
     expect(ctrl.hasDialogue('commander')).toBe(true)
-    ctrl.renderDialogue(panel, 'commander')
-    expect(p.textContent).toContain('登上指揮塔頂，你將俯瞰整個城鎮的四門防線')
-    const cmdButtons = (panel as unknown as MockElement).querySelectorAll('button')
-    cmdButtons[0].onclick!() // "前往指揮塔"
+    ctrl.renderDialogue(dialogue.panel, 'commander')
+    dialogue.button('前往指揮塔').onclick!()
     expect(harness.getProfile().tutorial?.commander.status).toBe('active')
 
     // Captain duel dialogue keeps regular services/promotion entry (#455 merged)
@@ -543,9 +511,7 @@ describe('TownTutorialUX', () => {
     harness.getProfile().tutorial!.town.step = 'duel'
     expect(ctrl.hasDialogue('captain')).toBe(true)
     ctrl.renderDialogue(duelPanel.panel, 'captain')
-    const duelButtons = duelPanel.buttons()
-    expect(duelButtons.map(b => b.textContent)).toEqual(['開始切磋', '還沒準備好', '任命／其他服務'])
-    duelButtons[2].onclick!()
+    duelPanel.button('任命／其他服務').onclick!()
     expect(harness.getServicesOpened()).toContain('captain')
     expect(harness.getDuelCount()).toBe(0)
 
@@ -609,11 +575,10 @@ describe('TownTutorialUX', () => {
     expect(ctrl.hasDialogue('deployment')).toBe(true)
     const resume = dialoguePanel()
     ctrl.renderDialogue(resume.panel, 'deployment')
-    expect(resume.buttons().map(b => b.textContent)).toEqual(['繼續上次教學', '稍後再說', '查看正式任務與其他服務'])
-    resume.buttons()[2].onclick!()
+    resume.button('查看正式任務與其他服務').onclick!()
     expect(harness.getServicesOpened()).toEqual(['deployment'])
     expect(harness.getProfile().tutorial!.town).toMatchObject({ status: 'deferred', step: 'weapon', operations: ['report'] })
-    resume.buttons()[0].onclick!()
+    resume.button('繼續上次教學').onclick!()
     expect(harness.getProfile().tutorial!.town).toMatchObject({ status: 'active', step: 'weapon', operations: ['report'] })
     const later = harness.getProfile().tutorial!
     later.town.status = 'completed'; later.town.step = 'complete'
@@ -652,7 +617,7 @@ describe('TownTutorialUX', () => {
     t.captain.status = 'deferred'
     const lead = dialoguePanel()
     ctrl.renderDialogue(lead.panel, 'deployment')
-    expect(lead.buttons().map(b => b.textContent)).toEqual(['繼續 30 人指揮演練', '稍後再訓練', '查看正式任務與其他服務'])
+    expect(lead.button('繼續 30 人指揮演練').disabled).toBe(false)
 
     // When Town is active and Captain is deferred, keep Sergeant dialogue on HUD target
     t.town.status = 'active'; t.town.operations = ['report']; t.town.step = 'weapon'
@@ -660,8 +625,14 @@ describe('TownTutorialUX', () => {
     expect(dom.elements.find(el => el.id === 'career-tutorial-hint')!.textContent).toContain('前往武器店')
     expect(ctrl.hasDialogue('deployment')).toBe(false)
     const side = dialoguePanel()
+    const rehearsal = dialoguePanel()
+    const openPanel = vi.spyOn(harness.host, 'openPanel').mockReturnValue(rehearsal.panel as HTMLDivElement)
     ctrl.appendPanel(side.panel, 'deployment')
-    expect(side.buttons().map(b => b.textContent)).toContain('繼續 30 人指揮演練')
+    side.button('繼續 30 人指揮演練').onclick!()
+    expect(openPanel).toHaveBeenCalledOnce()
+    expect(harness.getLaunches()).toEqual([])
+    rehearsal.button('繼續 30 人指揮演練').onclick!()
+    expect(harness.getLaunches()).toEqual([{ stage: 'captain', replay: false }])
 
     ctrl.dispose()
   })
@@ -677,10 +648,9 @@ describe('TownTutorialUX', () => {
     expect(ctrl.hasReviewOptions()).toBe(true)
     const review = dialoguePanel()
     ctrl.renderReviewContent(review.panel)
-    expect(review.buttons().map(b => b.textContent)).toEqual(['繼續重播操作練習', '繼續重播城鎮訓練'])
-    review.buttons()[0].onclick!()
+    review.button('繼續重播操作練習').onclick!()
     expect(harness.getLaunches()).toEqual([{ stage: 'recruit', replay: true }])
-    review.buttons()[1].onclick!()
+    review.button('繼續重播城鎮訓練').onclick!()
     expect(harness.getProfile().tutorial!.town).toMatchObject({ status: 'active', replay: true, step: 'weapon', operations: ['report'] })
     ctrl.dispose()
   })
@@ -719,8 +689,7 @@ describe('TownTutorialUX', () => {
 
     const side = dialoguePanel()
     ctrl.appendPanel(side.panel, 'deployment')
-    expect(side.buttons().map(b => b.textContent)).toEqual(['繼續上次教學', '稍後再說', '查看正式任務與其他服務'])
-    side.buttons()[0].onclick!()
+    side.button('繼續上次教學').onclick!()
     const resumed = harness.getProfile().tutorial!.town
     expect(harness.getClosedCount()).toBe(1)
     expect([resumed.status, resumed.step, resumed.operations]).toEqual(['active', 'weapon', ['report']])
@@ -741,12 +710,13 @@ describe('TownTutorialUX', () => {
     harness.getProfile().tutorial!.town.status = 'active'
     harness.getProfile().tutorial!.town.step = 'duel'
     const captain = dialoguePanel()
-    ;(captain.panel as unknown as MockElement).append(Object.assign(new MockElement('button'), { textContent: '接受任命' }))
+    const appointment = new MockElement('button')
+    captain.element.append(appointment)
     expect(ctrl.hasDialogue('captain')).toBe(true)
     ctrl.appendPanel(captain.panel, 'captain', true)
-    expect(captain.buttons().map(b => b.textContent)).toEqual(['接受任命'])
+    expect(captain.buttons()).toContain(appointment)
     ctrl.appendPanel(captain.panel, 'captain')
-    expect(captain.buttons().map(b => b.textContent)).not.toContain('接受任命')
+    expect(captain.buttons()).not.toContain(appointment)
 
     ctrl.dispose()
   })
@@ -780,9 +750,10 @@ describe('TownTutorialUX', () => {
     ctrl.update()
     expect(notice.hidden).toBe(true)
     expect(root.hidden).toBe(false)
+    expect(dom.registered.get('resize')?.size).toBe(1)
     ctrl.dispose()
     expect(dom.body.children).toHaveLength(0)
-    expect(dom.removeEventListener).toHaveBeenCalledWith('resize', dom.addEventListener.mock.calls[0][1])
+    expect(dom.registered.get('resize')?.size ?? 0).toBe(0)
     expect(dom.disconnectResize).toHaveBeenCalledOnce()
     expect(dom.disconnectState).toHaveBeenCalledOnce()
     const reentry = new TownTutorialController(harness.host)

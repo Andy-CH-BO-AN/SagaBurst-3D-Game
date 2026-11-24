@@ -1,3 +1,4 @@
+import { gameStorage } from '../save/GameStorage'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { parseEagleFlightSnapshot } from '../movement/EagleFlightController'
@@ -387,7 +388,7 @@ function parseStoredCareerBytes(storage: Storage, bytes: string): CareerProfile 
 }
 
 export class CareerProfileStore {
-  constructor(private readonly storage: Storage = localStorage) {}
+  constructor(private readonly storage: Storage = gameStorage()) {}
 
   loadChecked(): { profile: CareerProfile | null; error?: string } {
     try {

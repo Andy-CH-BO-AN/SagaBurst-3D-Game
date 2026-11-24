@@ -22,12 +22,15 @@ import { createCareerOutpostLaunch } from './career/CareerOutpostLaunch'
 import { CAREER_OUTPOST_SESSION_KEY,clearCareerOutpost } from './career/CareerOutpostMission'
 import { clearCareerMission } from './career/CareerProfile'
 import { CareerProfileStore } from './career/CareerProfileStore'
-import { shouldResumeCareerTown } from './career/CareerResumeRouting'
+import { careerVeteranOutpostResumeAction,shouldResumeCareerTown } from './career/CareerResumeRouting'
 import { commitCareerTutorial,deferCareerTutorial } from './career/CareerTutorial'
 import { createCareerCaptainTutorialConfig,type CareerTutorialLaunch } from './career/CareerTutorialLaunch'
-import { createCareerVeteranOutpostLaunch,isCareerVeteranOutpostMission,shouldResumeCareerVeteranOutpost } from './career/CareerVeteranOutpost'
+import { createCareerVeteranOutpostLaunch } from './career/CareerVeteranOutpost'
 import { createCareerCommanderOutpostLaunch,isCareerCommanderOutpostMission } from './career/CommanderOutpost'
 import { Game } from './Game'
+import { coopSession } from './coop/CoopLink'
+import { announceCoopLaunch, consumeCoopGuestLaunch, isCoopGuestLaunch, listenForCoopLaunch, showCoopGuestEnd } from './coop/CoopLaunch'
+import { mountCoopBadge, showCoopGuestWaiting, showCoopLobby } from './coop/CoopLobbyUI'
 import { enterCareerTown,recoverSettledStartupMissionReturn,TOWN_ENTRY_KEY } from './town/CareerTownEntry'
 import { markCareerMissionReturnToSergeant } from './town/SergeantReturn'
 import { BattleReferenceUI } from './ui/BattleReferenceUI'
@@ -80,6 +83,7 @@ function showCareerRecoveryError(message: string, retry: () => void, label = '�
 }
 
 function handleCareerMissionError(missionId: string, error: unknown): void {
+  if (isCoopGuestLaunch()) { console.error('[coop] guest mission failed', error); showCoopGuestEnd('合作任務載入失敗'); return }
   if (recoveringCareerMission) return
   console.error('[Career] Technical mission deployment failure', { missionId }, error)
   const store = new CareerProfileStore()
@@ -199,6 +203,7 @@ async function launchCareerTutorial(context: CareerTutorialLaunch): Promise<void
 }
 
 function launchCareerCombat(config: CareerCombatLaunch): Promise<void> {
+  if (!isCoopGuestLaunch()) announceCoopLaunch(config)
   if (config.type === 'career-bridge-battle') return launchGame(config.battle, undefined, false, config)
   return config.type === 'captain-eagle' || config.type === 'career-feline-battle' ? launchGame(config.battle) : launchGame(undefined, config)
 }
@@ -211,6 +216,24 @@ async function resumeStoredCareerMission(missionId: string, build: () => CareerC
 
 async function bootstrap(): Promise<void> {
   const query = new URLSearchParams(window.location.search)
+  // LAN co-op runs before every save/session route: a guest never resumes its own Career inside the host's mission.
+  const coop = coopSession()
+  await coop.init()
+  mountCoopBadge()
+  listenForCoopLaunch()
+  const coopLaunch = consumeCoopGuestLaunch(coop.isGuest)
+  if (coopLaunch) {
+    if (coopLaunch.scene === 'game' && coopLaunch.config) await launchCareerCombat(coopLaunch.config)
+    else if (coopLaunch.scene === 'town') await (await import('./coop/CoopGuestScenes')).launchCoopGuestTown(container!)
+    else if (coopLaunch.scene === 'trial') await (await import('./coop/CoopGuestScenes')).launchCoopGuestTrial(container!)
+    else if (coopLaunch.scene === 'prison') await (await import('./coop/CoopGuestScenes')).launchCoopGuestPrison(container!)
+    else await (await import('./coop/CoopGuestScenes')).launchCoopGuestArena(container!)
+    return
+  }
+  if (coop.isGuest) {
+    showCoopGuestWaiting(() => window.location.assign(window.location.pathname))
+    return
+  }
   if (import.meta.env.DEV && query.get('careerQa') === 'retirement') {
     const { installCareerRetirementQa } = await import('./debug/CareerRetirementQA')
     installCareerRetirementQa()
@@ -327,15 +350,12 @@ async function bootstrap(): Promise<void> {
       return
     }
   }
-  if (outpostProfile && isCareerVeteranOutpostMission(activeCareerMission)) {
-    if (shouldResumeCareerVeteranOutpost(activeCareerMission)) {
-      await resumeStoredCareerMission(activeCareerMission.id, () => createCareerVeteranOutpostLaunch(outpostProfile))
-      return
-    }
-    if (outpostProfile.claimedBattleIds.includes(activeCareerMission.id)) {
+  const veteranAction = outpostProfile ? careerVeteranOutpostResumeAction(activeCareerMission, outpostProfile.claimedBattleIds) : null
+  if (outpostProfile && activeCareerMission && veteranAction) {
+    if (veteranAction === 'settle') {
       if (!settleClaimedOnStartup(clearCareerMission(outpostProfile, activeCareerMission.id), activeCareerMission.personalSquad, '無法保存 Veteran Outpost 返回狀態，已領獎紀錄與軍功均已保留。')) return
     } else {
-      // A terminal battle whose claim could not be saved must return to its result screen for retry.
+      // A defeat lock or a terminal battle whose claim could not be saved must return to its battle for spectating or retry.
       await resumeStoredCareerMission(activeCareerMission.id, () => createCareerVeteranOutpostLaunch(outpostProfile))
       return
     }
@@ -506,6 +526,12 @@ async function bootstrap(): Promise<void> {
     menu.mount(document.body, {
       onTrainingGround: () => { menu.destroy(); void launchGame(undefined, undefined, true) },
       onCareer: () => { menu.destroy(); enterCareerTown(container!, launchCareerCombat, showHome, handleCareerMissionError, launchCareerTutorial) },
+      onCoop: () => {
+        menu.destroy()
+        showCoopLobby(showHome,
+          () => enterCareerTown(container!, launchCareerCombat, showHome, handleCareerMissionError, launchCareerTutorial),
+          () => showCoopGuestWaiting(() => window.location.assign(window.location.pathname)))
+      },
       onCustomBattle: () => {
         menu.destroy()
         showCustomBattle()

@@ -7,18 +7,18 @@ import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { townPlayerEntryPoint } from '../town/TownRules'
 import type { HpBar } from '../ui/HpBar'
 import { BlackCatVisual } from '../world/BlackCatVisual'
-import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
-import { felineVariantFromMountId,Mount,mountCombatRadius,mountTypeFromId } from '../world/Mount'
-import { NPC } from '../world/NPC'
+import { felineVariantFromMountId,mountCombatRadius,mountTypeFromId,type Mount } from '../world/Mount'
+import type { NPC } from '../world/NPC'
 import { gameplayNpcSpawns,trackNpcSpawn,type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
 import { getTerrainHeight,type ObstacleData } from '../world/Terrain'
+import type { CareerActorFactory } from './CareerActorFactory'
 import { canUseCareerMount,CAREER_MOUNT_INTERACTION_DISTANCE,findSafeCareerMountPosition,type CareerMountController } from './CareerMountController'
 import type { CareerProfile } from './CareerProfile'
 import { canonicalCareerMountId,cloneCareerProfile } from './CareerProfile'
 import { raceReturnProfile } from './CareerRaceReturn'
 import { legalRaceStart,RACE_START,RACE_START_SLOTS,raceCheckpointTarget,raceMountPoseLegal,raceMovementIsLegal,raceWaypoints,resolveRaceMountSpawn,type RaceMountSpawnOptions,type RacePoint,type RacePosition } from './CareerRaceRoute'
 import {
-advanceRaceClock,advanceRaceRider,canEnterRace,finalizeRaceDeployment,lockRace,MOUNTED_RACES,pickRaceOpponentMount,RACE_SCHEDULE_VERSION,RACE_STORY_ID,RACE_STORY_RACE_ID,
+advanceRaceClock,advanceRaceRider,canEnterRace,coopGuestWinsRace,finalizeRaceDeployment,lockRace,MOUNTED_RACES,pickRaceOpponentMount,RACE_SCHEDULE_VERSION,RACE_STORY_ID,RACE_STORY_RACE_ID,
 raceIsRunning,
 raceOpponentCanSprint,raceRecordProfile,
 raceRiderDone,resolveRace,selectRaceCommander,updateRaceGuidance,
@@ -30,7 +30,8 @@ type RaceRider
 import { activateCareerStoryEvent,careerStoryPending } from './CareerStoryEvents'
 
 interface RaceResident { npc: NPC; homeMount?: Mount; spec: { id: string; role?: string; x: number; z: number; yaw?: number } }
-const commandId = -7400
+/** Formation order the race gives its actors; Town command checkpoints save it with the Captain. */
+export const CAREER_RACE_COMMAND_ID = -7400
 const RACE_DEPLOY_RETRY_MS = 3000
 function vector(p: RacePoint): THREE.Vector3 { return new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z), p.z) }
 function position(p: THREE.Vector3, yaw: number): RacePosition { return { x: p.x, y: p.y, z: p.z, yaw } }
@@ -58,6 +59,19 @@ export class CareerRaceController {
   private preloadInFlight = false
   error = ''
   saveFailed = false
+  /**
+   * LAN co-op: the guest races too. Runtime only, never saved: a reload drops the guest from
+   * this race. If the guest finishes first, the host's race is a loss and onCoopGuestWin fires once.
+   */
+  coopRacer: { position(): RacePosition | null; airborne(): boolean; baseSpeed(): number } | null = null
+  onCoopGuestWin?: (session: CareerRaceSession, guestSeconds: number) => void
+  private coopRider?: RaceRider
+  private coopRiderSession?: string
+  /** The guest's checkpoint progress in the current race, for the guest's own HUD. */
+  get coopProgress(): { checkpoint: number; finishSeconds?: number; dnf?: string } | null {
+    const rider = this.coopRider
+    return rider && this.coopRiderSession === this.session?.id ? { checkpoint: rider.checkpoint, finishSeconds: rider.finishSeconds, dnf: rider.dnf } : null
+  }
   /** Unridden mounts and other floor occupants the Town knows about; part of every return clearance. */
   parkedBlockers?: (except?: Mount | null) => { x: number; z: number; radius: number }[]
   /** Town return candidates may stand on the Town Center floor instead of terrain. */
@@ -65,9 +79,10 @@ export class CareerRaceController {
   /** Everyone and every mount already standing in Town except `rider` itself; the race mount must not overlap them. */
   spawnBlockers?: (rider: NPC) => { x: number; z: number; radius: number }[]
 
-  constructor(private readonly scene: THREE.Scene, private readonly navigation: NavigationWorld,
+  constructor(private readonly actorFactory: Pick<CareerActorFactory, 'mount'>, private readonly navigation: Pick<NavigationWorld, 'sync' | 'areConnected'>,
     private readonly obstacles: readonly ObstacleData[], private readonly residents: readonly RaceResident[],
-    private readonly player: () => Player, private readonly hp: HpBar, private readonly mounts: CareerMountController,
+    private readonly player: () => Player, private readonly hp: HpBar,
+    private readonly mounts: Pick<CareerMountController, 'activeMountId' | 'activeMount' | 'restoreRaceMount'>,
     private readonly read: () => CareerProfile, private readonly commit: (p: CareerProfile) => boolean) {}
 
   get actors(): NPC[] { return [...(this.racer ? [this.racer] : []), ...(this.ownsCaptain && this.captain ? [this.captain.npc] : [])] }
@@ -158,7 +173,7 @@ export class CareerRaceController {
 
   restore(): void {
     const saved = this.read().activeRace
-    if (!saved) return
+    if (!saved) { this.resumeCaptainReturn(); return }
     this.session = structuredClone(saved)
     this.captain = this.residents.find(r => r.spec.id === 'captain')
     this.captainHp = this.captain?.npc.hp
@@ -177,6 +192,17 @@ export class CareerRaceController {
       this.captainHp = npc.hp
     }
     this.deploy(!saved.deployed, true)
+  }
+
+  /**
+   * A Town command checkpoint can save the Captain mid-walk after the race was settled, still holding this
+   * controller's order. Nothing else drives that order, so resume the walk home instead of leaving him at the gate.
+   */
+  private resumeCaptainReturn(): void {
+    const captain = this.residents.find(r => r.spec.id === 'captain')
+    if (!captain || captain.npc.dead || captain.npc.hostileToPlayer || captain.npc.formationCommandId !== CAREER_RACE_COMMAND_ID) return
+    this.captain = captain
+    this.captainReturning = true
   }
 
   private preloadPromise?: Promise<void>
@@ -247,7 +273,7 @@ export class CareerRaceController {
         }
         npc.dismountFromMount()
       }
-      const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(s.opponent.mountId), spawn.x, spawn.z, spawn.y, horseVariantForStableKey(`town:${this.read().faction}:${s.opponent.actorId}`)))
+      const mount = trackNpcSpawn(this.actorFactory.mount(s.opponent.mountId, spawn.x, spawn.z, spawn.y, `town:${this.read().faction}:${s.opponent.actorId}`))
       mount.group.rotation.y = spawn.yaw
       mount.reservedForTown = true; this.mount = mount
       if (!npc.dead) npc.mountVehicle(mount)
@@ -387,8 +413,8 @@ export class CareerRaceController {
   private order(npc: NPC, point: RacePoint, sprint: boolean, speed?: number, facing = new THREE.Vector3(0, 0, -1)): void {
     const key = `${point.x}:${point.z}:${sprint}:${speed}`
     npc.missionMovement = sprint
-    if (this.commanded.get(npc) === key && npc.formationCommandId === commandId) return
-    npc.assignFormationTarget(commandId, vector(point), facing, speed)
+    if (this.commanded.get(npc) === key && npc.formationCommandId === CAREER_RACE_COMMAND_ID) return
+    npc.assignFormationTarget(CAREER_RACE_COMMAND_ID, vector(point), facing, speed)
     this.commanded.set(npc, key)
   }
 
@@ -408,6 +434,28 @@ export class CareerRaceController {
       && (s.player.dead || s.opponent.dead || Math.hypot(s.player.position.x - s.opponent.position.x, s.player.position.z - s.opponent.position.z) > 2.1))
     advanceRaceClock(s, dt, ready)
     if (raceIsRunning(s) && (this.framePhase === 'racing' || this.framePhase === 'finishing')) this.progress('player', previous, mountingDistance)
+    this.progressCoopRacer(s)
+  }
+  private progressCoopRacer(s: CareerRaceSession): void {
+    const racer = this.coopRacer, point = racer?.position()
+    if (!racer || !point) return
+    if (s.phase !== 'racing' && s.phase !== 'finishing') {
+      // Each race starts the guest at its current place; the start line is still the first checkpoint.
+      if (this.coopRiderSession !== s.id || !raceIsRunning(s)) {
+        this.coopRiderSession = s.id
+        this.coopRider = { actorId: 'coop-guest', mountId: s.player.mountId, position: { ...point }, mountPosition: { ...point },
+          hp: 1, mountHp: 1, stamina: 100, mounted: true, dead: false, checkpoint: 0 }
+      }
+      return
+    }
+    const rider = this.coopRider
+    if (!rider || this.coopRiderSession !== s.id || raceRiderDone(rider)) return
+    const previous = rider.routePosition ?? rider.position
+    rider.position = { ...point }
+    // The guest's position arrives over the LAN: allow twice the speed for network jitter.
+    advanceRaceRider(rider, previous, s.elapsedSeconds, this.frameDt,
+      raceMovementIsLegal(previous, rider.position, this.obstacles) && !racer.airborne(),
+      racer.baseSpeed() * 5 * Math.min(1, this.frameMovementDt / Math.max(this.frameDt, .001)), CAREER_MOUNT_INTERACTION_DISTANCE)
   }
   observeActorMovement(actor: NPC): void {
     if (actor !== this.racer || !this.session || !raceIsRunning(this.session)) return
@@ -445,6 +493,13 @@ export class CareerRaceController {
       if (s.elapsedSeconds > 900) for (const rider of [s.player, s.opponent]) if (!raceRiderDone(rider)) rider.dnf = '超過賽事時間'
       // Entering another gate or an illegal route is an explicit player disqualification.
       if (!s.result && s.player.dnf && !s.player.dead && s.player.dnf !== '超過賽事時間') lockRace(s, 'loss', s.player.dnf)
+      // Co-op: only the fastest of the three is rewarded. A guest finishing first ends the host's race as a loss.
+      const guest = this.coopRiderSession === s.id ? this.coopRider : undefined
+      const guestTime = guest?.finishSeconds
+      if (coopGuestWinsRace(s, guestTime)) {
+        lockRace(s, 'loss', '隊友率先完賽')
+        this.onCoopGuestWin?.(s, guestTime!)
+      }
       resolveRace(s)
     }
     this.saveElapsed += dt

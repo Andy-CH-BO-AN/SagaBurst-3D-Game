@@ -29,6 +29,7 @@ export class TownDockPassages {
     this.rails.push(rail); this.addPiece(rail, 0, 1)
   }
   isRailObstacle(obstacle: ObstacleData): boolean { return this.railObstacles.has(obstacle) }
+  get isConfigured(): boolean { return this.configured }
   configure(sites: readonly TownDockSite[]): void {
     if (this.configured || sites.length !== 8 || new Set(sites.map(s => s.rampId)).size !== 8) throw new Error('Expected eight unique dock passages')
     this.configured = true

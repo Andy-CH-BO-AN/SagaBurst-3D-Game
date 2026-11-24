@@ -24,12 +24,12 @@ import { townStationSpec } from '../../src/town/TownGarrison'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { standingPlayerY } from '../../src/player/PlayerFootBody'
 import { MemoryStorage } from '../helpers/memoryStorage'
-import { townRoster } from '../../src/town/TownRules'
+import { townRoster, townRosterIdentity } from '../../src/town/TownRules'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { resolveTownActorEquipment } from '../../src/career/CareerTownEquipmentState'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
-import { COMMANDER_FOUR_GATE_DEFENSE_ID } from '../../src/career/CommanderFourGateDefenseRoster'
+import { COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, COMMANDER_FOUR_GATE_DEFENSE_ID } from '../../src/career/CommanderFourGateDefenseRoster'
 import { TOWN_COMMANDER_ID, townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 
 import { acceptCommanderMission, COMMANDER_FELINE_CAVALRY_ID, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_TOTAL } from '../../src/career/CommanderMissionCatalog'
@@ -206,12 +206,11 @@ describe('Town mission settlement transactions', () => {
     Object.assign(h.residentState, { dead: false, hp: 37, characterIdentity: { characterFaction: 'roman', characterTier: 2 } })
     const next = { ...peaceful, activeMission: { ...createActiveCareerMission('recruit-bandits-01', 0, 1, 0, 'accept-native'),
       friendlyActorIds: ['resident'] } }
-    const write = vi.spyOn(h.runtime.store, 'save').mockReturnValueOnce(false)
+    vi.spyOn(h.runtime.store, 'save').mockReturnValueOnce(false)
     expect(h.commit(next)).toBe(false)
     expect(h.read().activeMission).toBeUndefined()
     expect(next.activeMission).not.toHaveProperty('borrowedActorIdentities')
     expect(h.commit(next)).toBe(true)
-    expect(write.mock.calls[0][0].activeMission!.borrowedActorIdentities).toEqual({ resident: { characterFaction: 'roman', characterTier: 2 } })
     expect(h.store.load()!.activeMission!.borrowedActorIdentities).toEqual({ resident: { characterFaction: 'roman', characterTier: 2 } })
   })
 
@@ -233,10 +232,35 @@ describe('Town mission settlement transactions', () => {
 
     expect(h.commit(next)).toBe(false)
     expect(write).toHaveBeenCalledOnce()
-    expect(write.mock.calls[0][0].activeMission!.friendlyActorIds).toContain(TOWN_COMMANDER_ID)
+    expect(write).toHaveBeenCalledWith(expect.objectContaining({
+      activeMission: expect.objectContaining({ friendlyActorIds: expect.arrayContaining([TOWN_COMMANDER_ID]) }) }))
     expect(next).toEqual(before)
     expect(h.read()).toBe(peaceful)
     expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
+  })
+
+  it('saves a fresh Commander defense at full strength instead of the live Town wounds and casualties', () => {
+    const h = fixture()
+    const peaceful = cloneCareerProfile(h.read()); delete peaceful.activeMission
+    Object.assign(peaceful, careerRankFixture(peaceful.faction, 'commander'), { totalMerit: 20000, availableMerit: 20000 })
+    expect(h.store.save(peaceful)).toBe(true); h.publish(peaceful)
+    h.resident.spec = townCommanderSpec({ x: 2, z: 3, yaw: .5 })
+    // The native Commander died in Town; the player is wounded and the owned horse is spent.
+    Object.assign(h.residentState, { dead: true, hp: 0, maxHp: 900, combatPosition: new Vector3(2, 0, 3), combatAmmo: 3,
+      shield: { shieldImpactRemaining: 2, reset: vi.fn() } })
+    Object.assign(h.player, { hp: 12, staminaValue: 4 }); Object.assign(h.player.shield, { reset: vi.fn() })
+    h.runtime.careerMounts = { checkpoint: () => ({ activeMountId: 'horse', hp: { horse: 3 }, unavailable: ['corgi'] }) }
+    const next = acceptCommanderMission(peaceful, COMMANDER_FOUR_GATE_DEFENSE_ID, 'fresh-defense')!
+
+    expect(h.commit(next)).toBe(true)
+    const saved = h.store.load()!.activeMission!
+    expect(saved.friendlyActorIds).toContain(TOWN_COMMANDER_ID)
+    expect(saved.deadFriendlyActorIds ?? []).toEqual([])
+    expect(saved.actorHealth).toBeUndefined()
+    expect(saved.officialSquad?.members).toBeUndefined()
+    expect(saved.playerHp).toBeUndefined()
+    expect(saved.playerStamina).toBeUndefined()
+    expect(saved.mountState).toEqual({ activeMountId: 'horse', hp: {}, unavailable: [] })
   })
 
   it('saves and applies full player HP before reentrant completed-arrival handoffs without losing flight or other resources', () => {
@@ -446,8 +470,7 @@ describe('Town mission settlement transactions', () => {
     expect(stored.activeMission).toBeUndefined()
     expect(stored.personalSquadRuntime).toEqual(live)
     expect(h.town.returnPersonalSquad).toHaveBeenCalledExactlyOnceWith(false)
-    expect(restorePersonalSquad).toHaveBeenCalledOnce()
-    expect(restorePersonalSquad.mock.lastCall![0]).toEqual(live)
+    expect(restorePersonalSquad).toHaveBeenCalledExactlyOnceWith(live)
   })
 
   it('keeps the private HR standby checkpoint for the rebuilt Town after a direct Duel return', () => {
@@ -459,7 +482,7 @@ describe('Town mission settlement transactions', () => {
     Object.assign(h.town, { restorePersonalSquad })
     expect(h.settlement.returnToTown('direct')).toEqual({ status: 'restarted' })
     expect(h.store.loadChecked().profile!.personalSquadRuntime).toEqual(live)
-    expect(h.town.restart.mock.lastCall![0].personalSquadRuntime).toEqual(live)
+    expect(h.town.restart).toHaveBeenCalledWith(expect.objectContaining({ personalSquadRuntime: live }))
     expect(restorePersonalSquad).not.toHaveBeenCalled()
   })
 
@@ -470,7 +493,7 @@ describe('Town mission settlement transactions', () => {
     profile.personalSquad = personalSquadFixture(profile, [{ id: 'personal:dead', type: 'soldier' }])
     profile.activeMission!.personalSquad = snapshotPersonalMission(profile)!
     profile.activeMission!.personalSquad!.members['personal:dead'] = { status: 'dead', hp: 0 }
-    const civilians = townRoster().filter(spec => spec.role === 'civilian' || spec.role === 'merchant').map(spec => spec.id)
+    const civilians = townRosterIdentity().filter(spec => spec.role === 'civilian' || spec.role === 'merchant').map(spec => spec.id)
     profile.civilianCommandSquad = { type: 'civilian-command', squadId: 'civilians', townFaction: 'roman', sceneKey: 'town:roman',
       missionId: profile.activeMission!.id, actorIds: civilians,
       owners: Object.fromEntries(civilians.map(id => [id, 'player' as const])),
@@ -491,12 +514,19 @@ describe('Town mission settlement transactions', () => {
   it('leaves Commander V storage and runtime untouched when the home return save fails', () => {
     const h = commanderVHomeReturnFixture()
     const beforeReturn = h.storage.getItem(CAREER_STORAGE_KEY)
+    // The real mount controller is rested only through Town rest; a failed save must not reach it.
+    // No scene or Player is created: restInTown only reads the profile and commits through these ports.
+    type MountPorts = ConstructorParameters<typeof CareerMountController>
+    const mounts = new CareerMountController({} as MountPorts[0], () => h.player as unknown as ReturnType<MountPorts[1]>,
+      () => h.read(), next => h.commit(next), () => [], () => [])
+    h.town.restPlayer = vi.fn((options?: { persistMount?: boolean }) => mounts.restInTown({ persist: options?.persistMount ?? false }))
     h.storage.writable = false
-    expect(h.settlement.returnToTown('direct').status).toBe('save-failed')
+    expect(h.settlement.returnToTown('direct')).toEqual({ status: 'save-failed', destination: 'restart' })
     expect(h.events).toEqual(['save'])
     expect(h.town.restart).not.toHaveBeenCalled()
     expect(h.town.restPlayer).not.toHaveBeenCalled()
     expect(h.read().mountArmor).toEqual({ 'armored-horse': 0, 'snow-leopard': 0 })
+    expect(mounts.checkpoint()?.armorImpact).toEqual({ 'armored-horse': 0, 'snow-leopard': 0 })
     expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(beforeReturn)
   })
 
@@ -570,8 +600,8 @@ describe('Town mission settlement transactions', () => {
   it('atomically captures Commander V final casualties and grants defense merit and Tier 5 completion once after retry', () => {
     const h = fixture('commander-four-gate-defense'), before = h.read(), active = before.activeMission!
     const missionId = active.id, templateId = active.templateId, lastTargetId = active.targetActorIds.find(id => id.endsWith(':lancer:t4:leader'))!
-    expect(active.targetActorIds).toHaveLength(280)
-    // The durable frame has 279 deaths. Only the controller boundary knows the final contact.
+    expect(active.targetActorIds).toHaveLength(COMMANDER_FOUR_GATE_DEFENSE_ENEMIES)
+    // The durable frame has every death but one. Only the controller boundary knows the final contact.
     fourGateCasualties(active, active.targetActorIds.filter(id => id !== lastTargetId))
     h.storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(before))
     const savedBefore = h.storage.getItem(CAREER_STORAGE_KEY), latest = structuredClone(active)
@@ -588,22 +618,23 @@ describe('Town mission settlement transactions', () => {
     const beforeMerit = before.totalMerit, beforeAvailable = before.availableMerit
     const beforeTier5 = before.careerMissionCompletionsByTier?.[5] ?? 0
     // Inject the transaction-port rejection here; storage transport failure has
-    // its own owner coverage. The successful retry still saves and reloads the
-    // complete final checkpoint through the real store.
+    // its own owner coverage. The successful retry still writes the complete final
+    // checkpoint through the real store (whose save parses it); the survival case
+    // below owns reloading a four-gate RESULT, so this one reads the durable bytes.
     h.commit.mockImplementationOnce(() => false)
     expect(h.settlement.finish('victory')).toEqual({ status: 'save-failed' })
     expect(h.read()).toBe(before)
     expect(h.read().activeMission!.result).toBeUndefined()
-    expect(h.read().activeMission!.deadTargetActorIds).toHaveLength(279)
+    expect(h.read().activeMission!.deadTargetActorIds).toHaveLength(COMMANDER_FOUR_GATE_DEFENSE_ENEMIES - 1)
     expect(h.read().activeMission!.fourGateDefense!.phase).toBe('ATTACKING')
     expect(h.read().claimedBattleIds).not.toContain(missionId)
     expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(savedBefore)
     expect(latest.fourGateDefense!.phase).toBe('ATTACKING')
     expect(h.defense.cleanupMission).not.toHaveBeenCalled()
     expect(h.settlement.finish('victory').status).toBe('saved')
-    h.reload()
-    const saved = h.read(), result = saved.activeMission!.result!
-    expect(saved.activeMission!.deadTargetActorIds).toHaveLength(280)
+    const savedBytes = h.storage.getItem(CAREER_STORAGE_KEY)!
+    const saved = JSON.parse(savedBytes) as CareerProfile, result = saved.activeMission!.result!
+    expect(saved.activeMission!.deadTargetActorIds).toHaveLength(COMMANDER_FOUR_GATE_DEFENSE_ENEMIES)
     expect(saved.activeMission!.deadTargetActorIds).toContain(lastTargetId)
     expect(saved.activeMission).toMatchObject({ phase: 'RESULT',
       fourGateDefense: { phase: 'RESULT', attackStarted: true, actors: { [lastTargetId]: { status: 'dead', hp: 0, mount: { hp: 22, mounted: false } } },
@@ -617,12 +648,13 @@ describe('Town mission settlement transactions', () => {
     expect(saved.careerMissionCompletionsByTier?.[5]).toBe(beforeTier5 + 1)
     expect(saved.completedCareerMissionTemplateIds?.filter(id => id === templateId)).toEqual([templateId])
     expect(saved.claimedBattleIds.filter(id => id === missionId)).toEqual([missionId])
-    const savedBytes = h.storage.getItem(CAREER_STORAGE_KEY)
+    expect(saved.lifetimeStats).toMatchObject({ battles: 1, victories: 1, deaths: 0 })
+    const published = h.read()
+    expect(published.claimedBattleIds.filter(id => id === missionId)).toEqual([missionId])
     expect(h.settlement.finish('victory')).toEqual({ status: 'ignored' })
-    expect(h.read()).toBe(saved)
+    expect(h.read()).toBe(published)
     expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(savedBytes)
     expect(h.defense.snapshotActiveMission).toHaveBeenCalledTimes(2)
-    expect(h.read().lifetimeStats).toMatchObject({ battles: 1, victories: 1, deaths: 0 })
     expect(h.commit).toHaveBeenCalledTimes(2)
   })
 
@@ -747,7 +779,7 @@ describe('Town mission settlement transactions', () => {
     expect(h.residentState.restoreForTown).not.toHaveBeenCalled()
   })
 
-  it('makes completed return the single durable authority for mount armor and preserves state on save failure', () => {
+  it('makes completed return the single durable authority for mount armor', () => {
     const h = fixture('commander-four-gate-defense', true)
     h.read().mountArmor = { 'armored-horse': 0 }
     h.read().playerAerialState = {
@@ -792,24 +824,7 @@ describe('Town mission settlement transactions', () => {
     expect(saved.playerAerialState).toBeUndefined()
     expect(saved.townCommandSquad?.commandedActorIds ?? []).not.toContain('stale-actor-id')
     expect(careerMounts.checkpoint()?.armorImpact).toBeUndefined()
-
-    // Preserves durable and runtime mount armor when save fails
-    const hFail = fixture('commander-four-gate-defense', true)
-    hFail.read().mountArmor = { 'armored-horse': 0 }
-    hFail.storage.writable = false
-    const failMounts = new CareerMountController(
-      {} as any,
-      () => hFail.player as unknown as any,
-      () => hFail.read(),
-      next => hFail.commit(next),
-      () => [],
-      () => [],
-    )
-    hFail.town.restPlayer = vi.fn()
-    expect(hFail.settlement.returnToTown('direct')).toEqual({ status: 'save-failed', destination: 'restart' })
-    expect(hFail.town.restPlayer).not.toHaveBeenCalled()
-    expect(hFail.read().mountArmor).toEqual({ 'armored-horse': 0 })
-    expect(failMounts.checkpoint()?.armorImpact).toEqual({ 'armored-horse': 0 })
+    // Save failure on the same Commander V return is owned by the home-return failure case above.
   })
 
   it('places a completed Captain I walk-back on the Sergeant’s floor only after saving', () => {

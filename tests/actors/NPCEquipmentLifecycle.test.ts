@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CombatEventSinkStack } from '../../src/combat/CombatAttribution'
 import { showEquipmentLoadNotice } from '../../src/ui/EquipmentLoadNotice'
 import { BYZANTINE_EQUIPMENT_RETRY_MS, BYZANTINE_EQUIPMENT_WAIT_MS, byzantineEquipmentStatus, isEquipmentDemanded, resetHighTierEquipmentForTest } from '../../src/world/HighTierEquipment'
-import { AIState, AIType, Faction, NPC } from '../../src/world/NPC'
+import { NPC } from '../../src/world/NPC'
 
 vi.mock('../../src/ui/EquipmentLoadNotice', () => ({ showEquipmentLoadNotice: vi.fn() }))
 vi.mock('three/examples/jsm/loaders/GLTFLoader.js', () => ({
@@ -27,10 +28,10 @@ interface GatedActor {
 /** Real equipment slots and adoption; mesh rebuilding is the external boundary. */
 function actorHolding(shieldId: string | null): GatedActor {
   const actor = Object.assign(Object.create(NPC.prototype) as GatedActor, {
-    _tier: 5, _faction: Faction.ENEMY, _aiType: AIType.MELEE, state: AIState.IDLE, rangedActive: false, townArmed: false,
+    rangedActive: false, townArmed: false,
     heldMeleeWeaponId: 'steel_lance', selectedMeleeWeaponId: 'steel_lance', heldShieldId: null, selectedShieldId: null,
     animator: { cancel: vi.fn(), setEquipment: vi.fn() }, rebuildShield: vi.fn(),
-    combatEventBindings: [], pendingFall: { clear: vi.fn() }, mount: null, rig: { animation: { stop: vi.fn() } },
+    combatEvents: new CombatEventSinkStack(), pendingFall: { clear: vi.fn() }, mount: null, rig: { animation: { stop: vi.fn() } },
     characterVisualGroup: { traverse: vi.fn(), removeFromParent: vi.fn() },
     alertSprite: { material: { map: { dispose: vi.fn() }, dispose: vi.fn() } },
     group: { removeFromParent: vi.fn() },
@@ -95,6 +96,12 @@ describe('NPC 裝備採用與需求生命週期', () => {
     first.dispose()
     expect(isEquipmentDemanded(SHIELD)).toBe(true)
     second.dispose()
+    expect(isEquipmentDemanded(SHIELD)).toBe(false)
+  })
+  it('已離場的 NPC 再換盾不會重新登記需求', () => {
+    const actor = actorHolding(null)
+    actor.dispose()
+    actor.shieldId = SHIELD
     expect(isEquipmentDemanded(SHIELD)).toBe(false)
   })
 })

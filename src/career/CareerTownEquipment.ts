@@ -122,7 +122,6 @@ export function changeTownEquipment(read: () => CareerProfile, context: TownEqui
   if (!context.safeActorIds.has(actorId)) return fail(current, 'not-safe')
   if (!TOWN_EQUIPMENT_SLOTS.includes(slot)) return fail(current, 'invalid-item')
   if (memberFixed(current, context, target, actorId, slot)) return fail(current, 'fixed-equipment')
-  if (actorId === 'merchant' && slot === 'mount' && itemId !== null && itemId !== 'horse') return fail(current, 'invalid-item')
   if (itemId !== null && (typeof itemId !== 'string' || !itemId)) return fail(current, 'invalid-item')
   const item = itemId ? WEAPONS[itemId] ?? ARMORS[itemId] : undefined
   if (itemId && (slot === 'mount' ? !(PLAYER_MOUNT_IDS as readonly string[]).includes(itemId) || target !== 'personal' && itemId === 'xongkoro'
@@ -197,7 +196,7 @@ export function bulkCareerEquipment(read: () => CareerProfile, context: TownEqui
   const accepts = (actor: BulkEquipmentActor, candidate: BulkEquipmentCandidate) => {
     if (lockedKeys.has(candidate.key)) return candidate.holderId === actor.actorId
     if (candidate.holderId === actor.actorId) return true
-    if (!candidate.requested || actor.actorId === 'merchant' && candidate.itemId !== 'horse') return false
+    if (!candidate.requested) return false
     // Both the changed slot and the resulting active weapon must retain their previous tiers.
     return candidate.tier >= townEquipmentRefTier(next, seen.get(actor.actorId)![slot], context.townFaction)
       && Boolean(candidate.itemId && isCareerShopItemUseUnlocked(current, candidate.itemId))

@@ -4,6 +4,7 @@ import { CampaignSiegeAssault } from './campaign/CampaignSiegeAssault'
 import { getSiegeApproachClearances, isMobileSiegeRampEnabled, isSiegeRampCrewCandidate } from './campaign/MobileSiegeRampPolicy'
 import { outpostCheckpointHeight } from './campaign/OutpostRampartGarrison'
 import { captureCareerAerialState, restoreCareerAerialState } from './career/CareerAerialState'
+import { CareerSkillSaveScheduler } from './career/CareerSkillSaveScheduler'
 import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, careerFieldTacticalOrder, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeOrphanMountPlan, createCareerBridgeSpawnPlan, createCareerFelineOrphanMountPlan, createCareerFelineSpawnPlan, dispatchFelineVanguardCharge, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { CareerCommandHudTypes } from './career/CareerCommandHudTypes'
 import { RANGER_HORSE_ARCHER_HERO_ASSETS, RANGER_HORSE_ARCHER_MOUNTS, createRangerHorseArcherScenarioPlan, rangerHorseArcherEquipmentIds, type RangerHorseArcherMountMix } from './career/RangerHorseArcherScenario'
@@ -43,7 +44,8 @@ import type { UnitPresetId } from './battle/UnitPresetCatalog'
 import { SpectatorCameraController } from './camera/SpectatorCameraController'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
 import type { CampaignFaction } from './campaign/CampaignConfig'
-import { DEFENSE_CAMPAIGN_RULES, opposingCampaignFaction } from './campaign/CampaignConfig'
+import { opposingCampaignFaction } from './campaign/CampaignConfig'
+import { campaignInitialOrder } from './campaign/CampaignInitialOrder'
 import { applyCampaignBreachOrders, isCampaignGateOccupied, reconcileCampaignGateSiege, restoreCampaignBreachCheckpoint, type CampaignBreachController, type CampaignGateController } from './campaign/CampaignGate'
 import { createCampaignOutpost, getCampaignDefenderFacingYaw, getCampaignOutpostPlacement } from './campaign/CampaignOutpost'
 import { getOutpostWalkwayLayout, isOutpostWalkwayEnabled } from './campaign/CampaignOutpostWalkways'
@@ -63,6 +65,7 @@ import { CareerMissionCheckpoint, type CareerMissionCheckpointReason } from './c
 import type { ActiveCareerMission, BridgeBattleDeployment } from './career/CareerMissionState'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy } from './career/CareerMissionState'
 import { officialPlayerOwnsActor, stageOfficialCommandOrder } from './career/CareerOfficialCommandOrder'
+import { settleCareerBattleResult } from './career/CareerBattleResultSettlement'
 import { CAREER_OUTPOST_SESSION_KEY, careerOutpostCommandMeritPolicy, claimCareerOutpost, clearCareerOutpost } from './career/CareerOutpostMission'
 import { CareerReliefMarchController, createCareerReliefSpawnPlan, initializeCareerReliefBattlefield } from './career/CareerOutpostRelief'
 import { careerOutpostActorId } from './career/CareerOutpostRoster'
@@ -74,7 +77,7 @@ import { CareerProfileStore } from './career/CareerProfileStore'
 import type { CareerTutorialLaunch } from './career/CareerTutorialLaunch'
 import { careerVeteranOutpostOwner, createCareerVeteranOutpostReinforcementPlan, createCareerVeteranOutpostSpawnPlan } from './career/CareerVeteranOutpost'
 import { createBridgeheadRoster } from './career/CommanderMissionCatalog'
-import { createCareerCommanderOutpostSpawnPlan, remainingCommanderAttackers } from './career/CommanderOutpost'
+import { commanderOutpostCombatLocked, createCareerCommanderOutpostSpawnPlan, remainingCommanderAttackers } from './career/CommanderOutpost'
 import { COMMANDER_IRON_LEGION_ID, HEAVY_FIELD_SPECS, heavyCommandPlan, heavyFrontlineDistance, isHeavyFormationComplete, planVeteranCaltropDefense, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, VETERAN_IRON_TIDE_ID, veteranCaltropWorldRects, type HeavyPoint } from './career/HeavyCavalryMissions'
 import { careerHeavyPreloadPlan } from './career/HeavyCavalrySpawn'
 import { createHeavyFieldDeployment, getHeavyFieldMissionDefinition, isCareerHeavyFieldBattle, type HeavyFieldDeployment } from './career/HeavyFieldMission'
@@ -140,13 +143,14 @@ import { createCaltropBarrier } from './world/CaltropBarrier'
 import { CombatRenderWarmup } from './world/CombatRenderWarmup'
 import { CorgiVisual } from './world/CorgiVisual'
 import { DamageableObstacle } from './world/DamageableObstacle'
+import { MobileSiegeRamp } from './campaign/MobileSiegeRamp'
 import { EntityCollisionBroadPhase } from './world/EntityCollisionBroadPhase'
 import { createCampfireVisual } from './world/EnvironmentVisuals'
 import { HERO_ASSETS, type HeroAssetId, type PlayerHeroId } from './world/HeroAssetCatalog'
 import { HorseAssetRegistry, horseVariantForStableKey, horseVariantFromSave } from './world/HorseAssetRegistry'
 import { isPlayerHostileNpc, populateNpcFactionGrids, selectHostileNpcGrid } from './world/HostileNpcGrid'
 import { HumanoidAssetRegistry } from './world/HumanoidAssetRegistry'
-import { InteractionFocus, type InteractionCandidate } from './world/InteractionFocus'
+import { PlayerInteractionController } from './world/PlayerInteractionController'
 import { preloadMakiRangerBow } from './world/MakiRangerEquipment'
 import { DEFAULT_MOUNT_TYPE, felineVariantFromMountId, Mount, MountState, MountType, mountTypeFromId, mountTypeFromSave } from './world/Mount'
 import { AIState, AIType, Faction, NPC, NPC_NEIGHBOR_QUERY_RADIUS } from './world/NPC'
@@ -157,6 +161,9 @@ import { SpatialGrid } from './world/SpatialGrid'
 import { createTerrain, EntityCollisionBody, getScenePlayableWorldBound, getTerrainHeight, ObstacleData, resetTerrainScenePolicy, resolveObstacleCollision, TERRAIN_TREE_POSITIONS } from './world/Terrain'
 import { WeaponPickup } from './world/WeaponPickup'
 import { XongkoroVisual } from './world/XongkoroVisual'
+import { coopSession } from './coop/CoopLink'
+import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeer, type CoopGamePort } from './coop/CoopMission'
+import { announceCoopTownReturn, coopGuestCharacterAssets, coopGuestOwnSquad, coopGuestPlayerSource, isCoopGuestLaunch, showCoopGuestEnd, type CoopPlayerSource } from './coop/CoopLaunch'
 
 const NO_PROJECTILE_RECEIVERS: readonly DamageReceiver[] = []
 
@@ -315,6 +322,114 @@ export class Game {
     this.input?.dispose()
   }
 
+  /** LAN co-op: attach once the mission scene exists, before the first frame. */
+  private _attachCoopMission(): void {
+    const link = coopSession()
+    const guest = isCoopGuestLaunch() && link.isGuest
+    const host = !guest && link.isHost && Boolean(this.careerProfile || this.defenseCampaignConfig?.careerMissionId || this.fieldMissionId)
+    if (!guest && !host) return
+    const game = this
+    // Host: the guest earns its own merit for this mission once the host's own claim is saved.
+    const accepted = this.careerProfile?.activeMission ?? this.careerProfile?.activeOutpostMission
+    const settlement = host && accepted ? { missionId: accepted.id, kind: accepted.kind } : null
+    const port: CoopGamePort = {
+      missionSettlement: () => {
+        const saved = settlement && new CareerProfileStore().loadChecked().profile
+        if (!settlement || !saved?.claimedBattleIds.includes(settlement.missionId)) return null
+        const victory = saved.activeMission?.id === settlement.missionId ? saved.activeMission.result?.outcome === 'victory'
+          : Boolean(saved.outpostBattleRecords?.some(record => record.id === settlement.missionId && record.outcome === 'victory'))
+        return { ...settlement, victory }
+      },
+      get scene() { return game.scene },
+      get camera() { return game.camera },
+      get player() { return game.player },
+      get npcs() { return game.npcs },
+      get mounts() { return game.mounts },
+      get arrows() { return game.arrows },
+      get hpBar() { return game.hpBar },
+      combatEmit: event => this.combatEvents.emit(event),
+      get ownMount() { return game.startingHorse && !game.startingHorse.disposed ? game.startingHorse : null },
+      equippedWeapons: () => ({
+        melee: this.inventoryManager.equippedMelee?.id ?? null,
+        ranged: this.inventoryManager.selectedRanged?.id ?? null,
+        shield: this.inventoryManager.equippedShield?.id ?? null,
+      }),
+      weaponsDrawn: () => ({ melee: this.inventoryManager.meleeEnabled, shield: this.inventoryManager.shieldEnabled }),
+      registerNpc: npc => this._aimTargetRegistry.registerNpc(npc),
+      unregisterNpc: npc => this._aimTargetRegistry.unregisterNpc(npc),
+      registerMount: mount => this._aimTargetRegistry.registerMount(mount),
+      unregisterMount: mount => this._aimTargetRegistry.unregisterMount(mount),
+      markVisualArrow: arrow => { this.coopVisualArrows.add(arrow) },
+      // Palisades, towers, the Outpost gate and siege vehicles: the guest's hits go to the host.
+      structures: () => new Map(this.coopStructureObstacles.map((structure, index) => [`obstacle:${index}`, structure])),
+      siegeRamps: () => this.campaignSiegeAssault?.ramps ?? [],
+      siegeGates: () => new Map(this.previewCampaignGate ? [['outpost', this.previewCampaignGate]] : []),
+      applyGuestStructureHit: (target, damage, context) => {
+        if (this._commanderOutpostCombatLocked() || !target.isDamageableBy(context.source.characterFaction)) return
+        damageObstacle(target, damage, context)
+      },
+      siegeMirror: {
+        obstacles: this.obstacles,
+        createRamp: (assignment, placement, faction, shared) => new MobileSiegeRamp(this.scene, assignment, placement, faction, shared, () => {}),
+        setDockOpen: (ramp, open) => this.campaignSiegeAssault?.walkways.setDockPassage(ramp.assignment.side, open),
+      },
+    }
+    if (host) {
+      const coopHost = this.coopHost = new CoopHostMission(port)
+      this.combatEvents.subscribe(event => coopHost.recordCombatEvent(event))
+      window.addEventListener('pagehide', () => this.coopHost?.dispose(), { signal: this.sceneListeners.signal })
+      return
+    }
+    // Guest: keep the scene, the Player and its own mount; the host's actors replace the rest.
+    for (const batch of this.spawnBatches) batch.cancel()
+    this.personalSquad?.cancelPendingSpawns()
+    for (const npc of this.npcs) { this._aimTargetRegistry.unregisterNpc(npc); npc.dispose() }
+    this.npcs.length = 0
+    const own = this.player.currentMount ?? this.startingHorse
+    for (const mount of [...this.mounts]) {
+      if (mount === own) continue
+      this._aimTargetRegistry.unregisterMount(mount)
+      mount.dispose()
+    }
+    this.mounts.splice(0, this.mounts.length, ...(own ? [own] : []))
+    const mission = this.careerProfile?.activeMission
+    if (mission && !mission.result) mission.phase = 'ENGAGING'
+    // Stand beside the host instead of inside it.
+    const body = this.player.isMounted && this.player.currentMount ? this.player.currentMount.group.position : this.player.position
+    body.x += 3
+    // The host simulates the siege; this page's own vehicles give way to the host's mirror.
+    this.campaignSiegeAssault?.dispose()
+    const mirror = this.coopGuest = new CoopGuestMission(port, reason => showCoopGuestEnd(reason))
+    this._bindCoopGuestCommands(mirror)
+    mirror.deploySquad(coopGuestOwnSquad())
+  }
+
+  /** Co-op guest: the command menu drives only the guest's own squad mirrors; orders go to the host. */
+  private _bindCoopGuestCommands(guest: CoopGuestMission): void {
+    const faction = this.player.characterFaction
+    const formation = this.commandTerrainMesh
+      ? new FormationController(this.scene, this.camera, guest.ownSquad, this.commandTerrainMesh, this.obstacles, this.navigationWorld, null)
+      : null
+    this.armyCommandController.close()
+    this.commandSelectionMarker?.dispose()
+    this.armyCommandController = new ArmyCommandController(
+      guest.ownSquad, faction, this.input, this.armyCommandUI, formation,
+      order => { if (order !== 'follow') this.soundManager.playCommanderCommand(faction, order) },
+      'follow',
+      () => !this.player.dead && this.controlMode !== 'spectator',
+      this.inventoryManager, 'squad', true,
+      {
+        enabled: () => !this.player.dead && this.controlMode !== 'spectator',
+        issue: order => {
+          const accepted = order === 'follow' && guest.requestFollow()
+          if (accepted) this.soundManager.playCareerMissionVoice(faction, 'follow')
+          return accepted
+        },
+      },
+    )
+    this.commandSelectionMarker = new ArmyCommandSelectionMarker(this.scene, this.armyCommandController)
+  }
+
   static async create(
     container: HTMLElement,
     battleConfig?: BattleConfig,
@@ -356,7 +471,10 @@ export class Game {
       const savedInventory = !trainingGround ? new SaveManager().load()?.inventory : undefined
       const savedPlayerT4Bow = savedInventory?.equippedRangedId === T4_RANGER_BOW_RANGED_ID
         || Boolean(savedInventory?.items?.some(item => item.id === T4_RANGER_BOW_RANGED_ID && item.quantity > 0))
-      const ownsCareerT4Bow = personalProfile?.ownedWeapons.includes(T4_RANGER_BOW_RANGED_ID) ?? false
+      // Co-op guest: its own character (hero body, gear, mount) is built inside the host's mission.
+      const coopCharacter = coopGuestCharacterAssets()
+      const ownsCareerT4Bow = (personalProfile?.ownedWeapons.includes(T4_RANGER_BOW_RANGED_ID) ?? false)
+        || Boolean(coopCharacter?.equipmentIds.includes(T4_RANGER_BOW_RANGED_ID))
       const usesPersonalT4Bow = personalMembers.some(member => member.type === 'ranger' || member.equipment?.ranged === T4_RANGER_BOW_RANGED_ID)
       const isFelineLaunch = Boolean(battleConfig?.careerFelineMissionId)
       const rangerHorseArcherMix = trainingGround ? null : rangerHorseArcherScenarioMix(query.get('devcombat'))
@@ -372,6 +490,8 @@ export class Game {
       const campaignMountFeline = felineVariantFromMountId(campaignConfig?.playerLoadout?.mountId)
       if (campaignMountFeline) felineVariants.add(campaignMountFeline)
       const personalSelectedFeline = felineVariantFromMountId(personalProfile?.selectedMountId)
+      const coopSelectedFeline = felineVariantFromMountId(coopCharacter?.mountId)
+      if (coopSelectedFeline) felineVariants.add(coopSelectedFeline)
       if (personalSelectedFeline) felineVariants.add(personalSelectedFeline)
       for (const member of personalMembers) {
         const memberFeline = felineVariantFromMountId(member.equipment?.mount)
@@ -392,12 +512,13 @@ export class Game {
         ])
         game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround, bridgeLaunch, tutorialLaunch)
         await game.initialization
+        game._attachCoopMission()
         CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
         game.prepareInitialFrame()
         game.clock.start(); requestAnimationFrame(game._loop)
         return game
       }
-      await Promise.all([prepareByzantineEquipment([...heavyPreload.equipmentIds, ...(rangerHorseArcherPlan ? rangerHorseArcherEquipmentIds(rangerHorseArcherPlan) : []), ...(battleConfig && !campaignConfig ? (['viking', 'roman'] as const).flatMap(faction => { const army = normalizeArmyConfig(battleConfig[faction], faction); return [...t5EquipmentIdsForArmy(army), ...t4EquipmentIdsForArmy(army)] }) : []), battleConfig?.playerLoadout?.meleeWeaponId, battleConfig?.playerLoadout?.shieldId, personalProfile?.equipment?.melee, personalProfile?.equipment?.shield, ...personalMembers.flatMap(member => { const { loadout } = personalMemberLoadout(member, personalProfile!.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
+      await Promise.all([prepareByzantineEquipment([...(coopCharacter?.equipmentIds ?? []), ...heavyPreload.equipmentIds, ...(rangerHorseArcherPlan ? rangerHorseArcherEquipmentIds(rangerHorseArcherPlan) : []), ...(battleConfig && !campaignConfig ? (['viking', 'roman'] as const).flatMap(faction => { const army = normalizeArmyConfig(battleConfig[faction], faction); return [...t5EquipmentIdsForArmy(army), ...t4EquipmentIdsForArmy(army)] }) : []), battleConfig?.playerLoadout?.meleeWeaponId, battleConfig?.playerLoadout?.shieldId, personalProfile?.equipment?.melee, personalProfile?.equipment?.shield, ...personalMembers.flatMap(member => { const { loadout } = personalMemberLoadout(member, personalProfile!.faction); return [loadout.meleeWeaponId, loadout.shieldId] })]), preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
       const heroAssets = new Set<HeroAssetId>()
       if (trainingGround) heroAssets.add('maki-archer-t4')
       if (rangerHorseArcherPlan) for (const assetId of RANGER_HORSE_ARCHER_HERO_ASSETS) heroAssets.add(assetId)
@@ -439,6 +560,7 @@ export class Game {
       for (const assetId of heavyPreload.heroAssets) heroAssets.add(assetId)
       if (campaignConfig?.careerMissionKind === 'captain-outpost-defense') heroAssets.add(captainFrontlineEnemyHeroAsset(campaignConfig.defenderFaction))
       const playerHeroId = campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId
+      if (coopCharacter?.hero) heroAssets.add(coopCharacter.hero)
       if (playerHeroId) heroAssets.add(playerHeroId)
       const heroBattleConfigs = campaignConfig && !campaignConfig.careerVeteranOutpost && !campaignConfig.careerCommanderOutpost
         ? [createDefenseCampaignWaveConfig(campaignConfig, 'defenders'), createDefenseCampaignWaveConfig(campaignConfig, 'attackers')]
@@ -457,6 +579,7 @@ export class Game {
       ])
       game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround, bridgeLaunch, tutorialLaunch)
       await game.initialization
+      game._attachCoopMission()
       CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
       game.prepareInitialFrame()
       game.clock.start(); requestAnimationFrame(game._loop)
@@ -545,8 +668,7 @@ export class Game {
   private careerProfile: CareerProfile | null = null
   private careerMeritAwarded = 0
   private readonly careerStore = new CareerProfileStore()
-  private careerSkillsDirty = false
-  private careerSkillSaveTimer: number | null = null
+  private readonly careerSkillSave = this.createCareerSkillSaveScheduler()
   private readonly flushCareerSkillsOnPageHide = (): void => {
     this._flushCareerSkillProgression()
   }
@@ -563,6 +685,13 @@ export class Game {
   private commanderOutpostDeploymentCheckpointed = false
   private careerOutpostTerminalResultPending?: 'victory' | 'defeat'
   private npcs: NPC[] = []
+  /** LAN co-op: authoritative host bridge, or the guest's mirror of the host world. */
+  private coopHost?: CoopHostMission
+  private coopGuest?: CoopGuestMission
+  private readonly coopVisualArrows = new WeakSet<ArrowProjectile>()
+  /** Co-op guest: its own character's profile (in memory), separate from the host's mission profile. */
+  private coopPlayerSource: CoopPlayerSource | null = null
+  private commandTerrainMesh?: THREE.Mesh
   private personalSquad?: PersonalSquadRuntime
   private personalCheckpointElapsed = 0
   private personalCriticalState = ''
@@ -623,6 +752,8 @@ export class Game {
   }
   private campaignSiegeAssault: CampaignSiegeAssault | null = null
   private previewCampaignGate: CampaignGateController | null = null
+  /** Breakable scene structures in build order; co-op host and guest key them by index. */
+  private coopStructureObstacles: readonly DamageableObstacle[] = []
   private previewCampaignBreachController: CampaignBreachController | null = null
   private readonly navigationWorld = new NavigationWorld()
   private readonly chaseTargetCoordinator = new ChaseTargetCoordinator()
@@ -667,7 +798,7 @@ export class Game {
   private mountHpFill!: HTMLElement
 
   private pickupHud!: PickupPrompt
-  private readonly pickupFocus = new InteractionFocus<WeaponPickup | Mount>()
+  private readonly interactions = this._createInteractionController()
   private readonly customPickupPolicy: boolean
   private interactionInputCaptured = false
 
@@ -1004,9 +1135,11 @@ export class Game {
     this.obstacles = obstacles
     this.navigationWorld.sync(this.obstacles)
     this._aimTargetRegistry.addStaticTarget(terrainMesh)
+    this.commandTerrainMesh = terrainMesh
     for (const obstacleMesh of obstacleMeshes) {
       this._aimTargetRegistry.addStaticTarget(obstacleMesh)
     }
+    this.coopStructureObstacles = [...new Set(damageableObstacles)]
     for (const damageable of damageableObstacles) {
       damageable.onDestroyed(() => {
         for (const hitMesh of damageable.hitMeshes) {
@@ -1031,8 +1164,11 @@ export class Game {
             : 'viking')
     const isRoman = playerFaction === 'roman'
     this.input = new PlayerInput()
-    const playerHeroId = this.careerProfile ? resolveCareerHeroAsset(this.careerProfile) ?? undefined : campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId ?? validationHero
-    this.player = new Player(this.scene, playerFaction, playerHeroId, this.careerProfile ? resolveCareerOrdinaryTier(this.careerProfile) : resolveOrdinarySoldierTier(campaignConfig?.playerVisualTier ?? battleConfig?.playerVisualTier))
+    // Co-op guest: the host's save builds the mission; the guest's own save builds its character.
+    this.coopPlayerSource = isCoopGuestLaunch() ? coopGuestPlayerSource(this.careerProfile) : null
+    const bodyProfile = this.coopPlayerSource?.read() ?? this.careerProfile
+    const playerHeroId = bodyProfile ? resolveCareerHeroAsset(bodyProfile) ?? undefined : campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId ?? validationHero
+    this.player = new Player(this.scene, bodyProfile?.faction ?? playerFaction, playerHeroId, bodyProfile ? resolveCareerOrdinaryTier(bodyProfile) : resolveOrdinarySoldierTier(campaignConfig?.playerVisualTier ?? battleConfig?.playerVisualTier))
     // Release and diagnostic armies are ahead at -Z for Viking, +Z for Roman. Establish the actor's
     // heading first; the camera derives its rear orbit from that heading.
     if (this.bridgeLaunch) this.player.group.visible = false
@@ -1134,7 +1270,7 @@ export class Game {
 
     const initialPlayerHp = playerHeroId
       ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[playerHeroId])!.maxHp
-      : resolveOrdinaryPlayerBaseHp(playerFaction, this.player.ordinaryCharacterTier, activeBattleConfig)
+      : resolveOrdinaryPlayerBaseHp(this.player.characterFaction, this.player.ordinaryCharacterTier, activeBattleConfig)
     this.playerMaxHpOverride = !playerHeroId && activeBattleConfig?.playerHp !== undefined && activeBattleConfig.playerHpSource !== 'default'
       ? activeBattleConfig.playerHp : undefined
     this.basePlayerMaxHp = initialPlayerHp
@@ -1397,11 +1533,13 @@ export class Game {
       const playerSpawn = battlePlan?.playerSpawn ?? previewPlayerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const startingHorse = new Mount(
         this.scene,
-        mountTypeFromId(this.careerProfile ? activeBattleConfig?.playerLoadout?.mountId : query.get('mount') ?? activeBattleConfig?.playerLoadout?.mountId),
+        mountTypeFromId(this.coopPlayerSource && activeBattleConfig?.playerLoadout?.mountId !== 'xongkoro'
+          ? this.coopPlayerSource.read().selectedMountId ?? activeBattleConfig?.playerLoadout?.mountId
+          : this.careerProfile ? activeBattleConfig?.playerLoadout?.mountId : query.get('mount') ?? activeBattleConfig?.playerLoadout?.mountId),
         playerSpawn.x,
         playerSpawn.z,
         undefined,
-        this.careerProfile ? horseVariantFromSave(this.careerProfile.horseAppearanceVariant) : campaignConfig?.playerMountAppearanceVariant ?? 0,
+        this.careerProfile ? horseVariantFromSave((this.coopPlayerSource?.read() ?? this.careerProfile).horseAppearanceVariant) : campaignConfig?.playerMountAppearanceVariant ?? 0,
       )
       this.startingHorse = startingHorse
       const ownedMountId = activeBattleConfig?.playerLoadout?.mountId
@@ -1435,7 +1573,7 @@ export class Game {
     this.hpBar.setFill(this.player.hpRatio)
     this.quiverUI         = new QuiverUI()
     this.skillManager     = new SkillManager()
-    if (this.careerProfile) this.skillManager.setSkillState(this.careerProfile.skills ?? {})
+    if (this.careerProfile) this.skillManager.setSkillState((this.coopPlayerSource?.read() ?? this.careerProfile).skills ?? {})
     syncPlayerSkillCombatLevels(this.player, this.skillManager.skillState)
     this.player.onShieldBlock = impact => this._applyPlayerSkillAward({ skill: 'blocking', xp: impact * SHIELD_CONFIG.xpPerBlockedImpact })
     if (!this.careerProfile) this.player.setMaxHp(resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, this.skillManager.skillState))
@@ -1446,14 +1584,15 @@ export class Game {
     this.equipmentUI      = new EquipmentUI()
     this._setInventoryManager(this.isTrainingGround ? createTrainingInventory(playerHeroId) : new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId, playerFaction))
     if (this.careerProfile) {
-      const inventory = new TownEquipment(() => this.careerProfile!, profile => {
+      const source = this.coopPlayerSource
+      const inventory = source ? new TownEquipment(() => source.read(), next => source.commit(next)) : new TownEquipment(() => this.careerProfile!, profile => {
         if (!this.careerStore.save(profile)) return false
         this.careerProfile = profile
         return true
       })
       inventory.prepareForCombat()
       this._setInventoryManager(inventory)
-      this.player.setMaxHp(resolveCareerPlayerMaxHp(this.careerProfile, this.basePlayerMaxHp))
+      this.player.setMaxHp(resolveCareerPlayerMaxHp(source?.read() ?? this.careerProfile, this.basePlayerMaxHp))
       this.player.setHp(this.player.maxHp)
       this.controlsHint.textContent = 'WASD 移動 ｜ Shift 衝刺 ｜ 左鍵攻擊 ｜ 右鍵／F 舉盾瞄準 ｜ Tab 裝備 ｜ 滾輪切換武器'
     }
@@ -1717,6 +1856,8 @@ export class Game {
           ? playerEagleProjectileBudget(evt.origin, evt.direction, evt.speed) : undefined,
       )
       this.arrows.push(arrow)
+      this.coopHost?.onProjectile(evt.origin, evt.direction, evt.speed, evt.visualKind, Faction.PLAYER)
+      this.coopGuest?.onProjectile(evt.origin, evt.direction, evt.speed, evt.visualKind)
       this.quiverUI.setArrowCount(this.player.arrowCount)
     }
 
@@ -2026,7 +2167,8 @@ export class Game {
   /** All Career initial/wave callers prepare before construction; restore uses the original crew IDs. */
   private _prepareCampaignSiegePlan(plan: BattleSpawnPlan, restorePositions = true): void {
     const campaign = this.defenseCampaignConfig
-    if (!campaign || !this.campaignSiegeAssault) return
+    // A co-op guest released its own assault: the host's vehicles are mirrored instead.
+    if (!campaign || !this.campaignSiegeAssault || this.coopGuest) return
     const saved = campaign.careerVeteranOutpost || campaign.careerCommanderOutpost
       ? this.careerProfile?.activeMission?.outpostSiege : this._personalOutpostMission()?.battle?.outpostSiege
     if (this.campaignSiegeAssault.isPrepared) this.campaignSiegeAssault.trackDeployment(plan.npcSpecs)
@@ -2132,7 +2274,7 @@ export class Game {
 
   private _configureCampaignInitialNpc(npc: NPC, campaign: DefenseCampaignLaunchConfig, restorePosition = true): void {
     const careerOutpost = campaign.careerVeteranOutpost ?? campaign.careerCommanderOutpost
-    const isOutpostOwner = npc.characterFaction === careerVeteranOutpostOwner(campaign)
+    const initial = campaignInitialOrder(npc, campaign, this.careerProfile), isOutpostOwner = initial.outpostOwner
     if (isOutpostOwner && (campaign.careerMissionKind !== 'outpost-relief' || !this._originalCareerSquadId(npc))) {
       this.campaignOriginalDefenders.push(npc)
     }
@@ -2142,26 +2284,12 @@ export class Game {
       : careerOutpost && !isOutpostOwner ? defenderFacingYaw + Math.PI : defenderFacingYaw
     npc.group.rotation.y = heading
     if (npc.mount) npc.mount.group.rotation.y = heading
-    const commanderAssault = campaign.careerCommanderOutpost?.runtimeState.activePhase === 'assault'
-    npc.setTacticalOrder(isOutpostOwner
-      ? DEFENSE_CAMPAIGN_RULES.initialDefenderOrder
-      : campaign.careerCommanderOutpost
-        ? commanderAssault ? npc.squadId === 7 ? 'attack' : 'charge' : 'defend'
-        : campaign.careerVeteranOutpost ? 'attack' : DEFENSE_CAMPAIGN_RULES.initialDefenderOrder)
+    npc.setTacticalOrder(initial.order)
     if (careerOutpost) this._restoreCareerVeteranNpcState(npc, restorePosition)
     else this._restorePersonalOutpostNpc(npc)
     // Rebuild automatic post-breach intent without replaying the global event.
-    // Saved player-owned orders remain authoritative, including Defend/Follow.
-    const authority = this._careerCommandMission()?.officialSquad
-    if (this.previewCampaignBreachController?.breached && !officialPlayerOwnsActor(authority, npc.combatantId)) {
-      const saved = this._personalOutpostMission()?.battle?.actors[npc.combatantId]
-      const command = saved ? authority?.members?.[npc.combatantId] ?? saved.checkpoint : undefined
-      const hasRestoredIntent = !authority?.actorIds.includes(npc.combatantId) && Boolean(command?.order || command?.formation)
-      // Legacy Relief attackers may only have resources saved. Keep restored commands,
-      // but give actors with no saved intent the same orders as a fresh breached battle.
-      if (isOutpostOwner || campaign.careerMissionKind === 'outpost-relief' && !hasRestoredIntent) {
-        applyCampaignBreachOrders([npc], opposingCampaignFaction(careerVeteranOutpostOwner(campaign)))
-      }
+    if (this.previewCampaignBreachController?.breached && initial.breachOrders) {
+      applyCampaignBreachOrders([npc], opposingCampaignFaction(careerVeteranOutpostOwner(campaign)))
     }
   }
 
@@ -2564,7 +2692,7 @@ export class Game {
   /** The first roster checkpoint must record the real Career HP pool, not the pre-skill base. */
   private _applyCareerPlayerHealthForCheckpoint(): void {
     if (!this.careerProfile || this.fieldCheckpoint) return
-    this.player.setMaxHp(resolveCareerPlayerMaxHp(this.careerProfile, this.basePlayerMaxHp))
+    this.player.setMaxHp(resolveCareerPlayerMaxHp(this.coopPlayerSource?.read() ?? this.careerProfile, this.basePlayerMaxHp))
     this.player.setHp(this.player.maxHp)
   }
 
@@ -2717,7 +2845,7 @@ export class Game {
       const previous = this.fieldCheckpoint!
       if (!previous) return mission
       const actors = { ...previous.actors }
-      for (const npc of this.npcs) if (npc.combatOwnership !== 'player-personal') actors[npc.combatantId] = snapshotCommandActor(npc,
+      for (const npc of this.npcs) if (Game._isMissionRosterActor(npc)) actors[npc.combatantId] = snapshotCommandActor(npc,
         this.careerVeteranActorMounts.get(npc.combatantId) ?? undefined)
       if (this.bridgeLaunch || this.felineMissionId) for (const [id, homeMount] of this.careerVeteranActorMounts) {
         const saved = actors[id] ?? mission.personalSquad?.members[id]
@@ -2749,7 +2877,7 @@ export class Game {
       const runtime = this.defenseCampaignRuntime?.getSnapshot()
       if (!runtime) return null
       const actors = { ...mission.battle?.actors }
-      for (const npc of this.npcs) if (npc.combatOwnership !== 'player-personal') {
+      for (const npc of this.npcs) if (Game._isMissionRosterActor(npc)) {
         const ownedMount = this.careerVeteranActorMounts.get(npc.combatantId)
         actors[npc.combatantId] = { hp: npc.hp, x: npc.combatPosition.x, y: npc.combatPosition.y, z: npc.combatPosition.z,
           ...(npc.isOutpostRampartGarrisonActive ? { outpostRampartGarrison: true } : {}),
@@ -2922,7 +3050,7 @@ export class Game {
     }
     if (mission.phase !== 'ENGAGING') {
       if (!this._persistCareerBattle(true)) return
-      for (const npc of this.npcs) if (!npc.dead && npc.combatOwnership !== 'player-personal' && !officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) {
+      for (const npc of this.npcs) if (!npc.dead && Game._isMissionRosterActor(npc) && !officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) {
         if (this.felineMissionId && isCareerHeavyFieldBattle(mission)) this._applyHeavyFieldOrder(npc, mission)
         else npc.setTacticalOrder(this.felineMissionId
           ? careerFieldTacticalOrder(mission, npc.faction)
@@ -2950,13 +3078,17 @@ export class Game {
     this.battleStats.freeze()
     const stats = this.careerResultStats ??= this.battleStats.snapshot(this.npcs, this.player)
     const retry = () => this.fieldBattleHud?.showSaveRetry(() => this._showFieldBattleResult(outcome))
-    if (!this._flushCareerSkillProgression() || !this._persistCareerBattle(true)) { retry(); return }
-    const fresh = this.careerStore.loadChecked().profile
-    if (!fresh) { retry(); return }
-    const claim = this.bridgeLaunch ? commitCareerBridgeBattleResult(this.careerStore, this.fieldMissionId!, stats)
-      : claimCareerFieldResult(fresh, this.fieldMissionId!, outcome, stats.player, stats.meritPlayer ?? stats.player, this.npcs.find(npc => npc.faction === Faction.ENEMY)?.characterFaction)
-    if (!claim) { retry(); return }
-    if (!this.bridgeLaunch && !this.careerStore.save(claim.profile)) { retry(); return }
+    const claim = settleCareerBattleResult({
+      store: this.careerStore,
+      flushSkills: () => this._flushCareerSkillProgression(),
+      persistBattle: () => this._persistCareerBattle(true),
+      claim: fresh => {
+        const claimed = this.bridgeLaunch ? commitCareerBridgeBattleResult(this.careerStore, this.fieldMissionId!, stats)
+          : claimCareerFieldResult(fresh, this.fieldMissionId!, outcome, stats.player, stats.meritPlayer ?? stats.player, this.npcs.find(npc => npc.faction === Faction.ENEMY)?.characterFaction)
+        return claimed && { profile: claimed.profile, durable: !!this.bridgeLaunch }
+      },
+    })
+    if (claim.status !== 'saved') { retry(); return }
     this.careerProfile = claim.profile
     this.fieldResultPending = undefined
     const mission = claim.profile.activeMission!
@@ -3203,7 +3335,7 @@ export class Game {
     this._snapshotOfficialCommand(mission.officialSquad)
     next.playerAerialState = captureCareerAerialState(this.player, `outpost:${this.defenseCampaignConfig.careerMissionId}`)
     mission.battle = {
-      runtime, outpostSiege: this.campaignSiegeAssault?.snapshot(), actors: { ...mission.battle?.actors, ...Object.fromEntries(this.npcs.filter(npc => npc.combatOwnership !== 'player-personal').map(npc => {
+      runtime, outpostSiege: this.campaignSiegeAssault?.snapshot(), actors: { ...mission.battle?.actors, ...Object.fromEntries(this.npcs.filter(Game._isMissionRosterActor).map(npc => {
         const mount = this.careerVeteranActorMounts.get(npc.combatantId)
         return [npc.combatantId, { hp: npc.hp, x: npc.combatPosition.x, y: npc.combatPosition.y, z: npc.combatPosition.z,
           yaw: npc.mount?.group.rotation.y ?? npc.group.rotation.y,
@@ -3224,6 +3356,14 @@ export class Game {
     return true
   }
 
+  /**
+   * Actors of the mission's own roster: not the Player's HR squad, and not the co-op guest's puppet or its own
+   * HR squad. Checkpoints keep only these; the strict roster parsers reject a save holding any other actor.
+   */
+  private static _isMissionRosterActor(npc: NPC): boolean {
+    return npc.combatOwnership !== 'player-personal' && !npc.coopRemoteCommand
+  }
+
   private _campaignFactionAlive(faction: 'roman' | 'viking'): number {
     let alive = 0
     for (const npc of this.npcs) {
@@ -3242,14 +3382,12 @@ export class Game {
     ]
   }
 
-  /** Last Stand's preparation clock is a ceasefire: actors may reposition, but
-   * no side can attack or deal mount-impact damage before the shared assault.
-   * A restored assault remains locked until its complete roster is registered. */
+  /** Last Stand's shared ceasefire; the decision belongs to `commanderOutpostCombatLocked`. */
   private _commanderOutpostCombatLocked(): boolean {
-    return Boolean(this.defenseCampaignConfig?.careerCommanderOutpost
-      && (this.defenseCampaignRuntime?.getSnapshot().activePhase === 'deployment'
-        || !this.commanderOutpostDeploymentBatch?.ready
-        || Boolean(this.personalSquad && !this.personalSquad.ready)))
+    return commanderOutpostCombatLocked({
+      coopGuest: Boolean(this.coopGuest), launch: this.defenseCampaignConfig, runtime: this.defenseCampaignRuntime,
+      deploymentBatch: this.commanderOutpostDeploymentBatch, personalSquad: this.personalSquad,
+    })
   }
 
   private _applyCampaignBreachOrders(attackerFaction: CampaignFaction): void {
@@ -3396,7 +3534,7 @@ export class Game {
     const campaign = this.defenseCampaignConfig
     const data = campaign?.careerVeteranOutpost
     if (!campaign || data?.templateId !== 'veteran-outpost-assault') return
-    const attackers = this.npcs.filter(npc => npc.combatOwnership !== 'player-personal' && npc.characterFaction === data.playerFaction)
+    const attackers = this.npcs.filter(npc => Game._isMissionRosterActor(npc) && npc.characterFaction === data.playerFaction)
     const placement = getCampaignOutpostPlacement(data.outpostFaction)
     const target = new THREE.Vector3(placement.centerX, 0, placement.frontZ)
     this.veteranOutpostMarch = new MountedMissionMarchController(
@@ -3706,22 +3844,16 @@ export class Game {
     const stats = this.careerResultStats ?? this.battleStats.snapshot(this.npcs, this.player)
     if (campaign?.careerMissionId) this.careerResultStats = stats
     if (campaign?.careerMissionId) {
-      if (!this._flushCareerSkillProgression()) {
-        this._showCareerOutpostSaveRetry(result)
-        return
-      }
       const careerMissionOutpost = campaign.careerVeteranOutpost ?? campaign.careerCommanderOutpost
-      if (careerMissionOutpost && !this._persistCareerVeteranOutpostCheckpoint({ immediate: true })) {
-        this._showCareerOutpostSaveRetry(result)
-        return
-      }
-      if (!careerMissionOutpost && !this._persistPersonalOutpost(true)) { this._showCareerOutpostSaveRetry(result); return }
-      const fresh = this.careerStore.loadChecked().profile
-      if (!fresh) { this._showCareerOutpostSaveRetry(result); return }
-      const claim = careerMissionOutpost || this.careerBattleCheckpoint
-        ? claimCareerMission(fresh, campaign.careerMissionId, result === 'victory' ? 'victory' : 'failure', stats.player, stats.meritPlayer)
-        : claimCareerOutpost(fresh, campaign.careerMissionId, result, stats)
-      if (!this.careerStore.save(claim.profile)) { this._showCareerOutpostSaveRetry(result); return }
+      const claim = settleCareerBattleResult({
+        store: this.careerStore,
+        flushSkills: () => this._flushCareerSkillProgression(),
+        persistBattle: () => careerMissionOutpost ? this._persistCareerVeteranOutpostCheckpoint({ immediate: true }) : this._persistPersonalOutpost(true),
+        claim: fresh => careerMissionOutpost || this.careerBattleCheckpoint
+          ? claimCareerMission(fresh, campaign.careerMissionId!, result === 'victory' ? 'victory' : 'failure', stats.player, stats.meritPlayer)
+          : claimCareerOutpost(fresh, campaign.careerMissionId!, result, stats),
+      })
+      if (claim.status !== 'saved') { this._showCareerOutpostSaveRetry(result); return }
       this.careerProfile = claim.profile
       this.careerMeritAwarded = careerMissionOutpost || this.careerBattleCheckpoint
         ? claim.profile.activeMission?.result?.merit.total ?? 0
@@ -3795,6 +3927,8 @@ export class Game {
     sessionStorage.removeItem('sagaburst_battle_config_v2')
     sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
     if (completed) markCareerMissionReturnToSergeant()
+    // Co-op host: the guest loads the Town now, alongside this page, instead of after the host's Town is ready.
+    if (this.coopHost) { announceCoopTownReturn(); this.coopHost.dispose(false); this.coopHost = undefined }
     window.location.href = window.location.pathname
   }
 
@@ -4229,6 +4363,14 @@ export class Game {
         return
       }
 
+      if (e.code === 'KeyH' && this.bridgeRuntime?.deployment.phase === 'preparing' && !this.coopGuest) {
+        e.preventDefault()
+        if (!e.repeat && !this.equipmentUI.visible && !this.fieldResultPending && this.bridgeRuntime.skipPreparation()) {
+          this._showNotify('已跳過準備，南岸敵騎即將進場', 1500)
+        }
+        return
+      }
+
       if (e.code === 'Tab' || e.code === 'KeyI') {
         e.preventDefault()
         if (e.repeat || this.player.dead || this.controlMode === 'spectator') return
@@ -4246,28 +4388,38 @@ export class Game {
     }, { signal: this.sceneListeners.signal })
   }
 
+  private createCareerSkillSaveScheduler(): CareerSkillSaveScheduler {
+    return new CareerSkillSaveScheduler({
+      save: () => this._saveCareerSkills(),
+      blocked: () => !this.careerProfile,
+    })
+  }
+
   private _scheduleCareerSkillProgressionFlush(): void {
-    if (!this.careerProfile || !this.careerSkillsDirty || this.careerSkillSaveTimer !== null) return
-    this.careerSkillSaveTimer = window.setTimeout(() => {
-      this.careerSkillSaveTimer = null
-      this._flushCareerSkillProgression()
-    }, 600)
+    if (!this.careerProfile) return
+    this.careerSkillSave.schedule()
   }
 
   private _flushCareerSkillProgression(): boolean {
-    if (this.careerSkillSaveTimer !== null) {
-      clearTimeout(this.careerSkillSaveTimer)
-      this.careerSkillSaveTimer = null
-    }
-    if (!this.careerProfile || !this.careerSkillsDirty) return true
+    const saved = this.careerSkillSave.flush()
+    // Co-op guest: the skills are its own character's, saved (skills only) into its own save.
+    // Best effort: a failed write stays dirty for the next flush and never blocks the mission's own flows.
+    return saved || this.coopPlayerSource !== null
+  }
 
+  /**
+   * Unlike Town, this scene's cached `careerProfile` can be stale: battle, outpost and result flows write
+   * the store directly. Re-read the stored profile so a skill flush never overwrites newer stored state.
+   */
+  private _saveCareerSkills(): boolean {
+    if (this.coopPlayerSource) return this.coopPlayerSource.commitSkills(this.skillManager.skillState)
     const fresh = this.careerStore.loadChecked().profile ?? this.careerProfile
+    if (!fresh) return true
     const next = cloneCareerProfile(fresh)
     next.skills = this.skillManager.skillState
     if (!this.careerStore.save(next)) return false
 
     this.careerProfile = next
-    this.careerSkillsDirty = false
     return true
   }
 
@@ -4305,7 +4457,7 @@ export class Game {
       const next = cloneCareerProfile(this.careerProfile)
       next.skills = after
       this.careerProfile = next
-      this.careerSkillsDirty = true
+      this.careerSkillSave.markDirty()
       if (levelsGained > 0) this._flushCareerSkillProgression()
       else this._scheduleCareerSkillProgressionFlush()
     }
@@ -4313,7 +4465,7 @@ export class Game {
     if (levelsGained > 0) {
       const oldHp = this.player.hp
       const newMaxHp = this.careerProfile
-        ? resolveCareerPlayerMaxHp(this.careerProfile, this.basePlayerMaxHp)
+        ? resolveCareerPlayerMaxHp(this.coopPlayerSource?.read() ?? this.careerProfile, this.basePlayerMaxHp)
         : resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, after)
       this.player.setMaxHp(newMaxHp, false)
       this.player.setHp(Math.min(newMaxHp, oldHp + levelsGained))
@@ -4619,9 +4771,7 @@ export class Game {
 
   // ── Melee Combat Hit Detection (Player Sword -> Enemies / Damageable Obstacles) ──
   private _checkPlayerMeleeHits(): void {
-    // Some focused contact owners borrow this method without constructing Game;
-    // a real Game always supplies the shared Last Stand lock.
-    if (this._commanderOutpostCombatLocked?.()) return
+    if (this._commanderOutpostCombatLocked()) return
     if (this.fieldMissionId && this.careerProfile?.activeMission?.phase !== 'ENGAGING') return
     const eagle = this.player.currentMount
     if (eagle?.isFlyingMount && !this.player.dead) {
@@ -4718,7 +4868,7 @@ export class Game {
     for (const mount of this.mounts) {
       if (this.isTrainingGround && !mount.riderPlayer && !mount.isAirborne && !mount.dead) mount.visualHold = true
       mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
-      mount.update(dt, this.obstacles)
+      if (!mount.coopPuppet) mount.update(dt, this.obstacles)
       gallopCandidates.push({
         id: mount,
         active: mount.type === MountType.HORSE
@@ -4742,62 +4892,29 @@ export class Game {
       return
     }
 
-    // The press belongs to the target and action displayed in the preceding frame.
-    const action = this.pickupFocus.pressed(pressed, this._pickupCandidates(), this.player.position)
-    if (action?.action === 'dismount') {
-      const prevMount = this.player.currentMount!
-      this.player.dismountFromMount()
-      if (!this.player.isMounted && prevMount.type === MountType.HORSE && this.trainingGround?.mounts.includes(prevMount)) this.tutorialScene?.operation('dismounted')
-      this._aimTargetRegistry.registerMount(prevMount)
-      this.mountHud.classList.remove('visible')
-    } else if (action?.target instanceof WeaponPickup) {
-      const pickup = action.target
-      if (pickup.isArrowPack) {
-        this.player.setArrowCount(this.player.arrowCount + pickup.arrowQuantity)
-        this.quiverUI.setArrowCount(this.player.arrowCount)
-        this.pickupHud.notify(`已補充箭矢 · +${pickup.arrowQuantity}`)
-      } else {
-        this.inventoryManager.addWeapon(pickup.weaponId)
-        if (action.action === 'equip') this.inventoryManager.equipWeapon(pickup.weaponId)
-        this.pickupHud.notify(`${action.action === 'equip' ? '已裝備' : '已收進背包'} · ${pickup.name}`)
-      }
-      pickup.destroy()
-      const idx = this.pickups.indexOf(pickup)
-      if (idx !== -1) this.pickups.splice(idx, 1)
-    } else if (action?.action === 'mount') {
-      this._mountPlayer(action.target as Mount)
-    }
-
-    const yaw = this.thirdPersonCamera.cameraYaw
-    const selected = this.pickupFocus.select(this._pickupCandidates(), this.player.position,
-      { x: -Math.sin(yaw), z: -Math.cos(yaw) })
-    for (const pickup of this.pickups) pickup.setSelected(selected?.target === pickup)
-    this.pickupHud.show(selected?.prompt ?? null)
+    this.interactions.update(pressed, this.thirdPersonCamera.cameraYaw)
   }
 
-  private _pickupCandidates(): InteractionCandidate<WeaponPickup | Mount>[] {
-    const position = this.player.position
-    if (this.player.isMounted && this.player.currentMount) return [{
-      target: this.player.currentMount, position, range: 2.5, action: 'dismount', prompt: '[E] 下騎',
-    }]
-    const items: InteractionCandidate<WeaponPickup | Mount>[] = []
-    for (const pickup of this.pickups) {
-      if (!pickup.isAlive) continue
-      const action = pickup.isArrowPack ? 'arrows' : this.customPickupPolicy ? this.inventoryManager.pickupDisposition(pickup.weaponId) : 'backpack'
-      const text = action === 'arrows' ? `補充箭矢 · +${pickup.arrowQuantity}`
-        : `${action === 'equip' ? '拾起並裝備' : '收進背包'} · ${pickup.name}`
-      items.push({ target: pickup, position: pickup.position, range: 2.5, action, prompt: `[E] ${text}` })
-    }
-    for (const mount of this.mounts) if (mount.availableForPlayer) items.push({
-      target: mount, position: mount.group.position, range: 2.5, action: 'mount', prompt: `[E] 騎乘：${mount.displayName}`,
+  private _createInteractionController(): PlayerInteractionController<WeaponPickup, Mount> {
+    return new PlayerInteractionController<WeaponPickup, Mount>({
+      player: () => this.player,
+      pickups: () => this.pickups,
+      mounts: () => this.mounts,
+      inventory: () => this.inventoryManager,
+      customPickupPolicy: () => this.customPickupPolicy,
+      hud: { show: text => this.pickupHud?.show(text), notify: text => this.pickupHud.notify(text) },
+      quiver: { setArrowCount: count => this.quiverUI.setArrowCount(count) },
+      onDismounted: prevMount => {
+        if (!this.player.isMounted && prevMount.type === MountType.HORSE && this.trainingGround?.mounts.includes(prevMount)) this.tutorialScene?.operation('dismounted')
+        this._aimTargetRegistry.registerMount(prevMount)
+        this.mountHud.classList.remove('visible')
+      },
+      mountPlayer: mount => this._mountPlayer(mount),
     })
-    return items
   }
 
   private _clearPickupFocus(): void {
-    this.pickupFocus.clear()
-    this.pickupHud?.show(null)
-    for (const pickup of this.pickups) pickup.setSelected(false)
+    this.interactions.clear()
   }
 
   /** Prevent living people, NPCs, and mounts from occupying the same space. */
@@ -4924,7 +5041,7 @@ export class Game {
   private _loop = (frame: number): void => {
     if (this.spawningStopped) return
     requestAnimationFrame(this._loop)
-    gameplayNpcSpawns.tick(frame)
+    if (!this.coopGuest) gameplayNpcSpawns.tick(frame)
     if (this.personalSquad?.error && this.onCareerDeploymentError) {
       this.spawningStopped = true
       this.onCareerDeploymentError(this.personalSquad.error)
@@ -5023,11 +5140,14 @@ export class Game {
       !this._commanderOutpostCombatLocked(),
     )
 
-    this.campaignSiegeAssault?.update(dt)
-    this.personalSquad?.updateLifecycle()
-    this._updateDefenseCampaign(dt)
-    this._updateCareerBattle(dt)
-    this.battleController?.update(this.npcs, this.player)
+    // The co-op guest shows the host's mission; only the host runs mission rules.
+    if (!this.coopGuest) {
+      this.campaignSiegeAssault?.update(dt)
+      this.personalSquad?.updateLifecycle()
+      this._updateDefenseCampaign(dt)
+      this._updateCareerBattle(dt)
+      this.battleController?.update(this.npcs, this.player)
+    }
 
     // Keep A* topology in sync with destroyed/opened/closed world obstacles.
     // This is O(1) on stable frames and rebuilds only when the shared obstacle
@@ -5050,9 +5170,15 @@ export class Game {
     let devQueriesCount = 0
     let devReturnedNeighborsCount = 0
     let npcLoopIndex = 0
-    for (const npc of this.npcs) {
+    this.coopGuest?.updateWorld(dt)
+    for (const npc of this.coopGuest ? Game._EMPTY_NPC_LIST : this.npcs) {
       // These root positions are world-space here, matching the mount LOD distance.
       const cameraDistance = npc.group.position.distanceTo(this.camera.position)
+      if (npc.coopPuppet) {
+        this.coopHost?.updatePuppet(npc, dt, cameraDistance)
+        npcLoopIndex++
+        continue
+      }
 
       // Cohort: does this NPC fall in the sampled slice this frame?
       const inCohort = import.meta.env.DEV && this._npcSubphaseEnabled
@@ -5187,6 +5313,7 @@ export class Game {
             lifecycle,
           )
           this.arrows.push(arrow)
+          this.coopHost?.onProjectile(origin, direction, npc.rangedProjectileSpeed, visualKind, npc.faction)
           if (visualKind === 'arrow') this.soundManager.playBowRelease(npc.currentLod, false, cameraDistance)
         },
         skipBoidsAndObstacles,
@@ -5237,6 +5364,7 @@ export class Game {
     // 5. Entity Collision
     if (profile) t0 = performance.now()
     this._resolveEntityCollisions()
+    separateLocalPlayerFromPeer(this.player, this.coopHost?.guestProxy ?? this.coopGuest?.hostAvatar, this.obstacles)
     settleRiverCrossingDrowning(this.player, this.npcs, this.mounts, this.hpBar)
     const collisionMs = profile ? performance.now() - t0 : 0
 
@@ -5295,7 +5423,7 @@ export class Game {
         this.damageNumbers.spawn(Math.round(damage), hitPos)
         this._showEnemyHud(obstacle.displayName, hpRatio)
       },
-      this._commanderOutpostCombatLocked(), this.mounts, this.trainingGround?.dummies,
+      this._commanderOutpostCombatLocked() || this.coopVisualArrows.has(arrow), this.mounts, this.trainingGround?.dummies,
       this.projectileTargets,
     )
 
@@ -5310,6 +5438,7 @@ export class Game {
     this.damageNumbers.update(dt, this.camera)
     this.trainingUI?.updateLabels(this.camera)
 
+    this.coopHost?.update(dt)
     this.combatTrajectoryDebugger?.update(this.player, this.npcs, this.arrows, this._debugAimPoint)
 
     // Seat the preview rider on this frame's animated saddle before drawing.

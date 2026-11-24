@@ -135,6 +135,9 @@ export class CareerDuelController {
   onMarchStarted: (() => void) | null = null
   onReturnStarted: (() => void) | null = null
   private illegalAttackPending = false
+  /** LAN co-op arena: a living partner keeps a 2v1 duel going after the player falls. */
+  coopPartnerAlive: () => boolean = () => false
+  private get teamDown(): boolean { return this.player().dead && !this.coopPartnerAlive() }
   private playerHomeMount: Mount | null = null
   private playerWasMounted = false
   private playerHomeMountActorId?: string
@@ -443,7 +446,7 @@ export class CareerDuelController {
     if (!deferCheckpoint) this.persistRuntimeProgress()
   }
 
-  evaluate(playerDead = this.player().dead): CareerMissionOutcome | null {
+  evaluate(playerDead = this.teamDown): CareerMissionOutcome | null {
     const active = this.active
     if (!active || active.result || active.phase === 'RESULT' || active.phase === 'RETURNING' || !this.opponent) return null
     if (this.illegalAttackPending || active.duelFailureReason) {
@@ -602,7 +605,7 @@ export class CareerDuelController {
       ...(Number.isFinite(player.hp) && player.hp >= 0 ? { duelPlayerHp: player.hp } : {}),
       ...(Number.isFinite(player.staminaValue) && player.staminaValue >= 0 ? { duelPlayerStamina: player.staminaValue } : {}),
       ...(Number.isFinite(this.opponent?.combatAmmo) ? { duelOpponentAmmo: this.opponent!.combatAmmo } : {}),
-      duelOpponentDead: Boolean(this.opponent?.dead), playerDead: this.player().dead || Boolean(active.playerDead),
+      duelOpponentDead: Boolean(this.opponent?.dead), playerDead: this.teamDown || Boolean(active.playerDead),
       deadTargetActorIds: this.opponent?.dead ? [this.opponent.combatantId] : [], routeStage: this.routeIndex,
       playerStats: this.tracker?.checkpoint() ?? active.playerStats }
   }

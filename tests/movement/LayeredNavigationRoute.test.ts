@@ -1,5 +1,5 @@
 import { Box3, Vector3 } from 'three'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { getOutpostWalkwayLayout, type OutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkways'
 import { LayeredNavigationRoute } from '../../src/navigation/LayeredNavigationRoute'
 import { NavigationPathFollower } from '../../src/navigation/NavigationPathFollower'
@@ -14,6 +14,7 @@ import type { BreachEntrance } from '../../src/navigation/AvailableBreachEntranc
 import { getTownRampartLayout, surfaceBox } from '../../src/town/TownRamparts'
 import { isTownSiegeDockConnected, planTownSiegeRamps } from '../../src/career/TownFourGateSiegePolicy'
 import { NPC } from '../../src/world/NPC'
+import { hasOutpostMeleeConnection } from '../../src/combat/MeleeContactQuery'
 
 function box(x0: number, z0: number, x1: number, z1: number): Box3 {
   return new Box3(new Vector3(x0, -10, z0), new Vector3(x1, 15, z1))
@@ -106,11 +107,11 @@ function outpostLayout(): OutpostWalkwayLayout {
     bridge: { topY: 10, slab: new Box3(new Vector3(-4, 9.5, 0), new Vector3(4, 10, 6)), walkSurface: { ...flat, halfWidth: 4 }, ...extras } }
 }
 
-interface MeleeContactActor {
+/** Narrow port for NPC's existing melee-range caller; the contact query itself is the shared owner. */
+interface MeleeRangeActor {
   combatPosition: Vector3
   meleeAttackRadius: number
   mount: null
-  holdsRampartFirePosition: boolean
   equipmentRequiredForCombat: boolean
   isUsingLance: boolean
   _activeNavigationWorld: { outpostNav: OutpostLayeredNavigation }
@@ -119,37 +120,20 @@ interface MeleeContactActor {
   _movementObstacleHeight(): number
   _hasOutpostMeleeConnection(position: Vector3, targetBodyBaseOffset?: number): boolean
 }
-type ContactPlayer = { isMounted: boolean; currentMount: null; group: { position: Vector3 }; bodyBaseOffset: number }
-const meleeContact = NPC.prototype as unknown as {
-  _getPlayerPosition(player: ContactPlayer, out: Vector3): Vector3
-  _hasOutpostMeleeConnection(this: MeleeContactActor, position: Vector3, targetBodyBaseOffset?: number): boolean
-  _isRangedMeleeThreat(this: MeleeContactActor, position: Vector3, targetBodyBaseOffset?: number): boolean
-  _isTargetInMeleeRange(this: MeleeContactActor, position: Vector3, extraReach?: number, targetBodyBaseOffset?: number): boolean
-}
-function meleeContactActor(nav: OutpostLayeredNavigation, combatPosition: Vector3): MeleeContactActor {
-  return { combatPosition, meleeAttackRadius: 1.8, mount: null,
-    holdsRampartFirePosition: false, equipmentRequiredForCombat: false, isUsingLance: false,
-    _activeNavigationWorld: { outpostNav: nav }, fallObstacles: [], _meleeTargetSupportPosition: new Vector3(),
-    _movementObstacleHeight: () => 2.3, _hasOutpostMeleeConnection: meleeContact._hasOutpostMeleeConnection }
+const meleeRange = NPC.prototype as unknown as Pick<MeleeRangeActor, '_hasOutpostMeleeConnection'> & {
+  _isTargetInMeleeRange(this: MeleeRangeActor, position: Vector3, extraReach?: number, targetBodyBaseOffset?: number): boolean
 }
 
 it('allows local melee across a supported deck/bridge seam while rejecting a rail, gap or lower floor', () => {
   const layout = outpostLayout(), nav = new OutpostLayeredNavigation(layout)
   const deck = new Vector3(-4.8, 10, 3), bridge = new Vector3(-3.7, 10, 3)
-  const actor = meleeContactActor(nav, deck)
   expect(nav.getNavLayer(deck)).toBe('rampart_left')
   expect(nav.getNavLayer(bridge)).toBe('rampart_gate')
   expect(nav.hasDirectMeleeConnection(deck, bridge, 2.3, [])).toBe(true)
   expect(nav.hasDirectMeleeConnection(bridge, deck, 2.3, [])).toBe(true)
-  expect(meleeContact._isRangedMeleeThreat.call(actor, bridge)).toBe(true)
-  expect(meleeContact._isTargetInMeleeRange.call(actor, bridge)).toBe(true)
   const rail: ObstacleData = { box: new Box3(new Vector3(-4.3, 10, 0), new Vector3(-4.2, 11, 6)),
     isBarricade: false, navigationPassable: true }
   expect(nav.hasDirectMeleeConnection(deck, bridge, 2.3, [rail])).toBe(false)
-  actor.fallObstacles = [rail]
-  expect(meleeContact._isRangedMeleeThreat.call(actor, bridge)).toBe(false)
-  expect(meleeContact._isTargetInMeleeRange.call(actor, bridge)).toBe(false)
-  actor.fallObstacles = []
   expect(nav.hasDirectMeleeConnection(deck, new Vector3(-3.7, 0, 3), 2.3, [])).toBe(false)
   // Nav's body margin still labels the endpoints elevated, but a real 0.2m gap
   // in their support surfaces cannot grant contact across an absent connection.
@@ -158,21 +142,25 @@ it('allows local melee across a supported deck/bridge seam while rejecting a rai
   expect(nav.hasDirectMeleeConnection(deck, bridge, 2.3, [])).toBe(false)
 })
 
-it('uses Player feet for supported melee without changing the combat target root', () => {
+it('uses Player feet and live fall rails for supported melee without changing the combat target root', () => {
   const nav = new OutpostLayeredNavigation(outpostLayout())
-  const actor = meleeContactActor(nav, new Vector3(-8, 10, 3))
-  const player: ContactPlayer = { isMounted: false, currentMount: null,
-    group: { position: new Vector3(-7, 10.95, 3) }, bodyBaseOffset: -.95 }
-  const target = meleeContact._getPlayerPosition(player, new Vector3())
-  expect(target.toArray()).toEqual([-7, 10.95, 3])
-  expect(nav.hasDirectMeleeConnection(actor.combatPosition, target, 2.3, [])).toBe(false)
-  expect(meleeContact._isRangedMeleeThreat.call(actor, target, player.bodyBaseOffset)).toBe(true)
-  expect(meleeContact._isTargetInMeleeRange.call(actor, target, 0, player.bodyBaseOffset)).toBe(true)
-  expect(target.toArray()).toEqual([-7, 10.95, 3])
-  expect(player.group.position.toArray()).toEqual([-7, 10.95, 3])
-  target.y = .95
-  expect(meleeContact._isRangedMeleeThreat.call(actor, target, player.bodyBaseOffset)).toBe(false)
-  expect(meleeContact._isTargetInMeleeRange.call(actor, target, 0, player.bodyBaseOffset)).toBe(false)
+  const attacker = new Vector3(-8, 10, 3), playerRoot = new Vector3(-7, 10.95, 3), feetOffset = -.95
+  const rail: ObstacleData = { box: new Box3(new Vector3(-7.6, 10, 0), new Vector3(-7.5, 11, 6)),
+    isBarricade: false, navigationPassable: true }
+  expect(nav.hasDirectMeleeConnection(attacker, playerRoot, 2.3, [])).toBe(false)
+  expect(hasOutpostMeleeConnection(nav, attacker, playerRoot, feetOffset, 2.3, [], new Vector3())).toBe(true)
+  expect(hasOutpostMeleeConnection(nav, attacker, playerRoot, feetOffset, 2.3, [rail], new Vector3())).toBe(false)
+  expect(playerRoot.toArray()).toEqual([-7, 10.95, 3])
+  expect(hasOutpostMeleeConnection(nav, attacker, new Vector3(-7, .95, 3), feetOffset, 2.3, [], new Vector3())).toBe(false)
+  // NPC's melee-range caller forwards the same body offset and its live fall obstacles.
+  const actor: MeleeRangeActor = { combatPosition: attacker, meleeAttackRadius: 1.8, mount: null,
+    equipmentRequiredForCombat: false, isUsingLance: false, _activeNavigationWorld: { outpostNav: nav },
+    fallObstacles: [], _meleeTargetSupportPosition: new Vector3(), _movementObstacleHeight: () => 2.3,
+    _hasOutpostMeleeConnection: meleeRange._hasOutpostMeleeConnection }
+  expect(meleeRange._isTargetInMeleeRange.call(actor, playerRoot, 0, feetOffset)).toBe(true)
+  actor.fallObstacles = [rail]
+  expect(meleeRange._isTargetInMeleeRange.call(actor, playerRoot, 0, feetOffset)).toBe(false)
+  expect(playerRoot.toArray()).toEqual([-7, 10.95, 3])
 })
 
 it('keeps an Outpost ground approach blocked unless the caller explicitly skips ground navigation', () => {
@@ -184,9 +172,30 @@ it('keeps an Outpost ground approach blocked unless the caller explicitly skips 
   const route = new LayeredNavigationRoute(new NavigationPathFollower()), out = new Vector3()
   expect(route.resolve(input, obstacles, out)).toEqual({ route: 'unreachable', confirmedLayeredStep: false, tower: false })
   expect(out.x).toBe(-8); expect(out.z).toBeCloseTo(18.2)
+  // The coarse grid still holds the wall, but a body-clear physical path to the same approach goes direct.
+  expect(route.resolve(input, [], out)).toEqual({ route: 'direct', confirmedLayeredStep: false, tower: false })
+  expect(out.x).toBe(-8); expect(out.z).toBeCloseTo(18.2)
+  expect(route.resolve(input, obstacles, out)?.route).toBe('unreachable')
   input.skipGroundNavigation = true
   expect(route.resolve(input, obstacles, out)).toEqual({ route: 'direct', confirmedLayeredStep: false, tower: false })
   expect(out.x).toBe(-8); expect(out.z).toBeCloseTo(18.2)
+})
+
+it('forgets a remembered Town transit entrance once a Town step reports the route blocked', () => {
+  const steps = [{ ground: false, entranceId: 'ramp-a' }, { ground: false }, { ground: true, blocked: true }, { ground: false }]
+  const townNav = { resolveMoveTarget: vi.fn((_from: Vector3, _to: Vector3, _out: Vector3, _entranceId?: string | null,
+    _mounted?: boolean, _sectorId?: string | null, _actorId?: string) => steps.shift() ?? null) }
+  const world = { townNav } as unknown as NavigationWorld
+  const input = request(world, new Vector3(), new Vector3(10, 0, 0))
+  const route = new LayeredNavigationRoute(new NavigationPathFollower()), out = new Vector3()
+  const lastEntrance = (entranceId: string | null) => expect(townNav.resolveMoveTarget).toHaveBeenLastCalledWith(
+    expect.anything(), expect.anything(), expect.anything(), entranceId, false, null, 'route-test')
+  route.resolve(input, [], out)
+  route.resolve(input, [], out)
+  expect(route.resolve(input, [], out)?.route).toBe('unreachable')
+  lastEntrance('ramp-a')
+  route.resolve(input, [], out)
+  lastEntrance(null)
 })
 
 it('permits mounted melee at valid body spacing when a rail lies behind the defender', () => {
@@ -335,4 +344,134 @@ it('Town 封門時沿原生坡道與 Dock 塔完整往返，撤銷或 sector 不
     expect(layers.has('native-ramp')).toBe(true); expect(layers.has('wall')).toBe(true)
   }
   nav.siegeEntrances.remove(entry.id); expect(resolve()).toBe('unreachable')
+})
+
+/** Closed east gate between a roman pursuer and a guard behind the wall. */
+function closedGatePursuit() {
+  const world = new NavigationWorld({ minX: 130, maxX: 300, minZ: 20, maxZ: 70, cellSize: 2 }, 2)
+  world.setTownRamparts({ decks: [], ramps: [], corners: [], lengths: [], perimeter: 1, wallSpans: [] })
+  const baseY = getTerrainHeight(150, 45)
+  const gateObstacle = { box: new Box3(new Vector3(149, baseY, 38), new Vector3(151, baseY + 8, 52)), isBarricade: true,
+    damageable: { destroyed: false, isDamageableBy: (faction: string) => faction === 'roman' } } as unknown as ObstacleData
+  const wall = (x0: number, z0: number, x1: number, z1: number): ObstacleData => ({ box: box(x0, z0, x1, z1), isBarricade: true })
+  const obstacles = [wall(149, 20, 151, 38), wall(149, 52, 151, 70), gateObstacle, wall(218, 38, 220, 50)]
+  const gate = { state: 'closed' as 'closed' | 'open' | 'destroyed', siegeObstacle: gateObstacle }
+  world.townNav!.setSiegeGates(new Map([['east', gate]]))
+  world.rebuild(obstacles)
+  const position = new Vector3(260, getTerrainHeight(260, 45), 45), goal = new Vector3(140, getTerrainHeight(140, 45), 45)
+  const input = { ...request(world, position, goal), mounted: true, outpostMounted: true, radius: 1, height: 2.6,
+    actorId: 'pursuit-party', attackableGate: (o: ObstacleData) => o.damageable?.isDamageableBy('roman') === true }
+  return { world, gate, gateObstacle, obstacles, position, input }
+}
+
+it('Town 封門追擊沿共用 A* 走到合法城門 approach，突破後釋放城門並恢復一般地面路線', () => {
+  const { world, gate, gateObstacle, obstacles, position, input } = closedGatePursuit()
+  const route = new LayeredNavigationRoute(new NavigationPathFollower()), out = new Vector3()
+  const advance = () => {
+    const delta = out.clone().sub(position).setY(0), distance = delta.length()
+    if (distance > .001) position.addScaledVector(delta, Math.min(4, distance) / distance)
+    position.y = getTerrainHeight(position.x, position.z)
+    world.beginFrame()
+    expect(world.grid.isBlocked(world.grid.worldToCell(position)!)).toBe(false)
+    return route.resolve(input, obstacles, out)
+  }
+  world.beginFrame()
+  expect(route.resolve(input, obstacles, out)).toBeNull()
+  let step = route.resolveBlockedPursuit(input, obstacles, out)
+  expect(step?.route).toBe('path')
+  expect(step?.breach).toBe(gateObstacle)
+  expect(route.closedGateObstacle).toBe(gateObstacle)
+  const searches = vi.spyOn(world, 'queryPath')
+  route.resolve(input, obstacles, out)
+  expect(searches).not.toHaveBeenCalled()
+  for (let frame = 0; frame < 70 && !step?.approachReached; frame++) step = advance()
+  expect(step?.approachReached).toBe(true)
+  expect(step?.breach).toBe(gateObstacle)
+  gate.state = 'destroyed'
+  obstacles.splice(obstacles.indexOf(gateObstacle), 1)
+  world.rebuild(obstacles); world.beginFrame()
+  // The opened gate is ordinary ground travel again: no breach step, no held gate.
+  expect(route.resolve(input, obstacles, out)).toBeNull()
+  expect(route.closedGateObstacle).toBeNull()
+})
+
+it('Outpost 前牆與側牆木牆破口在城門關閉時仍由共用 A* 引出城，不要求重下命令', () => {
+  for (const side of ['front', 'side'] as const) {
+    const world = new NavigationWorld({ minX: -18, maxX: 18, minZ: -6, maxZ: 30, cellSize: 1 }, 2)
+    world.setOutpostWalkways(getOutpostWalkwayLayout({ centerX: 0, halfWidth: 12, frontZ: 0, backZ: 24, gateWidth: 8, stakeLineZ: -7 }))
+    const nav = world.outpostNav!
+    // The perimeter with each removable section sealed; only the tested one opens, and the front gate stays shut.
+    const sections = { front: box(-8, 0, -4, 1), side: box(11, 10, 12, 14), rear: box(-8, 23, -4, 24) }
+    const wall = (b: Box3): ObstacleData => ({ box: b, isBarricade: true })
+    const walls = [box(-12, 0, -8, 1), box(-4, 0, 12, 1), box(-12, 23, -8, 24), box(-4, 23, 12, 24),
+      box(-12, 1, -11, 24), box(11, 1, 12, 10), box(11, 14, 12, 24), ...Object.values(sections)].map(wall)
+    const opening = walls[walls.length - 3 + (side === 'front' ? 0 : 1)]
+    world.rebuild(walls)
+    const position = new Vector3(0, 0, 10), goal = side === 'front' ? new Vector3(6, 0, -4) : new Vector3(16, 0, 18)
+    const route = new LayeredNavigationRoute(new NavigationPathFollower()), out = new Vector3()
+    const input = { ...request(world, position, goal), outpost: nav, mounted: side !== 'front', outpostMounted: side !== 'front',
+      radius: .4, height: 2.3, entranceId: 'gate', actorId: 'native-defender' }
+    world.beginFrame()
+    route.resolve(input, walls, out)
+    walls.splice(walls.indexOf(opening), 1)
+    const centre = opening.box.getCenter(new Vector3()).setY(0), approach = centre.clone(), exit = centre.clone()
+    if (side === 'side') { approach.x += 3; exit.x -= 3 }
+    else { approach.z -= 3; exit.z += 3 }
+    nav.entrances.set({ id: side + '-gap', type: 'palisade', position: centre, approach, exit,
+      mounted: true, walkable: true, faction: null, connectionId: side + '-gap' })
+    world.sync(walls); world.beginFrame(); input.skipGroundNavigation = true
+    let step = route.resolve(input, walls, out)
+    expect(step?.route).toBe('path')
+    let crossedWall = false
+    for (let frame = 0; frame < 65 && position.distanceTo(goal) > .6; frame++) {
+      const delta = out.clone().sub(position), distance = delta.length()
+      if (distance > .001) position.addScaledVector(delta, Math.min(.8, distance) / distance)
+      expect(world.grid.isBlocked(world.grid.worldToCell(position)!)).toBe(false)
+      crossedWall ||= side === 'side' ? position.x > 12 : position.z < 0
+      world.beginFrame(); step = route.resolve(input, walls, out)
+    }
+    expect(crossedWall, side).toBe(true)
+    expect(position.distanceTo(goal), side).toBeLessThan(.6)
+  }
+})
+
+it('routes exterior ground attackers toward closed north gate when targeting overhanging gatehouse gallery', () => {
+  const layout = getTownRampartLayout()
+  const northGatehouse = layout.gatehouses?.find(g => g.gate.id === 'north')
+  expect(northGatehouse).toBeDefined()
+  const world = new NavigationWorld({ minX: -120, maxX: 40, minZ: -165, maxZ: -95, cellSize: 2 }, 2)
+  world.setTownRamparts(layout)
+  world.townNav!.siegeActive = true
+  const baseY = getTerrainHeight(0, -115)
+  const gateObstacle = { box: new Box3(new Vector3(-7, baseY, -116), new Vector3(7, baseY + 8, -114)), isBarricade: true,
+    damageable: { destroyed: false, isDamageableBy: (faction: string) => faction === 'roman' } } as unknown as ObstacleData
+  const wall = (x0: number, z0: number, x1: number, z1: number): ObstacleData => ({ box: box(x0, z0, x1, z1), isBarricade: true })
+  const obstacles = [wall(-120, -116, -7, -114), wall(7, -116, 40, -114), gateObstacle]
+  world.townNav!.setSiegeGates(new Map([['north', { state: 'closed', siegeObstacle: gateObstacle }]]))
+  world.rebuild(obstacles)
+  world.beginFrame()
+
+  const position = new Vector3(0, getTerrainHeight(0, -155), -155)
+  const elevatedGoal = new Vector3(4, northGatehouse!.floorY, -118.15)
+  expect(world.townNav!.isElevated(elevatedGoal)).toBe(true)
+
+  const route = new LayeredNavigationRoute(new NavigationPathFollower()), out = new Vector3()
+  const accepts = (o: ObstacleData) => o.damageable?.isDamageableBy('roman') === true
+  const input = { ...request(world, position, elevatedGoal), actorId: 'archer-1', attackableGate: accepts }
+  expect(route.resolve(input, obstacles, out)?.route).toBe('unreachable')
+
+  const breach = route.resolveBlockedPursuit(input, obstacles, out)
+  expect(breach?.route).toBe('direct')
+  expect(breach?.breach).toBe(gateObstacle)
+  expect(out.x).toBeCloseTo(0, 1)
+  expect(out.z).toBeCloseTo(-127, 1)
+
+  const groundGoal = new Vector3(4, getTerrainHeight(4, -118.15), -118.15)
+  expect(world.townNav!.isElevated(groundGoal)).toBe(false)
+  expect(world.townNav!.selectClosedGateApproach(position, groundGoal, accepts)).toBeNull()
+
+  const groundRoute = new LayeredNavigationRoute(new NavigationPathFollower())
+  const groundInput = { ...input, goal: groundGoal }
+  expect(groundRoute.resolve(groundInput, obstacles, out)).toBeNull()
+  expect(groundRoute.resolveBlockedPursuit(groundInput, obstacles, out)).toBeNull()
 })

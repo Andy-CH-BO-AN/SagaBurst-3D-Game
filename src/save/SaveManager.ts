@@ -4,6 +4,7 @@
  * Phase 7 & 8 addition: inventory items & equipped weapons persistence.
  */
 
+import { gameStorage } from './GameStorage'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { parseFallingRiderSnapshot, type FallingRiderSnapshot } from '../movement/FallingRider'
 import { parseEagleFlightSnapshot, type EagleFlightSnapshot } from '../movement/EagleFlightController'
@@ -91,7 +92,7 @@ export const DEFAULT_SAVE: PlayerSaveData = {
 }
 
 export class SaveManager {
-  constructor(private readonly storage: Storage = localStorage) {}
+  constructor(private readonly storage: Storage = gameStorage()) {}
 
   save(data: PlayerSaveData): boolean {
     try {
