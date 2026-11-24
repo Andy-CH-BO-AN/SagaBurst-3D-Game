@@ -8,7 +8,9 @@ Fight alongside Viking and Roman armies, command troops, build a persistent mili
 
 [**Play in your browser**](https://andy-ch-bo-an.github.io/SagaBurst-3D-Game/) · [**Download the desktop game**](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/releases/latest)
 
-This guide describes the current repository version. The hosted game and desktop releases may have an earlier set of features.
+This guide describes **SagaBurst v2.0.0**. See the [release notes](./docs/releases/v2.0.0.md) for what changed since v1.5.0.
+
+> **Upgrading from v1.x:** v2.0.0 uses a new Career save format. Career characters from v1.x are not loaded; start a new Career. Old data is left untouched on the device. Defense Campaign progress carries over.
 
 - **Windows x64:** extract the whole ZIP and open `SagaBurst.exe`. Keep the extracted files together.
 - **macOS Apple Silicon:** extract the ZIP, move `SagaBurst.app` to Applications, and follow the included [first-launch instructions](./MACOS-FIRST-LAUNCH.txt). The app is not Apple-notarized; you may need **System Settings → Privacy & Security → Open Anyway**.
@@ -22,11 +24,11 @@ Click the game view to capture the mouse and control the camera. `Esc` releases 
 
 We recommend starting with **Career** from the main menu:
 
-1. **Pick a faction and create a character.** You begin in the recruit training ground; follow the on-screen hints to practice movement, `Tab` equipment, melee, shields, archery, and riding. Finishing awards 100 merit and returns you to town.
+1. **Pick a Roman or Viking faction card and create a character.** You begin in the recruit training ground; follow the on-screen hints to practice movement, `Tab` equipment, melee, shields, archery, and riding. Finishing awards 100 merit and returns you to town.
 2. **Buy your first weapon.** Visit the weapon shop in town, then press `Tab` to open your inventory and equip it. Press `E` near an NPC to talk.
 3. **Take a mission from the Sergeant.** Start with a Recruit mission such as a bandit hunt, follow the arrow near the bottom of the screen, and stay with your squad leader.
-4. **Earn merit and get promoted.** Battles and races award merit; once you reach a rank's threshold, speak to the matching NPC to accept the promotion.
-5. **Grow stronger.** Buy a mount, recruit a personal squad, and try higher-rank missions.
+4. **Earn merit and get promoted.** Battles, duels, arena trials and races award merit; once you reach a rank's threshold, speak to the matching NPC to accept the promotion.
+5. **Grow stronger.** Buy a mount, choose a T4 / T5 class, recruit a personal squad, and try higher-rank missions. Townspeople react to your milestones and point you to the next step.
 
 To learn the controls first, try **Training Ground**. To set up your own armies, use **Custom Battle**.
 
@@ -39,9 +41,9 @@ To learn the controls first, try **Training Ground**. To set up your own armies,
 | `Shift` | Sprint / fly faster |
 | `Space` | Jump on foot or on ground mounts |
 | Left Mouse | Melee attack; eagle strike while riding xongkoro and not aiming |
-| Hold Right Mouse | Raise an equipped shield, or aim a ranged weapon |
-| Right Mouse + hold/release Left Mouse | Draw / fire a bow |
-| Right Mouse + click Left Mouse | Throw a Pilum |
+| Hold Right Mouse or `F` | Raise an equipped shield, or aim a ranged weapon |
+| Right Mouse / `F` + hold/release Left Mouse | Draw / fire a bow |
+| Right Mouse / `F` + click Left Mouse | Throw a Pilum |
 | `E` | Talk / interact / pick up equipment / mount / dismount |
 | `Tab` | Character and inventory; equipment in Training Ground |
 | `I` | Alternative inventory key in battles and Training Ground |
@@ -55,9 +57,10 @@ To learn the controls first, try **Training Ground**. To set up your own armies,
 
 ### Combat tips
 
-- **Bows:** hold Right Mouse to aim, hold Left Mouse to draw, then release Left Mouse to fire. Pilum uses a click while aiming.
+- **Bows:** hold Right Mouse to aim, hold Left Mouse to draw, then release Left Mouse to fire. Pilum uses a click while aiming. On a trackpad, hold `F` instead of Right Mouse and click to draw and release.
 - **Shields:** only attacks that physically hit the shield are blocked. Side and rear attacks can still hit your body, and shields have limited battle durability.
 - Ranged weapons and shields cannot be equipped together; switching with the wheel stows the conflicting item.
+- **Cavalry charges:** mounted melee keeps moving through the enemy line, striking with the weapon and the mount's impact. Armored Horses and Armored Snow Leopards carry their own armor that absorbs hits until it wears down.
 - Battlefield camps provide equipment, ammunition, and spare horses.
 
 ### Flying xongkoro
@@ -98,17 +101,28 @@ Earn merit through Career combat contributions and race victories. Appointments 
 
 Commander unlocks T5 equipment and grants a faction-specific **T5 sword or axe** when appointed.
 
+**Class roads.** At Captain and Commander you choose between two classes per faction. Your first appointment is free once your enlistment merit reaches the class threshold; you can later buy the other class with available merit and switch between unlocked classes for free. Heavy classes hit harder and take less damage but move more slowly, including on a mount.
+
+| Tier | Roman | Viking | First appointment / second-class price |
+| --- | --- | --- | --- |
+| T4 Captain | Praetorian Captain | Varangian Captain | 5,000 merit |
+| T4 Captain (heavy) | Centurion | Dragon Oathguard | 7,000 merit |
+| T5 Commander | Roman Legate | Norse Warchief | 20,000 merit |
+| T5 Commander (heavy) | Byzantine Cataphract | Ironblood Warlord | 30,000 merit |
+
 #### Missions
 
-Visit the **Sergeant** for missions. They are grouped by rank, and earlier tiers stay available after promotion. Each mission card shows both sides' troop counts, the objective, and what you still need to do if you cannot accept it yet.
+Visit the **Sergeant** for missions. They are grouped by rank, and earlier tiers stay available after promotion. Missions no longer unlock in a chain: your rank opens a tier, and mounted missions only need a mount you own. Each mission card shows both sides' troop counts, the objective, and what you still need to do if you cannot accept it yet.
 
 | Tab | Contents |
 | --- | --- |
-| Recruit / Soldier | Bandit hunts, patrols, cavalry sweeps, Outpost defense, cavalry relief, enemy-town assault, and Iron Encounter. Completing Outpost defense I–III unlocks relief; winning relief unlocks the enemy-town assault. |
-| Veteran | A chain of field and Outpost missions that unlock in order, a home-defense mission, and Iron Tide. |
-| Captain | **Captain I–VI**: Patrol Command, Cavalry Command, Gate Defense, Frontline Commander, Siege Commander, and Eagle Battle, plus Steel Avalanche. |
+| Recruit | Four bandit hunts of rising difficulty and a Cavalry Sweep (needs a mount you own). |
+| Soldier | Outpost Defense I–III, Cavalry Relief (needs a mount), and **Iron Encounter**: hold a line with 100 allied lancers on the wings against 60 heavy cavalry. |
+| Veteran | Dread Outpost, Scout Hunters, Village Intercept, Outpost Assault, Spear Line Hunt, Tragedy of the Scouts (survive two minutes), and **Iron Tide**: 400 defenders behind barricades against 100 heavy cavalry. |
+| Captain | **Captain I–IV**: Patrol Command, Cavalry Command, Frontline Commander, and a 30-vs-30 Eagle Battle, plus **Steel Avalanche**: lead 30 heavy cavalry into 200 formed infantry. |
 | Commander | **Commander I–VII** (see below). |
-| 1v1 Duel | Pick a unit type and challenge it from **T1 through T5**. Each duel has five seconds of preparation and a 30-second fight limit; defeat a tier to unlock the next. T5 challenges pit you against the town's Commander, with the Captain as referee. |
+| 1v1 Duel | Duels, mounted circuit racing, and a replay of your enlistment journey (see below). |
+| Arena Squad Trials | Same-culture team fights in the arena, one trial per rank (see below). |
 
 | Commander mission | Objective |
 | --- | --- |
@@ -122,11 +136,19 @@ Visit the **Sergeant** for missions. They are grouped by rank, and earlier tiers
 
 A results screen after every mission lists your kills, damage, and each part of the merit you earned.
 
-**Combat skills and the outskirts:** improve **One-Handed, Two-Handed, Ranged, Mounted Impact, and Blocking**, each up to level 50. Outside formal missions, town patrols, bandits, and hostile ground and eagle patrols can still meet and fight outside the walls.
+**Prison break.** Losing Iron Encounter, Iron Tide or Iron Legion does not simply end the story: you and your fellow prisoners wake up in the captor's arena. Grab the rusty swords, break past the guards and get anyone through the opened gate to escape for bonus merit. The original battle still counts as a defeat.
+
+#### Duels and arena trials
+
+- **1v1 Duel:** pick a unit type, or fight **unarmed**, and challenge it from **T1 through T5**; at T4 / T5 you also choose the opponent's class. Each duel has five seconds of preparation and a 30-second fight limit (90 seconds unarmed); defeat a tier to unlock the next. T5 challenges pit you against the town's Commander, with the Captain as referee.
+- **Arenas:** choose the **Roman Colosseum** or the **Viking Valhalla** hall for duels and trials. Press `Tab` in the arena to change equipment.
+- **Arena Squad Trials (T1–T5):** fight alongside a team of your own culture against another squad, from 20 vs 15 at Recruit up to elite heavy T4 / T5 line-ups at Captain and Commander. Each trial needs only the matching rank. Fallen fighters just leave the match and recover afterward, so trials can be repeated for merit without losses.
+
+**Combat skills and the outskirts:** improve **Unarmed, One-Handed, Two-Handed, Ranged, Mounted Impact, Blocking, and Armor Break**, each up to level 50 and each worth +1 HP per level. **Armor Break** lets part of the damage blocked by enemy shields or mount armor pass straight through (1% per level, up to 50%). The `Tab` skill panel shows every skill's level, XP, and current effect. Outside formal missions, town patrols, bandits, and hostile ground and eagle patrols can still meet and fight outside the walls.
 
 #### Shops and mounts
 
-Shops buy and sell weapons, shields, and mounts. Each item shows its price, how many you own, and how many are not yet assigned, and a disabled button says why you cannot buy it. Items equipped or assigned to soldiers cannot be sold; unequip them first. After buying, press `Tab` to equip or summon.
+Shops buy and sell weapons, shields, and mounts. Each item shows its price, how many you own, and how many are not yet assigned, and a disabled button says why you cannot buy it. Items equipped or assigned to soldiers cannot be sold; unequip them first. Weapon, shield and mount pages compare stats with what you have (for mounts: speed, health, armor, impact, and flight for the eagle). After buying, press `Tab` to equip or summon.
 
 Ground mounts have no rank requirement: any rank can buy and ride them.
 
@@ -139,35 +161,33 @@ Ground mounts have no rank requirement: any rank can buy and ride them.
 | Armored Snow Leopard | 9,000 |
 | xongkoro giant eagle (Captain / Commander only, up to three) | 10,000 |
 
-At Captain or Commander rank, visit the town's **Eagle Trainer** to buy xongkoro. Summon it in an open takeoff area, fly over the battlefield, attack with the eagle, or use ranged weapons from its back.
+At Captain or Commander rank, visit the town's **Eagle Trainer** to buy xongkoro. Summon it in an open takeoff area, fly over the battlefield, attack with the eagle, or use ranged weapons from its back. Private eagles can take off and land vertically.
 
 #### Your troops
 
 - **Captain:** command a **30-person Town Command Squad** in town.
 - **Commander:** command **eight official ground squads**, with an infantry squad and a cavalry squad for each of the north, south, east, and west gates. Native eagle patrols and watchtower archers defend autonomously.
-- **Personal Squad:** at Captain or Commander, recruit up to **30 members** from the **HR Center**. Choose soldiers, T4 Captains, and T4 Rangers; Commander rank also unlocks **T5 Commander recruits**. Allocate weapons, shields, and mounts from your stock. Press `Q`, select the personal squad (hotkey `9`), and order **Follow me** to deploy them; after returning to town, order **Dismiss** before you can refit, re-equip, or release them. **Releasing a member sends their current equipment away with them; it does not return to your inventory**, so unequip anything you want to keep first.
+- **Personal Squad:** at Captain or Commander, recruit up to **30 members** from the **HR Center**. Choose soldiers, T4 Captains of either class, and T4 Rangers; Commander rank also unlocks **T5 recruits of either class**. Allocate weapons, shields, and mounts from your stock. Press `Q`, select the personal squad (hotkey `9`), and order **Follow me** to deploy them; after returning to town, order **Dismiss** before you can refit, re-equip, or release them. **Releasing a member sends their current equipment away with them; it does not return to your inventory**, so unequip anything you want to keep first.
 - **Civilian Squad:** as Commander in your own town, you can also order civilians and merchants when the group is available. Dismiss returns them to their normal duties.
 
-Formal missions grant their own command authority and rosters. Check the command HUD for the troops assigned to you. Equipment changes can be locked during missions; in peacetime, ask the HR officer to refit your Personal Squad or the Sergeant to refit eligible town squads.
+Formal missions grant their own command authority and rosters. Check the command HUD for the troops assigned to you; in command mode, a cyan diamond marks every soldier who will receive your order. Equipment changes can be locked during missions; in peacetime, ask the HR officer to refit your Personal Squad or the Sergeant to refit eligible town squads.
 
 #### Mounted circuit racing
 
-Visit **Sergeant → 1v1 → Racing** for eight races against the town's Commander. Arrive riding a living, available **ground mount that you own**; xongkoro cannot enter. Racing has no rank requirement.
+Visit **Sergeant → 1v1 → Racing** for six races against the town's Commander. Arrive riding a living, available **ground mount that you own**; xongkoro cannot enter. Racing has no rank requirement.
 
-Follow the Captain to the north gate, stay inside the marked start area through the **10-second countdown**, then head out through the north gate, around the **east → south → west** sides of the town, and back through the north gate. Follow all **five checkpoints**; cutting through the town prevents a legal finish. After entering a race, either racer can dismount, switch to another available ground mount, or continue on foot after their mount dies. The first legal finisher wins, including on foot. You can use `Shift` in every race.
+Follow the Captain to the north gate, stay inside the marked start area through the **10-second countdown**, then head out through the north gate, around the **east → south → west** sides of the town, and back through the north gate. Follow all **five checkpoints**; cutting through the town prevents a legal finish. After entering a race, either racer can dismount, switch to another available ground mount, or continue on foot after their mount dies. The first legal finisher wins, including on foot. Both you and the Commander sprint in every race.
 
-| Race | Opponent's mount | Opponent's pace | Victory merit |
-| --- | --- | --- | --- |
-| I | Horse | Normal | 100 |
-| II | Corgi | Normal | 400 |
-| III | Snow Leopard | Normal | 900 |
-| IV | Black Cat | Normal | 1,600 |
-| V | Horse | Sprint | 2,500 |
-| VI | Corgi | Sprint | 3,600 |
-| VII | Snow Leopard | Sprint | 4,900 |
-| VIII | Black Cat | Sprint | 6,400 |
+| Race | Opponent's mount | Victory merit |
+| --- | --- | --- |
+| I | Horse | 100 |
+| II | Orange Cat | 400 |
+| III | Corgi | 900 |
+| IV | Armored Snow Leopard | 1,600 |
+| V | Black or White Cat | 2,500 |
+| VI | Serval or Caracal | 3,600 |
 
-Race results and your best legal finish times are saved. Races already accepted in an older save retain their original names and rewards.
+Race results and your best legal finish times are saved.
 
 #### Retirement
 
@@ -187,7 +207,8 @@ Practice freely without spending merit, changing your Career progress, or earnin
 
 Create your own Viking vs Roman battle.
 
-- In a ground battle, set **1–300 AI troops per side**, mixing infantry, archers, javelin troops, cavalry, and mounted archers. An aerial mode allows up to **50 archers per side**.
+- In a ground battle, set **1–300 AI troops per side**, mixing infantry, archers, javelin troops, cavalry, and mounted archers. An aerial mode allows up to **50 eagle archers per side** (including you).
+- Fight on one of **five maps**: the original field, the river bridge, the snowfield, or the Roman or Viking town.
 - Configure each unit type from **T1 to T5**; every tier counts toward that side's AI total.
 - Choose **Formation Battle** or **Scattered Battle**, and group your commands by **Preset** (unit type) or **Squad**.
 - Pick your faction, weapons, shield, character, and mount, or enable **Spectator** to watch the AI fight. Player characters include standard T1–T3 soldiers and T4 / T5 heroes.
@@ -242,10 +263,16 @@ For **Formation**, aim the crosshair at the ground, check the preview, then pres
 
 ## Saves
 
-Career automatically saves your faction, appointed rank, merit, equipment, mounts, combat skills, troops, duel progression, race results and best times, mission checkpoints, and tutorial progress. Enter Career again to resume your saved progress. Campaign saves each faction's stage progression. Free Training Ground and ordinary Custom Battle do not advance Career.
+Career automatically saves your faction, appointed rank, unlocked classes, merit, equipment, mounts, combat skills, troops, duel and trial progression, race results and best times, mission checkpoints, and tutorial progress. Enter Career again to resume your saved progress. Campaign saves each faction's stage progression. Free Training Ground and ordinary Custom Battle do not advance Career.
 
 Saves stay on the device. **Browser and desktop saves are separate and do not sync.** Desktop saves persist when you replace the app with a newer version. Clearing browser site data or the app's user data removes the corresponding saves.
 
+The game only reads saves written in its current format. v2.0.0 starts Career on a new save slot, so v1.x Career characters do not appear; their data is not converted or deleted. Custom Battle and Campaign setup screens also start from their defaults once, while Defense Campaign stage progress is kept.
+
 ## Model credits
 
-The Nordic Warrior, Roman Statesman and Shadow Warden models were generated with [Meshy](https://www.meshy.ai/) under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). SagaBurst adapts their rigs, skinning, cloth seams, animations, LODs and textures. Source hashes and modification details: [Nordic Warrior](public/models/characters/v2/viking-civilian/ATTRIBUTION.md), [Roman Statesman](public/models/characters/v2/roman-civilian/ATTRIBUTION.md), [Shadow Warden](public/models/characters/v2/maki-archer-t4/ATTRIBUTION.md). These credits apply to those model assets; animation-source licenses are recorded separately.
+The Nordic Warrior, Roman Statesman and Shadow Warden models were generated with [Meshy](https://www.meshy.ai/) under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). SagaBurst adapts their rigs, skinning, cloth seams, animations, LODs and textures. Source hashes and modification details: [Nordic Warrior](public/models/characters/v2/viking-civilian/ATTRIBUTION.md), [Roman Statesman](public/models/characters/v2/roman-civilian/ATTRIBUTION.md), [Shadow Warden](public/models/characters/v2/maki-archer-t4/ATTRIBUTION.md). The ragged bandit body was also generated with Meshy under CC BY 4.0 ([credits](public/models/characters/v2/bandit/ATTRIBUTION.md)).
+
+The following weapon models are used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and were re-scaled and re-oriented for SagaBurst's grips: [Paladin](https://sketchfab.com/3d-models/paladin-4f1c320f2cec49dc9bf38c6aad2d8ea9) sword by DJMaesen, [Paladin Shield](https://sketchfab.com/3d-models/paladin-shield-free-download-0ae0f62030ad48d88364b327b7cd3fc3) by Efarys ([details](public/models/weapons/paladin/ATTRIBUTION.md)), [Bow](https://sketchfab.com/3d-models/bow-ac9202b135f9479796be43735b7d9b24) by sujirour and [Spear](https://sketchfab.com/3d-models/spear-8aa85683b78d461995bd797bcebf0491) by Desmond.Ballantyne ([details](public/models/weapons/high-tier/ATTRIBUTION.md)).
+
+These credits apply to those model assets; animation-source and other asset licenses are recorded in each asset folder's `ATTRIBUTION.md`.

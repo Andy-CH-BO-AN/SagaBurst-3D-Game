@@ -226,9 +226,10 @@ export function parseCommanderFourGateDefenseState(value: unknown,
   }
   const dead = new Set(context.deadTargetActorIds ?? [])
   if (dead.size !== (context.deadTargetActorIds?.length ?? 0) || [...dead].some(id => !targets.has(id))) return undefined
+  const registeredIds = new Set(raw.registeredTargetActorIds)
   for (const target of slots) {
     const actor = actors[target.actorId]
-    const registered = raw.registeredTargetActorIds.includes(target.actorId)
+    const registered = registeredIds.has(target.actorId)
     if (registered && !actor || actor && !registered || dead.has(target.actorId) && !actor
       || actor && !['deployed', 'dead'].includes(actor.status) || actor && (actor.status === 'dead') !== dead.has(target.actorId)
       || actor && target.role === 'lancer' && !actor.mount

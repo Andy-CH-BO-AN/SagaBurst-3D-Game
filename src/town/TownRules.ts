@@ -155,6 +155,9 @@ export function townAuthoredRoster(): TownActorSpec[] {
   result.push(...townEagleRoster(), ...townWatchtowerGuardRoster())
   return result
 }
+/** Fixed civilian residents placed by townRoster(); their IDs are `civilian-0` … `civilian-19`. */
+const TOWN_CIVILIAN_COUNT = 20
+
 export function townRoster(): TownActorSpec[] {
   const result = townAuthoredRoster()
   // Civilians retain their original position before the authored service residents.
@@ -163,7 +166,7 @@ export function townRoster(): TownActorSpec[] {
   const occupied = result.flatMap<{ x: number; z: number }>(a => a.garrison?.groundFallback ? [a.garrison, a.garrison.groundFallback] : [a.garrison ?? a])
   const civilians: TownActorSpec[] = []
   // Allocate once against final garrison stations; retain the original roster ordering.
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < TOWN_CIVILIAN_COUNT; i++) {
     const home = civilianHomeAnchor(i, occupied)
     const civilian: TownActorSpec = { id: 'civilian-' + i, role: 'civilian', index: i, x: home.x, y: home.y, z: home.z,
       duty: 'civilian', mounted: false, training: false, tier: 2, assaultObjective: false }
@@ -177,7 +180,13 @@ let rosterIdentity: readonly TownRosterIdentity[] | undefined
 /** IDs and roles only. They come from the authored roster and fixed civilian slots, never from
  * placement, so save validation and mission catalogs share one result instead of re-placing the Town. */
 export function townRosterIdentity(): readonly TownRosterIdentity[] {
-  return rosterIdentity ??= Object.freeze(townRoster().map(({ id, role }) => Object.freeze({ id, role })))
+  if (rosterIdentity) return rosterIdentity
+  // Same order as townRoster(): the fixed civilian slots sit before the authored service residents.
+  const authored = townAuthoredRoster(), civilianStart = authored.findIndex(actor => actor.duty === 'service')
+  const identity: TownRosterIdentity[] = authored.map(({ id, role }) => Object.freeze({ id, role }))
+  identity.splice(civilianStart, 0, ...Array.from({ length: TOWN_CIVILIAN_COUNT },
+    (_, i) => Object.freeze({ id: 'civilian-' + i, role: 'civilian' as const })))
+  return rosterIdentity = Object.freeze(identity)
 }
 export function townAssaultObjectiveRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => isTownMilitary(actor) || actor.role === 'ranger' || actor.role === 'eagle-trainer') }
 /** Catalogs use authored natives; live boards pass the same residents as acceptance,
