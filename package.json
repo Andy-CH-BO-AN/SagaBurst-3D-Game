@@ -7,6 +7,7 @@
     "build": "tsc && vite build",
     "test": "node tests/tooling/run.cjs",
     "lint:test": "eslint \"tests/**/*.{test,spec}.?(c|m)[jt]s?(x)\"",
+    "lint:docs": "node .github/scripts/lint-doc-links.cjs",
     "preview": "vite preview",
     "coop:hub": "node electron/coop-hub.cjs",
     "build:web": "npm run build",
