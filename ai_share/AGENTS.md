@@ -35,6 +35,10 @@
 | 瀏覽器可見的戰鬥／移動修正 | [combat-browser-validation](skills/combat-browser-validation/SKILL.md) |
 | 效能 A/B 或渲染成本歸因 | [sagaburst-performance-benchmark](skills/sagaburst-performance-benchmark/SKILL.md) |
 | 分支、PR 標題與 Commit 訊息規範 | [git-change-conventions](skills/git-change-conventions/SKILL.md) |
+| 依參考圖製作可動人物（服裝、頭盔、靴筒、披風、LOD） | [humanoid-from-reference](skills/humanoid-from-reference/SKILL.md) |
+| 地形、季節環境、樹木、草地與營地物件美化 | [environment-art](skills/environment-art/SKILL.md) |
+| 深層模組介面設計與接縫決策 | [codebase-design](skills/codebase-design/SKILL.md) |
+| 領域術語、GLOSSARY.md 與 ADR 建立與精煉 | [domain-modeling](skills/domain-modeling/SKILL.md) |
 
 程式變更可先在本地執行受影響測試與 `rtk npm run build` 快速回饋；跨系統變更可視需要先跑本地 `rtk npm test`。PR 最終驗收以對應最新變更的 GitHub Actions CI（含測試、型別、Build、適用的 Smoke）為準，**不要求本地完整測試或同組測試重跑三次**；所有 PR 與 push 一律執行 Full Test CI（全庫最多 1,000 cases，優先精簡至 500–600 cases，單一 leaf 最多 100ms）。細節依 [tests/AGENTS.md](../tests/AGENTS.md)。純文件修改先檢查連結、內容與差異即可。
 
