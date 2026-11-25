@@ -5,7 +5,7 @@ import type { TownSiegeSectorRoster } from './TownFourGateSiege'
 import { TOWN_CITY, TOWN_GATES, TOWN_GARRISON_EAGLE_SITES, TOWN_PRIVATE_EAGLE_SITES, townGatePoint, type TownGateId } from '../town/TownLayout'
 import { surfaceBox, townRampartHeight, type TownRampartLayout } from '../town/TownRamparts'
 import { commanderFourGateGarrisonSlots, commanderFourGateMissionSquads, FOUR_GATE_RESERVE_SQUAD } from './CommanderFourGateDefenseRoster'
-import { fourGateGroundFront } from '../town/TownGateBarricades'
+import { FOUR_GATE_GROUND_FRONT } from '../town/TownGateBarricades'
 import { gatehousePoint } from '../town/TownGatehouse'
 import type { TownActorSpec } from '../town/TownRules'
 import { eagleLandingFootprint } from '../world/EagleLanding'
@@ -138,15 +138,20 @@ function* groundStations(gateId: TownGateId, obstacles: readonly ObstacleData[],
       x: pad.x - Math.sin(pad.yaw) * eagleApproachDistance(40),
       z: pad.z - Math.cos(pad.yaw) * eagleApproachDistance(40), yaw: pad.yaw,
     })).expandByScalar(radius + EAGLE_APPROACH.trackingMargin))
-  const front = fourGateGroundFront(gateId)
-  const firingLanes = [-14.5, 0, 14.5].map(lateral => {
-    const p = townGatePoint(gate, lateral, front - 2)
-    return new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z) + 1.4, p.z)
-  })
-  // Both sides of the real gate, leaving its central approach free for the charge.
-  for (let row = 0; row < 12; row++) for (let column = 0; column < 14; column++) for (const side of [-1, 1]) {
-    const depth = front + (role === 'spear' ? 0 : role === 'ranged' ? 4 : 9) + row * 2.6
-    const p = townGatePoint(gate, side * (10 + column * 2.6), depth)
+  const front = FOUR_GATE_GROUND_FRONT
+  const firingLanes = role === 'ranged' ? [front - 2, front + 4].flatMap(depth =>
+    [-24, -14.5, -8.5, 0, 8.5, 14.5, 24].map(lateral => {
+      const p = townGatePoint(gate, lateral, depth)
+      return new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z) + 1.4, p.z)
+    })) : []
+  // Cover the portal with two staggered spear ranks. Use the wider yard for
+  // reserves and ranged firing positions, checking the centre of each rank first.
+  const spacing = 2.4
+  for (let row = 0; row < 14; row++) for (let slot = 0; slot < (role === 'spear' && row < 2 ? 7 - row : 33); slot++) {
+    const depth = front + (role === 'spear' ? 0 : role === 'melee' ? 3 * spacing : 4 * spacing) + row * spacing
+    const side = slot % 2 === 0 ? 1 : -1
+    const lateral = row % 2 === 0 ? side * Math.ceil(slot / 2) * spacing : side * (Math.floor(slot / 2) + .5) * spacing
+    const p = townGatePoint(gate, lateral, depth)
     if (p.x - radius <= TOWN_CITY.minX || p.x + radius >= TOWN_CITY.maxX
       || p.z - radius <= TOWN_CITY.minZ || p.z + radius >= TOWN_CITY.maxZ) continue
     if (eaglePads.some(box => p.x >= box.min.x && p.x <= box.max.x && p.z >= box.min.z && p.z <= box.max.z)) continue

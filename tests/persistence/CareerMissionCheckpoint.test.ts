@@ -16,6 +16,7 @@ import { Faction, type NPC } from '../../src/world/NPC'
 import { ActorDouble, asNpc, asPlayer, PlayerDouble, recordingActorFactory, residentSpec } from '../helpers/careerActorDoubles'
 import { fourGateDefenseRuntime } from '../helpers/fourGateDefenseRuntime'
 import { createCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
+import { CommanderInfantryWings } from '../../src/career/CommanderInfantryEscort'
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
 import { CivilianCommandSquadController } from '../../src/town/CivilianCommandSquadController'
@@ -285,7 +286,7 @@ describe('CareerMissionCheckpoint', () => {
     const controller = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as Pick<CommanderFourGateDefenseController, 'snapshotActiveMission' | 'combatEnabled'>, {
       readProfile: () => profile, player: () => player, enemies, personalActors: () => personalActors,
       residents, reinforcements: [],
-      actorMounts: new Map(), heldFlankIds: new Set(), tracker: null, startedMissionId: profile.activeMission!.id,
+      actorMounts: new Map(), infantryWings: new CommanderInfantryWings(), tracker: null, startedMissionId: profile.activeMission!.id,
       spawnBatch: { pending: 0, ready: true },
       fourGateSiege: { ready: true, snapshot: () => structuredClone(state.siege!) },
       state: { ...state, registeredTargetActorIds: [] },

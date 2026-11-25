@@ -240,9 +240,9 @@ export class TownFourGateSiege {
     this.playerCommands.delete(npc.combatantId)
     this.routeEligibility.delete(npc.combatantId)
   }
-  resumeExternalMovement(npc: NPC): void {
+  resumeExternalMovement(npc: NPC, preferred?: TownSiegeRampId): void {
     this.routeEligibility.delete(npc.combatantId)
-    this.route(npc)
+    this.route(npc, preferred)
   }
   private accepts(npc: NPC): boolean {
     return !npc.dead && !this.departedActors.has(npc.combatantId) && npc.combatOwnership !== 'player-personal' && !this.playerCommands.has(npc.combatantId)

@@ -8,7 +8,7 @@ import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { TownCavalryPatrolController } from '../town/TownCavalryPatrolController'
-import { TOWN_GATES, townGatePoint, type TownGateId } from '../town/TownLayout'
+import { TOWN_GATES, type TownGateId } from '../town/TownLayout'
 import type { CampaignGateState } from '../campaign/CampaignGate'
 import type { FourGateHudSource } from './FourGateDefenseHudModel'
 import { isAutonomousTownGuard, isTownEagleRider } from '../town/TownNativeGuardIdentity'
@@ -32,9 +32,9 @@ import type { CareerProfile } from './CareerProfile'
 import { advanceCommanderCavalryEscort, COMMANDER_CAVALRY_ESCORT, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, createCommanderCavalryEscort, isCommanderCavalryEscorting } from './CommanderCavalryEscort'
 import { planCommanderFourGateDefenseDeployment } from './CommanderFourGateDefenseDeployment'
 import { COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION, FOUR_GATE_RESERVE_SQUAD, commanderArcherScreenSide, commanderArcherScreenTarget, commanderFourGateDefenseSlots, commanderFourGateGarrisonSlots, createCommanderFourGateDefenseRoster, createCommanderFourGateGarrison, type CommanderEnemyRosterVersion } from './CommanderFourGateDefenseRoster'
-import { TOWN_SIEGE_WORLD_EDGE_INSET, townSiegeFrame, townSiegeRampId, withinTownSiegeSector, type TownSiegeRampPlacement } from './TownFourGateSiegePolicy'
+import { TOWN_SIEGE_WORLD_EDGE_INSET, townSiegeRampId, withinTownSiegeSector, type TownSiegeRampPlacement } from './TownFourGateSiegePolicy'
 import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, skipCommanderFourGateDefensePreparation, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, fourGateRemainingTargets, fourGateTargetsAccounted, recordNativeTownGuardCombat, resolveCommanderFourGateDefenseOutcome } from './CommanderFourGateDefenseState'
-import { advanceCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, isCommanderInfantryEscorting } from './CommanderInfantryEscort'
+import { advanceCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT, CommanderInfantryWings, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, commanderInfantryWingTarget, createCommanderInfantryEscort, isCommanderInfantryEscorting, moveCommanderInfantryEscort } from './CommanderInfantryEscort'
 import type { CommanderTownResident } from './CommanderTownMissionController'
 import { TownFourGateSiege, type TownFourGateSiegeOptions, type TownSiegeNavigation, type TownSiegeWorld } from './TownFourGateSiege'
 
@@ -85,8 +85,7 @@ export class CommanderFourGateDefenseController {
   private escortAssignments: ReturnType<typeof commanderCavalryEscortAssignments> = []
   private infantryAssignments: ReturnType<typeof commanderInfantryEscortAssignments> = []
   private pendingEscortReleases?: readonly string[]
-  private readonly heldFlanks = new Map<TownGateId, Set<string>>()
-  private readonly heldFlankIds = new Set<string>()
+  private readonly infantryWings = new CommanderInfantryWings()
   private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
 
   constructor(private readonly actorFactory: CareerActorFactory, private readonly residents: readonly CommanderTownResident[],
@@ -247,7 +246,7 @@ export class CommanderFourGateDefenseController {
         releaseDistance: COMMANDER_CAVALRY_ESCORT.clearanceEndDistance, bodyRadius: COMMANDER_CAVALRY_ESCORT.bodyRadius,
         lateralOffset: COMMANDER_CAVALRY_ESCORT.lateralOffset,
       },
-      externalMovementOwns: npc => this.heldFlankIds.has(npc.combatantId) || this.isEscorting(npc),
+      externalMovementOwns: npc => this.infantryWings.has(npc.combatantId) || this.isEscorting(npc),
       registerHit: this.context.registerHit, unregisterHit: this.context.unregisterHit, blockers: this.context.blockers,
     }, this.state!.siege)
     this.fourGateSiege.prepare(this.roster!.crew)
@@ -298,7 +297,7 @@ export class CommanderFourGateDefenseController {
       const point = this.legalGroundPoint(new THREE.Vector3(spec.x, 0, spec.z), occupied, spec.cavalry ? 4 : 2)
       spec.x = point.x; spec.z = point.z; occupied.push(point)
     }
-    this.placeFlankInfantry(occupied)
+    this.placeInfantryWings(occupied)
     const batch = this.scheduler.batch(() => { this.disposeAttackers(); this.spawnBatch = batch })
     this.spawnBatch = batch; this.startedMissionId = active.id
     for (const spec of this.roster.all) {
@@ -317,53 +316,31 @@ export class CommanderFourGateDefenseController {
     })
   }
 
-  private placeFlankInfantry(occupied: THREE.Vector3[]): void {
+  private placeInfantryWings(occupied: THREE.Vector3[]): void {
     const ramps = this.fourGateSiege!.ramps
     const placements = [...ramps.values()].map(ramp => ramp.placement as TownSiegeRampPlacement)
     const clearances = placements.flatMap(placement => [placement.clearance, placement.escortClearance])
       .filter((box): box is THREE.Box3 => Boolean(box)).map(box => box.clone().expandByScalar(2))
-    for (const { slot, spec } of this.roster!.flanks) {
+    for (const { slot, formationSlot, spec } of this.roster!.flanks) {
       const id = slot.actorId, saved = this.state!.actors[id]
       if (saved?.status === 'dead') continue
+      const side = slot.side!, rampId = townSiegeRampId(slot.gateId, side), { surface } = ramps.get(rampId)!
       if (saved?.position) { spec.x = saved.position.x; spec.z = saved.position.z }
       else {
-        const side = slot.side!, ramp = ramps.get(townSiegeRampId(slot.gateId, side))!
-        const frame = townSiegeFrame(slot.gateId), { start } = ramp.placement
-        const lateral = Math.abs((start.x - frame.gate.x) * frame.tangent.x + (start.z - frame.gate.z) * frame.tangent.z)
-        const outward = (start.x - frame.gate.x) * frame.outward.x + (start.z - frame.gate.z) * frame.outward.z
-        // Each flank mustered beyond the archer screen, with the two weapons in their own ranks.
-        const index = slot.slot - 1 + (slot.role === 'flank-spear' ? 15 : 0)
-        const p = townGatePoint(frame.gate, side * (lateral + 20 + index % 5 * 3), -outward + 4 + Math.floor(index / 5) * 4)
-        const point = this.legalGroundPoint(new THREE.Vector3(p.x, 0, p.z), occupied, 3, candidate =>
-          withinTownSiegeSector(candidate, slot.gateId, 0)
-          && ((candidate.x - frame.gate.x) * frame.tangent.x + (candidate.z - frame.gate.z) * frame.tangent.z) * side >= lateral + 16
-          && clearances.every(box => candidate.x < box.min.x || candidate.x > box.max.x || candidate.z < box.min.z || candidate.z > box.max.z))
+        const inward = { x: surface.dirX, z: surface.dirZ }
+        const rear = { x: surface.startX, z: surface.startZ }
+        const p = commanderInfantryWingTarget(formationSlot, side, rear, inward)
+        const point = this.legalGroundPoint(new THREE.Vector3(p.x, 0, p.z), occupied, 2, candidate => {
+          const dx = candidate.x - rear.x, dz = candidate.z - rear.z
+          const behind = -dx * inward.x - dz * inward.z
+          const outside = (dz * inward.x - dx * inward.z) * side
+          return behind >= 14 && behind <= 33 && outside >= 7 && outside <= 18
+            && withinTownSiegeSector(candidate, slot.gateId, 0)
+            && clearances.every(box => candidate.x < box.min.x || candidate.x > box.max.x || candidate.z < box.min.z || candidate.z > box.max.z)
+        })
         spec.x = point.x; spec.z = point.z; occupied.push(point)
       }
-      if (!saved || saved.order === 'defend') {
-        let ids = this.heldFlanks.get(slot.gateId)
-        if (!ids) this.heldFlanks.set(slot.gateId, ids = new Set())
-        ids.add(id); this.heldFlankIds.add(id)
-      }
-    }
-  }
-
-  /** Reuse the normal gate assault after both moving lanes at this gate are clear. */
-  private releaseFlankInfantry(): void {
-    const siege = this.fourGateSiege!
-    for (const [gate, ids] of this.heldFlanks) {
-      if ([-1, 1].some(side => {
-        const state = siege.ramps.get(townSiegeRampId(gate, side as -1 | 1))!.controller.state
-        return state === 'DEPLOYING' || state === 'PUSHING' || state === 'DOCKING'
-      })) continue
-      for (const id of ids) {
-        this.heldFlankIds.delete(id)
-        const npc = this.actorsById.get(id)
-        if (!npc || npc.dead) continue
-        npc.setMissionCombatTarget(undefined); npc.setTacticalOrder('charge')
-        siege.resumeExternalMovement(npc)
-      }
-      this.heldFlanks.delete(gate)
+      this.infantryWings.enlist(rampId, id, formationSlot, saved)
     }
   }
 
@@ -549,7 +526,8 @@ export class CommanderFourGateDefenseController {
     this.fourGateSiege!.update(dt)
     this.updateCavalryEscort(this.missionElapsed)
     this.updateInfantryEscort(this.missionElapsed)
-    if (this.heldFlanks.size) this.releaseFlankInfantry()
+    const siege = this.fourGateSiege!
+    this.infantryWings.update(siege.ramps, id => this.actorsById.get(id), (npc, rampId) => siege.resumeExternalMovement(npc, rampId))
   }
 
   isEscorting(npc: NPC): boolean {
@@ -589,16 +567,9 @@ export class CommanderFourGateDefenseController {
       if (!ramp) continue
       const target = commanderInfantryEscortTarget(assignment.slot,
         { x: ramp.surface.startX, z: ramp.surface.startZ }, { x: ramp.surface.dirX, z: ramp.surface.dirZ })
-      const saved = npc.combatFormationCheckpoint
       const commandId = -5000 - this.infantryAssignments.indexOf(assignment)
       npc.missionMovement = false; npc.setMissionCombatTarget(null); npc.assignSiegeObstacle(null)
-      if (saved?.commandId === commandId && Math.hypot(saved.position.x - target.x, saved.position.z - target.z) < COMMANDER_INFANTRY_ESCORT.retargetDistance) continue
-      const position = new THREE.Vector3(target.x, getTerrainHeight(target.x, target.z), target.z)
-      const facing = new THREE.Vector3(ramp.surface.dirX, 0, ramp.surface.dirZ)
-      const speed = Math.max(.1, ramp.controller.currentSpeed)
-      if (!npc.refreshFormationTarget(commandId, position, facing, speed, 'defend')) {
-        npc.assignFormationTarget(commandId, position, facing, speed, 'defend')
-      }
+      moveCommanderInfantryEscort(npc, ramp, target, commandId, 'defend')
     }
   }
 
@@ -653,7 +624,7 @@ export class CommanderFourGateDefenseController {
   private releaseCombat(restoring: boolean): void {
     for (const npc of this.fieldNpcs) {
       if (npc.dead) continue
-      if (this.isEscorting(npc) || this.heldFlankIds.has(npc.combatantId)) { npc.setMissionCombatTarget(null); continue }
+      if (this.isEscorting(npc) || this.infantryWings.has(npc.combatantId)) { npc.setMissionCombatTarget(null); continue }
       const station = this.deployment?.stations.get(npc.combatantId)
       const cavalryHeld = station?.kind === 'cavalry' && !this.fourGateSiege?.policy.gates.get(station.gateId)?.cavalryEventHandled
         && !this.playerIssuedCommands.has(npc.combatantId)
@@ -844,7 +815,7 @@ export class CommanderFourGateDefenseController {
     // Reload can then retain those orders without replaying the start or gate events.
     if (state.attackStarted && !active.fourGateDefense?.attackStarted) {
       for (const npc of this.enemies) if (!npc.siegeTransport && !npc.dead) {
-        const order = this.isEscorting(npc) || this.heldFlankIds.has(npc.combatantId) ? 'defend' : npc.hasActiveRangedWeapon ? 'attack' : 'charge'
+        const order = this.isEscorting(npc) || this.infantryWings.has(npc.combatantId) ? 'defend' : npc.hasActiveRangedWeapon ? 'attack' : 'charge'
         state.actors[npc.combatantId].order = order
         const ground = state.siege?.actors[npc.combatantId]
         if (ground) ground.order = order
@@ -899,7 +870,7 @@ export class CommanderFourGateDefenseController {
     for (const npc of this.enemies) { this.actorsById.delete(npc.combatantId); this.actorMounts.delete(npc.combatantId); npc.dispose() }
     for (const mount of this.enemyMounts) mount.dispose()
     this.enemies.length = 0; this.enemyMounts.length = 0; this.plannedPositions.length = 0
-    this.heldFlanks.clear(); this.heldFlankIds.clear()
+    this.infantryWings.clear()
   }
   private disposeRuntime(): void {
     this.disposeAttackers(); this.startedMissionId = undefined; this.friendlyReady = false; this.preparationElapsed = undefined; this.escortAssignments = []; this.infantryAssignments = []; this.pendingEscortReleases = undefined

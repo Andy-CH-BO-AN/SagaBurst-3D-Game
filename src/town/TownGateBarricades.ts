@@ -1,22 +1,24 @@
-import { TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
+import { TOWN_GATES, townGatePoint } from './TownLayout'
 
-function barricadeInwardDepth(gateId: TownGateId): number {
-  // Keep the northern and western works clear of the existing eagle approaches.
-  return gateId === 'north' || gateId === 'west' ? 8 : 21
-}
+const INNER_DEPTH = 8.5
+const OUTER_DEPTH = 7.5
+const HALF_DEPTH = 1.15
+const HALF_WIDTH = 2.25
 
-export function fourGateGroundFront(gateId: TownGateId): number {
-  return barricadeInwardDepth(gateId) + 8
-}
+// A front rank fits between the works and the western eagle approach.
+export const FOUR_GATE_GROUND_FRONT = INNER_DEPTH + HALF_DEPTH + .65
 
 /** Break up the gate opening with independent segments and keep a mounted-width central gap. */
 export function townFourGateBarricadeRects() {
-  return TOWN_GATES.flatMap(gate => [-1, 1].flatMap(side => [4.25, 20].map((lateral, rank) => {
-    // The inner pair reaches into the 14m opening, leaving a 4m central gap.
-    // Set it beyond the inward gate-leaf swing; keep the outer works in place.
-    const center = townGatePoint(gate, lateral * side, barricadeInwardDepth(gate.id) + (rank === 0 ? 3 : 2))
+  return TOWN_GATES.flatMap(gate => [-1, 1].flatMap(side => [
+    // Inner pair clears the 7m leaf swing with a 4m central interval.
+    { lateral: 4.25, depth: INNER_DEPTH },
+    // Outer pair sits beside the swing, leaving 4.25m between adjacent segments.
+    { lateral: 13, depth: OUTER_DEPTH },
+  ].map(({ lateral, depth }) => {
+    const center = townGatePoint(gate, lateral * side, depth)
     const alongZ = gate.id === 'east' || gate.id === 'west'
-    const [halfX, halfZ] = alongZ ? [1.15, 2.25] : [2.25, 1.15]
+    const [halfX, halfZ] = alongZ ? [HALF_DEPTH, HALF_WIDTH] : [HALF_WIDTH, HALF_DEPTH]
     return { minX: center.x - halfX, maxX: center.x + halfX,
       minZ: center.z - halfZ, maxZ: center.z + halfZ, alongZ }
   })))

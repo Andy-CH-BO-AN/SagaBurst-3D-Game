@@ -1,7 +1,11 @@
+import { Vector3 } from 'three'
 import type { TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
 import type { TownGateId } from '../town/TownLayout'
+import type { NPC } from '../world/NPC'
+import { getTerrainHeight, type WalkRampSurface } from '../world/Terrain'
 import { COMMANDER_CAVALRY_ESCORT, type CommanderCavalryEscortRampFrame } from './CommanderCavalryEscort'
 import { commanderFourGateDefenseSlots } from './CommanderFourGateDefenseRoster'
+import type { PersonalActorCheckpoint } from './CareerPersonalSquadMission'
 
 /** Mission-only rear guard of one siege vehicle: ten T3 melee infantry, never Crew.
  * Rows start behind the last lancer row (6 + 3*4 + 4m body) so the two escorts never share a slot. */
@@ -73,6 +77,81 @@ export function commanderInfantryEscortTarget(slot: number, rear: { x: number; z
   const behind = COMMANDER_INFANTRY_ESCORT.firstRowBehind + Math.floor(slot / COMMANDER_INFANTRY_ESCORT.columns) * COMMANDER_INFANTRY_ESCORT.rowSpacing
   return { x: rear.x - inward.x * behind + inward.z * lateral,
     z: rear.z - inward.z * behind - inward.x * lateral, yaw: Math.atan2(inward.x, inward.z) }
+}
+
+/** Four exterior columns per carrier, beside the existing lancers and infantry. */
+export function commanderInfantryWingTarget(slot: number, side: -1 | 1, rear: { x: number; z: number }, inward: { x: number; z: number }) {
+  const columns = 4, spacing = 2.6
+  const lateral = -side * (8 + slot % columns * spacing)
+  const behind = 16 + Math.floor(slot / columns) * spacing
+  return { x: rear.x - inward.x * behind + inward.z * lateral,
+    z: rear.z - inward.z * behind - inward.x * lateral }
+}
+
+type InfantryEscortBody = Pick<NPC, 'dead' | 'missionMovement' | 'formationCommandId' | 'formationDestination'
+  | 'assignFormationTarget' | 'refreshFormationTarget' | 'setTacticalOrder' | 'setMissionCombatTarget'>
+interface InfantryEscortRamp {
+  assignment: { side: -1 | 1 }
+  surface: Pick<WalkRampSurface, 'startX' | 'startZ' | 'dirX' | 'dirZ'>
+  controller: { assigned: boolean; distance: number; currentSpeed: number }
+}
+
+export function moveCommanderInfantryEscort(npc: InfantryEscortBody, ramp: InfantryEscortRamp, target: { x: number; z: number },
+  commandId: number, arrivalOrder?: 'defend'): void {
+  const current = npc.formationDestination
+  if (current && npc.formationCommandId === commandId
+    && Math.hypot(current.x - target.x, current.z - target.z) < COMMANDER_INFANTRY_ESCORT.retargetDistance) return
+  const position = new Vector3(target.x, getTerrainHeight(target.x, target.z), target.z)
+  const facing = new Vector3(ramp.surface.dirX, 0, ramp.surface.dirZ)
+  const speed = Math.max(.1, ramp.controller.currentSpeed)
+  if (!npc.refreshFormationTarget(commandId, position, facing, speed, arrivalOrder)) {
+    npc.assignFormationTarget(commandId, position, facing, speed, arrivalOrder)
+  }
+}
+
+const WING_ESCORT_COMMAND = -5200
+
+/** Reinforcements share their carrier's march but have their own formation and release. */
+export class CommanderInfantryWings {
+  private readonly wings = new Map<TownSiegeRampId, { members: Map<string, number>; lastTravelDistance?: number }>()
+  private readonly escortIds = new Set<string>()
+
+  has(id: string): boolean { return this.escortIds.has(id) }
+
+  enlist(rampId: TownSiegeRampId, id: string, slot: number, saved?: Pick<PersonalActorCheckpoint, 'order' | 'formation'>): void {
+    if (saved && saved.order !== 'defend' && saved.formation?.commandId !== WING_ESCORT_COMMAND) return
+    let wing = this.wings.get(rampId)
+    if (!wing) this.wings.set(rampId, wing = { members: new Map() })
+    wing.members.set(id, slot); this.escortIds.add(id)
+  }
+
+  update<Actor extends InfantryEscortBody>(ramps: ReadonlyMap<TownSiegeRampId, InfantryEscortRamp>,
+    actor: (id: string) => Actor | undefined, resume: (npc: Actor, rampId: TownSiegeRampId) => void): void {
+    for (const [rampId, wing] of this.wings) {
+      const ramp = ramps.get(rampId)!, { surface } = ramp
+      const { assigned, distance } = ramp.controller
+      if (assigned && wing.lastTravelDistance !== undefined
+        && distance - wing.lastTravelDistance < COMMANDER_INFANTRY_ESCORT.retargetDistance) continue
+      wing.lastTravelDistance = distance
+      const rear = { x: surface.startX, z: surface.startZ }, inward = { x: surface.dirX, z: surface.dirZ }
+      for (const [id, slot] of wing.members) {
+        const npc = actor(id)
+        if (!assigned) this.escortIds.delete(id)
+        if (!npc || npc.dead) continue
+        if (assigned) {
+          const target = commanderInfantryWingTarget(slot, ramp.assignment.side, rear, inward)
+          npc.missionMovement = true // Incoming hits must not cancel a march order.
+          moveCommanderInfantryEscort(npc, ramp, target, WING_ESCORT_COMMAND)
+        } else {
+          npc.missionMovement = false; npc.setMissionCombatTarget(undefined); npc.setTacticalOrder('charge')
+          resume(npc, rampId)
+        }
+      }
+      if (!assigned) this.wings.delete(rampId)
+    }
+  }
+
+  clear(): void { this.wings.clear(); this.escortIds.clear() }
 }
 
 /** Pure and monotonic like the cavalry owner. Unlike it, there is no range release: the guard

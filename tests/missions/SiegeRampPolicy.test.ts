@@ -29,7 +29,8 @@ import { commanderArcherScreenSide, commanderArcherScreenTarget, createCommander
 import { getTownRampartLayout } from '../../src/town/TownRamparts'
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../../src/town/TownBounds'
 import { TOWN_GATES } from '../../src/town/TownLayout'
-import { advanceCommanderInfantryEscort, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, parseCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT } from '../../src/career/CommanderInfantryEscort'
+import { advanceCommanderInfantryEscort, CommanderInfantryWings, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, parseCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT } from '../../src/career/CommanderInfantryEscort'
+import { ActorDouble } from '../helpers/careerActorDoubles'
 import { advanceCommanderCavalryEscort, COMMANDER_CAVALRY_ESCORT, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, createCommanderCavalryEscort, type CommanderCavalryEscortActorFrame, type CommanderCavalryEscortRampFrame } from '../../src/career/CommanderCavalryEscort'
 import type { MobileSiegeRampId, SiegeRampPlacement, TownSiegeRampId } from '../../src/campaign/MobileSiegeRampPolicy'
 
@@ -731,4 +732,45 @@ describe('shared siege crew and vehicle lifecycle', () => {
     }
   })
 
+})
+
+it('marches four reinforcement columns beside each carrier and releases only the stopped wing', () => {
+  const roster = createCommanderFourGateDefenseRoster('wings', 'roman')
+  const wings = new CommanderInfantryWings()
+  const leftId = 'town-siege-ramp:north:left', rightId = 'town-siege-ramp:north:right'
+  const carrier = (side: -1 | 1, x: number) => ({ assignment: { side },
+    surface: { startX: x, startZ: -260, dirX: 0, dirZ: 1 },
+    controller: { assigned: true, distance: 0, currentSpeed: 2 } })
+  const left = carrier(-1, 18), right = carrier(1, -18)
+  const ramps = new Map<TownSiegeRampId, ReturnType<typeof carrier>>([[leftId, left], [rightId, right]])
+  const actors = new Map<string, ActorDouble>()
+  for (const { slot, formationSlot } of roster.flanks.filter(({ slot }) => slot.gateId === 'north')) {
+    actors.set(slot.actorId, new ActorDouble(slot.actorId))
+    wings.enlist(slot.side === -1 ? leftId : rightId, slot.actorId, formationSlot)
+  }
+  const leftWing = [...actors.values()].filter(actor => actor.combatantId.includes(':left:'))
+  const rightWing = [...actors.values()].filter(actor => actor.combatantId.includes(':right:'))
+  const returned = new Map<ActorDouble, TownSiegeRampId>()
+  const update = () => wings.update(ramps, id => actors.get(id), (actor, rampId) => returned.set(actor, rampId))
+  update()
+  for (const [group, ramp] of [[leftWing, left], [rightWing, right]] as const) {
+    expect(group).toHaveLength(25)
+    expect(new Set(group.map(actor => actor.formationDestination?.x)).size).toBe(4)
+    expect(group.every(actor => {
+      const target = actor.formationDestination!
+      return actor.missionMovement && (ramp.surface.startX - target.x) * ramp.assignment.side > 7
+        && target.z < ramp.surface.startZ && target.z >= ramp.surface.startZ - 32
+    })).toBe(true)
+  }
+  const before = leftWing[0].formationDestination!.z
+  left.surface.startZ += 3; left.controller.distance += 3
+  update()
+  expect(leftWing[0].formationDestination!.z).toBeCloseTo(before + 3)
+
+  left.controller.assigned = false
+  update()
+  expect(leftWing.every(actor => returned.get(actor) === leftId && !wings.has(actor.combatantId)
+    && !actor.missionMovement && actor.tacticalOrder === 'charge' && !actor.formationDestination)).toBe(true)
+  expect(rightWing.every(actor => !returned.has(actor) && wings.has(actor.combatantId)
+    && actor.missionMovement && actor.formationDestination)).toBe(true)
 })
