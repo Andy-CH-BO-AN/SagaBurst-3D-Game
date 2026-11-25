@@ -18,7 +18,17 @@ export function settleMountOnTerrain(position: THREE.Vector3, velocityY: number,
 
 /** Obstacle sides and mounted walk surfaces: the second half of a ground mount's frame. */
 export function collideMountBody(position: THREE.Vector3, previous: THREE.Vector3, state: ObstacleCollisionResult,
-  obstacles: ObstacleData[], worldBound?: number): ObstacleCollisionResult {
+  obstacles: ObstacleData[], worldBound?: number, groundHeight = getTerrainHeight): ObstacleCollisionResult {
   return resolveObstacleCollision(position, previous, state.velocityY, state.onGround, MOUNT_MOVEMENT_RADIUS,
-    MOUNT_BODY_HEIGHT, 0, obstacles, { mountedSurfaces: true, worldBound })
+    MOUNT_BODY_HEIGHT, 0, obstacles, { mountedSurfaces: true, worldBound, groundHeight })
+}
+
+/** Complete real movement and invalidate the speed/sweep after corrective placement. */
+export function finishMountGroundMotion(position: THREE.Vector3, previous: THREE.Vector3, state: ObstacleCollisionResult,
+  dt: number, obstacles: ObstacleData[], worldBound?: number): ObstacleCollisionResult & { movementSpeed: number } {
+  const collision = collideMountBody(position, previous, state, obstacles, worldBound)
+  if (collision.recovered) previous.copy(position)
+  const motion = collision as ObstacleCollisionResult & { movementSpeed: number }
+  motion.movementSpeed = previous.distanceTo(position) / Math.max(dt, .0001)
+  return motion
 }

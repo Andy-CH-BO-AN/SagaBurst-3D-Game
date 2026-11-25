@@ -7,6 +7,7 @@
 ## 權威與資產
 
 - `Mount` 是 HP、移動、碰撞、跳躍、衝撞、死亡、下馬與存檔的權威；`HorseAssetRegistry`、`BlackCatVisual`、`SnowLeopardVisual`、`CorgiVisual`、`XongkoroVisual` 負責資產與動畫，**保留原 save IDs**。
+- 地面坐騎的侵入恢復只更新站位與支撐狀態。恢復幀會歸零移動速度與衝撞掃掠，正常移動由下一個控制幀接續。
 - `QuadrupedAssetPreload` 集中四足坐騎的 manifest 與 GLB 驗證、並行預載與失敗重試。**全部必要 clips、LOD 與 seat 通過後才發布模板**；失敗後下次預載重新讀取。
 - 坐騎實例共享 render resources，各自持有 skeleton 與 mixer。`ARMORED_HORSE`／Career ID `armored-horse` 是獨立重甲戰馬，**不替換普通馬**；加速與轉向限制在既有 `Mount` controlled movement owner 處理。
 - 授權、來源雜湊與重建方式保留於各模型目錄的 manifest／CREDITS 與必要 provenance；製作與匯出驗證由資產 skill 維護。

@@ -50,7 +50,7 @@ export function applyMountImpactDamage(
   now: number,
   onHit: (damage: number) => void
 ): boolean {
-  if (mount.isFlyingMount) return false
+  if (mount.isFlyingMount || mount.skipImpactThisFrame) return false
   if (Math.abs(mount.group.position.y - targetPos.y) > 2.0) return false
   if (mount.movementSpeed > COMBAT_BALANCE.mountImpact.minSpeed && mount.canImpact(target, now)) {
     const damage = calculateMountImpactDamage(mount.movementSpeed, mount.isSprinting, mount.impactMultiplier)
