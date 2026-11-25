@@ -5,7 +5,7 @@ description: 使用 Playwright CLI 驗證 SagaBurst 的瀏覽器戰鬥畫面、�
 
 # 戰鬥瀏覽器驗證
 
-直接使用已安裝的 `playwright` skill 與 Playwright CLI，不依賴 GPT Chrome 擴充套件。重用對應工作目錄的 Vite；預設使用本機有畫面的 Chrome、獨立 QA session 與 `nolock`。若使用者指定既有瀏覽器分頁，使用可連接該分頁的工具；CLI 的獨立 session 不等同使用者分頁。
+直接使用 `npx --yes --package @playwright/cli playwright-cli`，不依賴特定 agent 的瀏覽器擴充套件或 skill。重用對應工作目錄的 Vite；預設使用本機有畫面的 Chrome、獨立 QA session 與 `nolock`。若使用者指定既有瀏覽器分頁，使用可連接該分頁的工具；CLI 的獨立 session 不等同使用者分頁。
 
 ## 選擇場景
 
@@ -29,12 +29,12 @@ description: 使用 Playwright CLI 驗證 SagaBurst 的瀏覽器戰鬥畫面、�
 
 ## Playwright CLI 操作
 
-先讀可用的 `playwright` skill，確認 `npx` 與 CLI help；沿用它的 wrapper，無需建立 Playwright test spec。範例（先把 port 改為實際值）：
+先確認 `npx` 可用並查看 `playwright-cli --help`（`rtk proxy npx --yes --package @playwright/cli playwright-cli --help`）；直接以 CLI 操作，無需建立 Playwright test spec。範例（先把 port 改為實際值）：
 
 ```sh
-rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.sh" -s=combat-qa open 'http://localhost:5173/?devmodels=humans&nolock' --headed --browser chrome
-rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.sh" -s=combat-qa snapshot
-rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.sh" -s=combat-qa console
+rtk proxy npx --yes --package @playwright/cli playwright-cli -s=combat-qa open 'http://localhost:5173/?devmodels=humans&nolock' --headed --browser chrome
+rtk proxy npx --yes --package @playwright/cli playwright-cli -s=combat-qa snapshot
+rtk proxy npx --yes --package @playwright/cli playwright-cli -s=combat-qa console
 ```
 
 - DOM 控制使用最新 snapshot 的 refs；Three.js 畫面以 screenshot 配合鍵鼠操作判讀。導航／UI 更新後重新 snapshot。
