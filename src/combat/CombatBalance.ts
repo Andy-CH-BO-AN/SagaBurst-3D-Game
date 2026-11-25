@@ -3,6 +3,8 @@
  * Authoritative Single Source of Truth (SSOT) for gameplay combat rules,
  * balance multipliers, attack ranges, cooldowns, and pure combat helpers.
  */
+import { getHeroCombatModifiers, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
+import { eagleBowEngagementRange } from './EagleRangedCombat'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { WEAPONS, type WeaponCombatKind } from '../rpg/WeaponDatabase'
 
@@ -101,9 +103,19 @@ export function getRangedCombatRules(kind: RangedCombatKind) {
  * Returns the authoritative NPC AI engagement range for a ranged weapon kind.
  * Note: These are NPC AI engagement distances, not max projectile flight distances.
  */
-export function getNpcRangedAttackRange(kind: RangedCombatKind, isMounted: boolean): number {
+export function getNpcRangedAttackRange(
+  kind: RangedCombatKind | null,
+  isMounted: boolean,
+  combatProfileId: HeroCombatProfileId | undefined,
+  mountType?: string,
+  rangedWeaponId?: string,
+): number {
+  if (!kind) return 22.0
+  const eagleRange = eagleBowEngagementRange(isMounted ? mountType : undefined, rangedWeaponId ? WEAPONS[rangedWeaponId] : undefined)
+  if (eagleRange !== undefined) return eagleRange
   const rules = COMBAT_BALANCE[kind]
-  return isMounted ? rules.mountedAttackRange : rules.footAttackRange
+  const baseRange = isMounted ? rules.mountedAttackRange : rules.footAttackRange
+  return baseRange * (getHeroCombatModifiers(combatProfileId)?.rangedAttackRangeMultiplier ?? 1)
 }
 
 /**

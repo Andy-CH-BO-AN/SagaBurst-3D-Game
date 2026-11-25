@@ -109,7 +109,6 @@ import { CombatEventSinkStack, createNpcCombatActorRef, type CombatEventSink, ty
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
 import { EagleFlightAI, type EagleFlightCommand, type EagleTactic } from '../movement/EagleFlightAI'
 import type { EagleTraffic } from './EagleAirspace'
-import { eagleBowEngagementRange } from '../combat/EagleRangedCombat'
 import { collectBallisticPathObstacles, BallisticIntercept, createProjectileFlightBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import { projectileAmmoAfterLaunch, type ProjectileLaunchResult } from '../combat/ProjectileAdmission'
 import { XONGKORO } from '../movement/XongkoroConfig'
@@ -518,10 +517,7 @@ export class NPC {
   }
 
   get maxRangedAttackDistance(): number {
-    const kind = this.rangedCombatKind
-    if (!kind) return 22.0
-    const eagleRange = eagleBowEngagementRange(this.isMounted ? this.mount?.type : undefined, this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined)
-    return eagleRange ?? getNpcRangedAttackRange(kind, this.isMounted) * (getHeroCombatModifiers(this.combatProfileId)?.rangedAttackRangeMultiplier ?? 1)
+    return getNpcRangedAttackRange(this.rangedCombatKind, this.isMounted, this.combatProfileId, this.mount?.type, this.rangedWeaponId)
   }
 
   get rangedProjectileSpeed(): number {

@@ -68,7 +68,6 @@ const PROTOTYPE_HARNESS_BASELINE = new Map([
   ['tests/combat/CommanderWeaponSwitching.test.ts', 9],
   ['tests/combat/MountArmor.test.ts', 2],
   ['tests/integration/GameInventoryLifecycle.test.ts', 2],
-  ['tests/integration/GameWeaponPickup.test.ts', 1],
   ['tests/integration/MissionModeRouting.test.ts', 3],
   ['tests/integration/PersonalSquadCommandRouting.test.ts', 1],
   ['tests/integration/ReliefResultSettlement.test.ts', 1],
@@ -863,7 +862,7 @@ const testAuthoring = {
     'no-prototype-harness': {
       meta: {
         type: 'suggestion',
-        docs: { description: 'Warn when a test builds a production class instance with Object.create(Class.prototype) or borrows Class.prototype methods onto plain objects' },
+        docs: { description: 'Enforce the per-file baseline for tests that bypass production constructors or borrow production prototypes' },
         schema: [{
           type: 'object',
           properties: { baseline: { type: 'object', additionalProperties: { type: 'integer', minimum: 1 } } },
@@ -958,7 +957,7 @@ const sharedTestRules = {
   'test-authoring/no-real-timer-sleep': 'warn',
   'test-authoring/warn-cross-owner-test-calls': 'warn',
   'test-authoring/no-constant-literal-assert': 'warn',
-  'test-authoring/no-prototype-harness': ['warn', { baseline: Object.fromEntries(PROTOTYPE_HARNESS_BASELINE) }],
+  'test-authoring/no-prototype-harness': ['error', { baseline: Object.fromEntries(PROTOTYPE_HARNESS_BASELINE) }],
 }
 
 export default [
