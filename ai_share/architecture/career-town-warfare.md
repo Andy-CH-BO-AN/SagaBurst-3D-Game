@@ -2,33 +2,82 @@
 
 範圍：Town Hostility、城外 roaming、巡邏遭遇、任務行軍交火、城鎮與敵方巨鷹空軍。索引與共通規則見 [ARCHITECTURE.md](../ARCHITECTURE.md)。
 
-- Town Hostility 開始前先保存取消正式任務與交接，不結算被取消任務；恢復平時兵權後將 `authorizedTownCommandActorIds` 固定在 event 上。征服 objectives 排除這份 Actor IDs，Reload 不重新推算。Town command 兵仍效忠 Player；跳槽成功後留在原城鎮，清除舊授權，不轉入 HR 或新 faction。
-- `TownMissionCombat.update(dt, cameraYaw, elapsed)` 擁有野外、Duel 與城鎮戰鬥的角色集合、準備階段例外、敵我 grid、NPC／坐騎更新及順序；各任務保留自己的 phase 規則與 controller checkpoint。其內部 `TownActorUpdates` 共用穩定順序的角色名冊、和平居民排除及單幀推進裁決，保留 field／Duel／Defense 的接管優先序；Defense 的護送、任務釋放與和平返程在真正推進前讀取，不能以幀初名冊覆寫同幀交接。Outskirts 透過獨立 runtime participants 接入自然交火，與 mission actors 共用附近查詢及同一幀的導航預算，不併入 controller 的任務名單。模組接收明確的傷害、射擊及呈現回呼，TownScene 保留歸因與投射物管理；外部威脅駐軍由此模組登記，結算僅透過 `releaseExternalThreat` 歸還登記。
-- Roaming 的個別駐軍威脅登記限非 `duty: patrol` 的 Town military；城門守軍、training 與其他 military 可反擊且不新增整補。Town Patrol 的 roaming 遭遇由 Patrol controller 擁有，combat 以該 controller 的實際參戰集合更新；既有 camp／正式任務威脅及任務借用角色依原有 combat 規則更新。
-- `TownOutskirtsRules` 定義 Captain／Commander 在所有 Town runtime（含 Enemy Town Assault、Veteran VI）生成的 6×5 Bandit 與 3×10 T2 Horse cavalry；騎兵外觀及裝備取「目前 Town／world faction 的對立方」，再依玩家 faction 對應 `TOWN`／`ENEMY` allegiance。敵境可能出現玩家友軍，其 rider 沿用任務友軍保護，坐騎保持原有獨立命中規則。
-- `TownOutskirtsWarfareController` 管獨立 actor identity、固定 sector route、leader／followers、每隊錯開的 0.35 秒／35m 警戒、整隊 aggro 及全滅補隊；`NPC.updateTownTravel` 巡邏不執行 combat target search。Encounter 沿用 Bandit 的 58m leash：一般 alerted 超距 returning、普通偵測不取消 returning、玩家 provoke 可取消；leader 本人死亡才取 roster 第一名存活者，失馬不另換 leader。Bandit 與雙方城外騎兵各隊全滅後，獨立冷卻 60 秒才增加 generation、沿既有 scheduler 從 map edge 實際行軍進場；部分傷亡不逐人補員。每個 Town 的 `townOutskirts` 保存 generation／剩餘 cooldown，雙方騎兵另保存傷亡與待生成 checkpoint；未完成的 spawn batch 不視為全滅，mission cleanup 不移除此 checkpoint；Captain Patrol Command 以 `patrolOutskirts`／`patrolAmbient` 保存本場 generation、傷亡、位置與戰損，避免 Reload 重新生成已計擊殺的敵軍。RESPAWN_COOLDOWN 續讀保留剩餘時間且不 enqueue 死亡 generation，冷卻結束才排下一波。
-- Retirement 存在時，`TownOutskirtsWarfareController`、`EnemyEaglePatrolController`、`BanditMissionController` 在 constructor／restore／enqueue／refill 前抑制外部敵軍生產；departing 取消尚未 materialize 的 jobs，已存在的敵方地面部隊／營地 Bandit 以 `NPC.updateTownTravel` 與 formation 前往邊界，敵鷹沿既有 patrol flight 飛到原生轉向界線前的安全離場線，再由原 owner cleanup。清除 encounter／combat／siege target，不改全域 hostility、AI／spawn／navigation 預算或平時 60 秒補員。退休 reload 不重建外部 threats，因此不保留撤退動畫逐幀進度，也不讓舊 cooldown 或 checkpoint 補回敵軍。Home Town resident cavalry／garrison 仍由原生和平 owner 管理；新正式任務／賽事接受被既有 commit 擋住，避免重開敵軍 producer。玩家前進不等待敵軍清空。首次越過 `TOWN_CITY` 實際核心矩形後，先保存 mobilizing 與 Town command revoke；departing 尚未離城時保留 Town command，HR 私兵指揮始終獨立。`TownRetirementMobilizationController` 再原子保存最小 receipt 與既有 ground／civilian／eagle resource checkpoints，僅五名塔樓守衛新增 `retirementTowerGuards` checkpoint，才套用原生恢復及 staging。完整 237 humanoid 名冊由八隊 206、原生鷹手 5、塔樓弓手 5、平民 20 與商人 1 組成；40 名 patrol 已在八隊中，不重複編組，21 名未編隊者依 stable ID 排入 auxiliary。Native patrol 被接管後停止 refill／AI，原生鷹保留返回 landing queue；後續傷亡由一般 checkpoint 保存，reload 不再 refill。退休地面部隊（含五名塔樓弓手）改在北門至廣場之間以既有 formation placement 分配合法地面集合點，保留主幹道與巷道、城門、階梯與坡道通道；廣場本身可集合，不再留守四門／城牆。牆上人員解除 garrison hold，經既有 layered navigation 步行下樓／坡道，若戰鬥已開始仍先完成下降再交回原生戰鬥；不瞬移、不重設資源。已保存的舊 mobilizing checkpoint 僅原子更新集合命令，保留傷亡及位置且不再次整補。所有 NPC 仍由既有單一 simulation 更新；Town 不敵對，玩家前往北方地圖邊緣的退役集合區（包含原 `(0,-318)` 點）。後續敵對、300 秒終局及新 Career 由前述 retirement finale owner 接管。
-- 舊 generation 的 roaming NPC 完成既有死亡演出後，才從 controller actor list／ownership map 移除並 dispose；演出期間繼續正常 dead update。每次 cavalry 全滅替換將原 generation 的坐騎標記 retired：死馬等既有 dead update 完成，活馬無 NPC／Player 騎乘即可回收；Player 借騎的 retired Horse 保留到下馬，不轉成 owned mount。清理移除 mounts list 並只 dispose 一次，不新增 timer。
-- Roaming 與正式任務 actors 依 faction hostility 自然互傷，正式目標／友軍的實際死亡沿原任務規則處理；普通任務的 roaming 不進 `targetActorIds`、`remainingEnemies`、mission objective／contribution roster 或 mission survivor／casualty 計數；Captain Patrol Command 是明確例外，只收當前場景登記的敵對 Bandit／敵國外圍軍隊，並按唯一 Actor ID 累積有效擊殺。玩家造成的有效傷害可得一般 combat／skill XP，第三方傷害／擊殺不轉為玩家軍功。可追過開放城門；普通 roaming 遇障礙維持通用 AI fallback；Siege 先透過無副作用的 `prepareCavalryForSiege` 解析原騎兵名冊，保存成功才確認 claim；失敗的重試只領用原先選定 IDs，後來生成的騎兵仍由 roaming owner 管理；Reload 以整隊 ownership 及精確借用 IDs 分別排除，保留未領用的原生名冊。被正式 Siege claim 後改由 Siege 指定城門目標，並以 `NPC.bindCombatEventSink` 暫時接到本場事件流，結束／取消時解除 scoped routing，恢復原 sink，不重複訂閱。
-- `TownCavalryPatrolController` 管理兩隊各 20 名 `duty: patrol` residents（基礎 roster 230，含五名空軍；Career 城鎮另加 HR Officer 與 eagle-trainer，共 232）；永久 `patrolId`／`patrolLeader` 與 runtime `activeLeaderActorId` 分開。兩隊從兵營經東／西門出城，沿 `TownPatrolRoute` 同向順時針循環。`TownMissionCombat` 以實際 actor 集合排除任務接管者，未被調用者仍巡邏；借方在下達集合命令前逐人 `relinquish`。任務結算後，Patrol 以 `RETURN_TO_BARRACKS → REFIT → REJOIN_PATROL` 接回角色：整補使用 `TOWN_SITES.barracks` 南側庭院的 40 個固定騎乘 slot（間距 4.5 公尺），與巡邏 startup 編隊座標分開；存活者實際騎乘／步行抵達才整補，死亡者以同 ID 在該 slot 恢復；原裝備、HP、盾、彈藥及原坐騎恢復後即可再次借用；兩名 T4 Captain 沿用 faction canonical mount（Roman Corgi／Viking Black Cat），其餘 38 名騎兵保持 Horse，死亡整補及 reload 不回退種類。Captain 缺席時由 runtime deputy 帶隊，Captain 實際追隊接近後才接回 leadership。`NPC.updateTownTravel` 重用 mounted／foot formation、follow 與 navigation，不執行 combat target search；`FollowTrail` 讓長列沿實際路徑轉彎。自主 A/B Patrol 各自全滅後冷卻 60 秒，才以原 ID 在合法兵營 slots 整補並重新走原出發路線；`townPatrols` 按城鎮保存 generation、剩餘 cooldown、資源、返營成員及合法 waypoint／departureIndex／travel state／leader。正常巡邏讀檔續走同一條 authored leg；舊欄位缺失則由實際位置推回最近的原路段，不強制回兵營重走。全滅倒數到期但 home mount 仍由 Player 或其他 NPC 占用時維持 0 秒等待，釋放後才整隊增加一次 generation；所有 refit 入口也保護坐騎 ownership。普通 reload 不補滿死者；部分傷亡等存活者實際返營後才整補死亡隊員。正式借用、Siege、玩家整補及正式返回沿各自 ownership，不套用自主全滅 cooldown。
-- `TownCavalryReserve` 只填任務 authoritative roster 的既定 slot，不新增領隊或改變兵種／人數。普通池為 Training 60、Patrol A 19、Patrol B 19；依來源順序，每層先 matching 再暫換裝，不足才 temporary。兩名 Patrol Captain 是獨立、相容 mounted Captain profile 的 T4 officer pool，不能填普通 slot 或 Maki/ranger slot。Cavalry Sweep 與 Town Veteran field acceptance 共用 selection；active mission 以既有 `friendlyActorIds`／`borrowedActorIds`、位置與傷勢 checkpoint 恢復同一份 assignment，不重新挑兵。Campaign／Outpost 保持既有流程。
-- `MissionTravelEncounter` 是 `BanditMissionController` 的 runtime-only 行軍中斷：保留仍有 caller 的 Town 共用 `MARCHING`／`RETURNING` 整隊遭遇；新兵巡邏已退役，四個 Recruit 剿匪、兩個騎兵清剿與三個 Veteran 野外任務由 `CareerTownEntry`／`main` 分流到 `Game`，不經舊 Town 部隊部署。首位偵測成員或有效受擊 NPC／Player 決定固定 origin，沿用 35m sensor／0.35 秒 squad broad-phase 與 58m leash；整隊取消 travel，圈外隊員實際回援，威脅清空直接從實際位置繼續剩餘 route／stage，不集合、不補兵補馬。NPC／Player 的 HP、shield impact、mount HP／死亡及致死接觸由 TownScene 同步喚醒；TownMissionCombat 只給 incidental participants 有效 roaming threat grid，後來圈外的 Player 戰鬥等本場結束再由新 sensor／hit 判斷。原 mission 接戰條件優先交回正式 ENGAGING；Town mounted march 使用 leader replacement 與無語音重播的 resume，Outpost relief 保留原死亡衝鋒規則。Victory／reward 維持原時機，RETURNING encounter 只阻擋 returnComplete／最終返城收尾。Encounter 不入存檔；原 actor positions／health／casualties/checkpoint 持續保存，reload 由現有 checkpoint 恢復後重新偵測。Veteran VI 直接 ENGAGING，Duel 保留自己的 runtime。
-- Cavalry Sweep 與一般 Veteran field 共用 mounted assembly：存活任務 NPC 到位人數達 `ceil(存活數 × 90%)` 即保存 `MARCHING` 並沿原 march controller 出發，Player 不列入集結門檻；未到者保留原 actor／mission ownership，接收 follow 命令實際追隊，不 teleport、不刪 roster。陣亡者不列入分母，未滿門檻或保存失敗仍維持集結。
-- Commander I／II 的原生敵城居民由 Town duty controllers 更新，正式部隊才屬任務 `fieldNpcs`；部署完成不喚醒全城。地面守軍依 equipment-adjusted station 與既有警戒射程限制取得／追擊；越過 home leash 仍可處理 8m 近距離接觸，但該目標只授予原地 Defend，不授予追擊。NPC 共用原有 Defend 戰鬥邏輯，保留正式原命令，威脅離開後用 formation/navigation 實際回崗；近距離有效接觸可中斷返回；城牆弓兵維持駐守。正式攻城的目標、部署與城門命令優先，額外背景目標仍受同一防守區域限制。平民在未受威脅時正常散步，敵城服務權限不變。Sky Raid 的 100 個唯一原生 Actor 減員包含背景死亡，與 Player／正式部隊擊殺與軍功歸因分開保存；原生巡邏資源不由任務 objective ledger 重建。
-- 正式 field 任務敵軍接近時，未被任務接管的 Town military 沿既有 external threat 加入反擊；地面步／騎守軍維持 20m，Town Eagle Garrison 初次警戒為 120m。空軍登乘期間保留 120m 最小警戒，接戰後按實際弓的有效射程延伸，並同時限制 rider-to-target 3D 距離、以城鎮為中心的 240m 追擊半徑及 Town 世界邊界；0.25 秒感知優先選擇空中威脅，失效目標立即解除，不能以遠處 home pad 阻止合法巡邏攔截；Veteran／Cavalry Sweep 的集結、行軍與交戰期間皆適用，Player 死亡不停止駐軍防衛。守軍與任務敵軍共用實際 hostile grid、melee／projectile／mount-impact 路徑，但不加入任務 roster、整補或玩家 contribution。平民與遠處駐軍維持和平；敵方 native 駐軍不享有 Player 友軍保護，正式借用者保留任務 ownership。
-- 任務外圍敵軍從 Town 實際 `±350m` 邊界內側生成：Veteran field／敵境斥候增援在 `x=322m` 附近、Sweep 在 `z=-315m` 附近、四門 Siege 在各門對應 map edge 集結；敵境斥候我方與 Player 在 `z=310m` 附近出發，仍朝向敵城。整隊編隊保留安全邊距，已保存的 actor positions 沿原 checkpoint 恢復。
-- Patrol 遭遇以每隊錯開的 0.35 秒 sensor、SpatialGrid 隊伍範圍查詢及整隊 alert 接入；本人 HP 傷害、盾牌實際 impact／block、騎乘中坐騎 HP 傷害／死亡及致死一擊，均可由敵對 mission／ambient／roaming／實際 HR source 喚醒同隊。HR 的 sensor／hit wake 共用實際 ownership、RETURNING 與 Mission PREPARING gate；Player 由 DamageRouter 的有效 HP／shield contact event 明確通知 Patrol owner（坐騎先捕捉實際 rider），不把 source 缺失或環境 fall 當作玩家攻擊。新敵隊加入沿用固定 origin／58m leash；Player 初次偵測仍為 35m，以實際 spotting 成員的位置建立固定 origin；ENGAGING 時以該 origin 的 58m 維持／解除交戰，不隨隊首、後排或 Player 移動重設；全滅、所有參戰敵隊消滅／disengage／超界後，參戰成員共用 `beginPatrolReturn` 回固定 slots。部分傷亡的死亡者等存活隊員實際返營後恢復，全滅則等待本隊 60 秒；失馬者步行抵達才補 canonical mount；失馬 Captain 保留指揮，死亡者由 deputy 接手。回營受有效命中可將同 patrolId 的 Patrol-owned 存活 `PATROLLING`／`RETURN_TO_BARRACKS`／`REJOIN_PATROL` 成員拉入新 engagement，以受擊點重建 origin、保留既有 refit destination／傷亡；mission／其他 owner 與 REFIT 排除。一般任務 reserve 借兵仍排除交戰、回營及 REFIT；Captain I 的整隊接管允許交戰與傷亡，僅排除整隊回營／REFIT 及其他 ownership；個別返營／REFIT 保留原 travel owner，Follow 與其他命令共用權限 gate、HUD 標記返回中；只在未結算的 ENGAGING 任務中，完成整補後才加入任務指揮，接續同兵種隊員的現行命令，Formation 沿既有 placement owner 找空位而不移動既有隊員；RETURNING 仍保存 checkpoint，但不再 reclaim 或下達玩家命令；Captain 的主選單返回與 pagehide 均由自身 controller 保存 checkpoint；REJOIN 恢復 reserve。Ownership 沿用 relinquish／實際任務 actor 集合，戰鬥資格不要求活坐騎；中間狀態保持 runtime-only。
-- 同一 Patrol lifecycle 也接受正式任務敵軍與 ambient Bandit：以實際 field／已放行 Defense／roaming actors 建立共用 threat grid，sensor 與有效 contact 都走整隊 encounter，全滅後等待本隊 60 秒，再以同 ID 在固定兵營 slots 整補。Patrol-owned 成員不再被個別 external threat 接管；正式借走者維持任務 ownership。
-- Bandit 與雙方 roaming cavalry 全滅後各自等 60 秒才從 map edge 整隊回補；被 Siege claim 者直到結束才歸還外圍生命週期。Captain 敵巡為 T2；正式 Commander 敵巡為三隊各五名 T4 Captain、五名 T4 Ranger，使用各自獨立英雄坐騎。編制變更等既有 encounter 結束後進入 RETIRING，實際返回 map edge 才換新 generation；冷卻不因任命重設。Town 保存敵巡 tier、generation、部署／退場／交戰狀態、HP／ammo／失馬與剩餘冷卻，尚未 materialize 的已保存成員也保留。正式 Siege 只接管已保存 claim 的 squads／精確 actor IDs，未接管的 Commander 敵巡繼續正常巡邏與冷卻；不借其英雄填普通攻方 slots，Captain 舊 T2 借兵照舊；Bandit 仍僅保存原 timer／generation。
+距離、秒數、編制人數以程式常數為準（如 `src/town/TownOutskirtsRules.ts` 的 `OUTSKIRTS_*`、`TownEagleGarrison.ts`、`EnemyEaglePatrolRules.ts`）；本檔只記擁有者、不變條件與禁止事項。
 
-Siege 攻方的 `missionAerialDefense` 明確允許行軍時以現有武器 3D 射程回應真正飛行中的目標，目標離開／死亡即沿原 formation 繼續；地面接敵與其他任務仍維持 20m 行軍中斷政策。新版步弓越過城門後使用 `attack`，避免套用 Viking `charge` 收弓近戰規則。普通步弓 50m、馬弓 30m 與標槍等原武器數值不變，不能因目標是巨鷹而越過自身射程。
+## 交戰調度
 
-`TownEagleGarrisonController` 管五對固定 T3 rider／mount／home pad identity，不建立第二份友軍名冊。正常和平 Career Town 自主步行登乘，以 1.5 秒間隔真正起飛，按 20／25／30／35／40m AGL 的不同有限路線巡邏；完成一圈、彈藥耗盡、嚴重受傷或巡邏逾時即排隊返航。只有抵達自己基地、落地卸乘且騎手回到待命位置才整補、休息後再出發。日常巡邏任一 rider／mount 失去作戰能力即開始 60 秒補員倒數，仍由永久 Garrison owner 恢復原 ID；正式 Siege 接管者、受保護 Duel 與 Town Hostility 不使用 ambient 復活權限；Commander 敵城任務與 Veteran VI 的原生空軍保留自主生命週期。騎手死亡但存活無主鷹被障礙卡住時，須等騎手墜落／死亡呈現完成與 60 秒到期，才在原地面基地恢復固定資產；死亡坐騎仍須完成墜落。`townEagleGarrisons` 保留 v1 舊存檔，新增可選 waypoint、巡邏時間、休息、補員與起飛間隔；戰損、位置、飛行、未決墜落與 pad identity 保持權威。正式 Town Defense／Conquest 的五名守軍、目標 IDs 與結算授權不變，保護階段暫停巡邏，合法 combat phase 仍由原任務接管。
+- `TownMissionCombat.update` 擁有野外、Duel 與城鎮戰鬥的角色集合、敵我 grid、NPC／坐騎更新順序；各任務保留自己的 phase 規則與 controller checkpoint。內部 `TownActorUpdates` 以穩定順序推進，Defense 的護送／釋放／返程交接在推進前讀取，**不可用幀初名冊覆寫同幀交接**。
+- 每個 NPC 每幀只模擬一次；TownScene 只更新未被騎手控制或已死亡的坐騎。TownScene 保留傷害歸因與投射物管理。
+- Outskirts 以獨立 runtime participants 接入自然交火，共用附近查詢與導航預算，**不併入 controller 的任務名單**。外部威脅駐軍由 `TownMissionCombat` 登記，結算只能透過 `releaseExternalThreat` 歸還。
 
-原生城鎮空軍的巡邏、戰鬥、傷亡、返航與 60 秒補員均由 `TownEagleGarrisonController` 擁有；不保存或恢復歷史 Town 空軍玩家兵權。Sky Raid 50 名與 Captain VI 29 名任務空軍仍使用正式任務授權。
+## Town Hostility
 
-`EnemyEaglePatrolController` 是獨立 ambient owner，按已任命 Captain／Commander rank 啟用三對相反城鎮 faction 的 T3 弓手／xongkoro，沿共享 `NpcSpawnScheduler` 在安全城外地面部署；每對使用 slot＋generation identity，與 HR、私人 pads、地面 Outskirts 3×10 編制及正式任務名冊分離。按 0.35 秒感知與路線 leash 選擇空中優先目標，重用 NPC 空戰與傷害歸因；返航、地面整補、60 秒補員和死亡演出清理皆由此 owner 管理；退役世代的存活無主鷹不因卡牆而永久保留，但騎手與死亡坐騎的墜落／死亡呈現仍須完成。每城 `enemyEaglePatrols` 保存完整 actor／mount checkpoint、待部署狀態、generation 與剩餘倒數；正式城鎮任務不單因任務旗標停止獨立巡邏，受保護 Duel／獨立 Outpost／Town Hostility 仍保留既有安全限制。Siege 接管的原生空軍由正式 owner 管理，獨立城外空軍仍正常活動。TownMissionCombat 僅更新各 NPC 一次，TownScene 僅更新未被騎手控制或死亡的坐騎一次；空中移動使用實際屋頂／樹冠的 `airspaceObstacles`。
+- 開始前先保存「取消正式任務與交接」，被取消任務不結算；恢復平時兵權後把 `authorizedTownCommandActorIds` 固定在 event 上，征服 objectives 排除這些 ID，Reload 不重新推算。
+- Town command 兵仍效忠 Player；跳槽成功後留在原城鎮、清除舊授權，不轉入 HR 或新 faction。
 
-Town 空軍（5 隻駐軍）與 HR 私兵巨鷹共用同一套自動垂直起降：`NPC.eagleVerticalFlight`（`TownEagleGarrisonController` 與有 HR 場景的 `PersonalSquadRuntime` 開啟）經 `EagleFlightIntent.vertical` 原地拍翅升到 `climbHeight` 才加速；返航以該高度與巡航高度較高者飛回 pad 上方、減速後由 `EagleFlightController` 懸停捕捉、轉向對位並近垂直下降，沿用既有 `takeoff`／`landing` phase 與快照格式，巡航不可懸停。`EagleAirspace` 是起降共用的即時空域規則：`isEagleColumnClear` 檢查完整翼展 footprint 在兩個高度之間沒有障礙、沒有其他空中巨鷹、也沒有 4 秒內航向會穿過的巨鷹；`eaglePadTransitionHeight` 取懸停捕捉範圍內障礙頂端以上的高度，作為可前飛、平飛抵達及機翼可偏離 pad 朝向的最低高度。離地前驗整段爬升；進場前受阻就盤旋等待，爬升中受阻原地降回後重試（因空中交通暫停者空域清空即續爬），下降中受阻退回巡航、盤旋後重試。`EagleLandingQueue` 只讓空域重疊（`eagleColumnsConflict`）的 pad 互等，未提供 pad zone 的固定翼走廊進場與所有人互斥；`approachSeconds` 是停滯視窗，回報的剩餘距離創新低才續期，盤旋不續期，逾時排到隊尾重試。Town 空軍與 HR 私兵各用一個場景佇列，空域檢查則涵蓋所有巨鷹。Player 與敵鷹不啟用垂直起降。`EaglePadArrival` 統一完成條件：指定 pad 水平誤差小於 3m、實際接地、速度歸零、符合指定朝向且實際停放翼展淨空；FlightController 最終連續滑行至 2m 內才 grounded，不做水平瞬移。`EagleLandingOccupants` 保留巨鷹完整翼展間距，地面坐騎則使用既有碰撞盒的實際世界範圍，避免城外巡邏馬誤擋城內鷹坪。Player 手動降落仍使用一般合法落地規則。`PersonalSquadHomeReturn` 只消費現行 `returnToHR` 意圖並配置實際私人 pad；一般 reload 的飛行、墜落、死亡與停放狀態保持權威，不遷移歷史座標。
+## 城外 roaming（Bandit／城外騎兵）
 
-`EagleFlightAI` 在共用 FlightController 上維持 RANGED_GROUND／DIVE_GROUND／RANGED_AIR／DIVE_AIR 的持續 maneuver，固定 20–40m AGL 巡航、有限轉向／預測拉升與 3D 空軍鄰居避讓。弓箭裝備／彈藥可用性與已選定戰術分開：有箭的騎手先完成騎射承諾窗口，遇到安全且對準的近距機會才俯衝，完成 pass／拉升後重新取得騎射窗口；換目標不逐幀重選或永久延後戰術決策。Follow／Formation／Defend 不等於 Return；只有明確 return order 才指定安全降落。`AerialViewPolicy` 只在 xongkoro 騎乘或高空 observer 啟用 700m camera far／fog，返回地面時還原場景原值；既有 LOD 與 gameplay update 獨立，不扩大高精度模型距離。
+- `TownOutskirtsRules` 定義 Captain／Commander 所有 Town runtime 的 Bandit 與城外騎兵編制。騎兵外觀取「目前 Town faction 的對立方」，allegiance 再依玩家 faction 決定，所以敵境可能出現玩家友軍（rider 享任務友軍保護，坐騎維持獨立命中規則）。
+- `TownOutskirtsWarfareController` 擁有 actor identity、sector route、leader／followers、警戒、整隊 aggro 與全滅補隊。`NPC.updateTownTravel` 巡邏不做 combat target search。
+  - Encounter 用固定 origin 的 leash（`OUTSKIRTS_ENCOUNTER_LEASH`）；leader 本人死亡才換人，失馬不換。
+  - **只在整隊全滅後**冷卻、增加 generation、從 map edge 實際行軍進場；不逐人補員、不補半隊。未完成的 spawn batch 不算全滅。
+  - `townOutskirts` 保存 generation／剩餘 cooldown（騎兵另存傷亡與待生成 checkpoint）；mission cleanup 不移除。續讀保留剩餘冷卻，不重新 enqueue 已死 generation。
+  - Commander 敵巡為獨立英雄編制；編制變更等目前 encounter 結束、實際返回 map edge 才換 generation，冷卻不因任命重設。
+  - Captain Patrol Command 另以 `patrolOutskirts`／`patrolAmbient` 保存本場 generation、傷亡、位置與戰損，避免 Reload 重新生成已計擊殺的敵軍。
+- 舊 generation：NPC 完成死亡演出後才移除並 dispose；被替換的坐騎標記 retired，死馬等 dead update、無人騎乘的活馬回收、Player 借騎者保留到下馬且不轉成 owned。只 dispose 一次，不新增 timer。
+- Roaming 與任務 actors 依 faction hostility 自然互傷，但普通任務的 roaming **不進** `targetActorIds`、`remainingEnemies`、objective／contribution 或 survivor／casualty 計數。例外：Captain Patrol Command 只收當前場景登記的敵對外圍軍，按唯一 Actor ID 計有效擊殺。第三方擊殺不轉玩家軍功。
+- Siege 借用城外騎兵：先以無副作用的 `prepareCavalryForSiege` 解析名冊，保存成功才確認 claim；重試只領用原選定 IDs。被 claim 者改由 Siege 指揮，並以 `NPC.bindCombatEventSink` 暫接本場事件流，結束時恢復原 sink、不重複訂閱；Siege 結束才歸還外圍生命週期。未接管的敵巡照常巡邏與冷卻，不借英雄填普通攻方 slot。
+
+## Town Patrol（`duty: patrol`）
+
+- `TownCavalryPatrolController` 擁有兩隊 patrol residents；永久 `patrolId`／`patrolLeader` 與 runtime `activeLeaderActorId` 分開。Captain 缺席由 deputy 帶隊，Captain 實際追隊接近後才接回。路線由 `TownPatrolRoute` 定義，`FollowTrail` 讓長列沿實際路徑轉彎；整補用 `TOWN_SITES.barracks` 的固定騎乘 slots，與巡邏出發編隊座標分開。
+- 生命週期 `RETURN_TO_BARRACKS → REFIT → REJOIN_PATROL`：存活者**實際抵達**兵營 slot 才整補；死亡者以同 ID 在 slot 恢復原裝備、HP、彈藥與原坐騎種類（Captain 用 faction canonical mount），死亡整補與 reload 不回退種類。
+  - 部分傷亡：等存活者返營後才補死者。全滅：等冷卻後整隊重出；home mount 被占用時維持等待，釋放後只增加一次 generation。
+  - 普通 reload 不補滿死者。正式借用、Siege、玩家整補與正式返回各走自己的 ownership，不套自主全滅冷卻。
+- `townPatrols` 保存 generation、cooldown、資源、返營成員與 waypoint／travel state；讀檔續走同一段 route，缺欄位時從實際位置推回最近路段，不強制回兵營重走。
+- 遭遇：sensor 或有效受擊（本人 HP、盾牌 impact、坐騎 HP／死亡）都可喚醒整隊；Player 由 DamageRouter 的有效 contact event 通知，**不把缺 source 或環境墜落當成玩家攻擊**。交戰以固定 origin 的 leash 維持，不隨隊伍或 Player 移動重設；結束後共用 `beginPatrolReturn`。
+- 回營中受有效命中可把同 `patrolId`、Patrol-owned 的存活成員拉入新 engagement（保留 refit destination 與傷亡）；REFIT 中與其他 owner 的成員排除。
+- 一般任務 reserve 借兵排除交戰、回營與 REFIT 中的成員；Captain I 整隊接管允許交戰中的隊伍。個別返營／REFIT 成員保留 travel owner，整補完成後才加入仍在 ENGAGING 的任務指揮。中間狀態只存在 runtime。
+- 同一 lifecycle 也接受正式任務敵軍與 ambient Bandit；Patrol-owned 成員不再被個別 external threat 接管。Roaming 的個別駐軍威脅登記只限非 patrol 的 Town military（城門守軍、training 等可反擊且不新增整補）。
+- `TownCavalryReserve` 只填任務 authoritative roster 的既定 slot，不新增領隊、不改兵種或人數；Patrol Captain 是獨立 officer pool，不填普通或 ranger slot。進行中任務以既有 `friendlyActorIds`／`borrowedActorIds` checkpoint 恢復同一份 assignment，不重新挑兵。
+
+## 任務行軍遭遇
+
+- `MissionTravelEncounter` 是 `BanditMissionController` 的 runtime-only 行軍中斷，處理 Town 共用的 `MARCHING`／`RETURNING` 整隊遭遇。野外任務已由 `CareerTownEntry`／`main` 分流到 `Game`，不經舊 Town 部隊部署。
+- 首位偵測者或有效受擊者決定固定 origin；整隊取消 travel、圈外隊員實際回援；威脅清空後從實際位置續走剩餘 route，**不集合、不補兵補馬**。
+- 原任務接戰條件優先交回正式 ENGAGING；Victory／reward 時機不變，RETURNING encounter 只阻擋最終返城收尾。Encounter 不入存檔，reload 由既有 checkpoint 恢復後重新偵測。
+- Cavalry Sweep 與 Veteran field 共用 mounted assembly：存活任務 NPC 到位達門檻即保存 `MARCHING` 出發（Player 不計入、陣亡者不計分母）；未到者保留 ownership 並追隊，不 teleport、不刪 roster；保存失敗維持集結。
+- 任務外圍敵軍從 Town 實際邊界內側生成，已保存位置沿 checkpoint 恢復。
+
+## 城鎮駐軍反擊
+
+- 正式 field 任務敵軍接近時，未被任務接管的 Town military 以 external threat 反擊；共用 hostile grid 與 melee／projectile／mount-impact 路徑，但**不加入任務 roster、整補或玩家 contribution**。Player 死亡不停止駐軍防衛。平民與遠處駐軍維持和平；敵方 native 駐軍不享 Player 友軍保護。
+- 空軍警戒／追擊受最小警戒半徑、實際弓射程、以城鎮為中心的追擊半徑與世界邊界共同限制；優先空中威脅，失效目標立即解除。
+- Commander I／II 敵城：原生居民由 Town duty controllers 更新，只有正式部隊屬任務 `fieldNpcs`，部署完成不喚醒全城。守軍越過 home leash 只對近距離接觸原地 Defend、不追擊，威脅離開後經 formation／navigation 實際回崗；城牆弓兵維持駐守。Sky Raid 的原生減員（含背景死亡）與 Player／正式部隊擊殺分開保存。
+- Siege 攻方 `missionAerialDefense` 允許行軍中以**現有武器射程**回應飛行目標，不可因目標是巨鷹而越過射程；地面接敵維持一般行軍中斷政策。步弓越過城門後使用 `attack`，不套 Viking `charge` 的收弓近戰規則。
+
+## 退休撤離
+
+- Retirement 存在時，`TownOutskirtsWarfareController`、`EnemyEaglePatrolController`、`BanditMissionController` 在 constructor／restore／enqueue／refill 前就抑制外部敵軍生產；已存在的敵軍沿既有 travel／patrol flight 離場後由原 owner cleanup。不改全域 hostility、AI／spawn／navigation 預算或平時補員規則；退休 reload 不重建外部威脅、不讓舊 cooldown 補回敵軍。
+- 玩家首次越過 `TOWN_CITY` 核心後，先保存 mobilizing 與 Town command revoke（HR 私兵指揮獨立）；`TownRetirementMobilizationController` 再原子保存 receipt 與既有 resource checkpoints（塔樓守衛另存 `retirementTowerGuards`）後才套用 staging。
+- 完整退休名冊由八隊、原生鷹手、塔樓弓手、平民與商人組成；patrol 已在八隊中不重複編組，未編隊者依 stable ID 排入 auxiliary。被接管的 native patrol 停止 refill／AI。
+- 地面部隊在北門至廣場間以既有 formation placement 集合，保留主幹道、城門、階梯與坡道通行；牆上人員經 layered navigation 實際下樓，不瞬移、不重設資源。已保存的 mobilizing checkpoint 只更新集合命令，不再次整補。之後的敵對與終局由 retirement finale owner（見 [career-profile](career-profile.md)）接管。
+
+## 城鎮空軍
+
+- `TownEagleGarrisonController` 擁有原生城鎮空軍的固定 rider／mount／home pad identity、巡邏、戰鬥、傷亡、返航與補員；不建立第二份友軍名冊，**不保存或恢復歷史 Town 空軍玩家兵權**。
+  - 只有實際抵達自己基地、落地卸乘、騎手回到待命位置才整補。
+  - 失去作戰能力後倒數補員，以原 ID 恢復；騎手與死亡坐騎的墜落／死亡呈現須先完成。正式 Siege 接管者、受保護 Duel 與 Town Hostility 不使用 ambient 復活權限。
+  - `townEagleGarrisons` 的戰損、位置、飛行、未決墜落與 pad identity 是權威狀態。正式 Town Defense／Conquest 的守軍、目標 IDs 與結算授權不變，保護階段暫停巡邏。
+- 任務空軍（Sky Raid、Captain VI 等）使用正式任務授權，不屬 Garrison。
+- `EnemyEaglePatrolController` 是獨立 ambient owner：依已任命 rank 啟用、經共享 `NpcSpawnScheduler` 在城外地面部署，slot＋generation identity 與 HR、私人 pads、地面 Outskirts 及任務名冊分離；返航、整補、補員與死亡清理都由它管理。`enemyEaglePatrols` 保存完整 actor／mount checkpoint。正式城鎮任務不因任務旗標停止它，受保護 Duel／Outpost／Town Hostility 保留既有安全限制。空中移動使用 `airspaceObstacles`。
+
+## 巨鷹起降與空戰
+
+- Town 空軍與 HR 私兵巨鷹共用自動垂直起降：`NPC.eagleVerticalFlight`（由 `TownEagleGarrisonController` 與有 HR 的 `PersonalSquadRuntime` 開啟）經 `EagleFlightIntent.vertical` 原地升降，沿用既有 `takeoff`／`landing` phase 與快照格式；巡航不可懸停。**Player 與敵鷹不啟用**；Player 手動降落走一般合法落地規則。
+- `EagleAirspace` 是起降共用的即時空域規則：`isEagleColumnClear` 檢查完整翼展柱內無障礙、無其他巨鷹與將穿越的航線；`eaglePadTransitionHeight` 決定可前飛／偏離 pad 朝向的最低高度。受阻時盤旋或原地降回重試。
+- `EagleLandingQueue` 只讓空域重疊（`eagleColumnsConflict`）的 pad 互等；每場景 Town 空軍與 HR 私兵各一個佇列，空域檢查涵蓋所有巨鷹。逾時排到隊尾重試，盤旋不續期。
+- `EaglePadArrival` 統一完成條件：水平誤差、實際接地、速度歸零、朝向與停放翼展淨空；**不做水平瞬移**。`EagleLandingOccupants` 對巨鷹用完整翼展、對地面坐騎用實際碰撞盒。
+- `PersonalSquadHomeReturn` 只消費現行 `returnToHR` 意圖並分配私人 pad；一般 reload 的飛行、墜落、死亡與停放狀態保持權威，不遷移歷史座標。
+- `EagleFlightAI` 在共用 FlightController 上維持 RANGED_GROUND／DIVE_GROUND／RANGED_AIR／DIVE_AIR 持續 maneuver；裝備／彈藥可用性與已選戰術分開，換目標不逐幀重選戰術。Follow／Formation／Defend 不等於 Return，只有明確 return order 才降落。
+- `AerialViewPolicy` 只在騎乘 xongkoro 或高空 observer 時放大 camera far／fog，回地面還原；不擴大 LOD 高精度距離。

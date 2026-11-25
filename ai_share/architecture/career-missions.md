@@ -2,45 +2,84 @@
 
 範圍：各任務 controller、checkpoint、結算與返城、Commander 系列任務、Duel 與 Outpost。索引與共通規則見 [ARCHITECTURE.md](../ARCHITECTURE.md)。
 
-- `CareerBridgeBattle` 擁有 Commander IV 的獨立 Career launch、200v300 固定編制與目標死亡判定；不使用 Campaign Stage／Outpost runtime。北岸依 faction 共用 River Crossing planner，八隊各25人，正式 authority 初始全隊受控，HR 保留原城鎮 checkpoint 且不部署。`Game` 共用 Career field checkpoint／Spawn Scheduler／指揮與結果 UI：先保存500人身分並部署200名友軍，初始 checkpoint 成功後玩家進場，自由移動與指揮180秒；倒數結束且生成階段存檔成功後，300名敵騎才從南岸遠端生成，全員初始化並保存後同步進攻。`bridgeDeployment` 保存準備剩餘秒數及 preparing／spawning／assault 階段，Loading 不計時，同格式交戰 checkpoint 不重新倒數；`bridgeBattle` 保存 actor／mount／player／命令狀態，重載只恢復存活者。Defense 軍功與 Tier 5 勝場透過 `claimCareerMission` 單次保存，部署錯誤保留原存檔供重試。
-- `CommanderDecapitationDeployment` 只規劃斬首行動尚無 Player 位置的首次北側邊界部署；共用 Navigation connectivity、`PersonalSquadDeployment` 淨空／間距與 `EagleLanding` 完整翼展檢查，一併保留 Player、30 名正式騎兵及 HR／巨鷹位置。威脅範圍讀取實際 NPC 射程，原生空軍另計登鷹後射程；無完整合法配置時明確失敗，不放寬檢查。`CommanderTownMissionController`／`TownScene` 沿既有 scheduler 與 Loading barrier 套用同一配置，已有 `playerPosition` 或完成部署的 checkpoint 保留原位置、死亡與空中狀態。
-- `CaptainPatrolCommandController` 只借用正式編制含 20 個有效唯一 ID 的既有 Patrol A/B（含原 T4 Captain）；交戰、傷亡、失馬及整補後歸隊皆可接管，整隊返營／REFIT、其他任務或 Siege ownership 不可接管；混合隊伍中的個別返營／REFIT 隊員保留 Patrol travel ownership、checkpoint 與命令排除，整補完成後才交接任務兵權，不生成新正式士兵或額外敵軍；接受時保存名冊、戰損及授權，原 Patrol controller 逐人 relinquish；live 接管只移交兵權，保留目標、攻擊動畫、戰鬥狀態與實際資源。MissionGuide 每幀追蹤存活隊長位置，死亡選正式隊存活替代者，失馬不換人，全滅／RESULT 隱藏。當前場景敵對 NPC 的有效傷害與唯一 `actor_killed` 事件才計軍功／30 殺目標，玩家、授權 Patrol 與已部署 HR 都可貢獻；第三方擊殺、友軍、平民與 training 排除。達目標優先勝利；尚未完成且 Player、正式 Patrol、已部署 HR 全滅才失敗。勝利存活後可直接回 Career Town 安全出生點，先保存 grounded return 並排除舊 Player aerial snapshot，再使用既有 resetForScene 解除騎乘／落下；或保存 RETURNING 再沿既有 Patrol return／refit 實際返營；玩家到返回區域即清理，不等待全員存活。`patrolReturnStates` 與原 actor checkpoint 保存返营／歸隊，續讀不重複整補或發軍功；ambient field controller 不接管此返程。結算後不保留 Captain 任務兵權。
-- `CaptainBattleLaunch` 以 `CareerCombatLaunch` 區分 Stage IX Defense launch 與 Eagle Custom Battle launch；`main`／`CareerTownEntry` 從有效 Career active mission 重建，free battle session 不能注入 `careerEagleMissionId`。Stage IX 重用現有 defender capacity、T3 enemy wave、T4 heroes、gate、120 秒援軍及 timeline，Captain 仍只授權第一線 20 人；新 Commander 授權原有 90 名守軍與 120 秒後的 50 名援軍，按既有 slots 分成五隊，未實體化援軍保持 Pending；進度、獎勵與結果仍保存 Career Tier 4，不改 free Campaign progress。`battle` 保存 timeline／wave cursor／gate、Player 與所有正式 NPC 的完整可選 actor checkpoint，`officialSquad` 另保存授權隊命令與 contribution。
-- Captain Eagle 重用 Custom Battle 地形、正式 `EagleFlightController`／`EagleFlightAI`、NPC 空戰及共用 scheduler；只生成本場 29 名友軍與 30 名敵軍的臨時巨鷹騎士。Player 使用自己的可用 xongkoro，保留 HP／死亡鎖；全體已招募 HR 是額外援軍，只有原本裝備可用 xongkoro 的私兵飛行，其餘以原武器／坐騎在地面參战。`CaptainEagleCheckpoint` 保存完整空中位置、飛行／墜落、HP、彈藥、盾、準備狀態與統計；臨時巨鷹不入玩家 inventory。空中 Follow／Defend／Formation 保持飛行，地面隊伍按地面路徑執行。
-- `CommanderFourGateDefenseState` 只接受現行 `rosterVersion: 3`、`enemyRosterVersion: 4`。450 名正式成員與 10 個 `autonomousActorIds`；自主守軍保存完整 actor checkpoint、死亡與 `nativeCombatStats`，結果統計獨立顯示且不發玩家指揮軍功。攻方固定 640 人。開始攻擊後必須同時保留騎兵與步兵護衛 receipt。八車與 15 分鐘防守條件由現行狀態決定，不重建舊名冊或推定缺少的勝利原因。
-- `TownMissionSettlement` 集中任務結果保存與返回順序：沿用 `claimCareerMission`／`clearCareerMission`，保存成功後才清理或重建場景；保存失敗保留現場供重試。已完成守城正式返回改為完整重建本城，`CareerMissionReturnRecovery.stageMissionReturnRebuild` 在最後一次 live snapshot 後清除本城軍隊戰場 checkpoint、地面／空中指揮權及原生巨鷹舊飛行狀態；正式裝備與坐騎配發不變，新 Actor 在正式站位以完整資源建立，Patrol／Garrison owner 從基地重新開始原有和平週期。其他原地步行返回仍只自動恢復平民／商人與服務 NPC，保留 Commander 軍隊、Patrol／Eagle 的原本 Return／Refit。Game／main 已完成戰場返回及 CareerTownEntry 領獎恢復共用同一個重建 owner；普通 reload／遭遇戰／未結束任務不觸發。重建回城在保存時清除 Player 的暫態 race／aerial checkpoint 與坐騎護甲戰損，不重播坐騎的死亡、血量或戰場座標，保留坐騎所有權與選用。原地返回將現有 race／aerial checkpoint 的 Player HP 恢復為實際最大生命，並在保存成功後、其他交接 callback 前補滿 live HP，避免巢狀保存寫回舊傷。所有徒步回城落點（重建城鎮、同場景返回、延後重試、賽馬步行目標）以 `PlayerFootBody` 的共用腳底偏移與 `Player.standOn()` 接地初始化放到已驗證表面上，與每幀步態同一偏移。直接原地返城先清除飛行／墜落回放並使用既有 scene reset 落回城門；步行返回保留實際位置與空中狀態，私兵戰損不變。HR 在跨場景正式返回與守城重建時，按永久私兵名冊保存 `returnToHR` 全員整補意圖，包含死亡、reserve 及未參與任務的成員；清除舊 HP／彈藥／盾／坐騎傷亡覆寫，由已配發裝備的新 Actor 提供滿資源。TownScene 用私人 pad allocator 保留配發身份；正式返營的每位成員保存為未部署 reserve，不生成騎手或坐騎，下一次 Follow 才從 HR／私人 pad 以完整配發資源出營。只有騎兵掃蕩等同場景原地返回保留 HR 戰損，普通 reload／進行中任務不觸發整補。
-- Home Town 原地返回亦恢復被任務敵軍殺死的非借用居民／駐軍及其 home mount、死亡 Cat，釋放 external threat 並恢復服務；未受害旁觀者保持原狀，Patrol casualties 仍由兵營 return/refit 接回。勝敗皆在 clear 保存成功後才恢復，敵境 native residents 沿重建場景處理。
-- Siege 各隊先接近自己門，近戰沿既有 NPC obstacle damage 破門，遠程在外支援；不能改走別門。只有敵方致命攻擊破門才釋放該門 AI 步兵與 cavalry reserve（含同場 reload），之後使用原生 Charge 自由追敵；其他門繼續守住自己的部署位置。部署 finalizer 只有在原生 formation 仍有效時才能沿用快取目的地，避免戰鬥準備清掉 formation 後留下 Charge。Commander 隊伍在成功保存玩家接管後才排除原生 AI，不必等待破門。NPC mission combat target 覆蓋一般、快取與遠程換敵選擇，任務清理後恢復原生選敵，攻方實際穿過本門才自由清城。Leader 死亡由同隊存活者接替。Roster 建立後所有死亡（含 PREPARING）永久計戰損，reload 保存 roster／位置／HP／失馬／準備時間／gate HP與breach／reserve release／crossing；同場 reload 不修門，結算返回恢復正常 open。不接受退休 Town War 任務或其 Siege state。
-- `CareerMissionCheckpoint` 擁有 controller checkpoint 的 5 秒 clock、立即／週期保存資格、profile clone 與同步提交，成功才重設 clock；失敗由 controller 下次提供最新快照重試。各任務保留快照生產、phase guard 及保存頻率：Bandit 的 route／傷亡立即保存，stats／騎兵位置走週期；城防時間每 1 秒、傷亡等變化立即保存；Duel 的 HP／ammo、死亡、phase／結果變化立即保存，位置、倒數與體力走 5 秒週期；Town combat 於 actor 更新後提交最新快照。立即保存也包含當前完整快照，force 只提前已變更的週期資料，不改存檔格式。
-- `TownEvent` 結算要求完整居民登記；跳槽勝利僅排除原生巨鷹騎手（依名冊的 eagle 身份，不因降落或失去坐騎而改變），其餘原有居民目標維持不變，巨鷹騎手仍登記與保存傷亡；玩家死亡優先。結算按 event ID 冪等，先保存再轉場；不是每個角色 HP／位置的完整快照。
+編制人數、準備／戰鬥秒數、距離與 roster 版本以各任務 `src/career/*Roster.ts`／`*State.ts` 的常數為準；本檔只記擁有者、不變條件與禁止事項。
 
-| 任務模組 | 契約 |
+## 共通規則
+
+- 任務保存名單、階段、必要死亡／統計與 checkpoint；**重載不等於新任務**。借用居民不得被任務 cleanup 當臨時 NPC／Mount 銷毀。勝敗優先序由各 state 模組決定，Duel 與團體任務不共用玩家死亡規則。
+- 部署或保存失敗一律保留原狀態供重試，不放寬檢查、不推定缺少的欄位。
+- 進行中存檔只接受現行 roster／schema 版本；不相容即拒讀，不重建歷史名冊或推定勝利原因。
+- `CareerMissionCheckpoint` 擁有 checkpoint clock、立即／週期保存資格、profile clone 與同步提交；成功才重設 clock，失敗由 controller 下次以最新快照重試。各任務自行決定快照內容、phase guard 與哪些變化立即保存；force 只提前週期資料，不改存檔格式。
+
+## 結算與返城
+
+- `TownMissionSettlement` 集中結果保存與返回順序，沿用 `claimCareerMission`／`clearCareerMission`：**保存成功後才清理或重建場景**，保存失敗保留現場。
+- 已完成守城的正式返回會完整重建本城：`CareerMissionReturnRecovery.stageMissionReturnRebuild` 清除本城戰場 checkpoint、地面／空中指揮權與原生巨鷹舊飛行狀態；正式裝備與坐騎配發不變，新 Actor 以完整資源在正式站位建立，Patrol／Garrison 從基地重新開始。Game／main 的戰場返回與 `CareerTownEntry` 領獎恢復共用這個 owner；普通 reload、遭遇戰與未結束任務不觸發。
+- 其他原地返回只恢復平民／商人與服務 NPC，以及被任務敵軍殺死的非借用居民／駐軍與其 home mount；Commander 軍隊與 Patrol／Eagle 保留原本 Return／Refit。勝敗皆在 clear 保存成功後才恢復。
+- 重建回城清除 Player 的暫態 race／aerial checkpoint 與坐騎護甲戰損，保留坐騎所有權；原地返回把 Player HP 恢復為實際最大值，並在保存成功後、其他交接 callback 前補滿 live HP，避免巢狀保存寫回舊傷。
+- 所有徒步回城落點以 `PlayerFootBody` 的共用腳底偏移與 `Player.standOn()` 放到已驗證表面；直接原地返城先清除飛行／墜落回放再用 scene reset。
+- HR 在跨場景正式返回與守城重建時，按永久私兵名冊保存 `returnToHR` 全員整補意圖（含死亡、reserve 與未參戰者）；正式返營成員保存為未部署 reserve，下一次 Follow 才以完整配發資源出營。只有騎兵掃蕩等同場景原地返回保留 HR 戰損。
+- `TownEvent` 結算要求完整居民登記，按 event ID 冪等，先保存再轉場；跳槽勝利只排除原生巨鷹騎手（依名冊身份），其餘居民目標不變；玩家死亡優先。
+
+## 任務模組
+
+| 任務模組 | 擁有的契約 |
 | --- | --- |
-| `CaptainMissionCatalog`、`CareerCommandAuthority` | Captain 分頁、獨立 Tier 4 與接受時保存的軍階授權；新 Commander 依正式名冊分隊，只恢復接受時保存的現行授權 |
-| `TownCommandSquadController`、`CaptainPatrolCommandController` | 平時訓練場兵權／實際返回及任務交接；既有 Patrol 借用、有效 30 殺、戰損與獨立結算 |
-| `CaptainBattleLaunch`、`CaptainEagleCheckpoint` | Career Stage IX／Custom Battle 空戰場景路由、正式與 HR 分離部署、完整 battlefield save／resume；不寫 free Campaign progress |
-| `BanditMissionController` | 背景營地盜匪與「斥候的悲劇」Town runtime、共用行軍及返程；九個已遷移野外任務由 `Game` 擁有，不再建立舊 Town 剿匪部隊 |
-| `CavalrySweep`、`MountedMissionMarch` | Town mounted missions 共用騎兵入口前空地的集合點；既有 actor 從目前位置集合，temporary 沿既有 supportApproach／townEntry 從 map edge 進場。集合完成即自動行軍；Captain 仍只控制第一隊 29 人，第二隊自動行軍／衝鋒；Commander 授權兩隊，尚未接管者沿原生 AI，行軍遭遇不覆寫已保存的玩家命令；友軍 temporary 結算後沿既有 departure 實際騎乘／步行到 edge 才移除，結算後 reload 不重建，敵軍仍正常清理 |
-| `CommanderFourGateDefenseController`、`CommanderFourGateDefenseRoster`、`CommanderFourGateDefenseState` | Commander V 有 450 名正式受控守軍、10 名自主守軍及 640 名攻軍，八車、固定 actor IDs 與完整護航 receipt。DEPLOYING 等待本城／HR／坐騎，保存 PREPARING 後有效準備 180 秒；零秒保存 SPAWNING 才部署敵軍，全部就緒並保存 ATTACKING 才進攻。保存拒絕或部署失敗保留同一份狀態供重試。消滅全部目標或有效戰鬥 900 秒且仍有守方人員即勝利；時間、傷亡、命令、兩種護航及勝利原因都以現行 checkpoint 保存，不接受 210／230 人、五分鐘或缺護航紀錄的歷史格式。 |
-| `CareerDuelController` | `duelMode` 分武裝（30 秒）與空手（90 秒），共用 5 秒準備；空手 T1–T5 以 `unarmedDuelHighestDefeatedTier` 獨立解鎖，不新增 preset。玩家裝備用暫時限制視圖、NPC 用借用 loadout 與 Duel 專用掌部出拳，NPC 固定每拳 5，不套用英雄攻擊倍率。權威有效傷害先驗證來源／拳頭 contact，違規 `illegal_attack` 先保存再結算失敗，優先於同次致命勝利；返城保存原居民資源，重載保留職業裝備與坐騎持有。借用士兵／英雄進行 1v1；普通 T1–T3 對手暫時同步人物 Tier、模型與共用 Max HP，保留居民實例／生命比例，checkpoint 保存血量基準、返城還原正式身分；英雄不套用普通切換。保存倒數、戰鬥與結果；任務 ownership 優先，外敵解除後恢復原路；帶路角色死亡由 Captain／referee／其餘存活任務角色接手剩餘路線，全隊死亡仍允許 Player 自行返營結算，結算歸還角色 |
-| `CareerOutpostMission`、`CareerOutpostLaunch`、`CareerOutpostRelief` | 跨 Town／Game 的任務啟動與同格式重整；`CareerOutpostRoster` 共用正式 army、wave IDs、Commander 分隊、Pending 與完整 checkpoint。剛接受任務尚無 checkpoint 是合法首次部署，載入不由歷史名冊或傷亡欄位重建快照。 |
+| `CaptainMissionCatalog`、`CareerCommandAuthority` | Captain 分頁、獨立 Tier 4 與接受時保存的軍階授權；Commander 依正式名冊分隊，只恢復接受時保存的現行授權 |
+| `TownCommandSquadController`、`CaptainPatrolCommandController` | 平時訓練場兵權與任務交接；Patrol 借用、有效擊殺目標、戰損與獨立結算 |
+| `CaptainBattleLaunch`、`CaptainEagleCheckpoint` | Stage IX／Custom Battle 空戰路由、正式與 HR 分離部署、完整 battlefield save／resume；不寫 free Campaign progress |
+| `BanditMissionController` | 背景營地盜匪與「斥候的悲劇」Town runtime、共用行軍及返程；已遷移的野外任務由 `Game` 擁有 |
+| `CavalrySweep`、`MountedMissionMarch` | Town mounted missions 的集合點與自動行軍；Captain 只控制第一隊，Commander 授權兩隊，未接管者走原生 AI，行軍遭遇不覆寫已保存的玩家命令；temporary 友軍結算後實際走到 edge 才移除 |
+| `CommanderFourGateDefense*`（Controller／Roster／State／Deployment／Entry） | Commander V 四門守城，見下節 |
+| `CareerDuelController` | Duel，見下節 |
+| `CareerOutpostMission`、`CareerOutpostLaunch`、`CareerOutpostRelief` | 跨 Town／Game 的啟動與同格式重整；`CareerOutpostRoster` 共用正式 army、wave IDs、Commander 分隊、Pending 與完整 checkpoint。剛接受尚無 checkpoint 是合法首次部署，不從歷史名冊重建 |
 
-Commander V 的 `CommanderFourGateDefenseDeployment` 依既有 `siegeDefensePlans` 與正式八隊身份，在真實 walk surfaces 上保留盾兵外列、槍兵內列、合法遠程射界與門內騎兵，避開原生／私人巨鷹 pads 與進場走廊。`TownFourGateSiege.prepare/register/update/snapshot` 直接接入 Scene 的同一 SpatialGrid、命中物件與動態空域；騎兵預設走本門 gate passage，僅在戰術追擊允許時使用本門已接通的騎乘坡道；弓兵與空軍保留各自 AI，明確玩家命令與 Dismiss receipt 原子鏡像到 mission／PR7 checkpoint。`fourGateDefense` bounded parser 保留完整騎手與原坐騎資源（空軍不塞進 PR7 地面 parser），只以全部敵方騎手／士兵（新 280／舊 230）死亡核銷目標。結算透過 `snapshotActiveMission` 將最後一 frame 與既有防守軍功／Tier 5 勝場同次保存；返回成功保存後才清場並重建正常 Home Town。正式任務隔離 ambient 敵軍，原任務不改變。
+## Captain 任務
 
-Commander V 新任務的60名槍騎由 `CommanderCavalryEscort` 固定分成每門左7／右8，沿實際車尾的 mounted formation 掩護推進，不成為 Crew／平台乘員，也不改投射物防護。組內仍有人存活且本車前端或任一存活組員距本門地面水平150m（`COMMANDER_CAVALRY_ESCORT.releaseDistance`）內，或本車毀棄／無推手／20秒未前進0.5m／全組死亡時，原子保存 release receipt 與 Charge 命令後交回原 Gate AI；保存失敗保持原 escort。`TownFourGateSiege` 的臨時 movement owner 排除 route／convoy 搶令；固定槽、進度及停滯秒數隨任務 checkpoint 保存。同一護車命令每前進1m只刷新 formation 目標，保留受阻恢復／局部繞行狀態並重新驗證 A* endpoint；真正換令或到位後的重新派令仍重設。ATTACKING checkpoint 缺少任一 escort 收據即拒讀，不重新集結或推定已經釋放。
+- **Patrol Command**（`CaptainPatrolCommandController`）：只借用既有、正式編制完整的 Patrol A/B；交戰、傷亡、失馬後都可接管，但整隊返營／REFIT、其他任務或 Siege ownership 不可。原 Patrol controller 逐人 relinquish；live 接管只移交兵權，保留目標、動畫與戰鬥狀態，不生成新兵或額外敵軍。
+  - 只有當前場景敵對 NPC 的有效傷害與唯一 `actor_killed` 才計軍功／目標；第三方、友軍、平民與 training 排除。達標優先勝利；Player、正式 Patrol 與已部署 HR 全滅才失敗。
+  - 勝利後可直接回城（先保存 grounded return、排除舊 aerial snapshot）或保存 RETURNING 實際返營；`patrolReturnStates` 保證續讀不重複整補或發軍功。結算後不保留任務兵權。
+- **Stage IX**（`CaptainBattleLaunch`）：以 `CareerCombatLaunch` 區分 Stage IX Defense 與 Eagle Custom Battle；`main`／`CareerTownEntry` 只從有效 Career active mission 重建，free battle session 不能注入 `careerEagleMissionId`。重用既有 defender capacity、wave、gate 與 timeline；進度與獎勵寫 Career Tier 4，不改 free Campaign progress。`battle` 保存 timeline／wave cursor／gate 與所有正式 NPC 的 actor checkpoint，`officialSquad` 另存命令與 contribution。
+- **Captain Eagle**：重用 Custom Battle 地形、`EagleFlightController`／`EagleFlightAI` 與共用 scheduler，只生成本場臨時巨鷹騎士（不入 inventory）。Player 用自己可用的 xongkoro；HR 中原本裝備 xongkoro 的私兵才飛行，其餘在地面參戰。`CaptainEagleCheckpoint` 保存完整空中狀態。
 
-Commander V 由原生指揮名冊建立任務專用編制。守方 v3 以 1／3／5／7 各指揮 50 名城牆步兵，2／4／6／8 各指揮 50 名城門地面步兵，沿用 wall／cavalry sector 的接戰事件與玩家命令優先權。0 號中央機動隊由 21 名居民、8 名原生幹部及 21 名 T3 槍騎兵組成，獨立於四門接戰及和平居民的移動流程。城鎮中心在生成前依實體樓板、碰撞與導航連通分配站位。維京機動騎兵離開長屋時，沿原有地面導航先進入中央走道，再通過門洞。TownWorld 在四門模式建立獨立碰撞的拒馬段，留開城門道路、樓梯及巨鷹淨空。兩種自主守衛與 9 號私兵沿用原有權限。
+## Commander 任務
 
-攻方 v4 每門 160 人，保留既有弓兵側翼、中央先鋒及兩車護衛，再新增 30 名 T3 近戰步兵和 20 名 T3 槍兵。新增步兵部署在原有車道及護衛的掃掠淨空外，待本門兩台車停止行進（接牆、毀棄或停駛）即交還原入城導航。車尾護衛步兵與槍騎兵沿用各自的隊形與釋放規則。現行 checkpoint 驗證精確任務名冊，戰前／戰中 Actor 與坐騎資源由四門任務保存。
+- **Commander IV 渡河**（`CareerBridgeBattle`）：獨立 Career launch 與目標死亡判定，不用 Campaign Stage／Outpost runtime；共用 River Crossing planner 與 `Game` 的 field checkpoint／Spawn Scheduler／指揮 UI。順序固定：保存全員身分 → 部署友軍 → 初始 checkpoint 成功後玩家進場與準備 → 生成階段保存成功後才生成敵軍 → 全員保存後同步進攻。`bridgeDeployment` 保存準備剩餘時間與階段（Loading 不計時，交戰 checkpoint 不重新倒數），`bridgeBattle` 保存 actor／mount／player／命令，重載只恢復存活者。軍功與 Tier 5 勝場經 `claimCareerMission` 單次保存。
+- **斬首行動**（`CommanderDecapitationDeployment`）：只規劃尚無 Player 位置的首次部署；共用 Navigation connectivity、`PersonalSquadDeployment` 淨空與 `EagleLanding` 翼展檢查，威脅範圍讀實際 NPC 射程。無完整合法配置時明確失敗、不放寬。`CommanderTownMissionController`／`TownScene` 沿既有 scheduler 與 Loading barrier 套用同一配置；已有 `playerPosition` 或完成部署的 checkpoint 保留原狀態。
+- **Commander Last Stand**：準備完成後才由 Defense Campaign wave owner 排入攻方騎兵，騎手與坐騎同一 job 建立並立即收到命令；攻方 staging 經 `DefenseCampaignDeployment` 驗證 clearance 與導航連通。勝利按完整 stable target IDs 判定，**未生成的 ID 仍算未消滅**；重載只補尚未存在的 IDs，每個成功 job 保存 checkpoint，不重設 timeline 或重播結算。
 
-- 四門守城戰 HUD 由 `FourGateDefenseHUD`（置中比分板，建立一次、4 Hz 更新、不攔截輸入）顯示；資料只來自 `CommanderFourGateDefenseController.hudSource()` 唯讀快照並由 `FourGateDefenseHudModel` 轉成顯示字串。我方＝Player＋`military`＋私人部隊（依 combatantId 去重）；每門守軍固定取部署時 `sectors[]` 的 `wallActorIds`＋`cavalryActorIds`（城牆與地面守軍，依 Actor ID 去重，不隨玩家調動改歸屬），中央機動隊、塔樓弓手與巨鷹只計入總兵力。敵軍沿用 `remainingEnemies`（未生成者仍在 target 名冊內，不算死亡）；城門「開啟」與「已攻破」分開，攻城車狀態直接讀 `MobileSiegeRampController.state`。HUD 只在此任務存在，取代 TownScene 左上文字面板，不影響其他 Career 任務。
+### Commander V 四門守城
 
-任務保存名單、階段、必要死亡／統計與 checkpoint；不把重載等同新任務。借用居民不得被任務 cleanup 當臨時 NPC／Mount 銷毀。任務勝敗優先序依各 state 模組，Duel 與團體任務不共用同一玩家死亡規則。
+- `CommanderFourGateDefenseState` 只接受現行守方與攻方 roster 版本（`COMMANDER_FOUR_GATE_DEFENDER_ROSTER_VERSION`、`COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION`，見 `CommanderFourGateDefenseRoster.ts`）；舊版進行中存檔依規則拒讀。現行 checkpoint 驗證精確任務名冊，戰前／戰中 Actor 與坐騎資源由四門任務保存。
+- 守方：Commander V 由原生指揮名冊建立任務專用編制。奇數隊指揮城牆步兵、偶數隊指揮城門地面步兵，沿用 wall／cavalry sector 的接戰事件與玩家命令優先權；0 號中央機動隊（居民、原生幹部與 T3 槍騎）獨立於四門接戰與和平居民移動流程。兩種自主守衛（`autonomousActorIds`，保存完整 checkpoint 與 `nativeCombatStats`，不發玩家指揮軍功）與私兵沿用原有權限。
+- 城鎮中心在生成前依實體樓板、碰撞與導航連通分配站位；維京機動騎兵離開長屋時先沿地面導航進入中央走道，再通過門洞。四門模式由 TownWorld 建立獨立碰撞的拒馬段，留開城門道路、樓梯與巨鷹淨空。
+- 階段：DEPLOYING 等待本城／HR／坐騎 → 保存 PREPARING 後準備 → 零秒保存 SPAWNING 才部署敵軍 → 全部就緒並保存 ATTACKING 才進攻。勝利：消滅全部目標，或有效戰鬥達時限且守方仍有人。時間、傷亡、命令、護航收據與勝利原因都在現行 checkpoint。
+- 新任務一律滿編滿血進場：`freshCommanderFourGateDefenseEntry` 不帶入小鎮當下的 Player／坐騎／居民／HR 傷勢。
+- 部署：`CommanderFourGateDefenseDeployment` 依 `siegeDefensePlans` 在真實 walk surfaces 上排列（盾兵外列、槍兵內列、合法射界、門內騎兵），避開巨鷹 pads 與進場走廊；步行弓兵優先佔 gatehouse gallery。`TownFourGateSiege.prepare/register/update/snapshot` 直接接入 Scene 的 SpatialGrid、命中物件與動態空域。
+- 攻方護航：
+  - `CommanderCavalryEscort`：槍騎沿車尾 formation 掩護，不成為 Crew、不改投射物防護；到達釋放距離（`COMMANDER_CAVALRY_ESCORT.releaseDistance`）或本車毀棄／停滯／無推手／全組死亡時，**原子保存** release receipt 與 Charge 後交回 Gate AI，保存失敗維持 escort。
+  - `CommanderInfantryEscort`：護車步兵（ID `<mission>:<gate>:<left|right>:escort:infantry:<n>`，不是 Crew、不乘車、不改推車速度）跟在槍騎後方，不因距離城門釋放，只在本車 DOCKED／毀棄／停滯／全組死亡時保存 receipt，再經 `TownFourGateSiege.resumeExternalMovement` 入城。
+  - `commanderArcherScreenTarget` 把攻方弓兵排在車前兩側、不擋車道；先鋒步兵開戰即 Charge 城門。
+  - 側翼近戰／槍兵部署在車道與護衛的掃掠淨空外，待本門兩台車都停止行進（接牆、毀棄或停駛）才交還原入城導航。
+  - `TownFourGateSiege` 的臨時 movement owner 排除 route／convoy 搶令；同一護車命令只刷新 formation 目標並保留受阻恢復狀態。ATTACKING checkpoint 缺任一 escort 收據即拒讀；`infantryEscort` checkpoint 嚴格驗證完整編組；已釋放者 reload 後不歸隊。
+- HUD：`FourGateDefenseHUD` 只在此任務存在並取代 TownScene 左上文字面板，不攔截輸入；資料只來自 `CommanderFourGateDefenseController.hudSource()` 唯讀快照，經 `FourGateDefenseHudModel` 轉成字串。每門守軍固定取部署時 `sectors[]` 的 `wallActorIds`＋`cavalryActorIds`（依 Actor ID 去重，**不隨玩家調動改歸屬**），中央機動隊、塔樓弓手與巨鷹只計入總兵力；敵軍沿用 `remainingEnemies`（未生成者不算死亡）；城門「開啟」與「已攻破」分開，攻城車狀態直接讀 `MobileSiegeRampController.state`。
+- 玩家命令與 Dismiss receipt 原子鏡像到 mission／Siege checkpoint；`fourGateDefense` parser 保留完整騎手與原坐騎資源（空軍不進地面 parser）。結算經 `snapshotActiveMission` 把最後一幀與軍功／Tier 5 勝場同次保存，保存成功才清場並重建 Home Town。正式任務隔離 ambient 敵軍。
 
-Duel arena 由 `TownDuelArena` 在步兵／騎兵訓練區之間的 forecourt 搜尋，驗證障礙物、既有訓練站位與 navigation；無合法位置時部署失敗，不退回城外。NPC 自然走到各自站位後才進 PREPARING，Player 沿用自動就位；讀檔保留位置恢復。`TownMissionCombat` 同幀推進 Duel flow 與完整 Town runtime，Duel actors 排除於 Patrol／居民 controller，與 world actors 共用 participants／target grid，每個 actor 只模擬一次。TownScene 沿正常敵意與友軍保護路由 melee／projectile／mount contacts，受保護 rider 的 mount 也受保護。Duel opponent 可選更近外敵、受第三方傷害；Player 離開 arena 不停計時，objective／stats 仍只追蹤既有 opponent，RESULT 暫停與結算不變。
+## Siege 任務 AI
 
-`TemporaryBattlefieldMounts` 只維護 combat-local 騎乘資格與 cleanup，不讀寫 Career profile／inventory／購買狀態。玩家用既有 mountVehicle／dismountFromMount 暫時騎乘、下馬與再騎；任務結算、失敗、放棄、撤退、回城／場景退出會解除臨時騎乘並沿用 controller cleanup。只登記本次 combat 生成或騎兵死亡後釋放的可借用坐騎，排除 owned mount 與 Town service／merchant mounts。原有駐軍坐騎僅在本次 combat 釋放後暫時允許騎乘；cleanup 保留其 Town 實體並恢復 reserved 資格，其他臨時無主坐騎清除，仍被 NPC 騎乘者依原 controller 返程／離場。永久選擇與 HP persistence 始終指向原購入坐騎，runtime temporary 標記不進存檔。
+- 各隊只攻自己的門，不改走別門；只有敵方致命攻擊破門才釋放該門 AI 步兵與 cavalry reserve（含同場 reload），其他門繼續守位。部署 finalizer 只在原生 formation 仍有效時沿用快取目的地。
+- Commander 隊伍在玩家接管**保存成功**後才排除原生 AI。任務 combat target 覆蓋一般／快取／遠程換敵選擇，清理後恢復原生選敵。
+- Roster 建立後所有死亡（含 PREPARING）永久計戰損；同場 reload 不修門，結算返回才恢復 open。不接受退休 Town War 任務或其 Siege state。
 
-Commander Last Stand 的初始名冊為 120 名友軍步兵加接受時 HR 私兵；60 秒準備完成才使用 Defense Campaign wave owner 交錯排入 50 Lancer／25 Sword-Axe Cavalry／25 Horse Archer。騎手及坐騎於同一 job 建立，每人立即收到 Charge（Squad 5／6）或 Attack（Squad 7）。攻方重用 Campaign staging 距離計算，透過 `DefenseCampaignDeployment` 檢查 ±300m 內、障礙 clearance 與正門外側導航連通，最近至少 150m。勝利按完整 100 個 stable target IDs 判定，未生成 ID 仍算未消滅；重載以既有 actorHealth／actorPositions 還原已生成存活者，確認死者略過，remaining wave 只補尚未存在的 IDs，每個成功 job 保存 checkpoint，不重設 timeline 或重播結算。
+## Duel
 
-T5 Duel 擴充既有 Duel tier（不擴充 UnitTier），沿用 T1–T5 同 preset 的逐級勝利解鎖，不要求軍階或軍功；借用唯一 Commander 為對手、Captain 裁判，依選擇配置既有 T4 武器；騎兵 preset 由 Duel 獨立建立合法 T4 臨時坐騎，不借用居民或 Player 坐騎。Duel 保存坐騎 HP／死亡，重載不復活失馬，cleanup 僅釋放自己建立的坐騎，Commander 的居民坐騎留在服務區且不納入 Duel 戰利品，結算後恢復騎乘。原始 HP／ammo、實際 travel checkpoint 及 T5 進度經正式存檔保存，成功結算後恢復原裝備與服務狀態；一般城鎮重建沿用同陣營服務資源恢復記錄。單挑勝利不直接晉升，正式 Commander 任命仍要求 Captain、20,000 入伍軍功與 Commander NPC 授權。
+- `CareerDuelController` 的 `duelMode` 分武裝與空手，各自獨立解鎖（空手用 `unarmedDuelHighestDefeatedTier`），不新增 preset。T5 擴充既有 Duel tier（不擴充 UnitTier），逐級勝利解鎖，不要求軍階或軍功；**單挑勝利不直接晉升**。
+- 玩家用暫時限制的裝備視圖，NPC 用借用 loadout；空手 NPC 傷害固定、不套英雄倍率。有效傷害先驗證來源與 contact，違規 `illegal_attack` **先保存再判負**，優先於同次致命勝利。
+- 普通 T1–T3 對手暫時同步人物 Tier／模型／Max HP，checkpoint 保存血量基準，返城還原正式身分；英雄不套用此切換。T5 對手借用唯一 Commander、Captain 裁判；騎兵 preset 由 Duel 自建臨時坐騎，不借居民或 Player 坐騎，cleanup 只釋放自己建立的坐騎，重載不復活失馬。
+- 帶路角色死亡由其他存活任務角色接手；全隊死亡仍允許 Player 自行返營結算，結算歸還角色與原裝備／服務狀態。
+- 場地：`TownDuelArena` 在訓練區間 forecourt 驗證障礙、站位與 navigation，**無合法位置就部署失敗，不退回城外**。`TownMissionCombat` 同幀推進 Duel 與完整 Town runtime，Duel actors 排除於 Patrol／居民 controller；受保護 rider 的坐騎也受保護。Player 離開 arena 不停計時，objective 只追蹤既有 opponent。
+
+## 臨時戰場坐騎
+
+- `TemporaryBattlefieldMounts` 只維護 combat-local 騎乘資格與 cleanup，**不讀寫** Career profile／inventory／購買狀態，runtime temporary 標記不進存檔。
+- 只登記本次 combat 生成或騎兵死亡後釋放的坐騎，排除 owned mount 與 Town service／merchant mounts。駐軍坐騎僅在本次釋放後暫時可騎，cleanup 保留其實體並恢復 reserved；其他臨時坐騎清除。永久選擇與 HP persistence 始終指向原購入坐騎。

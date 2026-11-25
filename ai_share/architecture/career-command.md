@@ -2,20 +2,73 @@
 
 範圍：正式兵權與命令、指揮 HUD、平民指揮、整補、HR 私兵、全城裝備與軍馬所有權。索引與共通規則見 [ARCHITECTURE.md](../ARCHITECTURE.md)。
 
-- `CaptainMissionCatalog` 擁有六個獨立 `captain-…` template IDs 與 Captain／Commander 分頁；不以其他 Captain 勝場鎖定順序。退休的 Captain Gate Defense／Siege Command 不再存在於目錄或 runtime。Eagle 解鎖讀取 `CareerInventory` 真實 xongkoro ownership；部署再驗證玩家可用 allocation 與戰損，不以當前騎乘代替 ownership。
-- `CareerCommandAuthority` 以成功保存的 mission ID、Town faction 與 Actor IDs 授予正式兵權。新接受任務的正式 Commander 另保存 `commandRank`、最多 8 支／每支最多 30 人的 `squads`，由 production roster／城門／wave slots 穩定分組，不補兵；同一 Actor 只屬一隊。正式任務保存接受時的實際授權；和平本城使用 canonical 206 人 membership，原生巨鷹自主，不讀取舊 30／210 人名冊或歷史空軍指揮快照。Parser／clone 保存完整分隊、逐人 claim 與原生返營 owner，拒絕重複、不完整、互相衝突或超額 membership；錯誤的擴充授權不能回報保存成功。`CareerCommandActorCheckpoint` 保存 HP、位置、彈藥、盾、命令、formation、坐騎與飛行／墜落，續讀不重新分隊、補員或復活；authority 不授予裝備或永久私兵 ownership。
-- `CareerOfficialCommandOrder` 先保存 `commandedSquadIds` 與 actor checkpoint，成功後才由既有 `ArmyCommandController`／`FormationController` 交接命令。Commander 未下令的隊伍維持原生任務 AI；玩家接管後，scripted march、城防定位、Charge／破門流程不得覆寫其命令；Dismiss 正式地面隊只交回原任務 owner，不刪兵、瞬移、整補或送往 HR；Town 空軍交回原 Garrison 的實際返航／基地整補流程。Captain 接受時保存單隊交接狀態，明確空清單表示交回 AI。Caller 同時驗證當前任務／場景、正式軍階、保存隊號、runtime ownership 與 allegiance；死亡、未實體化、返營／REFIT 或其他 owner 的 Actor 不接受命令。
-- `CareerCommandHudRoster` 只消費當前授權名冊，按隊顯示初始、存活、死亡、Pending、Returning 與命令；context 包含 mission／Actor identity，避免下一場沿用舊 HUD。官方 `squad:1`–`squad:8`、最多 30 人的 HR `squad:personal` 與獨立 `squad:civilians` 不共用名冊或容量；ALL 使用同一個實際授權集合，HR reserve、未部署與返回中的隊員不接受無效命令。HUD 保留「返營」／HR「待命」狀態；成功 Dismiss 清除所選目標舊命令快取，reserve 不影響現場 ALL 命令標籤。Player 死亡停止接受新命令，既有 AI 仍繼續。
-- `CivilianCommandAuthority`／`CivilianCommandSquadController` 只管理家鄉和平 Town 的 20 名平民與武器商人，顯示 `Civilian Squad · 平民／商人`；正式 Commander rank、scene key、mission ID、Town faction、Actor ID 與實例／owner 都必須匹配，不接管敵城居民、其他服務角色或新增 NPC。`civilianCommandSquad` 獨立保存 daily／player／returning owner、命令、formation、HP／死亡、homeMount 的 HP／騎乘狀態與返回目的地；一般恢復不復活死者或強迫已下馬者騎乘，正式整補先保存再以原坐騎恢復，不另生成坐騎；save-first 交接讓日常／疏散 AI 與玩家命令互斥，跨任務或失去資格不沿用舊兵權。商人沿既有 Follow／Dismiss 返回原服務點，保留已配置的戰馬，互動距離取其實際位置；守城平民 Dismiss 交回疏散 owner。沿用 50 HP 與 `NPC.armTownCivilian`／`retaliationWeapon`；平民優先使用永久裝備，沒有配置才取預設反擊武器，收起不清除配置。Merchant 固定自有 T5 Sword／T5 Axe／T4 Shield，只有 Mount 允許分配或卸下已購買的 horse，按持盾目標切換原生近戰武器，不入玩家庫存且不授予英雄 profile；平民隊不計官方／HR 軍功，商人不加入原 20 人平民傷亡目標。HUD／critical signature 只讀取輕量身分、owner、狀態與命令；五秒保存門檻或重要事件真正觸發 commit 後才建立完整 actor snapshots，保存失敗保留重試。
-- 士官長指定小隊整補沿用 Captain 固定 30 人與 `commanderGateDefenseSlots()` 八隊 206 人，包含全滅隊伍。先保存選中隊伍 checkpoint，再修復 Live Actor；死亡地面／城牆士兵回原合法 station，存活 Follow／Formation 保留位置。巡邏與空軍只保存 `refittingActorIds`／原生返回請求，依 Patrol 與 Eagle Garrison 資源 owner 完成，不建立替身或新坐騎。空軍 `serviceRefit` 保存服務要求與死亡演出等待，完成前不得重新接管；其他普通結算整補的既有接管契約不變。Native 完成後以真 runtime checkpoint 清除待整補狀態；失敗保存不發布任何修復或 ownership 變更。
-- `TownCommandSquadController` 對 Captain 仍接管固定 30 名既有訓練兵的指揮與實際返程；對和平本城 Commander 則以 `CommanderTownRoster.commanderGateDefenseSlots()` 保存 26／26／26／26／25／26／25／26、共 206 名正式地面隊員；北、南、東、西門各有步兵／騎兵兩隊。HR 本人屬第 8 隊，Captain 屬第 6 隊，和平時保留服務位置。這份 Town authority 是官方 1–8 隊唯一 membership 來源；5 名原生巨鷹與 5 名塔頂弓兵均不可選取或接受 ALL 命令。未受玩家命令的隊員維持 Town allegiance 與原生 gate／garrison／Patrol AI，成功保存明確命令後才逐人 claim；同隊未選中、返營或 REFIT 的 Actor 不會自動加入。Dismiss 的一般守軍由 Town command 實際走回原位，Patrol 則交回既有返營／整補／歸隊 owner，完成後仍須再次下令才能接管。接受正式 Town 任務以同一 canonical IDs 交接且不雙重擁有，既有原生 return actors 排除部署；回到和平城鎮才恢復先前逐人 authority。士官長手動整補依目前正式小隊處理；Captain 固定 30 人邊界不變。Commander 自己的和平非任務 Town 將全體居民、HR／平民／服務 NPC、其坐騎及 Town 建築視為 Player 受保護資產，玩家近戰、投射物與坐騎撞擊不會建立新的 Town Hostility；敵城、正式任務目標及既有 hostile 存檔不受此保護。Town Hostility、守城 refit、checkpoint 與正式任務命令的既有 save-first 規則保持不變。
-- `CareerPersonalSquad` 在 domain 驗證正式 Captain／Commander rank、availableMerit 與全部兵種共用的 30 人上限；T5 Commander 僅限已任命 Commander 招募，費用 2,000 軍功，以一次 save 原子保存扣款及 `personalSquad.members` 的永久唯一 ID／type、正式人物 Tier／英雄類型、招募兵種與原始雇用價；不保存 XP 或 runtime 世界狀態。`CareerInventory` 以 `inventory.quantities` 為唯一數量來源，ownership arrays 僅是相容投影；Player 的近戰／遠程／盾與 selected mount、HR 隊員裝備，以及 Town／Civilian 的 inventory 來源配置共同占用庫存，收起與 runtime 回收不解除分配。`CareerRecruitmentCatalog` 是新招募唯一配發／價格來源：Roman／Viking 每陣營 T1–T3 各五兵種、T4 Captain／Ranger 各五兵種、T5 Commander 五兵種。價格 100／200／300／500／2000；T1–T3 配 T1 武器且無馬，T4–T5 配 T2 武器及一般馬，劍／斧兵配同配發 Tier 盾，弓／標槍配同階備用劍。`TownRecruitmentPanel` 提供配置、HP／裝備摘要與限制原因。既有隊員明確保存的裝備保持不變，任務使用自己的原有配裝。舊 ownership 與缺少裝備欄位的 HR 成員僅在缺少 inventory version 時遷移一次，使用歷史 Soldier T2／Captain T3 配裝，不套用新招募配裝；Ranger 以獨立 `rangerEquipmentVersion: 1` receipt 將缺少的一般近戰與 Ranger Bow 配發為持有庫存，保存成功才開放 runtime；已遷移後的卸裝／出售不重複配發。新招募保存 `initialEquipmentVersion: 1`，Ranger 同樣走普通配發，不進舊專武遷移。舊 type 恢復 Soldier T2／Captain T4／Ranger T4／Commander T5；未保存的招募兵種只做一次裝備相容推定，缺失原價依歷史價格（Soldier 50）恢復，保存成功才提供遷移結果。換裝及賣人讀取 controller 的整隊 RESERVE 狀態，clone 完整交易、保存成功後才發布；賣人僅退 availableMerit，並從總庫存扣除隨隊員離開的目前可交易裝備；事先換下的物品保留。`TownHRLayout` 從 Horse Shop 後方搜尋 hall／mounted courtyard，驗證實際障礙、道路及城牆；`hr-officer` 是獨立 T4 service actor，使用 faction Captain 特殊坐騎，站在 HR 室內招募桌旁（遠離 muster 與中央通道）；Captain／士官長／Commander 由 `TownWorld.serviceStation` 讀取各陣營城鎮中心平面圖的 `service:*` anchor（左／中／右、實際樓板高度）入室服務，Commander 站位須可從廣場導航抵達，不另找替代點；新 Commander 正式第 8 隊包含本人，HR 私兵仍是獨立系統。
-- `CareerTownEquipment` 提供 Commander 本城全城裝備與 Captain／Commander HR 共用交易。`CommanderTownRoster` 重用正式守城固定 slots，缺員不重編；`TownDefenseRoster` 是同一純資料編制的守門來源。`BulkEquipmentPlanner` 以完整小隊的現裝、原生備品與未分配 Inventory 做最大權重配對：先最大化主要武器／坐騎有效 Tier 的嚴格升級人數，再選較高有效 Tier 與指定欄位 Tier，Actor ID 自然序及 Item ID 決勝；主要武器依遠程優先規則解析，連同弓／盾互斥副作用比較完整換裝前後配置，任何對應欄位及有效 Tier 均不降級，同 Tier 可換指定類別，同類同 Tier 沒有更佳全隊結果則 No-op。`townEquipment` 保存每城 Actor 的四欄來源 ref 與 native reserve；20 名平民各自原生持有 gladius_rusty，與 Merchant canonical 固定武器都不增加玩家庫存。`residentEquipmentVersion: 1` 一次性遷移舊 Merchant 原生劍與舊平民空配置，保留高階購買裝備、坐騎分配及已售 token；之後主動卸裝不重新配發。原生 token 固定來源與所屬小隊，不轉為 Inventory；重編前同隊已轉移的 token 保留歷史歸屬，原生空軍 token 留在唯讀自治群組；每件互斥地屬於 NPC、native reserve 或 `soldNativeIds`（現行 version 2；尚未出售原生物品時可沒有出售收據）。`CareerTownNativeResale` 僅讓正式 Commander 在本城和平且無正式任務時，向可互動的 Merchant 出售未分配的原生武器／盾牌；重用正式商品與軍階回收價，單件與批次皆重新驗證 live 狀態及完整 token 所有權，Clone 後整筆保存成功才提交，只增加可用軍功。Parser 拒絕偽造／重複及互斥來源重疊；預設 Loadout 回退與 reserve rebuild 排除已售 token，Reload／守城／整補不恢復，固定裝備與原生坐騎不可售。商店購買與 HR 配發份數共用既有庫存；Ranger 可正常換裝，但 Ranger、eagle-trainer 與 Merchant 的原生裝備仍排除轉售。Clone／ownership 驗證及整筆保存成功後才由 `TownEquipmentRuntime` 預檢整批 NPC，再套用永久 Loadout、重用或建立唯一實體坐騎；Scene materialization 先依目前合法持有人編制位置綁定重用坐騎，再由既有正式任務／Town checkpoint 恢復優先位置，不重設 HP。玩家指揮接管的巨鷹在 grounded 等待起飛期間也唯讀，Dismiss 完成原生返回整補後才恢復資格；返回／交戰（含巡邏隊 ENGAGING 控制權）／死亡／飛行及未實體化成員唯讀，HR 仍整隊 RESERVE。永久 `NPC.applyCareerEquipment` 保留英雄身份、HP、既有彈藥與盾耐久；Town 初始化、正式守城、整補、回城及 Reload 讀同一配置。 resident 與 Ranger receipt 各自判斷是否完成遷移，並於 loadChecked 共用一次原子保存；保存失敗不向 runtime 暴露遷移後狀態。
-- `PersonalSquadRuntime`（Town 由 `TownPersonalSquadController` 適配）只管理 Player-owned 私兵的部署、命令與返營，不更新 NPC／Mount；本城有 HR、無任務且非 final-stand 時（`standbyAllowed`），每名存活的已保存隊員都以 RESERVE 實體站在各自的 HR muster slot（`materializeStandby`：招募存檔成功、重載、整補後自動補上，換裝或遣散時重建／移除）。HR 待命生成與正式部署分開記錄：待命失敗只暫停該 ID（`standbyError`）、釋放該員 pending／停機位，不影響 `error`／`ready`、不鎖城，也不擋後續招募；只由 HR 面板的 `retryStandby` 以同一保存 ID 重試；正式部署失敗仍走 `error`。全隊收隊回 RESERVE 時仍在載入的批次維持 HR 分類，只有 Follow 或正式任務才把它們轉為部署批次。舊隊已 Follow 時新招募者逐人在 HR 待命（checkpoint `standby: true`），不改已部署成員命令、不加入目前隊形；HR 待命者（RESERVE 全隊或逐人待命）只接受 Follow，`acceptsCommand` 讓私兵／全軍的戰術命令與 Dismiss 步行都排除他們。狀態轉換為 招募 → HR 待命（RESERVE）→ Follow（DEPLOYING／ACTIVE，沿用同一批實體）→ Dismiss（RETURNING）→ 抵達後回到 RESERVE，實體、坐騎與傷亡都保留；巨鷹停在原私人停機位，騎士步行回 HR（抵達後不再重派步行），下次 Follow 沿用原接駁。單挑不帶私兵：接受時保存原 Town checkpoint，原地或重建回城都原樣恢復 HP、死亡與坐騎狀態。私兵交接以「原地／重建」決定，與玩家步行或直接返回無關：原地回城（含任務中已 Dismiss 回 RESERVE、或只剩陣亡紀錄沒有實體）保留同一份 checkpoint，不整補、不復活；重建場景的正式任務返回仍套用回 HR 整補規則。只有 HR 整補會補血、復活與補給；真正遣散、場景卸載與任務 scene 切換才移除實體。TownMissionCombat 或 Game 的共用迴圈各更新一次。實際 squad identity 固定 `personal`，與官方 1–8 不共用 key、領隊、slots 或名冊；官方 readiness、march、借兵、reinforcement 與 breach 命令排除私兵，實際碰撞、關門、投射物與導航包含私兵。Follow me 依目前已分配裝備部署；人物模型與 HP 讀保存的正式身分；實際武器決定 AI／作戰類型，招募兵種只記錄原始選擇，換裝不改人物 Tier 或英雄類型。每次正式生成前完成所需人物與武器預載，再進既有 scheduler／取消及失敗處理。Captain 固定 T4、Commander 重用 Roman／Viking T5 模型與完整 HeroCombatProfile，皆不因低階配發武器削弱英雄屬性；Shadow Warden 保留 T4 Ranger HeroCombatProfile，使用持久化的一般近戰／遠程配置及正常切換。所有招募組合共用原生命令、整補、存讀檔與額外任務增援流程，不改正式任務基礎兵力，也不授予 Player skill XP。
-- 非 Duel 的新 Career mission 接受時 snapshot 當下 HR 私兵 member IDs；舊 active mission 缺少 roster 視為未帶私兵，不回填。`CareerPersonalSquadMission` 的 bounded checkpoint 與永久 ownership／inventory 分開，保存部署／死亡／已退出、HP、彈藥、盾、原坐騎戰損、命令／formation、位置及五項 offensive counters。新任務的 fresh acceptance 透過 `captureForNewMission` 將已完成 HR 返回的 exited（含等待其他隊員的安全地面到營者）轉為完整整補 reserve，尚在回程／既有部署及未實體化 checkpoint 保留戰損，dead 不復活；新 roster 不繼承舊 Follow／Formation／RETURNING。保存成功後才由 `beginMission` 接管 live 實例及 pending command；失敗保留舊 runtime 供重試。同 Town 接任務保留實例；跨圖使用新場景合法位置重建存活／未退出成員，統一 Defend；同任務 reload 恢復命令、位置、戰損與 pending，死者／退出者不可再次 Follow 補員。Outpost 的 Player／私兵在官方後方合法部署，原生英雄與正式裝備在 Game 建立前預載；regular Outpost checkpoint 另保存 stable 官方 wave IDs、排隊進度、gate、Player 與 timeline，避免重播援軍或已死亡目標。
-- Commander IV 保留正式 200 步兵對 300 騎兵，接受時的 HR 私兵為額外獨立小隊，沿用原裝備、坐騎與共同更新迴圈。初始 Loading 等待正式友軍及私兵 checkpoint 成功後才交還 Player 控制，三分鐘準備結束再排入遠方敵軍。私兵存活延續觀戰，死亡、命令與坐騎另存於 `personalSquad`，不混入 500 人正式名冊；清除任務與 claimed reload 返回時，以同一筆保存將私兵戰損交給 `personalSquadRuntime`，回城後可使用既有 HR 整補。
-- 家鄉 Town Dismiss 以原生 formation 實際回 HR，RETURNING 可取消且存活者無距離門檻仍算己方戰力。沒有 HR 的 Outpost／敵城 Dismiss 是完整 no-op，保留原命令。結果不清理陪同私兵：直接返城視為全隊完成 HR 返營，cleanup／RESERVE，下一次部署原生整補；慢慢返回保留 instance 與戰損，任務清除後以 `personalSquadRuntime` 保存，只有 Dismiss 完成實際 HR 返程才整補。沒有 active mission 且沒有未休整部署的普通自由 Town，保留原有全滅／reload 行為。
-- `BattleStatsTracker` 保留真實 NPC source snapshot；私兵 source policy 驗證 ownership、`personal` key 與接受時 ID，正式隊驗證 mission ID、保存的 Actor→Squad 對應及友方 allegiance，Commander 另要求 `mission-official` ownership。正式軍隊 faction 由授權與當前任務驗證，不以角色外觀判斷：Roman Maki 保留 Viking 外觀，建築敵我歸因使用她所屬 authority 的 Town faction。官方與 HR 各保留獨立 aggregate，互斥歸屬後只合併一次至 `meritPlayer`；每支授權隊的 offensive counters 也遵守同一 source／event policy，保存與重載不把拒收事件混入分隊統計。任務 target／structure side 規則排除 roaming、友軍與自家建築；平民隊不進上述軍功。Player raw stats、damageTaken、survived、技能 XP 與 lifetime stats 保留個人來源，既有倍率不變；gate destruction 只計真實單次事件，結果鎖定後凍結 aggregate，回程不追加獎勵。Player 死亡後 Follow 改在其最後位置 Defend，不轉投官方 commander；活著、已部署且尚未完成退場的私兵只擴充己方全滅判斷，不改平民或指定保護目標規則。
-- `CareerCommandHudTypes` 以正式任務的 production roster 建立每個 accepted Actor ID 的兵種 metadata，按任務／編制快取，不查詢場景或產生實體。`CareerCommandHudRoster` 將它與真實 membership、居民／HR 裝備合併，因此死亡與未部署者仍保留兵種；`ArmyCommandHudRoster` 去重並顯示全部兵種圖示，完整兵種供 Tooltip／accessible label；超過四種的列橫跨兩欄，小螢幕切單欄。HUD 名稱依正式 authority 的 `commandRank` 分流，Commander 任務使用真實隊號，和平城鎮沿用城門名稱。
+編制人數、隊伍容量、價格與招募組合以程式為準（`CommanderTownRoster.commanderGateDefenseSlots()`、`CareerRecruitmentCatalog`、`CareerPersonalSquad`）；本檔只記擁有者、不變條件與禁止事項。
 
-`CareerMountController` 維護單一 active mount，切換／遣返保留 HP 與死亡鎖。軍馬只有一份 `horse` 所有權，tier 跟隨任命軍階；不接受歷史 tier ID。Captain 使用同陣營 T4，Commander 使用 `roman-hero-t5`／`viking-hero-t5`。任命先載入並暫建新角色，保存成功才替換；失敗保留舊角色與可重試的任命，取消及重複點擊不重複提交。替換保留原坐騎、位置／朝向、HP 比例、體力、彈藥、全部盾牌耐久及 inventory／skills，原相機重新綁定角色以保留視角狀態。舊 Commander 存檔載入 T5，失敗不降回 T4。正式隊指揮權由接受時保存的 authority 決定。
+## 共通原則
+
+- **Save-first**：兵權、命令、整補、交易與遷移都先 clone、整筆保存成功，才發布到 runtime；保存失敗不暴露半成品，保留重試。
+- 每個 Actor 同時只有一個 owner（原生 AI、任務、Patrol、Garrison、玩家命令、HR 私兵）；交接要逐人 relinquish／claim，不雙重擁有。
+- 死亡、未實體化、返營／REFIT 中或屬於其他 owner 的 Actor 不接受命令。Player 死亡後停止接受新命令，既有 AI 繼續。
+- 續讀不重新分隊、補員或復活；只有明確的整補流程才補血、復活與補給。
+
+## 正式兵權
+
+- `CaptainMissionCatalog` 擁有獨立 `captain-…` template IDs 與 Captain／Commander 分頁，不以其他 Captain 勝場鎖定順序。Eagle 解鎖讀 `CareerInventory` 真實 xongkoro ownership，部署再驗證 allocation 與戰損，**不以當前騎乘代替 ownership**。
+- `CareerCommandAuthority` 以成功保存的 mission ID、Town faction 與 Actor IDs 授予兵權。正式 Commander 另存 `commandRank` 與 `squads`（由 production roster／城門／wave slots 穩定分組，不補兵，同一 Actor 只屬一隊）。正式任務保存接受時的實際授權；和平本城使用 canonical membership，不讀舊名冊或歷史空軍指揮快照。Parser／clone 拒絕重複、不完整、衝突或超額 membership。
+- `CareerCommandActorCheckpoint` 保存 HP、位置、彈藥、盾、命令、formation、坐騎與飛行／墜落；authority 不授予裝備或永久私兵 ownership。
+- `CareerOfficialCommandOrder` 先保存 `commandedSquadIds` 與 actor checkpoint，成功後才經 `ArmyCommandController`／`FormationController` 交接。
+  - 未下令的隊伍維持原生任務 AI；玩家接管後，scripted march、城防定位、Charge／破門流程**不得覆寫**其命令。
+  - Dismiss 正式地面隊只交回原任務 owner，不刪兵、瞬移、整補或送往 HR；Town 空軍交回 Garrison 的實際返航整補。Captain 的明確空清單表示交回 AI。
+- `TownCommandSquadController`：Captain 接管固定的既有訓練兵；和平本城 Commander 以 `commanderGateDefenseSlots()` 作為官方 1–8 隊**唯一** membership 來源（HR Officer 與 Captain 也在隊中，和平時保留服務位置）。原生巨鷹與塔頂弓兵不可選取、不接受 ALL。
+  - 未受命令者維持 Town allegiance 與原生 gate／garrison／Patrol AI，成功保存命令後才逐人 claim；同隊未選中或返營者不自動加入。
+  - Dismiss 的一般守軍實際走回原位，Patrol 交回既有返營／整補 owner，之後須再次下令才能接管。接受正式 Town 任務以同一 canonical IDs 交接，回到和平城鎮才恢復先前 authority。
+  - Commander 自己的和平非任務本城：居民、服務 NPC、坐騎與建築視為 Player 受保護資產，玩家攻擊不建立 Town Hostility；敵城、任務目標與既有 hostile 存檔不受此保護。
+- 士官長指定小隊整補（含全滅隊伍）：先保存選中隊伍 checkpoint 再修復 Live Actor；死亡地面／城牆士兵回原合法 station，存活 Follow／Formation 保留位置。巡邏與空軍只保存 `refittingActorIds`／原生返回請求，由 Patrol 與 Eagle Garrison 完成，不建替身或新坐騎；空軍 `serviceRefit` 完成前不得重新接管。
+
+## 指揮 HUD
+
+- `CareerCommandHudRoster` 只消費當前授權名冊，context 含 mission／Actor identity，避免沿用舊 HUD。官方 `squad:1`–`squad:8`、HR `squad:personal` 與 `squad:civilians` 不共用名冊或容量；ALL 使用同一個實際授權集合。
+- `CareerCommandHudTypes` 以 production roster 建立 accepted Actor 的兵種 metadata（不查詢場景、不產生實體），所以死亡與未部署者仍保留兵種；`ArmyCommandHudRoster` 去重顯示。HUD 名稱依 `commandRank` 分流。
+
+## 平民指揮
+
+- `CivilianCommandAuthority`／`CivilianCommandSquadController` 只管理家鄉和平 Town 的平民與武器商人；rank、scene key、mission ID、faction、Actor ID 與 owner 全部匹配才接管，不接管敵城居民、其他服務角色或新增 NPC。
+- `civilianCommandSquad` 獨立保存 owner（daily／player／returning）、命令、HP／死亡與 homeMount 狀態。一般恢復不復活死者、不強迫騎乘；整補以原坐騎恢復。日常／疏散 AI 與玩家命令互斥，跨任務不沿用舊兵權。
+- 商人 Dismiss 回原服務點；守城平民 Dismiss 交回疏散 owner。平民優先用永久裝備，沒有才用 `NPC.armTownCivilian`／`retaliationWeapon` 預設。Merchant 固定武器不入玩家庫存、不授英雄 profile。平民隊不計官方／HR 軍功，商人不算入平民傷亡目標。
+- HUD 只讀輕量身分與狀態；真正 commit 時才建立完整 actor snapshots。
+
+## HR 私兵
+
+- `CareerPersonalSquad` 在 domain 驗證 rank、`availableMerit` 與共用人數上限；招募一次 save 原子保存扣款與 `personalSquad.members`（永久唯一 ID、正式身分、招募兵種與雇用價），不保存 XP 或世界狀態。`CareerRecruitmentCatalog` 是招募配發與價格的唯一來源；`TownRecruitmentPanel` 只呈現。
+- `CareerInventory` 以 `inventory.quantities` 為唯一數量來源，ownership arrays 只是投影；Player、HR、Town／Civilian 的配置共同占用庫存，收起與回收不解除分配。
+- 招募配發只在招募交易時發生一次；之後卸裝、出售或載入都不重新配發，也不從歷史格式推導裝備。
+- 換裝與賣人只在整隊 RESERVE 時進行；賣人只退 `availableMerit` 並扣除隨隊員離開的裝備。
+- `PersonalSquadRuntime`（Town 經 `TownPersonalSquadController` 適配）只管 Player-owned 私兵的部署、命令與返營，不更新 NPC／Mount；squad identity 固定 `personal`，與官方 1–8 隊不共用 key、領隊、slots 或名冊。官方 readiness、march、借兵、reinforcement、breach 命令排除私兵；碰撞、關門、投射物與導航包含私兵。
+  - 狀態：招募 → HR 待命（RESERVE，`materializeStandby`）→ Follow（DEPLOYING／ACTIVE，沿用同一批實體）→ Dismiss（RETURNING）→ 抵達回 RESERVE；實體、坐騎與傷亡都保留。
+  - 只有 `standbyAllowed`（本城有 HR、無任務、非 final-stand）時才實體化待命；HR 待命者只接受 Follow（`acceptsCommand`）；待命生成失敗只暫停該 ID（`standbyError`），不影響正式部署的 `error`／`ready`，只由 `retryStandby` 重試。
+  - 交接看「原地／重建」：原地回城保留同一份 checkpoint，不整補、不復活；重建場景的正式返回才套用回 HR 整補。真正遣散、場景卸載與任務 scene 切換才移除實體。
+  - 人物模型與 HP 讀保存的正式身分；實際武器決定 AI 類型，換裝不改人物 Tier 或英雄類型；英雄不因低階武器削弱 `HeroCombatProfile`。私兵不改正式任務基礎兵力、不給 Player skill XP。
+- 任務帶私兵：非 Duel 的新任務接受時 snapshot HR member IDs（舊 active mission 缺 roster 視為未帶，不回填）。`CareerPersonalSquadMission` 的 bounded checkpoint 與永久 ownership 分開。`captureForNewMission` 把已完成返 HR 者轉為整補 reserve，回程中與既有部署保留戰損，死者不復活；新 roster 不繼承舊命令。保存成功後才由 `beginMission` 接管 live 實例。
+  - Duel 不帶私兵，接受時保存原 Town checkpoint，回城原樣恢復。
+  - 私兵戰損另存於任務的 `personalSquad`，不混入正式名冊；任務清除時以同一筆保存交給 `personalSquadRuntime`。
+  - 家鄉 Town Dismiss 實際回 HR；沒有 HR 的 Outpost／敵城 Dismiss 是完整 no-op。直接返城視為全隊完成返營，慢慢返回保留戰損，只有實際完成 HR 返程才整補。
+- `TownHRLayout` 驗證 HR hall／courtyard 的實際障礙、道路與城牆；`hr-officer` 是獨立 T4 service actor。Captain／士官長／Commander 由 `TownWorld.serviceStation` 讀城鎮中心平面圖的 `service:*` anchor，站位須可導航抵達，不另找替代點。
+
+## 軍功歸因
+
+- `BattleStatsTracker` 保留真實 NPC source snapshot。私兵 source 驗證 ownership、`personal` key 與接受時 ID；正式隊驗證 mission ID、Actor→Squad 對應與 allegiance，Commander 另要求 `mission-official` ownership。
+- 正式軍隊 faction 由授權決定，**不以角色外觀判斷**。官方與 HR 各自 aggregate，互斥歸屬後只合併一次至 `meritPlayer`；拒收事件不混入分隊統計。平民隊、roaming、友軍與自家建築不計。結果鎖定後凍結 aggregate，回程不追加獎勵。
+- Player 死亡後 Follow 改在最後位置 Defend，不轉投官方 commander；已部署私兵只擴充己方全滅判斷。
+
+## 全城裝備
+
+- `CareerTownEquipment` 提供 Commander 本城全城裝備與 HR 共用交易；`CommanderTownRoster` 與 `TownDefenseRoster` 是同一份純資料編制，缺員不重編。
+- `BulkEquipmentPlanner` 以現裝、原生備品與未分配 Inventory 做最大權重配對：先最大化嚴格升級人數，任何欄位與有效 Tier **都不降級**，沒有更佳全隊結果就 No-op；以 Actor ID 與 Item ID 決勝確保穩定。
+- `townEquipment` 保存每城 Actor 的四欄來源 ref 與 native reserve。原生 token 固定來源與所屬小隊、不轉為 Inventory，每件互斥地屬於 NPC、native reserve 或 `soldNativeIds`；原生裝備不增加玩家庫存。Parser 拒絕偽造、重複與來源重疊；Reload／守城／整補不恢復已售 token。
+- `CareerTownNativeResale` 只在 Commander 本城和平、無正式任務時，向可互動的 Merchant 出售未分配的原生武器／盾牌；每次重新驗證 live 狀態與 token 所有權，只增加可用軍功。固定裝備、原生坐騎，以及 Ranger、eagle-trainer、Merchant 的原生裝備不可售。
+- 保存成功後才由 `TownEquipmentRuntime` 預檢整批 NPC 並套用；`NPC.applyCareerEquipment` 保留英雄身份、HP、彈藥與盾耐久。返回、交戰、死亡、飛行、未實體化成員與玩家接管中的巨鷹唯讀；HR 須整隊 RESERVE。
+
+## 軍馬與任命
+
+- `CareerMountController` 維護單一 active mount，切換／遣返保留 HP 與死亡鎖。軍馬只有一份 `horse` 所有權，tier 跟隨任命軍階，不接受歷史 tier ID。
+- 任命先載入並暫建新角色，保存成功才替換；失敗保留舊角色與可重試任命，重複點擊不重複提交。替換保留坐騎、位置、HP 比例、體力、彈藥、盾耐久、inventory／skills 與相機狀態。Commander 存檔載入 T5 失敗不降回 T4。

@@ -2,24 +2,53 @@
 
 範圍：主機權威鏡像、任務交接、客機角色／服務／軍功，以及各場景的合作行為。索引與共通規則見 [ARCHITECTURE.md](../ARCHITECTURE.md)。
 
-兩名玩家合作打 Career 中由 `Game` 執行的戰場任務。`electron/coop-hub.cjs` 是只轉送訊息的中繼（一個 host、一個 guest）；桌面版由主程序開啟 hub，並在 `coop-net.cjs` 持有 `ws` 連線，經 `preload.cjs` 的 `window.sagaburstCoop` IPC 提供給頁面，因此連線不會因 Town↔任務之間的整頁重載而中斷。網頁版改用 `npm run coop:hub`，頁面直接連 WebSocket，重載後依 sessionStorage 重新連線。`CoopSession`（`CoopLink.ts`）統一管理連線狀態、對方是否在線與訊息分派：控制訊息用 JSON，世界快照用 `CoopProtocol` 的 20 Hz binary 格式。
+## 核心原則
 
+- **主機權威**：世界（任務、城鎮、競技場）只由主機模擬、判定勝負、寫戰況 checkpoint 與結算。客機只呈現快照、操作自己的 Player，並把自己的命中送給主機。
+- **客機存檔隔離**：客機絕不寫入主機的世界狀態；寫回客機自己存檔的只有角色資料、技能，以及主機送來、帶收據的獎勵。每份獎勵都以主機 id 作收據，**只套用一次**。
+- **傀儡不屬任務名冊**：客機在主機端是 `Faction.PLAYER` 的傀儡 NPC（`coopPuppet`），客機私兵也標記 `coopRemoteCommand`；兩者都不進任務 roster、checkpoint 或主機指揮（Game 只取 `_isMissionRosterActor`，否則嚴格名冊 parser 會拒收整份存檔）。
 
+## 連線與交接
 
-- **任務交接（`CoopLaunch`）**：主機的 `launchCareerCombat` 每次啟動都會廣播啟動設定，並附上 Career／RPG／Campaign 存檔位元組與 `sagaburst*` session 項目。客機先把這份資料暫存起來，再整頁重載；`main.ts` 會在所有存檔或 session 恢復路由之前處理它。任務進行中，客機的 `gameStorage()`（`src/save/GameStorage.ts`，為 `CareerProfileStore`、`SaveManager`、`CampaignProgress` 的預設 storage）會換成主機存檔的記憶體副本；客機自己的 session 先備份，離開後的下一頁再還原，所以客機自己的 localStorage 存檔不會被讀取或寫入。同一個 launch id 不會重複重載。
-- **雙方各用自己的角色**：世界（任務、城鎮、競技場）由主機存檔建出，客機 Player 則由 `coopGuestPlayerSource` 建出。它來自客機自己的存檔：陣營外觀、英雄／Tier、HP、技能、裝備與坐騎都是客機自己的，並帶入主機目前的任務／賽馬狀態，讓空手單挑、賽馬等規則照常作用。客機在場景內換裝或換坐騎只保存在這一頁的記憶體，不寫回客機存檔；技能經驗則是客機自己的，戰場、單挑與小隊試煉升等或離開頁面時，以 `commitCoopGuestSkills` 只把 `skills` 寫回客機自己的存檔（逐項保留較高進度，存檔已換成另一個生涯時不寫入），升等後的最大 HP 也依客機自己的角色計算。城鎮本來就使用客機自己的存檔保存技能。各場景會預載客機角色的資產（`coopGuestCharacterAssets`）；主機也會先載入客機英雄與裝備，再建立客機傀儡（`lookReady`），傀儡的最大 HP 以客機實際值為準（`applyCoopMaxHp`）。
-- **主機（`CoopHostMission`）**：主機照常執行模擬。每個 NPC／坐騎都分配一個 u16 wire ID，生成訊息帶上 `NPC.networkDescriptor`（建構參數）與目前武裝；武裝改變時重新送出。客機角色在主機端是一個 `Faction.PLAYER` 的傀儡 NPC（`coopPuppet`），敵軍 AI 照一般 NPC 規則鎖定並傷害它，它的 HP 隨快照回傳給客機。客機送來的命中，由主機以傀儡 NPC 為來源，經 `damageNpc`／`damageMount` 套用。傀儡、客機私兵都標記 `coopRemoteCommand`，不屬於任務名冊：Game 的戰況檢查點與任務命令只取 `_isMissionRosterActor`（排除 `player-personal` 與 `coopRemoteCommand`），否則橋頭、貓科等嚴格名冊的解析會拒收整份存檔。
-- **客機（`CoopGuestMission`）**：用相同設定建出場景後，移除本機所有 NPC 和坐騎（只保留自己的坐騎），並略過生成排程、任務規則、`battleController` 與 NPC AI，改由 `updateWorld` 平滑套用快照。`NPC.updateCoopPuppet`、`Mount.updateCoopPuppet` 只負責呈現，不做導航、鎖定或傷害。`DamageRouter.setDamageInterceptor` 把客機 Player 自己造成的 NPC／坐騎命中轉送給主機，回傳的結果只用於畫面回饋；其他來源一律不生效。客機 Player 的 HP 以主機為準，只有墜落傷害會在本機先扣並同步給主機。投射物以只供顯示的 `ArrowProjectile` 呈現。
-- **攻城車、城門與可破壞建物**：場景以 `siegeRamps`／`siegeGates`／`siegeMirror`／`structures` 提供給 co-op 橋接（Town 四門守城戰、戰場前哨）。主機每 0.4 秒送出各攻城車的 placement 與狀態（距離、速度、對接進度、HP）及城門狀態；客機釋放本頁自己的攻城部署（Town `releaseForCoopGuest`、Game 的 `CampaignSiegeAssault.dispose`），由 `CoopSiegeMirror` 以 `MobileSiegeRamp.mirror` 建出只供顯示的車輛並在訊息之間外推，車輛碰撞、走道與對接後的通道照常加入客機的 obstacles。攻城車（`ramp:<id>`）、城門（`gate:<id>`）與 Game 的其他可破壞建物（依建置順序 `obstacle:<index>`）使用兩頁一致的 key：`damageObstacle` 的 interceptor 把客機 Player 的命中轉送主機（客機 HP 不變），主機以傀儡為來源依自己的規則套用（Town `damageSiegeStructure`、Game 依陣營 `isDamageableBy`），變動的 HP 以 `structures` 訊息回傳。守城方自己的城門依同樣規則不可被我方破壞。
-- **指揮權**：任務屬於主機，主機照單人規則指揮任務正式部隊（依階級與任務授權，例如指揮官可指揮全軍）與自己的 HR 私兵；客機只能指揮自己的 HR 私兵。客機的私兵來自客機自己的 Career 存檔（`coopGuestOwnSquad`，只讀取、不寫入），由主機以 `spawnPersonalSquadActor` 生成並模擬。這些私兵不帶 `player-personal` ownership，並標記 `coopRemoteCommand`；`ArmyCommandController._acceptsNpc` 一律拒絕這類 actor，主機的指揮選單因此碰不到它們。客機改用一組只操作自己私兵鏡像（`CoopGuestMission.ownSquad`）的指揮控制器：鏡像上的命令變化（戰術命令、列陣目標）會轉送給主機套用到真正的 actor，「跟隨」則改為跟隨主機上的客機傀儡。客機列陣的 command ID 加上 1,000,000 偏移，避免和主機的列陣紀錄衝突。
-- **城鎮（Town）**：主機的 `TownScene.start` 會建立 `CoopHostMission` 並宣告 `town`。客機同樣用主機存檔副本建出城鎮，`startCoopGuest` 把本機所有 actor 移出場景（只保留自己的坐騎），改顯示主機的鏡像。主機端快照透過 `NPC.live`／`Mount.live`（`LiveActorRegistry`，弱參照）收集場景中所有 actor，不必由各控制器回報；隱藏的 actor 以 `ACTOR_HIDDEN`／`MOUNT_HIDDEN` 同步。客機在城鎮不能接任務、使用 Tab／Q 或指揮；可以騎自己的坐騎，也可騎本頁的馬廄／野外馬（`keepCoopBorrowedMount` 讓它回到場景並當作客機自己的坐騎同步，直到換騎另一匹）。借用的是馬廄馬時，客機以 `stable:<index>` 回報，主機 `syncCoopLentHorse` 把自己那匹移出場景（不能騎、不碰撞，客機的鏡像也隨之移除），只留客機傀儡騎的那一匹，歸還後放回。四門守城戰的攻城車與城門走下方的攻城鏡像。主機開啟選單時，只要隊友在線且沒有結果、賽馬或退休終局，`coopWorldKeepsRunning` 讓城鎮照常模擬，只暫停主機自己的操作；任務結算與返城仍等選單關閉後才處理。
-- **城鎮敵對（同進退）**：客機在城鎮可以近戰、出拳、射箭，命中會轉送主機，由 `coopGuestHitsTown` 依主機自己出手的分流處理：山賊、外圍敵軍、空中巡邏與攻城敵軍（含其坐騎）以傀儡為來源走 `hitFieldNpc`／`hitBattlefieldMount`（打山賊會挑起整個營地）；居民與城鎮動物則照 `prepareDamage` → 傷害 → `activateHostility` → `persistCasualties`，所以任一方打居民都會觸發全鎮追擊。傀儡帶 `coopPuppet`，`combatAllegiancesHostile` 把它視為玩家方的部隊：和平居民不攻擊它，敵對居民、山賊與敵軍會；`TownMissionCombat` 把活著的傀儡加入 runtime 名冊、warfare grid 與山賊的對手清單，主機的投射物目標也包含它，近戰、箭矢都經 `damageCoopPartner` 命中它。`coopTeamDown` 讓兩人都倒下才算 `player_defeated`。主機結算後送出 `townResult`，客機以 `commitCoopTownResult` 把同樣的扣軍功或叛變寫入**客機自己的**存檔，並以主機事件 id 作為收據，同一事件只套用一次；客機自己城鎮未結的事件保持不變。
-- **客機服務**：客機進城後，`TownScene` 的服務改用客機自己的存檔（`store` 換成客機的 localStorage，`profile` 換成客機自己的角色）。商店、坐騎、HR 招募／遣散、晉升與職業、Tab 裝備都照原本的介面與規則，但存檔改走 `commitCoopGuestProfile`：只寫入角色資料與技能，不像一般 `commitTownProfile` 那樣把城鎮世界（指揮隊、巡邏、巨鷹駐軍、私兵部署、任務）寫進存檔，因為那些都是主機的世界。部署（接任務）、教學、劇情與退役選項對客機關閉；城鎮敵對時所有服務暫停（`townState`）。客機找服務 NPC 時，用的是主機鏡像的位置（`servicePoint`）。客機招募的私兵只進存檔，下次戰場才會跟著出戰。沒有生涯存檔的客機不開放服務。
-- **客機軍功（各算各的）**：主機在戰場、競技場與 Town 四門守城戰把客機本人與客機私兵的戰鬥事件（傷害、擊殺、攻城車等建物傷害與摧毀）記為客機戰績（`recordCoopGuestEvent`）；Town 只在四門守城任務期間記錄，主機結算保存後即 `notifySettled`，客機 Town 收到後重新讀取自己的存檔，避免之後的服務以舊資料覆寫軍功。主機自己的任務結算存檔後（`missionSettlement`），把戰績與勝負以 `missionMerit` 送給客機；客機用與主機相同的公式（`careerMissionMerit`；前哨任務用防守型 `calculateMerit`）算出軍功，以 `commitCoopMissionMerit` 寫入自己的存檔，主機任務 id 作為收據，只發一次。
-- **賽馬**：`CareerRaceController.coopRacer` 以客機傀儡的位置推進一名只存在於執行期的騎手，不寫入 race session 或存檔；網路位置的速度上限放寬為兩倍。`coopGuestWinsRace` 判定客機比主機和指揮官都先合法完賽時，主機這場鎖定為 `loss`（原因「隊友率先完賽」），並送出 `raceAward`。客機以 `commitCoopRaceAward` 把這一場的勝利紀錄與軍功寫入**客機自己的** Career 存檔；同一個主機 session id 只發一次獎勵。
-- **競技場單挑 2v1**：`CareerDuelArenaScene` 在主機端宣告 `arena`。對手每幀改為攻擊較近的活人（`setMissionCombatTarget`），近戰與箭矢都能打中客機傀儡；客機的命中只限對手本身（`canDamageOpponent`）。`CareerDuelController.coopPartnerAlive` 讓「玩家死亡」在隊友還活著時不算落敗。空手對決的違規判定把隊友傀儡的事件視為玩家來源，但隊友的傷害不計入主機戰績與軍功。客機用同一個場景，只操作自己的 Player，攻擊主機標記為 `target` 的對手鏡像；計時、勝負與結算都由主機處理。城鎮內的單挑場地不支援合作。
-- **競技場小隊試煉**：`CareerArenaCombatScene` 在主機端宣告 `trial`。客機傀儡加入我方：敵軍 AI 的目標清單與敵方箭矢都包含它，傷害走 NPC 對 NPC 的 `damageBodyFrom`。`counts()` 把活著的傀儡算成一名我方，因此兩人都倒下、我方也全滅才算失敗。客機的命中只限敵方 body 與其坐騎，且只在 `fight` 階段有效；鏡像依 `target` 標記顯示紅／藍隊標。開場倒數、計時、存檔檢查點與結算都只由主機執行；客機不讀主機存的玩家狀態，一律從主機旁邊起步。客機軍功以 `arena-squad-trial` 照單人規則計算（劇情邀請的固定獎勵只給主機）。
-- **越獄**：同一個 `CareerArenaCombatScene` 在主機開始越獄（`start`）時宣告 `prison`。主機戰敗被俘時，Game 離開會送出 `end`，客機停在返回畫面；主機在簡報按下開始越獄、進入關押場景後的宣告會讓客機（仍在聽 `launch`）重新載入跟進，所以兩人一起從主機起點旁開始。客機用自己的角色，與主機一樣徒手起步、不能換裝或騎乘；它在主機端是我方的一名戰俘：看守的近戰與標槍／箭矢都會鎖定、命中它，`counts()` 把活著的傀儡算成一名我方，所以主機、客機與所有戰俘都倒下才算失敗。客機的拾劍只是請求（`prisonPickup`）：主機依自己的拾劍規則與距離（傀儡 3m 內）在戰鬥中以 `PRISON_COOP_PARTNER` 寫入 `swords` 並保存，再以 `prisonState`（劍、鐵門、站立看守數、是否開戰、結果；變更即送，另每秒重送）同步；客機只更新這頁記憶體中的主機存檔副本並裝備，重新進場時從副本恢復這把劍。看守全倒照原規則開門；主機、任一活著的戰俘或客機傀儡實際穿過出口即成功，客機逃出記為 `escapedBy: PRISON_COOP_PARTNER`（客機不在存檔名冊中，存活由主機場景判定）。戰況檢查點與結算只由主機寫入；客機不讀主機存的玩家狀態，也不保存主機的越獄狀態，只把自己的技能進度經 `commitSkills` 存入自己的存檔（升等、每 5 秒與離開頁面時）。成功保存後主機立即送出 `missionMerit`（`kind: 'prison-break'`、收據為 `<主機任務 id>:prison-break`，與原戰役收據分開）；客機照單人規則把同一關的固定逃脫軍功寫入自己的存檔一次，只加軍功、不改戰績；失敗時不另扣客機任何東西。
-- **兩名玩家的碰撞**：戰場、城鎮、單挑、小隊試煉與越獄每幀在本機碰撞之後呼叫 `separateLocalPlayerFromPeer`，把本機 Player（騎乘時連同坐騎）推出對方身體；對方視為固定不動，所以兩邊各推自己，不會互相拉扯。客機一律從主機旁邊 2.5–3m 起步。
-- 主機從戰場返城（`_returnToCareerTown`）時不送 `end`，而在寫入返城存檔後以 `announceCoopTownReturn` 立即宣告 Town，讓客機與主機同時載入；launch id 暫存在主機 sessionStorage，主機 Town 就緒時以同一 id 再宣告一次，客機因此不再重載，只由 `CoopGuestMission` 收到同 id 的 launch 後重送 `ready` 與私兵，補上主機新頁尚未收到的握手。
-- 主機傳出 `end` 或連線中斷時，客機顯示返回等待畫面。主機在 Game、Town、競技場、小隊試煉、越獄之間切換時，會改為宣告新場景，客機跟著重新載入（停在返回畫面時也會跟上）。
+- `electron/coop-hub.cjs` 是只轉送訊息的中繼（一 host、一 guest）。桌面版由主程序在 `coop-net.cjs` 持有 `ws`，經 `preload.cjs` 的 `window.sagaburstCoop` IPC 提供給頁面，所以整頁重載不斷線；網頁版用 `npm run coop:hub` 直接連 WebSocket，重載後依 sessionStorage 重連。
+- `CoopSession`（`CoopLink.ts`）管理連線狀態、對方在線與訊息分派；控制訊息用 JSON，世界快照用 `CoopProtocol` binary 格式。
+- `CoopLaunch`：主機的 `launchCareerCombat` 每次啟動都廣播設定與 Career／RPG／Campaign 存檔位元組及 `sagaburst*` session；客機暫存後整頁重載，`main.ts` 在所有恢復路由**之前**處理。任務中客機的 `gameStorage()`（`src/save/GameStorage.ts`）換成主機存檔的記憶體副本，客機自己的 session 先備份、離開後還原，因此客機 localStorage **不被讀寫**。同一 launch id 不重複重載。
+- 場景切換：主機切換 Game／Town／競技場／試煉／越獄時宣告新場景，客機跟著重載；`end` 或斷線時客機顯示返回畫面。主機從戰場返城不送 `end`，而在寫入返城存檔後以 `announceCoopTownReturn` 宣告 Town，並在 Town 就緒時以同一 launch id 再宣告；客機不再重載，只重送 `ready` 與私兵。
+
+## 角色與模擬
+
+- 客機 Player 由 `coopGuestPlayerSource` 從**客機自己的存檔**建立（外觀、英雄／Tier、HP、技能、裝備、坐騎），並帶入主機目前任務／賽馬狀態。場景內換裝或換坐騎只存在這一頁記憶體；技能以 `commitCoopGuestSkills` 只寫回 `skills`（逐項保留較高進度，存檔已換成別的生涯就不寫）。
+- 主機先載入客機英雄與裝備再建傀儡（`lookReady`），傀儡最大 HP 用客機實際值（`applyCoopMaxHp`）；各場景以 `coopGuestCharacterAssets` 預載。
+- `CoopHostMission`：每個 NPC／坐騎分配 wire ID，生成訊息帶 `NPC.networkDescriptor` 與目前武裝，武裝改變時重送。敵軍照一般規則鎖定並傷害傀儡，HP 隨快照回傳。客機的命中由主機以傀儡為來源經 `damageNpc`／`damageMount` 套用。
+- `CoopGuestMission`：建出場景後移除本機 NPC 與坐騎（只留自己的坐騎），略過生成排程、任務規則、`battleController` 與 AI，由 `updateWorld` 套用快照。`NPC.updateCoopPuppet`／`Mount.updateCoopPuppet` 只負責呈現。`DamageRouter.setDamageInterceptor` 把客機 Player 的命中轉給主機，回傳結果只用於畫面回饋。客機 HP 以主機為準，**只有墜落傷害**在本機先扣再同步。投射物只用顯示用的 `ArrowProjectile`。
+- 兩名玩家的碰撞：各場景在本機碰撞後呼叫 `separateLocalPlayerFromPeer`，只推自己（騎乘時連同坐騎），把對方視為固定，避免互相拉扯。
+
+## 攻城車、城門與可破壞建物
+
+- 場景以 `siegeRamps`／`siegeGates`／`siegeMirror`／`structures` 接入橋接。客機釋放自己的攻城部署（Town `releaseForCoopGuest`、Game `CampaignSiegeAssault.dispose`），由 `CoopSiegeMirror` 以 `MobileSiegeRamp.mirror` 建出顯示用車輛並外推；車輛碰撞、走道與對接通道照常加入客機 obstacles。
+- 兩頁使用一致的 key：`ramp:<id>`、`gate:<id>`、`obstacle:<index>`（依建置順序）。`damageObstacle` 的 interceptor 把客機命中轉給主機，主機依自己的規則套用（Town `damageSiegeStructure`、Game `isDamageableBy`），HP 變動以 `structures` 回傳。
+
+## 指揮權
+
+- 任務屬於主機：主機照單人規則指揮正式部隊與自己的 HR；客機只能指揮自己的 HR 私兵。
+- 客機私兵來自客機存檔（`coopGuestOwnSquad`，唯讀），由主機以 `spawnPersonalSquadActor` 生成並模擬；不帶 `player-personal` ownership，`ArmyCommandController._acceptsNpc` 一律拒絕，主機選單碰不到。客機用只操作 `CoopGuestMission.ownSquad` 鏡像的指揮控制器，命令轉送主機套用；Follow 改為跟隨主機上的客機傀儡。客機列陣 command ID 加偏移，避免與主機衝突。
+
+## 城鎮
+
+- 主機的 `TownScene.start` 建立 `CoopHostMission` 並宣告 `town`；客機以 `startCoopGuest` 移出本機 actor、顯示主機鏡像。主機快照經 `NPC.live`／`Mount.live`（`LiveActorRegistry`，弱參照）收集所有 actor，不需各控制器回報；隱藏狀態以 `ACTOR_HIDDEN`／`MOUNT_HIDDEN` 同步。
+- 客機在城鎮不能接任務、使用 Tab／Q 或指揮。可騎自己或本頁的馬（`keepCoopBorrowedMount`）；借馬廄馬時以 `stable:<index>` 回報，主機 `syncCoopLentHorse` 把自己那匹移出場景，歸還後放回。
+- 主機開選單時，隊友在線且無結果、賽馬或退休終局，`coopWorldKeepsRunning` 讓城鎮照常模擬、只暫停主機操作；結算與返城仍等選單關閉。
+- 城鎮敵對（同進退）：客機命中由 `coopGuestHitsTown` 依主機出手的同一分流處理——敵方 NPC／坐騎走 `hitFieldNpc`／`hitBattlefieldMount`，居民與城鎮動物走 `prepareDamage` → 傷害 → `activateHostility` → `persistCasualties`，所以任一方打居民都觸發全鎮追擊。`combatAllegiancesHostile` 把傀儡視為玩家方；`TownMissionCombat` 把活傀儡加入名冊、grid 與敵方對手清單，命中經 `damageCoopPartner`。`coopTeamDown`：兩人都倒下才 `player_defeated`。主機結算後送 `townResult`，客機以 `commitCoopTownResult` 寫入自己存檔（主機事件 id 為收據），客機自己未結的事件不變。
+- 客機服務：`TownScene` 的 `store`／`profile` 換成客機自己的，商店、坐騎、HR、晉升、Tab 裝備照原規則，但改走 `commitCoopGuestProfile`——**只寫角色與技能，不寫城鎮世界**（指揮隊、巡邏、巨鷹駐軍、私兵部署、任務）。接任務、教學、劇情與退役對客機關閉；敵對時服務暫停（`townState`）；找服務 NPC 用主機鏡像位置（`servicePoint`）。沒有生涯存檔的客機不開放服務。
+
+## 客機軍功（各算各的）
+
+- 主機把客機本人與客機私兵的戰鬥事件記為客機戰績（`recordCoopGuestEvent`；Town 只在四門守城期間記錄）。主機結算保存後以 `missionMerit` 送出戰績與勝負，客機用**與主機相同的公式**（`careerMissionMerit`；前哨用 `calculateMerit`）計算，經 `commitCoopMissionMerit` 寫入。Town 結算後 `notifySettled`，客機重讀自己存檔，避免之後的服務用舊資料覆寫軍功。
+- 賽馬：`CareerRaceController.coopRacer` 推進只存在於執行期的騎手，不寫 race session 或存檔。`coopGuestWinsRace` 判定客機先合法完賽時，主機這場鎖定為 loss，送出 `raceAward`；客機以 `commitCoopRaceAward` 寫入，同一主機 session id 只發一次。
+
+## 競技場與越獄
+
+- 共通：計時、勝負、checkpoint 與結算只由主機執行；客機不讀主機存的玩家狀態，一律從主機旁邊起步；客機命中只限主機標記為 `target` 的對手。
+- 單挑 2v1：`CareerDuelArenaScene` 宣告 `arena`；對手攻擊較近的活人（`setMissionCombatTarget`），客機命中只限對手（`canDamageOpponent`）。`CareerDuelController.coopPartnerAlive`：隊友活著時玩家死亡不算落敗。空手違規判定把隊友事件視為玩家來源，但隊友傷害不計主機戰績。城鎮內單挑場地不支援合作。
+- 小隊試煉：`CareerArenaCombatScene` 宣告 `trial`；傀儡加入我方，傷害走 `damageBodyFrom`，`counts()` 把活傀儡算一名我方。客機命中只在 `fight` 階段有效。客機軍功以 `arena-squad-trial` 照單人規則計算，劇情邀請的固定獎勵只給主機。
+- 越獄：同一 scene 在主機開始越獄時宣告 `prison`，客機重載跟進。客機徒手起步、不能換裝或騎乘，在主機端是一名戰俘。拾劍只是請求（`prisonPickup`），主機依自己的規則以 `PRISON_COOP_PARTNER` 寫入 `swords` 並保存，再以 `prisonState` 同步；客機只更新記憶體副本。客機逃出記為 `escapedBy: PRISON_COOP_PARTNER`。客機只以 `commitSkills` 保存技能；主機成功保存後送 `missionMerit`（`kind: 'prison-break'`，收據 `<主機任務 id>:prison-break`，與原戰役收據分開），客機只加固定逃脫軍功一次，失敗不扣。

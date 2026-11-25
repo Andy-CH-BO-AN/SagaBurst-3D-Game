@@ -7,8 +7,6 @@
 - 11 個靶位距離從同一個 0m 假人中心計算水平公尺；玩家出生在旁邊，射擊黃圈放在中心前方 1.5m，以免 0m 靶擋住其他射線。靶場沿用既有地形，125m 跑道與坐騎停放區相互分開；xongkoro 保留正式爪擊與飛行，地面衝撞仍依正式規則排除飛行坐騎。
 - 訓練重置保留原有假人／坐騎 identity，安全解除飛行騎乘及墜落狀態、重設坐騎、恢復正式共用箭／標槍彈藥池與盾牌耐久、清除投射物及命中資訊。退出取消事件訂閱、DOM listeners、輸入與場景資源，再載入明確主選單入口，不改 Career 或 Battle session data。
 
-
-
 - `WeaponMeshFactory` 共用於 Player、NPC、掉落物與工作室；[EQUIPMENT_TIERS.md](../EQUIPMENT_TIERS.md) 維護外觀範圍。合併剛性零件須保留材質／render flags、幾何、grip/tip metadata 與動態零件。
 - `SwordAttachmentContract`／`EquipmentAttachmentContract` 管理握點；固定裝備 attachment 不由 animator idle／cancel 覆寫。調整武器方向繞掌心握點進行，不以扭腕掩蓋資產軸向錯誤。
 - Player 沿原有手動裝備規則；NPC 的永久 `shieldId` 與 `hasActiveShield` 分開。遠程及釋放收招期間隱藏盾牌、停用盾牌碰撞／減傷與防禦姿勢；近戰在左手恢復同一面盾，不重建耐久。一般 T1–T3 劍走單手劍動作。
