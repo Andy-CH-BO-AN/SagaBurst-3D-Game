@@ -276,9 +276,14 @@ describe('CareerMissionCheckpoint', () => {
     state.siege!.actors[archerId].order = 'defend'; state.siege!.actors[lancerId].order = 'defend'
     const player = { hp: 85, dead: false, staminaValue: 70, position: { x: 12, y: 10, z: 18 },
       facingYaw: .5, arrowCount: 7, shield: { shieldImpactRemaining: 2 }, currentMount: null }
-    const residents = profile.activeMission!.civilianActorIds!.map(id => ({ spec: { id, role: 'civilian' }, npc: dataActor(id, state.actors[id]) }))
+    const personalActors: NPC[] = []
+    const residents = [
+      ...profile.activeMission!.civilianActorIds!.map(id => ({ spec: { id, role: 'civilian' }, npc: dataActor(id, state.actors[id]) })),
+      { spec: { id: 'town-eagle-rider:1', role: 'archer_infantry', duty: 'eagle_garrison' },
+        npc: dataActor('town-eagle-rider:1', state.actors['town-eagle-rider:1']) },
+    ]
     const controller = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as Pick<CommanderFourGateDefenseController, 'snapshotActiveMission' | 'combatEnabled'>, {
-      readProfile: () => profile, player: () => player, enemies, personalActors: () => [],
+      readProfile: () => profile, player: () => player, enemies, personalActors: () => personalActors,
       residents, reinforcements: [],
       actorMounts: new Map(), heldFlankIds: new Set(), tracker: null, startedMissionId: profile.activeMission!.id,
       spawnBatch: { pending: 0, ready: true },
@@ -343,8 +348,16 @@ describe('CareerMissionCheckpoint', () => {
     liveState.combatElapsedSeconds = survivalSeconds
     expect(controller.snapshotActiveMission().fourGateDefense!.victoryReason).toBe('survival')
     player.dead = true; player.hp = 0
-    for (const resident of residents) Object.assign(resident.npc, { dead: true, hp: 0 })
+    for (const resident of residents) if (resident.spec.id !== 'town-eagle-rider:1') Object.assign(resident.npc, { dead: true, hp: 0 })
     liveState.victoryReason = 'survival'
+    // Native eagle garrison alone cannot keep survival victory alive.
+    expect(controller.snapshotActiveMission().fourGateDefense!.victoryReason).toBeUndefined()
+    const personalEagle = dataActor('personal:eagle', { status: 'deployed', hp: 100, position: { x: 20, y: 30, z: 30, yaw: 0 },
+      mount: { hp: 90, mounted: true, position: { x: 20, y: 30, z: 30, yaw: 0 } } })
+    Object.assign(personalEagle.mount!, { isFlyingMount: true })
+    personalActors.push(personalEagle)
+    liveState.victoryReason = 'survival'
+    // Airborne private eagle knights also do not keep survival victory alive.
     expect(controller.snapshotActiveMission().fourGateDefense!.victoryReason).toBeUndefined()
 
   })

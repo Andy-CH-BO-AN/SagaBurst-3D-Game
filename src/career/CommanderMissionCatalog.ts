@@ -119,7 +119,7 @@ export const COMMANDER_MISSION_CATALOG: readonly CommanderMissionDefinition[] = 
   entry(COMMANDER_BRIDGEHEAD_ID, 'commander-bridgehead-battle', 'Commander IV · Bridgehead Battle · 橋頭決戰',
     `目標：用 ${BRIDGEHEAD_PREPARATION_SECONDS} 秒在北岸部署 ${BRIDGEHEAD_FRIENDLY_SQUADS} 隊（每隊 ${BRIDGEHEAD_SQUAD_SIZE} 人，共 ${BRIDGEHEAD_FRIENDLIES} 名步兵），守住石橋，擊退渡河進攻的 ${BRIDGEHEAD_ENEMIES} 名敵方騎兵。利用橋面狹窄限制騎兵衝鋒。`, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_ENEMIES),
   entry(COMMANDER_FOUR_GATE_DEFENSE_ID, 'commander-four-gate-defense', 'Commander V · Four-Gate Town Defense · 四門總攻守城戰',
-    `目標：守住所屬城鎮。${COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS} 秒準備後，${COMMANDER_FOUR_GATE_DEFENSE_ENEMIES} 名敵軍與八台攻城坡道車會從四門同時進攻。守住 ${COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS / 60} 分鐘（且守方仍有人存活）或提前全殲敵軍即獲勝。每門有各 ${FOUR_GATE_SQUAD_SIZE} 名城牆與地面步兵，地面部隊部署在拒馬後方。[0] 指揮城鎮中心的 ${FOUR_GATE_SQUAD_SIZE} 名機動騎兵，[9] 指揮最多 30 名私兵。`,
+    `目標：守住所屬城鎮。${COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS} 秒準備後，${COMMANDER_FOUR_GATE_DEFENSE_ENEMIES} 名敵軍與八台攻城坡道車會從四門同時進攻。守住 ${COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS / 60} 分鐘（且除巨鷹部隊外守方仍有人存活）或提前全殲敵軍即獲勝。每門有各 ${FOUR_GATE_SQUAD_SIZE} 名城牆與地面步兵，地面部隊部署在拒馬後方。[0] 指揮城鎮中心的 ${FOUR_GATE_SQUAD_SIZE} 名機動騎兵，[9] 指揮最多 30 名私兵。`,
     commanderFourGateMissionSquads('count').reduce((total, squad) => total + squad.actorIds.length, 1 + TOWN_AUTONOMOUS_GUARD_IDS.length), COMMANDER_FOUR_GATE_DEFENSE_ENEMIES),
   entry(COMMANDER_FELINE_CAVALRY_ID, 'commander-six-feline-cavalry', 'Commander VI · Six Feline Cavalry · 六貓騎兵團',
     `目標：率領 ${FELINE_GROUP_TEXT}，迎戰 ${FELINE_ENEMY_TOTAL} 名戰馬騎兵（T4 ${felineTierTotal(FELINE_ENEMY_GROUPS, 4)}、T5 ${felineTierTotal(FELINE_ENEMY_GROUPS, 5)}）。${CHARGE_TRIGGER_TEXT}`, FELINE_FRIENDLY_TOTAL, FELINE_ENEMY_TOTAL),
