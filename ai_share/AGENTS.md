@@ -5,11 +5,9 @@
 `ai_share/` 是文件與專案 skill 的正本；`.agents/`、`.codex/` 的入口或連結不另存副本。依任務讀取，不必每次載入所有文件：
 
 - [ARCHITECTURE.md](ARCHITECTURE.md)：程式入口表與 [`architecture/`](architecture/) 分檔索引；依任務只讀對應分檔的模組職責與跨模組契約。
-- [PROGRESS.md](PROGRESS.md)：目前交接狀態與已知限制。
-- [PLAN.md](PLAN.md)：尚未完成的方向；不是已完成階段的歷史表。
 - [EQUIPMENT_TIERS.md](EQUIPMENT_TIERS.md)：裝備外觀清單。
 
-只在契約、交接或方向實際改變時更新對應文件；被新結論取代的內容直接替換。歷史實作與驗收證據查 Git／PR，不複製回以上文件。
+只在契約實際改變時更新對應文件；被新結論取代的內容直接替換。專案不另存進度、交接或待辦文件：歷史實作、驗收證據與未驗收範圍記在 Git／PR，不複製回以上文件。
 
 ## 測試規範入口
 

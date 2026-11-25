@@ -82,4 +82,4 @@ rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.
 - melee 摘要是角色 local 座標，正式前方 `+Z`；arrow flight 是 world 座標。不要跨座標直接比較，飛行後段重力下墜正常。
 - nock bounds 只能補充外觀，不能證明弓身朝向正確。idle 沒 moving samples 正常；明明完成動作卻無 samples 才需追查。
 - 優先追查 `src/` stack、遺失遊戲資產、未處理例外、NaN／Infinity。擴充套件來源警告或 favicon 404 不等同遊戲故障。
-- 失敗回報第一個相關 stack、URL 與觸發操作；原始日誌留本機，不複製整串進 PROGRESS。
+- 失敗回報第一個相關 stack、URL 與觸發操作；原始日誌留本機，不複製整串進文件或 PR。
