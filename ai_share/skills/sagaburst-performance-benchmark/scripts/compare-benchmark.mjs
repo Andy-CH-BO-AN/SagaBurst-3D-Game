@@ -14,6 +14,7 @@ const simpleMatPath = valueOf('simple-material')
 const baselinePath = valueOf('baseline')
 const candidatePath = valueOf('candidate')
 const scenario = (valueOf('scenario') ?? 'F').toUpperCase()
+const allowMismatch = process.argv.includes('--allow-mismatch')
 
 const read = (file) => JSON.parse(fs.readFileSync(path.resolve(file), 'utf8'))
 
@@ -133,23 +134,107 @@ const delta = (base, next) => {
   }
 }
 
+const assertComparable = (checks) => {
+  if (allowMismatch) return
+  const mismatches = checks
+    .filter(([, a, b]) => a !== undefined && b !== undefined && a !== b)
+    .map(([label, a, b]) => `${label}: baseline=${a} vs candidate=${b}`)
+  if (mismatches.length > 0) {
+    throw new Error(`Benchmark 不可比較（可加 --allow-mismatch 略過）：${mismatches.join('; ')}`)
+  }
+}
+
+// ── Four-Gate Benchmark Comparison Mode ──
+if (baseline.tool === 'four-gate-benchmark' || candidate.tool === 'four-gate-benchmark') {
+  assertComparable([
+    ['tool', baseline.tool, candidate.tool],
+    ['faction', baseline.faction, candidate.faction],
+    ['viewport', baseline.viewport, candidate.viewport],
+    ['skipPreparation', baseline.skipPreparation, candidate.skipPreparation],
+    ['warmupMs', baseline.warmupMs, candidate.warmupMs],
+    ['observationMs', baseline.observationMs, candidate.observationMs],
+  ])
+  const fourGateKeys = [
+    ['FPS', 'fps'],
+    ['Mean FPS', 'meanFps'],
+    ['Frame Interval P95', 'frameIntervalP95Ms'],
+    ['Frame Interval P99', 'frameIntervalP99Ms'],
+    ['1% Low FPS', 'fps1PercentLow'],
+    ['CPU Frame', 'cpuFrameMs'],
+    ['CPU Frame P95', 'cpuFrameP95Ms'],
+    ['CPU Frame P99', 'cpuFrameP99Ms'],
+    ['Renderer Submit', 'renderSubmitMs'],
+    ['Renderer Submit P95', 'renderSubmitP95Ms'],
+    ['Renderer Submit P99', 'renderSubmitP99Ms'],
+    ['GPU Render Median', 'gpuRenderMedianMs'],
+    ['GPU Render P95', 'gpuRenderP95Ms'],
+    ['Draw Calls', 'drawCalls'],
+    ['Triangles', 'triangles'],
+  ]
+  const compareWindow = (windowKey) => {
+    const baseWin = baseline.summary?.[windowKey]
+    const nextWin = candidate.summary?.[windowKey]
+    if (!baseWin || !nextWin) return null
+    const metrics = fourGateKeys.map(([metric, key]) => ({ metric, ...delta(baseWin[key], nextWin[key]) }))
+    const segNames = [...new Set([...Object.keys(baseWin.segments ?? {}), ...Object.keys(nextWin.segments ?? {})])]
+    const segments = segNames.map((seg) => ({
+      segment: seg,
+      medianMs: delta(baseWin.segments?.[seg]?.medianMs, nextWin.segments?.[seg]?.medianMs),
+      p95Ms: delta(baseWin.segments?.[seg]?.p95Ms, nextWin.segments?.[seg]?.p95Ms),
+      maxMs: delta(baseWin.segments?.[seg]?.maxMs, nextWin.segments?.[seg]?.maxMs),
+    }))
+    const saveFields = ['count', 'totalMsSum', 'medianTotalMs', 'maxTotalMs', 'medianCloneMs', 'medianStringifyMs', 'medianSetItemMs', 'medianBytes', 'maxBytes']
+    const saves = baseWin.saves || nextWin.saves
+      ? saveFields.map((field) => ({ field, ...delta(baseWin.saves?.[field], nextWin.saves?.[field]) }))
+      : null
+    return { metrics, segments, saves }
+  }
+  const report = {
+    generatedAt: new Date().toISOString(),
+    tool: 'four-gate-benchmark',
+    baseline: { tag: baseline.tag, commit: baseline.commit ?? null, source: path.resolve(baselinePath) },
+    candidate: { tag: candidate.tag, commit: candidate.commit ?? null, source: path.resolve(candidatePath) },
+    windows: {
+      ...(baseline.summary?.preparation && candidate.summary?.preparation ? { preparation: compareWindow('preparation') } : {}),
+      siege: compareWindow('siege'),
+    },
+  }
+  const outputPath = path.resolve(valueOf('out') ?? 'output/local-diagnostics/four-gate-ab-comparison.json')
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true })
+  fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`)
+  console.log(JSON.stringify({ outputPath, ...report }, null, 2))
+  process.exit(0)
+}
+
+assertComparable([
+  ['phase', baseline.phase, candidate.phase],
+  ['renderProbe', baseline.renderProbe, candidate.renderProbe],
+  ['viewport', baseline.viewport, candidate.viewport],
+])
+
 const base = findMedian(baseline, scenario)
 const next = findMedian(candidate, scenario)
 const metricKeys = [
   ['FPS', 'fps'],
+  ['Frame Interval P95', 'frameIntervalP95Ms'],
+  ['Frame Interval P99', 'frameIntervalP99Ms'],
+  ['1% Low FPS', 'fps1PercentLow'],
   ['CPU Frame', 'cpuFrameMs'],
+  ['CPU Frame P95', 'cpuFrameP95Ms'],
+  ['CPU Frame P99', 'cpuFrameP99Ms'],
   ['NPC Update', 'npcUpdateMs'],
   ['Mount Update', 'mountUpdatePhaseMs'],
   ['最大 Mount subphase', 'maxMountSubphase'],
   ['Renderer Submit', 'renderSubmitMs'],
+  ['GPU Render Median', 'gpuRenderMedianMs'],
   ['Draw Calls', 'drawCalls'],
   ['Triangles', 'triangles'],
 ]
 const report = {
   generatedAt: new Date().toISOString(),
   scenario,
-  baseline: { tag: baseline.tag, source: path.resolve(baselinePath) },
-  candidate: { tag: candidate.tag, source: path.resolve(candidatePath) },
+  baseline: { tag: baseline.tag, commit: baseline.commit ?? null, source: path.resolve(baselinePath) },
+  candidate: { tag: candidate.tag, commit: candidate.commit ?? null, source: path.resolve(candidatePath) },
   rows: metricKeys.map(([metric, key]) => ({ metric, ...delta(base[key], next[key]) })),
 }
 const outputPath = path.resolve(valueOf('out') ?? `output/local-diagnostics/mount-ab-comparison-${scenario}.json`)

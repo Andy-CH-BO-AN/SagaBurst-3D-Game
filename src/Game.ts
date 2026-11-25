@@ -12,7 +12,7 @@ import { stageMissionReturnRebuild } from './career/CareerMissionReturnRecovery'
 import { officialCommandHudLabel } from './career/CommanderTownSquadLabels'
 import { refitTownCommandForSceneChange } from './career/SquadRefit'
 import { getOrdinarySoldierHp, resolveOrdinaryPlayerBaseHp, resolveOrdinarySoldierTier } from './combat/OrdinarySoldierProfile'
-import { playerEagleProjectileBudget } from './combat/ProjectileBallistics'
+import { playerEagleProjectileBudget, type ProjectileFlightBudget } from './combat/ProjectileBallistics'
 import { traceFistStrike, unarmedDamage } from './combat/UnarmedCombat'
 import { markCareerMissionReturnToSergeant } from './town/SergeantReturn'
 import { townRoster } from './town/TownRules'
@@ -87,7 +87,7 @@ import { planPersonalOutpostGround } from './career/PersonalOutpostGroundPlan'
 import { personalOutpostDeployment, personalRearDeployment } from './career/PersonalSquadDeployment'
 import { personalMemberLoadout, PersonalSquadRuntime } from './career/PersonalSquadRuntime'
 import { BattleStatsTracker, type BattleStatsSnapshot } from './combat/BattleStatsTracker'
-import { CombatEventStream, createNpcCombatActorRef, createPlayerCombatActorRef, type CombatEvent } from './combat/CombatAttribution'
+import { CombatEventStream, createNpcCombatActorRef, createPlayerCombatActorRef, type CombatDamageContext, type CombatEvent } from './combat/CombatAttribution'
 import { COMBAT_BALANCE, getAntiCavalryMultiplier } from './combat/CombatBalance'
 import { isDamageReceiver, type DamageReceiver } from './combat/DamageReceiver'
 import { ProjectileTargetIndex } from './combat/ProjectileContactQuery'
@@ -101,6 +101,7 @@ import { commanderValidationHero } from './debug/CommanderValidation'
 import type { GameplayBowQAPanel } from './debug/GameplayBowQAPanel'
 import { configureHeroBenchmarkActors, createHeroBenchmarkScenario, parseHeroBenchmarkQuery } from './debug/HeroBenchmark'
 import { createHeroBenchmarkRecorder } from './debug/HeroBenchmarkRecorder'
+import { measureGpuRender } from './debug/HeroBenchmarkRenderMetrics'
 import { ModelStudio, resolveModelStudioMode, type ModelStudioMode } from './debug/ModelStudio'
 import { NpcSubphaseAggregator, NpcSubphaseCollector, SUBPHASE_COHORT } from './debug/NpcSubphaseProfiler'
 import { applyDevSimpleMaterials, getActiveRenderProbe } from './debug/RendererCostIsolation'
@@ -783,6 +784,8 @@ export class Game {
   private _subphaseFrameIndex = 0
   private _npcSubphaseCollector: NpcSubphaseCollector | null = null
   private _npcSubphaseAggregator: NpcSubphaseAggregator | null = null
+  private readonly _careerOfficialIds = new Set<string>()
+  private readonly _careerEnemyIds = new Set<string>()
   private startingHorse: Mount | null = null
   private startingHorseMountId?: string
   private loadedSaveMount: Mount | null = null
@@ -843,12 +846,160 @@ export class Game {
 
   // LOD & Spatial Partitioning
   private static readonly _EMPTY_NPC_LIST: NPC[] = []
+  private static readonly _NOOP_MELEE = (): void => {}
+  private static readonly _NOOP_FIRE = (): boolean => false
+  private _activeLoopNpc: NPC | null = null
+  private _activeLoopCameraDistance = 0
+  private _activeLoopArrow: ArrowProjectile | null = null
+  private readonly _arrowPlayerStatus = {
+    dead: false,
+    controlMode: 'player' as PlayerControlMode,
+    isMounted: false,
+    hasMount: false,
+    spectatorOnly: false,
+  }
+  private readonly _arrowHitActions = {
+    showEnemyHud: (name: string, ratio: number) => this._showEnemyHud(name, ratio),
+    addArcheryXp: () => {},
+    updateMountHp: (ratio: number) => {
+      this.mountHpFill.style.width = `${Math.max(0, ratio * 100)}%`
+    },
+    hideMountHud: () => {
+      this.mountHud.classList.remove('visible')
+    },
+  }
+  private readonly _onLoopNpcMeleeHit = (damage: number, isPlayer: boolean, targetNpc?: NPC, targetMount?: Mount): void => {
+    const npc = this._activeLoopNpc!
+    if (isPlayer) {
+      if (!this.player.targetable) return
+      const result = damagePlayer(
+        this.player,
+        damage,
+        this.hpBar,
+        this.inventoryManager.equippedShield?.id ?? null,
+        {
+          source: createNpcCombatActorRef(npc),
+          method: 'melee',
+          contact: npc.weaponSweep.contact,
+          weaponId: npc.meleeWeaponId ?? undefined,
+          emit: this.combatEvents.emit,
+        },
+      )
+      if (result.hitSuccess) {
+        if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, true)
+        else this.soundManager.playSwordHit(npc.currentLod, true)
+        this._updateMountHud()
+      }
+    } else if (targetNpc) {
+      const result = damageNpc(targetNpc, damage, {
+        contact: npc.weaponSweep.contact,
+        source: createNpcCombatActorRef(npc),
+        method: 'melee',
+        weaponId: npc.meleeWeaponId ?? undefined,
+        emit: this.combatEvents.emit,
+      })
+      if (result.hitSuccess) {
+        if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, false)
+        else this.soundManager.playSwordHit(npc.currentLod, false)
+      }
+    } else if (targetMount) {
+      const result = damageMount(targetMount, damage, {
+        contact: npc.weaponSweep.contact,
+        source: createNpcCombatActorRef(npc),
+        method: 'melee',
+        weaponId: npc.meleeWeaponId ?? undefined,
+        emit: this.combatEvents.emit,
+      })
+      if (result.hitSuccess) {
+        if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, false)
+        else this.soundManager.playSwordHit(npc.currentLod, false)
+      }
+    }
+  }
+  private readonly _onLoopNpcRangedFire = (
+    origin: THREE.Vector3,
+    direction: THREE.Vector3,
+    visualKind: 'arrow' | 'pilum',
+    lifecycle?: ProjectileFlightBudget,
+  ) => {
+    const npc = this._activeLoopNpc!
+    const arrow = new ArrowProjectile(
+      this.scene,
+      origin,
+      direction,
+      npc.rangedProjectileSpeed,
+      npc.rangedDamage,
+      npc.faction,
+      false,
+      visualKind,
+      {
+        source: createNpcCombatActorRef(npc),
+        weaponId: npc.rangedWeaponId,
+        emit: this.combatEvents.emit,
+      },
+      lifecycle,
+    )
+    this.arrows.push(arrow)
+    this.coopHost?.onProjectile(origin, direction, npc.rangedProjectileSpeed, visualKind, npc.faction)
+    if (visualKind === 'arrow') this.soundManager.playBowRelease(npc.currentLod, false, this._activeLoopCameraDistance)
+    return undefined
+  }
+  private readonly _onLoopArrowHitTarget = (
+    damage: number,
+    hitPos: THREE.Vector3,
+    targetName: string,
+    hpRatio: number,
+    isPlayer: boolean,
+    _npc?: NPC,
+    isMountHit?: boolean,
+  ): void => {
+    const arrow = this._activeLoopArrow!
+    const impactLod = isPlayer
+      ? (isMountHit && this.player.currentMount ? this.player.currentMount.currentLod : 0)
+      : (_npc && isMountHit && _npc.mount ? _npc.mount.currentLod : _npc?.currentLod ?? 0)
+    this.soundManager.playProjectileImpact(impactLod, arrow.isPlayerFired || isPlayer)
+    if (arrow.isPlayerFired && !isPlayer) {
+      this.damageNumbers.spawn(damage, hitPos)
+    }
+    this._arrowPlayerStatus.dead = this.player.dead
+    this._arrowPlayerStatus.controlMode = this.controlMode
+    this._arrowPlayerStatus.isMounted = this.player.isMounted
+    this._arrowPlayerStatus.hasMount = Boolean(this.player.currentMount)
+    this._arrowPlayerStatus.spectatorOnly = this.player.spectatorOnly
+    handleProjectileHitEffects(
+      isPlayer,
+      arrow.isPlayerFired,
+      targetName,
+      hpRatio,
+      Boolean(isMountHit),
+      this._arrowPlayerStatus,
+      this._arrowHitActions,
+    )
+  }
+  private readonly _onLoopArrowDamagePlayer = (damage: number, context?: CombatDamageContext) => damagePlayer(
+    this.player,
+    damage,
+    this.hpBar,
+    this.inventoryManager.equippedShield?.id ?? null,
+    context,
+  )
+  private readonly _onLoopArrowHitObstacle = (
+    damage: number,
+    hitPos: THREE.Vector3,
+    obstacle: DamageableObstacle,
+    hpRatio: number,
+  ): void => {
+    const arrow = this._activeLoopArrow!
+    if (!arrow.isPlayerFired) return
+    this.damageNumbers.spawn(Math.round(damage), hitPos)
+    this._showEnemyHud(obstacle.displayName, hpRatio)
+  }
   private readonly _nearbyNpcBuffer: NPC[] = []
   private readonly _impactCandidates: NPC[] = []
   private readonly _entityCollisionBroadPhase = new EntityCollisionBroadPhase()
   private readonly combatMountGrid = new SpatialGrid<Mount>(8)
   private readonly meleeMountCandidates: Mount[] = []
-  private npcGrid = new SpatialGrid<NPC>(20)
+  private npcGrid = new SpatialGrid<NPC>(4)
   private readonly npcFactionGrids: Record<Faction, SpatialGrid<NPC>> = {
     [Faction.PLAYER]: new SpatialGrid<NPC>(20),
     [Faction.ENEMY]: new SpatialGrid<NPC>(20),
@@ -1681,6 +1832,8 @@ export class Game {
         this.runtimeProfiler.reset(now)
         return this.runtimeProfiler.getSnapshotGeneration()
       }
+      ;(window as any).__getRuntimeProfilerFrames = () => this.runtimeProfiler.getFrameSamples()
+      ;(window as any).__measureGpuRender = () => measureGpuRender(this.renderer)
 
       if (query.has('humanoidLod2Control')) {
         ;(window as any).__setHumanoidLod2Representation = (optimized: boolean) => this._setHumanoidLod2Representation(Boolean(optimized))
@@ -3028,11 +3181,25 @@ export class Game {
       return
     }
     // Heavy-cavalry and migrated field battles are decided by the whole friendly force, never by the player alone.
-    const officialIds = new Set(isCareerHeavyFieldBattle(mission) || isMigratedCareerFieldMission(mission)
-      ? mission.friendlyActorIds : mission.officialSquad?.actorIds)
-    const enemyIds = new Set(mission.targetActorIds)
-    const officialAlive = this.npcs.filter(npc => !npc.dead && officialIds.has(npc.combatantId)).length
-    const enemyAlive = this.npcs.filter(npc => !npc.dead && enemyIds.has(npc.combatantId)).length
+    const officialIds = this._careerOfficialIds
+    officialIds.clear()
+    for (const id of (isCareerHeavyFieldBattle(mission) || isMigratedCareerFieldMission(mission)
+      ? mission.friendlyActorIds : mission.officialSquad?.actorIds) ?? []) officialIds.add(id)
+    const enemyIds = this._careerEnemyIds
+    enemyIds.clear()
+    for (const id of mission.targetActorIds) enemyIds.add(id)
+    let officialAlive = 0, enemyAlive = 0, eagleOfficialPower = 0, eagleEnemyPower = 0
+    const isEagleBattle = mission.kind === 'captain-eagle-battle'
+    for (const npc of this.npcs) {
+      if (officialIds.has(npc.combatantId)) {
+        if (!npc.dead) officialAlive++
+        if (isEagleBattle && hasAerialCombatPower(npc)) eagleOfficialPower++
+      }
+      if (enemyIds.has(npc.combatantId)) {
+        if (!npc.dead) enemyAlive++
+        if (isEagleBattle && hasAerialCombatPower(npc)) eagleEnemyPower++
+      }
+    }
     const pending = this.fieldRosterBatch?.pending ?? 0
     const ready = this.fieldRosterBatch?.ready === true && (!this.personalSquad || this.personalSquad.ready)
     const roster = this._careerCommandHudRoster()
@@ -3060,11 +3227,15 @@ export class Game {
     if (mission.kind === 'captain-eagle-battle') {
       // Eagle Battle is decided by aerial combat power only: ground riders and riders whose eagle is gone do not count.
       const personalActors = this.personalSquad?.actors ?? []
-      const personalPending = Math.max(0, (this.personalSquad?.aliveCombatants ?? 0) - personalActors.filter(npc => !npc.dead).length)
+      let personalAliveCount = 0, personalAerialCount = 0
+      for (const npc of personalActors) {
+        if (!npc.dead) personalAliveCount++
+        if (hasAerialCombatPower(npc)) personalAerialCount++
+      }
+      const personalPending = Math.max(0, (this.personalSquad?.aliveCombatants ?? 0) - personalAliveCount)
       const outcome = resolveCaptainEagleBattleOutcome(
-        this.npcs.filter(npc => enemyIds.has(npc.combatantId)).filter(hasAerialCombatPower).length,
-        this.npcs.filter(npc => officialIds.has(npc.combatantId)).filter(hasAerialCombatPower).length
-          + personalActors.filter(hasAerialCombatPower).length + personalPending
+        eagleEnemyPower,
+        eagleOfficialPower + personalAerialCount + personalPending
           + (hasPlayerAerialCombatPower(this.player) ? 1 : 0))
       if (outcome) this._showFieldBattleResult(outcome)
     } else if (enemyAlive === 0) this._showFieldBattleResult('victory')
@@ -5190,9 +5361,9 @@ export class Game {
 
       if (npc.hp <= 0) {
         // Dead NPCs still need animation update, but no AI/Boids
-        npc.update(dt, this.player, this.npcs, Game._EMPTY_NPC_LIST, this.obstacles, this.hpBar, 
-          () => {}, // dead npc can't hit
-          () => false, // dead npc can't shoot
+        npc.update(dt, this.player, this.npcs, Game._EMPTY_NPC_LIST, this.obstacles, this.hpBar,
+          Game._NOOP_MELEE,
+          Game._NOOP_FIRE,
           true, // skipBoidsAndObstacles
           cameraDistance,
           collector
@@ -5241,83 +5412,17 @@ export class Game {
 
       const hostileNpcGrid = selectHostileNpcGrid(npc.faction, this.playerHostileNpcGrid, this.npcFactionGrids)
 
+      this._activeLoopNpc = npc
+      this._activeLoopCameraDistance = cameraDistance
       npc.update(
-        dt, 
+        dt,
         this.player,
         this.npcs,
         nearbyNPCs,
         this.obstacles,
-        this.hpBar, 
-        (damage, isPlayer, targetNpc, targetMount) => {
-          // Melee Hit Callback
-          if (isPlayer) {
-            if (!this.player.targetable) return
-            const result = damagePlayer(
-              this.player,
-              damage,
-              this.hpBar,
-              this.inventoryManager.equippedShield?.id ?? null,
-              {
-                source: createNpcCombatActorRef(npc),
-                method: 'melee',
-                contact: npc.weaponSweep.contact,
-                weaponId: npc.meleeWeaponId ?? undefined,
-                emit: this.combatEvents.emit,
-              },
-            )
-            if (result.hitSuccess) {
-              if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, true)
-              else this.soundManager.playSwordHit(npc.currentLod, true)
-              this._updateMountHud()
-            }
-          } else if (targetNpc) {
-            const result = damageNpc(targetNpc, damage, {
-              contact: npc.weaponSweep.contact,
-              source: createNpcCombatActorRef(npc),
-              method: 'melee',
-              weaponId: npc.meleeWeaponId ?? undefined,
-              emit: this.combatEvents.emit,
-            })
-            if (result.hitSuccess) {
-              if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, false)
-              else this.soundManager.playSwordHit(npc.currentLod, false)
-            }
-          } else if (targetMount) {
-            const result = damageMount(targetMount, damage, {
-              contact: npc.weaponSweep.contact,
-              source: createNpcCombatActorRef(npc),
-              method: 'melee',
-              weaponId: npc.meleeWeaponId ?? undefined,
-              emit: this.combatEvents.emit,
-            })
-            if (result.hitSuccess) {
-              if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, false)
-              else this.soundManager.playSwordHit(npc.currentLod, false)
-            }
-          }
-        },
-        (origin, direction, visualKind, lifecycle) => {
-          // Ranged Fire Callback
-          const arrow = new ArrowProjectile(
-            this.scene,
-            origin,
-            direction,
-            npc.rangedProjectileSpeed, // Player and NPC share WeaponDatabase projectile speed
-            npc.rangedDamage, // Arrow damage
-            npc.faction,
-            false,
-            visualKind,
-            {
-              source: createNpcCombatActorRef(npc),
-              weaponId: npc.rangedWeaponId,
-              emit: this.combatEvents.emit,
-            },
-            lifecycle,
-          )
-          this.arrows.push(arrow)
-          this.coopHost?.onProjectile(origin, direction, npc.rangedProjectileSpeed, visualKind, npc.faction)
-          if (visualKind === 'arrow') this.soundManager.playBowRelease(npc.currentLod, false, cameraDistance)
-        },
+        this.hpBar,
+        this._onLoopNpcMeleeHit,
+        this._onLoopNpcRangedFire,
         skipBoidsAndObstacles,
         cameraDistance,
         collector,
@@ -5327,6 +5432,7 @@ export class Game {
       )
       npcLoopIndex++
     }
+    this._activeLoopNpc = null
     this.armyCommandController.postUpdate()
     const npcUpdateMs = profile ? performance.now() - t0 : 0
     if (profile) {
@@ -5380,59 +5486,26 @@ export class Game {
     this.projectileTargets.reset(this.projectileTargetGroups)
     for (let i = this.arrows.length - 1; i >= 0; i--) {
       const arrow = this.arrows[i]
-      arrow.update(dt, this.player, this.npcs, this.obstacles, (damage, hitPos, targetName, hpRatio, isPlayer, _npc, isMountHit) => {
-        const impactLod = isPlayer
-          ? (isMountHit && this.player.currentMount ? this.player.currentMount.currentLod : 0)
-          : (_npc && isMountHit && _npc.mount ? _npc.mount.currentLod : _npc?.currentLod ?? 0)
-        this.soundManager.playProjectileImpact(impactLod, arrow.isPlayerFired || isPlayer)
-        if (arrow.isPlayerFired && !isPlayer) {
-          this.damageNumbers.spawn(damage, hitPos)
-        }
-        handleProjectileHitEffects(
-          isPlayer,
-          arrow.isPlayerFired,
-          targetName,
-          hpRatio,
-          Boolean(isMountHit),
-          {
-            dead: this.player.dead,
-            controlMode: this.controlMode,
-            isMounted: this.player.isMounted,
-            hasMount: Boolean(this.player.currentMount),
-            spectatorOnly: this.player.spectatorOnly,
-          },
-          {
-            showEnemyHud: (name, ratio) => this._showEnemyHud(name, ratio),
-            addArcheryXp: () => {},
-            updateMountHp: (ratio) => {
-              this.mountHpFill.style.width = `${Math.max(0, ratio * 100)}%`
-            },
-            hideMountHud: () => {
-              this.mountHud.classList.remove('visible')
-            },
-          },
-        )
-      },
-      (damage, context) => damagePlayer(
+      this._activeLoopArrow = arrow
+      arrow.update(
+        dt,
         this.player,
-        damage,
-        this.hpBar,
-        this.inventoryManager.equippedShield?.id ?? null,
-        context,
-      ),
-      (damage, hitPos, obstacle, hpRatio) => {
-        if (!arrow.isPlayerFired) return
-        this.damageNumbers.spawn(Math.round(damage), hitPos)
-        this._showEnemyHud(obstacle.displayName, hpRatio)
-      },
-      this._commanderOutpostCombatLocked() || this.coopVisualArrows.has(arrow), this.mounts, this.trainingGround?.dummies,
-      this.projectileTargets,
-    )
+        this.npcs,
+        this.obstacles,
+        this._onLoopArrowHitTarget,
+        this._onLoopArrowDamagePlayer,
+        this._onLoopArrowHitObstacle,
+        this._commanderOutpostCombatLocked() || this.coopVisualArrows.has(arrow),
+        this.mounts,
+        this.trainingGround?.dummies,
+        this.projectileTargets,
+      )
 
       if (!arrow.isAlive) {
         this.arrows.splice(i, 1)
       }
     }
+    this._activeLoopArrow = null
     const arrowMs = profile ? performance.now() - t0 : 0
 
     // Update Floating Damage numbers

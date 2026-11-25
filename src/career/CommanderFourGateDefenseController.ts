@@ -87,6 +87,9 @@ export class CommanderFourGateDefenseController {
   private pendingEscortReleases?: readonly string[]
   private readonly infantryWings = new CommanderInfantryWings()
   private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
+  private cachedFieldNpcs: NPC[] | null = null
+  private cachedFieldNpcSet: Set<NPC> | null = null
+  private cachedFieldCounts: readonly [number, number, number] = [-1, -1, -1]
 
   constructor(private readonly actorFactory: CareerActorFactory, private readonly residents: readonly CommanderTownResident[],
     private readonly player: () => Player, private readonly readProfile: () => CareerProfile,
@@ -114,7 +117,27 @@ export class CommanderFourGateDefenseController {
   }
   get defenders(): NPC[] { return this.military }
   get civilians(): NPC[] { return this.residents.filter(r => isCivilian(r.spec.role)).map(r => r.npc) }
-  get fieldNpcs(): NPC[] { return [...this.residents.map(r => r.npc), ...this.reinforcements, ...this.enemies] }
+  private invalidateFieldNpcCache(): void {
+    this.cachedFieldNpcs = null
+    this.cachedFieldNpcSet = null
+  }
+  private ensureFieldNpcCache(): { list: NPC[]; set: Set<NPC> } {
+    const rLen = this.residents.length, rfLen = this.reinforcements.length, eLen = this.enemies.length
+    if (!this.cachedFieldNpcs || !this.cachedFieldNpcSet
+      || this.cachedFieldCounts[0] !== rLen || this.cachedFieldCounts[1] !== rfLen || this.cachedFieldCounts[2] !== eLen) {
+      const list: NPC[] = []
+      const set = new Set<NPC>()
+      for (const r of this.residents) { list.push(r.npc); set.add(r.npc) }
+      for (const npc of this.reinforcements) { list.push(npc); set.add(npc) }
+      for (const npc of this.enemies) { list.push(npc); set.add(npc) }
+      this.cachedFieldNpcs = list
+      this.cachedFieldNpcSet = set
+      this.cachedFieldCounts = [rLen, rfLen, eLen]
+    }
+    return { list: this.cachedFieldNpcs, set: this.cachedFieldNpcSet }
+  }
+  get fieldNpcs(): NPC[] { return this.ensureFieldNpcCache().list }
+  isMissionActor(npc: NPC): boolean { return this.ensureFieldNpcCache().set.has(npc) }
   get playerEnemies(): NPC[] { return this.enemies }
   get civilianDeaths(): number { return this.civilians.filter(npc => npc.dead).length }
   get civilianSurvived(): number { return this.civilians.length - this.civilianDeaths }
@@ -404,7 +427,7 @@ export class CommanderFourGateDefenseController {
         if (station.kind === 'wall') npc.activateTownRampartGarrison('defend', true)
       }
       npc.setMissionCombatTarget(null)
-      this.reinforcements.push(npc); this.actorsById.set(id, npc)
+      this.reinforcements.push(npc); this.actorsById.set(id, npc); this.invalidateFieldNpcCache()
       if (sectorIds.has(id) && !npc.dead) this.fourGateSiege?.register(npc)
       if (this.state!.siege?.playerCommandedActorIds.includes(id) || saved && this.isPlayerCommanded(npc)) {
         this.playerIssuedCommands.add(id); this.fourGateSiege?.notifyPlayerOrder(npc)
@@ -448,7 +471,7 @@ export class CommanderFourGateDefenseController {
       npc.setEagleCruiseAltitude(altitude)
     }
     if (!mount?.isFlyingMount) this.fourGateSiege?.register(npc)
-    this.enemies.push(npc); this.actorsById.set(id, npc)
+    this.enemies.push(npc); this.actorsById.set(id, npc); this.invalidateFieldNpcCache()
     npc.setMissionCombatTarget(null)
     if (!crew && !saved) npc.setTacticalOrder('defend')
     if (mount?.isFlyingMount) npc.setEagleFlightOrder({ kind: 'hold', cruiseAltitude: XONGKORO.aiCruiseHeight })
@@ -870,6 +893,7 @@ export class CommanderFourGateDefenseController {
     for (const npc of this.enemies) { this.actorsById.delete(npc.combatantId); this.actorMounts.delete(npc.combatantId); npc.dispose() }
     for (const mount of this.enemyMounts) mount.dispose()
     this.enemies.length = 0; this.enemyMounts.length = 0; this.plannedPositions.length = 0
+    this.invalidateFieldNpcCache()
     this.infantryWings.clear()
   }
   private disposeRuntime(): void {
@@ -879,6 +903,7 @@ export class CommanderFourGateDefenseController {
     for (const npc of this.reinforcements) npc.dispose()
     this.reinforcements.length = 0
     this.enemies.length = 0; this.enemyMounts.length = 0; this.groups.length = 0; this.plannedPositions.length = 0
+    this.invalidateFieldNpcCache()
     this.gateRosterCache = undefined
     this.actorsById.clear(); this.actorMounts.clear(); this.playerIssuedCommands.clear(); this.nativeReturns.clear(); this.checkpoint.reset()
   }

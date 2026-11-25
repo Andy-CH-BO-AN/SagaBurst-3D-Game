@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { NavigationPathFollower } from '../../src/navigation/NavigationPathFollower'
 import {
+  NAV_SHARED_PATH_CACHE_LIMIT,
   NavigationWorld,
 } from '../../src/navigation/NavigationWorld'
 import {
@@ -197,4 +198,30 @@ it('serves the waiting FIFO after eight moving footprints change every frame wit
   }
   expect(served.size).toBe(owners.length)
   expect(latestGoalServed).toBe(true)
+})
+
+it('caps sharedPathCache at NAV_SHARED_PATH_CACHE_LIMIT and evicts oldest entries', () => {
+  const world = new NavigationWorld({ minX: -200, maxX: 200, minZ: -200, maxZ: 200, cellSize: 2 }, 5000)
+  world.rebuild([])
+  world.beginFrame()
+  const find = vi.spyOn(world.grid, 'findPathCells'); onTestFinished(() => find.mockRestore())
+
+  const totalGroups = NAV_SHARED_PATH_CACHE_LIMIT + 5
+  for (let i = 0; i < totalGroups; i++) {
+    const gx = (i % 64) * 4 + 1 - 160
+    const gz = Math.floor(i / 64) * 4 + 1 - 160
+    expect(world.queryPath({ x: gx, z: gz }, { x: gx, z: gz + 4 }).status).toBe('path')
+  }
+  const callsAfterFill = find.mock.calls.length
+  expect(callsAfterFill).toBe(totalGroups)
+
+  // Latest entry remains cached; earliest entries were evicted FIFO.
+  const lastIdx = totalGroups - 1
+  const lastX = (lastIdx % 64) * 4 + 1 - 160
+  const lastZ = Math.floor(lastIdx / 64) * 4 + 1 - 160
+  world.queryPath({ x: lastX, z: lastZ }, { x: lastX, z: lastZ + 4 })
+  expect(find.mock.calls.length).toBe(callsAfterFill)
+
+  world.queryPath({ x: -159, z: -159 }, { x: -159, z: -155 })
+  expect(find.mock.calls.length).toBe(callsAfterFill + 1)
 })

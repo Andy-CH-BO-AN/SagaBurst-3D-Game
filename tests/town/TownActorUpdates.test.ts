@@ -57,4 +57,18 @@ describe('Town actor simulation ownership', () => {
     expect(updates.take(patrol)).toBe('outskirts')
     expect(opponent.distance).toBe(0)
   })
+
+  it('preserves insertion order and resets take/advanced state cleanly across reset() calls', () => {
+    const a = actor('a'), b = actor('b'), c = actor('c')
+    const updates = new TownActorUpdates({ kind: 'defense' }, { mission: [a, b], command: new Set([b, c]) })
+    expect(updates.actors).toEqual([a, b, c])
+    expect(updates.take(a)).toBe('mission')
+    expect(updates.take(a)).toBeUndefined()
+
+    updates.reset({ kind: 'defense' }, { mission: [c], command: new Set([a]) })
+    expect(updates.actors).toEqual([c, a])
+    expect(updates.take(a)).toBe('runtime')
+    expect(updates.take(c)).toBe('mission')
+    expect(updates.take(b)).toBeUndefined()
+  })
 })

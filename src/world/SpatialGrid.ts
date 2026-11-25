@@ -9,16 +9,25 @@ interface SpatialBucket<T> {
   x: number
   z: number
   entities: T[]
+  orders: number[]
+}
+
+const CELL_KEY_OFFSET = 0x2000000 // 2^25
+const CELL_KEY_SPAN = 0x4000000   // 2^26
+
+/** Lossless 52-bit safe integer key for signed integer cell coordinates. */
+export function packSpatialCellKey(cellX: number, cellZ: number): number {
+  return (cellX + CELL_KEY_OFFSET) * CELL_KEY_SPAN + (cellZ + CELL_KEY_OFFSET)
 }
 
 export class SpatialGrid<T extends SpatialEntity> {
   private cellSize: number
-  private grid: Map<string, T[]> = new Map()
+  private grid: Map<number, SpatialBucket<T>> = new Map()
+  private bucketPool: SpatialBucket<T>[] = []
   private occupiedBuckets: SpatialBucket<T>[] = []
   private bucketOrderDirty = false
   private nearestBuckets: SpatialBucket<T>[] = []
   private nearestBucketsInUse = false
-  private insertionOrder = new WeakMap<T, number>()
   private nextInsertionOrder = 0
   private minCellX = Infinity
   private maxCellX = -Infinity
@@ -30,11 +39,15 @@ export class SpatialGrid<T extends SpatialEntity> {
   }
 
   clear() {
+    for (const bucket of this.grid.values()) {
+      bucket.entities.length = 0
+      bucket.orders.length = 0
+      this.bucketPool.push(bucket)
+    }
     this.grid.clear()
     this.occupiedBuckets.length = 0
     this.nearestBuckets.length = 0
     this.bucketOrderDirty = false
-    this.insertionOrder = new WeakMap<T, number>()
     this.nextInsertionOrder = 0
     this.minCellX = Infinity
     this.maxCellX = -Infinity
@@ -46,19 +59,25 @@ export class SpatialGrid<T extends SpatialEntity> {
     const pos = entity.combatPosition
     const cellX = Math.floor(pos.x / this.cellSize)
     const cellZ = Math.floor(pos.z / this.cellSize)
-    const cellKey = `${cellX},${cellZ}`
-    let cell = this.grid.get(cellKey)
-    if (!cell) {
-      cell = []
-      this.grid.set(cellKey, cell)
+    const cellKey = packSpatialCellKey(cellX, cellZ)
+    let bucket = this.grid.get(cellKey)
+    if (!bucket) {
+      bucket = this.bucketPool.pop()
+      if (bucket) {
+        bucket.x = cellX
+        bucket.z = cellZ
+      } else {
+        bucket = { x: cellX, z: cellZ, entities: [], orders: [] }
+      }
+      this.grid.set(cellKey, bucket)
       // Non-finite cells cannot be visited by finite direct queries.
       if (Number.isFinite(cellX) && Number.isFinite(cellZ)) {
-        this.occupiedBuckets.push({ x: cellX, z: cellZ, entities: cell })
+        this.occupiedBuckets.push(bucket)
         this.bucketOrderDirty = true
       }
     }
-    cell.push(entity)
-    this.insertionOrder.set(entity, this.nextInsertionOrder++)
+    bucket.entities.push(entity)
+    bucket.orders.push(this.nextInsertionOrder++)
     this.minCellX = Math.min(this.minCellX, cellX)
     this.maxCellX = Math.max(this.maxCellX, cellX)
     this.minCellZ = Math.min(this.minCellZ, cellZ)
@@ -112,8 +131,7 @@ export class SpatialGrid<T extends SpatialEntity> {
 
     for (let x = minX; x <= maxX; x++) {
       for (let z = minZ; z <= maxZ; z++) {
-        const key = `${x},${z}`
-        const cell = this.grid.get(key)
+        const cell = this.grid.get(packSpatialCellKey(x, z))?.entities
         if (cell) {
           for (let i = 0; i < cell.length; i++) {
             const ent = cell[i]
@@ -125,6 +143,104 @@ export class SpatialGrid<T extends SpatialEntity> {
       }
     }
     return out
+  }
+
+  /**
+   * Visits entities within `maxRadius` in expanding cell rings around `pos`.
+   * Calls `getStopDistance()` after each completed ring >= 1 and stops once every
+   * still-unvisited cell is strictly farther than that threshold.
+   */
+  visitNearbyRings(
+    pos: THREE.Vector3,
+    maxRadius: number,
+    visitEntity: (entity: T) => void,
+    getStopDistance?: () => number,
+  ): void {
+    if (this.grid.size === 0 || !Number.isFinite(maxRadius) || maxRadius < 0) return
+
+    const originCellX = Math.floor(pos.x / this.cellSize)
+    const originCellZ = Math.floor(pos.z / this.cellSize)
+    if (!Number.isFinite(originCellX) || !Number.isFinite(originCellZ)) return
+
+    let minX = Math.floor((pos.x - maxRadius) / this.cellSize)
+    let maxX = Math.floor((pos.x + maxRadius) / this.cellSize)
+    let minZ = Math.floor((pos.z - maxRadius) / this.cellSize)
+    let maxZ = Math.floor((pos.z + maxRadius) / this.cellSize)
+    if (Number.isFinite(this.minCellX) && Number.isFinite(this.maxCellX)
+      && Number.isFinite(this.minCellZ) && Number.isFinite(this.maxCellZ)) {
+      minX = Math.max(minX, this.minCellX)
+      maxX = Math.min(maxX, this.maxCellX)
+      minZ = Math.max(minZ, this.minCellZ)
+      maxZ = Math.min(maxZ, this.maxCellZ)
+    }
+    if (minX > maxX || minZ > maxZ) return
+
+    const maxRing = Math.max(
+      Math.abs(originCellX - minX),
+      Math.abs(originCellX - maxX),
+      Math.abs(originCellZ - minZ),
+      Math.abs(originCellZ - maxZ),
+    )
+    const maxRadiusSq = maxRadius * maxRadius
+
+    const visitCell = (cellX: number, cellZ: number): void => {
+      const bucket = this.grid.get(packSpatialCellKey(cellX, cellZ))
+      if (!bucket) return
+      const entities = bucket.entities
+      for (let i = 0; i < entities.length; i++) {
+        const ent = entities[i]
+        if (ent.combatPosition.distanceToSquared(pos) <= maxRadiusSq) {
+          visitEntity(ent)
+        }
+      }
+    }
+
+    for (let ring = 0; ring <= maxRing; ring++) {
+      if (ring === 0) {
+        if (originCellX >= minX && originCellX <= maxX && originCellZ >= minZ && originCellZ <= maxZ) {
+          visitCell(originCellX, originCellZ)
+        }
+      } else {
+        const rxMin = originCellX - ring
+        const rxMax = originCellX + ring
+        const rzMin = originCellZ - ring
+        const rzMax = originCellZ + ring
+        const clampedXMin = Math.max(minX, rxMin)
+        const clampedXMax = Math.min(maxX, rxMax)
+
+        if (rzMin >= minZ && rzMin <= maxZ) {
+          for (let x = clampedXMin; x <= clampedXMax; x++) visitCell(x, rzMin)
+        }
+        if (rzMax >= minZ && rzMax <= maxZ) {
+          for (let x = clampedXMin; x <= clampedXMax; x++) visitCell(x, rzMax)
+        }
+        const sideZMin = Math.max(minZ, rzMin + 1)
+        const sideZMax = Math.min(maxZ, rzMax - 1)
+        if (rxMin >= minX && rxMin <= maxX) {
+          for (let z = sideZMin; z <= sideZMax; z++) visitCell(rxMin, z)
+        }
+        if (rxMax >= minX && rxMax <= maxX) {
+          for (let z = sideZMin; z <= sideZMax; z++) visitCell(rxMax, z)
+        }
+      }
+
+      if (getStopDistance && ring >= 1) {
+        const stopDist = getStopDistance()
+        if (Number.isFinite(stopDist)) {
+          const leftBoundary = (originCellX - ring) * this.cellSize
+          const rightBoundary = (originCellX + ring + 1) * this.cellSize
+          const bottomBoundary = (originCellZ - ring) * this.cellSize
+          const topBoundary = (originCellZ + ring + 1) * this.cellSize
+          const nearestUnvisitedDistance = Math.min(
+            pos.x - leftBoundary,
+            rightBoundary - pos.x,
+            pos.z - bottomBoundary,
+            topBoundary - pos.z,
+          )
+          if (nearestUnvisitedDistance > stopDist) break
+        }
+      }
+    }
   }
 
   /**
@@ -153,16 +269,18 @@ export class SpatialGrid<T extends SpatialEntity> {
 
     const scanCell = (
       cellX: number, cellZ: number,
-      cell: T[] | undefined = this.grid.get(`${cellX},${cellZ}`),
+      bucket: SpatialBucket<T> | undefined = this.grid.get(packSpatialCellKey(cellX, cellZ)),
     ): void => {
-      if (!cell) return
+      if (!bucket) return
 
-      for (let i = 0; i < cell.length; i++) {
-        const entity = cell[i]
+      const entities = bucket.entities
+      const orders = bucket.orders
+      for (let i = 0; i < entities.length; i++) {
+        const entity = entities[i]
         if (predicate && !predicate(entity)) continue
 
         const distanceSq = entity.combatPosition.distanceToSquared(pos)
-        const order = this.insertionOrder.get(entity) ?? Infinity
+        const order = orders[i]
         if (
           distanceSq < closestDistSq
           || (distanceSq === closestDistSq && order < closestOrder)
@@ -182,7 +300,7 @@ export class SpatialGrid<T extends SpatialEntity> {
           while (sparseIndex < sparseBuckets.length) {
             const bucket = sparseBuckets[sparseIndex]
             if (Math.max(Math.abs(bucket.x - originCellX), Math.abs(bucket.z - originCellZ)) !== ring) break
-            scanCell(bucket.x, bucket.z, bucket.entities)
+            scanCell(bucket.x, bucket.z, bucket)
             sparseIndex++
           }
         } else if (ring === 0) {

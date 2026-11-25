@@ -349,11 +349,20 @@ export class TownLayeredNavigation {
     const ascending = toDeck || Boolean(toRamp)
     const carrier = entranceId ? this.siegeEntrances.entries.get(entranceId) : undefined
     const interiorTransfer = ascending && !onRamp && Boolean(carrier?.surface && goal.distanceToSquared(carrier.exit) < .01)
-    const available = this.layout.ramps.filter(r => this.nativeRampUsable(r, mounted) && (!interiorTransfer || this.connected(current, r.entrance)))
-    const ramp = onRamp ?? toRamp ?? available.reduce<TownRamp | undefined>((best, r) => {
+    let ramp = onRamp ?? toRamp
+    if (!ramp) {
       const p = ascending ? current : goal
-      return !best || p.distanceToSquared(r.entrance) < p.distanceToSquared(best.entrance) ? r : best
-    }, undefined)
+      let bestDistSq = Infinity
+      for (let i = 0; i < this.layout.ramps.length; i++) {
+        const candidate = this.layout.ramps[i]
+        if (!this.nativeRampUsable(candidate, mounted) || (interiorTransfer && !this.connected(current, candidate.entrance))) continue
+        const distSq = p.distanceToSquared(candidate.entrance)
+        if (distSq < bestDistSq) {
+          bestDistSq = distSq
+          ramp = candidate
+        }
+      }
+    }
     if (!ramp || !this.nativeRampUsable(ramp, mounted)) { out.copy(current); return { ground: true, blocked: true } }
     const s = ramp.surface
     const lane = townRampLane(actorId, mounted, ascending, s.halfWidth)
@@ -399,10 +408,15 @@ export class TownLayeredNavigation {
     return Boolean(this.siegeActive && entry && hasClearedGateBreach(entry, current, mounted))
   }
   private onSiegeSurface(entry: BreachEntrance, p: THREE.Vector3): boolean {
-    return [entry.surface, entry.bridgeSurface].some(s => {
-      const height = s && getWalkRampHeight(s, p.x, p.z)
-      return height !== undefined && height !== null && Math.abs(p.y - height) < 1.1
-    })
+    if (entry.surface) {
+      const height = getWalkRampHeight(entry.surface, p.x, p.z)
+      if (height !== null && Math.abs(p.y - height) < 1.1) return true
+    }
+    if (entry.bridgeSurface) {
+      const height = getWalkRampHeight(entry.bridgeSurface, p.x, p.z)
+      if (height !== null && Math.abs(p.y - height) < 1.1) return true
+    }
+    return false
   }
   private siegeEntranceUsable(entry: BreachEntrance, mounted: boolean, sectorId?: TownGateId | null): boolean {
     return entry.walkable && (!mounted || entry.mounted
@@ -445,11 +459,7 @@ export class TownLayeredNavigation {
     let aboard: BreachEntrance | undefined
     for (const entry of this.siegeEntrances.entries.values()) {
       if (!eligible(entry)) continue
-      for (const surface of [entry.surface, entry.bridgeSurface]) {
-        const height = surface && getWalkRampHeight(surface, current.x, current.z)
-        if (height !== undefined && height !== null && Math.abs(current.y - height) < 1.1) { aboard = entry; break }
-      }
-      if (aboard) break
+      if (this.onSiegeSurface(entry, current)) { aboard = entry; break }
     }
     // A preferred assault entrance does not own unrelated exterior pursuit.
     if (!aboard && outside && descending && !goalCarrier) return null

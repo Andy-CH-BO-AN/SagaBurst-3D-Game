@@ -370,4 +370,45 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(isHostileCombatMount(enemyAttacker, enemyDismountedHorse, player)).toBe(false)
   })
 
+  it('matches full linear scan identically when pruning SpatialGrid rings across charge and passthrough', () => {
+    const grid = new SpatialGrid<any>(4)
+    const enemies: any[] = []
+    for (let i = 0; i < 60; i++) {
+      const angle = i * 0.43
+      const radius = 3 + (i % 15) * 4.5
+      const npc = {
+        id: `enemy-${i}`,
+        combatPosition: new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius),
+        dead: i % 11 === 0,
+        faction: Faction.ENEMY,
+        isFriendly: false,
+        mount: null,
+      }
+      enemies.push(npc)
+      if (!npc.dead) grid.insert(npc)
+    }
+
+    const player = {
+      position: new THREE.Vector3(500, 0, 500),
+      targetable: false,
+      dead: true,
+    } as any
+
+    for (const yaw of [0, 0.9, -1.7, Math.PI]) {
+      for (const isPassthrough of [false, true]) {
+        const cavalry = {
+          combatPosition: new THREE.Vector3(0, 0, 0),
+          group: { rotation: { y: yaw } },
+          mount: { group: { rotation: { y: yaw } } },
+          faction: Faction.PLAYER,
+          isFriendly: true,
+          hostileToPlayer: false,
+        } as any
+        const gridResult = findCavalryChargeTarget(cavalry, player, grid, null, [], isPassthrough)
+        const linearResult = findCavalryChargeTarget(cavalry, player, null, null, [], isPassthrough, undefined, enemies)
+        expect(gridResult?.npc ?? null).toBe(linearResult?.npc ?? null)
+      }
+    }
+  })
+
 })

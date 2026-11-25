@@ -30,3 +30,61 @@ export const MOUNT_FAR_ANIMATION_INTERVAL = 1 / 15
 export function deferFarHumanoidPose(cameraDistance: number, pendingSeconds: number): boolean {
   return pendingSeconds < humanoidPoseInterval(cameraDistance)
 }
+
+const GOLDEN_RATIO_CONJUGATE = 0.6180339887498949
+let nextStaggerIndex = 0
+
+/** Deterministic low-discrepancy phase in [0, 1) so far instances do not fire on the same frame. */
+export function nextAnimationStaggerPhase(): number {
+  nextStaggerIndex = (nextStaggerIndex + 1) >>> 0
+  return (nextStaggerIndex * GOLDEN_RATIO_CONJUGATE) % 1
+}
+
+/**
+ * Separates real accumulated simulation delta (`pendingDt`, passed to mixers/clocks)
+ * from the staggered scheduling threshold (`phaseDebt`), avoiding fake time jumps.
+ */
+export class FarAnimationCadence {
+  private readonly phase: number
+  private pendingDt = 0
+  private phaseDebt = 0
+  private armed = false
+
+  constructor(phase = nextAnimationStaggerPhase()) {
+    const normalized = Number.isFinite(phase) ? phase - Math.floor(phase) : 0
+    this.phase = normalized >= 0 && normalized < 1 ? normalized : 0
+  }
+
+  reset(): void {
+    this.pendingDt = 0
+    this.phaseDebt = 0
+    this.armed = false
+  }
+
+  wouldDefer(interval: number, nextDt: number): boolean {
+    if (interval <= 0) return false
+    const debt = this.armed ? this.phaseDebt : this.phase * interval
+    return debt + nextDt < interval
+  }
+
+  advance(dt: number, interval: number): number | null {
+    this.pendingDt += dt
+    if (interval <= 0) {
+      const step = this.pendingDt
+      this.pendingDt = 0
+      this.phaseDebt = 0
+      this.armed = false
+      return step
+    }
+    if (!this.armed) {
+      this.phaseDebt = this.phase * interval
+      this.armed = true
+    }
+    this.phaseDebt += dt
+    if (this.phaseDebt < interval) return null
+    const step = this.pendingDt
+    this.pendingDt = 0
+    this.phaseDebt %= interval
+    return step
+  }
+}

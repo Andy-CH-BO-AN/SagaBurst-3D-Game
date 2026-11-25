@@ -1,4 +1,4 @@
-import { CHARACTER_LOD_DISTANCES, HUMANOID_ANIMATION_THROTTLE_DISTANCE, deferFarHumanoidPose } from './CharacterLODPolicy'
+import { CHARACTER_LOD_DISTANCES, FarAnimationCadence, HUMANOID_ANIMATION_THROTTLE_DISTANCE, deferFarHumanoidPose, humanoidPoseInterval } from './CharacterLODPolicy'
 import type { ArticulatedFingerPoses } from './FingerContactPolicy'
 import { getOrdinarySoldierAssetId } from '../combat/OrdinarySoldierProfile'
 import { prepareSeatSupport } from './SkinnedSeatContact'
@@ -625,7 +625,7 @@ export class MixerController implements HumanoidAnimationController {
   private readonly meleeTimings = new Map<HumanoidAnimationState, HumanoidMeleeTiming>()
   private readonly punchTimings = new Map<HumanoidAnimationState, HumanoidPunchTiming>()
   private current: HumanoidAnimationState | null = null
-  private farAccumulator = 0
+  private readonly farCadence = new FarAnimationCadence()
   /** Repeated explicit samples (bow draw, pilum) of the still-bound state share the far cadence. */
   private seekedState: HumanoidAnimationState | null = null
   private deferredSeek = false
@@ -800,7 +800,7 @@ export class MixerController implements HumanoidAnimationController {
       for (const transition of this.inertialTransitions) transition.capture()
       // Discard only the outgoing pose's unevaluated distance debt. It must not
       // advance the new attack beyond its independently clocked start.
-      this.farAccumulator = 0
+      this.farCadence.reset()
       for (const actions of bindings.values()) for (const action of actions) action.stop()
     } else for (const action of previous) action.fadeOut(fadeSeconds)
     for (const action of next) {
@@ -851,7 +851,7 @@ export class MixerController implements HumanoidAnimationController {
     // only when that update is certain to evaluate (one mixer, not a deferred far tick); any
     // other mixer or pose change first runs the sample in its original order.
     if (nextUpdate && this.mixers.length === 1 && Number.isFinite(nextUpdate.dt) && nextUpdate.dt > 0
-      && !deferFarHumanoidPose(nextUpdate.cameraDistance, this.farAccumulator + nextUpdate.dt)) {
+      && !this.farCadence.wouldDefer(humanoidPoseInterval(nextUpdate.cameraDistance), nextUpdate.dt)) {
       this.deferredSeek = true
       return true
     }
@@ -881,11 +881,10 @@ export class MixerController implements HumanoidAnimationController {
     if (!Number.isFinite(dt) || dt < 0) { this.flushDeferredSeek(); return }
     if (dt === 0) { this.flushDeferredSeek(); this.restoreEquipment(); this.finishPose(); return }
     this.seekPending += dt
-    this.farAccumulator += dt
-    if (deferFarHumanoidPose(cameraDistance, this.farAccumulator)) { this.flushDeferredSeek(); return }
+    const step = this.farCadence.advance(dt, humanoidPoseInterval(cameraDistance))
+    if (step === null) { this.flushDeferredSeek(); return }
     // Returning near must consume the pending far time once, too.
-    dt = this.farAccumulator
-    this.farAccumulator = 0
+    dt = step
     // This evaluation supersedes a deferred seek sample (see seek).
     this.deferredSeek = false
     this.restoreEquipment()

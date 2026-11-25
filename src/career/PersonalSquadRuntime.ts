@@ -616,6 +616,8 @@ export class PersonalSquadRuntime {
     this.releaseEaglePad(actor.combatantId)
   }
 
+  get hasCheckpoint(): boolean { return Boolean(this.mission) }
+
   checkpoint(): PersonalSquadMission | undefined {
     if (!this.mission) return undefined
     this.mission.pendingMemberIds = [...this.pending.keys()]

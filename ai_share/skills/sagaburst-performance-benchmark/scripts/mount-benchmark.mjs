@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { chromium } from 'playwright'
 
 const args = new Set(process.argv.slice(2))
@@ -125,12 +126,34 @@ function parseHud(text) {
 }
 
 function median(values) {
-  const sorted = [...values].sort((a, b) => a - b)
+  const sorted = [...values].filter((v) => Number.isFinite(v)).sort((a, b) => a - b)
   if (sorted.length === 0) return null
   const middle = Math.floor(sorted.length / 2)
   return sorted.length % 2 === 0
     ? (sorted[middle - 1] + sorted[middle]) / 2
     : sorted[middle]
+}
+
+function percentile(values, p) {
+  const sorted = [...values].filter((v) => Number.isFinite(v)).sort((a, b) => a - b)
+  return sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] : null
+}
+
+function onePercentLowFps(intervalsMs) {
+  const sorted = intervalsMs.filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b)
+  if (sorted.length === 0) return null
+  const tailCount = Math.max(1, Math.ceil(sorted.length * 0.01))
+  const worst = sorted.slice(-tailCount)
+  const meanWorstMs = worst.reduce((a, b) => a + b, 0) / worst.length
+  return meanWorstMs > 0 ? 1000 / meanWorstMs : null
+}
+
+function readGitCommit() {
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim() || null
+  } catch {
+    return null
+  }
 }
 
 function isCombatEvidence(metrics) {
@@ -297,9 +320,20 @@ async function runOne(scenario, run) {
     if (phase === 'during-combat' && scenario.id !== 'E') {
       await page.evaluate(() => window.__sagaburstWaitForCombat())
     }
-    const observationStartMs = await page.evaluate(() => performance.now())
+    const observationStartMs = await page.evaluate(() => {
+      window.__sagaburstGpuProbe = window.__measureGpuRender?.() ?? null
+      return performance.now()
+    })
     await new Promise((resolve) => setTimeout(resolve, observationMs))
-    const recorded = await page.evaluate(() => window.__sagaburstHudSamples ?? [])
+    const { recorded, frameSamplesAll, gpuRaw } = await page.evaluate(() => {
+      const probe = window.__sagaburstGpuProbe
+      window.__sagaburstGpuProbe = null
+      return {
+        recorded: window.__sagaburstHudSamples ?? [],
+        frameSamplesAll: window.__getRuntimeProfilerFrames?.() ?? [],
+        gpuRaw: probe?.finish?.() ?? null,
+      }
+    })
     const parsed = recorded
       .filter((sample) => hasProfilerSnapshot(sample.hudText))
       .map((sample) => ({
@@ -310,6 +344,7 @@ async function runOne(scenario, run) {
         battleText: sample.battleText,
       }))
     let combatEvidenceStarted = false
+    let firstCombatAtMs = Infinity
     const samples = []
     for (const sample of parsed) {
       if (phase === 'during-combat') {
@@ -319,6 +354,7 @@ async function runOne(scenario, run) {
         continue
       }
       if (isCombatEvidence(sample.metrics)) {
+        if (!combatEvidenceStarted) firstCombatAtMs = sample.atMs
         combatEvidenceStarted = true
         continue
       }
@@ -335,6 +371,48 @@ async function runOne(scenario, run) {
       samples.push({ atMs: sample.atMs, metrics })
     }
     if (samples.length === 0) throw new Error(`沒有有效 profiler windows；recorded=${recorded.length}`)
+    const frameSamples = phase === 'during-combat'
+      ? frameSamplesAll.filter((s) => s.atMs >= observationStartMs)
+      : frameSamplesAll.filter((s) => s.atMs <= firstCombatAtMs)
+    const intervals = frameSamples.map((s) => s.frameIntervalMs)
+    const cpuFrames = frameSamples.map((s) => s.cpuFrameMs)
+    const submitFrames = frameSamples.map((s) => s.renderSubmitMs)
+    const gpuSamples = Array.isArray(gpuRaw?.samplesMs) ? gpuRaw.samplesMs : []
+    const gpuRender = gpuRaw
+      ? {
+          supported: Boolean(gpuRaw.supported),
+          sampleCount: gpuSamples.length,
+          medianMs: gpuRaw.supported ? median(gpuSamples) : null,
+          p95Ms: gpuRaw.supported ? percentile(gpuSamples, 0.95) : null,
+          averageMs: gpuRaw.supported ? (gpuRaw.averageMs ?? null) : null,
+          disjointSamples: gpuRaw.disjointSamples ?? 0,
+          droppedSamples: gpuRaw.droppedSamples ?? 0,
+          unresolved: gpuRaw.unresolved ?? 0,
+          reason: gpuRaw.supported ? (gpuSamples.length ? 'ok' : 'no-completed-queries') : 'EXT_disjoint_timer_query_webgl2 unsupported',
+        }
+      : {
+          supported: false,
+          sampleCount: 0,
+          medianMs: null,
+          p95Ms: null,
+          averageMs: null,
+          disjointSamples: 0,
+          droppedSamples: 0,
+          unresolved: 0,
+          reason: 'probe-unavailable',
+        }
+    const metrics = {
+      ...aggregate(samples),
+      frameIntervalP95Ms: percentile(intervals, 0.95),
+      frameIntervalP99Ms: percentile(intervals, 0.99),
+      fps1PercentLow: onePercentLowFps(intervals),
+      cpuFrameP95Ms: percentile(cpuFrames, 0.95),
+      cpuFrameP99Ms: percentile(cpuFrames, 0.99),
+      renderSubmitP95Ms: percentile(submitFrames, 0.95),
+      renderSubmitP99Ms: percentile(submitFrames, 0.99),
+      gpuRenderMedianMs: gpuRender.medianMs,
+      gpuRenderP95Ms: gpuRender.p95Ms,
+    }
     const last = parsed.at(-1)
     return {
       scenario: scenario.id,
@@ -344,7 +422,9 @@ async function runOne(scenario, run) {
       startedAt,
       url,
       status: 'ok',
-      metrics: aggregate(samples),
+      metrics,
+      gpuRender,
+      frameSampleCount: frameSamples.length,
       warmupMs,
       observationMs,
       observationDurationMs: observationMs,
@@ -395,6 +475,8 @@ try {
 const report = {
   generatedAt: new Date().toISOString(),
   tag,
+  commit: readGitCommit(),
+  viewport: '1280x720',
   renderProbe,
   phase,
   scenarios: scenarios.map((scenario) => scenario.id),

@@ -56,6 +56,36 @@ function influencingBones(mesh: THREE.SkinnedMesh, points: readonly SupportPoint
   return [...bones]
 }
 
+/** Topological parent-before-child chain from `stopAncestor` (exclusive) down to each bone. */
+function buildBoneUpdateChain(bones: readonly THREE.Bone[], stopAncestor: THREE.Object3D | null): THREE.Object3D[] {
+  const seen = new Set<THREE.Object3D>()
+  const chain: THREE.Object3D[] = []
+  const path: THREE.Object3D[] = []
+  for (let i = 0; i < bones.length; i++) {
+    path.length = 0
+    for (let node: THREE.Object3D | null = bones[i]; node && node !== stopAncestor; node = node.parent) {
+      if (seen.has(node)) break
+      path.push(node)
+    }
+    for (let j = path.length - 1; j >= 0; j--) {
+      const node = path[j]
+      seen.add(node)
+      chain.push(node)
+    }
+  }
+  return chain
+}
+
+function refreshBoneChain(chain: readonly THREE.Object3D[]): void {
+  for (let i = 0; i < chain.length; i++) {
+    const node = chain[i]
+    if (node.matrixAutoUpdate) node.updateMatrix()
+    const parent = node.parent
+    if (parent) node.matrixWorld.multiplyMatrices(parent.matrixWorld, node.matrix)
+    else node.matrixWorld.copy(node.matrix)
+  }
+}
+
 /** Selected riders' actual bearing surfaces, evaluated after both animations.
  * Only six posed vertices per surface per frame; no per-frame mesh raycast.
  * Vertex skinning reads bone matrixWorld directly (never Skeleton.boneMatrices). */
@@ -67,9 +97,9 @@ export class SkinnedSeatContact {
   private readonly vertex = new THREE.Vector3()
   private readonly riderToWorld = new THREE.Matrix4()
   private readonly saddleToWorld = new THREE.Matrix4()
-  /** Bones under the six sampled vertices; attached-bind meshes only refresh these. */
-  private readonly surfaceBones = new Map<THREE.SkinnedMesh, THREE.Bone[]>()
-  private saddleBones: THREE.Bone[] | null = null
+  /** Cached topological ancestor-to-bone chains for attached-bind meshes. */
+  private readonly surfaceChains = new Map<THREE.SkinnedMesh, THREE.Object3D[]>()
+  private saddleChain: THREE.Object3D[] | null = null
   /** Last measured mount-local lift, re-applied while neither pose is re-sampled. */
   private correction: number | null = null
 
@@ -108,14 +138,22 @@ export class SkinnedSeatContact {
     let riderToWorld = surface.mesh.matrixWorld, saddleToWorld = this.saddle.matrixWorld
     if (surface.mesh.bindMode === THREE.AttachedBindMode && this.saddle.bindMode === THREE.AttachedBindMode) {
       // Attached skins: matrixWorld · bindMatrixInverse = I, so a sampled point is the
-      // bones' weighted skinning alone. Refresh only the bones under the six vertices
-      // (and the two frames used below) instead of both whole hierarchies.
+      // bones' weighted skinning alone. Refresh only the unique ancestor-to-bone chain
+      // once in topological order instead of per-bone updateWorldMatrix(true, false).
+      // Re-invert the live bindMatrixInverse each frame because renderer.render()
+      // overwrites it with the previous frame's inverse mesh matrixWorld.
       this.rider.parent?.updateWorldMatrix(true, false)
       this.mount.updateWorldMatrix(true, false)
-      let bones = this.surfaceBones.get(surface.mesh)
-      if (!bones) this.surfaceBones.set(surface.mesh, bones = influencingBones(surface.mesh, surface.points))
-      for (const bone of bones) bone.updateWorldMatrix(true, false)
-      for (const bone of this.saddleBones ??= influencingBones(this.saddle, this.seatPoints)) bone.updateWorldMatrix(true, false)
+      let riderChain = this.surfaceChains.get(surface.mesh)
+      if (!riderChain) {
+        riderChain = buildBoneUpdateChain(influencingBones(surface.mesh, surface.points), this.rider.parent)
+        this.surfaceChains.set(surface.mesh, riderChain)
+      }
+      if (!this.saddleChain) {
+        this.saddleChain = buildBoneUpdateChain(influencingBones(this.saddle, this.seatPoints), this.mount)
+      }
+      refreshBoneChain(riderChain)
+      refreshBoneChain(this.saddleChain)
       riderToWorld = this.riderToWorld.copy(surface.mesh.bindMatrixInverse).invert()
       saddleToWorld = this.saddleToWorld.copy(this.saddle.bindMatrixInverse).invert()
     } else {

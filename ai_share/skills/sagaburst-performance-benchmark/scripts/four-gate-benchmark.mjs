@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { chromium } from 'playwright'
 
 const valueOf = (name, fallback) => {
@@ -52,6 +53,21 @@ const median = values => {
 const percentile = (values, p) => {
   const sorted = [...values].sort((a, b) => a - b)
   return sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] : null
+}
+const onePercentLowFps = values => {
+  const sorted = values.filter(value => Number.isFinite(value) && value > 0).sort((a, b) => a - b)
+  if (!sorted.length) return null
+  const tailCount = Math.max(1, Math.ceil(sorted.length * 0.01))
+  const worst = sorted.slice(-tailCount)
+  const meanWorstMs = worst.reduce((a, b) => a + b, 0) / worst.length
+  return meanWorstMs > 0 ? 1000 / meanWorstMs : null
+}
+const readGitCommit = () => {
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim() || null
+  } catch {
+    return null
+  }
 }
 
 const browser = await chromium.launch({ headless: false, executablePath: chromePath })
@@ -113,6 +129,8 @@ async function measure(label) {
       renderer.__fourGateWrapped = true
     }
     renderer.__fourGateSubmit.length = 0
+    window.__townScene?.resetProfiler?.()
+    window.__fourGateGpuProbe = window.__townScene?.measureGpuRender?.() ?? null
   })
   const before = await census()
   const censusSamples = []
@@ -121,12 +139,42 @@ async function measure(label) {
     await page.waitForTimeout(2000)
     censusSamples.push(await census())
   }
-  const { frames, submit } = await page.evaluate(() => ({
-    frames: window.__fourGateFrames.slice(),
-    submit: window.__townScene.scene.renderer.__fourGateSubmit.slice(),
-  }))
+  const { frames, submit, gpuRaw, profiler } = await page.evaluate(() => {
+    const gpuProbe = window.__fourGateGpuProbe
+    window.__fourGateGpuProbe = null
+    return {
+      frames: window.__fourGateFrames.slice(),
+      submit: window.__townScene.scene.renderer.__fourGateSubmit.slice(),
+      gpuRaw: gpuProbe?.finish?.() ?? null,
+      profiler: window.__townScene?.readProfiler?.() ?? null,
+    }
+  })
   const intervals = frames.slice(1).map((frame, i) => frame.at - frames[i].at)
   const cpu = frames.map(frame => frame.cpu)
+  const gpuSamples = Array.isArray(gpuRaw?.samplesMs) ? gpuRaw.samplesMs : []
+  const gpuRender = gpuRaw
+    ? {
+        supported: Boolean(gpuRaw.supported),
+        sampleCount: gpuSamples.length,
+        medianMs: gpuRaw.supported ? median(gpuSamples) : null,
+        p95Ms: gpuRaw.supported ? percentile(gpuSamples, .95) : null,
+        averageMs: gpuRaw.supported ? (gpuRaw.averageMs ?? null) : null,
+        disjointSamples: gpuRaw.disjointSamples ?? 0,
+        droppedSamples: gpuRaw.droppedSamples ?? 0,
+        unresolved: gpuRaw.unresolved ?? 0,
+        reason: gpuRaw.supported ? (gpuSamples.length ? 'ok' : 'no-completed-queries') : 'EXT_disjoint_timer_query_webgl2 unsupported',
+      }
+    : {
+        supported: false,
+        sampleCount: 0,
+        medianMs: null,
+        p95Ms: null,
+        averageMs: null,
+        disjointSamples: 0,
+        droppedSamples: 0,
+        unresolved: 0,
+        reason: 'probe-unavailable',
+      }
   const after = await census()
   const civilianMaxMoveM = before?.civilianPositions && after?.civilianPositions
     ? Math.max(0, ...before.civilianPositions.map(([x, z], i) => Math.hypot(after.civilianPositions[i][0] - x, after.civilianPositions[i][1] - z))) : null
@@ -137,8 +185,15 @@ async function measure(label) {
     fps: intervals.length ? 1000 / median(intervals) : null,
     meanFps: intervals.length ? 1000 * intervals.length / intervals.reduce((a, b) => a + b, 0) : null,
     frameIntervalP95Ms: percentile(intervals, .95),
-    cpuFrameMs: median(cpu), cpuFrameP95Ms: percentile(cpu, .95),
-    renderSubmitMs: median(submit),
+    frameIntervalP99Ms: percentile(intervals, .99),
+    fps1PercentLow: onePercentLowFps(intervals),
+    cpuFrameMs: median(cpu), cpuFrameP95Ms: percentile(cpu, .95), cpuFrameP99Ms: percentile(cpu, .99),
+    renderSubmitMs: median(submit), renderSubmitP95Ms: percentile(submit, .95), renderSubmitP99Ms: percentile(submit, .99),
+    gpuRenderMedianMs: gpuRender.medianMs,
+    gpuRenderP95Ms: gpuRender.p95Ms,
+    gpuRender,
+    segments: profiler?.segments ?? null,
+    saves: profiler?.saves ?? null,
     drawCalls: median(censusSamples.map(s => s?.drawCalls)),
     triangles: median(censusSamples.map(s => s?.triangles)),
     before, after,
@@ -190,11 +245,34 @@ await context?.close()
 await browser.close()
 
 const ok = results.filter(result => result.ok)
-const summarize = key => Object.fromEntries(['fps', 'meanFps', 'frameIntervalP95Ms', 'cpuFrameMs', 'cpuFrameP95Ms', 'renderSubmitMs', 'drawCalls', 'triangles']
-  .map(metric => [metric, median(ok.map(result => result[key][metric]))]))
+const summarize = key => {
+  const base = Object.fromEntries([
+    'fps', 'meanFps', 'frameIntervalP95Ms', 'frameIntervalP99Ms', 'fps1PercentLow',
+    'cpuFrameMs', 'cpuFrameP95Ms', 'cpuFrameP99Ms',
+    'renderSubmitMs', 'renderSubmitP95Ms', 'renderSubmitP99Ms',
+    'gpuRenderMedianMs', 'gpuRenderP95Ms',
+    'drawCalls', 'triangles',
+  ].map(metric => [metric, median(ok.map(result => result[key]?.[metric]))]))
+  const segmentKeys = Object.keys(ok[0]?.[key]?.segments ?? {})
+  if (segmentKeys.length) {
+    base.segments = Object.fromEntries(segmentKeys.map(seg => [seg, {
+      medianMs: median(ok.map(result => result[key]?.segments?.[seg]?.medianMs)),
+      p95Ms: median(ok.map(result => result[key]?.segments?.[seg]?.p95Ms)),
+      maxMs: median(ok.map(result => result[key]?.segments?.[seg]?.maxMs)),
+    }]))
+  }
+  if (ok[0]?.[key]?.saves) {
+    base.saves = Object.fromEntries([
+      'count', 'totalMsSum', 'medianTotalMs', 'maxTotalMs',
+      'medianParseMs', 'medianCloneMs', 'medianStringifyMs', 'medianSetItemMs',
+      'medianBytes', 'maxBytes',
+    ].map(field => [field, median(ok.map(result => result[key]?.saves?.[field]))]))
+  }
+  return base
+}
 const report = {
-  tool: 'four-gate-benchmark', tag, host, faction, chromePath, viewport: '1280x720', warmupMs, observationMs,
-  instrumentation: 'DEV build; rAF callback timing + renderer.render wrapper',
+  tool: 'four-gate-benchmark', tag, commit: readGitCommit(), host, faction, chromePath, viewport: '1280x720', warmupMs, observationMs,
+  instrumentation: 'DEV build; rAF callback timing + renderer.render wrapper + TownDevProfiler',
   okRuns: ok.length, totalRuns: results.length,
   skipPreparation,
   summary: { ...(skipPreparation ? {} : { preparation: summarize('preparation') }), siege: summarize('siege') },
