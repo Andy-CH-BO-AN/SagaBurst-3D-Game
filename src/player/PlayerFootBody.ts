@@ -1,6 +1,6 @@
 import type * as THREE from 'three'
 import { PLAYER_RADIUS } from '../movement/MovementBalance'
-import { getTerrainHeight, resolveObstacleCollision, type ObstacleData, type ObstacleCollisionResult } from '../world/Terrain'
+import { clampToPlayableWorld, getTerrainHeight, resolveObstacleCollision, type ObstacleData, type ObstacleCollisionResult } from '../world/Terrain'
 
 /**
  * Height of the on-foot Player collision centre above its feet. Every standing
@@ -27,9 +27,11 @@ export function stepPlayerFootBody(
   dt: number,
   obstacles: ObstacleData[],
   groundHeight: (x: number, z: number) => number = getTerrainHeight,
+  worldBound?: number,
 ): ObstacleCollisionResult {
+  if (worldBound !== undefined) clampToPlayableWorld(position, worldBound)
   let velocityY = state.velocityY + PLAYER_GRAVITY * dt
-  let onGround = state.onGround
+  let onGround = false
   position.y += velocityY * dt
   const terrainStanding = standingPlayerY(groundHeight(position.x, position.z))
   if (position.y <= terrainStanding) {
@@ -38,5 +40,12 @@ export function stepPlayerFootBody(
     onGround = true
   }
   return resolveObstacleCollision(position, previous, velocityY, onGround, PLAYER_RADIUS,
-    PLAYER_FOOT_OFFSET * 2, PLAYER_FOOT_OFFSET, obstacles, { walkSurfaces: true })
+    PLAYER_FOOT_OFFSET * 2, PLAYER_FOOT_OFFSET, obstacles, { walkSurfaces: true, worldBound })
+}
+
+/** Check a checkpoint pose without applying gravity, landing or stepping up. */
+export function recoverPlayerFootBody(position: THREE.Vector3, state: ObstacleCollisionResult, obstacles: ObstacleData[],
+  worldBound?: number): ObstacleCollisionResult {
+  return resolveObstacleCollision(position, position, state.velocityY, state.onGround, PLAYER_RADIUS,
+    PLAYER_FOOT_OFFSET * 2, PLAYER_FOOT_OFFSET, obstacles, { walkSurfaces: true, worldBound, recoverOnly: true })
 }

@@ -164,7 +164,7 @@ export async function launchDuelArenaPreview(container: HTMLElement, setup: Duel
         p.update(dt, keys, orbit.cameraYaw, orbit.getAimPoint(aimPoint), arena!.obstacles, stamina, quiver, sound, inventory)
         // Ground boundary applies only to living bodies on support; falls always complete.
         if (!p.dead && p.isGrounded) {
-          if (p.isMounted) { if (arena!.constrainGroundedBody(mount.group.position)) p.syncMountTransform() }
+          if (p.isMounted) { if (arena!.constrainGroundedBody(mount.group.position, true)) p.syncMountTransform() }
           else arena!.constrainGroundedBody(p.group.position)
         }
       } else {

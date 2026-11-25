@@ -24,8 +24,8 @@ import type { QuiverUI } from '../ui/QuiverUI'
 import type { SoundManager } from '../audio/SoundManager'
 import type { InventoryManager } from '../rpg/InventoryManager'
 import { WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
-import { getScenePlayableWorldBound, clampToPlayableWorld, getTerrainHeight, ObstacleData } from '../world/Terrain'
-import { PLAYER_FOOT_OFFSET, standingPlayerY, stepPlayerFootBody } from './PlayerFootBody'
+import { getScenePlayableWorldBound, getTerrainHeight, ObstacleData } from '../world/Terrain'
+import { PLAYER_FOOT_OFFSET, standingPlayerY, stepPlayerFootBody, recoverPlayerFootBody } from './PlayerFootBody'
 import { resolveRangedAim } from './RangedAimGate'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
@@ -831,10 +831,14 @@ export class Player {
     return { velocityY: this.velY, grounded: this.onGround, apexY: this.footGroundFall.apex }
   }
 
-  /** Resumes a saved on-foot fall after resetForScene(); only the ordinary ground-fall state, never a mounted or aerial fall. */
-  restoreFootFall(saved: { velocityY: number; grounded: boolean; apexY: number | null }): void {
-    this.velY = Number.isFinite(saved.velocityY) ? saved.velocityY : 0
-    this.onGround = saved.grounded
+  /** Restores a saved foot pose and its ordinary ground-fall state after resetForScene(). */
+  restoreFootFall(saved: { velocityY: number; grounded: boolean; apexY: number | null }, obstacles: ObstacleData[]): void {
+    const collision = recoverPlayerFootBody(this.group.position, {
+      velocityY: Number.isFinite(saved.velocityY) ? saved.velocityY : 0,
+      onGround: saved.grounded,
+    }, obstacles, this.playableWorldBound)
+    this.velY = collision.velocityY
+    this.onGround = collision.onGround
     this.footGroundFall.restore(saved.apexY)
   }
 
@@ -1228,9 +1232,6 @@ export class Player {
         this.group.rotation.y = this._characterYaw(cameraYaw + Math.PI)
       }
 
-      // Keep movement inside the rendered terrain with the scene world boundary.
-      clampToPlayableWorld(this.group.position, this.playableWorldBound)
-
       // Jump
       if (input.keys['Space'] && this.onGround) {
         this.velY = JUMP_VELOCITY
@@ -1239,12 +1240,10 @@ export class Player {
 
       // Gravity, heightmap ground, then obstacle sides and walk-surface tops.
       const playerCollision = stepPlayerFootBody(this.group.position, previousPlayerPosition,
-        { velocityY: this.velY, onGround: this.onGround }, dt, obstacles)
+        { velocityY: this.velY, onGround: this.onGround }, dt, obstacles, getTerrainHeight, this.playableWorldBound)
       this.velY = playerCollision.velocityY
       this.onGround = playerCollision.onGround
 
-      // Re-apply after collision resolution in case the push-out moved us past the edge.
-      clampToPlayableWorld(this.group.position, this.playableWorldBound)
       if (this.groundFallPolicy) {
         const height = this.footGroundFall.observe(this.group.position.y - PLAYER_HALF_HEIGHT, this.onGround)
         if (height !== null) this._applyGroundFall(groundFallDamage(this.maxHp, height, this.groundFallPolicy))

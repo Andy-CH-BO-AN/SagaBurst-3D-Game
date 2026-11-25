@@ -8,13 +8,14 @@ import { describe, expect, it } from 'vitest'
 import {
   COLOSSEUM, colosseumNormal, colosseumPoint, createColosseumObstacles,
 } from '../../src/arena/ColosseumLayout'
-import { createValhallaObstacles } from '../../src/arena/ValhallaLayout'
+import { VALHALLA, createValhallaObstacles } from '../../src/arena/ValhallaLayout'
 import { ArenaChaseRoute, ArenaSupportTracker, arenaStairLinks, arenaStandingFeet } from '../../src/arena/DuelArenaChase'
 import { ARENA_DUEL_REFEREE_SLOTS } from '../../src/arena/DuelArenaVenue'
 import { arenaDuelPartyPlan } from '../../src/arena/CareerDuelArenaScene'
 import { FallingRider } from '../../src/movement/FallingRider'
 import { ARENA_GROUND_FALL_POLICY, groundFallDamage, GroundFallTracker } from '../../src/movement/GroundFall'
 import { Player } from '../../src/player/Player'
+import { PLAYER_FOOT_OFFSET, recoverPlayerFootBody, stepPlayerFootBody } from '../../src/player/PlayerFootBody'
 import {
   claimFlatTerrainOverride, getFlatTerrainOverride, getTerrainHeight,
   releaseFlatTerrainOverride, resetTerrainScenePolicy, resolveObstacleCollision,
@@ -31,6 +32,12 @@ describe('duel arena layout collision', () => {
     fresh.observe(2, false)
     const saved = fresh.apex!
     expect(saved).toBe(18)
+    // This pose is close enough to be snapped by an ordinary downward step.
+    const airPose = new THREE.Vector3(0, 3.02 + PLAYER_FOOT_OFFSET, 28)
+    const position = airPose.clone()
+    const airborne = { velocityY: -12, onGround: false }
+    expect(recoverPlayerFootBody(position, airborne, createValhallaObstacles())).toEqual(airborne)
+    expect(position).toEqual(airPose)
     const resumed = new GroundFallTracker()
     resumed.restore(saved)
     expect(resumed.observe(0, true)).toBe(18)
@@ -42,6 +49,47 @@ describe('duel arena layout collision', () => {
     const cleared = new GroundFallTracker()
     cleared.restore(Number.NaN)
     expect(cleared.apex).toBeNull()
+  })
+
+  it('recovers the grounded Valhalla prison checkpoint and stays clear over later foot steps', () => {
+    const id = 'viking-valhalla'
+    const obstacles = [...prisonExitObstacles(id, createValhallaObstacles()), prisonGateObstacle(id)]
+    const saved = new THREE.Vector3(-3.12, .95, 28.98)
+    const position = saved.clone()
+    const savedFall = { velocityY: 0, onGround: true }
+    let state = recoverPlayerFootBody(position, savedFall, obstacles)
+    expect(position.distanceTo(saved)).toBeLessThan(3)
+    expect(state).toEqual(savedFall)
+    const inset = PLAYER_RADIUS - .000001
+    for (let frame = 0; frame < 5; frame++) {
+      const body = new THREE.Box3(
+        new THREE.Vector3(position.x - inset, position.y - PLAYER_FOOT_OFFSET + .001, position.z - inset),
+        new THREE.Vector3(position.x + inset, position.y + PLAYER_FOOT_OFFSET - .001, position.z + inset),
+      )
+      expect(obstacles.some(obstacle => obstacle.box.intersectsBox(body))).toBe(false)
+      state = stepPlayerFootBody(position, position.clone(), state, 1 / 60, obstacles, () => 0)
+      expect(state.onGround).toBe(true)
+    }
+  })
+
+  it('stops a ground player from entering a Valhalla stair foundation from the side', () => {
+    const previous = new THREE.Vector3(-3.89, PLAYER_FOOT_OFFSET, 21.9)
+    const position = new THREE.Vector3(-3.65, PLAYER_FOOT_OFFSET, previous.z)
+    const state = stepPlayerFootBody(position, previous, { velocityY: 0, onGround: true },
+      .05, createValhallaObstacles(), () => 0)
+    expect(position.x + PLAYER_RADIUS).toBeLessThanOrEqual(-VALHALLA.stair.halfWidth + 1e-6)
+    expect(position.y).toBeCloseTo(PLAYER_FOOT_OFFSET)
+    expect(state.onGround).toBe(true)
+  })
+
+  it('crosses the Valhalla stair landing and dais seam on top during a long grounded step', () => {
+    const obstacles = createValhallaObstacles()
+    const previous = new THREE.Vector3(-2.8, 3 + PLAYER_FOOT_OFFSET, 27.8)
+    const position = new THREE.Vector3(-3.1, previous.y, 29.2)
+    const result = stepPlayerFootBody(position, previous, { velocityY: 0, onGround: true }, .2, obstacles, () => 0)
+    expect(result).toEqual({ velocityY: 0, onGround: true })
+    expect(position.z).toBeGreaterThan(28.6)
+    expect(position.y - PLAYER_FOOT_OFFSET).toBeCloseTo(3)
   })
 
   it('lets a jump over the outer parapet complete a lethal fall to the outside ground without an invisible wall', () => {

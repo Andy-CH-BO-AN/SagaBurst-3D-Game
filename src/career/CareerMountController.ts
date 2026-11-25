@@ -306,7 +306,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     return true
   }
 
-  restoreActiveMount(restoreAerial = true): boolean {
+  restoreActiveMount(restoreAerial = true, rideOnRestore = true): boolean {
     if (this.active) return true
     const profile = this.readProfile()
     const retirement = profile.careerRetirement?.phase === 'final-stand' ? profile.retirementRuntime : undefined
@@ -339,7 +339,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (retirement?.mount) mount.group.rotation.y = heading
     this.installDeathPersistence(id, mount)
     this.active = { id, mount }
-    if (profile.activeMission?.duelMode !== 'unarmed' && (!retirement || retirement.player.mounted)) this.player().mountVehicle(mount, heading)
+    if (rideOnRestore && profile.activeMission?.duelMode !== 'unarmed' && (!retirement || retirement.player.mounted)) this.player().mountVehicle(mount, heading)
     this.statusText = `${MOUNTS[canonicalCareerMountId(id)].name}已恢復，剩餘耐久 ${Math.ceil(mount.currentHp)}/${mount.maxHp}。`
     return true
   }

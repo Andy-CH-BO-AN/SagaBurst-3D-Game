@@ -396,7 +396,7 @@ export class CareerDuelArenaScene {
     // The ground boundary holds living, supported bodies only; falls always complete.
     if (!this.player.dead && this.player.isGrounded) {
       const mount = this.player.currentMount
-      if (mount) { if (this.arena.constrainGroundedBody(mount.group.position)) this.player.syncMountTransform() }
+      if (mount) { if (this.arena.constrainGroundedBody(mount.group.position, true)) this.player.syncMountTransform() }
       else this.arena.constrainGroundedBody(this.player.group.position)
     }
     this.updatePlayerSupport()
@@ -588,7 +588,7 @@ export class CareerDuelArenaScene {
       this.stamina, this.quiver, this.sound, this.inventory, this.skills.getRangedMultiplier(), true)
     if (!this.player.dead && this.player.isGrounded) {
       const mount = this.player.currentMount
-      if (mount) { if (this.arena.constrainGroundedBody(mount.group.position)) this.player.syncMountTransform() }
+      if (mount) { if (this.arena.constrainGroundedBody(mount.group.position, true)) this.player.syncMountTransform() }
       else this.arena.constrainGroundedBody(this.player.group.position)
     }
     this.coopGuest!.updateWorld(dt)
