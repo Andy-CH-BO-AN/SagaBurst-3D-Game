@@ -6,11 +6,11 @@ import type { CareerProfile } from '../career/CareerProfile'
 import { cloneCareerProfile } from '../career/CareerProfile'
 import { careerShopProduct } from '../career/CareerShopCatalog'
 import { claimCareerTutorialReward, deferCareerTutorial, hasCareerTutorialHorse, recordCareerTutorialOperation, startCareerTutorial } from '../career/CareerTutorial'
-import { CAREER_TUTORIAL_STAGES, type CareerTutorialStageId } from '../career/CareerTutorialState'
+import { CAREER_TUTORIAL_OPERATIONS, CAREER_TUTORIAL_STAGES, type CareerTutorialStageId } from '../career/CareerTutorialState'
 import { MissionGuide } from '../career/MissionGuide'
 import type { CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
 import { townShopProducts } from './TownRules'
-import { TownTutorialHUD } from './TownUI'
+import { TownTutorialHUD, type TutorialHudMeta } from './TownUI'
 
 export interface TownTutorialHost {
   profile(): CareerProfile
@@ -122,7 +122,14 @@ export class TownTutorialController {
     const stage = this.activeStage()
     const deferred = stage ? null : this.guidedDeferred()
     let target: Vector3 | null = null, label = '', interact = true, text = ''
+    let meta: TutorialHudMeta | undefined
     const npc = (id: string, name: string) => { target = h.npcPosition(id); label = name }
+    const stageProgress = (id: CareerTutorialStageId) => {
+      const groups = CAREER_TUTORIAL_OPERATIONS[id]
+      const ops = t[id].operations
+      const idx = groups.findIndex(group => group.some(op => !ops.includes(op)))
+      return { current: idx === -1 ? groups.length : idx + 1, total: groups.length }
+    }
 
     if (stage === 'town') {
       let step = t.town.step
@@ -159,68 +166,146 @@ export class TownTutorialController {
         step = h.profile().tutorial?.town.step ?? step
       }
 
+      const progress = stageProgress('town')
       if (step === 'weapon') {
         npc('merchant', '武器店主')
-        text = '前往武器店購買第一把武器\n買好後按 Tab 開啟背包裝備；也可先找士官長空手接任務。'
+        text = '前往武器店購買第一把武器\n可先找士官長空手接任務，獎勵保留'
+        meta = {
+          eyebrow: '城鎮新兵引導', icon: 'shop', tone: 'tutorial', progress,
+          flow: [{ key: '順指標', label: '武器店' }, { key: 'E', label: '購買' }, { key: 'Tab', label: '裝備' }],
+        }
       } else if (step === 'duel') {
         npc('captain', '騎兵隊長')
-        text = '挑戰騎兵隊長\n靠近隊長按 E 開始切磋。'
+        text = '挑戰騎兵隊長'
+        meta = {
+          eyebrow: '城鎮新兵引導', icon: 'sword', tone: 'tutorial', progress,
+          flow: [{ label: '靠近隊長' }, { key: 'E', label: '開始切磋' }],
+        }
       } else if (step === 'horse') {
         const vendor = ['ranger', 'cat', 'eagle-trainer'].find(id => townShopProducts(id).some(item => item.id === 'horse'))
         if (vendor) npc(vendor, '軍用戰馬商人')
-        text = '購買第一匹戰馬\n順著指標前往馬店購買普通馬'
+        text = '購買第一匹戰馬'
+        meta = {
+          eyebrow: '城鎮新兵引導', icon: 'horse', tone: 'tutorial', progress,
+          flow: [{ key: '順指標', label: '馬店' }, { key: 'E', label: '購買普通馬' }],
+        }
       } else if (step === 'horse-use') {
-        text = '購買第一匹戰馬\n按 Tab → 坐騎，召喚並騎乘。'
+        text = '召喚並騎乘戰馬'
         interact = false
+        meta = {
+          eyebrow: '城鎮新兵引導', icon: 'horse', tone: 'tutorial', progress,
+          flow: [{ key: 'Tab', label: '坐騎' }, { label: '召喚並騎乘' }],
+        }
       } else if (step === 'horse-intro') {
         const horsePrice = careerShopProduct('horse')!.price
-        const affordable = h.profile().availableMerit >= horsePrice
+        const merit = h.profile().availableMerit
+        const affordable = merit >= horsePrice
         const hasHorse = hasCareerTutorialHorse(h.profile())
+        const missionsDone = Math.min(2, t.settledMissionIds.length)
         if (t.settledMissionIds.length >= 2 && (affordable || hasHorse)) {
           npc('deployment', '士官長')
-          text = hasHorse ? '返回士官長\n已完成兩次實戰，回士官長了解戰馬與賽馬' : '返回士官長\n已完成兩次實戰，回士官長了解購買戰馬'
+          text = hasHorse ? '返回士官長\n了解戰馬與賽馬' : '返回士官長\n了解購買戰馬補助'
+          meta = {
+            eyebrow: '城鎮新兵引導', icon: 'talk', tone: 'tutorial', progress,
+            flow: [{ label: '士官長' }, { key: 'E', label: '回報' }],
+          }
         } else if (t.settledMissionIds.length >= 2) {
-          text = `累積購馬軍功\n已完成 2/2 次實戰，目前軍功不足（戰馬需 ${horsePrice} 軍功）。`
+          text = '累積購馬軍功'
           interact = false
+          meta = {
+            eyebrow: '城鎮新兵引導', icon: 'merit', tone: 'tutorial', progress,
+            checks: [
+              { label: `實戰 ${missionsDone}/2`, done: true },
+              { label: `軍功 ${merit}/${horsePrice}`, done: false },
+            ],
+            flow: [{ label: '士官長' }, { key: 'E', label: '接正式任務' }],
+          }
         } else {
-          text = `完成正式戰鬥任務\n找士官長接受正式任務（已完成 ${Math.min(2, t.settledMissionIds.length)} / 2 次）`
+          text = '完成正式戰鬥任務'
           interact = false
+          meta = {
+            eyebrow: '城鎮新兵引導', icon: 'mission', tone: 'tutorial', progress,
+            checks: [
+              { label: `實戰 ${missionsDone}/2`, done: missionsDone >= 2 },
+              { label: `軍功 ${merit}/${horsePrice}`, done: affordable || hasHorse },
+            ],
+            flow: [{ label: '士官長' }, { key: 'E', label: '接正式任務' }],
+          }
         }
       } else if (step === 'report') {
         npc('deployment', '士官長')
-        text = '向士官長報到\n按 E 與士官長交談'
+        text = '向士官長報到'
+        meta = {
+          eyebrow: '城鎮新兵引導', icon: 'talk', tone: 'tutorial', progress,
+          flow: [{ label: '士官長' }, { key: 'E', label: '交談' }],
+        }
       } else if (step === 'duel-intro') {
         npc('deployment', '士官長')
-        text = '返回士官長\n按 E 向士官長回報，了解下一步'
+        text = '返回士官長'
+        meta = {
+          eyebrow: '城鎮新兵引導', icon: 'talk', tone: 'tutorial', progress,
+          flow: [{ label: '士官長' }, { key: 'E', label: '了解切磋' }],
+        }
       } else if (step === 'missions') {
         npc('deployment', '士官長')
-        text = '返回士官長\n切磋已結束，按 E 向士官長回報，接取第一個任務'
+        text = '返回士官長'
+        meta = {
+          eyebrow: '城鎮新兵引導', icon: 'mission', tone: 'tutorial', progress,
+          flow: [{ label: '士官長' }, { key: 'E', label: '接取首個任務' }],
+        }
       } else {
         npc('deployment', '士官長')
         text = '向士官長報到'
+        meta = {
+          eyebrow: '城鎮新兵引導', icon: 'talk', tone: 'tutorial', progress,
+          flow: [{ label: '士官長' }, { key: 'E', label: '交談' }],
+        }
       }
     } else if (stage === 'captain') {
       npc('deployment', '士官長')
-      text = '率領 30 人完成指揮演練\n找士官長開始隊長指揮訓練'
+      text = '30 人指揮演練'
+      meta = {
+        eyebrow: '隊長晉升訓練', icon: 'squad', tone: 'tutorial', progress: stageProgress('captain'),
+        flow: [{ label: '士官長' }, { key: 'E', label: '開始演練' }],
+      }
     } else if (stage === 'hr') {
+      const progress = stageProgress('hr')
       if (t.hr.step === 'recruited' && h.profile().personalSquad?.members.length) { this.record('hr', 'recruited'); return }
       if (t.hr.step === 'recruited') {
         npc('hr-officer', '人力資源官')
-        text = '招募第一位戰友\n前往 HR Center 挑選戰友'
+        text = '招募第一位戰友'
+        meta = {
+          eyebrow: '私人小隊引導', icon: 'squad', tone: 'tutorial', progress,
+          flow: [{ label: 'HR Center' }, { key: 'E', label: '招募戰友' }],
+        }
       } else {
-        text = '對戰友下達隨行命令\n按 Q 進入指揮 → 選擇 Personal Squad → Follow me'
+        text = '下達隨行命令'
         interact = false
+        meta = {
+          eyebrow: '私人小隊引導', icon: 'flag', tone: 'tutorial', progress,
+          flow: [{ key: 'Q', label: '指揮' }, { label: 'Personal Squad' }, { label: 'Follow me' }],
+        }
       }
     } else if (deferred) {
-      npc(deferred === 'hr' ? 'hr-officer' : 'deployment', deferred === 'hr' ? '人力資源官' : '士官長')
-      text = `新手教學尚未完成\n返回${deferred === 'hr' ? '人力資源官' : '士官長'}，繼續上次教學`
+      const isHr = deferred === 'hr'
+      npc(isHr ? 'hr-officer' : 'deployment', isHr ? '人力資源官' : '士官長')
+      text = `新手教學尚未完成\n返回${isHr ? '人力資源官' : '士官長'}，繼續上次教學`
+      meta = {
+        eyebrow: '暫停中教學', icon: 'resume', tone: 'resume',
+        flow: [{ label: isHr ? '人力資源官' : '士官長' }, { key: 'E', label: '繼續上次教學' }],
+      }
     } else if (stage === 'commander') {
       const step = t.commander.step
+      const progress = stageProgress('commander')
       interact = false
       if (t.commander.status === 'available') {
         npc('deployment', '士官長')
         interact = true
-        text = '登上指揮塔，號令全軍\n向士官長了解指揮塔'
+        text = '登上指揮塔，號令全軍'
+        meta = {
+          eyebrow: '指揮官引導', icon: 'tower', tone: 'tutorial', progress,
+          flow: [{ label: '士官長' }, { key: 'E', label: '了解指揮塔' }],
+        }
       } else if (step.startsWith('tower-')) {
         if (this.towerRouteIndex === null) {
           this.towerRouteIndex = 0
@@ -240,16 +325,28 @@ export class TownTutorialController {
             if (!this.record('commander', 'tower-top')) return
           }
         }
-        text = '登上指揮塔，號令全軍\n沿入口與坡道前往塔頂'
+        text = '登上指揮塔頂'
+        meta = {
+          eyebrow: '指揮官引導', icon: 'tower', tone: 'tutorial', progress,
+          flow: [{ key: '沿指標', label: '入口坡道' }, { label: '塔頂觀察區' }],
+        }
+      } else if (step === 'all' || step === 'defend') {
+        text = '號令全軍防禦'
+        meta = {
+          eyebrow: '指揮官引導', icon: 'shield', tone: 'tutorial', progress,
+          flow: [{ key: 'Q', label: '指揮' }, { key: 'ALL', label: '全軍' }, { label: 'Defend' }],
+        }
       } else {
-        text = (step === 'all' || step === 'defend')
-          ? '登上指揮塔，號令全軍\n按 Q 進入指揮 → 選 ALL 全軍 → 下達 Defend'
-          : '登上指揮塔，號令全軍\n選取任一小隊 → Formation 列陣'
+        text = '命令小隊列陣'
+        meta = {
+          eyebrow: '指揮官引導', icon: 'formation', tone: 'tutorial', progress,
+          flow: [{ key: 'Q', label: '指揮' }, { label: '任一小隊' }, { label: 'Formation' }],
+        }
       }
     }
 
     const notice = performance.now() < this.notificationUntil ? this.notification : ''
-    this.hud.render(text, notice, this.saveError, false)
+    this.hud.render(text, notice, this.saveError, false, meta)
     this.guide.updateTutorial(h.playerPosition(), h.cameraYaw(), target, label, interact)
   }
 

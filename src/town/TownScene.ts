@@ -190,6 +190,7 @@ import { deferTownResult, isCivilian, isTownProductOwned, productStatus, purchas
 import { appendTownSaleDropdown } from './TownSaleUI'
 import { updateTownEquipmentVisibleStatus } from './TownSquadEquipmentUI'
 import { TownStoryController } from './TownStoryController'
+import { TownCareerHUD, renderTownHint, type TownCareerHudBanner, type TownCareerHudSquad } from './TownCareerHUD'
 import { TownTutorialController } from './TownTutorialController'
 import { installTownStyles } from './TownUI'
 import { townWartimeHostile } from './TownWartime'
@@ -278,7 +279,8 @@ export class TownScene {
   private readonly equipment = new EquipmentUI()
   private readonly skills = new SkillManager()
   private readonly listeners = new AbortController()
-  private readonly hud = document.createElement('div')
+  private readonly careerHud = new TownCareerHUD()
+  private readonly hud = this.careerHud.element
   private readonly duelHud = new CareerDuelHUD()
   private readonly duelGuide = new MissionGuide('career-duel-guide')
   private readonly captainPatrolGuide = new MissionGuide('career-captain-patrol-guide')
@@ -840,9 +842,8 @@ export class TownScene {
       this.defense.preparePlayerDeployment()
       this.defense.completeInitialDeployment()
     }
-    this.hud.id = 'town-hud'; this.hud.style.cssText = 'position:fixed;top:20px;left:20px;z-index:90;background:#201d19de;color:#efe1c3;padding:16px 22px;border:1px solid #aa9270;line-height:1.7;font:15px system-ui;max-width:520px;pointer-events:none'
-    this.hint.id = 'town-hint'; this.hint.style.cssText = 'position:fixed;bottom:110px;left:50%;transform:translateX(-50%);z-index:90;color:#fff;background:#211e19dd;padding:10px 20px;font:18px system-ui;pointer-events:none'
-    this.pointerPrompt.id = 'town-pointer-prompt'; this.pointerPrompt.textContent = '點擊畫面進入遊戲'; this.pointerPrompt.style.cssText = 'position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:89;color:#fff4d0;background:#201d19e8;border:1px solid #aa9270;padding:14px 22px;font:600 18px system-ui;pointer-events:none'
+    this.hint.id = 'town-hint'
+    this.pointerPrompt.id = 'town-pointer-prompt'; this.pointerPrompt.textContent = '點擊畫面進入遊戲'
     this.ambientLabel.className = 'town-ambient'; this.ambientLabel.hidden = true
     document.body.append(this.hud, this.hint, this.pointerPrompt, this.ambientLabel)
     this.syncFourGateHud(this.profile.activeMission?.kind === 'commander-four-gate-defense' && !this.coopGuest)
@@ -1150,7 +1151,7 @@ export class TownScene {
         this.coopGuestRaceText = 'merit' in result ? `你贏得賽馬！軍功 +${result.merit}（已存入你自己的生涯存檔）` : result.error
       }),
     )
-    this.hud.textContent = ''
+    this.careerHud.clear()
     this.start()
   }
 
@@ -1168,7 +1169,7 @@ export class TownScene {
     this.careerMounts.update(dt)
     this.coopGuest!.updateWorld(dt)
     this.updateCoopGuestCombat(dt)
-    if (this.coopGuestRaceText) { this.hint.textContent = this.coopGuestRaceText; this.hint.style.display = '' }
+    if (this.coopGuestRaceText) renderTownHint(this.hint, this.coopGuestRaceText)
   }
 
   /**
@@ -4220,7 +4221,7 @@ export class TownScene {
     }
   }
   private interaction(): void {
-    if (this.player.dead) { this.target = null; this.hint.textContent = ''; this.hint.style.display = 'none'; return }
+    if (this.player.dead) { this.target = null; renderTownHint(this.hint, ''); return }
     this.nearbyTemporaryMount = null
     const playerPosition = this.player.currentMount?.group.position ?? this.player.combatPosition
     if (!this.player.isMounted && !this.player.isFalling) {
@@ -4247,8 +4248,7 @@ export class TownScene {
       if (this.world.obstacles.some(o => { const hit = ray.intersectBox(o.box, new THREE.Vector3()); return hit && hit.distanceTo(start) < end.distanceTo(start) })) continue
       this.target = id; nearest = distance
     }
-    this.hint.textContent = this.target ? 'E 與 ' + NAMES[this.target] + ' 交談' : this.player.isMounted ? 'E 下馬' : this.nearbyTemporaryMount ? `E 騎乘 ${this.nearbyTemporaryMount.displayName}` : this.event.hostile ? '全鎮追擊中' : this.defense.active ? '城鎮正在遭受攻擊' : ''
-    this.hint.style.display = this.hint.textContent ? '' : 'none'
+    renderTownHint(this.hint, this.target ? 'E 與 ' + NAMES[this.target] + ' 交談' : this.player.isMounted ? 'E 下馬' : this.nearbyTemporaryMount ? `E 騎乘 ${this.nearbyTemporaryMount.displayName}` : this.event.hostile ? '全鎮追擊中' : this.defense.active ? '城鎮正在遭受攻擊' : '')
   }
   /**
    * Co-op guest: shop, mounts, HR, promotion, equipment and skills on the guest's own save.
@@ -4594,16 +4594,88 @@ export class TownScene {
         )
       : ''
     const compactDefense = this.profile.activeMission?.kind === 'commander-four-gate-defense' && !this.coopGuest
-    // The co-op guest sees no host ranks, merit or command lines it cannot use.
-    if (this.coopGuest) this.hud.textContent = `合作模式 · 主機的城鎮\n你的軍階：${CAREER_RANK_LABELS[this.profile.rank]}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${this.coopHostHostile ? '\n全鎮追擊中 · 服務暫停' : '\n可使用商店、坐騎、HR 與晉升；任務由主機接取'}`
-    else this.hud.textContent = compactDefense
-      ? ''
-      : `${this.sceneContext.missionOnlyResidents ? '敵境 · 斥候遭遇戰' : this.sceneContext.worldFaction === 'viking' ? 'økse 村' : 'vinum 村'}\n軍階：${CAREER_RANK_LABELS[this.profile.rank]}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${this.townCommand?.authorizedActorIds.length ? `\n${this.profile.townCommandSquad?.commandRank === 'commander' ? '全城正式部隊' : '城防指揮隊'} ${this.townCommand.actors.filter(npc => !npc.dead).length}/${this.townCommand.authorizedActorIds.length} · ${townCommandStateLabel(this.townCommand.state)} · 按 Q 下令` : ''}${this.profile.personalSquad?.members.length ? `\n私兵 ${this.profile.personalSquad.members.length}/30 · ${personalSquadStateLabel(this.personalSquad?.state ?? 'RESERVE')} · 按 Q 下令` : ''}${missionHud}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
+    const faction = this.sceneContext.worldFaction === 'viking' ? 'viking' : 'roman'
     if (this.retirementFinale?.active) {
       const seconds = Math.ceil(this.retirementFinale.remainingSeconds)
       const stats = this.retirementFinale.stats
-      this.hud.textContent = `撐過最後一戰\n${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}\n玩家擊殺 ${stats.player.kills} · 小隊擊殺 ${stats.personal.kills}\n私人部隊 ${this.personalSquad?.aliveCombatants ?? 0}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ' · Q / 反引號 命令'}${this.retirementFinale.frozen ? '\n' + this.notice : ''}`
-    } else if (this.profile.careerRetirement && this.notice) this.hud.textContent += '\n' + this.notice
+      const clock = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
+      const noticeText = this.retirementFinale.frozen ? this.notice : undefined
+      this.careerHud.render({
+        mode: 'finale',
+        hidden: compactDefense,
+        faction,
+        location: '撐過最後一戰',
+        rankLabel: CAREER_RANK_LABELS[this.profile.rank],
+        availableMerit: this.profile.availableMerit,
+        totalMerit: this.profile.totalMerit,
+        finale: {
+          clock,
+          playerKills: stats.player.kills,
+          squadKills: stats.personal.kills,
+          aliveSquad: this.personalSquad?.aliveCombatants ?? 0,
+          spectator: Boolean(this.spectator),
+          notice: noticeText,
+        },
+        banner: this.spectator
+          ? { tone: 'alert', title: '你已戰死 · 戰鬥仍在繼續', detail: noticeText }
+          : noticeText
+            ? { tone: 'info', title: noticeText }
+            : { tone: 'info', title: 'Q / 反引號 指揮部隊' },
+      })
+    } else if (this.coopGuest) {
+      // The co-op guest sees no host ranks, merit or command lines it cannot use.
+      this.careerHud.render({
+        mode: 'coop',
+        hidden: compactDefense,
+        faction,
+        location: '合作模式 · 主機城鎮',
+        rankLabel: CAREER_RANK_LABELS[this.profile.rank],
+        availableMerit: this.profile.availableMerit,
+        totalMerit: this.profile.totalMerit,
+        banner: this.coopHostHostile
+          ? { tone: 'alert', title: '全鎮追擊中 · 服務暫停' }
+          : { tone: 'info', title: '可使用商店、坐騎、HR 與晉升', detail: '任務由主機接取' },
+      })
+    } else {
+      const squads: TownCareerHudSquad[] = []
+      if (this.townCommand?.authorizedActorIds.length) {
+        squads.push({
+          label: this.profile.townCommandSquad?.commandRank === 'commander' ? '全城部隊' : '城防指揮隊',
+          alive: this.townCommand.actors.filter(npc => !npc.dead).length,
+          total: this.townCommand.authorizedActorIds.length,
+          state: townCommandStateLabel(this.townCommand.state),
+        })
+      }
+      if (this.profile.personalSquad?.members.length) {
+        squads.push({
+          label: '私兵',
+          alive: this.profile.personalSquad.members.length,
+          total: 30,
+          state: personalSquadStateLabel(this.personalSquad?.state ?? 'RESERVE'),
+        })
+      }
+      const trimmedMission = missionHud.trim()
+      const missionLines = trimmedMission ? trimmedMission.split('\n') : []
+      let banner: TownCareerHudBanner | undefined
+      if (this.spectator) {
+        banner = { tone: 'alert', title: '你已戰死 · 戰鬥仍在繼續', detail: missionLines.join(' · ') || undefined }
+      } else if (missionLines.length > 0) {
+        banner = { tone: 'mission', title: missionLines[0], detail: missionLines.slice(1).join('\n') || undefined }
+      } else if (this.profile.careerRetirement && this.notice) {
+        banner = { tone: 'info', title: this.notice }
+      }
+      this.careerHud.render({
+        mode: 'town',
+        hidden: compactDefense,
+        faction,
+        location: this.sceneContext.missionOnlyResidents ? '敵境 · 斥候遭遇戰' : faction === 'viking' ? 'økse 村' : 'vinum 村',
+        rankLabel: CAREER_RANK_LABELS[this.profile.rank],
+        availableMerit: this.profile.availableMerit,
+        totalMerit: this.profile.totalMerit,
+        squads,
+        banner,
+      })
+    }
     this.updateMountHud()
     this.damageNumbers.update(dt, this.camera)
     this.updateAmbient()
@@ -4615,9 +4687,8 @@ export class TownScene {
     this.commandSelectionMarker?.update(!this.panel && !this.equipment.visible && !this.result
       && !this.spawnErrorShown && !this.deploymentFailed && !this.retirementFinale?.frozen
       && !this.player.dead && !this.spectator, this.camera, dt)
-    this.hud.style.display = compactDefense ? 'none' : ''
     this.updateFourGateHud(dt, compactDefense)
-    this.hud.style.whiteSpace = 'pre-line'; this.renderer.render(this.scene, this.camera)
+    this.renderer.render(this.scene, this.camera)
     this.scheduleSiegeOpening()
     this.raf = requestAnimationFrame(t => this.frame(t))
   }
@@ -4662,7 +4733,7 @@ export class TownScene {
     const quiverHud = document.getElementById('quiver-hud')
     if (quiverHud) quiverHud.style.display = ''
     this.temporaryMounts.cleanup()
-    this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input?.dispose(); this.panel?.remove(); this.equipment?.close(); this.hud?.remove(); this.fourGateHud?.dispose(); this.fourGateHud = undefined; this.hint?.remove(); this.pointerPrompt?.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.duel?.dispose(); this.player?.dispose(); document.getElementById('mount-hud')?.classList.remove('visible'); document.getElementById('enemy-hud')?.classList.remove('visible'); this.ambientLabel?.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove()
+    this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input?.dispose(); this.panel?.remove(); this.equipment?.close(); this.careerHud.dispose(); this.fourGateHud?.dispose(); this.fourGateHud = undefined; this.hint?.remove(); this.pointerPrompt?.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.duel?.dispose(); this.player?.dispose(); document.getElementById('mount-hud')?.classList.remove('visible'); document.getElementById('enemy-hud')?.classList.remove('visible'); this.ambientLabel?.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove()
     if (!preservePointerLock) document.exitPointerLock?.()
   }
 
