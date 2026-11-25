@@ -7,7 +7,9 @@
  *  3. NPC-owned mount -> Hostile NPCs (no floating damage numbers, friendly fire strictly prohibited)
  */
 import * as THREE from 'three'
-import { clampToPlayableWorld, findBlockingObstacleAlongPath, getTerrainHeight, type ObstacleData } from '../world/Terrain'
+import { clampToPlayableWorld, getTerrainHeight, isObstacleBodyPushBlocked, type ObstacleData } from '../world/Terrain'
+import { PLAYER_RADIUS } from '../movement/MovementBalance'
+import { PLAYER_FOOT_OFFSET } from '../player/PlayerFootBody'
 import { Mount, MountState } from '../world/Mount'
 import { Faction, type NPC } from '../world/NPC'
 import type { Player } from '../player/Player'
@@ -69,14 +71,17 @@ export function applyMountImpactKnockback(mount: Mount, target: NPC | Player, op
   const length = Math.hypot(dx, dz)
   if (length < .0001 || !options.obstacles || options.worldBound === undefined) return
   const distance = Math.min(1.3, mount.movementSpeed * .06)
+  const body = { position: pushStart, radius: bottom ? PLAYER_RADIUS : .5, height: bottom ? PLAYER_FOOT_OFFSET * 2 : 2.3,
+    bottomOffset: bottom, walkSurfaces: true }
   for (let travelled = 0; travelled < distance; travelled += .1) {
     pushStart.copy(position); pushEnd.copy(position)
     const step = Math.min(.1, distance - travelled)
     pushEnd.x += dx / length * step; pushEnd.z += dz / length * step
     clampToPlayableWorld(pushEnd, options.worldBound)
     const ground = getTerrainHeight(pushEnd.x, pushEnd.z), oldGround = getTerrainHeight(position.x, position.z)
-    if (Math.abs(ground - oldGround) > .25 || findBlockingObstacleAlongPath(pushStart, pushEnd, .4, 1.8, bottom, options.obstacles)) break
     pushEnd.y = position.y + ground - oldGround
+    if (Math.abs(ground - oldGround) > .25 ||
+      isObstacleBodyPushBlocked(body, pushEnd.x - pushStart.x, pushEnd.z - pushStart.z, options.obstacles, pushEnd.y)) break
     position.copy(pushEnd)
   }
 }
@@ -186,7 +191,7 @@ export function resolveMountImpacts(
           } : { source: { actorId: 'unattributed-mount-impact', actorType: 'npc', allegiance: riderFaction, characterFaction: player.characterFaction }, method: 'mount-impact' }
           const result = options.onDamagePlayer(damage, context)
           if (result.hitSuccess) {
-            if (!result.isMountHit) applyMountImpactKnockback(mount, player, options, .95)
+            if (!result.isMountHit) applyMountImpactKnockback(mount, player, options, PLAYER_FOOT_OFFSET)
             options.onEnemyMountHitPlayer?.(damage, result)
             options.onEnemyMountHitPlayerAudio?.(damage, mount, result)
           }

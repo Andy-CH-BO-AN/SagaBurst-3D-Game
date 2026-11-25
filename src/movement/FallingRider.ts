@@ -67,13 +67,14 @@ export class FallingRider {
       this.highestFeetY = Math.max(this.highestFeetY, feet.y,
         oldVelocityY > 0 && this.velocity.y <= 0
           ? this.previous.y + oldVelocityY * oldVelocityY / (2 * XONGKORO.gravity) : -Infinity)
+      clampToPlayableWorld(feet, bound)
       const ground = terrainHeight(feet.x, feet.z)
       let supported = this.velocity.y <= 0 && feet.y <= ground
       if (supported) feet.y = ground
-      const collision = resolveObstacleCollision(feet, this.previous, this.velocity.y, supported, this.body.radius, this.body.height, 0, obstacles, { walkSurfaces: true })
+      const collision = resolveObstacleCollision(feet, this.previous, this.velocity.y, supported, this.body.radius, this.body.height, 0, obstacles,
+        { walkSurfaces: true, worldBound: bound })
       this.velocity.y = collision.velocityY
       supported = collision.onGround
-      clampToPlayableWorld(feet, bound)
       if (supported) {
         const height = Math.max(0, this.highestFeetY - feet.y)
         this.clear()

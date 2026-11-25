@@ -4503,6 +4503,7 @@ export class NPC {
   /** Shared by combat and peaceful travel, including a rider walking home after losing its Horse. */
   private _updateFootPhysics(previousPosition: THREE.Vector3, dt: number, obstacles: ObstacleData[]): void {
     this.group.rotation.x = 0
+    clampToPlayableWorld(this.group.position, this.playableWorldBound)
     const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
     this.velY += -22 * dt
     this.group.position.y += this.velY * dt
@@ -4511,10 +4512,10 @@ export class NPC {
       this.velY = 0
       this.onGround = true
     } else this.onGround = false
-    const collision = resolveObstacleCollision(this.group.position, previousPosition, this.velY, this.onGround, .5, 2.3, 0, obstacles, { walkSurfaces: true })
+    const collision = resolveObstacleCollision(this.group.position, previousPosition, this.velY, this.onGround, .5, 2.3, 0, obstacles,
+      { walkSurfaces: true, worldBound: this.playableWorldBound })
     this.velY = collision.velocityY
     this.onGround = collision.onGround
-    clampToPlayableWorld(this.group.position, this.playableWorldBound)
   }
 
   private _beginEncounterReturn(): void {

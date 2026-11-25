@@ -18,7 +18,7 @@ export function settleMountOnTerrain(position: THREE.Vector3, velocityY: number,
 
 /** Obstacle sides and mounted walk surfaces: the second half of a ground mount's frame. */
 export function collideMountBody(position: THREE.Vector3, previous: THREE.Vector3, state: ObstacleCollisionResult,
-  obstacles: ObstacleData[]): ObstacleCollisionResult {
+  obstacles: ObstacleData[], worldBound?: number): ObstacleCollisionResult {
   return resolveObstacleCollision(position, previous, state.velocityY, state.onGround, MOUNT_MOVEMENT_RADIUS,
-    MOUNT_BODY_HEIGHT, 0, obstacles, { mountedSurfaces: true })
+    MOUNT_BODY_HEIGHT, 0, obstacles, { mountedSurfaces: true, worldBound })
 }

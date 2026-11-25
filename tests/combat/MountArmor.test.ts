@@ -106,13 +106,22 @@ describe('Mount armor', () => {
     expect(events.find(event => event.type === 'damage_applied')).toMatchObject({ source: { actorId: 'player' }, method: 'mount-impact' })
   })
 
-  it('stops infantry impact displacement before the existing swept wall boundary', () => {
+  it('stops infantry impact displacement at physical walls and navigable foundations', () => {
     const y = getTerrainHeight(0, 0), position = new Vector3(0, y, 0)
     const target = { dead: false, isMounted: false, group: { position } } as unknown as NPC
     const mount = { impactMultiplier: 2.5, movementSpeed: 12, group: { position: new Vector3(0, y, .1) }, previousPosition: new Vector3(0, y, -.1) } as unknown as Mount
-    applyMountImpactKnockback(mount, target, { worldBound: 10, obstacles: [{ isBarricade: false, box: new Box3(new Vector3(-2, y-2, .6), new Vector3(2, y+4, .8)) }] })
-    expect(position.z).toBeGreaterThan(0)
-    expect(position.z).toBeLessThan(.21)
+    const box = new Box3(new Vector3(-2, y - 2, .65), new Vector3(2, y + 4, .8))
+    for (const obstacle of [
+      { isBarricade: false, box },
+      { isBarricade: false, box, navigationPassable: true, solidBelow: y - 2,
+        walkSurface: { startX: 0, startZ: .65, startY: y + 1, topY: y + 4,
+          dirX: 0, dirZ: 1, length: .2, landing: 0, halfWidth: 2 } },
+    ]) {
+      position.set(0, y, 0)
+      applyMountImpactKnockback(mount, target, { worldBound: 10, obstacles: [obstacle] })
+      expect(position.z).toBeGreaterThan(0)
+      expect(position.z).toBeLessThan(.16)
+    }
   })
   it('multiplies only the rounded impact formula while preserving sprint and lance skipImpact', () => {
     expect(calculateMountImpactDamage(12, false, mountImpactMultiplier('HORSE'))).toBe(26)

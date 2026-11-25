@@ -10,6 +10,7 @@ import { createMeadow, meadowMaterial } from './Meadow'
 import { DAMAGEABLE_OBSTACLE_HP, DamageableObstacle } from './DamageableObstacle'
 import type { CharacterFaction } from './CharacterVisuals'
 import { OBSTACLE_COLLISION_GRID_CELL_SIZE, ObstacleCollisionSpatialIndex } from './ObstacleCollisionSpatialIndex'
+import { OBSTACLE_RECOVERY_REACH, recoverHorizontalPosition } from './ObstaclePenetrationRecovery'
 import {
   getRiverCrossingMeshTerrainHeight,
   getRiverCrossingTerrainHeight,
@@ -350,6 +351,10 @@ export interface ObstacleCollisionOptions {
   walkSurfaces?: boolean
   /** Mounts only use surfaces explicitly admitting their body size. */
   mountedSurfaces?: boolean
+  /** Keep both requested motion and recovery inside the caller's playable square. */
+  worldBound?: number
+  /** Validate an existing pose without stepping, landing or advancing a fall. */
+  recoverOnly?: boolean
 }
 
 export interface EntityCollisionBody {
@@ -837,54 +842,19 @@ export function resolveEntityCollision(
   const firstPush = pushDistance * (secondWeight / totalWeight)
   const secondPush = pushDistance * (firstWeight / totalWeight)
 
-  const overlapsObstacle = (pos: THREE.Vector3, offsetX: number, offsetZ: number, radius: number, bottomOffset: number, height: number, walkSurfaces?: boolean, mountedSurfaces?: boolean): boolean => {
-    const targetX = pos.x + offsetX
-    const targetZ = pos.z + offsetZ
-    const b = pos.y - bottomOffset
-    const t = b + height
-    const minX = Math.min(pos.x, targetX) - radius
-    const maxX = Math.max(pos.x, targetX) + radius
-    const minZ = Math.min(pos.z, targetZ) - radius
-    const maxZ = Math.max(pos.z, targetZ) + radius
-    const candidates = getSweptCollisionObstacles(obstacles, minX, minZ, maxX, maxZ)
-    for (const obs of candidates) {
-      if (maxX <= obs.box.min.x || minX >= obs.box.max.x ||
-        maxZ <= obs.box.min.z || minZ >= obs.box.max.z) continue
-      if (obs.physicalPassable) continue
-      if (obs.walkSurface && obs.solidBelow !== undefined) {
-        if (b >= rampPlaneHeight(obs.walkSurface, targetX, targetZ) - .001
-          || t <= rampBaseHeight(obs, targetX, targetZ) + .001) continue
-      } else if (obs.walkSurface && (walkSurfaces || mountedSurfaces && obs.walkSurface.mounted)) continue
-      if (b >= obs.box.max.y - 0.001 || t <= obs.box.min.y + 0.001) continue
-      if (targetX + radius > obs.box.min.x && targetX - radius < obs.box.max.x &&
-          targetZ + radius > obs.box.min.z && targetZ - radius < obs.box.max.z) return true
-      // A crowd separation can cross a thin wall even when its destination is
-      // clear. Preserve strict tangent clearance while checking the whole push.
-      if (offsetX === 0 && (pos.x + radius <= obs.box.min.x || pos.x - radius >= obs.box.max.x) ||
-        offsetZ === 0 && (pos.z + radius <= obs.box.min.z || pos.z - radius >= obs.box.max.z)) continue
-      const tx = offsetX > 0 ? (obs.box.min.x - radius - pos.x) / offsetX :
-        offsetX < 0 ? (obs.box.max.x + radius - pos.x) / offsetX : -Infinity
-      const tz = offsetZ > 0 ? (obs.box.min.z - radius - pos.z) / offsetZ :
-        offsetZ < 0 ? (obs.box.max.z + radius - pos.z) / offsetZ : -Infinity
-      if (Math.max(tx, tz) >= 0 &&
-        segmentEntryFractionExpandedBox(pos.x, pos.z, targetX, targetZ, obs.box, radius) !== null) return true
-    }
-    return false
-  }
-
   // Direction B: Predictive Obstacle Check
   // If pushed into a wall, treat the entity as temporarily anchored
-  const firstAnchored = first.anchored || overlapsObstacle(first.position, normalX * firstPush, normalZ * firstPush, first.radius, first.bottomOffset, first.height, first.walkSurfaces, first.mountedSurfaces)
-  const secondAnchored = second.anchored || overlapsObstacle(second.position, -normalX * secondPush, -normalZ * secondPush, second.radius, second.bottomOffset, second.height, second.walkSurfaces, second.mountedSurfaces)
+  const firstAnchored = first.anchored || isObstacleBodyPushBlocked(first, normalX * firstPush, normalZ * firstPush, obstacles)
+  const secondAnchored = second.anchored || isObstacleBodyPushBlocked(second, -normalX * secondPush, -normalZ * secondPush, obstacles)
 
   if (firstAnchored && secondAnchored) return
   if (firstAnchored) {
-    if (!overlapsObstacle(second.position, -normalX * pushDistance, -normalZ * pushDistance, second.radius, second.bottomOffset, second.height, second.walkSurfaces, second.mountedSurfaces)) {
+    if (!isObstacleBodyPushBlocked(second, -normalX * pushDistance, -normalZ * pushDistance, obstacles)) {
       second.position.x -= normalX * pushDistance
       second.position.z -= normalZ * pushDistance
     }
   } else if (secondAnchored) {
-    if (!overlapsObstacle(first.position, normalX * pushDistance, normalZ * pushDistance, first.radius, first.bottomOffset, first.height, first.walkSurfaces, first.mountedSurfaces)) {
+    if (!isObstacleBodyPushBlocked(first, normalX * pushDistance, normalZ * pushDistance, obstacles)) {
       first.position.x += normalX * pushDistance
       first.position.z += normalZ * pushDistance
     }
@@ -894,6 +864,183 @@ export function resolveEntityCollision(
     second.position.x -= normalX * secondPush
     second.position.z -= normalZ * secondPush
   }
+}
+
+const BODY_CONTACT_EPSILON = .001
+const WALK_SURFACE_THICKNESS = .35
+
+function overlapsExpandedBox(x: number, z: number, radius: number, box: THREE.Box3): boolean {
+  // Use the same expanded faces as sweep and recovery. Reversing the arithmetic
+  // (e.g. x + radius > min.x) can put an exact sweep contact back inside.
+  return x > box.min.x - radius && x < box.max.x + radius &&
+    z > box.min.z - radius && z < box.max.z + radius
+}
+
+function admittedObstacleRamp(obstacle: ObstacleData, options: ObstacleCollisionOptions): WalkRampSurface | undefined {
+  return options.walkSurfaces || options.mountedSurfaces && obstacle.walkSurface?.mounted
+    ? obstacle.walkSurface : undefined
+}
+
+function obstacleSupportsFeet(obstacle: ObstacleData, x: number, z: number, feetY: number, radius: number,
+  options: ObstacleCollisionOptions): boolean {
+  if (obstacle.physicalPassable) return false
+  const ramp = admittedObstacleRamp(obstacle, options)
+  const y = ramp ? getWalkRampHeight(ramp, x, z) : obstacle.solidBelow === undefined &&
+    overlapsExpandedBox(x, z, radius, obstacle.box) ? obstacle.box.max.y : null
+  return y !== null && Math.abs(y - feetY) <= BODY_CONTACT_EPSILON
+}
+
+/** Radius contact can precede the feet at a low ramp entrance or at an
+ * adjacent walk surface. The centre still cannot enter below the walk plane. */
+function clearsRampFringe(ramp: WalkRampSurface, x: number, z: number, feetY: number, topY: number,
+  hasApproachSupport?: () => boolean): boolean {
+  if (feetY < topY - WALK_SURFACE_STEP_UP || getWalkRampHeight(ramp, x, z) !== null) return false
+  const dx = x - ramp.startX, dz = z - ramp.startZ
+  if (ramp.startY <= ramp.topY && dx * ramp.dirX + dz * ramp.dirZ < 0 &&
+    Math.abs(dx * -ramp.dirZ + dz * ramp.dirX) <= ramp.halfWidth) return true
+  return hasApproachSupport?.() ?? false
+}
+
+function obstacleBodyOverlaps(obstacle: ObstacleData, x: number, z: number, feetY: number, height: number, radius: number,
+  options: ObstacleCollisionOptions, hasSupport?: () => boolean): boolean {
+  if (obstacle.physicalPassable || !overlapsExpandedBox(x, z, radius, obstacle.box)) return false
+  const admittedRamp = admittedObstacleRamp(obstacle, options)
+  const solidRamp = obstacle.solidBelow !== undefined ? obstacle.walkSurface : undefined
+  const surfaceY = solidRamp ? rampPlaneHeight(solidRamp, x, z)
+    : admittedRamp ? getWalkRampHeight(admittedRamp, x, z) : obstacle.box.max.y
+  if (surfaceY === null || feetY >= surfaceY - BODY_CONTACT_EPSILON) return false
+  const bottomY = solidRamp ? rampBaseHeight(obstacle, x, z)
+    : admittedRamp ? surfaceY - WALK_SURFACE_THICKNESS : obstacle.box.min.y
+  if (feetY + height <= bottomY + BODY_CONTACT_EPSILON) return false
+  return !(solidRamp && admittedRamp && clearsRampFringe(solidRamp, x, z, feetY, surfaceY, hasSupport))
+}
+
+function bodyBlockedByObstacles(candidates: readonly ObstacleData[], x: number, z: number, feetY: number,
+  height: number, radius: number, options: ObstacleCollisionOptions): boolean {
+  let supported: boolean | undefined
+  const hasSupport = () => supported ??= candidates.some(obstacle => obstacleSupportsFeet(obstacle, x, z, feetY, radius, options))
+  return candidates.some(obstacle => obstacleBodyOverlaps(obstacle, x, z, feetY, height, radius, options, hasSupport))
+}
+
+/**
+ * Tests an external push without changing the actor's pose or fall state.
+ * Endpoints use the physical body volumes. The sweep also keeps a push from
+ * crossing a thin wall whose far side would otherwise be clear.
+ */
+export function isObstacleBodyPushBlocked(body: EntityCollisionBody, offsetX: number, offsetZ: number,
+  obstacles: ObstacleData[], targetY = body.position.y): boolean {
+  if (obstacles.length === 0) return false
+  const { position, radius, height, bottomOffset } = body
+  const targetX = position.x + offsetX, targetZ = position.z + offsetZ
+  const feetY = position.y - bottomOffset, targetFeetY = targetY - bottomOffset
+  const minX = Math.min(position.x, targetX) - radius, maxX = Math.max(position.x, targetX) + radius
+  const minZ = Math.min(position.z, targetZ) - radius, maxZ = Math.max(position.z, targetZ) + radius
+  const candidates = getSweptCollisionObstacles(obstacles, minX, minZ, maxX, maxZ)
+  for (const obstacle of candidates) {
+    if (obstacle.physicalPassable ||
+      Math.min(feetY, targetFeetY) >= obstacle.box.max.y - BODY_CONTACT_EPSILON ||
+      Math.max(feetY, targetFeetY) + height <= obstacle.box.min.y + BODY_CONTACT_EPSILON) continue
+    if (obstacleBodyOverlaps(obstacle, targetX, targetZ, targetFeetY, height, radius, body)) return true
+    // An admitted thin walk surface occupies only its exact slab, checked at
+    // the destination. Its bounding box includes intentionally open space.
+    const ramp = obstacle.walkSurface
+    const solidRamp = ramp && obstacle.solidBelow !== undefined
+    if (!solidRamp && admittedObstacleRamp(obstacle, body)) continue
+
+    const box = obstacle.box
+    if (offsetX === 0 && (position.x <= box.min.x - radius || position.x >= box.max.x + radius) ||
+      offsetZ === 0 && (position.z <= box.min.z - radius || position.z >= box.max.z + radius)) continue
+    const tx = offsetX > 0 ? (box.min.x - radius - position.x) / offsetX :
+      offsetX < 0 ? (box.max.x + radius - position.x) / offsetX : -Infinity
+    const tz = offsetZ > 0 ? (box.min.z - radius - position.z) / offsetZ :
+      offsetZ < 0 ? (box.max.z + radius - position.z) / offsetZ : -Infinity
+    if (Math.max(tx, tz) < 0) continue
+    const entry = segmentEntryFractionExpandedBox(position.x, position.z, targetX, targetZ, box, radius)
+    if (entry === null || entry >= 1) continue
+    const contactX = position.x + offsetX * entry, contactZ = position.z + offsetZ * entry
+    const contactFeetY = feetY + (targetFeetY - feetY) * entry
+    const top = solidRamp ? rampPlaneHeight(ramp, contactX, contactZ) : box.max.y
+    const base = solidRamp ? rampBaseHeight(obstacle, contactX, contactZ) : box.min.y
+    if (contactFeetY < top - BODY_CONTACT_EPSILON && contactFeetY + height > base + BODY_CONTACT_EPSILON) return true
+  }
+  return false
+}
+
+/** Called only after a narrow-phase overlap has been confirmed. */
+function recoverObstaclePenetration(position: THREE.Vector3, previous: THREE.Vector3,
+  velocityY: number, onGround: boolean, radius: number, height: number, bottomOffset: number,
+  obstacles: ObstacleData[], options: ObstacleCollisionOptions): ObstacleCollisionResult {
+  const { x, z } = position
+  const feetY = position.y - bottomOffset
+  const reach = OBSTACLE_RECOVERY_REACH + radius
+  const worldBound = options.worldBound ?? Infinity
+  // Re-query once around the complete recovery envelope, after the caller is
+  // done with its ephemeral sweep buffer. Every candidate uses this same query.
+  const nearby = getSweptCollisionObstacles(obstacles, x - reach, z - reach, x + reach, z + reach)
+  const supportedAt = (px: number, pz: number, py: number) =>
+    nearby.some(obstacle => obstacleSupportsFeet(obstacle, px, pz, py, radius, options))
+  const blockedAt = (px: number, pz: number, py: number) =>
+    bodyBlockedByObstacles(nearby, px, pz, py, height, radius, options)
+  const originalSupport = nearby.find(obstacle => obstacleSupportsFeet(obstacle, x, z, feetY, radius, options) ||
+    Math.abs(previous.y - position.y) <= BODY_CONTACT_EPSILON &&
+    obstacleSupportsFeet(obstacle, previous.x, previous.z, feetY, radius, options))
+  const originalRamp = originalSupport && admittedObstacleRamp(originalSupport, options)
+  const retainedSupportY = (px: number, pz: number): number | null => {
+    const rampY = originalRamp ? getWalkRampHeight(originalRamp, px, pz) : null
+    if (rampY !== null && Math.abs(rampY - feetY) <= WALK_SURFACE_STEP_UP && !blockedAt(px, pz, rampY)) return rampY
+    return supportedAt(px, pz, feetY) && !blockedAt(px, pz, feetY) ? feetY : null
+  }
+  if (recoverHorizontalPosition(position, radius, feetY, feetY + height, nearby, worldBound, !!originalSupport, (px, pz) => {
+    if (originalSupport && retainedSupportY(px, pz) !== null) return 'supported'
+    return blockedAt(px, pz, feetY) ? 'blocked' : 'clear'
+  })) {
+    if (!originalSupport) return { velocityY, onGround }
+    const y = retainedSupportY(position.x, position.z)
+    if (y === null) return { velocityY, onGround: false }
+    position.y = y + bottomOffset
+    return { velocityY: 0, onGround: true }
+  }
+
+  const previousFeetY = previous.y - bottomOffset
+  // The frame's origin can itself be embedded (save restore, moving gate).
+  if (Math.hypot(previous.x - x, previous.y - position.y, previous.z - z) <= OBSTACLE_RECOVERY_REACH &&
+    Math.abs(previous.x) <= worldBound && Math.abs(previous.z) <= worldBound &&
+    !blockedAt(previous.x, previous.z, previousFeetY)) {
+    position.copy(previous)
+    const supported = supportedAt(previous.x, previous.z, previousFeetY) ||
+      previousFeetY <= getTerrainHeight(previous.x, previous.z) + BODY_CONTACT_EPSILON
+    return { velocityY: supported ? 0 : velocityY, onGround: supported }
+  }
+
+  // A wide enclosed slab may have no local side exit. Try its nearby top or
+  // underside at the same X/Z, subject to ground and full-body clearance.
+  const groundY = getTerrainHeight(x, z)
+  let exitY = feetY, bestDistance = 3, exitSupported = false
+  for (const obstacle of nearby) {
+    if (!obstacleBodyOverlaps(obstacle, x, z, feetY, height, radius, options)) continue
+    const ramp = obstacle.walkSurface
+    const solid = ramp && obstacle.solidBelow !== undefined
+    const surfaceY = solid ? rampPlaneHeight(ramp, x, z) : admittedObstacleRamp(obstacle, options)
+      ? getWalkRampHeight(ramp!, x, z)! : obstacle.box.max.y
+    const baseY = solid ? rampBaseHeight(obstacle, x, z) : admittedObstacleRamp(obstacle, options)
+      ? surfaceY - WALK_SURFACE_THICKNESS : obstacle.box.min.y
+    const belowY = baseY - height
+    if (Math.abs(surfaceY - feetY) <= bestDistance && !blockedAt(x, z, surfaceY)) {
+      exitY = surfaceY
+      bestDistance = Math.abs(surfaceY - feetY)
+      exitSupported = obstacleSupportsFeet(obstacle, x, z, surfaceY, radius, options)
+    }
+    if (belowY >= groundY && Math.abs(belowY - feetY) < bestDistance && !blockedAt(x, z, belowY)) {
+      exitY = belowY
+      bestDistance = Math.abs(belowY - feetY)
+      exitSupported = Math.abs(belowY - groundY) <= BODY_CONTACT_EPSILON
+    }
+  }
+  if (exitY !== feetY) {
+    position.y = exitY + bottomOffset
+    return { velocityY: exitSupported || velocityY > 0 ? 0 : velocityY, onGround: exitSupported }
+  }
+  return { velocityY, onGround }
 }
 
 /**
@@ -912,41 +1059,56 @@ export function resolveObstacleCollision(
   obstacles: ObstacleData[],
   options: ObstacleCollisionOptions = {},
 ): ObstacleCollisionResult {
+  const worldBound = options.worldBound
+  if (worldBound !== undefined && (Math.abs(position.x) > worldBound || Math.abs(position.z) > worldBound)) {
+    clampToPlayableWorld(position, worldBound)
+  }
   // Empty worlds have no support or contacts; preserve motion without building
   // a spatial query or running the recovery passes for every body sample.
   if (obstacles.length === 0) return { velocityY, onGround }
-  const epsilon = 0.001
+  const epsilon = BODY_CONTACT_EPSILON
   const initialBottomY = position.y - bottomOffset
   const initialVelocityY = velocityY
   const initialOnGround = onGround
   const previousBottomY = previousPosition.y - bottomOffset
   const travel = Math.hypot(position.x - previousPosition.x, position.z - previousPosition.z)
-  const admittedRamp = (obstacle: ObstacleData): WalkRampSurface | undefined =>
-    (options.walkSurfaces || options.mountedSurfaces && obstacle.walkSurface?.mounted)
-      ? obstacle.walkSurface : undefined
-
-  const overlapsHorizontally = (x: number, z: number, box: THREE.Box3): boolean =>
-    x + radius > box.min.x && x - radius < box.max.x &&
-    z + radius > box.min.z && z - radius < box.max.z
+  const admittedRamp = (obstacle: ObstacleData) => admittedObstacleRamp(obstacle, options)
 
   const initialX = position.x
   const initialZ = position.z
   // No horizontal sweep needs no tighter envelope; retain the single-query
   // recovery path for stationary bodies (including loaded overlapping actors).
   const stationary = initialX === previousPosition.x && initialZ === previousPosition.z
-  let candidates = stationary ? getLocalCollisionObstacles(obstacles, initialX, initialZ, radius) : getSweptCollisionObstacles(obstacles,
+  const candidates = stationary ? getLocalCollisionObstacles(obstacles, initialX, initialZ, radius) : getSweptCollisionObstacles(obstacles,
     Math.min(position.x, previousPosition.x) - radius, Math.min(position.z, previousPosition.z) - radius,
     Math.max(position.x, previousPosition.x) + radius, Math.max(position.z, previousPosition.z) + radius)
+
+  if (options.recoverOnly) {
+    if (bodyBlockedByObstacles(candidates, initialX, initialZ, initialBottomY, height, radius, options)) {
+      return recoverObstaclePenetration(position, previousPosition, velocityY, onGround, radius, height, bottomOffset, obstacles, options)
+    }
+    return { velocityY, onGround }
+  }
 
   // Select support from the unmodified frame position. Sequential snaps can
   // otherwise climb several overlapping surfaces beyond the single-step limit.
   let supportY: number | null = null
   let supportRamp: WalkRampSurface | undefined
+  let continuesAtPreviousHeight = false
   if (velocityY <= 0) {
     for (const obstacle of candidates) {
       if (obstacle.physicalPassable) continue
       const ramp = admittedRamp(obstacle)
-      if (!ramp) continue
+      if (!ramp) {
+        // A grounded body crossing a seam at the same elevation must sweep
+        // at that elevation. Gravity alone would put its feet into the next
+        // box before the vertical landing pass can see the supporting top.
+        if (obstacle.solidBelow === undefined && initialBottomY <= previousBottomY + epsilon &&
+          Math.abs(previousBottomY - obstacle.box.max.y) <= epsilon) {
+          continuesAtPreviousHeight ||= overlapsExpandedBox(initialX, initialZ, radius, obstacle.box)
+        }
+        continue
+      }
       const surfaceY = getWalkRampHeight(ramp, position.x, position.z)
       if (surfaceY === null) continue
       const slope = (ramp.topY - ramp.startY) / ramp.length
@@ -977,6 +1139,11 @@ export function resolveObstacleCollision(
         supportRamp = ramp
       }
     }
+  }
+  if (continuesAtPreviousHeight && (supportY === null || supportY < previousBottomY) &&
+    candidates.some(obstacle => obstacleSupportsFeet(obstacle, previousPosition.x, previousPosition.z, previousBottomY, radius, options))) {
+    supportY = previousBottomY
+    supportRamp = undefined
   }
   if (supportY !== null) {
     position.y = supportY + bottomOffset
@@ -1026,7 +1193,13 @@ export function resolveObstacleCollision(
       const feetY = previousBottomY + (endBottomY - previousBottomY) * time
       if (solidRamp) {
         const x = sweepX + dx * entry, z = sweepZ + dz * entry
-        if (feetY >= rampPlaneHeight(ramp, x, z) - (admittedRamp(obstacle) ? WALK_SURFACE_STEP_UP : epsilon) || feetY + height <= rampBaseHeight(obstacle, x, z) + epsilon) continue
+        const top = rampPlaneHeight(ramp, x, z)
+        if (feetY >= top - epsilon || feetY + height <= rampBaseHeight(obstacle, x, z) + epsilon) continue
+        if (admittedRamp(obstacle) && feetY >= top - WALK_SURFACE_STEP_UP &&
+          (supportRamp === ramp || clearsRampFringe(ramp, x, z, feetY, top, () => {
+            const approachY = supportRamp ? getWalkRampHeight(supportRamp, x, z) : null
+            return approachY !== null && feetY >= approachY - epsilon
+          }))) continue
       } else if (feetY >= box.max.y - epsilon || feetY + height <= box.min.y + epsilon) continue
       firstTime = entry
       hitBox = box
@@ -1039,143 +1212,63 @@ export function resolveObstacleCollision(
     if (hitX) position.x = sweepX = dx > 0 ? hitBox.min.x - radius : hitBox.max.x + radius
     else position.z = sweepZ = dz > 0 ? hitBox.min.z - radius : hitBox.max.z + radius
   }
-  // Sliding on a slope changes the final support height. Keep the same admitted
-  // surface instead of promoting the actor onto a different overlapping level.
-  if (supportRamp) {
-    const y = getWalkRampHeight(supportRamp, position.x, position.z)
+  // Revalidate dropped support before checking the final body volume. The
+  // slide may have moved outside the original support's walk lane.
+  if (supportY !== null && (position.x !== initialX || position.z !== initialZ)) {
+    const y = supportRamp ? getWalkRampHeight(supportRamp, position.x, position.z) : null
     if (y !== null) position.y = (supportY = y) + bottomOffset
-  }
-
-  // Try the exact candidates first. Save scalar state so an escaping push can
-  // replay the original coarse recovery in source order, including earlier
-  // vertical/ramp effects and repeated obstacle records, without allocations.
-  const recoveryX = position.x, recoveryY = position.y, recoveryZ = position.z
-  const recoveryVelocityY = velocityY, recoveryOnGround = onGround
-  let coarseRecovery = stationary
-  let escapedRecoveryBounds: boolean
-  do {
-    escapedRecoveryBounds = false
-    for (const obstacle of candidates) {
-      if (obstacle.physicalPassable) continue
-      const bottomY = position.y - bottomOffset
-      const topY = bottomY + height
-      const ramp = obstacle.solidBelow !== undefined ? obstacle.walkSurface : admittedRamp(obstacle)
-      const solidRamp = ramp && obstacle.solidBelow !== undefined
-      if (ramp && !solidRamp) {
-        const surfaceY = getWalkRampHeight(ramp, position.x, position.z)
-        if (surfaceY !== null) {
-          const feetY = bottomY
-          if (feetY >= surfaceY - epsilon) continue
-
-          const RAMP_THICKNESS = 0.35
-          const undersideY = surfaceY - RAMP_THICKNESS
-
-          // 2. Rising/jumping into the underside of the ramp from beneath:
-          // Actor hits their head on the underside and cannot pass upward through the stairs.
-          if (topY > undersideY && previousPosition.y - bottomOffset + height <= undersideY + epsilon) {
-            position.y = undersideY - height + bottomOffset
-            if (velocityY > 0) velocityY = 0
-            continue
-          }
-
-          // 3. Body horizontal penetration into the descending solid wedge from underneath:
-          if (feetY < undersideY && topY > undersideY) {
-            position.x = previousPosition.x
-            position.z = previousPosition.z
-            continue
-          }
-        }
-        continue
-      }
-
-      const box = obstacle.box
-      const volumeTop = solidRamp ? rampPlaneHeight(ramp, position.x, position.z) : box.max.y
-      const volumeBottom = solidRamp ? rampBaseHeight(obstacle, position.x, position.z) : box.min.y
-
-      // A descending entity lands on the obstacle's top surface.
-      if (
-        !solidRamp && velocityY <= 0 &&
-        previousPosition.y - bottomOffset >= box.max.y - epsilon &&
-        bottomY <= box.max.y + epsilon &&
-        overlapsHorizontally(position.x, position.z, box)
-      ) {
-        position.y = box.max.y + bottomOffset
-        velocityY = 0
-        onGround = true
-        continue
-      }
-
-      // An ascending entity bonks into the obstacle's underside ceiling.
-      if (
-        previousPosition.y - bottomOffset + height <= volumeBottom + epsilon &&
-        topY > volumeBottom &&
-        overlapsHorizontally(position.x, position.z, box)
-      ) {
-        position.y = volumeBottom - height + bottomOffset
-        if (velocityY > 0) velocityY = 0
-        continue
-      }
-
-      // Above the obstacle: it is a walkable platform, not a wall.
-      if (bottomY >= volumeTop - (solidRamp && admittedRamp(obstacle) ? WALK_SURFACE_STEP_UP : epsilon) || topY <= volumeBottom + epsilon) continue
-
-      // Reactive Push-Out (Direction A)
-      // Instantly teleport the entity to the closest valid outer edge if inside
-      if (overlapsHorizontally(position.x, position.z, box)) {
-        const boundary = solidRamp ? obstacle.solidRecoveryBounds ?? box : box
-        const dxMax = (boundary.max.x + radius) - position.x
-        const dxMin = position.x - (boundary.min.x - radius)
-        const dzMax = (boundary.max.z + radius) - position.z
-        const dzMin = position.z - (boundary.min.z - radius)
-
-        const minDist = Math.min(dxMax, dxMin, dzMax, dzMin)
-
-        if (minDist === dxMax) position.x = boundary.max.x + radius
-        else if (minDist === dxMin) position.x = boundary.min.x - radius
-        else if (minDist === dzMax) position.z = boundary.max.z + radius
-        else if (minDist === dzMin) position.z = boundary.min.z - radius
-
-        // Later corrections may escape even when every earlier push stayed in
-        // bounds. Only then can an exact-query omission become relevant.
-        if (!coarseRecovery && (
-          position.x < Math.min(initialX, previousPosition.x) || position.x > Math.max(initialX, previousPosition.x) ||
-          position.z < Math.min(initialZ, previousPosition.z) || position.z > Math.max(initialZ, previousPosition.z)
-        )) {
-          escapedRecoveryBounds = true
-          break
-        }
-      }
-    }
-    if (escapedRecoveryBounds) {
-      // The query replaces the shared ephemeral buffer, after its loop exits.
-      candidates = getLocalCollisionObstacles(obstacles,
-        (initialX + previousPosition.x) * .5, (initialZ + previousPosition.z) * .5,
-        radius + Math.max(Math.abs(initialX - previousPosition.x), Math.abs(initialZ - previousPosition.z)) * .5)
-      position.set(recoveryX, recoveryY, recoveryZ)
-      velocityY = recoveryVelocityY
-      onGround = recoveryOnGround
-      coarseRecovery = true
-    }
-  } while (escapedRecoveryBounds)
-
-  // A later wall push may move the body off the support selected above.
-  // Do not retain that ramp's height/ground flag at an unsupported final X/Z.
-  if (supportY !== null && Math.abs(position.y - bottomOffset - supportY) <= epsilon) {
-    const supported = candidates.some(obstacle => {
-      if (obstacle.physicalPassable) return false
-      const ramp = admittedRamp(obstacle)
-      if (ramp) {
-        const y = getWalkRampHeight(ramp, position.x, position.z)
-        return y !== null && Math.abs(y - supportY) <= epsilon
-      }
-      return Math.abs(obstacle.box.max.y - supportY) <= epsilon &&
-        overlapsHorizontally(position.x, position.z, obstacle.box)
-    })
-    if (!supported) {
+    else if (!candidates.some(obstacle => obstacleSupportsFeet(obstacle, position.x, position.z, supportY!, radius, options))) {
       position.y = initialBottomY + bottomOffset
       velocityY = initialVelocityY
       onGround = initialOnGround
+      supportY = null
     }
+  }
+
+  // Settle vertical contacts first. If one changes Y, another collider
+  // visited earlier may now overlap the body and must be checked again.
+  const verticalStartY = position.y
+  let penetrates = false, hasFringeSupport: boolean | undefined
+  for (const obstacle of candidates) {
+    const box = obstacle.box
+    if (obstacle.physicalPassable || !overlapsExpandedBox(position.x, position.z, radius, box)) continue
+    const bottomY = position.y - bottomOffset
+    const topY = bottomY + height
+    const solidRamp = obstacle.solidBelow !== undefined ? obstacle.walkSurface : undefined
+    const thinRamp = solidRamp ? undefined : admittedRamp(obstacle)
+    const volumeTop = solidRamp ? rampPlaneHeight(solidRamp, position.x, position.z)
+      : thinRamp ? getWalkRampHeight(thinRamp, position.x, position.z) : box.max.y
+    if (volumeTop === null) continue
+    const volumeBottom = solidRamp ? rampBaseHeight(obstacle, position.x, position.z)
+      : thinRamp ? volumeTop - WALK_SURFACE_THICKNESS : box.min.y
+
+    if (!solidRamp && !thinRamp && velocityY <= 0 && previousBottomY >= volumeTop - epsilon && bottomY <= volumeTop + epsilon) {
+      position.y = volumeTop + bottomOffset
+      velocityY = 0
+      onGround = true
+    } else if (bottomY < volumeTop - epsilon && previousBottomY + height <= volumeBottom + epsilon && topY > volumeBottom + epsilon) {
+      position.y = volumeBottom - height + bottomOffset
+      if (velocityY > 0) velocityY = 0
+      onGround = false
+    } else if (!penetrates && bottomY < volumeTop - epsilon && topY > volumeBottom + epsilon) {
+      if (solidRamp && admittedRamp(obstacle) && clearsRampFringe(solidRamp, position.x, position.z, bottomY, volumeTop,
+        () => hasFringeSupport ??= candidates.some(support => obstacleSupportsFeet(support, position.x, position.z, bottomY, radius, options)))) continue
+      penetrates = true
+    }
+  }
+  if (position.y !== verticalStartY) {
+    penetrates = bodyBlockedByObstacles(candidates, position.x, position.z, position.y - bottomOffset, height, radius, options)
+  }
+  if (penetrates) {
+    const recovered = recoverObstaclePenetration(position, previousPosition, velocityY, onGround, radius, height, bottomOffset, obstacles, options)
+    if (supportY !== null && !recovered.onGround && Math.abs(position.y - bottomOffset - supportY) <= epsilon) {
+      const local = getLocalCollisionObstacles(obstacles, position.x, position.z, radius)
+      if (!bodyBlockedByObstacles(local, position.x, position.z, initialBottomY, height, radius, options)) {
+        position.y = initialBottomY + bottomOffset
+        return { velocityY: initialVelocityY, onGround: initialOnGround }
+      }
+    }
+    return recovered
   }
 
   return { velocityY, onGround }

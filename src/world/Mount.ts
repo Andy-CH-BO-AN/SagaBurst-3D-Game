@@ -662,18 +662,18 @@ export class Mount {
       return
     }
     if (import.meta.env.DEV && collector) { var _tPhysics = performance.now() }
+    clampToPlayableWorld(this.group.position, this.playableWorldBound)
     const settled = settleMountOnTerrain(this.group.position, this.velY, dt)
     this.velY = settled.velocityY
     this.onGround = settled.onGround
     if (import.meta.env.DEV && collector) { collector.endPhase('mountPhysics', _tPhysics!) }
 
     if (import.meta.env.DEV && collector) { var _tObstacle = performance.now() }
-    const collision = collideMountBody(this.group.position, this.previousPosition, { velocityY: this.velY, onGround: this.onGround }, obstacles)
+    const collision = collideMountBody(this.group.position, this.previousPosition, { velocityY: this.velY, onGround: this.onGround }, obstacles, this.playableWorldBound)
     this.velY = collision.velocityY
     this.onGround = collision.onGround
     if (import.meta.env.DEV && collector) { collector.endPhase('mountObstacleCollision', _tObstacle!) }
 
-    clampToPlayableWorld(this.group.position, this.playableWorldBound)
     this.movementSpeed = this.previousPosition.distanceTo(this.group.position) / Math.max(dt, 0.0001)
     if (this.proceduralVisual) {
       // Terrain following can briefly leave the ground on slopes without a jump.
