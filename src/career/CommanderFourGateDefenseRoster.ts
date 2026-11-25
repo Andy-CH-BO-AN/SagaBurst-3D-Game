@@ -252,7 +252,7 @@ export function commanderArcherScreenTarget(slot: number, front: { x: number; z:
 export function createCommanderFourGateDefenseRoster(missionId: string, faction: CharacterFaction,
   enemyVersion: CommanderEnemyRosterVersion = COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION): {
   crew: TownSiegeCrewSlot[]; cavalry: NpcSpawnSpec[]; archers: NpcSpawnSpec[]; infantry: NpcSpawnSpec[]; vanguard: NpcSpawnSpec[]
-  flanks: { slot: CommanderFourGateDefenseSlot; spec: NpcSpawnSpec }[]
+  flanks: { slot: CommanderFourGateDefenseSlot; formationSlot: number; spec: NpcSpawnSpec }[]
   ground: NpcSpawnSpec[]; all: NpcSpawnSpec[]; gateByActorId: Map<string, TownGateId>
 } {
   const slots = commanderFourGateDefenseSlots(missionId, enemyVersion)
@@ -270,7 +270,8 @@ export function createCommanderFourGateDefenseRoster(missionId: string, faction:
   const infantryTroops = slots.filter(slot => slot.role === 'infantry').map(slot => infantry(slot, faction))
   const vanguardTroops = slots.filter(slot => slot.role === 'vanguard').map(slot => vanguard(slot, faction))
   const flanks = slots.filter(slot => slot.role === 'flank-melee' || slot.role === 'flank-spear').map(slot => ({
-    slot, spec: { ...infantry(slot, faction), name: `${slot.gateId} ${slot.role === 'flank-spear' ? 'Spearman' : 'Infantry'} T3`,
+    slot, formationSlot: slot.slot - 1 + (slot.role === 'flank-spear' ? FLANK_INFANTRY.melee : 0),
+    spec: { ...infantry(slot, faction), name: `${slot.gateId} ${slot.role === 'flank-spear' ? 'Spearman' : 'Infantry'} T3`,
       ...fourGateFootLoadout(faction, slot.role === 'flank-spear' ? 'spear' : 'melee', 3) },
   }))
   const ground = [...crew.map(slot => slot.spec), ...cavalry, ...archers, ...infantryTroops, ...vanguardTroops, ...flanks.map(({ spec }) => spec)]

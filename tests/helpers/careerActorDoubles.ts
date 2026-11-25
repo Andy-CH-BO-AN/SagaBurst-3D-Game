@@ -102,6 +102,7 @@ export class ActorDouble {
   get combatPosition(): Vector3 { return this.mount && !this.mount.isFlyingMount ? this.mount.group.position : this.group.position }
   get isMounted(): boolean { return this.mount !== null && !this.mount.dead }
   get hasFormationTarget(): boolean { return this.formationTarget !== undefined }
+  get formationDestination(): Readonly<Vector3> | undefined { return this.formationTarget }
   get combatFormationCheckpoint(): undefined { return undefined }
   get isOutpostRampartGarrisonActive(): boolean { return false }
   get isTownRampartGarrisonActive(): boolean { return this.townRampartGarrison }
@@ -124,8 +125,8 @@ export class ActorDouble {
   activateOutpostRampartGarrison(): void {}
   releaseOutpostRampartGarrison(): void { this.townRampartGarrison = false; this.townRampartMounted = false }
   assignFollowTarget(_leader: unknown, index: number): void { this.followIndex = index; this.tacticalOrder = 'follow' }
-  assignFormationTarget(commandId: number, position: Vector3): void {
-    this.formationCommandId = commandId; this.formationTarget = position.clone(); this.tacticalOrder = 'formation'
+  assignFormationTarget(commandId: number, position: Vector3, _facing?: Vector3, _speedLimit?: number, arrivalOrder?: Order): void {
+    this.formationCommandId = commandId; this.formationTarget = position.clone(); this.tacticalOrder = arrivalOrder ?? 'formation'
   }
   refreshFormationTarget(commandId: number, position: Vector3): boolean {
     if (this.formationCommandId !== commandId) return false
