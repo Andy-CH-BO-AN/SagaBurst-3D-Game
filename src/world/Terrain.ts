@@ -344,6 +344,8 @@ export function removeObstacleData(obstacles: ObstacleData[], obstacle: Obstacle
 export interface ObstacleCollisionResult {
   velocityY: number
   onGround: boolean
+  /** A corrective placement, separate from swept movement. */
+  recovered?: true
 }
 
 export interface ObstacleCollisionOptions {
@@ -355,6 +357,8 @@ export interface ObstacleCollisionOptions {
   worldBound?: number
   /** Validate an existing pose without stepping, landing or advancing a fall. */
   recoverOnly?: boolean
+  /** Match the movement caller's terrain source when it supplies an override. */
+  groundHeight?: (x: number, z: number) => number
 }
 
 export interface EntityCollisionBody {
@@ -977,45 +981,55 @@ function recoverObstaclePenetration(position: THREE.Vector3, previous: THREE.Vec
   // Re-query once around the complete recovery envelope, after the caller is
   // done with its ephemeral sweep buffer. Every candidate uses this same query.
   const nearby = getSweptCollisionObstacles(obstacles, x - reach, z - reach, x + reach, z + reach)
-  const supportedAt = (px: number, pz: number, py: number) =>
+  const groundHeight = options.groundHeight ?? getTerrainHeight
+  const supportedOnObstacle = (px: number, pz: number, py: number) =>
     nearby.some(obstacle => obstacleSupportsFeet(obstacle, px, pz, py, radius, options))
-  const blockedAt = (px: number, pz: number, py: number) =>
-    bodyBlockedByObstacles(nearby, px, pz, py, height, radius, options)
+  const canPlace = (px: number, pz: number, py: number, groundY: number) =>
+    py >= groundY - BODY_CONTACT_EPSILON && !bodyBlockedByObstacles(nearby, px, pz, py, height, radius, options)
+  const finish = (py: number, groundY: number, hitUnderside = false): ObstacleCollisionResult => {
+    position.y = py + bottomOffset
+    const supported = velocityY <= 0 && (Math.abs(py - groundY) <= BODY_CONTACT_EPSILON ||
+      supportedOnObstacle(position.x, position.z, py))
+    return { velocityY: supported || hitUnderside && velocityY > 0 ? 0 : velocityY, onGround: supported, recovered: true }
+  }
   const originalSupport = nearby.find(obstacle => obstacleSupportsFeet(obstacle, x, z, feetY, radius, options) ||
     Math.abs(previous.y - position.y) <= BODY_CONTACT_EPSILON &&
     obstacleSupportsFeet(obstacle, previous.x, previous.z, feetY, radius, options))
   const originalRamp = originalSupport && admittedObstacleRamp(originalSupport, options)
-  const retainedSupportY = (px: number, pz: number): number | null => {
+  const retainedSupportY = (px: number, pz: number, groundY: number): number | null => {
     const rampY = originalRamp ? getWalkRampHeight(originalRamp, px, pz) : null
-    if (rampY !== null && Math.abs(rampY - feetY) <= WALK_SURFACE_STEP_UP && !blockedAt(px, pz, rampY)) return rampY
-    return supportedAt(px, pz, feetY) && !blockedAt(px, pz, feetY) ? feetY : null
+    if (rampY !== null && Math.abs(rampY - feetY) <= WALK_SURFACE_STEP_UP && canPlace(px, pz, rampY, groundY)) return rampY
+    return supportedOnObstacle(px, pz, feetY) && canPlace(px, pz, feetY, groundY) ? feetY : null
   }
+  // Grounded bodies may step onto adjoining terrain. A legal air pose keeps
+  // its current height and velocity, including a fall in progress.
+  const recoveryFeetY = (groundY: number) => onGround && groundY - feetY <= WALK_SURFACE_STEP_UP
+    ? Math.max(feetY, groundY) : feetY
   if (recoverHorizontalPosition(position, radius, feetY, feetY + height, nearby, worldBound, !!originalSupport, (px, pz) => {
-    if (originalSupport && retainedSupportY(px, pz) !== null) return 'supported'
-    return blockedAt(px, pz, feetY) ? 'blocked' : 'clear'
+    const groundY = groundHeight(px, pz)
+    if (originalSupport && retainedSupportY(px, pz, groundY) !== null) return 'supported'
+    return canPlace(px, pz, recoveryFeetY(groundY), groundY) ? 'clear' : 'blocked'
   })) {
-    if (!originalSupport) return { velocityY, onGround }
-    const y = retainedSupportY(position.x, position.z)
-    if (y === null) return { velocityY, onGround: false }
-    position.y = y + bottomOffset
-    return { velocityY: 0, onGround: true }
+    const groundY = groundHeight(position.x, position.z)
+    const surfaceY = originalSupport ? retainedSupportY(position.x, position.z, groundY) : null
+    return finish(surfaceY ?? recoveryFeetY(groundY), groundY)
   }
 
   const previousFeetY = previous.y - bottomOffset
-  // The frame's origin can itself be embedded (save restore, moving gate).
+  // Check the original pose against the same terrain and obstacle rules as every exit.
   if (Math.hypot(previous.x - x, previous.y - position.y, previous.z - z) <= OBSTACLE_RECOVERY_REACH &&
-    Math.abs(previous.x) <= worldBound && Math.abs(previous.z) <= worldBound &&
-    !blockedAt(previous.x, previous.z, previousFeetY)) {
-    position.copy(previous)
-    const supported = supportedAt(previous.x, previous.z, previousFeetY) ||
-      previousFeetY <= getTerrainHeight(previous.x, previous.z) + BODY_CONTACT_EPSILON
-    return { velocityY: supported ? 0 : velocityY, onGround: supported }
+    Math.abs(previous.x) <= worldBound && Math.abs(previous.z) <= worldBound) {
+    const previousGroundY = groundHeight(previous.x, previous.z)
+    if (canPlace(previous.x, previous.z, previousFeetY, previousGroundY)) {
+      position.copy(previous)
+      return finish(previousFeetY, previousGroundY)
+    }
   }
 
   // A wide enclosed slab may have no local side exit. Try its nearby top or
   // underside at the same X/Z, subject to ground and full-body clearance.
-  const groundY = getTerrainHeight(x, z)
-  let exitY = feetY, bestDistance = 3, exitSupported = false
+  const groundY = groundHeight(x, z)
+  let exitY = feetY, bestDistance = 3, hitUnderside = false
   for (const obstacle of nearby) {
     if (!obstacleBodyOverlaps(obstacle, x, z, feetY, height, radius, options)) continue
     const ramp = obstacle.walkSurface
@@ -1025,21 +1039,18 @@ function recoverObstaclePenetration(position: THREE.Vector3, previous: THREE.Vec
     const baseY = solid ? rampBaseHeight(obstacle, x, z) : admittedObstacleRamp(obstacle, options)
       ? surfaceY - WALK_SURFACE_THICKNESS : obstacle.box.min.y
     const belowY = baseY - height
-    if (Math.abs(surfaceY - feetY) <= bestDistance && !blockedAt(x, z, surfaceY)) {
+    if (Math.abs(surfaceY - feetY) <= bestDistance && canPlace(x, z, surfaceY, groundY)) {
       exitY = surfaceY
       bestDistance = Math.abs(surfaceY - feetY)
-      exitSupported = obstacleSupportsFeet(obstacle, x, z, surfaceY, radius, options)
+      hitUnderside = false
     }
-    if (belowY >= groundY && Math.abs(belowY - feetY) < bestDistance && !blockedAt(x, z, belowY)) {
+    if (Math.abs(belowY - feetY) < bestDistance && canPlace(x, z, belowY, groundY)) {
       exitY = belowY
       bestDistance = Math.abs(belowY - feetY)
-      exitSupported = Math.abs(belowY - groundY) <= BODY_CONTACT_EPSILON
+      hitUnderside = true
     }
   }
-  if (exitY !== feetY) {
-    position.y = exitY + bottomOffset
-    return { velocityY: exitSupported || velocityY > 0 ? 0 : velocityY, onGround: exitSupported }
-  }
+  if (exitY !== feetY) return finish(exitY, groundY, hitUnderside)
   return { velocityY, onGround }
 }
 
@@ -1263,9 +1274,13 @@ export function resolveObstacleCollision(
     const recovered = recoverObstaclePenetration(position, previousPosition, velocityY, onGround, radius, height, bottomOffset, obstacles, options)
     if (supportY !== null && !recovered.onGround && Math.abs(position.y - bottomOffset - supportY) <= epsilon) {
       const local = getLocalCollisionObstacles(obstacles, position.x, position.z, radius)
-      if (!bodyBlockedByObstacles(local, position.x, position.z, initialBottomY, height, radius, options)) {
+      const groundY = (options.groundHeight ?? getTerrainHeight)(position.x, position.z)
+      if (initialBottomY >= groundY - epsilon &&
+        !bodyBlockedByObstacles(local, position.x, position.z, initialBottomY, height, radius, options)) {
         position.y = initialBottomY + bottomOffset
-        return { velocityY: initialVelocityY, onGround: initialOnGround }
+        const supported = initialVelocityY <= 0 && (Math.abs(initialBottomY - groundY) <= epsilon ||
+          local.some(obstacle => obstacleSupportsFeet(obstacle, position.x, position.z, initialBottomY, radius, options)))
+        return { velocityY: supported ? 0 : initialVelocityY, onGround: supported, recovered: recovered.recovered }
       }
     }
     return recovered

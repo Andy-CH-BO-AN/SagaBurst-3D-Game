@@ -4,7 +4,7 @@ import { prisonExitObstacles, prisonExitPlan, prisonFormation, prisonGateObstacl
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { arenaTrialSlotClear } from '../../src/arena/ArenaTrialFormation'
 import * as THREE from 'three'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import {
   COLOSSEUM, colosseumNormal, colosseumPoint, createColosseumObstacles,
 } from '../../src/arena/ColosseumLayout'
@@ -53,13 +53,16 @@ describe('duel arena layout collision', () => {
 
   it('recovers the grounded Valhalla prison checkpoint and stays clear over later foot steps', () => {
     const id = 'viking-valhalla'
+    const groundOwner = {}
+    claimFlatTerrainOverride(groundOwner, VALHALLA.groundY)
+    onTestFinished(() => { releaseFlatTerrainOverride(groundOwner) })
     const obstacles = [...prisonExitObstacles(id, createValhallaObstacles()), prisonGateObstacle(id)]
     const saved = new THREE.Vector3(-3.12, .95, 28.98)
     const position = saved.clone()
     const savedFall = { velocityY: 0, onGround: true }
     let state = recoverPlayerFootBody(position, savedFall, obstacles)
     expect(position.distanceTo(saved)).toBeLessThan(3)
-    expect(state).toEqual(savedFall)
+    expect(state).toEqual({ ...savedFall, recovered: true })
     const inset = PLAYER_RADIUS - .000001
     for (let frame = 0; frame < 5; frame++) {
       const body = new THREE.Box3(

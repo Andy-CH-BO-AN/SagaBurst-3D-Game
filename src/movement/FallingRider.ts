@@ -72,7 +72,7 @@ export class FallingRider {
       let supported = this.velocity.y <= 0 && feet.y <= ground
       if (supported) feet.y = ground
       const collision = resolveObstacleCollision(feet, this.previous, this.velocity.y, supported, this.body.radius, this.body.height, 0, obstacles,
-        { walkSurfaces: true, worldBound: bound })
+        { walkSurfaces: true, worldBound: bound, groundHeight: terrainHeight })
       this.velocity.y = collision.velocityY
       supported = collision.onGround
       if (supported) {

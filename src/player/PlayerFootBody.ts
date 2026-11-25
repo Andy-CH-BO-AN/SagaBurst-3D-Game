@@ -40,7 +40,7 @@ export function stepPlayerFootBody(
     onGround = true
   }
   return resolveObstacleCollision(position, previous, velocityY, onGround, PLAYER_RADIUS,
-    PLAYER_FOOT_OFFSET * 2, PLAYER_FOOT_OFFSET, obstacles, { walkSurfaces: true, worldBound })
+    PLAYER_FOOT_OFFSET * 2, PLAYER_FOOT_OFFSET, obstacles, { walkSurfaces: true, worldBound, groundHeight })
 }
 
 /** Check a checkpoint pose without applying gravity, landing or stepping up. */
