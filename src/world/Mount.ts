@@ -1,7 +1,7 @@
 import { LiveActorRegistry } from './LiveActorRegistry'
 import * as THREE from 'three'
-import { getScenePlayableWorldBound, clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData } from './Terrain'
-import { collideMountBody, MOUNT_MOVEMENT_RADIUS, settleMountOnTerrain } from './MountGroundBody'
+import { getScenePlayableWorldBound, clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, type ObstacleCollisionResult, ObstacleData } from './Terrain'
+import { finishMountGroundMotion, MOUNT_MOVEMENT_RADIUS, settleMountOnTerrain } from './MountGroundBody'
 import type { Faction, NPC } from './NPC'
 import {
   HorseAssetRegistry,
@@ -168,7 +168,10 @@ export class Mount {
   public previousPosition = new THREE.Vector3()
   public movementSpeed = 0
   public isSprinting = false
-  public skipImpactThisFrame = false
+  private combatImpactSuppressed = false
+  private obstacleRecoveryThisFrame = false
+  get skipImpactThisFrame(): boolean { return this.combatImpactSuppressed || this.obstacleRecoveryThisFrame }
+  set skipImpactThisFrame(value: boolean) { this.combatImpactSuppressed = value }
   public velY = 0
   public onGround = false
   public deathTimer = 3
@@ -626,6 +629,7 @@ export class Mount {
   }
 
   beginControlledFrame(): void {
+    this.obstacleRecoveryThisFrame = false
     this.previousPosition.copy(this.group.position)
     this.movementSpeed = 0
   }
@@ -637,6 +641,15 @@ export class Mount {
     }
     if (this.dead || direction.lengthSq() === 0) return
     this.group.position.addScaledVector(direction, speed * dt)
+  }
+
+  /** Recovery is a placement. It does not create an impact sweep or locomotion. */
+  applyObstacleRecovery(collision: ObstacleCollisionResult): void {
+    this.velY = collision.velocityY
+    this.onGround = collision.onGround
+    this.previousPosition.copy(this.group.position)
+    this.movementSpeed = 0
+    this.obstacleRecoveryThisFrame = true
   }
 
   finishControlledFrame(
@@ -662,19 +675,19 @@ export class Mount {
       return
     }
     if (import.meta.env.DEV && collector) { var _tPhysics = performance.now() }
+    clampToPlayableWorld(this.group.position, this.playableWorldBound)
     const settled = settleMountOnTerrain(this.group.position, this.velY, dt)
     this.velY = settled.velocityY
     this.onGround = settled.onGround
     if (import.meta.env.DEV && collector) { collector.endPhase('mountPhysics', _tPhysics!) }
 
     if (import.meta.env.DEV && collector) { var _tObstacle = performance.now() }
-    const collision = collideMountBody(this.group.position, this.previousPosition, { velocityY: this.velY, onGround: this.onGround }, obstacles)
+    const collision = finishMountGroundMotion(this.group.position, this.previousPosition, settled, dt, obstacles, this.playableWorldBound)
     this.velY = collision.velocityY
     this.onGround = collision.onGround
+    this.movementSpeed = collision.movementSpeed
+    if (collision.recovered) this.obstacleRecoveryThisFrame = true
     if (import.meta.env.DEV && collector) { collector.endPhase('mountObstacleCollision', _tObstacle!) }
-
-    clampToPlayableWorld(this.group.position, this.playableWorldBound)
-    this.movementSpeed = this.previousPosition.distanceTo(this.group.position) / Math.max(dt, 0.0001)
     if (this.proceduralVisual) {
       // Terrain following can briefly leave the ground on slopes without a jump.
       if (this.pendingJumpLanding && this.onGround) {

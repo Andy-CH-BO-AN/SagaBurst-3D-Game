@@ -66,12 +66,13 @@ import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
 import { Mount } from '../world/Mount'
 import { Faction, NPC } from '../world/NPC'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
+import { PLAYER_FOOT_OFFSET } from '../player/PlayerFootBody'
+import { MOUNT_BODY_HEIGHT, MOUNT_MOVEMENT_RADIUS } from '../world/MountGroundBody'
 import { resolveEntityCollision, type ObstacleData } from '../world/Terrain'
 import { coopSession, type CoopSession } from '../coop/CoopLink'
 import { announceCoopScene, coopGuestCharacterAssets, coopGuestPlayerSource, isCoopGuestLaunch, showCoopGuestEnd, type CoopPlayerSource } from '../coop/CoopLaunch'
 import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeer, type CoopGamePort } from '../coop/CoopMission'
 
-const PLAYER_HALF_HEIGHT = 0.95
 const RESUME_GRACE_SECONDS = 3
 const CHECKPOINT_SECONDS = 2
 /** A fall changes quickly, so it is saved far more often than a quiet fight. */
@@ -310,11 +311,12 @@ export class CareerArenaCombatScene {
     // The saved player state is the host's own; a co-op guest always starts fresh.
     const saved = engaged && !this.coopGuestPage ? trial.player : undefined
     const spawn = saved ?? { x: formation.player.x, z: formation.player.z, yaw: formation.player.yaw }
-    this.player.resetForScene(spawn.x, saved?.y ?? this.arena.spawns.player.y + PLAYER_HALF_HEIGHT, spawn.z)
+    this.player.resetForScene(spawn.x, saved?.y ?? this.arena.spawns.player.y + PLAYER_FOOT_OFFSET, spawn.z)
     this.player.faceDirection(Math.sin(spawn.yaw), Math.cos(spawn.yaw))
     if (saved) {
       this.player.setHp(Math.min(maxHp, saved.hp)); this.player.setStamina(saved.stamina)
       if (saved.knocked) this.player.takeDamage(this.player.maxHp * 100, this.hp)
+      else this.player.restoreFootFall(saved.fall ?? this.player.captureFootFall(), this.arena.obstacles)
     }
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
     this.orbit.setYaw(spawn.yaw + Math.PI)
@@ -327,21 +329,19 @@ export class CareerArenaCombatScene {
         () => this.mountObstacles, () => this.bodies.map(body => body.npc.combatPosition), () => `arena-trial:${this.arenaId}`)
       // A ridden ground mount comes along to the trial; eagles never fly inside an arena.
       const mountId = mission.mountState?.activeMountId
-      if (mountId && mountId !== 'xongkoro' && !this.coopPlayerSource) this.careerMounts.restoreActiveMount(false)
+      if (mountId && mountId !== 'xongkoro' && !this.coopPlayerSource) this.careerMounts.restoreActiveMount(false, !saved?.fall)
     }
     // prepareForCombat tops up supplies; a saved fight restores what was really left (0 means spent or broken).
     if (saved) {
       if (saved.ammo !== undefined) this.player.setArrowCount(saved.ammo)
       if (saved.shieldDurability) this.player.shield.restoreDurability(saved.shieldDurability)
       if (saved.shieldImpact !== undefined) this.player.shield.shieldImpactRemaining = Math.min(this.player.shield.shieldImpactMax, saved.shieldImpact)
-      // A fall under way resumes with its own apex, so the grace period cannot erase it.
-      if (saved.fall && !saved.knocked) this.player.restoreFootFall(saved.fall)
     }
     if (!settled) await this.buildBodies(trial, progress)
     this.hp.setFill(this.player.hpRatio)
     this.quiver.setArrowCount(this.player.arrowCount)
     this.combatElapsed = trial.combatElapsed
-    // A reload never skips the grace: positions and counts are restored exactly, then the fight resumes.
+    // A reload never skips the grace: validated poses and saved counts are restored before the fight resumes.
     this.opening.reset(settled ? 'result' : 'waiting', engaged ? RESUME_GRACE_SECONDS : ARENA_TRIAL_COUNTDOWN_SECONDS)
     // Only a trial that was already fighting checkpoints during its resume grace; a first deployment countdown never turns `engaged`.
     this.resumeGrace = engaged && !settled
@@ -499,7 +499,7 @@ export class CareerArenaCombatScene {
     // The ground boundary holds living, supported bodies only; falls always complete.
     if (!this.player.dead && this.player.isGrounded) {
       const mount = this.player.currentMount
-      if (mount) { if (this.arena.constrainGroundedBody(mount.group.position)) this.player.syncMountTransform() }
+      if (mount) { if (this.arena.constrainGroundedBody(mount.group.position, true)) this.player.syncMountTransform() }
       else this.arena.constrainGroundedBody(this.player.group.position)
     }
     this.updateBodies(dt)
@@ -823,13 +823,23 @@ export class CareerArenaCombatScene {
 
   private resolveBodies(): void {
     if (this.player.dead || this.player.isFalling) return
-    const body = { position: this.player.group.position, radius: 0.42, height: 1.8, bottomOffset: 0.9, walkSurfaces: true }
+    const mount = this.player.currentMount
+    const body = mount
+      ? { position: mount.group.position, radius: MOUNT_MOVEMENT_RADIUS, height: MOUNT_BODY_HEIGHT, bottomOffset: 0, mountedSurfaces: true }
+      : { position: this.player.position, radius: .42, height: PLAYER_FOOT_OFFSET * 2,
+          bottomOffset: PLAYER_FOOT_OFFSET, walkSurfaces: true }
+    const beforeX = body.position.x, beforeZ = body.position.z
     // A guest's mirrors are placed by the host every frame: only the guest's own body moves.
+    const anchored = Boolean(this.coopGuest)
     const others = this.coopGuest ? this.coopGuestNpcs : this.bodies.map(entry => entry.npc)
     for (const npc of others) {
       if (npc.dead || !npc.group.parent || npc.combatPosition.distanceTo(this.player.combatPosition) > 3) continue
-      resolveEntityCollision(body, { position: npc.combatPosition, radius: 0.42, height: 1.8, bottomOffset: 0, walkSurfaces: true, ...(this.coopGuest ? { anchored: true } : {}) }, this.arena.obstacles)
+      const other = npc.isMounted
+        ? { position: npc.combatPosition, radius: MOUNT_MOVEMENT_RADIUS, height: MOUNT_BODY_HEIGHT, bottomOffset: 0, mountedSurfaces: true, anchored }
+        : { position: npc.combatPosition, radius: .5, height: 2.3, bottomOffset: 0, walkSurfaces: true, anchored }
+      resolveEntityCollision(body, other, this.arena.obstacles)
     }
+    if (mount && (body.position.x !== beforeX || body.position.z !== beforeZ)) this.player.syncMountTransform()
   }
 
   private awardSkillXp({ skill, xp }: SkillProgressionAward): void {
@@ -1151,7 +1161,7 @@ export class CareerArenaCombatScene {
       this.stamina, this.quiver, this.sound, this.inventory, this.skills.getRangedMultiplier(), true)
     if (!this.player.dead && this.player.isGrounded) {
       const mount = this.player.currentMount
-      if (mount) { if (this.arena.constrainGroundedBody(mount.group.position)) this.player.syncMountTransform() }
+      if (mount) { if (this.arena.constrainGroundedBody(mount.group.position, true)) this.player.syncMountTransform() }
       else this.arena.constrainGroundedBody(this.player.group.position)
     }
     const guest = this.coopGuest!

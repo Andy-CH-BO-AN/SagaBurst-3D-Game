@@ -156,9 +156,7 @@ export class ObstacleCollisionSpatialIndex {
         && maxZ >= box.min.z && minZ <= box.max.z) this.queryIndices.push(index)
     }
 
-    // Preserve the original shared obstacle-array order. Collision push-out can
-    // be order-sensitive when an actor touches two adjacent boxes, so the broad
-    // phase must only remove impossible obstacles, never reorder candidates.
+    // Preserve source order for callers that use the first equally close hit.
     for (let i = 1; i < this.queryIndices.length; i++) {
       const value = this.queryIndices[i]
       let j = i - 1

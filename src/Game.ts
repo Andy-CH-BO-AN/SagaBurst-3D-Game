@@ -4919,7 +4919,7 @@ export class Game {
 
   /** Prevent living people, NPCs, and mounts from occupying the same space. */
   private _resolveEntityCollisions(): void {
-    const bodies: EntityCollisionBody[] = []
+    const bodies: (EntityCollisionBody & { mount?: Mount })[] = []
     const controlledMount = this.player.isMounted ? this.player.currentMount : null
 
     if (this.player.spectatorOnly || this.player.isFalling || controlledMount?.isFlyingMount) {
@@ -4961,6 +4961,7 @@ export class Game {
       const isCharging = mount.movementSpeed > COMBAT_BALANCE.mountImpact.minSpeed
       bodies.push({
         position: mount.group.position,
+        mount,
         mountedSurfaces: true,
         radius: 1.0,
         height: 2.6,
@@ -4974,17 +4975,18 @@ export class Game {
     // Direction A post-validation fallback
     for (const body of bodies) {
       if (body.anchored) continue
-      resolveObstacleCollision(
+      const collision = resolveObstacleCollision(
         body.position,
         body.position,
-        0,
-        true,
+        body.mount?.velY ?? 0,
+        body.mount?.onGround ?? true,
         body.radius,
         body.height,
         body.bottomOffset,
         this.obstacles,
         { walkSurfaces: body.walkSurfaces, mountedSurfaces: body.mountedSurfaces }
       )
+      if (collision.recovered) body.mount?.applyObstacleRecovery(collision)
     }
   }
 

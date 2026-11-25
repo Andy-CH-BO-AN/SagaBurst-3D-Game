@@ -49,49 +49,84 @@ describe('obstacle walk-surface collision', () => {
     expect(position.toArray()).toEqual([2, 10, 5])
   })
 
-  it('preserves ordered penetration recovery beyond the original swept bounds', () => {
-    // Recovery may move outside the original sweep into a later source-order box.
-    const recovery = [
-      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(-2, -1, -2), new THREE.Vector3(2, 3, 2)) },
-      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(2.3, -1, -1), new THREE.Vector3(3, 3, 1)) },
+  it('finds the nearest clear side or corner across a spatial cell boundary, regardless of collider order', () => {
+    const obstacles = [
+      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(5, -1, -2), new THREE.Vector3(7.8, 4, 2)) },
+      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(8, -1, -1), new THREE.Vector3(10, 4, 1)) },
     ]
-    const position = new THREE.Vector3(), previous = new THREE.Vector3()
-    resolveObstacleCollision(position, previous, 0, true, .5, 2.3, 0, recovery)
-    expect(position.x).toBeCloseTo(1.8)
-    position.set(.1, 0, 0)
-    resolveObstacleCollision(position, previous, 0, true, .5, 2.3, 0, recovery)
-    expect(position.x).toBeCloseTo(1.8)
+    const origin = new THREE.Vector3(6.8, 0, 0)
+    for (const layout of [obstacles, [...obstacles].reverse()]) {
+      const position = origin.clone()
+      resolveObstacleCollision(position, origin, 0, true, .5, 2.3, 0, layout, { groundHeight: () => 0 })
+      const body = new THREE.Box3(
+        new THREE.Vector3(position.x - .499999, .001, position.z - .499999),
+        new THREE.Vector3(position.x + .499999, 2.299, position.z + .499999),
+      )
+      expect(layout.some(obstacle => obstacle.box.intersectsBox(body))).toBe(false)
+      // Reaching the opposite side of the first box is legal but farther away.
+      expect(position.distanceTo(origin)).toBeLessThan(2.25)
+      const recovered = position.clone()
+      resolveObstacleCollision(position, recovered, 0, true, .5, 2.3, 0, layout, { groundHeight: () => 0 })
+      expect(position).toEqual(recovered)
+    }
   })
 
-  it('handles contained and escaping recovery push-outs with spatial query fidelity', () => {
-    const coarseQuery = vi.spyOn(ObstacleCollisionSpatialIndex.prototype, 'queryNear')
-    onTestFinished(() => coarseQuery.mockRestore())
-    const containedObstacles: ObstacleData[] = [
-      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(0, -1, -2), new THREE.Vector3(2, 3, 2)) },
-      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(2.2, -1, -2), new THREE.Vector3(2.3, 3, 2)) },
-    ]
-    const pos1 = new THREE.Vector3(4, 0, 0)
-    const collision1 = resolveObstacleCollision(pos1, new THREE.Vector3(1, 0, 0),
-      0, true, .5, 2.3, 0, containedObstacles)
-    expect(pos1.x).toBeCloseTo(2.8)
-    expect(collision1).toEqual({ velocityY: 0, onGround: true })
-    expect(coarseQuery).not.toHaveBeenCalled()
+  it('exits a solid cluster even when internal faces fill the nearest candidate list', () => {
+    const outer = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(-7, -2, -9), new THREE.Vector3(7, 9, 9)) }
+    const inner = Array.from({ length: 20 }, (_, i) => {
+      const edge = .3 + .15 * i
+      return { isBarricade: false,
+        box: new THREE.Box3(new THREE.Vector3(-edge, -2, -edge), new THREE.Vector3(edge, 9, edge)) }
+    })
+    const origin = new THREE.Vector3(0, getTerrainHeight(0, 0), 0)
+    const position = origin.clone()
+    resolveObstacleCollision(position, origin, 0, true, .5, 2.3, 0, [outer, ...inner])
+    const body = new THREE.Box3(
+      new THREE.Vector3(position.x - .499999, position.y + .001, position.z - .499999),
+      new THREE.Vector3(position.x + .499999, position.y + 2.299, position.z + .499999),
+    )
+    expect([outer, ...inner].some(obstacle => obstacle.box.intersectsBox(body))).toBe(false)
+    expect(position.distanceTo(origin)).toBeLessThan(12)
+  })
 
-    // Escaping push-out triggers coarse query replay
-    const escapingObstacles: ObstacleData[] = [
-      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(-5, 0, -5), new THREE.Vector3(5, 1.5, 5)) },
-      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(-1, 3.5, -2), new THREE.Vector3(5, 4, 2)) },
-      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(-1, 0, -2), new THREE.Vector3(2, 4, 2)) },
-      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(2.2, 0, -.1), new THREE.Vector3(4, 4, .1)) },
-      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(2.3, 0, .8), new THREE.Vector3(2.7, 4, 1)) },
-    ]
-    const pos2 = new THREE.Vector3(4, 2, 0)
-    const collision2 = resolveObstacleCollision(pos2, new THREE.Vector3(0, .5, 0),
-      2, false, .5, 2.3, 0, escapingObstacles)
-    expect(pos2.x).toBeCloseTo(2.5)
-    expect(pos2.y).toBeCloseTo(1.2)
-    expect(collision2).toEqual({ velocityY: 0, onGround: false })
-    expect(coarseQuery).toHaveBeenCalledTimes(1)
+  it('keeps recovered feet clear of rising terrain and resumes falling above lower ground', () => {
+    const wall = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(-.3, -2, -3), new THREE.Vector3(.3, 6, 3)) }
+    const ground = (x: number) => x > .5 ? 1.5 : x < -.5 ? -.6 : 0
+    const position = new THREE.Vector3(.14, PLAYER_FOOT_OFFSET, 0)
+    const dt = 1 / 60
+    let state = stepPlayerFootBody(position, position.clone(), { velocityY: 0, onGround: true }, dt, [wall], ground)
+    expect(position.y - PLAYER_FOOT_OFFSET).toBeGreaterThan(ground(position.x))
+    expect(state.onGround).toBe(false)
+    const recovered = position.clone()
+    state = stepPlayerFootBody(position, recovered, state, dt, [wall], ground)
+    expect(position.x).toBe(recovered.x)
+    expect(position.y).toBeLessThan(recovered.y)
+    expect(state.onGround).toBe(false)
+  })
+
+  it('rejects an embedded previous pose when a broad foundation has no local side exit', () => {
+    const foundation = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(-30, -2, -30), new THREE.Vector3(30, 1.4, 30)) }
+    const position = new THREE.Vector3(0, .2, 0), previous = new THREE.Vector3(-.1, 0, 0)
+    const collision = resolveObstacleCollision(position, previous, 0, true, .5, 2.3, 0,
+      [foundation], { recoverOnly: true })
+    expect(position.y).toBeGreaterThanOrEqual(foundation.box.max.y)
+    expect(position.distanceTo(previous)).toBeLessThan(3)
+    expect(collision).toEqual({ velocityY: 0, onGround: true, recovered: true })
+  })
+
+  it('keeps a supported actor on the platform when a closer horizontal exit would drop it', () => {
+    const platform = deck(6)
+    const wall = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(-2, 6, 4), new THREE.Vector3(2.1, 10, 6)) }
+    const position = new THREE.Vector3(1.95, 6, 5)
+    const collision = resolveObstacleCollision(position, position.clone(), 0, true, .5, 2.3, 0,
+      [wall, platform], { walkSurfaces: true })
+    expect(collision).toEqual({ velocityY: 0, onGround: true, recovered: true })
+    expect(getWalkRampHeight(platform.walkSurface!, position.x, position.z)).toBe(position.y)
+    expect(wall.box.clone().expandByScalar(.499999).containsPoint(position)).toBe(false)
   })
 
   it('does not let a crowded mount separate a ground body through a thin railing', () => {
@@ -167,7 +202,7 @@ describe('obstacle walk-surface collision', () => {
       const embedded = point(s.length - 2, 0, false), groundY = embedded.y
       resolveObstacleCollision(embedded, embedded.clone(), 0, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
       expect(Math.abs((embedded.x - s.startX) * -s.dirZ + (embedded.z - s.startZ) * s.dirX)).toBeCloseTo(s.halfWidth + 1.32)
-      expect(embedded.y).toBe(groundY)
+      expect(embedded.y).toBeCloseTo(Math.max(groundY, getTerrainHeight(embedded.x, embedded.z)))
       const anchored = { position: point(6, 5, false), radius: 1, height: 2.6, bottomOffset: 0, anchored: true }
       const other = { position: point(6, 4.32, false), radius: 1, height: 2.6, bottomOffset: 0 }
       const before = other.position.clone()
@@ -188,10 +223,11 @@ describe('obstacle walk-surface collision', () => {
   it('limits overlapping support to one step from the original feet, independent of obstacle order', () => {
     const surfaces = [deck(.6), deck(1.2), deck(6)]
     for (const obstacles of [surfaces, [...surfaces].reverse()]) {
-      const position = new THREE.Vector3(0, .98, 5)
-      const collision = resolveObstacleCollision(position, new THREE.Vector3(0, 1, 5), -1, false,
-        .5, 2, 1, obstacles, { walkSurfaces: true })
-      expect(position.y).toBeCloseTo(1.6)
+      // Use a short body that fits between the synthetic overlapping decks.
+      const position = new THREE.Vector3(0, .08, 5)
+      const collision = resolveObstacleCollision(position, new THREE.Vector3(0, .1, 5), -1, false,
+        .5, .2, .1, obstacles, { walkSurfaces: true })
+      expect(position.y).toBeCloseTo(.7)
       expect(collision).toEqual({ velocityY: 0, onGround: true })
     }
   })
@@ -219,7 +255,7 @@ describe('obstacle walk-surface collision', () => {
     const collision = resolveObstacleCollision(position, new THREE.Vector3(1.8, 6, 5), -1, false,
       .5, 2, 0, [wall, deck(6)], { walkSurfaces: true })
     expect(position.toArray()).toEqual([2.5, 5.98, 5])
-    expect(collision).toEqual({ velocityY: -1, onGround: false })
+    expect(collision).toEqual({ velocityY: -1, onGround: false, recovered: true })
   })
 
   it('keeps a player stood on a raised hall floor on that floor through a long first foot step', () => {

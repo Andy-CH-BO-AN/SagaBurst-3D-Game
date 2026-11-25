@@ -9,9 +9,12 @@ import {
 } from './ValhallaLayout'
 import { buildColosseumVisuals } from './RomanColosseum'
 import { buildValhallaVisuals } from './VikingValhalla'
+import { PLAYER_RADIUS } from '../movement/MovementBalance'
+import { PLAYER_FOOT_OFFSET } from '../player/PlayerFootBody'
+import { MOUNT_BODY_HEIGHT, MOUNT_MOVEMENT_RADIUS } from '../world/MountGroundBody'
 import { ARENA_GROUND_FALL_POLICY, setSceneGroundFallPolicy } from '../movement/GroundFall'
 import {
-  claimFlatTerrainOverride, releaseFlatTerrainOverride, setObstaclePathQuerySource, setScenePlayableWorldBound, type ObstacleData,
+  claimFlatTerrainOverride, isObstacleBodyPushBlocked, releaseFlatTerrainOverride, setObstaclePathQuerySource, setScenePlayableWorldBound, type ObstacleData,
 } from '../world/Terrain'
 
 export { DUEL_ARENA_IDS, DUEL_ARENA_LABELS, parseDuelArenaId, parseDuelArenaPreviewQuery, type DuelArenaId } from './DuelArenaCatalog'
@@ -39,7 +42,7 @@ export interface DuelArenaEnvironment {
   readonly obstacles: ObstacleData[]
   readonly spawns: { readonly player: DuelArenaSpawn; readonly opponent: DuelArenaSpawn }
   /** Keeps a living, grounded body inside the arena's ground boundary. Returns true when it moved. */
-  constrainGroundedBody(position: THREE.Vector3): boolean
+  constrainGroundedBody(position: THREE.Vector3, mounted?: boolean): boolean
   update(dt: number): void
   dispose(): void
   readonly disposed: boolean
@@ -73,7 +76,7 @@ export function createDuelArena(id: DuelArenaId, scene: THREE.Scene, prisonExit 
   try {
     claimFlatTerrainOverride(groundOwner, groundY)
     let update: (dt: number) => void
-    let constrain: (position: THREE.Vector3) => boolean
+    let constrain: (position: THREE.Vector3, radius?: number) => boolean
     let spawns: DuelArenaEnvironment['spawns']
     if (id === 'roman-colosseum') {
       const visuals = buildColosseumVisuals(resources, prisonExit)
@@ -91,7 +94,7 @@ export function createDuelArena(id: DuelArenaId, scene: THREE.Scene, prisonExit 
       root = visuals.root
       update = visuals.update
       obstacles = createValhallaObstacles()
-      constrain = position => constrainToValhallaHall(position)
+      constrain = constrainToValhallaHall
       spawns = VALHALLA_SPAWNS
       setScenePlayableWorldBound(scene, VALHALLA_SAFETY_BOUND)
       setSceneGroundFallPolicy(scene, ARENA_GROUND_FALL_POLICY)
@@ -102,19 +105,28 @@ export function createDuelArena(id: DuelArenaId, scene: THREE.Scene, prisonExit 
       obstacles = prisonExitObstacles(id, obstacles)
       if (id === 'viking-valhalla') {
         const originalConstrain = constrain
-        constrain = position => Math.abs(position.x) < 1.4 && position.z < -37 ? false : originalConstrain(position)
+        constrain = (position, radius) => Math.abs(position.x) < 1.4 && position.z < -37 ? false : originalConstrain(position, radius)
       }
     }
     setObstaclePathQuerySource(obstacles, true)
     scene.add(root)
     const arenaRoot = root
     const arenaObstacles = obstacles
+    const boundedPose = new THREE.Vector3()
     return {
       id,
       root: arenaRoot,
       obstacles: arenaObstacles,
       spawns,
-      constrainGroundedBody: position => !disposed && constrain(position),
+      constrainGroundedBody: (position, mounted = false) => {
+        if (disposed || !constrain(boundedPose.copy(position), mounted ? MOUNT_MOVEMENT_RADIUS : undefined)) return false
+        const body = mounted
+          ? { position: boundedPose, radius: MOUNT_MOVEMENT_RADIUS, height: MOUNT_BODY_HEIGHT, bottomOffset: 0, mountedSurfaces: true }
+          : { position: boundedPose, radius: PLAYER_RADIUS, height: PLAYER_FOOT_OFFSET * 2, bottomOffset: PLAYER_FOOT_OFFSET, walkSurfaces: true }
+        if (isObstacleBodyPushBlocked(body, 0, 0, arenaObstacles)) return false
+        position.copy(boundedPose)
+        return true
+      },
       update: dt => { if (!disposed && dt > 0) update(dt) },
       dispose: release,
       get disposed() { return disposed },

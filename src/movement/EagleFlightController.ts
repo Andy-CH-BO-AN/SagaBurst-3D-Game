@@ -270,6 +270,7 @@ export class EagleFlightController {
     // Three overlapping torso volumes follow pitch/yaw. Wing span is clearance, never flesh.
     this.ahead.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch))
     this.side.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw))
+    const collisionOptions = { groundHeight: terrainHeight }
     for (const along of [-3.2, 0, 3.2]) {
       this.sample.copy(position).addScaledVector(this.ahead, along)
       this.oldSample.copy(this.previous).addScaledVector(this.oldAhead, along)
@@ -277,7 +278,7 @@ export class EagleFlightController {
       const sampleGround = terrainHeight(this.sample.x, this.sample.z)
       if (this.sample.y < sampleGround && this.phase !== 'landing' && !this.retreating) this.sample.y = sampleGround
       resolveObstacleCollision(this.sample, this.oldSample, this.velocity.y, false,
-        XONGKORO.bodyRadius, XONGKORO.bodyHeight, 0, obstacles)
+        XONGKORO.bodyRadius, XONGKORO.bodyHeight, 0, obstacles, collisionOptions)
       this.correction.sub(this.sample)
       position.sub(this.correction)
     }
@@ -285,7 +286,7 @@ export class EagleFlightController {
       this.sample.copy(position).addScaledVector(this.side, across); this.sample.y += 1.8
       this.oldSample.copy(this.previous).addScaledVector(this.oldSide, across); this.oldSample.y += 1.8
       this.correction.copy(this.sample)
-      resolveObstacleCollision(this.sample, this.oldSample, this.velocity.y, false, .9, 1.2, 0, obstacles)
+      resolveObstacleCollision(this.sample, this.oldSample, this.velocity.y, false, .9, 1.2, 0, obstacles, collisionOptions)
       this.correction.sub(this.sample)
       position.sub(this.correction)
     }

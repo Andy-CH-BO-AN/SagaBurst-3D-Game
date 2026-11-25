@@ -1,12 +1,13 @@
 import { Vector3, Box3 } from 'three'
 import { Mount, MountState } from '../../src/world/Mount'
+import { finishMountGroundMotion, settleMountOnTerrain } from '../../src/world/MountGroundBody'
 import type { NPC } from '../../src/world/NPC'
 import type { Player } from '../../src/player/Player'
-import { resolveMountImpacts, applyMountImpactKnockback, type MountImpactOptions } from '../../src/combat/MountImpact'
+import { resolveMountImpacts, checkMountImpact, applyMountImpactKnockback, type MountImpactOptions } from '../../src/combat/MountImpact'
 import { damagePlayer } from '../../src/combat/DamageRouter'
-import { getTerrainHeight } from '../../src/world/Terrain'
+import { claimFlatTerrainOverride, getTerrainHeight, releaseFlatTerrainOverride } from '../../src/world/Terrain'
 import { Faction } from '../../src/combat/CombatFaction'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import { MountArmor, mountImpactMultiplier } from '../../src/combat/MountArmor'
 import { calculateLanceChargeDamage, calculateMountImpactDamage } from '../../src/combat/CombatBalance'
 import type { CombatDamageContext } from '../../src/combat/CombatAttribution'
@@ -77,7 +78,10 @@ describe('Mount armor', () => {
       expect(route === 'npc-player' ? player.hp : target.hp).toBe(route === 'player-npc' ? 122 : 135)
     }
   })
-  it('lets a player charge hit a Career field bandit through the real damage route while sparing an ally in the same lane', () => {
+  it('suppresses an embedded mount correction sweep and still damages a bandit during ordinary charge travel', () => {
+    const groundOwner = {}
+    claimFlatTerrainOverride(groundOwner, 0)
+    onTestFinished(() => { releaseFlatTerrainOverride(groundOwner) })
     const actor = (id: string, faction: Faction) => ({
       combatantId: id, name: id, faction, characterFaction: 'roman' as const, hp: 200, maxHp: 200,
       dead: false, isMounted: false, mount: null, currentMount: null, targetable: true, spectatorOnly: false,
@@ -90,29 +94,55 @@ describe('Mount armor', () => {
     const ally = actor('field-ally', Faction.PLAYER) as unknown as NPC
     const mount = {
       state: MountState.CONTROLLED, dead: false, isFlyingMount: false, skipImpactThisFrame: false,
-      movementSpeed: 12, isSprinting: false, impactMultiplier: 2.5,
-      group: { position: new Vector3(0, 0, 1) }, previousPosition: new Vector3(0, 0, -1),
+      movementSpeed: 0, isSprinting: false, impactMultiplier: 2.5,
+      group: { position: new Vector3(0, 0, -1) }, previousPosition: new Vector3(0, 0, -1),
       impactTimes: new Map<object, number>(), canImpact: Mount.prototype.canImpact, riderFaction: Faction.PLAYER, riderNpc: null,
     } as unknown as Mount
     player.currentMount = mount
     const events: { type: string; source: { actorId: string }; method: string }[] = []
     const hits: string[] = []
-    resolveMountImpacts([mount], player, [ally, bandit], 0, { playerDamageMultiplier: 1.2,
+    const options: MountImpactOptions = { playerDamageMultiplier: 1.2,
       onDamagePlayer: (amount, context) => damagePlayer(player, amount, { setFill() {} }, null, context),
-      combatEvents: event => events.push(event as never), onPlayerMountHitNpcAudio: (_damage, _mount, npc) => hits.push(npc.combatantId) })
+      combatEvents: event => events.push(event as never), onPlayerMountHitNpcAudio: (_damage, _mount, npc) => hits.push(npc.combatantId) }
+    const blocker = { isBarricade: false, box: new Box3(new Vector3(-5, -2, -6), new Vector3(5, 6, 1)) }
+    const position = mount.group.position
+    const dt = 1 / 60
+    mount.movementSpeed = finishMountGroundMotion(position, mount.previousPosition,
+      settleMountOnTerrain(position, 0, dt), dt, [blocker]).movementSpeed
+    expect(mount.group.position.z).toBeGreaterThanOrEqual(blocker.box.max.z + 1)
+    expect(mount.movementSpeed).toBe(0)
+    expect(checkMountImpact(mount, bandit.combatPosition, .5)).toBe(false)
+    resolveMountImpacts([mount], player, [ally, bandit], 0, options)
+    expect(bandit.hp).toBe(200)
+
+    mount.previousPosition.set(0, 0, -1)
+    position.set(0, 0, 1)
+    const chargeDt = 1 / 6
+    mount.movementSpeed = finishMountGroundMotion(position, mount.previousPosition,
+      settleMountOnTerrain(position, 0, chargeDt), chargeDt, []).movementSpeed
+    resolveMountImpacts([mount], player, [ally, bandit], 1, options)
     expect(bandit.hp).toBe(122)
     expect(ally.hp).toBe(200)
     expect(hits).toEqual(['recruit-bandits-01:bandit:0'])
     expect(events.find(event => event.type === 'damage_applied')).toMatchObject({ source: { actorId: 'player' }, method: 'mount-impact' })
   })
 
-  it('stops infantry impact displacement before the existing swept wall boundary', () => {
+  it('stops infantry impact displacement at physical walls and navigable foundations', () => {
     const y = getTerrainHeight(0, 0), position = new Vector3(0, y, 0)
     const target = { dead: false, isMounted: false, group: { position } } as unknown as NPC
     const mount = { impactMultiplier: 2.5, movementSpeed: 12, group: { position: new Vector3(0, y, .1) }, previousPosition: new Vector3(0, y, -.1) } as unknown as Mount
-    applyMountImpactKnockback(mount, target, { worldBound: 10, obstacles: [{ isBarricade: false, box: new Box3(new Vector3(-2, y-2, .6), new Vector3(2, y+4, .8)) }] })
-    expect(position.z).toBeGreaterThan(0)
-    expect(position.z).toBeLessThan(.21)
+    const box = new Box3(new Vector3(-2, y - 2, .65), new Vector3(2, y + 4, .8))
+    for (const obstacle of [
+      { isBarricade: false, box },
+      { isBarricade: false, box, navigationPassable: true, solidBelow: y - 2,
+        walkSurface: { startX: 0, startZ: .65, startY: y + 1, topY: y + 4,
+          dirX: 0, dirZ: 1, length: .2, landing: 0, halfWidth: 2 } },
+    ]) {
+      position.set(0, y, 0)
+      applyMountImpactKnockback(mount, target, { worldBound: 10, obstacles: [obstacle] })
+      expect(position.z).toBeGreaterThan(0)
+      expect(position.z).toBeLessThan(.16)
+    }
   })
   it('multiplies only the rounded impact formula while preserving sprint and lance skipImpact', () => {
     expect(calculateMountImpactDamage(12, false, mountImpactMultiplier('HORSE'))).toBe(26)

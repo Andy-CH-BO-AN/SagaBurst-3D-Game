@@ -1163,11 +1163,13 @@ export class TownMissionCombat {
     this.bodyCollisionBroadPhase.resolve(bodies, obstacles)
     for (let i = 0; i < bodies.length; i++) {
       const body = bodies[i]
-      if (!body.anchored) {
-        resolveObstacleCollision(body.position, body.position, 0, true, body.radius, body.height, body.bottomOffset,
-          obstacles, { walkSurfaces: body.walkSurfaces, mountedSurfaces: body.mountedSurfaces })
-      }
       const actor = refs[i]
+      if (!body.anchored) {
+        const mount = body.mountedSurfaces ? actor.mount : null
+        const collision = resolveObstacleCollision(body.position, body.position, mount?.velY ?? 0, mount?.onGround ?? true,
+          body.radius, body.height, body.bottomOffset, obstacles, { walkSurfaces: body.walkSurfaces, mountedSurfaces: body.mountedSurfaces })
+        if (collision.recovered) mount?.applyObstacleRecovery(collision)
+      }
       if (body.mountedSurfaces && actor.group?.position) {
         const dx = body.position.x - prevX[i]
         const dz = body.position.z - prevZ[i]

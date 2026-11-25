@@ -196,8 +196,8 @@ export function separateLocalPlayerFromPeer(player: Player, peer: NPC | null | u
   const mount = player.isMounted ? player.currentMount : null
   if (mount?.isFlyingMount || peer.mount?.isFlyingMount) return
   const body = mount
-    ? { position: mount.group.position, radius: 1, height: 2.6, bottomOffset: 0, walkSurfaces: false }
-    : { position: player.group.position, radius: .42, height: 1.8, bottomOffset: PLAYER_FOOT_OFFSET, walkSurfaces: true }
+    ? { position: mount.group.position, radius: 1, height: 2.6, bottomOffset: 0, mountedSurfaces: true }
+    : { position: player.group.position, radius: .42, height: PLAYER_FOOT_OFFSET * 2, bottomOffset: PLAYER_FOOT_OFFSET, walkSurfaces: true }
   resolveEntityCollision(body, { position: peer.combatPosition, radius: peer.isMounted ? 1 : .42, height: peer.isMounted ? 2.6 : 1.8,
     bottomOffset: 0, anchored: true, walkSurfaces: !peer.isMounted }, obstacles as ObstacleData[])
   if (mount) player.syncMountTransform()

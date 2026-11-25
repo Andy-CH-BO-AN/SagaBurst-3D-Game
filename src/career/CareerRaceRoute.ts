@@ -118,7 +118,8 @@ function raceMountBodyFits(point: RacePoint, y: number, options: RaceMountSpawnO
       && point.z > box.min.z - RACE_MOUNT_SOLID_MARGIN && point.z < box.max.z + RACE_MOUNT_SOLID_MARGIN) return false
   }
   const position = new Vector3(point.x, y, point.z), previous = position.clone()
-  const state = collideMountBody(position, previous, settleMountOnTerrain(position, 0, 1 / 60, options.terrainHeight), options.obstacles as ObstacleData[])
+  const state = collideMountBody(position, previous, settleMountOnTerrain(position, 0, 1 / 60, options.terrainHeight),
+    options.obstacles as ObstacleData[], undefined, options.terrainHeight)
   return state.onGround && Math.abs(position.x - point.x) < 1e-3 && Math.abs(position.z - point.z) < 1e-3 && Math.abs(position.y - y) < 1e-3
 }
 function raceMountSpotClear(point: RacePoint, options: RaceMountSpawnOptions, withOccupants: boolean): boolean {
