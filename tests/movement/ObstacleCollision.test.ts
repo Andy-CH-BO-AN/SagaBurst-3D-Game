@@ -85,7 +85,7 @@ describe('obstacle walk-surface collision', () => {
   it('keeps a supported actor on the platform when a closer horizontal exit would drop it', () => {
     const platform = deck(6)
     const wall = { isBarricade: false,
-      box: new THREE.Box3(new THREE.Vector3(1.5, 6, 4), new THREE.Vector3(2.1, 10, 6)) }
+      box: new THREE.Box3(new THREE.Vector3(-2, 6, 4), new THREE.Vector3(2.1, 10, 6)) }
     const position = new THREE.Vector3(1.95, 6, 5)
     const collision = resolveObstacleCollision(position, position.clone(), 0, true, .5, 2.3, 0,
       [wall, platform], { walkSurfaces: true })

@@ -47,7 +47,7 @@ export function recoverHorizontalPosition(
       const result = placement(candidateX, candidateZ)
       if (result === 'blocked') continue
       const supported = result === 'supported'
-      if (supported && !bestSupported || distance < bestDistance) {
+      if ((supported && !bestSupported) || (supported === bestSupported && distance < bestDistance)) {
         bestX = candidateX
         bestZ = candidateZ
         bestDistance = distance
