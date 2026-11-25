@@ -236,6 +236,8 @@ Commander V 新任務的60名槍騎由 `CommanderCavalryEscort` 固定分成每�
 Commander V 由原生指揮名冊建立任務專用編制。守方 v3 以 1／3／5／7 各指揮 50 名城牆步兵，2／4／6／8 各指揮 50 名城門地面步兵，沿用 wall／cavalry sector 的接戰事件與玩家命令優先權。0 號中央機動隊由 21 名居民、8 名原生幹部及 21 名 T3 槍騎兵組成，獨立於四門接戰及和平居民的移動流程。城鎮中心在生成前依實體樓板、碰撞與導航連通分配站位。維京機動騎兵離開長屋時，沿原有地面導航先進入中央走道，再通過門洞。TownWorld 在四門模式建立獨立碰撞的拒馬段，留開城門道路、樓梯及巨鷹淨空。兩種自主守衛與 9 號私兵沿用原有權限。
 攻方 v4 每門 160 人，保留既有弓兵側翼、中央先鋒及兩車護衛，再新增 30 名 T3 近戰步兵和 20 名 T3 槍兵。新增步兵部署在原有車道及護衛的掃掠淨空外，待本門兩台車停止行進（接牆、毀棄或停駛）即交還原入城導航。車尾護衛步兵與槍騎兵沿用各自的隊形與釋放規則。現行 checkpoint 驗證精確任務名冊，戰前／戰中 Actor 與坐騎資源由四門任務保存。
 
+- 四門守城戰 HUD 由 `FourGateDefenseHUD`（置中比分板，建立一次、4 Hz 更新、不攔截輸入）顯示；資料只來自 `CommanderFourGateDefenseController.hudSource()` 唯讀快照並由 `FourGateDefenseHudModel` 轉成顯示字串。我方＝Player＋`military`＋私人部隊（依 combatantId 去重）；每門守軍固定取部署時 `sectors[]` 的 `wallActorIds`＋`cavalryActorIds`（城牆與地面守軍，依 Actor ID 去重，不隨玩家調動改歸屬），中央機動隊、塔樓弓手與巨鷹只計入總兵力。敵軍沿用 `remainingEnemies`（未生成者仍在 target 名冊內，不算死亡）；城門「開啟」與「已攻破」分開，攻城車狀態直接讀 `MobileSiegeRampController.state`。HUD 只在此任務存在，取代 TownScene 左上文字面板，不影響其他 Career 任務。
+
 任務保存名單、階段、必要死亡／統計與 checkpoint；不把重載等同新任務。借用居民不得被任務 cleanup 當臨時 NPC／Mount 銷毀。任務勝敗優先序依各 state 模組，Duel 與團體任務不共用同一玩家死亡規則。
 
 Duel arena 由 `TownDuelArena` 在步兵／騎兵訓練區之間的 forecourt 搜尋，驗證障礙物、既有訓練站位與 navigation；無合法位置時部署失敗，不退回城外。NPC 自然走到各自站位後才進 PREPARING，Player 沿用自動就位；讀檔保留位置恢復。`TownMissionCombat` 同幀推進 Duel flow 與完整 Town runtime，Duel actors 排除於 Patrol／居民 controller，與 world actors 共用 participants／target grid，每個 actor 只模擬一次。TownScene 沿正常敵意與友軍保護路由 melee／projectile／mount contacts，受保護 rider 的 mount 也受保護。Duel opponent 可選更近外敵、受第三方傷害；Player 離開 arena 不停計時，objective／stats 仍只追蹤既有 opponent，RESULT 暫停與結算不變。

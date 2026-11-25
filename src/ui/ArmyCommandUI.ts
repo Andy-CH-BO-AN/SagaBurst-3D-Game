@@ -101,7 +101,9 @@ export class ArmyCommandUI {
       this.targetsLeft.className = 'army-command-targets army-command-targets-left'
       const updateTop = () => {
         const bottom = townHud.getBoundingClientRect().bottom
+        // 左上資訊面板被隱藏（四門守城戰改用置中比分板）時，指令列上移至頂端，不留空白。
         if (bottom > 0) this.root.style.setProperty('--town-command-top', `${bottom + 18}px`)
+        else if (townHud.isConnected && townHud.style.display === 'none') this.root.style.setProperty('--town-command-top', '18px')
       }
       updateTop()
       this.townHudObserver = new ResizeObserver(updateTop)
