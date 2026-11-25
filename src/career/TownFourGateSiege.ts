@@ -93,10 +93,6 @@ export class TownFourGateSiege {
 
   constructor(private readonly options: TownFourGateSiegeOptions, checkpoint?: unknown) {
     if (!options.world.siegeDockPassages || !options.navigation.townNav) throw new Error('Four-gate siege requires an opt-in TownWorld and Town navigation')
-    if (checkpoint !== undefined) {
-      this.saved = parseTownFourGateSiegeCheckpoint(checkpoint)
-      if (!this.saved) throw new Error('Invalid Town four-gate checkpoint')
-    }
     for (const sector of options.sectors) {
       if (this.sectorById.has(sector.gateId) || !TOWN_GATES.some(g => g.id === sector.gateId)) throw new Error('Duplicate/invalid siege sector')
       this.sectorById.set(sector.gateId, sector)
@@ -105,6 +101,12 @@ export class TownFourGateSiege {
         this.actorSectors.set(id, sector.gateId)
       }
       for (const id of sector.attackerActorIds ?? []) this.attackerIds.add(id)
+    }
+    if (checkpoint !== undefined) {
+      // Expanded four-gate sectors exceed the legacy 1024 default (640 attackers + 400 defenders = 1040);
+      // bound the checkpoint to the configured sectors plus the 80 ramp crew slots.
+      this.saved = parseTownFourGateSiegeCheckpoint(checkpoint, Math.max(1024, this.actorSectors.size + 80))
+      if (!this.saved) throw new Error('Invalid Town four-gate checkpoint')
     }
     this.policy = new TownGateBreachPolicy(event => this.dispatch(event), this.saved?.gates)
     for (const id of this.saved?.playerCommandedActorIds ?? []) this.playerCommands.add(id)

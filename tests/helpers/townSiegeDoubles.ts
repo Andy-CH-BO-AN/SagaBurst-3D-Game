@@ -134,7 +134,7 @@ export function recordingRampFactory(onUpdate?: (ramp: SiegeRampDouble) => void)
 
 
 type SiegeSetup = Pick<TownFourGateSiegeOptions, 'sectors'> & Partial<Pick<TownFourGateSiegeOptions, 'actors' | 'attackerRole' | 'navigation' | 'acceptsOrders'>>
-  & { obstacles?: ObstacleData[]; layout?: TownRampartLayout; onRampUpdate?: (ramp: SiegeRampDouble) => void }
+  & { obstacles?: ObstacleData[]; layout?: TownRampartLayout; onRampUpdate?: (ramp: SiegeRampDouble) => void; checkpoint?: unknown }
 
 /** The real siege adapter over the gate/dock world doubles; `townNav` defaults to the real layered navigation. */
 export function townSiege(setup: SiegeSetup) {
@@ -143,7 +143,7 @@ export function townSiege(setup: SiegeSetup) {
   const navigation = setup.navigation ?? { townNav: new TownLayeredNavigation(layout, () => true), areConnected: () => true, sync: () => false }
   const siege = new TownFourGateSiege({ createRamp, world, navigation, grid: new SpatialGrid<NPC>(), actors: setup.actors ?? (() => []),
     sectors: setup.sectors, acceptsOrders: setup.acceptsOrders ?? (() => true), attackerRole: setup.attackerRole,
-    registerHit: () => {}, unregisterHit: () => {} })
+    registerHit: () => {}, unregisterHit: () => {} }, setup.checkpoint)
   return { siege, world, navigation, ramps: createRamp.ramps }
 }
 

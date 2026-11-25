@@ -15,6 +15,7 @@ import { stageOfficialCommandOrder } from '../../src/career/CareerOfficialComman
 import { Faction, type NPC } from '../../src/world/NPC'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
+import { townSiege } from '../helpers/townSiegeDoubles'
 import { advanceCommanderCavalryEscort, COMMANDER_CAVALRY_ESCORT, commanderCavalryEscortAssignments, createCommanderCavalryEscort, isCommanderCavalryEscorting, parseCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
 import { commanderInfantryEscortAssignments, createCommanderInfantryEscort, isCommanderInfantryEscorting } from '../../src/career/CommanderInfantryEscort'
 import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, parseCommanderFourGateDefenseState, recordNativeTownGuardCombat } from '../../src/career/CommanderFourGateDefenseState'
@@ -351,5 +352,26 @@ describe('four-gate checkpoint boundary', () => {
     expect(parseTownFourGateSiegeCheckpoint(undocked)).toBeUndefined()
     east.position.x -= 40
     expect(parseTownFourGateSiegeCheckpoint(undocked)).toEqual(undocked)
+  })
+
+  it('accepts an expanded >1024-actor checkpoint in TownFourGateSiege while still rejecting oversized saves', () => {
+    const saved = fourGateCheckpoint()
+    const actorEntry = { status: 'deployed' as const, hp: 100, order: 'attack' as const,
+      position: { x: 0, y: 0, z: 0, yaw: 0 }, entranceId: null, breachCompleted: false }
+    const sectors = (['north', 'south', 'east', 'west'] as const).map(gateId => {
+      const crew = saved.ramps.filter(r => r.assignment.gateId === gateId).flatMap(r => [...r.assignment.pusherIds, ...r.assignment.assaultIds])
+      const wallActorIds = Array.from({ length: 50 }, (_, i) => `wall:${gateId}:${i}`)
+      const cavalryActorIds = Array.from({ length: 50 }, (_, i) => `cav:${gateId}:${i}`)
+      const extraAttackers = Array.from({ length: 140 }, (_, i) => `att:${gateId}:${i}`)
+      for (const id of [...wallActorIds, ...cavalryActorIds, ...extraAttackers]) saved.actors[id] = { ...actorEntry }
+      return { gateId, wallActorIds, cavalryActorIds, attackerActorIds: [...crew, ...extraAttackers] }
+    })
+    expect(Object.keys(saved.actors).length).toBe(1040)
+    const { siege } = townSiege({ sectors, checkpoint: saved })
+    expect(Object.keys(siege.savedActors!).length).toBe(1040)
+
+    const oversized = JSON.parse(JSON.stringify(saved)) as TownFourGateSiegeCheckpoint
+    for (let i = 0; i < 81; i++) oversized.actors[`extra:${i}`] = { ...actorEntry }
+    expect(() => townSiege({ sectors, checkpoint: oversized })).toThrow('Invalid Town four-gate checkpoint')
   })
 })

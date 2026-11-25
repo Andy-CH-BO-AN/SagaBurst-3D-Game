@@ -34,7 +34,7 @@ export function parseTownFourGateSiegeCheckpoint(value: unknown, actorLimit = 10
   const raw = value as TownFourGateSiegeCheckpoint
   if (raw.version !== 1 || !['roman', 'viking'].includes(raw.faction) || !Array.isArray(raw.ramps) || raw.ramps.length !== 8
     || !Array.isArray(raw.gates) || raw.gates.length !== 4 || !raw.actors || typeof raw.actors !== 'object' || Array.isArray(raw.actors)
-    || Object.keys(raw.actors).length > actorLimit || !uniqueIds(raw.playerCommandedActorIds, 1024)) return undefined
+    || Object.keys(raw.actors).length > actorLimit || !uniqueIds(raw.playerCommandedActorIds, actorLimit)) return undefined
   const rampIds = new Set<string>(), crewIds = new Set<string>(), gateIds = new Set<string>()
   for (const ramp of raw.ramps) {
     const a = ramp?.assignment
