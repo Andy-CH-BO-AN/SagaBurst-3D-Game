@@ -58,6 +58,8 @@ jobs:
       # Always collect actionable Web build diagnostics, even if Related cannot
       # restore its exact-base seed. The final logic check still fails closed.
       - uses: actions/checkout@v4
+      - name: Lint AI doc links
+        run: node .github/scripts/lint-doc-links.cjs
       - name: Lint GitHub Actions workflows
         run: |
           curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash | bash -s -- 1.7.7 /tmp

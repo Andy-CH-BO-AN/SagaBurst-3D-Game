@@ -28,7 +28,6 @@
 - `TownRamparts` 擁有環牆走道與城內貼牆坡道。門樓雙塔嵌入城牆，塔基取代該段牆身；走道在雙塔之間抬到 `gatehouseFloorY` 與上層連廊合併，塔外的走道、攻城接牆點、駐軍站位與坡道高度**不變**。駐軍城牆站位排除塔樓範圍。
 - `townGatehouseParts(house, faction)` 用同一份資料產生外觀與碰撞：塔基是唯一地面阻擋；實體頂面低於走面以免騎乘卡住，其上只擋投射物（`fill`）；高塔身、塔房、連廊、屋頂與雕飾只作 overhead 碰撞。原門洞輪廓、騎乘淨空與 `towerOuter` 攻城接牆位置不變。`dressTownGate` 回傳分區 `airspace`，取代整體 AABB。
 - 地面門洞通行依實際門扇開關／摧毀；摧毀門扇不移除上層。
-- `TownSiegeGateClosure` 依 `TOWN_GATES` yaw 推出 closure volume 內所有 Player／NPC／Mount，**不看 faction、不造成傷害或歸因**，rider 與 mount 一起移動；被推出的守軍留在城外。首次關門後更新 navigation topology，進場倒數完成才 ATTACKING。
 - `TownCommandWatchtowerLayout` 定義永久指揮塔與入口 footprint，`TownWorld` 驗證道路、障礙與巨鷹走廊後建立；`TownWatchtowerNavigation` 共用真實 WalkRampSurface。`TownWatchtowerGuardPolicy` 計算塔頂固定站位，`townAuthoredRoster()` 永久加入 `watchtower-archer:*`（獨立 `watchtower_guard` duty），**不加入四門分配、HR、平民或任何指揮 preset**。
 - `TownGarrison` 為既有居民增加站崗位置，不改 `TownDefenseRoster` 的身份或分隊。固定遠程以實際武器射程警戒；Attack／Defend 留守，Follow／Formation／Charge 交出駐軍權。保存的正式 IDs 不重抽；一般 reload 保留原位置與命令，不推導歷史城牆站位。
 
