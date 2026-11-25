@@ -1,4 +1,31 @@
+import '../ui/career-hud.css'
+
 type TutorialHUDRect = Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'>
+
+export interface TutorialHudKeyStep {
+  key?: string
+  label: string
+}
+
+export interface TutorialHudCheck {
+  label: string
+  done: boolean
+}
+
+export interface TutorialHudProgress {
+  current: number
+  total: number
+  label?: string
+}
+
+export interface TutorialHudMeta {
+  eyebrow?: string
+  icon?: string
+  tone?: 'tutorial' | 'story' | 'resume'
+  flow?: readonly TutorialHudKeyStep[]
+  checks?: readonly TutorialHudCheck[]
+  progress?: TutorialHudProgress
+}
 
 export function installTownStyles(): void {
   if (document.getElementById('town-styles')) return
@@ -61,24 +88,6 @@ export function installTownStyles(): void {
     .duel-countdown-value { font-size:clamp(48px,7vw,80px); font-weight:800; line-height:1.15; font-variant-numeric:tabular-nums }
     #career-entry { position:fixed; inset:0; overflow:auto; z-index:1000; padding:clamp(20px,5vh,60px) clamp(20px,6vw,100px); box-sizing:border-box; background:radial-gradient(ellipse at 30% 0,#473a28,#171b1f 65%); color:#ead8b8; font:16px/1.6 system-ui }
     #career-entry h1 { margin:5px 0; font:700 34px Georgia,serif }
-    .career-tutorial-hud { position:fixed; left:50%; top:32vh; transform:translateX(-50%); width:min(500px,calc(100vw - 32px)); box-sizing:border-box; display:grid; gap:10px; pointer-events:none; z-index:93; color:#fff4d7; font:16px/1.45 system-ui; text-align:center; overflow-wrap:anywhere }
-    .career-tutorial-hud[hidden], .career-tutorial-hud [hidden] { display:none }
-    .career-tutorial-card { padding:12px 18px; border:1px solid #c4ab7666; border-radius:8px; background:rgb(20 27 28 / 70%); box-shadow:0 4px 18px #0003 }
-    .career-tutorial-title { display:block; font-size:18px; font-weight:600 }
-    .career-tutorial-detail { display:block; margin-top:4px }
-    .career-tutorial-notification { color:#ffe2a0; border-color:#d6b369; background:rgb(39 32 18 / 75%); font-weight:600 }
-    .career-tutorial-error { color:#ffd5cc; border-color:#e79583; background:rgb(54 22 19 / 90%); font-size:15px }
-    .career-tutorial-critical { transform:none; text-align:left; z-index:936 }
-    @media (max-height:700px), (max-width:600px) {
-      .career-tutorial-hud { gap:6px; font-size:15px; line-height:1.3 }
-      .career-tutorial-card { padding:7px 12px }
-      .career-tutorial-detail { margin-top:2px }
-    }
-    @media (max-height:560px) {
-      .career-tutorial-hud { gap:4px }
-      .career-tutorial-card { padding:4px 10px }
-      .career-tutorial-hud:has(.career-tutorial-notification:not([hidden])) .career-tutorial-detail { display:none }
-    }
   `
   document.head.append(style)
 }
@@ -87,14 +96,24 @@ export function installTownStyles(): void {
 export class TownTutorialHUD {
   private readonly root = document.createElement('div')
   private readonly objective = document.createElement('div')
+  private readonly topRow = document.createElement('div')
+  private readonly eyebrow = document.createElement('span')
+  private readonly progressRail = document.createElement('div')
+  private readonly progressCount = document.createElement('span')
+  private readonly hero = document.createElement('div')
+  private readonly icon = document.createElement('span')
+  private readonly copy = document.createElement('div')
   private readonly title = document.createElement('strong')
   private readonly detail = document.createElement('span')
+  private readonly flow = document.createElement('div')
+  private readonly checklist = document.createElement('div')
   private readonly notification = document.createElement('div')
   private readonly error = document.createElement('div')
   private resizeObserver?: ResizeObserver
   private stateObserver?: MutationObserver
   private blockers: HTMLElement[] = []
-  private layoutState = ''
+  private contentState = ''
+  private lastBlocked: boolean | null = null
   private disposed = false
 
   /** `idPrefix` keeps element IDs unique when a second guidance card (Town story) exists beside the tutorial's. */
@@ -103,9 +122,33 @@ export class TownTutorialHUD {
     this.root.hidden = true
     this.objective.id = `${idPrefix}-hint`
     this.objective.className = 'career-tutorial-card'
+
+    this.topRow.className = 'career-tutorial-top'
+    this.topRow.hidden = true
+    this.eyebrow.className = 'career-tutorial-eyebrow'
+    this.progressRail.className = 'sb-progress-rail'
+    this.progressRail.hidden = true
+    this.progressCount.className = 'sb-progress-count'
+    this.progressCount.hidden = true
+    this.topRow.append(this.eyebrow, this.progressRail, this.progressCount)
+
+    this.hero.className = 'career-tutorial-hero'
+    this.icon.className = 'sb-glyph career-tutorial-icon'
+    this.icon.hidden = true
+    this.copy.className = 'career-tutorial-copy'
     this.title.className = 'career-tutorial-title'
     this.detail.className = 'career-tutorial-detail'
-    this.objective.append(this.title, this.detail)
+    // Keep title and detail directly adjacent so textContent concatenation remains contiguous.
+    this.copy.append(this.title, this.detail)
+    this.hero.append(this.icon, this.copy)
+
+    this.flow.className = 'sb-flow'
+    this.flow.hidden = true
+    this.checklist.className = 'sb-checklist'
+    this.checklist.hidden = true
+
+    this.objective.append(this.topRow, this.hero, this.flow, this.checklist)
+
     this.notification.id = `${idPrefix}-notification`
     this.notification.className = 'career-tutorial-card career-tutorial-notification'
     this.notification.setAttribute('role', 'status')
@@ -117,25 +160,154 @@ export class TownTutorialHUD {
     window.addEventListener('resize', this.layout)
   }
 
-  render(objective: string, notification: string, error: string, blocked: boolean): void {
-    const state = JSON.stringify([objective, notification, error, blocked])
-    if (state === this.layoutState) return
-    this.layoutState = state
-    const [title, ...details] = objective.split('\n')
-    if (this.title.textContent !== title) this.title.textContent = title
-    const detail = details.join(' ')
-    if (this.detail.textContent !== detail) this.detail.textContent = detail
-    this.detail.hidden = !detail
-    this.objective.hidden = !objective || Boolean(error)
+  render(objective: string, notification: string, error: string, blocked: boolean, meta?: TutorialHudMeta): void {
+    const hidden = blocked || !(objective || notification || error)
+    if (blocked) {
+      if (this.lastBlocked !== true) {
+        this.lastBlocked = true
+        this.root.hidden = true
+      }
+      return
+    }
+    const contentKey = JSON.stringify([objective, notification, error, meta ?? null])
+    if (contentKey === this.contentState && this.lastBlocked === hidden) return
+
+    if (contentKey !== this.contentState) {
+      this.contentState = contentKey
+      this.applyContent(objective, notification, error, meta)
+    }
+
+    this.lastBlocked = hidden
+    this.root.hidden = hidden
+    // Town creates some HUD elements after the controller; bind once on the first update.
+    if (!this.resizeObserver) this.observeHUD()
+    this.layout()
+  }
+
+  private applyContent(objective: string, notification: string, error: string, meta?: TutorialHudMeta): void {
+    const hasObjective = Boolean(objective) && !error
+    if (!hasObjective) {
+      this.eyebrow.textContent = ''
+      this.progressRail.textContent = ''
+      this.progressRail.hidden = true
+      this.progressCount.textContent = ''
+      this.progressCount.hidden = true
+      this.topRow.hidden = true
+      this.icon.className = 'sb-glyph career-tutorial-icon'
+      this.icon.hidden = true
+      this.title.textContent = ''
+      this.detail.textContent = ''
+      this.detail.hidden = true
+      this.flow.textContent = ''
+      this.flow.hidden = true
+      this.checklist.textContent = ''
+      this.checklist.hidden = true
+      this.objective.hidden = true
+    } else {
+      const [title, ...details] = objective.split('\n')
+      if (this.title.textContent !== title) this.title.textContent = title
+      const detail = details.join(' ')
+      if (this.detail.textContent !== detail) this.detail.textContent = detail
+      this.detail.hidden = !detail
+
+      const eyebrowText = meta?.eyebrow ?? ''
+      this.eyebrow.textContent = eyebrowText
+      const progress = meta?.progress
+      this.renderProgress(progress)
+      this.topRow.hidden = !eyebrowText && !progress
+
+      if (meta?.icon) {
+        this.icon.className = `sb-glyph sb-glyph-${meta.icon} career-tutorial-icon`
+        this.icon.hidden = false
+      } else {
+        this.icon.className = 'sb-glyph career-tutorial-icon'
+        this.icon.hidden = true
+      }
+
+      this.renderFlow(meta?.flow)
+      this.renderChecks(meta?.checks)
+      this.objective.hidden = false
+    }
+
     if (this.notification.textContent !== notification) this.notification.textContent = notification
     this.notification.hidden = !notification || Boolean(error)
     if (this.error.textContent !== error) this.error.textContent = error
     this.error.hidden = !error
     this.root.className = `career-tutorial-hud${error ? ' career-tutorial-critical' : ''}`
-    this.root.hidden = blocked || !(objective || notification || error)
-    // Town creates some HUD elements after the controller; bind once on the first update.
-    if (!this.resizeObserver) this.observeHUD()
-    this.layout()
+    this.root.setAttribute('data-tone', meta?.tone ?? 'tutorial')
+  }
+
+  private renderProgress(progress?: TutorialHudProgress): void {
+    this.progressRail.textContent = ''
+    if (!progress || progress.total <= 0) {
+      this.progressRail.hidden = true
+      this.progressCount.textContent = ''
+      this.progressCount.hidden = true
+      return
+    }
+    this.progressRail.hidden = false
+    const currentIndex = Math.max(0, Math.min(progress.total, progress.current) - 1)
+    for (let i = 0; i < progress.total; i++) {
+      const seg = document.createElement('span')
+      seg.className = i < currentIndex
+        ? 'sb-progress-seg is-done'
+        : i === currentIndex
+          ? 'sb-progress-seg is-active'
+          : 'sb-progress-seg'
+      this.progressRail.append(seg)
+    }
+    this.progressCount.textContent = progress.label ?? `${Math.min(progress.total, progress.current)}/${progress.total}`
+    this.progressCount.hidden = false
+  }
+
+  private renderFlow(steps?: readonly TutorialHudKeyStep[]): void {
+    this.flow.textContent = ''
+    if (!steps?.length) {
+      this.flow.hidden = true
+      return
+    }
+    this.flow.hidden = false
+    steps.forEach((step, index) => {
+      if (index > 0) {
+        const sep = document.createElement('span')
+        sep.className = 'sb-flow-sep'
+        sep.textContent = '›'
+        this.flow.append(sep)
+      }
+      const item = document.createElement('span')
+      item.className = 'sb-flow-item'
+      if (step.key) {
+        const kbd = document.createElement('kbd')
+        kbd.className = 'sb-kbd'
+        kbd.textContent = step.key
+        item.append(kbd)
+      }
+      const label = document.createElement('span')
+      label.className = 'sb-flow-label'
+      label.textContent = step.label
+      item.append(label)
+      this.flow.append(item)
+    })
+  }
+
+  private renderChecks(checks?: readonly TutorialHudCheck[]): void {
+    this.checklist.textContent = ''
+    if (!checks?.length) {
+      this.checklist.hidden = true
+      return
+    }
+    this.checklist.hidden = false
+    for (const check of checks) {
+      const chip = document.createElement('span')
+      chip.className = check.done ? 'sb-check-chip is-done' : 'sb-check-chip'
+      const mark = document.createElement('span')
+      mark.className = 'sb-check-mark'
+      mark.textContent = check.done ? '✓' : '○'
+      const label = document.createElement('span')
+      label.textContent = check.label
+      chip.append(mark, label)
+      this.checklist.append(chip)
+    }
   }
 
   private observeHUD(): void {
@@ -162,19 +334,43 @@ export class TownTutorialHUD {
       && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0')
       .map(el => el.getBoundingClientRect()).filter(r => r.width > 0 && r.height > 0)
     // Reserve the aiming area even when the crosshair itself is hidden.
-    blockers.push({ left:width / 2 - 28, right:width / 2 + 28, top:height / 2 - 28, bottom:height / 2 + 28, width:56, height:56 })
+    blockers.push({ left: width / 2 - 28, right: width / 2 + 28, top: height / 2 - 28, bottom: height / 2 + 28, width: 56, height: 56 })
     if (!this.error.hidden) { this.placeError(blockers, width, height); return }
     this.root.style.left = ''; this.root.style.width = ''
     const rect = this.root.getBoundingClientRect()
-    const limit = height / 2 - 28
-    const preferred = Math.min(height * .32, limit - rect.height)
-    const candidates = [preferred, 12, ...blockers.flatMap(r => [r.bottom + 12, r.top - rect.height - 12])]
-    const top = candidates.filter(y => y >= 12 && y + rect.height <= limit
-      && this.fits(rect.left, y, rect.width, rect.height, blockers))
-      .sort((a, b) => Math.abs(a - preferred) - Math.abs(b - preferred))[0]
-    // Only noncritical guidance yields to a crowded command menu; its native width is untouched.
-    this.root.style.visibility = top === undefined ? 'hidden' : ''
-    this.root.style.top = `${top ?? 12}px`
+    const cardW = rect.width || Math.min(348, width - 32)
+    const cardH = rect.height || 80
+    const rightX = Math.max(12, width - cardW - 18)
+    const leftX = 18
+    const centerX = Math.max(12, (width - cardW) / 2)
+    const centerLimit = height / 2 - 28
+
+    const candidates: { x: number; y: number }[] = [
+      { x: rightX, y: 18 },
+      ...blockers.filter(r => r.right > width / 2).map(r => ({ x: rightX, y: r.bottom + 12 }))
+        .filter(p => p.y + cardH <= height * 0.55),
+      ...blockers.filter(r => r.left < width / 2 + 120 && r.right > width / 2 - 120)
+        .map(r => ({ x: centerX, y: r.bottom + 12 }))
+        .filter(p => p.y + cardH <= centerLimit),
+      { x: centerX, y: 18 },
+      ...blockers.filter(r => r.left < width / 2).map(r => ({ x: leftX, y: r.bottom + 12 }))
+        .filter(p => p.y + cardH <= height - 110),
+    ]
+
+    const chosen = candidates.find(p =>
+      p.x >= 12 && p.y >= 12 && p.x + cardW <= width - 12 && p.y + cardH <= height - 12
+      && this.fits(p.x, p.y, cardW, cardH, blockers),
+    )
+
+    if (!chosen) {
+      this.root.style.visibility = 'hidden'
+      this.root.style.left = `${Math.round(rightX)}px`
+      this.root.style.top = '18px'
+      return
+    }
+    this.root.style.visibility = ''
+    this.root.style.left = `${Math.round(chosen.x)}px`
+    this.root.style.top = `${Math.round(chosen.y)}px`
   }
 
   private fits(x: number, y: number, width: number, height: number, blockers: TutorialHUDRect[]): boolean {
@@ -188,7 +384,7 @@ export class TownTutorialHUD {
       ...blockers.flatMap(r => [Math.min(500, r.left - 24), Math.min(500, width - r.right - 24)]),
       Math.min(180, width - 24)])].filter(w => w >= Math.min(180, width - 24)).sort((a, b) => b - a)
     this.root.style.visibility = ''
-    let fallback = { x:12, y:12, width:widths[0], overlap:Infinity }
+    let fallback = { x: 12, y: 12, width: widths[0], overlap: Infinity }
     for (const cardWidth of widths) {
       this.root.style.width = `${cardWidth}px`
       const cardHeight = this.root.getBoundingClientRect().height
@@ -207,7 +403,7 @@ export class TownTutorialHUD {
         // Even a completely occupied viewport must not silently discard a failed save.
         const overlap = blockers.reduce((sum, r) => sum + Math.max(0, Math.min(x + cardWidth, r.right) - Math.max(x, r.left))
           * Math.max(0, Math.min(y + cardHeight, r.bottom) - Math.max(y, r.top)), 0)
-        if (overlap < fallback.overlap) fallback = { x, y, width:cardWidth, overlap }
+        if (overlap < fallback.overlap) fallback = { x, y, width: cardWidth, overlap }
       }
     }
     this.root.style.width = `${fallback.width}px`

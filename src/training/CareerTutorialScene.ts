@@ -2,30 +2,168 @@ import * as THREE from 'three'
 import type { CareerProfile } from '../career/CareerProfile'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { commitCareerTutorial, deferCareerTutorial, recordCareerTutorialOperation } from '../career/CareerTutorial'
+import { CAREER_TUTORIAL_OPERATIONS } from '../career/CareerTutorialState'
 import type { CareerTutorialLaunch } from '../career/CareerTutorialLaunch'
 import { MissionGuide } from '../career/MissionGuide'
 import type { CombatEvent } from '../combat/CombatAttribution'
 import { WEAPONS } from '../rpg/WeaponDatabase'
+import '../ui/career-hud.css'
 
-const RECRUIT_HINTS: Record<string, string> = {
-  look: '點擊畫面取得滑鼠控制，移動滑鼠轉動視角／角色朝向，再以 WASD 走到黃色標記。Esc 釋放游標後，重新點擊即可恢復。',
-  equipment: '按 Tab 開啟裝備，點選一把近戰武器，再關閉裝備介面。可在 Tab 查看目前裝備；滾輪可切換武器。',
-  'melee-hit-1': '走到 0m 近戰假人前，左鍵揮擊。實際有效命中兩次即可，不需要擊殺。',
-  shield: '按 Tab 裝備盾牌並關閉介面，按住右鍵舉盾。HP 是生命；體力不足時先休息再移動／攻擊。',
-  'bow-hit': '按 Tab 換弓並卸下盾牌：遠程武器與盾牌不能同時使用。按住右鍵瞄準 → 按住左鍵拉弓 → 放開左鍵射擊。命中 10m 假人一次。箭不足可點「補給」。',
-  'cat-mounted': '前往最近的黑貓，按 E 騎乘。黑貓只是代步，用來快速前往普通練習馬；借用坐騎只在本場練習使用。',
-  'horse-mounted': '騎黑貓前往普通練習馬，到達後按 E 下騎，再靠近普通馬按 E 改騎普通馬。',
-  'mount-impact': '騎普通馬沿跑道衝向 0m 假人：W 加速、Shift 衝刺，實際撞中一次即可。',
-  dismounted: '撞擊成功！按 E 下馬即可完成訓練。練習馬失效或位置不合理時可按「重置」，免費安全回到起點。',
+interface TutorialStepSpec {
+  icon: string
+  title: string
+  flow: readonly { key?: string; label: string }[]
+  note?: string
 }
-const CAPTAIN_HINTS: Record<string, string> = {
-  hud: '你現在可以指揮部隊。指揮 HUD 顯示一支小隊，共 30 名 AI；玩家另外計算。這些是演練副本，傷亡不影響城防或私兵。',
-  selected: '按 1 選擇「第 1 隊」。也可按 Q 進入指揮模式，用滾輪選目標、中鍵確認。「選目標」與「下命令」是兩個層級。',
-  formation: '選第 1 隊 → 4 Formation／列陣，移動視角把預覽放在合法地面，再按 E、左鍵或中鍵確認。Q 取消不算完成。',
-  defend: '選第 1 隊 → 3 Defend／防禦。部隊守住位置，與剛才列陣後的移動做比較。',
-  attack: '選第 1 隊 → 1 Attack／攻擊。部隊依現有兵種行為接敵，遠程兵保留射擊距離；此時開放演練交戰。',
-  charge: '選第 1 隊 → 2 Charge／衝鋒。部隊積極接近敵軍並投入近戰；與 Attack 的兵種接敵方式不同。敵軍全滅也可繼續下令。',
-  back: '按 1 打開小隊命令後按 Q 返回；再按 Q 可切換指揮／換武器模式。指揮模式的滾輪選目標／命令，換武器模式的滾輪切換裝備。',
+
+const RECRUIT_STEPS: Record<string, TutorialStepSpec> = {
+  look: {
+    icon: 'move',
+    title: '視角與移動練習',
+    flow: [
+      { key: '點擊', label: '鎖定視角' },
+      { key: '滑鼠', label: '轉向' },
+      { key: 'WASD', label: '走到黃標' },
+    ],
+  },
+  equipment: {
+    icon: 'bag',
+    title: '裝備近戰武器',
+    flow: [
+      { key: 'Tab', label: '開啟裝備' },
+      { label: '選近戰武器' },
+      { key: 'Tab', label: '關閉' },
+    ],
+    note: '滾輪可快速切換武器',
+  },
+  'melee-hit-1': {
+    icon: 'sword',
+    title: '近戰實戰命中',
+    flow: [
+      { label: '靠近 0m 假人' },
+      { key: '左鍵', label: '揮擊 2 次' },
+    ],
+    note: '有效命中兩次即可',
+  },
+  shield: {
+    icon: 'shield',
+    title: '舉盾防禦練習',
+    flow: [
+      { key: 'Tab', label: '裝盾並關閉' },
+      { key: '長按右鍵', label: '舉盾' },
+    ],
+    note: '體力不足時先喘息恢復',
+  },
+  'bow-hit': {
+    icon: 'bow',
+    title: '弓箭射擊練習',
+    flow: [
+      { key: 'Tab', label: '換弓卸盾' },
+      { key: '右鍵', label: '瞄準' },
+      { key: '左鍵', label: '蓄力射 10m 假人' },
+    ],
+    note: '弓與盾不可並用 · 缺箭點「補給」',
+  },
+  'cat-mounted': {
+    icon: 'mount',
+    title: '騎乘代步黑貓',
+    flow: [
+      { label: '靠近黑貓' },
+      { key: 'E', label: '上坐騎' },
+    ],
+    note: '借用坐騎加速前往馬匹區',
+  },
+  'horse-mounted': {
+    icon: 'horse',
+    title: '換乘普通練習馬',
+    flow: [
+      { label: '騎向練習馬' },
+      { key: 'E', label: '下貓' },
+      { key: 'E', label: '上馬' },
+    ],
+  },
+  'mount-impact': {
+    icon: 'charge',
+    title: '戰馬衝撞假人',
+    flow: [
+      { key: 'W', label: '沿跑道加速' },
+      { key: 'Shift', label: '衝刺撞擊 0m 假人' },
+    ],
+  },
+  dismounted: {
+    icon: 'check',
+    title: '撞擊成功 · 下馬完成',
+    flow: [
+      { key: 'E', label: '下馬結算' },
+    ],
+    note: '位置不理想可按「重置」',
+  },
+}
+
+const CAPTAIN_STEPS: Record<string, TutorialStepSpec> = {
+  hud: {
+    icon: 'squad',
+    title: '認識指揮介面',
+    flow: [
+      { label: '查看左側小隊欄' },
+      { label: '30 名演練 AI' },
+    ],
+    note: '演練傷亡不影響城防與私兵',
+  },
+  selected: {
+    icon: 'flag',
+    title: '選取指揮目標',
+    flow: [
+      { key: '1', label: '選第 1 隊' },
+    ],
+    note: '或按 Q 滾輪選隊・中鍵確認',
+  },
+  formation: {
+    icon: 'formation',
+    title: '部署部隊列陣',
+    flow: [
+      { key: '1', label: '第 1 隊' },
+      { key: '4', label: '列陣' },
+      { key: 'E / 左鍵', label: '地面確認' },
+    ],
+    note: 'Q 取消不算完成',
+  },
+  defend: {
+    icon: 'shield',
+    title: '原地防禦指令',
+    flow: [
+      { key: '1', label: '第 1 隊' },
+      { key: '3', label: 'Defend 防禦' },
+    ],
+    note: '觀察與列陣後移動的差異',
+  },
+  attack: {
+    icon: 'sword',
+    title: '接敵攻擊指令',
+    flow: [
+      { key: '1', label: '第 1 隊' },
+      { key: '1', label: 'Attack 攻擊' },
+    ],
+    note: '開放交戰 · 遠程保留射距',
+  },
+  charge: {
+    icon: 'charge',
+    title: '全軍衝鋒指令',
+    flow: [
+      { key: '1', label: '第 1 隊' },
+      { key: '2', label: 'Charge 衝鋒' },
+    ],
+    note: '敵軍全滅仍可繼續下令',
+  },
+  back: {
+    icon: 'back',
+    title: '返回與模式切換',
+    flow: [
+      { key: '1', label: '開命令' },
+      { key: 'Q', label: '返回上級' },
+    ],
+    note: '再按 Q 可切換指揮／換裝滾輪',
+  },
 }
 
 export interface TutorialSceneFrame {
@@ -51,9 +189,17 @@ export class CareerTutorialScene {
   private readonly store = new CareerProfileStore()
   private profile: CareerProfile
   private readonly root = document.createElement('section')
-  private readonly text = document.createElement('p')
+  private readonly stagePill = document.createElement('span')
+  private readonly replayPill = document.createElement('span')
+  private readonly progressRail = document.createElement('div')
+  private readonly progressCount = document.createElement('span')
+  private readonly glyph = document.createElement('span')
+  private readonly title = document.createElement('h3')
+  private readonly flow = document.createElement('div')
+  private readonly checklist = document.createElement('div')
+  private readonly note = document.createElement('p')
+  private readonly contextEl = document.createElement('p')
   private readonly status = document.createElement('small')
-  private readonly interactionHint = document.createElement('small')
   private readonly retry = document.createElement('button')
   private readonly leave = document.createElement('button')
   private readonly reset = document.createElement('button')
@@ -67,6 +213,8 @@ export class CareerTutorialScene {
   private disposed = false
   private returnQueued = false
   private contextHint = ''
+  private statusTone: 'saved' | 'warn' | 'error' = 'saved'
+  private inputLocked = false
   readonly movementPoint = new THREE.Vector3(109, 0, 43)
   /** The 0m dummy at the end of the 125m runway; the existing dummy takes repeated mount impacts. */
   readonly impactPoint = new THREE.Vector3(100, 0, 40)
@@ -79,18 +227,72 @@ export class CareerTutorialScene {
     }
     this.profile = loaded.profile
     this.root.id = 'career-tutorial-scene'
-    this.root.style.cssText = 'position:fixed;left:50%;top:0;transform:translateX(-50%);z-index:1102;width:min(440px,calc(100vw - 32px));box-sizing:border-box;overflow:auto;background:#171411e8;color:#fff1cf;padding:14px;border:1px solid #b49968;border-radius:7px;font:15px/1.55 system-ui'
+    this.root.className = 'cts-card'
     this.root.hidden = true
-    const title = document.createElement('strong'); title.textContent = launch.stage === 'recruit' ? '新兵操作訓練' : '隊長指揮訓練 · 30 名 AI'
-    this.leave.textContent = '稍後繼續 · 返回城鎮'; this.leave.onclick = () => this.returnToTown()
-    this.reset.textContent = '安全重置演練'; this.reset.onclick = () => { actions.clearInput(); actions.reset() }
-    this.retry.textContent = '重試保存'; this.retry.hidden = true; this.retry.onclick = () => { actions.clearInput(); const next = this.pending; this.pending = undefined; this.retry.hidden = true; next?.() }
-    this.interactionHint.style.cssText = 'display:block;margin-top:6px;color:#e8d49d'
-    this.interactionHint.textContent = launch.stage === 'recruit'
-      ? 'Esc 顯示游標，可操作教學按鈕；點「繼續訓練」返回。'
-      : 'Esc 顯示游標，可操作教學按鈕；點擊遊戲畫面返回指揮。'
-    for (const button of [this.leave, this.reset, this.retry]) button.style.cssText = 'margin:8px 8px 0 0;padding:7px;cursor:pointer'
-    this.root.append(title, this.text, this.status, this.interactionHint, this.leave, this.reset, this.retry)
+
+    const head = document.createElement('div')
+    head.className = 'cts-head'
+    this.stagePill.className = 'cts-stage-pill'
+    this.stagePill.textContent = launch.stage === 'recruit' ? '新兵操作訓練' : '隊長指揮 · 30 AI'
+    this.replayPill.className = 'cts-replay-pill'
+    this.replayPill.textContent = '重播模式'
+    this.replayPill.hidden = true
+    this.progressRail.className = 'sb-progress-rail'
+    this.progressCount.className = 'sb-progress-count'
+    head.append(this.stagePill, this.replayPill, this.progressRail, this.progressCount)
+
+    const body = document.createElement('div')
+    body.className = 'cts-body'
+    const hero = document.createElement('div')
+    hero.className = 'cts-hero'
+    this.glyph.className = 'sb-glyph sb-glyph-move cts-glyph'
+    this.title.className = 'cts-title'
+    hero.append(this.glyph, this.title)
+
+    this.flow.className = 'sb-flow'
+    this.checklist.className = 'sb-checklist'
+    this.note.className = 'cts-note'
+    this.contextEl.className = 'cts-context'
+    this.contextEl.hidden = true
+    body.append(hero, this.flow, this.checklist, this.note, this.contextEl)
+
+    this.status.className = 'cts-status'
+    this.status.hidden = true
+
+    const footer = document.createElement('div')
+    footer.className = 'cts-footer'
+    const escHint = document.createElement('span')
+    escHint.className = 'cts-esc-hint'
+    const escKey = document.createElement('kbd')
+    escKey.className = 'sb-kbd'
+    escKey.textContent = 'Esc'
+    const escText = document.createElement('span')
+    escText.textContent = launch.stage === 'recruit' ? '游標／暫停' : '游標／點畫面返回'
+    escHint.append(escKey, escText)
+
+    const actionWrap = document.createElement('div')
+    actionWrap.className = 'cts-actions'
+    this.leave.className = 'cts-btn'
+    this.leave.textContent = '稍後繼續 · 返回城鎮'
+    this.leave.onclick = () => this.returnToTown()
+    this.reset.className = 'cts-btn'
+    this.reset.textContent = '安全重置演練'
+    this.reset.onclick = () => { actions.clearInput(); actions.reset() }
+    this.retry.className = 'cts-btn cts-btn-retry'
+    this.retry.textContent = '重試保存'
+    this.retry.hidden = true
+    this.retry.onclick = () => {
+      actions.clearInput()
+      const next = this.pending
+      this.pending = undefined
+      this.retry.hidden = true
+      this.syncCardClass()
+      next?.()
+    }
+    actionWrap.append(this.reset, this.leave, this.retry)
+    footer.append(escHint, actionWrap)
+
+    this.root.append(head, body, this.status, footer)
     for (const event of ['mousedown', 'mouseup', 'wheel', 'click']) this.root.addEventListener(event, e => e.stopPropagation())
     document.body.append(this.root)
     this.render()
@@ -101,14 +303,41 @@ export class CareerTutorialScene {
   get panelBottom(): number { return this.root.getBoundingClientRect().bottom }
   get engagementEnabled(): boolean { return this.launch.stage === 'captain' && ['attack', 'charge', 'back', 'complete'].includes(this.step) }
 
+  private syncCardClass(): void {
+    const classes = ['cts-card']
+    if (this.inputLocked) classes.push('is-locked')
+    if (!this.retry.hidden) classes.push('has-retry')
+    if (this.complete) classes.push('is-complete')
+    this.root.className = classes.join(' ')
+  }
+
+  private setStatus(text: string, tone: 'saved' | 'warn' | 'error' = 'saved'): void {
+    this.statusTone = tone
+    this.status.textContent = text
+    this.status.hidden = !text
+    this.status.className = tone === 'error'
+      ? 'cts-status is-error'
+      : tone === 'warn'
+        ? 'cts-status is-warn'
+        : 'cts-status'
+  }
+
   operation(event: string): void {
     if (this.disposed || this.pending || this.complete) return
     const result = commitCareerTutorial(this.store, this.launch.careerId,
       next => recordCareerTutorialOperation(next, this.launch.stage, event), this.launch.sessionId)
-    if (result.ok) { this.profile = result.profile; this.contextHint = ''; this.status.textContent = event === 'mount-impact' ? '衝撞成功！進度已保存' : '進度已保存'; this.render(); return }
+    if (result.ok) {
+      this.profile = result.profile
+      this.contextHint = ''
+      this.setStatus(event === 'mount-impact' ? '衝撞成功！進度已保存' : '進度已保存', 'saved')
+      this.render()
+      return
+    }
     if (result.reason === 'rejected') return
-    this.status.textContent = '尚未保存；完成與獎勵尚未提交，請重試。'
-    this.pending = () => this.operation(event); this.retry.hidden = false
+    this.setStatus('尚未保存；完成與獎勵尚未提交，請重試。', 'error')
+    this.pending = () => this.operation(event)
+    this.retry.hidden = false
+    this.syncCardClass()
   }
 
   equipmentSelected(): void { this.equippedViaUi = true }
@@ -138,13 +367,17 @@ export class CareerTutorialScene {
     }
     this.root.hidden = frame.hidden
     if (frame.hidden) { this.guide.hide(); return }
+    if (this.inputLocked !== frame.inputLocked) {
+      this.inputLocked = frame.inputLocked
+      this.syncCardClass()
+    }
     this.positionBelowCompass()
     if (frame.paused) {
       this.previousYaw = this.previousPitch = undefined
       this.guide.hide(); return
     }
     if (frame.dead) {
-      this.status.textContent = '演練中倒下不扣生涯軍功；可安全重置或返回城鎮。'
+      this.setStatus('演練中倒下不扣生涯軍功；可安全重置或返回城鎮。', 'warn')
       this.guide.hide(); return
     }
     if (this.launch.stage === 'captain') {
@@ -155,8 +388,11 @@ export class CareerTutorialScene {
       this.guide.hide(); return
     }
     if (!frame.inputLocked && !this.complete) {
-      this.status.textContent = '點擊遊戲畫面取得滑鼠控制；Esc 可釋放游標。'
+      this.setStatus('點擊遊戲畫面取得滑鼠控制；Esc 可釋放游標。', 'warn')
       this.guide.hide(); return
+    }
+    if (this.statusTone === 'warn' && !this.pending) {
+      this.setStatus(this.profile.tutorial![this.launch.stage].replay ? '重播：不重複領獎' : '', 'saved')
     }
     if (this.previousYaw !== undefined && this.previousPitch !== undefined) {
       this.looked += Math.min(.3, Math.abs(frame.cameraYaw - this.previousYaw) + Math.abs(frame.cameraPitch - this.previousPitch))
@@ -174,12 +410,12 @@ export class CareerTutorialScene {
     if (this.step === 'look') { target = this.movementPoint; label = '移動練習標記' }
     else if (this.step === 'melee-hit-1') { target = new THREE.Vector3(100, 0, 40); label = '0m 近戰假人' }
     else if (this.step === 'bow-hit') { target = new THREE.Vector3(100 + Math.sin(-1.05) * 10, 0, 40 - Math.cos(-1.05) * 10); label = '10m 射擊假人' }
-    else if (this.step === 'cat-mounted') { target = frame.catPosition ?? null; label = '最近的黑貓 · 靠近按 E 騎乘' }
+    else if (this.step === 'cat-mounted') { target = frame.catPosition ?? null; label = '最近的黑貓 · 按 E 騎乘' }
     else if (this.step === 'mount-impact' && frame.mountedOnPracticeHorse) { target = this.impactPoint; label = '衝撞假人 · W 加速 · Shift 衝刺' }
     else if (this.needsHorse(frame)) {
       // Resuming or resetting puts the player back at spawn: the black cat is the transit again, without undoing progress.
-      if (this.needsCatTransit(frame)) { target = frame.catPosition ?? null; label = '最近的黑貓 · 靠近按 E 騎乘' }
-      else { target = frame.horsePosition ?? null; label = frame.mountedOnPracticeCat ? '指定普通練習馬' : '普通練習馬 · 靠近按 E 上馬' }
+      if (this.needsCatTransit(frame)) { target = frame.catPosition ?? null; label = '最近的黑貓 · 按 E 騎乘' }
+      else { target = frame.horsePosition ?? null; label = frame.mountedOnPracticeCat ? '指定普通練習馬' : '普通練習馬 · 按 E 上馬' }
     }
     this.setContextHint(this.mountHint(frame))
     this.guide.updateRace(frame.position, frame.cameraYaw, target, label)
@@ -219,7 +455,7 @@ export class CareerTutorialScene {
   /** The existing scene update follows the live compass and wrapping HUD without another listener/RAF. */
   private positionBelowCompass(): void {
     const compass = document.getElementById('compass-container')
-    if (!compass) return
+    if (!compass || typeof this.root.getBoundingClientRect !== 'function') return
     const anchor = compass.getBoundingClientRect(), bounds = this.root.getBoundingClientRect()
     const center = anchor.left + anchor.width / 2
     const left = center - bounds.width / 2, right = center + bounds.width / 2
@@ -243,22 +479,143 @@ export class CareerTutorialScene {
     const result = commitCareerTutorial(this.store, this.launch.careerId,
       next => deferCareerTutorial(next, this.launch.stage), this.launch.sessionId)
     if (!result.ok) {
-      this.status.textContent = '返回狀態尚未保存，仍留在本場。請重試。'
-      this.pending = () => this.returnToTown(); this.retry.hidden = false; return
+      this.setStatus('返回狀態尚未保存，仍留在本場。請重試。', 'error')
+      this.pending = () => this.returnToTown()
+      this.retry.hidden = false
+      this.syncCardClass()
+      return
     }
     this.actions.returnToTown()
   }
 
+  private renderFlow(steps: readonly { key?: string; label: string }[]): void {
+    this.flow.textContent = ''
+    if (!steps.length) {
+      this.flow.hidden = true
+      return
+    }
+    this.flow.hidden = false
+    steps.forEach((step, index) => {
+      if (index > 0) {
+        const sep = document.createElement('span')
+        sep.className = 'sb-flow-sep'
+        sep.textContent = '›'
+        this.flow.append(sep)
+      }
+      const item = document.createElement('span')
+      item.className = 'sb-flow-item'
+      if (step.key) {
+        const kbd = document.createElement('kbd')
+        kbd.className = 'sb-kbd'
+        kbd.textContent = step.key
+        item.append(kbd)
+      }
+      const label = document.createElement('span')
+      label.className = 'sb-flow-label'
+      label.textContent = step.label
+      item.append(label)
+      this.flow.append(item)
+    })
+  }
+
+  private renderChecks(checks: readonly { label: string; done: boolean }[]): void {
+    this.checklist.textContent = ''
+    if (!checks.length) {
+      this.checklist.hidden = true
+      return
+    }
+    this.checklist.hidden = false
+    for (const check of checks) {
+      const chip = document.createElement('span')
+      chip.className = check.done ? 'sb-check-chip is-done' : 'sb-check-chip'
+      const mark = document.createElement('span')
+      mark.className = 'sb-check-mark'
+      mark.textContent = check.done ? '✓' : '○'
+      const label = document.createElement('span')
+      label.textContent = check.label
+      chip.append(mark, label)
+      this.checklist.append(chip)
+    }
+  }
+
+  private renderProgressRail(total: number, activeIndex: number, complete: boolean): void {
+    this.progressRail.textContent = ''
+    for (let i = 0; i < total; i++) {
+      const seg = document.createElement('span')
+      seg.className = complete || i < activeIndex
+        ? 'sb-progress-seg is-done'
+        : i === activeIndex
+          ? 'sb-progress-seg is-active'
+          : 'sb-progress-seg'
+      this.progressRail.append(seg)
+    }
+    this.progressCount.textContent = `${complete ? total : activeIndex + 1}/${total}`
+  }
+
   private render(): void {
     const state = this.profile.tutorial![this.launch.stage]
-    this.text.textContent = this.complete
-      ? state.replay ? '重播完成，正在返回城鎮。不重複發放軍功，也不增加正式任務紀錄。'
-        : this.launch.stage === 'recruit' ? '訓練完成！100 軍功已入帳，正在返回城鎮。下一步：到城鎮武器店購買第一把武器；累積軍功達標後，還需找對應 NPC 接受任命才會晉升。'
-          : '指揮訓練完成，正在返回城鎮。回到城鎮後，可到人力資源中心招募私兵；本次演練不計入正式任務、擊殺或技能經驗。'
-      : this.contextHint || ((this.launch.stage === 'recruit' ? RECRUIT_HINTS : CAPTAIN_HINTS)[this.step] ?? '依目前標記完成操作。')
-    if (this.launch.stage === 'recruit' && this.step === 'melee-hit-1') this.text.textContent += ` 已命中 ${state.operations.includes('melee-hit-1') ? 1 : 0}/2。`
-    this.leave.textContent = this.complete ? '前往城鎮' : '稍後繼續 · 返回城鎮'
-    if (state.replay && !this.complete) this.status.textContent = '重播：不重複領獎'
+    const groups = CAREER_TUTORIAL_OPERATIONS[this.launch.stage]
+    const total = groups.length
+    const activeIndex = Math.max(0, groups.findIndex(group => group.some(op => !state.operations.includes(op))))
+    this.replayPill.hidden = !state.replay
+    this.renderProgressRail(total, activeIndex, this.complete)
+    this.syncCardClass()
+
+    if (this.complete) {
+      this.glyph.className = 'sb-glyph sb-glyph-check cts-glyph'
+      this.title.textContent = state.replay
+        ? '重播完成 · 正在返回城鎮'
+        : this.launch.stage === 'recruit'
+          ? '訓練完成 · 100 軍功已入帳'
+          : '指揮訓練完成 · 正在返回城鎮'
+      this.renderFlow([])
+      this.renderChecks([])
+      this.note.textContent = state.replay
+        ? '不重複發放軍功，也不計入正式任務'
+        : this.launch.stage === 'recruit'
+          ? '回城後前往武器店購買第一把武器'
+          : '回城後可到人力資源中心招募私兵'
+      this.note.hidden = false
+      this.contextEl.hidden = true
+      this.contextEl.textContent = ''
+      this.leave.textContent = '前往城鎮'
+      return
+    }
+
+    const spec = (this.launch.stage === 'recruit' ? RECRUIT_STEPS : CAPTAIN_STEPS)[this.step]
+    this.glyph.className = `sb-glyph sb-glyph-${spec?.icon ?? 'move'} cts-glyph`
+    this.title.textContent = spec?.title ?? '依目前標記完成操作'
+    this.renderFlow(spec?.flow ?? [])
+
+    const checks: { label: string; done: boolean }[] = []
+    if (this.launch.stage === 'recruit' && this.step === 'look') {
+      checks.push(
+        { label: '轉動視角', done: state.operations.includes('look') },
+        { label: '走到黃標', done: state.operations.includes('movement') },
+      )
+    } else if (this.launch.stage === 'recruit' && this.step === 'melee-hit-1') {
+      checks.push(
+        { label: '命中 1', done: state.operations.includes('melee-hit-1') },
+        { label: '命中 2', done: state.operations.includes('melee-hit-2') },
+      )
+    }
+    this.renderChecks(checks)
+
+    this.note.textContent = spec?.note ?? ''
+    this.note.hidden = !spec?.note
+
+    if (this.contextHint) {
+      this.contextEl.textContent = this.contextHint
+      this.contextEl.hidden = false
+    } else {
+      this.contextEl.textContent = ''
+      this.contextEl.hidden = true
+    }
+
+    this.leave.textContent = '稍後繼續 · 返回城鎮'
+    if (state.replay && !this.status.textContent) {
+      this.setStatus('重播：不重複領獎', 'saved')
+    }
   }
 
   dispose(): void { this.disposed = true; this.pending = undefined; this.guide.dispose(); this.root.remove() }

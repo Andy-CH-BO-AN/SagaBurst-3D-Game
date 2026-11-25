@@ -5,7 +5,7 @@ import { MissionGuide } from '../career/MissionGuide'
 import { markCareerStoryEagleIntroSeen } from '../career/CareerStoryEvents'
 import { cloneCareerProfile } from '../career/CareerProfile'
 import { selectStoryGuidance, storyDialogueOpen, type StoryGuidance, type StoryGuidanceKey } from '../career/CareerStoryGuidance'
-import { TownTutorialHUD } from './TownUI'
+import { TownTutorialHUD, type TutorialHudMeta } from './TownUI'
 
 export interface TownStoryHost {
   profile(): CareerProfile
@@ -76,8 +76,34 @@ export class TownStoryController {
       this.openingUnsaved = !h.commit(next)
       this.retryAfter = this.openingUnsaved ? now + SAVE_RETRY_MS : 0
     }
-    this.hud.render(`${guidance.title}\n${guidance.detail}`, now < this.noticeUntil ? this.notice : '', '', false)
+    const meta = this.guidanceMeta(guidance)
+    this.hud.render(`${guidance.title}\n${guidance.detail}`, now < this.noticeUntil ? this.notice : '', '', false, meta)
     this.guide.updateTutorial(h.playerPosition(), h.cameraYaw(), target, guidance.npcName, true)
+  }
+
+  private guidanceMeta(guidance: StoryGuidance): TutorialHudMeta {
+    if (guidance.key === 'story:commander-circuit-race') {
+      return {
+        eyebrow: '生涯事件', icon: 'horse', tone: 'story',
+        flow: [{ label: guidance.npcName }, { key: 'E', label: '接受繞城賽馬' }],
+      }
+    }
+    if (guidance.key === 'story:veteran-squad-spar') {
+      return {
+        eyebrow: '生涯事件', icon: 'sword', tone: 'story',
+        flow: [{ label: guidance.npcName }, { key: 'E', label: '接受小隊切磋' }],
+      }
+    }
+    if (guidance.key === 'eagle') {
+      return {
+        eyebrow: '巨鷹解鎖', icon: 'eagle', tone: 'story',
+        flow: [{ label: guidance.npcName }, { key: 'E', label: '開啟商店' }],
+      }
+    }
+    return {
+      eyebrow: '軍階晉升', icon: 'promote', tone: 'story',
+      flow: [{ label: guidance.npcName }, { key: 'E', label: '開啟任命' }],
+    }
   }
 
   private hide(): void {
