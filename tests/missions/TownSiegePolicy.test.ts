@@ -20,7 +20,7 @@ import { createCareerProfile } from '../../src/career/CareerProfile'
 import { careerRankFixture } from '../helpers/careerRankFixture'
 import { fourGateNativeSpecs } from '../helpers/fourGateDefenseRuntime'
 import { TOWN_GATES, townGatePoint } from '../../src/town/TownLayout'
-import { fourGateGroundFront, townFourGateBarricadeRects } from '../../src/town/TownGateBarricades'
+import { FOUR_GATE_GROUND_FRONT, townFourGateBarricadeRects } from '../../src/town/TownGateBarricades'
 import { getTownRampartLayout, townRampartHeight } from '../../src/town/TownRamparts'
 
 import { findBlockingObstacleAlongPath, getTerrainHeight, getWalkRampHeight } from '../../src/world/Terrain'
@@ -74,10 +74,12 @@ describe('Siege deployment and shared rule ownership', () => {
   })
 
   it('deploys and releases the same wall and ground identities reserved by the mission board', () => {
-    const { mission, layout, deployment } = expandedDeployment()
+    const { mission, roster, layout, deployment } = expandedDeployment()
     const official = mission.officialSquad!.squads!
     const reserve = official.find(s => s.squadId === 10)!
     const catalog = getCommanderMissionDefinition(mission.templateId)!
+    const spears = new Set([...roster.filter(actor => actor.unitKind === 'spearman').map(actor => actor.id),
+      ...commanderFourGateGarrisonSlots(mission.id).filter(slot => slot.role === 'spear').map(slot => slot.actorId)])
     expect(catalog.friendlyCombatants).toBe(deployment.stations.size + mission.fourGateDefense!.autonomousActorIds!.length + 1)
     expect([...deployment.stations.keys()].sort()).toEqual([...mission.friendlyActorIds].sort())
     expect(reserve.actorIds.every(id => deployment.stations.get(id)?.kind === 'reserve')).toBe(true)
@@ -94,8 +96,12 @@ describe('Siege deployment and shared rule ownership', () => {
       expect(sector.cavalryActorIds.every(id => {
         const station = deployment.stations.get(id)!
         const depth = (gate.x - station.x) * Math.sin(gate.yaw) + (gate.z - station.z) * Math.cos(gate.yaw)
-        return station.kind === 'cavalry' && depth >= fourGateGroundFront(sector.gateId) - .001
+        return station.kind === 'cavalry' && depth >= FOUR_GATE_GROUND_FRONT - .001
       })).toBe(true)
+      const front = sector.cavalryActorIds.filter(id => spears.has(id)).map(id => gatehouseLocal(gate, deployment.stations.get(id)!))
+        .filter(point => point.z >= -FOUR_GATE_GROUND_FRONT - 3)
+      // Two staggered spear ranks cover the center and both edges of the portal.
+      for (const lane of [-6.8, -3.1, 0, 3.1, 6.8]) expect(front.some(point => Math.abs(point.x - lane) < 1.2)).toBe(true)
     }
   })
 
@@ -110,12 +116,14 @@ describe('Siege deployment and shared rule ownership', () => {
         return new Vector3(x, 0, z)
       }
       const blocked = (side: number) => findBlockingObstacleAlongPath(point(side, 2),
-        point(side, fourGateGroundFront(gate.id) - 1), MOUNT_MOVEMENT_RADIUS, MOUNT_BODY_HEIGHT, 0, obstacles)
+        point(side, FOUR_GATE_GROUND_FRONT - 1), MOUNT_MOVEMENT_RADIUS, MOUNT_BODY_HEIGHT, 0, obstacles)
       expect(blocked(-4)).not.toBeNull()
       expect(blocked(4)).not.toBeNull()
       expect(blocked(0)).toBeNull()
-      expect(blocked(-12)).toBeNull()
-      expect(blocked(12)).toBeNull()
+      expect(blocked(-8.6)).toBeNull()
+      expect(blocked(8.6)).toBeNull()
+      expect(blocked(-13)).not.toBeNull()
+      expect(blocked(13)).not.toBeNull()
     }
   })
 

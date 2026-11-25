@@ -55,12 +55,12 @@
 - 城鎮中心在生成前依實體樓板、碰撞與導航連通分配站位；維京機動騎兵離開長屋時先沿地面導航進入中央走道，再通過門洞。四門模式由 TownWorld 建立獨立碰撞的拒馬段，留開城門道路、樓梯與巨鷹淨空。
 - 階段：DEPLOYING 等待本城／HR／坐騎 → 保存 PREPARING 後準備 → 零秒保存 SPAWNING 才部署敵軍 → 全部就緒並保存 ATTACKING 才進攻。勝利：消滅全部目標，或有效戰鬥達時限且守方仍有人。時間、傷亡、命令、護航收據與勝利原因都在現行 checkpoint。
 - 新任務一律滿編滿血進場：`freshCommanderFourGateDefenseEntry` 不帶入小鎮當下的 Player／坐騎／居民／HR 傷勢。
-- 部署：`CommanderFourGateDefenseDeployment` 依 `siegeDefensePlans` 在真實 walk surfaces 上排列（盾兵外列、槍兵內列、合法射界、門內騎兵），避開巨鷹 pads 與進場走廊；步行弓兵優先佔 gatehouse gallery。`TownFourGateSiege.prepare/register/update/snapshot` 直接接入 Scene 的 SpatialGrid、命中物件與動態空域。
+- 部署：`CommanderFourGateDefenseDeployment` 依真實 walk surfaces 與實體障礙選站；城門地面槍兵以錯列覆蓋門洞，近戰與遠程在後方及兩側。拒馬靠近門內，保留門扇與騎乘通行淨空。城牆弓兵優先佔 gatehouse gallery，配置避開巨鷹 pads 與進場走廊。
 - 攻方護航：
   - `CommanderCavalryEscort`：槍騎沿車尾 formation 掩護，不成為 Crew、不改投射物防護；到達釋放距離（`COMMANDER_CAVALRY_ESCORT.releaseDistance`）或本車毀棄／停滯／無推手／全組死亡時，**原子保存** release receipt 與 Charge 後交回 Gate AI，保存失敗維持 escort。
   - `CommanderInfantryEscort`：護車步兵（ID `<mission>:<gate>:<left|right>:escort:infantry:<n>`，不是 Crew、不乘車、不改推車速度）跟在槍騎後方，不因距離城門釋放，只在本車 DOCKED／毀棄／停滯／全組死亡時保存 receipt，再經 `TownFourGateSiege.resumeExternalMovement` 入城。
   - `commanderArcherScreenTarget` 把攻方弓兵排在車前兩側、不擋車道；先鋒步兵開戰即 Charge 城門。
-  - 側翼近戰／槍兵部署在車道與護衛的掃掠淨空外，待本門兩台車都停止行進（接牆、毀棄或停駛）才交還原入城導航。
+  - 每門增援分八列，左右兩車外側各四列，與原護衛並排。增援持有各自車輛的 formation 命令，命中不取消隨車推進；該車接牆、毀棄或停駛後交回入城導航，優先使用該車已開通的入口。
   - `TownFourGateSiege` 的臨時 movement owner 排除 route／convoy 搶令；同一護車命令只刷新 formation 目標並保留受阻恢復狀態。ATTACKING checkpoint 缺任一 escort 收據即拒讀；`infantryEscort` checkpoint 嚴格驗證完整編組；已釋放者 reload 後不歸隊。
 - HUD：`FourGateDefenseHUD` 只在此任務存在並取代 TownScene 左上文字面板，不攔截輸入；資料只來自 `CommanderFourGateDefenseController.hudSource()` 唯讀快照，經 `FourGateDefenseHudModel` 轉成字串。每門守軍固定取部署時 `sectors[]` 的 `wallActorIds`＋`cavalryActorIds`（依 Actor ID 去重，**不隨玩家調動改歸屬**），中央機動隊、塔樓弓手與巨鷹只計入總兵力；敵軍沿用 `remainingEnemies`（未生成者不算死亡）；城門「開啟」與「已攻破」分開，攻城車狀態直接讀 `MobileSiegeRampController.state`。
 - 玩家命令與 Dismiss receipt 原子鏡像到 mission／Siege checkpoint；`fourGateDefense` parser 保留完整騎手與原坐騎資源（空軍不進地面 parser）。結算經 `snapshotActiveMission` 把最後一幀與軍功／Tier 5 勝場同次保存，保存成功才清場並重建 Home Town。正式任務隔離 ambient 敵軍。
