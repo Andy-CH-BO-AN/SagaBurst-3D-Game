@@ -33,6 +33,7 @@ import { countArmyHudRoster } from './battle/ArmyCommandHudRoster'
 import { ArmyCommandSelectionMarker } from './battle/ArmyCommandSelectionMarker'
 import { BattleConfig, normalizeArmyConfig, PRESET_DEVCOMBAT, PRESET_SCENARIO_A, PRESET_SCENARIO_B, PRESET_SCENARIO_C, PRESET_SCENARIO_D, PRESET_SCENARIO_E, PRESET_SCENARIO_F, PRESET_SCENARIO_G, PRESET_SCENARIO_H, PRESET_SCENARIO_I, PRESET_SCENARIO_J, PRESET_SCENARIO_K, PRESET_SCENARIO_L } from './battle/BattleConfig'
 import { BattleController } from './battle/BattleController'
+import { runBattlefieldMountFrame } from './battle/BattlefieldMountFrame'
 import { BattleSpawner, BattleSpawnPlan, NpcSpawnSpec, ROMAN_PLAYER_SPAWN, VIKING_PLAYER_SPAWN } from './battle/BattleSpawner'
 import { matchesArmyCommandTarget } from './battle/CommandTarget'
 import { officialFollowLocalOffset } from './battle/FollowOrder'
@@ -799,6 +800,12 @@ export class Game {
 
   private pickupHud!: PickupPrompt
   private readonly interactions = this._createInteractionController()
+  private readonly mountFrameEffects = {
+    updateInteractions: (dt: number) => this._updateInteractions(dt),
+    isCombatLocked: () => this._commanderOutpostCombatLocked(),
+    updateImpactDamage: () => this._updateImpactDamage(this.clock.elapsedTime),
+    persistPersonalOutpost: (dt: number) => this._persistPersonalOutpost(false, dt),
+  }
   private readonly customPickupPolicy: boolean
   private interactionInputCaptured = false
 
@@ -5347,16 +5354,10 @@ export class Game {
     // Check Player Melee Sword Hits (runs outside mount/interaction)
     this._checkPlayerMeleeHits()
 
-    // 3. Mount / Interaction
-    if (profile) t0 = performance.now()
-    this._updateInteractions(dt)
-    const mountInteractionMs = profile ? performance.now() - t0 : 0
-
-    // 4. Impact / Damage (evaluated immediately after mount movement before physical separation)
-    if (profile) t0 = performance.now()
-    if (!this._commanderOutpostCombatLocked()) this._updateImpactDamage(this.clock.elapsedTime)
-    this._persistPersonalOutpost(false, dt)
-    const impactMs = profile ? performance.now() - t0 : 0
+    // 3–4. Mount movement and interactions, then impact before physical separation.
+    const mountFrameTiming = runBattlefieldMountFrame(dt, this.mountFrameEffects, profile ? () => performance.now() : undefined)
+    const mountInteractionMs = mountFrameTiming?.mountInteractionMs ?? 0
+    const impactMs = mountFrameTiming?.impactMs ?? 0
 
     // Reset impact flag after impact checks complete for this frame
     for (const mount of this.mounts) {

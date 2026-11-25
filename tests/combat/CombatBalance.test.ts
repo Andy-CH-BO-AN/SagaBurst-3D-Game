@@ -70,14 +70,14 @@ describe('Combat damage eligibility', () => {
     const axe = { baseDamage: 80, combatKind: WEAPONS.axe_t5.combatKind, isLance: false, isMounted: false, mountSpeed: 0, oneHandedMultiplier: 1, faction: 'viking' as const, hasShield: true }
     expect(calculatePlayerMeleeDamage({ ...axe, heroAssetId: 'viking-heavy-hero-t5' }).damage).toBe(232)
   })
-  it('doubles ground bow engagement only, retaining ranger and javelin rules', () => {
-    expect(getNpcRangedAttackRange('bow', false)).toBe(100)
-    expect(getNpcRangedAttackRange('bow', true)).toBe(60)
-    const rangerRange = getHeroCombatModifiers('ranger')!.rangedAttackRangeMultiplier
-    expect(getNpcRangedAttackRange('bow', false) * rangerRange).toBe(200)
-    expect(getNpcRangedAttackRange('bow', true) * rangerRange).toBe(120)
-    expect(getNpcRangedAttackRange('javelin', false)).toBe(30)
-    expect(getNpcRangedAttackRange('javelin', true)).toBe(15)
+  it('applies the Ranger engagement bonus on foot and on horseback, with the eagle bow range taking precedence', () => {
+    expect(getNpcRangedAttackRange('bow', false, 'ranger')).toBe(200)
+    expect(getNpcRangedAttackRange('bow', true, 'ranger', 'HORSE', 'bow_t5')).toBe(120)
+    expect(getNpcRangedAttackRange('bow', true, 'ranger', 'xongkoro', 'bow_t5')).toBe(500)
+    expect(getNpcRangedAttackRange('bow', false, undefined)).toBe(100)
+    expect(getNpcRangedAttackRange('bow', true, undefined)).toBe(60)
+    expect(getNpcRangedAttackRange('javelin', false, undefined)).toBe(30)
+    expect(getNpcRangedAttackRange('javelin', true, undefined)).toBe(15)
   })
 
   it('uses Viking Commander melee overrides once on Player and NPC while retaining ranged and unshielded eligibility', () => {

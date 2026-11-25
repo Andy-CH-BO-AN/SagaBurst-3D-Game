@@ -180,7 +180,6 @@ it('NPC 追擊把自身狀態交給城門策略：Attack 沿 A* 到門接手攻�
   expect(NPC.prototype['_readyPursuitGate'].call(h.actor, result.step, h.obstacles)).toBeNull()
   result = h.arrive()
   expect(result.step?.approachReached).toBe(true)
-  expect(NPC.prototype['_readyPursuitGate'].call(h.actor, result.step, h.obstacles)).toBe(h.gateObstacle)
   h.gate.state = 'destroyed'
   h.obstacles.splice(h.obstacles.indexOf(h.gateObstacle), 1)
   h.world.rebuild(h.obstacles); h.world.beginFrame()

@@ -536,6 +536,7 @@ describe('Town mission settlement transactions', () => {
     expect(h.events).toEqual(['save', 'defense-cleanup'])
     expect(h.town.restart).toHaveBeenCalledExactlyOnceWith(h.read())
     expect(h.town.restPlayer).toHaveBeenCalledOnce()
+    expect(h.town.navigation.sync).not.toHaveBeenCalled()
     h.reload()
     const saved = h.read()
     expect(saved.activeMission).toBeUndefined()
@@ -744,15 +745,6 @@ describe('Town mission settlement transactions', () => {
     expect(h.residentState.restoreForTown).not.toHaveBeenCalled()
     expect(h.settlement.returnToTown('direct')).toEqual({ status: 'ignored' })
     expect(h.patrol.release).toHaveBeenCalledOnce()
-  })
-
-  it('rebuilds Commander defense only after saving instead of partially repairing the outgoing scene', () => {
-    const h = fixture('commander-four-gate-defense', true)
-    expect(h.settlement.returnToTown('direct')).toEqual({ status: 'restarted' })
-    expect(h.events).toEqual(['save', 'defense-cleanup'])
-    expect(h.read().activeMission).toBeUndefined()
-    expect(h.town.restart).toHaveBeenCalledExactlyOnceWith(h.read())
-    expect(h.town.navigation.sync).not.toHaveBeenCalled()
   })
 
   it('cannot abandon an unfinished Veteran battle through direct return', () => {

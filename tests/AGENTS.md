@@ -84,8 +84,9 @@
 ## Test Authoring Lint
 
 - `npm run lint:test` 範圍與 runner 收檔一致（Vitest `.test`／`.spec` 與遞迴發現的 Node `.test.cjs`），CI 在 logic gate 的 `npm ci` 後執行。
-- **Error（阻擋）**：Vitest focused／disabled／重複標題／條件式註冊、Unit Test 重型 3D constructor、Node `test`／`describe` 的 `.only`／`.skip`／`.todo` 與停用 options。
-- **Warning（不阻擋）**：body 超過 120 行、`expect-expect`、真實 timer wait、`any`、`@ts-ignore`，以及三種壞測試的可辨識樣式 `no-constant-literal-assert`、`no-prototype-harness`、`no-production-source-read`。`no-prototype-harness` 既有用法由 `eslint.config.mjs` 的 `PROTOTYPE_HARNESS_BASELINE` 逐檔 ratchet，只減不增。
+- **Error（阻擋）**：Vitest focused／disabled／重複標題／條件式註冊、Unit Test 重型 3D constructor、Node `test`／`describe` 的 `.only`／`.skip`／`.todo` 與停用 options、`no-prototype-harness`。
+- **Warning（不阻擋）**：body 超過 120 行、`expect-expect`、真實 timer wait、`any`、`@ts-ignore`，以及三種壞測試的可辨識樣式 `no-constant-literal-assert`、`no-production-source-read`。
+- `no-prototype-harness` 按 `eslint.config.mjs` 的 `PROTOTYPE_HARNESS_BASELINE` 檢查逐檔既有用量。超額會擋 CI，移除引用時須同步降低或刪除該檔案的 baseline。
 - **Cross-owner Warning**（`warn-cross-owner-test-calls`）：同一 leaf 直接呼叫 `eslint.config.mjs` 列出的不同 owner 入口組合時提示 reviewer 確認是否為同一正式路徑；type-only／未呼叫 import、同 Owner 多入口、hooks 與 helper／callback 不觸發，每 leaf 最多一個。不自動判定放錯檔、不要求拆 case。
 - 不為消除 Warning 刪重要 assertions 或大改既有案例。Owner 歸屬、failure mode 是否重複、caller 覆蓋與 regression 有效性仍由人工 review 判斷。
 

@@ -171,6 +171,7 @@ describe('Town-wide equipment panels', () => {
     h.view.squads[0].refittable = 1; h.view.squads[0].reason = undefined
     h.bindings.bulkAvailability = () => ({ enabled: false, reason: '無適用庫存。' })
     const buttons = h.render().descendants().filter(node => node.dataset.bulkCategory)
+    expect(buttons.map(node => node.dataset.bulkCategory)).toEqual(expect.arrayContaining(['bow', 'sword', 'axe', 'spear', 'mount']))
     expect(buttons.every(node => node.disabled && node.title === '無適用庫存。')).toBe(true)
     const select = h.render().descendants().find(node => node.tag === 'select')!
     h.view.squads[0].members[0].reason = '死亡動畫中，無法整補。'
