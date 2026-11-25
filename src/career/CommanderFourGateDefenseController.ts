@@ -11,7 +11,7 @@ import type { TownCavalryPatrolController } from '../town/TownCavalryPatrolContr
 import { TOWN_GATES, townGatePoint, type TownGateId } from '../town/TownLayout'
 import type { CampaignGateState } from '../campaign/CampaignGate'
 import type { FourGateHudSource } from './FourGateDefenseHudModel'
-import { isAutonomousTownGuard } from '../town/TownNativeGuardIdentity'
+import { isAutonomousTownGuard, isTownEagleRider } from '../town/TownNativeGuardIdentity'
 import { isCivilian } from '../town/TownRules'
 import type { TownOutskirtsWarfareController } from '../town/TownOutskirtsWarfareController'
 import { townWartimePeers } from '../town/TownWartime'
@@ -20,6 +20,7 @@ import type { NPC } from '../world/NPC'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import { SpatialGrid } from '../world/SpatialGrid'
 import { getTerrainHeight, type EntityCollisionBody } from '../world/Terrain'
+import { blocksPlayerSideDefeat, hasAerialCombatPower } from './CaptainEagleBattleOutcome'
 import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import type { CareerActorFactory } from './CareerActorFactory'
 import { restoreCommandActor, snapshotCommandActor } from './CareerCommandActorCheckpoint'
@@ -669,9 +670,15 @@ export class CommanderFourGateDefenseController {
     if (!this.combatEnabled || !this.state || !this.active) return null
     const complete = fourGateTargetsAccounted(this.active.targetActorIds, this.state.registeredTargetActorIds,
       this.active.deadTargetActorIds ?? [], this.enemies.map(npc => npc.combatantId))
+    const aliveTownPeople = new Set(this.residents
+      .filter(r => !r.npc.dead
+        && !isTownEagleRider(r.npc.combatantId)
+        && r.spec?.duty !== 'eagle_garrison'
+        && !r.spec?.eagle
+        && !hasAerialCombatPower(r.npc))
+      .map(r => r.npc.combatantId)).size + this.reinforcements.filter(npc => !npc.dead).length
     return resolveCommanderFourGateDefenseOutcome(playerDead, complete, this.remainingEnemies,
-      new Set(this.residents.filter(r => !r.npc.dead).map(r => r.npc.combatantId)).size + this.reinforcements.filter(npc => !npc.dead).length,
-      personalAlive, this.state.combatElapsedSeconds ?? 0)
+      aliveTownPeople, personalAlive, this.state.combatElapsedSeconds ?? 0)
   }
 
   peersFor(npc: NPC): NPC[] { return townWartimePeers(npc, this.fieldNpcs) }
@@ -855,7 +862,7 @@ export class CommanderFourGateDefenseController {
       ...(mount.flight ? { flight: mount.flight.snapshot() } : {}) }
     // Capture the reason in the same final-frame transaction as casualties/reward.
     // The store verifies the deadline, living defenders and remaining enemies.
-    if (this.evaluate(this.player().dead, this.personalActors().filter(npc => !npc.dead).length) === 'victory') {
+    if (this.evaluate(this.player().dead, this.personalActors().filter(blocksPlayerSideDefeat).length) === 'victory') {
       state.victoryReason = this.remainingEnemies === 0 ? 'elimination' : 'survival'
     } else delete state.victoryReason
     const authority = active.officialSquad ? structuredClone(active.officialSquad) : undefined

@@ -102,16 +102,27 @@ describe('siege checkpoint ownership', () => {
     expect(parseCommanderFourGateDefenseState(state, context)?.victoryReason).toBe('survival')
     expect(parseCommanderFourGateDefenseState({ ...state, victoryReason: 'elimination' }, context)).toBeUndefined()
     state.player!.dead = true; state.player!.hp = 0
-    // The mission garrison is living defense too; every defender must be down to reject survival.
-    for (const id of [...mission.friendlyActorIds, ...(state.autonomousActorIds ?? []), ...mission.civilianActorIds!,
-      ...commanderFourGateGarrisonSlots(mission.id).map(slot => slot.actorId)]) {
+    // Living native eagle garrison alone cannot keep survival victory alive.
+    for (const id of [...mission.friendlyActorIds, ...(state.autonomousActorIds ?? []).filter(id => !id.startsWith('town-eagle-rider:')),
+      ...mission.civilianActorIds!, ...commanderFourGateGarrisonSlots(mission.id).map(slot => slot.actorId)]) {
       Object.assign(state.actors[id], { status: 'dead', hp: 0 })
       if (state.siege!.actors[id]) Object.assign(state.siege!.actors[id], { status: 'dead', hp: 0 })
+    }
+    expect(parseCommanderFourGateDefenseState(state, context)).toBeUndefined()
+    for (const id of (state.autonomousActorIds ?? []).filter(id => id.startsWith('town-eagle-rider:'))) {
+      Object.assign(state.actors[id], { status: 'dead', hp: 0 })
     }
     expect(parseCommanderFourGateDefenseState(state, context)).toBeUndefined()
     const personal = { status: 'deployed' as const, hp: 1 }
     const personalContext = { ...context, personalActorIds: ['personal:survivor'], personalActors: { 'personal:survivor': personal } }
     expect(parseCommanderFourGateDefenseState(state, personalContext)?.victoryReason).toBe('survival')
+    const airborneEagle = { status: 'deployed' as const, hp: 1, mount: { hp: 90, mounted: true,
+      position: { x: 20, y: 30, z: 30, yaw: 0 },
+      flight: { phase: 'cruise' as const, yaw: 0, pitch: 0, bank: 0, speed: 12, velocity: { x: 0, y: 0, z: 12 } } } }
+    expect(parseCommanderFourGateDefenseState(state, { ...personalContext,
+      personalActors: { 'personal:survivor': airborneEagle } })).toBeUndefined()
+    expect(parseCommanderFourGateDefenseState(state, { ...personalContext,
+      personalActors: { 'personal:survivor': { ...airborneEagle, mount: { ...airborneEagle.mount, hp: 0, mounted: false } } } })?.victoryReason).toBe('survival')
     expect(parseCommanderFourGateDefenseState(state, { ...personalContext,
       personalActors: { 'personal:survivor': { status: 'reserve', hp: 1 } } })).toBeUndefined()
   })

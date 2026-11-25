@@ -33,9 +33,14 @@ describe('Town defense target accounting', () => {
     const mission = { kind: 'commander-four-gate-defense', phase: 'ATTACKING', targetActorIds: targets, deadTargetActorIds: ['a'] }
     const state = { attackStarted: true, registeredTargetActorIds: [...targets], combatElapsedSeconds: 0 }
     const enemies = [{ combatantId: 'b', dead: false }], resident = { npc: { combatantId: 'r', dead: false } }
+    const eagleResidents = [
+      { spec: { id: 'town-eagle-rider:1', duty: 'eagle_garrison', eagle: {} },
+        npc: { combatantId: 'town-eagle-rider:1', dead: false, mount: { isFlyingMount: true, dead: false } } },
+      { npc: { combatantId: 'town-eagle-rider:2', dead: false, mount: null } },
+    ]
     const owner = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as
       Pick<CommanderFourGateDefenseController, 'remainingEnemies' | 'evaluate'>, {
-      readProfile: () => ({ activeMission: mission }), state, enemies, residents: [resident], reinforcements: [],
+      readProfile: () => ({ activeMission: mission }), state, enemies, residents: [resident, ...eagleResidents], reinforcements: [],
       startedMissionId: 'm', fourGateSiege: { ready: true }, spawnBatch: { pending: 0, ready: true } })
     expect(owner.remainingEnemies).toBe(2)
     expect(owner.evaluate(false)).toBeNull() // c is registered but neither dead nor present
@@ -43,13 +48,14 @@ describe('Town defense target accounting', () => {
     expect(owner.evaluate(false)).toBeNull() // accounted, two attackers still alive
     expect(owner.evaluate(true, 0)).toBeNull() // a living resident keeps the town alive
     resident.npc.dead = true
-    expect(owner.evaluate(true, 0)).toBe('failure')
+    expect(owner.evaluate(true, 0)).toBe('failure') // living eagle garrison never prevents defeat
     expect(owner.evaluate(true, 1)).toBeNull() // so does a living personal ally
     state.registeredTargetActorIds = ['a', 'b'] // incomplete registration blocks both victory routes
     state.combatElapsedSeconds = survivalSeconds
     expect(owner.evaluate(false, 0)).toBeNull()
     state.registeredTargetActorIds = [...targets]
     expect(owner.evaluate(false, 0)).toBe('victory')
+    expect(owner.evaluate(true, 0)).toBe('failure') // survival also fails if only eagles remain at deadline
     state.combatElapsedSeconds = 0
     for (const enemy of enemies) enemy.dead = true
     expect(owner.remainingEnemies).toBe(0)

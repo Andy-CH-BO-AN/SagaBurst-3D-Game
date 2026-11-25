@@ -1,7 +1,7 @@
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { CombatEvent } from '../combat/CombatAttribution'
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
-import { TOWN_AUTONOMOUS_GUARD_IDS } from '../town/TownNativeGuardIdentity'
+import { isTownEagleRider, TOWN_AUTONOMOUS_GUARD_IDS } from '../town/TownNativeGuardIdentity'
 import { parseCaptainEagleCheckpoint, type CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import { parseCommandActorCheckpoint } from './CareerCommandAuthority'
 import type { CareerMissionOutcome, CareerMissionPhase } from './CareerMissionState'
@@ -283,8 +283,11 @@ export function parseCommanderFourGateDefenseState(value: unknown,
     if (!raw.attackStarted || !raw.deploymentComplete || !['ATTACKING', 'RESULT'].includes(raw.phase)) return undefined
     const enemiesRemaining = targets.size - dead.size
     const living = (actor: PersonalActorCheckpoint | undefined): boolean => actor?.status === 'deployed' && (actor.hp ?? 0) > 0
-    const allySurvives = player?.dead === false || defenders.some(id => living(actors[id]))
-      || (context.personalActorIds ?? []).some(id => living(actors[id] ?? context.personalActors?.[id]))
+    const blocksDefeat = (actor: PersonalActorCheckpoint | undefined): boolean =>
+      living(actor) && !(actor!.mount?.flight && actor!.mount.hp > 0 && actor!.mount.mounted)
+    const allySurvives = player?.dead === false
+      || defenders.some(id => !isTownEagleRider(id) && blocksDefeat(actors[id]))
+      || (context.personalActorIds ?? []).some(id => blocksDefeat(actors[id] ?? context.personalActors?.[id]))
     if (raw.victoryReason === 'elimination' ? enemiesRemaining !== 0
       : enemiesRemaining === 0 || combatElapsedSeconds < COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS || !allySurvives) return undefined
   }
