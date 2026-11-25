@@ -1,4 +1,4 @@
-import { CHARACTER_LOD_DISTANCES, mountAnimationInterval } from './CharacterLODPolicy'
+import { CHARACTER_LOD_DISTANCES, FarAnimationCadence, mountAnimationInterval } from './CharacterLODPolicy'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -308,7 +308,7 @@ class HorseAnimationController {
   private oneShot: HorseAnimationState | null = null
   private oneShotRemaining = 0
   private paused = false
-  private farAccumulator = 0
+  private readonly farCadence = new FarAnimationCadence()
   private playbackRate = 1
   private requestedPlaybackRate = 1
 
@@ -388,14 +388,8 @@ class HorseAnimationController {
 
   update(dt: number, cameraDistance = 0): void {
     if (!Number.isFinite(dt) || dt <= 0 || this.paused) return
-    let step = dt
-    const interval = mountAnimationInterval(cameraDistance)
-    if (interval > 0) {
-      this.farAccumulator += dt
-      if (this.farAccumulator < interval) return
-      step = this.farAccumulator
-      this.farAccumulator = 0
-    }
+    const step = this.farCadence.advance(dt, mountAnimationInterval(cameraDistance))
+    if (step === null) return
     this.mixer.update(step)
     if (this.oneShot) {
       this.oneShotRemaining -= step

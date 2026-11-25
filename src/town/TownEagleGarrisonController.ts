@@ -453,6 +453,12 @@ export class TownEagleGarrisonController {
     npc.missionMovement = false
     npc.assignFormationTarget(WALK_COMMAND, point.clone(), new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)), 3.5)
   }
+  get hasActiveCheckpoint(): boolean {
+    for (const pair of this.pairs.values()) {
+      if (pair.duty !== 'standby' || pair.resident.npc.hp === 0 || pair.resident.homeMount?.currentHp === 0) return true
+    }
+    return false
+  }
   snapshot(sceneKey: string): TownEagleGarrisonState {
     const position = (group: THREE.Group) => ({ x: group.position.x, y: group.position.y, z: group.position.z, yaw: group.rotation.y })
     return { version: 1, sceneKey, layoutVersion: TOWN_LAYOUT_VERSION,

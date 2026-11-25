@@ -36,31 +36,73 @@ export type TownActorUpdate = 'mission' | 'runtime' | 'retirement' | 'peace' | '
  * updater may advance an actor, including residents borrowed by several rosters.
  */
 export class TownActorUpdates<Actor extends TownActor> {
-  readonly actors: readonly Actor[]
-  private readonly active: ReadonlySet<Actor>
-  private readonly mission: ReadonlySet<Actor>
+  private readonly active = new Set<Actor>()
+  private readonly mission = new Set<Actor>()
   private readonly advanced = new Set<Actor>()
+  private readonly actorList: Actor[] = []
 
   constructor(
-    private readonly mode: TownActorMode,
-    private readonly groups: TownActorGroups<Actor>,
-    private readonly orders: TownActorOrders<Actor> = {},
+    private mode: TownActorMode,
+    private groups: TownActorGroups<Actor>,
+    private orders: TownActorOrders<Actor> = {},
   ) {
-    this.mission = new Set(groups.mission)
-    const external = groups.external ?? []
+    this.rebuild()
+  }
+
+  get actors(): readonly Actor[] { return this.actorList }
+
+  reset(
+    mode: TownActorMode,
+    groups: TownActorGroups<Actor>,
+    orders: TownActorOrders<Actor> = {},
+  ): this {
+    this.mode = mode
+    this.groups = groups
+    this.orders = orders
+    this.rebuild()
+    return this
+  }
+
+  private rebuild(): void {
+    this.mission.clear()
+    for (const actor of this.groups.mission) this.mission.add(actor)
+    this.active.clear()
+    this.advanced.clear()
+    const { mode, groups } = this
     // Keep the established order: it also decides equal-distance combat ties.
-    const actors = mode.kind === 'duel'
-      ? [...groups.mission, ...(groups.field ?? []), ...(groups.ambient ?? []),
-        ...(groups.outskirts?.actors ?? []), ...(groups.airPatrol?.actors ?? []), ...external, ...(groups.patrol ?? [])]
-      : mode.kind === 'defense'
-        ? [...groups.mission, ...(groups.command ?? []), ...(groups.ambient ?? []),
-          ...(groups.outskirts?.actors ?? []), ...(groups.airPatrol?.actors ?? []), ...(groups.personal?.actors ?? []),
-          ...external, ...(groups.patrol ?? [])]
-        : [...groups.mission, ...(!mode.veteran ? external : []), ...(groups.ambient ?? []),
-          ...(groups.outskirts?.actors ?? []), ...(groups.airPatrol?.actors ?? []), ...(groups.personal?.actors ?? []),
-          ...external, ...(groups.patrol ?? []), ...(groups.command ?? [])]
-    this.active = new Set(actors)
-    this.actors = [...this.active]
+    this.addGroup(groups.mission)
+    if (mode.kind === 'duel') {
+      this.addGroup(groups.field)
+      this.addGroup(groups.ambient)
+      this.addGroup(groups.outskirts?.actors)
+      this.addGroup(groups.airPatrol?.actors)
+      this.addGroup(groups.external)
+      this.addGroup(groups.patrol)
+    } else if (mode.kind === 'defense') {
+      this.addGroup(groups.command)
+      this.addGroup(groups.ambient)
+      this.addGroup(groups.outskirts?.actors)
+      this.addGroup(groups.airPatrol?.actors)
+      this.addGroup(groups.personal?.actors)
+      this.addGroup(groups.external)
+      this.addGroup(groups.patrol)
+    } else {
+      if (!mode.veteran) this.addGroup(groups.external)
+      this.addGroup(groups.ambient)
+      this.addGroup(groups.outskirts?.actors)
+      this.addGroup(groups.airPatrol?.actors)
+      this.addGroup(groups.personal?.actors)
+      this.addGroup(groups.external)
+      this.addGroup(groups.patrol)
+      this.addGroup(groups.command)
+    }
+    this.actorList.length = 0
+    for (const actor of this.active) this.actorList.push(actor)
+  }
+
+  private addGroup(group?: Iterable<Actor>): void {
+    if (!group) return
+    for (const actor of group) this.active.add(actor)
   }
 
   /** Active residents are advanced by the same roster as their borrower, never twice. */

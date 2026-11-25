@@ -1,3 +1,4 @@
+import { packSpatialCellKey } from './SpatialGrid'
 import type {
   EntityCollisionBody,
   ObstacleData,
@@ -19,10 +20,10 @@ export interface EntityCollisionBroadPhaseStats {
  * bodies that cannot possibly overlap in X/Z.
  */
 export class EntityCollisionBroadPhase {
-  private readonly cells = new Map<string, number[]>()
+  private readonly cells = new Map<number, number[]>()
   private readonly cellPool: number[][] = []
   private readonly activeCells: number[][] = []
-  private readonly bodyCellKeys: string[] = []
+  private readonly bodyCellKeys: number[] = []
   private maxRadius = 0
 
   resolve(
@@ -102,7 +103,7 @@ export class EntityCollisionBroadPhase {
 
     for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
       for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ++) {
-        const cell = this.cells.get(`${cellX},${cellZ}`)
+        const cell = this.cells.get(packSpatialCellKey(cellX, cellZ))
         if (!cell) continue
 
         for (let i = 0; i < cell.length; i++) {
@@ -143,7 +144,7 @@ export class EntityCollisionBroadPhase {
     this.bodyCellKeys[index] = nextKey
   }
 
-  private _cellForInsert(key: string): number[] {
+  private _cellForInsert(key: number): number[] {
     const existing = this.cells.get(key)
     if (existing) return existing
 
@@ -153,9 +154,9 @@ export class EntityCollisionBroadPhase {
     return cell
   }
 
-  private _cellKey(x: number, z: number): string {
+  private _cellKey(x: number, z: number): number {
     const cellX = Math.floor(x / ENTITY_COLLISION_GRID_CELL_SIZE)
     const cellZ = Math.floor(z / ENTITY_COLLISION_GRID_CELL_SIZE)
-    return `${cellX},${cellZ}`
+    return packSpatialCellKey(cellX, cellZ)
   }
 }

@@ -1,3 +1,4 @@
+import { hasDevCareerSaveTelemetrySink, recordDevCareerSaveTelemetry } from '../debug/TownDevProfiler'
 import { gameStorage } from '../save/GameStorage'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { type UnitPresetId } from '../battle/UnitPresetCatalog'
@@ -406,6 +407,8 @@ export class CareerProfileStore {
   }
 
   save(profile: CareerProfile): boolean {
+    const devTelemetry = import.meta.env.DEV && hasDevCareerSaveTelemetrySink()
+    const totalStart = devTelemetry ? performance.now() : 0
     try {
       const existingBytes = this.storage.getItem(CAREER_STORAGE_KEY)
       // Read-only below: comparisons against the durable save.
@@ -415,7 +418,9 @@ export class CareerProfileStore {
       if (stored?.tutorial?.careerId && profile.tutorial?.careerId !== stored.tutorial.careerId
         && !(stored.careerRetirement?.phase === 'completed'
           && profile.rank === 'recruit' && profile.totalMerit === 0 && !profile.careerRetirement)) return false
+      const parseStart = devTelemetry ? performance.now() : 0
       const parsed = parseCareerProfile(profile)
+      const parseMs = devTelemetry ? performance.now() - parseStart : 0
       if (!parsed) return false
       // Unlocks are permanent within an enlistment: a stale scene may not drop one (switching the class in use is allowed).
       if (stored && parsed.tutorial?.careerId === stored.tutorial?.careerId && parsed.enlistmentMeritBase === stored.enlistmentMeritBase
@@ -435,10 +440,29 @@ export class CareerProfileStore {
         && !parsed.activeOutpostMission?.officialSquad) return false
       if ((profile.activeMission?.kind === HEAVY_FIELD_KIND || (typeof profile.activeMission?.templateId === 'string' && isHeavyFieldMissionId(profile.activeMission.templateId)))
         && !parsed.activeMission) return false
+      const cloneStart = devTelemetry ? performance.now() : 0
+      const cloned = cloneCareerProfile(parsed)
+      const cloneMs = devTelemetry ? performance.now() - cloneStart : 0
+      const stringifyStart = devTelemetry ? performance.now() : 0
+      const serialized = JSON.stringify(cloned)
+      const stringifyMs = devTelemetry ? performance.now() - stringifyStart : 0
+      const setItemStart = devTelemetry ? performance.now() : 0
       this.storage.setItem(
         CAREER_STORAGE_KEY,
-        JSON.stringify(cloneCareerProfile(parsed)),
+        serialized,
       )
+      if (devTelemetry) {
+        const now = performance.now()
+        recordDevCareerSaveTelemetry({
+          atMs: now,
+          parseMs,
+          cloneMs,
+          stringifyMs,
+          setItemMs: now - setItemStart,
+          totalMs: now - totalStart,
+          bytes: new TextEncoder().encode(serialized).length,
+        })
+      }
       return true
     } catch {
       console.warn('[CareerProfileStore] Failed to save:', CAREER_STORAGE_KEY)

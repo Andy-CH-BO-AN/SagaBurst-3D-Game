@@ -18,6 +18,14 @@ export interface NavigationCell {
   z: number
 }
 
+const F_SCORE_QUANT_SCALE = 1e6
+
+function isBetterOpenNode(fA: number, gA: number, fB: number, gB: number): boolean {
+  const qA = Math.round(fA * F_SCORE_QUANT_SCALE)
+  const qB = Math.round(fB * F_SCORE_QUANT_SCALE)
+  return qA < qB || (qA === qB && gA > gB)
+}
+
 class MinHeap {
   private readonly indices: number[] = []
   private readonly gScores: number[] = []
@@ -42,7 +50,7 @@ class MinHeap {
 
     while (index > 0) {
       const parent = (index - 1) >> 1
-      if (this.fScores[parent] <= fValue) break
+      if (!isBetterOpenNode(fValue, gValue, this.fScores[parent], this.gScores[parent])) break
 
       this.indices[index] = this.indices[parent]
       this.gScores[index] = this.gScores[parent]
@@ -74,10 +82,10 @@ class MinHeap {
       if (left >= this._size) break
 
       const right = left + 1
-      const smaller = right < this._size && this.fScores[right] < this.fScores[left]
+      const smaller = right < this._size && isBetterOpenNode(this.fScores[right], this.gScores[right], this.fScores[left], this.gScores[left])
         ? right
         : left
-      if (this.fScores[smaller] >= lastF) break
+      if (!isBetterOpenNode(this.fScores[smaller], this.gScores[smaller], lastF, lastG)) break
 
       this.indices[index] = this.indices[smaller]
       this.gScores[index] = this.gScores[smaller]
@@ -118,6 +126,7 @@ export class NavigationGrid {
   private readonly seenRun: Uint32Array
   private readonly closedRun: Uint32Array
   private readonly open = new MinHeap()
+  private readonly scratchRange = new Int32Array(4)
   private searchRunId = 0
 
   constructor(options: NavigationGridOptions) {
@@ -251,7 +260,11 @@ export class NavigationGrid {
    * Optional padding lets a caller bake actor clearance into the grid later.
    */
   setBlockedBox(box: THREE.Box3, blocked: boolean, padding = 0): void {
-    const [firstX, lastX, firstZ, lastZ] = this.boxCellRange(box, padding)
+    this.writeBoxCellRange(box, this.scratchRange, padding)
+    const firstX = this.scratchRange[0]
+    const lastX = this.scratchRange[1]
+    const firstZ = this.scratchRange[2]
+    const lastZ = this.scratchRange[3]
     if (lastX < firstX || lastZ < firstZ) return
 
     for (let z = firstZ; z <= lastZ; z++) {
@@ -261,8 +274,8 @@ export class NavigationGrid {
     }
   }
 
-  /** Shared raster bounds keep moving-obstacle invalidation identical to occupancy. */
-  boxCellRange(box: THREE.Box3, padding = 0): readonly [number, number, number, number] {
+  /** Allocation-free raster bounds into a 4-int buffer: `[firstX, lastX, firstZ, lastZ]`. */
+  writeBoxCellRange(box: THREE.Box3, out: Int32Array, padding = 0): void {
     const minX = box.min.x - padding
     const maxX = box.max.x + padding
     const minZ = box.min.z - padding
@@ -279,7 +292,17 @@ export class NavigationGrid {
       Math.floor((maxZ - this.minZ - COST_EPSILON) / this.cellSize),
     )
 
-    return lastX < firstX || lastZ < firstZ ? [0, -1, 0, -1] : [firstX, lastX, firstZ, lastZ]
+    if (lastX < firstX || lastZ < firstZ) {
+      out[0] = 0; out[1] = -1; out[2] = 0; out[3] = -1
+    } else {
+      out[0] = firstX; out[1] = lastX; out[2] = firstZ; out[3] = lastZ
+    }
+  }
+
+  /** Shared raster bounds keep moving-obstacle invalidation identical to occupancy. */
+  boxCellRange(box: THREE.Box3, padding = 0): readonly [number, number, number, number] {
+    this.writeBoxCellRange(box, this.scratchRange, padding)
+    return [this.scratchRange[0], this.scratchRange[1], this.scratchRange[2], this.scratchRange[3]]
   }
 
   findPath(

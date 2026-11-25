@@ -73,7 +73,7 @@ import { acceptCaptainCavalryCommand, acceptCavalrySweep, CAVALRY_SWEEP_BANDITS,
 import { commanderFourGateGroundResidents, fourGateFootLoadout, fourGateReserveTrooperLoadout, FOUR_GATE_RESERVE_SQUAD } from '../career/CommanderFourGateDefenseRoster'
 import { configureFourGateReserveExit, fourGateScenePopulation } from './FourGateScenePopulation'
 import { CommanderFourGateDefenseController } from '../career/CommanderFourGateDefenseController'
-import { townPersonalCheckpointDue } from './TownPersonalCheckpointCadence'
+import { TOWN_PERSONAL_CRITICAL_MIN_SECONDS, townPersonalCheckpointDue } from './TownPersonalCheckpointCadence'
 import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_BRIDGEHEAD_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_IRON_LEGION_ID, COMMANDER_LAST_STAND_ID, getCommanderMissionAvailability, getCommanderMissionDefinition, isCommanderTownMission } from '../career/CommanderMissionCatalog'
 import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
 import { CommanderTownMissionController } from '../career/CommanderTownMissionController'
@@ -95,7 +95,7 @@ import { mountStats } from '../combat/MountStats'
 import { calculatePlayerMeleeDamage } from '../combat/PlayerMeleeDamage'
 import { ProjectileAdmission } from '../combat/ProjectileAdmission'
 import { playerEagleProjectileBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
-import { ProjectileContactQuery, type ProjectileTargetGroups } from '../combat/ProjectileContactQuery'
+import { ProjectileContactQuery, ProjectileTargetIndex } from '../combat/ProjectileContactQuery'
 import { SHIELD_CONFIG, type CombatContact } from '../combat/ShieldBlocking'
 import { traceFistStrike, unarmedDamage } from '../combat/UnarmedCombat'
 import { XONGKORO } from '../movement/XongkoroConfig'
@@ -105,6 +105,7 @@ import { standingPlayerY } from '../player/PlayerFootBody'
 import { PlayerInput } from '../player/PlayerInput'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { bindWindowResize, configureSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO } from '../rendering/SceneRenderer'
+import { installShadowCasterCulling } from '../rendering/ShadowCasterCulling'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
 import { EQUIPMENT_CATEGORIES, equipmentSections, type EquipmentCategory } from '../rpg/EquipmentCatalog'
@@ -203,11 +204,12 @@ import type { CombatDamageContext } from '../combat/CombatAttribution'
 import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeer, type CoopGamePort } from '../coop/CoopMission'
 import { coopSiegePlacement } from '../coop/CoopSiegeMirror'
 import type { TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
+import { measureGpuRender } from '../debug/HeroBenchmarkRenderMetrics'
+import { setDevCareerSaveTelemetrySink, TownDevProfiler } from '../debug/TownDevProfiler'
 
 let sound: SoundManager
 interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; readonly sourceRef?: CombatActorRef; age: number; maxLifetimeSeconds?: number }
 const NAMES: Record<string, string> = { captain: '騎兵隊長', commander: '指揮官', deployment: '士官長', merchant: '武器店主', ranger: '遊俠 Shadow Warden', cat: '黑貓店主', civilian: '平民 Civilian', 'hr-officer': '人力資源官 HR Officer', 'eagle-trainer': 'xongkoro 遊俠場主' }
-const EMPTY_SHOT_ACTORS: readonly NPC[] = []
 
 export class TownScene {
   private eagleGarrison?: TownEagleGarrisonController
@@ -239,6 +241,7 @@ export class TownScene {
   private compass?: CompassUI
   private spectator: SpectatorCameraController | null = null
   private readonly combatMountGrid = new SpatialGrid<Mount>(8)
+  private readonly combatMountSeen = new Set<Mount>()
   private readonly combatMounts: Mount[] = []
   private readonly meleeMountCandidates: Mount[] = []
   private readonly temporaryMounts = new TemporaryBattlefieldMounts()
@@ -301,6 +304,7 @@ export class TownScene {
   private last = performance.now()
   private elapsed = 0
   private disposed = false
+  private readonly devProfiler = import.meta.env.DEV ? new TownDevProfiler() : null
   private promotionAttempt: object | null = null
   private promotionPreviewCleanup?: () => void
   private restoringAerialState = true
@@ -430,6 +434,22 @@ export class TownScene {
     sound ??= new SoundManager()
     sound.cancelCareerAudio()
     this.renderer = renderer; configureSceneRenderer(renderer, { maxPixelRatio: GAMEPLAY_SCENE_MAX_PIXEL_RATIO }); container.appendChild(renderer.domElement)
+    installShadowCasterCulling(renderer, visit => {
+      for (const r of this.residents ?? []) visit(r.npc.group, r.npc.currentLod)
+      for (const npc of this.mission?.fieldNpcs ?? []) visit(npc.group, npc.currentLod)
+      for (const npc of this.mission?.ambientBandits ?? []) visit(npc.group, npc.currentLod)
+      for (const npc of this.defense?.fieldNpcs ?? []) visit(npc.group, npc.currentLod)
+      for (const npc of this.defense?.waitingEnemies ?? []) visit(npc.group, npc.currentLod)
+      for (const npc of this.duel?.fieldNpcs ?? []) visit(npc.group, npc.currentLod)
+      for (const npc of this.race?.actors ?? []) visit(npc.group, npc.currentLod)
+      for (const npc of this.outskirts?.actors ?? []) visit(npc.group, npc.currentLod)
+      for (const npc of this.enemyEaglePatrol?.actors ?? []) visit(npc.group, npc.currentLod)
+      for (const npc of this.personalSquad?.actors ?? []) visit(npc.group, npc.currentLod)
+      for (const npc of this.coopGuestNpcs) visit(npc.group, npc.currentLod)
+      for (const mount of this.combatMounts) visit(mount.group, mount.currentLod)
+      for (const mount of this.mounts) visit(mount.group, mount.currentLod)
+      for (const mount of this.coopGuestMounts) visit(mount.group, mount.currentLod)
+    })
     const context = this.sceneContext
     this.world = new TownWorld(context.worldFaction, this.scene, context.worldOwnerAllegiance,
       { fourGateSiege: profile.activeMission?.kind === 'commander-four-gate-defense' })
@@ -522,6 +542,12 @@ export class TownScene {
       const scene = this
       Object.assign(window, { __townScene: { world: this.world, player: this.player, orbit: this.orbit, camera: this.camera, input: this.input, residents: this.residents, stableHorses: this.stableHorses,
         get personalSquad() { return scene.personalSquad }, get profile() { return scene.profile }, openRecruitmentPanel: () => scene.openRecruitmentPanel(),
+        measureGpuRender: () => measureGpuRender(scene.renderer),
+        resetProfiler: () => {
+          scene.devProfiler?.enableAndReset()
+          setDevCareerSaveTelemetrySink(scene.devProfiler ? record => scene.devProfiler!.recordSave(record) : null)
+        },
+        readProfiler: () => scene.devProfiler?.readSummary() ?? null,
         /** Real command/save/return paths for scripted browser QA. */
         get scene() { return scene } } })
     }
@@ -710,6 +736,7 @@ export class TownScene {
         damagePlayer: (source, damage, method) => this.damagePlayerFromNpc(source, damage, method),
         coopPartner: () => this.coopPartner,
         fireNpc: (origin, direction, kind, source, lifecycle) => this.fire(origin, direction, source.rangedProjectileSpeed, source.rangedDamage, false, false, kind, source, lifecycle),
+        ...(import.meta.env.DEV && this.devProfiler ? { devProfiler: this.devProfiler } : {}),
       },
     )
     const town = this
@@ -1544,6 +1571,24 @@ export class TownScene {
 
   private persistPersonalSquad(dt: number, force = false): void {
     if (this.retirementFinale?.frozen) return
+    if (!force && !this.profile.careerRetirement && this.personalSaveElapsed + dt < TOWN_PERSONAL_CRITICAL_MIN_SECONDS) {
+      const hasCheckpointSource = Boolean(
+        this.civilianCommand?.hasCheckpoint
+        || this.personalSquad?.hasCheckpoint
+        || this.townCommand?.hasCheckpoint
+        || this.profile.personalSquadRuntime
+        || this.profile.playerAerialState
+        || this.eagleGarrison?.hasActiveCheckpoint
+        || this.outskirts?.hasCheckpoint
+        || this.enemyEaglePatrol?.hasCheckpoint
+        || this.patrol?.hasCheckpoint
+        || this.player.dead
+        || this.player.isFalling
+        || this.player.currentMount?.isFlyingMount,
+      )
+      if (hasCheckpointSource) this.personalSaveElapsed += dt
+      return
+    }
     const saved = this.personalSquad?.checkpoint()
     const aerial = captureCareerAerialState(this.player, this.personalSquad?.sceneKey ?? 'town-home')
     const garrison = this.eagleGarrison?.snapshot(`town:${this.world.faction}`)
@@ -3452,7 +3497,8 @@ export class TownScene {
   private refreshCombatMounts(): void {
     this.combatMountGrid.clear()
     this.combatMounts.length = 0
-    const seen = new Set<Mount>()
+    const seen = this.combatMountSeen
+    seen.clear()
     const owned = this.careerMounts?.activeMount
     const active = this.profile.activeMission
     const combatActive = !this.result && (this.retirementFinale?.active || this.event?.hostile || Boolean(active && !active.result && active.phase !== 'RETURNING'))
@@ -3485,9 +3531,16 @@ export class TownScene {
     for (const mount of this.temporaryMounts.all) add(mount)
     add(owned)
     this.enemyEaglePatrol?.setLandingOccupants(this.combatMounts)
-    for (const npc of [...(this.residents ?? []).map(r => r.npc), ...(this.mission?.fieldNpcs ?? []), ...(this.mission?.ambientBandits ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.duel?.fieldNpcs ?? []), ...(this.race?.actors ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? [])]) {
-      npc.combatMountGrid = this.combatMountGrid
-    }
+    const mountGrid = this.combatMountGrid
+    for (const r of this.residents ?? []) r.npc.combatMountGrid = mountGrid
+    for (const npc of this.mission?.fieldNpcs ?? []) npc.combatMountGrid = mountGrid
+    for (const npc of this.mission?.ambientBandits ?? []) npc.combatMountGrid = mountGrid
+    for (const npc of this.defense?.fieldNpcs ?? []) npc.combatMountGrid = mountGrid
+    for (const npc of this.duel?.fieldNpcs ?? []) npc.combatMountGrid = mountGrid
+    for (const npc of this.race?.actors ?? []) npc.combatMountGrid = mountGrid
+    for (const npc of this.outskirts?.actors ?? []) npc.combatMountGrid = mountGrid
+    for (const npc of this.enemyEaglePatrol?.actors ?? []) npc.combatMountGrid = mountGrid
+    for (const npc of this.personalSquad?.actors ?? []) npc.combatMountGrid = mountGrid
   }
   private isRetirementEvacuating(npc: NPC): boolean {
     return Boolean(this.outskirts?.isRetirementEvacuating(npc)
@@ -3763,17 +3816,46 @@ export class TownScene {
     return true
   }
   /** Physical participants never become mission objective, checkpoint or contribution rosters. */
-  private runtimeCombatActors(): NPC[] {
-    return [...new Set([
-      ...(this.residents ?? []).map(resident => resident.npc),
-      ...(this.mission?.fieldNpcs ?? []), ...(this.mission?.ambientBandits ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.duel?.fieldNpcs ?? []), ...(this.race?.actors ?? []),
-      ...(this.missionCombat?.enemyTownHostiles ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? []),
-    ])]
+  private runtimeCombatActors(): readonly NPC[] {
+    const seen = this.shotRuntimeActorSet
+    const actors = this.shotRuntimeActors
+    seen.clear()
+    actors.length = 0
+    const addList = (list?: readonly NPC[]) => {
+      if (!list) return
+      for (let i = 0; i < list.length; i++) {
+        const npc = list[i]
+        if (!seen.has(npc)) { seen.add(npc); actors.push(npc) }
+      }
+    }
+    for (const resident of this.residents ?? []) {
+      if (!seen.has(resident.npc)) { seen.add(resident.npc); actors.push(resident.npc) }
+    }
+    addList(this.mission?.fieldNpcs)
+    addList(this.mission?.ambientBandits)
+    addList(this.defense?.fieldNpcs)
+    addList(this.duel?.fieldNpcs)
+    addList(this.race?.actors)
+    addList(this.missionCombat?.enemyTownHostiles)
+    addList(this.outskirts?.actors)
+    addList(this.enemyEaglePatrol?.actors)
+    addList(this.personalSquad?.actors)
+    return actors
   }
   private updateShots(dt: number): void {
     if (!this.shots.length) return
+    const devProf = import.meta.env.DEV && this.devProfiler?.isEnabled() ? this.devProfiler : null
+    const tShots = devProf ? performance.now() : 0
     const runtimeActors = this.profile.activeRace || this.duel?.active || this.defense?.active || this.outskirts?.actors.length || this.enemyEaglePatrol?.actors.length || this.personalSquad?.actors.length ? this.runtimeCombatActors() : null
     const externalDefenders = runtimeActors ? [] : this.missionCombat?.externalDefenders ?? []
+    if (runtimeActors) {
+      this.shotPlayerTarget.length = 0
+      this.shotPlayerTarget.push(this.player)
+      if (this.coopPartner) this.shotPlayerTarget.push(this.coopPartner)
+      this.shotTargetGroups[1] = runtimeActors
+      this.shotTargetGroups[2] = this.combatMounts
+      this.shotTargetIndex.reset(this.shotTargetGroups)
+    }
     for (const s of this.shots) {
       if (!s.arrow.isAlive) continue
       if (!s.training && this.fourGateCombatHeld) { s.arrow.destroy(); continue }
@@ -3787,10 +3869,13 @@ export class TownScene {
         world: { kind: 'town', practiceTargets: this.world.targets,
           traceSiege: (start, end, maximum) => this.traceSiegeContact(start, end, maximum) },
         obstacles: this.projectileObstacles.query(from, to, this.world.obstacles),
-        targets: runtimeActors ? this.runtimeShotTargets(s, runtimeActors) : this.shotTargets(s, externalDefenders),
+        targets: runtimeActors ? this.shotTargetIndex : this.shotTargets(s, externalDefenders),
         acceptsTarget: target => {
+          if (target === this.player) return !target.dead && (!runtimeActors || (!s.player && (!s.source || s.source.hostileToPlayer)))
+          if (target === this.coopPartner) return !target.dead && (!runtimeActors || Boolean(s.source && townWartimeHostile(s.source, target)))
           if (target instanceof Mount && (target.disposed || target.riderNpc === s.source || target.riderPlayer === this.player && s.player)) return false
           if (target.dead) return false
+          if (runtimeActors && target instanceof NPC && !s.player && !s.source) return false
           // Recheck live allegiance for every shot after the preceding hit's effects.
           return !runtimeActors || !(target instanceof Mount
             ? !this.canHitTownMount(target, s.source)
@@ -3820,26 +3905,20 @@ export class TownScene {
             if (this.cat.dead && this.ranger.mount === this.cat) this.ranger.dismountFromMount()
           }
           else if (target instanceof NPC || target instanceof Mount) this.hitResident(target, s.arrow.damage, 'projectile', contact)
+          if (runtimeActors) this.shotTargetIndex.invalidate()
         }
         s.arrow.destroy(); continue
       }
       if ((s.age > (s.maxLifetimeSeconds ?? 5)) || to.y < getTerrainHeight(to.x, to.z)) s.arrow.destroy()
     }
     this.shots = this.shots.filter(s => s.arrow.isAlive)
+    if (devProf) devProf.add('shotsMs', performance.now() - tShots)
   }
   private readonly shotPlayerTarget: (Player | NPC)[] = []
   private readonly shotTargetGroups: (readonly (Player | NPC | Mount)[])[] = [this.shotPlayerTarget, [], []]
-  private readonly shotTargetInput: ProjectileTargetGroups<Player | NPC | Mount> = { groups: this.shotTargetGroups }
-  /** Runtime snapshot order, visited in place: player prefix, actor membership order, then independent mounts. */
-  private runtimeShotTargets(s: Shot, runtimeActors: readonly NPC[]): ProjectileTargetGroups<Player | NPC | Mount> {
-    this.shotPlayerTarget.length = 0
-    if (!s.player && (!s.source || s.source.hostileToPlayer)) this.shotPlayerTarget.push(this.player)
-    const partner = this.coopPartner
-    if (partner && s.source && townWartimeHostile(s.source, partner)) this.shotPlayerTarget.push(partner)
-    this.shotTargetGroups[1] = s.player || s.source ? runtimeActors : EMPTY_SHOT_ACTORS
-    this.shotTargetGroups[2] = this.combatMounts
-    return this.shotTargetInput
-  }
+  private readonly shotTargetIndex = new ProjectileTargetIndex<Player | NPC | Mount>()
+  private readonly shotRuntimeActorSet = new Set<NPC>()
+  private readonly shotRuntimeActors: NPC[] = []
   /** Mission-local targets when no runtime actor snapshot owns the shot. */
   private shotTargets(s: Shot, externalDefenders: readonly NPC[]): Array<Player | NPC | Mount> {
     const targets: Array<Player | NPC | Mount> = s.player
@@ -4475,6 +4554,8 @@ export class TownScene {
     if (this.race?.session?.phase === 'result' && !this.panel) this.showRaceResult()
     const returning = this.race && raceReturnAction(this.race.session?.phase, this.race.canWalkBack, this.race.returnComplete)
     if (returning) this.leaveRace(returning === 'direct')
+    const devProf = import.meta.env.DEV && this.devProfiler?.isEnabled() ? this.devProfiler : null
+    const tPersist = devProf ? performance.now() : 0
     this.persistPersonalSquad(dt)
     this.captainPatrol?.update(dt)
     if (this.duel?.active) this.duel.persistRuntimeProgress()
@@ -4486,6 +4567,7 @@ export class TownScene {
         !(isCommanderTownMission(this.profile.activeMission) || this.profile.activeMission.kind === 'commander-four-gate-defense'))
       else this.mission.persistRuntimeProgress(this.player.dead)
     }
+    if (devProf) devProf.add('persistMs', performance.now() - tPersist)
     if (this.spectator) this.spectator.update(this.input, dt)
     this.interaction()
     if (this.profile.activeRace) return
@@ -4509,6 +4591,8 @@ export class TownScene {
 
   private frame(time: number): void {
     if (this.disposed) return
+    const devProf = import.meta.env.DEV && this.devProfiler?.isEnabled() ? this.devProfiler : null
+    const devFrameStart = devProf ? (devProf.beginFrame(), performance.now()) : 0
     // A settled mission cannot resolve again, and a corpse cannot finish the walk home.
     // Use the result panel's direct return, including when restoring a saved return.
     const active = this.profile.activeMission
@@ -4570,6 +4654,7 @@ export class TownScene {
     this.coopHost?.update(dt)
     this.sendCoopRaceStatus(dt)
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.defense.active && this.serviceAvailable(id)
+    const tHud = devProf ? performance.now() : 0
     const missionHud = this.profile.activeMission && !this.coopGuest
       ? this.mission?.travelEncounter?.active
         ? '\n途中遇敵 · 協助全隊擊退敵人，之後繼續前進'
@@ -4688,12 +4773,21 @@ export class TownScene {
       && !this.spawnErrorShown && !this.deploymentFailed && !this.retirementFinale?.frozen
       && !this.player.dead && !this.spectator, this.camera, dt)
     this.updateFourGateHud(dt, compactDefense)
+    if (devProf) {
+      devProf.add('hudMs', performance.now() - tHud)
+      devProf.endFrame(performance.now() - devFrameStart)
+    }
     this.renderer.render(this.scene, this.camera)
     this.scheduleSiegeOpening()
     this.raf = requestAnimationFrame(t => this.frame(t))
   }
   dispose(preservePointerLock = false): void {
-    if (import.meta.env.DEV) delete (window as unknown as { __townScene?: unknown }).__townScene
+    installShadowCasterCulling(this.renderer, null)
+    if (import.meta.env.DEV) {
+      delete (window as unknown as { __townScene?: unknown }).__townScene
+      this.devProfiler?.disable()
+      setDevCareerSaveTelemetrySink(null)
+    }
     this.promotionPreviewCleanup?.(); this.promotionPreviewCleanup = undefined
     this.projectileObstacles.clear()
     this.promotionAttempt = null

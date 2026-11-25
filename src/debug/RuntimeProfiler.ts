@@ -26,6 +26,15 @@ export interface MetricStat {
   max: number
 }
 
+export interface ProfilerFrameSample {
+  readonly atMs: number
+  readonly frameIntervalMs: number
+  readonly cpuFrameMs: number
+  readonly renderSubmitMs: number
+}
+
+const MAX_FRAME_SAMPLES = 3600
+
 export interface RuntimeProfileSnapshot {
   timestamp: number
   generation: number
@@ -103,6 +112,7 @@ export class RuntimeProfiler {
 
   private snapshotGeneration: number = 0
   private latestSnapshot: RuntimeProfileSnapshot | null = null
+  private readonly frameSamples: ProfilerFrameSample[] = []
 
   // NPC subphase snapshot (DEV-only, populated by recordNpcSubphase)
   private latestSubphaseSnapshot: NpcSubphaseSnapshot | null = null
@@ -124,6 +134,14 @@ export class RuntimeProfiler {
     const dt = now - this.lastFrameTime
     this.lastFrameTime = now
     if (dt <= 0) return false
+
+    if (this.frameSamples.length >= MAX_FRAME_SAMPLES) this.frameSamples.shift()
+    this.frameSamples.push({
+      atMs: now,
+      frameIntervalMs: dt,
+      cpuFrameMs: metrics.cpuFrameMs,
+      renderSubmitMs: metrics.renderSubmitMs,
+    })
 
     this.accumulatedDurationMs += dt
     this.sampleCount++
@@ -199,10 +217,15 @@ export class RuntimeProfiler {
     return this.latestSubphaseSnapshot
   }
 
+  getFrameSamples(): ProfilerFrameSample[] {
+    return this.frameSamples.slice()
+  }
+
   reset(now?: number): void {
     this.lastFrameTime = now !== undefined ? now : null
     this.accumulatedDurationMs = 0
     this.sampleCount = 0
+    this.frameSamples.length = 0
     resetAccumulator(this.accCpuFrame)
     resetAccumulator(this.accNpcGrid)
     resetAccumulator(this.accNpcUpdate)

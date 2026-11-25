@@ -81,7 +81,17 @@ export class CommanderTownMissionController {
   get deploymentPositions(): readonly THREE.Vector3[] {
     return [...this.officialActors.filter(actor => !actor.dead).map(actor => actor.combatPosition), ...this.plannedPositions]
   }
-  get fieldNpcs(): NPC[] { return [...this.officialActors] }
+  get fieldNpcs(): NPC[] { return this.officialActors }
+  isMissionActor(npc: NPC): boolean {
+    if (this.cachedOfficialActorCount !== this.officialActors.length) {
+      this.cachedOfficialActorSet.clear()
+      for (const actor of this.officialActors) this.cachedOfficialActorSet.add(actor)
+      this.cachedOfficialActorCount = this.officialActors.length
+    }
+    return this.cachedOfficialActorSet.has(npc)
+  }
+  private readonly cachedOfficialActorSet = new Set<NPC>()
+  private cachedOfficialActorCount = -1
   get military(): NPC[] { return this.targetResidents }
   get defenders(): NPC[] { return this.officialActors }
   get civilians(): NPC[] { return this.residents.filter(resident => resident.spec.role === 'civilian').map(resident => resident.npc) }
@@ -296,6 +306,7 @@ export class CommanderTownMissionController {
     npc.setMissionCombatTarget(active.commanderMission?.deploymentComplete ? undefined : null)
     npc.setTacticalOrder(active.commanderMission?.deploymentComplete ? 'attack' : 'defend')
     this.officialActors.push(npc)
+    this.cachedOfficialActorCount = -1
   }
 
   private positionPlayerAtPerimeter(active: ActiveCareerMission): void {
@@ -496,6 +507,7 @@ export class CommanderTownMissionController {
     for (const mount of this.enemyMounts) mount.dispose()
     this.skyRaidStalemate.reset()
     this.officialActors.length = 0; this.enemyMounts.length = 0; this.plannedPositions.length = 0
+    this.cachedOfficialActorSet.clear(); this.cachedOfficialActorCount = -1
     this.actorMounts.clear(); this.playerIssuedCommands.clear(); this.civilianCombat.clear(); this.checkpoint.reset()
     this.initialDeployment = undefined
   }

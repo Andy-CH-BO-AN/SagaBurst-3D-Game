@@ -1,6 +1,6 @@
 import { Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
-import { SpatialGrid, type SpatialEntity } from '../../src/world/SpatialGrid'
+import { packSpatialCellKey, SpatialGrid, type SpatialEntity } from '../../src/world/SpatialGrid'
 
 interface Entity extends SpatialEntity {
   id: string
@@ -88,5 +88,31 @@ describe('SpatialGrid', () => {
     grid.insert(nextLeft)
     expect(grid.findNearest(remoteQuery)).toBe(nextRight)
     expectCandidates(grid.getNearbyInto(center, 100, out), [nextLeft, nextRight])
+  })
+
+  it('packs signed cell coordinates without collisions and recycles pooled buckets across clear/insert cycles', () => {
+    const keys = new Set([
+      packSpatialCellKey(0, 0),
+      packSpatialCellKey(-1, 0),
+      packSpatialCellKey(0, -1),
+      packSpatialCellKey(-1, -1),
+      packSpatialCellKey(1000, -1000),
+      packSpatialCellKey(-1000, 1000),
+    ])
+    expect(keys.size).toBe(6)
+
+    const grid = new SpatialGrid<Entity>(10)
+    const a = entity('a', 5, 0, 5)
+    const b = entity('b', 5, 0, 5)
+    grid.insert(a)
+    grid.insert(b)
+    expect(grid.findNearest(new Vector3(5, 0, 5))).toBe(a)
+
+    grid.clear()
+    // Re-insert in reverse order so pooled bucket orders are reset cleanly.
+    grid.insert(b)
+    grid.insert(a)
+    expect(grid.findNearest(new Vector3(5, 0, 5))).toBe(b)
+    expectCandidates(grid.getNearby(new Vector3(5, 0, 5), 1), [b, a])
   })
 })

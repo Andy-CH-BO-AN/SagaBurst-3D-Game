@@ -55,14 +55,11 @@ export function isTargetInForwardCone(
   return cosAngle >= minCos
 }
 
-/**
- * Scores potential charge targets. Prioritizes forward targets, penalizes rearward targets,
- * and strictly filters out rearward targets during the pass-through phase.
- */
-export function scoreCavalryTarget(
+function scoreCavalryTargetWithForward(
   cx: number,
   cz: number,
-  yaw: number,
+  forwardX: number,
+  forwardZ: number,
   tx: number,
   tz: number,
   isPassthrough: boolean,
@@ -73,8 +70,6 @@ export function scoreCavalryTarget(
   if (distSq < 0.0001) return isPassthrough ? Infinity : 1000
 
   const dist = Math.sqrt(distSq)
-  const forwardX = Math.sin(yaw)
-  const forwardZ = Math.cos(yaw)
   const dot = (forwardX * dx + forwardZ * dz) / dist
 
   if (isPassthrough) {
@@ -90,6 +85,21 @@ export function scoreCavalryTarget(
 
   // Targets behind are heavily penalized so forward enemies take precedence
   return dist * (3.5 - 2.0 * dot)
+}
+
+/**
+ * Scores potential charge targets. Prioritizes forward targets, penalizes rearward targets,
+ * and strictly filters out rearward targets during the pass-through phase.
+ */
+export function scoreCavalryTarget(
+  cx: number,
+  cz: number,
+  yaw: number,
+  tx: number,
+  tz: number,
+  isPassthrough: boolean,
+): number {
+  return scoreCavalryTargetWithForward(cx, cz, Math.sin(yaw), Math.cos(yaw), tx, tz, isPassthrough)
 }
 
 /**
@@ -110,6 +120,11 @@ export function findCavalryChargeTarget(
   const cx = cavalry.combatPosition.x
   const cz = cavalry.combatPosition.z
   const yaw = cavalry.mount ? cavalry.mount.group.rotation.y : cavalry.group.rotation.y
+  const forwardX = Math.sin(yaw)
+  const forwardZ = Math.cos(yaw)
+  const priorityFn = cavalry.combatTargetPriority
+  const allowedFn = cavalry.combatTargetAllowed
+  const minFactor = isPassthrough ? 0.5 : 0.6
 
   let bestPriority = Infinity
   let bestScore = Infinity
@@ -121,7 +136,7 @@ export function findCavalryChargeTarget(
     && acceptsTarget(player)
     && player.targetable
     && !player.dead
-    && cavalry.combatTargetAllowed?.(player) !== false
+    && allowedFn?.(player) !== false
     && !player.currentMount?.isFlyingMount,
   )
 
@@ -137,75 +152,66 @@ export function findCavalryChargeTarget(
   // When player is eligible, candidate range expands to cover the player (up to 120m) so NPCs closer than the player are not overlooked.
   const searchRadius = Math.max(64, Math.min(120, canTargetPlayer ? playerDist + 10 : 64))
 
-  // Query nearby candidates from spatial grid
-  if (hostileNpcGrid) {
-    candidateBuffer.length = 0
-    hostileNpcGrid.getNearbyInto(cavalry.combatPosition, searchRadius, candidateBuffer)
+  const evaluateCandidate = (candidate: NPC): void => {
+    if (candidate === cavalry || candidate.dead || !acceptsTarget(candidate)) return
+    if (!checkHostile(cavalry, candidate)) return
+    if (candidate.mount?.isFlyingMount) return
+    if (allowedFn && allowedFn(candidate) === false) return
 
-    for (let i = 0; i < candidateBuffer.length; i++) {
-      const candidate = candidateBuffer[i]
-      if (candidate === cavalry || candidate.dead || !acceptsTarget(candidate)) continue
-      if (!checkHostile(cavalry, candidate)) continue
-      if (candidate.mount?.isFlyingMount) continue
-      if (cavalry.combatTargetAllowed && cavalry.combatTargetAllowed(candidate) === false) continue
-
-      const score = scoreCavalryTarget(
-        cx,
-        cz,
-        yaw,
-        candidate.combatPosition.x,
-        candidate.combatPosition.z,
-        isPassthrough,
-      )
-      const priority = cavalry.combatTargetPriority?.(candidate) ?? 0
-      if (cavalry.combatTargetPriority?.(candidate) === null) continue
-      if (Number.isFinite(score) && (priority < bestPriority || priority === bestPriority && score < bestScore)) {
-        bestPriority = priority
-        bestScore = score
-        bestTarget = {
-          position: candidate.combatPosition,
-          isDead: false,
-          isPlayer: false,
-          npc: candidate,
-        }
-      }
+    let priority = 0
+    if (priorityFn) {
+      const evaluated = priorityFn(candidate)
+      if (evaluated === null) return
+      priority = evaluated
     }
-  } else if (allNPCs) {
-    for (let i = 0; i < allNPCs.length; i++) {
-      const candidate = allNPCs[i]
-      if (candidate === cavalry || candidate.dead || !acceptsTarget(candidate)) continue
-      if (!checkHostile(cavalry, candidate)) continue
-      if (candidate.mount?.isFlyingMount) continue
-      if (cavalry.combatTargetAllowed && cavalry.combatTargetAllowed(candidate) === false) continue
 
-      const score = scoreCavalryTarget(
-        cx,
-        cz,
-        yaw,
-        candidate.combatPosition.x,
-        candidate.combatPosition.z,
-        isPassthrough,
-      )
-      const priority = cavalry.combatTargetPriority?.(candidate) ?? 0
-      if (cavalry.combatTargetPriority?.(candidate) === null) continue
-      if (Number.isFinite(score) && (priority < bestPriority || priority === bestPriority && score < bestScore)) {
-        bestPriority = priority
-        bestScore = score
-        bestTarget = {
-          position: candidate.combatPosition,
-          isDead: false,
-          isPlayer: false,
-          npc: candidate,
-        }
+    if (priority > bestPriority) return
+    const tx = candidate.combatPosition.x
+    const tz = candidate.combatPosition.z
+    if (priority === bestPriority && Number.isFinite(bestScore)) {
+      const dx = tx - cx
+      const dz = tz - cz
+      const distSq = dx * dx + dz * dz
+      if (distSq >= 0.0001 && distSq * minFactor * minFactor >= bestScore * bestScore) return
+    }
+
+    const score = scoreCavalryTargetWithForward(cx, cz, forwardX, forwardZ, tx, tz, isPassthrough)
+    if (Number.isFinite(score) && (priority < bestPriority || priority === bestPriority && score < bestScore)) {
+      bestPriority = priority
+      bestScore = score
+      bestTarget = {
+        position: candidate.combatPosition,
+        isDead: false,
+        isPlayer: false,
+        npc: candidate,
       }
     }
   }
 
+  // Query nearby candidates from spatial grid
+  if (hostileNpcGrid) {
+    if (!priorityFn && typeof hostileNpcGrid.visitNearbyRings === 'function') {
+      hostileNpcGrid.visitNearbyRings(
+        cavalry.combatPosition,
+        searchRadius,
+        evaluateCandidate,
+        () => Number.isFinite(bestScore) ? bestScore / minFactor : Infinity,
+      )
+    } else {
+      candidateBuffer.length = 0
+      hostileNpcGrid.getNearbyInto(cavalry.combatPosition, searchRadius, candidateBuffer)
+      for (let i = 0; i < candidateBuffer.length; i++) evaluateCandidate(candidateBuffer[i])
+    }
+  } else if (allNPCs) {
+    for (let i = 0; i < allNPCs.length; i++) evaluateCandidate(allNPCs[i])
+  }
+
   // Score player against candidate NPCs within the unified search range
   if (canTargetPlayer && playerPos && playerDist <= searchRadius) {
-    const pScore = scoreCavalryTarget(cx, cz, yaw, playerPos.x, playerPos.z, isPassthrough)
-    const priority = cavalry.combatTargetPriority?.(player) ?? 0
-    if (cavalry.combatTargetPriority?.(player) !== null && Number.isFinite(pScore)
+    const pScore = scoreCavalryTargetWithForward(cx, cz, forwardX, forwardZ, playerPos.x, playerPos.z, isPassthrough)
+    const evaluatedPriority = priorityFn?.(player)
+    const priority = evaluatedPriority ?? 0
+    if (evaluatedPriority !== null && Number.isFinite(pScore)
       && (priority < bestPriority || priority === bestPriority && pScore < bestScore)) {
       bestPriority = priority
       bestScore = pScore

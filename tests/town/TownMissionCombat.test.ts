@@ -85,4 +85,71 @@ describe('Town runtime combat roster', () => {
     expect(riderPos.y).toBeCloseTo(1.4)
     expect(riderPos.z - mountPos.z).toBeCloseTo(0.1)
   })
+
+  it('uses defense.isMissionActor and cached officialSquad actorIds during updateDefense without stale misses', () => {
+    const observedOrderByActor = new Map<string, string | undefined>()
+    const mkActor = (combatantId: string, x: number, order: string) => {
+      const actor = {
+        dead: false, combatantId, faction: 1, townCategory: 'military',
+        combatPosition: new Vector3(x, 0, 0), group: { position: new Vector3(x, 0, 0) },
+        missionMovement: false, tacticalOrder: order, formationCommandId: 1,
+        update() { observedOrderByActor.set(combatantId, actor.tacticalOrder) },
+        endExternalThreat: () => {},
+      }
+      return actor as unknown as NPC
+    }
+
+    const native = mkActor('native-1', 0, 'defend')
+    const lateSpawn = mkActor('reinf-1', 2, 'defend')
+    const fieldNpcs: NPC[] = [native]
+    const missionSet = new Set<NPC>(fieldNpcs)
+    const seenMissionOwnership: Array<[string, boolean]> = []
+    const combat = new TownMissionCombat({
+      field: { fieldNpcs: [], friendlies: [], ambientBandits: [] },
+      defense: {
+        active: { kind: 'commander-four-gate-defense', officialSquad: { actorIds: ['native-1'] } },
+        phase: 'ATTACKING',
+        combatEnabled: true,
+        fieldNpcs,
+        waitingEnemies: [],
+        enemyMounts: [],
+        updateFlow: () => {},
+        peersFor: () => [],
+        updateCivilianOrder: () => {},
+        isMissionActor: (npc: NPC) => {
+          const owned = missionSet.has(npc)
+          seenMissionOwnership.push([npc.combatantId, owned])
+          return owned
+        },
+      },
+      duel: { fieldNpcs: [], isParkedResident: () => false },
+    } as unknown as Inputs[0], {
+      residents: [
+        { spec: { id: 'native-1', role: 'guard' }, npc: native },
+        { spec: { id: 'reinf-1', role: 'guard' }, npc: lateSpawn },
+      ],
+      obstacles: [],
+      cameraPosition: new Vector3(0, 0, 0),
+      navigation: { resumePathSearches: () => {} },
+      player: () => ({ dead: true, combatPosition: new Vector3(0, 0, 0) }),
+      careerMounts: { update: () => {} },
+      ownsPeacefulTravel: () => true,
+      peaceResident: () => {},
+      updateCommandCue: () => {},
+      onActorMoved: () => {},
+      hitNpc: () => {},
+      damagePlayer: () => {},
+      fireNpc: () => {},
+    } as unknown as Inputs[1])
+
+    // Simulate a late reinforcement added before dispatch runs.
+    fieldNpcs.push(lateSpawn)
+    missionSet.add(lateSpawn)
+
+    combat['updateDefense'](1 / 60, 0, 1)
+    expect(seenMissionOwnership).toContainEqual(['native-1', true])
+    expect(seenMissionOwnership).toContainEqual(['reinf-1', true])
+    expect(observedOrderByActor.get('native-1')).toBe('defend')
+    expect(observedOrderByActor.get('reinf-1')).toBe('defend')
+  })
 })

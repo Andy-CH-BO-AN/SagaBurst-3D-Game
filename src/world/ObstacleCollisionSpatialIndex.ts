@@ -1,4 +1,5 @@
 import { obstacleTopologyRevision } from './ObstacleTopology'
+import { packSpatialCellKey } from './SpatialGrid'
 import type { ObstacleCollisionGroup, ObstacleData } from './Terrain'
 
 export const OBSTACLE_COLLISION_GRID_CELL_SIZE = 8
@@ -25,7 +26,7 @@ export class ObstacleCollisionSpatialIndex {
   private readonly unculledIndices: number[] = []
   private readonly dynamicIndices: number[] = []
   private readonly dynamicGroups: (ObstacleCollisionGroup & { indices: number[] })[] = []
-  private readonly cells = new Map<string, number[]>()
+  private readonly cells = new Map<number, number[]>()
   private readonly queryBuffer: ObstacleData[] = []
   private readonly queryIndices: number[] = []
   private obstacles: readonly ObstacleData[] = []
@@ -184,7 +185,7 @@ export class ObstacleCollisionSpatialIndex {
     return this.queryStamp
   }
 
-  private _cellKey(cellX: number, cellZ: number): string {
-    return `${cellX},${cellZ}`
+  private _cellKey(cellX: number, cellZ: number): number {
+    return packSpatialCellKey(cellX, cellZ)
   }
 }

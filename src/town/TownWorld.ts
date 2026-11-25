@@ -158,14 +158,36 @@ export class TownWorld {
     }
     const tree = createPineVisual(42, faction === 'viking')
     this.trackOwned(tree)
+    const pineSectors: THREE.Matrix4[][] = Array.from({ length: 8 }, () => [])
     for (let i = 0; i < 90; i++) {
       const { x, z, angle } = townSceneryPoint(i, 112, 13)
       if (townSceneryExcluded(x, z, 12) || nearTownBanditCamp(x, z, 26)) continue
       if (this.camps.some(c => c.spawnPoints.some(p => Math.hypot(p.x - x, p.z - z) < 18))) continue
-      const copy = tree.clone(true), scale = .8 + i % 5 * .13
-      copy.position.set(x, getTerrainHeight(x, z), z); copy.scale.setScalar(scale); copy.rotation.y = angle
-      this.root.add(copy); this.solid(x, z, .6, 5, .6)
-      this.airspaceObstacles.push({ box: new THREE.Box3().setFromObject(copy), isBarricade: false })
+      const scale = .8 + i % 5 * .13
+      tree.position.set(x, getTerrainHeight(x, z), z); tree.scale.setScalar(scale); tree.rotation.set(0, angle, 0)
+      tree.updateMatrixWorld(true)
+      const sector = Math.floor(((Math.atan2(z, x) + Math.PI) / (Math.PI * 2)) * 8) & 7
+      pineSectors[sector].push(tree.matrixWorld.clone())
+      this.solid(x, z, .6, 5, .6)
+      this.airspaceObstacles.push({ box: new THREE.Box3().setFromObject(tree), isBarricade: false })
+    }
+    const childMatrix = new THREE.Matrix4()
+    for (const sectorTransforms of pineSectors) {
+      if (sectorTransforms.length === 0) continue
+      for (const child of tree.children) {
+        if (!(child instanceof THREE.Mesh)) continue
+        child.updateMatrix()
+        const instanced = new THREE.InstancedMesh(child.geometry, child.material, sectorTransforms.length)
+        instanced.castShadow = child.castShadow
+        instanced.receiveShadow = child.receiveShadow
+        for (let idx = 0; idx < sectorTransforms.length; idx++) {
+          childMatrix.multiplyMatrices(sectorTransforms[idx], child.matrix)
+          instanced.setMatrixAt(idx, childMatrix)
+        }
+        instanced.instanceMatrix.needsUpdate = true
+        instanced.computeBoundingSphere()
+        this.root.add(instanced)
+      }
     }
     this.hr = resolveTownHRLayout(faction, this.obstacles, this.roads)
     this.civic('hr-center', 'hr-center', this.hr.site)
@@ -191,6 +213,7 @@ export class TownWorld {
     ])
     if (this.civicClearance.blocked.length) console.warn('城鎮建築通道淨空需檢查', this.civicClearance)
     this.batch(this.root)
+    this.freezeStaticMatrices()
     setObstaclePathQuerySource(this.obstacles, true)
   }
 
@@ -428,7 +451,24 @@ export class TownWorld {
     this.solid(x, z, .5, 1.7, .35)
     this.targets.push(target); return target
   }
-  finalizeTrainingTargets(): void { this.batch(this.root) }
+  finalizeTrainingTargets(): void { this.batch(this.root); this.freezeStaticMatrices() }
+
+  /** Freeze static Town world geometry so renderer.render() skips recomputing unchanged matrices. */
+  private freezeStaticMatrices(): void {
+    const dynamicRoots = new Set<THREE.Object3D>()
+    for (const building of this.buildings) dynamicRoots.add(building.roof)
+    for (const gateId of this.gates.keys()) {
+      const leaves = this.fortifications.root.getObjectByName(`town-${gateId}-gate-leaves`)
+      if (leaves) dynamicRoots.add(leaves)
+    }
+    this.root.updateMatrixWorld(true)
+    const freeze = (node: THREE.Object3D): void => {
+      if (dynamicRoots.has(node)) return
+      node.matrixAutoUpdate = false
+      for (const child of node.children) freeze(child)
+    }
+    freeze(this.root)
+  }
 
   private markerMaterial?: THREE.SpriteMaterial
   addServiceMarker(parent: THREE.Object3D, height: number): THREE.Sprite {

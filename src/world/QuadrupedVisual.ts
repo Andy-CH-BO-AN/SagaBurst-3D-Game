@@ -1,4 +1,4 @@
-import { CHARACTER_LOD_DISTANCES, MOUNT_ANIMATION_THROTTLE_DISTANCE, mountAnimationInterval } from './CharacterLODPolicy'
+import { CHARACTER_LOD_DISTANCES, FarAnimationCadence, MOUNT_ANIMATION_THROTTLE_DISTANCE, mountAnimationInterval } from './CharacterLODPolicy'
 import * as THREE from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
@@ -68,7 +68,7 @@ export class QuadrupedVisual {
     this.poseChanged = false
   }
   private cameraDistance = 0
-  private farAccumulator = 0
+  private readonly farCadence = new FarAnimationCadence()
   private poseChanged = true
   readonly skeleton: THREE.Skeleton
   readonly mixer: THREE.AnimationMixer
@@ -214,11 +214,10 @@ export class QuadrupedVisual {
   update(dt: number, cameraDistance = 0): void {
     if (this.paused || !Number.isFinite(dt) || dt < 0) return
     this.cameraDistance = cameraDistance
-    this.farAccumulator += dt
-    if (this.farAccumulator < mountAnimationInterval(cameraDistance)) return
+    const step = this.farCadence.advance(dt, mountAnimationInterval(cameraDistance))
+    if (step === null) return
     // Returning near consumes any pending far time once.
-    dt = this.farAccumulator
-    this.farAccumulator = 0
+    dt = step
     this.poseChanged = true
     this.elapsed += dt
     this.mixer.update(dt)
