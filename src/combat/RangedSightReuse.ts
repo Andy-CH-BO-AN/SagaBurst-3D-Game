@@ -14,29 +14,42 @@ interface Point { x: number; y: number; z: number }
  * frame rates never stretch the window. Moving obstacles (siege carriers) are seen
  * at most RANGED_SIGHT_REUSE_SECONDS late — the accepted shot-timing trade-off.
  */
-export class RangedSightReuse {
+/**
+ * Per-shooter reuse of one ranged blocker decision for a few frames. Shares
+ * identical time/movement/topology invalidation rules with `RangedSightReuse`.
+ */
+export class RangedValueReuse<V> {
   private target: object | null = null
   private obstacles: object | null = null
   private revision = -1
   private tracedAt = -Infinity
-  private clear = false
+  private value!: V
   private readonly shooterAt = { x: 0, y: 0, z: 0 }
   private readonly targetAt = { x: 0, y: 0, z: 0 }
 
-  isClear(now: number, target: object | null, shooter: Point, targetPosition: Point, obstacles: object, trace: () => boolean): boolean {
+  getOrCompute(now: number, target: object | null, shooter: Point, targetPosition: Point, obstacles: object, compute: () => V): V {
     const revision = obstacleTopologyRevision(obstacles)
     if (target !== null && target === this.target && obstacles === this.obstacles && revision === this.revision
       && now - this.tracedAt < RANGED_SIGHT_REUSE_SECONDS && now >= this.tracedAt
       && distanceSq(shooter, this.shooterAt) <= RANGED_SIGHT_REUSE_MOVE ** 2
-      && distanceSq(targetPosition, this.targetAt) <= RANGED_SIGHT_REUSE_MOVE ** 2) return this.clear
-    this.clear = trace()
+      && distanceSq(targetPosition, this.targetAt) <= RANGED_SIGHT_REUSE_MOVE ** 2) return this.value
+    const value = compute()
+    this.value = value
     this.target = target
     this.obstacles = obstacles
     this.revision = revision
     this.tracedAt = now
     copy(this.shooterAt, shooter)
     copy(this.targetAt, targetPosition)
-    return this.clear
+    return value
+  }
+}
+
+export class RangedSightReuse {
+  private readonly inner = new RangedValueReuse<boolean>()
+
+  isClear(now: number, target: object | null, shooter: Point, targetPosition: Point, obstacles: object, trace: () => boolean): boolean {
+    return this.inner.getOrCompute(now, target, shooter, targetPosition, obstacles, trace)
   }
 }
 

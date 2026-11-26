@@ -48,15 +48,20 @@ interface BoneSubtreeEntry {
 
 function collectBoneOnlyRoots(root: THREE.Object3D): THREE.Object3D[] {
   const roots: THREE.Object3D[] = []
+  const isEmptySocketPlaceholder = (object: THREE.Object3D): boolean =>
+    object.children.length === 0
+    && !(object instanceof THREE.Mesh || object instanceof THREE.Sprite || object instanceof THREE.Light || object instanceof THREE.Line || object instanceof THREE.Points)
   const isBoneOnly = (object: THREE.Object3D): boolean => {
-    let only = (object as THREE.Bone).isBone === true
-    for (let i = 0; i < object.children.length; i++) {
-      if (!isBoneOnly(object.children[i])) only = false
+    if ((object as THREE.Bone).isBone !== true) {
+      return isEmptySocketPlaceholder(object)
     }
-    return only
+    for (let i = 0; i < object.children.length; i++) {
+      if (!isBoneOnly(object.children[i])) return false
+    }
+    return true
   }
   const visit = (object: THREE.Object3D): void => {
-    if (isBoneOnly(object)) {
+    if ((object as THREE.Bone).isBone === true && isBoneOnly(object)) {
       roots.push(object)
       return
     }

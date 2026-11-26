@@ -410,15 +410,14 @@ export class TownFourGateSiege {
     }
     // A deployment/formation hold may end without a topology revision. Admit
     // newly released AI actors once, while retaining explicit player receipts.
-    for (const npc of this.actorsById.values()) if (this.attackerIds.has(npc.combatantId)) {
+    for (const npc of this.actorsById.values()) {
+      if (!this.attackerIds.has(npc.combatantId)) continue
       const eligible = !npc.siegeTransport && this.accepts(npc)
       if (eligible && !this.routeEligibility.get(npc.combatantId)) this.route(npc)
       this.routeEligibility.set(npc.combatantId, eligible)
-    }
-    for (const npc of this.options.actors()) {
-      if (!this.attackerIds.has(npc.combatantId) || npc.mount?.isFlyingMount || this.options.attackerRole?.(npc) === 'air'
-        || npc.hasTacticalCombatPriority || npc.siegeTransport || !this.accepts(npc)) {
-        this.convoy.release(npc); continue
+      if (!eligible || npc.mount?.isFlyingMount || this.options.attackerRole?.(npc) === 'air' || npc.hasTacticalCombatPriority) {
+        this.convoy.release(npc)
+        continue
       }
       this.convoy.update(npc, this.rampList)
     }

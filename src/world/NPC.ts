@@ -1,5 +1,5 @@
 import { LiveActorRegistry } from './LiveActorRegistry'
-import { RangedSightReuse } from '../combat/RangedSightReuse'
+import { RangedSightReuse, RangedValueReuse } from '../combat/RangedSightReuse'
 import { traceFistStrike, UNARMED_ATTACK_DISTANCE, UNARMED_DAMAGE, UNARMED_RANGE, UNARMED_STOP_DISTANCE } from '../combat/UnarmedCombat'
 import { resolveOrdinaryNpcHp } from '../combat/OrdinarySoldierProfile'
 import { resolveCharacterIdentity, type CharacterIdentity, type CharacterTier, type HeroArchetype } from '../combat/CharacterIdentity'
@@ -763,6 +763,14 @@ export class NPC {
   private readonly _missionSight = new RangedSightReuse()
   private readonly _rampartSight = new RangedSightReuse()
   private readonly _rampartThreatSight = new RangedSightReuse()
+  private readonly _attackSight = new RangedSightReuse()
+  private readonly _chaseBlockerReuse = new RangedValueReuse<ObstacleData | null>()
+  private _chaseRangedScanFrames = 0
+  private _chaseRangedScanStaggered = false
+  private _lastControlledDirX = 0
+  private _lastControlledDirZ = 0
+  private _lastControlledSpeed = 0
+  private _outerSiegeTierSafeFrames = 0
   private readonly _rampScanCandidates: ObstacleData[] = []
   private readonly _rampScanDistances: number[] = []
   private readonly _rampScanOrder: number[] = []
@@ -1334,6 +1342,7 @@ export class NPC {
     }
     const previousPosition = this._tmpPreviousPosition.copy(this.group.position)
     this.visualMovementSpeed = 0
+    this._lastControlledSpeed = 0
     this.isSprinting = false
     this.mount?.setCameraDistance(distance)
     this.mount?.setInFrustum?.(inFrustum)
@@ -2796,6 +2805,7 @@ export class NPC {
       if (hadTarget && !targetValid) {
         // Invalid targets are never delayed by the AI LOD cadence.
         this._rangedVisibleTargetHoldFrames = 0
+        this._chaseRangedScanFrames = 0
         this._acquireTarget(player, allNPCs, hostileNpcGrid, chaseTargetCoordinator)
         this._scheduleTargetReacquire(player, true)
       } else if (targetValid && this._rangedVisibleTargetHoldFrames > 0) {
@@ -2804,7 +2814,12 @@ export class NPC {
         this._rangedVisibleTargetHoldFrames -= 1
       } else {
         if (this.targetReacquire.tick(this._getCachedTargetDistance(player))) {
+          const prevNpc = this._cachedTargetNpc
+          const prevPlayer = this._cachedTargetIsPlayer
           this._acquireTarget(player, allNPCs, hostileNpcGrid, chaseTargetCoordinator)
+          if (this._cachedTargetNpc !== prevNpc || this._cachedTargetIsPlayer !== prevPlayer) {
+            this._chaseRangedScanFrames = 0
+          }
           this._scheduleTargetReacquire(player, false)
         }
       }
@@ -3009,7 +3024,104 @@ export class NPC {
   private setOffFrustumVisualSleep(sleep: boolean): void {
     if (sleep === this.offFrustumVisualSleep) return
     this.offFrustumVisualSleep = sleep
+    this.animator.setVisualSleep?.(sleep)
     if (this.characterVisualGroup) this.characterVisualGroup.visible = !sleep
+  }
+
+  get canArmOuterSiegeTier(): boolean {
+    if (this.dead
+      || this.isFalling
+      || this.pendingFall.active
+      || this.mount?.isFlyingMount
+      || this.siegeTransport
+      || this.siegeEvacuation
+      || this.animator.busy
+      || (this.missionCombatTarget && typeof this.missionCombatTarget === 'object')) return false
+    const chaseEligible = this.state === AIState.CHASE
+      && !this.layeredCombatMovement
+      && (!this.hasSiegeObstacle || (this.assignedSiegeObstacle !== null
+        && this._distanceToObstacleXZ(this.assignedSiegeObstacle) > (this.hasActiveRangedWeapon ? this.maxRangedAttackDistance + 8 : 22)))
+    const escortMarchEligible = (this.tacticalOrder === 'formation' || this.tacticalOrder === 'defend' && this.formationTarget?.arrivalOrder === 'defend')
+      && Boolean(this.formationTarget && !this.formationTarget.reached)
+    return chaseEligible || escortMarchEligible
+  }
+
+  armOuterSiegeTier(frames: number): void {
+    this._outerSiegeTierSafeFrames = frames
+  }
+
+  canTierOuterSiegeStep(cameraDistance: number, inFrustum: boolean): boolean {
+    return this._outerSiegeTierSafeFrames > 0
+      && ((!inFrustum && cameraDistance > 48) || cameraDistance > 64)
+      && this.currentHp > 0
+      && this.canArmOuterSiegeTier
+  }
+
+  stepTieredOuterSiege(dt: number, obstacles: ObstacleData[], cameraDistance: number, inFrustum = false): void {
+    this._outerSiegeTierSafeFrames = Math.max(0, this._outerSiegeTierSafeFrames - 1)
+    if (this.mount) this.mount.setInFrustum?.(inFrustum)
+    this.setOffFrustumVisualSleep(!inFrustum && cameraDistance > OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE)
+    if (Number.isFinite(dt) && dt > 0) this._sightClock += dt
+    this.playerHitFocus = Math.max(0, this.playerHitFocus - dt)
+    if (this.cavalryPassthroughTimer > 0) this.cavalryPassthroughTimer = Math.max(0, this.cavalryPassthroughTimer - dt)
+    if (!this.hasActiveRangedWeapon) this.attackTimer = Math.max(0, this.attackTimer - dt)
+    if (this._rangedVisibleTargetHoldFrames > 0) this._rangedVisibleTargetHoldFrames -= 1
+    if (this._chaseRangedScanFrames > 0) this._chaseRangedScanFrames -= 1
+    const previousPosition = this._tmpPreviousPosition.copy(this.group.position)
+    this.visualMovementSpeed = 0
+    if (this.mount) this.mount.beginControlledFrame()
+    if (this._lastControlledSpeed > 0) {
+      const dir = this._tmpMoveDir.set(this._lastControlledDirX, 0, this._lastControlledDirZ)
+      const stepDist = this._lastControlledSpeed * dt
+      const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(dir, stepDist + 0.25)
+      if (!findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
+        this.visualMovementSpeed = this._lastControlledSpeed
+        if (this.mount) this.mount.addControlledMovement(dir, this._lastControlledSpeed, dt)
+        else this.group.position.addScaledVector(dir, stepDist)
+      }
+    }
+    this._updateMovementStamina(dt)
+    this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
+    this.animator.update(dt, cameraDistance, inFrustum)
+    if (this.isMounted && this.mount) {
+      this.mount.finishControlledFrame(dt, obstacles)
+      this._syncToMount()
+    } else {
+      this._updateFootPhysics(previousPosition, dt, obstacles)
+    }
+  }
+
+  canSkipHeldStationaryFrame(cameraDistance: number, inFrustum: boolean): boolean {
+    return this._outerSiegeTierSafeFrames > 0
+      && ((!inFrustum && cameraDistance > 42) || cameraDistance > 64)
+      && !this.dead
+      && this.currentHp > 0
+      && !this.isFalling
+      && !this.pendingFall.active
+      && !this.mount?.isFlyingMount
+      && !this.siegeTransport
+      && !this.siegeEvacuation
+      && !this.animator.busy
+      && this.state === AIState.IDLE
+      && this.tacticalOrder === 'defend'
+      && (!this.formationTarget || this.formationTarget.reached)
+      && this.missionCombatTarget === null
+      && this._lastControlledSpeed === 0
+      && this.onGround
+      && (!this.mount || (!this.mount.dead && this.mount.onGround && this.mount.movementSpeed === 0))
+  }
+
+  stepHeldStationaryFrame(dt: number, cameraDistance: number, inFrustum = false): void {
+    this.setOffFrustumVisualSleep(!inFrustum && cameraDistance > OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE)
+    if (Number.isFinite(dt) && dt > 0) this._sightClock += dt
+    this.playerHitFocus = Math.max(0, this.playerHitFocus - dt)
+    if (this.cavalryPassthroughTimer > 0) this.cavalryPassthroughTimer = Math.max(0, this.cavalryPassthroughTimer - dt)
+    this._updateMovementStamina(dt)
+    if (this.mount) {
+      this.mount.setCameraDistance(cameraDistance)
+      this.mount.setInFrustum?.(inFrustum)
+    }
+    this.animator.update(dt, cameraDistance, inFrustum)
   }
 
   update(
@@ -3086,6 +3198,7 @@ export class NPC {
 
     const previousPosition = this._tmpPreviousPosition.copy(this.group.position)
     this.visualMovementSpeed = 0
+    this._lastControlledSpeed = 0
     this.isSprinting = false
     if (this.tacticalOrder !== 'charge' || this.state !== AIState.CHASE) {
       this.chargeSprintLatched = false
@@ -3560,19 +3673,23 @@ export class NPC {
 
     // Ranged fast path: if the current target is already shootable, attack
     // immediately and skip blocker/pathfinding work for this CHASE frame.
+    let evaluatedChaseBlocker: ObstacleData | null | undefined
     if (this.hasActiveRangedWeapon) {
       const maxRange = this.maxRangedAttackDistance
-      if (
-        distSq <= maxRange * maxRange
-        && distSq >= RANGED_ATTACK_MIN * RANGED_ATTACK_MIN
-        && this._findRangedTrajectoryBlocker(targetInfo.position, obstacles) === null
-      ) {
-        this._clearObstacleDetour()
-        this._clearNavigationPath()
-        this._clearSiegeFallback()
-        this.state = AIState.ATTACK
-        this.attackTimer = 0
-        return
+      if (distSq <= maxRange * maxRange && distSq >= RANGED_ATTACK_MIN * RANGED_ATTACK_MIN) {
+        const chaseTargetObj = targetInfo.isPlayer ? player : targetInfo.npc ?? null
+        evaluatedChaseBlocker = this._chaseBlockerReuse.getOrCompute(
+          this._sightClock, chaseTargetObj, this.combatPosition, targetInfo.position, obstacles,
+          () => this._findRangedTrajectoryBlocker(targetInfo.position, obstacles),
+        )
+        if (evaluatedChaseBlocker === null) {
+          this._clearObstacleDetour()
+          this._clearNavigationPath()
+          this._clearSiegeFallback()
+          this.state = AIState.ATTACK
+          this.attackTimer = 0
+          return
+        }
       }
     }
 
@@ -3667,7 +3784,12 @@ export class NPC {
       moveDir.copy(movementTarget).sub(this.combatPosition)
     } else if (this.hasActiveRangedWeapon) {
       if (dist <= this.maxRangedAttackDistance && dist >= RANGED_ATTACK_MIN) {
-        const rangedBlocker = this._findRangedTrajectoryBlocker(targetInfo.position, obstacles)
+        const rangedBlocker = evaluatedChaseBlocker !== undefined
+          ? evaluatedChaseBlocker
+          : this._chaseBlockerReuse.getOrCompute(
+            this._sightClock, targetInfo.isPlayer ? player : targetInfo.npc ?? null, this.combatPosition, targetInfo.position, obstacles,
+            () => this._findRangedTrajectoryBlocker(targetInfo.position, obstacles),
+          )
         if (rangedBlocker === null) {
           // Enemy first: if the current human is actually shootable, never
           // spend an arrow on a wall/tree instead.
@@ -3680,14 +3802,22 @@ export class NPC {
 
         // Current human is blocked. Prefer another visible human before any
         // structure becomes a fallback target.
-        if (
-          this._trySwitchToVisibleRangedTarget(
+        let switchedToVisible = false
+        if (--this._chaseRangedScanFrames <= 0) {
+          if (!this._chaseRangedScanStaggered) {
+            this._chaseRangedScanStaggered = true
+            this._chaseRangedScanFrames = 1 + Math.floor(this._initialStaggerPhase * NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES)
+          } else {
+            this._chaseRangedScanFrames = NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES
+          }
+          switchedToVisible = this._trySwitchToVisibleRangedTarget(
             player,
             allNPCs,
             hostileNpcGrid,
             obstacles,
           )
-        ) {
+        }
+        if (switchedToVisible) {
           this.state = AIState.CHASE
           return
         }
@@ -3766,15 +3896,19 @@ export class NPC {
       if (import.meta.env.DEV && _collector) { var _tSep = performance.now() }
       this._tmpSep.set(0, 0, 0)
       let sepCount = 0
+      const sepRadiusSq = NPC_SEPARATION_RADIUS * NPC_SEPARATION_RADIUS
       for (const other of nearbyNPCs) {
         if (other === this || other.dead) continue
         // The physical body solver keeps combatants apart. Boids must not
         // repel the chosen melee opponent before our weapon can reach them.
         if (!this.hasActiveRangedWeapon && other === targetInfo.npc) continue
-        const d = this.group.position.distanceTo(other.position)
-        if (d < NPC_SEPARATION_RADIUS) {
-          this._tmpPush.copy(this.group.position).sub(other.position)
-          this._tmpPush.y = 0
+        const dx = this.group.position.x - other.position.x
+        const dy = this.group.position.y - other.position.y
+        const dz = this.group.position.z - other.position.z
+        const dSq = dx * dx + dy * dy + dz * dz
+        if (dSq < sepRadiusSq) {
+          const d = Math.sqrt(dSq)
+          this._tmpPush.set(dx, 0, dz)
           this._tmpSep.add(this._tmpPush.normalize().multiplyScalar(1.5 / Math.max(0.1, d)))
           sepCount++
         }
@@ -3995,7 +4129,14 @@ export class NPC {
     if (
       !siegeObstacle
       && this.hasActiveRangedWeapon
-      && this._findRangedTrajectoryBlocker(targetInfo.position, obstacles) !== null
+      && !this._attackSight.isClear(
+        this._sightClock,
+        targetInfo.isPlayer ? player : targetInfo.npc ?? null,
+        this.combatPosition,
+        targetInfo.position,
+        obstacles,
+        () => this._findRangedTrajectoryBlocker(targetInfo.position, obstacles) === null,
+      )
     ) {
       this.animator.cancel()
       this.state = AIState.CHASE
@@ -4842,12 +4983,16 @@ export class NPC {
     if (!skipBoidsAndObstacles && moveDir.lengthSq() > 0.0001) {
       this._tmpSep.set(0, 0, 0)
       let sepCount = 0
+      const sepRadiusSq = NPC_SEPARATION_RADIUS * NPC_SEPARATION_RADIUS
       for (const other of nearbyNPCs) {
         if (other === this || other.dead) continue
-        const separationDistance = this.combatPosition.distanceTo(other.combatPosition)
-        if (separationDistance < NPC_SEPARATION_RADIUS) {
-          this._tmpPush.copy(this.group.position).sub(other.position)
-          this._tmpPush.y = 0
+        const dx = this.combatPosition.x - other.combatPosition.x
+        const dy = this.combatPosition.y - other.combatPosition.y
+        const dz = this.combatPosition.z - other.combatPosition.z
+        const dSq = dx * dx + dy * dy + dz * dz
+        if (dSq < sepRadiusSq) {
+          const separationDistance = Math.sqrt(dSq)
+          this._tmpPush.set(this.group.position.x - other.position.x, 0, this.group.position.z - other.position.z)
           this._tmpSep.add(this._tmpPush.normalize().multiplyScalar(1.5 / Math.max(0.1, separationDistance)))
           sepCount++
         }
@@ -5020,6 +5165,9 @@ export class NPC {
     const effectiveSpeed = dt > 0 ? Math.min(desiredSpeed, maxDistance / dt) : desiredSpeed
 
     this.visualMovementSpeed = Math.max(this.visualMovementSpeed, effectiveSpeed)
+    this._lastControlledDirX = direction.x
+    this._lastControlledDirZ = direction.z
+    this._lastControlledSpeed = effectiveSpeed
     if (this.mount) {
       this.mount.addControlledMovement(direction, effectiveSpeed, dt)
     } else {

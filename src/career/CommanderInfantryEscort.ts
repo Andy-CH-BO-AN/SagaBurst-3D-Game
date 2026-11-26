@@ -3,7 +3,7 @@ import type { TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
 import type { TownGateId } from '../town/TownLayout'
 import type { NPC } from '../world/NPC'
 import { getTerrainHeight, type WalkRampSurface } from '../world/Terrain'
-import { COMMANDER_CAVALRY_ESCORT, type CommanderCavalryEscortRampFrame } from './CommanderCavalryEscort'
+import { checkpointActorsByRamp, COMMANDER_CAVALRY_ESCORT, type CommanderCavalryEscortRampFrame } from './CommanderCavalryEscort'
 import { commanderFourGateDefenseSlots } from './CommanderFourGateDefenseRoster'
 import type { PersonalActorCheckpoint } from './CareerPersonalSquadMission'
 
@@ -163,12 +163,17 @@ export function advanceCommanderInfantryEscort(checkpoint: CommanderInfantryEsco
   if (!Number.isFinite(dt) || dt < 0) return { checkpoint, releasedActorIds: [] }
   let next = checkpoint
   const releasedActorIds: string[] = []
+  const actorsByRamp = checkpointActorsByRamp(checkpoint.actors)
   for (const [id, group] of Object.entries(checkpoint.groups) as [TownSiegeRampId, CommanderInfantryEscortGroup][]) {
     if (group.releaseReason) continue
-    const members = Object.entries(checkpoint.actors).filter(([, actor]) => rampId(actor.gateId, actor.side) === id)
+    const members = actorsByRamp.get(id) ?? []
     const ramp = ramps.get(id)
     let reason: CommanderInfantryEscortReleaseReason | undefined
-    if (members.every(([actorId]) => actors.get(actorId)?.dead === true)) reason = 'group-dead'
+    let allDead = true
+    for (let i = 0; i < members.length; i++) {
+      if (actors.get(members[i][0])?.dead !== true) { allDead = false; break }
+    }
+    if (allDead) reason = 'group-dead'
     else if (ramp?.state === 'DOCKED') reason = 'ramp-docked'
     else if (ramp?.state === 'DESTROYED') reason = 'ramp-destroyed'
     else if (ramp?.state === 'ABANDONED') reason = 'ramp-abandoned'

@@ -15,27 +15,45 @@ export class SiegeConvoy<Id extends MobileSiegeRampId> {
     // Evacuees own the continuous rear walk lane until their feet reach ground.
     if (npc.siegeEvacuation) { this.release(npc); return }
     const p = npc.combatPosition
-    const along = (r: MobileSiegeRamp<Id>, x: number, z: number) => (p.x - x) * (r.placement.dirX ?? 0) + (p.z - z) * r.placement.dirZ
-    const lateral = (r: MobileSiegeRamp<Id>) => (p.x - r.position.x) * r.placement.dirZ - (p.z - r.position.z) * (r.placement.dirX ?? 0)
     // Match the chassis front and the ground body used by canMove. Once clear,
     // normal gate targeting owns the rider even in the narrow gap before a wall.
     const frontClearance = SIEGE_RAMP.chassisOverhang + (npc.isMounted ? 1 : .5)
     let bypass = this.bypassing.get(npc)
-    if (bypass && (!needsGroundBypass(bypass.ramp.controller.state) || along(bypass.ramp, bypass.ramp.position.x, bypass.ramp.position.z) >= frontClearance)) {
-      this.bypassing.delete(npc); npc.siegeBypassTarget = null; bypass = undefined
+    if (bypass) {
+      const br = bypass.ramp
+      const bdx = br.placement.dirX ?? 0
+      const bdz = br.placement.dirZ
+      const balong = (p.x - br.position.x) * bdx + (p.z - br.position.z) * bdz
+      if (!needsGroundBypass(br.controller.state) || balong >= frontClearance) {
+        this.bypassing.delete(npc); npc.siegeBypassTarget = null; bypass = undefined
+      }
     }
     if (!bypass) {
-      const ramp = ramps.find(r => needsGroundBypass(r.controller.state) && Math.abs(lateral(r)) < r.surface.halfWidth + 3
-        && along(r, r.position.x, r.position.z) < frontClearance && along(r, r.surface.startX, r.surface.startZ) > -8)
+      let ramp: MobileSiegeRamp<Id> | undefined
+      for (let i = 0; i < ramps.length; i++) {
+        const r = ramps[i]
+        if (!needsGroundBypass(r.controller.state)) continue
+        const dx = r.placement.dirX ?? 0
+        const dz = r.placement.dirZ
+        const lateralVal = (p.x - r.position.x) * dz - (p.z - r.position.z) * dx
+        if (Math.abs(lateralVal) >= r.surface.halfWidth + 3) continue
+        if ((p.x - r.position.x) * dx + (p.z - r.position.z) * dz >= frontClearance) continue
+        if ((p.x - r.surface.startX) * dx + (p.z - r.surface.startZ) * dz <= -8) continue
+        ramp = r
+        break
+      }
       if (ramp) {
-        const side = Math.sign(lateral(ramp)) || -Math.sign(ramp.position.x * ramp.placement.dirZ - ramp.position.z * (ramp.placement.dirX ?? 0)) || 1
+        const dx = ramp.placement.dirX ?? 0
+        const dz = ramp.placement.dirZ
+        const lateralVal = (p.x - ramp.position.x) * dz - (p.z - ramp.position.z) * dx
+        const side = Math.sign(lateralVal) || -Math.sign(ramp.position.x * dz - ramp.position.z * dx) || 1
         bypass = { ramp, lateral: side * (ramp.surface.halfWidth + 4) }; this.bypassing.set(npc, bypass)
       }
     }
     if (bypass) {
       const r = bypass.ramp, dx = r.placement.dirX ?? 0, dz = r.placement.dirZ
-      const currentAlong = along(r, r.position.x, r.position.z)
-      const currentLateral = lateral(r)
+      const currentAlong = (p.x - r.position.x) * dx + (p.z - r.position.z) * dz
+      const currentLateral = (p.x - r.position.x) * dz - (p.z - r.position.z) * dx
       const noseHalfWidth = r.surface.halfWidth + (npc.isMounted ? 1.5 : 1)
       const inFrontPocket = currentAlong >= -.25 && Math.abs(currentLateral) < noseHalfWidth
       const targetLateral = inFrontPocket ? currentLateral : bypass.lateral

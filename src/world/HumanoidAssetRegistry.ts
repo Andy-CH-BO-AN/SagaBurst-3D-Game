@@ -557,6 +557,7 @@ export class MixerController implements HumanoidAnimationController {
       this.equipmentState.relaxedHandWeight = THREE.MathUtils.lerp(this.relaxedHandTransitionStart, this.equipmentState.relaxedHandWeight, blend)
       if (blend === 1) this.relaxedHandTransitionStart = undefined
     }
+    this.onSkeletonDirty?.()
     if (this.equipmentState.carryWeapon === 'axe' && this.equipmentState.prepareAxeAttachment) {
       // Evaluate the weapon against the newly sampled source hand, before any
       // contact overlay moves it. The final callback then counter-transforms
@@ -575,7 +576,6 @@ export class MixerController implements HumanoidAnimationController {
     this.equipmentState.alive = alive
     // Layer 0 (the primary rig) always applies and ends with a full refresh of its subtree.
     this.onPoseEvaluated?.(this.equipmentLayers[0] !== undefined)
-    this.onSkeletonDirty?.()
   }
 
   // Advance retained actions, including their loop/fade state, using Three's
