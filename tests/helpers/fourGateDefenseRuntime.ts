@@ -58,5 +58,5 @@ export function fourGateDefenseRuntime(initial: CareerProfile, options: {
       profile = next
       return true
     }, navigation, { world, createRamp, registerHit: () => {}, unregisterHit: () => {} }, scheduler, options.autoSave)
-  return { controller, player, scheduler, residents: new Map(residents.map(r => [r.spec.id, r.actor])), profile: () => profile }
+  return { controller, player, residents: new Map(residents.map(r => [r.spec.id, r.actor])), profile: () => profile }
 }
