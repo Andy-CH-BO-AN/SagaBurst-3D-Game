@@ -854,6 +854,9 @@ export class Game {
   }
 
   // LOD & Spatial Partitioning
+  private readonly _cameraFrustum = new THREE.Frustum()
+  private readonly _projScreenMatrix = new THREE.Matrix4()
+  private readonly _frustumSphere = new THREE.Sphere()
   private static readonly _EMPTY_NPC_LIST: NPC[] = []
   private static readonly _NOOP_MELEE = (): void => {}
   private static readonly _NOOP_FIRE = (): boolean => false
@@ -5474,6 +5477,10 @@ export class Game {
     let devReturnedNeighborsCount = 0
     let npcLoopIndex = 0
     this.coopGuest?.updateWorld(dt)
+    this.camera.updateMatrixWorld()
+    this.camera.matrixWorldInverse.copy(this.camera.matrixWorld).invert()
+    this._projScreenMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse)
+    this._cameraFrustum.setFromProjectionMatrix(this._projScreenMatrix)
     for (const npc of this.coopGuest ? Game._EMPTY_NPC_LIST : this.npcs) {
       // These root positions are world-space here, matching the mount LOD distance.
       const cameraDistance = npc.group.position.distanceTo(this.camera.position)
@@ -5482,6 +5489,8 @@ export class Game {
         npcLoopIndex++
         continue
       }
+      this._frustumSphere.set(npc.group.position, 6.0)
+      const inFrustum = this._cameraFrustum.intersectsSphere(this._frustumSphere)
 
       // Cohort: does this NPC fall in the sampled slice this frame?
       const inCohort = import.meta.env.DEV && this._npcSubphaseEnabled
@@ -5496,7 +5505,11 @@ export class Game {
           Game._NOOP_FIRE,
           true, // skipBoidsAndObstacles
           cameraDistance,
-          collector
+          collector,
+          null,
+          null,
+          null,
+          inFrustum,
         )
         npcLoopIndex++
         continue
@@ -5559,6 +5572,7 @@ export class Game {
         hostileNpcGrid,
         this.navigationWorld,
         this.chaseTargetCoordinator,
+        inFrustum,
       )
       npcLoopIndex++
     }
@@ -5584,6 +5598,13 @@ export class Game {
     this._checkPlayerMeleeHits()
 
     // 3–4. Mount movement and interactions, then impact before physical separation.
+    for (const mount of this.mounts) {
+      if (!mount.riderNpc && !mount.dead && !mount.disposed && !mount.isFlyingMount) {
+        this._frustumSphere.set(mount.group.position, 6.0)
+        mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
+        mount.setInFrustum(this._cameraFrustum.intersectsSphere(this._frustumSphere))
+      }
+    }
     const mountFrameTiming = runBattlefieldMountFrame(dt, this.mountFrameEffects, profile ? () => performance.now() : undefined)
     const mountInteractionMs = mountFrameTiming?.mountInteractionMs ?? 0
     const impactMs = mountFrameTiming?.impactMs ?? 0

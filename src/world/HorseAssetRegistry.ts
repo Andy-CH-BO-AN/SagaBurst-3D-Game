@@ -114,7 +114,7 @@ export interface HorseInstance {
   playDeath(): void
   playStudioClip(state: HorseAnimationState): void
   togglePaused(): boolean
-  update(dt: number, cameraDistance?: number): void
+  update(dt: number, cameraDistance?: number, inFrustum?: boolean): boolean
   debugState(): HorseDebugState
   dispose(): void
 }
@@ -309,6 +309,7 @@ class HorseAnimationController {
   private oneShotRemaining = 0
   private paused = false
   private readonly farCadence = new FarAnimationCadence()
+  private wasInFrustum = true
   private playbackRate = 1
   private requestedPlaybackRate = 1
 
@@ -386,10 +387,12 @@ class HorseAnimationController {
     return this.paused
   }
 
-  update(dt: number, cameraDistance = 0): void {
-    if (!Number.isFinite(dt) || dt <= 0 || this.paused) return
-    const step = this.farCadence.advance(dt, mountAnimationInterval(cameraDistance))
-    if (step === null) return
+  update(dt: number, cameraDistance = 0, inFrustum = true): boolean {
+    if (!Number.isFinite(dt) || dt <= 0 || this.paused) return false
+    const enteredFrustum = !this.wasInFrustum && inFrustum
+    this.wasInFrustum = inFrustum
+    const step = this.farCadence.advance(dt, enteredFrustum ? 0 : mountAnimationInterval(cameraDistance, inFrustum))
+    if (step === null) return false
     this.mixer.update(step)
     if (this.oneShot) {
       this.oneShotRemaining -= step
@@ -400,6 +403,7 @@ class HorseAnimationController {
         this.actions.get(this.requestedLocomotion)!.setEffectiveTimeScale(this.playbackRate)
       }
     }
+    return true
   }
 
   debugState(): HorseDebugState {
@@ -483,7 +487,7 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
     playDeath: () => animation.playDeath(),
     playStudioClip: (state) => animation.playStudioClip(state),
     togglePaused: () => animation.togglePaused(),
-    update: (dt, cameraDistance = 0) => animation.update(dt, cameraDistance),
+    update: (dt, cameraDistance = 0, inFrustum = true) => animation.update(dt, cameraDistance, inFrustum),
     debugState: () => animation.debugState(),
     dispose: () => {
       animation.stop()

@@ -19,6 +19,7 @@ import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
 import * as THREE from 'three'
 import { ShieldState, ShieldCollider, WeaponSweep } from '../combat/ShieldBlocking'
 import { DeathFadeController, skipHiddenCorpseMatrices } from './DeathFade'
+import { OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE } from './CharacterLODPolicy'
 import type { Player } from '../player/Player'
 import type { SpatialGrid } from './SpatialGrid'
 import type { HpBar } from '../ui/HpBar'
@@ -295,6 +296,7 @@ export interface NpcPuppetFrame {
 }
 
 export class NPC {
+  private offFrustumVisualSleep = false
   private mountedOrbitActive = false
   private mountedBowCircling = false
   private readonly mountedBowAim = { yaw: 0, pitch: 0 }
@@ -1006,6 +1008,7 @@ export class NPC {
 
     this.characterVisualGroup = new THREE.Group()
     this.characterVisualGroup.rotation.y = 0 // Shared +Z gameplay heading; no per-faction flip.
+    skipHiddenCorpseMatrices(this.characterVisualGroup, () => this.offFrustumVisualSleep)
     this.group.add(this.characterVisualGroup)
 
     this.aimCollider = new THREE.Mesh(npcAimGeometry ??= new THREE.CylinderGeometry(0.45, 0.45, 1.85, 8),
@@ -2949,6 +2952,12 @@ export class NPC {
   }
 
 
+  private setOffFrustumVisualSleep(sleep: boolean): void {
+    if (sleep === this.offFrustumVisualSleep) return
+    this.offFrustumVisualSleep = sleep
+    if (this.characterVisualGroup) this.characterVisualGroup.visible = !sleep
+  }
+
   update(
     dt: number,
     player: Player,
@@ -2964,8 +2973,17 @@ export class NPC {
     hostileNpcGrid: SpatialGrid<NPC> | null = null,
     navigationWorld: NavigationWorld | null = null,
     chaseTargetCoordinator: ChaseTargetCoordinator | null = null,
+    inFrustum: boolean = true,
   ): void {
     this._activeNavigationWorld = navigationWorld
+    if (this.mount) this.mount.setInFrustum?.(inFrustum)
+    const shouldSleepVisual = !inFrustum
+      && cameraDistance > OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE
+      && !this.dead
+      && this.hp > 0
+      && !this.animator.busy
+      && !this.mount?.isFlyingMount
+    this.setOffFrustumVisualSleep?.(shouldSleepVisual)
     if (Number.isFinite(dt) && dt > 0) this._sightClock += dt
     if (this.cavalryPassthroughTimer > 0) {
       this.cavalryPassthroughTimer = Math.max(0, this.cavalryPassthroughTimer - dt)
@@ -2988,7 +3006,7 @@ export class NPC {
     }
     if (this.campaignEntranceId && navigationWorld?.outpostNav
       && isRampartLayer(navigationWorld.outpostNav.getNavLayer(this.combatPosition))) this.campaignBreachCompleted = true
-    if (this._updateExclusiveMode(dt, player, allNPCs, nearbyNPCs, obstacles, onHitEntity, onFireArrow, cameraDistance, _collector, hostileNpcGrid, navigationWorld)) return
+    if (this._updateExclusiveMode(dt, player, allNPCs, nearbyNPCs, obstacles, onHitEntity, onFireArrow, cameraDistance, _collector, hostileNpcGrid, navigationWorld, inFrustum)) return
 
     this.playerHitFocus = Math.max(0, this.playerHitFocus - dt)
 
@@ -3194,7 +3212,7 @@ export class NPC {
           this._updateMountedBowForwardCombat(targetInfo.position, dt, nearbyNPCs, obstacles, skipBoidsAndObstacles)
         }
       if (import.meta.env.DEV && _collector) { var _tAnimBowRec = performance.now() }
-      const events = this.animator.update(dt, cameraDistance)
+      const events = this.animator.update(dt, cameraDistance, inFrustum)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimBowRec!) }
       animationAdvanced = true
       if (targetInfo) this._updateBowVisual(0, targetInfo.position)
@@ -3204,7 +3222,7 @@ export class NPC {
         if (!this.mountedOrbitActive) this.state = AIState.CHASE
       }
     } else if (recoveringPilum) {
-      const events = this.animator.update(dt, cameraDistance)
+      const events = this.animator.update(dt, cameraDistance, inFrustum)
       animationAdvanced = true
       if (events.projectileRelease) {
         const origin = this._tmpRangedOrigin
@@ -3234,7 +3252,7 @@ export class NPC {
         this._updateChaseState(dt, player, allNPCs, nearbyNPCs, obstacles, skipBoidsAndObstacles, _collector, hostileNpcGrid, navigationWorld, targetInfo, playerBodyBaseOffset, previousMountSpeed, wasOrbiting)
         break
       case AIState.ATTACK:
-        animationAdvanced = this._updateAttackState(dt, player, nearbyNPCs, obstacles, onHitEntity, onFireArrow, skipBoidsAndObstacles, cameraDistance, _collector, hostileNpcGrid, navigationWorld, targetInfo, playerBodyBaseOffset)
+        animationAdvanced = this._updateAttackState(dt, player, nearbyNPCs, obstacles, onHitEntity, onFireArrow, skipBoidsAndObstacles, cameraDistance, _collector, hostileNpcGrid, navigationWorld, targetInfo, playerBodyBaseOffset, inFrustum)
         break
       }
     }
@@ -3256,7 +3274,7 @@ export class NPC {
     // exactly once here for every non-combat frame (including death clips).
     if (!animationAdvanced) {
       if (import.meta.env.DEV && _collector) { var _tAnimIdle = performance.now() }
-      this.animator.update(dt, cameraDistance)
+      this.animator.update(dt, cameraDistance, inFrustum)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimIdle!) }
     }
 
@@ -3288,17 +3306,20 @@ export class NPC {
     _collector: NpcSubphaseCollector | null,
     hostileNpcGrid: SpatialGrid<NPC> | null,
     navigationWorld: NavigationWorld | null,
+    inFrustum: boolean = true,
   ): boolean {
     this.fallObstacles = obstacles
     if (this.pendingFall.active) {
+      this.setOffFrustumVisualSleep?.(false)
       this._updateRiderFall(dt, obstacles)
-      this.animator.update(dt, cameraDistance)
+      this.animator.update(dt, cameraDistance, inFrustum)
       return true
     }
     if (this.state === AIState.DEAD) {
+      this.setOffFrustumVisualSleep?.(false)
       if (import.meta.env.DEV && _collector) { var _tDead = performance.now() }
       const hidden = this.deathFade.update(this.group, dt)
-      if (!hidden) this.animator.update(dt, cameraDistance)
+      if (!hidden) this.animator.update(dt, cameraDistance, inFrustum)
       if (this.respawnEnabled) {
         this.respawnTimer -= dt
         if (this.respawnTimer <= 0) {
@@ -3325,7 +3346,7 @@ export class NPC {
       this.animator.setLocomotion(this.siegeTransportSpeed, false)
       this.velY = 0
       this.onGround = true
-      this.animator.update(dt, cameraDistance)
+      this.animator.update(dt, cameraDistance, inFrustum)
       this.group.updateWorldMatrix(true, true)
       return true
     }
@@ -3336,11 +3357,12 @@ export class NPC {
       if (direction.length() < .45) this.siegeEvacuation = null
       else { this._faceDirection(direction.normalize()); this._moveByDirection(direction, 2, dt) }
       this._updateFootPhysics(previous, dt, obstacles)
-      this.animator.update(dt, cameraDistance)
+      this.animator.update(dt, cameraDistance, inFrustum)
       return true
     }
 
     if (this.mount?.flight && !this.mount.dead) {
+      this.setOffFrustumVisualSleep?.(false)
       this._updateEagleCombat(dt, player, allNPCs, nearbyNPCs, obstacles, onHitEntity, onFireArrow, cameraDistance, hostileNpcGrid)
       return true
     }
@@ -3822,6 +3844,7 @@ export class NPC {
     navigationWorld: NavigationWorld | null,
     targetInfo: NpcTargetInfo | null,
     playerBodyBaseOffset: number,
+    inFrustum: boolean = true,
   ): boolean {
     let animationAdvanced = false
     const eligibleCharge = !this.layeredCombatMovement && isEligibleMeleeCavalry(
@@ -4009,7 +4032,7 @@ export class NPC {
 
       if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
       if (import.meta.env.DEV && _collector) { var _tAnimAtk = performance.now() }
-      const rangedEvents = this.animator.update(dt, cameraDistance)
+      const rangedEvents = this.animator.update(dt, cameraDistance, inFrustum)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimAtk!) }
       if (isBow) this._updateBowVisual(progress, attackTargetPosition)
       animationAdvanced = true
@@ -4084,6 +4107,7 @@ export class NPC {
       const meleeEvents = this.animator.update(
         dt * berserker.meleeAttackRateMultiplier,
         cameraDistance,
+        inFrustum,
       )
       if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimMelee!) }
       animationAdvanced = true
@@ -4976,7 +5000,7 @@ export class NPC {
   /** Run after the mount animation, before render; keeps the contact on this frame's seat. */
   /** `publish = false` only when the renderer refreshes the scene immediately afterwards. */
   fitMountedSeat(publish = true): void {
-    if (!this.mount || this.dead) return
+    if (this.offFrustumVisualSleep || !this.mount || this.dead) return
     this.mount.corgiVisual?.fitRider(this.characterVisualGroup)
     this.mount.catVisual?.fitRider(this.characterVisualGroup, publish)
     this.mount.snowLeopardVisual?.fitRider(this.characterVisualGroup, publish)
@@ -5159,6 +5183,7 @@ export class NPC {
   }
 
   respawn(destination?: { x: number; y?: number; z: number; yaw?: number }): void {
+    this.setOffFrustumVisualSleep?.(false)
     this.shield.reset()
     this.weaponSweep.reset()
     this.meleeApproachLimit = Infinity

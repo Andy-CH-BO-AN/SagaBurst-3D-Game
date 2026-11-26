@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { FarAnimationCadence } from '../../src/world/CharacterLODPolicy'
+import {
+  FarAnimationCadence,
+  OFF_FRUSTUM_ANIMATION_DISTANCE,
+  OFF_FRUSTUM_ANIMATION_INTERVAL,
+  humanoidPoseInterval,
+  mountAnimationInterval,
+} from '../../src/world/CharacterLODPolicy'
 
 describe('FarAnimationCadence', () => {
   it('staggers initial fire frames across phases while passing exact real elapsed dt to mixers', () => {
@@ -34,5 +40,18 @@ describe('FarAnimationCadence', () => {
     // reset() restores un-armed state cleanly.
     cadences[0].reset()
     expect(cadences[0].advance(dt, 0)).toBeCloseTo(dt, 10)
+
+    // Throttles off-frustum humanoids and mounts outside near range and flushes on entry.
+    expect(humanoidPoseInterval(OFF_FRUSTUM_ANIMATION_DISTANCE, false)).toBe(0)
+    expect(mountAnimationInterval(OFF_FRUSTUM_ANIMATION_DISTANCE, false)).toBe(0)
+    expect(humanoidPoseInterval(40, false)).toBe(OFF_FRUSTUM_ANIMATION_INTERVAL)
+    expect(mountAnimationInterval(40, false)).toBe(OFF_FRUSTUM_ANIMATION_INTERVAL)
+    expect(humanoidPoseInterval(40, true)).toBeLessThan(OFF_FRUSTUM_ANIMATION_INTERVAL)
+    expect(mountAnimationInterval(40, true)).toBeLessThan(OFF_FRUSTUM_ANIMATION_INTERVAL)
+
+    const offFrustumCadence = new FarAnimationCadence(0.5)
+    expect(offFrustumCadence.advance(dt, OFF_FRUSTUM_ANIMATION_INTERVAL)).toBeNull()
+    expect(offFrustumCadence.advance(dt, OFF_FRUSTUM_ANIMATION_INTERVAL)).toBeNull()
+    expect(offFrustumCadence.advance(dt, 0)).toBeCloseTo(3 * dt, 10)
   })
 })

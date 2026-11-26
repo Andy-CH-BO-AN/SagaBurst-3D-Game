@@ -9,15 +9,22 @@ export const HUMANOID_FAR_ANIMATION_INTERVAL = 1 / 12
  * melee contact poses are never throttled (callers pass distance 0). */
 export const VERY_FAR_ANIMATION_DISTANCE = 55
 export const VERY_FAR_ANIMATION_INTERVAL = 1 / 6
+/** Off-frustum visual sleep applies strictly past LOD2 (30m), where castShadow is already off. */
+export const OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE = 35
+/** Off-frustum actors outside near combat range advance pose mixers at 2 Hz and flush on entry. */
+export const OFF_FRUSTUM_ANIMATION_DISTANCE = 12
+export const OFF_FRUSTUM_ANIMATION_INTERVAL = 1 / 2
 
 /** Seconds between humanoid pose samples at this camera distance (0 = every frame). */
-export function humanoidPoseInterval(cameraDistance: number): number {
+export function humanoidPoseInterval(cameraDistance: number, inFrustum = true): number {
+  if (!inFrustum && cameraDistance > OFF_FRUSTUM_ANIMATION_DISTANCE) return OFF_FRUSTUM_ANIMATION_INTERVAL
   return cameraDistance > VERY_FAR_ANIMATION_DISTANCE ? VERY_FAR_ANIMATION_INTERVAL
     : cameraDistance > HUMANOID_ANIMATION_THROTTLE_DISTANCE ? HUMANOID_FAR_ANIMATION_INTERVAL : 0
 }
 
 /** Seconds between horse/quadruped mixer steps at this camera distance (0 = every frame). */
-export function mountAnimationInterval(cameraDistance: number): number {
+export function mountAnimationInterval(cameraDistance: number, inFrustum = true): number {
+  if (!inFrustum && cameraDistance > OFF_FRUSTUM_ANIMATION_DISTANCE) return OFF_FRUSTUM_ANIMATION_INTERVAL
   return cameraDistance > VERY_FAR_ANIMATION_DISTANCE ? VERY_FAR_ANIMATION_INTERVAL
     : cameraDistance > MOUNT_ANIMATION_THROTTLE_DISTANCE ? MOUNT_FAR_ANIMATION_INTERVAL : 0
 }

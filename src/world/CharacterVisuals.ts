@@ -81,7 +81,7 @@ export interface HumanoidAnimationController {
   has(state: HumanoidAnimationState): boolean
   getDuration(state: HumanoidAnimationState): number | undefined
   sampleInitialPose?(): void
-  update(dt: number, cameraDistance?: number): void
+  update(dt: number, cameraDistance?: number, inFrustum?: boolean): void
   stop(): void
 }
 
