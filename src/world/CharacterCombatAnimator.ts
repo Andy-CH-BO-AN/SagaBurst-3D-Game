@@ -4,6 +4,7 @@ import type { CharacterRig, HumanoidAnimationState, HumanoidPunchTiming, Humanoi
 import { setRigRotation } from './CharacterVisuals'
 import { axeCarryWeight, axeRecoveryWeight, setSwordMountedAttachment } from './SwordAttachmentContract'
 import type { EquipmentPoseState } from './CharacterEquipmentPose'
+import { OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE } from './CharacterLODPolicy'
 import type { WeaponData } from '../rpg/WeaponDatabase'
 
 export type CombatAction =
@@ -100,6 +101,7 @@ export class CharacterCombatAnimator {
   private punchTiming: HumanoidPunchTiming | undefined
   private punchNext = 0
   private punchSamples: { time: number; left: THREE.Vector3; right: THREE.Vector3 }[] = []
+  private readonly equipmentPatch: Partial<EquipmentPoseState> = {}
   private readonly events: CombatAnimationEvents = {
     hitActiveStarted: false,
     projectileRelease: false,
@@ -312,19 +314,30 @@ export class CharacterCombatAnimator {
     const poseAction = canceledPose ? 'axeAttack2H' : this.action
     const poseElapsed = canceledPose ? this.canceledAxePose : this.poseTime(this.elapsed + actionDt)
     const continuous = canceledPose || this.usesContinuousAxeCarry
-    setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(poseAction, poseElapsed) : 0, this.usesTwoHandedAxeCarry, poseAction, axeCarryWeight(poseAction, poseElapsed), continuous, axeRecoveryWeight(poseAction, poseElapsed, continuous))
-    if (this.rig.mittenHands) this.rig.animation?.setEquipmentState?.({
-      rightGrip: this.lanceEquipped || this.action === 'pilumThrow' || holdsVisibleMesh(this.meleePivot),
-      leftGrip: holdsVisibleMesh(this.bowPivot),
-    })
-    this.rig.animation?.setEquipmentState?.({ punchClip: this.isPunchClip, action: poseAction, elapsed: poseElapsed, continuousAxeAction: continuous, lance: this.lanceEquipped, actualSword: this.hasEquippedSword, swordGripSections: this.hasEquippedSword ? this.meleePivot.userData.weaponGripSections : undefined, carryWeapon: this.meleePivot.visible && this.meleePivot.userData.swordAttachmentOwned ? this.meleePivot.userData.axeVisual ? 'axe' : 'sword' : undefined })
+    const offFrustumSleep = !inFrustum && cameraDistance > OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE && !this.isMeleeAction && !canceledPose
+    if (!offFrustumSleep) {
+      setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(poseAction, poseElapsed) : 0, this.usesTwoHandedAxeCarry, poseAction, axeCarryWeight(poseAction, poseElapsed), continuous, axeRecoveryWeight(poseAction, poseElapsed, continuous))
+      if (this.rig.mittenHands) {
+        this.equipmentPatch.rightGrip = this.lanceEquipped || this.action === 'pilumThrow' || holdsVisibleMesh(this.meleePivot)
+        this.equipmentPatch.leftGrip = holdsVisibleMesh(this.bowPivot)
+      }
+      this.equipmentPatch.punchClip = this.isPunchClip
+      this.equipmentPatch.action = poseAction
+      this.equipmentPatch.elapsed = poseElapsed
+      this.equipmentPatch.continuousAxeAction = continuous
+      this.equipmentPatch.lance = this.lanceEquipped
+      this.equipmentPatch.actualSword = this.hasEquippedSword
+      this.equipmentPatch.swordGripSections = this.hasEquippedSword ? this.meleePivot.userData.weaponGripSections : undefined
+      this.equipmentPatch.carryWeapon = this.meleePivot.visible && this.meleePivot.userData.swordAttachmentOwned ? this.meleePivot.userData.axeVisual ? 'axe' : 'sword' : undefined
+      this.rig.animation?.setEquipmentState?.(this.equipmentPatch)
+    }
     // Melee sockets drive physical collision, so their pose must follow the
     // action clock every frame, including fast T4 attacks. Idle/ranged may throttle.
     if (this.isPunchClip) this.advancePunchClip(dt, actionDt)
     else this.rig.animation?.update(dt, this.isMeleeAction || canceledPose ? 0 : cameraDistance, this.isMeleeAction || canceledPose ? true : inFrustum)
     // Animated sockets and forward axe carry follow the evaluated pose and
     // LOD proxy, before this tick's hit/contact evaluation.
-    if (!(this.ownsAxeContact && this.meleePivot.userData.axeVisual) && (this.meleePivot.userData.authoredAxeSocket || this.meleePivot.userData.authoredAxe1Socket || this.meleePivot.userData.forwardAxeCarryRoot)) setSwordMountedAttachment(this.meleePivot, mounted,
+    if (!offFrustumSleep && !(this.ownsAxeContact && this.meleePivot.userData.axeVisual) && (this.meleePivot.userData.authoredAxeSocket || this.meleePivot.userData.authoredAxe1Socket || this.meleePivot.userData.forwardAxeCarryRoot)) setSwordMountedAttachment(this.meleePivot, mounted,
       mounted ? axeCarryWeight(poseAction, poseElapsed) : 0, this.usesTwoHandedAxeCarry, poseAction, axeCarryWeight(poseAction, poseElapsed), continuous, axeRecoveryWeight(poseAction, poseElapsed, continuous))
     if (canceledPose && this.canceledAxePose >= .48) {
       this.clearCanceledAxePose()
@@ -366,6 +379,7 @@ export class CharacterCombatAnimator {
       if (this.ownership === 'procedural') {
         if (this.action === 'bowRelease') this.poseBowRelease(clamp01(this.elapsed / total))
         else this.posePilumFrame(clamp01(this.elapsed / total))
+        this.rig.animation?.markSkeletonDirty?.()
       }
     } else {
       const isLance = this.action === 'lanceThrust' || this.action === 'mountedLance'
@@ -375,7 +389,10 @@ export class CharacterCombatAnimator {
       if (previous < contactTime && this.elapsed >= contactTime) {
         this.events.hitActiveStarted = true
       }
-      if (this.ownership === 'procedural' && this.action !== 'punchCombo' && this.action !== 'punchRight') this.poseMelee(this.action, this.elapsed, profile)
+      if (this.ownership === 'procedural' && this.action !== 'punchCombo' && this.action !== 'punchRight') {
+        this.poseMelee(this.action, this.elapsed, profile)
+        this.rig.animation?.markSkeletonDirty?.()
+      }
     }
 
     if (this.elapsed >= total - 1e-9) {
@@ -522,6 +539,7 @@ export class CharacterCombatAnimator {
     setRigRotation(right.elbow, 0.15 + 0.15 * aim + 0.5 * draw, 0, 0.12 * draw)
     setRigRotation(right.wrist, -0.1 * draw, 0.08 * draw, 0)
     if (!this.rig.handGripFrames?.left) this.bowPivot.rotation.set(0, 0, -0.1)
+    this.rig.animation?.markSkeletonDirty?.()
   }
 
   poseMountedLanceReady(): void {
@@ -552,6 +570,7 @@ export class CharacterCombatAnimator {
     }
     this.meleePivot.rotation.set(0, 0, 0)
     this.meleePivot.position.set(0, -0.08, 0)
+    this.rig.animation?.markSkeletonDirty?.()
   }
 
   posePilum(progress: number): void {
@@ -572,6 +591,7 @@ export class CharacterCombatAnimator {
     setRigRotation(left.shoulder, -0.25 * t, 0, 0.12)
     setRigRotation(left.elbow, -0.15, 0, 0)
     this.bowPivot.rotation.set(THREE.MathUtils.lerp(-Math.PI / 2, -0.35, t), 0, 0)
+    this.rig.animation?.markSkeletonDirty?.()
   }
 
   private poseBowRelease(progress: number): void {

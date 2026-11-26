@@ -9,6 +9,7 @@ import { shouldHorseCastShadow } from './HorseShadowPolicy'
 import { primeSkinnedTemplateBounds } from './SkinnedTemplateBounds'
 import { stopBoneEulerSync } from './BoneEulerSync'
 import { hideBoneOnlySubtrees } from './BoneRenderTraversal'
+import { installCachedSkeletonUpdate } from './CachedSkeletonUpdate'
 
 export type HorseAnimationState =
   | 'idle'
@@ -319,6 +320,7 @@ class HorseAnimationController {
     private readonly lod: THREE.LOD,
     private readonly getVariant: () => HorseAppearanceVariant,
     private readonly manifest: HorseAssetManifest,
+    private readonly onSkeletonDirty?: () => void,
   ) {
     for (const name of REQUIRED_CLIPS) this.actions.set(name, mixer.clipAction(clips.get(name)!))
     this.play('idle', 0, true)
@@ -344,6 +346,7 @@ class HorseAnimationController {
       else previous.stop()
     }
     this.current = state
+    this.onSkeletonDirty?.()
   }
 
   setLocomotion(speed: number): void {
@@ -394,6 +397,7 @@ class HorseAnimationController {
     const step = this.farCadence.advance(dt, enteredFrustum ? 0 : mountAnimationInterval(cameraDistance, inFrustum))
     if (step === null) return false
     this.mixer.update(step)
+    this.onSkeletonDirty?.()
     if (this.oneShot) {
       this.oneShotRemaining -= step
       if (this.oneShotRemaining <= 0) {
@@ -421,6 +425,7 @@ class HorseAnimationController {
 
   stop(): void {
     this.mixer.stopAllAction()
+    this.onSkeletonDirty?.()
   }
 }
 
@@ -460,15 +465,26 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
     bodyMeshes.forEach((mesh, i) => { mesh.material = template.lodMaterials?.[i] ?? template.bodyMaterials[variant] })
   }
   applyVariant(initialVariant)
+  stopBoneEulerSync(root)
+  hideBoneOnlySubtrees(root)
+  const skeletonCache = installCachedSkeletonUpdate(root)
+  let lastLodLevel = lod.getCurrentLevel()
+  lod.update = (camera) => {
+    THREE.LOD.prototype.update.call(lod, camera)
+    const nextLevel = lod.getCurrentLevel()
+    if (nextLevel !== lastLodLevel) {
+      lastLodLevel = nextLevel
+      skeletonCache.markDirty()
+    }
+  }
   const animation = new HorseAnimationController(
     mixer,
     normalizedClips(template.gltf),
     lod,
     () => appearanceVariant,
     template.manifest,
+    () => skeletonCache.markDirty(),
   )
-  stopBoneEulerSync(root)
-  hideBoneOnlySubtrees(root)
 
   return {
     root,
