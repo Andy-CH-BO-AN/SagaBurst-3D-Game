@@ -220,6 +220,26 @@ describe('obstacle walk-surface collision', () => {
     expect(resolveCameraDistance(new THREE.Vector3(4, 5.8, -2), new THREE.Vector3(0, 0, 1), 6, [obstacle])).toBe(6)
   })
 
+  it('keeps full vertical clearance under a ceiling at shallow upward rays without blocking rays leaving an adjacent wall', () => {
+    const ceiling: ObstacleData = {
+      isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(-10, 4.3, -10), new THREE.Vector3(10, 7.6, 10)),
+    }
+    const origin = new THREE.Vector3(0, 3.0, 0)
+    // Unexpanded hit at distance 1.3 / sin(12 deg) = 6.25 > 6, yet the camera would sit 0.05m from the ceiling.
+    const shallow = new THREE.Vector3(0, Math.sin(12 * Math.PI / 180), Math.cos(12 * Math.PI / 180)).normalize()
+    const distance = resolveCameraDistance(origin, shallow, 6, [ceiling])
+    expect(distance).toBeLessThan(6)
+    expect(origin.y + shallow.y * distance).toBeCloseTo(4.3 - 0.28, 5)
+
+    // Ray starting within obstacleMargin of a wall but pointing away from it stays unclipped.
+    const wall: ObstacleData = {
+      isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(-5, 0, -5), new THREE.Vector3(5, 4, 0)),
+    }
+    expect(resolveCameraDistance(new THREE.Vector3(0, 2, 0.1), new THREE.Vector3(0, 0, 1), 6, [wall])).toBe(6)
+  })
+
   it('limits overlapping support to one step from the original feet, independent of obstacle order', () => {
     const surfaces = [deck(.6), deck(1.2), deck(6)]
     for (const obstacles of [surfaces, [...surfaces].reverse()]) {
