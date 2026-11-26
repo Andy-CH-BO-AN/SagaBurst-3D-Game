@@ -150,6 +150,7 @@ export async function launchTownArchitectureShowcase(container: HTMLElement, fac
     const tower = createTownCommandWatchtower(layout, faction, towerObstacles, { ...kit.materials.plain })
     owned.push({ dispose: () => tower.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.dispose() }) })
     const towerDressing = dressCommandWatchtower(kit, layout, { x: TOWN_COMMAND_WATCHTOWER.x, z: TOWN_COMMAND_WATCHTOWER.z })
+    towerObstacles.push(...towerDressing.obstacles)
     world.add(tower); world.add(towerDressing.root)
     obstacles.push(...towerObstacles)
     // Eagle fields: painted pads, two shared supply posts, clearance against the built world.

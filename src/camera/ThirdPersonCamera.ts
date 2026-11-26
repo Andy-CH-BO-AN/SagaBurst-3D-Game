@@ -36,6 +36,7 @@ const collisionLocalRay = new THREE.Ray()
 const collisionDirection = new THREE.Vector3()
 const collisionHit = new THREE.Vector3()
 const collisionSample = new THREE.Vector3()
+const collisionExpandedBox = new THREE.Box3()
 
 export interface CameraCollisionOptions {
   obstacleMargin?: number
@@ -79,11 +80,23 @@ export function resolveCameraDistance(
       const depth = box.max.z - box.min.z
       if (Math.max(width, depth) < CAMERA_MIN_HORIZONTAL_OBSTACLE_SPAN) continue
 
+      if (obstacleMargin > 0) {
+        collisionExpandedBox.copy(box).expandByScalar(obstacleMargin)
+        if (!collisionExpandedBox.containsPoint(ray.origin)) {
+          const hit = ray.intersectBox(collisionExpandedBox, collisionHit)
+          if (!hit) continue
+          const distance = ray.origin.distanceTo(hit)
+          if (distance > desiredDistance) continue
+          allowedDistance = Math.min(allowedDistance, distance)
+          continue
+        }
+      }
+
       const hit = ray.intersectBox(box, collisionHit)
       if (!hit) continue
       // The transform is rigid, so ray distances are preserved in local space.
       const distance = ray.origin.distanceTo(hit)
-      if (distance > desiredDistance) continue
+      if (distance > desiredDistance + obstacleMargin) continue
       allowedDistance = Math.min(allowedDistance, Math.max(0, distance - obstacleMargin))
     }
   }

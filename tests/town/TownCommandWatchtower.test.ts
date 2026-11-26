@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { Box3, Matrix4, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
+import { resolveCameraDistance } from '../../src/camera/ThirdPersonCamera'
 import { BallisticIntercept } from '../../src/combat/ProjectileBallistics'
 import { EagleFlightAI } from '../../src/movement/EagleFlightAI'
 import { EagleFlightController } from '../../src/movement/EagleFlightController'
@@ -8,7 +9,7 @@ import { XONGKORO } from '../../src/movement/XongkoroConfig'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { TownWatchtowerNavigation } from '../../src/navigation/TownWatchtowerNavigation'
-import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, getTownCommandWatchtowerUnderfill, getTownWatchtowerGuardStations, validateWatchtowerPlacement } from '../../src/town/TownCommandWatchtowerLayout'
+import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, getTownCommandWatchtowerRoof, getTownCommandWatchtowerUnderfill, getTownWatchtowerGuardStations, validateWatchtowerPlacement } from '../../src/town/TownCommandWatchtowerLayout'
 import { TOWN_CENTER_FRAME, TOWN_CITY_ROADS, TOWN_HR_REGION, townHousing, type TownRoad } from '../../src/town/TownLayout'
 import { TownProjectileObstacles } from '../../src/town/TownProjectileObstacles'
 import { getTownRampartLayout, surfaceBox } from '../../src/town/TownRamparts'
@@ -180,6 +181,46 @@ describe('Town command watchtower', () => {
     expect(() => validateWatchtowerPlacement(layout, [], [...roads, { ax: center.x, az: layout.footprint.min.z - 10, bx: center.x, bz: layout.footprint.max.z + 10, width: 5 }])).toThrow('Blocked command watchtower')
     const blocksApproach = { ...layout, footprint: layout.footprint.clone().translate(new Vector3(-17, 0, 0)) }
     expect(() => validateWatchtowerPlacement(blocksApproach, [], [])).toThrow('eagle landing or approach')
+  })
+
+  it('roof blocks overhead eagle fire while preserving guard shots and beneath-ceiling overview camera rays', () => {
+    const layout = getTownCommandWatchtowerLayout()
+    const roof = getTownCommandWatchtowerRoof(layout)
+    const core: ObstacleData = { box: layout.core, isBarricade: false }
+    const rails = getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)
+    const obstacles = [core, ...rails, roof.obstacle]
+    const arc = new BallisticIntercept()
+
+    // Overhead eagle shot aimed at the deck is blocked by the pavilion roof.
+    const eagleOrigin = new Vector3(-29, layout.platformY + 14, -65)
+    const deckTarget = new Vector3(-29, layout.platformY + 1.4, -41)
+    expect(arc.solve(eagleOrigin, deckTarget, new Vector3(), 65)).toBe(true)
+    expect(arc.isPathClear(eagleOrigin, 65, [roof.obstacle], () => layout.groundY)).toBe(false)
+
+    // Top-deck guard posts still fire clear of the raised roof: all 5 posts clear
+    // level shots with full tower obstacles and clear roof.obstacle on steep downward shots.
+    for (const [index, guard] of getTownWatchtowerGuardStations(layout).entries()) {
+      const origin = new Vector3(guard.x, guard.y + RANGED_AI_LAUNCH_HEIGHT, guard.z)
+      const groundTarget = new Vector3(guard.x + Math.sin(guard.yaw) * 35, layout.groundY + 1.4, guard.z + Math.cos(guard.yaw) * 35)
+      expect(arc.solve(origin, groundTarget, new Vector3(), 65)).toBe(true)
+      expect(arc.isPathClear(origin, 65, [roof.obstacle], () => layout.groundY), `guard ${index} downward roof`).toBe(true)
+      if (index === 0) expect(arc.isPathClear(origin, 65, obstacles, () => layout.groundY), 'guard 0 downward all').toBe(true)
+      const levelTarget = new Vector3(guard.x + Math.sin(guard.yaw) * 40, origin.y, guard.z + Math.cos(guard.yaw) * 40)
+      expect(arc.solve(origin, levelTarget, new Vector3(), 65)).toBe(true)
+      expect(arc.isPathClear(origin, 65, obstacles, () => layout.groundY), `guard ${index} level all`).toBe(true)
+    }
+
+    // Both standing and mounted overview camera rays stay beneath the roof ceiling with usable distance.
+    for (const { offsetY, minDistance } of [{ offsetY: 1.75, minDistance: 2.5 }, { offsetY: 2.4, minDistance: 2.0 }]) {
+      const origin = new Vector3(-29, layout.platformY + offsetY, -41)
+      for (const deg of [15, 30, 45]) {
+        const rad = deg * Math.PI / 180
+        const backward = new Vector3(0, Math.sin(rad), -Math.cos(rad)).normalize()
+        const distance = resolveCameraDistance(origin, backward, 6, obstacles)
+        expect(distance).toBeGreaterThanOrEqual(minDistance)
+        expect(origin.y + backward.y * distance).toBeLessThanOrEqual(roof.ceilingY - 0.28 + 1e-6)
+      }
+    }
   })
 })
 

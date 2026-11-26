@@ -57,6 +57,24 @@ export function getTownCommandWatchtowerLayout(): CommandWatchtowerLayout {
 export function createTownCommandWatchtowerAirspaceObstacle(layout: CommandWatchtowerLayout): ObstacleData {
   return { box: layout.footprint.clone(), isBarricade: false, projectilePassable: true }
 }
+/** Shared pavilion roof bounds and collider above the observation deck.
+ * High enough (ceiling at deck + 4.3m) for standing and mounted sightlines,
+ * while shielding the deck from eagle projectiles and keeping third-person
+ * camera rays beneath the ceiling. */
+export function getTownCommandWatchtowerRoof(layout: CommandWatchtowerLayout): {
+  x0: number; x1: number; z0: number; z1: number
+  ceilingY: number; eaveY: number; ridgeY: number
+  obstacle: ObstacleData; airspace: Box3
+} {
+  const c = layout.core
+  const x0 = c.min.x - .6, x1 = c.max.x + .6, z0 = c.min.z - .6, z1 = c.max.z + .6
+  const eaveY = layout.platformY + 4.6, ceilingY = eaveY - .3, ridgeY = eaveY + 3.0
+  return {
+    x0, x1, z0, z1, ceilingY, eaveY, ridgeY,
+    obstacle: { box: new Box3(new Vector3(x0, ceilingY, z0), new Vector3(x1, ridgeY, z1)), isBarricade: false, navigationPassable: true },
+    airspace: new Box3(new Vector3(x0 - .4, ceilingY - .2, z0 - .4), new Vector3(x1 + .4, ridgeY + 1.6, z1 + .4)),
+  }
+}
 /** Shared top-deck posts also locate physical firing openings in the railing. */
 export function getTownWatchtowerGuardStations(layout: CommandWatchtowerLayout) {
   const deck = layout.platform[0]

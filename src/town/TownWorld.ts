@@ -197,9 +197,10 @@ export class TownWorld {
     validateWatchtowerPlacement(this.commandWatchtower, [...this.obstacles, ...this.airspaceObstacles], this.roads)
     const watchtower = createTownCommandWatchtower(this.commandWatchtower, faction, this.obstacles, { ...this.architecture.materials.plain })
     this.root.add(watchtower); this.trackOwned(watchtower, false)
-    // Faction cladding and pavilion roof; ramps, landings, rails and their collision are unchanged.
+    // Faction cladding and physical pavilion roof (blocks overhead projectiles and camera); ramps, landings, rails and their collision are unchanged.
     const towerDressing = dressCommandWatchtower(this.architecture, this.commandWatchtower, { x: TOWN_COMMAND_WATCHTOWER.x, z: TOWN_COMMAND_WATCHTOWER.z })
     this.root.add(towerDressing.root)
+    this.obstacles.push(...towerDressing.obstacles)
     this.airspaceObstacles.push(createTownCommandWatchtowerAirspaceObstacle(this.commandWatchtower))
     this.airspaceObstacles.push({ box: towerDressing.airspace, isBarricade: false, projectilePassable: true })
     this.airspaceObstacles.push(...this.obstacles.filter(obstacle => !obstacle.physicalPassable))

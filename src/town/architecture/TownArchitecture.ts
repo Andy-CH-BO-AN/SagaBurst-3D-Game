@@ -4,7 +4,7 @@ import { flameParts } from '../../arena/ArenaKit'
 import { getTerrainHeight, WALK_SURFACE_STEP_UP, type ObstacleData, type WalkRampSurface } from '../../world/Terrain'
 import { rampNavigationSides, slabGeometry, surfaceBox } from '../TownRamparts'
 import { GATEHOUSE_SHELL, GATEHOUSE_SIDES, GATEHOUSE_STATUE, TOWN_GATEHOUSE, VIKING_PORTAL_HEAD, gatehouseStatueSite, townGatehouseObstacle, townGatehouseParts, type GatehousePart, type TownGatehouse, type TownGatehouseSide } from '../TownGatehouse'
-import type { CommandWatchtowerLayout } from '../TownCommandWatchtowerLayout'
+import { getTownCommandWatchtowerRoof, type CommandWatchtowerLayout } from '../TownCommandWatchtowerLayout'
 import { ArchitectureKit, PALETTE, Sketch, preloadArchitectureDecorations, tabletopDisplay, type BuildContext } from './ArchitectureKit'
 import { architectureLocalToWorld, architectureSpec, architectureRuinCorridors, expandedHrCenter, hrFloorNavigationEdges, DEEP, TOWN_PLAZA_MONUMENT, townPlazaLayout, type ArchitectureFaction, type BuildingSpec, type CivicBuildingKind, type LocalRect, type PlazaProp } from './ArchitectureSpecs'
 import { buildRomanHome, buildRomanHrCenter, buildRomanStable, buildRomanTownCenter, buildRomanWeapons } from './RomanBuildings'
@@ -767,19 +767,17 @@ export function dressTownWalls(kit: ArchitectureKit, walls: readonly ObstacleDat
   return root
 }
 
-/** The pavilion roof rises this far above the authored tower height; callers add its bounds to airspace. */
-export const ARCHITECTURE_WATCHTOWER_ROOF_RISE = 2.4
-
 /**
- * Faction cladding and roof for the command watchtower. Shallow detail on the
- * outer ramp foundations and the core, a pavilion roof whose eave stays 3.2m
- * above the observation deck; ramps, landings, rails, guard posts and their
- * collision are untouched. `airspace` is the box eagles must avoid.
+ * Faction cladding and physical pavilion roof for the command watchtower.
+ * Shallow detail on the outer ramp foundations and the core, plus a raised
+ * pavilion roof (`getTownCommandWatchtowerRoof`) that blocks overhead eagle
+ * projectiles and keeps third-person camera rays beneath the ceiling; ramps,
+ * landings, rails, guard posts and their collision are untouched. `airspace`
+ * is the box eagles must avoid.
  */
-export function dressCommandWatchtower(kit: ArchitectureKit, layout: CommandWatchtowerLayout, center: { x: number; z: number }): { root: THREE.Group; airspace: THREE.Box3 } {
+export function dressCommandWatchtower(kit: ArchitectureKit, layout: CommandWatchtowerLayout, center: { x: number; z: number }): { root: THREE.Group; obstacles: ObstacleData[]; airspace: THREE.Box3 } {
   const root = new THREE.Group(); root.name = `architecture-${kit.faction}-watchtower-dressing`
-  const s = new Sketch(kit), roman = kit.faction === 'roman', c = layout.core
-  const deck = layout.platformY, eave = deck + 3.2, ridgeY = layout.groundY + layout.totalHeight + ARCHITECTURE_WATCHTOWER_ROOF_RISE
+  const s = new Sketch(kit), roman = kit.faction === 'roman', c = layout.core, deck = layout.platformY
   // Outer faces of the spiral: banners and blind arches (Roman) or shields and battens (Viking) below each flight.
   layout.ramps.forEach((ramp, index) => {
     const mid = new THREE.Vector3(ramp.startX + ramp.dirX * ramp.length / 2, 0, ramp.startZ + ramp.dirZ * ramp.length / 2)
@@ -805,28 +803,28 @@ export function dressCommandWatchtower(kit: ArchitectureKit, layout: CommandWatc
       s.beam('stone', a, b, .1, .4, PALETTE.redPlaster)
     }
   })
-  // Pavilion over the observation deck: columns/carved posts at the existing corner standards and a pitched roof.
-  const x0 = c.min.x - .6, x1 = c.max.x + .6, z0 = c.min.z - .6, z1 = c.max.z + .6
-  s.hipRoof(roman ? 'roof' : 'wood', x0, x1, z0, z1, eave, ridgeY - eave, roman ? undefined : PALETTE.weathered)
-  s.span(roman ? 'stone' : 'wood', x0 + .3, eave - .3, z0 + .3, x1 - .3, eave, z1 - .3, roman ? PALETTE.marble : PALETTE.darkTimber)
-  if (roman) dentilRing(s, x0 + .3, x1 - .3, z0 + .3, z1 - .3, eave - .35)
+  // Pavilion roof over the observation deck (`getTownCommandWatchtowerRoof`): high enough for clear sightlines while shielding from eagle fire.
+  const roof = getTownCommandWatchtowerRoof(layout)
+  const { x0, x1, z0, z1, ceilingY, eaveY, ridgeY } = roof
+  s.hipRoof(roman ? 'roof' : 'wood', x0, x1, z0, z1, eaveY, ridgeY - eaveY, roman ? undefined : PALETTE.weathered)
+  s.span(roman ? 'stone' : 'wood', x0 + .3, ceilingY, z0 + .3, x1 - .3, eaveY, z1 - .3, roman ? PALETTE.marble : PALETTE.darkTimber)
+  if (roman) dentilRing(s, x0 + .3, x1 - .3, z0 + .3, z1 - .3, ceilingY - .05)
   for (const [qx, qz] of [[c.min.x + .5, c.min.z + .5], [c.max.x - .5, c.min.z + .5], [c.min.x + .5, c.max.z - .5], [c.max.x - .5, c.max.z - .5]]) {
-    if (roman) s.column(qx, deck + 1.7, qz, eave - deck - 2.0, .2, { flutes: false })
-    else s.carvedPost(qx, deck + 1.7, qz, eave - deck - 1.7, .18)
+    if (roman) s.column(qx, deck + 1.7, qz, ceilingY - deck - 1.7, .2, { flutes: false })
+    else s.carvedPost(qx, deck + 1.7, qz, ceilingY - deck - 1.7, .18)
   }
   const cx = (c.min.x + c.max.x) / 2, cz = (c.min.z + c.max.z) / 2
   if (roman) {
     s.add('metal', new THREE.ConeGeometry(.25, .9, 8).translate(cx, ridgeY + .45, cz), PALETTE.gold)
-    for (const [qx, qz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) s.add('metal', new THREE.SphereGeometry(.16, 8, 6).translate(qx, eave + .05, qz), PALETTE.gold)
-    for (const [z, yaw] of [[z1 - .3, 0], [z0 + .3, Math.PI]] as const) s.banner(cx, eave - .35, z, yaw, 1.5, 2.2)
+    for (const [qx, qz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) s.add('metal', new THREE.SphereGeometry(.16, 8, 6).translate(qx, eaveY + .05, qz), PALETTE.gold)
+    for (const [z, yaw] of [[z1 - .3, 0], [z0 + .3, Math.PI]] as const) s.banner(cx, ceilingY - .05, z, yaw, 1.5, 1.2)
   } else {
-    for (const [qx, qz, yaw] of [[x0, z0, -3 * Math.PI / 4], [x1, z0, 3 * Math.PI / 4], [x0, z1, -Math.PI / 4], [x1, z1, Math.PI / 4]] as const) s.lynxHead(qx, eave - .35, qz, yaw, .8)
+    for (const [qx, qz, yaw] of [[x0, z0, -3 * Math.PI / 4], [x1, z0, 3 * Math.PI / 4], [x0, z1, -Math.PI / 4], [x1, z1, Math.PI / 4]] as const) s.lynxHead(qx, ceilingY - .05, qz, yaw, .8)
     for (const k of [-1, 1]) s.beam('wood', new THREE.Vector3(cx - .8 * k, ridgeY - .1, cz), new THREE.Vector3(cx + .8 * k, ridgeY + 1.4, cz), .22, .14, PALETTE.carved)
   }
   s.build(root, root.name)
   root.updateMatrixWorld(true)
-  const airspace = new THREE.Box3(new THREE.Vector3(x0 - .4, eave - .5, z0 - .4), new THREE.Vector3(x1 + .4, ridgeY + 1.6, z1 + .4))
-  return { root, airspace }
+  return { root, obstacles: [roof.obstacle], airspace: roof.airspace }
 }
 function dentilRing(s: Sketch, x0: number, x1: number, z0: number, z1: number, y: number): void {
   for (let x = x0 + .2; x < x1; x += .45) for (const z of [z0, z1]) s.box('stone', x, y, z, .18, .18, .18, PALETTE.marble)

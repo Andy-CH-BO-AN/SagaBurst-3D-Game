@@ -17,7 +17,7 @@
 - 每棟 `TownWorld.buildings` 的 `obstacles` 是帶 HP 的命中／碰撞體，`supports` 是地板與坡面 walk surface（不算命中，摧毀後保留）。廢墟用碎塊 Bounds 碰撞並保留服務通道（`architectureRuinCorridors`）；恢復時移除廢墟並**精確還原**原碰撞，受損外觀由 `setDamaged` 處理。
 - 標記 `physicalPassable`／`projectilePassable` 的導航紀錄只留在 supports，沒有實體／投射物碰撞，**不得加入空域**。
 - 資源所有權：`ArchitectureKit` 擁有陣營共用材質與合批 geometry，`dispose()` 一次釋放；裝飾 GLB 的 geometry／material／texture 是共享不可變資源，Kit 只釋放 instance buffer。雕像由 `loadArchitectureStatues` 另行擁有；使用方先 `preloadArchitectureStatues()`，失敗提供具名診斷並可重試。
-- 城門扇與指揮瞭望塔的開關／HP／碰撞仍由 `TownFortifications`／`TownCommandWatchtower` 擁有；外觀與上層實體共用 `TownGatehouse`。瞭望塔屋頂的 `dressCommandWatchtower().airspace` 須併入飛行空域。
+- 城門扇與指揮瞭望塔的開關／HP／碰撞仍由 `TownFortifications`／`TownCommandWatchtower` 擁有；外觀與上層實體共用 `TownGatehouse`。指揮瞭望塔保留屋頂以遮蔽高空巨鷹投射物並防止第三人稱攝影機穿入屋頂夾層（透過 `getTownCommandWatchtowerRoof`／`dressCommandWatchtower().obstacles` 加入 `navigationPassable: true` 碰撞體），其 `airspace` 須併入飛行空域。
 - 巨鷹補給站只以實際立地部件擋碰撞，整體外框只算空域；`TOWN_EAGLE_STATION_SITES` 是補給站、`eagle-trainer` 站位與 `townEagleSigns` 的唯一來源。
 - Town Center 兩陣營共用 `TOWN_CENTER_FRAME`／`TOWN_CENTER_ENVELOPE`；模型開口、牆體碰撞與樓板共用同一份尺寸資料（如 `ROMAN_TOWN_CENTER`）。Captain、士官長、Commander 站在 `service:*` 錨點並保留 `SERVICE_MOUNT_TURN_RADIUS`；`townPlayerEntryPoint()` 是和平入口，守城／攻城與空中續讀由各自 checkpoint 恢復。
 - HR 以 `expandedHrCenter` 包住原 muster；`hrFloorNavigationEdges` 與 `rampNavigationSides` 讓地面 A* 經坡腳出入，牆壁摧毀後仍保留。壁掛裝備種類由 WeaponDatabase 決定，重用正式預載與 LOD。
