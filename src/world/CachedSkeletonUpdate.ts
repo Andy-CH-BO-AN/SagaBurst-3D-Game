@@ -40,10 +40,37 @@ function meshesShareBindTransform(meshes: readonly THREE.SkinnedMesh[]): boolean
   return true
 }
 
+interface BoneSubtreeEntry {
+  bone: THREE.Object3D
+  orig: (force?: boolean) => void
+  updatedSinceDirty: boolean
+}
+
+function collectBoneOnlyRoots(root: THREE.Object3D): THREE.Object3D[] {
+  const roots: THREE.Object3D[] = []
+  const isBoneOnly = (object: THREE.Object3D): boolean => {
+    let only = (object as THREE.Bone).isBone === true
+    for (let i = 0; i < object.children.length; i++) {
+      if (!isBoneOnly(object.children[i])) only = false
+    }
+    return only
+  }
+  const visit = (object: THREE.Object3D): void => {
+    if (isBoneOnly(object)) {
+      roots.push(object)
+      return
+    }
+    for (let i = 0; i < object.children.length; i++) visit(object.children[i])
+  }
+  visit(root)
+  return roots
+}
+
 /**
  * Caches SkinnedMesh bone matrices in mesh-local space (`DetachedBindMode`) so
- * moving/rotating actors on throttled animation frames skip `Skeleton.update()`
- * and `boneTexture` GPU uploads unless bones or visible meshes actually changed.
+ * moving/rotating actors on throttled animation frames skip `Skeleton.update()`,
+ * `boneTexture` GPU uploads, and clean bone-only `updateMatrixWorld` subtree walks
+ * unless bones or visible meshes actually changed.
  */
 export function installCachedSkeletonUpdate(root: THREE.Object3D): CachedSkeletonController {
   root.updateMatrixWorld(true)
@@ -58,7 +85,21 @@ export function installCachedSkeletonUpdate(root: THREE.Object3D): CachedSkeleto
     list.push(object)
   })
 
-  const markers: Array<() => void> = []
+  const skeletonStates: Array<{ isDirty: () => boolean; markDirty: () => void }> = []
+  const boneEntries: BoneSubtreeEntry[] = []
+  let anyDirty = true
+  let appliedWorldValid = false
+  const lastAppliedMeshWorld = new THREE.Matrix4()
+
+  const refreshStaleBoneOnlyRoots = (forceAll = false): void => {
+    for (let i = 0; i < boneEntries.length; i++) {
+      const entry = boneEntries[i]
+      if (!forceAll && entry.updatedSinceDirty) continue
+      entry.bone.parent?.updateWorldMatrix(true, false)
+      entry.orig.call(entry.bone, true)
+      entry.updatedSinceDirty = true
+    }
+  }
 
   for (const [skeleton, meshes] of bySkeleton) {
     if (!meshesShareBindTransform(meshes)) continue
@@ -67,6 +108,12 @@ export function installCachedSkeletonUpdate(root: THREE.Object3D): CachedSkeleto
       mesh.bindMatrixInverse.copy(mesh.bindMatrix).invert()
       const origApplyBoneTransform = mesh.applyBoneTransform.bind(mesh)
       mesh.applyBoneTransform = (index: number, target: THREE.Vector3) => {
+        if (!anyDirty && boneEntries.length > 0 && (!appliedWorldValid || !sameMatrixElements(mesh.matrixWorld, lastAppliedMeshWorld, 1e-6))) {
+          mesh.updateWorldMatrix(true, false)
+          refreshStaleBoneOnlyRoots(true)
+          lastAppliedMeshWorld.copy(mesh.matrixWorld)
+          appliedWorldValid = true
+        }
         const saved = mesh.bindMatrixInverse
         mesh.bindMatrixInverse = APPLY_BONE_INV.copy(mesh.matrixWorld).invert()
         try {
@@ -88,10 +135,12 @@ export function installCachedSkeletonUpdate(root: THREE.Object3D): CachedSkeleto
         }
         return
       }
+      refreshStaleBoneOnlyRoots(false)
       const refMesh = meshes.find(mesh => mesh.visible) ?? meshes[0]
       if (!refMesh) {
         origUpdate()
         dirty = false
+        anyDirty = skeletonStates.some(state => state.isDirty())
         return
       }
       if (Math.abs(refMesh.matrixWorld.determinant()) < 1e-12) {
@@ -100,6 +149,7 @@ export function installCachedSkeletonUpdate(root: THREE.Object3D): CachedSkeleto
       if (Math.abs(refMesh.matrixWorld.determinant()) < 1e-12) {
         origUpdate()
         dirty = false
+        anyDirty = skeletonStates.some(state => state.isDirty())
         return
       }
       INV_MESH_WORLD.copy(refMesh.matrixWorld).invert()
@@ -118,14 +168,34 @@ export function installCachedSkeletonUpdate(root: THREE.Object3D): CachedSkeleto
         skeleton.boneTexture.needsUpdate = true
       }
       dirty = false
+      anyDirty = skeletonStates.some(state => state.isDirty())
     }
 
-    markers.push(() => { dirty = true })
+    skeletonStates.push({
+      isDirty: () => dirty,
+      markDirty: () => { dirty = true },
+    })
+  }
+
+  if (bySkeleton.size > 0 && skeletonStates.length === bySkeleton.size) {
+    for (const bone of collectBoneOnlyRoots(root)) {
+      const orig = bone.updateMatrixWorld
+      const entry: BoneSubtreeEntry = { bone, orig, updatedSinceDirty: true }
+      boneEntries.push(entry)
+      bone.updateMatrixWorld = function cachedBoneUpdateMatrixWorld(force?: boolean) {
+        if (!anyDirty) return
+        entry.orig.call(this, force)
+        entry.updatedSinceDirty = true
+      }
+    }
   }
 
   return {
     markDirty: () => {
-      for (let i = 0; i < markers.length; i++) markers[i]()
+      for (let i = 0; i < skeletonStates.length; i++) skeletonStates[i].markDirty()
+      anyDirty = true
+      appliedWorldValid = false
+      for (let i = 0; i < boneEntries.length; i++) boneEntries[i].updatedSinceDirty = false
     },
   }
 }

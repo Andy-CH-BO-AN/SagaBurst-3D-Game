@@ -857,7 +857,7 @@ export class MixerController implements HumanoidAnimationController {
     // only when that update is certain to evaluate (one mixer, not a deferred far tick); any
     // other mixer or pose change first runs the sample in its original order.
     if (nextUpdate && this.mixers.length === 1 && Number.isFinite(nextUpdate.dt) && nextUpdate.dt > 0
-      && !this.farCadence.wouldDefer(humanoidPoseInterval(nextUpdate.cameraDistance), nextUpdate.dt)) {
+      && !this.farCadence.wouldDefer(humanoidPoseInterval(nextUpdate.cameraDistance, nextUpdate.inFrustum), nextUpdate.dt)) {
       this.deferredSeek = true
       return true
     }

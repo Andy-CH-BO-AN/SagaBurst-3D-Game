@@ -4154,8 +4154,8 @@ export class Game {
 
   private _disposeCareerOutpostBattleActors(): void {
     resetTerrainScenePolicy()
-    if (this.obstacles.length > 0) setObstaclePathQuerySource(this.obstacles, false)
-    ProjectileInstanceBatch.dispose(this.scene)
+    if (this.obstacles?.length) setObstaclePathQuerySource(this.obstacles, false)
+    if (this.scene) ProjectileInstanceBatch.dispose(this.scene)
     this.compass?.dispose()
     this.compass = undefined
     this.commandSelectionMarker?.dispose()

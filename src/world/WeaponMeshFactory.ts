@@ -173,6 +173,85 @@ export interface NpcRangedMeshParts {
 let paladinGripGeometry: THREE.CapsuleGeometry | undefined
 let paladinGripMountGeometry: THREE.BoxGeometry | undefined
 
+const NON_PROCEDURAL_MELEE_IDS = new Set([
+  'spear_t4',
+  'spear_t5',
+  'byzantine_standard_lance_t5',
+  'sword_t5',
+  'axe_t5',
+  'paladin_mace_t4',
+  'paladin_sword_t4',
+])
+
+const HIGH_TIER_SHIELD_IDS = new Set([
+  'paladin_shield_t4',
+  'commander_shield_t5',
+  'roman_officer_shield_t4',
+  'viking_berserker_shield_t5',
+  'byzantine_eagle_shield_t5',
+  'centurion_aquila_shield_t4',
+  'viking_dragonward_shield_t4',
+])
+
+const PROCEDURAL_MELEE_USER_DATA_KEYS = [
+  'gripCenterLocal',
+  'meleeWeaponId',
+  'meleeAnimationKind',
+  'supportPointLocal',
+  'forwardAxisLocal',
+  'tipLocal',
+] as const
+
+interface CachedEquipmentTemplate {
+  template: THREE.Group
+  pivotUserData: Record<string, unknown>
+  tipLocal?: THREE.Vector3
+}
+
+const npcMeleeTemplateCache = new Map<string, CachedEquipmentTemplate>()
+const proceduralShieldTemplateCache = new Map<string, CachedEquipmentTemplate>()
+
+function cloneUserDataValue(value: unknown): unknown {
+  return Array.isArray(value) ? value.slice() : value
+}
+
+function cloneUserDataRecord(source: Record<string, unknown>): Record<string, unknown> {
+  const copy: Record<string, unknown> = {}
+  for (const key of Object.keys(source)) {
+    copy[key] = cloneUserDataValue(source[key])
+  }
+  return copy
+}
+
+function cloneEquipmentNode(source: THREE.Object3D): THREE.Object3D {
+  const target = source instanceof THREE.Mesh
+    ? new THREE.Mesh(source.geometry, source.material)
+    : new THREE.Group()
+  target.name = source.name
+  target.position.copy(source.position)
+  target.quaternion.copy(source.quaternion)
+  target.scale.copy(source.scale)
+  target.visible = source.visible
+  target.castShadow = source.castShadow
+  target.receiveShadow = source.receiveShadow
+  target.renderOrder = source.renderOrder
+  target.frustumCulled = source.frustumCulled
+  target.layers.mask = source.layers.mask
+  for (const key of Object.keys(source.userData)) {
+    target.userData[key] = cloneUserDataValue(source.userData[key])
+  }
+  for (const child of source.children) {
+    target.add(cloneEquipmentNode(child))
+  }
+  return target
+}
+
+function appendClonedEquipmentChildren(template: THREE.Group, pivot: THREE.Group): void {
+  for (const child of template.children) {
+    pivot.add(cloneEquipmentNode(child))
+  }
+}
+
 const bannerWorld = new THREE.Quaternion()
 const bannerDown = new THREE.Vector3()
 
@@ -664,9 +743,27 @@ export class WeaponMeshFactory {
   }
 
   static buildNpcMelee(characterFaction: CharacterFaction, tier: number, isLance: boolean, pivot: THREE.Group, weaponId?: string): THREE.Vector3 {
-    const result = this.buildNpcMeleeUnshared(characterFaction, tier, isLance, pivot, weaponId)
-    shareEquipmentGeometry(pivot)
-    return result
+    if (weaponId && NON_PROCEDURAL_MELEE_IDS.has(weaponId)) {
+      const result = this.buildNpcMeleeUnshared(characterFaction, tier, isLance, pivot, weaponId)
+      shareEquipmentGeometry(pivot)
+      return result
+    }
+    const cacheKey = `${characterFaction}|${tier}|${isLance ? 1 : 0}|${weaponId ?? ''}`
+    let entry = npcMeleeTemplateCache.get(cacheKey)
+    if (!entry) {
+      const template = new THREE.Group()
+      const tipLocal = this.buildNpcMeleeUnshared(characterFaction, tier, isLance, template, weaponId)
+      shareEquipmentGeometry(template)
+      entry = { template, tipLocal, pivotUserData: cloneUserDataRecord(template.userData) }
+      npcMeleeTemplateCache.set(cacheKey, entry)
+    }
+    for (const key of PROCEDURAL_MELEE_USER_DATA_KEYS) delete pivot.userData[key]
+    for (const key of Object.keys(entry.pivotUserData)) {
+      pivot.userData[key] = cloneUserDataValue(entry.pivotUserData[key])
+    }
+    pivot.rotation.set(0, 0, 0)
+    appendClonedEquipmentChildren(entry.template, pivot)
+    return entry.tipLocal!.clone()
   }
 
   private static buildNpcMeleeUnshared(characterFaction: CharacterFaction, tier: number, isLance: boolean, pivot: THREE.Group, weaponId?: string): THREE.Vector3 {
@@ -675,17 +772,17 @@ export class WeaponMeshFactory {
     if (weaponId) {
       if (weaponId.startsWith('gladius_') || weaponId === 'centurion_blade') {
         const gladiusTier = weaponId === 'gladius_rusty' ? 1 : weaponId === 'gladius_standard' ? 2 : 3
-        return this.buildRomanGladius(gladiusTier, pivot)
+        return this.buildRomanGladiusUnshared(gladiusTier, pivot)
       }
-      return this.buildMelee(weaponId, pivot).tipLocal
+      return this.buildMeleeUnshared(weaponId, pivot).tipLocal
     }
-    if (isLance) return this.buildMelee(tier === 1 ? 'hunting_spear' : tier === 3 ? 'heavy_lance' : 'steel_lance', pivot).tipLocal
+    if (isLance) return this.buildMeleeUnshared(tier === 1 ? 'hunting_spear' : tier === 3 ? 'heavy_lance' : 'steel_lance', pivot).tipLocal
 
     if (characterFaction === 'viking') {
       const wId = tier === 1 ? 'rusty_dagger' : tier === 2 ? 'steel_sword' : 'runic_greatsword'
-      return this.buildMelee(wId, pivot).tipLocal
+      return this.buildMeleeUnshared(wId, pivot).tipLocal
     }
-    return this.buildRomanGladius(tier, pivot)
+    return this.buildRomanGladiusUnshared(tier, pivot)
   }
 
   /**
@@ -783,8 +880,23 @@ export class WeaponMeshFactory {
    * 建構盾牌的 3D mesh group，附加到指定 pivot
    */
   static buildShield(shieldId: string, pivot: THREE.Group): void {
-    this.buildShieldUnshared(shieldId, pivot)
-    shareEquipmentGeometry(pivot)
+    if (HIGH_TIER_SHIELD_IDS.has(shieldId)) {
+      this.buildShieldUnshared(shieldId, pivot)
+      shareEquipmentGeometry(pivot)
+      return
+    }
+    let entry = proceduralShieldTemplateCache.get(shieldId)
+    if (!entry) {
+      const template = new THREE.Group()
+      this.buildShieldUnshared(shieldId, template)
+      shareEquipmentGeometry(template)
+      entry = { template, pivotUserData: cloneUserDataRecord(template.userData) }
+      proceduralShieldTemplateCache.set(shieldId, entry)
+    }
+    for (const key of Object.keys(entry.pivotUserData)) {
+      pivot.userData[key] = cloneUserDataValue(entry.pivotUserData[key])
+    }
+    appendClonedEquipmentChildren(entry.template, pivot)
   }
 
   private static buildShieldUnshared(shieldId: string, pivot: THREE.Group): void {

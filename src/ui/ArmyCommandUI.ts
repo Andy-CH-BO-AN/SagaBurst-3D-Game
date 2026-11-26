@@ -309,6 +309,8 @@ export class ArmyCommandUI {
       row.append(label, order)
       container.appendChild(row)
     }
-    container.querySelector('.highlighted')?.scrollIntoView({ block: 'nearest' })
+    if (highlightedTarget !== null && container.scrollHeight > container.clientHeight) {
+      container.querySelector('.highlighted')?.scrollIntoView({ block: 'nearest' })
+    }
   }
 }

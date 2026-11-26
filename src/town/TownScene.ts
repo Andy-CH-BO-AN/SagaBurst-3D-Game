@@ -351,6 +351,7 @@ export class TownScene {
   private readonly devSkipPreparation = import.meta.env.DEV && new URLSearchParams(location.search).has('skipprep')
   private captainPatrol?: CaptainPatrolCommandController
   private readonly commandActors: NPC[] = []
+  private readonly commandActorsSeen = new Set<NPC>()
   private missionCombat!: TownMissionCombat
   private privateEaglePads?: EaglePadReservations
   private personalSquad?: TownPersonalSquadController
@@ -2190,7 +2191,29 @@ export class TownScene {
     this.personalCommandUI?.setOfficialSquadLabel?.(officialCommandHudLabel(authority))
     if (!this.commandActors) return
     this.commandActors.length = 0
-    this.commandActors.push(...new Set([...(this.residents ?? []).map(r => r.npc), ...(this.mission?.fieldNpcs ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.personalSquad?.actors ?? [])]))
+    const seen = this.commandActorsSeen
+    seen.clear()
+    if (this.residents) {
+      for (const resident of this.residents) {
+        if (!seen.has(resident.npc)) { seen.add(resident.npc); this.commandActors.push(resident.npc) }
+      }
+    }
+    if (this.mission?.fieldNpcs) {
+      for (const npc of this.mission.fieldNpcs) {
+        if (!seen.has(npc)) { seen.add(npc); this.commandActors.push(npc) }
+      }
+    }
+    if (this.defense?.fieldNpcs) {
+      for (const npc of this.defense.fieldNpcs) {
+        if (!seen.has(npc)) { seen.add(npc); this.commandActors.push(npc) }
+      }
+    }
+    if (this.personalSquad?.actors) {
+      for (const npc of this.personalSquad.actors) {
+        if (!seen.has(npc)) { seen.add(npc); this.commandActors.push(npc) }
+      }
+    }
+    seen.clear()
   }
 
   /** One transaction grants every selected official/civilian owner before the shared controller mutates actors. */

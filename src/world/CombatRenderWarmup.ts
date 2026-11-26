@@ -78,14 +78,25 @@ export class CombatRenderWarmup {
         // Ignored if T5 bow asset is not preloaded in current environment
       }
 
-      // Representative melee weapons & shields
+      // Representative melee weapons, ranged pilums, & shields across tiers 1..3
       const weaponGroup = new THREE.Group()
-      WeaponMeshFactory.buildNpcMelee('roman', 2, false, weaponGroup)
-      WeaponMeshFactory.buildNpcMelee('viking', 2, false, weaponGroup)
-      WeaponMeshFactory.buildNpcMelee('roman', 4, true, weaponGroup, 'spear_t5')
-      WeaponMeshFactory.buildNpcMelee('viking', 4, true, weaponGroup, 'spear_t5')
-      WeaponMeshFactory.buildShield('shield_round_iron', weaponGroup)
-      WeaponMeshFactory.buildShield('shield_scutum_iron', weaponGroup)
+      const addWarmupItem = (build: (target: THREE.Group) => void) => {
+        const holder = new THREE.Group()
+        build(holder)
+        weaponGroup.add(holder)
+      }
+      for (const tier of [1, 2, 3]) {
+        addWarmupItem(target => WeaponMeshFactory.buildNpcMelee('roman', tier, false, target))
+        addWarmupItem(target => WeaponMeshFactory.buildNpcMelee('viking', tier, false, target))
+        addWarmupItem(target => WeaponMeshFactory.buildNpcMelee('roman', tier, true, target))
+        addWarmupItem(target => WeaponMeshFactory.buildNpcMelee('viking', tier, true, target))
+        addWarmupItem(target => WeaponMeshFactory.buildNpcMelee('viking', tier, false, target, `viking_axe_t${tier}`))
+        addWarmupItem(target => WeaponMeshFactory.buildNpcRanged('roman', tier, target))
+        addWarmupItem(target => WeaponMeshFactory.buildShield(`scutum_t${tier}`, target))
+        addWarmupItem(target => WeaponMeshFactory.buildShield(`round_shield_t${tier}`, target))
+      }
+      addWarmupItem(target => WeaponMeshFactory.buildNpcMelee('roman', 4, true, target, 'spear_t5'))
+      addWarmupItem(target => WeaponMeshFactory.buildNpcMelee('viking', 4, true, target, 'spear_t5'))
       warmupScene.add(weaponGroup)
 
       // Viking Horn accessory

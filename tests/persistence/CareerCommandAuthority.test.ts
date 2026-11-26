@@ -14,7 +14,7 @@ import { isTownCommandRevokedByRetirement, revokeRetirementTownCommandClaims } f
 import { civilianCommandRoster } from '../../src/career/CivilianCommandAuthority'
 import { buildCommanderAuthorityForMission } from '../../src/career/CommanderMissionAcceptance'
 import { commanderGateDefenseSlots } from '../../src/career/CommanderTownRoster'
-import { officialCommandHudLabel, resolveCommanderTownTargetLabel } from '../../src/career/CommanderTownSquadLabels'
+import { officialCommandHudLabel, resolveCommanderFourGateTargetLabel, resolveCommanderTownTargetLabel } from '../../src/career/CommanderTownSquadLabels'
 import { acceptVeteranMission } from '../../src/career/VeteranMission'
 import type { CombatActorRef } from '../../src/combat/CombatAttribution'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
@@ -87,6 +87,15 @@ describe('Commander saved command grant', () => {
     authority.commandedSquadIds = [8]
     expect(authority.actorIds).toHaveLength(206)
     expect(officialCommandHudLabel(authority)).toBe(resolveCommanderTownTargetLabel)
+    const fourGate = createMissionCommandAuthority('four-gate', 'roman', 'commander', [], [
+      { squadId: 1, actorIds: ['north'] }, { squadId: 10, actorIds: ['merchant'] },
+    ])
+    const resolvedFourGateLabel = officialCommandHudLabel(fourGate)
+    expect(resolvedFourGateLabel).toBe(resolveCommanderFourGateTargetLabel)
+    expect(officialCommandHudLabel(fourGate)).toBe(resolvedFourGateLabel)
+    expect(resolveCommanderFourGateTargetLabel('squad:10')).toBe('中央機動騎兵隊')
+    expect(resolveCommanderFourGateTargetLabel('squad:1')).toBe('北門城牆守軍')
+    expect(resolveCommanderFourGateTargetLabel('squad:2')).toBe('北門步兵隊')
     expect(officialCommandIsPlayerControlled(authority, 'hr-officer')).toBe(true)
     for (const id of TOWN_AUTONOMOUS_GUARD_IDS) {
       expect(officialCommandAcceptsActor(authority, { combatantId: id, squadId: 8, dead: false,
