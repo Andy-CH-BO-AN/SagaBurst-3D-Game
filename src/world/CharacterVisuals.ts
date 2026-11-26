@@ -62,7 +62,7 @@ export interface HumanoidAnimationPlayOptions {
   startNormalizedTime?: number
 }
 
-export interface HumanoidSeekNextUpdate { dt: number; cameraDistance: number }
+export interface HumanoidSeekNextUpdate { dt: number; cameraDistance: number; inFrustum?: boolean }
 
 export interface HumanoidAnimationController {
   getMeleeTiming?(state: HumanoidAnimationState): HumanoidMeleeTiming | undefined

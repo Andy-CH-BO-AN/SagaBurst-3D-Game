@@ -3274,8 +3274,10 @@ export class NPC {
       const events = this.animator.update(dt, cameraDistance, inFrustum)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimBowRec!) }
       animationAdvanced = true
-      if (targetInfo) this._updateBowVisual(0, targetInfo.position)
-      else this.bowVisual?.update(0, undefined, false)
+      if (!this.offFrustumVisualSleep) {
+        if (targetInfo) this._updateBowVisual(0, targetInfo.position)
+        else this.bowVisual?.update(0, undefined, false)
+      }
       if (events.actionCompleted) {
         if (this.arrows === 0) this._switchToMelee()
         if (!this.mountedOrbitActive) this.state = AIState.CHASE
@@ -4075,7 +4077,7 @@ export class NPC {
         if (!this.animator.busy) {
           this.bowArrowReleased = false
           // Unless the release starts below, animator.update(dt) directly follows and evaluates the draw.
-          this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18), releasing ? undefined : { dt, cameraDistance })
+          this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18), releasing ? undefined : { dt, cameraDistance, inFrustum })
         }
         if (releasing && this.animator.currentAction === 'bowAim') {
           // A moving rider can fire forward, to either side, or behind.
@@ -4093,7 +4095,7 @@ export class NPC {
       if (import.meta.env.DEV && _collector) { var _tAnimAtk = performance.now() }
       const rangedEvents = this.animator.update(dt, cameraDistance, inFrustum)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimAtk!) }
-      if (isBow) this._updateBowVisual(progress, attackTargetPosition)
+      if (isBow && !this.offFrustumVisualSleep) this._updateBowVisual(progress, attackTargetPosition)
       animationAdvanced = true
       const shouldFire = rangedEvents.projectileRelease
       if (shouldFire) {
@@ -4101,6 +4103,7 @@ export class NPC {
         const dir = this._tmpRangedDirection
         const aimPoint = this._getElevatedRangedAimPoint(attackTargetPosition)
         if (isBow && this.bowVisual) {
+          if (this.offFrustumVisualSleep) this._updateBowVisual(progress, attackTargetPosition)
           this.bowVisual.writeLaunch(origin, dir, aimPoint)
         } else {
           origin.copy(this.bowGripPivot.getWorldPosition(origin))
@@ -4153,7 +4156,7 @@ export class NPC {
           )
           if (this.isMounted) {
             this._syncToMount(_collector)
-            this.group.updateMatrixWorld(true)
+            this.group.updateWorldMatrix(false, false)
           }
         }
       }

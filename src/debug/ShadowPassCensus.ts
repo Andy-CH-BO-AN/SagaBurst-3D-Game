@@ -120,7 +120,8 @@ export function collectShadowPassCensus(game: ShadowPassCensusScene): ShadowPass
     )
   }
 
-  for (const arrow of game.arrows) tag(arrow.mesh, `Projectile/${arrow.mesh.name}`)
+  // Live projectiles are instanced per scene; the batch root owns all their draw submissions.
+  for (const child of scene.children) if (child.userData.projectileInstanceRoot) tag(child, 'Projectile/instanced')
   for (const pickup of game.pickups) tag(pickup.group, 'Pickups')
 
   const rows = new Map<string, CensusAccumulator>()

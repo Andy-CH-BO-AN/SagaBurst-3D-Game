@@ -314,7 +314,7 @@ export class CombatTrajectoryDebugger {
       return
     }
 
-    const arrowId = current.mesh.id
+    const arrowId = current.flightId
     if (arrowId !== this.projectileArrowId) {
       if (!this.projectileComplete) this.finishProjectileTrace()
       this.projectileArrowId = arrowId

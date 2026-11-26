@@ -225,6 +225,8 @@ const metricKeys = [
   ['NPC Update', 'npcUpdateMs'],
   ['Mount Update', 'mountUpdatePhaseMs'],
   ['最大 Mount subphase', 'maxMountSubphase'],
+  ['Arrow / Projectile', 'arrowMs'],
+  ['Arrow Count', 'arrowCount'],
   ['Renderer Submit', 'renderSubmitMs'],
   ['GPU Render Median', 'gpuRenderMedianMs'],
   ['Draw Calls', 'drawCalls'],
