@@ -1267,16 +1267,24 @@ export class NPC {
     if (this.townCategory === 'civilian') this.armTownCivilian(CIVILIAN_PROFILE.retaliationWeapon)
   }
   /** Peace uses animation and assigned motion only: no battle target search or A*. */
-  updateTownPeace(dt: number, distance: number, training: boolean, startAttack: boolean, speed = 0, trainingPhase = 0): boolean {
+  updateTownPeace(dt: number, distance: number, training: boolean, startAttack: boolean, speed = 0, trainingPhase = 0, inFrustum = true): boolean {
     if (this.pendingFall.active) {
+      this.setOffFrustumVisualSleep?.(false)
       this._updateRiderFall(dt, this.fallObstacles)
-      this.animator.update(dt, distance)
+      this.animator.update(dt, distance, true)
       return false
     }
     if (this.dead) {
-      if (!this.deathFade.update(this.group, dt)) this.animator.update(dt, distance)
+      this.setOffFrustumVisualSleep?.(false)
+      if (!this.deathFade.update(this.group, dt)) this.animator.update(dt, distance, true)
       return false
     }
+    if (this.mount) this.mount.setInFrustum?.(inFrustum)
+    const shouldSleepVisual = !inFrustum
+      && distance > OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE
+      && !this.animator.busy
+      && !this.mount?.isFlyingMount
+    this.setOffFrustumVisualSleep?.(shouldSleepVisual)
     this.animator.setEquipment(this.isUsingLance, this.hasActiveShield && this.townCategory !== 'civilian', this.mount?.type as MountedPoseKind)
     this.animator.setLocomotion(speed, this.isMounted, this.isSprinting && speed > 0)
     if (training && startAttack && !this.animator.busy) {
@@ -1286,10 +1294,12 @@ export class NPC {
     if (training && this.hasActiveRangedWeapon && this.rangedCombatKind === 'bow' && !this.animator.busy) {
       const charge = Math.min(1, trainingPhase / 1.3)
       this.animator.poseBow(charge)
-      this._tmpRangedTarget.set(0, 1.3, 4).applyQuaternion(this.group.quaternion).add(this.group.position)
-      this.bowVisual?.update(charge, this._tmpRangedTarget, true)
+      if (!this.offFrustumVisualSleep) {
+        this._tmpRangedTarget.set(0, 1.3, 4).applyQuaternion(this.group.quaternion).add(this.group.position)
+        this.bowVisual?.update(charge, this._tmpRangedTarget, true)
+      }
     }
-    const events = this.animator.update(dt, distance)
+    const events = this.animator.update(dt, distance, inFrustum)
     if (training && this.rangedCombatKind === 'javelin' && events.projectileRelease) this.bowPivot.visible = false
     if (this.isMounted) this._syncToMount()
     if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false; this.shieldPivot.visible = false }
@@ -1306,20 +1316,26 @@ export class NPC {
   }
   /** Reuses tactical formation/follow movement without combat acquisition or attacks. */
   updateTownTravel(dt: number, distance: number, nearby: NPC[], obstacles: ObstacleData[], navigation: NavigationWorld,
-    followAnchor?: { position: THREE.Vector3; yaw: number }): void {
+    followAnchor?: { position: THREE.Vector3; yaw: number }, inFrustum = true): void {
     this.fallObstacles = obstacles
-    if (this.pendingFall.active) { this._updateRiderFall(dt, obstacles); this.animator.update(dt, distance); return }
-    if (this.dead) { this.updateTownPeace(dt, distance, false, false); return }
+    if (this.pendingFall.active) {
+      this.setOffFrustumVisualSleep?.(false)
+      this._updateRiderFall(dt, obstacles)
+      this.animator.update(dt, distance, true)
+      return
+    }
+    if (this.dead) { this.updateTownPeace(dt, distance, false, false, 0, 0, true); return }
     if (this.mount?.dead) this.dismountFromMount()
     if (this.mount?.flight) {
       this._updateEagleTravel(dt, nearby, obstacles, followAnchor)
-      this.updateTownPeace(dt, distance, false, false, this.mount.movementSpeed)
+      this.updateTownPeace(dt, distance, false, false, this.mount.movementSpeed, 0, inFrustum)
       return
     }
     const previousPosition = this._tmpPreviousPosition.copy(this.group.position)
     this.visualMovementSpeed = 0
     this.isSprinting = false
     this.mount?.setCameraDistance(distance)
+    this.mount?.setInFrustum?.(inFrustum)
     this.mount?.beginControlledFrame()
     this._activeNavigationWorld = navigation
     this._updateFormationMovement(dt, nearby, obstacles, false, navigation, followAnchor)
@@ -1334,7 +1350,7 @@ export class NPC {
     if (this.mount) this.mount.finishControlledFrame(dt, obstacles)
     else this._updateFootPhysics(previousPosition, dt, obstacles)
     this._updateMovementStamina(dt)
-    this.updateTownPeace(dt, distance, false, false, this.mount?.movementSpeed ?? this.visualMovementSpeed)
+    this.updateTownPeace(dt, distance, false, false, this.mount?.movementSpeed ?? this.visualMovementSpeed, 0, inFrustum)
   }
 
   /** Every constructed, undisposed NPC; co-op scene snapshots read it. */

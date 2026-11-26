@@ -17,6 +17,9 @@ export function createCaltropBarrier(parent: THREE.Object3D, rects: readonly { m
   railGeometry ??= new THREE.BoxGeometry(1, .14, .14)
   material ??= new THREE.MeshStandardMaterial({ color: 0x6b4a2b, roughness: .9, metalness: 0 })
   const root = new THREE.Group(); root.name = 'caltrop-barriers'
+  const beamMatrices: THREE.Matrix4[] = []
+  const railMatrices: THREE.Matrix4[] = []
+  const dummy = new THREE.Object3D()
   for (const rect of rects) {
     const centerX = (rect.minX + rect.maxX) / 2, centerZ = (rect.minZ + rect.maxZ) / 2
     const ground = getTerrainHeight(centerX, centerZ)
@@ -28,19 +31,38 @@ export function createCaltropBarrier(parent: THREE.Object3D, rects: readonly { m
       const z = rect.alongZ ? rect.minZ + offset : centerZ
       const y = getTerrainHeight(x, z)
       for (const tilt of [Math.PI / 4, -Math.PI / 4]) {
-        const beam = new THREE.Mesh(beamGeometry, material)
-        beam.position.set(x, y + BARRIER_HEIGHT / 2, z)
-        if (rect.alongZ) beam.rotation.x = tilt
-        else beam.rotation.z = tilt
-        beam.castShadow = true
-        root.add(beam)
+        dummy.position.set(x, y + BARRIER_HEIGHT / 2, z)
+        dummy.rotation.set(rect.alongZ ? tilt : 0, 0, rect.alongZ ? 0 : tilt)
+        dummy.scale.set(1, 1, 1)
+        dummy.updateMatrix()
+        beamMatrices.push(dummy.matrix.clone())
       }
     }
-    const rail = new THREE.Mesh(railGeometry, material)
-    rail.scale.x = length
-    if (rect.alongZ) rail.rotation.y = Math.PI / 2
-    rail.position.set(centerX, ground + BARRIER_HEIGHT * .55, centerZ); rail.castShadow = true
-    root.add(rail)
+    dummy.position.set(centerX, ground + BARRIER_HEIGHT * .55, centerZ)
+    dummy.rotation.set(0, rect.alongZ ? Math.PI / 2 : 0, 0)
+    dummy.scale.set(length, 1, 1)
+    dummy.updateMatrix()
+    railMatrices.push(dummy.matrix.clone())
+  }
+  if (beamMatrices.length > 0) {
+    const beams = new THREE.InstancedMesh(beamGeometry, material, beamMatrices.length)
+    beams.name = 'caltrop-beams'
+    beams.castShadow = true
+    beams.receiveShadow = false
+    for (let i = 0; i < beamMatrices.length; i++) beams.setMatrixAt(i, beamMatrices[i])
+    beams.instanceMatrix.needsUpdate = true
+    beams.computeBoundingSphere()
+    root.add(beams)
+  }
+  if (railMatrices.length > 0) {
+    const rails = new THREE.InstancedMesh(railGeometry, material, railMatrices.length)
+    rails.name = 'caltrop-rails'
+    rails.castShadow = true
+    rails.receiveShadow = false
+    for (let i = 0; i < railMatrices.length; i++) rails.setMatrixAt(i, railMatrices[i])
+    rails.instanceMatrix.needsUpdate = true
+    rails.computeBoundingSphere()
+    root.add(rails)
   }
   parent.add(root)
   return root
