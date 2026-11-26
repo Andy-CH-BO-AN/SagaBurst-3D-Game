@@ -6,10 +6,10 @@
 
 ## 共通規則
 
-- 任務保存名單、階段、必要死亡／統計與 checkpoint；**重載不等於新任務**。借用居民不得被任務 cleanup 當臨時 NPC／Mount 銷毀。勝敗優先序由各 state 模組決定，Duel 與團體任務不共用玩家死亡規則。
+- 任務保存名單、階段、必要死亡／統計與初始／結算／手動存檔點；**和平小鎮維持既有存檔節奏，生涯任務進行中預設不自動存檔（包含週期、陣亡、`pagehide` 與返回主選單），僅在首次部署完成、玩家於暫停選單按 `ESC → S` 手動存檔或任務結算時寫入存檔（任務中技能經驗亦僅於結算或按 `S` 手動存檔時寫入）**。借用居民不得被任務 cleanup 當臨時 NPC／Mount 銷毀。勝敗優先序由各 state 模組決定，Duel 與團體任務不共用玩家死亡規則。
 - 部署或保存失敗一律保留原狀態供重試，不放寬檢查、不推定缺少的欄位。
 - 進行中存檔只接受現行 roster／schema 版本；不相容即拒讀，不重建歷史名冊或推定勝利原因。
-- `CareerMissionCheckpoint` 擁有 checkpoint clock、立即／週期保存資格、profile clone 與同步提交；成功才重設 clock，失敗由 controller 下次以最新快照重試。各任務自行決定快照內容、phase guard 與哪些變化立即保存；force 只提前週期資料，不改存檔格式。
+- `CareerMissionCheckpoint` 擁有 checkpoint clock、立即／週期／手動保存資格（`autoSave: false` 時僅 `manual` 或 `force` 會提交寫入）、profile clone 與同步提交；成功才重設 clock，失敗由 controller 下次以最新快照重試。各任務自行決定快照內容、phase guard 與首次部署／結算／手動存檔時機；force 與 manual 不改存檔格式。
 
 ## 結算與返城
 

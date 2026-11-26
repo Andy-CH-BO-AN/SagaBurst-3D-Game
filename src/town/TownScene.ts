@@ -367,6 +367,7 @@ export class TownScene {
   private enemyEaglePatrol?: EnemyEaglePatrolController
   private outskirts?: TownOutskirtsWarfareController
   private missionResultOpen = false
+  private pauseMenuOpen = false
   /** The Sergeant's mission board and the tab/1v1 selections it keeps between openings. */
   private readonly missionBoard = new TownMissionBoard(this.missionBoardHost())
   private careerCommandCue: AudioCommand | null = null
@@ -585,7 +586,8 @@ export class TownScene {
     if (profile.activeMission?.kind !== 'commander-four-gate-defense') this.townCommand.restore()
     this.captainPatrol = new CaptainPatrolCommandController(this.residents, this.patrol, () => this.player, () => this.profile, p => this.commit(p),
       { personalActors: () => this.personalSquad?.actors ?? [],
-        resumeFormation: (npc, reference) => this.personalFormation?.joinCommand(npc, reference) ?? false })
+        resumeFormation: (npc, reference) => this.personalFormation?.joinCommand(npc, reference) ?? false,
+        autoSave: false })
     this.initializePersonalSquad()
     this.personalCommandUI = new ArmyCommandUI(profile.faction, this.hud)
     this.personalFormation = new FormationController(this.scene, this.camera, this.commandActors, this.world.terrainMesh,
@@ -652,14 +654,14 @@ export class TownScene {
     const missionCaptain = (this.residents.find(resident => resident.spec.id === 'captain')
       ?? this.residents.find(resident => resident.npc.faction === Faction.TOWN)
       ?? this.residents[0]).npc
-    this.mission = new BanditMissionController(this.scene, this.world, this.navigation, missionCaptain, this.residents, () => this.player, () => this.profile, p => this.commit(p))
+    this.mission = new BanditMissionController(this.scene, this.world, this.navigation, missionCaptain, this.residents, () => this.player, () => this.profile, p => this.commit(p), undefined, undefined, false)
     this.mission.personalActors = () => this.personalSquad?.actors ?? []
     this.mission.onBorrowMountedActor = actorId => { this.patrol.relinquish(actorId) }
     this.mission.onMarchStarted = () => this.playMissionVoice('follow')
     this.mission.onSweepCharge = () => sound.playCommanderCommand(this.profile.faction, 'charge')
 
     this.duel = new CareerDuelController(this.scene, this.world, this.navigation, this.residents, this.cat, () => this.player, () => this.profile, p => this.commit(p),
-      undefined, request => this.createDuelOpponent(request))
+      undefined, request => this.createDuelOpponent(request), undefined, false)
     this.duel.resolvePlayerHomeMount = () => this.careerMounts?.activeMount ?? null
     this.duel.onMarchStarted = () => this.playMissionVoice('follow')
     this.duel.onReturnStarted = () => this.playMissionVoice('return')
@@ -675,12 +677,12 @@ export class TownScene {
             this.siegeHitRadius.set(ramp.damageable, Math.hypot(ramp.surface.length + ramp.surface.landing,
               ramp.surface.topY - ramp.surface.startY) + ramp.bridgeSurface.length + 8)
           },
-          unregisterHit: ramp => { this.siegeHitTargets.delete(ramp.damageable) } })
+          unregisterHit: ramp => { this.siegeHitTargets.delete(ramp.damageable) } }, undefined, false)
       : new CommanderTownMissionController(missionActors, this.residents, () => this.player, () => this.profile,
         p => this.commit(p), this.navigation, undefined, { obstacles: this.world.obstacles,
           otherThreats: () => [...this.mission.ambientBandits, ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? [])]
             .filter(npc => !npc.dead && (npc.faction === Faction.ENEMY || npc.faction === Faction.BANDIT))
-            .map(npc => ({ x: npc.combatPosition.x, z: npc.combatPosition.z, range: npc.maxRangedAttackDistance })) })
+            .map(npc => ({ x: npc.combatPosition.x, z: npc.combatPosition.z, range: npc.maxRangedAttackDistance })) }, false)
     this.defense.personalActors = () => this.personalSquad?.actors ?? []
     this.civilianCommand = new CivilianCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p, 'civilian-command'), {
       sceneKey: `town:${context.worldFaction}`, townFaction: context.worldFaction,
@@ -882,6 +884,7 @@ export class TownScene {
     window.addEventListener('focus', () => this.preparationClock.reset(), opts)
     window.addEventListener('keydown', e => this.key(e), opts)
     window.addEventListener('pagehide', () => {
+      if (this.hasActiveCareerMission()) return
       this.careerSkillSave.flush()
       this.persistPersonalSquad(0, true)
       this.captainPatrol?.persist(true)
@@ -1626,14 +1629,24 @@ export class TownScene {
     if (award) this.awardCareerSkillXp(award)
   }
 
+  private hasActiveCareerMission(): boolean {
+    return Boolean(
+      (this.profile.activeMission && !this.profile.activeMission.result)
+      || (this.profile.activeOutpostMission && !this.profile.claimedBattleIds.includes(this.profile.activeOutpostMission.id))
+      || (this.profile.activeRace && !this.profile.activeRace.result),
+    )
+  }
+
   private awardCareerSkillXp(award: SkillProgressionAward): void {
+    const manualMissionOnly = this.hasActiveCareerMission()
     applyTownSkillXp(award, {
       canAward: () => canAwardPlayerSkillProgression({ dead: this.player.dead, spectatorOnly: this.player.spectatorOnly, observer: Boolean(this.spectator) }),
       profile: () => this.profile, publishProfile: next => { this.profile = next },
       skillState: () => this.skills.skillState, addXp: (skill, xp) => this.skills.addXp(skill, xp, sound),
       syncPlayerLevels: state => syncPlayerSkillCombatLevels(this.player, state),
       markDirty: () => this.careerSkillSave.markDirty(),
-      flushNow: () => { this.careerSkillSave.flush() }, scheduleFlush: () => this.careerSkillSave.schedule(),
+      flushNow: manualMissionOnly ? () => {} : () => { this.careerSkillSave.flush() },
+      scheduleFlush: manualMissionOnly ? () => {} : () => this.careerSkillSave.schedule(),
       onLevelUp: levelsGained => {
         const oldHp = this.player.hp
         const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
@@ -1649,7 +1662,6 @@ export class TownScene {
     const retirementBattle = this.profile.careerRetirement?.phase === 'final-stand'
     if (!retirementBattle && (!this.profile.activeMission || this.event.hostile) && !this.profile.activeRace) return
     if (this.profile.activeMission?.kind === 'duel') {
-      this.duel.persistRuntimeProgress(true)
       this.input.clear()
       this.player.clearTownAction()
       this.equipment.close()
@@ -1664,14 +1676,6 @@ export class TownScene {
     this.target = null
     this.hasPreviousTip = false
     document.getElementById('controls-hint')!.textContent = 'Observer · WASD 移動 · Mouse 視角 · Space 上升 · Ctrl 下降 · Shift 加速'
-    // Commander death is saved with the complete post-combat runtime below.
-    // An observer-only commit would retain stale actor HP, orders and FourGate player state.
-    if (this.profile.activeMission && !this.profile.activeMission.playerDead
-      && !isCommanderTownMission(this.profile.activeMission) && this.profile.activeMission.kind !== 'commander-four-gate-defense') {
-      const next = cloneCareerProfile(this.profile)
-      next.activeMission!.playerDead = true
-      this.commit(next)
-    }
   }
   private key(e: KeyboardEvent): void {
     if (this.retirementFinale?.frozen) { e.preventDefault(); e.stopImmediatePropagation(); return }
@@ -1680,6 +1684,9 @@ export class TownScene {
       if (this.equipment.visible && (e.target as Element | null)?.closest?.('#character-modal')
         && !['KeyQ', 'Escape', 'Tab'].includes(e.code)) return
       e.stopImmediatePropagation()
+      if (this.panel && this.pauseMenuOpen && !e.repeat && e.code === 'KeyS' && this.hasActiveCareerMission() && !this.coopGuest) {
+        e.preventDefault(); this.saveMissionManually(); return
+      }
       if (['KeyQ', 'Escape', 'Tab'].includes(e.code)) { e.preventDefault(); if (!this.result && !this.missionResultOpen) this.closePanel() }
       return
     }
@@ -1734,11 +1741,17 @@ export class TownScene {
       else if (this.nearbyTemporaryMount?.availableForPlayer) this.player.mountVehicle(this.nearbyTemporaryMount)
     }
   }
-  private openPauseMenu(message = '返回主選單後，可再次進入 Career 繼續生涯。'): void {
+  private openPauseMenu(message?: string): void {
     if (this.disposed || this.retirementFinale?.frozen || this.panel || this.equipment.visible || this.result || this.missionResultOpen) return
-    const panel = this.openPanel('生涯模式 · 暫停', message)
+    const activeMission = this.hasActiveCareerMission() && !this.coopGuest
+    const body = message ?? (activeMission
+      ? '按 S 手動存檔目前任務進度；直接返回主選單不會自動存檔，下次進入將從任務開頭重新開始。'
+      : '返回主選單後，可再次進入 Career 繼續生涯。')
+    const panel = this.openPanel('生涯模式 · 暫停', body)
+    this.pauseMenuOpen = true
     const resume = panel.querySelector('button')
     if (resume) resume.textContent = '繼續遊戲'
+    if (activeMission) this.button(panel, '存檔 (S)', () => this.saveMissionManually())
     if (this.profile.activeMission?.duelTutorialCareerId && !this.profile.activeMission.result) {
       this.button(panel, '取消新兵切磋 · 不結算獎勵', () => this.returnToTown('direct'))
     }
@@ -1751,8 +1764,32 @@ export class TownScene {
     this.button(panel, '上一頁', () => this.returnHome())
   }
 
+  private saveMissionManually(): void {
+    if (this.disposed || this.retirementFinale?.frozen || this.result || this.missionResultOpen || !this.hasActiveCareerMission() || this.coopGuest) return
+    const failures = this.careerSaveFailures
+    const skillsSaved = this.careerSkillSave.flush()
+    this.persistPersonalSquad(0, true)
+    if (this.captainPatrol?.active) this.captainPatrol.persist(true)
+    else if (this.duel?.active) this.duel.persistRuntimeProgress(true)
+    else if (this.defense?.active) this.defense.persistRuntimeProgress(true, this.careerMounts.checkpoint())
+    else if (this.profile.activeMission) this.mission.persistRuntimeProgress(true)
+    this.race?.snapshot()
+    const raceSaved = this.race?.persist() ?? true
+    const saved = this.commit(this.profile)
+    this.panel?.remove(); this.panel = null; this.pauseMenuOpen = false
+    const ok = raceSaved && skillsSaved && saved && this.careerSaveFailures === failures
+    this.openPauseMenu(ok ? '已保存目前任務進度。' : '任務存檔失敗，請確認儲存空間後再按 S 重試。')
+  }
+
   private returnHome(): void {
     if (this.disposed || this.retirementFinale?.frozen || this.result || this.missionResultOpen) return
+    if (this.hasActiveCareerMission()) {
+      this.careerSkillSave.cancel()
+      this.coopHost?.dispose()
+      this.dispose()
+      this.onHome()
+      return
+    }
     const failures = this.careerSaveFailures
     const skillsSaved = this.careerSkillSave.flush()
     this.persistPersonalSquad(0, true)
@@ -1764,7 +1801,7 @@ export class TownScene {
     const raceSaved = this.race?.persist() ?? true
     const saved = this.commit(this.profile)
     if (!raceSaved || !skillsSaved || !saved || this.careerSaveFailures !== failures) {
-      this.panel?.remove(); this.panel = null
+      this.panel?.remove(); this.panel = null; this.pauseMenuOpen = false
       this.openPauseMenu('進度保存失敗，尚未返回主選單。請確認儲存空間後，再按「上一頁」重試。')
       return
     }
@@ -1776,11 +1813,13 @@ export class TownScene {
   private closePanel(): void {
     this.promotionPreviewCleanup?.(); this.promotionPreviewCleanup = undefined
     this.promotionAttempt = null
+    this.pauseMenuOpen = false
     this.panel?.remove(); this.panel = null; this.equipment.close(); this.input.clear(); this.player.clearTownAction(); if (!location.search.includes('nolock')) this.input.requestPointerLock(this.renderer.domElement)
   }
   private openPanel(title: string, text: string): HTMLDivElement {
     this.promotionPreviewCleanup?.(); this.promotionPreviewCleanup = undefined
     this.promotionAttempt = null
+    this.pauseMenuOpen = false
     this.personalCommands?.close()
     this.panel?.remove(); this.equipment.close(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
     const panel = document.createElement('div'); panel.id = 'town-dialog'; panel.className = 'town-panel'
@@ -3300,6 +3339,7 @@ export class TownScene {
     }
   }
   private finishMission(outcome: CareerMissionOutcome): void {
+    this.careerSkillSave.flush()
     if (this.captainPatrol?.active) { this.captainPatrol.persist(true); this.captainPatrol.freezeStats() }
     else if (this.defense?.active) this.defense.freezeStats()
     else if (!this.duel?.active) this.mission?.freezeStats()
@@ -4556,17 +4596,9 @@ export class TownScene {
     if (returning) this.leaveRace(returning === 'direct')
     const devProf = import.meta.env.DEV && this.devProfiler?.isEnabled() ? this.devProfiler : null
     const tPersist = devProf ? performance.now() : 0
-    this.persistPersonalSquad(dt)
+    if (!this.hasActiveCareerMission()) this.persistPersonalSquad(dt)
     this.captainPatrol?.update(dt)
-    if (this.duel?.active) this.duel.persistRuntimeProgress()
     if (this.player.dead) this.enterMissionObserver()
-    if ((this.player.dead || this.profile.activeMission?.kind === 'cavalry-sweep' || this.profile.activeMission?.kind === 'veteran-field') && this.profile.activeMission && !this.profile.activeMission.result) {
-      if (this.captainPatrol?.active) this.captainPatrol.persist(true)
-      else if (this.duel?.active) this.duel.persistRuntimeProgress(true)
-      else if (this.defense.active) this.defense.persistRuntimeProgress(
-        !(isCommanderTownMission(this.profile.activeMission) || this.profile.activeMission.kind === 'commander-four-gate-defense'))
-      else this.mission.persistRuntimeProgress(this.player.dead)
-    }
     if (devProf) devProf.add('persistMs', performance.now() - tPersist)
     if (this.spectator) this.spectator.update(this.input, dt)
     this.interaction()

@@ -281,7 +281,8 @@ export class BanditMissionController {
   private commandId = 1
   private route: THREE.Vector3[] = []
   private routeIndex = 0
-  private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
+  private readonly checkpoint: CareerMissionCheckpoint
+  private readonly autoSave: boolean
   private readonly plannedFriendlyPositions: THREE.Vector3[] = []
   /** Reserve queued friendly positions without waiting for actor construction. */
   get deploymentPositions(): readonly THREE.Vector3[] {
@@ -308,7 +309,10 @@ export class BanditMissionController {
     private readonly commit: (profile: CareerProfile) => boolean,
     private readonly veteranFieldFactories: VeteranFieldActorFactories = {},
     private readonly scheduler: NpcSpawnScheduler = gameplayNpcSpawns,
+    autoSave = true,
   ) {
+    this.autoSave = autoSave
+    this.checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile), { autoSave })
     this.camps = world.camps.map((camp, id) => ({
       id,
       center: camp.spawnPoints.reduce((sum, point) => sum.add(point), new THREE.Vector3()).multiplyScalar(1 / camp.spawnPoints.length),
@@ -383,6 +387,10 @@ export class BanditMissionController {
     if (!active || active.kind !== 'veteran-field' || !this.veteranEnemySquadList.some(squad => squad.squadId === squadId)) return false
     if (active.engagedEnemySquadIds?.includes(squadId)) return true
     const engagedEnemySquadIds = [...(active.engagedEnemySquadIds ?? []), squadId].sort((a, b) => a - b)
+    if (this.autoSave === false) {
+      active.engagedEnemySquadIds = engagedEnemySquadIds
+      return true
+    }
     return this.checkpoint.persist(() => ({
       ...active,
       engagedEnemySquadIds,
@@ -749,6 +757,12 @@ export class BanditMissionController {
     const active = this.active
     if (!active) return false
     if (active.phase === phase && (active.routeStage ?? 0) === routeStage) return true
+    if (this.autoSave === false && phase !== 'RETURNING') {
+      active.phase = phase
+      active.routeStage = routeStage
+      if (phase === 'ENGAGING' && this.travelEncounter.active) this.travelEncounter.clear()
+      return true
+    }
     const saved = this.checkpoint.persist(() => ({ ...active, phase, routeStage,
       ...(active.kind === 'cavalry-sweep' && this.leader && !this.leader.dead ? { mountedMarchPosition: { x: this.leader.combatPosition.x, z: this.leader.combatPosition.z } } : {}),
       ...((active.kind === 'veteran-field' && phase === 'RETURNING') || active.kind === 'cavalry-sweep' ? {
@@ -759,7 +773,7 @@ export class BanditMissionController {
         mountedMarchPosition: this.mountedMarchAnchor(active),
       } : {}),
       ...(this.officialCheckpoint(active) ? { officialSquad: this.officialCheckpoint(active) } : {}),
-      playerStats: this.tracker?.checkpoint() ?? active.playerStats, targetActorIds: [...active.targetActorIds], friendlyActorIds: [...active.friendlyActorIds] }), { immediate: true })
+      playerStats: this.tracker?.checkpoint() ?? active.playerStats, targetActorIds: [...active.targetActorIds], friendlyActorIds: [...active.friendlyActorIds] }), { immediate: true, force: phase === 'RETURNING' })
     if (saved && phase === 'ENGAGING' && this.travelEncounter.active) this.travelEncounter.clear()
     return saved
   }
@@ -1155,6 +1169,13 @@ export class BanditMissionController {
     const active = this.active
     if (!active || active.id !== mission.id || active.kind !== 'veteran-field') return false
     const chargedSquadIds = Array.from({ length: squadCount }, (_, index) => index + 1)
+    if (this.autoSave === false) {
+      active.phase = 'ENGAGING'
+      active.chargedSquadIds = chargedSquadIds
+      active.followVoicePlayed = true
+      if (this.travelEncounter.active) this.travelEncounter.clear()
+      return true
+    }
     const saved = this.checkpoint.persist(() => ({
       ...active,
       phase: 'ENGAGING',

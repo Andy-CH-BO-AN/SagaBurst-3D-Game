@@ -23,6 +23,7 @@ import {
 import { clearCareerMission, cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { resolveCareerHeroAsset, resolveCareerOrdinaryTier, resolveCareerPlayerMaxHp } from '../career/CareerPlayerProfile'
+import { TOWN_ENTRY_KEY } from '../town/CareerTownEntry'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
 import { careerStorySettlement } from '../career/CareerStoryEvents'
 import type { ActiveCareerMission, CareerMissionOutcome } from '../career/CareerMissionState'
@@ -74,9 +75,6 @@ import { announceCoopScene, coopGuestCharacterAssets, coopGuestPlayerSource, isC
 import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeer, type CoopGamePort } from '../coop/CoopMission'
 
 const RESUME_GRACE_SECONDS = 3
-const CHECKPOINT_SECONDS = 2
-/** A fall changes quickly, so it is saved far more often than a quiet fight. */
-const AIRBORNE_CHECKPOINT_SECONDS = 0.25
 
 export interface CareerArenaTrialCallbacks {
   /** The trial is settled (or cancelled) and saved; Town may be rebuilt. */
@@ -153,14 +151,14 @@ export class CareerArenaCombatScene {
   private set phase(next: ArenaPhase) { this.opening.phase = next }
   private resumeGrace = false
   private started = false
-  private lastPlayerSignature = ''
   private combatElapsed = 0
-  private checkpointClock = 0
   private elapsed = 0
   private raf = 0
   private last = 0
   private disposed = false
   private panel: HTMLElement | null = null
+  private pauseMenuOpen = false
+  private pointerWasLocked = false
   private settled = false
   private encounter?: PrisonBreakEncounter
   private skillsDirty = false
@@ -408,9 +406,24 @@ export class CareerArenaCombatScene {
     if (!this.prison) this.equipment = new ArenaEquipmentMenu(this.input, this.skills, this.inventory, this.renderer.domElement,
       () => this.started && !this.disposed && !this.player.dead && !this.panelOpen && !this.settlementPending && this.phase !== 'result', this.careerMounts)
     this.renderer.domElement.addEventListener('click', () => this.opening.click(), { signal })
-    document.addEventListener('pointerlockchange', () => this.opening.lockChanged(), { signal })
+    document.addEventListener('pointerlockchange', () => {
+      const locked = document.pointerLockElement === this.renderer.domElement
+      const released = this.pointerWasLocked && !locked
+      this.pointerWasLocked = locked
+      this.opening.lockChanged()
+      if (released && !location.search.includes('nolock')) this.openPauseMenu()
+    }, { signal })
+    window.addEventListener('keydown', e => {
+      if (this.disposed || this.coopGuest || !this.started || this.settlementPending || this.phase === 'result' || this.pickupRetry) return
+      if (this.pauseMenuOpen) {
+        if (!e.repeat && e.code === 'KeyS') { e.preventDefault(); this.saveMissionManually(); return }
+        if (!e.repeat && e.code === 'Escape') { e.preventDefault(); this.closePauseMenu(); return }
+      } else if (!e.repeat && e.code === 'Escape' && !this.equipment?.visible && !this.panelOpen) {
+        e.preventDefault()
+        this.openPauseMenu()
+      }
+    }, { signal })
     bindWindowResize(this.camera, this.renderer, signal)
-    window.addEventListener('pagehide', () => this.persistNow(), { signal })
   }
 
   private openingHost(): ArenaOpeningHost {
@@ -425,13 +438,10 @@ export class CareerArenaCombatScene {
       consumeLeftGesture: () => this.input.consumeLeftGesture(),
       resetClock: () => { this.last = performance.now() },
       render: (phase, remaining) => this.openingHud.update(phase, remaining),
-      // The resume grace of an already-fighting trial still keeps the saved fight current: a landing, a knock-out or
-      // a fall under way must survive a second reload. The first deployment countdown saves nothing.
-      holdOpening: dt => { if (this.resumeGrace) this.checkpointFight(dt); return Boolean(this.pickupRetry) },
+      holdOpening: () => Boolean(this.pickupRetry),
       fightStarted: () => {
         this.resumeGrace = false
         for (const body of this.bodies) if (!body.npc.dead) body.npc.setTacticalOrder('attack')
-        if (this.prison) this.saveProgressWithRetry(); else this.persistProgress()
       },
     }
   }
@@ -472,7 +482,7 @@ export class CareerArenaCombatScene {
   update(dt: number): void {
     if (this.disposed) return
     if (this.coopGuest) { this.updateCoopGuest(dt); return }
-    if (this.equipment?.visible) { this.input.clear(); return }
+    if (this.equipment?.visible || this.pauseMenuOpen) { this.input.clear(); return }
     if (this.settlementPending || this.pickupRetry) {
       if (this.encounter) { this.encounter.clearPickupFocus(); this.input.consumeKeyE() }
       this.arena.update(dt); this.damageNumbers.update(dt, this.camera); return
@@ -535,8 +545,6 @@ export class CareerArenaCombatScene {
       friendly: { active: this.counts().friendlyActive + (this.player.dead ? 0 : 1), total: this.mission.friendlyActorIds.length + 1 + (this.coopHost?.guestProxy ? 1 : 0) },
       enemy: { active: this.counts().enemyActive, total: this.mission.targetActorIds.length },
       remainingSeconds: ARENA_TRIAL_TIME_LIMIT_SECONDS - this.combatElapsed, playerKnocked: this.player.dead })
-    if (this.session) this.session.tickSkillFlush(this.elapsed, dt)
-    else if (this.skillsDirty && this.elapsed % 5 < dt) this.flushSkills()
   }
 
   private updateCamera(dt: number): void {
@@ -572,29 +580,19 @@ export class CareerArenaCombatScene {
     if (this.phase !== 'fight') return
     this.combatElapsed += dt
     if (this.prison) {
-      // Resolve a crossing before any periodic write: a failed result write must never save an
-      // already-outside player without the receipt. Final combat state and reward share one commit.
+      // Resolve a crossing before any periodic check: final combat state and reward share one commit on settlement.
       if (!this.encounter!.openGateIfCleared()) { this.pauseForPrisonSave(() => this.advancePhase(0)); return }
-      this.checkpointFight(dt)
+      this.syncKnockedActorsInMemory()
       return
     }
-    this.checkpointFight(dt)
+    this.syncKnockedActorsInMemory()
     const end = resolveArenaTrialEnd(this.counts(), this.combatElapsed)
     if (end && !this.settlementPending) this.finish(end.outcome, end.reason)
   }
 
-  /** Saves at once on any knock-out or change of the player's own state, and on a steady cadence (faster while falling). */
-  private checkpointFight(dt: number): void {
-    let changed = false
-    for (const body of this.bodies) if (body.npc.dead && !this.knocked.has(body.actorId)) { this.knocked.add(body.actorId); changed = true }
-    const signature = `${this.player.dead}|${Math.round(this.player.hp)}`
-    if (signature !== this.lastPlayerSignature) { this.lastPlayerSignature = signature; changed = true }
-    // A knock-out is saved at once so a reload can never stand the body back up.
-    this.checkpointClock += dt
-    const airborne = !this.player.dead && !this.player.isGrounded && !this.player.currentMount
-    if (changed || this.checkpointClock >= (airborne ? AIRBORNE_CHECKPOINT_SECONDS : CHECKPOINT_SECONDS)) {
-      if (this.prison) this.saveProgressWithRetry(); else this.persistProgress()
-    }
+  /** Tracks knocked-out actors in memory during active combat without writing checkpoints. */
+  private syncKnockedActorsInMemory(): void {
+    for (const body of this.bodies) if (body.npc.dead) this.knocked.add(body.actorId)
   }
 
   private updateBodies(dt: number): void {
@@ -849,9 +847,8 @@ export class CareerArenaCombatScene {
     syncPlayerSkillCombatLevels(this.player, this.skills.skillState)
     this.skillsDirty = true
     if (levels > 0) {
-      this.flushSkills()
       const before = this.player.hp
-      const maxHp = resolveCareerPlayerMaxHp(this.playerProfile, DEFAULT_PLAYER_MAX_HP)
+      const maxHp = resolveCareerPlayerMaxHp({ ...this.playerProfile, skills: this.skills.skillState }, DEFAULT_PLAYER_MAX_HP)
       this.player.setMaxHp(maxHp, false)
       this.player.setHp(Math.min(maxHp, before + levels))
     }
@@ -887,17 +884,19 @@ export class CareerArenaCombatScene {
 
   private persistProgress(): boolean {
     const next = this.captureProgress()
-    const saved = Boolean(next && this.commit(next))
-    if (saved) this.checkpointClock = 0
-    return saved
+    return Boolean(next && this.commit(next))
   }
 
-  private persistNow(): void {
+  private persistNow(): boolean {
     // A co-op guest saves only its own skill progress (into its own save); the trial is the host's.
-    if (this.coopGuest) { if (!this.disposed) this.flushSkills(); return }
-    if (this.disposed || !this.tracker || !this.initializationComplete || this.settlementPending || this.pickupRetry) return
-    this.flushSkills()
-    if (this.phase === 'fight' || this.resumeGrace) this.persistProgress()
+    if (this.coopGuest) { if (!this.disposed) this.flushSkills(); return true }
+    if (this.disposed || !this.tracker || !this.initializationComplete || this.settlementPending || this.pickupRetry) return false
+    const skillsOk = !this.skillsDirty || (() => {
+      this.flushSkills()
+      return !this.skillsDirty
+    })()
+    if (this.prison || this.phase === 'fight' || this.resumeGrace) return this.persistProgress() && skillsOk
+    return skillsOk
   }
 
   private saveProgressWithRetry(): boolean {
@@ -923,8 +922,13 @@ export class CareerArenaCombatScene {
       phase: () => this.phase,
       profile: () => this.profile,
       adoptProfile: next => { this.profile = next },
-      commit: next => this.commit(next),
-      save: next => this.store.save(next),
+      commit: next => { this.profile = next; return true },
+      save: next => {
+        if (this.skillsDirty) next.skills = this.skills.skillState
+        const saved = this.store.save(next)
+        if (saved) this.skillsDirty = false
+        return saved
+      },
       captureProgress: () => this.captureProgress(),
       pauseForSave: retry => this.pauseForPrisonSave(retry),
       savePending: () => Boolean(this.pickupRetry),
@@ -1047,11 +1051,52 @@ export class CareerArenaCombatScene {
     this.panel.append(button)
   }
 
-  private closePanel(): void { this.session?.panel.close(); this.panel?.remove(); this.panel = null; this.dimmer?.remove(); this.dimmer = undefined }
+  private closePanel(): void {
+    this.pauseMenuOpen = false
+    this.session?.panel.close(); this.panel?.remove(); this.panel = null; this.dimmer?.remove(); this.dimmer = undefined
+  }
+
+  private openPauseMenu(message?: string): void {
+    if (this.disposed || this.coopGuest || !this.started || this.settlementPending || this.phase === 'result' || this.pickupRetry || this.equipment?.visible) return
+    if (this.panelOpen && !this.pauseMenuOpen) return
+    const body = message ?? '按 S 手動存檔目前任務進度；直接返回主選單不會自動存檔，下次進入將從任務開頭重新開始。'
+    this.openPanel('生涯模式 · 暫停', body)
+    this.pauseMenuOpen = true
+    if (this.phase === 'countdown') this.opening.pauseIfUnlocked()
+    this.input.clear()
+    if (document.pointerLockElement) document.exitPointerLock?.()
+    this.button('繼續遊戲', () => this.closePauseMenu())
+    this.button('存檔 (S)', () => this.saveMissionManually())
+    this.button('返回主選單（不存檔）', () => this.returnToMainMenuWithoutSave())
+  }
+
+  private closePauseMenu(): void {
+    if (!this.pauseMenuOpen) return
+    this.closePanel()
+    this.input.clear()
+    this.last = performance.now()
+    if (!location.search.includes('nolock') && !this.player.dead && !this.settlementPending && this.phase !== 'result') {
+      this.input.requestPointerLock(this.renderer.domElement)
+    }
+  }
+
+  private saveMissionManually(): void {
+    if (!this.pauseMenuOpen || this.coopGuest || this.settlementPending || this.phase === 'result') return
+    const saved = this.persistNow()
+    this.openPauseMenu(saved ? '已保存目前任務進度。' : '任務存檔失敗，請確認儲存空間後再按 S 重試。')
+  }
+
+  private returnToMainMenuWithoutSave(): void {
+    if (this.disposed) return
+    this.closePanel()
+    this.dispose()
+    sessionStorage.removeItem(TOWN_ENTRY_KEY)
+    window.location.href = window.location.pathname
+  }
 
   dispose(): void {
     if (this.disposed) return
-    this.persistNow()
+    if (this.coopGuest) this.flushSkills()
     // A return to Town announces the Town; only the end of co-op itself sends 'end'.
     for (const off of this.coopUnsubscribe.splice(0)) off()
     this.coopHost?.dispose(false); this.coopHost = undefined
@@ -1148,7 +1193,7 @@ export class CareerArenaCombatScene {
 
   /** Guest frame: own movement and attacks; the host owns the bodies, the timer and the result. */
   private updateCoopGuest(dt: number): void {
-    if (this.equipment?.visible) { this.input.clear(); return }
+    if (this.equipment?.visible || this.pauseMenuOpen) { this.input.clear(); return }
     this.elapsed += dt
     // Read before the Player's own update, as the host does, so E is the sword's.
     const pickupPressed = this.prison ? this.input.consumeKeyE() : false
@@ -1187,8 +1232,6 @@ export class CareerArenaCombatScene {
     this.damageNumbers.update(dt, this.camera)
     this.weaponWheelUI.update(this.inventory, !this.player.dead)
     this.hp.setFill(this.player.hpRatio)
-    if (this.session) this.session.tickSkillFlush(this.elapsed, dt)
-    else if (this.skillsDirty && this.elapsed % 5 < dt) this.flushSkills()
   }
 
   /** DEV QA: advance the real gameplay step at a fixed 60 Hz with held key codes. */

@@ -49,7 +49,8 @@ export class CommanderTownMissionController {
   private spawnBatch?: NpcSpawnBatch
   private startedMissionId?: string
   private rosterCommitPending = false
-  private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
+  private readonly checkpoint: CareerMissionCheckpoint
+  private readonly autoSave: boolean
   private objectiveUnsubscribe?: () => void
   initialDeployment?: DecapitationDeployment
 
@@ -62,7 +63,11 @@ export class CommanderTownMissionController {
     private readonly navigation: NavigationWorld,
     private readonly scheduler: NpcSpawnScheduler = gameplayNpcSpawns,
     private readonly deploymentEnvironment?: { obstacles: readonly ObstacleData[]; otherThreats: () => DeploymentThreat[] },
-  ) {}
+    autoSave = true,
+  ) {
+    this.autoSave = autoSave
+    this.checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile), { autoSave })
+  }
 
   get active(): ActiveCareerMission | undefined {
     const mission = this.readProfile().activeMission
@@ -162,7 +167,7 @@ export class CommanderTownMissionController {
       this.objectiveUnsubscribe = this.events.subscribe(event => this.noteObjectiveEvent(event))
       for (const actor of this.officialActors) this.tracker.registerNpc(actor, true)
       if (deployed.commanderMission?.deploymentComplete) this.releaseCombat()
-      this.persistRuntimeProgress(true)
+      if (this.autoSave !== false) this.persistRuntimeProgress(true)
     })
     return true
   }

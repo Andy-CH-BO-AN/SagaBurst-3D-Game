@@ -731,8 +731,10 @@ export class Game {
   private fieldBattleHud?: CaptainEagleHUD
   private fieldResultPending?: 'victory' | 'failure'
   private careerBattleCheckpoint?: CareerMissionCheckpoint
-  private readonly flushCareerBattleOnPageHide = (): void => { this._persistCareerBattle(true) }
-  private readonly flushPersonalOutpostOnPageHide = (): void => { this._persistPersonalOutpost(true) }
+  private readonly flushCareerBattleOnPageHide = (): void => {}
+  private readonly flushPersonalOutpostOnPageHide = (): void => {
+    if (!this._hasActiveCareerMission()) this._persistPersonalOutpost(true)
+  }
   private readonly careerVeteranActorMounts = new Map<string, Mount | null>()
   private damageNumbers!: DamageNumbers
   private arrows: ArrowProjectile[] = []
@@ -749,9 +751,9 @@ export class Game {
   private veteranOutpostCheckpoint: CareerMissionCheckpoint | null = null
   private careerOutpostDefenseGuide: MissionGuide | null = null
   private restoringCareerOutpostGate = false
-  private readonly flushVeteranOutpostOnPageHide = (): void => {
-    this._persistCareerVeteranOutpostCheckpoint({ immediate: true, periodic: true, force: true })
-  }
+  private careerPausePanel: HTMLElement | null = null
+  private careerPointerWasLocked = false
+  private readonly flushVeteranOutpostOnPageHide = (): void => {}
   private campaignSiegeAssault: CampaignSiegeAssault | null = null
   private previewCampaignGate: CampaignGateController | null = null
   /** Breakable scene structures in build order; co-op host and guest key them by index. */
@@ -1070,7 +1072,7 @@ export class Game {
         }
         if (this.bridgeLaunch) this.bridgeRuntime = new CareerBridgeBattleRuntime(mission)
         this.careerBattleCheckpoint = new CareerMissionCheckpoint(() => this.careerStore.loadChecked().profile ?? this.careerProfile!,
-          profile => this._commitCareerBattleCheckpoint(profile))
+          profile => this._commitCareerBattleCheckpoint(profile), { autoSave: false })
       } else if (campaignConfig?.careerVeteranOutpost || campaignConfig?.careerCommanderOutpost) {
         const careerOutpost = campaignConfig.careerVeteranOutpost ?? campaignConfig.careerCommanderOutpost!
         const mission = this.careerProfile?.activeMission
@@ -1089,6 +1091,7 @@ export class Game {
             if (saved) this.careerProfile = profile
             return saved
           },
+          { autoSave: false },
         )
       } else if (!this.careerProfile?.activeOutpostMission || !campaignConfig
         || this.careerProfile.activeOutpostMission.id !== campaignConfig.careerMissionId
@@ -1857,18 +1860,18 @@ export class Game {
     else if (this.bridgeLaunch || this.felineMissionId) { /* Restore after rider and orphan mounts materialize. */ }
     else this._restorePersonalOutpostPlayer()
     this.initializing = false
-    if (!this.bridgeLaunch && !this.felineMissionId) this._persistPersonalOutpost(true)
+    if (!this.bridgeLaunch && !this.felineMissionId) this._persistPersonalOutpost(true, 0, true)
     if (this.careerBattleCheckpoint) {
-      if (!this.bridgeLaunch && !this.felineMissionId && !this._persistCareerBattle(true)) throw new Error('Captain battlefield initial checkpoint could not be saved')
+      if (!this.bridgeLaunch && !this.felineMissionId && !this._persistCareerBattle(true, 0, { commit: true })) throw new Error('Captain battlefield initial checkpoint could not be saved')
       if (this.fieldMissionId && battlePlan) {
         if (this.bridgeLaunch) this._declareFieldBattleRoster(battlePlan)
         this._queueFieldBattleRoster(battlePlan)
         await gameplayNpcSpawns.wait(this.fieldRosterBatch!,
           (done, total) => progress(`${this.bridgeLaunch ? '部署橋頭部隊' : this.felineMissionId ? (this.careerFieldDeployment ? `部署${this.careerFieldDeployment.title}部隊` : isCareerHeavyFieldBattle(this.careerProfile?.activeMission) ? '部署鐵騎戰場部隊' : '部署六貓騎兵團') : '部署巨鷹部隊'} ${done} / ${total}…`))
         if (this.bridgeLaunch || this.felineMissionId) this._restoreFieldBattlePlayer()
-        if (!this._persistCareerBattle(true)) throw new Error('Career field initial deployment could not be saved')
+        if (!this._persistCareerBattle(true, 0, { commit: true })) throw new Error('Career field initial deployment could not be saved')
         if (this.bridgeRuntime?.deployment.phase === 'spawning'
-          && !this.bridgeRuntime.completeEnemyDeployment(this.fieldRosterBatch?.ready === true, state => this._saveBridgeDeployment(state))) {
+          && !this.bridgeRuntime.completeEnemyDeployment(this.fieldRosterBatch?.ready === true, state => this._saveBridgeDeployment(state, true))) {
           throw new Error('Bridgehead enemy deployment could not be saved')
         }
       }
@@ -1879,7 +1882,7 @@ export class Game {
     }
 
     if (campaignConfig?.careerCommanderOutpost) {
-      if (!this._persistCareerVeteranOutpostCheckpoint({ immediate: true })) {
+      if (!this._persistCareerVeteranOutpostCheckpoint({ immediate: true, force: true })) {
         throw new Error('Commander initial deployment could not be saved')
       }
       this.commanderOutpostDeploymentCheckpointed = true
@@ -1949,10 +1952,10 @@ export class Game {
       })
       Object.assign(window, { __heroBenchmark: recorder })
     }
-    if (this.veteranOutpostCheckpoint) window.addEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
-    if (this.careerProfile) window.addEventListener('pagehide', this.flushCareerSkillsOnPageHide)
-    if (this.personalSquad || this.hasCareerOfficialCommand) window.addEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
-    if (this.careerBattleCheckpoint) window.addEventListener('pagehide', this.flushCareerBattleOnPageHide)
+    if (!this._hasActiveCareerMission()) {
+      if (this.careerProfile) window.addEventListener('pagehide', this.flushCareerSkillsOnPageHide)
+      if (this.personalSquad || this.hasCareerOfficialCommand) window.addEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
+    }
 
     if (!isInitialSpectator) {
       this.hpBar.setFill(this.player.hpRatio)
@@ -2024,11 +2027,10 @@ export class Game {
     // Player Death notify & Spectator transition
     this.player.onPlayerDeath = () => {
       this._enterSpectatorMode('death')
-      if (this.careerBattleCheckpoint) this._persistCareerBattle(true)
+      if (this.careerBattleCheckpoint) this._syncInMemoryCareerBattle()
       if (campaignConfig?.careerVeteranOutpost || campaignConfig?.careerCommanderOutpost) {
         const mission = this.careerProfile?.activeMission
         if (mission) mission.playerDead = true
-        this._persistCareerVeteranOutpostCheckpoint({ immediate: true })
       }
     }
 
@@ -2628,8 +2630,8 @@ export class Game {
     else npc.setTacticalOrder(plan.order)
   }
 
-  private _persistHeavyState(notify: string): void {
-    if (!this._persistCareerBattle(true)) this._showNotify(notify, 1800)
+  private _persistHeavyState(_notify: string): void {
+    this._syncInMemoryCareerBattle()
   }
 
   private _handleHeavyEnemyDamage(event: CombatEvent): void {
@@ -2946,7 +2948,7 @@ export class Game {
           const index = mission.officialSquad?.actorIds.indexOf(npc.combatantId) ?? -1
           if (index >= 0) npc.assignFollowTarget(this.player, index, officialFollowLocalOffset(index, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length)))
         }
-        if (!this.bridgeLaunch && !this.felineMissionId && !this._persistCareerBattle(true)) throw new Error('Captain Eagle actor checkpoint could not be saved')
+        if (!this.bridgeLaunch && !this.felineMissionId && !this._persistCareerBattle(true, 0, { commit: true })) throw new Error('Captain Eagle actor checkpoint could not be saved')
       })
     }
     if ((this.bridgeLaunch || this.felineMissionId) && restoreOrphans) for (const orphan of (this.bridgeLaunch
@@ -2968,7 +2970,7 @@ export class Game {
       })
     }
     batch.seal(() => {
-      if (!this.bridgeLaunch && !this.felineMissionId && !this._persistCareerBattle(true)) throw new Error('Career field deployment could not be saved')
+      if (!this.bridgeLaunch && !this.felineMissionId && !this._persistCareerBattle(true, 0, { commit: true })) throw new Error('Career field deployment could not be saved')
     })
   }
 
@@ -3075,22 +3077,38 @@ export class Game {
     return saved
   }
 
-  private _persistCareerBattle(force = false, dt = 0): boolean {
+  private _syncInMemoryCareerBattle(): void {
+    if (!this.careerBattleCheckpoint || !this.careerProfile) return
+    const mission = this._buildCareerBattleCheckpoint()
+    if (!mission) return
+    const next = cloneCareerProfile(this.careerProfile)
+    next.activeMission = mission
+    this.careerProfile = next
+  }
+
+  private _persistCareerBattle(force = false, dt = 0, options: { commit?: boolean; manual?: boolean } = {}): boolean {
     if (this.initializing || this.spawningStopped || !this.careerBattleCheckpoint || !this.careerProfile) return !this.careerBattleCheckpoint
     this.careerBattleCheckpoint.advance(dt)
     return this.careerBattleCheckpoint.persist(() => this._buildCareerBattleCheckpoint() ?? this.careerProfile!.activeMission!,
-      { immediate: force, periodic: true }) || !force
+      { immediate: force || Boolean(options.manual), periodic: true, force: Boolean(options.commit), manual: Boolean(options.manual) }) || (!force && !options.manual)
   }
 
-  /** Publish each deployment phase before allowing its spawn/combat side effects. */
-  private _saveBridgeDeployment(state: BridgeBattleDeployment): boolean {
-    return this.careerBattleCheckpoint!.persist(() => {
+  /** Publish each deployment phase in memory, or commit to disk when `persistToStore` is set (initial launch). */
+  private _saveBridgeDeployment(state: BridgeBattleDeployment, persistToStore = true): boolean {
+    const buildMission = () => {
       const mission = this._buildCareerBattleCheckpoint()!
       mission.bridgeDeployment = { ...state }
       mission.commanderMission!.deploymentComplete = state.phase === 'assault' && this.fieldRosterBatch?.ready === true
       mission.phase = state.phase === 'assault' ? 'ENGAGING' : 'ASSEMBLING'
       return mission
-    }, { immediate: true })
+    }
+    if (!persistToStore && this.careerProfile) {
+      const next = cloneCareerProfile(this.careerProfile)
+      next.activeMission = buildMission()
+      this.careerProfile = next
+      return true
+    }
+    return this.careerBattleCheckpoint!.persist(buildMission, { immediate: true, force: true })
   }
 
   private _restoreFieldBattlePlayer(): void {
@@ -3168,14 +3186,14 @@ export class Game {
       this.bridgeDeploymentRetrySeconds = Math.max(0, this.bridgeDeploymentRetrySeconds - dt)
       if (this.bridgeDeploymentRetrySeconds === 0) {
         if (runtime.deployment.phase === 'preparing' && runtime.deployment.preparationRemainingSeconds === 0) {
-          if (runtime.beginEnemyDeployment(state => this._saveBridgeDeployment(state))) {
+          if (runtime.beginEnemyDeployment(state => this._saveBridgeDeployment(state, false))) {
             this._queueFieldBattleRoster(createCareerBridgeSpawnPlan(this.careerProfile!, 'attackers'), false)
           } else {
             this.bridgeDeploymentRetrySeconds = 1
             this._showNotify('準備完成，等待存檔成功後敵軍才會出現', 1500)
           }
         } else if (runtime.deployment.phase === 'spawning' && this.fieldRosterBatch?.ready) {
-          if (!runtime.completeEnemyDeployment(this.fieldRosterBatch.ready, state => this._saveBridgeDeployment(state))) {
+          if (!runtime.completeEnemyDeployment(this.fieldRosterBatch.ready, state => this._saveBridgeDeployment(state, false))) {
             this.bridgeDeploymentRetrySeconds = 1
             this._showNotify('敵軍部署完成，正在重試儲存戰場', 1500)
           }
@@ -3223,7 +3241,7 @@ export class Game {
       return
     }
     if (mission.phase !== 'ENGAGING') {
-      if (!this._persistCareerBattle(true)) return
+      this._syncInMemoryCareerBattle()
       for (const npc of this.npcs) if (!npc.dead && Game._isMissionRosterActor(npc) && !officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) {
         if (this.felineMissionId && isCareerHeavyFieldBattle(mission)) this._applyHeavyFieldOrder(npc, mission)
         else npc.setTacticalOrder(this.felineMissionId
@@ -3259,7 +3277,7 @@ export class Game {
     const claim = settleCareerBattleResult({
       store: this.careerStore,
       flushSkills: () => this._flushCareerSkillProgression(),
-      persistBattle: () => this._persistCareerBattle(true),
+      persistBattle: () => this._persistCareerBattle(true, 0, { commit: true }),
       claim: fresh => {
         const claimed = this.bridgeLaunch ? commitCareerBridgeBattleResult(this.careerStore, this.fieldMissionId!, stats)
           : claimCareerFieldResult(fresh, this.fieldMissionId!, outcome, stats.player, stats.meritPlayer ?? stats.player, this.npcs.find(npc => npc.faction === Faction.ENEMY)?.characterFaction)
@@ -3488,10 +3506,16 @@ export class Game {
     restoreCareerAerialState(this.player, this.startingHorse, this.careerProfile?.playerAerialState, `outpost:${this.defenseCampaignConfig?.careerMissionId}`)
   }
 
-  private _persistPersonalOutpost(force = false, dt = 0): boolean {
+  private _hasActiveCareerMission(): boolean {
+    return Boolean(!this.coopGuest && !this.trainingGround && !this.isModelStudio
+      && (this.careerBattleCheckpoint || this.veteranOutpostCheckpoint || this.defenseCampaignConfig?.careerMissionId))
+  }
+
+  private _persistPersonalOutpost(force = false, dt = 0, allowCareerCommit = false): boolean {
     if (this.initializing || this.spawningStopped) return true
-    if (this.careerBattleCheckpoint) return this._persistCareerBattle(force, dt)
+    if (this.careerBattleCheckpoint) return this._persistCareerBattle(force, dt, { commit: allowCareerCommit })
     if (!this.careerProfile || !this.defenseCampaignConfig?.careerMissionId) return true
+    if (this._hasActiveCareerMission() && !allowCareerCommit) return true
     const personal = this.personalSquad?.checkpoint()
     this.personalCheckpointElapsed += dt
     const critical = JSON.stringify([personal?.state, this.player.dead, this.player.isFalling, this.player.currentMount?.dead, this.campaignSpawnWave,
@@ -3501,7 +3525,7 @@ export class Game {
       })])
     if (!force && this.personalCheckpointElapsed < 5 && critical === this.personalCriticalState) return true
     if (this.defenseCampaignConfig?.careerVeteranOutpost || this.defenseCampaignConfig?.careerCommanderOutpost) {
-      const saved = this._persistCareerVeteranOutpostCheckpoint({ immediate: true })
+      const saved = this._persistCareerVeteranOutpostCheckpoint({ immediate: true, force: allowCareerCommit })
       if (saved) { this.personalCheckpointElapsed = 0; this.personalCriticalState = critical }
       return saved
     }
@@ -3898,6 +3922,15 @@ export class Game {
 
   private _persistCareerVeteranOutpostCheckpoint(reason: CareerMissionCheckpointReason = { immediate: true }): boolean {
     if (this.initializing || this.spawningStopped || !this.veteranOutpostCheckpoint || !this.careerProfile) return false
+    if (!this.veteranOutpostCheckpoint.autoSave && !reason.force && !reason.manual) {
+      const mission = this._buildCareerVeteranOutpostCheckpoint()
+      if (mission) {
+        const next = cloneCareerProfile(this.careerProfile)
+        next.activeMission = mission
+        this.careerProfile = next
+      }
+      return true
+    }
     return this.veteranOutpostCheckpoint.persist(
       () => this._buildCareerVeteranOutpostCheckpoint() ?? this.careerProfile!.activeMission!,
       reason,
@@ -4026,7 +4059,7 @@ export class Game {
       const claim = settleCareerBattleResult({
         store: this.careerStore,
         flushSkills: () => this._flushCareerSkillProgression(),
-        persistBattle: () => careerMissionOutpost ? this._persistCareerVeteranOutpostCheckpoint({ immediate: true }) : this._persistPersonalOutpost(true),
+        persistBattle: () => careerMissionOutpost ? this._persistCareerVeteranOutpostCheckpoint({ immediate: true, force: true }) : this._persistPersonalOutpost(true, 0, true),
         claim: fresh => careerMissionOutpost || this.careerBattleCheckpoint
           ? claimCareerMission(fresh, campaign.careerMissionId!, result === 'victory' ? 'victory' : 'failure', stats.player, stats.meritPlayer)
           : claimCareerOutpost(fresh, campaign.careerMissionId!, result, stats),
@@ -4224,12 +4257,10 @@ export class Game {
         this._commanderOutpostSquadCounts())
       const pending = this.commanderOutpostDeploymentBatch?.pending ?? this.commanderOutpostDeploymentTotal
       hud.updateDeploymentProgress(this.commanderOutpostDeploymentTotal - pending, this.commanderOutpostDeploymentTotal)
-      this.veteranOutpostCheckpoint?.advance(dt)
-      this._persistCareerVeteranOutpostCheckpoint({ immediate: false, periodic: true })
       return
     }
     if (commanderOutpost && !this.commanderOutpostDeploymentCheckpointed) {
-      this.commanderOutpostDeploymentCheckpointed = this._persistCareerVeteranOutpostCheckpoint({ immediate: true })
+      this.commanderOutpostDeploymentCheckpointed = this._persistCareerVeteranOutpostCheckpoint({ immediate: true, force: true })
       // The 60-second preparation clock starts only after the fully registered
       // official/private roster has an authoritative recovery checkpoint.
       if (!this.commanderOutpostDeploymentCheckpointed) {
@@ -4346,8 +4377,6 @@ export class Game {
         this.careerOutpostDefenseGuide.updateOutpostDefense(phase, this.player.position, yaw, rallyPoint, enemySideAlive)
       }
     }
-    this.veteranOutpostCheckpoint?.advance(dt)
-    this._persistCareerVeteranOutpostCheckpoint({ immediate: false, periodic: true })
   }
 
   // ── Pointer Lock ──
@@ -4434,13 +4463,19 @@ export class Game {
       }
     }, { signal: this.sceneListeners.signal })
     document.addEventListener('pointerlockchange', () => {
+      const locked = Boolean(document.pointerLockElement)
+      const released = this.careerPointerWasLocked && !locked
+      this.careerPointerWasLocked = locked
       if (document.pointerLockElement || isNoLock || this.isModelStudio) {
         this.lockOverlay.style.display = 'none'
         this.lockOverlay.classList.add('hidden')
         this._scheduleHintHide()
         this._consumePendingDeathBanner()
       } else {
-        if (!this.equipmentUI?.visible) {
+        if (released && !this.equipmentUI?.visible && !this.careerPausePanel
+          && this._hasActiveCareerMission() && !this._isCareerCommandFinished()) {
+          this._openCareerPauseMenu()
+        } else if (!this.equipmentUI?.visible && !this.careerPausePanel) {
           this._updateLockOverlayPrompt(true)
           this.lockOverlay.style.display = 'flex'
           this.lockOverlay.classList.remove('hidden')
@@ -4513,7 +4548,7 @@ export class Game {
   private _updateCommandSelectionMarker(dt: number): void {
     this.commandSelectionMarker?.update(
       !this.isModelStudio && !this.player.dead && this.controlMode === 'player'
-        && !this._isCareerCommandFinished() && !this.equipmentUI.visible && !this.trainingUI?.paused,
+        && !this._isCareerCommandFinished() && !this.equipmentUI.visible && !this.trainingUI?.paused && !this.careerPausePanel,
       this.camera, dt)
   }
 
@@ -4521,7 +4556,7 @@ export class Game {
     const careerEnded = this._isCareerCommandFinished()
     this.interactionInputCaptured = false
     if (this.player.dead || this.controlMode !== 'player' || careerEnded) this.armyCommandUI?.setEnabled(false)
-    if (this.equipmentUI.visible) {
+    if (this.equipmentUI.visible || this.careerPausePanel) {
       this.input.clear()
       this.player.clearTownAction()
       return
@@ -4532,8 +4567,91 @@ export class Game {
     }
   }
 
+  private _openCareerPauseMenu(message?: string): void {
+    if (!this._hasActiveCareerMission() || this._isCareerCommandFinished() || this.equipmentUI.visible) return
+    this.careerPausePanel?.remove()
+    this.input.clear()
+    this._clearPickupFocus()
+    this.player.clearTownAction()
+    this.armyCommandUI?.setEnabled(false)
+    this.lockOverlay.style.display = 'none'
+    this.lockOverlay.classList.add('hidden')
+    if (document.pointerLockElement) document.exitPointerLock()
+    const panel = document.createElement('section')
+    panel.id = 'career-mission-pause-panel'
+    panel.className = 'town-panel'
+    panel.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10002;min-width:340px;max-width:540px;background:#1b1712f0;color:#f2eadb;border:1px solid #8a6f45;border-radius:10px;padding:20px 22px;font:15px/1.6 system-ui;white-space:pre-line'
+    const heading = document.createElement('h2'); heading.textContent = '生涯模式 · 暫停'; heading.style.margin = '0 0 10px'
+    const body = document.createElement('p')
+    body.textContent = message ?? '按 S 手動存檔目前任務進度；直接返回主選單不會自動存檔，下次進入將從任務開頭重新開始。'
+    const addButton = (label: string, action: () => void): void => {
+      const btn = document.createElement('button')
+      btn.className = 'town-button'; btn.textContent = label; btn.style.marginRight = '8px'; btn.onclick = action
+      panel.append(btn)
+    }
+    panel.append(heading, body)
+    addButton('繼續遊戲', () => this._closeCareerPauseMenu())
+    addButton('存檔 (S)', () => this._saveCareerMissionManually())
+    addButton('返回主選單（不存檔）', () => this._returnToMainMenuWithoutSave())
+    document.body.append(panel)
+    this.careerPausePanel = panel
+  }
+
+  private _closeCareerPauseMenu(restoreLock = true): void {
+    if (!this.careerPausePanel) return
+    this.careerPausePanel.remove()
+    this.careerPausePanel = null
+    this.input.clear()
+    this.player.clearTownAction()
+    if (!this._isCareerCommandFinished() && !this.player.dead && this.controlMode === 'player') {
+      this.armyCommandUI?.setEnabled(true)
+    }
+    if (restoreLock && !window.location.search.includes('nolock') && !this.trainingUI?.paused && !this.equipmentUI.visible) {
+      this.input.requestPointerLock()
+    }
+  }
+
+  private _saveCareerMissionManually(): void {
+    if (!this.careerPausePanel || !this._hasActiveCareerMission() || this._isCareerCommandFinished()) return
+    const skillsOk = this._flushCareerSkillProgression()
+    let missionOk = true
+    if (this.careerBattleCheckpoint) {
+      missionOk = this._persistCareerBattle(true, 0, { commit: true, manual: true })
+    } else if (this.veteranOutpostCheckpoint) {
+      missionOk = this._persistCareerVeteranOutpostCheckpoint({ immediate: true, manual: true })
+    } else if (this.defenseCampaignConfig?.careerMissionId) {
+      missionOk = this._persistPersonalOutpost(true, 0, true)
+    }
+    this._openCareerPauseMenu(skillsOk && missionOk ? '已保存目前任務進度。' : '任務存檔失敗，請確認儲存空間後再按 S 重試。')
+  }
+
+  private _returnToMainMenuWithoutSave(): void {
+    this._closeCareerPauseMenu(false)
+    this.careerSkillSave.cancel()
+    this._disposeCareerOutpostBattleActors()
+    window.removeEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
+    window.removeEventListener('pagehide', this.flushCareerSkillsOnPageHide)
+    window.removeEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
+    window.removeEventListener('pagehide', this.flushCareerBattleOnPageHide)
+    try {
+      sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
+      sessionStorage.removeItem(TOWN_ENTRY_KEY)
+      sessionStorage.removeItem('sagaburst_campaign_config_v2')
+      sessionStorage.removeItem('sagaburst_battle_config_v2')
+    } catch (error) {
+      console.warn('Failed to clear Career launch session state:', error)
+    }
+    if (this.coopHost) { this.coopHost.dispose(false); this.coopHost = undefined }
+    window.location.href = window.location.pathname
+  }
+
   private _setupShortcuts(): void {
     window.addEventListener('keydown', (e) => {
+      if (this.careerPausePanel) {
+        if (!e.repeat && e.code === 'KeyS') { e.preventDefault(); this._saveCareerMissionManually(); return }
+        if (!e.repeat && e.code === 'Escape') { e.preventDefault(); this._closeCareerPauseMenu(); return }
+        return
+      }
       if (this.previewCampaignGate && e.code === 'KeyG'
         && (this.defenseCampaignConfig || import.meta.env.DEV)) {
         e.preventDefault()
@@ -4561,6 +4679,9 @@ export class Game {
           this.player.clearTownAction()
           this.equipmentUI.close()
           if (!window.location.search.includes('nolock') && !this.trainingUI?.paused) this.input.requestPointerLock()
+        } else if (this._hasActiveCareerMission() && !this._isCareerCommandFinished()) {
+          e.preventDefault()
+          if (!e.repeat) this._openCareerPauseMenu()
         }
       }
     }, { signal: this.sceneListeners.signal })
@@ -4636,8 +4757,10 @@ export class Game {
       next.skills = after
       this.careerProfile = next
       this.careerSkillSave.markDirty()
-      if (levelsGained > 0) this._flushCareerSkillProgression()
-      else this._scheduleCareerSkillProgressionFlush()
+      if (!this._hasActiveCareerMission()) {
+        if (levelsGained > 0) this._flushCareerSkillProgression()
+        else this._scheduleCareerSkillProgressionFlush()
+      }
     }
 
     if (levelsGained > 0) {
@@ -5234,7 +5357,7 @@ export class Game {
     const dt = Math.min(this.clock.getDelta(), 0.05)
     this._updateCareerTutorial(dt)
 
-    if (this.trainingUI?.paused || this.isTrainingGround && this.equipmentUI.visible) {
+    if (this.trainingUI?.paused || this.careerPausePanel || this.isTrainingGround && this.equipmentUI.visible) {
       this.soundManager.updateEagleWingbeats([])
       this.input.clear()
       this._clearPickupFocus()

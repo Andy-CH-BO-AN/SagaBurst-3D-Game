@@ -12,6 +12,7 @@ import { CareerProfileStore } from '../career/CareerProfileStore'
 import { CareerMountController } from '../career/CareerMountController'
 import { HERO_CLASS_NAMES } from '../career/CareerHeroClasses'
 import { resolveCareerHeroAsset, resolveCareerOrdinaryTier, resolveCareerPlayerMaxHp } from '../career/CareerPlayerProfile'
+import { TOWN_ENTRY_KEY } from '../town/CareerTownEntry'
 import type { ActiveCareerMission, CareerMissionOutcome } from '../career/CareerMissionState'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
@@ -159,6 +160,8 @@ export class CareerDuelArenaScene {
   private raf = 0
   private last = 0
   private disposed = false
+  private pauseMenuOpen = false
+  private pointerWasLocked = false
   private readonly aimPoint = new THREE.Vector3()
   /**
    * Profile commits, skill saves, the once-only claim and the Town return. A decided result whose
@@ -263,7 +266,7 @@ export class CareerDuelArenaScene {
       () => this.player, () => this.profile, next => this.commit(next),
       (scene, mountId, x, z) => this.trackMount(new Mount(scene, mountTypeFromId(mountId), x, z)),
       request => this.createClassBody(request),
-      { area: new THREE.Vector3(0, 0, 0), player: spawn, opponent: this.arena.spawns.opponent, referee: venueReferee })
+      { area: new THREE.Vector3(0, 0, 0), player: spawn, opponent: this.arena.spawns.opponent, referee: venueReferee }, false)
     if (!active.result && !this.duel.startActiveMission()) throw new Error('單挑對手部署失敗')
     // The Ranger's cat exists only for a mounted T4 archer duel; otherwise it never appears.
     const catInUse = this.duel.allMounts.includes(this.party.blackCat)
@@ -347,8 +350,23 @@ export class CareerDuelArenaScene {
       this.sound.unlockAudio()
       if (!location.search.includes('nolock') && !this.panel && !this.equipment?.visible) this.input.requestPointerLock(this.renderer.domElement)
     }, { signal })
+    document.addEventListener('pointerlockchange', () => {
+      const locked = document.pointerLockElement === this.renderer.domElement
+      const released = this.pointerWasLocked && !locked
+      this.pointerWasLocked = locked
+      if (released && !location.search.includes('nolock')) this.openPauseMenu()
+    }, { signal })
+    window.addEventListener('keydown', e => {
+      if (this.disposed || this.coopGuest || this.pendingSettlement || this.profile.activeMission?.result) return
+      if (this.pauseMenuOpen) {
+        if (!e.repeat && e.code === 'KeyS') { e.preventDefault(); this.saveMissionManually(); return }
+        if (!e.repeat && e.code === 'Escape') { e.preventDefault(); this.closePauseMenu(); return }
+      } else if (!e.repeat && e.code === 'Escape' && !this.equipment?.visible && !this.panel) {
+        e.preventDefault()
+        this.openPauseMenu()
+      }
+    }, { signal })
     bindWindowResize(this.camera, this.renderer, signal)
-    window.addEventListener('pagehide', () => this.persistNow(), { signal })
   }
 
   start(): void {
@@ -374,7 +392,7 @@ export class CareerDuelArenaScene {
   update(dt: number): void {
     if (this.disposed) return
     if (this.coopGuest) { this.updateCoopGuest(dt); return }
-    if (this.equipment?.visible) { this.input.clear(); return }
+    if (this.equipment?.visible || this.pauseMenuOpen) { this.input.clear(); return }
     if (this.pendingSettlement) {
       // Only presentation moves while the decided result waits for its save.
       this.arena.update(dt)
@@ -577,7 +595,7 @@ export class CareerDuelArenaScene {
 
   /** Guest frame: own movement and attacks; the host owns the opponent, the timer and the result. */
   private updateCoopGuest(dt: number): void {
-    if (this.equipment?.visible) { this.input.clear(); return }
+    if (this.equipment?.visible || this.pauseMenuOpen) { this.input.clear(); return }
     this.elapsed += dt
     this.orbit.update(this.input, dt, this.arena.obstacles)
     if (!this.player.dead) {
@@ -767,10 +785,51 @@ export class CareerDuelArenaScene {
     }
   }
 
-  private persistNow(): void {
-    if (this.disposed || !this.duel) return
+  private persistNow(): boolean {
+    if (this.disposed || !this.duel) return false
     this.session.flushSkills()
-    if (this.duel.active && !this.profile.activeMission?.result) this.duel.persistRuntimeProgress(true)
+    if (this.duel.active && !this.profile.activeMission?.result) return this.duel.persistRuntimeProgress(true, true)
+    return true
+  }
+
+  private openPauseMenu(message?: string): void {
+    if (this.disposed || this.coopGuest || this.pendingSettlement || this.profile.activeMission?.result || this.equipment?.visible) return
+    if (this.panel && !this.pauseMenuOpen) return
+    this.pauseMenuOpen = true
+    this.input.clear()
+    this.player.clearTownAction()
+    if (document.pointerLockElement) document.exitPointerLock?.()
+    const body = message ?? '按 S 手動存檔目前任務進度；直接返回主選單不會自動存檔，下次進入將從任務開頭重新開始。'
+    this.session.panel.show('生涯模式 · 暫停', body)
+    this.session.panel.button('繼續遊戲', () => this.closePauseMenu())
+    this.session.panel.button('存檔 (S)', () => this.saveMissionManually())
+    this.session.panel.button('返回主選單（不存檔）', () => this.returnToMainMenuWithoutSave())
+  }
+
+  private closePauseMenu(): void {
+    if (!this.pauseMenuOpen) return
+    this.pauseMenuOpen = false
+    this.session.panel.close()
+    this.input.clear()
+    this.last = performance.now()
+    if (!location.search.includes('nolock') && !this.player.dead && !this.pendingSettlement) {
+      this.input.requestPointerLock(this.renderer.domElement)
+    }
+  }
+
+  private saveMissionManually(): void {
+    if (!this.pauseMenuOpen || this.coopGuest || this.pendingSettlement || this.profile.activeMission?.result) return
+    const saved = this.persistNow()
+    this.openPauseMenu(saved ? '已保存目前任務進度。' : '任務存檔失敗，請確認儲存空間後再按 S 重試。')
+  }
+
+  private returnToMainMenuWithoutSave(): void {
+    if (this.disposed) return
+    this.pauseMenuOpen = false
+    this.session.panel.close()
+    this.dispose()
+    sessionStorage.removeItem(TOWN_ENTRY_KEY)
+    window.location.href = window.location.pathname
   }
 
   /** Per-frame settlement: a decided outcome is claimed once; a failed save waits for the player's retry. */
@@ -808,9 +867,9 @@ export class CareerDuelArenaScene {
 
   dispose(): void {
     if (this.disposed) return
-    // A co-op guest saves only its own skill progress; the duel itself is the host's.
+    this.pauseMenuOpen = false
+    // A co-op guest saves only its own skill progress; the host mission waits for settlement or ESC -> S.
     if (this.coopGuest) this.session.flushSkills()
-    else this.persistNow()
     // A return to Town announces the Town; only the end of co-op itself sends 'end'.
     this.coopHost?.dispose(false); this.coopHost = undefined
     this.coopGuest?.dispose(); this.coopGuest = undefined

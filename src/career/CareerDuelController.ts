@@ -163,7 +163,8 @@ export class CareerDuelController {
   private area = new THREE.Vector3()
   private staging = false
   private readonly externalCombat = new Set<NPC>()
-  private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
+  private readonly checkpoint: CareerMissionCheckpoint
+  private readonly autoSave: boolean
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -180,7 +181,11 @@ export class CareerDuelController {
     private readonly createOpponent?: (request: CareerDuelOpponentRequest) => NPC | null,
     /** Fixed arena slots; absent = the Town forecourt with an outbound and return march. */
     private readonly venue?: CareerDuelVenue,
-  ) {}
+    autoSave = true,
+  ) {
+    this.autoSave = autoSave
+    this.checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile), { autoSave })
+  }
 
   get active(): ActiveCareerMission | undefined { const mission = this.readProfile().activeMission; return mission?.kind === 'duel' ? mission : undefined }
   get phase(): CareerMissionPhase | null { return this.active?.phase ?? null }
@@ -504,9 +509,9 @@ export class CareerDuelController {
   }
   startReturning(): boolean { return this.beginReturn() }
 
-  persistRuntimeProgress(force = false): void {
+  persistRuntimeProgress(force = false, manual = false): boolean {
     const active = this.active
-    if (!active || !this.opponent || active.result && active.phase !== 'RETURNING') return
+    if (!active || !this.opponent || active.result && active.phase !== 'RETURNING') return false
     const player = this.player()
     const validResource = (value: number | undefined): value is number => value !== undefined && Number.isFinite(value) && value >= 0
     const stamina = validResource(player.staminaValue) ? player.staminaValue : undefined
@@ -533,7 +538,7 @@ export class CareerDuelController {
       || this.routeIndex !== (active.routeStage ?? 0)
       || stamina !== undefined && stamina !== active.duelPlayerStamina
       || travelChanged || statsChanged
-    this.checkpoint.persist(() => this.runtimeMission(active), { immediate, periodic, force })
+    return this.checkpoint.persist(() => this.runtimeMission(active), { immediate, periodic, force, manual })
   }
 
   cleanupMission(): void {
@@ -594,6 +599,10 @@ export class CareerDuelController {
   private persistIllegalAttack(): boolean {
     const active = this.active
     if (!active || active.result) return false
+    if (this.autoSave === false) {
+      active.duelFailureReason = 'illegal_attack'
+      return true
+    }
     return this.checkpoint.persist(() => ({ ...this.runtimeMission(active), duelFailureReason: 'illegal_attack' }), { immediate: true })
   }
 
@@ -636,7 +645,12 @@ export class CareerDuelController {
   private setPhase(phase: CareerMissionPhase, routeStage = this.routeIndex): boolean {
     const active = this.active
     if (!active || active.phase === phase) return false
-    return this.checkpoint.persist(() => ({ ...this.runtimeMission(active), phase, routeStage }), { immediate: true })
+    if (this.autoSave === false && phase !== 'RETURNING') {
+      active.phase = phase
+      active.routeStage = routeStage
+      return true
+    }
+    return this.checkpoint.persist(() => ({ ...this.runtimeMission(active), phase, routeStage }), { immediate: true, force: phase === 'RETURNING' })
   }
   private acceptCombatEvent(event: CombatEvent): boolean {
     if (this.phase !== 'ENGAGING' || !this.opponent || (event.type !== 'damage_applied' && event.type !== 'actor_killed')) return false

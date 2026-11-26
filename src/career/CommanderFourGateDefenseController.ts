@@ -86,7 +86,8 @@ export class CommanderFourGateDefenseController {
   private infantryAssignments: ReturnType<typeof commanderInfantryEscortAssignments> = []
   private pendingEscortReleases?: readonly string[]
   private readonly infantryWings = new CommanderInfantryWings()
-  private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
+  private readonly checkpoint: CareerMissionCheckpoint
+  private readonly autoSave: boolean
   private cachedFieldNpcs: NPC[] | null = null
   private cachedFieldNpcSet: Set<NPC> | null = null
   private cachedFieldCounts: readonly [number, number, number] = [-1, -1, -1]
@@ -94,7 +95,11 @@ export class CommanderFourGateDefenseController {
   constructor(private readonly actorFactory: CareerActorFactory, private readonly residents: readonly CommanderTownResident[],
     private readonly player: () => Player, private readonly readProfile: () => CareerProfile,
     private readonly commit: (profile: CareerProfile) => boolean, private readonly navigation: CommanderFourGateNavigation,
-    private readonly context: CommanderFourGateDefenseContext, private readonly scheduler: NpcSpawnScheduler = gameplayNpcSpawns) {}
+    private readonly context: CommanderFourGateDefenseContext, private readonly scheduler: NpcSpawnScheduler = gameplayNpcSpawns,
+    autoSave = true) {
+    this.autoSave = autoSave
+    this.checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile), { autoSave })
+  }
 
   get active(): ActiveCareerMission | undefined {
     const active = this.readProfile().activeMission
@@ -515,15 +520,17 @@ export class CommanderFourGateDefenseController {
     this.state = advanceCommanderFourGateDefenseCombat(previous, elapsed, this.combatEnabled)
     this.state = advanceCommanderFourGateDefensePreparation(this.state, elapsed, true)
     if (this.state.phase === 'SPAWNING' && previous.phase === 'PREPARING') {
-      if (!this.saveProgress(true)) { this.state = { ...previous, preparationRemainingSeconds: 0 }; return }
-      this.state = structuredClone(this.active.fourGateDefense!)
+      if (this.autoSave !== false) {
+        if (!this.saveProgress(true)) { this.state = { ...previous, preparationRemainingSeconds: 0 }; return }
+        this.state = structuredClone(this.active.fourGateDefense!)
+      }
       this.beginAttackers()
     }
     if (this.state.phase === 'SPAWNING' && this.attackersReady) {
       const spawning = this.state
       this.state = { ...spawning, phase: 'ATTACKING', attackStarted: true, deploymentComplete: true,
         registeredTargetActorIds: [...this.active.targetActorIds] }
-      if (!this.saveProgress(true)) { this.state = spawning; return }
+      if (this.autoSave !== false && !this.saveProgress(true)) { this.state = spawning; return }
       this.releaseCombat(false)
     }
     this.saveProgress(false)
@@ -571,10 +578,13 @@ export class CommanderFourGateDefenseController {
     const advanced = advanceCommanderInfantryEscort(previous, dt, actors, ramps)
     this.state!.infantryEscort = advanced.checkpoint
     if (advanced.releasedActorIds.length) {
-      // Same one-shot receipt transaction as the cavalry; a failed save restores the previous owner.
-      this.pendingEscortReleases = [...(this.pendingEscortReleases ?? []), ...advanced.releasedActorIds]
-      const saved = this.saveProgress(true)
-      this.pendingEscortReleases = undefined
+      let saved = true
+      if (this.autoSave !== false) {
+        // Same one-shot receipt transaction as the cavalry; a failed save restores the previous owner.
+        this.pendingEscortReleases = [...(this.pendingEscortReleases ?? []), ...advanced.releasedActorIds]
+        saved = this.saveProgress(true)
+        this.pendingEscortReleases = undefined
+      }
       if (!saved) this.state!.infantryEscort = previous
       else for (const id of advanced.releasedActorIds) {
         const npc = this.actorsById.get(id)
@@ -611,10 +621,13 @@ export class CommanderFourGateDefenseController {
     const advanced = advanceCommanderCavalryEscort(previous, dt, actors, ramps, COMMANDER_CAVALRY_ESCORT.releaseDistance)
     this.state!.cavalryEscort = advanced.checkpoint
     if (advanced.releasedActorIds.length) {
-      // Stage the one-shot receipt and gate orders together before changing live AI.
-      this.pendingEscortReleases = advanced.releasedActorIds
-      const saved = this.saveProgress(true)
-      this.pendingEscortReleases = undefined
+      let saved = true
+      if (this.autoSave !== false) {
+        // Stage the one-shot receipt and gate orders together before changing live AI.
+        this.pendingEscortReleases = advanced.releasedActorIds
+        saved = this.saveProgress(true)
+        this.pendingEscortReleases = undefined
+      }
       if (!saved) this.state!.cavalryEscort = previous
       else for (const id of advanced.releasedActorIds) {
         const npc = this.actorsById.get(id)
