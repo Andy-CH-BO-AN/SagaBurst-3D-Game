@@ -214,40 +214,40 @@ describe('CareerMissionCheckpoint', () => {
     expect(after.filter(gate => gate.id !== 'north').map(gate => gate.defendersAlive)).toEqual(before.filter(gate => gate.id !== 'north').map(gate => gate.defendersAlive))
   })
 
-  it('captures Four-gate death after an early save and forces a fresh exit snapshot without reviving the player', () => {
+  it('writes the latest Four-gate death snapshot on manual save and preserves the earlier save during regular frames', () => {
     let commits = 0
-    const h = fourGateDefenseRuntime(createFourGateDefenseProfile('PREPARING'), () => { commits++; return true }), controller = h.controller
+    const h = fourGateDefenseRuntime(createFourGateDefenseProfile('PREPARING'), {
+      autoSave: false,
+      commit: () => { commits++; return true },
+    })
+    const { controller, player } = h
     onTestFinished(() => controller.dispose())
     const actorId = h.profile().activeMission!.friendlyActorIds[0], actor = h.residents.get(actorId)!
-    Object.assign(h.player, { hp: 85, staminaValue: 70, arrowCount: 7 })
+    Object.assign(player, { hp: 85, staminaValue: 70, arrowCount: 7 })
     expect(controller.startActiveMission()).toBe(true)
     controller.completeInitialDeployment()
     const deployed = commits
-    controller.updateFlow(4.99, 0)
-    controller.persistRuntimeProgress()
-    expect(commits).toBe(deployed)
-    h.player.hp = 0
-    controller.updateFlow(.01, 0)
-    expect(commits).toBe(deployed + 1)
-    expect(h.profile().activeMission!.playerDead).toBe(true)
-    actor.hp = 43; actor.group.position.x = 44; h.player.arrowCount = 3
-    controller.persistRuntimeProgress()
-    expect(commits).toBe(deployed + 2)
-    expect(h.profile().activeMission!.fourGateDefense).toMatchObject({ actors: { [actorId]: { hp: 43, position: { x: 44 } } },
-      player: { dead: true, hp: 0, ammo: 3 } })
-    expect(parseCareerProfile(h.profile())?.activeMission?.fourGateDefense).toMatchObject({
-      actors: { [actorId]: { hp: 43, position: { x: 44 } } }, player: { dead: true, hp: 0, ammo: 3 } })
-    // Exit snapshots bypass the acknowledgement even in the same frame.
-    actor.hp = 26
-    controller.persistRuntimeProgress(true, { hp: { horse: 12 }, unavailable: [] })
-    expect(commits).toBe(deployed + 3)
-    expect(h.profile().activeMission!.fourGateDefense!.actors[actorId].hp).toBe(26)
-    expect(h.profile().activeMission!.mountState).toEqual({ hp: { horse: 12 }, unavailable: [] })
-    // The controller must still let the checkpoint owner deduplicate ordinary dead-player updates.
-    controller.persistRuntimeProgress()
+    expect(deployed).toBe(1)
+
+    controller.updateFlow(5, 0)
+    player.hp = 0; player.arrowCount = 3
+    actor.hp = 26; actor.group.position.x = 44
     controller.updateFlow(1, 0)
     controller.persistRuntimeProgress()
-    expect(commits).toBe(deployed + 3)
+    expect(commits).toBe(deployed)
+    expect(h.profile().activeMission!.fourGateDefense!.player).toMatchObject({ dead: false, hp: 85, ammo: 7 })
+
+    controller.persistRuntimeProgress(true, { hp: { horse: 12 }, unavailable: [] })
+    expect(commits).toBe(deployed + 1)
+    controller.persistRuntimeProgress()
+    expect(commits).toBe(deployed + 1)
+    expect(parseCareerProfile(h.profile())?.activeMission).toMatchObject({
+      playerDead: true, playerHp: 0, mountState: { hp: { horse: 12 }, unavailable: [] },
+      fourGateDefense: {
+        actors: { [actorId]: { hp: 26, position: { x: 44 } } },
+        player: { dead: true, hp: 0, ammo: 3 },
+      },
+    })
   })
 
   it('retries a failed first-attack save with current actor intent in both checkpoints before publishing combat', () => {
