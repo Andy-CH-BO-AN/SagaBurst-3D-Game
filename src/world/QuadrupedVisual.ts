@@ -81,6 +81,7 @@ export class QuadrupedVisual {
   private oneShotAction: THREE.AnimationAction | null = null
   private oneShotDuration = 0
   private paused = false
+  private wasInFrustum = true
   private studio = false
   private disposed = false
   private elapsed = 0
@@ -211,11 +212,13 @@ export class QuadrupedVisual {
 
   /** Matches the horse cadence (CharacterLODPolicy.mountAnimationInterval).
    * World matrices are left to the renderer and to seat contact, which update their own chains. */
-  update(dt: number, cameraDistance = 0): void {
-    if (this.paused || !Number.isFinite(dt) || dt < 0) return
+  update(dt: number, cameraDistance = 0, inFrustum = true): boolean {
+    if (this.paused || !Number.isFinite(dt) || dt < 0) return false
     this.cameraDistance = cameraDistance
-    const step = this.farCadence.advance(dt, mountAnimationInterval(cameraDistance))
-    if (step === null) return
+    const enteredFrustum = !this.wasInFrustum && inFrustum
+    this.wasInFrustum = inFrustum
+    const step = this.farCadence.advance(dt, enteredFrustum ? 0 : mountAnimationInterval(cameraDistance, inFrustum))
+    if (step === null) return false
     // Returning near consumes any pending far time once.
     dt = step
     this.poseChanged = true
@@ -230,6 +233,7 @@ export class QuadrupedVisual {
         this.play(this.locomotion)
       }
     }
+    return true
   }
 
   debugState() {

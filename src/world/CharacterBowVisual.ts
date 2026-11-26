@@ -147,10 +147,10 @@ export class CharacterBowVisual {
 
     this.nockedArrow = new THREE.Group()
     equipmentShadowUntil(this.nockedArrow, -1)
-    const shaft = equipmentShadowUntil(new THREE.Mesh(
+    const shaft = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(
       new THREE.CylinderGeometry(0.004, 0.004, 0.95, 6),
       materials.shaft,
-    ), -1)
+    ), -1), 1)
     shaft.rotation.x = Math.PI / 2
     this.nockedArrow.add(shaft)
 

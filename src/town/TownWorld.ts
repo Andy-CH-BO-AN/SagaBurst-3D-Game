@@ -178,7 +178,8 @@ export class TownWorld {
         if (!(child instanceof THREE.Mesh)) continue
         child.updateMatrix()
         const instanced = new THREE.InstancedMesh(child.geometry, child.material, sectorTransforms.length)
-        instanced.castShadow = child.castShadow
+        // Outskirts pines sit beyond r >= 112m outside the +-95m town shadow frustum (~1.17M wasted shadow tris/frame).
+        instanced.castShadow = false
         instanced.receiveShadow = child.receiveShadow
         for (let idx = 0; idx < sectorTransforms.length; idx++) {
           childMatrix.multiplyMatrices(sectorTransforms[idx], child.matrix)

@@ -361,6 +361,9 @@ export class TownScene {
   private readonly siegeHitRadius = new WeakMap<DamageableObstacle, number>()
   private readonly siegeRaycaster = new THREE.Raycaster()
   private readonly siegeRayHits: THREE.Intersection[] = []
+  private readonly cameraFrustum = new THREE.Frustum()
+  private readonly projScreenMatrix = new THREE.Matrix4()
+  private readonly frustumSphere = new THREE.Sphere()
   private readonly defenseTargetRosters = new WeakMap<NonNullable<CareerProfile['activeMission']>, ReadonlySet<string>>()
   private personalCommandUI?: ArmyCommandUI
   private personalFormation?: FormationController
@@ -737,6 +740,7 @@ export class TownScene {
         hitNpc: (target, damage, method, source) => this.hitFieldNpc(target, damage, method, source),
         damagePlayer: (source, damage, method) => this.damagePlayerFromNpc(source, damage, method),
         coopPartner: () => this.coopPartner,
+        isInFrustum: (position, radius = 6) => this.isPointInFrustum(position, radius),
         fireNpc: (origin, direction, kind, source, lifecycle) => this.fire(origin, direction, source.rangedProjectileSpeed, source.rangedDamage, false, false, kind, source, lifecycle),
         ...(import.meta.env.DEV && this.devProfiler ? { devProfiler: this.devProfiler } : {}),
       },
@@ -4229,8 +4233,10 @@ export class TownScene {
     if (this.patrol?.updateResident(r, dt, this.camera.position, this.world.obstacles, this.navigation)) return
     if (r.spec.duty === 'watchtower_guard' && !r.npc.dead && !r.npc.isTownRampartGarrisonActive) r.npc.activateTownRampartGarrison()
     const { npc, spec, target } = r, distance = npc.group.position.distanceTo(this.camera.position), phase = this.elapsed + spec.index * .41
+    const inFrustum = this.isPointInFrustum(npc.group.position, 6)
     let speed = 0
     if (npc.mount) {
+      npc.mount.setInFrustum?.(inFrustum)
       npc.mount.beginControlledFrame()
       if (target) {
         const dest = new THREE.Vector3(spec.x + Math.sin(phase * .5) * .65, 0, spec.z + Math.cos(phase * .5) * .65), dir = dest.sub(npc.mount.group.position); dir.y = 0
@@ -4248,7 +4254,7 @@ export class TownScene {
     }
     if (target) { const pos = npc.mount?.group.position ?? npc.group.position; const yaw = Math.atan2(target.x - pos.x, target.z - pos.z); npc.group.rotation.y = yaw; if (npc.mount) npc.mount.group.rotation.y = yaw }
     const cycle = Math.floor(phase / 3), start = cycle !== r.cycle; r.cycle = cycle
-    const release = npc.updateTownPeace(dt, distance, Boolean(target), start, speed, phase % 3)
+    const release = npc.updateTownPeace(dt, distance, Boolean(target), start, speed, phase % 3, inFrustum)
     if (release && distance < 22 && this.elapsed >= this.nextTrainingSound) { sound.playBowRelease(npc.currentLod, false, distance); this.nextTrainingSound = this.elapsed + .6 }
     if (release && target) { const origin = npc.group.position.clone().add(new THREE.Vector3(0, 1.4, 0)); this.fire(origin, target.clone().sub(origin).normalize(), 16, 0, false, true, npc.rangedCombatKind === 'javelin' ? 'pilum' : 'arrow') }
   }
@@ -4517,6 +4523,7 @@ export class TownScene {
       this.race?.prepare()
       this.updateMissionSimulation(dt)
     } else {
+      this.updateCameraFrustum()
       this.missionCombat.updateCommandTravel(dt, (this.commandActors ?? []).filter(npc => this.isAuthorizedCommandActor(npc)))
       this.personalCommands?.postUpdate()
       // Player.update owns ridden locomotion; this only maintains an unoccupied
@@ -4551,7 +4558,21 @@ export class TownScene {
     return false
   }
 
+  private updateCameraFrustum(): void {
+    this.camera.updateMatrixWorld()
+    this.camera.matrixWorldInverse.copy(this.camera.matrixWorld).invert()
+    this.projScreenMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse)
+    this.cameraFrustum.setFromProjectionMatrix(this.projScreenMatrix)
+  }
+
+  private isPointInFrustum(position: THREE.Vector3, radius = 6): boolean {
+    this.frustumSphere.center.copy(position)
+    this.frustumSphere.radius = radius
+    return this.cameraFrustum.intersectsSphere(this.frustumSphere)
+  }
+
   private updateMissionSimulation(dt: number): void {
+    this.updateCameraFrustum()
     this.captainPatrol?.setEligibleTargets([...(this.mission.ambientBandits ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? [])])
     if (!this.player.dead) this.melee()
     if (this.retirementFinale?.active || this.event.hostile) this.updateHostile(dt)
@@ -4563,20 +4584,24 @@ export class TownScene {
     this.updateCareerHorseAudio()
     for (const mount of this.stableHorses) if (!mount.dead && !mount.riderNpc && !mount.riderPlayer) {
       mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
+      mount.setInFrustum?.(this.isPointInFrustum(mount.group.position, 6))
       mount.beginControlledFrame(); mount.finishControlledFrame(dt, this.world.obstacles)
     }
     for (const m of this.mounts) {
       m.setCameraDistance(m.group.position.distanceTo(this.camera.position))
+      m.setInFrustum?.(this.isPointInFrustum(m.group.position, 6))
       if (m.dead || !m.riderNpc && !m.riderPlayer && m !== this.cat && !this.stableHorses.includes(m)) m.update(dt, m.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles)
     }
     for (const mount of [...(this.outskirts?.mounts ?? []), ...(this.enemyEaglePatrol?.mounts ?? []), ...(this.personalSquad?.mounts ?? [])]) {
       if (mount.disposed) continue
       mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
+      mount.setInFrustum?.(this.isPointInFrustum(mount.group.position, 6))
       if (mount.dead || !mount.riderNpc && !mount.riderPlayer) mount.update(dt, mount.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles)
     }
     if (!this.sceneContext.missionOnlyResidents && !this.event.hostile && !this.cat.dead && !this.cat.riderNpc && this.cat !== this.careerMounts.activeMount) { this.cat.beginControlledFrame(); this.cat.finishControlledFrame(dt, this.world.obstacles) }
     for (const mount of this.race?.allMounts ?? []) {
       mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
+      mount.setInFrustum?.(this.isPointInFrustum(mount.group.position, 6))
       if (mount.dead || !mount.riderNpc && !mount.riderPlayer) mount.update(dt, this.world.obstacles)
     }
     this.resolveBodies(); this.updateShots(dt)

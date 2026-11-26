@@ -92,6 +92,7 @@ interface TownCombatScene {
   fireNpc(origin: THREE.Vector3, direction: THREE.Vector3, kind: 'arrow' | 'pilum', source: NPC, lifecycle?: ProjectileFlightBudget): boolean | void
   /** Co-op host: the guest's living body, a target for whoever is hostile to it; never updated here. */
   coopPartner?(): NPC | null
+  isInFrustum?(position: THREE.Vector3, radius?: number): boolean
   /** DEV-only segmented profiler; never populated in production builds. */
   devProfiler?: Pick<TownDevProfiler, 'isEnabled' | 'add'>
 }
@@ -157,6 +158,10 @@ export class TownMissionCombat {
 
   constructor(private readonly missions: MissionControllers, private readonly town: TownCombatScene) {}
 
+  private isActorInFrustum(position: THREE.Vector3): boolean {
+    return this.town.isInFrustum ? this.town.isInFrustum(position, 6) : true
+  }
+
   get runtimeParticipants(): NPC[] { return this.runtimeActors }
   get runtimeGrid(): SpatialGrid<NPC> { return this.warfareGrid }
 
@@ -192,7 +197,8 @@ export class TownMissionCombat {
       if (npc.dead || npc.missionMovement || npc.formationCommandId === null
         || npc.tacticalOrder !== 'formation' && npc.tacticalOrder !== 'follow') continue
       npc.updateTownTravel(dt, npc.combatPosition.distanceTo(this.town.cameraPosition),
-        this.grid.getNearbyInto(npc.combatPosition, 10, this.neighbors), this.actorObstacles(npc), this.town.navigation)
+        this.grid.getNearbyInto(npc.combatPosition, 10, this.neighbors), this.actorObstacles(npc), this.town.navigation,
+        undefined, this.isActorInFrustum(npc.group.position))
     }
   }
 
@@ -278,10 +284,12 @@ export class TownMissionCombat {
     field.updateDepartingCavalry()
     for (const npc of field.departingNpcs) {
       npc.update(dt, this.town.player(), [], [], this.actorObstacles(npc), this.town.hp, () => {}, () => false, false,
-        npc.group.position.distanceTo(this.town.cameraPosition), null, null, this.town.navigation)
+        npc.group.position.distanceTo(this.town.cameraPosition), null, null, this.town.navigation, null,
+        this.isActorInFrustum(npc.group.position))
     }
     for (const mount of field.cavalryMounts) {
       mount.setCameraDistance(mount.group.position.distanceTo(this.town.cameraPosition))
+      mount.setInFrustum?.(this.isActorInFrustum(mount.group.position))
       if (mount.dead || !mount.riderNpc) mount.update(dt, mount.isFlyingMount ? this.town.airspaceObstacles ?? this.town.obstacles : this.town.obstacles)
     }
   }
@@ -465,7 +473,8 @@ export class TownMissionCombat {
           else if (targetNpc) this.town.hitNpc(targetNpc, damage, 'melee', actor)
         },
         (origin, direction, kind, lifecycle) => this.town.fireNpc(origin, direction, kind, actor, ...(lifecycle ? [lifecycle] as const : [])),
-        false, actor.group.position.distanceTo(this.town.cameraPosition), null, hostileGrid, this.town.navigation)
+        false, actor.group.position.distanceTo(this.town.cameraPosition), null, hostileGrid, this.town.navigation, null,
+        this.isActorInFrustum(actor.group.position))
       if (travelOrder && !actor.dead) actor.tacticalOrder = travelOrder
     }
     this.resolveCombatActorCollisions(actors)
@@ -530,7 +539,8 @@ export class TownMissionCombat {
         if (isPlayer) this.town.damagePlayer(actor, damage, 'melee')
         else if (target) this.town.hitNpc(target, damage, 'melee', actor)
       }, (origin, direction, kind, lifecycle) => this.town.fireNpc(origin, direction, kind, actor, ...(lifecycle ? [lifecycle] as const : [])),
-      false, actor.group.position.distanceTo(this.town.cameraPosition), null, this.travelThreatGrid, this.town.navigation)
+      false, actor.group.position.distanceTo(this.town.cameraPosition), null, this.travelThreatGrid, this.town.navigation, null,
+      this.isActorInFrustum(actor.group.position))
   }
 
   private prepareOutskirtsFrame(dt: number): TownOutskirtsCombatRuntime | undefined {
@@ -617,7 +627,8 @@ export class TownMissionCombat {
     const personal = this.town.personalSquad?.()
     if (!actor.dead && (personal?.state === 'RETURNING' || this.missions.defense.phase === 'PREPARING')) {
       actor.updateTownTravel(dt, actor.group.position.distanceTo(this.town.cameraPosition),
-        this.warfareGrid.getNearbyInto(actor.combatPosition, 10, this.neighbors), this.actorObstacles(actor), this.town.navigation)
+        this.warfareGrid.getNearbyInto(actor.combatPosition, 10, this.neighbors), this.actorObstacles(actor), this.town.navigation,
+        undefined, this.isActorInFrustum(actor.group.position))
     } else this.updateRuntimeActor(actor, dt)
   }
 
@@ -633,7 +644,8 @@ export class TownMissionCombat {
       case 'peace': this.updatePeaceResident(resident!, dt); break
       case 'escort':
         actor.updateTownTravel(dt, actor.combatPosition.distanceTo(this.town.cameraPosition),
-          this.grid.getNearbyInto(actor.combatPosition, 8, this.neighbors), this.actorObstacles(actor), this.town.navigation)
+          this.grid.getNearbyInto(actor.combatPosition, 8, this.neighbors), this.actorObstacles(actor), this.town.navigation,
+          undefined, this.isActorInFrustum(actor.group.position))
         break
     }
     return true
@@ -672,7 +684,8 @@ export class TownMissionCombat {
         if (isPlayer) this.town.damagePlayer(actor, damage, 'melee')
         else if (target) this.town.hitNpc(target, damage, 'melee', actor)
       }, (origin, direction, kind, lifecycle) => this.town.fireNpc(origin, direction, kind, actor, ...(lifecycle ? [lifecycle] as const : [])),
-      false, actor.group.position.distanceTo(this.town.cameraPosition), null, this.warfareGrid, this.town.navigation)
+      false, actor.group.position.distanceTo(this.town.cameraPosition), null, this.warfareGrid, this.town.navigation, null,
+      this.isActorInFrustum(actor.group.position))
     this.town.onActorMoved?.(actor)
   }
 
@@ -696,16 +709,19 @@ export class TownMissionCombat {
   }
 
   private updateFieldActorPeacefully(actor: NPC, dt: number): void {
+    const inFrustum = this.isActorInFrustum(actor.group.position)
     if (actor.mount) {
+      actor.mount.setInFrustum?.(inFrustum)
       actor.mount.beginControlledFrame()
       actor.mount.finishControlledFrame(dt, this.town.obstacles)
     }
-    actor.updateTownPeace(dt, actor.group.position.distanceTo(this.town.cameraPosition), false, false)
+    actor.updateTownPeace(dt, actor.group.position.distanceTo(this.town.cameraPosition), false, false, 0, 0, inFrustum)
   }
 
   private updateFieldActorTravel(actor: NPC, dt: number): void {
     actor.update(dt, this.town.player(), [], [], this.actorObstacles(actor), this.town.hp, () => {}, () => false,
-      false, actor.group.position.distanceTo(this.town.cameraPosition), null, null, this.town.navigation)
+      false, actor.group.position.distanceTo(this.town.cameraPosition), null, null, this.town.navigation, null,
+      this.isActorInFrustum(actor.group.position))
   }
 
   private faceHeldVeteranSquad(squad: VeteranMissionEnemySquad, player: Player): void {
@@ -750,15 +766,17 @@ export class TownMissionCombat {
       duel.setExternalCombat(actor, externalCombat)
       if (combatant || externalCombat) this.updateRuntimeActor(actor, dt)
       else {
+        const inFrustum = this.isActorInFrustum(actor.group.position)
         // Every non-combat Duel phase uses travel, including MARCHING/RETURNING.
         // Keep Follow updating after a temporary hold at the moving leader's slot.
         if (actor.formationCommandId != null && (actor.tacticalOrder === 'follow' || !actor.isFormationTargetReached(actor.formationCommandId))) {
           actor.updateTownTravel(dt, actor.group.position.distanceTo(this.town.cameraPosition),
-            this.warfareGrid.getNearbyInto(actor.combatPosition, 10, this.neighbors), this.town.obstacles, this.town.navigation)
+            this.warfareGrid.getNearbyInto(actor.combatPosition, 10, this.neighbors), this.town.obstacles, this.town.navigation,
+            undefined, inFrustum)
           continue
         }
-        if (actor.mount) { actor.mount.beginControlledFrame(); actor.mount.finishControlledFrame(dt, this.town.obstacles) }
-        actor.updateTownPeace(dt, actor.group.position.distanceTo(this.town.cameraPosition), false, false)
+        if (actor.mount) { actor.mount.setInFrustum?.(inFrustum); actor.mount.beginControlledFrame(); actor.mount.finishControlledFrame(dt, this.town.obstacles) }
+        actor.updateTownPeace(dt, actor.group.position.distanceTo(this.town.cameraPosition), false, false, 0, 0, inFrustum)
       }
     }
     this.resolveCombatActorCollisions(actors)
@@ -766,6 +784,7 @@ export class TownMissionCombat {
     for (const mount of new Set(duel.allMounts)) {
       if (this.town.mounts?.includes(mount) || outskirts?.mounts.includes(mount) || mount === this.town.careerMounts.activeMount) continue
       mount.setCameraDistance(mount.group.position.distanceTo(this.town.cameraPosition))
+      mount.setInFrustum?.(this.isActorInFrustum(mount.group.position))
       if (mount.dead || !mount.riderNpc && !mount.riderPlayer) mount.update(dt, this.town.obstacles)
     }
     this.updateRuntimeMountImpacts(actors, elapsed)
@@ -969,7 +988,8 @@ export class TownMissionCombat {
         this.garrisonReturns.delete(npc)
       } else {
         npc.updateTownTravel(dt, npc.combatPosition.distanceTo(this.town.cameraPosition),
-          this.garrisonReturnGrid.getNearbyInto(npc.combatPosition, 10, this.neighbors), this.town.obstacles, this.town.navigation)
+          this.garrisonReturnGrid.getNearbyInto(npc.combatPosition, 10, this.neighbors), this.town.obstacles, this.town.navigation,
+          undefined, this.isActorInFrustum(npc.group.position))
         if (townResidentAtHome(npc, station) && npc.isFormationTargetReached(EXTERNAL_GARRISON_RETURN_ID)) {
           this.garrisonReturns.delete(npc)
           npc.setTacticalOrder('attack')
@@ -1028,24 +1048,27 @@ export class TownMissionCombat {
     for (const actor of actors) {
       if (actor.dead) { this.updateCorpse(actor, dt); continue }
       const distance = actor.combatPosition.distanceTo(this.town.cameraPosition)
+      const inFrustum = this.isActorInFrustum(actor.group.position)
       if (!enemies.has(actor.combatantId)) {
         if (this.town.updateEagleDuty?.(actor, dt, false)) continue
         actor.updateTownTravel(dt, distance, this.grid.getNearbyInto(actor.combatPosition, actor.mount?.isFlyingMount ? 60 : 4, this.neighbors),
-          this.actorObstacles(actor), this.town.navigation)
+          this.actorObstacles(actor), this.town.navigation, undefined, inFrustum)
       } else if (actor.mount?.isFlyingMount) {
         actor.updateTownTravel(dt, distance, this.grid.getNearbyInto(actor.combatPosition, 60, this.neighbors),
-          this.actorObstacles(actor), this.town.navigation)
+          this.actorObstacles(actor), this.town.navigation, undefined, inFrustum)
       } else {
         if (actor.mount) {
           actor.mount.setCameraDistance(distance)
+          actor.mount.setInFrustum?.(inFrustum)
           actor.mount.beginControlledFrame(); actor.mount.finishControlledFrame(dt, this.town.obstacles)
         }
-        actor.updateTownPeace(dt, distance, false, false)
+        actor.updateTownPeace(dt, distance, false, false, 0, 0, inFrustum)
       }
     }
     if (devProf) devProf.add('actorUpdateMs', performance.now() - tActors)
     for (const mount of defense.enemyMounts) if (mount.dead || !mount.riderNpc && !mount.riderPlayer) {
       mount.setCameraDistance(mount.group.position.distanceTo(this.town.cameraPosition))
+      mount.setInFrustum?.(this.isActorInFrustum(mount.group.position))
       mount.update(dt, mount.isFlyingMount ? this.town.airspaceObstacles ?? this.town.obstacles : this.town.obstacles)
     }
     this.town.careerMounts.update(dt)
@@ -1150,7 +1173,8 @@ export class TownMissionCombat {
         this.actorObstacles(actor), this.town.hp,
         this.onDefenseMeleeHit,
         this.onDefenseFire,
-        false, actor.group.position.distanceTo(this.town.cameraPosition), null, hostileGrid, this.town.navigation)
+        false, actor.group.position.distanceTo(this.town.cameraPosition), null, hostileGrid, this.town.navigation, null,
+        this.isActorInFrustum(actor.group.position))
       if (travelOrder && !actor.dead) actor.tacticalOrder = travelOrder
     }
     this.activeDefenseActor = null
@@ -1160,17 +1184,20 @@ export class TownMissionCombat {
     if (devProf) devProf.add('collisionMs', performance.now() - tCol)
     for (const enemy of defense.waitingEnemies) {
       if (enemy.dead) continue
+      const inFrustum = this.isActorInFrustum(enemy.group.position)
       const mount = enemy.mount
       if (mount && !mount.dead) {
         mount.setCameraDistance(mount.group.position.distanceTo(this.town.cameraPosition))
+        mount.setInFrustum?.(inFrustum)
         mount.beginControlledFrame()
         mount.finishControlledFrame(dt, mount.isFlyingMount ? this.town.airspaceObstacles ?? this.town.obstacles : this.town.obstacles)
       }
-      enemy.updateTownPeace(dt, enemy.group.position.distanceTo(this.town.cameraPosition), false, false)
+      enemy.updateTownPeace(dt, enemy.group.position.distanceTo(this.town.cameraPosition), false, false, 0, 0, inFrustum)
     }
     // Lethal damage immediately releases the rider; keep mission mounts' collapse advancing.
     for (const mount of defense.enemyMounts) {
       mount.setCameraDistance(mount.group.position.distanceTo(this.town.cameraPosition))
+      mount.setInFrustum?.(this.isActorInFrustum(mount.group.position))
       if (mount.dead || !mount.riderNpc && !mount.riderPlayer) mount.update(dt, mount.isFlyingMount ? this.town.airspaceObstacles ?? this.town.obstacles : this.town.obstacles)
     }
     const player = this.town.player(), mount = player.currentMount

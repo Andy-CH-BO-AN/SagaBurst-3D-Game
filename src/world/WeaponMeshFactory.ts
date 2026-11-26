@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { CharacterFaction } from './CharacterVisuals'
 import { proceduralMaterial } from './ProceduralMaterials'
 import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
-import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODController'
+import { equipmentDetail, equipmentLod2Proxy, equipmentShadowUntil } from './EquipmentVisualLODController'
 import { shareEquipmentGeometry } from './EquipmentGeometryRegistry'
 import { LANCE_RADIUS } from './EquipmentAttachmentContract'
 import { WEAPONS } from '../rpg/WeaponDatabase'
@@ -47,17 +47,7 @@ function profiledBladeGeometry(length: number, widths: number[], thickness: numb
   return geometry
 }
 
-/** Only builder-owned, rigid siblings with identical material/render state belong here. */
-function mergeRigidGeometryParts(parts: THREE.Mesh[], material: THREE.Material, name: string): THREE.Mesh {
-  const first = parts[0]
-  if (!first || parts.some(part => part.material !== material
-    || part.parent !== first.parent || part.children.length > 0
-    || part instanceof THREE.SkinnedMesh || Object.keys(part.geometry.morphAttributes).length > 0
-    || part.castShadow !== first.castShadow || part.receiveShadow !== first.receiveShadow
-    || part.visible !== first.visible || part.layers.mask !== first.layers.mask
-    || part.renderOrder !== first.renderOrder || part.frustumCulled !== first.frustumCulled)) {
-    throw new Error('Rigid equipment parts must share material, parent and render state')
-  }
+function mergePartGeometries(parts: readonly THREE.Mesh[]): THREE.BufferGeometry {
   const geometries = parts.map(part => {
     part.updateMatrix()
     const geometry = part.geometry.clone().applyMatrix4(part.matrix)
@@ -74,7 +64,21 @@ function mergeRigidGeometryParts(parts: THREE.Mesh[], material: THREE.Material, 
   if (!geometry) throw new Error('Incompatible rigid equipment geometry attributes')
   geometry.computeBoundingBox()
   geometry.computeBoundingSphere()
-  const merged = new THREE.Mesh(geometry, material)
+  return geometry
+}
+
+/** Only builder-owned, rigid siblings with identical material/render state belong here. */
+function mergeRigidGeometryParts(parts: THREE.Mesh[], material: THREE.Material, name: string): THREE.Mesh {
+  const first = parts[0]
+  if (!first || parts.some(part => part.material !== material
+    || part.parent !== first.parent || part.children.length > 0
+    || part instanceof THREE.SkinnedMesh || Object.keys(part.geometry.morphAttributes).length > 0
+    || part.castShadow !== first.castShadow || part.receiveShadow !== first.receiveShadow
+    || part.visible !== first.visible || part.layers.mask !== first.layers.mask
+    || part.renderOrder !== first.renderOrder || part.frustumCulled !== first.frustumCulled)) {
+    throw new Error('Rigid equipment parts must share material, parent and render state')
+  }
+  const merged = new THREE.Mesh(mergePartGeometries(parts), material)
   merged.name = name
   merged.castShadow = first.castShadow
   merged.receiveShadow = first.receiveShadow
@@ -88,8 +92,16 @@ function mergeRigidGeometryParts(parts: THREE.Mesh[], material: THREE.Material, 
   return merged
 }
 
+/** Non-destructive single-material proxy for NPC LOD2 (> 30m); keeps LOD0/1 parts intact. */
+function createLod2MergedProxy(parts: THREE.Mesh[], material: THREE.Material, name: string): THREE.Mesh {
+  const merged = new THREE.Mesh(mergePartGeometries(parts), material)
+  merged.name = name
+  merged.receiveShadow = true
+  return equipmentLod2Proxy(equipmentShadowUntil(merged, -1))
+}
+
 function addWrappedGrip(pivot: THREE.Group, length: number, radius: number, y: number, leather: THREE.Material, metal: THREE.Material): THREE.Mesh[] {
-  const handle = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 0.94, length, 12), leather), -1)
+  const handle = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 0.94, length, 12), leather), -1), 1)
   handle.position.y = y
   pivot.add(handle)
   const wraps: THREE.Mesh[] = []
@@ -272,7 +284,7 @@ export class WeaponMeshFactory {
       const headMat = proceduralMaterial({ kind: 'iron', color: tier === 1 ? 0x756052 : tier === 3 ? 0xd6d8dc : 0xaaaaaa, roughness: tier === 1 ? 0.86 : 0.3, metalness: tier === 1 ? 0.45 : 0.85 })
 
       // The lance is held near the back. The pole goes from y = -0.5 to y = 2.0
-      const pole = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(LANCE_RADIUS, LANCE_RADIUS, 2.5, 12), poleMat), 1)
+      const pole = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(LANCE_RADIUS, LANCE_RADIUS, 2.5, 12), poleMat), 1), 1)
       pole.position.y = 0.75 // Center of pole (2.5/2 = 1.25, minus offset to hold it lower)
       pivot.add(pole)
 
@@ -280,10 +292,11 @@ export class WeaponMeshFactory {
       const headGeometry = tier === 2 ? new THREE.ConeGeometry(0.06, 0.6, 8)
         : profiledBladeGeometry(0.6, tier === 1 ? [0.045, 0.074, 0.055, 0.028, 0] : [0.06, 0.15, 0.115, 0.055, 0], 0.035)
       if (tier !== 2) headGeometry.translate(0, -0.3, 0)
-      const head = equipmentShadowUntil(new THREE.Mesh(headGeometry, headMat), 1)
+      const head = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(headGeometry, headMat), 1), 1)
       head.position.y = 2.3 // 0.75 + 1.25 + 0.3
       head.castShadow = true
       pivot.add(head)
+      pivot.add(createLod2MergedProxy([pole, head], poleMat, 'lance-lod2-proxy'))
       if (tier !== 2) {
         const trim = proceduralMaterial({ kind: tier === 1 ? 'leather' : 'bronze', color: tier === 1 ? 0x403126 : 0xc49a50, roughness: tier === 1 ? 0.95 : 0.3 })
         const details: THREE.Mesh[] = []
@@ -310,18 +323,18 @@ export class WeaponMeshFactory {
       })
 
       // The 1.44 m haft starts below the axe head; the hand stays 0.15 m above its butt.
-      const haft = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.03, 1.44, 8), wood), 1)
+      const haft = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.03, 1.44, 8), wood), 1), 1)
       haft.position.y = 0.72
       haft.castShadow = true
       haft.name = 'dane-axe-haft'
       pivot.add(haft)
 
-      const grip = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.22, 8), leather), 1)
+      const grip = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.22, 8), leather), 1), 1)
       grip.position.y = 0.15
       grip.name = 'dane-axe-grip'
       pivot.add(grip)
 
-      const socket = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.047, 0.24, 8), iron), 1)
+      const socket = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.047, 0.24, 8), iron), 1), 1)
       socket.position.y = 1.30
       socket.castShadow = true
       socket.name = 'dane-axe-socket'
@@ -339,13 +352,14 @@ export class WeaponMeshFactory {
       outline.lineTo(0.18, 1.13)
       outline.lineTo(0.025, 1.18)
       outline.closePath()
-      const blade = equipmentShadowUntil(new THREE.Mesh(new THREE.ExtrudeGeometry(outline, { depth: 0.032, bevelEnabled: false }), iron), 1)
+      const blade = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.ExtrudeGeometry(outline, { depth: 0.032, bevelEnabled: false }), iron), 1), 1)
       blade.position.z = -0.016
       // Change only the cutting head width; haft, grip and mounted clearance stay fixed.
       blade.scale.x = tier === 1 ? 0.78 : tier === 3 ? 1.14 : 1
       blade.castShadow = true
       blade.name = 'dane-axe-single-bearded-blade'
       pivot.add(blade)
+      pivot.add(createLod2MergedProxy([haft, socket, blade], iron, 'axe-lod2-proxy'))
 
       if (tier === 3) {
         const gold = proceduralMaterial({ kind: 'bronze', color: 0xc49a50, roughness: 0.3 })
@@ -410,7 +424,7 @@ export class WeaponMeshFactory {
 
       const widths = tier === 1 ? [0.087, 0.075, 0.069, 0.035, 0.004]
         : tier === 3 ? [0.125, 0.118, 0.099, 0.056, 0.004] : [0.105, 0.102, 0.086, 0.052, 0.004]
-      const blade = equipmentShadowUntil(new THREE.Mesh(profiledBladeGeometry(1.18, widths, 0.038), steel), 1)
+      const blade = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(profiledBladeGeometry(1.18, widths, 0.038), steel), 1), 1)
       blade.position.y = 0.33
       blade.name = 'steel-sword-profiled-blade'
       blade.castShadow = true
@@ -426,7 +440,9 @@ export class WeaponMeshFactory {
         const inlay = diamondInlay(0, y, z, 0.048, 0.095, darkSteel)
         pivot.add(inlay); inlays.push(inlay)
       }
-      pivot.add(equipmentShadowUntil(mergeRigidGeometryParts([...wraps, pommel, guard, ...inlays], darkSteel, 'sword-grip-metal'), 1))
+      const gripMetal = equipmentDetail(equipmentShadowUntil(mergeRigidGeometryParts([...wraps, pommel, guard, ...inlays], darkSteel, 'sword-grip-metal'), 1), 1)
+      pivot.add(gripMetal)
+      pivot.add(createLod2MergedProxy([blade, gripMetal], steel, 'sword-lod2-proxy'))
       pivot.add(equipmentShadowUntil(equipmentDetail(mergeRigidGeometryParts([fullerFront, fullerBack], fullerMaterial, 'sword-fullers'), 0), -1))
 
       tipLocal.set(0, 1.51, 0)
@@ -493,30 +509,39 @@ export class WeaponMeshFactory {
       }
     }
     const geometry = new THREE.BufferGeometry()
-    for (let ring = 0; ring < rings.length - 1; ring++) {
+    const appendRing = (ring: number, materialIndex: number) => {
       const start = indices.length
       for (let j = 0; j < sides; j++) {
         const a = ring * (sides + 1) + j, b = a + sides + 1
         indices.push(a, a + 1, b, b, a + 1, b + 1)
       }
-      const materialIndex = ring === 40 ? 1 : 0
       const previous = geometry.groups[geometry.groups.length - 1]
-      // NPC bows: contiguous wood rings share one draw range. Preserve index
-      // order and the leather boundary; Player/pickup builders keep their path.
       if (consolidateMaterialGroups && previous?.materialIndex === materialIndex) {
         previous.count += indices.length - start
       } else {
         geometry.addGroup(start, indices.length - start, materialIndex)
       }
     }
+    if (consolidateMaterialGroups) {
+      // Emit wood limbs contiguously before the leather grip so NPC bows use 2 groups instead of 3.
+      for (let ring = 0; ring < rings.length - 1; ring++) if (ring !== 40) appendRing(ring, 0)
+      appendRing(40, 1)
+    } else {
+      for (let ring = 0; ring < rings.length - 1; ring++) appendRing(ring, ring === 40 ? 1 : 0)
+    }
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
     geometry.setIndex(indices)
     geometry.computeVertexNormals()
     // A bow stave is narrower than one battle shadow texel (~8 cm) beyond LOD0.
-    const stave = equipmentShadowUntil(new THREE.Mesh(geometry, [wood, leather]), 0)
+    const stave = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(geometry, [wood, leather]), 0), 1)
     stave.name = 'bow-stave-and-grip'
     bowModel.add(stave)
+    const lod2Geo = geometry.clone()
+    lod2Geo.clearGroups()
+    const staveLod2 = equipmentLod2Proxy(equipmentShadowUntil(new THREE.Mesh(lod2Geo, wood), -1))
+    staveLod2.name = 'bow-stave-lod2-proxy'
+    bowModel.add(staveLod2)
     for (const side of [-1, 1]) {
       const cap = new THREE.Mesh(new THREE.SphereGeometry(profile.gripRadius * 0.38, 10, 8), wood)
       cap.position.set(0, side * halfSpan, -0.035)
@@ -623,7 +648,7 @@ export class WeaponMeshFactory {
     pivot.add(guard)
     const widths = tier === 1 ? [0.065, 0.083, 0.074, 0.046, 0.004]
       : tier === 3 ? [0.095, 0.135, 0.12, 0.07, 0.004] : [bladeWidth * 0.72, bladeWidth, bladeWidth * 0.92, bladeWidth * 0.58, 0.004]
-    const blade = equipmentShadowUntil(new THREE.Mesh(profiledBladeGeometry(bladeLength, widths, 0.034), bladeMat), 1)
+    const blade = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(profiledBladeGeometry(bladeLength, widths, 0.034), bladeMat), 1), 1)
     blade.position.y = 0.2
     blade.name = 'roman-gladius-profiled-blade'
     pivot.add(blade)
@@ -632,7 +657,9 @@ export class WeaponMeshFactory {
       const inlay = diamondInlay(0, y, z, 0.05, 0.09, pommelMat)
       pivot.add(inlay); inlays.push(inlay)
     }
-    pivot.add(equipmentShadowUntil(mergeRigidGeometryParts([pommel, ...wraps, guard, ...inlays], pommelMat, 'gladius-grip-metal'), 1))
+    const gripMetal = equipmentDetail(equipmentShadowUntil(mergeRigidGeometryParts([pommel, ...wraps, guard, ...inlays], pommelMat, 'gladius-grip-metal'), 1), 1)
+    pivot.add(gripMetal)
+    pivot.add(createLod2MergedProxy([blade, gripMetal], bladeMat, 'gladius-lod2-proxy'))
     return new THREE.Vector3(0, 0.2 + bladeLength, 0)
   }
 
@@ -677,7 +704,7 @@ export class WeaponMeshFactory {
       const ironMat = proceduralMaterial({ kind: 'iron', color: tier === 1 ? 0x80664e : tier === 3 ? 0xd4d4cb : 0x777d7f, roughness: tier === 1 ? 0.88 : 0.36, metalness: tier === 1 ? 0.45 : 0.82 })
       const goldMat = proceduralMaterial({ kind: 'bronze', color: 0xa98248, roughness: 0.4, metalness: 0.74 })
 
-      const shaft = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.021, 1.2, 10), woodMat), 1)
+      const shaft = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.021, 1.2, 10), woodMat), 1), 1)
       shaft.position.y = 0.6
       pivot.add(shaft)
 
@@ -686,19 +713,21 @@ export class WeaponMeshFactory {
       pivot.add(socket)
 
       if (tier === 1) {
-        const head = equipmentShadowUntil(new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.15, 4), ironMat), 1)
+        const head = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.15, 4), ironMat), 1), 1)
         head.position.y = 1.275
         pivot.add(head)
+        pivot.add(createLod2MergedProxy([shaft, head], woodMat, 'pilum-lod2-proxy'))
       } else if (tier === 2) {
-        const neck = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.013, 0.4, 8), ironMat), 1)
+        const neck = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.013, 0.4, 8), ironMat), 1), 1)
         neck.position.y = 1.4
         pivot.add(neck)
 
-        const head = equipmentShadowUntil(new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.13, 4), ironMat), 1)
+        const head = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.13, 4), ironMat), 1), 1)
         head.position.y = 1.65
         pivot.add(head)
+        pivot.add(createLod2MergedProxy([shaft, neck, head], woodMat, 'pilum-lod2-proxy'))
       } else {
-        const neck = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.014, 0.5, 8), ironMat), 1)
+        const neck = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.014, 0.5, 8), ironMat), 1), 1)
         neck.position.y = 1.45
         pivot.add(neck)
 
@@ -710,9 +739,10 @@ export class WeaponMeshFactory {
         }
         pivot.add(equipmentShadowUntil(equipmentDetail(mergeRigidGeometryParts(bands, goldMat, 'pilum-gold-bands'), 0), -1))
 
-        const head = equipmentShadowUntil(new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.15, 4), ironMat), 1)
+        const head = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.15, 4), ironMat), 1), 1)
         head.position.y = 1.775
         pivot.add(head)
+        pivot.add(createLod2MergedProxy([shaft, neck, head], woodMat, 'pilum-lod2-proxy'))
       }
 
       return {}
@@ -813,11 +843,11 @@ export class WeaponMeshFactory {
       board.castShadow = true
       board.receiveShadow = true
       pivot.add(board)
-      const rim = equipmentShadowUntil(curvedRectangleRim(width, height, curve, frontZ, tier === 3 ? 0.03 : 0.022, tier === 3 ? bronze : tier === 2 ? iron : leather), 0)
+      const rim = equipmentDetail(equipmentShadowUntil(curvedRectangleRim(width, height, curve, frontZ, tier === 3 ? 0.03 : 0.022, tier === 3 ? bronze : tier === 2 ? iron : leather), 0), 1)
       rim.name = 'scutum-rim'
       pivot.add(rim)
 
-      const boss = equipmentShadowUntil(new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 10), tier === 3 ? bronze : iron), -1)
+      const boss = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 10), tier === 3 ? bronze : iron), -1), 1)
       boss.position.set(0, 0, frontZ + curve + 0.025)
       boss.scale.z = 0.58
       boss.name = 'shield-boss'
@@ -871,7 +901,7 @@ export class WeaponMeshFactory {
       const rim = new THREE.Mesh(new THREE.TorusGeometry(0.41, tier === 3 ? 0.03 : 0.023, 10, 32), tier === 3 ? bronze : tier === 2 ? iron : leather)
       rim.position.z = 0.18
       pivot.add(equipmentShadowUntil(equipmentDetail(rim, 1), 0))
-      const boss = equipmentShadowUntil(new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 10), tier === 3 ? bronze : iron), -1)
+      const boss = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 10), tier === 3 ? bronze : iron), -1), 1)
       boss.position.set(0, 0, 0.205)
       boss.scale.z = 0.58
       boss.name = 'shield-boss'
@@ -903,7 +933,7 @@ export class WeaponMeshFactory {
           pivot.add(rivet)
           bossDetails.push(rivet)
         }
-        pivot.add(equipmentShadowUntil(mergeRigidGeometryParts(bossDetails, bronze, 'shield-boss'), -1))
+        pivot.add(equipmentDetail(equipmentShadowUntil(mergeRigidGeometryParts(bossDetails, bronze, 'shield-boss'), -1), 1))
       }
     }
   }

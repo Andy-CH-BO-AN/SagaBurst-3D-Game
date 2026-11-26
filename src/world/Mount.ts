@@ -33,6 +33,7 @@ import { EagleAttack } from '../combat/EagleAttack'
 import type { CombatContact, PhysicalCombatTarget } from '../combat/ShieldBlocking'
 import type { CombatDamageContext } from '../combat/CombatAttribution'
 import { skipHiddenCorpseMatrices } from './DeathFade'
+import { OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE } from './CharacterLODPolicy'
 
 let mountAimGeometry: THREE.BoxGeometry | undefined
 let mountAimMaterial: THREE.MeshBasicMaterial | undefined
@@ -187,6 +188,12 @@ export class Mount {
   private wanderTimer = 0
   private wanderTarget = new THREE.Vector3()
   private cameraDistance = 0
+  private inFrustum = true
+  private visualHidden = false
+  private offFrustumVisualSleep = false
+  private readonly cachedSaddleLocal = new THREE.Vector3()
+  private saddleLocalDirty = true
+  private readonly _tmpInvMountWorld = new THREE.Matrix4()
   private pendingJumpLanding = false
   private readonly horseLanding = new HorseLandingAnimation()
 
@@ -259,6 +266,10 @@ export class Mount {
     const startY = y ?? getTerrainHeight(x, z)
     this.group.position.set(x, startY, z)
     this.previousPosition.copy(this.group.position)
+    this.cachedSaddleLocal.set(0, this.rideHeightOffset, 0)
+    if (this.groundVisualRoot) {
+      skipHiddenCorpseMatrices(this.groundVisualRoot, () => this.offFrustumVisualSleep)
+    }
 
     this.aimCollider = new THREE.Mesh(mountAimGeometry ??= new THREE.BoxGeometry(1.1, 1.65, 2.4),
       mountAimMaterial ??= new THREE.MeshBasicMaterial())
@@ -355,10 +366,20 @@ export class Mount {
 
   getSaddleSeatWorld(target = new THREE.Vector3()): THREE.Vector3 {
     if (this.eagleVisual) return this.getRiderStandingSeatWorld(target)
-    if (this.proceduralVisual) return this.proceduralVisual.saddleSeat.getWorldPosition(target)
-    if (this.horseVisual) {
-      return this.horseVisual.saddleSeat.getWorldPosition(target)
+    const saddleSeat = this.catVisual?.saddleSeat ?? this.snowLeopardVisual?.saddleSeat ?? this.horseVisual?.saddleSeat
+    if (saddleSeat) {
+      if (!this.saddleLocalDirty || this.offFrustumVisualSleep) {
+        this.group.updateWorldMatrix(false, false)
+        return target.copy(this.cachedSaddleLocal).applyMatrix4(this.group.matrixWorld)
+      }
+      saddleSeat.getWorldPosition(target)
+      this.group.updateWorldMatrix(false, false)
+      this._tmpInvMountWorld.copy(this.group.matrixWorld).invert()
+      this.cachedSaddleLocal.copy(target).applyMatrix4(this._tmpInvMountWorld)
+      this.saddleLocalDirty = false
+      return target
     }
+    if (this.proceduralVisual) return this.proceduralVisual.saddleSeat.getWorldPosition(target)
     return target.copy(this.group.position).addScaledVector(THREE.Object3D.DEFAULT_UP, this.rideHeightOffset)
   }
 
@@ -375,9 +396,32 @@ export class Mount {
     return target
   }
 
+  private get groundVisualRoot(): THREE.Group | null {
+    return this.horseVisual?.root ?? this.catVisual?.root ?? this.snowLeopardVisual?.root ?? null
+  }
+
+  private syncGroundVisualSleep(): void {
+    const visualRoot = this.groundVisualRoot
+    if (!visualRoot) return
+    const sleep = !this.dead
+      && (this.riderNpc !== null || this.state !== MountState.CONTROLLED)
+      && !this.inFrustum
+      && this.cameraDistance > OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE
+    if (sleep === this.offFrustumVisualSleep) return
+    this.offFrustumVisualSleep = sleep
+    visualRoot.visible = !this.visualHidden && !sleep
+    if (!sleep) this.saddleLocalDirty = true
+  }
+
+  setInFrustum(inFrustum: boolean): void {
+    this.inFrustum = inFrustum
+    this.syncGroundVisualSleep()
+  }
+
   setCameraDistance(distance: number): void {
     this.cameraDistance = Number.isFinite(distance) ? Math.max(0, distance) : 0
     this.eagleVisual?.setCameraDistance(this.cameraDistance)
+    this.syncGroundVisualSleep()
   }
 
   getRiderStandingSeatWorld(target = new THREE.Vector3()): THREE.Vector3 {
@@ -445,16 +489,17 @@ export class Mount {
   }
 
   setVisualHidden(hidden: boolean): void {
+    this.visualHidden = hidden
     if (this.eagleVisual) this.eagleVisual.root.visible = !hidden
-    if (this.proceduralVisual) this.proceduralVisual.root.visible = !hidden
+    if (this.proceduralVisual) this.proceduralVisual.root.visible = !hidden && !this.offFrustumVisualSleep
     if (this.horseVisual) {
-      this.horseVisual.root.visible = !hidden
+      this.horseVisual.root.visible = !hidden && !this.offFrustumVisualSleep
     }
   }
 
   isVisualHidden(): boolean {
     if (this.eagleVisual) return !this.eagleVisual.root.visible
-    return this.proceduralVisual ? !this.proceduralVisual.root.visible : this.horseVisual ? !this.horseVisual.root.visible : false
+    return this.visualHidden
   }
 
   dispose(): void {
@@ -508,6 +553,7 @@ export class Mount {
     this.riderPlayer = player
     this.combatOwner = createPlayerCombatActorRef(player)
     this.state = MountState.CONTROLLED
+    this.syncGroundVisualSleep?.()
     this.alignGroundFlightHeading()
   }
 
@@ -583,11 +629,14 @@ export class Mount {
       this.riderFaction = null
       this.horseVisual?.playDeath()
       this.proceduralVisual?.playOnce('death')
+      this.syncGroundVisualSleep?.()
+      this.saddleLocalDirty = true
       this.eagleAttack?.cancel()
       for (const cb of this.onDeathCallbacks) cb(this)
     } else {
       this.horseVisual?.playOnce('hit')
       this.proceduralVisual?.playOnce('hit')
+      this.saddleLocalDirty = true
     }
     return true
   }
@@ -704,14 +753,16 @@ export class Mount {
       if (this.onGround) this.pendingJumpLanding = false
       if (import.meta.env.DEV && collector) { var _tHorseAnimation = performance.now() }
       this.horseVisual.setLocomotion(this.movementSpeed)
-      this.horseVisual.update(dt, this.cameraDistance)
+      if (this.horseVisual.update(dt, this.cameraDistance, this.inFrustum)) this.saddleLocalDirty = true
       if (import.meta.env.DEV && collector) { collector.endPhase('mountHorseAnimation', _tHorseAnimation!) }
     }
   }
 
   private updateProceduralVisual(dt: number): void {
     const quadruped = this.catVisual ?? this.snowLeopardVisual
-    if (quadruped) quadruped.update(dt, this.cameraDistance)
+    if (quadruped) {
+      if (quadruped.update(dt, this.cameraDistance, this.inFrustum)) this.saddleLocalDirty = true
+    }
     else this.corgiVisual?.update(dt)
   }
 

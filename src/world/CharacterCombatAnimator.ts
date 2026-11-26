@@ -296,7 +296,7 @@ export class CharacterCombatAnimator {
     this.poseIdle()
   }
 
-  update(dt: number, cameraDistance = 0): CombatAnimationEvents {
+  update(dt: number, cameraDistance = 0, inFrustum = true): CombatAnimationEvents {
     this.events.hitActiveStarted = false
     this.events.projectileRelease = false
     this.events.actionCompleted = false
@@ -321,7 +321,7 @@ export class CharacterCombatAnimator {
     // Melee sockets drive physical collision, so their pose must follow the
     // action clock every frame, including fast T4 attacks. Idle/ranged may throttle.
     if (this.isPunchClip) this.advancePunchClip(dt, actionDt)
-    else this.rig.animation?.update(dt, this.isMeleeAction || canceledPose ? 0 : cameraDistance)
+    else this.rig.animation?.update(dt, this.isMeleeAction || canceledPose ? 0 : cameraDistance, this.isMeleeAction || canceledPose ? true : inFrustum)
     // Animated sockets and forward axe carry follow the evaluated pose and
     // LOD proxy, before this tick's hit/contact evaluation.
     if (!(this.ownsAxeContact && this.meleePivot.userData.axeVisual) && (this.meleePivot.userData.authoredAxeSocket || this.meleePivot.userData.authoredAxe1Socket || this.meleePivot.userData.forwardAxeCarryRoot)) setSwordMountedAttachment(this.meleePivot, mounted,

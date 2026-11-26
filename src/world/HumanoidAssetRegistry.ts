@@ -626,6 +626,7 @@ export class MixerController implements HumanoidAnimationController {
   private readonly punchTimings = new Map<HumanoidAnimationState, HumanoidPunchTiming>()
   private current: HumanoidAnimationState | null = null
   private readonly farCadence = new FarAnimationCadence()
+  private wasInFrustum = true
   /** Repeated explicit samples (bow draw, pilum) of the still-bound state share the far cadence. */
   private seekedState: HumanoidAnimationState | null = null
   private deferredSeek = false
@@ -877,11 +878,14 @@ export class MixerController implements HumanoidAnimationController {
     this.finishPose(true)
   }
 
-  update(dt: number, cameraDistance = 0): void {
+  update(dt: number, cameraDistance = 0, inFrustum = true): void {
     if (!Number.isFinite(dt) || dt < 0) { this.flushDeferredSeek(); return }
+    const enteredFrustum = !this.wasInFrustum && inFrustum
+    this.wasInFrustum = inFrustum
     if (dt === 0) { this.flushDeferredSeek(); this.restoreEquipment(); this.finishPose(); return }
     this.seekPending += dt
-    const step = this.farCadence.advance(dt, humanoidPoseInterval(cameraDistance))
+    const interval = enteredFrustum ? 0 : humanoidPoseInterval(cameraDistance, inFrustum)
+    const step = this.farCadence.advance(dt, interval)
     if (step === null) { this.flushDeferredSeek(); return }
     // Returning near must consume the pending far time once, too.
     dt = step
@@ -1396,7 +1400,7 @@ export class HumanoidAssetRegistry {
       mixers,
       rig,
       attribution: template.manifest.attribution,
-      update: (dt, cameraDistance = 0) => animation.update(dt, cameraDistance),
+      update: (dt, cameraDistance = 0, inFrustum = true) => animation.update(dt, cameraDistance, inFrustum),
       dispose: () => {
         animation.stop()
         disposeHumanoidInstanceSkeletons(root)
