@@ -105,14 +105,21 @@ export class CommanderFourGateDefenseController {
     const active = this.readProfile().activeMission
     return active?.kind === 'commander-four-gate-defense' ? active : undefined
   }
-  get phase() { return this.active?.phase ?? null }
+  get phase() {
+    const active = this.active
+    if (!active) return null
+    if (active.result) return active.phase
+    return this.autoSave === false ? (this.state?.phase ?? active.phase) : active.phase
+  }
   get assault(): boolean { return false }
   get ready(): boolean { return Boolean(this.startedMissionId && this.spawnBatch?.status !== 'failed') }
   private get attackersReady(): boolean {
     return Boolean(this.startedMissionId && this.fourGateSiege?.ready && this.spawnBatch
       && this.spawnBatch.pending === 0 && (this.spawnBatch.ready || this.spawnBatch.status === 'pending'))
   }
-  get combatEnabled(): boolean { return this.attackersReady && this.state?.attackStarted === true && this.active?.phase === 'ATTACKING' && !this.active.result }
+  get combatEnabled(): boolean {
+    return this.attackersReady && this.state?.attackStarted === true && this.phase === 'ATTACKING' && !this.active?.result
+  }
   get spawnBatches(): readonly NpcSpawnBatch[] { return this.spawnBatch ? [this.spawnBatch] : [] }
   get preparationRemaining(): number { return this.state?.preparationRemainingSeconds ?? 180 }
   get survivalRemaining(): number { return Math.max(0, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS - (this.state?.combatElapsedSeconds ?? 0)) }

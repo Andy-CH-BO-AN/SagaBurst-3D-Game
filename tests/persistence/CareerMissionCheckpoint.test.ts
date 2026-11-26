@@ -12,6 +12,7 @@ import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from 
 import { commanderFourGateGarrisonSlots } from '../../src/career/CommanderFourGateDefenseRoster'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
+import { SpatialGrid } from '../../src/world/SpatialGrid'
 import { Faction, type NPC } from '../../src/world/NPC'
 import { ActorDouble, asNpc, asPlayer, PlayerDouble, recordingActorFactory, residentSpec } from '../helpers/careerActorDoubles'
 import { fourGateDefenseRuntime } from '../helpers/fourGateDefenseRuntime'
@@ -568,5 +569,75 @@ describe('CareerMissionCheckpoint', () => {
     expect(commits).toBe(1)
     expect(checkpoint.persist(() => ({ ...profile.activeMission!, phase: 'RESULT' }), { immediate: true, force: true })).toBe(true)
     expect(commits).toBe(2)
+  })
+
+  it('transitions Four-Gate phase through SPAWNING to ATTACKING and advances siege without auto-saving when autoSave is false (skipPreparation)', () => {
+    let commits = 0
+    const h = fourGateDefenseRuntime(createFourGateDefenseProfile('PREPARING'), {
+      autoSave: false,
+      commit: () => { commits++; return true },
+    })
+    const { controller, scheduler } = h
+    onTestFinished(() => controller.dispose())
+    expect(controller.startActiveMission()).toBe(true)
+    controller.completeInitialDeployment()
+    expect(commits).toBe(1)
+    expect(controller.phase).toBe('PREPARING')
+    expect(controller.combatEnabled).toBe(false)
+
+    expect(controller.skipPreparation()).toBe(true)
+    controller.updateFlow(.016, 0)
+    expect(controller.phase).toBe('SPAWNING')
+    expect(controller.combatEnabled).toBe(false)
+    expect(commits).toBe(1)
+
+    for (let frame = 1; scheduler.pending > 0 && frame <= 1000; frame++) scheduler.tick(frame)
+    expect(scheduler.pending).toBe(0)
+
+    controller.updateFlow(.016, 0)
+    expect(controller.phase).toBe('ATTACKING')
+    expect(controller.combatEnabled).toBe(true)
+    expect(commits).toBe(1)
+    expect(h.profile().activeMission!.phase).toBe('PREPARING')
+
+    const beforeSurvival = controller.survivalRemaining
+    controller.updateFlow(2, 0)
+    controller.updateSiege(2, new SpatialGrid())
+    expect(controller.survivalRemaining).toBe(beforeSurvival - 2)
+    expect(controller.fourGateSiege?.ramps.size).toBeGreaterThan(0)
+    expect(commits).toBe(1)
+
+    controller.persistRuntimeProgress(true)
+    expect(commits).toBe(2)
+    expect(parseCareerProfile(h.profile())?.activeMission).toMatchObject({
+      phase: 'ATTACKING',
+      fourGateDefense: { phase: 'ATTACKING', attackStarted: true, deploymentComplete: true, combatElapsedSeconds: 2 },
+    })
+  })
+
+  it('transitions Four-Gate phase to ATTACKING when preparation timer reaches 0 with autoSave disabled', () => {
+    let commits = 0
+    const profile = createFourGateDefenseProfile('PREPARING')
+    profile.activeMission!.fourGateDefense!.preparationRemainingSeconds = .5
+    const h = fourGateDefenseRuntime(profile, {
+      autoSave: false,
+      commit: () => { commits++; return true },
+    })
+    const { controller, scheduler } = h
+    onTestFinished(() => controller.dispose())
+    expect(controller.startActiveMission()).toBe(true)
+    controller.completeInitialDeployment()
+    expect(commits).toBe(1)
+
+    controller.updateFlow(.5, 0)
+    expect(controller.phase).toBe('SPAWNING')
+    expect(controller.combatEnabled).toBe(false)
+    expect(commits).toBe(1)
+
+    for (let frame = 1; scheduler.pending > 0 && frame <= 1000; frame++) scheduler.tick(frame)
+    controller.updateFlow(.016, 0)
+    expect(controller.phase).toBe('ATTACKING')
+    expect(controller.combatEnabled).toBe(true)
+    expect(commits).toBe(1)
   })
 })
