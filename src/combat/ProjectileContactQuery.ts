@@ -1,7 +1,7 @@
 import { Ray, Sphere, Vector3 } from 'three'
 import { projectileTerrainContactTime } from './ProjectileBallistics'
 import { traceCombatSegment, type CombatContact, type PhysicalCombatTarget } from './ShieldBlocking'
-import { findBlockingProjectileObstacleAlongPath, projectileObstacleEntryFraction, type ObstacleData } from '../world/Terrain'
+import { findBlockingProjectileObstacleAlongPath, projectileObstacleEntryFraction, queryProjectilePathObstacles, type ObstacleData } from '../world/Terrain'
 import type { DamageableObstacle } from '../world/DamageableObstacle'
 
 export interface ProjectileSiegeContact {
@@ -34,7 +34,9 @@ const MAX_QUERY_CELLS = 64
  * the original group order, so the exact phase and its tie-breaking are unchanged.
  *
  * Contract: positions are sampled at the first query after `reset`/`invalidate`. The owner calls
- * `invalidate` whenever a target may have moved since (any applied hit), and `reset` each frame.
+ * `updateTarget` for each target a hit may have moved (or `invalidate` when it cannot say which),
+ * and `reset` each frame. A cell move keeps every target's original group ordinal, so candidate
+ * order and tie-breaking are identical to a full rebuild.
  */
 export class ProjectileTargetIndex<T extends IndexedTarget> {
   private groups: readonly (readonly T[])[] = []
@@ -43,6 +45,10 @@ export class ProjectileTargetIndex<T extends IndexedTarget> {
   private readonly cells = new Map<number, number[]>()
   private readonly usedCells: number[][] = []
   private readonly unplaced: number[] = []
+  private readonly ordinals = new Map<T, number>()
+  /** Cell key per ordinal, or -1 when the target is outside the grid (kept in `unplaced`). */
+  private cellKeys: number[] = []
+  private hasDuplicates = false
   private readonly candidates: number[] = []
   private readonly selected: T[] = []
   private readonly selectedGroups: readonly (readonly T[])[] = [this.selected]
@@ -51,6 +57,35 @@ export class ProjectileTargetIndex<T extends IndexedTarget> {
 
   reset(groups: readonly (readonly T[])[]): void { this.groups = groups; this.dirty = true }
   invalidate(): void { this.dirty = true }
+
+  /** Re-samples one target's cell after a hit may have moved it. Unknown targets fall back to a rebuild. */
+  updateTarget(target: T): void {
+    if (this.dirty) return
+    // One object listed in several groups owns several cells; only a rebuild can move all of them.
+    if (this.hasDuplicates) { this.dirty = true; return }
+    const ordinal = this.ordinals.get(target)
+    if (ordinal === undefined) { this.dirty = true; return }
+    const key = this.keyOf(target)
+    this.maxReach = Math.max(this.maxReach, targetReach(target))
+    if (!Number.isFinite(this.maxReach)) this.maxReach = Infinity
+    const previous = this.cellKeys[ordinal]
+    if (key === previous) return
+    if (previous === -1) removeOrdinal(this.unplaced, ordinal)
+    else removeOrdinal(this.cells.get(previous)!, ordinal)
+    this.cellKeys[ordinal] = key
+    if (key === -1) { this.unplaced.push(ordinal); return }
+    let cell = this.cells.get(key)
+    if (!cell) { cell = []; this.cells.set(key, cell) }
+    if (cell.length === 0) this.usedCells.push(cell)
+    cell.push(ordinal)
+  }
+
+  private keyOf(target: T): number {
+    const { x, z } = target.group.position
+    const cx = Math.floor(x / CELL_SIZE), cz = Math.floor(z / CELL_SIZE)
+    if (!Number.isFinite(cx + cz) || Math.abs(cx) >= CELL_SPAN / 2 || Math.abs(cz) >= CELL_SPAN / 2) return -1
+    return cellKey(cx, cz)
+  }
 
   /** Candidates for one swept segment, as one ordered group (scratch, valid until the next query). */
   candidateGroups(from: Vector3, to: Vector3): readonly (readonly T[])[] {
@@ -82,15 +117,19 @@ export class ProjectileTargetIndex<T extends IndexedTarget> {
     this.selected.length = 0
     const ordered = this.ordered
     ordered.length = 0
+    this.ordinals.clear()
+    this.hasDuplicates = false
+    this.cellKeys.length = 0
     let maxReach = TARGET_REACH
     for (const group of this.groups) for (const target of group) {
       const ordinal = ordered.length
       ordered.push(target)
+      if (this.ordinals.has(target)) this.hasDuplicates = true
+      else this.ordinals.set(target, ordinal)
       maxReach = Math.max(maxReach, targetReach(target))
-      const { x, z } = target.group.position
-      const cx = Math.floor(x / CELL_SIZE), cz = Math.floor(z / CELL_SIZE)
-      if (!Number.isFinite(cx + cz) || Math.abs(cx) >= CELL_SPAN / 2 || Math.abs(cz) >= CELL_SPAN / 2) { this.unplaced.push(ordinal); continue }
-      const key = cellKey(cx, cz)
+      const key = this.keyOf(target)
+      this.cellKeys.push(key)
+      if (key === -1) { this.unplaced.push(ordinal); continue }
       let cell = this.cells.get(key)
       if (!cell) { cell = []; this.cells.set(key, cell) }
       if (cell.length === 0) this.usedCells.push(cell)
@@ -102,6 +141,10 @@ export class ProjectileTargetIndex<T extends IndexedTarget> {
 }
 const cellKey = (x: number, z: number): number => (x + CELL_SPAN / 2) * CELL_SPAN + (z + CELL_SPAN / 2)
 const ascending = (a: number, b: number): number => a - b
+function removeOrdinal(list: number[], ordinal: number): void {
+  const index = list.indexOf(ordinal)
+  if (index >= 0) list.splice(index, 1)
+}
 
 function segmentPointDistanceSq(from: Vector3, to: Vector3, point: Vector3): number {
   const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z
@@ -155,9 +198,22 @@ export class ProjectileContactQuery {
         if (hit && this.obstacleContact.fraction * length < nearest) {
           nearest = this.obstacleContact.fraction * length; obstacle = hit; kind = 'obstacle'
         }
-      } else for (const entry of input.obstacles) {
-        const time = projectileObstacleEntryFraction(entry, from, to)
-        if (time !== null && time < nearest) { nearest = time; obstacle = entry; kind = 'obstacle' }
+      } else {
+        // Same exact reject the Town finder uses, applied before the slab test; source order and the
+        // strict `<` keep first-in-source tie-breaking. Registered sources narrow to their grid cells.
+        const minX = Math.min(from.x, to.x) - 1e-6, maxX = Math.max(from.x, to.x) + 1e-6
+        const minY = Math.min(from.y, to.y) - 1e-6, maxY = Math.max(from.y, to.y) + 1e-6
+        const minZ = Math.min(from.z, to.z) - 1e-6, maxZ = Math.max(from.z, to.z) + 1e-6
+        const candidates = Number.isFinite(minX + maxX + minY + maxY + minZ + maxZ)
+          ? queryProjectilePathObstacles(input.obstacles, minX, minZ, maxX, maxZ) ?? input.obstacles : input.obstacles
+        for (const entry of candidates) {
+          if (entry.projectilePassable) continue
+          const bounds = entry.projectileBounds ?? (entry.projectileWorldToLocal ? null : entry.box)
+          if (bounds && (maxX < bounds.min.x || minX > bounds.max.x || maxY < bounds.min.y
+            || minY > bounds.max.y || maxZ < bounds.min.z || minZ > bounds.max.z)) continue
+          const time = projectileObstacleEntryFraction(entry, from, to)
+          if (time !== null && time < nearest) { nearest = time; obstacle = entry; kind = 'obstacle' }
+        }
       }
     }
     if (world.kind === 'town') {

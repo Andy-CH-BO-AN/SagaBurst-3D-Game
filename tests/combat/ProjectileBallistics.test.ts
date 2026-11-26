@@ -379,6 +379,29 @@ describe('shared live projectile first contact', () => {
     expect(run(index)).toEqual(run({ groups }))
   })
 
+  it('re-cells only moved targets, including to and from unplaced, with the same ordered admission as a rebuild', () => {
+    const query = new ProjectileContactQuery(), from = new THREE.Vector3(0, 41, 0), to = new THREE.Vector3(20, 41, 0)
+    const first = contactBody(19.5), second = contactBody(19.5), far = contactBody(100), lost = contactBody(0)
+    first.group.position.z = .1; second.group.position.z = -.1
+    const groups = [[far], [first], [lost, second]]
+    const index = new ProjectileTargetIndex<typeof first>()
+    index.reset(groups)
+    const run = (targets: { groups: typeof groups } | typeof index) => {
+      const admitted: unknown[] = []
+      const hit = query.find(from, to, { world: { kind: 'battle' as const, travelledDistance: 1 }, obstacles: [], targets,
+        acceptsTarget: target => { admitted.push(target); return target.available } })
+      return { target: hit?.kind === 'actor' ? hit.target : undefined, admitted }
+    }
+    expect(run(index)).toEqual(run({ groups }))
+    // A hit moves one target into reach, another far away, and a third becomes non-finite, then recovers.
+    far.group.position.set(19.4, 40, 0); index.updateTarget(far)
+    first.group.position.x = 900; index.updateTarget(first)
+    second.group.position.x = Number.NaN; index.updateTarget(second)
+    expect(run(index)).toEqual(run({ groups }))
+    second.group.position.set(19.5, 41, -.1); index.updateTarget(second)
+    expect(run(index)).toEqual(run({ groups }))
+  })
+
   it('keeps Town siege tolerance and catches a practice target just beyond the tip after live blockers disappear', () => {
     const query = new ProjectileContactQuery(), from = new THREE.Vector3(0, 40, 0), to = new THREE.Vector3(1, 40, 0)
     const wall: ObstacleData = { isBarricade: false,

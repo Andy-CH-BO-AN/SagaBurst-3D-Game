@@ -59,6 +59,7 @@ import { QuiverUI } from '../ui/QuiverUI'
 import { StaminaBar } from '../ui/StaminaBar'
 import { WeaponWheelUI } from '../ui/WeaponWheelUI'
 import { ArrowProjectile } from '../world/ArrowProjectile'
+import { ProjectileInstanceBatch } from '../world/ProjectileInstanceBatch'
 import { HERO_ASSETS } from '../world/HeroAssetCatalog'
 import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
@@ -775,7 +776,7 @@ export class CareerArenaCombatScene {
     visualKind?: 'arrow' | 'pilum'): boolean {
     if ((this.phase !== 'fight' && !this.coopGuest) || (!source && this.player.dead)) return this.projectileAdmission.reject()
     return this.projectileAdmission.launch(this.shots.length, 0, false, () => {
-      this.shots.push({ arrow: new ArrowProjectile(this.scene, origin, direction, speed, damage, source?.faction ?? Faction.PLAYER, !source, visualKind ?? kind), player: !source, source, age: 0 })
+      this.shots.push({ arrow: ArrowProjectile.acquire(this.scene, origin, direction, speed, damage, source?.faction ?? Faction.PLAYER, !source, visualKind ?? kind), player: !source, source, age: 0 })
       this.coopHost?.onProjectile(origin, direction, speed, visualKind ?? kind, source?.faction ?? Faction.PLAYER)
       if (!source) this.coopGuest?.onProjectile(origin, direction, speed, visualKind ?? kind)
       this.sound.playBowRelease(source ? source.currentLod : 0, !source, source ? origin.distanceTo(this.player.combatPosition) : 0)
@@ -1121,6 +1122,9 @@ export class CareerArenaCombatScene {
     this.markerMaterials.friendly.dispose(); this.markerMaterials.enemy.dispose()
     this.tracker?.dispose()
     this.player?.dispose()
+    for (const shot of this.shots) shot.arrow.destroy()
+    this.shots.length = 0
+    ProjectileInstanceBatch.dispose(this.scene)
     this.arena?.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()

@@ -130,6 +130,7 @@ import { personalUnitDisplayName } from '../ui/UnitDisplayName'
 import { WeaponWheelUI } from '../ui/WeaponWheelUI'
 import { registerTextureRenderer } from '../world/RuntimeGltfLoader'
 import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
+import { ProjectileInstanceBatch } from '../world/ProjectileInstanceBatch'
 import { BlackCatVisual } from '../world/BlackCatVisual'
 import { CorgiVisual } from '../world/CorgiVisual'
 import type { DamageableObstacle } from '../world/DamageableObstacle'
@@ -1151,7 +1152,7 @@ export class TownScene {
     if (this.defense instanceof CommanderFourGateDefenseController) this.defense.releaseForCoopGuest()
     this.personalCommandUI?.setEnabled(false)
     this.player.onFireArrow = event => {
-      const arrow = new ArrowProjectile(this.scene, event.origin, event.direction, event.speed, event.damage, Faction.PLAYER, true, event.visualKind,
+      const arrow = ArrowProjectile.acquire(this.scene, event.origin, event.direction, event.speed, event.damage, Faction.PLAYER, true, event.visualKind,
         { source: createPlayerCombatActorRef(this.player), weaponId: this.inventory.equippedRanged.id })
       this.coopGuestArrows.push(arrow)
       this.coopGuest?.onProjectile(event.origin, event.direction, event.speed, event.visualKind)
@@ -3853,7 +3854,7 @@ export class TownScene {
     if (player && !training && kind === 'arrow' && this.player.isMounted && this.player.currentMount?.isFlyingMount) lifecycle ??= playerEagleProjectileBudget(origin, direction, speed)
     const accepted = this.projectileAdmission.launch(this.shots.length, training ? this.shots.filter(s => s.training).length : 0, training, () => {
       const shooterFaction = player ? Faction.PLAYER : source?.faction ?? Faction.ENEMY
-      this.shots.push({ arrow: new ArrowProjectile(this.scene, origin, direction, speed, damage, shooterFaction, player, kind, undefined, lifecycle), training, player, source, maxLifetimeSeconds: lifecycle?.maxLifetimeSeconds ?? 5, sourceRef: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player), age: 0 })
+      this.shots.push({ arrow: ArrowProjectile.acquire(this.scene, origin, direction, speed, damage, shooterFaction, player, kind, undefined, lifecycle), training, player, source, maxLifetimeSeconds: lifecycle?.maxLifetimeSeconds ?? 5, sourceRef: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player), age: 0 })
     })
     if (!accepted) return false
     if (!training && kind === 'arrow') sound?.playBowRelease(player ? 0 : source?.currentLod ?? 0, player, player ? 0 : origin.distanceTo(this.player.combatPosition))
@@ -3940,6 +3941,9 @@ export class TownScene {
           this.damageSiegeStructure(hit.target, s.arrow.damage, hit.point, s.source, s.sourceRef, 'projectile')
         } else if (hit.kind === 'actor') {
           const { target, contact } = hit
+          // Damage can move or detach the target's mount/rider; remember them before it does.
+          const ridden = target instanceof NPC ? target.mount : target instanceof Mount ? target.riderNpc : null
+          const riddenByPlayer = target instanceof Mount ? target.riderPlayer : null
           if (s.source && target === this.coopPartner) this.damageCoopPartner(s.source, s.arrow.damage, 'projectile', contact)
           else if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, s.arrow.damage, 'projectile', s.source, contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
           else if (target instanceof Player && s.source) this.damagePlayerFromNpc(s.source, s.arrow.damage, 'projectile', contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
@@ -3949,7 +3953,14 @@ export class TownScene {
             if (this.cat.dead && this.ranger.mount === this.cat) this.ranger.dismountFromMount()
           }
           else if (target instanceof NPC || target instanceof Mount) this.hitResident(target, s.arrow.damage, 'projectile', contact)
-          if (runtimeActors) this.shotTargetIndex.invalidate()
+          if (runtimeActors) {
+            const index = this.shotTargetIndex
+            index.updateTarget(target)
+            if (ridden) index.updateTarget(ridden)
+            if (riddenByPlayer) index.updateTarget(riddenByPlayer)
+            if (target instanceof NPC && target.mount) index.updateTarget(target.mount)
+            if (target instanceof Mount && target.riderNpc) index.updateTarget(target.riderNpc)
+          }
         }
         s.arrow.destroy(); continue
       }
@@ -4884,7 +4895,7 @@ export class TownScene {
     const quiverHud = document.getElementById('quiver-hud')
     if (quiverHud) quiverHud.style.display = ''
     this.temporaryMounts.cleanup()
-    this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input?.dispose(); this.panel?.remove(); this.equipment?.close(); this.careerHud.dispose(); this.fourGateHud?.dispose(); this.fourGateHud = undefined; this.hint?.remove(); this.pointerPrompt?.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.duel?.dispose(); this.player?.dispose(); document.getElementById('mount-hud')?.classList.remove('visible'); document.getElementById('enemy-hud')?.classList.remove('visible'); this.ambientLabel?.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove()
+    this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input?.dispose(); this.panel?.remove(); this.equipment?.close(); this.careerHud.dispose(); this.fourGateHud?.dispose(); this.fourGateHud = undefined; this.hint?.remove(); this.pointerPrompt?.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.duel?.dispose(); this.player?.dispose(); document.getElementById('mount-hud')?.classList.remove('visible'); document.getElementById('enemy-hud')?.classList.remove('visible'); this.ambientLabel?.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); ProjectileInstanceBatch.dispose(this.scene); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove()
     if (!preservePointerLock) document.exitPointerLock?.()
   }
 

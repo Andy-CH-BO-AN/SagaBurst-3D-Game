@@ -140,6 +140,7 @@ import { TrainingGroundUI } from './ui/TrainingGroundUI'
 import { WeaponWheelUI } from './ui/WeaponWheelUI'
 import { AIM_RAYCAST_LAYER, AimTargetRegistry } from './world/AimTargetRegistry'
 import { ArrowProjectile } from './world/ArrowProjectile'
+import { ProjectileInstanceBatch } from './world/ProjectileInstanceBatch'
 import { BlackCatVisual, FELINE_MOUNT_VARIANTS, type FelineMountVariant } from './world/BlackCatVisual'
 import { createCaltropBarrier } from './world/CaltropBarrier'
 import { CombatRenderWarmup } from './world/CombatRenderWarmup'
@@ -160,7 +161,7 @@ import { createBridgePreviewSpawnPlan, createRiverCrossingBattlefield, getRiverC
 import { createSky, getDirectionalShadowMapSize, resolveShadowMapSize, setDirectionalShadowMapSize } from './world/Sky'
 import { SnowLeopardVisual } from './world/SnowLeopardVisual'
 import { SpatialGrid } from './world/SpatialGrid'
-import { createTerrain, EntityCollisionBody, getScenePlayableWorldBound, getTerrainHeight, ObstacleData, resetTerrainScenePolicy, resolveObstacleCollision, TERRAIN_TREE_POSITIONS } from './world/Terrain'
+import { createTerrain, EntityCollisionBody, getScenePlayableWorldBound, getTerrainHeight, ObstacleData, resetTerrainScenePolicy, resolveObstacleCollision, setObstaclePathQuerySource, TERRAIN_TREE_POSITIONS } from './world/Terrain'
 import { WeaponPickup } from './world/WeaponPickup'
 import { XongkoroVisual } from './world/XongkoroVisual'
 import { coopSession } from './coop/CoopLink'
@@ -935,7 +936,7 @@ export class Game {
     lifecycle?: ProjectileFlightBudget,
   ) => {
     const npc = this._activeLoopNpc!
-    const arrow = new ArrowProjectile(
+    const arrow = ArrowProjectile.acquire(
       this.scene,
       origin,
       direction,
@@ -1297,6 +1298,7 @@ export class Game {
       }
     }
     this.obstacles = obstacles
+    setObstaclePathQuerySource(this.obstacles, true)
     this.navigationWorld.sync(this.obstacles)
     this._aimTargetRegistry.addStaticTarget(terrainMesh)
     this.commandTerrainMesh = terrainMesh
@@ -2004,7 +2006,7 @@ export class Game {
     this.player.onFireArrow = (evt) => {
       if (this.fieldMissionId && this.careerProfile?.activeMission?.phase !== 'ENGAGING') return false
       if (this._commanderOutpostCombatLocked()) return false
-      const arrow = new ArrowProjectile(
+      const arrow = ArrowProjectile.acquire(
         this.scene,
         evt.origin,
         evt.direction,
@@ -2141,6 +2143,9 @@ export class Game {
     this.inventoryManager?.dispose()
     this.pickupHud?.dispose()
     for (const arrow of this.arrows) arrow.destroy()
+    this.arrows.length = 0
+    ProjectileInstanceBatch.dispose(this.scene)
+    if (this.obstacles.length > 0) setObstaclePathQuerySource(this.obstacles, false)
     this._aimTargetRegistry.clear(); this.damageNumbers.clear(); this.weaponWheelUI.dispose()
     this.soundManager.updateHorseGallopLoops([])
     for (const timer of [this.hintTimer, this.notifyTimer, this.enemyHudTimer, this.deathBannerTimer]) if (timer !== null) clearTimeout(timer)
@@ -2235,6 +2240,7 @@ export class Game {
     this.pickupHud?.dispose()
     for (const arrow of this.arrows) arrow.destroy()
     this.arrows.length = 0
+    ProjectileInstanceBatch.dispose(this.scene)
     this._aimTargetRegistry.clear()
     this.damageNumbers.clear()
     this.weaponWheelUI.dispose()
@@ -4148,6 +4154,8 @@ export class Game {
 
   private _disposeCareerOutpostBattleActors(): void {
     resetTerrainScenePolicy()
+    if (this.obstacles.length > 0) setObstaclePathQuerySource(this.obstacles, false)
+    ProjectileInstanceBatch.dispose(this.scene)
     this.compass?.dispose()
     this.compass = undefined
     this.commandSelectionMarker?.dispose()
