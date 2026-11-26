@@ -21,11 +21,19 @@ export function equipmentShadowUntil<T extends Object3D>(object: T, lastShadowLO
   return object
 }
 
+/** Proxy mesh shown only at LOD2 (> 30m) on NPCs; stays hidden on Player/pickups and at LOD0/LOD1. */
+export function equipmentLod2Proxy<T extends Object3D>(object: T): T {
+  object.userData.equipmentLod2Only = true
+  object.visible = false
+  return object
+}
+
 /** Owns static detail visibility and NPC mesh shadows, never gameplay/dynamic visibility. */
 export class EquipmentVisualLODController {
   private readonly entries = new Map<EquipmentKind, {
     root: Object3D
     details: Array<{ object: Object3D; lastLOD: number }>
+    lod2Only: Object3D[]
     shadows: Array<{ mesh: Mesh; lastShadowLOD: EquipmentShadowPolicy; originalCastShadow: boolean }>
   }>()
   // Re-registering an existing mesh at LOD2 must not capture our temporary false.
@@ -37,8 +45,13 @@ export class EquipmentVisualLODController {
   /** Called at construction / equipment rebuild, never during steady-state updates. */
   register(kind: EquipmentKind, root: Object3D): void {
     const details: Array<{ object: Object3D; lastLOD: number }> = []
+    const lod2Only: Object3D[] = []
     const shadows: Array<{ mesh: Mesh; lastShadowLOD: EquipmentShadowPolicy; originalCastShadow: boolean }> = []
     root.traverse(object => {
+      if (object.userData.equipmentLod2Only === true) {
+        lod2Only.push(object)
+        object.visible = this.level === 2
+      }
       const lastLOD = object.userData.equipmentLastVisibleLOD
       if (lastLOD === 0 || lastLOD === 1) {
         details.push({ object, lastLOD })
@@ -65,14 +78,15 @@ export class EquipmentVisualLODController {
         mesh.castShadow = this.level !== 2 && this.level <= lastShadowLOD && originalCastShadow
       }
     })
-    this.entries.set(kind, { root, details, shadows })
+    this.entries.set(kind, { root, details, lod2Only, shadows })
   }
 
   setLOD(level: EquipmentVisualLOD): void {
     if (level === this.level) return
     this.level = level
-    for (const { details, shadows } of this.entries.values()) {
+    for (const { details, lod2Only, shadows } of this.entries.values()) {
       for (const { object, lastLOD } of details) object.visible = level <= lastLOD
+      for (const object of lod2Only) object.visible = level === 2
       for (const { mesh, lastShadowLOD, originalCastShadow } of shadows) {
         mesh.castShadow = level !== 2 && level <= lastShadowLOD && originalCastShadow
       }
