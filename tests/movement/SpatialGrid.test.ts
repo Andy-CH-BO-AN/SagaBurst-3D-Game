@@ -1,6 +1,6 @@
 import { Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
-import { packSpatialCellKey, SpatialGrid, type SpatialEntity } from '../../src/world/SpatialGrid'
+import { SpatialGrid, type SpatialEntity } from '../../src/world/SpatialGrid'
 
 interface Entity extends SpatialEntity {
   id: string
@@ -22,20 +22,21 @@ describe('SpatialGrid', () => {
     const right = entity('right', 4, 0, 0)
     const negativeZ = entity('negativeZ', -3, 0, 4)
     const negativeBoth = entity('negativeBoth', -3, 0, -4)
+    const negativeOnlyZ = entity('negativeOnlyZ', 2, 0, -4)
     const sameCell = entity('sameCell', 1, 0, 1)
     const tooHigh = entity('tooHigh', 0, 51, 0)
     const movedAway = entity('movedAway', -1, 0, -1)
     const movedFromOutside = entity('movedFromOutside', 900, 0, 0)
     const farLeft = entity('farLeft', -1000, 0, -1000)
     const farRight = entity('farRight', 1000, 0, 1000)
-    for (const candidate of [right, negativeZ, negativeBoth, sameCell, tooHigh,
+    for (const candidate of [right, negativeZ, negativeBoth, negativeOnlyZ, sameCell, tooHigh,
       movedAway, movedFromOutside, farLeft, farRight]) grid.insert(candidate)
 
     movedAway.combatPosition.set(100, 0, 0)
     movedFromOutside.combatPosition.set(0, 0, 0)
     const center = new Vector3()
     const out = [farLeft]
-    const expected = [negativeBoth, negativeZ, right, sameCell]
+    const expected = [negativeBoth, negativeZ, negativeOnlyZ, right, sameCell]
     expect(grid.getNearbyInto(center, 5, out)).toBe(out)
     expectCandidates(out, expected)
     expect(grid.getNearbyInto(center, 50, out)).toBe(out)
@@ -74,9 +75,11 @@ describe('SpatialGrid', () => {
     grid.insert(left)
     expectCandidates(grid.getNearby(center, 100), [left, left, right])
     const middle = entity('middle', 0, 0, 0)
+    const tiedMiddle = entity('tiedMiddle', 0, 0, 0)
     grid.insert(middle)
+    grid.insert(tiedMiddle)
     expect(grid.findNearest(center)).toBe(middle)
-    expectCandidates(grid.getNearby(center, 100), [left, left, middle, right])
+    expectCandidates(grid.getNearby(center, 100), [left, left, middle, tiedMiddle, right])
 
     const out = [middle]
     grid.clear()
@@ -86,33 +89,11 @@ describe('SpatialGrid', () => {
     const nextLeft = entity('nextLeft', -80, 0, 0)
     grid.insert(nextRight)
     grid.insert(nextLeft)
+    grid.insert(tiedMiddle)
+    grid.insert(middle)
     expect(grid.findNearest(remoteQuery)).toBe(nextRight)
-    expectCandidates(grid.getNearbyInto(center, 100, out), [nextLeft, nextRight])
+    expect(grid.findNearest(center)).toBe(tiedMiddle)
+    expectCandidates(grid.getNearbyInto(center, 100, out), [nextLeft, tiedMiddle, middle, nextRight])
   })
 
-  it('packs signed cell coordinates without collisions and recycles pooled buckets across clear/insert cycles', () => {
-    const keys = new Set([
-      packSpatialCellKey(0, 0),
-      packSpatialCellKey(-1, 0),
-      packSpatialCellKey(0, -1),
-      packSpatialCellKey(-1, -1),
-      packSpatialCellKey(1000, -1000),
-      packSpatialCellKey(-1000, 1000),
-    ])
-    expect(keys.size).toBe(6)
-
-    const grid = new SpatialGrid<Entity>(10)
-    const a = entity('a', 5, 0, 5)
-    const b = entity('b', 5, 0, 5)
-    grid.insert(a)
-    grid.insert(b)
-    expect(grid.findNearest(new Vector3(5, 0, 5))).toBe(a)
-
-    grid.clear()
-    // Re-insert in reverse order so pooled bucket orders are reset cleanly.
-    grid.insert(b)
-    grid.insert(a)
-    expect(grid.findNearest(new Vector3(5, 0, 5))).toBe(b)
-    expectCandidates(grid.getNearby(new Vector3(5, 0, 5), 1), [b, a])
-  })
 })

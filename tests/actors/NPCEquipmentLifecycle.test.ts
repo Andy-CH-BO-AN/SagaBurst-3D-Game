@@ -79,24 +79,20 @@ describe('NPC 裝備採用與需求生命週期', () => {
 
   it('NPC 換盾保留其他持有者需求，最後持有者離場後解除需求', async () => {
     const first = actorHolding(SHIELD), second = actorHolding(SHIELD)
+    const third = actorHolding(SHIELD)
     first.shieldId = 'scutum_t1'
+    expect(isEquipmentDemanded(SHIELD)).toBe(true)
+    second.dispose()
     expect(isEquipmentDemanded(SHIELD)).toBe(true)
     await vi.advanceTimersByTimeAsync(BYZANTINE_EQUIPMENT_WAIT_MS)
     expect(byzantineEquipmentStatus(SHIELD)).toBe('failed')
     expect(showEquipmentLoadNotice).toHaveBeenCalledTimes(1)
     vi.mocked(showEquipmentLoadNotice).mockClear()
-    second.dispose()
+    third.dispose()
     expect(isEquipmentDemanded(SHIELD)).toBe(false)
     await vi.advanceTimersByTimeAsync(BYZANTINE_EQUIPMENT_RETRY_MS + BYZANTINE_EQUIPMENT_WAIT_MS)
     expect(showEquipmentLoadNotice).not.toHaveBeenCalled()
     first.dispose()
-  })
-  it('兩名 NPC 共用盾牌需求時，離場只釋放自己的需求', () => {
-    const first = actorHolding(SHIELD), second = actorHolding(SHIELD)
-    first.dispose()
-    expect(isEquipmentDemanded(SHIELD)).toBe(true)
-    second.dispose()
-    expect(isEquipmentDemanded(SHIELD)).toBe(false)
   })
   it('已離場的 NPC 再換盾不會重新登記需求', () => {
     const actor = actorHolding(null)

@@ -42,16 +42,6 @@ describe('PlayerInput ownership', () => {
     expect(h.input.isRightMouseDown).toBe(false)
   })
 
-  it('preserves right-button hold/release and clears it on focus loss', () => {
-    const h = harness(); h.lock(true)
-    h.mouse('mousedown', 2); h.mouse('mousedown', 2)
-    expect(h.input.isRightMouseDown).toBe(true)
-    h.mouse('mouseup', 2)
-    expect(h.input.isRightMouseDown).toBe(false)
-    h.mouse('mousedown', 2); h.win.dispatchEvent(new Event('blur'))
-    expect(h.input.isRightMouseDown).toBe(false)
-  })
-
   it('holds aim with F while a left click draws, without cancelling a physically held right button', () => {
     const h = harness(); h.lock(true)
     h.key('KeyF'); h.mouse('mousedown', 0)
@@ -59,9 +49,13 @@ describe('PlayerInput ownership', () => {
     expect(h.input.consumeLeftClick()).toBe(true)
     h.keyUp('KeyF')
     expect(h.input.isRightMouseDown).toBe(false)
-    h.mouse('mousedown', 2); h.key('KeyF'); h.keyUp('KeyF')
+    h.mouse('mousedown', 2); h.mouse('mousedown', 2)
+    h.key('KeyF'); h.keyUp('KeyF')
     expect(h.input.isRightMouseDown).toBe(true)
-    h.key('KeyF'); h.win.dispatchEvent(new Event('blur'))
+    h.mouse('mouseup', 2)
+    expect(h.input.isRightMouseDown).toBe(false)
+    h.mouse('mousedown', 2); h.key('KeyF')
+    h.win.dispatchEvent(new Event('blur'))
     expect(h.input.isRightMouseDown).toBe(false)
   })
 

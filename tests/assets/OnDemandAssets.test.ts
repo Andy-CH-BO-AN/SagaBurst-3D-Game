@@ -17,35 +17,23 @@ describe('OnDemandAssets', () => {
     await assets.load('a')
     expect(loader).toHaveBeenCalledTimes(2)
   })
-  it('turns a forever-pending load into a timeout, after which loading again issues a new request', async () => {
-    vi.useFakeTimers()
-    try {
-      const loader = vi.fn<(id: 'a', signal: AbortSignal) => Promise<string>>().mockReturnValueOnce(new Promise(() => {})).mockResolvedValueOnce('model')
-      const assets = bounded(loader)
-      const pending = assets.load('a')
-      const rejected = expect(pending).rejects.toBeInstanceOf(AssetLoadTimeout)
-      await vi.advanceTimersByTimeAsync(TIMEOUT - 1)
-      expect(assets.status('a')).toBe('loading')
-      expect(assets.load('a')).toBe(pending)
-      await vi.advanceTimersByTimeAsync(1)
-      await rejected
-      expect(assets.status('a')).toBe('failed')
-      expect(loader.mock.calls[0][1].aborted).toBe(true) // the hung transfer is cancelled, not left holding the URL
-      await expect(assets.load('a')).resolves.toBe('model')
-      expect(loader).toHaveBeenCalledTimes(2)
-    } finally { vi.useRealTimers() }
-  })
   it('discards a late result from a timed-out request so it cannot replace the newer one', async () => {
     vi.useFakeTimers()
     try {
       let finishOld = (_: string) => {}, finishNew = (_: string) => {}
-      const loader = vi.fn<(id: 'a') => Promise<string>>()
+      const loader = vi.fn<(id: 'a', signal: AbortSignal) => Promise<string>>()
         .mockReturnValueOnce(new Promise(resolve => { finishOld = resolve }))
         .mockReturnValueOnce(new Promise(resolve => { finishNew = resolve }))
       const assets = bounded(loader)
-      const old = expect(assets.load('a')).rejects.toBeInstanceOf(AssetLoadTimeout)
-      await vi.advanceTimersByTimeAsync(TIMEOUT)
+      const pending = assets.load('a')
+      const old = expect(pending).rejects.toBeInstanceOf(AssetLoadTimeout)
+      await vi.advanceTimersByTimeAsync(TIMEOUT - 1)
+      expect(assets.status('a')).toBe('loading')
+      expect(assets.load('a')).toBe(pending)
+      await vi.advanceTimersByTimeAsync(1)
       await old
+      expect(assets.status('a')).toBe('failed')
+      expect(loader.mock.calls[0][1].aborted).toBe(true)
       const newer = assets.load('a')
       finishOld('stale')
       await vi.advanceTimersByTimeAsync(0)
@@ -54,6 +42,7 @@ describe('OnDemandAssets', () => {
       finishNew('fresh')
       await expect(newer).resolves.toBe('fresh')
       expect(assets.get('a')).toBe('fresh')
+      expect(loader).toHaveBeenCalledTimes(2)
     } finally { vi.useRealTimers() }
   })
   it('paces automatic retries from polling at the retry delay', async () => {

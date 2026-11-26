@@ -5,7 +5,7 @@ import { beforeEach, expect, it, onTestFinished, vi } from 'vitest'
 import type { TacticalOrder } from '../../src/battle/TacticalOrder'
 import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
 import { cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import { advanceCommanderRetirementFinalStand, areAllRetirementEnemiesDefeated, atCommanderRetirementRally, beginCommanderRetirementFinalStand, CareerRetirementFinaleOwner, completeCommanderRetirement } from '../../src/career/CareerRetirementFinale'
+import { advanceCommanderRetirementFinalStand, areAllRetirementEnemiesDefeated, atCommanderRetirementRally, CareerRetirementFinaleOwner, completeCommanderRetirement } from '../../src/career/CareerRetirementFinale'
 import { hasCompleteRetirementMobilizationCheckpoint, retirementAssaultFormations, retirementGroundStaging, retirementMobilizationNeedsPreparation } from '../../src/career/CareerRetirementMobilization'
 import type { CombatActorRef, CombatEvent, CombatTargetRef } from '../../src/combat/CombatAttribution'
 import { Faction } from '../../src/combat/CombatFaction'
@@ -37,28 +37,6 @@ function finaleProfile(phase: 'mobilizing' | 'final-stand', combatElapsedSeconds
     mobilization: { version: 1, commandRevoked: true, refillCompleted: true, formationPrepared: true } }
   return profile
 }
-
-it('starts only a complete mobilization without changing the admitted checkpoint', () => {
-  const ready = finaleProfile('mobilizing')
-  const original = JSON.stringify(ready)
-  expect(beginCommanderRetirementFinalStand({ ...ready, ...careerRankFixture((ready).faction, 'captain'), rank: 'captain' })).toBeNull()
-  expect(beginCommanderRetirementFinalStand({ ...ready, activeMission: {
-    id: 'mission', templateId: 'recruit-bandits-01', targetCampId: 0,
-    phase: 'RETURNING', targetActorIds: [], friendlyActorIds: [], acceptedAt: 123,
-  } })).toBeNull()
-  expect(hasCompleteRetirementMobilizationCheckpoint).not.toHaveBeenCalled()
-  vi.mocked(hasCompleteRetirementMobilizationCheckpoint).mockReturnValueOnce(false)
-  expect(beginCommanderRetirementFinalStand(ready)).toBeNull()
-  expect(hasCompleteRetirementMobilizationCheckpoint).toHaveBeenLastCalledWith(ready)
-  const started = beginCommanderRetirementFinalStand(ready)!
-  expect(hasCompleteRetirementMobilizationCheckpoint).toHaveBeenLastCalledWith(ready)
-  expect(started.careerRetirement).toMatchObject({ phase: 'final-stand', combatElapsedSeconds: 0 })
-  expect(JSON.stringify(ready)).toBe(original)
-  expect(beginCommanderRetirementFinalStand(started)).toBeNull()
-  expect(completeCommanderRetirement(started, {
-    playerDead: false, privateFightersAlive: false, allTownEnemiesDefeated: false,
-  })).toBeNull()
-})
 
 it('admits the northern evacuation area regardless of altitude then keeps the clock running after leaving it', () => {
   const position = { ...TOWN_RETIREMENT_EXTRACTION, y: 100 }

@@ -3,7 +3,7 @@ import { Box3, Vector3 } from 'three'
 import { expect, it, vi } from 'vitest'
 import { commanderGateDefenseSlots } from '../../src/career/CaptainMissionCatalog'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import { beginCommanderRetirementFinalStand } from '../../src/career/CareerRetirementFinale'
+import { beginCommanderRetirementFinalStand, completeCommanderRetirement } from '../../src/career/CareerRetirementFinale'
 import { hasCompleteRetirementMobilizationCheckpoint, retirementAssaultFormations, retirementGroundStaging, retirementMobilizationNeedsPreparation } from '../../src/career/CareerRetirementMobilization'
 import { createTownEquipmentRefsResolver, townDefaultActorLoadout, townEquipmentActorSpecs } from '../../src/career/CareerTownEquipmentState'
 import { TOWN_CENTER_FRAME, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, townHousing } from '../../src/town/TownLayout'
@@ -132,11 +132,20 @@ it('admits the final stand from the receipt written by Town mobilization and ref
   expect(saves.map(saved => [saved.careerRetirement?.phase, Boolean(saved.careerRetirement?.mobilization)]))
     .toEqual([['mobilizing', false], ['mobilizing', true]])
   const written = saves[1], original = JSON.stringify(written)
-  const started = beginCommanderRetirementFinalStand(written)
-  expect(started?.careerRetirement).toEqual({ version: 1, phase: 'final-stand', acceptedAt: 123, combatElapsedSeconds: 0,
+  expect(beginCommanderRetirementFinalStand({ ...written, ...careerRankFixture(written.faction, 'captain') })).toBeNull()
+  expect(beginCommanderRetirementFinalStand({ ...written, activeMission: {
+    id: 'mission', templateId: 'recruit-bandits-01', targetCampId: 0,
+    phase: 'RETURNING', targetActorIds: [], friendlyActorIds: [], acceptedAt: 123,
+  } })).toBeNull()
+  const started = beginCommanderRetirementFinalStand(written)!
+  expect(started.careerRetirement).toEqual({ version: 1, phase: 'final-stand', acceptedAt: 123, combatElapsedSeconds: 0,
     mobilization: { version: 1, commandRevoked: true, refillCompleted: true, formationPrepared: true } })
   expect(started?.townCommandSquad).toEqual(written.townCommandSquad)
   expect(JSON.stringify(written)).toBe(original)
+  expect(beginCommanderRetirementFinalStand(started)).toBeNull()
+  expect(completeCommanderRetirement(started, {
+    playerDead: false, privateFightersAlive: false, allTownEnemiesDefeated: false,
+  })).toBeNull()
   const lost = commanderGateDefenseSlots()[0].actorIds[0]
   const { [lost]: _lostMember, ...remaining } = written.townCommandSquad!.members!
   expect(beginCommanderRetirementFinalStand({ ...written, townCommandSquad: { ...written.townCommandSquad!,

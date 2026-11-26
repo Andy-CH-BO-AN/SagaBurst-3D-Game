@@ -35,27 +35,6 @@ describe('Career mission technical failure recovery', () => {
     expect(save).not.toHaveBeenCalled()
     expect(JSON.stringify(current)).toBe(before)
   })
-  it('removes only failed mission state and preserves owned eagles, member IDs and permanent progress', () => {
-    const current = withMission()
-    const recovered = prepareFailedCareerMissionReturn(current, 'mission:a')!
-    expect(recovered.activeMission).toBeUndefined()
-    expect(recovered.personalSquad).toEqual(current.personalSquad)
-    expect(recovered.personalSquadRuntime?.memberIds).toEqual(['personal:a'])
-    expect(recovered.totalMerit).toBe(10000)
-    expect(recovered.availableMerit).toBe(3200)
-    expect(recovered.rank).toBe('captain')
-    expect(recovered.lifetimeStats).toEqual(current.lifetimeStats)
-    expect(recovered.claimedBattleIds).toEqual([])
-    expect(current.activeMission?.id).toBe('mission:a')
-  })
-
-  it('retains a documented loss in the failed mission checkpoint without reviving the actor', () => {
-    const current = withMission()
-    current.activeMission!.personalSquad!.members['personal:a'] = { status: 'dead', hp: 0 }
-    const recovered = prepareFailedCareerMissionReturn(current, 'mission:a')!
-    expect(recovered.personalSquadRuntime?.members['personal:a']).toMatchObject({ status: 'dead', hp: 0 })
-  })
-
   it('refuses a stale mission ID without altering a new active mission', () => {
     const current = withMission()
     expect(prepareFailedCareerMissionReturn(current, 'mission:another')).toBeNull()
@@ -76,19 +55,28 @@ describe('Career mission technical failure recovery', () => {
     expect(recovered.claimedBattleIds).toEqual(current.claimedBattleIds)
   })
 
-  it('round-trips recovered state through the CareerProfileStore and is idempotent', () => {
+  it('persists technical recovery without reviving HR casualties or changing permanent progress, then ignores replay', () => {
     const items = new Map<string, string>()
     const storage = {
       getItem: (key: string) => items.get(key) ?? null,
       setItem: (key: string, value: string) => { items.set(key, value) },
     } as Storage
     const store = new CareerProfileStore(storage)
-    expect(store.save(withMission())).toBe(true)
+    const current = withMission()
+    current.activeMission!.personalSquad!.members['personal:a'] = { status: 'dead', hp: 0 }
+    expect(store.save(current)).toBe(true)
     expect(recoverFailedCareerMission(store, 'mission:a')).toBe('recovered')
     const loaded = store.loadChecked()
     expect(loaded.error).toBeUndefined()
     expect(loaded.profile?.activeMission).toBeUndefined()
-    expect(loaded.profile?.personalSquad?.members.map(member => member.id)).toEqual(['personal:a'])
+    expect(loaded.profile?.personalSquad).toEqual(current.personalSquad)
+    expect(loaded.profile?.personalSquadRuntime?.memberIds).toEqual(['personal:a'])
+    expect(loaded.profile?.personalSquadRuntime?.members['personal:a']).toMatchObject({ status: 'dead', hp: 0 })
+    expect(loaded.profile?.totalMerit).toBe(10000)
+    expect(loaded.profile?.availableMerit).toBe(3200)
+    expect(loaded.profile?.rank).toBe('captain')
+    expect(loaded.profile?.lifetimeStats).toEqual(current.lifetimeStats)
+    expect(loaded.profile?.claimedBattleIds).toEqual([])
     expect(recoverFailedCareerMission(store, 'mission:a')).toBe('stale')
   })
 

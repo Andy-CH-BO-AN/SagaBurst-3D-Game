@@ -36,7 +36,10 @@ export function fourGateNativeSpecs(mission: ActiveCareerMission) {
  * and attackers are plain bodies, vehicles run the real crew controller, and attacker spawning
  * uses a private scheduler. Only the case's own calls move the mission forward.
  */
-export function fourGateDefenseRuntime(initial: CareerProfile, commit: (next: CareerProfile) => boolean = () => true) {
+export function fourGateDefenseRuntime(initial: CareerProfile, options: {
+  commit?: (next: CareerProfile) => boolean
+  autoSave?: boolean
+} = {}) {
   let profile = initial
   const civilians = new Set(initial.activeMission!.civilianActorIds)
   const residents = fourGateNativeSpecs(initial.activeMission!).map(spec => {
@@ -50,7 +53,10 @@ export function fourGateDefenseRuntime(initial: CareerProfile, commit: (next: Ca
     areConnected: () => true, sync: () => false }
   const factory = recordingActorFactory(), createRamp = recordingRampFactory(), scheduler = new NpcSpawnScheduler(), player = new PlayerDouble()
   const controller = new CommanderFourGateDefenseController(factory, residents.map(r => ({ spec: r.spec, npc: asNpc(r.actor) })),
-    () => asPlayer(player), () => profile, next => { if (!commit(next)) return false; profile = next; return true }, navigation,
-    { world, createRamp, registerHit: () => {}, unregisterHit: () => {} }, scheduler)
+    () => asPlayer(player), () => profile, next => {
+      if (options.commit?.(next) === false) return false
+      profile = next
+      return true
+    }, navigation, { world, createRamp, registerHit: () => {}, unregisterHit: () => {} }, scheduler, options.autoSave)
   return { controller, player, residents: new Map(residents.map(r => [r.spec.id, r.actor])), profile: () => profile }
 }
