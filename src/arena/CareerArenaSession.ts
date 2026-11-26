@@ -9,9 +9,6 @@ import type { PlayerInput } from '../player/PlayerInput'
 import { canAwardPlayerSkillProgression, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
 import { syncPlayerSkillCombatLevels, type SkillManager, type SkillState } from '../rpg/SkillManager'
 
-/** Seconds between best-effort skill saves while nothing levels up. */
-const SKILL_FLUSH_SECONDS = 5
-
 /** A decided arena result and the stats it was decided with, held until its save succeeds. */
 export interface ArenaSettlement {
   readonly outcome: CareerMissionOutcome
@@ -129,9 +126,8 @@ export class CareerArenaSession<S extends ArenaSettlement> {
     syncPlayerSkillCombatLevels(player, skills.skillState)
     this.skillsDirty = true
     if (levels > 0) {
-      this.flushSkills()
       const before = player.hp
-      const maxHp = resolveCareerPlayerMaxHp(this.host.coopCharacter?.()?.read() ?? this.currentProfile, DEFAULT_PLAYER_MAX_HP)
+      const maxHp = resolveCareerPlayerMaxHp({ ...(this.host.coopCharacter?.()?.read() ?? this.currentProfile), skills: skills.skillState }, DEFAULT_PLAYER_MAX_HP)
       player.setMaxHp(maxHp, false)
       player.setHp(Math.min(maxHp, before + levels))
     }
@@ -146,10 +142,8 @@ export class CareerArenaSession<S extends ArenaSettlement> {
     if (this.commit(next)) this.skillsDirty = false
   }
 
-  /** Per-frame best-effort skill save on a fixed cadence of scene time. */
-  tickSkillFlush(elapsed: number, dt: number): void {
-    if (this.skillsDirty && elapsed % SKILL_FLUSH_SECONDS < dt) this.flushSkills()
-  }
+  /** Mid-mission skill XP stays in memory until settlement or manual ESC -> S save. */
+  tickSkillFlush(_elapsed: number, _dt: number): void {}
 
   /** Saves the decided result, or the one already frozen by an earlier failed save. */
   finish(capture: () => S): void {

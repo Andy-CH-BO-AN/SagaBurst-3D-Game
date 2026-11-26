@@ -38,6 +38,8 @@ export interface CaptainPatrolRuntimeOptions {
   resumeFormation?(npc: NPC, reference: NPC): boolean
   /** Scene supplies the actual Bandit/roaming enemy actors, including mount owners. */
   isEligibleTarget?(target: CombatTargetRef): boolean
+  /** When false, only explicit forced saves (manual save / settlement / return) write to storage. */
+  autoSave?: boolean
 }
 
 /** Keeps the official identities while Patrol retains ownership of individual refit travel. */
@@ -211,7 +213,7 @@ export class CaptainPatrolCommandController {
       this.killed.add(event.target.targetId)
     }
     this.events.emit(event)
-    if (event.type === 'actor_killed') this.persist(true)
+    if (event.type === 'actor_killed' && (this.options.autoSave ?? true)) this.persist(true)
     return true
   }
 
@@ -234,6 +236,7 @@ export class CaptainPatrolCommandController {
         this.resumeSquadOrder(npc, peers)
       }
     }
+    if (!(this.options.autoSave ?? true)) return
     this.saveElapsed += Math.max(0, dt)
     if (this.saveElapsed >= 1) { this.saveElapsed = 0; this.persist() }
   }
@@ -284,6 +287,7 @@ export class CaptainPatrolCommandController {
     return next
   }
   persist(force = false): boolean {
+    if (!(this.options.autoSave ?? true) && !force) return false
     const saved = this.checkpoint(), current = this.active
     if (!saved || !current || current.result && current.phase !== 'RETURNING') return false
     if (!force && JSON.stringify(saved) === JSON.stringify(current)) return true

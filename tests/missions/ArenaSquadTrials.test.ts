@@ -145,18 +145,8 @@ describe('Arena Squad Trials', () => {
     expect(h.record.lockRequests).toBe(0)
   })
 
-  it('keeps a prison resume countdown paused after a checkpoint save fails and is retried', () => {
+  it('advances a prison resume countdown to live combat without auto-saving mid-countdown', () => {
     const h = prisonOpeningHarness(3)
-    let retry: () => void = () => { throw new Error('retry not installed') }
-    Object.assign(h.doc, { exitPointerLock() { h.doc.pointerLockElement = null; h.doc.dispatchEvent(new Event('pointerlockchange')) } })
-    Object.assign(h.scene, {
-      knocked: new Set(), player: { dead: true, hp: 0, isGrounded: true, currentMount: null },
-      lastPlayerSignature: 'true|0', checkpointClock: 0,
-      openPanel() { Object.assign(h.scene, { panel: {} }) },
-      closePanel() { Object.assign(h.scene, { panel: null }) },
-      button(_label: string, action: () => void) { retry = action },
-    })
-    h.save.mockReturnValueOnce(false).mockReturnValue(true)
     h.doc.pointerLockElement = new EventTarget() // Input counts as locked, but not by this arena's canvas.
     h.doc.dispatchEvent(new Event('pointerlockchange'))
     h.win.dispatchEvent(Object.assign(new Event('mousedown'), { button: 0 }))
@@ -167,19 +157,14 @@ describe('Arena Squad Trials', () => {
     h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
     h.scene.advancePhase(1)
     expect(h.scene.opening.remaining).toBe(2)
-    h.scene.advancePhase(1) // The real checkpoint caller fails its save and opens the retry panel.
-    expect([h.scene.opening.phase, h.scene.opening.remaining]).toEqual(['paused', 2])
-    expect(h.save).toHaveBeenCalledTimes(1)
-    retry()
-    expect(h.save).toHaveBeenCalledTimes(2)
-    h.scene.advancePhase(8)
-    expect([h.scene.opening.phase, h.scene.opening.remaining]).toEqual(['paused', 2])
+    h.scene.advancePhase(1)
+    expect([h.scene.opening.phase, h.scene.opening.remaining]).toEqual(['countdown', 1])
     expect(h.attack).not.toHaveBeenCalled()
-    h.doc.pointerLockElement = h.canvas; h.doc.dispatchEvent(new Event('pointerlockchange'))
-    h.scene.advancePhase(1.9)
-    expect(h.scene.opening.phase).toBe('countdown'); expect(h.attack).not.toHaveBeenCalled()
-    h.scene.advancePhase(0.11)
-    expect(h.scene.opening.phase).toBe('fight'); expect(h.attack).toHaveBeenCalledOnce()
+    expect(h.save).not.toHaveBeenCalled()
+    h.scene.advancePhase(1.1)
+    expect(h.scene.opening.phase).toBe('fight')
+    expect(h.attack).toHaveBeenCalledOnce()
+    expect(h.save).not.toHaveBeenCalled()
   })
 
   it('fields the five agreed team sizes with same-culture bodies split only by team allegiance', () => {

@@ -336,7 +336,7 @@ describe('Prison encounter persistence', () => {
     expect(calls).toMatchObject({ pauses: 1, checkpoints: 0 }) // A refused gate-opening save pauses with a retry instead of checkpointing on.
     gate.cleared = true
     scene.advancePhase(0)
-    expect(calls).toMatchObject({ pauses: 1, checkpoints: 1 })
+    expect(calls).toMatchObject({ pauses: 1, checkpoints: 0 })
     scene.finish('victory')
     expect(calls.finished).toEqual(['victory'])
     // One real fight frame hands the E press, focus and HUD to the encounter.

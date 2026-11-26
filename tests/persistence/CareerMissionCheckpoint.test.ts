@@ -552,4 +552,21 @@ describe('CareerMissionCheckpoint', () => {
     unknown.activeMission!.civilianActorIds = unknown.activeMission!.civilianActorIds!.map(id => id === 'civilian-0' ? 'unknown' : id)
     expect(parseCareerProfile(JSON.parse(JSON.stringify(unknown)))).toBeNull()
   })
+
+  it('skips mid-mission periodic and non-manual saves when autoSave is false, committing only on manual or force', () => {
+    let profile = createFourGateDefenseProfile('ATTACKING')
+    let commits = 0
+    const checkpoint = new CareerMissionCheckpoint(
+      () => profile,
+      next => { profile = next; commits++; return true },
+      { autoSave: false },
+    )
+    checkpoint.advance(10)
+    expect(checkpoint.persist(() => ({ ...profile.activeMission!, phase: 'ATTACKING' }), { immediate: true, periodic: true })).toBe(false)
+    expect(commits).toBe(0)
+    expect(checkpoint.persist(() => ({ ...profile.activeMission!, phase: 'ATTACKING' }), { immediate: true, manual: true })).toBe(true)
+    expect(commits).toBe(1)
+    expect(checkpoint.persist(() => ({ ...profile.activeMission!, phase: 'RESULT' }), { immediate: true, force: true })).toBe(true)
+    expect(commits).toBe(2)
+  })
 })
