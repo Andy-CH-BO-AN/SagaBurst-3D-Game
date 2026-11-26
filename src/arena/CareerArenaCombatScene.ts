@@ -922,7 +922,7 @@ export class CareerArenaCombatScene {
       phase: () => this.phase,
       profile: () => this.profile,
       adoptProfile: next => { this.profile = next },
-      commit: next => { this.profile = next; return true },
+      commit: next => this.commit(next),
       save: next => {
         if (this.skillsDirty) next.skills = this.skills.skillState
         const saved = this.store.save(next)

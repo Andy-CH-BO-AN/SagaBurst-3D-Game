@@ -3027,35 +3027,6 @@
   pointer-events: none;
 }
 body:has(#bridgehead-battle-hud) #enemy-hud { top: 148px; }
-@media (max-width: 1200px) {
-  body:has(#bridgehead-battle-hud) .army-command-targets,
-  body:has(#bridgehead-battle-hud) .army-command-commands {
-    width: 225px;
-    grid-template-columns: 1fr;
-    gap: 6px;
-  }
-  body:has(#bridgehead-battle-hud) .army-command-targets { left: 16px; right: auto; }
-  body:has(#bridgehead-battle-hud) .army-command-commands { right: 16px; left: auto; }
-  body:has(#bridgehead-battle-hud) .army-command-entry {
-    min-height: 32px;
-    padding: 4px 6px;
-    gap: 6px;
-    font-size: 12px;
-  }
-  body:has(#bridgehead-battle-hud) .army-command-panel-title {
-    padding: 3px 2px;
-    font-size: 13px;
-  }
-}
-@media (max-width: 900px) {
-  body:has(#bridgehead-battle-hud) .army-command-targets,
-  body:has(#bridgehead-battle-hud) .army-command-commands {
-    top: 196px;
-    width: min(340px, calc(100vw - 32px));
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-  }
-}
 
 /* ── Defense Campaign Runtime HUD ── */
 #defense-campaign-hud,
@@ -3220,27 +3191,7 @@ body:has(#bridgehead-battle-hud) .army-command-feedback {
   max-width: calc(100vw - 48px);
   white-space: normal;
 }
-@media (max-width: 1200px) {
-  body:has(#defense-campaign-hud) .army-command-targets,
-  body:has(#defense-campaign-hud) .army-command-commands {
-    width: 225px;
-    grid-template-columns: 1fr;
-  }
-  body:has(#defense-campaign-hud) .army-command-targets { left: 16px; right: auto; }
-  body:has(#defense-campaign-hud) .army-command-commands { right: 16px; left: auto; }
-}
 @media (max-width: 960px) {
-  body:has(#defense-campaign-hud) .army-command-targets,
-  body:has(#defense-campaign-hud) .army-command-commands {
-    top: 236px;
-    width: min(340px, calc(100vw - 32px));
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  body:has(#defense-campaign-hud) .army-command-entry {
-    white-space: normal;
-    font-size: 13px;
-    gap: 6px;
-  }
   body:has(#defense-campaign-hud) #enemy-hud { top: 180px; width: 240px; }
 }
 

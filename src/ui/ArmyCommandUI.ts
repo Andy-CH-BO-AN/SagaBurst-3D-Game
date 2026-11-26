@@ -95,10 +95,10 @@ export class ArmyCommandUI {
     this.root = document.createElement('div')
     this.root.id = 'army-command-hud'
     this.root.dataset.faction = faction
+    this.root.dataset.layout = 'town'
+    this.targetsLeft = document.createElement('div')
+    this.targetsLeft.className = 'army-command-targets army-command-targets-left'
     if (townHud) {
-      this.root.dataset.layout = 'town'
-      this.targetsLeft = document.createElement('div')
-      this.targetsLeft.className = 'army-command-targets army-command-targets-left'
       const updateTop = () => {
         const bottom = townHud.getBoundingClientRect().bottom
         // 左上資訊面板被隱藏（四門守城戰改用置中比分板）時，指令列上移至頂端，不留空白。
@@ -108,6 +108,8 @@ export class ArmyCommandUI {
       updateTop()
       this.townHudObserver = new ResizeObserver(updateTop)
       this.townHudObserver.observe(townHud)
+    } else {
+      this.root.style.setProperty('--town-command-top', '18px')
     }
     this.targets = document.createElement('div')
     this.targets.className = 'army-command-targets'
@@ -117,8 +119,7 @@ export class ArmyCommandUI {
     this.feedback.className = 'army-command-feedback'
     this.wheelHint = document.createElement('div')
     this.wheelHint.className = 'army-command-wheel-hint'
-    if (this.targetsLeft) this.root.append(this.targetsLeft, this.targets, this.commands, this.feedback)
-    else this.root.append(this.targets, this.commands, this.feedback)
+    this.root.append(this.targetsLeft, this.targets, this.commands, this.feedback)
     document.getElementById('hud')?.appendChild(this.root)
   }
 
