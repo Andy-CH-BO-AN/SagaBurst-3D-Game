@@ -321,10 +321,15 @@ export class TownFourGateSiege {
   }
   /** Local ground interception is an exception to the gate task, not a new march owner. */
   private cavalryTargetPriority(npc: NPC, target: NPC | import('../player/Player').Player): number | null {
-    const nav = this.options.navigation, town = nav.townNav!, p = target.combatPosition
-    const gateId = this.actorSectors.get(npc.combatantId)!
     if ('mount' in target && target.mount?.isFlyingMount
       || 'currentMount' in target && target.currentMount?.isFlyingMount) return null
+    const nav = this.options.navigation, town = nav.townNav!, p = target.combatPosition
+    const gateId = this.actorSectors.get(npc.combatantId)!
+    const outside = p.x <= TOWN_CITY.minX || p.x >= TOWN_CITY.maxX || p.z <= TOWN_CITY.minZ || p.z >= TOWN_CITY.maxZ
+    const breached = this.options.world.gates.get(gateId)!.state !== 'closed'
+    if (!breached && !outside && !town.isElevated(npc.combatPosition)) return null
+    const distSq = npc.combatPosition.distanceToSquared(p)
+    if (!breached && distSq > 64 ** 2 && !town.isElevated(npc.combatPosition)) return null
     // Closest authored gate defines the local sector, independent of unit IDs.
     let sector = TOWN_GATES[0], distance = Infinity
     for (const gate of TOWN_GATES) {
@@ -333,16 +338,14 @@ export class TownFourGateSiege {
     }
     const local = sector.id === gateId
     const ground = Math.abs(p.y - getTerrainHeight(p.x, p.z)) < 1.1
-    const outside = p.x <= TOWN_CITY.minX || p.x >= TOWN_CITY.maxX || p.z <= TOWN_CITY.minZ || p.z >= TOWN_CITY.maxZ
-    const breached = this.options.world.gates.get(gateId)!.state !== 'closed'
     // Target priority does not use ground components to reject an actor on a
     // tower/wall. Layered navigation owns the actual reachable descent/ascent.
-    if (local && ground && npc.combatPosition.distanceToSquared(p) <= 64 ** 2
+    if (local && ground && distSq <= 64 ** 2
       && (outside || breached)) return 0
     // Ground contact may cross the nearest-gate boundary, but never leave a
     // fixed 24m overlap of the assigned sector. Keep both bodies local and use
     // the existing ground connectivity only for this ground-to-ground exception.
-    if (!local && outside && ground && npc.combatPosition.distanceToSquared(p) <= 20 ** 2
+    if (!local && outside && ground && distSq <= 20 ** 2
       && Math.abs(npc.combatPosition.y - getTerrainHeight(npc.combatPosition.x, npc.combatPosition.z)) < 1.1
       && withinTownSiegeSector(npc.combatPosition, gateId, 24) && withinTownSiegeSector(p, gateId, 24)
       && nav.areConnected(npc.combatPosition, p)) return 0

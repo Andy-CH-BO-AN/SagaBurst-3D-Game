@@ -447,6 +447,7 @@ export class NPC {
   releaseOutpostRampartGarrison(): void { this.rampartDuty.release() }
   private rampartThreat: ObstacleData | null = null
   private rampartScanFrames = 0
+  private _rampartScanStaggered = false
   private readonly obstacleLocalToWorld = new THREE.Matrix4()
   get holdsRampartPosition(): boolean { return this.rampartDuty.holdsPosition(this) }
 
@@ -2958,11 +2959,48 @@ export class NPC {
     }
     // Ground melee troops engage people on foot or ground mounts before eagle riders.
     if (this.combatTargetPriority) {
-      for (const priority of [0, 1, 2]) {
-        const target = (preferGroundTargets ? findNearest(true, priority) : null) ?? findNearest(false, priority)
-        if (target) return target
+      let bestPriority = 3
+      let bestAirRank = 2
+      let bestDistSq = Infinity
+      let bestOrder = Infinity
+      let bestTarget: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null = null
+
+      if (this.targetsPlayer && player.targetable && !player.dead && this.combatTargetAllowed?.(player) !== false && this._pursuitTargetAllowed(player)) {
+        const prio = this.combatTargetPriority(player)
+        if (prio === 0 || prio === 1 || prio === 2) {
+          const airRank = preferGroundTargets && player.currentMount?.isFlyingMount ? 1 : 0
+          const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
+          if (this.playerHitFocus > 0 && prio === 0 && airRank === 0) return { position: playerPos, isDead: false, isPlayer: true }
+          bestPriority = prio
+          bestAirRank = airRank
+          bestDistSq = this.playerHitFocus > 0 ? -1 : this.combatPosition.distanceToSquared(playerPos)
+          bestTarget = { position: playerPos, isDead: false, isPlayer: true }
+        }
       }
-      return null
+
+      const considerCandidate = (candidate: NPC, order: number): void => {
+        if (candidate === this || candidate.dead || !combatAllegiancesHostile(this, candidate)
+          || this.combatTargetAllowed?.(candidate) === false || !this._pursuitTargetAllowed(candidate)) return
+        const prio = this.combatTargetPriority!(candidate)
+        if (prio === null || prio > bestPriority) return
+        const airRank = preferGroundTargets && candidate.mount?.isFlyingMount ? 1 : 0
+        if (prio === bestPriority && airRank > bestAirRank) return
+        const dSq = this.combatPosition.distanceToSquared(candidate.combatPosition)
+        if (prio < bestPriority || airRank < bestAirRank || dSq < bestDistSq || dSq === bestDistSq && order < bestOrder) {
+          bestPriority = prio
+          bestAirRank = airRank
+          bestDistSq = dSq
+          bestOrder = order
+          bestTarget = { position: candidate.combatPosition, isDead: false, isPlayer: false, npc: candidate }
+        }
+      }
+
+      if (hostileNpcGrid) {
+        hostileNpcGrid.forEach(considerCandidate)
+      } else {
+        for (let i = 0; i < allNPCs.length; i++) considerCandidate(allNPCs[i], i)
+      }
+      return bestTarget
     }
     return (preferGroundTargets ? findNearest(true) : null) ?? findNearest(false)
   }
@@ -3149,7 +3187,12 @@ export class NPC {
         }
         else {
           if (--this.rampartScanFrames <= 0) {
-            this.rampartScanFrames = NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES
+            if (!this._rampartScanStaggered) {
+              this._rampartScanStaggered = true
+              this.rampartScanFrames = 1 + Math.floor(this._initialStaggerPhase * NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES)
+            } else {
+              this.rampartScanFrames = NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES
+            }
             this.rampartThreat = null
             if (this._trySwitchToVisibleRangedTarget(player, allNPCs, hostileNpcGrid, obstacles)) {
               targetInfo = this._getTarget(dt, player, allNPCs, hostileNpcGrid, chaseTargetCoordinator)

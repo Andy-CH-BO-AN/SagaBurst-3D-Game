@@ -1093,6 +1093,12 @@ export class TownMissionCombat {
     const outskirts = this.prepareOutskirtsFrame(dt)
     const livingTown = defense.active?.kind === 'commander-sky-raid' || defense.active?.kind === 'commander-decapitation'
     const warfareActive = Boolean(outskirts?.actors.length || this.town.airPatrol?.()?.actors.length || defense.active)
+    const externalWarfare = Boolean(
+      outskirts?.actors.length
+      || this.town.airPatrol?.()?.actors.length
+      || this.missions.field.ambientBandits.length
+      || this.externalThreatActors.size,
+    )
     const defenseFieldNpcs = defense.fieldNpcs
     if (livingTown) {
       const scouts = this.defenseEnemyTownScouts
@@ -1166,10 +1172,12 @@ export class TownMissionCombat {
         || actor.tacticalOrder === 'defend' && actor.formationCommandId != null)
         ? actor.tacticalOrder : null
       if (travelOrder) actor.tacticalOrder = 'attack'
-      const hostileGrid = warfareActive ? this.warfareGrid : actor.faction === Faction.ENEMY ? this.defenseTownGrid : this.defenseEnemyGrid
+      const hostileGrid = externalWarfare ? this.warfareGrid : actor.faction === Faction.ENEMY ? this.defenseTownGrid : this.defenseEnemyGrid
+      const nearbyGrid = externalWarfare ? this.warfareGrid : this.grid
+      const nearbyRadius = externalWarfare ? 8 : 2
       this.activeDefenseActor = actor
       actor.update(dt, this.town.player(), warfareActive ? this.runtimeActors : defense.peersFor(actor),
-        (warfareActive ? this.warfareGrid : this.grid).getNearbyInto(actor.combatPosition, warfareActive ? 8 : 2, this.neighbors),
+        nearbyGrid.getNearbyInto(actor.combatPosition, nearbyRadius, this.neighbors),
         this.actorObstacles(actor), this.town.hp,
         this.onDefenseMeleeHit,
         this.onDefenseFire,

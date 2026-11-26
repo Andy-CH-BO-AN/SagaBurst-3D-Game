@@ -243,6 +243,17 @@ export class SpatialGrid<T extends SpatialEntity> {
     }
   }
 
+  forEach(visit: (entity: T, order: number) => void): void {
+    for (let b = 0; b < this.occupiedBuckets.length; b++) {
+      const bucket = this.occupiedBuckets[b]
+      const entities = bucket.entities
+      const orders = bucket.orders
+      for (let i = 0; i < entities.length; i++) {
+        visit(entities[i], orders[i])
+      }
+    }
+  }
+
   /**
    * Finds the nearest matching entity by expanding cell rings from the query position.
    * Once the closest candidate is nearer than every still-unvisited cell, the search
