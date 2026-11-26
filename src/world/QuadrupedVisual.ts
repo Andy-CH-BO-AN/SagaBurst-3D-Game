@@ -5,6 +5,7 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 import { SkinnedSeatContact } from './SkinnedSeatContact'
 import { stopBoneEulerSync } from './BoneEulerSync'
 import { hideBoneOnlySubtrees } from './BoneRenderTraversal'
+import { installCachedSkeletonUpdate, type CachedSkeletonController } from './CachedSkeletonUpdate'
 import { RiderSeatContactCache } from './RiderSeatContactCache'
 import {
   isQuadrupedAnimationState,
@@ -87,6 +88,7 @@ export class QuadrupedVisual {
   private elapsed = 0
   private playbackRate = 1
   private requestedPlaybackRate = 1
+  private readonly skeletonCache: CachedSkeletonController
 
   constructor(template: GLTF | null, private readonly config: QuadrupedVisualConfig) {
     if (!template) throw new Error(`${config.name} assets were not preloaded`)
@@ -133,6 +135,16 @@ export class QuadrupedVisual {
     this.root.updateMatrixWorld(true)
     stopBoneEulerSync(this.root)
     hideBoneOnlySubtrees(this.root)
+    this.skeletonCache = installCachedSkeletonUpdate(this.root)
+    let lastLodLevel = this.lod.getCurrentLevel()
+    this.lod.update = (camera) => {
+      THREE.LOD.prototype.update.call(this.lod, camera)
+      const nextLevel = this.lod.getCurrentLevel()
+      if (nextLevel !== lastLodLevel) {
+        lastLodLevel = nextLevel
+        this.skeletonCache.markDirty()
+      }
+    }
   }
 
   private play(clip: QuadrupedAnimationState, immediate = false): void {
@@ -149,6 +161,7 @@ export class QuadrupedVisual {
     }
     this.current = clip
     this.currentAction = next
+    this.skeletonCache?.markDirty()
   }
 
   setLocomotion(speed: number): void {
@@ -187,6 +200,7 @@ export class QuadrupedVisual {
     this.play(clip, true)
     this.mixer.update(0)
     this.root.updateMatrixWorld(true)
+    this.skeletonCache.markDirty()
   }
 
   togglePaused(): boolean { this.paused = !this.paused; return this.paused }
@@ -208,6 +222,7 @@ export class QuadrupedVisual {
         }
       }
     }
+    this.skeletonCache.markDirty()
   }
 
   /** Matches the horse cadence (CharacterLODPolicy.mountAnimationInterval).
@@ -224,6 +239,7 @@ export class QuadrupedVisual {
     this.poseChanged = true
     this.elapsed += dt
     this.mixer.update(dt)
+    this.skeletonCache.markDirty()
     // Jump stays tucked until physics sends land; death stays fallen.
     if (!this.studio && this.oneShotAction && this.oneShot !== 'jump' && this.oneShot !== 'death') {
       if (this.oneShotAction.time >= this.oneShotDuration) {

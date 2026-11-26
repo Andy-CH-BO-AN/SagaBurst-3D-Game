@@ -8,6 +8,7 @@ import { configureMultiInfluenceSkinning, multiInfluenceSkinningPlugin } from '.
 import { primeSkinnedTemplateBounds } from './SkinnedTemplateBounds'
 import { stopBoneEulerSync } from './BoneEulerSync'
 import { hideBoneOnlySubtrees } from './BoneRenderTraversal'
+import { installCachedSkeletonUpdate } from './CachedSkeletonUpdate'
 import { prepareSelectedHumanoidSource, type SelectedHumanoidSource } from './SelectedHumanoidSource'
 import { shareSelectedLodPose, shareIdenticalSkinSkeletons, validateSelectedLodAnimations, optimizeSelectedAnimationClips } from './SelectedLodPose'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
@@ -574,6 +575,7 @@ export class MixerController implements HumanoidAnimationController {
     this.equipmentState.alive = alive
     // Layer 0 (the primary rig) always applies and ends with a full refresh of its subtree.
     this.onPoseEvaluated?.(this.equipmentLayers[0] !== undefined)
+    this.onSkeletonDirty?.()
   }
 
   // Advance retained actions, including their loop/fade state, using Three's
@@ -609,11 +611,14 @@ export class MixerController implements HumanoidAnimationController {
     const palm = index === 0 ? undefined : this.equipmentLayers[0]?.axeSupportPalm
     if (palm) layer?.apply(this.evaluatedEquipmentState, palm)
     else layer?.apply(this.evaluatedEquipmentState)
+    this.onSkeletonDirty?.()
   }
 
   /** Asset-owned socket followers run after the single pose evaluation.
    * `primaryPoseCurrent`: the primary rig's whole subtree was refreshed just before. */
   onPoseEvaluated?: (primaryPoseCurrent?: boolean) => void
+  onSkeletonDirty?: () => void
+  markSkeletonDirty(): void { this.onSkeletonDirty?.() }
   private poseLayersEnabled = true
   private readonly bowLegActions = new Map<string, THREE.AnimationAction[]>()
   private bowLegState: string | null = null
@@ -918,6 +923,7 @@ export class MixerController implements HumanoidAnimationController {
     this.bowLegState = null
     this.transitionRemaining = 0
     this.onPoseEvaluated?.()
+    this.onSkeletonDirty?.()
   }
 }
 
@@ -1386,14 +1392,22 @@ export class HumanoidAssetRegistry {
     animation.onPoseEvaluated()
     animation.play('idle')
     animation.setVisibleLOD(0)
-    // Renderer updates LOD after movement/world matrices. Sync the newly chosen
-    // level here so even a switch between throttled ticks renders the right pose.
-    lod.update = (camera) => {
-      THREE.LOD.prototype.update.call(lod, camera)
-      animation.setVisibleLOD(lod.getCurrentLevel())
-    }
     stopBoneEulerSync(root)
     hideBoneOnlySubtrees(root)
+    const skeletonCache = installCachedSkeletonUpdate(root)
+    animation.onSkeletonDirty = () => skeletonCache.markDirty()
+    // Renderer updates LOD after movement/world matrices. Sync the newly chosen
+    // level here so even a switch between throttled ticks renders the right pose.
+    let lastLodLevel = lod.getCurrentLevel()
+    lod.update = (camera) => {
+      THREE.LOD.prototype.update.call(lod, camera)
+      const level = lod.getCurrentLevel()
+      if (level !== lastLodLevel) {
+        lastLodLevel = level
+        skeletonCache.markDirty()
+      }
+      animation.setVisibleLOD(level)
+    }
     return {
       root,
       skeleton,

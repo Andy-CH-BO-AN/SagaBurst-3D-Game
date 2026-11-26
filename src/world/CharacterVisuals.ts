@@ -73,6 +73,7 @@ export interface HumanoidAnimationController {
   setSwordHandShape?(enabled: boolean): void
   setPoseLayersEnabled?(enabled: boolean): void
   setBowLocomotion?(state: 'idle' | 'walk' | 'run', timeScale: number): void
+  markSkeletonDirty?(): void
   play(state: HumanoidAnimationState, options?: HumanoidAnimationPlayOptions): boolean
   /** `cameraDistance` lets a far repeated sample of the same state keep the last pose.
    * `nextUpdate`: the caller calls `update(dt, cameraDistance)` next in this tick, with no other
