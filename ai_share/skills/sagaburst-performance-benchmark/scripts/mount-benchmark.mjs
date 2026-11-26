@@ -83,9 +83,15 @@ if (!fs.existsSync(chromePath)) {
 const metricPatterns = {
   fps: /^FPS:\s+([\d.]+)/m,
   cpuFrameMs: /^CPU Frame Work\s*:\s*([\d.]+)/m,
+  npcGridMs: /^NPC Grid Build\s*:\s*([\d.]+)/m,
   npcUpdateMs: /^NPC Update\s*:\s*([\d.]+)/m,
   mountInteractionMs: /^Mount \/ Interaction\s*:\s*([\d.]+)/m,
+  collisionMs: /^Entity Collision\s*:\s*([\d.]+)/m,
+  arrowMs: /^Arrow \/ Projectile\s*:\s*([\d.]+)/m,
+  arrowMaxMs: /^Arrow \/ Projectile\s*:\s*[\d.]+\s*\/\s*([\d.]+)/m,
+  impactMs: /^Impact \/ Damage\s*:\s*([\d.]+)/m,
   renderSubmitMs: /^Renderer Submit\s*:\s*([\d.]+)/m,
+  otherMs: /^Other \/ Unaccounted\s*:\s*([\d.]+)/m,
   alive: /^Alive:\s+(\d+)/m,
   dead: /^Dead:\s+(\d+)/m,
   activeAttack: /^Active Attack NPCs:\s+(\d+)/m,
@@ -226,7 +232,8 @@ async function waitForInitialBattleState(page, scenario) {
 
 function aggregate(samples) {
   const keys = [
-    'fps', 'cpuFrameMs', 'npcUpdateMs', 'mountInteractionMs', 'renderSubmitMs',
+    'fps', 'cpuFrameMs', 'npcGridMs', 'npcUpdateMs', 'mountInteractionMs',
+    'collisionMs', 'arrowMs', 'arrowMaxMs', 'impactMs', 'renderSubmitMs', 'otherMs',
     'mountUpdatePhaseMs', 'maxMountSubphase', 'mountPhysicsMs', 'mountObstacleCollisionMs',
     'mountHorseAnimationMs', 'mountRiderEquipmentMs', 'mountSaddleTransformMs',
     'mountRiderTransformMs', 'mountOtherMs', 'alive', 'dead', 'activeAttack',
