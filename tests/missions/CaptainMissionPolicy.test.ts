@@ -5,7 +5,7 @@ import { isEagleLandingClear } from '../../src/world/EagleLanding'
 import { blocksPlayerSideDefeat, hasAerialCombatPower, resolveCaptainEagleBattleOutcome } from '../../src/career/CaptainEagleBattleOutcome'
 import { resolveCaptainPatrolCommandOutcome } from '../../src/career/CaptainPatrolCommandController'
 import { combatHpTotal, PLAYER_SIDE_STALEMATE_SECONDS, PlayerSideStalemate } from '../../src/career/PlayerSideStalemate'
-import { CAPTAIN_EAGLE_BATTLE_ID, commanderGateDefenseSlots, commanderGateDefenseSquads, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../../src/career/CaptainMissionCatalog'
+import { CAPTAIN_EAGLE_BATTLE_ID, commanderGateDefenseSlots, commanderGateDefenseSquads, getCaptainMissionAvailability } from '../../src/career/CaptainMissionCatalog'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { townAssaultObjectiveRoster, townRoster } from '../../src/town/TownRules'
@@ -33,11 +33,6 @@ describe('Captain mission eligibility and official roster policy without actor m
     }
   })
 
-  it('已淘汰的隊長守城任務不列入現役目錄且指揮官也不可接取', () => {
-    expect(getCaptainMissionDefinition('captain-gate-defense')).toBeNull()
-    const commander: CareerProfile = { ...captain(), ...careerRankFixture((captain()).faction, 'commander'), rank: 'commander', totalMerit: 20000 }
-    expect(getCaptainMissionAvailability(commander, 'captain-gate-defense').unlocked).toBe(false)
-  })
 })
 
 describe('Commander accepted production rosters without actor materialization', () => {

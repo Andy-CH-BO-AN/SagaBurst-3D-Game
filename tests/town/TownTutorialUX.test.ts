@@ -261,47 +261,6 @@ describe('TownTutorialUX', () => {
     ctrl.dispose()
   })
 
-  it('weapon purchase awards 20 merit once and updates guide to return to deployment', () => {
-    let now = 0
-    vi.spyOn(performance, 'now').mockImplementation(() => now)
-    const harness = createHostHarness()
-    const ctrl = new TownTutorialController(harness.host)
-
-    // Advance to weapon step
-    recordCareerTutorialOperation(harness.getProfile(), 'town', 'report')
-    expect(harness.getProfile().tutorial?.town.step).toBe('weapon')
-
-    const initialMerit = harness.getProfile().availableMerit
-
-    // Buy a weapon
-    recordCareerTutorialPurchase(harness.getProfile(), 'weapon', 'roman_sword_t1')
-
-    ctrl.update()
-    expect(harness.getProfile().tutorial?.town.step).toBe('duel-intro')
-    const awardedMerit = harness.getProfile().availableMerit - initialMerit
-    expect(awardedMerit).toBeGreaterThan(0)
-
-    const hint = dom.elements.find(el => el.id === 'career-tutorial-hint')
-    const notice = dom.elements.find(el => el.id === 'career-tutorial-notification')!
-    expect(notice.textContent).toContain('軍功')
-    expect(notice.hidden).toBe(false)
-    expect(hint?.textContent).not.toContain('武器購買完成')
-    expect(hint?.textContent).toContain('返回士官長')
-
-    // Repeating update neither re-awards merit nor restarts the notification.
-    now = 3499
-    ctrl.update()
-    expect(notice.hidden).toBe(false)
-    now = 3500
-    ctrl.update()
-    expect(notice.hidden).toBe(true)
-    expect(hint?.hidden).toBe(false)
-    expect(hint?.textContent).toContain('返回士官長')
-    expect(harness.getProfile().availableMerit).toBe(initialMerit + awardedMerit)
-
-    ctrl.dispose()
-  })
-
   it('accept duel-intro guides to captain, captain dialogue accepts and starts duel', () => {
     const harness = createHostHarness()
     const ctrl = new TownTutorialController(harness.host)
@@ -770,8 +729,12 @@ describe('TownTutorialUX', () => {
     const ctrl = new TownTutorialController(harness.host)
     recordCareerTutorialOperation(harness.getProfile(), 'town', 'report')
     recordCareerTutorialPurchase(harness.getProfile(), 'weapon', 'roman_sword_t1')
+    const beforePurchase = harness.getProfile().availableMerit
     ctrl.update() // A previous success notice is still pending when the next write fails.
+    expect(harness.getProfile().tutorial?.town.step).toBe('duel-intro')
+    expect(dom.elements.find(el => el.id === 'career-tutorial-hint')?.textContent).toContain('返回士官長')
     const merit = harness.getProfile().availableMerit
+    expect(merit).toBeGreaterThan(beforePurchase)
     for (const op of ['duel-intro', 'duel', 'missions', 'horse-intro']) recordCareerTutorialOperation(harness.getProfile(), 'town', op)
     recordCareerTutorialPurchase(harness.getProfile(), 'mount', 'horse')
     harness.setFailCommit(true)
@@ -794,6 +757,9 @@ describe('TownTutorialUX', () => {
     expect(notice.textContent).toContain('軍功')
     const awarded = harness.getProfile().availableMerit - merit
     expect(awarded).toBeGreaterThan(0)
+    now = 9999
+    ctrl.update()
+    expect(notice.hidden).toBe(false)
     now = 10000
     ctrl.update()
     expect(notice.hidden).toBe(true)

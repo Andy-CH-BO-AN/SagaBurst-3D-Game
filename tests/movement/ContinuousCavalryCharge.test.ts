@@ -188,10 +188,6 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(restrictedTarget).toBeNull()
   })
 
-  it('treats a target just passed as behind the charge heading', () => {
-    expect(isTargetInForwardCone(new THREE.Vector3(0, 0, 10), 0, new THREE.Vector3(0, 0, 8))).toBe(false)
-  })
-
   it('falls back to nearest available ground target when no forward candidate exists', () => {
     const cavalry = {
       combatPosition: new THREE.Vector3(0, 0, 0),

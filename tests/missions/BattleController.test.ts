@@ -17,7 +17,7 @@ function createMockNpc(
 }
 
 describe('BattleController: Player-Inclusive Victory & Defeat Rules', () => {
-  it('keeps battle ongoing when friendly AI are all eliminated but player is still alive', () => {
+  it('counts the lone surviving player through to Viking victory', () => {
     const config = { ...PRESET_10V10, playerFaction: 'viking' as const, spectator: false }
     const controller = new BattleController(config)
     const player = { dead: false }
@@ -27,44 +27,15 @@ describe('BattleController: Player-Inclusive Victory & Defeat Rules', () => {
     ]
     controller.initCounts(npcs, player)
 
-    // Friendly AI dies, player alive, enemy alive -> ongoing
     npcs[0].dead = true
     controller.update(npcs, player)
     expect(controller.getResult()).toBeNull()
-  })
-
-  it('keeps battle ongoing when player dies but friendly AI are still alive', () => {
-    const config = { ...PRESET_10V10, playerFaction: 'viking' as const, spectator: false }
-    const controller = new BattleController(config)
-    const player = { dead: false }
-    const npcs = [
-      createMockNpc(Faction.PLAYER, false, 'viking'),
-      createMockNpc(Faction.ENEMY, false, 'roman'),
-    ]
-    controller.initCounts(npcs, player)
-
-    // Player dies, friendly AI alive, enemy alive -> ongoing
-    player.dead = true
-    controller.update(npcs, player)
-    expect(controller.getResult()).toBeNull()
-  })
-
-  it('determines VIKING_VICTORY when player is alive and all enemy Roman AI die', () => {
-    const config = { ...PRESET_10V10, playerFaction: 'viking' as const, spectator: false }
-    const controller = new BattleController(config)
-    const player = { dead: false }
-    const npcs = [
-      createMockNpc(Faction.PLAYER, false, 'viking'),
-      createMockNpc(Faction.ENEMY, false, 'roman'),
-    ]
-    controller.initCounts(npcs, player)
-
     npcs[1].dead = true
     controller.update(npcs, player)
     expect(controller.getResult()).toBe('VIKING_VICTORY')
   })
 
-  it('determines ROMAN_VICTORY when player dies and all friendly Viking AI die', () => {
+  it('continues after player death and awards Roman victory after the last ally falls', () => {
     const config = { ...PRESET_10V10, playerFaction: 'viking' as const, spectator: false }
     const controller = new BattleController(config)
     const player = { dead: false }
@@ -74,8 +45,10 @@ describe('BattleController: Player-Inclusive Victory & Defeat Rules', () => {
     ]
     controller.initCounts(npcs, player)
 
-    npcs[0].dead = true
     player.dead = true
+    controller.update(npcs, player)
+    expect(controller.getResult()).toBeNull()
+    npcs[0].dead = true
     controller.update(npcs, player)
     expect(controller.getResult()).toBe('ROMAN_VICTORY')
   })

@@ -426,7 +426,7 @@ describe('Bridgehead official field battle', () => {
       homeMount: { hp: 12, position: { x: 15, z: -40, yaw: 1 } } })
   })
 
-  it('keeps Bridgehead victory unclaimed after a failed result save and retries it once', () => {
+  it('resumes Bridgehead after a failed result save, then claims once and clears the mission on return', () => {
     const profile = accepted(COMMANDER_BRIDGEHEAD_ID, 'roman', true, 'b'), mission = profile.activeMission!
     profile.commanderMeleeGranted = true
     Object.assign(profile.personalSquad!.members[0], { characterFaction: 'roman', characterTier: 2,
@@ -476,6 +476,8 @@ describe('Bridgehead official field battle', () => {
     expect(rejectedWrite).toContain('"claimed":true')
     expect(rejectedWrite).toContain('"totalMerit":20100')
     expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(unclaimedBytes)
+    expect(recoverClaimedCareerBridgeBattle(store.load()!, store)).toBe('resume')
+    expect(storageWriteAttempts).toBe(1)
     const claimed = commitCareerBridgeBattleResult(store, mission.id, stats)!
     expect(storageWriteAttempts).toBe(2)
     expect(claimed.profile.activeMission!.result!.merit.total).toBe(100)
@@ -489,38 +491,15 @@ describe('Bridgehead official field battle', () => {
     expect(restoredPersonalSquad).toEqual(expectedPersonalSquad)
     expect(reloadedClaim.careerMissionCompletionsByTier?.[5]).toBe(1)
     expect(reloadedClaim.claimedBattleIds.filter(id => id === mission.id)).toHaveLength(1)
-  })
 
-  it('does not duplicate Bridgehead defense merit or Tier 5 victory when a committed settlement is repeated', () => {
-    const profile = accepted(COMMANDER_BRIDGEHEAD_ID), mission = profile.activeMission!
-    const playerStats = { damageDealt: 0, damageTaken: 10, kills: 0, structureDamage: 0,
-      structuresDestroyed: 0, gateBreaches: 0, survived: false }
-    const stats = { player: playerStats, squads: [],
-      meritPlayer: { damageDealt: 80, damageTaken: 10, kills: 2, structureDamage: 0,
-        structuresDestroyed: 0, gateBreaches: 0, survived: false } }
-    mission.bridgeDeployment = { phase: 'assault', preparationRemainingSeconds: 0 }
-    mission.commanderMission!.deploymentComplete = true
-    mission.deadTargetActorIds = [...mission.targetActorIds]
-    mission.bridgeBattle = { ready: true, player: { hp: 100, stamina: 70, dead: false,
-      position: { x: 0, y: 1, z: -90, yaw: 0 }, ammo: 5, shieldImpact: 2 },
-      playerStats: { ...playerStats }, actors: {} }
-    let persisted = profile
-    const store = {
-      loadChecked: () => ({ profile: persisted }),
-      save: (next: CareerProfile) => { persisted = next; return true },
-    }
+    const duplicate = commitCareerBridgeBattleResult(store, mission.id, stats)
+    expect(duplicate).toMatchObject({ alreadyClaimed: true, meritAwarded: 0 })
+    expect(store.load()!.totalMerit).toBe(20_100)
+    expect(store.load()!.careerMissionCompletionsByTier?.[5]).toBe(1)
 
-    const claimed = commitCareerBridgeBattleResult(store, mission.id, stats)!
-    expect(claimed.profile.activeMission!.result!.merit.total).toBe(100)
-    expect(claimed.profile.careerMissionCompletionsByTier?.[5]).toBe(1)
-    const duplicate = commitCareerBridgeBattleResult(store, mission.id, stats)!
-    expect(duplicate.alreadyClaimed).toBe(true)
-    expect(duplicate.meritAwarded).toBe(0)
-    expect(duplicate.profile.totalMerit).toBe(claimed.profile.totalMerit)
-    expect(duplicate.profile.careerMissionCompletionsByTier?.[5]).toBe(1)
-    expect(duplicate.profile.claimedBattleIds.filter(id => id === mission.id)).toHaveLength(1)
-    expect(persisted.totalMerit).toBe(claimed.profile.totalMerit)
-    expect(persisted.activeMission!.result!.merit.total).toBe(100)
+    expect(recoverClaimedCareerBridgeBattle(store.load()!, store)).toBe('return-to-town')
+    expect(store.load()!.activeMission).toBeUndefined()
+    expect(store.load()!.careerMissionCompletionsByTier?.[5]).toBe(1)
   })
 
   it('keeps the last HR survivor fighting after reload and restores its surviving mount without reviving a dead rider', () => {
@@ -879,32 +858,6 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(() => validateFelineDeploymentReadiness({ spawnBatchReady: true, battleReady: true, personalSquadReady: true })).not.toThrow()
   })
 
-  it('keeps unclaimed mission resumable after save failure, and clears on retry', () => {
-    const stats = { damageDealt: 20, damageTaken: 0, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
-    const profile = accepted(COMMANDER_BRIDGEHEAD_ID), id = profile.activeMission!.id
-    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
-    expect(store.save(profile)).toBe(true)
-    storage.writable = false
-    expect(store.save(claimCareerMission(profile, id, 'victory', stats).profile)).toBe(false)
-    let cleanupAttempts = 0
-    const loaded = store.load()!
-    expect(recoverClaimedCareerBridgeBattle(loaded, {
-      save: next => { cleanupAttempts++; return store.save(next) },
-    })).toBe('resume')
-    expect(cleanupAttempts).toBe(0)
-    expect(store.load()!.activeMission).toEqual(loaded.activeMission)
-    expect(loaded.claimedBattleIds).not.toContain(id)
-
-    storage.writable = true
-    const acceptedProfile = accepted(COMMANDER_BRIDGEHEAD_ID, 'roman', true), id2 = acceptedProfile.activeMission!.id
-    const claimed = claimCareerMission(acceptedProfile, id2, 'victory', stats).profile
-    const store2 = new CareerProfileStore(new MemoryStorage())
-    expect(store2.save(claimed)).toBe(true)
-    expect(recoverClaimedCareerBridgeBattle(store2.load()!, store2)).toBe('return-to-town')
-    const returned = store2.load()!
-    expect(returned.activeMission).toBeUndefined()
-    expect(returned.careerMissionCompletionsByTier?.[5]).toBe(1)
-  })
 })
 
 describe('Commander VII Iron Legion', () => {

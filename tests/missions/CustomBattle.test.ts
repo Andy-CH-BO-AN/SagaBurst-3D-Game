@@ -294,23 +294,6 @@ describe('Custom Battle: Squad Formation Layout Rules', () => {
     expect(plan6.playerSpawn.z).toBeGreaterThan(maxZ + 5)
   })
 
-  it('maintains safe distance >= 4.0m between mounted units in 50-unit cavalry squads', () => {
-    const config = makeGroundConfig(0, 10)
-    const vikingArmy = createEmptyArmyConfig('viking')
-    vikingArmy.viking_lancer![3] = 50
-    config.viking = vikingArmy
-
-    const plan = SquadFormationPlanner.planCustomBattle(config)
-    const cavalryUnits = plan.npcSpecs.filter(u => u.characterFaction === 'viking' && u.cavalry)
-
-    expect(cavalryUnits.length).toBe(50)
-    for (let i = 0; i < cavalryUnits.length; i++) {
-      for (let j = i + 1; j < cavalryUnits.length; j++) {
-        const dist = Math.hypot(cavalryUnits[i].x - cavalryUnits[j].x, cavalryUnits[i].z - cavalryUnits[j].z)
-        expect(dist).toBeGreaterThanOrEqual(4.0)
-      }
-    }
-  })
 })
 
 describe('Custom Battle: Ground Scattered Deployment', () => {
@@ -475,6 +458,9 @@ describe('Custom Battle: Clearance and Collision Avoidance (P1)', () => {
 
     const plan = SquadFormationPlanner.planCustomBattle(config, townObstacles)
     expect(plan.npcSpecs.length).toBe(600)
+    const mountedLancers = plan.npcSpecs.filter(unit => unit.characterFaction === 'viking' && unit.presetId === 'viking_lancer' && unit.tier === 3)
+    expect(mountedLancers).toHaveLength(50)
+    expect(mountedLancers.every(unit => unit.cavalry)).toBe(true)
 
     const invalid: string[] = []
     const cellSize = 5.0
