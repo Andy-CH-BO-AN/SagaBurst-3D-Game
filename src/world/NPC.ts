@@ -3406,7 +3406,7 @@ export class NPC {
       this.velY = 0
       this.onGround = true
       this.animator.update(dt, cameraDistance, inFrustum)
-      this.group.updateWorldMatrix(true, true)
+      this.group.updateWorldMatrix(true, !this.offFrustumVisualSleep)
       return true
     }
     if (this.siegeEvacuation) {
