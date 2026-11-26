@@ -1,3 +1,4 @@
+import { Vector3 } from 'three'
 import { careerRankFixture } from '../helpers/careerRankFixture'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { CareerMissionCheckpoint } from '../../src/career/CareerMissionCheckpoint'
@@ -12,9 +13,11 @@ import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from 
 import { commanderFourGateGarrisonSlots } from '../../src/career/CommanderFourGateDefenseRoster'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
+import { SpatialGrid } from '../../src/world/SpatialGrid'
 import { Faction, type NPC } from '../../src/world/NPC'
 import { ActorDouble, asNpc, asPlayer, PlayerDouble, recordingActorFactory, residentSpec } from '../helpers/careerActorDoubles'
 import { fourGateDefenseRuntime } from '../helpers/fourGateDefenseRuntime'
+import type { CommanderFourGateNavigation } from '../../src/career/CommanderFourGateDefenseController'
 import { createCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
 import { CommanderInfantryWings } from '../../src/career/CommanderInfantryEscort'
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
@@ -568,5 +571,113 @@ describe('CareerMissionCheckpoint', () => {
     expect(commits).toBe(1)
     expect(checkpoint.persist(() => ({ ...profile.activeMission!, phase: 'RESULT' }), { immediate: true, force: true })).toBe(true)
     expect(commits).toBe(2)
+  })
+
+  it('transitions Four-Gate phase through SPAWNING to ATTACKING and advances siege without auto-saving when autoSave is false (skipPreparation)', () => {
+    let profile = createFourGateDefenseProfile('PREPARING'), commits = 0, siegeTicks = 0, releases = 0
+    profile.activeMission!.targetActorIds = ['enemy-1']
+    const player = new PlayerDouble()
+    const nav = { grid: { findNearestWalkableCell: () => ({ x: 0, z: 0 }), cellToWorld: () => new Vector3() } } as unknown as CommanderFourGateNavigation
+    const ctx = { world: { obstacles: [], fortifications: { rampartLayout: {} }, gates: new Map() }, createRamp: () => { throw new Error('unused') }, registerHit: () => {}, unregisterHit: () => {} } as unknown as ConstructorParameters<typeof CommanderFourGateDefenseController>[6]
+    const controller = new CommanderFourGateDefenseController(
+      recordingActorFactory(), [], () => asPlayer(player), () => profile,
+      next => { profile = next; commits++; return true }, nav, ctx, new NpcSpawnScheduler(), false,
+    )
+    onTestFinished(() => controller.dispose())
+    type Harness = Pick<CommanderFourGateDefenseController, 'phase' | 'combatEnabled' | 'skipPreparation' | 'updateFlow' | 'updateSiege' | 'survivalRemaining' | 'persistRuntimeProgress'> & {
+      startedMissionId: string
+      friendlyReady: boolean
+      state: NonNullable<NonNullable<CareerProfile['activeMission']>['fourGateDefense']>
+      spawnBatch?: { pending: number; ready: boolean; status: string; cancel(): void }
+      fourGateSiege?: { ready: boolean; setGrid(): void; update(): void; snapshot(): NonNullable<NonNullable<CareerProfile['activeMission']>['fourGateDefense']>['siege']; dispose(): void }
+      beginAttackers(): void
+      releaseCombat(): void
+    }
+    const h = controller as unknown as Harness
+    Object.assign(h, {
+      startedMissionId: profile.activeMission!.id,
+      friendlyReady: true,
+      state: structuredClone(profile.activeMission!.fourGateDefense!),
+      beginAttackers() {
+        h.spawnBatch = { pending: 1, ready: false, status: 'pending', cancel() {} }
+        h.fourGateSiege = { ready: false, setGrid() {}, update() { siegeTicks++ }, snapshot: () => undefined, dispose() {} }
+      },
+      releaseCombat() { releases++ },
+    })
+    expect(controller.phase).toBe('PREPARING')
+    expect(controller.combatEnabled).toBe(false)
+
+    expect(controller.skipPreparation()).toBe(true)
+    controller.updateFlow(.016, 0)
+    expect(controller.phase).toBe('SPAWNING')
+    expect(controller.combatEnabled).toBe(false)
+    expect(commits).toBe(0)
+
+    h.spawnBatch!.pending = 0; h.spawnBatch!.ready = true; h.spawnBatch!.status = 'complete'; h.fourGateSiege!.ready = true
+    controller.updateFlow(.016, 0)
+    expect(controller.phase).toBe('ATTACKING')
+    expect(controller.combatEnabled).toBe(true)
+    expect(releases).toBe(1)
+    expect(commits).toBe(0)
+    expect(profile.activeMission!.phase).toBe('PREPARING')
+
+    const beforeSurvival = controller.survivalRemaining
+    controller.updateFlow(2, 0)
+    controller.updateSiege(.016, new SpatialGrid())
+    expect(controller.survivalRemaining).toBe(beforeSurvival - 2)
+    expect(siegeTicks).toBe(1)
+    expect(commits).toBe(0)
+
+    controller.persistRuntimeProgress(true)
+    expect(commits).toBe(1)
+    expect(profile.activeMission).toMatchObject({
+      phase: 'ATTACKING',
+      fourGateDefense: { phase: 'ATTACKING', attackStarted: true, deploymentComplete: true, combatElapsedSeconds: 2 },
+    })
+  })
+
+  it('transitions Four-Gate phase to ATTACKING when preparation timer reaches 0 with autoSave disabled', () => {
+    let profile = createFourGateDefenseProfile('PREPARING'), commits = 0
+    profile.activeMission!.fourGateDefense!.preparationRemainingSeconds = .5
+    profile.activeMission!.targetActorIds = ['enemy-1']
+    const player = new PlayerDouble()
+    const nav = { grid: { findNearestWalkableCell: () => ({ x: 0, z: 0 }), cellToWorld: () => new Vector3() } } as unknown as CommanderFourGateNavigation
+    const ctx = { world: { obstacles: [], fortifications: { rampartLayout: {} }, gates: new Map() }, createRamp: () => { throw new Error('unused') }, registerHit: () => {}, unregisterHit: () => {} } as unknown as ConstructorParameters<typeof CommanderFourGateDefenseController>[6]
+    const controller = new CommanderFourGateDefenseController(
+      recordingActorFactory(), [], () => asPlayer(player), () => profile,
+      next => { profile = next; commits++; return true }, nav, ctx, new NpcSpawnScheduler(), false,
+    )
+    onTestFinished(() => controller.dispose())
+    type Harness = {
+      startedMissionId: string
+      friendlyReady: boolean
+      state: NonNullable<NonNullable<CareerProfile['activeMission']>['fourGateDefense']>
+      spawnBatch?: { pending: number; ready: boolean; status: string; cancel(): void }
+      fourGateSiege?: { ready: boolean; dispose(): void }
+      beginAttackers(): void
+      releaseCombat(): void
+    }
+    const h = controller as unknown as Harness
+    Object.assign(h, {
+      startedMissionId: profile.activeMission!.id,
+      friendlyReady: true,
+      state: structuredClone(profile.activeMission!.fourGateDefense!),
+      beginAttackers() {
+        h.spawnBatch = { pending: 1, ready: false, status: 'pending', cancel() {} }
+        h.fourGateSiege = { ready: false, dispose() {} }
+      },
+      releaseCombat() {},
+    })
+
+    controller.updateFlow(.5, 0)
+    expect(controller.phase).toBe('SPAWNING')
+    expect(controller.combatEnabled).toBe(false)
+    expect(commits).toBe(0)
+
+    h.spawnBatch!.pending = 0; h.spawnBatch!.ready = true; h.spawnBatch!.status = 'complete'; h.fourGateSiege!.ready = true
+    controller.updateFlow(.016, 0)
+    expect(controller.phase).toBe('ATTACKING')
+    expect(controller.combatEnabled).toBe(true)
+    expect(commits).toBe(0)
   })
 })
