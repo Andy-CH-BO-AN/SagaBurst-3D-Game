@@ -35,7 +35,9 @@ export function characterResourceMetrics(roots: readonly THREE.Object3D[]) {
 export function measureGpuRender(renderer: THREE.WebGLRenderer) {
   const gl = renderer.getContext() as WebGL2RenderingContext
   const extension = gl.getExtension('EXT_disjoint_timer_query_webgl2')
-  const samplesMs: number[] = [], pending: WebGLQuery[] = []
+  // samplesAtMs[i] is the performance.now() at which samplesMs[i]'s render began, so callers can
+  // keep only queries inside their own window (results resolve out of submission order).
+  const samplesMs: number[] = [], samplesAtMs: number[] = [], pending: WebGLQuery[] = [], pendingAtMs: number[] = []
   const original = renderer.render
   let disjointSamples = 0, droppedSamples = 0
   let finished = false, unresolved = 0
@@ -46,23 +48,25 @@ export function measureGpuRender(renderer: THREE.WebGLRenderer) {
       // their results become available after the disjoint flag clears.
       disjointSamples += pending.length
       for (const query of pending) gl.deleteQuery(query)
-      pending.length = 0
+      pending.length = 0; pendingAtMs.length = 0
       return
     }
     for (let i = pending.length - 1; i >= 0; i--) {
       const query = pending[i]
       if (!gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE)) continue
       samplesMs.push(gl.getQueryParameter(query, gl.QUERY_RESULT) / 1e6)
-      gl.deleteQuery(query); pending.splice(i, 1)
+      samplesAtMs.push(pendingAtMs[i])
+      gl.deleteQuery(query); pending.splice(i, 1); pendingAtMs.splice(i, 1)
     }
   }
   if (extension) renderer.render = function (scene, camera) {
     drain()
     const query = pending.length < 120 ? gl.createQuery() : null
+    const atMs = performance.now()
     if (query) gl.beginQuery(extension.TIME_ELAPSED_EXT, query)
     else droppedSamples++
     try { original.call(this, scene, camera) }
-    finally { if (query) { gl.endQuery(extension.TIME_ELAPSED_EXT); pending.push(query) } }
+    finally { if (query) { gl.endQuery(extension.TIME_ELAPSED_EXT); pending.push(query); pendingAtMs.push(atMs) } }
   }
   return {
     finish() {
@@ -70,9 +74,9 @@ export function measureGpuRender(renderer: THREE.WebGLRenderer) {
         renderer.render = original; drain()
         unresolved = pending.length
         for (const query of pending) gl.deleteQuery(query)
-        pending.length = 0; finished = true
+        pending.length = 0; pendingAtMs.length = 0; finished = true
       }
-      return { supported: !!extension, samplesMs, disjointSamples, droppedSamples, unresolved,
+      return { supported: !!extension, samplesMs, samplesAtMs, disjointSamples, droppedSamples, unresolved,
         averageMs: samplesMs.length ? samplesMs.reduce((a, b) => a + b, 0) / samplesMs.length : null }
     },
   }

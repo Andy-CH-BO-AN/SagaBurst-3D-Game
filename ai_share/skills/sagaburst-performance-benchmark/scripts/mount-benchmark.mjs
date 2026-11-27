@@ -351,7 +351,6 @@ async function runOne(scenario, run) {
         battleText: sample.battleText,
       }))
     let combatEvidenceStarted = false
-    let firstCombatAtMs = Infinity
     const samples = []
     for (const sample of parsed) {
       if (phase === 'during-combat') {
@@ -361,7 +360,6 @@ async function runOne(scenario, run) {
         continue
       }
       if (isCombatEvidence(sample.metrics)) {
-        if (!combatEvidenceStarted) firstCombatAtMs = sample.atMs
         combatEvidenceStarted = true
         continue
       }
@@ -378,24 +376,42 @@ async function runOne(scenario, run) {
       samples.push({ atMs: sample.atMs, metrics })
     }
     if (samples.length === 0) throw new Error(`沒有有效 profiler windows；recorded=${recorded.length}`)
-    const frameSamples = phase === 'during-combat'
-      ? frameSamplesAll.filter((s) => s.atMs >= observationStartMs)
-      : frameSamplesAll.filter((s) => s.atMs <= firstCombatAtMs)
+    // Per-frame tail metrics and GPU samples share one window: after warm-up, and for
+    // before-contact only up to the last clean 1s profiler snapshot. A snapshot at T covers
+    // the frames ending at T, so frames after it may already contain the first contact.
+    const frameWindow = {
+      startMs: observationStartMs,
+      endMs: phase === 'during-combat' ? null : samples.at(-1).atMs,
+      source: phase === 'during-combat' ? 'observation' : 'after-warmup-until-last-clean-snapshot',
+    }
+    const inFrameWindow = (atMs) => atMs >= frameWindow.startMs && (frameWindow.endMs === null || atMs <= frameWindow.endMs)
+    const frameSamples = frameSamplesAll.filter((s) => inFrameWindow(s.atMs))
     const intervals = frameSamples.map((s) => s.frameIntervalMs)
     const cpuFrames = frameSamples.map((s) => s.cpuFrameMs)
     const submitFrames = frameSamples.map((s) => s.renderSubmitMs)
-    const gpuSamples = Array.isArray(gpuRaw?.samplesMs) ? gpuRaw.samplesMs : []
+    const gpuSamplesRaw = Array.isArray(gpuRaw?.samplesMs) ? gpuRaw.samplesMs : []
+    const gpuSampleTimes = Array.isArray(gpuRaw?.samplesAtMs) && gpuRaw.samplesAtMs.length === gpuSamplesRaw.length
+      ? gpuRaw.samplesAtMs : null
+    // Builds without GPU sample timestamps cannot be cut to the before-contact window.
+    const gpuWindowFiltered = phase === 'during-combat' || gpuSampleTimes !== null
+    const gpuSamples = gpuSampleTimes
+      ? gpuSamplesRaw.filter((_, index) => inFrameWindow(gpuSampleTimes[index]))
+      : gpuSamplesRaw
     const gpuRender = gpuRaw
       ? {
           supported: Boolean(gpuRaw.supported),
           sampleCount: gpuSamples.length,
-          medianMs: gpuRaw.supported ? median(gpuSamples) : null,
-          p95Ms: gpuRaw.supported ? percentile(gpuSamples, 0.95) : null,
-          averageMs: gpuRaw.supported ? (gpuRaw.averageMs ?? null) : null,
+          medianMs: gpuRaw.supported && gpuWindowFiltered ? median(gpuSamples) : null,
+          p95Ms: gpuRaw.supported && gpuWindowFiltered ? percentile(gpuSamples, 0.95) : null,
+          averageMs: gpuRaw.supported && gpuWindowFiltered && gpuSamples.length
+            ? gpuSamples.reduce((a, b) => a + b, 0) / gpuSamples.length : null,
           disjointSamples: gpuRaw.disjointSamples ?? 0,
           droppedSamples: gpuRaw.droppedSamples ?? 0,
           unresolved: gpuRaw.unresolved ?? 0,
-          reason: gpuRaw.supported ? (gpuSamples.length ? 'ok' : 'no-completed-queries') : 'EXT_disjoint_timer_query_webgl2 unsupported',
+          windowFiltered: gpuWindowFiltered,
+          reason: !gpuRaw.supported ? 'EXT_disjoint_timer_query_webgl2 unsupported'
+            : !gpuWindowFiltered ? 'no-sample-timestamps'
+            : gpuSamples.length ? 'ok' : 'no-completed-queries',
         }
       : {
           supported: false,
@@ -432,6 +448,7 @@ async function runOne(scenario, run) {
       metrics,
       gpuRender,
       frameSampleCount: frameSamples.length,
+      frameWindow,
       warmupMs,
       observationMs,
       observationDurationMs: observationMs,

@@ -66,7 +66,8 @@ D–M runner 與四門 runner 都輸出以下欄位：
 
 - **CPU／GPU 歸因**：先看 `gpuRender.supported` 與 `reason`。不支援、`no-completed-queries` 或大量 `disjointSamples`／`droppedSamples` 時，GPU 欄位為 null，不得補 0 或改用 Renderer Submit 代替。GPU median 明顯低於 Renderer Submit 時屬 CPU 提交成本；接近或超過幀時間時才是 GPU bound。
 - **D–M 分段**：HUD 另有 NPC Grid／NPC Update／Mount／Impact／Collision／Arrow／Render Submit 等分段；新增分段的 runner 與缺分段的舊 baseline 比較時，缺值視為不可用。
-- **before-contact 尾端指標的範圍**：目前的幀取樣是 profiler ring 中首次戰鬥證據之前的全部幀，可能包含生成完成後到 warm-up 結束的幀；GPU probe 則從 warm-up 後才開始。before-contact 的 P95／P99／1% Low 只能在配對版本同設定下作參考，驗收以 median 為主。
+- **逐幀指標的取樣窗口**（`frameWindow`）：P95／P99／1% Low、CPU／submit 百分位與 GPU 欄位都只取 warm-up 結束後的幀；before-contact 另截止於最後一個未含戰鬥證據的 1 秒 snapshot（該 snapshot 涵蓋截至當時的幀，之後的幀可能已接戰）。GPU 樣本依 render 開始時間截到同一窗口；舊 build 的 GPU probe 沒有樣本時間戳時，before-contact 的 GPU 值為 null、`reason=no-sample-timestamps`。1 秒 snapshot 的 median 欄位仍沿用上述「含 warm-up」範圍。
+- K／L／M 接戰快，warm-up 後可能只剩很少幀甚至 0 幀，此時尾端欄位為 null；需要時配對兩邊同樣縮短 `--warmup-ms`，並記錄 `frameSampleCount`。不同 runner 版本的 before-contact 尾端指標不可互相比較。
 - **報告**：記錄 commit、硬體、瀏覽器、電源狀態、viewport、run 數、每 run 的 `sampleCount`／`frameSampleCount`、GPU 支援狀態及失敗 run。各 run 數值差異大時列出每 run 值，不只報 median。
 
 ## 四門總守城戰（Town Commander V）
