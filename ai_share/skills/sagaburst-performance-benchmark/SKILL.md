@@ -33,6 +33,8 @@ E/F/G/H/I/K/L/M 使用 initial spectator；D–M（不含 J）均 no respawn、n
 
 - 一般窗口預設 warm-up 3 秒、觀察 20 秒。注意：目前 before-contact 從 recorder 啟動後收集所有接戰前合格樣本，含 warm-up；during-combat 才按 observationStart 過濾。比較必須使用相同 runner 版本與實際樣本範圍，不能把 before-contact 說成純 warm-up 後 20 秒。
 - **before-contact**：預設 3 runs 取 median。只採 `Alive=該場景 NPC 總數`、`Dead=0` 且未出現攻擊／投射物證據的 samples。解析端保留 spawn-plan provisional 標記，但目前啟動 gate 仍要求初始 Alive/Dead 及 Horse 數正確；缺這些 HUD 的舊版會失敗，不可宣稱自動相容。歷史 provisional 報表不能等同存活數驗證。
+- **版本 A/B 以 before-contact 為準**。during-combat 的戰況與鏡頭內人數每 run 不同，即使多 runs 也只能作 hotspot context，不能據此判定版本快慢或退步。
+- **before-contact 最低樣本數**：`sampleCount` 是 RuntimeProfiler 的 1 秒 snapshot 數。每 run 至少 5 個，且三份以上 run 的合計至少 15 個，才可作版本比較。K／L／M 一開場就衝鋒，接戰前常只剩 1–6 個；單 run 不足 5 個時增加 runs，直到合計達 15，並在報告標 `low-sample`、列出每 run 的 `sampleCount`／`frameSampleCount`。合計仍不足的場景只報數值，不下 A/B 結論。baseline 與 candidate 的樣本規則必須一致。
 - **during-combat**：預設 1 run 作 hotspot 探索。E 開場即混戰，其餘依 HUD 的 Active Attack／Arrow Count／Dead 等待戰鬥證據；逾時屬失敗，不能當量測值。
 - 明確指定 scenario 與 phase。不要直接使用預設 `all`／before-contact 把開場即混戰的 E 混進比較。
 - 保留成功／失敗狀態、sample count、Alive/Dead、Active Attack、errors 及 raw samples。缺內部 Mount profiler 的 baseline 使用 `--no-subphase`，缺值不得補成 0。
@@ -47,11 +49,34 @@ rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-ben
 rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/compare-benchmark.mjs --scenario=D --baseline=output/local-diagnostics/d-baseline.json --candidate=output/local-diagnostics/d-candidate.json
 ```
 
-compare script 計算 median、delta 與百分比，但不驗證兩份輸入的硬體、phase 或場景配置是否可比較；執行前先核對。比較必須同為 baseline/candidate 的配對窗口，不能把舊 PR 報表當當前 baseline。
+compare script 計算 median、delta 與百分比。兩份輸入的 phase、renderProbe、viewport（四門另含 faction、skipPreparation、warmup／observation 長度）不一致時直接失敗；`--allow-mismatch` 只供探索，不能作為驗收結論。硬體、瀏覽器、電源狀態與 commit 不會被檢核，執行前自行核對並記錄。比較必須同為 baseline/candidate 的配對窗口，不能把舊 PR 報表當當前 baseline。
+
+## 指標與判讀
+
+D–M runner 與四門 runner 都輸出以下欄位：
+
+| 欄位 | 定義 | 用途 |
+| --- | --- | --- |
+| `fps`／`cpuFrameMs`／`renderSubmitMs` | 取樣窗口內的 median | 版本比較的主指標 |
+| `frameIntervalP95Ms`／`frameIntervalP99Ms` | rAF frame interval 百分位 | 尾端延遲 |
+| `fps1PercentLow` | 最慢 1% frame interval 的平均換算 FPS | 頓挫感；樣本少時誤差大 |
+| `cpuFrameP95Ms`／`P99`、`renderSubmitP95Ms`／`P99` | 每幀 CPU 與 submit 的百分位 | 區分尖峰來自模擬或提交 |
+| `gpuRenderMedianMs`／`gpuRenderP95Ms`、`gpuRender` | `EXT_disjoint_timer_query_webgl2` 量到的 GPU 時間 | CPU／GPU bound 歸因 |
+| `frameSampleCount` | 參與百分位計算的幀數 | 尾端指標可信度 |
+
+- **CPU／GPU 歸因**：先看 `gpuRender.supported` 與 `reason`。不支援、`no-completed-queries` 或大量 `disjointSamples`／`droppedSamples` 時，GPU 欄位為 null，不得補 0 或改用 Renderer Submit 代替。GPU median 明顯低於 Renderer Submit 時屬 CPU 提交成本；接近或超過幀時間時才是 GPU bound。
+- **D–M 分段**：HUD 另有 NPC Grid／NPC Update／Mount／Impact／Collision／Arrow／Render Submit 等分段；新增分段的 runner 與缺分段的舊 baseline 比較時，缺值視為不可用。
+- **逐幀指標的取樣窗口**（`frameWindow`）：P95／P99／1% Low、CPU／submit 百分位與 GPU 欄位都只取 warm-up 結束後的幀；before-contact 另截止於最後一個未含戰鬥證據的 1 秒 snapshot（該 snapshot 涵蓋截至當時的幀，之後的幀可能已接戰）。GPU 樣本依 render 開始時間截到同一窗口；舊 build 的 GPU probe 沒有樣本時間戳時，before-contact 的 GPU 值為 null、`reason=no-sample-timestamps`。1 秒 snapshot 的 median 欄位仍沿用上述「含 warm-up」範圍。
+- K／L／M 接戰快，warm-up 後可能只剩很少幀甚至 0 幀，此時尾端欄位為 null；需要時配對兩邊同樣縮短 `--warmup-ms`，並記錄 `frameSampleCount`。不同 runner 版本的 before-contact 尾端指標不可互相比較。
+- **報告**：記錄 commit、硬體、瀏覽器、電源狀態、viewport、run 數、每 run 的 `sampleCount`／`frameSampleCount`、GPU 支援狀態及失敗 run。各 run 數值差異大時列出每 run 值，不只報 median。
 
 ## 四門總守城戰（Town Commander V）
 
-Town 沒有 `#dev-combat-status` profiler，改用 `four-gate-benchmark.mjs`：每 run 以全新 browser context 載入 DEV `?careerQa=commander-v`，量 preparation（守軍與平民已部署、攻方未生成）與 siege（按 H 跳過準備、攻方全員生成後）兩窗；指標為 rAF callback JS CPU、`renderer.render` 耗時（Renderer Submit）、frame interval FPS、`renderer.info` draw calls／triangles，並記錄雙方存活、任務守軍、平民在大廳數與平民最大位移。攻方生成與否以 `enemiesAlive === enemiesExpected` 驗證；任何 console／page error 即標成失敗。
+Town 沒有 `#dev-combat-status` profiler，改用 `four-gate-benchmark.mjs`：每 run 以全新 browser context 載入 DEV `?careerQa=commander-v`，量 preparation（守軍與平民已部署、攻方未生成）與 siege（按 H 跳過準備、攻方全員生成後）兩窗；指標為 rAF callback JS CPU、`renderer.render` 耗時（Renderer Submit）、frame interval FPS、上節的尾端與 GPU 欄位、`renderer.info` draw calls／triangles，並記錄雙方存活、任務守軍、平民在大廳數與平民最大位移。攻方生成與否以 `enemiesAlive === enemiesExpected` 驗證；任何 console／page error 即標成失敗。
+
+- `segments` 來自 DEV-only `TownDevProfiler`：`frameTotalMs`、`missionFlowMs`、`gridBuildMs`、`siegeMs`、`actorUpdateMs`、`collisionMs`、`shotsMs`、`persistMs`、`hudMs`，各含 median、P95 與 max。用來歸因 siege 窗非 render 的 CPU 成本。
+- `saves` 記錄取樣窗內每次存檔的 parse／clone／stringify／setItem 耗時與位元組（count、median、max）。判斷存檔是否造成尖峰時，比對 save 次數與 `persistMs` max。
+- 守城人口不固定時（守方戰損、攻方部署進度），比較前先核對兩邊 siege 開始時的雙方存活數。
 
 ```sh
 rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/four-gate-benchmark.mjs --host=localhost:PORT --runs=3 --tag=baseline --out=output/local-diagnostics/four-gate-baseline.json
