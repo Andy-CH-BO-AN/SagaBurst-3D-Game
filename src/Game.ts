@@ -166,7 +166,7 @@ import { createTerrain, EntityCollisionBody, getScenePlayableWorldBound, getTerr
 import { WeaponPickup } from './world/WeaponPickup'
 import { XongkoroVisual } from './world/XongkoroVisual'
 import { coopSession } from './coop/CoopLink'
-import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeer, type CoopGamePort } from './coop/CoopMission'
+import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeers, type CoopGamePort } from './coop/CoopMission'
 import { announceCoopTownReturn, coopGuestCharacterAssets, coopGuestOwnSquad, coopGuestPlayerSource, isCoopGuestLaunch, showCoopGuestEnd, type CoopPlayerSource } from './coop/CoopLaunch'
 
 const NO_PROJECTILE_RECEIVERS: readonly DamageReceiver[] = []
@@ -5686,7 +5686,7 @@ export class Game {
     // 5. Entity Collision
     if (profile) t0 = performance.now()
     this._resolveEntityCollisions()
-    separateLocalPlayerFromPeer(this.player, this.coopHost?.guestProxy ?? this.coopGuest?.hostAvatar, this.obstacles)
+    separateLocalPlayerFromPeers(this.player, this.coopHost?.guestProxies ?? this.coopGuest?.peerBodies ?? [], this.obstacles)
     settleRiverCrossingDrowning(this.player, this.npcs, this.mounts, this.hpBar)
     const collisionMs = profile ? performance.now() - t0 : 0
 

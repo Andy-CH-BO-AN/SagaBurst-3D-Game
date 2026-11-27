@@ -11,7 +11,7 @@ import { addCareerItem } from '../../src/career/CareerInventory'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { applyCoopRaceAward, parseCoopRaceAward } from '../../src/coop/CoopRaceAward'
-import { canEnterRace, coopGuestWinsRace, advanceRaceClock, advanceRaceRider, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance, type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
+import { canEnterRace, coopGuestRaceWinner, advanceRaceClock, advanceRaceRider, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance, type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
 import { RACE_START_SLOTS, RACE_LINES, raceWaypoints, raceMovementIsLegal, illegalTownCrossing, raceMountPoseLegal, resolveRaceMountSpawn, type RacePosition } from '../../src/career/CareerRaceRoute'
 import { collideMountBody, settleMountOnTerrain } from '../../src/world/MountGroundBody'
 import { architectureSpec, DEEP } from '../../src/town/architecture/ArchitectureSpecs'
@@ -201,14 +201,14 @@ describe('Mounted race outcome ownership', () => {
     cross(s3.opponent, pos(0, -120), pos(0, -110), 85); resolveRace(s3)
     expect(s3.opponent.finishSeconds).toBe(84.5); expect(s3.phase).toBe('result')
   })
-  it('rewards a co-op guest only for the fastest legal finish, once, in its own save', () => {
+  it('rewards only the fastest co-op guest for a legal finish ahead of every rider, once, in its own save', () => {
     const s = session(); s.phase = 'racing'; s.id = 'host-race-session-1'
     s.opponent.finishSeconds = 70
-    expect(coopGuestWinsRace(s, 72)).toBe(false)
-    expect(coopGuestWinsRace(s, 69)).toBe(true)
+    expect(coopGuestRaceWinner(s, [{ seat: 1, seconds: 72 }, { seat: 2, seconds: undefined }])).toBeNull()
+    expect(coopGuestRaceWinner(s, [{ seat: 1, seconds: 69.5 }, { seat: 3, seconds: 69 }])?.seat).toBe(3)
     s.player.finishSeconds = 68
-    expect(coopGuestWinsRace(s, 69)).toBe(false)
-    expect(coopGuestWinsRace(s, undefined)).toBe(false)
+    expect(coopGuestRaceWinner(s, [{ seat: 3, seconds: 69 }])).toBeNull()
+    expect(coopGuestRaceWinner(s, [])).toBeNull()
 
     const guest = profile(), before = guest.totalMerit
     const award = parseCoopRaceAward({ sessionId: s.id, raceId: s.raceId, scheduleVersion: s.scheduleVersion, guestSeconds: 69, opponentSeconds: 70 })!

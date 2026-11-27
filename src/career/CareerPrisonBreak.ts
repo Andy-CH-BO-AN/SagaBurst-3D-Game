@@ -25,6 +25,12 @@ export const PRISON_SWORD_COUNT = 6
  * part of the saved roster (it always rejoins fresh), so its liveness is judged by the host scene.
  */
 export const PRISON_COOP_PARTNER = 'coop-partner'
+/**
+ * A co-op guest's prisoner id by hub seat: seat 1 keeps the original `coop-partner` (saves already hold it),
+ * seats 2 and 3 are `coop-partner-2` / `coop-partner-3`.
+ */
+export function prisonCoopPartnerId(seat: number): string { return seat <= 1 ? PRISON_COOP_PARTNER : `${PRISON_COOP_PARTNER}-${seat}` }
+export function isPrisonCoopPartner(actorId: string): boolean { return actorId === PRISON_COOP_PARTNER || /^coop-partner-[23]$/.test(actorId) }
 export interface PrisonBreakState {
   version: 2
   /** Absent for captures that already committed to the original five guards. */
@@ -106,7 +112,7 @@ export function beginPrisonBreak(profile: CareerProfile, missionId = profile.act
 export function claimPrisonSword(state: PrisonBreakState, index: number, actorId: string): PrisonBreakState | null {
   if (state.stage !== 'escape' || !Number.isInteger(index) || index < 0 || index >= PRISON_SWORD_COUNT
     || state.swords[index] !== undefined || Object.values(state.swords).includes(actorId)) return null
-  if (actorId === PRISON_COOP_PARTNER) return { ...structuredClone(state), swords: { ...state.swords, [index]: actorId } }
+  if (isPrisonCoopPartner(actorId)) return { ...structuredClone(state), swords: { ...state.swords, [index]: actorId } }
   if (actorId === 'player' ? state.combat.player?.knocked : !prisonRoster(state).some(entry => entry.team === 'friendly' && entry.actorId === actorId)
     || state.combat.actors[actorId]?.status === 'knocked') return null
   return { ...structuredClone(state), swords: { ...state.swords, [index]: actorId } }
@@ -126,7 +132,7 @@ export function prisonOutcome(progress: { playerDead: boolean; friendlyAlive: nu
 function livingPrisonEscaper(state: PrisonBreakState, escapedBy: string | undefined): boolean {
   if (!escapedBy) return false
   // The host scene settles a partner escape only while the partner's live body crossed.
-  if (escapedBy === PRISON_COOP_PARTNER) return true
+  if (isPrisonCoopPartner(escapedBy)) return true
   if (escapedBy === 'player') return Boolean(state.combat.player && !state.combat.player.knocked)
   return prisonRoster(state).some(entry => entry.team === 'friendly' && entry.actorId === escapedBy)
     && state.combat.actors[escapedBy]?.status === 'active'
@@ -178,7 +184,7 @@ export function parsePrisonBreakState(value: unknown, mission: ActiveCareerMissi
   const combat = parseArenaTrialState(raw.combat, { friendlyActorIds, targetActorIds })
   if (!combat || combat.tier !== spec.tier || combat.arenaId !== (raw.captor === 'roman' ? 'roman-colosseum' : 'viking-valhalla')) return undefined
   const swords = Object.entries(raw.swords)
-  if (swords.some(([i, owner]) => !/^[0-5]$/.test(i) || owner !== 'player' && owner !== PRISON_COOP_PARTNER && !friendlyActorIds.includes(owner))
+  if (swords.some(([i, owner]) => !/^[0-5]$/.test(i) || owner !== 'player' && !isPrisonCoopPartner(owner) && !friendlyActorIds.includes(owner))
     || new Set(swords.map(([,owner]) => owner)).size !== swords.length) return undefined
   if (combat.stage === 'engaged' && (!combat.player || roster.some(e => !combat.actors[e.actorId]))) return undefined
   if (raw.stage === 'captured' && (combat.stage !== 'deploying' || raw.gateOpen || swords.length > 0 || combat.player)) return undefined

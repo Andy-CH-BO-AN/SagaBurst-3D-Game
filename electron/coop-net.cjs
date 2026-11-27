@@ -2,12 +2,23 @@
 // and lets a secure sagaburst:// page reach plain ws:// LAN peers through IPC.
 const { ipcMain } = require('electron')
 const WebSocket = require('ws')
-const { DEFAULT_COOP_PORT, lanAddresses, startHub } = require('./coop-hub.cjs')
+const { randomUUID } = require('node:crypto')
+const { COOP_CLOSE_FULL, COOP_CLOSE_VERSION, COOP_HUB_VERSION, COOP_MAX_GUESTS, DEFAULT_COOP_PORT, lanAddresses, startHub } = require('./coop-hub.cjs')
+
+/** Why the hub refused this page, in the words the lobby shows. */
+function closeReason(code) {
+  if (code === COOP_CLOSE_FULL) return `房間已滿（最多 ${COOP_MAX_GUESTS + 1} 人）`
+  if (code === COOP_CLOSE_VERSION) return '主機與這台電腦的遊戲版本不同，請更新到同一版本'
+  return null
+}
 
 function installCoopNet(getWindow) {
   let hub = null
   let socket = null
-  let state = { role: null, status: 'idle', address: null, port: DEFAULT_COOP_PORT, error: null }
+  // seat/peers follow the hub's notices, so a renderer reloaded mid-session still knows its seat and room.
+  let state = { role: null, status: 'idle', address: null, port: DEFAULT_COOP_PORT, error: null, seat: null, peers: [] }
+  // This app's guest reconnect key: the hub gives a rejoining page its previous seat.
+  const seatKey = randomUUID()
 
   const emit = (channel, ...args) => {
     const window = getWindow()
@@ -31,7 +42,7 @@ function installCoopNet(getWindow) {
     const oldHub = hub
     hub = null
     if (oldHub) await oldHub.close()
-    setState({ role: null, status: 'idle', address: null, error: null })
+    setState({ role: null, status: 'idle', address: null, error: null, seat: null, peers: [] })
     settlePending()
   }
   // The newest in-flight hub start; a superseded owner closes its hub before it settles, so the next host can reuse the port.
@@ -50,25 +61,38 @@ function installCoopNet(getWindow) {
   const leave = () => { epoch++; return teardown() }
   const connect = (url, role, address, port) => new Promise(resolve => {
     closeSocket()
-    const next = new WebSocket(`${url}/?role=${role}`)
+    const next = new WebSocket(`${url}/?role=${role}&v=${COOP_HUB_VERSION}&key=${seatKey}`)
     socket = next
-    setState({ role, status: 'connecting', address, port, error: null })
+    setState({ role, status: 'connecting', address, port, error: null, seat: null, peers: [] })
     settlePending()
     settleConnect = () => resolve(snapshot())
     next.on('open', () => { if (socket === next) { setState({ status: 'connected' }); resolve(snapshot()) } })
     next.on('message', (data, isBinary) => {
       if (socket !== next) return
-      if (isBinary) emit('coop:message', new Uint8Array(data))
-      else emit('coop:message', data.toString())
+      if (isBinary) { emit('coop:message', new Uint8Array(data)); return }
+      const text = data.toString()
+      if (text.startsWith('h')) trackHub(text)
+      emit('coop:message', text)
     })
     next.on('error', error => { if (socket === next) setState({ error: String(error?.message ?? error) }) })
-    next.on('close', () => {
+    next.on('close', code => {
       if (socket !== next) return
       socket = null
-      setState({ status: 'closed' })
+      const reason = closeReason(code)
+      setState({ status: 'closed', seat: null, peers: [], ...(reason ? { error: reason } : {}) })
       resolve(snapshot())
     })
   })
+
+  const trackHub = text => {
+    let notice
+    try { notice = JSON.parse(text.slice(1)) } catch { return }
+    const seat = Number(notice?.seat)
+    if (!Number.isInteger(seat)) return
+    if (notice.event === 'welcome') state = { ...state, seat, peers: Array.isArray(notice.peers) ? notice.peers.filter(Number.isInteger) : [] }
+    else if (notice.event === 'peer-joined' && !state.peers.includes(seat)) state = { ...state, peers: [...state.peers, seat] }
+    else if (notice.event === 'peer-left') state = { ...state, peers: state.peers.filter(peer => peer !== seat) }
+  }
 
   ipcMain.handle('coop:status', () => snapshot())
   ipcMain.handle('coop:host', async (_event, port) => {

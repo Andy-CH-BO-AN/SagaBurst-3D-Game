@@ -23,10 +23,10 @@ export function checkpointArenaActors(ids: readonly string[], bodies: readonly A
   return actors
 }
 
-/** Live team counts; a living co-op partner is one more friendly body, so the team falls only when both players are down. */
+/** Live team counts; each living co-op partner is one more friendly body, so the team falls only when every player is down. */
 export function arenaCombatCounts(mission: Pick<ActiveCareerMission, 'friendlyActorIds' | 'targetActorIds'>, bodies: readonly { actorId: string; npc: { dead: boolean } }[],
-  knocked: ReadonlySet<string>, playerDown: boolean, partnerAlive: boolean): ArenaTrialCounts {
+  knocked: ReadonlySet<string>, playerDown: boolean, partnersAlive: number): ArenaTrialCounts {
   const counts = arenaTrialCounts(mission, { actors: {}, player: { knocked: playerDown } as never },
     new Set([...knocked, ...bodies.filter(body => body.npc.dead).map(body => body.actorId)]))
-  return partnerAlive ? { ...counts, friendlyActive: counts.friendlyActive + 1 } : counts
+  return partnersAlive > 0 ? { ...counts, friendlyActive: counts.friendlyActive + partnersAlive } : counts
 }

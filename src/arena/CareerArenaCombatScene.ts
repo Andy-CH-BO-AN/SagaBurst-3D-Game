@@ -6,9 +6,9 @@ import * as THREE from 'three'
 import { ArenaOpeningGate, type ArenaOpeningHost, type ArenaPhase } from './ArenaOpeningGate'
 import { arenaCombatCounts, checkpointArenaActors } from './ArenaCombatProgress'
 import { PrisonBreakProps } from './PrisonBreakProps'
-import { PrisonBreakEncounter, type PrisonBreakHost } from './PrisonBreakEncounter'
+import { PrisonBreakEncounter, type PrisonBreakHost, type PrisonPickupRequest } from './PrisonBreakEncounter'
 import { PickupPrompt } from '../ui/PickupPrompt'
-import { prisonGuardCount, prisonRoster, prisonUnitSpec, prisonResultDescription, PRISON_COOP_PARTNER, PRISON_SWORD_ID } from '../career/CareerPrisonBreak'
+import { prisonCoopPartnerId, prisonGuardCount, prisonRoster, prisonUnitSpec, prisonResultDescription, PRISON_SWORD_ID } from '../career/CareerPrisonBreak'
 import { InventoryManager } from '../rpg/InventoryManager'
 
 import { arenaCombatPreloadPlan, loadArenaCombatAssets } from './ArenaCombatPreloadPlan'
@@ -73,7 +73,7 @@ import { MOUNT_BODY_HEIGHT, MOUNT_MOVEMENT_RADIUS } from '../world/MountGroundBo
 import { resolveEntityCollision, type ObstacleData } from '../world/Terrain'
 import { coopSession, type CoopSession } from '../coop/CoopLink'
 import { announceCoopScene, coopGuestCharacterAssets, coopGuestPlayerSource, isCoopGuestLaunch, showCoopGuestEnd, type CoopPlayerSource } from '../coop/CoopLaunch'
-import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeer, type CoopGamePort } from '../coop/CoopMission'
+import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeers, type CoopGamePort } from '../coop/CoopMission'
 
 const RESUME_GRACE_SECONDS = 3
 
@@ -186,15 +186,15 @@ export class CareerArenaCombatScene {
   /** This page mirrors the host's encounter; known before the guest bridge exists. */
   private readonly coopGuestPage = isCoopGuestLaunch()
   private readonly coopUnsubscribe: Array<() => void> = []
-  /** Host: prison swords the guest asked for, claimed in the frame like the player's own. */
-  private readonly coopPickupRequests: number[] = []
+  /** Host: prison swords guests asked for (by seat), claimed in the frame like the player's own. */
+  private readonly coopPickupRequests: PrisonPickupRequest[] = []
   private coopPrisonKey = ''
   private coopPrisonClock = 0
-  /** Host: the guest proxy's position before this frame, for the exit crossing. */
-  private previousPartnerPosition: THREE.Vector3 | null = null
+  /** Host: each guest proxy's position before this frame, for the exit crossing. */
+  private readonly previousPartnerPositions = new Map<NPC, THREE.Vector3>()
   private get playerProfile(): CareerProfile { return this.coopPlayerSource?.read() ?? this.profile }
-  /** Whose prison sword this page's Player holds: the host's own, or the co-op partner's. */
-  private get prisonSwordOwner(): string { return this.coopGuestPage ? PRISON_COOP_PARTNER : 'player' }
+  /** Whose prison sword this page's Player holds: the host's own, or this guest seat's. */
+  private get prisonSwordOwner(): string { return this.coopGuestPage ? prisonCoopPartnerId(coopSession().seat ?? 1) : 'player' }
   private commitPlayerProfile(next: CareerProfile): boolean { return this.coopPlayerSource ? this.coopPlayerSource.commit(next) : this.commit(next) }
 
   /** Ordinary trials keep dev's shared save/session owner; prison has a different fixed-reward receipt. */
@@ -474,8 +474,8 @@ export class CareerArenaCombatScene {
   private listenPrisonCoop(session: CoopSession, role: 'host' | 'guest'): void {
     this.coopUnsubscribe.push(role === 'guest'
       ? session.on('prisonState', message => { if (!this.disposed) this.encounter?.applyCoopState(message) })
-      : session.on('prisonPickup', message => {
-        if (this.phase === 'fight' && Number.isInteger(message.index) && this.coopPickupRequests.length < 4) this.coopPickupRequests.push(message.index as number)
+      : session.on('prisonPickup', (message, from) => {
+        if (this.phase === 'fight' && Number.isInteger(message.index) && this.coopPickupRequests.length < 12) this.coopPickupRequests.push({ seat: from, index: message.index as number })
       }))
   }
 
@@ -495,8 +495,13 @@ export class CareerArenaCombatScene {
     this.elapsed += dt
     // Co-op bridge: after the freezes above, so a paused trial never advances for the guest either.
     if (this.coopHost) {
-      const partner = this.coopPartner
-      this.previousPartnerPosition = partner ? (this.previousPartnerPosition ?? new THREE.Vector3()).copy(partner.combatPosition) : null
+      const partners = this.coopPartners
+      for (const npc of this.previousPartnerPositions.keys()) if (!partners.includes(npc)) this.previousPartnerPositions.delete(npc)
+      for (const npc of partners) {
+        const previous = this.previousPartnerPositions.get(npc)
+        if (previous) previous.copy(npc.combatPosition)
+        else this.previousPartnerPositions.set(npc, npc.combatPosition.clone())
+      }
       this.coopHost.update(dt); this.updateCoopArrows(dt); this.syncCoopPrison(dt)
     }
     const fighting = this.phase === 'fight'
@@ -515,7 +520,7 @@ export class CareerArenaCombatScene {
     }
     this.updateBodies(dt)
     if (fighting) { this.melee(); this.resolveBodies(); this.mountImpacts(); this.encounter?.pickupSwords(pickupPressed) }
-    separateLocalPlayerFromPeer(this.player, this.coopHost?.guestProxy, this.arena.obstacles)
+    separateLocalPlayerFromPeers(this.player, this.coopHost?.guestProxies ?? [], this.arena.obstacles)
     if (this.pickupRetry) return
     // A living teammate who has already crossed wins before any in-flight shot
     // can hit them later in this frame. A rejected receipt freezes this same crossing.
@@ -543,7 +548,7 @@ export class CareerArenaCombatScene {
     this.openingHud.update(this.phase, this.opening.remaining)
     this.hud.update({
       phase: this.prison ? null : this.phase, label: ARENA_TRIAL_DEFINITIONS[this.trial.tier].label,
-      friendly: { active: this.counts().friendlyActive + (this.player.dead ? 0 : 1), total: this.mission.friendlyActorIds.length + 1 + (this.coopHost?.guestProxy ? 1 : 0) },
+      friendly: { active: this.counts().friendlyActive + (this.player.dead ? 0 : 1), total: this.mission.friendlyActorIds.length + 1 + (this.coopHost?.guestProxies.length ?? 0) },
       enemy: { active: this.counts().enemyActive, total: this.mission.targetActorIds.length },
       remainingSeconds: ARENA_TRIAL_TIME_LIMIT_SECONDS - this.combatElapsed, playerKnocked: this.player.dead })
   }
@@ -560,13 +565,12 @@ export class CareerArenaCombatScene {
   }
 
   private counts() {
-    return arenaCombatCounts(this.mission, this.bodies, this.knocked, this.player.dead, Boolean(this.coopPartner))
+    return arenaCombatCounts(this.mission, this.bodies, this.knocked, this.player.dead, this.coopPartners.length)
   }
 
-  /** Host: the guest's living proxy fighting on the player's team. */
-  private get coopPartner(): NPC | null {
-    const proxy = this.coopHost?.guestProxy
-    return proxy && !proxy.dead ? proxy : null
+  /** Host: the guests' living proxies fighting on the player's team. */
+  private get coopPartners(): NPC[] {
+    return this.coopHost?.guestProxies.filter(proxy => !proxy.dead) ?? []
   }
 
   /** The bodies this player's own attacks may strike: enemy bodies, or on a co-op guest the host's marked targets. */
@@ -600,8 +604,7 @@ export class CareerArenaCombatScene {
     // Same per-frame topology sync and path-search budget reset as Town; without it the budget never refills.
     this.navigation.sync(this.arena.obstacles)
     this.navigation.beginFrame()
-    const partner = this.coopPartner
-    const live = [...this.bodies.filter(body => !body.npc.dead).map(body => body.npc), ...(partner ? [partner] : [])]
+    const live = [...this.bodies.filter(body => !body.npc.dead).map(body => body.npc), ...this.coopPartners]
     for (const body of this.bodies) {
       const { npc } = body
       body.previousPosition.copy(npc.combatPosition)
@@ -647,8 +650,7 @@ export class CareerArenaCombatScene {
       body.marker.visible = !body.npc.dead
       if (body.marker.visible) body.marker.position.set(body.npc.group.position.x, body.npc.group.position.y + 2.5, body.npc.group.position.z)
     }
-    const partner = this.coopHost?.guestProxy
-    this.syncCoopMarkers(partner ? [[partner, 'friendly']] : [])
+    this.syncCoopMarkers((this.coopHost?.guestProxies ?? []).map(partner => [partner, 'friendly'] as const))
   }
 
   /** Same diamond markers for co-op bodies: the partner on the host; the guest's mirrors by their marked side. */
@@ -793,11 +795,11 @@ export class CareerArenaCombatScene {
       const { from } = step
       const shooterTeam = shot.player ? 'friendly' : shot.source!.faction === Faction.ENEMY ? 'enemy' : 'friendly'
       const playerMount = this.player.currentMount
-      const partner = shooterTeam === 'enemy' ? this.coopPartner : null
+      const partners = shooterTeam === 'enemy' ? this.coopPartners : []
       const targets: (Player | NPC | Mount)[] = [
         ...this.bodies.filter(body => body.team !== shooterTeam && !body.npc.dead).map(body => body.npc),
         ...(shooterTeam === 'enemy' && !this.player.dead ? [this.player, ...(playerMount && !playerMount.dead ? [playerMount] : [])] : []),
-        ...(partner ? [partner] : []),
+        ...partners,
         ...(this.coopGuest && shot.player ? this.enemyTargets() : []),
       ]
       const hit = this.shotContacts.find(from, step.to, {
@@ -937,7 +939,10 @@ export class CareerArenaCombatScene {
       guards: () => { const counts = this.counts(); return { total: this.mission.targetActorIds.length, standing: counts.enemyActive, friendlyAlive: counts.friendlyActive } },
       bodies: () => this.bodies,
       player: () => ({ position: this.player.position, previousPosition: this.previousPlayerPosition, dead: this.player.dead }),
-      partner: () => { const npc = this.coopPartner; return npc ? { combatPosition: npc.combatPosition, previousPosition: this.previousPartnerPosition } : null },
+      partners: () => this.coopPartners.flatMap(npc => {
+        const seat = this.coopHost?.seatOf(npc)
+        return seat == null ? [] : [{ seat, combatPosition: npc.combatPosition, previousPosition: this.previousPartnerPositions.get(npc) ?? null }]
+      }),
       takePartnerRequests: () => this.coopHost ? this.coopPickupRequests.splice(0) : [],
       inputLocked: () => this.input.isLocked,
       cameraYaw: () => this.orbit.cameraYaw,
@@ -1216,7 +1221,7 @@ export class CareerArenaCombatScene {
     const guest = this.coopGuest!
     guest.updateWorld(dt)
     this.resolveBodies()
-    separateLocalPlayerFromPeer(this.player, guest.hostAvatar, this.arena.obstacles)
+    separateLocalPlayerFromPeers(this.player, guest.peerBodies, this.arena.obstacles)
     this.melee()
     this.mountImpacts()
     // A sword pickup is a request; the host claims it and the next prison state arms this Player.

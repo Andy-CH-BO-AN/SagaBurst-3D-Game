@@ -1,7 +1,7 @@
 import type { Vector3 } from 'three'
 import { commitPrisonBreakReturn, type MissionReturnHome } from '../career/CareerMissionReturnRecovery'
 import {
-  claimPrisonSword, crossedPrisonExit, prisonOutcome, prisonTaunt, settlePrisonBreak, PRISON_COOP_PARTNER, PRISON_SWORD_ID,
+  claimPrisonSword, crossedPrisonExit, isPrisonCoopPartner, prisonCoopPartnerId, prisonOutcome, prisonTaunt, settlePrisonBreak, PRISON_SWORD_ID,
   type PrisonBreakState,
 } from '../career/CareerPrisonBreak'
 import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
@@ -35,13 +35,15 @@ export interface PrisonBody {
   readonly npc: Pick<NPC, 'dead' | 'combatPosition' | 'battlefieldUnarmed' | 'applyCareerEquipment' | 'setTacticalOrder'>
 }
 export interface PrisonPlayerView { readonly position: Vector3; readonly previousPosition: Vector3; readonly dead: boolean }
-export interface PrisonPartnerView { readonly combatPosition: Vector3; readonly previousPosition: Vector3 | null }
+export interface PrisonPartnerView { readonly seat: number; readonly combatPosition: Vector3; readonly previousPosition: Vector3 | null }
+/** A co-op guest's sword pickup, by its hub seat. */
+export interface PrisonPickupRequest { readonly seat: number; readonly index: number }
 interface PendingSettlement { readonly outcome: CareerMissionOutcome; readonly escapedBy?: string; readonly player: PlayerBattleStats }
 
 /** What the encounter needs from the arena scene: saves, pause UI, bodies and the few visible surfaces. */
 export interface PrisonBreakHost {
   readonly arenaId: DuelArenaId
-  /** 'player' on the host page, the co-op partner on a guest page. */
+  /** 'player' on the host page, this guest's prisoner id (`prisonCoopPartnerId`) on a guest page. */
   readonly swordOwner: string
   readonly props: PrisonBreakPropsPort
   readonly hud: { hidden: boolean; textContent: string | null }
@@ -64,8 +66,9 @@ export interface PrisonBreakHost {
   guards(): { total: number; standing: number; friendlyAlive: number }
   bodies(): readonly PrisonBody[]
   player(): PrisonPlayerView
-  partner(): PrisonPartnerView | null
-  takePartnerRequests(): number[]
+  /** The living co-op partners (host page). */
+  partners(): readonly PrisonPartnerView[]
+  takePartnerRequests(): PrisonPickupRequest[]
   inputLocked(): boolean
   cameraYaw(): number
   /** The host re-sends its prison state to the guest at once. */
@@ -135,10 +138,10 @@ export class PrisonBreakEncounter {
       const owner = selected?.target === mesh ? 'player' : npc?.actorId
       if (owner && !this.equipSword(i, owner)) return
     }
-    for (const index of host.takePartnerRequests()) {
-      const partner = host.partner(), mesh = host.props.swords[index]
+    for (const { seat, index } of host.takePartnerRequests()) {
+      const partner = host.partners().find(view => view.seat === seat), mesh = host.props.swords[index]
       if (!partner || !mesh?.visible || mesh.position.distanceTo(partner.combatPosition) > COOP_PRISON_PICKUP_RANGE) continue
-      if (!this.equipSword(index, PRISON_COOP_PARTNER)) return
+      if (!this.equipSword(index, prisonCoopPartnerId(seat))) return
     }
   }
 
@@ -152,7 +155,7 @@ export class PrisonBreakEncounter {
     host.props.syncSwords(claimed)
     if (owner === 'player') this.armPlayer()
     // The guest arms itself from the next prison state, sent at once.
-    else if (owner === PRISON_COOP_PARTNER) host.resyncCoop()
+    else if (isPrisonCoopPartner(owner)) host.resyncCoop()
     else {
       const npc = host.bodies().find(body => body.actorId === owner)!.npc
       npc.battlefieldUnarmed = false
@@ -202,13 +205,13 @@ export class PrisonBreakEncounter {
       && crossedPrisonExit(host.arenaId, half(body.previousPosition), half(body.npc.combatPosition)))
     const player = host.player()
     const playerCrossed = !player.dead && crossedPrisonExit(host.arenaId, player.previousPosition, player.position)
-    // The co-op partner is one more living prisoner: its proxy crossing the exit frees the team.
-    const partner = host.partner()
-    const partnerCrossed = Boolean(partner?.previousPosition && crossedPrisonExit(host.arenaId, half(partner.previousPosition), half(partner.combatPosition)))
+    // Each co-op partner is one more living prisoner: its proxy crossing the exit frees the team.
+    const partner = host.partners().find(view => view.previousPosition && crossedPrisonExit(host.arenaId, half(view.previousPosition), half(view.combatPosition)))
+    const partnerCrossed = Boolean(partner)
     const result = prisonOutcome({ playerDead: player.dead, friendlyAlive: host.guards().friendlyAlive,
       gateOpen: this.state.gateOpen, playerCrossed, friendlyCrossed: Boolean(friend) || partnerCrossed })
     if (!result) return false
-    this.finish(result, playerCrossed ? 'player' : friend?.actorId ?? (partnerCrossed ? PRISON_COOP_PARTNER : undefined))
+    this.finish(result, playerCrossed ? 'player' : friend?.actorId ?? (partner ? prisonCoopPartnerId(partner.seat) : undefined))
     return true
   }
 
@@ -258,7 +261,7 @@ export class PrisonBreakEncounter {
     this.guestFighting = message.fight === true
     const opening = message.gateOpen && !prison.gateOpen
     if (!opening && JSON.stringify(swords) === JSON.stringify(prison.swords)) return
-    const armed = !Object.values(prison.swords).includes(PRISON_COOP_PARTNER) && Object.values(swords).includes(PRISON_COOP_PARTNER)
+    const armed = !Object.values(prison.swords).includes(host.swordOwner) && Object.values(swords).includes(host.swordOwner)
     const next = cloneCareerProfile(host.profile()), state = next.activeMission!.prisonBreak!
     state.swords = swords
     state.gateOpen ||= message.gateOpen

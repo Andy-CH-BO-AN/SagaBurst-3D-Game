@@ -193,11 +193,18 @@ export function raceRecordProfile(profile: CareerProfile, session: CareerRaceSes
   }
   return next
 }
-/** LAN co-op: a guest's legal finish beats both the player's and the opponent's; only then is the race the guest's. */
-export function coopGuestWinsRace(session: CareerRaceSession, guestSeconds: number | undefined): boolean {
-  return !session.result && guestSeconds !== undefined
-    && (session.player.finishSeconds === undefined || guestSeconds < session.player.finishSeconds)
-    && (session.opponent.finishSeconds === undefined || guestSeconds < session.opponent.finishSeconds)
+/**
+ * LAN co-op: the guest whose legal finish beats every other guest's, the player's and the opponent's;
+ * only then is the race that guest's. Null while nobody qualifies or once the race is decided.
+ */
+export function coopGuestRaceWinner<T extends { seconds: number | undefined }>(session: CareerRaceSession, guests: readonly T[]): T | null {
+  if (session.result) return null
+  let best: T | null = null
+  for (const guest of guests) if (guest.seconds !== undefined && (!best || guest.seconds < best.seconds!)) best = guest
+  if (!best) return null
+  const seconds = best.seconds!
+  return (session.player.finishSeconds === undefined || seconds < session.player.finishSeconds)
+    && (session.opponent.finishSeconds === undefined || seconds < session.opponent.finishSeconds) ? best : null
 }
 export function lockRace(session: CareerRaceSession, result: RaceOutcome, reason: string): void {
   if (session.result) return

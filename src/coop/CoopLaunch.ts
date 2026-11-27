@@ -1,8 +1,8 @@
 /**
- * Mission hand-off between the two pages.
+ * Mission hand-off between the host page and its guests.
  *
  * Host: every Career combat launch is announced with the launch config and a
- * copy of the host's saves, so the guest can build the identical scene.
+ * copy of the host's saves, so each guest can build the identical scene.
  * Guest: the announcement is parked in sessionStorage and the page reloads into
  * it. While it runs, game saves live only in memory and the guest's own
  * sessionStorage is backed up, then restored when the guest leaves.
@@ -28,7 +28,7 @@ const HOST_TOWN_RETURN_KEY = 'sagaburst_coop_town_return'
 const COOP_SESSION_KEYS = new Set([GUEST_LAUNCH_KEY, GUEST_SESSION_BACKUP_KEY, GUEST_RESTORE_KEY, HOST_TOWN_RETURN_KEY, 'sagaburst_coop_link'])
 const SHARED_LOCAL_KEYS = [CAREER_STORAGE_KEY, SAVE_KEY, DEFENSE_CAMPAIGN_PROGRESS_STORAGE_KEY]
 
-/** The host scene the guest mirrors: a Game battlefield, the Career Town, a duel arena, an Arena Squad Trial or a prison break. */
+/** The host scene the guests mirror: a Game battlefield, the Career Town, a duel arena, an Arena Squad Trial or a prison break. */
 export type CoopSceneKind = 'game' | 'town' | 'arena' | 'trial' | 'prison'
 const COOP_SCENES: ReadonlySet<string> = new Set<CoopSceneKind>(['game', 'town', 'arena', 'trial', 'prison'])
 
@@ -81,10 +81,10 @@ export function parseCoopLaunchPayload(value: unknown): CoopLaunchPayload | null
 let hostLaunch: CoopLaunchPayload | null = null
 let hostListening = false
 
-/** Host: record the mission the guest should join, and send it if a guest is there. */
+/** Host: record the mission the guests should join, and send it to every guest that is there. */
 export function announceCoopLaunch(config: CareerCombatLaunch): void { announceCoopScene('game', config) }
 
-/** Host: the guest follows into this scene (Town and arenas are announced by their entry). */
+/** Host: every guest follows into this scene (Town and arenas are announced by their entry). */
 export function announceCoopScene(scene: CoopSceneKind, config?: CareerCombatLaunch): void {
   const link = coopSession()
   if (!link.isHost) return
@@ -100,8 +100,9 @@ export function announceCoopScene(scene: CoopSceneKind, config?: CareerCombatLau
   if (!hostListening) {
     hostListening = true
     // A guest that (re)joins or reloads says hello; give it the running mission.
-    link.on('hello', () => { if (hostLaunch) link.send({ t: 'launch', payload: hostLaunch }) })
+    link.on('hello', (_message, from) => { if (hostLaunch) link.send({ t: 'launch', payload: hostLaunch }, from) })
   }
+  // Every guest in the room follows.
   link.send({ t: 'launch', payload: hostLaunch })
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CoopSession, DEFAULT_COOP_PORT, parseCoopAddress, type CoopBridge, type CoopLinkState } from '../../src/coop/CoopLink'
+import { connectedCoopSession } from '../helpers/coopBridgeDouble'
 
 describe('Co-op host address input', () => {
   it('accepts a bare IP or a pasted hub/page address without doubling the port, and rejects junk', () => {
@@ -16,30 +17,17 @@ describe('Co-op host address input', () => {
 })
 
 describe('Co-op session handshake', () => {
-  it('says hello when joining a room the host is already in, so the host re-sends its scene', async () => {
-    const sent: unknown[] = []
-    let deliver: (data: string) => void = () => {}
-    let publish: (state: CoopLinkState) => void = () => {}
-    const connected: CoopLinkState = { role: 'guest', status: 'connected', address: '172.20.10.4', port: DEFAULT_COOP_PORT, error: null }
-    const bridge: CoopBridge = {
-      status: async () => ({ ...connected, status: 'idle', role: null }),
-      host: async () => connected,
-      join: async () => { publish(connected); return connected },
-      leave: async () => {},
-      send: data => { sent.push(JSON.parse(String(data))) },
-      onMessage: listener => { deliver = data => listener(data); return () => {} },
-      onState: listener => { publish = listener; return () => {} },
-    }
-    const session = new CoopSession(bridge)
-    await session.join('172.20.10.4')
-    deliver(JSON.stringify({ t: 'hub', event: 'welcome', role: 'guest', peer: true }))
-    expect(session.peerConnected).toBe(true)
-    expect(sent).toEqual([{ t: 'hello' }])
+  it('says hello to the host when joining a room it is already in, so the host re-sends its scene', async () => {
+    const { session, sent, hub } = await connectedCoopSession('guest', [])
+    expect(session.peerConnected).toBe(false)
     // An empty room has nobody to greet yet; the host's later peer-joined greeting covers it.
-    sent.length = 0
-    deliver(JSON.stringify({ t: 'hub', event: 'welcome', role: 'guest', peer: false }))
     expect(sent).toEqual([])
+    hub({ event: 'welcome', role: 'guest', seat: 2, peers: [0] })
+    expect(session.peerConnected).toBe(true)
+    expect(session.seat).toBe(2)
+    expect(sent).toEqual([{ to: 0, message: { t: 'hello' } }])
   })
+
 })
 
 describe('Co-op session attempts', () => {

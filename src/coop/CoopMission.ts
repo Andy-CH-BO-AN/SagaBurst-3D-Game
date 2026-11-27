@@ -3,9 +3,9 @@
  *
  * Host: the normal Game simulation stays authoritative. Every NPC/mount gets a
  * small wire ID; spawns carry the actor's construction descriptor and a 20 Hz
- * binary snapshot carries transforms, actions and HP. The guest's character is
- * a friendly puppet NPC here, so enemy AI targets and damages it through the
- * ordinary NPC combat paths.
+ * binary snapshot carries transforms, actions and HP. Each guest (one slot per
+ * seat) is a friendly puppet NPC here, so enemy AI targets and damages it through
+ * the ordinary NPC combat paths; every guest is sent the others' puppets too.
  *
  * Guest: builds the same mission scene, removes its local actors and shows the
  * host's world as puppets. Its own Player runs locally; hits on puppets are
@@ -80,8 +80,8 @@ export interface CoopGamePort {
   readonly projectiles?: boolean
   /** Which actors the guest may damage here (arena: the duel opponent). Default: any. */
   readonly acceptsGuestHit?: (target: NPC | Mount) => boolean
-  /** Scenes with their own damage rules (Town hostility) apply the guest's hit themselves. */
-  readonly applyGuestHit?: (target: NPC | Mount, damage: number, context: CombatDamageContext) => void
+  /** Scenes with their own damage rules (Town hostility) apply the guest's hit themselves; `attacker` is that guest's puppet. */
+  readonly applyGuestHit?: (target: NPC | Mount, damage: number, context: CombatDamageContext, attacker: NPC) => void
   /** Whether the guest's own HR squad joins this scene (battlefield missions only). */
   readonly guestSquad?: boolean
   /** Host: actors the guest's own melee/shots may target in scenes without a faction rule (arena opponent). */
@@ -98,7 +98,7 @@ export interface CoopGamePort {
   /** Guest: how this scene builds and docks mirrored siege vehicles. */
   readonly siegeMirror?: Omit<CoopSiegeWorld, 'gates'>
   /** Host: scenes with their own structure rules (Town siege) apply the guest's structure hit themselves. */
-  readonly applyGuestStructureHit?: (target: DamageableObstacle, damage: number, context: CombatDamageContext) => void
+  readonly applyGuestStructureHit?: (target: DamageableObstacle, damage: number, context: CombatDamageContext, attacker: NPC) => void
   /** Host: this scene's formal mission once its own claim is saved, so the guest earns its own merit. */
   readonly missionSettlement?: () => { missionId: string; kind: CoopMissionKind; victory: boolean; prison?: PrisonBattleId } | null
 }
@@ -126,7 +126,13 @@ interface CoopGuestState {
   borrowed?: string
 }
 
-interface SpawnActor { id: number; d: NpcNetworkDescriptor; hp: number; /** The guest's own personal squad member. */ own?: boolean; /** A target for the guest's attacks. */ target?: boolean; /** The host player's body. */ avatar?: boolean }
+interface SpawnActor {
+  id: number; d: NpcNetworkDescriptor; hp: number
+  /** The guest's own personal squad member. */ own?: boolean
+  /** A target for the guest's attacks. */ target?: boolean
+  /** The host player's body. */ avatar?: boolean
+  /** Another guest's body. */ partner?: boolean
+}
 
 /** A guest command for one of its own squad members, captured from its local command menu. */
 interface SquadOrder {
@@ -135,8 +141,11 @@ interface SquadOrder {
   formation?: { commandId: number; x: number; y?: number; z: number; yaw: number; speedLimit?: number; arrivalOrder?: TacticalOrder }
 }
 const TACTICAL_ORDERS: ReadonlySet<string> = new Set(['attack', 'charge', 'defend', 'formation', 'follow'])
-/** Guest formation command IDs live in their own range so host formation bookkeeping never matches them. */
+/** Guest formation command IDs live in their own range per seat so neither the host's nor another guest's formation bookkeeping matches them. */
 const GUEST_FORMATION_ID_BASE = 1_000_000
+function guestFormationId(seat: number, commandId: number): number { return GUEST_FORMATION_ID_BASE * (seat + 1) + commandId }
+/** A guest puppet's name on the host and on the other guests' screens. */
+function guestName(seat: number): string { return `隊友 ${seat}` }
 interface SpawnMount { id: number; type: MountType; variant: number; x: number; y: number; z: number; yaw: number }
 
 type FireEvent = [number, number, number, number, number, number, number, number]
@@ -188,9 +197,13 @@ function mountState(mount: Mount): CoopMountState {
 }
 
 /**
- * The two players never overlap: each computer pushes only its own Player (or the mount it
- * rides) out of the other player's body, whose position the other computer owns.
+ * The players never overlap: each computer pushes only its own Player (or the mount it rides) out of
+ * the other players' bodies, whose positions their own computers own.
  */
+export function separateLocalPlayerFromPeers(player: Player, peers: readonly NPC[], obstacles: readonly ObstacleData[]): void {
+  for (const peer of peers) separateLocalPlayerFromPeer(player, peer, obstacles)
+}
+
 export function separateLocalPlayerFromPeer(player: Player, peer: NPC | null | undefined, obstacles: readonly ObstacleData[]): void {
   if (!peer || peer.dead || !peer.group.parent || player.dead || player.isFalling) return
   const mount = player.isMounted ? player.currentMount : null
@@ -216,113 +229,208 @@ function syncMountRider(npc: NPC, mount: Mount | null): void {
 
 // ─────────────────────────────────────────── Host ───────────────────────────
 
+/**
+ * One guest seat on the host: its puppet, its own HR squad, its own combat record and what it has
+ * been sent. The record outlives a disconnect, so a guest that reconnects keeps its mission merit.
+ */
+class CoopGuestSlot {
+  ready = false
+  state: CoopGuestState | null = null
+  lookKey = ''
+  proxy: NPC | null = null
+  proxyMount: Mount | null = null
+  /** The guest's own HR squad, simulated here and commanded only by that guest. */
+  readonly squad: NPC[] = []
+  squadKey = ''
+  /** Owns the queued spawn jobs of the current roster; a new generation retires every older async spawn. */
+  squadBatch: NpcSpawnBatch | null = null
+  squadGeneration = 0
+  pendingSquad: CareerPersonalSquadMember[] | null = null
+  /** The guest's own combat record (its body and its own squad), by the single-player stat rules. */
+  readonly stats = emptyCoopStats()
+  readonly actorIds = new Set<string>()
+  meritSent = false
+  /** World actors this guest has been sent, by wire id, with the equipment key they were sent with. */
+  readonly sentNpcs = new Map<number, { npc: NPC; key: string }>()
+  readonly sentMounts = new Map<number, Mount>()
+  /** The other guests' puppets (by wire id, with their look key) and mounts this guest shows. */
+  readonly sentPartners = new Map<number, string>()
+  readonly sentPartnerMounts = new Set<number>()
+  /** Structure HP last sent to this guest, by structure key. */
+  readonly sentStructureHp = new Map<string, number>()
+  hostAvatarKey = ''
+
+  constructor(readonly seat: number) {}
+
+  /** The guest (re)built its scene: everything is sent again. */
+  resetSent(): void {
+    this.sentNpcs.clear()
+    this.sentMounts.clear()
+    this.sentPartners.clear()
+    this.sentPartnerMounts.clear()
+    this.sentStructureHp.clear()
+    this.hostAvatarKey = ''
+  }
+}
+
+/** This tick's shared view of the host world, built once and sent to every ready guest. */
+interface HostWorldView {
+  npcs: Array<{ id: number; npc: NPC; key: string }>
+  mounts: Array<{ id: number; mount: Mount }>
+  actorFrames: CoopActorFrame[]
+  mountFrames: CoopMountFrame[]
+  partners: Array<{ slot: CoopGuestSlot; proxy: NPC; state: CoopGuestState; id: number; mountId: number | null }>
+}
+
+interface GuestFire { from: number | null; f: FireEvent }
+
 /** Host-side mission bridge; created only when the host page has a connected co-op link. */
 export class CoopHostMission {
   private readonly npcIds = new CoopIdRegistry<NPC>()
   private readonly mountIds = new CoopIdRegistry<Mount>()
-  private readonly sentNpcs = new Map<number, { npc: NPC; key: string }>()
-  private readonly sentMounts = new Map<number, Mount>()
   private readonly hostAvatar = {}
-  private hostAvatarKey = ''
-  private guestReady = false
+  /** Guest seats of this scene, created on their first message. */
+  private readonly slots = new Map<number, CoopGuestSlot>()
   private snapshotTimer = 0
   private elapsed = 0
-  private fire: FireEvent[] = []
-  private guestState: CoopGuestState | null = null
-  private guestLookKey = ''
-  /** The guest's own hero body/gear may be new to this computer: load it before building the proxy. */
+  private fire: GuestFire[] = []
+  /** Guests' own hero bodies/gear may be new to this computer: load them before building a proxy. */
   private readonly lookAssets = new Map<string, 'loading' | 'ready' | 'failed'>()
-  private proxy: NPC | null = null
-  private proxyMount: Mount | null = null
-  /** The guest's own HR squad, simulated here and commanded only by the guest. */
-  private readonly guestSquad: NPC[] = []
-  private guestSquadKey = ''
-  /** Owns the queued spawn jobs of the current roster; a new generation retires every older async spawn. */
-  private guestSquadBatch: NpcSpawnBatch | null = null
-  private guestSquadGeneration = 0
-  private pendingGuestSquad: CareerPersonalSquadMember[] | null = null
-  /** The guest's own combat record (its body and its own squad), by the single-player stat rules. */
-  private readonly guestStats = emptyCoopStats()
-  private readonly guestActorIds = new Set<string>()
   private settlementTimer = 0
-  private meritSent = false
-  /** Structure HP last sent to the guest, by structure key. */
-  private readonly sentStructureHp = new Map<string, number>()
   private siegeTimer = 0
   private readonly target = new THREE.Vector3()
   private readonly unsubscribe: Array<() => void> = []
 
   constructor(private readonly port: CoopGamePort, private readonly link: CoopSession = coopSession()) {
     this.unsubscribe.push(
-      link.on('ready', () => { this.guestReady = true; this.sentNpcs.clear(); this.sentMounts.clear(); this.sentStructureHp.clear(); this.hostAvatarKey = '' }),
-      link.on('guest', message => { this.guestState = message.s as CoopGuestState }),
-      link.on('hit', message => this.applyGuestHit(message)),
-      link.on('selfDamage', message => {
-        const damage = Number(message.damage)
-        if (this.proxy && Number.isFinite(damage) && damage > 0) this.proxy.takeFallDamage(damage)
+      link.on('ready', (_message, from) => {
+        const slot = this.slotFor(from)
+        if (slot) { slot.ready = true; slot.resetSent() }
       }),
-      link.on('fire', message => this.showGuestProjectile(message.f as FireEvent)),
-      link.on('guestSquad', message => { if (port.guestSquad !== false) this.acceptGuestSquad(message.members) }),
-      link.on('order', message => this.applySquadOrder(message.o as SquadOrder)),
-      link.on('squadFollow', () => this.followGuest()),
-      link.onChange(() => { if (!link.peerConnected) { this.guestReady = false; this.removeProxy(); this.removeGuestSquad() } }),
+      link.on('guest', (message, from) => { const slot = this.slotFor(from); if (slot) slot.state = message.s as CoopGuestState }),
+      link.on('hit', (message, from) => { const slot = this.slots.get(from); if (slot) this.applyGuestHit(slot, message) }),
+      link.on('selfDamage', (message, from) => {
+        const damage = Number(message.damage), proxy = this.slots.get(from)?.proxy
+        if (proxy && Number.isFinite(damage) && damage > 0) proxy.takeFallDamage(damage)
+      }),
+      link.on('fire', (message, from) => { const slot = this.slots.get(from); if (slot) this.showGuestProjectile(slot, message.f as FireEvent) }),
+      link.on('guestSquad', (message, from) => {
+        const slot = port.guestSquad === false ? null : this.slotFor(from)
+        if (slot) this.acceptGuestSquad(slot, message.members)
+      }),
+      link.on('order', (message, from) => { const slot = this.slots.get(from); if (slot) this.applySquadOrder(slot, message.o as SquadOrder) }),
+      link.on('squadFollow', (_message, from) => { const slot = this.slots.get(from); if (slot) this.followGuest(slot) }),
+      link.onChange(() => { for (const slot of this.slots.values()) if (!link.isPeer(slot.seat)) this.releaseSlot(slot) }),
     )
   }
 
-  get guestProxy(): NPC | null { return this.proxy }
+  /** The partner of a one-guest scene (Town, arenas): the lowest seat with a puppet. */
+  get guestProxy(): NPC | null { return this.primarySlot()?.proxy ?? null }
 
-  /** The scene horse the connected guest took as its own mount; its proxy shows that horse. */
-  get guestBorrowedMount(): string | null {
-    const key = this.guestState?.borrowed
-    return this.link.peerConnected && this.proxy && typeof key === 'string' ? key : null
+  /** Every connected guest's puppet. */
+  get guestProxies(): NPC[] {
+    const out: NPC[] = []
+    for (const slot of this.slots.values()) if (slot.proxy) out.push(slot.proxy)
+    return out
+  }
+
+  /** The scene horses connected guests took as their own mounts, lowest seat first; their proxies show those horses. */
+  get guestBorrowedMounts(): string[] {
+    const out: string[] = []
+    for (const slot of [...this.slots.values()].sort((a, b) => a.seat - b.seat)) {
+      const key = slot.state?.borrowed
+      if (slot.proxy && this.link.isPeer(slot.seat) && typeof key === 'string' && !out.includes(key)) out.push(key)
+    }
+    return out
+  }
+
+  /** The seat whose puppet this is, or null. */
+  seatOf(npc: NPC): number | null {
+    for (const slot of this.slots.values()) if (slot.proxy === npc) return slot.seat
+    return null
+  }
+
+  /** The scene horse a connected guest took as its own mount (Town stable key), or null. */
+  borrowedMountOf(seat: number): string | null {
+    const slot = this.slots.get(seat), key = slot?.state?.borrowed
+    return slot?.proxy && this.link.isPeer(seat) && typeof key === 'string' ? key : null
+  }
+
+  /** A connected guest's puppet by seat. */
+  proxyOf(seat: number): NPC | null { return this.slots.get(seat)?.proxy ?? null }
+
+  private primarySlot(): CoopGuestSlot | null {
+    let best: CoopGuestSlot | null = null
+    for (const slot of this.slots.values()) if (slot.proxy && (!best || slot.seat < best.seat)) best = slot
+    return best
+  }
+
+  /** A guest seat's slot, created for a connected seat; null for any other sender. */
+  private slotFor(seat: number): CoopGuestSlot | null {
+    const existing = this.slots.get(seat)
+    if (existing) return existing
+    if (!this.link.isPeer(seat)) return null
+    const slot = new CoopGuestSlot(seat)
+    this.slots.set(seat, slot)
+    return slot
   }
 
   /** Host scenes route every combat event here (Game's stream, the arena's emit). */
   recordCombatEvent(event: CombatEvent): void {
-    recordCoopGuestEvent(this.guestStats, event, this.guestActorIds)
+    for (const slot of this.slots.values()) recordCoopGuestEvent(slot.stats, event, slot.actorIds)
   }
 
-  /** The host's result was just saved: send the guest's record now rather than on the next poll. */
+  /** The host's result was just saved: send the guests' records now rather than on the next poll. */
   notifySettled(): void {
     this.settlementTimer = 1
     this.sendMissionMerit(0)
   }
 
-  /** Once the host's own mission claim is saved, the guest gets its record and earns by the same rules. */
+  /** Once the host's own mission claim is saved, each guest gets its own record and earns by the same rules. */
   private sendMissionMerit(dt: number): void {
-    if (this.meritSent || !this.port.missionSettlement || !this.guestReady) return
+    if (!this.port.missionSettlement) return
+    const waiting = [...this.slots.values()].filter(slot => slot.ready && !slot.meritSent && this.link.isPeer(slot.seat))
+    if (!waiting.length) return
     this.settlementTimer += dt
     if (this.settlementTimer < 1) return
     this.settlementTimer = 0
     const settled = this.port.missionSettlement()
     if (!settled) return
-    this.meritSent = true
-    this.link.send({ t: 'missionMerit', record: { ...settled, stats: { ...this.guestStats, survived: Boolean(this.proxy && !this.proxy.dead) } } })
+    for (const slot of waiting) {
+      slot.meritSent = true
+      this.link.send({ t: 'missionMerit', record: { ...settled, stats: { ...slot.stats, survived: Boolean(slot.proxy && !slot.proxy.dead) } } }, slot.seat)
+    }
   }
 
   /** `announceEnd` false when the host only moves to another co-op scene (its new launch follows). */
   dispose(announceEnd = true): void {
     if (announceEnd) this.link.send({ t: 'end' })
     for (const off of this.unsubscribe) off()
-    this.removeProxy()
-    this.removeGuestSquad()
+    for (const slot of this.slots.values()) this.releaseSlot(slot)
   }
 
-  /** Game routes every projectile it creates here so the guest can draw it. */
+  /** Game routes every projectile it creates here so the guests can draw it. */
   onProjectile(origin: THREE.Vector3, direction: THREE.Vector3, speed: number, kind: ProjectileVisualKind, faction: Faction): void {
-    if (!this.guestReady || this.port.projectiles === false) return
-    this.fire.push([origin.x, origin.y, origin.z, direction.x, direction.y, direction.z, speed, (kind === 'pilum' ? 1 : 0) | (faction === Faction.ENEMY ? 2 : 0)])
+    if (this.port.projectiles === false || !this.anyReady()) return
+    this.fire.push({ from: null, f: [origin.x, origin.y, origin.z, direction.x, direction.y, direction.z, speed, (kind === 'pilum' ? 1 : 0) | (faction === Faction.ENEMY ? 2 : 0)] })
   }
 
-  /** Called from the Game NPC loop instead of AI for the guest's puppet. */
+  private anyReady(): boolean {
+    for (const slot of this.slots.values()) if (slot.ready) return true
+    return false
+  }
+
+  /** Called from the Game NPC loop instead of AI for a guest's puppet. */
   updatePuppet(npc: NPC, dt: number, cameraDistance: number): void {
-    const state = this.guestState
-    if (npc !== this.proxy || !state) { npc.updateCoopPuppet(dt, cameraDistance, this.holdFrame(npc)); return }
+    let owner: CoopGuestSlot | null = null
+    for (const slot of this.slots.values()) if (slot.proxy === npc) { owner = slot; break }
+    const state = owner?.state
+    if (!owner || !state) { npc.updateCoopPuppet(dt, cameraDistance, this.holdFrame(npc)); return }
     const k = smoothing(dt)
     const pos = npc.combatPosition
     this.target.set(state.x, state.y, state.z)
     const far = pos.distanceTo(this.target) > TELEPORT_DISTANCE
-    const mount = this.proxyMount
+    const mount = owner.proxyMount
     if (mount && state.mount) {
       const m = state.mount
       const mp = mount.group.position
@@ -349,26 +457,38 @@ export class CoopHostMission {
   /** Per-frame bookkeeping after the simulation step. */
   update(dt: number): void {
     this.elapsed += dt
-    this.syncProxy()
-    if (this.port.selfUpdatesPuppets && this.proxy) {
-      this.updatePuppet(this.proxy, dt, this.proxy.group.position.distanceTo(this.port.camera.position))
-      this.proxy.fitMountedSeat()
+    for (const slot of this.slots.values()) {
+      this.syncProxy(slot)
+      if (this.port.selfUpdatesPuppets && slot.proxy) {
+        this.updatePuppet(slot.proxy, dt, slot.proxy.group.position.distanceTo(this.port.camera.position))
+        slot.proxy.fitMountedSeat()
+      }
+      if (slot.pendingSquad && slot.proxy) {
+        const members = slot.pendingSquad
+        slot.pendingSquad = null
+        void this.spawnGuestSquad(slot, members)
+      }
     }
     this.sendMissionMerit(dt)
-    if (this.pendingGuestSquad && this.proxy) {
-      const members = this.pendingGuestSquad
-      this.pendingGuestSquad = null
-      void this.spawnGuestSquad(members)
-    }
-    if (!this.guestReady || !this.link.peerConnected) return
+    const ready = [...this.slots.values()].filter(slot => slot.ready && this.link.isPeer(slot.seat))
+    if (!ready.length) { this.fire = []; return }
     this.snapshotTimer += dt
     if (this.snapshotTimer < SNAPSHOT_INTERVAL) return
     this.snapshotTimer %= SNAPSHOT_INTERVAL
-    this.sendSpawns()
-    this.sendSnapshot()
-    this.sendStructures()
-    this.sendSiege(SNAPSHOT_INTERVAL)
-    if (this.fire.length) { this.link.send({ t: 'ev', fire: this.fire }); this.fire = [] }
+    const world = this.worldView()
+    const structures = this.structures()
+    const siege = this.siegeWire(SNAPSHOT_INTERVAL)
+    const fire = this.fire
+    this.fire = []
+    for (const slot of ready) {
+      this.sendSpawns(slot, world)
+      this.sendSnapshot(slot, world)
+      this.sendStructures(slot, structures)
+      if (siege) this.link.send({ t: 'siege', siege }, slot.seat)
+      // A guest's own shots are already on its screen.
+      const shots = fire.filter(event => event.from !== slot.seat).map(event => event.f)
+      if (shots.length) this.link.send({ t: 'ev', fire: shots }, slot.seat)
+    }
   }
 
   private holdFrame(npc: NPC): Parameters<NPC['updateCoopPuppet']>[2] {
@@ -376,39 +496,39 @@ export class CoopHostMission {
     return { x: p.x, y: p.y, z: p.z, yaw: npc.group.rotation.y, speed: 0, action: 'idle', ranged: false, shieldRaised: false, sprinting: false, draw: 0, hp: npc.hp, dead: npc.dead }
   }
 
-  private syncProxy(): void {
-    const state = this.guestState
-    if (!state || !this.link.peerConnected) return
+  private syncProxy(slot: CoopGuestSlot): void {
+    const state = slot.state
+    if (!state || !this.link.isPeer(slot.seat)) return
     const key = lookKey(state.look)
-    if ((!this.proxy || key !== this.guestLookKey) && !this.lookReady(state.look, key)) return
-    if (!this.proxy || key !== this.guestLookKey) {
-      const hp = this.proxy?.hp
-      this.removeProxy(false)
-      const npc = NPC.fromNetworkDescriptor(this.port.scene, lookDescriptor(state.look, '隊友', state.x, state.z), this.port.combatEmit)
+    if ((!slot.proxy || key !== slot.lookKey) && !this.lookReady(state.look, key)) return
+    if (!slot.proxy || key !== slot.lookKey) {
+      const hp = slot.proxy?.hp
+      this.removeProxy(slot, false)
+      const npc = NPC.fromNetworkDescriptor(this.port.scene, lookDescriptor(state.look, guestName(slot.seat), state.x, state.z), this.port.combatEmit)
       npc.coopPuppet = true
       npc.coopRemoteCommand = true
       npc.group.position.set(state.x, state.y, state.z)
       if (hp !== undefined && hp < npc.maxHp) npc.takeFallDamage(npc.maxHp - hp)
-      this.proxy = npc
-      this.guestActorIds.add(npc.combatantId)
-      // Followers keep following the guest across a re-created proxy.
-      this.guestSquad.forEach((member, index) => {
+      slot.proxy = npc
+      slot.actorIds.add(npc.combatantId)
+      // Followers keep following their guest across a re-created proxy.
+      slot.squad.forEach((member, index) => {
         if (member.tacticalOrder === 'follow') member.assignFollowTarget(npc, index, followLocalOffset(index, member.isMounted))
       })
-      this.guestLookKey = key
+      slot.lookKey = key
       this.port.npcs.push(npc)
       this.port.registerNpc(npc)
     }
-    this.proxy?.applyCoopMaxHp(Number(state.maxHp))
+    slot.proxy?.applyCoopMaxHp(Number(state.maxHp))
     const wanted = state.mount
-    if (wanted && (!this.proxyMount || this.proxyMount.type !== wanted.type || this.proxyMount.disposed)) {
-      this.removeProxyMount()
+    if (wanted && (!slot.proxyMount || slot.proxyMount.type !== wanted.type || slot.proxyMount.disposed)) {
+      this.removeProxyMount(slot)
       const mount = new Mount(this.port.scene, wanted.type, wanted.x, wanted.z, wanted.y, wanted.variant as 0)
       mount.coopPuppet = true
-      this.proxyMount = mount
+      slot.proxyMount = mount
       this.port.mounts.push(mount)
       this.port.registerMount(mount)
-    } else if (!wanted) this.removeProxyMount()
+    } else if (!wanted) this.removeProxyMount(slot)
   }
 
   private lookReady(look: CoopLook, key: string): boolean {
@@ -423,25 +543,33 @@ export class CoopHostMission {
     return false
   }
 
-  private removeProxyMount(): void {
-    const mount = this.proxyMount
+  private removeProxyMount(slot: CoopGuestSlot): void {
+    const mount = slot.proxyMount
     if (!mount) return
-    this.proxyMount = null
-    if (this.proxy?.mount === mount) this.proxy.dismountFromMount()
+    slot.proxyMount = null
+    if (slot.proxy?.mount === mount) slot.proxy.dismountFromMount()
     this.port.unregisterMount(mount)
     removeFrom(this.port.mounts, mount)
     mount.dispose()
   }
 
-  private removeProxy(withMount = true): void {
-    if (withMount) this.removeProxyMount()
-    const npc = this.proxy
+  private removeProxy(slot: CoopGuestSlot, withMount = true): void {
+    if (withMount) this.removeProxyMount(slot)
+    const npc = slot.proxy
     if (!npc) return
-    this.proxy = null
-    this.guestLookKey = ''
+    slot.proxy = null
+    slot.lookKey = ''
     this.port.unregisterNpc(npc)
     removeFrom(this.port.npcs, npc)
     npc.dispose()
+  }
+
+  /** A guest left: its body and squad leave the world; its combat record stays for a reconnect. */
+  private releaseSlot(slot: CoopGuestSlot): void {
+    slot.ready = false
+    slot.state = null
+    this.removeProxy(slot)
+    this.removeGuestSquad(slot)
   }
 
   private hostAvatarDescriptor(): { d: NpcNetworkDescriptor; key: string } {
@@ -450,54 +578,23 @@ export class CoopHostMission {
     return { d: lookDescriptor(look, '主機', p.x, p.z), key: lookKey(look) }
   }
 
-  private sendSpawns(): void {
-    const actors: SpawnActor[] = [], mounts: SpawnMount[] = []
-    const liveNpcs = new Set<number>(), liveMounts = new Set<number>()
+  /** The world every guest sees this tick: host NPCs and mounts, the host's body and every guest puppet. */
+  private worldView(): HostWorldView {
+    const view: HostWorldView = { npcs: [], mounts: [], actorFrames: [], mountFrames: [], partners: [] }
+    const mountId = (mount: Mount | null | undefined): number => mount && !mount.coopPuppet ? this.mountIds.idOf(mount) ?? COOP_NO_ID : COOP_NO_ID
     for (const mount of this.port.mounts) {
       if (mount.coopPuppet || mount.disposed) continue
       const { id } = this.mountIds.ensure(mount)
-      liveMounts.add(id)
-      if (this.sentMounts.has(id)) continue
-      this.sentMounts.set(id, mount)
+      view.mounts.push({ id, mount })
       const p = mount.group.position
-      mounts.push({ id, type: mount.type, variant: mount.appearanceVariant, x: p.x, y: p.y, z: p.z, yaw: mount.group.rotation.y })
+      view.mountFrames.push({ id, x: p.x, y: p.y, z: p.z, yaw: mount.group.rotation.y, pitch: mount.group.rotation.x, speed: mount.movementSpeed,
+        flags: (mount.dead ? MOUNT_DEAD : 0) | (mount.isAirborne ? MOUNT_AIRBORNE : 0) | (mount.group.visible || mount.dead ? 0 : MOUNT_HIDDEN), hp: mount.currentHp })
     }
     for (const npc of this.port.npcs) {
       if (npc.coopPuppet) continue
       const { id } = this.npcIds.ensure(npc)
-      liveNpcs.add(id)
       const eq = npc.networkEquipment
-      const key = `${eq.melee ?? ''}|${eq.ranged ?? ''}|${eq.shield ?? ''}`
-      if (this.sentNpcs.get(id)?.key === key) continue
-      this.sentNpcs.set(id, { npc, key })
-      const d = npc.networkDescriptor
-      const p = npc.group.position
-      actors.push({ id, hp: npc.hp, ...(this.guestSquad.includes(npc) ? { own: true } : {}), ...(this.port.guestTarget?.(npc) ? { target: true } : {}), d: { ...d, x: p.x, z: p.z, y: undefined,
-        loadout: { ...d.loadout, meleeWeaponId: eq.melee, rangedWeaponId: eq.ranged, shieldId: eq.shield, mountId: null } } })
-    }
-    const avatar = this.hostAvatarDescriptor()
-    const avatarId = this.npcIds.ensure(this.hostAvatar as NPC).id
-    liveNpcs.add(avatarId)
-    if (avatar.key !== this.hostAvatarKey) {
-      this.hostAvatarKey = avatar.key
-      actors.push({ id: avatarId, hp: this.port.player.hp, avatar: true, d: avatar.d })
-    }
-    const goneNpcs = [...this.sentNpcs.keys()].filter(id => !liveNpcs.has(id))
-    const goneMounts = [...this.sentMounts.keys()].filter(id => !liveMounts.has(id))
-    for (const id of goneNpcs) this.sentNpcs.delete(id)
-    for (const id of goneMounts) this.sentMounts.delete(id)
-    if (actors.length || mounts.length || goneNpcs.length || goneMounts.length) {
-      this.link.send({ t: 'spawn', actors, mounts, goneNpcs, goneMounts })
-    }
-  }
-
-  private sendSnapshot(): void {
-    const actors: CoopActorFrame[] = [], mounts: CoopMountFrame[] = []
-    const mountId = (mount: Mount | null | undefined): number => mount && !mount.coopPuppet ? this.mountIds.idOf(mount) ?? COOP_NO_ID : COOP_NO_ID
-    for (const npc of this.port.npcs) {
-      if (npc.coopPuppet) continue
-      const id = this.npcIds.idOf(npc)
-      if (id === undefined) continue
+      view.npcs.push({ id, npc, key: `${eq.melee ?? ''}|${eq.ranged ?? ''}|${eq.shield ?? ''}` })
       const p = npc.group.position
       const action = npc.combatAnimationAction
       let flags = 0
@@ -506,54 +603,116 @@ export class CoopHostMission {
       if (npc.shield.shieldRaised) flags |= ACTOR_SHIELD
       if (npc.sprinting) flags |= ACTOR_SPRINT
       if (!npc.group.visible) flags |= ACTOR_HIDDEN
-      actors.push({ id, x: p.x, y: p.y, z: p.z, yaw: npc.group.rotation.y, speed: npc.isMounted ? npc.mount!.movementSpeed : npc.networkMovementSpeed,
+      view.actorFrames.push({ id, x: p.x, y: p.y, z: p.z, yaw: npc.group.rotation.y, speed: npc.isMounted ? npc.mount!.movementSpeed : npc.networkMovementSpeed,
         action, flags, draw: action === 'bowAim' ? 1 : 0, hp: npc.hp, mountId: mountId(npc.mount) })
     }
     const player = this.port.player
-    const avatarId = this.npcIds.idOf(this.hostAvatar as NPC)
-    if (avatarId !== undefined) {
-      const p = playerFeet(player)
-      const action = player.combatAnimationAction
-      actors.push({ id: avatarId, x: p.x, y: p.y, z: p.z, yaw: player.facingYaw,
-        speed: player.isMounted ? player.currentMount?.movementSpeed ?? 0 : this.playerSpeed(), action,
-        flags: playerActionFlags(this.port, action), draw: player.bowDrawRatio, hp: player.hp, mountId: mountId(player.isMounted ? player.currentMount : null) })
+    const avatarId = this.npcIds.ensure(this.hostAvatar as NPC).id
+    const feet = playerFeet(player)
+    const action = player.combatAnimationAction
+    view.actorFrames.push({ id: avatarId, x: feet.x, y: feet.y, z: feet.z, yaw: player.facingYaw,
+      speed: player.isMounted ? player.currentMount?.movementSpeed ?? 0 : this.playerSpeed(), action,
+      flags: playerActionFlags(this.port, action), draw: player.bowDrawRatio, hp: player.hp, mountId: mountId(player.isMounted ? player.currentMount : null) })
+    for (const slot of this.slots.values()) {
+      const { proxy, state } = slot
+      if (!proxy || !state || !this.link.isPeer(slot.seat)) continue
+      const own = slot.proxyMount && !slot.proxyMount.disposed ? slot.proxyMount : null
+      view.partners.push({ slot, proxy, state, id: this.npcIds.ensure(proxy).id, mountId: own ? this.mountIds.ensure(own).id : null })
     }
-    for (const mount of this.port.mounts) {
-      if (mount.coopPuppet || mount.disposed) continue
-      const id = this.mountIds.idOf(mount)
-      if (id === undefined) continue
-      const p = mount.group.position
-      mounts.push({ id, x: p.x, y: p.y, z: p.z, yaw: mount.group.rotation.y, pitch: mount.group.rotation.x, speed: mount.movementSpeed,
-        flags: (mount.dead ? MOUNT_DEAD : 0) | (mount.isAirborne ? MOUNT_AIRBORNE : 0) | (mount.group.visible || mount.dead ? 0 : MOUNT_HIDDEN), hp: mount.currentHp })
-    }
-    const proxy = this.proxy
-    this.link.sendBinary(encodeSnapshot({ time: this.elapsed, guestHp: proxy?.hp ?? -1, guestMaxHp: proxy?.maxHp ?? 0, actors, mounts }))
+    return view
   }
 
-  /** Every structure the guest may hit, by key: scene structures, siege vehicles and gates. */
+  private sendSpawns(slot: CoopGuestSlot, world: HostWorldView): void {
+    const actors: SpawnActor[] = [], mounts: SpawnMount[] = []
+    const liveNpcs = new Set<number>(), liveMounts = new Set<number>(), livePartners = new Set<number>(), livePartnerMounts = new Set<number>()
+    for (const { id, mount } of world.mounts) {
+      liveMounts.add(id)
+      if (slot.sentMounts.has(id)) continue
+      slot.sentMounts.set(id, mount)
+      const p = mount.group.position
+      mounts.push({ id, type: mount.type, variant: mount.appearanceVariant, x: p.x, y: p.y, z: p.z, yaw: mount.group.rotation.y })
+    }
+    for (const { id, npc, key } of world.npcs) {
+      liveNpcs.add(id)
+      if (slot.sentNpcs.get(id)?.key === key) continue
+      slot.sentNpcs.set(id, { npc, key })
+      const d = npc.networkDescriptor, eq = npc.networkEquipment
+      const p = npc.group.position
+      actors.push({ id, hp: npc.hp, ...(slot.squad.includes(npc) ? { own: true } : {}), ...(this.port.guestTarget?.(npc) ? { target: true } : {}), d: { ...d, x: p.x, z: p.z, y: undefined,
+        loadout: { ...d.loadout, meleeWeaponId: eq.melee, rangedWeaponId: eq.ranged, shieldId: eq.shield, mountId: null } } })
+    }
+    const avatar = this.hostAvatarDescriptor()
+    const avatarId = this.npcIds.ensure(this.hostAvatar as NPC).id
+    if (avatar.key !== slot.hostAvatarKey) {
+      slot.hostAvatarKey = avatar.key
+      actors.push({ id: avatarId, hp: this.port.player.hp, avatar: true, d: avatar.d })
+    }
+    // The other guests: shown like the host's body, never hittable through this guest's hits.
+    for (const partner of world.partners) {
+      if (partner.slot === slot) continue
+      livePartners.add(partner.id)
+      if (partner.mountId !== null) {
+        livePartnerMounts.add(partner.mountId)
+        const m = partner.state.mount
+        if (m && !slot.sentPartnerMounts.has(partner.mountId)) {
+          slot.sentPartnerMounts.add(partner.mountId)
+          mounts.push({ id: partner.mountId, type: m.type, variant: m.variant, x: m.x, y: m.y, z: m.z, yaw: m.yaw })
+        }
+      }
+      if (slot.sentPartners.get(partner.id) === partner.slot.lookKey) continue
+      slot.sentPartners.set(partner.id, partner.slot.lookKey)
+      actors.push({ id: partner.id, hp: partner.proxy.hp, partner: true,
+        d: lookDescriptor(partner.state.look, guestName(partner.slot.seat), partner.state.x, partner.state.z) })
+    }
+    const goneNpcs = [...slot.sentNpcs.keys()].filter(id => !liveNpcs.has(id))
+    const goneMounts = [...slot.sentMounts.keys()].filter(id => !liveMounts.has(id))
+    for (const id of goneNpcs) slot.sentNpcs.delete(id)
+    for (const id of goneMounts) slot.sentMounts.delete(id)
+    for (const id of [...slot.sentPartners.keys()]) if (!livePartners.has(id)) { slot.sentPartners.delete(id); goneNpcs.push(id) }
+    for (const id of [...slot.sentPartnerMounts]) if (!livePartnerMounts.has(id)) { slot.sentPartnerMounts.delete(id); goneMounts.push(id) }
+    if (actors.length || mounts.length || goneNpcs.length || goneMounts.length) {
+      this.link.send({ t: 'spawn', actors, mounts, goneNpcs, goneMounts }, slot.seat)
+    }
+  }
+
+  private sendSnapshot(slot: CoopGuestSlot, world: HostWorldView): void {
+    const actors = [...world.actorFrames], mounts = [...world.mountFrames]
+    for (const { slot: other, proxy, state, id, mountId } of world.partners) {
+      if (other === slot) continue
+      actors.push({ id, x: state.x, y: state.y, z: state.z, yaw: state.yaw, speed: state.speed, action: state.action,
+        flags: state.flags | (proxy.dead ? ACTOR_DEAD : 0), draw: state.draw, hp: proxy.hp,
+        mountId: state.riding && mountId !== null ? mountId : COOP_NO_ID })
+      const m = state.mount
+      if (m && mountId !== null) {
+        mounts.push({ id: mountId, x: m.x, y: m.y, z: m.z, yaw: m.yaw, pitch: m.pitch, speed: m.speed,
+          flags: (m.dead ? MOUNT_DEAD : 0) | (m.airborne ? MOUNT_AIRBORNE : 0), hp: other.proxyMount?.currentHp ?? 0 })
+      }
+    }
+    this.link.sendBinary(encodeSnapshot({ time: this.elapsed, guestHp: slot.proxy?.hp ?? -1, guestMaxHp: slot.proxy?.maxHp ?? 0, actors, mounts }), slot.seat)
+  }
+
+  /** Every structure a guest may hit, by key: scene structures, siege vehicles and gates. */
   structures(): Map<string, DamageableObstacle> {
     return coopSiegeStructures(this.port.siegeRamps?.() ?? [], this.port.siegeGates?.() ?? new Map(), new Map(this.port.structures?.() ?? []))
   }
 
-  private sendSiege(dt: number): void {
-    if (!this.port.siegeRamps && !this.port.siegeGates) return
+  private siegeWire(dt: number): ReturnType<typeof coopSiegeWire> | null {
+    if (!this.port.siegeRamps && !this.port.siegeGates) return null
     this.siegeTimer += dt
-    if (this.siegeTimer < .4) return
+    if (this.siegeTimer < .4) return null
     this.siegeTimer = 0
-    const siege = coopSiegeWire(this.port.siegeRamps?.() ?? [], this.port.siegeGates?.() ?? new Map())
-    if (siege) this.link.send({ t: 'siege', siege })
+    return coopSiegeWire(this.port.siegeRamps?.() ?? [], this.port.siegeGates?.() ?? new Map()) ?? null
   }
 
-  private sendStructures(): void {
-    const structures = this.structures()
+  private sendStructures(slot: CoopGuestSlot, structures: ReadonlyMap<string, DamageableObstacle>): void {
     const hp: Array<[string, number]> = []
     for (const [key, structure] of structures) {
       const current = structure.currentHp
-      if (this.sentStructureHp.get(key) === current) continue
-      this.sentStructureHp.set(key, current)
+      if (slot.sentStructureHp.get(key) === current) continue
+      slot.sentStructureHp.set(key, current)
       hp.push([key, current])
     }
-    if (hp.length) this.link.send({ t: 'structures', hp })
+    if (hp.length) this.link.send({ t: 'structures', hp }, slot.seat)
   }
 
   private lastPlayerPos = new THREE.Vector3()
@@ -568,49 +727,51 @@ export class CoopHostMission {
     return this.lastPlayerSpeed
   }
 
-  private acceptGuestSquad(value: unknown): void {
+  private acceptGuestSquad(slot: CoopGuestSlot, value: unknown): void {
     let members: CareerPersonalSquadMember[]
     try { members = parsePersonalSquad({ members: value })?.members ?? [] } catch { return }
     // Only members with a resolved current loadout can deploy, matching HR deployment.
     members = members.filter(member => member.equipment)
     const key = members.map(member => member.id).join(',')
-    if (key === this.guestSquadKey) return
-    this.removeGuestSquad()
-    this.guestSquadKey = key
-    this.pendingGuestSquad = members.length ? members : null
+    if (key === slot.squadKey) return
+    this.removeGuestSquad(slot)
+    slot.squadKey = key
+    slot.pendingSquad = members.length ? members : null
   }
 
-  private async spawnGuestSquad(members: CareerPersonalSquadMember[]): Promise<void> {
-    const generation = this.guestSquadGeneration
+  private async spawnGuestSquad(slot: CoopGuestSlot, members: CareerPersonalSquadMember[]): Promise<void> {
+    const generation = slot.squadGeneration
     try { await Promise.all(members.map(member => preloadPersonalSquadMember(member, member.characterFaction))) }
     catch (error) { console.warn('[coop] guest squad assets failed', error); return }
-    if (generation !== this.guestSquadGeneration || !this.link.peerConnected) return
+    if (generation !== slot.squadGeneration || !this.link.isPeer(slot.seat)) return
     const batch = gameplayNpcSpawns.batch()
-    this.guestSquadBatch = batch
-    members.forEach((member, index) => batch.enqueue(`coop-guest:${member.id}`, () => {
-      const anchor = this.proxy?.combatPosition ?? this.port.player.position
-      const yaw = this.proxy?.group.rotation.y ?? 0
+    slot.squadBatch = batch
+    members.forEach((member, index) => batch.enqueue(`coop-guest:${slot.seat}:${member.id}`, () => {
+      const anchor = slot.proxy?.combatPosition ?? this.port.player.position
+      const yaw = slot.proxy?.group.rotation.y ?? 0
       const back = 3 + Math.floor(index / 6) * 2.2, side = (index % 6 - 2.5) * 2.2
-      const slot = { x: anchor.x - Math.sin(yaw) * back + Math.cos(yaw) * side, z: anchor.z - Math.cos(yaw) * back - Math.sin(yaw) * side, yaw }
-      const { npc, mount } = spawnPersonalSquadActor(this.port.scene, member, member.characterFaction, slot, this.port.combatEmit)
+      const placement = { x: anchor.x - Math.sin(yaw) * back + Math.cos(yaw) * side, z: anchor.z - Math.cos(yaw) * back - Math.sin(yaw) * side, yaw }
+      const { npc, mount } = spawnPersonalSquadActor(this.port.scene, member, member.characterFaction, placement, this.port.combatEmit)
       // Not the host's 'player-personal' squad: host mission records and commands never claim it.
       npc.combatOwnership = undefined
       npc.coopRemoteCommand = true
       if (mount) { mount.combatOwner = undefined; this.port.mounts.push(mount); this.port.registerMount(mount) }
       this.port.npcs.push(npc)
       this.port.registerNpc(npc)
-      this.guestSquad.push(npc)
-      this.guestActorIds.add(npc.combatantId)
-      if (this.proxy) npc.assignFollowTarget(this.proxy, index, followLocalOffset(index, npc.isMounted))
+      slot.squad.push(npc)
+      slot.actorIds.add(npc.combatantId)
+      if (slot.proxy) npc.assignFollowTarget(slot.proxy, index, followLocalOffset(index, npc.isMounted))
     }))
     batch.seal()
   }
 
-  private removeGuestSquad(): void {
-    this.cancelGuestSquadSpawn()
-    this.pendingGuestSquad = null
-    this.guestSquadKey = ''
-    for (const npc of this.guestSquad.splice(0)) {
+  private removeGuestSquad(slot: CoopGuestSlot): void {
+    slot.squadGeneration++
+    slot.squadBatch?.cancel()
+    slot.squadBatch = null
+    slot.pendingSquad = null
+    slot.squadKey = ''
+    for (const npc of slot.squad.splice(0)) {
       const mount = npc.mount
       if (mount) { npc.dismountFromMount(); this.port.unregisterMount(mount); removeFrom(this.port.mounts, mount); mount.dispose() }
       this.port.unregisterNpc(npc)
@@ -619,38 +780,32 @@ export class CoopHostMission {
     }
   }
 
-  private cancelGuestSquadSpawn(): void {
-    this.guestSquadGeneration++
-    this.guestSquadBatch?.cancel()
-    this.guestSquadBatch = null
-  }
-
-  private followGuest(): void {
-    const proxy = this.proxy
+  private followGuest(slot: CoopGuestSlot): void {
+    const proxy = slot.proxy
     if (!proxy) return
-    this.guestSquad.forEach((npc, index) => { if (!npc.dead) npc.assignFollowTarget(proxy, index, followLocalOffset(index, npc.isMounted)) })
+    slot.squad.forEach((npc, index) => { if (!npc.dead) npc.assignFollowTarget(proxy, index, followLocalOffset(index, npc.isMounted)) })
   }
 
-  private applySquadOrder(order: SquadOrder | undefined): void {
+  private applySquadOrder(slot: CoopGuestSlot, order: SquadOrder | undefined): void {
     if (!order || !TACTICAL_ORDERS.has(order.order)) return
-    const npc = this.sentNpcs.get(Number(order.id))?.npc
-    const index = npc ? this.guestSquad.indexOf(npc) : -1
+    const npc = slot.sentNpcs.get(Number(order.id))?.npc
+    const index = npc ? slot.squad.indexOf(npc) : -1
     if (!npc || index < 0 || npc.dead) return
     if (order.order === 'follow') {
-      if (this.proxy) npc.assignFollowTarget(this.proxy, index, followLocalOffset(index, npc.isMounted))
+      if (slot.proxy) npc.assignFollowTarget(slot.proxy, index, followLocalOffset(index, npc.isMounted))
       return
     }
     npc.setTacticalOrder(order.order)
     const f = order.formation
     if (f && [f.commandId, f.x, f.z, f.yaw].every(Number.isFinite)) {
       const arrival = f.arrivalOrder && TACTICAL_ORDERS.has(f.arrivalOrder) ? f.arrivalOrder : undefined
-      npc.assignFormationTarget(GUEST_FORMATION_ID_BASE + f.commandId, new THREE.Vector3(f.x, f.y ?? 0, f.z),
+      npc.assignFormationTarget(guestFormationId(slot.seat, f.commandId), new THREE.Vector3(f.x, f.y ?? 0, f.z),
         new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)), Number.isFinite(f.speedLimit) ? f.speedLimit : undefined, arrival)
     }
   }
 
-  private applyGuestHit(message: CoopMessage): void {
-    const proxy = this.proxy
+  private applyGuestHit(slot: CoopGuestSlot, message: CoopMessage): void {
+    const proxy = slot.proxy
     const damage = Number(message.damage)
     if (!proxy || proxy.dead || !Number.isFinite(damage) || damage <= 0 || damage > 5000) return
     const id = Number(message.id)
@@ -665,31 +820,33 @@ export class CoopHostMission {
     if (message.kind === 'structure') {
       const structure = typeof message.key === 'string' ? this.structures().get(message.key) : undefined
       if (!structure || structure.destroyed) return
-      if (this.port.applyGuestStructureHit) this.port.applyGuestStructureHit(structure, damage, context)
+      if (this.port.applyGuestStructureHit) this.port.applyGuestStructureHit(structure, damage, context, proxy)
       else if (structure.isDamageableBy(proxy.characterFaction)) damageObstacle(structure, damage, context)
       return
     }
     if (message.kind === 'mount') {
-      const mount = this.sentMounts.get(id)
+      const mount = slot.sentMounts.get(id)
       if (!mount || mount.dead || this.port.acceptsGuestHit?.(mount) === false) return
-      if (this.port.applyGuestHit) this.port.applyGuestHit(mount, damage, context)
+      if (this.port.applyGuestHit) this.port.applyGuestHit(mount, damage, context, proxy)
       else damageMount(mount, damage, context)
       return
     }
-    const npc = this.sentNpcs.get(id)?.npc
+    const npc = slot.sentNpcs.get(id)?.npc
     if (!npc || npc.dead || this.port.acceptsGuestHit?.(npc) === false) return
     if (contactKind === 'mount' && npc.mount) context.contact = { kind: 'mount', time: 0, mount: npc.mount }
-    if (this.port.applyGuestHit) this.port.applyGuestHit(npc, damage, context)
+    if (this.port.applyGuestHit) this.port.applyGuestHit(npc, damage, context, proxy)
     else damageNpc(npc, damage, context)
   }
 
-  private showGuestProjectile(f: FireEvent | undefined): void {
+  private showGuestProjectile(slot: CoopGuestSlot, f: FireEvent | undefined): void {
     if (this.port.projectiles === false) return
     if (!Array.isArray(f) || f.length !== 8 || !f.every(Number.isFinite)) return
     const arrow = new ArrowProjectile(this.port.scene, new THREE.Vector3(f[0], f[1], f[2]), new THREE.Vector3(f[3], f[4], f[5]),
       f[6], 0, Faction.PLAYER, false, (f[7] & 1) ? 'pilum' : 'arrow')
     this.port.markVisualArrow(arrow)
     this.port.arrows.push(arrow)
+    // The other guests draw it too (a player-side shot).
+    this.fire.push({ from: slot.seat, f: [f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7] & 1] })
   }
 }
 
@@ -715,6 +872,8 @@ export class CoopGuestMission {
   readonly targets: NPC[] = []
   /** The host player's body on this screen; the guest's Player collides with it. */
   hostAvatar: NPC | null = null
+  /** The other guests' bodies on this screen; the guest's Player collides with them too. */
+  readonly partners: NPC[] = []
   private readonly orderKeys = new WeakMap<NPC, string>()
   private readonly unsubscribe: Array<() => void> = []
   private squadMembers: readonly CareerPersonalSquadMember[] = []
@@ -818,6 +977,9 @@ export class CoopGuestMission {
 
   isMirrorMount(mount: Mount): boolean { return this.mountIdOf.has(mount) }
 
+  /** The other players' bodies here: the host's and every other guest's. */
+  get peerBodies(): NPC[] { return this.hostAvatar ? [this.hostAvatar, ...this.partners] : [...this.partners] }
+
   /** Guest replaces the NPC AI loop with this presentation pass. */
   updateWorld(dt: number): void {
     const k = smoothing(dt)
@@ -899,6 +1061,7 @@ export class CoopGuestMission {
       this.actorIdOf.set(npc, spawn.id)
       if (spawn.target) this.targets.push(npc)
       if (spawn.avatar) this.hostAvatar = npc
+      if (spawn.partner) this.partners.push(npc)
       if (spawn.own) {
         // Mirrors start following the guest, like the real members on the host.
         npc.assignFollowTarget(this.port.player, this.ownSquad.length, followLocalOffset(this.ownSquad.length, npc.isMounted))
@@ -916,6 +1079,7 @@ export class CoopGuestMission {
     this.actors.delete(id)
     removeFrom(this.ownSquad, actor.npc)
     removeFrom(this.targets, actor.npc)
+    removeFrom(this.partners, actor.npc)
     if (this.hostAvatar === actor.npc) this.hostAvatar = null
     this.port.unregisterNpc(actor.npc)
     removeFrom(this.port.npcs, actor.npc)
