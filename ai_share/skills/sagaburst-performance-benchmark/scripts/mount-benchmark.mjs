@@ -37,7 +37,9 @@ if (!['before-contact', 'during-combat'].includes(phase)) {
 
 const scenarioArg = valueOf('scenario', 'all').toUpperCase()
 const allScenarios = [
-  { id: 'D', query: 'devcombat=d', sideCount: 100, horseCount: 200 },
+  // D is not a spectator scenario: the player starts mounted by default, so Horse Count is the
+  // 200 NPC mounts + 1 player starting horse. (`&mount=black-cat` would make it 200.)
+  { id: 'D', query: 'devcombat=d', sideCount: 100, horseCount: 201 },
   { id: 'E', query: 'devcombat=e', sideCount: 100, horseCount: 200 },
   { id: 'F', query: 'devcombat=f', sideCount: 100, horseCount: 200 },
   { id: 'G', query: 'devcombat=g', sideCount: 200, horseCount: 0 },

@@ -19,7 +19,7 @@ description: 用固定瀏覽器、warm-up、取樣窗口與 JSON 輸出，量測
 
 | Scenario | 配置 | NPC／Horse 總數 |
 | --- | --- | --- |
-| D | 100v100 混合騎兵，Formation | 200／200 |
+| D | 100v100 混合騎兵，Formation | 200／201（Horse Count＝200 隻 NPC 坐騎＋玩家預設起始馬；D 非 spectator。加 `&mount=black-cat` 則為 200） |
 | E | 100v100 全近戰騎兵，Scattered | 200／200 |
 | F | 100v100 混合騎兵，Scattered | 200／200 |
 | G | 200v200 步兵，Formation | 400／0 |
