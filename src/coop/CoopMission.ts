@@ -38,7 +38,7 @@ import type { TacticalOrder } from '../battle/TacticalOrder'
 import { parsePersonalSquad, type CareerPersonalSquadMember } from '../career/CareerPersonalSquad'
 import { preloadPersonalSquadMember, spawnPersonalSquadActor } from '../career/PersonalSquadRuntime'
 import { coopSession, type CoopMessage, type CoopSession } from './CoopLink'
-import { coopGuestLaunchId, coopWaitReason, isCoopSeatAdmitted } from './CoopLaunch'
+import { coopGuestLaunchId } from './CoopLaunch'
 import { commitCoopMissionMerit, emptyCoopStats, parseCoopMissionMerit, recordCoopGuestEvent, type CoopMissionKind } from './CoopMissionMerit'
 import { showCoopToast } from './CoopLobbyUI'
 import { CoopSiegeMirror, coopSiegeStructures, coopSiegeWire, parseCoopSiegeWire, type CoopSiegeGate, type CoopSiegeWorld } from './CoopSiegeMirror'
@@ -80,8 +80,8 @@ export interface CoopGamePort {
   readonly projectiles?: boolean
   /** Which actors the guest may damage here (arena: the duel opponent). Default: any. */
   readonly acceptsGuestHit?: (target: NPC | Mount) => boolean
-  /** Scenes with their own damage rules (Town hostility) apply the guest's hit themselves. */
-  readonly applyGuestHit?: (target: NPC | Mount, damage: number, context: CombatDamageContext) => void
+  /** Scenes with their own damage rules (Town hostility) apply the guest's hit themselves; `attacker` is that guest's puppet. */
+  readonly applyGuestHit?: (target: NPC | Mount, damage: number, context: CombatDamageContext, attacker: NPC) => void
   /** Whether the guest's own HR squad joins this scene (battlefield missions only). */
   readonly guestSquad?: boolean
   /** Host: actors the guest's own melee/shots may target in scenes without a faction rule (arena opponent). */
@@ -98,7 +98,7 @@ export interface CoopGamePort {
   /** Guest: how this scene builds and docks mirrored siege vehicles. */
   readonly siegeMirror?: Omit<CoopSiegeWorld, 'gates'>
   /** Host: scenes with their own structure rules (Town siege) apply the guest's structure hit themselves. */
-  readonly applyGuestStructureHit?: (target: DamageableObstacle, damage: number, context: CombatDamageContext) => void
+  readonly applyGuestStructureHit?: (target: DamageableObstacle, damage: number, context: CombatDamageContext, attacker: NPC) => void
   /** Host: this scene's formal mission once its own claim is saved, so the guest earns its own merit. */
   readonly missionSettlement?: () => { missionId: string; kind: CoopMissionKind; victory: boolean; prison?: PrisonBattleId } | null
 }
@@ -301,9 +301,7 @@ export class CoopHostMission {
   private readonly target = new THREE.Vector3()
   private readonly unsubscribe: Array<() => void> = []
 
-  /** `admits`: whether a guest seat follows this scene (see `CoopAudience`); other seats are ignored. */
-  constructor(private readonly port: CoopGamePort, private readonly link: CoopSession = coopSession(),
-    private readonly admits: (seat: number) => boolean = isCoopSeatAdmitted) {
+  constructor(private readonly port: CoopGamePort, private readonly link: CoopSession = coopSession()) {
     this.unsubscribe.push(
       link.on('ready', (_message, from) => {
         const slot = this.slotFor(from)
@@ -336,12 +334,30 @@ export class CoopHostMission {
     return out
   }
 
-  /** The scene horse the connected partner took as its own mount; its proxy shows that horse. */
-  get guestBorrowedMount(): string | null {
-    const slot = this.primarySlot()
-    const key = slot?.state?.borrowed
-    return slot && this.link.isPeer(slot.seat) && typeof key === 'string' ? key : null
+  /** The scene horses connected guests took as their own mounts, lowest seat first; their proxies show those horses. */
+  get guestBorrowedMounts(): string[] {
+    const out: string[] = []
+    for (const slot of [...this.slots.values()].sort((a, b) => a.seat - b.seat)) {
+      const key = slot.state?.borrowed
+      if (slot.proxy && this.link.isPeer(slot.seat) && typeof key === 'string' && !out.includes(key)) out.push(key)
+    }
+    return out
   }
+
+  /** The seat whose puppet this is, or null. */
+  seatOf(npc: NPC): number | null {
+    for (const slot of this.slots.values()) if (slot.proxy === npc) return slot.seat
+    return null
+  }
+
+  /** The scene horse a connected guest took as its own mount (Town stable key), or null. */
+  borrowedMountOf(seat: number): string | null {
+    const slot = this.slots.get(seat), key = slot?.state?.borrowed
+    return slot?.proxy && this.link.isPeer(seat) && typeof key === 'string' ? key : null
+  }
+
+  /** A connected guest's puppet by seat. */
+  proxyOf(seat: number): NPC | null { return this.slots.get(seat)?.proxy ?? null }
 
   private primarySlot(): CoopGuestSlot | null {
     let best: CoopGuestSlot | null = null
@@ -349,11 +365,11 @@ export class CoopHostMission {
     return best
   }
 
-  /** A guest seat's slot, created for a connected seat of this scene's audience; null for any other seat. */
+  /** A guest seat's slot, created for a connected seat; null for any other sender. */
   private slotFor(seat: number): CoopGuestSlot | null {
     const existing = this.slots.get(seat)
     if (existing) return existing
-    if (!this.link.isPeer(seat) || !this.admits(seat)) return null
+    if (!this.link.isPeer(seat)) return null
     const slot = new CoopGuestSlot(seat)
     this.slots.set(seat, slot)
     return slot
@@ -804,21 +820,21 @@ export class CoopHostMission {
     if (message.kind === 'structure') {
       const structure = typeof message.key === 'string' ? this.structures().get(message.key) : undefined
       if (!structure || structure.destroyed) return
-      if (this.port.applyGuestStructureHit) this.port.applyGuestStructureHit(structure, damage, context)
+      if (this.port.applyGuestStructureHit) this.port.applyGuestStructureHit(structure, damage, context, proxy)
       else if (structure.isDamageableBy(proxy.characterFaction)) damageObstacle(structure, damage, context)
       return
     }
     if (message.kind === 'mount') {
       const mount = slot.sentMounts.get(id)
       if (!mount || mount.dead || this.port.acceptsGuestHit?.(mount) === false) return
-      if (this.port.applyGuestHit) this.port.applyGuestHit(mount, damage, context)
+      if (this.port.applyGuestHit) this.port.applyGuestHit(mount, damage, context, proxy)
       else damageMount(mount, damage, context)
       return
     }
     const npc = slot.sentNpcs.get(id)?.npc
     if (!npc || npc.dead || this.port.acceptsGuestHit?.(npc) === false) return
     if (contactKind === 'mount' && npc.mount) context.contact = { kind: 'mount', time: 0, mount: npc.mount }
-    if (this.port.applyGuestHit) this.port.applyGuestHit(npc, damage, context)
+    if (this.port.applyGuestHit) this.port.applyGuestHit(npc, damage, context, proxy)
     else damageNpc(npc, damage, context)
   }
 
@@ -875,8 +891,6 @@ export class CoopGuestMission {
       link.on('spawn', message => this.applySpawns(message)),
       link.on('ev', message => this.applyEvents(message)),
       link.on('end', () => this.end('主機已結束任務')),
-      // The host moved on to a scene another guest follows alone.
-      link.on('wait', message => this.end(coopWaitReason(message.scene))),
       link.on('missionMerit', message => {
         const record = parseCoopMissionMerit(message.record)
         if (!record) return

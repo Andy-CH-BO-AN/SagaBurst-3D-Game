@@ -2,8 +2,7 @@
  * Mission hand-off between the host page and its guests.
  *
  * Host: every Career combat launch is announced with the launch config and a
- * copy of the host's saves, so each guest can build the identical scene. Only
- * the scene's audience (`CoopAudience`) follows; the other guests are told to wait.
+ * copy of the host's saves, so each guest can build the identical scene.
  * Guest: the announcement is parked in sessionStorage and the page reloads into
  * it. While it runs, game saves live only in memory and the guest's own
  * sessionStorage is backed up, then restored when the guest leaves.
@@ -20,23 +19,17 @@ import { installGameStorageOverride, MemoryStorage } from '../save/GameStorage'
 import { SAVE_KEY } from '../save/SaveManager'
 import { coopSession, type CoopMessage } from './CoopLink'
 import { COOP_PROTOCOL_VERSION } from './CoopProtocol'
-import { CoopAudience, initialCoopAudience, type CoopSceneKind } from './CoopAudience'
-import { showCoopToast } from './CoopLobbyUI'
-
-export type { CoopSceneKind } from './CoopAudience'
 
 const GUEST_LAUNCH_KEY = 'sagaburst_coop_guest_launch'
 const GUEST_SESSION_BACKUP_KEY = 'sagaburst_coop_session_backup'
 const GUEST_RESTORE_KEY = 'sagaburst_coop_session_restore'
 /** Host: the Town launch id announced as the host left its mission; the Town page re-announces under it. */
 const HOST_TOWN_RETURN_KEY = 'sagaburst_coop_town_return'
-/** Host: the seats following the current launch, kept across the host's own page reload (Town return). */
-const HOST_AUDIENCE_KEY = 'sagaburst_coop_audience'
-/** Host: the guest seat of the last one-partner scene, who stays the partner when there is a choice. */
-const HOST_PARTNER_KEY = 'sagaburst_coop_partner'
-const COOP_SESSION_KEYS = new Set([GUEST_LAUNCH_KEY, GUEST_SESSION_BACKUP_KEY, GUEST_RESTORE_KEY, HOST_TOWN_RETURN_KEY, HOST_AUDIENCE_KEY, HOST_PARTNER_KEY, 'sagaburst_coop_link'])
+const COOP_SESSION_KEYS = new Set([GUEST_LAUNCH_KEY, GUEST_SESSION_BACKUP_KEY, GUEST_RESTORE_KEY, HOST_TOWN_RETURN_KEY, 'sagaburst_coop_link'])
 const SHARED_LOCAL_KEYS = [CAREER_STORAGE_KEY, SAVE_KEY, DEFENSE_CAMPAIGN_PROGRESS_STORAGE_KEY]
 
+/** The host scene the guests mirror: a Game battlefield, the Career Town, a duel arena, an Arena Squad Trial or a prison break. */
+export type CoopSceneKind = 'game' | 'town' | 'arena' | 'trial' | 'prison'
 const COOP_SCENES: ReadonlySet<string> = new Set<CoopSceneKind>(['game', 'town', 'arena', 'trial', 'prison'])
 
 export interface CoopLaunchPayload {
@@ -86,49 +79,12 @@ export function parseCoopLaunchPayload(value: unknown): CoopLaunchPayload | null
 // ── Host ──────────────────────────────────────────────────────────────────
 
 let hostLaunch: CoopLaunchPayload | null = null
-let hostAudience: CoopAudience | null = null
 let hostListening = false
-
-/** Host: whether this guest seat follows the host's current scene (its messages are the scene's to use). */
-export function isCoopSeatAdmitted(seat: number): boolean { return hostAudience?.has(seat) ?? false }
-
-function storedAudience(id: string, scene: CoopSceneKind): CoopAudience | null {
-  try {
-    const stored = JSON.parse(sessionStorage.getItem(HOST_AUDIENCE_KEY) ?? 'null') as { id?: unknown; scene?: unknown; seats?: unknown } | null
-    if (!stored || stored.id !== id || stored.scene !== scene || !Array.isArray(stored.seats)) return null
-    return new CoopAudience(scene, stored.seats.filter((seat): seat is number => Number.isInteger(seat)))
-  } catch { return null }
-}
-
-function storedPartner(): number | null {
-  try {
-    const seat = Number(sessionStorage.getItem(HOST_PARTNER_KEY))
-    return Number.isInteger(seat) && seat > 0 ? seat : null
-  } catch { return null }
-}
-
-function rememberAudience(): void {
-  if (!hostLaunch || !hostAudience) return
-  try {
-    sessionStorage.setItem(HOST_AUDIENCE_KEY, JSON.stringify({ id: hostLaunch.id, scene: hostLaunch.scene, seats: hostAudience.seats }))
-    if (hostAudience.capacity === 1 && hostAudience.seats.length) sessionStorage.setItem(HOST_PARTNER_KEY, String(hostAudience.seats[0]))
-  } catch (error) { console.warn('[coop] could not keep the scene audience', error) }
-}
-
-/** Host: the current launch for a guest of the scene's audience; any other guest is told to wait. */
-function deliverCoopLaunch(seat: number): void {
-  const link = coopSession()
-  if (!hostLaunch || !hostAudience) return
-  if (hostAudience.admit(seat, link.peers)) {
-    rememberAudience()
-    link.send({ t: 'launch', payload: hostLaunch }, seat)
-  } else link.send({ t: 'wait', scene: hostLaunch.scene }, seat)
-}
 
 /** Host: record the mission the guests should join, and send it to every guest that is there. */
 export function announceCoopLaunch(config: CareerCombatLaunch): void { announceCoopScene('game', config) }
 
-/** Host: the guest follows into this scene (Town and arenas are announced by their entry). */
+/** Host: every guest follows into this scene (Town and arenas are announced by their entry). */
 export function announceCoopScene(scene: CoopSceneKind, config?: CareerCombatLaunch): void {
   const link = coopSession()
   if (!link.isHost) return
@@ -141,14 +97,13 @@ export function announceCoopScene(scene: CoopSceneKind, config?: CareerCombatLau
     id: scene === 'town' && returnId ? returnId : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     version: COOP_PROTOCOL_VERSION, scene, ...(config ? { config: structuredClone(config) } : {}), local, session: sessionEntries(sessionStorage),
   }
-  hostAudience = storedAudience(hostLaunch.id, scene) ?? initialCoopAudience(scene, link.peers, storedPartner())
-  rememberAudience()
   if (!hostListening) {
     hostListening = true
-    // A guest that (re)joins or reloads says hello; give it the running mission (or tell it to wait).
-    link.on('hello', (_message, from) => deliverCoopLaunch(from))
+    // A guest that (re)joins or reloads says hello; give it the running mission.
+    link.on('hello', (_message, from) => { if (hostLaunch) link.send({ t: 'launch', payload: hostLaunch }, from) })
   }
-  for (const seat of link.peers) deliverCoopLaunch(seat)
+  // Every guest in the room follows.
+  link.send({ t: 'launch', payload: hostLaunch })
 }
 
 /**
@@ -247,22 +202,9 @@ export function coopGuestCharacterAssets(): { hero: HeroAssetId | null; equipmen
 /** The guest's own HR personal squad (read-only from its own Career save); the guest commands only these. */
 export function coopGuestOwnSquad(): readonly CareerPersonalSquadMember[] { return guestOwnSquad }
 
-const WAIT_SCENE_NAMES: Readonly<Record<CoopSceneKind, string>> = { game: '戰場', town: '城鎮', arena: '競技場', trial: '競技場試煉', prison: '關押場景' }
-
-/** Guest: why it is not following the host into `scene`. */
-export function coopWaitReason(scene: unknown): string {
-  const name = typeof scene === 'string' && scene in WAIT_SCENE_NAMES ? WAIT_SCENE_NAMES[scene as CoopSceneKind] : '這個場景'
-  return `主機進入的${name}目前只支援主機加 1 位隊友；主機下次出戰時你會自動加入`
-}
-
 /** Guest: park the host's mission and reload into it (ignores the mission already running). */
 export function listenForCoopLaunch(): () => void {
-  // Another guest is the host's partner in this scene: a guest page ends its scene, the waiting room just says so.
-  const offWait = coopSession().on('wait', message => {
-    if (isCoopGuestLaunch()) showCoopGuestEnd(coopWaitReason(message.scene))
-    else showCoopToast(coopWaitReason(message.scene))
-  })
-  const offLaunch = coopSession().on('launch', (message: CoopMessage) => {
+  return coopSession().on('launch', (message: CoopMessage) => {
     const payload = parseCoopLaunchPayload(message.payload)
     if (!payload || payload.id === guestLaunchId || !coopSession().isGuest) return
     try {
@@ -274,7 +216,6 @@ export function listenForCoopLaunch(): () => void {
     document.exitPointerLock?.()
     window.location.assign(window.location.pathname + window.location.search)
   })
-  return () => { offWait(); offLaunch() }
 }
 
 /**

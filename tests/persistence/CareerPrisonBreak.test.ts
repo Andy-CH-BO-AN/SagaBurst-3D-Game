@@ -5,7 +5,7 @@ import { Vector3 } from 'three'
 import { CareerArenaCombatScene } from '../../src/arena/CareerArenaCombatScene'
 import { arenaCombatCounts, checkpointArenaActors, type ArenaProgressBody } from '../../src/arena/ArenaCombatProgress'
 import type { ArenaPhase } from '../../src/arena/ArenaOpeningGate'
-import { PrisonBreakEncounter, type PrisonBody, type PrisonBreakHost, type PrisonBreakPropsPort, type PrisonPartnerView } from '../../src/arena/PrisonBreakEncounter'
+import { PrisonBreakEncounter, type PrisonBody, type PrisonBreakHost, type PrisonBreakPropsPort, type PrisonPartnerView, type PrisonPickupRequest } from '../../src/arena/PrisonBreakEncounter'
 import type { MissionReturnHome } from '../../src/career/CareerMissionReturnRecovery'
 import { CoopSession, DEFAULT_COOP_PORT, type CoopBridge, type CoopLinkState, type CoopMessage } from '../../src/coop/CoopLink'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
@@ -40,7 +40,7 @@ interface Sword { position: Vector3; visible: boolean }
 interface World {
   profile: CareerProfile; phase: ArenaPhase; guest: boolean; owner: string; locked: boolean; yaw: number
   player: { position: Vector3; previousPosition: Vector3; dead: boolean }
-  bodies: (PrisonBody & ArenaProgressBody)[]; knocked: Set<string>; partner: PrisonPartnerView | null; requests: number[]
+  bodies: (PrisonBody & ArenaProgressBody)[]; knocked: Set<string>; partners: PrisonPartnerView[]; requests: PrisonPickupRequest[]
   retry: (() => void) | null
   swords: Sword[]; homes: MissionReturnHome[]; inventory: InventoryManager
 }
@@ -48,7 +48,7 @@ function world(profile: CareerProfile, over: Partial<World> = {}): World {
   const inventory = new InventoryManager({ meleeWeaponId: '', rangedWeaponId: '', shieldId: null })
   onTestFinished(() => { inventory.dispose() })
   return { profile, phase: 'fight', guest: false, owner: 'player', locked: true, yaw: Math.PI,
-    player: { position: new Vector3(), previousPosition: new Vector3(), dead: false }, bodies: [], knocked: new Set(), partner: null, requests: [], retry: null, swords: [], homes: [], inventory, ...over }
+    player: { position: new Vector3(), previousPosition: new Vector3(), dead: false }, bodies: [], knocked: new Set(), partners: [], requests: [], retry: null, swords: [], homes: [], inventory, ...over }
 }
 /** The scene's host port over the real store: commit adopts only a saved profile; a pause keeps the retry and clears the pickup focus. */
 function prisonRig(w: World, store: CareerProfileStore) {
@@ -77,10 +77,10 @@ function prisonRig(w: World, store: CareerProfileStore) {
     savePending: () => w.retry !== null, panelOpen: () => false, bodies: () => w.bodies,
     guards: () => {
       const { friendly, enemy } = rosterIds(w.profile.activeMission!.prisonBreak!)
-      const counts = arenaCombatCounts({ friendlyActorIds: friendly, targetActorIds: enemy }, w.bodies, w.knocked, w.player.dead, Boolean(w.partner))
+      const counts = arenaCombatCounts({ friendlyActorIds: friendly, targetActorIds: enemy }, w.bodies, w.knocked, w.player.dead, w.partners.length)
       return { total: enemy.length, standing: counts.enemyActive, friendlyAlive: counts.friendlyActive }
     },
-    player: () => w.player, partner: () => w.partner, takePartnerRequests: () => w.requests.splice(0),
+    player: () => w.player, partners: () => w.partners, takePartnerRequests: () => w.requests.splice(0),
     inputLocked: () => w.locked, cameraYaw: () => w.yaw, resyncCoop: () => { rec.resyncs++ }, playerStats: () => stats,
     freezeForResult: () => { w.phase = 'result'; rec.frozen++ }, showTaunt: line => { rec.taunts.push(line) },
     showUnsaved: retry => { rec.unsaved.push(retry) }, settled: () => { rec.settled++ }, townReturn: () => w.homes,
@@ -358,7 +358,7 @@ describe('Prison encounter persistence', () => {
     let deliver: (data: string) => void = () => {}
     const bridge: CoopBridge = { status: async () => idleLink, host: async () => idleLink, join: async () => idleLink, leave: async () => {},
       send: () => {}, onMessage: listener => { deliver = data => listener(data); return () => {} }, onState: () => () => {} }
-    const session = new CoopSession(bridge), pickups: number[] = []
+    const session = new CoopSession(bridge), pickups: PrisonPickupRequest[] = []
     Object.assign(scene, { coopUnsubscribe: [], coopPickupRequests: pickups, disposed: false })
     const coopScene = scene as unknown as { listenPrisonCoop(session: CoopSession, role: 'host' | 'guest'): void }
     coopScene.listenPrisonCoop(session, 'guest'); coopScene.listenPrisonCoop(session, 'host')
@@ -367,10 +367,10 @@ describe('Prison encounter persistence', () => {
     deliver('1' + JSON.stringify({ t: 'prisonPickup', index: 1 }))
     deliver('1' + JSON.stringify({ t: 'prisonPickup', index: 'x' }))
     expect(frame.coop).toEqual([{ 0: PRISON_COOP_PARTNER }])
-    expect(pickups).toEqual([1])
+    expect(pickups).toEqual([{ seat: 1, index: 1 }])
     const opening = (scene as unknown as { opening: { phase: string } }).opening
     opening.phase = 'countdown'; deliver('1' + JSON.stringify({ t: 'prisonPickup', index: 0 })); opening.phase = 'fight'
-    expect(pickups).toEqual([1]) // A guest request before the fight is live is ignored.
+    expect(pickups).toEqual([{ seat: 1, index: 1 }]) // A guest request before the fight is live is ignored.
     Object.assign(scene, { encounter: { settlementPending: true, clearPickupFocus() {} } })
     scene.update(0) // Unsaved result: only the arena and damage numbers tick; no body, player or shot steps.
     expect(calls).toMatchObject({ updates: 1, travels: 1, frozenFrames: 2 })
@@ -420,8 +420,10 @@ describe('Prison encounter persistence', () => {
     const { profile, store, storage } = fixture(), state = profile.activeMission!.prisonBreak!
     state.swords = {}; state.gateOpen = false
     expect(store.save(profile)).toBe(true)
-    const partner = { combatPosition: new Vector3(0, 0, 2), previousPosition: null }
-    const hostWorld = world(profile, { swords: [sword(0, 0, 1), sword(6, 0, 6)], partner, requests: [1, 0],
+    const partner = { seat: 1, combatPosition: new Vector3(0, 0, 2), previousPosition: null }
+    const second = { seat: 2, combatPosition: new Vector3(20, 0, 20), previousPosition: null }
+    const hostWorld = world(profile, { swords: [sword(0, 0, 1), sword(6, 0, 6)], partners: [partner, second],
+      requests: [{ seat: 1, index: 1 }, { seat: 1, index: 0 }, { seat: 2, index: 1 }],
       player: { position: new Vector3(9, 0, 9), previousPosition: new Vector3(9, 0, 9), dead: false } })
     const host = prisonRig(hostWorld, store)
     host.encounter.pickupSwords(false)
@@ -429,9 +431,10 @@ describe('Prison encounter persistence', () => {
     expect(store.load()!.activeMission!.prisonBreak!.swords).toEqual({ 0: PRISON_COOP_PARTNER })
     expect(hostWorld.swords.map(entry => entry.visible)).toEqual([false, true])
     expect(host.rec.resyncs).toBe(1)
-    partner.combatPosition.set(6, 0, 5)
-    hostWorld.requests.push(1); host.encounter.pickupSwords(false)
-    expect(store.load()!.activeMission!.prisonBreak!.swords).toEqual({ 0: PRISON_COOP_PARTNER })
+    // One sword per partner: seat 1 already holds one; seat 2 claims under its own id, and the save still loads.
+    partner.combatPosition.set(6, 0, 5); second.combatPosition.set(6, 0, 5)
+    hostWorld.requests.push({ seat: 1, index: 1 }, { seat: 2, index: 1 }); host.encounter.pickupSwords(false)
+    expect(store.load()!.activeMission!.prisonBreak!.swords).toEqual({ 0: PRISON_COOP_PARTNER, 1: 'coop-partner-2' })
     expect(store.loadChecked().error).toBeFalsy()
 
     // The guest page holds a copy of the host's save; the host's prison state arms its Player there only.
@@ -457,15 +460,15 @@ describe('Prison encounter persistence', () => {
     // The living partner is the team's only standing body; every roster actor is already knocked.
     const w = world(profile, { knocked: new Set(prisonRoster(state).map(entry => entry.actorId)),
       player: { position, previousPosition: position.clone(), dead: true },
-      partner: { combatPosition: new Vector3(0, 0, -37), previousPosition: new Vector3(0, 0, -37) } })
+      partners: [{ seat: 2, combatPosition: new Vector3(0, 0, -37), previousPosition: new Vector3(0, 0, -37) }] })
     const { encounter, rec } = prisonRig(w, store)
     expect(encounter.resolveResult()).toBe(false)
     expect(store.load()!.activeMission!.prisonBreak!.result).toBeUndefined()
-    w.partner!.combatPosition.set(0, 0, -39.5)
+    w.partners[0].combatPosition.set(0, 0, -39.5)
     expect(encounter.resolveResult()).toBe(true)
     const saved = store.loadChecked()
     expect(saved.error).toBeFalsy()
-    expect(saved.profile!.activeMission!.prisonBreak!.result).toEqual({ outcome: 'victory', merit: 100, escapedBy: PRISON_COOP_PARTNER })
+    expect(saved.profile!.activeMission!.prisonBreak!.result).toEqual({ outcome: 'victory', merit: 100, escapedBy: 'coop-partner-2' })
     expect(saved.profile!.totalMerit - profile.totalMerit).toBe(100)
     expect(prisonResultDescription(saved.profile!.activeMission!.prisonBreak!)).toBe('隊友成功逃脫，你未能逃出')
     expect(rec.settled).toBe(1)

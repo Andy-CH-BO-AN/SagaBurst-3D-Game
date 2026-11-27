@@ -135,7 +135,7 @@ export class CareerDuelController {
   onMarchStarted: (() => void) | null = null
   onReturnStarted: (() => void) | null = null
   private illegalAttackPending = false
-  /** LAN co-op arena: a living partner keeps a 2v1 duel going after the player falls. */
+  /** LAN co-op arena: a living partner keeps the duel (up to 4v1) going after the player falls. */
   coopPartnerAlive: () => boolean = () => false
   private get teamDown(): boolean { return this.player().dead && !this.coopPartnerAlive() }
   private playerHomeMount: Mount | null = null

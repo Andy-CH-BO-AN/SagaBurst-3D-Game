@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { announceCoopScene, announceCoopTownReturn, isCoopSeatAdmitted, type CoopLaunchPayload } from '../../src/coop/CoopLaunch'
+import { announceCoopScene, announceCoopTownReturn, type CoopLaunchPayload } from '../../src/coop/CoopLaunch'
 import type { CareerCombatLaunch } from '../../src/career/CaptainBattleLaunch'
 import { coopSession } from '../../src/coop/CoopLink'
 import { coopBridgeDouble } from '../helpers/coopBridgeDouble'
@@ -18,8 +18,7 @@ async function hostPage(guests: number[]) {
   double.hub({ event: 'welcome', role: 'host', seat: 0, peers: guests })
   double.sent.length = 0
   const launches = () => double.messages('launch').map(frame => ({ to: frame.to, payload: frame.message!.payload as CoopLaunchPayload }))
-  const waits = () => double.messages('wait').map(frame => frame.to)
-  return { ...double, announceCoopScene, announceCoopTownReturn, isCoopSeatAdmitted, launches, waits }
+  return { ...double, announceCoopScene, announceCoopTownReturn, launches }
 }
 
 describe('Co-op host Town return', () => {
@@ -30,7 +29,7 @@ describe('Co-op host Town return', () => {
 
     host.announceCoopTownReturn()
     const [leaving] = host.launches()
-    expect(leaving.to).toBe(1)
+    expect(leaving.to).toBe('all')
     expect(leaving.payload.scene).toBe('town')
     // The guest builds its Town from the host's return save and Town entry session.
     expect(leaving.payload.session).toEqual({ sagaburst_career_town: '1' })
@@ -44,36 +43,16 @@ describe('Co-op host Town return', () => {
   })
 })
 
-describe('Co-op scene audience', () => {
-  it('takes every guest to the battlefield, keeps one partner in the Town across the host reload, and gives a left place to a waiting guest', async () => {
+describe('Co-op launch delivery', () => {
+  it('takes every guest along, and gives a guest that (re)joins the running scene at its own seat only', async () => {
     globals.localStorage = new MemoryStorage()
     globals.sessionStorage = new MemoryStorage()
-    const mission = await hostPage([1, 2, 3])
-    mission.announceCoopScene('game', { careerMissionId: 'm1' } as CareerCombatLaunch)
-    expect(mission.launches().map(launch => launch.to)).toEqual([1, 2, 3])
-    expect(mission.waits()).toEqual([])
-    mission.sent.length = 0
-    mission.announceCoopTownReturn()
-    expect(mission.launches().map(launch => launch.to)).toEqual([1])
-    expect(mission.waits()).toEqual([2, 3])
-
-    // The host's own page reloads into the Town (the audience is kept in its session): the same partner,
-    // and only it, follows under the same id.
-    const leftFor = mission.launches()[0].payload.id
-    const town = await hostPage([1, 2, 3])
-    town.announceCoopScene('town')
-    expect(town.launches().map(launch => [launch.to, launch.payload.id])).toEqual([[1, leftFor]])
-    expect(town.waits()).toEqual([2, 3])
-    expect([1, 2, 3].map(seat => town.isCoopSeatAdmitted(seat))).toEqual([true, false, false])
-
-    // A reloading guest asks again: still waiting while the partner is there, admitted once its place is free.
-    town.sent.length = 0
-    town.receive(2, { t: 'hello' })
-    expect(town.waits()).toEqual([2])
-    town.hub({ event: 'peer-left', seat: 1 })
-    town.receive(3, { t: 'hello' })
-    expect(town.launches().map(launch => launch.to)).toEqual([3])
-    expect(town.isCoopSeatAdmitted(3)).toBe(true)
-    expect(town.isCoopSeatAdmitted(1)).toBe(false)
+    const host = await hostPage([1, 2, 3])
+    host.announceCoopScene('game', { careerMissionId: 'm1' } as CareerCombatLaunch)
+    const [launch] = host.launches()
+    expect(host.launches().map(sent => sent.to)).toEqual(['all'])
+    host.sent.length = 0
+    host.receive(2, { t: 'hello' })
+    expect(host.launches()).toEqual([{ to: 2, payload: launch.payload }])
   })
 })

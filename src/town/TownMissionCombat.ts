@@ -90,8 +90,8 @@ interface TownCombatScene {
   hitNpc(target: NPC, damage: number, method: CombatDamageMethod, source?: NPC): void
   damagePlayer(source: NPC, damage: number, method: CombatDamageMethod): void
   fireNpc(origin: THREE.Vector3, direction: THREE.Vector3, kind: 'arrow' | 'pilum', source: NPC, lifecycle?: ProjectileFlightBudget): boolean | void
-  /** Co-op host: the guest's living body, a target for whoever is hostile to it; never updated here. */
-  coopPartner?(): NPC | null
+  /** Co-op host: the guests' bodies, targets for whoever is hostile to them; never updated here. */
+  coopPartners?(): readonly NPC[]
   isInFrustum?(position: THREE.Vector3, radius?: number): boolean
   /** DEV-only segmented profiler; never populated in production builds. */
   devProfiler?: Pick<TownDevProfiler, 'isEnabled' | 'add'>
@@ -454,7 +454,7 @@ export class TownMissionCombat {
       const peers = warfareActive ? this.runtimeActors : veteranField
         ? veteranMarching && !veteranSurvival ? veteranMarchingPeers! : actorIsVeteranHostile ? veteranEnemyPeers! : veteranFriendlyPeers!
         : actor.faction === Faction.BANDIT
-          ? [...new Set([...field.combatPeersFor(actor), ...this.externalThreatActors, ...this.livingCoopPartner()])]
+          ? [...new Set([...field.combatPeersFor(actor), ...this.externalThreatActors, ...this.livingCoopPartners()])]
           : this.externalThreatActors.has(actor)
             ? [...field.ambientBandits, ...field.missionBandits, ...this.externalThreatActors]
             : field.combatPeersFor(actor)
@@ -601,9 +601,8 @@ export class TownMissionCombat {
     for (const npc of air?.actors ?? []) {
       if (!participantSet.has(npc)) { participantSet.add(npc); this.runtimeActors.push(npc) }
     }
-    // Hostile actors acquire the co-op guest like any other foe; its own movement comes from the network.
-    const partner = this.town.coopPartner?.()
-    if (partner && !partner.dead) this.runtimeActors.push(partner)
+    // Hostile actors acquire the co-op guests like any other foe; their own movement comes from the network.
+    this.runtimeActors.push(...this.livingCoopPartners())
     if (buildWarfareGrid) {
       this.warfareGrid.clear()
       for (const actor of this.runtimeActors) if (!actor.dead) this.warfareGrid.insert(actor)
@@ -705,9 +704,8 @@ export class TownMissionCombat {
     return true
   }
 
-  private livingCoopPartner(): NPC[] {
-    const partner = this.town.coopPartner?.()
-    return partner && !partner.dead ? [partner] : []
+  private livingCoopPartners(): NPC[] {
+    return (this.town.coopPartners?.() ?? []).filter(partner => !partner.dead)
   }
 
   private actorObstacles(actor: NPC): ObstacleData[] {

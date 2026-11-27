@@ -18,11 +18,12 @@ function battlefield(): CoopGamePort {
 }
 
 describe('Co-op host mission seats', () => {
-  it('gives each admitted guest its own snapshot and one merit record, and nothing to a guest outside the scene', async () => {
+  it('gives each guest in the scene its own snapshot and one merit record, and nothing to a guest still loading', async () => {
     const { session, sent, receive } = await connectedCoopSession('host', [1, 2, 3])
-    const host = new CoopHostMission(battlefield(), session, seat => seat !== 3)
+    const host = new CoopHostMission(battlefield(), session)
     try {
-      for (const seat of [1, 2, 3]) receive(seat, { t: 'ready' })
+      // Seat 3 is in the room but has not built its scene (no 'ready') yet.
+      for (const seat of [1, 2]) receive(seat, { t: 'ready' })
       host.update(1.1)
       host.update(1.1)
       const merits = sent.filter(frame => frame.message?.t === 'missionMerit')

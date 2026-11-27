@@ -9,22 +9,22 @@ type Inputs = ConstructorParameters<typeof TownMissionCombat>
 const body = (x: number, dead = false) => ({ dead, combatPosition: new Vector3(x, 0, 0) }) as unknown as NPC
 
 describe('Town runtime combat roster', () => {
-  it('lets hostile actors acquire the living co-op partner through the shared warfare roster and grid', () => {
-    const squadMember = body(4), partner = body(10)
+  it('lets hostile actors acquire every living co-op partner through the shared warfare roster and grid', () => {
+    const squadMember = body(4), partner = body(10), second = body(20)
     let partnerBody: NPC = partner
     const combat = new TownMissionCombat({
       field: { fieldNpcs: [], ambientBandits: [] }, defense: { fieldNpcs: [] },
       duel: { fieldNpcs: [], isParkedResident: () => false },
     } as unknown as Inputs[0], {
-      residents: [], personalSquad: () => ({ actors: [squadMember] }), coopPartner: () => partnerBody,
+      residents: [], personalSquad: () => ({ actors: [squadMember] }), coopPartners: () => [partnerBody, second],
     } as unknown as Inputs[1])
     combat['prepareOutskirtsFrame'](1 / 60)
-    expect(combat.runtimeParticipants).toEqual([squadMember, partner])
+    expect(combat.runtimeParticipants).toEqual([squadMember, partner, second])
     expect(combat.runtimeGrid.getNearby(partner.combatPosition, 1)).toEqual([partner])
-    // A fallen partner leaves the roster on the next frame.
+    // A fallen partner leaves the roster on the next frame; the other stays.
     partnerBody = body(10, true)
     combat['prepareOutskirtsFrame'](1 / 60)
-    expect(combat.runtimeParticipants).toEqual([squadMember])
+    expect(combat.runtimeParticipants).toEqual([squadMember, second])
     expect(combat.runtimeGrid.getNearby(partner.combatPosition, 1)).toEqual([])
   })
 

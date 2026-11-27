@@ -31,7 +31,7 @@ export async function launchCoopGuestTown(container: HTMLElement): Promise<void>
   }
 }
 
-/** The host's duel arena (Colosseum / Valhalla), fighting on the host's side of a 2v1. */
+/** The host's duel arena (Colosseum / Valhalla), fighting on the host's side (up to 4v1). */
 export async function launchCoopGuestArena(container: HTMLElement): Promise<void> {
   const loading = loadingOverlay('正在前往主機的競技場…')
   try {

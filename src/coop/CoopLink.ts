@@ -30,6 +30,9 @@ export interface CoopLinkState {
   port: number
   error: string | null
   addresses?: string[]
+  /** Desktop: this page's hub seat and the seats it can reach, kept by the main process across page reloads. */
+  seat?: number | null
+  peers?: number[]
 }
 
 export type CoopFrame = string | Uint8Array
@@ -219,6 +222,10 @@ export class CoopSession {
   init(): Promise<void> {
     this.ready ??= this.bridge.status().then(state => {
       this.linkState = state
+      if (state.status === 'connected' && Number.isInteger(state.seat)) {
+        this.ownSeat = state.seat!
+        for (const peer of state.peers ?? []) if (Number.isInteger(peer)) this.peerSeats.add(peer)
+      }
       // Ask the other side to announce itself again after a page reload.
       if (state.status === 'connected') this.send({ t: 'hello' })
       this.changed()
@@ -296,7 +303,8 @@ export class CoopSession {
       if (message.t === 'hub') this.hubEvent(message)
       return
     }
-    if (message.t === 'hello' && !this.peerSeats.has(from)) { this.peerSeats.add(from); this.changed() }
+    // Any message proves its sender is in the room (a reloaded page may not have heard the hub's notices).
+    if (!this.peerSeats.has(from)) { this.peerSeats.add(from); this.changed() }
     for (const listener of this.jsonListeners.get(message.t) ?? []) listener(message, from)
   }
 

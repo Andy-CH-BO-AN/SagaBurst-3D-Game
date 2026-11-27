@@ -64,7 +64,7 @@ import { bindWindowResize, createSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO }
 import { coopSession } from '../coop/CoopLink'
 import { announceCoopScene, coopGuestCharacterAssets, coopGuestPlayerSource, isCoopGuestLaunch, showCoopGuestEnd, type CoopPlayerSource } from '../coop/CoopLaunch'
 import { felineVariantFromMountId } from '../world/Mount'
-import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeer, type CoopGamePort } from '../coop/CoopMission'
+import { CoopGuestMission, CoopHostMission, separateLocalPlayerFromPeers, type CoopGamePort } from '../coop/CoopMission'
 
 const PLAYER_HALF_HEIGHT = 0.95
 
@@ -117,6 +117,16 @@ export function arenaDuelPartyPlan(active: Pick<ActiveCareerMission, 'duelPreset
  * host only owns the arena, the bodies and the physical damage routing between the player
  * and the one opponent. Settlement uses the ordinary Career claim/clear transactions.
  */
+/** The co-op partner nearest to `from`, or null. */
+function nearestPartner(partners: readonly NPC[], from: THREE.Vector3): NPC | null {
+  let best: NPC | null = null, bestDistance = Infinity
+  for (const partner of partners) {
+    const distance = partner.combatPosition.distanceToSquared(from)
+    if (distance < bestDistance) { best = partner; bestDistance = distance }
+  }
+  return best
+}
+
 export class CareerDuelArenaScene {
   private readonly scene = new THREE.Scene()
   private readonly camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.1, 900)
@@ -374,7 +384,7 @@ export class CareerDuelArenaScene {
     this.last = performance.now()
     if (!this.coopGuest && coopSession().isHost) {
       this.coopHost = new CoopHostMission(this.coopPort(false))
-      this.duel.coopPartnerAlive = () => Boolean(this.coopPartner)
+      this.duel.coopPartnerAlive = () => this.coopPartners.length > 0
       announceCoopScene('arena')
     }
     if (this.profile.activeMission?.result && !this.coopGuest) this.openResult(this.profile.activeMission.result)
@@ -425,7 +435,7 @@ export class CareerDuelArenaScene {
       this.melee()
       this.resolveBodies()
     }
-    separateLocalPlayerFromPeer(this.player, this.coopHost?.guestProxy, this.arena.obstacles)
+    separateLocalPlayerFromPeers(this.player, this.coopHost?.guestProxies ?? [], this.arena.obstacles)
     this.updateShots(dt)
     this.careerMounts.update(dt)
     this.player.fitMountedSeat()
@@ -466,11 +476,12 @@ export class CareerDuelArenaScene {
       const distance = actor.group.position.distanceTo(this.camera.position)
       if (actor.dead) { actor.update(dt, this.player, [], [], this.arena.obstacles, this.hp, () => {}, () => false, false, distance); continue }
       const combatant = actor === this.duel.opponent && this.duel.combatEnabled
-      // Co-op 2v1: the opponent fights whichever living player is nearer.
-      const partner = combatant ? this.coopPartner : null
+      // Co-op (up to 4v1): the opponent fights whichever living player is nearest.
+      const partners = combatant ? this.coopPartners : []
+      const partner = nearestPartner(partners, actor.combatPosition)
       const onPartner = Boolean(partner && (this.player.dead
         || partner.combatPosition.distanceToSquared(actor.combatPosition) < this.player.combatPosition.distanceToSquared(actor.combatPosition)))
-      if (combatant) actor.setMissionCombatTarget(onPartner ? partner : undefined)
+      if (combatant) actor.setMissionCombatTarget(onPartner ? partner! : undefined)
       // Raised stands/dais are reached by their stairs; the route holds its flight until the far end.
       const chase = combatant && !this.player.dead && !onPartner
       if (!chase && actor === this.duel.opponent) this.chaseRoute.reset()
@@ -490,11 +501,12 @@ export class CareerDuelArenaScene {
       }
       if (this.chaseWaypoint && actor === this.duel.opponent) { this.chaseWaypoint = null; actor.setTacticalOrder('attack') }
       if (combatant) {
-        actor.update(dt, this.player, partner ? [...this.duel.actors, partner] : this.duel.actors, [], this.arena.obstacles, this.hp,
-          // The opponent can only reach the players (host or co-op partner) or their mounts.
+        actor.update(dt, this.player, partners.length ? [...this.duel.actors, ...partners] : this.duel.actors, [], this.arena.obstacles, this.hp,
+          // The opponent can only reach the players (host or co-op partners) or their mounts.
           (damage, isPlayer, target, targetMount) => {
+            const struck = partners.find(p => target === p || targetMount === p.mount)
             if (isPlayer) this.damagePlayerFrom(actor, damage, 'melee')
-            else if (partner && (target === partner || targetMount === partner.mount)) this.damagePartnerFrom(actor, damage, 'melee')
+            else if (struck) this.damagePartnerFrom(actor, damage, 'melee', undefined, struck)
             else if (targetMount) this.hitMount(targetMount, damage, 'melee', actor)
           },
           (origin, direction, kind) => this.fire(origin, direction, actor.rangedProjectileSpeed, actor.rangedDamage, kind, actor),
@@ -521,16 +533,14 @@ export class CareerDuelArenaScene {
     }
   }
 
-  /** Host: the guest's living proxy fighting on this side of a 2v1 duel. */
-  private get coopPartner(): NPC | null {
-    const proxy = this.coopHost?.guestProxy
-    return proxy && !proxy.dead ? proxy : null
+  /** Host: the guests' living proxies fighting on this side of the duel. */
+  private get coopPartners(): NPC[] {
+    return this.coopHost?.guestProxies.filter(proxy => !proxy.dead) ?? []
   }
 
-  private damagePartnerFrom(source: NPC, amount: number, method: CombatDamageMethod, contact?: CombatContact): void {
-    const partner = this.coopPartner
+  private damagePartnerFrom(source: NPC, amount: number, method: CombatDamageMethod, contact: CombatContact | undefined, partner: NPC): void {
     contact ??= source.unarmedContact
-    if (!partner || !this.duel.canDamagePlayer(source) || amount <= 0) return
+    if (partner.dead || !this.duel.canDamagePlayer(source) || amount <= 0) return
     const result = damageNpc(partner, amount, {
       contact: contact ?? (method === 'melee' ? source.weaponSweep?.contact : undefined), hostileToTarget: true,
       source: createNpcCombatActorRef(source), method,
@@ -611,7 +621,7 @@ export class CareerDuelArenaScene {
       else this.arena.constrainGroundedBody(this.player.group.position)
     }
     this.coopGuest!.updateWorld(dt)
-    separateLocalPlayerFromPeer(this.player, this.coopGuest!.hostAvatar, this.arena.obstacles)
+    separateLocalPlayerFromPeers(this.player, this.coopGuest!.peerBodies, this.arena.obstacles)
     this.melee()
     this.updateShots(dt)
     this.updateCoopArrows(dt)
@@ -660,10 +670,10 @@ export class CareerDuelArenaScene {
 
   private emit(event: CombatEvent, lod = 0): void {
     this.coopHost?.recordCombatEvent(event)
-    // The co-op partner follows the player's unarmed-duel rule, not the "commanded helper" one;
-    // its damage still never counts toward the player's own stats or merit.
-    const partner = this.coopPartner
-    this.duel.recordCombatEvent(partner && event.source.actorId === partner.combatantId
+    // Co-op partners follow the player's unarmed-duel rule, not the "commanded helper" one;
+    // their damage still never counts toward the player's own stats or merit.
+    const fromPartner = this.coopPartners.some(partner => event.source.actorId === partner.combatantId)
+    this.duel.recordCombatEvent(fromPartner
       ? { ...event, source: { ...event.source, actorType: 'player' } } : event)
     playAppliedPunchHit(event, this.sound, lod, event.source.actorType === 'player')
     const weapon = event.type === 'damage_applied' && event.weaponId ? WEAPONS[event.weaponId] : this.inventory.activeMelee
@@ -754,7 +764,7 @@ export class CareerDuelArenaScene {
       const to = step.to
       const targets: (Player | NPC | Mount)[] = shot.player
         ? [...(opponent ? [opponent] : []), ...(opponent?.mount ? [opponent.mount] : [])]
-        : [this.player, ...(this.player.currentMount ? [this.player.currentMount] : []), ...(this.coopPartner ? [this.coopPartner] : [])]
+        : [this.player, ...(this.player.currentMount ? [this.player.currentMount] : []), ...this.coopPartners]
       const hit = this.shotContacts.find(from, to, {
         world: { kind: 'town', practiceTargets: [], traceSiege: () => null },
         obstacles: this.arena.obstacles,
@@ -764,9 +774,10 @@ export class CareerDuelArenaScene {
       if (hit) {
         if (hit.kind === 'actor') {
           const { target, contact } = hit
-          if (contact.kind === 'mount' && contact.mount && contact.mount !== this.coopPartner?.mount) this.hitMount(contact.mount, shot.arrow.damage, 'projectile', shot.source, contact)
+          const partner = target instanceof NPC && this.coopPartners.includes(target) ? target : null
+          if (contact.kind === 'mount' && contact.mount && !this.coopPartners.some(p => p.mount === contact.mount)) this.hitMount(contact.mount, shot.arrow.damage, 'projectile', shot.source, contact)
           else if (target instanceof Player && shot.source) this.damagePlayerFrom(shot.source, shot.arrow.damage, 'projectile', contact)
-          else if (target instanceof NPC && shot.source && target === this.coopPartner) this.damagePartnerFrom(shot.source, shot.arrow.damage, 'projectile', contact)
+          else if (partner && shot.source) this.damagePartnerFrom(shot.source, shot.arrow.damage, 'projectile', contact, partner)
           else if (target instanceof NPC && shot.player) this.hitOpponent(target, shot.arrow.damage, 'projectile', contact)
         }
         shot.arrow.destroy()

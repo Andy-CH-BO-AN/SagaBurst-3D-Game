@@ -15,7 +15,8 @@ function closeReason(code) {
 function installCoopNet(getWindow) {
   let hub = null
   let socket = null
-  let state = { role: null, status: 'idle', address: null, port: DEFAULT_COOP_PORT, error: null }
+  // seat/peers follow the hub's notices, so a renderer reloaded mid-session still knows its seat and room.
+  let state = { role: null, status: 'idle', address: null, port: DEFAULT_COOP_PORT, error: null, seat: null, peers: [] }
   // This app's guest reconnect key: the hub gives a rejoining page its previous seat.
   const seatKey = randomUUID()
 
@@ -41,7 +42,7 @@ function installCoopNet(getWindow) {
     const oldHub = hub
     hub = null
     if (oldHub) await oldHub.close()
-    setState({ role: null, status: 'idle', address: null, error: null })
+    setState({ role: null, status: 'idle', address: null, error: null, seat: null, peers: [] })
     settlePending()
   }
   // The newest in-flight hub start; a superseded owner closes its hub before it settles, so the next host can reuse the port.
@@ -62,24 +63,36 @@ function installCoopNet(getWindow) {
     closeSocket()
     const next = new WebSocket(`${url}/?role=${role}&v=${COOP_HUB_VERSION}&key=${seatKey}`)
     socket = next
-    setState({ role, status: 'connecting', address, port, error: null })
+    setState({ role, status: 'connecting', address, port, error: null, seat: null, peers: [] })
     settlePending()
     settleConnect = () => resolve(snapshot())
     next.on('open', () => { if (socket === next) { setState({ status: 'connected' }); resolve(snapshot()) } })
     next.on('message', (data, isBinary) => {
       if (socket !== next) return
-      if (isBinary) emit('coop:message', new Uint8Array(data))
-      else emit('coop:message', data.toString())
+      if (isBinary) { emit('coop:message', new Uint8Array(data)); return }
+      const text = data.toString()
+      if (text.startsWith('h')) trackHub(text)
+      emit('coop:message', text)
     })
     next.on('error', error => { if (socket === next) setState({ error: String(error?.message ?? error) }) })
     next.on('close', code => {
       if (socket !== next) return
       socket = null
       const reason = closeReason(code)
-      setState({ status: 'closed', ...(reason ? { error: reason } : {}) })
+      setState({ status: 'closed', seat: null, peers: [], ...(reason ? { error: reason } : {}) })
       resolve(snapshot())
     })
   })
+
+  const trackHub = text => {
+    let notice
+    try { notice = JSON.parse(text.slice(1)) } catch { return }
+    const seat = Number(notice?.seat)
+    if (!Number.isInteger(seat)) return
+    if (notice.event === 'welcome') state = { ...state, seat, peers: Array.isArray(notice.peers) ? notice.peers.filter(Number.isInteger) : [] }
+    else if (notice.event === 'peer-joined' && !state.peers.includes(seat)) state = { ...state, peers: [...state.peers, seat] }
+    else if (notice.event === 'peer-left') state = { ...state, peers: state.peers.filter(peer => peer !== seat) }
+  }
 
   ipcMain.handle('coop:status', () => snapshot())
   ipcMain.handle('coop:host', async (_event, port) => {

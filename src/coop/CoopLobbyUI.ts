@@ -39,7 +39,7 @@ function statusText(): string {
     const addresses = state.addresses?.length ? state.addresses.map(a => `${a}`).join('、') : '（找不到區網 IP，請在系統設定查看本機 IP）'
     const guests = link.peers.length
     return `房間已建立（連接埠 ${state.port}）\n請隊友輸入這台電腦的 IP：${addresses}\n${guests
-      ? `✔ ${guests}／${COOP_MAX_GUESTS} 位隊友已加入。進入生涯模式後，所有隊友都會跟著你出戰；城鎮與競技場目前只有第一位隊友同行。`
+      ? `✔ ${guests}／${COOP_MAX_GUESTS} 位隊友已加入。進入生涯模式後，所有隊友都會跟著你進城鎮、戰場與競技場。`
       : `等待隊友加入…（最多 ${COOP_MAX_GUESTS} 位）`}`
   }
   const seat = link.seat ? `（隊友 ${link.seat}）` : ''
@@ -64,7 +64,7 @@ export function showCoopLobby(onBack: () => void, onEnterCareer: () => void, onG
   const desktop = Boolean((window as unknown as { sagaburstCoop?: unknown }).sagaburstCoop)
   card.append(
     el('h1', { textContent: '區網合作 CO-OP' }),
-    el('p', { className: 'coop-muted', textContent: '最多四台電腦（主機加 3 位隊友）連同一個 WiFi／區網。所有隊友都會跟著主機進入同一個戰場；城鎮、競技場、試煉與越獄目前只支援主機加 1 位隊友（城鎮裡可以一起走動；競技場單挑變成 2v1；賽馬三人同場，最快的人才有獎勵），其他隊友在等待畫面等主機下次出戰。主機照自己的階級指揮任務部隊與私兵；隊友只能指揮自己的 HR 私兵（隊友會帶自己存檔裡的私兵參戰）。除了隊友贏得的賽馬獎勵，合作模式不會寫入隊友的存檔。' }),
+    el('p', { className: 'coop-muted', textContent: '最多四台電腦（主機加 3 位隊友）連同一個 WiFi／區網。所有隊友都會跟著主機進入同一個城鎮、戰場或競技場：城鎮裡可以一起走動、各自借馬；競技場單挑最多變成 4v1；賽馬所有玩家與指揮官同場，最快的人才有獎勵。主機照自己的階級指揮任務部隊與私兵；隊友只能指揮自己的 HR 私兵（隊友會帶自己存檔裡的私兵參戰）。除了隊友贏得的賽馬獎勵，合作模式不會寫入隊友的存檔。' }),
     el('div', { className: 'coop-row' }, hostButton),
     el('div', { className: 'coop-row' }, address, joinButton),
     status, error,
@@ -119,7 +119,7 @@ export function showCoopGuestWaiting(onLeave: () => void): () => void {
   const leave = el('button', { className: 'coop-btn secondary', textContent: '離開房間' })
   panel.append(el('div', { className: 'coop-card' },
     el('h1', { textContent: '等待主機' }),
-    el('p', { className: 'coop-muted', textContent: '主機進入生涯模式後，你會自動跟著主機出戰；城鎮與競技場一次只有一位隊友同行，其他隊友在這裡等主機下次出戰。' }),
+    el('p', { className: 'coop-muted', textContent: '主機進入生涯模式後，你會自動進入主機的城鎮，並跟著主機出戰。' }),
     status, el('div', { className: 'coop-row' }, leave)))
   document.body.append(panel)
   const render = (): void => {
