@@ -40,7 +40,7 @@
 
 - `EquipmentVisualLODController` 跟隨人物 Three.LOD 的當幀 level，不另算距離；只切已標記的靜態細節，保留 socket、弓弦與搭箭的動態 ownership。
 - NPC 持有裝備在 LOD2 關閉 castShadow，LOD0／1 還原第一次登記的原值。Player、飛行物、掉落物、人物與坐騎不屬於此 policy。
-- `Lod2EquipmentBatcher` 每幀把 LOD2 剛性 proxy 與 LOD1 剛性裝備（不透明、單一材質、無 skinning／morph、無子節點）依 geometry＋material（LOD1 另加 castShadow／receiveShadow）併成共用 `InstancedMesh`；LOD1 只在同組至少兩件可見時批次化。來源 mesh 只移到 `LOD2_BATCHED_SOURCE_LAYER` 不改 `.visible`，離開 LOD1、隱藏或不再掛在該 actor 下時**必須還原原 layers**。批次 mesh 不 dispose 共用 geometry／material。LOD0 裝備不批次化。
+- `Lod2EquipmentBatcher` 每幀把 LOD2 剛性 proxy 與 LOD1 剛性裝備（不透明、單一材質、無 skinning／morph、無子節點）依 geometry＋material（LOD1 另加 castShadow／receiveShadow）併成共用 `InstancedMesh`；LOD1 只在同組至少兩件可見時批次化；`castShadow=false` 的 LOD1 pool 以 geometry bounding sphere 對相機視錐剔除鏡頭外實例（投影 pool 不剔除，鏡頭外物件的影子可能落入畫面）。來源 mesh 只移到 `LOD2_BATCHED_SOURCE_LAYER` 不改 `.visible`，離開 LOD1、隱藏或不再掛在該 actor 下時**必須還原原 layers**。批次 mesh 不 dispose 共用 geometry／material。LOD0 裝備不批次化。
 - 遠景 LOD2 只保留輪廓。瓦良格隊長（`viking-hero-t4`）的 LOD2 在 SHA-256 稽核相符時才合併同材質 skinned mesh，任一組驗證失敗就保留原樣。`CharacterBowVisual` 的程序弓弦與搭箭材質為**全實例共用常數，不可逐實例修改或 dispose**。
 - 人物與戰馬共享 GLB 模板由 `primeSkinnedTemplateBounds` 在第一次 clone 前算一次 `SkinnedMesh.boundingSphere`；clone 與 `configureMultiInfluenceSkinning` **不逐實例 CPU 蒙皮重算**。
 - 人物取樣節奏由 `CharacterLODPolicy.humanoidPoseInterval` 決定；近戰動作**永不降頻**。explicit `seek`（`bowLoad`、`pilumThrow`）共用同一節奏；蓄力與投擲進度仍由 gameplay 計時。

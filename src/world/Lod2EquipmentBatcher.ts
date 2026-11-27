@@ -59,6 +59,9 @@ export class Lod2EquipmentBatcher {
   private readonly lod1Indices: number[] = []
   private readonly lod1Candidates: Lod1BatchPool[] = []
   private lod1Enabled = true
+  private readonly cullFrustum = new THREE.Frustum()
+  private readonly cullMatrix = new THREE.Matrix4()
+  private readonly cullSphere = new THREE.Sphere()
 
   /** DEV A/B only: production keeps LOD1 batching on. */
   setLod1Enabled(enabled: boolean): boolean {
@@ -178,6 +181,8 @@ export class Lod2EquipmentBatcher {
     this.lod1Controllers.length = 0
     this.lod1Indices.length = 0
     this.lod1Candidates.length = 0
+    this.cullMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
+    this.cullFrustum.setFromProjectionMatrix(this.cullMatrix)
 
     for (let i = 0; i < actors.length; i++) {
       const actor = actors[i]
@@ -239,6 +244,15 @@ export class Lod2EquipmentBatcher {
     }
   }
 
+  /** World-space bounding-sphere test against the camera frustum, as Three's own culling does. */
+  private isInCameraFrustum(source: THREE.Mesh, geometry: THREE.BufferGeometry): boolean {
+    if (geometry.boundingSphere === null) geometry.computeBoundingSphere()
+    const bounds = geometry.boundingSphere
+    if (bounds === null) return true
+    this.cullSphere.copy(bounds).applyMatrix4(source.matrixWorld)
+    return this.cullFrustum.intersectsSphere(this.cullSphere)
+  }
+
   private flushLod1(): void {
     for (let c = 0; c < this.lod1Candidates.length; c++) {
       const pool = this.lod1Candidates[c]
@@ -249,9 +263,14 @@ export class Lod2EquipmentBatcher {
         continue
       }
       const mesh = this.ensureLod1Capacity(pool, pool.pending)
-      controller.lod1BatchMeshes[index].matrixWorld.toArray(mesh.instanceMatrix.array, pool.count * 16)
-      pool.count += 1
+      const source = controller.lod1BatchMeshes[index]
       controller.setLod1MeshBatched(index, true)
+      // Non-casting pools have no shadow-pass role, so instances outside the camera frustum are
+      // dropped (the source mesh stays off the main layer). Casting pools keep every instance:
+      // an off-screen caster's shadow can still fall inside the view.
+      if (!pool.castShadow && !this.isInCameraFrustum(source, pool.geometry)) continue
+      source.matrixWorld.toArray(mesh.instanceMatrix.array, pool.count * 16)
+      pool.count += 1
     }
     for (const pool of this.lod1Pools.values()) {
       pool.idleFrames = pool.pending === 0 ? pool.idleFrames + 1 : 0
