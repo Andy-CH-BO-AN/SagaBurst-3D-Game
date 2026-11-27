@@ -1,4 +1,4 @@
-import type { Material, Object3D } from 'three'
+import { Object3D, type Material } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import {
   EquipmentVisualLODController,
@@ -76,6 +76,35 @@ describe('Stage 4 runtime LOD2 equipment batching and contract', () => {
     expect(detailMesh.visible).toBe(false)
     expect(proxyMesh.visible).toBe(true)
     expect(proxyMesh.layers.mask).toBe(1 << LOD2_BATCHED_SOURCE_LAYER)
+  })
+
+  it('returns LOD1 batched equipment to its own layers when batching stops or the kind is re-registered', () => {
+    const children: FakeNode[] = []
+    const root: FakeNode = {
+      userData: {}, visible: true, castShadow: false, children,
+      layers: { mask: 1, set() {} },
+      traverse(fn) { fn(this); for (const child of this.children) child.traverse(fn) },
+    }
+    const asRigid = (node: FakeNode) => Object.assign(node, { onBeforeRender: Object3D.prototype.onBeforeRender })
+    const shield = asRigid(makeFakeMesh('shield-face', children))
+    shield.layers.mask = 1 | (1 << 4)
+    const skinned = asRigid(makeFakeMesh('strap', children))
+    skinned.isSkinnedMesh = true
+    const translucent = asRigid(makeFakeMesh('glass', children))
+    translucent.material = { transparent: true }
+
+    const controller = new EquipmentVisualLODController()
+    controller.register('shield', root as unknown as Object3D)
+    expect(controller.lod1BatchMeshes).toEqual([shield])
+
+    controller.setLod1MeshBatched(0, true)
+    expect(shield.layers.mask).toBe(1 << LOD2_BATCHED_SOURCE_LAYER)
+    controller.restoreLod1Layers()
+    expect(shield.layers.mask).toBe(1 | (1 << 4))
+
+    controller.setLod1MeshBatched(0, true)
+    controller.register('shield', root as unknown as Object3D)
+    expect(shield.layers.mask).toBe(1 | (1 << 4))
   })
 
   it('matches equivalent PBR material render contracts across distinct instances for generic LOD2 consolidation', () => {

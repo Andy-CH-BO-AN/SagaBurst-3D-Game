@@ -121,7 +121,10 @@ export function collectShadowPassCensus(game: ShadowPassCensusScene): ShadowPass
   }
 
   // Live projectiles are instanced per scene; the batch root owns all their draw submissions.
-  for (const child of scene.children) if (child.userData.projectileInstanceRoot) tag(child, 'Projectile/instanced')
+  for (const child of scene.children) {
+    if (child.userData.projectileInstanceRoot) tag(child, 'Projectile/instanced')
+    else if (child.userData.lod2EquipmentBatchRoot) tag(child, 'Equipment/instanced')
+  }
   for (const pickup of game.pickups) tag(pickup.group, 'Pickups')
 
   const rows = new Map<string, CensusAccumulator>()

@@ -1855,6 +1855,12 @@ export class Game {
       }
       ;(window as any).__getRuntimeProfilerFrames = () => this.runtimeProfiler.getFrameSamples()
       ;(window as any).__measureGpuRender = () => measureGpuRender(this.renderer)
+      // Frozen-scene A/B of optional render paths; production keeps every path on.
+      ;(window as any).__perfToggle = (name: string, enabled: boolean) => {
+        if (name === 'lod1EquipmentBatch') return { name, enabled: this.lod2EquipmentBatcher?.setLod1Enabled(enabled) ?? null }
+        throw new Error(`Unknown perf toggle: ${name}`)
+      }
+      ;(window as any).__forceHumanoidLod = (level: number | null) => this._forceHumanoidLod(level)
 
       if (query.has('humanoidLod2Control')) {
         ;(window as any).__setHumanoidLod2Representation = (optimized: boolean) => this._setHumanoidLod2Representation(Boolean(optimized))
@@ -2312,6 +2318,35 @@ export class Game {
       })
     }
     return { optimized, controlledRomanLod2 }
+  }
+
+  private readonly _forcedLodDistances = new Map<THREE.LOD, number[]>()
+
+  /**
+   * DEV-only measurement aid: pins every NPC humanoid THREE.LOD to `level` by moving its
+   * distance thresholds, so the normal LOD update (and the equipment/animation hooks that
+   * follow it) selects that level on the next render. `null` restores the original thresholds.
+   */
+  private _forceHumanoidLod(level: number | null): { forced: number, restored: number } {
+    let forced = 0
+    let restored = 0
+    for (const [lod, distances] of this._forcedLodDistances) {
+      distances.forEach((distance, index) => { if (lod.levels[index]) lod.levels[index].distance = distance })
+      restored++
+    }
+    this._forcedLodDistances.clear()
+    if (level === null) return { forced, restored }
+    for (const npc of this.npcs) {
+      npc.characterVisualGroup.traverse(object => {
+        if (!(object instanceof THREE.LOD) || object.levels.length < 2) return
+        this._forcedLodDistances.set(object, object.levels.map(entry => entry.distance))
+        const pinned = Math.min(Math.max(0, Math.floor(level)), object.levels.length - 1)
+        // A finite far threshold: hysteresis scales it, and Infinity * hysteresis would be NaN.
+        object.levels.forEach((entry, index) => { entry.distance = index === 0 ? 0 : index <= pinned ? index * 1e-6 : 1e9 })
+        forced++
+      })
+    }
+    return { forced, restored }
   }
 
   private _updateDevCombatStatus(): void {

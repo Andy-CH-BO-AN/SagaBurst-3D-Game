@@ -1,6 +1,9 @@
 import type { Camera, Object3D, LOD, Mesh, SkinnedMesh } from 'three'
 import { skipMatrixWorldWhenHidden } from './DeathFade'
+import { Object3D as ThreeObject3D } from 'three'
 import { LOD2_BATCHED_SOURCE_LAYER } from './Lod2EquipmentBatcher'
+
+const MESH_ON_BEFORE_RENDER = ThreeObject3D.prototype.onBeforeRender
 
 export type EquipmentVisualLOD = 0 | 1 | 2
 export type EquipmentKind = 'sword' | 'shield' | 'bow' | 'lance' | 'pilum'
@@ -30,6 +33,14 @@ export function equipmentLod2Proxy<T extends Object3D>(object: T): T {
   return object
 }
 
+/** Rigid, opaque, single-material leaf meshes; instancing them keeps their exact look. */
+function isLod1BatchCandidate(mesh: Mesh): boolean {
+  const material = mesh.material
+  return !(mesh as SkinnedMesh).isSkinnedMesh && !Array.isArray(material) && mesh.children.length === 0
+    && !material.transparent && !(mesh.morphTargetInfluences?.length)
+    && mesh.onBeforeRender === MESH_ON_BEFORE_RENDER
+}
+
 /** Owns static detail visibility and NPC mesh shadows, never gameplay/dynamic visibility. */
 export class EquipmentVisualLODController {
   private readonly entries = new Map<EquipmentKind, {
@@ -37,12 +48,16 @@ export class EquipmentVisualLODController {
     details: Array<{ object: Object3D; lastLOD: number }>
     lod2Only: Object3D[]
     batchedMeshes: Mesh[]
+    lod1Meshes: Mesh[]
     shadows: Array<{ mesh: Mesh; lastShadowLOD: EquipmentShadowPolicy; originalCastShadow: boolean }>
   }>()
   // Re-registering an existing mesh at LOD2 must not capture our temporary false.
   private readonly originalShadows = new WeakMap<Mesh, boolean>()
   private readonly batchedFlat: Mesh[] = []
   private readonly batchEntriesFlat: Array<{ readonly root: Object3D; readonly batchedMeshes: readonly Mesh[] }> = []
+  private readonly lod1Flat: Mesh[] = []
+  private readonly lod1Masks: number[] = []
+  private lod1LayersMoved = false
   private batchLayerEnabled = false
   private initialLodSynced = false
   private followedLod: LOD | null = null
@@ -52,6 +67,26 @@ export class EquipmentVisualLODController {
   get lod2BatchedMeshes(): readonly Mesh[] { return this.batchedFlat }
   get lod2BatchEntries(): ReadonlyArray<{ readonly root: Object3D; readonly batchedMeshes: readonly Mesh[] }> {
     return this.batchEntriesFlat
+  }
+  /** Rigid single-material leaf meshes that the scene batcher may draw instanced at LOD1. */
+  get lod1BatchMeshes(): readonly Mesh[] { return this.lod1Flat }
+
+  /** Batcher-owned: move one LOD1 candidate to the batched source layer, or back to its own mask. */
+  setLod1MeshBatched(index: number, batched: boolean): void {
+    const mesh = this.lod1Flat[index]
+    if (batched) {
+      mesh.layers.set(LOD2_BATCHED_SOURCE_LAYER)
+      this.lod1LayersMoved = true
+    } else {
+      mesh.layers.mask = this.lod1Masks[index]
+    }
+  }
+
+  /** Returns every LOD1 candidate to its original layers (cheap no-op when none moved). */
+  restoreLod1Layers(): void {
+    if (!this.lod1LayersMoved) return
+    this.lod1LayersMoved = false
+    for (let i = 0; i < this.lod1Flat.length; i++) this.lod1Flat[i].layers.mask = this.lod1Masks[i]
   }
 
   enableBatchLayer(): void {
@@ -69,8 +104,14 @@ export class EquipmentVisualLODController {
   }
 
   private rebuildBatchedFlat(): void {
+    this.restoreLod1Layers()
     this.batchedFlat.length = 0
     this.batchEntriesFlat.length = 0
+    this.lod1Flat.length = 0
+    this.lod1Masks.length = 0
+    for (const { lod1Meshes } of this.entries.values()) {
+      for (const mesh of lod1Meshes) { this.lod1Flat.push(mesh); this.lod1Masks.push(mesh.layers.mask) }
+    }
     for (const { root, batchedMeshes } of this.entries.values()) {
       if (batchedMeshes.length === 0) continue
       this.batchEntriesFlat.push({ root, batchedMeshes })
@@ -87,6 +128,7 @@ export class EquipmentVisualLODController {
     const details: Array<{ object: Object3D; lastLOD: number }> = []
     const lod2Only: Object3D[] = []
     const batchedMeshes: Mesh[] = []
+    const lod1Meshes: Mesh[] = []
     const shadows: Array<{ mesh: Mesh; lastShadowLOD: EquipmentShadowPolicy; originalCastShadow: boolean }> = []
     root.traverse(object => {
       if (object.userData.equipmentLod2Only === true) {
@@ -110,6 +152,7 @@ export class EquipmentVisualLODController {
         }
       }
       const mesh = object as Mesh
+      if (mesh.isMesh && object.userData.equipmentLod2Only !== true && isLod1BatchCandidate(mesh)) lod1Meshes.push(mesh)
       if (mesh.isMesh) {
         if (!this.originalShadows.has(mesh)) this.originalShadows.set(mesh, mesh.castShadow)
         const originalCastShadow = this.originalShadows.get(mesh)!
@@ -130,7 +173,7 @@ export class EquipmentVisualLODController {
         mesh.castShadow = this.level !== 2 && this.level <= lastShadowLOD && originalCastShadow
       }
     })
-    this.entries.set(kind, { root, details, lod2Only, batchedMeshes, shadows })
+    this.entries.set(kind, { root, details, lod2Only, batchedMeshes, lod1Meshes, shadows })
     this.rebuildBatchedFlat()
   }
 
