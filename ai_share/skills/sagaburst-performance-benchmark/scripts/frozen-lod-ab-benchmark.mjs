@@ -12,7 +12,7 @@ if (process.argv.includes('--help')) {
   --window-ms=N           每窗量測時間，預設 4000
   --force-lod=0|1|2       凍結後把所有繪製中的人物釘在該 LOD，量完恢復（省略則不強制）
   --toggle=NAME           __perfToggle 名稱；省略則只量一窗
-  --host=HOST:PORT        預設 localhost:5191
+  --host=HOST:PORT        預設 127.0.0.1:5173
   --out=PATH              JSON 路徑；同名 .cpuprofile／.png 另存`)
   process.exit(0)
 }
