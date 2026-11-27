@@ -162,8 +162,11 @@ function readGitCommit() {
   }
 }
 
-function isCombatEvidence(metrics) {
-  return (metrics.activeAttack ?? 0) > 0 || (metrics.dead ?? 0) > 0 || (metrics.arrowCount ?? 0) > 0
+// Contact means an actual hit: a damage_applied / hit_blocked / actor_killed event on
+// game.combatEvents, or a death. Active Attack (AIState.ATTACK, i.e. target engaged) and
+// arrows in flight are not contact. A sample without a hit counter cannot prove no contact.
+function isCombatEvidence(sample) {
+  return sample.hitCount === null || sample.hitCount > 0 || (sample.metrics.dead ?? 0) > 0
 }
 
 function hasProfilerSnapshot(text) {
@@ -257,6 +260,18 @@ const context = await browser.newContext({ viewport: { width: 1280, height: 720 
 const page = await context.newPage()
 await page.addInitScript(({ combatTimeoutMs }) => {
   window.__sagaburstHudSamples = []
+  window.__sagaburstHits = { subscribed: false, count: 0, firstAtMs: null }
+  const subscribeHits = () => {
+    const stream = window.game?.combatEvents
+    if (!stream?.subscribe) return void window.setTimeout(subscribeHits, 50)
+    stream.subscribe((event) => {
+      if (event.type !== 'damage_applied' && event.type !== 'hit_blocked' && event.type !== 'actor_killed') return
+      const hits = window.__sagaburstHits
+      if (hits.count++ === 0) hits.firstAtMs = performance.now()
+    })
+    window.__sagaburstHits.subscribed = true
+  }
+  subscribeHits()
   let lastHudText = ''
   let recordScheduled = false
   const recordHud = () => {
@@ -271,6 +286,7 @@ await page.addInitScript(({ combatTimeoutMs }) => {
       lastHudText = hudText
       window.__sagaburstHudSamples.push({
         atMs: performance.now(),
+        hitCount: window.__sagaburstHits.subscribed ? window.__sagaburstHits.count : null,
         hudText,
         battleText: document.querySelector('#battle-status-hud')?.textContent ?? '',
       })
@@ -291,11 +307,8 @@ await page.addInitScript(({ combatTimeoutMs }) => {
   window.__sagaburstWaitForCombat = () => new Promise((resolve, reject) => {
     const deadline = performance.now() + combatTimeoutMs
     const poll = () => {
-      const evidence = window.__sagaburstHudSamples.some((sample) =>
-        /Active Attack NPCs:\s+([1-9]\d*)/.test(sample.hudText) ||
-        /Arrow Count:\s+([1-9]\d*)/.test(sample.hudText) ||
-        /Dead:\s+([1-9]\d*)/.test(sample.hudText)
-      )
+      const evidence = window.__sagaburstHits.count > 0 ||
+        window.__sagaburstHudSamples.some((sample) => /Dead:\s+([1-9]\d*)/.test(sample.hudText))
       if (evidence) return resolve()
       if (performance.now() >= deadline) return reject(new Error('combat evidence timeout'))
       window.setTimeout(poll, 100)
@@ -331,13 +344,23 @@ async function runOne(scenario, run) {
       window.__sagaburstGpuProbe = window.__measureGpuRender?.() ?? null
       return performance.now()
     })
-    await new Promise((resolve) => setTimeout(resolve, observationMs))
-    const { recorded, frameSamplesAll, gpuRaw } = await page.evaluate(() => {
+    if (phase === 'during-combat') {
+      await new Promise((resolve) => setTimeout(resolve, observationMs))
+    } else {
+      // Samples and frames after the first hit are discarded anyway, so before-contact
+      // stops at the first hit (or death) instead of idling out the observation window.
+      await page.waitForFunction((deadline) => performance.now() >= deadline
+        || window.__sagaburstHits.count > 0
+        || /^Dead:\s+[1-9]/m.test(document.querySelector('#dev-combat-status')?.textContent ?? ''),
+      observationStartMs + observationMs, { polling: 100, timeout: observationMs + 10_000 })
+    }
+    const { recorded, frameSamplesAll, gpuRaw, hits } = await page.evaluate(() => {
       const probe = window.__sagaburstGpuProbe
       window.__sagaburstGpuProbe = null
       return {
         recorded: window.__sagaburstHudSamples ?? [],
         frameSamplesAll: window.__getRuntimeProfilerFrames?.() ?? [],
+        hits: { ...window.__sagaburstHits },
         gpuRaw: probe?.finish?.() ?? null,
       }
     })
@@ -345,6 +368,7 @@ async function runOne(scenario, run) {
       .filter((sample) => hasProfilerSnapshot(sample.hudText))
       .map((sample) => ({
         atMs: sample.atMs,
+        hitCount: sample.hitCount ?? null,
         metrics: addBattleHudAliveDead(parseHud(sample.hudText), sample.battleText, scenario.sideCount),
         spawnPlanCountKnown: new RegExp(`NPC Count:\\s+${scenario.sideCount * 2}\\b`, 'm').test(sample.hudText),
         hudText: sample.hudText,
@@ -359,7 +383,7 @@ async function runOne(scenario, run) {
         }
         continue
       }
-      if (isCombatEvidence(sample.metrics)) {
+      if (isCombatEvidence(sample)) {
         combatEvidenceStarted = true
         continue
       }
@@ -453,10 +477,11 @@ async function runOne(scenario, run) {
       observationMs,
       observationDurationMs: observationMs,
       combatEvidenceMode,
+      contactEvidence: { source: 'combat-events-hit-or-death', subscribed: hits.subscribed, hitCount: hits.count, firstHitAtMs: hits.firstAtMs },
       initialBattleState,
       sampleCount: samples.length,
       recordedSnapshotCount: parsed.length,
-      contactEvidenceSeen: parsed.some((sample) => isCombatEvidence(sample.metrics)),
+      contactEvidenceSeen: parsed.some((sample) => isCombatEvidence(sample)),
       samples,
       firstHudText: parsed[0]?.hudText ?? '',
       lastHudText: last?.hudText ?? '',
