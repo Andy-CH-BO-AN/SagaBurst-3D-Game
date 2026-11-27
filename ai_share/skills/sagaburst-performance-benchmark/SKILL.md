@@ -32,10 +32,10 @@ description: 用固定瀏覽器、warm-up、取樣窗口與 JSON 輸出，量測
 E/F/G/H/I/K/L/M 使用 initial spectator；D–M（不含 J）均 no respawn、no camps。其他 devcombat 場景的 NPC 預設 Defend，Formation 場景兩軍不會自行接戰；K／L／M 例外，雙方一開場即 Charge，before-contact 量衝鋒接近、during-combat 量混戰。K／L／M 有 600 名角色，只在明確指定時執行（不含於 `all`），生成較久，需加 `--initial-timeout-ms=120000`。配置以 `src/battle/BattleConfig.ts` 的 `PRESET_SCENARIO_*` 與 runner 的 scenario 表為準。J 已有遊戲診斷場景，但目前此 runner 未支援，不直接傳 `--scenario=J`。
 
 - 一般窗口預設 warm-up 3 秒、觀察 20 秒。注意：目前 before-contact 從 recorder 啟動後收集所有接戰前合格樣本，含 warm-up；during-combat 才按 observationStart 過濾。比較必須使用相同 runner 版本與實際樣本範圍，不能把 before-contact 說成純 warm-up 後 20 秒。
-- **before-contact**：預設 3 runs 取 median。只採 `Alive=該場景 NPC 總數`、`Dead=0` 且未出現攻擊／投射物證據的 samples。解析端保留 spawn-plan provisional 標記，但目前啟動 gate 仍要求初始 Alive/Dead 及 Horse 數正確；缺這些 HUD 的舊版會失敗，不可宣稱自動相容。歷史 provisional 報表不能等同存活數驗證。
+- **before-contact**：預設 3 runs 取 median。只採 `Alive=該場景 NPC 總數`、`Dead=0` 且尚未發生實際命中的 samples。接戰以 `game.combatEvents` 的 `damage_applied`／`hit_blocked`／`actor_killed` 或死亡判定；HUD 的 Active Attack 只代表 NPC 進入 `AIState.ATTACK`（已鎖定目標），飛行中的箭也不算接戰。解析端保留 spawn-plan provisional 標記，但目前啟動 gate 仍要求初始 Alive/Dead 及 Horse 數正確；缺這些 HUD 的舊版會失敗，不可宣稱自動相容。歷史 provisional 報表不能等同存活數驗證。
 - **版本 A/B 以 before-contact 為準**。during-combat 的戰況與鏡頭內人數每 run 不同，即使多 runs 也只能作 hotspot context，不能據此判定版本快慢或退步。
 - **before-contact 最低樣本數**：`sampleCount` 是 RuntimeProfiler 的 1 秒 snapshot 數。每 run 至少 5 個，且三份以上 run 的合計至少 15 個，才可作版本比較。K／L／M 一開場就衝鋒，接戰前常只剩 1–6 個；單 run 不足 5 個時增加 runs，直到合計達 15，並在報告標 `low-sample`、列出每 run 的 `sampleCount`／`frameSampleCount`。合計仍不足的場景只報數值，不下 A/B 結論。baseline 與 candidate 的樣本規則必須一致。
-- **during-combat**：預設 1 run 作 hotspot 探索。E 開場即混戰，其餘依 HUD 的 Active Attack／Arrow Count／Dead 等待戰鬥證據；逾時屬失敗，不能當量測值。
+- **during-combat**：預設 1 run 作 hotspot 探索。E 開場即混戰，其餘等待第一次實際命中（或死亡）；逾時屬失敗，不能當量測值。
 - 明確指定 scenario 與 phase。不要直接使用預設 `all`／before-contact 把開場即混戰的 E 混進比較。
 - 保留成功／失敗狀態、sample count、Alive/Dead、Active Attack、errors 及 raw samples。缺內部 Mount profiler 的 baseline 使用 `--no-subphase`，缺值不得補成 0。
 
@@ -66,8 +66,8 @@ D–M runner 與四門 runner 都輸出以下欄位：
 
 - **CPU／GPU 歸因**：先看 `gpuRender.supported` 與 `reason`。不支援、`no-completed-queries` 或大量 `disjointSamples`／`droppedSamples` 時，GPU 欄位為 null，不得補 0 或改用 Renderer Submit 代替。GPU median 明顯低於 Renderer Submit 時屬 CPU 提交成本；接近或超過幀時間時才是 GPU bound。
 - **D–M 分段**：HUD 另有 NPC Grid／NPC Update／Mount／Impact／Collision／Arrow／Render Submit 等分段；新增分段的 runner 與缺分段的舊 baseline 比較時，缺值視為不可用。
-- **逐幀指標的取樣窗口**（`frameWindow`）：P95／P99／1% Low、CPU／submit 百分位與 GPU 欄位都只取 warm-up 結束後的幀；before-contact 另截止於最後一個未含戰鬥證據的 1 秒 snapshot（該 snapshot 涵蓋截至當時的幀，之後的幀可能已接戰）。GPU 樣本依 render 開始時間截到同一窗口；舊 build 的 GPU probe 沒有樣本時間戳時，before-contact 的 GPU 值為 null、`reason=no-sample-timestamps`。1 秒 snapshot 的 median 欄位仍沿用上述「含 warm-up」範圍。
-- K／L／M 接戰快，warm-up 後可能只剩很少幀甚至 0 幀，此時尾端欄位為 null；需要時配對兩邊同樣縮短 `--warmup-ms`，並記錄 `frameSampleCount`。不同 runner 版本的 before-contact 尾端指標不可互相比較。
+- **逐幀指標的取樣窗口**（`frameWindow`）：P95／P99／1% Low、CPU／submit 百分位與 GPU 欄位都只取 warm-up 結束後的幀；before-contact 另截止於最後一個尚未命中的 1 秒 snapshot（該 snapshot 涵蓋截至當時的幀，之後的幀可能已接戰）。GPU 樣本依 render 開始時間截到同一窗口；舊 build 的 GPU probe 沒有樣本時間戳時，before-contact 的 GPU 值為 null、`reason=no-sample-timestamps`。1 秒 snapshot 的 median 欄位仍沿用上述「含 warm-up」範圍。
+- K／L／M 接戰快，warm-up 後可能只剩很少幀甚至 0 幀，此時尾端欄位為 null；需要時配對兩邊同樣縮短 `--warmup-ms`，並記錄 `frameSampleCount`。不同 runner 版本的 before-contact 尾端指標不可互相比較；以 Active Attack／Arrow Count 判定接戰的舊版窗口較短，不能與命中判定版比較。
 - **報告**：記錄 commit、硬體、瀏覽器、電源狀態、viewport、run 數、每 run 的 `sampleCount`／`frameSampleCount`、GPU 支援狀態及失敗 run。各 run 數值差異大時列出每 run 值，不只報 median。
 
 ## 四門總守城戰（Town Commander V）
