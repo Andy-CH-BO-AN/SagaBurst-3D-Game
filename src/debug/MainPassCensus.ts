@@ -114,10 +114,10 @@ export function collectMainPassCensus(game: MainPassCensusScene): MainPassCensus
     const quadruped = mount.catVisual ?? mount.snowLeopardVisual
     quadruped?.lod.levels.forEach((level, i) => tag(level.object, `Quadruped LOD${i}`, quadruped.root.id))
   }
-  // Live projectiles and LOD2 rigid equipment proxies are instanced per scene.
+  // Live projectiles and LOD1/LOD2 rigid equipment are instanced per scene.
   for (const child of scene.children) {
     if (child.userData.projectileInstanceRoot) tag(child, 'Projectile/instanced')
-    else if (child.userData.lod2EquipmentBatchRoot) tag(child, 'Equipment/lod2-instanced')
+    else if (child.userData.lod2EquipmentBatchRoot) tag(child, 'Equipment/instanced')
   }
   for (const pickup of game.pickups) tag(pickup.group, 'Pickups')
 

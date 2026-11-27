@@ -1855,6 +1855,11 @@ export class Game {
       }
       ;(window as any).__getRuntimeProfilerFrames = () => this.runtimeProfiler.getFrameSamples()
       ;(window as any).__measureGpuRender = () => measureGpuRender(this.renderer)
+      // Frozen-scene A/B of optional render paths; production keeps every path on.
+      ;(window as any).__perfToggle = (name: string, enabled: boolean) => {
+        if (name === 'lod1EquipmentBatch') return { name, enabled: this.lod2EquipmentBatcher?.setLod1Enabled(enabled) ?? null }
+        throw new Error(`Unknown perf toggle: ${name}`)
+      }
 
       if (query.has('humanoidLod2Control')) {
         ;(window as any).__setHumanoidLod2Representation = (optimized: boolean) => this._setHumanoidLod2Representation(Boolean(optimized))
