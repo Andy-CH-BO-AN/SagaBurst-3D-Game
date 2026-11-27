@@ -115,6 +115,18 @@ rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/fixed-sce
 
 驗證 Alive/Dead、Arrow、Horse、camera、非 shadow submissions／triangles 在同場景切換前後不變，並檢查返回原設定時的 drift。這是成本歸因，不等同一般動態戰鬥 FPS。
 
+## 凍結場景 LOD A/B
+
+只在特定距離生效的 render 改動（例如 LOD1 裝備批次化），接戰前鏡頭內常沒有對應 LOD 的角色，before-contact A/B 只能證明沒有退步。此時用 `frozen-lod-ab-benchmark.mjs` 在同一凍結狀態取證：第一次實際命中後展開 `--settle-ms`、freeze 模擬，`--force-lod=N` 以 DEV `__forceHumanoidLod(N)` 暫改人物 `THREE.LOD` 距離門檻，讓所有繪製中的人物經正式 LOD 更新路徑選到該 level；再依序 `__perfToggle(name)` OFF→ON→OFF→ON，每窗取 RuntimeProfiler、GPU timer、Main／Shadow census、CPU profile 與截圖，最後 `__forceHumanoidLod(null)` 恢復並核對 Alive/Dead、相機、位置與 LOD 分布回到強制前。
+
+```sh
+rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/frozen-lod-ab-benchmark.mjs --host=localhost:PORT --scenario=k --settle-ms=2000 --force-lod=1 --toggle=lod1EquipmentBatch --out=output/local-diagnostics/k-lod1-ab.json
+```
+
+- 鏡頭外角色受 off-frustum 視覺休眠隱藏 `characterVisualGroup`，任何 LOD 下都不繪製，不計入強制數。
+- 兩個 OFF 窗（或兩個 ON 窗）之間的差異就是噪聲基準；截圖逐像素比較 OFF 與 ON，草地 shader 擺動與 HUD 數字的差異不算畫面改變。
+- 強制 LOD 是成本歸因，不等於自然距離分布下的動態 FPS。
+
 ## 結果與工具驗證
 
 - `?devcombat=a–k` 不再畫每名 NPC 的 `CombatTrajectoryDebugger` 線（只有 `devcombat=all` 會畫）；與更早版本的報表比較 Draw Calls／Renderer Submit 時，視為插樁差異。
