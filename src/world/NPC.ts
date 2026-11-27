@@ -1,5 +1,6 @@
 import { LiveActorRegistry } from './LiveActorRegistry'
 import { RangedSightReuse, RangedValueReuse } from '../combat/RangedSightReuse'
+import { obstacleTopologyRevision } from './ObstacleTopology'
 import { traceFistStrike, UNARMED_ATTACK_DISTANCE, UNARMED_DAMAGE, UNARMED_RANGE, UNARMED_STOP_DISTANCE } from '../combat/UnarmedCombat'
 import { resolveOrdinaryNpcHp } from '../combat/OrdinarySoldierProfile'
 import { resolveCharacterIdentity, type CharacterIdentity, type CharacterTier, type HeroArchetype } from '../combat/CharacterIdentity'
@@ -293,6 +294,13 @@ export interface NpcPuppetFrame {
   /** Players only: weapon/shield put away; undefined keeps the NPC's own equipment visibility. */
   meleeStowed?: boolean
   shieldStowed?: boolean
+}
+
+/** Bumped at every NPC simulation entry; scopes `blockerMemo` to one actor update. */
+let blockerQuerySerial = 0
+const blockerMemo = {
+  npc: null as object | null, serial: -1, obstacles: null as object | null, revision: -1, speed: 0, mountedHigh: false,
+  ox: 0, oy: 0, oz: 0, tx: 0, ty: 0, tz: 0, value: null as ObstacleData | null,
 }
 
 export class NPC {
@@ -2426,7 +2434,43 @@ export class NPC {
     return this._distanceToObstacleXZ(obstacle) <= this.meleeAttackRadius + extraReach
   }
 
+  /**
+   * The trace is a pure function of the shooter position, aim point, projectile speed and the
+   * obstacle set, so repeated queries with identical inputs inside one simulation entry (the
+   * rampart/attack/chase/mission sight caches are independent and tend to expire on the same
+   * frame) return the first result instead of re-tracing. Nothing carries across entries, and
+   * no entry open (serial 0) means no reuse.
+   */
   private _findRangedTrajectoryBlocker(
+    target: THREE.Vector3,
+    obstacles: ObstacleData[],
+  ): ObstacleData | null {
+    const memo = blockerMemo
+    const origin = this.combatPosition
+    const speed = this.rangedProjectileSpeed
+    const mountedHigh = this.isMountedTownRampartGarrisonEnabled && this.isMounted
+    const revision = obstacleTopologyRevision(obstacles)
+    const reusable = blockerQuerySerial > 0
+    if (reusable && memo.npc === this && memo.serial === blockerQuerySerial && memo.obstacles === obstacles
+      && memo.revision === revision && memo.speed === speed && memo.mountedHigh === mountedHigh
+      && memo.ox === origin.x && memo.oy === origin.y && memo.oz === origin.z
+      && memo.tx === target.x && memo.ty === target.y && memo.tz === target.z) return memo.value
+    const value = this._traceRangedTrajectoryBlocker(target, obstacles)
+    if (reusable) {
+      memo.npc = this
+      memo.serial = blockerQuerySerial
+      memo.obstacles = obstacles
+      memo.revision = revision
+      memo.speed = speed
+      memo.mountedHigh = mountedHigh
+      memo.ox = origin.x; memo.oy = origin.y; memo.oz = origin.z
+      memo.tx = target.x; memo.ty = target.y; memo.tz = target.z
+      memo.value = value
+    }
+    return value
+  }
+
+  private _traceRangedTrajectoryBlocker(
     target: THREE.Vector3,
     obstacles: ObstacleData[],
   ): ObstacleData | null {
@@ -3069,6 +3113,7 @@ export class NPC {
     this._outerSiegeTierSafeFrames = Math.max(0, this._outerSiegeTierSafeFrames - 1)
     if (this.mount) this.mount.setInFrustum?.(inFrustum)
     this.setOffFrustumVisualSleep(!inFrustum && cameraDistance > OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE)
+    blockerQuerySerial++
     if (Number.isFinite(dt) && dt > 0) this._sightClock += dt
     this.playerHitFocus = Math.max(0, this.playerHitFocus - dt)
     if (this.cavalryPassthroughTimer > 0) this.cavalryPassthroughTimer = Math.max(0, this.cavalryPassthroughTimer - dt)
@@ -3121,6 +3166,7 @@ export class NPC {
 
   stepHeldStationaryFrame(dt: number, cameraDistance: number, inFrustum = false): void {
     this.setOffFrustumVisualSleep(!inFrustum && cameraDistance > OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE)
+    blockerQuerySerial++
     if (Number.isFinite(dt) && dt > 0) this._sightClock += dt
     this.playerHitFocus = Math.max(0, this.playerHitFocus - dt)
     if (this.cavalryPassthroughTimer > 0) this.cavalryPassthroughTimer = Math.max(0, this.cavalryPassthroughTimer - dt)
@@ -3158,6 +3204,7 @@ export class NPC {
       && !this.animator.busy
       && !this.mount?.isFlyingMount
     this.setOffFrustumVisualSleep?.(shouldSleepVisual)
+    blockerQuerySerial++
     if (Number.isFinite(dt) && dt > 0) this._sightClock += dt
     if (this.cavalryPassthroughTimer > 0) {
       this.cavalryPassthroughTimer = Math.max(0, this.cavalryPassthroughTimer - dt)

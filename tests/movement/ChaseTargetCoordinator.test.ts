@@ -149,7 +149,7 @@ function blockedTownPursuit(order: NPC['tacticalOrder'], ranged = false) {
     _gateDamageAllowed: (obstacle: ObstacleData) => methods['_isAttackableObstacle'].call(actor, obstacle),
     _getObstacleAttackPoint: methods['_getObstacleAttackPoint'], _rangedObstacleDistance: methods['_rangedObstacleDistance'],
     _tmpSiegeTarget: new THREE.Vector3(), _tmpSiegeCandidateCenter: new THREE.Vector3(),
-    _findRangedTrajectoryBlocker: methods['_findRangedTrajectoryBlocker'], rangedProjectileSpeed: 60, maxRangedAttackDistance: 60,
+    _findRangedTrajectoryBlocker: methods['_findRangedTrajectoryBlocker'], _traceRangedTrajectoryBlocker: methods['_traceRangedTrajectoryBlocker'], rangedProjectileSpeed: 60, maxRangedAttackDistance: 60,
     _tmpRangedOrigin: new THREE.Vector3(), _tmpRangedLosTarget: new THREE.Vector3(),
     _tmpRangedArcPrevious: new THREE.Vector3(), _tmpRangedArcPoint: new THREE.Vector3(),
     _rangedPathBounds: new THREE.Box3(), _rangedPathObstacles: [],
