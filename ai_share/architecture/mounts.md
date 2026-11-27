@@ -18,6 +18,7 @@
 - 戰馬與四足坐騎共用 `CharacterLODPolicy.mountAnimationInterval` 推進 mixer；`QuadrupedVisual` **不強制更新整棵世界矩陣**。Horse LOD 與節流由 registry 維護，**不改變 gameplay timer**。
 - 遠距騎士在坐騎姿勢未推進時，由 `SkinnedSeatContact.reapply` 沿用上次量得的座位修正。`Game` 主迴圈在算繪前以 `fitMountedSeat(false)` 略過騎士子樹刷新；近距離的 `align` 只更新取樣頂點所用的骨鏈。
 - `CharacterEquipmentPose.apply` 結束時整棵刷新，但**從不寫入 rig root 與其祖先**；其 `ArmSolver`、`FittedHumanoidCloth` 的世界查詢經 `AnchoredWorldMatrix` 從 root 往下刷新。`getWorldPosition`、`getWorldQuaternion`、`localToWorld`、`worldToLocal`、`lookAt` 每次都重算到 scene root，熱路徑在祖先未變時改用 `AnchoredWorldMatrix`（或 `refreshWorldChains` 合併共同祖先）；直接讀取子孫 `.matrixWorld` 的分支需先刷新子樹。主 rig 剛整棵刷新後的 `onPoseEvaluated(true)` 讓裝備 socket 略過重走手部父鏈。
+- 載入模板時 `collapseEmptyShellLeaves` 移除匯入的空殼葉節點（無 mesh、無子節點、不在 Bone 之下、非 `socket_*`、非動畫 track 目標、無額外 userData）；重甲戰馬模板殘留的空 LOD 容器同樣收斂。共享 geometry／material／texture 不動。DEV 以 URL `?perfNoShellCollapse` 還原。新增掛點須命名為 `socket_*` 或掛在 Bone 之下，否則會被視為空殼。
 - Black Cat 與 Corgi 使用 `idle`、`walk`、`run`、`death`，並保留遊戲會呼叫的 `jump`、`land`、`hit`；`QuadrupedMountAnimation` 定義種類與速度遲滯。死亡單次播放後停在末幀；一次性動作結束後恢復最新請求的步態。
 - 騎士骨盆對準解剖 seat socket，腿姿遵循各 rig 的 `forwardBendSign`。座面接觸由 `RiderSeatContactCache` 依騎手 visual child 身分快取；**換裝重建模型時失效，不能沿用已脫離 mesh 的世界高度**。Corgi 由 `CorgiSeatContact` 修正座面貼合；DEV 校準是否適用正式 Player／NPC 必須依實際呼叫端確認。
 

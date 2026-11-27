@@ -1,3 +1,4 @@
+import { collapseEmptyShellLeaves } from './EmptyShellCollapse'
 import * as THREE from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { createRuntimeGltfLoader } from './RuntimeGltfLoader'
@@ -31,6 +32,7 @@ export function createQuadrupedAssetPreload(config: QuadrupedAssetConfig, publis
     gltf.scene.traverse(object => {
       if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true }
     })
+    collapseEmptyShellLeaves(gltf.scene, gltf.animations)
     publish(gltf)
   }
 
