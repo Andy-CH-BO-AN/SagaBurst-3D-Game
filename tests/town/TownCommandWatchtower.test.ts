@@ -60,11 +60,13 @@ describe('Town command watchtower', () => {
 
     type RangedPort = { combatPosition: Vector3; rangedProjectileSpeed: number; isMountedTownRampartGarrisonEnabled: boolean;
       _tmpRangedOrigin: Vector3; _tmpRangedLosTarget: Vector3; _tmpRangedArcPrevious: Vector3; _tmpRangedArcPoint: Vector3;
-      _rangedPathBounds: Box3; _rangedPathObstacles: ObstacleData[] }
-    const methods = NPC.prototype as unknown as { _findRangedTrajectoryBlocker(this: RangedPort, target: Vector3, obstacles: ObstacleData[]): ObstacleData | null }
+      _rangedPathBounds: Box3; _rangedPathObstacles: ObstacleData[]; _traceRangedTrajectoryBlocker: RangedMethod }
+    type RangedMethod = (this: RangedPort, target: Vector3, obstacles: ObstacleData[]) => ObstacleData | null
+    const methods = NPC.prototype as unknown as { _findRangedTrajectoryBlocker: RangedMethod; _traceRangedTrajectoryBlocker: RangedMethod }
     const actor: RangedPort = { combatPosition: guardPos.clone(), rangedProjectileSpeed: 65,
       isMountedTownRampartGarrisonEnabled: false, _tmpRangedOrigin: new Vector3(), _tmpRangedLosTarget: new Vector3(),
-      _tmpRangedArcPrevious: new Vector3(), _tmpRangedArcPoint: new Vector3(), _rangedPathBounds: new Box3(), _rangedPathObstacles: [] }
+      _tmpRangedArcPrevious: new Vector3(), _tmpRangedArcPoint: new Vector3(), _rangedPathBounds: new Box3(), _rangedPathObstacles: [],
+      _traceRangedTrajectoryBlocker: methods._traceRangedTrajectoryBlocker }
     const towerObstacles = [core, ...rails, ...deck]
     expect(methods._findRangedTrajectoryBlocker.call(actor, groundTarget.clone().add(new Vector3(0, -1.4, 0)), towerObstacles)).toBeNull()
 
