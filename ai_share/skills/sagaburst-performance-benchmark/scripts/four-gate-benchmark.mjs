@@ -87,8 +87,11 @@ const census = () => page.evaluate(() => {
   const town = window.__townScene, defense = town?.scene?.defense
   if (!defense) return null
   const residents = defense.residents ?? []
-  const civilians = residents.filter(r => r.spec.role === 'civilian')
-  const military = residents.filter(r => r.spec.role !== 'civilian')
+  // Mirrors TownRules.isCivilian(role): '[0] 平民 / 商人' covers both 'civilian' and 'merchant'.
+  // (This runs inside page.evaluate, which cannot import the TS module.)
+  const isCivilian = (role) => role === 'civilian' || role === 'merchant'
+  const civilians = residents.filter(r => isCivilian(r.spec.role))
+  const military = residents.filter(r => !isCivilian(r.spec.role))
   const info = town.scene.renderer?.info?.render
   return {
     phase: defense.phase,

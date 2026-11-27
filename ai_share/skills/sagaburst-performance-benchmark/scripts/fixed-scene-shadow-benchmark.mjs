@@ -17,7 +17,7 @@ SagaBurst 固定場景陰影成本拆解 (Fixed-Scene Shadow Cost Breakdown)
   --scenario=F            預設 F
   --settle-ms=N           接戰後展開時間 (ms)，預設 4000
   --observation-ms=N      每個 Window 觀測時間 (ms)，預設 4000
-  --timeout-ms=N          等待 Combat Evidence 超時時間 (ms)，預設 30000
+  --timeout-ms=N          等待實際命中超時時間 (ms)，預設 30000
   --shadow-map-size=N     單一尺寸（相容舊入口；僅接受 2048 / 1024 / 512 / 256）
   --shadow-map-sizes=LIST 同一 frozen scene 的尺寸序列，預設 2048,1024,512,256,2048
   --resolution-only        只跑同場景 resolution sequence，略過既有 Shadow ON/OFF breakdown
@@ -80,19 +80,31 @@ try {
   console.log(`[Fixed-Scene Shadow Benchmark] 載入頁面: ${targetUrl}`)
   await page.goto(targetUrl)
 
-  console.log(`[Fixed-Scene Shadow Benchmark] 等待 Combat Evidence (Active Attack > 0 || Arrow Count > 0 || Dead > 0)...`)
+  console.log(`[Fixed-Scene Shadow Benchmark] 等待實際命中 (combatEvents: damage_applied / hit_blocked / actor_killed, 或 Dead > 0)...`)
+  // Contact = an actual hit, same definition as mount-benchmark.mjs. Active Attack / Arrow Count
+  // only mean a target is engaged or a shot is in flight, not that anything landed.
+  await page.evaluate(() => {
+    window.__sagaburstHits = { subscribed: false, count: 0 }
+    const subscribe = () => {
+      const stream = window.game?.combatEvents
+      if (!stream?.subscribe) return void window.setTimeout(subscribe, 50)
+      stream.subscribe((event) => {
+        if (event.type === 'damage_applied' || event.type === 'hit_blocked' || event.type === 'actor_killed') window.__sagaburstHits.count++
+      })
+      window.__sagaburstHits.subscribed = true
+    }
+    subscribe()
+  })
   await page.waitForFunction(
     () => {
       const hud = document.querySelector('#dev-combat-status')?.textContent ?? ''
-      const active = Number(hud.match(/Active Attack NPCs:\s+(\d+)/)?.[1] ?? 0)
       const dead = Number(hud.match(/Dead:\s+(\d+)/)?.[1] ?? 0)
-      const arrows = Number(hud.match(/Arrow Count:\s+(\d+)/)?.[1] ?? 0)
-      return (active > 0 || dead > 0 || arrows > 0) && (window.game !== undefined)
+      return window.game !== undefined && (window.__sagaburstHits?.count > 0 || dead > 0)
     },
-    { timeout: timeoutMs }
+    { timeout: timeoutMs, polling: 100 }
   )
 
-  console.log(`[Fixed-Scene Shadow Benchmark] 已偵測到交戰信號，等待戰況展開 ${settleMs} ms...`)
+  console.log(`[Fixed-Scene Shadow Benchmark] 已偵測到實際命中，等待戰況展開 ${settleMs} ms...`)
   await page.waitForTimeout(settleMs)
 
   console.log(`[Fixed-Scene Shadow Benchmark] 執行 Simulation Freeze...`)
