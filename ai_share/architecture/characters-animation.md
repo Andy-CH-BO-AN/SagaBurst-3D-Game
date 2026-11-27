@@ -38,7 +38,7 @@ LOD 門檻與普通士兵 HP 以程式常數為準（`src/world/HumanoidAssetReg
 - 拳擊為獨立 `punchCombo`／`punchRight` action，由 Animator 單一時鐘發出接觸事件。`UnarmedCombat` 以實際掌部軌跡追蹤目標，接既有傷害歸屬與獨立技能 `unarmed`，**且不呼叫結構破壞**。徒手 XP 只由權威傷害事件發放；讀檔**不轉換 `archery`**，也不補齊歷史技能。有效拳頭傷害以 `attackSource: unarmed`／`weaponId: unarmed` 識別，`SoundManager.playPunchHit` 缺檔時安靜略過。
 - `InventoryManager.activeMelee` 只回傳實際取出的近戰武器，**空裝備不 fallback 長槍**。
 - `HUMANOID_LOD_DISTANCES` 是人物 LOD 門檻的唯一來源。LOD0 是裝備 socket authority；切換、fade、seek 必須補齊姿勢與時間，**不能重播 gameplay 事件**。
-- 陰影 pass 中，LOD1 NPC 人物改以同一人物的 LOD2 網格投影（畫面仍畫 LOD1）：`Lod1ShadowProxy` 只在 LOD1／LOD2 蒙皮網格**共用同一 Skeleton、bind matrix 與 bind mode**（姿勢必然相同）且兩層不含剛性或多材質網格時採用，否則維持 LOD1 投影；LOD0 不變、LOD2 不投影。由 `ShadowCasterCulling` 在 `shadowMap.render` 期間暫時切換並於結束（含例外）還原；僅 `Game` 的 NPC 傳入 `characterVisualGroup` 加入此政策。
+- 陰影 pass 中，LOD1 NPC 人物改以同一人物的 LOD2 網格投影（畫面仍畫 LOD1）：`Lod1ShadowProxy` 只在 LOD1／LOD2 蒙皮網格**共用同一 Skeleton、bind matrix 與 bind mode**（姿勢必然相同）且兩層不含剛性或多材質網格時採用，否則維持 LOD1 投影；LOD0 不變、LOD2 不投影。由 `ShadowCasterCulling` 在 `shadowMap.render` 期間暫時切換並於結束（含例外）還原；`Game` 與 `TownScene`（含四門）的 NPC 都傳入 `characterVisualGroup` 加入此政策；坐騎不適用。
 - 距離節流只減少視覺求值；AI、移動、攻擊事件與 gameplay timer 每幀推進。
 
 ## 存檔與互動
