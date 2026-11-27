@@ -132,9 +132,10 @@ describe('Siege deployment and shared rule ownership', () => {
       const civilian = fourGateReserveTrooperLoadout(faction, 'civilian')
       const recruit = fourGateReserveTrooperLoadout(faction, 'recruit')
       const merchant = fourGateReserveTrooperLoadout(faction, 'merchant')
-      expect(civilian).toMatchObject({ mountId: 'horse', meleeWeaponId: 'steel_lance',
-        shieldId: faction === 'roman' ? 'scutum_t2' : 'round_shield_t2' })
-      expect(recruit).toMatchObject({ mountId: 'horse', meleeWeaponId: 'heavy_lance', shieldId: null })
+      const kit = { mountId: 'horse', meleeWeaponId: 'spear_t4',
+        shieldId: faction === 'roman' ? 'centurion_aquila_shield_t4' : 'viking_dragonward_shield_t4' }
+      expect(civilian).toMatchObject(kit)
+      expect(recruit).toMatchObject(kit)
       expect(merchant).toMatchObject({ mountId: 'horse', meleeWeaponId: 'sword_t5',
         secondaryMeleeWeaponId: 'axe_t5', shieldId: 'byzantine_eagle_shield_t5', rangedWeaponId: null })
     }
