@@ -92,7 +92,7 @@ import { CombatEventStream, createNpcCombatActorRef, createPlayerCombatActorRef,
 import { COMBAT_BALANCE, getAntiCavalryMultiplier } from './combat/CombatBalance'
 import { isDamageReceiver, type DamageReceiver } from './combat/DamageReceiver'
 import { ProjectileTargetIndex } from './combat/ProjectileContactQuery'
-import { installShadowCasterCulling } from './rendering/ShadowCasterCulling'
+import { installShadowCasterCulling, setLod1ShadowProxyEnabled } from './rendering/ShadowCasterCulling'
 import { damageMount, damageNpc, damageObstacle, damagePlayer, damageReceiver } from './combat/DamageRouter'
 import { resolveMountImpacts } from './combat/MountImpact'
 import { calculatePlayerMeleeDamage } from './combat/PlayerMeleeDamage'
@@ -1039,7 +1039,8 @@ export class Game {
     this.renderer = renderer
     // Far actors hold no shadow caster; skip walking them in the shadow pass (output unchanged).
     installShadowCasterCulling(renderer, visit => {
-      for (const npc of this.npcs) visit(npc.group, npc.currentLod)
+      // LOD1 humanoids draw their LOD2 mesh (same skeleton and pose, proven in Lod1ShadowProxy) into the shadow map.
+      for (const npc of this.npcs) visit(npc.group, npc.currentLod, npc.characterVisualGroup)
       for (const mount of this.mounts) visit(mount.group, mount.currentLod)
     })
     this.customPickupPolicy = Boolean(battleConfig && !campaignConfig && !bridgeLaunch && !battleConfig.careerEagleMissionId && !battleConfig.careerFelineMissionId && !tutorialLaunch && !isTrainingGround)
@@ -1858,6 +1859,7 @@ export class Game {
       // Frozen-scene A/B of optional render paths; production keeps every path on.
       ;(window as any).__perfToggle = (name: string, enabled: boolean) => {
         if (name === 'lod1EquipmentBatch') return { name, enabled: this.lod2EquipmentBatcher?.setLod1Enabled(enabled) ?? null }
+        if (name === 'lod1ShadowProxy') return { name, enabled: setLod1ShadowProxyEnabled(this.renderer, enabled) }
         throw new Error(`Unknown perf toggle: ${name}`)
       }
       ;(window as any).__forceHumanoidLod = (level: number | null) => this._forceHumanoidLod(level)
