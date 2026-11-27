@@ -362,13 +362,14 @@ describe('Prison encounter persistence', () => {
     Object.assign(scene, { coopUnsubscribe: [], coopPickupRequests: pickups, disposed: false })
     const coopScene = scene as unknown as { listenPrisonCoop(session: CoopSession, role: 'host' | 'guest'): void }
     coopScene.listenPrisonCoop(session, 'guest'); coopScene.listenPrisonCoop(session, 'host')
-    deliver(JSON.stringify({ t: 'prisonState', swords: { 0: PRISON_COOP_PARTNER }, gateOpen: false }))
-    deliver(JSON.stringify({ t: 'prisonPickup', index: 1 }))
-    deliver(JSON.stringify({ t: 'prisonPickup', index: 'x' }))
+    // Frames carry the sender's hub seat: the host is 0, this guest 1.
+    deliver('0' + JSON.stringify({ t: 'prisonState', swords: { 0: PRISON_COOP_PARTNER }, gateOpen: false }))
+    deliver('1' + JSON.stringify({ t: 'prisonPickup', index: 1 }))
+    deliver('1' + JSON.stringify({ t: 'prisonPickup', index: 'x' }))
     expect(frame.coop).toEqual([{ 0: PRISON_COOP_PARTNER }])
     expect(pickups).toEqual([1])
     const opening = (scene as unknown as { opening: { phase: string } }).opening
-    opening.phase = 'countdown'; deliver(JSON.stringify({ t: 'prisonPickup', index: 0 })); opening.phase = 'fight'
+    opening.phase = 'countdown'; deliver('1' + JSON.stringify({ t: 'prisonPickup', index: 0 })); opening.phase = 'fight'
     expect(pickups).toEqual([1]) // A guest request before the fight is live is ignored.
     Object.assign(scene, { encounter: { settlementPending: true, clearPickupFocus() {} } })
     scene.update(0) // Unsaved result: only the arena and damage numbers tick; no body, player or shot steps.

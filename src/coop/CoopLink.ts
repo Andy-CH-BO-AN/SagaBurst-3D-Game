@@ -6,6 +6,22 @@
 export type CoopRole = 'host' | 'guest'
 export type CoopLinkStatus = 'idle' | 'connecting' | 'connected' | 'closed'
 export const DEFAULT_COOP_PORT = 47820
+/** Must match electron/coop-hub.cjs: the hub refuses a page of another frame format. */
+export const COOP_HUB_VERSION = 2
+/** One host and up to this many guests share a room (electron/coop-hub.cjs). */
+export const COOP_MAX_GUESTS = 3
+export const COOP_HOST_SEAT = 0
+/** `send` target: every guest (host) / the host (guest). */
+export const COOP_BROADCAST = -1
+const COOP_CLOSE_FULL = 4001
+const COOP_CLOSE_VERSION = 4002
+
+/** Why the hub refused this page, in the words the lobby shows. */
+export function coopCloseReason(code: number): string | null {
+  if (code === COOP_CLOSE_FULL) return `房間已滿（最多 ${COOP_MAX_GUESTS + 1} 人）`
+  if (code === COOP_CLOSE_VERSION) return '主機與這台電腦的遊戲版本不同，請更新到同一版本'
+  return null
+}
 
 export interface CoopLinkState {
   role: CoopRole | null
@@ -17,6 +33,34 @@ export interface CoopLinkState {
 }
 
 export type CoopFrame = string | Uint8Array
+
+/**
+ * Every frame through the hub starts with a one-byte route (see electron/coop-hub.cjs): text frames an
+ * ASCII seat digit or '*', binary frames the seat byte or 0xff. Outgoing it names the target; incoming
+ * the hub has rewritten it to the sender's seat. Hub notices are text frames starting with 'h'.
+ */
+export function encodeCoopFrame(payload: string, to: number): string
+export function encodeCoopFrame(payload: Uint8Array, to: number): Uint8Array
+export function encodeCoopFrame(payload: CoopFrame, to: number): CoopFrame {
+  const all = !Number.isInteger(to) || to < 0
+  if (typeof payload === 'string') return `${all ? '*' : String(to)}${payload}`
+  const out = new Uint8Array(payload.byteLength + 1)
+  out[0] = all ? 0xff : to
+  out.set(payload, 1)
+  return out
+}
+
+/** A received frame: who sent it ('hub' for hub notices) and its payload, or null when malformed. */
+export function decodeCoopFrame(frame: CoopFrame): { from: number | 'hub'; payload: CoopFrame } | null {
+  if (typeof frame === 'string') {
+    const head = frame.charAt(0)
+    if (head === 'h') return { from: 'hub', payload: frame.slice(1) }
+    const seat = Number(head)
+    return head && Number.isInteger(seat) && seat <= COOP_MAX_GUESTS ? { from: seat, payload: frame.slice(1) } : null
+  }
+  if (frame.byteLength < 1 || frame[0] > COOP_MAX_GUESTS) return null
+  return { from: frame[0], payload: frame.subarray(1) }
+}
 
 /** Shape of `window.sagaburstCoop` exposed by electron/preload.cjs. */
 export interface CoopBridge {
@@ -42,11 +86,15 @@ class BrowserCoopBridge implements CoopBridge {
 
   constructor(private readonly storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | undefined) {}
 
+  /** Survives this tab's reloads, so the hub gives a reloading guest page its previous seat. */
+  private seatKey = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+
   async status(): Promise<CoopLinkState> {
     if (this.state.role || !this.storage) return this.state
     try {
-      const saved = JSON.parse(this.storage.getItem(BROWSER_LINK_KEY) ?? 'null') as { role?: CoopRole; address?: string; port?: number } | null
+      const saved = JSON.parse(this.storage.getItem(BROWSER_LINK_KEY) ?? 'null') as { role?: CoopRole; address?: string; port?: number; key?: string } | null
       if (saved && (saved.role === 'host' || saved.role === 'guest') && typeof saved.address === 'string') {
+        if (typeof saved.key === 'string' && /^[a-z0-9]{1,64}$/.test(saved.key)) this.seatKey = saved.key
         return this.open(saved.role, saved.address, saved.port ?? DEFAULT_COOP_PORT)
       }
     } catch { /* stale link data is ignored */ }
@@ -96,22 +144,23 @@ class BrowserCoopBridge implements CoopBridge {
 
   private open(role: CoopRole, address: string, port: number): Promise<CoopLinkState> {
     this.closeSocket()
-    this.storage?.setItem(BROWSER_LINK_KEY, JSON.stringify({ role, address, port }))
+    this.storage?.setItem(BROWSER_LINK_KEY, JSON.stringify({ role, address, port, key: this.seatKey }))
     this.setState({ role, status: 'connecting', address, port, error: null })
     this.settlePendingOpen()
     return new Promise(resolve => {
       this.settleOpen = () => resolve(this.state)
       let socket: WebSocket
-      try { socket = new WebSocket(`ws://${address}:${port}/?role=${role}`) }
+      try { socket = new WebSocket(`ws://${address}:${port}/?role=${role}&v=${COOP_HUB_VERSION}&key=${this.seatKey}`) }
       catch (error) { this.setState({ status: 'closed', error: String(error) }); resolve(this.state); return }
       socket.binaryType = 'arraybuffer'
       this.socket = socket
       socket.onopen = () => { this.setState({ status: 'connected' }); resolve(this.state) }
       socket.onerror = () => this.setState({ error: `無法連線到 ${address}:${port}（主機需先執行 npm run coop:hub）` })
-      socket.onclose = () => {
+      socket.onclose = event => {
         if (this.socket !== socket) return
         this.socket = null
-        this.setState({ status: 'closed' })
+        const reason = coopCloseReason(event.code)
+        this.setState({ status: 'closed', ...(reason ? { error: reason } : {}) })
         resolve(this.state)
       }
       socket.onmessage = event => {
@@ -146,19 +195,21 @@ export function parseCoopAddress(input: string, defaultPort = DEFAULT_COOP_PORT)
 
 export interface CoopMessage { t: string; [key: string]: unknown }
 
-/** One renderer-wide session: link state, peer presence and typed message fan-out. */
+/** One renderer-wide session: link state, which seats are present and typed message fan-out. */
 export class CoopSession {
   private linkState: CoopLinkState = { role: null, status: 'idle', address: null, port: DEFAULT_COOP_PORT, error: null }
-  private peer = false
-  private readonly jsonListeners = new Map<string, Set<(message: CoopMessage) => void>>()
-  private readonly binaryListeners = new Set<(data: Uint8Array) => void>()
+  /** Host: the guest seats in the room. Guest: the host's seat while it is there. */
+  private readonly peerSeats = new Set<number>()
+  private ownSeat: number | null = null
+  private readonly jsonListeners = new Map<string, Set<(message: CoopMessage, from: number) => void>>()
+  private readonly binaryListeners = new Set<(data: Uint8Array, from: number) => void>()
   private readonly changeListeners = new Set<() => void>()
   private ready: Promise<void> | null = null
 
   constructor(private readonly bridge: CoopBridge) {
     bridge.onState(state => {
       this.linkState = state
-      if (state.status !== 'connected') this.peer = false
+      if (state.status !== 'connected') this.clearPeers()
       this.changed()
     })
     bridge.onMessage(data => this.receive(data))
@@ -168,7 +219,7 @@ export class CoopSession {
   init(): Promise<void> {
     this.ready ??= this.bridge.status().then(state => {
       this.linkState = state
-      // Ask the peer to announce itself again after a page reload.
+      // Ask the other side to announce itself again after a page reload.
       if (state.status === 'connected') this.send({ t: 'hello' })
       this.changed()
     }).catch(() => {})
@@ -178,33 +229,41 @@ export class CoopSession {
   get state(): Readonly<CoopLinkState> { return this.linkState }
   get role(): CoopRole | null { return this.linkState.status === 'connected' || this.linkState.status === 'connecting' ? this.linkState.role : null }
   get connected(): boolean { return this.linkState.status === 'connected' }
-  get peerConnected(): boolean { return this.connected && this.peer }
+  /** Guest: the host is there. Host: at least one guest is. */
+  get peerConnected(): boolean { return this.connected && this.peerSeats.size > 0 }
   get isHost(): boolean { return this.role === 'host' }
   get isGuest(): boolean { return this.role === 'guest' }
+  /** This page's seat in the room (host 0, guests 1..COOP_MAX_GUESTS), once the hub said so. */
+  get seat(): number | null { return this.connected ? this.ownSeat : null }
+  /** Seats this page can talk to, ascending: the guests (host) or the host (guest). */
+  get peers(): number[] { return this.connected ? [...this.peerSeats].sort((a, b) => a - b) : [] }
+  isPeer(seat: number): boolean { return this.connected && this.peerSeats.has(seat) }
 
   /** Counts host/join/leave calls: a superseded attempt's late result never overwrites a newer one. */
   private attempt = 0
 
   async host(port?: number): Promise<CoopLinkState> { const n = ++this.attempt; return this.settle(n, await this.bridge.host(port)) }
   async join(address: string, port?: number): Promise<CoopLinkState> { const n = ++this.attempt; return this.settle(n, await this.bridge.join(address, port)) }
-  async leave(): Promise<void> { this.attempt++; await this.bridge.leave(); this.peer = false; this.changed() }
+  async leave(): Promise<void> { this.attempt++; await this.bridge.leave(); this.clearPeers(); this.changed() }
 
   private settle(attempt: number, state: CoopLinkState): CoopLinkState {
     if (attempt === this.attempt) { this.linkState = state; this.changed() }
     return this.linkState
   }
 
-  send(message: CoopMessage): void { if (this.connected) this.bridge.send(JSON.stringify(message)) }
-  sendBinary(data: Uint8Array): void { if (this.connected) this.bridge.send(data) }
+  /** Host: to one guest seat, or every guest by default. Guest: always to the host. */
+  send(message: CoopMessage, to = COOP_BROADCAST): void { if (this.connected) this.bridge.send(encodeCoopFrame(JSON.stringify(message), to)) }
+  sendBinary(data: Uint8Array, to = COOP_BROADCAST): void { if (this.connected) this.bridge.send(encodeCoopFrame(data, to)) }
 
-  on(type: string, listener: (message: CoopMessage) => void): () => void {
+  /** `from` is the sender's seat (the host is 0). */
+  on(type: string, listener: (message: CoopMessage, from: number) => void): () => void {
     let set = this.jsonListeners.get(type)
     if (!set) this.jsonListeners.set(type, set = new Set())
     set.add(listener)
     return () => { set!.delete(listener) }
   }
 
-  onBinary(listener: (data: Uint8Array) => void): () => void {
+  onBinary(listener: (data: Uint8Array, from: number) => void): () => void {
     this.binaryListeners.add(listener)
     return () => { this.binaryListeners.delete(listener) }
   }
@@ -216,27 +275,45 @@ export class CoopSession {
 
   private changed(): void { for (const listener of this.changeListeners) listener() }
 
+  private clearPeers(): void {
+    this.peerSeats.clear()
+    this.ownSeat = null
+  }
+
   private receive(data: CoopFrame): void {
-    if (typeof data !== 'string') {
-      for (const listener of this.binaryListeners) listener(data)
+    const frame = decodeCoopFrame(data)
+    if (!frame) return
+    const { from, payload } = frame
+    if (typeof payload !== 'string') {
+      if (from === 'hub') return
+      for (const listener of this.binaryListeners) listener(payload, from)
       return
     }
     let message: CoopMessage
-    try { message = JSON.parse(data) as CoopMessage } catch { return }
+    try { message = JSON.parse(payload) as CoopMessage } catch { return }
     if (!message || typeof message.t !== 'string') return
-    if (message.t === 'hub') {
-      const event = message.event
-      if (event === 'welcome') {
-        this.peer = message.peer === true
-        // Joining a room the other side is already in: introduce ourselves so it re-sends its scene.
-        if (this.peer) this.send({ t: 'hello' })
-      } else if (event === 'peer-joined') { this.peer = true; this.send({ t: 'hello' }) }
-      else if (event === 'peer-left') this.peer = false
-      this.changed()
-    } else if (message.t === 'hello') {
-      if (!this.peer) { this.peer = true; this.changed() }
+    if (from === 'hub') {
+      if (message.t === 'hub') this.hubEvent(message)
+      return
     }
-    for (const listener of this.jsonListeners.get(message.t) ?? []) listener(message)
+    if (message.t === 'hello' && !this.peerSeats.has(from)) { this.peerSeats.add(from); this.changed() }
+    for (const listener of this.jsonListeners.get(message.t) ?? []) listener(message, from)
+  }
+
+  private hubEvent(message: CoopMessage): void {
+    const seat = Number(message.seat)
+    if (message.event === 'welcome') {
+      this.ownSeat = Number.isInteger(seat) ? seat : null
+      this.peerSeats.clear()
+      for (const peer of Array.isArray(message.peers) ? message.peers : []) if (Number.isInteger(peer)) this.peerSeats.add(peer as number)
+      // Joining a room someone is already in: introduce ourselves so the host (re)sends its scene.
+      for (const peer of this.peerSeats) this.send({ t: 'hello' }, peer)
+    } else if (message.event === 'peer-joined' && Number.isInteger(seat)) {
+      this.peerSeats.add(seat)
+      this.send({ t: 'hello' }, seat)
+    } else if (message.event === 'peer-left' && Number.isInteger(seat)) this.peerSeats.delete(seat)
+    else return
+    this.changed()
   }
 }
 

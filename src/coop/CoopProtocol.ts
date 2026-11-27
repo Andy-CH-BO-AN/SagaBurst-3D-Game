@@ -4,7 +4,7 @@
  */
 import type { CombatAction } from '../world/CharacterCombatAnimator'
 
-export const COOP_PROTOCOL_VERSION = 1
+export const COOP_PROTOCOL_VERSION = 2
 export const COOP_SNAPSHOT_HZ = 20
 export const COOP_NO_ID = 0xffff
 

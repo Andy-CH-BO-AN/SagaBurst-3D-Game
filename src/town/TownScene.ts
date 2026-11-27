@@ -1289,9 +1289,9 @@ export class TownScene {
     lent?.group.removeFromParent()
   }
 
-  /** Co-op host: menus never freeze the Town for the guest; only this player's control pauses. */
+  /** Co-op host: menus never freeze the Town while the partner is in it; only this player's control pauses. */
   private get coopWorldKeepsRunning(): boolean {
-    return Boolean(this.coopHost && coopSession().peerConnected && !this.result && !this.missionResultOpen
+    return Boolean(this.coopHost?.guestProxy && !this.result && !this.missionResultOpen
       && !this.spawnErrorShown && !this.deploymentFailed && !this.profile.activeRace && !this.retirementFinale?.active)
   }
 

@@ -2,12 +2,22 @@
 // and lets a secure sagaburst:// page reach plain ws:// LAN peers through IPC.
 const { ipcMain } = require('electron')
 const WebSocket = require('ws')
-const { DEFAULT_COOP_PORT, lanAddresses, startHub } = require('./coop-hub.cjs')
+const { randomUUID } = require('node:crypto')
+const { COOP_CLOSE_FULL, COOP_CLOSE_VERSION, COOP_HUB_VERSION, COOP_MAX_GUESTS, DEFAULT_COOP_PORT, lanAddresses, startHub } = require('./coop-hub.cjs')
+
+/** Why the hub refused this page, in the words the lobby shows. */
+function closeReason(code) {
+  if (code === COOP_CLOSE_FULL) return `房間已滿（最多 ${COOP_MAX_GUESTS + 1} 人）`
+  if (code === COOP_CLOSE_VERSION) return '主機與這台電腦的遊戲版本不同，請更新到同一版本'
+  return null
+}
 
 function installCoopNet(getWindow) {
   let hub = null
   let socket = null
   let state = { role: null, status: 'idle', address: null, port: DEFAULT_COOP_PORT, error: null }
+  // This app's guest reconnect key: the hub gives a rejoining page its previous seat.
+  const seatKey = randomUUID()
 
   const emit = (channel, ...args) => {
     const window = getWindow()
@@ -50,7 +60,7 @@ function installCoopNet(getWindow) {
   const leave = () => { epoch++; return teardown() }
   const connect = (url, role, address, port) => new Promise(resolve => {
     closeSocket()
-    const next = new WebSocket(`${url}/?role=${role}`)
+    const next = new WebSocket(`${url}/?role=${role}&v=${COOP_HUB_VERSION}&key=${seatKey}`)
     socket = next
     setState({ role, status: 'connecting', address, port, error: null })
     settlePending()
@@ -62,10 +72,11 @@ function installCoopNet(getWindow) {
       else emit('coop:message', data.toString())
     })
     next.on('error', error => { if (socket === next) setState({ error: String(error?.message ?? error) }) })
-    next.on('close', () => {
+    next.on('close', code => {
       if (socket !== next) return
       socket = null
-      setState({ status: 'closed' })
+      const reason = closeReason(code)
+      setState({ status: 'closed', ...(reason ? { error: reason } : {}) })
       resolve(snapshot())
     })
   })
