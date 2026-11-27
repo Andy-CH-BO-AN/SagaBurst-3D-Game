@@ -105,7 +105,7 @@ import { standingPlayerY } from '../player/PlayerFootBody'
 import { PlayerInput } from '../player/PlayerInput'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { bindWindowResize, configureSceneRenderer, GAMEPLAY_SCENE_MAX_PIXEL_RATIO } from '../rendering/SceneRenderer'
-import { installShadowCasterCulling } from '../rendering/ShadowCasterCulling'
+import { installShadowCasterCulling, setLod1ShadowProxyEnabled } from '../rendering/ShadowCasterCulling'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
 import { EQUIPMENT_CATEGORIES, equipmentSections, type EquipmentCategory } from '../rpg/EquipmentCatalog'
@@ -462,18 +462,19 @@ export class TownScene {
     sound ??= new SoundManager()
     sound.cancelCareerAudio()
     this.renderer = renderer; configureSceneRenderer(renderer, { maxPixelRatio: GAMEPLAY_SCENE_MAX_PIXEL_RATIO }); container.appendChild(renderer.domElement)
+    // LOD1 humanoids draw their LOD2 mesh (same skeleton and pose, proven in Lod1ShadowProxy) into the shadow map.
     installShadowCasterCulling(renderer, visit => {
-      for (const r of this.residents ?? []) visit(r.npc.group, r.npc.currentLod)
-      for (const npc of this.mission?.fieldNpcs ?? []) visit(npc.group, npc.currentLod)
-      for (const npc of this.mission?.ambientBandits ?? []) visit(npc.group, npc.currentLod)
-      for (const npc of this.defense?.fieldNpcs ?? []) visit(npc.group, npc.currentLod)
-      for (const npc of this.defense?.waitingEnemies ?? []) visit(npc.group, npc.currentLod)
-      for (const npc of this.duel?.fieldNpcs ?? []) visit(npc.group, npc.currentLod)
-      for (const npc of this.race?.actors ?? []) visit(npc.group, npc.currentLod)
-      for (const npc of this.outskirts?.actors ?? []) visit(npc.group, npc.currentLod)
-      for (const npc of this.enemyEaglePatrol?.actors ?? []) visit(npc.group, npc.currentLod)
-      for (const npc of this.personalSquad?.actors ?? []) visit(npc.group, npc.currentLod)
-      for (const npc of this.coopGuestNpcs) visit(npc.group, npc.currentLod)
+      for (const r of this.residents ?? []) visit(r.npc.group, r.npc.currentLod, r.npc.characterVisualGroup)
+      for (const npc of this.mission?.fieldNpcs ?? []) visit(npc.group, npc.currentLod, npc.characterVisualGroup)
+      for (const npc of this.mission?.ambientBandits ?? []) visit(npc.group, npc.currentLod, npc.characterVisualGroup)
+      for (const npc of this.defense?.fieldNpcs ?? []) visit(npc.group, npc.currentLod, npc.characterVisualGroup)
+      for (const npc of this.defense?.waitingEnemies ?? []) visit(npc.group, npc.currentLod, npc.characterVisualGroup)
+      for (const npc of this.duel?.fieldNpcs ?? []) visit(npc.group, npc.currentLod, npc.characterVisualGroup)
+      for (const npc of this.race?.actors ?? []) visit(npc.group, npc.currentLod, npc.characterVisualGroup)
+      for (const npc of this.outskirts?.actors ?? []) visit(npc.group, npc.currentLod, npc.characterVisualGroup)
+      for (const npc of this.enemyEaglePatrol?.actors ?? []) visit(npc.group, npc.currentLod, npc.characterVisualGroup)
+      for (const npc of this.personalSquad?.actors ?? []) visit(npc.group, npc.currentLod, npc.characterVisualGroup)
+      for (const npc of this.coopGuestNpcs) visit(npc.group, npc.currentLod, npc.characterVisualGroup)
       for (const mount of this.combatMounts) visit(mount.group, mount.currentLod)
       for (const mount of this.mounts) visit(mount.group, mount.currentLod)
       for (const mount of this.coopGuestMounts) visit(mount.group, mount.currentLod)
@@ -587,6 +588,8 @@ export class TownScene {
       Object.assign(window, { __townScene: { world: this.world, player: this.player, orbit: this.orbit, camera: this.camera, input: this.input, residents: this.residents, stableHorses: this.stableHorses,
         get personalSquad() { return scene.personalSquad }, get profile() { return scene.profile }, openRecruitmentPanel: () => scene.openRecruitmentPanel(),
         measureGpuRender: () => measureGpuRender(scene.renderer),
+        /** Frozen/paired A/B of the LOD1 shadow proxy policy; production keeps it on. */
+        setLod1ShadowProxy: (enabled: boolean) => setLod1ShadowProxyEnabled(scene.renderer, enabled),
         resetProfiler: () => {
           scene.devProfiler?.enableAndReset()
           setDevCareerSaveTelemetrySink(scene.devProfiler ? record => scene.devProfiler!.recordSave(record) : null)
