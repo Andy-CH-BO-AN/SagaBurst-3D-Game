@@ -1,12 +1,21 @@
 import type * as THREE from 'three'
+import {
+  applyLod1ShadowProxy, lod1ProxyApplicable, proveLod1ShadowProxy, restoreLod1ShadowProxy,
+  type Lod1ShadowProxyPlan,
+} from './Lod1ShadowProxy'
 
-/** Visits each actor root with the LOD level that decides which of its meshes cast shadows. */
-export type ShadowCullTargets = (visit: (root: THREE.Object3D, shadowLevel: number) => void) => void
+/**
+ * Visits each actor root with the LOD level that decides which of its meshes cast shadows.
+ * `humanoidVisual` (the node holding the humanoid `THREE.LOD`) opts a LOD1 actor into the
+ * LOD2 shadow proxy.
+ */
+export type ShadowCullTargets = (visit: (root: THREE.Object3D, shadowLevel: number, humanoidVisual?: THREE.Object3D) => void) => void
 
 /** Each cached proof is redone at least this often even when the root's LOD level is unchanged. */
 export const SHADOW_CULL_REVALIDATE_PASSES = 30
 
 interface Entry { level: number; casterFree: boolean; nextCheck: number }
+interface ProxyEntry { plan: Lod1ShadowProxyPlan | null; nextCheck: number }
 
 /**
  * Three's shadow pass walks every visible node of the scene for every caster light, although
@@ -21,9 +30,13 @@ interface Entry { level: number; casterFree: boolean; nextCheck: number }
 export class ShadowCasterCulling {
   private readonly entries = new WeakMap<THREE.Object3D, Entry>()
   private readonly hidden: THREE.Object3D[] = []
+  private readonly proxies = new WeakMap<THREE.Object3D, ProxyEntry>()
+  private readonly swapped: Lod1ShadowProxyPlan[] = []
   private pass = 0
   private stagger = 0
-  private readonly visit = (root: THREE.Object3D, shadowLevel: number): void => {
+  /** Shadow policy switch: LOD1 humanoids draw their LOD2 mesh into the shadow map (DEV A/B toggles it). */
+  lod1ProxyEnabled = true
+  private readonly visit = (root: THREE.Object3D, shadowLevel: number, humanoidVisual?: THREE.Object3D): void => {
     if (!root.visible) return
     let entry = this.entries.get(root)
     if (!entry) {
@@ -34,9 +47,25 @@ export class ShadowCasterCulling {
       entry.level = shadowLevel
       this.prove(root, entry, SHADOW_CULL_REVALIDATE_PASSES)
     }
-    if (!entry.casterFree) return
-    root.visible = false
-    this.hidden.push(root)
+    if (entry.casterFree) {
+      root.visible = false
+      this.hidden.push(root)
+      return
+    }
+    if (this.lod1ProxyEnabled && shadowLevel === 1 && humanoidVisual?.visible) this.swapToProxy(humanoidVisual)
+  }
+
+  /** The proof is cached per visual and redone at least every SHADOW_CULL_REVALIDATE_PASSES passes. */
+  private swapToProxy(visual: THREE.Object3D): void {
+    let entry = this.proxies.get(visual)
+    if (!entry || this.pass >= entry.nextCheck) {
+      entry = { plan: proveLod1ShadowProxy(visual), nextCheck: this.pass + SHADOW_CULL_REVALIDATE_PASSES + this.stagger++ % SHADOW_CULL_REVALIDATE_PASSES }
+      this.proxies.set(visual, entry)
+    }
+    const plan = entry.plan
+    if (!plan || !lod1ProxyApplicable(plan)) return
+    applyLod1ShadowProxy(plan)
+    this.swapped.push(plan)
   }
 
   hide(targets: ShadowCullTargets): void {
@@ -47,6 +76,8 @@ export class ShadowCasterCulling {
   restore(): void {
     for (const root of this.hidden) root.visible = true
     this.hidden.length = 0
+    for (const plan of this.swapped) restoreLod1ShadowProxy(plan)
+    this.swapped.length = 0
   }
 
   private prove(root: THREE.Object3D, entry: Entry, revalidateIn: number): void {
@@ -63,7 +94,15 @@ export function hasVisibleShadowCaster(root: THREE.Object3D): boolean {
   return found
 }
 
-const installed = new WeakMap<THREE.WebGLShadowMap, { targets: ShadowCullTargets | null }>()
+const installed = new WeakMap<THREE.WebGLShadowMap, { targets: ShadowCullTargets | null; culling: ShadowCasterCulling }>()
+
+/** DEV A/B of the LOD1 shadow proxy policy; production keeps it on. Returns the applied state or null if not installed. */
+export function setLod1ShadowProxyEnabled(renderer: THREE.WebGLRenderer, enabled: boolean): boolean | null {
+  const state = installed.get(renderer.shadowMap)
+  if (!state) return null
+  state.culling.lod1ProxyEnabled = Boolean(enabled)
+  return state.culling.lod1ProxyEnabled
+}
 
 /**
  * Wraps `renderer.shadowMap.render` once per renderer; a later call only replaces the target
@@ -74,9 +113,9 @@ export function installShadowCasterCulling(renderer: THREE.WebGLRenderer, target
   const shadowMap = renderer.shadowMap
   const existing = installed.get(shadowMap)
   if (existing) { existing.targets = targets; return }
-  const state = { targets }
-  installed.set(shadowMap, state)
   const culling = new ShadowCasterCulling()
+  const state = { targets, culling }
+  installed.set(shadowMap, state)
   const render = shadowMap.render
   shadowMap.render = function (this: THREE.WebGLShadowMap, ...args: Parameters<THREE.WebGLShadowMap['render']>) {
     if (state.targets) culling.hide(state.targets)

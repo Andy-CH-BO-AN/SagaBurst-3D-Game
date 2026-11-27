@@ -1,6 +1,6 @@
 import type * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { installShadowCasterCulling } from '../../src/rendering/ShadowCasterCulling'
+import { installShadowCasterCulling, setLod1ShadowProxyEnabled } from '../../src/rendering/ShadowCasterCulling'
 
 /** Narrow scene-node double: only the fields the culling proof and toggle read. */
 interface FakeNode { name: string; visible: boolean; castShadow: boolean; isMesh?: boolean; children: FakeNode[] }
@@ -49,5 +49,62 @@ describe('shadow pass caster-free culling', () => {
     expect(seen.at(-1)?.far).toBe(false)
     expect([far.visible, near.visible, corpse.visible]).toEqual([true, true, false])
     expect(seen).toHaveLength(3)
+  })
+})
+
+/** Plain-data LOD graph: level objects with a shared parent, one skinned mesh each on one shared skeleton. */
+function fakeHumanoidLod(sameSkeleton: boolean) {
+  const identity: number[] = new Array<number>(16).fill(0).map((_, i) => (i % 5 === 0 ? 1 : 0))
+  const skeleton = {}, parent = { name: 'lod' }
+  const mesh = (name: string, skel: object, cast: boolean) => ({
+    name, isMesh: true, isSkinnedMesh: true, material: {}, skeleton: skel, bindMode: 'detached', bindMatrix: { elements: identity },
+    matrix: { elements: identity }, matrixWorld: { elements: [...identity], copy(m: { elements: number[] }) { this.elements = [...m.elements] } },
+    castShadow: cast, parent: null as unknown,
+  })
+  const level = (m: ReturnType<typeof mesh>, visible: boolean) => {
+    const object = { visible, parent, matrix: { elements: identity }, traverse(visit: (o: unknown) => void) { visit(this); visit(m) } }
+    m.parent = object
+    return object
+  }
+  const m1 = mesh('lod1', skeleton, true), m2 = mesh('lod2', sameSkeleton ? skeleton : {}, false)
+  m1.matrixWorld.elements[12] = 7
+  const level0 = level(mesh('lod0', skeleton, true), false), level1 = level(m1, true), level2 = level(m2, false)
+  const lod = { isLOD: true, levels: [level0, level1, level2].map(object => ({ object })) }
+  const visual = { visible: true, traverse(visit: (o: unknown) => void) { visit(this); visit(lod) } } as unknown as THREE.Object3D
+  return { visual, level1, level2, m1, m2 }
+}
+
+describe('LOD1 shadow proxy', () => {
+  const run = (rig: ReturnType<typeof fakeHumanoidLod>, enabled = true) => {
+    const seen: Array<{ lod1: boolean; lod2: boolean; cast: boolean; x: number }> = []
+    let fail = false
+    const shadowMap = { render() {
+      seen.push({ lod1: rig.level1.visible, lod2: rig.level2.visible, cast: rig.m2.castShadow, x: rig.m2.matrixWorld.elements[12] })
+      if (fail) throw new Error('pass failed')
+    } }
+    const renderer = { shadowMap } as unknown as THREE.WebGLRenderer
+    const root = asObject(node('actor', [node('body', [], true)]))
+    installShadowCasterCulling(renderer, visit => visit(root, 1, rig.visual))
+    setLod1ShadowProxyEnabled(renderer, enabled)
+    return { seen, shadowMap, fail: () => { fail = true } }
+  }
+
+  it('draws the shared-skeleton LOD2 mesh at the LOD1 pose during the pass and restores afterwards, even on failure', () => {
+    const rig = fakeHumanoidLod(true), h = run(rig)
+    h.shadowMap.render()
+    expect(h.seen[0]).toEqual({ lod1: false, lod2: true, cast: true, x: 7 })
+    expect([rig.level1.visible, rig.level2.visible, rig.m2.castShadow]).toEqual([true, false, false])
+    h.fail()
+    expect(() => h.shadowMap.render()).toThrow('pass failed')
+    expect([rig.level1.visible, rig.level2.visible, rig.m2.castShadow]).toEqual([true, false, false])
+  })
+
+  it('keeps LOD1 as the caster when the policy is off or the skeletons are not shared', () => {
+    const off = fakeHumanoidLod(true), disabled = run(off, false)
+    disabled.shadowMap.render()
+    expect(disabled.seen[0]).toMatchObject({ lod1: true, lod2: false, cast: false })
+    const unshared = fakeHumanoidLod(false), h = run(unshared)
+    h.shadowMap.render()
+    expect(h.seen[0]).toMatchObject({ lod1: true, lod2: false, cast: false })
   })
 })
