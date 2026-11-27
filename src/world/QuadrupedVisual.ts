@@ -6,6 +6,12 @@ import { SkinnedSeatContact } from './SkinnedSeatContact'
 import { stopBoneEulerSync } from './BoneEulerSync'
 import { hideBoneOnlySubtrees } from './BoneRenderTraversal'
 import { installCachedSkeletonUpdate, type CachedSkeletonController } from './CachedSkeletonUpdate'
+import { skipMatrixWorldWhenHidden } from './DeathFade'
+import {
+  consolidateGenericLod2,
+  tryCreateGenericLod2ConsolidationTemplate,
+  type GenericLod2ConsolidationTemplate,
+} from './HumanoidLod2Consolidation'
 import { RiderSeatContactCache } from './RiderSeatContactCache'
 import {
   isQuadrupedAnimationState,
@@ -27,6 +33,8 @@ interface QuadrupedVisualConfig {
 
 /** Baked quadruped clips and independent skin instances share one playback/LOD owner. */
 const runtimeClips = new WeakMap<GLTF, THREE.AnimationClip[]>()
+/** Per-template generic LOD2 merge cache for quadruped body + armor equipment. */
+const quadrupedLod2Templates = new WeakMap<GLTF, Map<string, GenericLod2ConsolidationTemplate | null>>()
 /** Template clips without near-bind properties, shared by every instance of the asset. */
 function runtimeQuadrupedClips(template: GLTF): THREE.AnimationClip[] {
   let clips = runtimeClips.get(template)
@@ -67,6 +75,11 @@ export class QuadrupedVisual {
     if (!this.poseChanged && this.cameraDistance > MOUNT_ANIMATION_THROTTLE_DISTANCE && contact.reapply()) return
     contact.align(publish)
     this.poseChanged = false
+  }
+
+  markSeatDirty(): void {
+    this.poseChanged = true
+    this.skeletonCache.markDirty()
   }
   private cameraDistance = 0
   private readonly farCadence = new FarAnimationCadence()
@@ -121,9 +134,24 @@ export class QuadrupedVisual {
       }
       // Match the horse policy: only the nearest level casts; far levels skip the shadow pass.
       level.traverse(object => { if (object instanceof THREE.Mesh) object.castShadow = index === 0 })
+      if (index === 2) {
+        let byKey = quadrupedLod2Templates.get(template)
+        if (!byKey) {
+          byKey = new Map()
+          quadrupedLod2Templates.set(template, byKey)
+        }
+        const key = `${config.bodyPrefix}:${config.equipmentMeshes?.[2] ?? ''}`
+        let cached = byKey.get(key)
+        if (cached === undefined) {
+          cached = tryCreateGenericLod2ConsolidationTemplate(level) ?? null
+          byKey.set(key, cached)
+        }
+        if (cached) consolidateGenericLod2(level, cached, config.name)
+      }
       this.lod.attach(level)
       this.lod.addLevel(level, distance, .1)
       level.visible = index === 0
+      if (index > 0) skipMatrixWorldWhenHidden(level)
     }
     this.root.add(this.lod)
     this.saddleSeat = this.root.getObjectByName('socket_saddle_seat')!
@@ -142,6 +170,7 @@ export class QuadrupedVisual {
       const nextLevel = this.lod.getCurrentLevel()
       if (nextLevel !== lastLodLevel) {
         lastLodLevel = nextLevel
+        if (nextLevel > 0) this.lod.levels[nextLevel]?.object.updateMatrixWorld(true)
         this.skeletonCache.markDirty()
       }
     }

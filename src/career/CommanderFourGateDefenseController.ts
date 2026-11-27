@@ -91,6 +91,17 @@ export class CommanderFourGateDefenseController {
   private cachedFieldNpcs: NPC[] | null = null
   private cachedFieldNpcSet: Set<NPC> | null = null
   private cachedFieldCounts: readonly [number, number, number] = [-1, -1, -1]
+  private cachedResidentTownPeople: NPC[] | null = null
+  private cachedTargetsAccountedRefs?: { targetIds: readonly string[]; registered: readonly string[]; deadLen: number; enemiesLen: number; value: boolean }
+  private escortEnemyActors = new Map<string, { dead: boolean; position: THREE.Vector3 }>()
+  private escortRampSnapshots = new Map<ReturnType<typeof townSiegeRampId>, {
+    state: Parameters<typeof advanceCommanderCavalryEscort>[3] extends ReadonlyMap<ReturnType<typeof townSiegeRampId>, { state: infer S }> ? S : never
+    position: THREE.Vector3
+    distance: number
+    alivePushers: number
+  }>()
+  private escortCachesRefreshedThisTick = false
+  private readonly cachedPeersByKey = new Map<string, NPC[]>()
 
   constructor(private readonly actorFactory: CareerActorFactory, private readonly residents: readonly CommanderTownResident[],
     private readonly player: () => Player, private readonly readProfile: () => CareerProfile,
@@ -544,6 +555,7 @@ export class CommanderFourGateDefenseController {
   }
 
   updateSiege(dt: number, grid: SpatialGrid<NPC>): void {
+    this.cachedPeersByKey.clear()
     if (!this.combatEnabled) return
     for (const id of this.nativeReturns) {
       const npc = this.actorsById.get(id), station = this.deployment?.stations.get(id)
@@ -561,10 +573,59 @@ export class CommanderFourGateDefenseController {
     }
     this.fourGateSiege!.setGrid(grid)
     this.fourGateSiege!.update(dt)
+    this.escortCachesRefreshedThisTick = false
     this.updateCavalryEscort(this.missionElapsed)
     this.updateInfantryEscort(this.missionElapsed)
+    this.escortCachesRefreshedThisTick = false
     const siege = this.fourGateSiege!
     this.infantryWings.update(siege.ramps, id => this.actorsById.get(id), (npc, rampId) => siege.resumeExternalMovement(npc, rampId))
+  }
+
+  private ensureEscortSnapshotCaches(): {
+    actors: Map<string, { dead: boolean; position: THREE.Vector3 }>
+    ramps: Map<ReturnType<typeof townSiegeRampId>, {
+      state: Parameters<typeof advanceCommanderCavalryEscort>[3] extends ReadonlyMap<ReturnType<typeof townSiegeRampId>, { state: infer S }> ? S : never
+      position: THREE.Vector3
+      distance: number
+      alivePushers: number
+    }>
+  } {
+    const actors = this.escortEnemyActors ??= new Map()
+    const ramps = this.escortRampSnapshots ??= new Map()
+    if (this.escortCachesRefreshedThisTick) return { actors, ramps }
+    this.escortCachesRefreshedThisTick = true
+    for (let i = 0; i < this.enemies.length; i++) {
+      const npc = this.enemies[i]
+      const pos = npc.combatPosition
+      const existing = actors.get(npc.combatantId)
+      if (existing) {
+        existing.dead = npc.dead
+        if (pos) existing.position.set(pos.x, pos.y ?? 0, pos.z)
+      } else {
+        actors.set(npc.combatantId, {
+          dead: npc.dead,
+          position: pos ? new THREE.Vector3(pos.x, pos.y ?? 0, pos.z) : new THREE.Vector3(),
+        })
+      }
+    }
+    for (const [id, ramp] of this.fourGateSiege!.ramps) {
+      const rPos = ramp.position
+      const existing = ramps.get(id)
+      if (existing) {
+        existing.state = ramp.controller.state
+        if (rPos) existing.position.set(rPos.x, rPos.y ?? 0, rPos.z)
+        existing.distance = ramp.controller.distance
+        existing.alivePushers = ramp.controller.alivePushers
+      } else {
+        ramps.set(id, {
+          state: ramp.controller.state,
+          position: rPos ? new THREE.Vector3(rPos.x, rPos.y ?? 0, rPos.z) : new THREE.Vector3(),
+          distance: ramp.controller.distance,
+          alivePushers: ramp.controller.alivePushers,
+        })
+      }
+    }
+    return { actors, ramps }
   }
 
   isEscorting(npc: NPC): boolean {
@@ -576,12 +637,11 @@ export class CommanderFourGateDefenseController {
   private updateInfantryEscort(dt: number): void {
     const previous = this.state?.infantryEscort
     if (!previous || !this.fourGateSiege) return
-    const actors = new Map(this.enemies.map(npc => [npc.combatantId, { dead: npc.dead }]))
+    const { actors, ramps } = this.ensureEscortSnapshotCaches()
     for (const assignment of this.infantryAssignments) if (!actors.has(assignment.actorId)
-      && this.state!.actors[assignment.actorId]?.status === 'dead') actors.set(assignment.actorId, { dead: true })
-    const ramps = new Map([...this.fourGateSiege.ramps].map(([id, ramp]) => [id, {
-      state: ramp.controller.state, position: ramp.position,
-      distance: ramp.controller.distance, alivePushers: ramp.controller.alivePushers }]))
+      && this.state!.actors[assignment.actorId]?.status === 'dead') {
+      actors.set(assignment.actorId, { dead: true, position: new THREE.Vector3() })
+    }
     const advanced = advanceCommanderInfantryEscort(previous, dt, actors, ramps)
     this.state!.infantryEscort = advanced.checkpoint
     if (advanced.releasedActorIds.length) {
@@ -600,14 +660,15 @@ export class CommanderFourGateDefenseController {
         this.fourGateSiege.resumeExternalMovement(npc)
       }
     }
-    for (const assignment of this.infantryAssignments) {
+    for (let i = 0; i < this.infantryAssignments.length; i++) {
+      const assignment = this.infantryAssignments[i]
       const npc = this.actorsById.get(assignment.actorId)
       if (!npc || npc.dead || !isCommanderInfantryEscorting(this.state!.infantryEscort, assignment.actorId)) continue
       const ramp = this.fourGateSiege.ramps.get(assignment.rampId)
       if (!ramp) continue
       const target = commanderInfantryEscortTarget(assignment.slot,
         { x: ramp.surface.startX, z: ramp.surface.startZ }, { x: ramp.surface.dirX, z: ramp.surface.dirZ })
-      const commandId = -5000 - this.infantryAssignments.indexOf(assignment)
+      const commandId = -5000 - i
       npc.missionMovement = false; npc.setMissionCombatTarget(null); npc.assignSiegeObstacle(null)
       moveCommanderInfantryEscort(npc, ramp, target, commandId, 'defend')
     }
@@ -616,15 +677,12 @@ export class CommanderFourGateDefenseController {
   private updateCavalryEscort(dt: number): void {
     const previous = this.state?.cavalryEscort
     if (!previous || !this.fourGateSiege) return
-    const actors = new Map(this.enemies.map(npc => [npc.combatantId, { dead: npc.dead, position: npc.combatPosition }]))
+    const { actors, ramps } = this.ensureEscortSnapshotCaches()
     for (const assignment of this.escortAssignments) if (!actors.has(assignment.actorId)
       && this.state!.actors[assignment.actorId]?.status === 'dead') {
       const saved = this.state!.actors[assignment.actorId].position!
       actors.set(assignment.actorId, { dead: true, position: new THREE.Vector3(saved.x, saved.y ?? 0, saved.z) })
     }
-    const ramps = new Map([...this.fourGateSiege.ramps].map(([id, ramp]) => [id, {
-      state: ramp.controller.state, position: ramp.position,
-      distance: ramp.controller.distance, alivePushers: ramp.controller.alivePushers }]))
     const advanced = advanceCommanderCavalryEscort(previous, dt, actors, ramps, COMMANDER_CAVALRY_ESCORT.releaseDistance)
     this.state!.cavalryEscort = advanced.checkpoint
     if (advanced.releasedActorIds.length) {
@@ -643,7 +701,8 @@ export class CommanderFourGateDefenseController {
         this.fourGateSiege.resumeExternalMovement(npc)
       }
     }
-    for (const assignment of this.escortAssignments) {
+    for (let i = 0; i < this.escortAssignments.length; i++) {
+      const assignment = this.escortAssignments[i]
       const npc = this.actorsById.get(assignment.actorId)
       if (!npc || !this.isEscorting(npc)) continue
       const ramp = this.fourGateSiege.ramps.get(assignment.rampId)
@@ -651,7 +710,7 @@ export class CommanderFourGateDefenseController {
       const target = commanderCavalryEscortTarget(assignment.slot,
         { x: ramp.surface.startX, z: ramp.surface.startZ }, { x: ramp.surface.dirX, z: ramp.surface.dirZ })
       const saved = npc.combatFormationCheckpoint
-      const commandId = -4900 - this.escortAssignments.indexOf(assignment)
+      const commandId = -4900 - i
       npc.missionMovement = false; npc.setMissionCombatTarget(null); npc.assignSiegeObstacle(null)
       // Keep navigation paths between meaningful carrier advances, including reload.
       if (saved?.commandId === commandId && Math.hypot(saved.position.x - target.x, saved.position.z - target.z) < 1) continue
@@ -682,20 +741,64 @@ export class CommanderFourGateDefenseController {
 
   evaluate(playerDead: boolean, personalAlive = 0): CareerMissionOutcome | null {
     if (!this.combatEnabled || !this.state || !this.active) return null
-    const complete = fourGateTargetsAccounted(this.active.targetActorIds, this.state.registeredTargetActorIds,
-      this.active.deadTargetActorIds ?? [], this.enemies.map(npc => npc.combatantId))
-    const aliveTownPeople = new Set(this.residents
-      .filter(r => !r.npc.dead
-        && !isTownEagleRider(r.npc.combatantId)
-        && r.spec?.duty !== 'eagle_garrison'
-        && !r.spec?.eagle
-        && !hasAerialCombatPower(r.npc))
-      .map(r => r.npc.combatantId)).size + this.reinforcements.filter(npc => !npc.dead).length
-    return resolveCommanderFourGateDefenseOutcome(playerDead, complete, this.remainingEnemies,
+    const targetIds = this.active.targetActorIds
+    const deadTargetIds = this.active.deadTargetActorIds ?? []
+    const registeredIds = this.state.registeredTargetActorIds
+    let complete: boolean
+    const cached = this.cachedTargetsAccountedRefs
+    if (cached && cached.targetIds === targetIds && cached.registered === registeredIds
+      && cached.deadLen === deadTargetIds.length && cached.enemiesLen === this.enemies.length) {
+      complete = cached.value
+    } else {
+      const presentIds: string[] = []
+      for (let i = 0; i < this.enemies.length; i++) presentIds.push(this.enemies[i].combatantId)
+      complete = fourGateTargetsAccounted(targetIds, registeredIds, deadTargetIds, presentIds)
+      this.cachedTargetsAccountedRefs = {
+        targetIds,
+        registered: registeredIds,
+        deadLen: deadTargetIds.length,
+        enemiesLen: this.enemies.length,
+        value: complete,
+      }
+    }
+    let residentPool = this.cachedResidentTownPeople
+    if (!residentPool) {
+      const seenIds = new Set<string>()
+      residentPool = []
+      for (let i = 0; i < this.residents.length; i++) {
+        const r = this.residents[i]
+        if (isTownEagleRider(r.npc.combatantId)
+          || r.spec?.duty === 'eagle_garrison'
+          || r.spec?.eagle
+          || hasAerialCombatPower(r.npc)
+          || seenIds.has(r.npc.combatantId)) continue
+        seenIds.add(r.npc.combatantId)
+        residentPool.push(r.npc)
+      }
+      this.cachedResidentTownPeople = residentPool
+    }
+    let aliveTownPeople = 0
+    for (let i = 0; i < residentPool.length; i++) if (!residentPool[i].dead) aliveTownPeople++
+    for (let i = 0; i < this.reinforcements.length; i++) if (!this.reinforcements[i].dead) aliveTownPeople++
+    let remaining = 0
+    if (complete && this.enemies.length === targetIds.length) {
+      for (let i = 0; i < this.enemies.length; i++) if (!this.enemies[i].dead) remaining++
+    } else {
+      remaining = this.remainingEnemies
+    }
+    return resolveCommanderFourGateDefenseOutcome(playerDead, complete, remaining,
       aliveTownPeople, personalAlive, this.state.combatElapsedSeconds ?? 0)
   }
 
-  peersFor(npc: NPC): NPC[] { return townWartimePeers(npc, this.fieldNpcs) }
+  peersFor(npc: NPC): NPC[] {
+    const key = `${npc.faction}:${npc.combatOwnership || npc.coopPuppet ? 1 : 0}:${npc.hostileToPlayer === true ? 1 : 0}`
+    let cached = this.cachedPeersByKey.get(key)
+    if (!cached) {
+      cached = townWartimePeers(npc, this.fieldNpcs)
+      this.cachedPeersByKey.set(key, cached)
+    }
+    return cached
+  }
   registerPersonalActor(npc: NPC): void { this.tracker?.registerNpc(npc, true) }
   freezeStats(): void { this.nativeStatsFrozen = true; this.tracker?.freeze() }
   snapshot(): BattleStatsSnapshot {
@@ -925,6 +1028,10 @@ export class CommanderFourGateDefenseController {
     this.enemies.length = 0; this.enemyMounts.length = 0; this.groups.length = 0; this.plannedPositions.length = 0
     this.invalidateFieldNpcCache()
     this.gateRosterCache = undefined
+    this.cachedResidentTownPeople = null
+    this.cachedTargetsAccountedRefs = undefined
+    this.escortEnemyActors.clear()
+    this.escortRampSnapshots.clear()
     this.actorsById.clear(); this.actorMounts.clear(); this.playerIssuedCommands.clear(); this.nativeReturns.clear(); this.checkpoint.reset()
   }
   dispose(): void { this.disposeRuntime() }

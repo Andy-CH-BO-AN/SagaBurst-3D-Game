@@ -50,13 +50,20 @@ export class ObstacleCollisionSpatialIndex {
     this.seenStamp = new Uint32Array(obstacles.length)
     const groups = new Map<ObstacleCollisionGroup, number[]>()
 
+    const isProjectile = this.mode === 'projectile'
+    const cellPad = isProjectile ? 1e-6 : 0
     for (let index = 0; index < obstacles.length; index++) {
       const obstacle = obstacles[index]
-      if (this.mode === 'projectile' && (obstacle.projectileBounds || obstacle.projectileWorldToLocal)) {
+      if (isProjectile && obstacle.projectilePassable) continue
+      if (isProjectile && obstacle.projectileWorldToLocal && !obstacle.projectileBounds) {
         this.unculledIndices.push(index)
         continue
       }
       if (obstacle.dynamic) {
+        if (isProjectile && obstacle.projectileBounds) {
+          this.unculledIndices.push(index)
+          continue
+        }
         const group = obstacle.collisionGroup
         if (!group) this.dynamicIndices.push(index)
         else {
@@ -71,11 +78,11 @@ export class ObstacleCollisionSpatialIndex {
         }
         continue
       }
-      const box = obstacle.box
-      const minCellX = Math.floor(box.min.x / OBSTACLE_COLLISION_GRID_CELL_SIZE)
-      const maxCellX = Math.floor(box.max.x / OBSTACLE_COLLISION_GRID_CELL_SIZE)
-      const minCellZ = Math.floor(box.min.z / OBSTACLE_COLLISION_GRID_CELL_SIZE)
-      const maxCellZ = Math.floor(box.max.z / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+      const box = isProjectile && obstacle.projectileBounds ? obstacle.projectileBounds : obstacle.box
+      const minCellX = Math.floor((box.min.x - cellPad) / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+      const maxCellX = Math.floor((box.max.x + cellPad) / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+      const minCellZ = Math.floor((box.min.z - cellPad) / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+      const maxCellZ = Math.floor((box.max.z + cellPad) / OBSTACLE_COLLISION_GRID_CELL_SIZE)
 
       for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
         for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ++) {
@@ -116,6 +123,8 @@ export class ObstacleCollisionSpatialIndex {
 
     const stamp = this._nextQueryStamp()
 
+    const isProjectile = this.mode === 'projectile'
+    const exactPad = isProjectile ? 1e-6 : 0
     for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
       for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ++) {
         const cell = this.cells.get(this._cellKey(cellX, cellZ))
@@ -126,8 +135,10 @@ export class ObstacleCollisionSpatialIndex {
           if (this.seenStamp[obstacleIndex] === stamp) continue
           this.seenStamp[obstacleIndex] = stamp
           if (exact) {
-            const box = this.obstacles[obstacleIndex].box
-            if (maxX < box.min.x || minX > box.max.x || maxZ < box.min.z || minZ > box.max.z) continue
+            const obstacle = this.obstacles[obstacleIndex]
+            const box = isProjectile && obstacle.projectileBounds ? obstacle.projectileBounds : obstacle.box
+            if (maxX + exactPad < box.min.x || minX - exactPad > box.max.x
+              || maxZ + exactPad < box.min.z || minZ - exactPad > box.max.z) continue
           }
           this.queryIndices.push(obstacleIndex)
         }
@@ -158,14 +169,18 @@ export class ObstacleCollisionSpatialIndex {
     }
 
     // Preserve source order for callers that use the first equally close hit.
-    for (let i = 1; i < this.queryIndices.length; i++) {
-      const value = this.queryIndices[i]
-      let j = i - 1
-      while (j >= 0 && this.queryIndices[j] > value) {
-        this.queryIndices[j + 1] = this.queryIndices[j]
-        j--
+    if (this.queryIndices.length > 32) {
+      this.queryIndices.sort((a, b) => a - b)
+    } else {
+      for (let i = 1; i < this.queryIndices.length; i++) {
+        const value = this.queryIndices[i]
+        let j = i - 1
+        while (j >= 0 && this.queryIndices[j] > value) {
+          this.queryIndices[j + 1] = this.queryIndices[j]
+          j--
+        }
+        this.queryIndices[j + 1] = value
       }
-      this.queryIndices[j + 1] = value
     }
 
     for (let i = 0; i < this.queryIndices.length; i++) {

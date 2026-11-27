@@ -20,6 +20,7 @@ interface EaglePort {
   combatOwner?: CombatActorRef
   setPlayerRider(player: RiderPort): void
   releaseRider(): void
+  syncGroundVisualSleep(): void
   alignGroundFlightHeading(): void
   setFlightIntent(intent: EagleFlightIntent): void
 }
@@ -47,6 +48,7 @@ const methods = { player: Player.prototype, mount: Mount.prototype } as unknown 
   mount: {
     setPlayerRider(this: EaglePort, player: RiderPort): void
     releaseRider(this: EaglePort): void
+    syncGroundVisualSleep(this: EaglePort): void
     alignGroundFlightHeading(this: EaglePort): void
     setFlightIntent(this: EaglePort, intent: EagleFlightIntent): void
   }
@@ -60,6 +62,7 @@ function parkedEagle() {
     riderPlayer: null, riderNpc: null, riderFaction: null,
     setPlayerRider: methods.mount.setPlayerRider,
     releaseRider: methods.mount.releaseRider,
+    syncGroundVisualSleep: methods.mount.syncGroundVisualSleep,
     alignGroundFlightHeading: methods.mount.alignGroundFlightHeading,
     setFlightIntent: methods.mount.setFlightIntent,
   }

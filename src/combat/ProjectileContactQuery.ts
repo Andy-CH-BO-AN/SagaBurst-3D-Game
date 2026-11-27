@@ -22,7 +22,12 @@ export interface ProjectileTargetGroups<T> { readonly groups: readonly (readonly
  * mount colliders add their own combat radius. */
 const TARGET_REACH = 4
 
-type IndexedTarget = PhysicalCombatTarget & { combatRadius?: number }
+type IndexedTarget = PhysicalCombatTarget & {
+  combatRadius?: number
+  _ptiOwner?: unknown
+  _ptiStamp?: number
+  _ptiOrdinal?: number
+}
 const targetReach = (target: IndexedTarget): number => TARGET_REACH + (target.mountCollider ? target.combatRadius ?? 0 : 0)
 
 const CELL_SIZE = 8
@@ -45,7 +50,7 @@ export class ProjectileTargetIndex<T extends IndexedTarget> {
   private readonly cells = new Map<number, number[]>()
   private readonly usedCells: number[][] = []
   private readonly unplaced: number[] = []
-  private readonly ordinals = new Map<T, number>()
+  private rebuildStamp = 0
   /** Cell key per ordinal, or -1 when the target is outside the grid (kept in `unplaced`). */
   private cellKeys: number[] = []
   private hasDuplicates = false
@@ -63,7 +68,7 @@ export class ProjectileTargetIndex<T extends IndexedTarget> {
     if (this.dirty) return
     // One object listed in several groups owns several cells; only a rebuild can move all of them.
     if (this.hasDuplicates) { this.dirty = true; return }
-    const ordinal = this.ordinals.get(target)
+    const ordinal = target._ptiOwner === this && target._ptiStamp === this.rebuildStamp ? target._ptiOrdinal : undefined
     if (ordinal === undefined) { this.dirty = true; return }
     const key = this.keyOf(target)
     this.maxReach = Math.max(this.maxReach, targetReach(target))
@@ -117,15 +122,20 @@ export class ProjectileTargetIndex<T extends IndexedTarget> {
     this.selected.length = 0
     const ordered = this.ordered
     ordered.length = 0
-    this.ordinals.clear()
+    this.rebuildStamp = this.rebuildStamp >= 0x7fffffff ? 1 : this.rebuildStamp + 1
+    const stamp = this.rebuildStamp
     this.hasDuplicates = false
     this.cellKeys.length = 0
     let maxReach = TARGET_REACH
     for (const group of this.groups) for (const target of group) {
       const ordinal = ordered.length
       ordered.push(target)
-      if (this.ordinals.has(target)) this.hasDuplicates = true
-      else this.ordinals.set(target, ordinal)
+      if (target._ptiOwner === this && target._ptiStamp === stamp) this.hasDuplicates = true
+      else {
+        target._ptiOwner = this
+        target._ptiStamp = stamp
+        target._ptiOrdinal = ordinal
+      }
       maxReach = Math.max(maxReach, targetReach(target))
       const key = this.keyOf(target)
       this.cellKeys.push(key)

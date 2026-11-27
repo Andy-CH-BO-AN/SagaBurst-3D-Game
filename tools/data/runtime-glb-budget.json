@@ -52,31 +52,31 @@
     {
       "file": "models/characters/v2/roman-t1/lod2.glb",
       "mesh": ".",
-      "targetTriangles": 6000,
+      "targetTriangles": 2400,
       "maxError": 0.01
     },
     {
       "file": "models/characters/v2/roman-t2/lod2.glb",
       "mesh": ".",
-      "targetTriangles": 6000,
+      "targetTriangles": 2400,
       "maxError": 0.01
     },
     {
       "file": "models/characters/v2/viking-t1/lod2.glb",
       "mesh": ".",
-      "targetTriangles": 6000,
+      "targetTriangles": 2500,
       "maxError": 0.01
     },
     {
       "file": "models/characters/v2/viking-t2/lod2.glb",
       "mesh": ".",
-      "targetTriangles": 6000,
+      "targetTriangles": 2400,
       "maxError": 0.01
     },
     {
       "file": "models/characters/v2/byzantine-cataphract-t5/lod2.glb",
       "mesh": ".",
-      "targetTriangles": 6000,
+      "targetTriangles": 2499,
       "maxError": 0.01
     },
     {
@@ -102,6 +102,24 @@
       "mesh": "^cat_body_lod2$",
       "targetTriangles": 1500,
       "maxError": 0.015
+    },
+    {
+      "file": "models/characters/v2/roman-hero-t5/lod2.glb",
+      "mesh": ".",
+      "targetTriangles": 2499,
+      "maxError": 0.03
+    },
+    {
+      "file": "models/characters/v2/viking-heavy-hero-t4/lod2.glb",
+      "mesh": ".",
+      "targetTriangles": 2400,
+      "maxError": 0.03
+    },
+    {
+      "file": "models/characters/v2/viking-heavy-hero-t5/lod2.glb",
+      "mesh": ".",
+      "targetTriangles": 2400,
+      "maxError": 0.03
     }
   ]
 }

@@ -9,6 +9,7 @@ import { primeSkinnedTemplateBounds } from './SkinnedTemplateBounds'
 import { stopBoneEulerSync } from './BoneEulerSync'
 import { hideBoneOnlySubtrees } from './BoneRenderTraversal'
 import { installCachedSkeletonUpdate } from './CachedSkeletonUpdate'
+import { skipMatrixWorldWhenHidden } from './DeathFade'
 import { prepareSelectedHumanoidSource, type SelectedHumanoidSource } from './SelectedHumanoidSource'
 import { shareSelectedLodPose, shareIdenticalSkinSkeletons, validateSelectedLodAnimations, optimizeSelectedAnimationClips } from './SelectedLodPose'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
@@ -31,13 +32,17 @@ import { prepareSwordHandShape } from './SwordHandShape'
 import { MITTEN_MORPHS, prepareMittenHandShape } from './MittenHandShape'
 import {
   AUDITED_ROMAN_LOD2_SHA256,
+  consolidateGenericLod2,
   cullRomanLod2TinyDetails,
   consolidateRomanLod2,
   consolidateVikingCaptainLod2,
   isRomanLod2ConsolidationAssetAudited,
   isVikingCaptainLod2AssetAudited,
+  tryCreateGenericLod2ConsolidationTemplate,
   tryCreateRomanLod2ConsolidationTemplate,
   tryCreateVikingCaptainLod2ConsolidationTemplate,
+  VIKING_CAPTAIN_LOD2_CULLED_TINY_DETAIL_NAMES,
+  type GenericLod2ConsolidationTemplate,
   type RomanLod2ConsolidationTemplate,
 } from './HumanoidLod2Consolidation'
 import { shouldRomanHumanoidCastShadow } from './RomanHumanoidShadowPolicy'
@@ -244,6 +249,8 @@ interface HumanoidTemplate {
   romanLod2Consolidation?: RomanLod2ConsolidationTemplate
   /** viking-hero-t4 only; empty or absent keeps the original LOD2 structure. */
   vikingCaptainLod2Consolidation?: RomanLod2ConsolidationTemplate
+  /** Generic same-material/same-skeleton LOD2 consolidation across all v2 characters. */
+  genericLod2Consolidation?: GenericLod2ConsolidationTemplate
 }
 
 const LOD0_MOTION_CLIP_NAMES = new Set(['pilumThrow'])
@@ -557,6 +564,7 @@ export class MixerController implements HumanoidAnimationController {
       this.equipmentState.relaxedHandWeight = THREE.MathUtils.lerp(this.relaxedHandTransitionStart, this.equipmentState.relaxedHandWeight, blend)
       if (blend === 1) this.relaxedHandTransitionStart = undefined
     }
+    this.onSkeletonDirty?.()
     if (this.equipmentState.carryWeapon === 'axe' && this.equipmentState.prepareAxeAttachment) {
       // Evaluate the weapon against the newly sampled source hand, before any
       // contact overlay moves it. The final callback then counter-transforms
@@ -575,7 +583,6 @@ export class MixerController implements HumanoidAnimationController {
     this.equipmentState.alive = alive
     // Layer 0 (the primary rig) always applies and ends with a full refresh of its subtree.
     this.onPoseEvaluated?.(this.equipmentLayers[0] !== undefined)
-    this.onSkeletonDirty?.()
   }
 
   // Advance retained actions, including their loop/fade state, using Three's
@@ -1203,11 +1210,16 @@ export class HumanoidAssetRegistry {
       }
     }
     let vikingCaptainLod2Consolidation: RomanLod2ConsolidationTemplate | undefined
-    if (assetId === 'viking-hero-t4') {
-      if (isVikingCaptainLod2AssetAudited(lod2Loaded.sha256)) vikingCaptainLod2Consolidation = tryCreateVikingCaptainLod2ConsolidationTemplate(levels[2].scene)
-      else console.warn(`Viking captain LOD2 consolidation disabled: asset SHA-256 ${lod2Loaded.sha256 ?? 'unavailable'} is not the audited LOD2`)
+    let genericLod2Consolidation: GenericLod2ConsolidationTemplate | undefined
+    if (assetId === 'viking-hero-t4' && isVikingCaptainLod2AssetAudited(lod2Loaded.sha256)) {
+      vikingCaptainLod2Consolidation = tryCreateVikingCaptainLod2ConsolidationTemplate(levels[2].scene)
     }
-    return { manifest, levels, animationClips, bowClips, romanLod2Consolidation, vikingCaptainLod2Consolidation }
+    if (!romanLod2Consolidation && !vikingCaptainLod2Consolidation) {
+      genericLod2Consolidation = tryCreateGenericLod2ConsolidationTemplate(levels[2].scene, {
+        culledDetailNames: assetId === 'viking-hero-t4' ? VIKING_CAPTAIN_LOD2_CULLED_TINY_DETAIL_NAMES : undefined,
+      })
+    }
+    return { manifest, levels, animationClips, bowClips, romanLod2Consolidation, vikingCaptainLod2Consolidation, genericLod2Consolidation }
   }
 
   private static async loadAll(): Promise<void> {
@@ -1241,6 +1253,10 @@ export class HumanoidAssetRegistry {
         if (faction === 'roman' && index === 2 && template.romanLod2Consolidation) {
           consolidateRomanLod2(levelClone, template.romanLod2Consolidation, { allowDevControl: false })
           cullRomanLod2TinyDetails(levelClone)
+        } else if (index === 2 && template.vikingCaptainLod2Consolidation) {
+          consolidateVikingCaptainLod2(levelClone, template.vikingCaptainLod2Consolidation)
+        } else if (index === 2 && template.genericLod2Consolidation) {
+          consolidateGenericLod2(levelClone, template.genericLod2Consolidation, faction)
         }
         warmupGroup.add(levelClone)
       })
@@ -1306,6 +1322,8 @@ export class HumanoidAssetRegistry {
       if (sharedLodPose && primaryScene) shareSelectedLodPose(primaryScene, level)
       // After LOD2 meshes share the primary skeleton, so merged pairs bind to it directly.
       if (index === 2 && !preserveOriginalLod2 && template.vikingCaptainLod2Consolidation) consolidateVikingCaptainLod2(level, template.vikingCaptainLod2Consolidation)
+      else if (index === 2 && !preserveOriginalLod2 && template.genericLod2Consolidation) consolidateGenericLod2(level, template.genericLod2Consolidation, assetId ?? config.faction)
+      if (sharedLodPose && index > 0) skipMatrixWorldWhenHidden(level)
       lod.addLevel(level, HUMANOID_LOD_DISTANCES[index])
       if (sharedLodPose && index > 0) return
       mixers.push(new THREE.AnimationMixer(level))
@@ -1404,6 +1422,7 @@ export class HumanoidAssetRegistry {
       const level = lod.getCurrentLevel()
       if (level !== lastLodLevel) {
         lastLodLevel = level
+        if (sharedLodPose && level > 0) lod.levels[level]?.object.updateMatrixWorld(true)
         skeletonCache.markDirty()
       }
       animation.setVisibleLOD(level)

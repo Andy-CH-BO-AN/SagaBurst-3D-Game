@@ -92,6 +92,27 @@ export function commanderCavalryEscortTarget(slot: number, rear: { x: number; z:
     z: rear.z - inward.z * behind - inward.x * lateral, yaw: Math.atan2(inward.x, inward.z) }
 }
 
+const cachedEscortActorsByRamp = new WeakMap<
+  object,
+  ReadonlyMap<TownSiegeRampId, readonly [string, { gateId: TownGateId; side: -1 | 1; mode: 'escort' | 'released' }][]>
+>()
+
+export function checkpointActorsByRamp<T extends { gateId: TownGateId; side: -1 | 1; mode: 'escort' | 'released' }>(
+  checkpointActors: Record<string, T>,
+): ReadonlyMap<TownSiegeRampId, readonly [string, T][]> {
+  const existing = cachedEscortActorsByRamp.get(checkpointActors)
+  if (existing) return existing as ReadonlyMap<TownSiegeRampId, readonly [string, T][]>
+  const byRamp = new Map<TownSiegeRampId, [string, T][]>()
+  for (const entry of Object.entries(checkpointActors)) {
+    const key = rampId(entry[1].gateId, entry[1].side)
+    let list = byRamp.get(key)
+    if (!list) byRamp.set(key, list = [])
+    list.push(entry)
+  }
+  cachedEscortActorsByRamp.set(checkpointActors, byRamp)
+  return byRamp
+}
+
 /** Pure, monotonic transition. Missing actors cannot be mistaken for a dead group.
  * All fallback clocks consume active-play dt and survive reload. Forward progress of
  * at least 0.5m resets the 20s clock; reversing or jitter cannot keep an escort stuck. */
@@ -103,19 +124,29 @@ export function advanceCommanderCavalryEscort(checkpoint: CommanderCavalryEscort
   if (!Number.isFinite(dt) || dt < 0) return { checkpoint, releasedActorIds: [] }
   let next = checkpoint
   const releasedActorIds: string[] = []
+  const actorsByRamp = checkpointActorsByRamp(checkpoint.actors)
   for (const [id, group] of Object.entries(checkpoint.groups) as [TownSiegeRampId, CommanderCavalryEscortGroup][]) {
     if (group.releaseReason) continue
-    const members = Object.entries(checkpoint.actors).filter(([, actor]) => rampId(actor.gateId, actor.side) === id)
-    const living = members.filter(([actorId]) => actors.has(actorId) && !actors.get(actorId)!.dead)
+    const members = actorsByRamp.get(id) ?? []
+    let livingCount = 0
+    let allDead = true
     const gate = TOWN_GATES.find(gate => gate.id === members[0][1].gateId)!
     const gatePoint = townGatePoint(gate, 0, 0), ramp = ramps.get(id)
+    const rampInRange = ramp && Math.hypot(ramp.position.x - gatePoint.x, ramp.position.z - gatePoint.z) <= releaseDistance
+    let actorInRange = false
+    for (let i = 0; i < members.length; i++) {
+      const frame = actors.get(members[i][0])
+      if (frame?.dead !== true) allDead = false
+      if (frame && !frame.dead) {
+        livingCount++
+        if (!rampInRange && !actorInRange && Math.hypot(frame.position.x - gatePoint.x, frame.position.z - gatePoint.z) <= releaseDistance) {
+          actorInRange = true
+        }
+      }
+    }
     let reason: CommanderCavalryEscortReleaseReason | undefined
-    if (living.length > 0 && (ramp && Math.hypot(ramp.position.x - gatePoint.x, ramp.position.z - gatePoint.z)
-      <= releaseDistance || living.some(([actorId]) => {
-      const position = actors.get(actorId)!.position
-      return Math.hypot(position.x - gatePoint.x, position.z - gatePoint.z) <= releaseDistance
-    }))) reason = 'gate-range'
-    else if (members.every(([actorId]) => actors.get(actorId)?.dead === true)) reason = 'group-dead'
+    if (livingCount > 0 && (rampInRange || actorInRange)) reason = 'gate-range'
+    else if (allDead) reason = 'group-dead'
     else if (ramp?.state === 'DESTROYED') reason = 'ramp-destroyed'
     else if (ramp?.state === 'ABANDONED') reason = 'ramp-abandoned'
     else if (ramp?.alivePushers === 0) reason = 'no-pushers'

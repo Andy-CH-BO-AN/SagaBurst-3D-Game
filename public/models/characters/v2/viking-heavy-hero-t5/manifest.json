@@ -37,7 +37,7 @@
   "fileSha256": {
     "lod0": "c7348e29d12281dab2e742b5e3271b67bedbeb5e4e05cecc1b50eb535fa0a970",
     "lod1": "2e49352d62295ca03b290a955423b3787cc2a4bb8dab45320fca01d94efe5b2c",
-    "lod2": "966fafc69674078fdada0167f68366a6f48437e7aea243f866482a237219244f"
+    "lod2": "96e21b80eba2d40698cdf643fcb2bfd2d358f2f0561c6717766aea8b288989b1"
   },
   "boneMap": "bone-map.json",
   "audit": "audit.json",

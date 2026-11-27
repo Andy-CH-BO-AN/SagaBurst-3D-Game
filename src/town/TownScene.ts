@@ -130,6 +130,7 @@ import { personalUnitDisplayName } from '../ui/UnitDisplayName'
 import { WeaponWheelUI } from '../ui/WeaponWheelUI'
 import { registerTextureRenderer } from '../world/RuntimeGltfLoader'
 import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
+import { Lod2EquipmentBatcher } from '../world/Lod2EquipmentBatcher'
 import { ProjectileInstanceBatch } from '../world/ProjectileInstanceBatch'
 import { BlackCatVisual } from '../world/BlackCatVisual'
 import { CorgiVisual } from '../world/CorgiVisual'
@@ -260,6 +261,8 @@ export class TownScene {
   private coopHost?: CoopHostMission
   private coopGuest?: CoopGuestMission
   private readonly coopGuestNpcs: NPC[] = []
+  private readonly lod2EquipmentBatcher = new Lod2EquipmentBatcher(this.scene)
+  private readonly lod2BatchActors: NPC[] = []
   /** Co-op guest: the guest's own character profile (in memory); the host's profile still builds the Town. */
   private coopPlayerSource: CoopPlayerSource | null
   private get playerProfile(): CareerProfile { return this.coopPlayerSource?.read() ?? this.profile }
@@ -363,6 +366,25 @@ export class TownScene {
   private readonly siegeHitRadius = new WeakMap<DamageableObstacle, number>()
   private readonly siegeRaycaster = new THREE.Raycaster()
   private readonly siegeRayHits: THREE.Intersection[] = []
+  private readonly siegeRayDir = new THREE.Vector3()
+  private readonly commandActorsScratch: NPC[] = []
+  private activeShot: Shot | null = null
+  private shotRuntimeActorsFlag = false
+  private shotExternalDefenders: readonly NPC[] = []
+  private readonly acceptsShotTarget = (target: Player | NPC | Mount): boolean => {
+    const s = this.activeShot!
+    const runtimeActors = this.shotRuntimeActorsFlag
+    if (target === this.player) return !target.dead && (!runtimeActors || (!s.player && (!s.source || s.source.hostileToPlayer)))
+    if (target === this.coopPartner) return !target.dead && (!runtimeActors || Boolean(s.source && townWartimeHostile(s.source, target)))
+    if (target instanceof Mount && (target.disposed || target.riderNpc === s.source || target.riderPlayer === this.player && s.player)) return false
+    if (target.dead) return false
+    if (runtimeActors && target instanceof NPC && !s.player && !s.source) return false
+    return !runtimeActors || !(target instanceof Mount
+      ? !this.canHitTownMount(target, s.source)
+      : target instanceof NPC && (s.player
+        ? this.isProtectedTownAlly(target)
+        : !s.source || !townWartimeHostile(s.source, target)))
+  }
   private readonly cameraFrustum = new THREE.Frustum()
   private readonly projScreenMatrix = new THREE.Matrix4()
   private readonly frustumSphere = new THREE.Sphere()
@@ -483,6 +505,22 @@ export class TownScene {
     this.coopPlayerSource = isCoopGuestLaunch() ? coopGuestPlayerSource(profile) : null
     this.inventory = new TownEquipment(() => this.playerProfile, p => this.commitPlayerProfile(p))
     this.skills.setSkillState(this.playerProfile.skills ?? {})
+    this.scene.userData.syncLod2EquipmentBatcher = (camera: THREE.Camera) => {
+      this.lod2EquipmentBatcher.syncActors(camera, this.collectLiveSceneNpcs())
+    }
+  }
+
+  private collectLiveSceneNpcs(): NPC[] {
+    const scene = this.scene
+    return NPC.live.collect(npc => {
+      if (!npc.group.visible || npc.group.parent === null) return false
+      const visual = (npc as unknown as { characterVisualGroup?: { visible: boolean } }).characterVisualGroup
+      if (visual && !visual.visible) return false
+      for (let node: THREE.Object3D | null = npc.group; node; node = node.parent) {
+        if (node === scene) return true
+      }
+      return false
+    }, this.lod2BatchActors)
   }
   private async initialize(progress: (text: string) => void): Promise<void> {
     const { profile, renderer } = this
@@ -722,11 +760,20 @@ export class TownScene {
         raceActors: () => this.race?.actors ?? [],
         raceMounts: () => this.race?.allMounts ?? [],
         onActorMoved: npc => this.race?.observeActorMovement(npc),
-        commandActors: () => [...(this.captainPatrol?.fieldNpcs ?? []), ...(this.townCommand?.combatActors ?? []), ...(this.civilianCommand?.combatActors ?? []),
-          ...this.commandActors.filter(npc => {
-            const authority = this.profile.activeMission?.officialSquad
-            return authority && !this.profile.activeMission?.result && officialCommandIsPlayerControlled(authority, npc.combatantId) && this.isAuthorizedCommandActor(npc)
-          })],
+        commandActors: () => {
+          const out = this.commandActorsScratch
+          out.length = 0
+          if (this.captainPatrol?.fieldNpcs) out.push(...this.captainPatrol.fieldNpcs)
+          if (this.townCommand?.combatActors) out.push(...this.townCommand.combatActors)
+          if (this.civilianCommand?.combatActors) out.push(...this.civilianCommand.combatActors)
+          const authority = this.profile.activeMission?.officialSquad
+          if (authority && !this.profile.activeMission?.result) {
+            for (const npc of this.commandActors) {
+              if (officialCommandIsPlayerControlled(authority, npc.combatantId) && this.isAuthorizedCommandActor(npc)) out.push(npc)
+            }
+          }
+          return out
+        },
         preparePeaceResidents: (excluded, dt) => {
           this.patrol.beginFrame(excluded, dt); this.townCommand?.beginFrame()
           if (this.retirementMobilization?.active) {
@@ -3924,33 +3971,33 @@ export class TownScene {
       this.shotTargetGroups[2] = this.combatMounts
       this.shotTargetIndex.reset(this.shotTargetGroups)
     }
-    for (const s of this.shots) {
+    this.shotRuntimeActorsFlag = Boolean(runtimeActors)
+    this.shotExternalDefenders = externalDefenders
+    let write = 0
+    for (let i = 0; i < this.shots.length; i++) {
+      const s = this.shots[i]
       if (!s.arrow.isAlive) continue
       if (!s.training && this.fourGateCombatHeld) { s.arrow.destroy(); continue }
       s.age += dt
       if (!s.training && s.age > (s.maxLifetimeSeconds ?? 5)) { s.arrow.destroy(); continue }
       const step = s.arrow.stepFlight(dt)
-      if (!step) continue
+      if (!step) {
+        if (s.arrow.isAlive) this.shots[write++] = s
+        continue
+      }
       const { from, to } = step
-      if (s.training) { if (s.age > .3) s.arrow.destroy(); continue }
+      if (s.training) {
+        if (s.age > .3) s.arrow.destroy()
+        if (s.arrow.isAlive) this.shots[write++] = s
+        continue
+      }
+      this.activeShot = s
       const hit = this.shotContacts.find(from, to, {
         world: { kind: 'town', practiceTargets: this.world.targets,
           traceSiege: (start, end, maximum) => this.traceSiegeContact(start, end, maximum) },
         obstacles: this.projectileObstacles.query(from, to, this.world.obstacles),
-        targets: runtimeActors ? this.shotTargetIndex : this.shotTargets(s, externalDefenders),
-        acceptsTarget: target => {
-          if (target === this.player) return !target.dead && (!runtimeActors || (!s.player && (!s.source || s.source.hostileToPlayer)))
-          if (target === this.coopPartner) return !target.dead && (!runtimeActors || Boolean(s.source && townWartimeHostile(s.source, target)))
-          if (target instanceof Mount && (target.disposed || target.riderNpc === s.source || target.riderPlayer === this.player && s.player)) return false
-          if (target.dead) return false
-          if (runtimeActors && target instanceof NPC && !s.player && !s.source) return false
-          // Recheck live allegiance for every shot after the preceding hit's effects.
-          return !runtimeActors || !(target instanceof Mount
-            ? !this.canHitTownMount(target, s.source)
-            : target instanceof NPC && (s.player
-              ? this.isProtectedTownAlly(target)
-              : !s.source || !townWartimeHostile(s.source, target)))
-        },
+        targets: runtimeActors ? this.shotTargetIndex : this.shotTargets(s, this.shotExternalDefenders),
+        acceptsTarget: this.acceptsShotTarget,
       })
       if (hit) {
         if (hit.kind === 'obstacle') {
@@ -3987,9 +4034,13 @@ export class TownScene {
         }
         s.arrow.destroy(); continue
       }
-      if ((s.age > (s.maxLifetimeSeconds ?? 5)) || to.y < getTerrainHeight(to.x, to.z)) s.arrow.destroy()
+      if ((s.age > (s.maxLifetimeSeconds ?? 5)) || to.y < getTerrainHeight(to.x, to.z)) {
+        s.arrow.destroy(); continue
+      }
+      this.shots[write++] = s
     }
-    this.shots = this.shots.filter(s => s.arrow.isAlive)
+    this.activeShot = null
+    this.shots.length = write
     if (devProf) devProf.add('shotsMs', performance.now() - tShots)
   }
   private readonly shotPlayerTarget: (Player | NPC)[] = []
@@ -4028,7 +4079,7 @@ export class TownScene {
   private traceSiegeContact(from: THREE.Vector3, to: THREE.Vector3, maximum = from.distanceTo(to)):
     { target: DamageableObstacle; point: THREE.Vector3; distance: number } | null {
     if (!this.siegeHitTargets.size || maximum <= 0) return null
-    const direction = to.clone().sub(from), length = direction.length()
+    const direction = this.siegeRayDir.subVectors(to, from), length = direction.length()
     if (length <= 1e-6) return null
     this.siegeRaycaster.set(from, direction.multiplyScalar(1 / length))
     this.siegeRaycaster.near = 0; this.siegeRaycaster.far = Math.min(maximum, length)
@@ -4164,6 +4215,20 @@ export class TownScene {
     if (damageResult.isCharge && this.player.currentMount) this.player.currentMount.skipImpactThisFrame = true
   }
 
+  private resolvePlayerVsNpcList(playerBody: { position: THREE.Vector3; radius: number; height: number; bottomOffset: number }, list: readonly NPC[] | undefined): void {
+    if (!list) return
+    const px = playerBody.position.x, pz = playerBody.position.z
+    for (let i = 0; i < list.length; i++) {
+      const npc = list[i]
+      if (npc.dead) continue
+      const pos = npc.combatPosition
+      const dx = pos.x - px, dz = pos.z - pz
+      if (dx * dx + dz * dz >= 9) continue
+      if (pos.distanceToSquared(this.player.combatPosition) < 9) {
+        resolveEntityCollision(playerBody, { position: pos, radius: .42, height: 1.8, bottomOffset: 0, anchored: false }, this.world.obstacles)
+      }
+    }
+  }
   private resolveBodies(): void {
     if (this.player.dead || this.player.isFalling || this.player.currentMount?.isFlyingMount) return
     const playerBody = { position: this.player.group.position, radius: .42, height: 1.8, bottomOffset: .9 }
@@ -4175,7 +4240,13 @@ export class TownScene {
       resolveEntityCollision(playerBody, { position, radius: r.npc.mount ? .95 : .42, height: r.npc.mount ? 2.8 : 1.8, bottomOffset: 0, anchored: true }, this.world.obstacles)
     }
     for (const mount of this.townServiceMounts) if (!mount.dead && mount !== this.player.currentMount && mount !== this.coopLentHorse) resolveEntityCollision(playerBody, { position: mount.group.position, radius: .85, height: 2, bottomOffset: 0, anchored: true }, this.world.obstacles)
-    for (const npc of [...this.mission.fieldNpcs, ...this.defense.fieldNpcs, ...(this.duel?.fieldNpcs ?? []), ...(this.race?.actors ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? [])]) if (!npc.dead && npc.combatPosition.distanceTo(this.player.combatPosition) < 3) resolveEntityCollision(playerBody, { position: npc.combatPosition, radius: .42, height: 1.8, bottomOffset: 0, anchored: false }, this.world.obstacles)
+    this.resolvePlayerVsNpcList(playerBody, this.mission.fieldNpcs)
+    this.resolvePlayerVsNpcList(playerBody, this.defense.fieldNpcs)
+    this.resolvePlayerVsNpcList(playerBody, this.duel?.fieldNpcs)
+    this.resolvePlayerVsNpcList(playerBody, this.race?.actors)
+    this.resolvePlayerVsNpcList(playerBody, this.outskirts?.actors)
+    this.resolvePlayerVsNpcList(playerBody, this.enemyEaglePatrol?.actors)
+    this.resolvePlayerVsNpcList(playerBody, this.personalSquad?.actors)
     this.player.group.position.y = Math.max(this.player.group.position.y, standingPlayerY(getTerrainHeight(this.player.group.position.x, this.player.group.position.z)))
   }
   private updateAmbient(): void {
@@ -4605,9 +4676,22 @@ export class TownScene {
     return this.cameraFrustum.intersectsSphere(this.frustumSphere)
   }
 
+  private updateExtraMountList(mounts: readonly Mount[] | undefined, dt: number): void {
+    if (!mounts?.length) return
+    for (let i = 0; i < mounts.length; i++) {
+      const mount = mounts[i]
+      if (mount.disposed) continue
+      mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
+      mount.setInFrustum?.(this.isPointInFrustum(mount.group.position, 6))
+      if (mount.dead || !mount.riderNpc && !mount.riderPlayer) mount.update(dt, mount.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles)
+    }
+  }
+
   private updateMissionSimulation(dt: number): void {
     this.updateCameraFrustum()
-    this.captainPatrol?.setEligibleTargets([...(this.mission.ambientBandits ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? [])])
+    if (this.captainPatrol?.active) {
+      this.captainPatrol.setEligibleTargets([...(this.mission.ambientBandits ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? [])])
+    }
     if (!this.player.dead) this.melee()
     if (this.retirementFinale?.active || this.event.hostile) this.updateHostile(dt)
     else this.missionCombat.update(dt, this.orbit.cameraYaw, this.elapsed)
@@ -4626,12 +4710,9 @@ export class TownScene {
       m.setInFrustum?.(this.isPointInFrustum(m.group.position, 6))
       if (m.dead || !m.riderNpc && !m.riderPlayer && m !== this.cat && !this.stableHorses.includes(m)) m.update(dt, m.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles)
     }
-    for (const mount of [...(this.outskirts?.mounts ?? []), ...(this.enemyEaglePatrol?.mounts ?? []), ...(this.personalSquad?.mounts ?? [])]) {
-      if (mount.disposed) continue
-      mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
-      mount.setInFrustum?.(this.isPointInFrustum(mount.group.position, 6))
-      if (mount.dead || !mount.riderNpc && !mount.riderPlayer) mount.update(dt, mount.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles)
-    }
+    this.updateExtraMountList(this.outskirts?.mounts, dt)
+    this.updateExtraMountList(this.enemyEaglePatrol?.mounts, dt)
+    this.updateExtraMountList(this.personalSquad?.mounts, dt)
     if (!this.sceneContext.missionOnlyResidents && !this.event.hostile && !this.cat.dead && !this.cat.riderNpc && this.cat !== this.careerMounts.activeMount) { this.cat.beginControlledFrame(); this.cat.finishControlledFrame(dt, this.world.obstacles) }
     for (const mount of this.race?.allMounts ?? []) {
       mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
@@ -4868,7 +4949,7 @@ export class TownScene {
       devProf.add('hudMs', performance.now() - tHud)
       devProf.endFrame(performance.now() - devFrameStart)
     }
-    this.renderer.render(this.scene, this.camera)
+    this.lod2EquipmentBatcher.renderScene(this.renderer, this.camera, this.collectLiveSceneNpcs())
     this.scheduleSiegeOpening()
     this.raf = requestAnimationFrame(t => this.frame(t))
   }
@@ -4918,7 +4999,7 @@ export class TownScene {
     const quiverHud = document.getElementById('quiver-hud')
     if (quiverHud) quiverHud.style.display = ''
     this.temporaryMounts.cleanup()
-    this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input?.dispose(); this.panel?.remove(); this.equipment?.close(); this.careerHud.dispose(); this.fourGateHud?.dispose(); this.fourGateHud = undefined; this.hint?.remove(); this.pointerPrompt?.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.duel?.dispose(); this.player?.dispose(); document.getElementById('mount-hud')?.classList.remove('visible'); document.getElementById('enemy-hud')?.classList.remove('visible'); this.ambientLabel?.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); ProjectileInstanceBatch.dispose(this.scene); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove()
+    this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input?.dispose(); this.panel?.remove(); this.equipment?.close(); this.careerHud.dispose(); this.fourGateHud?.dispose(); this.fourGateHud = undefined; this.hint?.remove(); this.pointerPrompt?.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.duel?.dispose(); this.player?.dispose(); document.getElementById('mount-hud')?.classList.remove('visible'); document.getElementById('enemy-hud')?.classList.remove('visible'); this.ambientLabel?.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); ProjectileInstanceBatch.dispose(this.scene); this.lod2EquipmentBatcher.dispose(); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove()
     if (!preservePointerLock) document.exitPointerLock?.()
   }
 

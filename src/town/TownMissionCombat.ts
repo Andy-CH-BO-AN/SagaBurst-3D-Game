@@ -14,7 +14,7 @@ import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
 import { EntityCollisionBroadPhase } from '../world/EntityCollisionBroadPhase'
 import type { Mount } from '../world/Mount'
-import { Faction, type NPC } from '../world/NPC'
+import { AIState, Faction, type NPC } from '../world/NPC'
 import { SpatialGrid } from '../world/SpatialGrid'
 import { getTerrainHeight, resolveObstacleCollision, type EntityCollisionBody, type ObstacleData } from '../world/Terrain'
 import { TownActorUpdates, type TownActorUpdate } from './TownActorUpdates'
@@ -79,7 +79,7 @@ interface TownCombatScene {
   raceActors?(): readonly NPC[]
   raceMounts?(): readonly Mount[]
   onActorMoved?(npc: NPC): void
-  patrol?(): Pick<TownCavalryPatrolController, 'prepareCombatFrame' | 'combatActors' | 'combatEnabled' | 'noteHostileHit'>
+  patrol?(): Pick<TownCavalryPatrolController, 'prepareCombatFrame' | 'combatActors' | 'combatEnabled' | 'noteHostileHit'> & { readonly isSiegeOwned?: boolean }
   /** An individual return/refit owner keeps its actor's assigned peaceful travel until released. */
   ownsPeacefulTravel?(npc: NPC): boolean
   preparePeaceResidents?(excluded: ReadonlySet<NPC>, dt: number): void
@@ -132,11 +132,19 @@ export class TownMissionCombat {
   private eagleSensorRemaining = 0
   private eagleSensorReady = true
   private readonly individualThreats = new Map<NPC, number>()
+  private static readonly EMPTY_NPCS: NPC[] = []
   private readonly bodyCollisionBroadPhase = new EntityCollisionBroadPhase()
   private readonly bodyCollisionList: EntityCollisionBody[] = []
+  private readonly bodyCollisionPool: EntityCollisionBody[] = []
   private readonly bodyCollisionActors: NPC[] = []
   private readonly bodyCollisionPrevX: number[] = []
   private readonly bodyCollisionPrevZ: number[] = []
+  private readonly outskirtsParticipantsSet = new Set<NPC>()
+  private readonly outskirtsParticipantsList: NPC[] = []
+  private readonly previousOutskirtsSet = new Set<NPC>()
+  private readonly patrolThreatsSet = new Set<NPC>()
+  private outskirtsGridPopulated = false
+  private fourGateTierParity = 0
   private readonly defenseCommandActors = new Set<NPC>()
   private readonly defensePeaceExcluded = new Set<NPC>()
   private readonly defensePatrolActors = new Set<NPC>()
@@ -543,7 +551,7 @@ export class TownMissionCombat {
       this.isActorInFrustum(actor.group.position))
   }
 
-  private prepareOutskirtsFrame(dt: number): TownOutskirtsCombatRuntime | undefined {
+  private prepareOutskirtsFrame(dt: number, buildWarfareGrid = true): TownOutskirtsCombatRuntime | undefined {
     this.missions.field.prepareRetirementEvacuation?.(this.runtimeActors)
     this.eagleSensorRemaining -= dt
     this.eagleSensorReady = this.eagleSensorRemaining <= 0
@@ -552,27 +560,67 @@ export class TownMissionCombat {
     outskirts?.synchronizeRank()
     const air = this.town.airPatrol?.()
     air?.synchronizeRank()
-    const previousOutskirts = new Set([...(outskirts?.actors ?? []), ...(air?.actors ?? [])])
-    const participants = [...new Set([
-      ...this.town.residents.map(resident => resident.npc).filter(npc => !this.missions.duel.isParkedResident?.(npc)), ...(this.town.raceActors?.() ?? []),
-      ...this.missions.field.fieldNpcs, ...(outskirts?.actors.length || this.town.airPatrol?.()?.actors.length || this.town.personalSquad?.()?.actors.length || this.missions.defense.active ? this.missions.field.ambientBandits : []),
-      ...this.missions.defense.fieldNpcs, ...this.missions.duel.fieldNpcs,
-      ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? []), ...(this.town.personalSquad?.()?.actors ?? []),
-    ])]
+    const previousOutskirts = this.previousOutskirtsSet
+    previousOutskirts.clear()
+    if (outskirts?.actors) for (const npc of outskirts.actors) previousOutskirts.add(npc)
+    if (air?.actors) for (const npc of air.actors) previousOutskirts.add(npc)
+    const participantSet = this.outskirtsParticipantsSet
+    const participants = this.outskirtsParticipantsList
+    participantSet.clear()
+    participants.length = 0
+    const addParticipant = (npc: NPC): void => {
+      if (!participantSet.has(npc)) { participantSet.add(npc); participants.push(npc) }
+    }
+    for (const resident of this.town.residents) {
+      if (!this.missions.duel.isParkedResident?.(resident.npc)) addParticipant(resident.npc)
+    }
+    for (const npc of this.town.raceActors?.() ?? []) addParticipant(npc)
+    for (const npc of this.missions.field.fieldNpcs) addParticipant(npc)
+    if (outskirts?.actors.length || air?.actors.length || this.town.personalSquad?.()?.actors.length || this.missions.defense.active) {
+      for (const npc of this.missions.field.ambientBandits) addParticipant(npc)
+    }
+    for (const npc of this.missions.defense.fieldNpcs) addParticipant(npc)
+    for (const npc of this.missions.duel.fieldNpcs) addParticipant(npc)
+    for (const npc of outskirts?.actors ?? []) addParticipant(npc)
+    for (const npc of air?.actors ?? []) addParticipant(npc)
+    for (const npc of this.town.personalSquad?.()?.actors ?? []) addParticipant(npc)
     outskirts?.prepareFrame(dt, participants, this.town.player())
     air?.prepareFrame(dt, participants, this.town.player())
     // A wiped squad may have been replaced during prepareFrame; never retain its old generation.
     this.runtimeActors.length = 0
-    this.runtimeActors.push(...new Set([
-      ...participants.filter(actor => !previousOutskirts.has(actor)),
-      ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? []),
-    ]))
+    participantSet.clear()
+    for (const npc of participants) {
+      if (!previousOutskirts.has(npc) && !participantSet.has(npc)) {
+        participantSet.add(npc)
+        this.runtimeActors.push(npc)
+      }
+    }
+    for (const npc of outskirts?.actors ?? []) {
+      if (!participantSet.has(npc)) { participantSet.add(npc); this.runtimeActors.push(npc) }
+    }
+    for (const npc of air?.actors ?? []) {
+      if (!participantSet.has(npc)) { participantSet.add(npc); this.runtimeActors.push(npc) }
+    }
     // Hostile actors acquire the co-op guest like any other foe; its own movement comes from the network.
     const partner = this.town.coopPartner?.()
     if (partner && !partner.dead) this.runtimeActors.push(partner)
-    this.warfareGrid.clear(); this.outskirtsGrid.clear()
-    for (const actor of this.runtimeActors) if (!actor.dead) this.warfareGrid.insert(actor)
-    for (const actor of [...(outskirts?.actors ?? []), ...(air?.actors ?? [])]) if (!actor.dead && !this.isEvacuatingThreat(actor)) this.outskirtsGrid.insert(actor)
+    if (buildWarfareGrid) {
+      this.warfareGrid.clear()
+      for (const actor of this.runtimeActors) if (!actor.dead) this.warfareGrid.insert(actor)
+    }
+    const hasOutskirtsOrAir = Boolean(outskirts?.actors.length || air?.actors.length)
+    if (hasOutskirtsOrAir) {
+      this.outskirtsGrid.clear()
+      for (const actor of outskirts?.actors ?? []) if (!actor.dead && !this.isEvacuatingThreat(actor)) this.outskirtsGrid.insert(actor)
+      for (const actor of air?.actors ?? []) if (!actor.dead && !this.isEvacuatingThreat(actor)) this.outskirtsGrid.insert(actor)
+      this.outskirtsGridPopulated = true
+    } else if (this.outskirtsGridPopulated) {
+      this.outskirtsGrid.clear()
+      this.outskirtsGridPopulated = false
+    }
+    participantSet.clear()
+    previousOutskirts.clear()
+    participants.length = 0
     for (const [actor, remaining] of this.individualThreats) {
       if (actor.dead || remaining <= dt) this.individualThreats.delete(actor)
       else this.individualThreats.set(actor, remaining - dt)
@@ -600,11 +648,17 @@ export class TownMissionCombat {
 
   private preparePatrolCombatFrame(dt: number, outskirts: TownOutskirtsCombatRuntime | undefined): void {
     const patrol = this.town.patrol?.()
-    if (!patrol) return
+    if (!patrol || patrol.isSiegeOwned) return
     const { field, defense } = this.missions
-    const threats = new Set([...field.fieldNpcs, ...field.ambientBandits,
-      ...(defense.active && defense.phase !== 'PREPARING' ? defense.fieldNpcs : []),
-      ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? []), ...this.personalPatrolCombatActors()])
+    const threats = this.patrolThreatsSet
+    threats.clear()
+    for (const npc of field.fieldNpcs) threats.add(npc)
+    for (const npc of field.ambientBandits) threats.add(npc)
+    if (defense.active && defense.phase !== 'PREPARING') for (const npc of defense.fieldNpcs) threats.add(npc)
+    if (outskirts?.actors) for (const npc of outskirts.actors) threats.add(npc)
+    const airActors = this.town.airPatrol?.()?.actors
+    if (airActors) for (const npc of airActors) threats.add(npc)
+    for (const npc of this.personalPatrolCombatActors()) threats.add(npc)
     this.patrolThreatGrid.clear()
     for (const actor of threats) if (!actor.dead && !this.isEvacuatingThreat(actor)) this.patrolThreatGrid.insert(actor)
     patrol.prepareCombatFrame(dt, this.patrolThreatGrid, {
@@ -1090,15 +1144,18 @@ export class TownMissionCombat {
       this.updateFourGatePreparation(dt)
       return
     }
-    const outskirts = this.prepareOutskirtsFrame(dt)
     const livingTown = defense.active?.kind === 'commander-sky-raid' || defense.active?.kind === 'commander-decapitation'
-    const warfareActive = Boolean(outskirts?.actors.length || this.town.airPatrol?.()?.actors.length || defense.active)
+    const patrol = this.town.patrol?.()
     const externalWarfare = Boolean(
-      outskirts?.actors.length
+      this.town.outskirts?.()?.actors.length
       || this.town.airPatrol?.()?.actors.length
       || this.missions.field.ambientBandits.length
       || this.externalThreatActors.size,
     )
+    const needWarfareGrid = livingTown || externalWarfare || Boolean(this.town.personalSquad?.()?.actors.length)
+      || Boolean(patrol && !patrol.isSiegeOwned)
+    const outskirts = this.prepareOutskirtsFrame(dt, needWarfareGrid)
+    const warfareActive = Boolean(outskirts?.actors.length || this.town.airPatrol?.()?.actors.length || defense.active)
     const defenseFieldNpcs = defense.fieldNpcs
     if (livingTown) {
       const scouts = this.defenseEnemyTownScouts
@@ -1106,14 +1163,15 @@ export class TownMissionCombat {
       for (const npc of defenseFieldNpcs) scouts.push(npc)
       for (const npc of this.town.personalSquad?.()?.actors ?? []) scouts.push(npc)
       this.updateExternalThreatAssignments({ nativeEnemyTown: true, enemyTownScouts: scouts, player: this.town.player() })
-    } else if (warfareActive) this.updateExternalThreatAssignments({ roamingOnly: true })
+    } else if (warfareActive && (externalWarfare || this.garrisonReturns.size > 0 || this.externalThreatActors.size > 0)) {
+      this.updateExternalThreatAssignments({ roamingOnly: true })
+    }
     const excluded = this.defensePeaceExcluded
     excluded.clear()
     for (const npc of defenseFieldNpcs) excluded.add(npc)
     for (const npc of this.externalThreatActors) excluded.add(npc)
     for (const npc of commandActors) excluded.add(npc)
     this.town.preparePeaceResidents?.(excluded, dt)
-    const patrol = this.town.patrol?.()
     this.preparePatrolCombatFrame(dt, outskirts)
     const patrolActors = this.defensePatrolActors
     patrolActors.clear()
@@ -1161,7 +1219,14 @@ export class TownMissionCombat {
     if (devProf) devProf.add('siegeMs', performance.now() - tSiege)
     this.town.navigation.resumePathSearches()
     const tActors = devProf ? performance.now() : 0
-    for (const actor of actors) {
+    const isFourGateCombat = defense.active?.kind === 'commander-four-gate-defense' && Boolean(defense.combatEnabled)
+    if (isFourGateCombat) this.fourGateTierParity = (this.fourGateTierParity + 1) % 12
+    const playerRef = this.town.player()
+    const cameraPos = this.town.cameraPosition
+    const playerPos = playerRef.combatPosition
+    const playerAlive = !playerRef.dead
+    for (let actorIndex = 0; actorIndex < actors.length; actorIndex++) {
+      const actor = actors[actorIndex]
       const resident = residents.get(actor)
       if (this.updateOwnedActor(actor, updates.take(actor, Boolean(resident)), dt, outskirts, resident)) continue
       if (this.town.updateEagleDuty?.(actor, dt, defense.phase !== 'PREPARING' && defense.phase !== 'RESULT' && defense.phase !== 'RESET' && !defense.active?.result)) continue
@@ -1172,18 +1237,56 @@ export class TownMissionCombat {
         || actor.tacticalOrder === 'defend' && actor.formationCommandId != null)
         ? actor.tacticalOrder : null
       if (travelOrder) actor.tacticalOrder = 'attack'
+      const distance = actor.group.position.distanceTo(cameraPos)
+      const inFrustum = this.isActorInFrustum(actor.group.position)
+      if (isFourGateCombat && !travelOrder) {
+        if (((this.fourGateTierParity + actorIndex) & 3) !== 0
+          && actor.canSkipHeldStationaryFrame?.(distance, inFrustum)) {
+          actor.stepHeldStationaryFrame?.(dt, distance, inFrustum)
+          continue
+        }
+        if (((this.fourGateTierParity + actorIndex) % 3) !== 0
+          && actor.canTierOuterSiegeStep?.(distance, inFrustum)) {
+          actor.stepTieredOuterSiege?.(dt, this.actorObstacles(actor), distance, inFrustum)
+          continue
+        }
+      }
       const hostileGrid = externalWarfare ? this.warfareGrid : actor.faction === Faction.ENEMY ? this.defenseTownGrid : this.defenseEnemyGrid
       const nearbyGrid = externalWarfare ? this.warfareGrid : this.grid
       const nearbyRadius = externalWarfare ? 8 : 2
+      const needsNearby = actor.currentState === AIState.CHASE
+        || actor.tacticalOrder === 'follow'
+        || actor.hasFormationTarget
+        || Boolean(actor.mount?.isFlyingMount)
+        || (actor.isMounted && actor.hasActiveRangedWeapon)
       this.activeDefenseActor = actor
-      actor.update(dt, this.town.player(), warfareActive ? this.runtimeActors : defense.peersFor(actor),
-        nearbyGrid.getNearbyInto(actor.combatPosition, nearbyRadius, this.neighbors),
+      actor.update(dt, playerRef, warfareActive ? this.runtimeActors : defense.peersFor(actor),
+        needsNearby ? nearbyGrid.getNearbyInto(actor.combatPosition, nearbyRadius, this.neighbors) : TownMissionCombat.EMPTY_NPCS,
         this.actorObstacles(actor), this.town.hp,
         this.onDefenseMeleeHit,
         this.onDefenseFire,
-        false, actor.group.position.distanceTo(this.town.cameraPosition), null, hostileGrid, this.town.navigation, null,
-        this.isActorInFrustum(actor.group.position))
+        false, distance, null, hostileGrid, this.town.navigation, null,
+        inFrustum)
       if (travelOrder && !actor.dead) actor.tacticalOrder = travelOrder
+      if (isFourGateCombat && typeof actor.armOuterSiegeTier === 'function') {
+        let safeFrames = 0
+        if (((!inFrustum && distance > 42) || distance > 64)
+          && !actor.dead && !actor.isFalling && !actor.mount?.isFlyingMount
+          && actor.canArmOuterSiegeTier) {
+          if (actor.suppressesMissionTargetAcquisition) {
+            safeFrames = 3
+          } else {
+            const checkRadius = actor.hasActiveRangedWeapon
+              ? Math.min(64, actor.maxRangedAttackDistance + 6)
+              : 26
+            const playerTooClose = playerAlive && actor.combatPosition.distanceToSquared(playerPos) <= checkRadius * checkRadius
+            if (!playerTooClose && hostileGrid.getNearbyInto(actor.combatPosition, checkRadius, this.neighbors).length === 0) {
+              safeFrames = actor.currentState === AIState.IDLE ? 3 : 2
+            }
+          }
+        }
+        actor.armOuterSiegeTier(safeFrames)
+      }
     }
     this.activeDefenseActor = null
     if (devProf) devProf.add('actorUpdateMs', performance.now() - tActors)
@@ -1210,7 +1313,7 @@ export class TownMissionCombat {
     }
     const player = this.town.player(), mount = player.currentMount
     if (mount && mount === player.currentMount && !mount.dead) {
-      for (const target of this.grid.getNearby(mount.group.position, 2.5)) {
+      for (const target of this.grid.getNearbyInto(mount.group.position, 2.5, this.neighbors)) {
         if ((target.faction !== Faction.ENEMY && (!warfareActive || target.faction !== Faction.BANDIT))
           || target.dead || !checkMountImpact(mount, target.combatPosition, .5)) continue
         applyMountImpactDamage(mount, target, target.combatPosition, elapsed, damage => this.town.hitNpc(target, damage, 'mount-impact'))
@@ -1220,7 +1323,7 @@ export class TownMissionCombat {
     else for (const actor of actors) {
       const npcMount = actor.mount
       if (!npcMount || npcMount.dead || actor.dead) continue
-      for (const target of this.grid.getNearby(npcMount.group.position, 2.5)) {
+      for (const target of this.grid.getNearbyInto(npcMount.group.position, 2.5, this.neighbors)) {
         if (target.dead || !townWartimeHostile(actor, target) || !checkMountImpact(npcMount, target.combatPosition, .5)) continue
         applyMountImpactDamage(npcMount, target, target.combatPosition, elapsed, damage => this.town.hitNpc(target, damage, 'mount-impact', actor))
       }
@@ -1235,6 +1338,7 @@ export class TownMissionCombat {
     const obstacles = this.town.obstacles
     if (!obstacles || actors.length < 2) return
     const bodies = this.bodyCollisionList
+    const pool = this.bodyCollisionPool
     const refs = this.bodyCollisionActors
     const prevX = this.bodyCollisionPrevX
     const prevZ = this.bodyCollisionPrevZ
@@ -1247,25 +1351,30 @@ export class TownMissionCombat {
       const mounted = Boolean(actor.isMounted && actor.mount && !actor.mount.dead)
       const position = mounted ? actor.mount?.group?.position : actor.combatPosition
       if (!position) continue
-      bodies.push(mounted
-        ? {
-            position,
-            anchored: Boolean(actor.siegeTransport),
-            radius: 1.0,
-            height: 2.6,
-            bottomOffset: 0,
-            mountedSurfaces: true,
-            pushWeight: (actor.mount!.movementSpeed ?? 0) > COMBAT_BALANCE.mountImpact.minSpeed ? 4.0 : 2.0,
-          }
-        : {
-            position,
-            anchored: Boolean(actor.siegeTransport),
-            radius: 0.5,
-            height: 2.3,
-            bottomOffset: 0,
-            walkSurfaces: true,
-            pushWeight: 1.0,
-          })
+      const index = bodies.length
+      let body = pool[index]
+      if (!body) {
+        body = { position, anchored: false, radius: 0.5, height: 2.3, bottomOffset: 0, pushWeight: 1.0 }
+        pool[index] = body
+      }
+      body.position = position
+      body.anchored = Boolean(actor.siegeTransport)
+      if (mounted) {
+        body.radius = 1.0
+        body.height = 2.6
+        body.bottomOffset = 0
+        body.mountedSurfaces = true
+        body.walkSurfaces = undefined
+        body.pushWeight = (actor.mount!.movementSpeed ?? 0) > COMBAT_BALANCE.mountImpact.minSpeed ? 4.0 : 2.0
+      } else {
+        body.radius = 0.5
+        body.height = 2.3
+        body.bottomOffset = 0
+        body.walkSurfaces = true
+        body.mountedSurfaces = undefined
+        body.pushWeight = 1.0
+      }
+      bodies.push(body)
       refs.push(actor)
       prevX.push(position.x)
       prevZ.push(position.z)
@@ -1275,19 +1384,18 @@ export class TownMissionCombat {
     for (let i = 0; i < bodies.length; i++) {
       const body = bodies[i]
       const actor = refs[i]
-      if (!body.anchored) {
+      const moved = body.position.x !== prevX[i] || body.position.z !== prevZ[i]
+      if (!body.anchored && moved) {
         const mount = body.mountedSurfaces ? actor.mount : null
         const collision = resolveObstacleCollision(body.position, body.position, mount?.velY ?? 0, mount?.onGround ?? true,
           body.radius, body.height, body.bottomOffset, obstacles, { walkSurfaces: body.walkSurfaces, mountedSurfaces: body.mountedSurfaces })
         if (collision.recovered) mount?.applyObstacleRecovery(collision)
       }
-      if (body.mountedSurfaces && actor.group?.position) {
+      if (body.mountedSurfaces && actor.group?.position && moved) {
         const dx = body.position.x - prevX[i]
         const dz = body.position.z - prevZ[i]
-        if (dx !== 0 || dz !== 0) {
-          actor.group.position.x += dx
-          actor.group.position.z += dz
-        }
+        actor.group.position.x += dx
+        actor.group.position.z += dz
       }
     }
   }

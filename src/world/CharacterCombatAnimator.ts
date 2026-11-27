@@ -175,8 +175,35 @@ export class CharacterCombatAnimator {
     this.rig.animation?.setEquipmentState?.({ shield: enabled })
   }
 
+  private visualSleep = false
+  private cachedEquipmentValid = false
+  private cachedEquipmentLance = false
+  private cachedEquipmentShield = false
+  private cachedEquipmentMountKind: MountedPoseKind = 'HORSE'
+  private cachedEquipmentAlive = true
+  private cachedEquipmentActualSword = false
+  private cachedEquipmentGripSections: unknown = undefined
+  private cachedShieldRaised: boolean | null = null
+  private cachedLocomotionClip: HumanoidAnimationState | null = null
+  private cachedLocomotionTimeScale = 0
+  private cachedLocomotionMoving: boolean | null = null
+  private cachedLocomotionMounted: boolean | null = null
+  private cachedLocomotionFlightLean = -1
+
+  setVisualSleep(sleep: boolean): void {
+    if (this.visualSleep === sleep) return
+    this.visualSleep = sleep
+    if (!sleep) {
+      this.cachedEquipmentValid = false
+      this.cachedShieldRaised = null
+      this.cachedLocomotionClip = null
+    }
+  }
+
   setShieldRaised(raised: boolean): void {
     this.shieldRaised = raised
+    if (this.cachedShieldRaised === raised) return
+    this.cachedShieldRaised = raised
     this.rig.animation?.setEquipmentState?.({ shieldRaised: raised })
   }
 
@@ -189,7 +216,19 @@ export class CharacterCombatAnimator {
     this.lanceEquipped = lance
     this.setShieldGuard(shield)
     if (!alive || !this.hasCanceledAxePose) this.clearCanceledAxePose()
-    this.rig.animation?.setEquipmentState?.({ lance, shield, mountKind, alive, actualSword: this.hasEquippedSword, swordGripSections: this.hasEquippedSword ? this.meleePivot.userData.weaponGripSections : undefined })
+    const actualSword = this.hasEquippedSword
+    const gripSections = actualSword ? this.meleePivot.userData.weaponGripSections : undefined
+    if (this.cachedEquipmentValid && this.cachedEquipmentLance === lance && this.cachedEquipmentShield === shield
+      && this.cachedEquipmentMountKind === mountKind && this.cachedEquipmentAlive === alive
+      && this.cachedEquipmentActualSword === actualSword && this.cachedEquipmentGripSections === gripSections) return
+    this.cachedEquipmentValid = true
+    this.cachedEquipmentLance = lance
+    this.cachedEquipmentShield = shield
+    this.cachedEquipmentMountKind = mountKind
+    this.cachedEquipmentAlive = alive
+    this.cachedEquipmentActualSword = actualSword
+    this.cachedEquipmentGripSections = gripSections
+    this.rig.animation?.setEquipmentState?.({ lance, shield, mountKind, alive, actualSword, swordGripSections: gripSections })
   }
 
   private get usesTwoHandedAxeCarry(): boolean {
@@ -220,7 +259,9 @@ export class CharacterCombatAnimator {
     const poseAction = this.hasCanceledAxePose ? 'axeAttack2H' : this.action
     const poseElapsed = this.hasCanceledAxePose ? this.canceledAxePose : this.poseTime(this.elapsed)
     const continuous = this.hasCanceledAxePose || this.usesContinuousAxeCarry
-    setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(poseAction, poseElapsed) : 0, this.usesTwoHandedAxeCarry, poseAction, axeCarryWeight(poseAction, poseElapsed), continuous, axeRecoveryWeight(poseAction, poseElapsed, continuous))
+    if (!this.visualSleep || continuous || this.hasCanceledAxePose) {
+      setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(poseAction, poseElapsed) : 0, this.usesTwoHandedAxeCarry, poseAction, axeCarryWeight(poseAction, poseElapsed), continuous, axeRecoveryWeight(poseAction, poseElapsed, continuous))
+    }
     const state = mounted ? 'mounted' : speed <= 0.1 ? 'idle' : sprinting ? 'run' : 'walk'
     const timeScale = state === 'walk'
       ? Math.min(2, Math.max(0.1, speed / 2))
@@ -229,14 +270,26 @@ export class CharacterCombatAnimator {
         : 1
     this.locomotion = state
     this.locomotionTimeScale = timeScale
-    this.rig.animation?.setEquipmentState?.({ mounted, moving: speed > 0.1, flightLean: mounted && this.mountKind === 'xongkoro' && sprinting ? 1 : 0 })
+    const moving = speed > 0.1
+    const flightLean = mounted && this.mountKind === 'xongkoro' && sprinting ? 1 : 0
+    if (this.cachedLocomotionMounted !== mounted || this.cachedLocomotionMoving !== moving || this.cachedLocomotionFlightLean !== flightLean) {
+      this.cachedLocomotionMounted = mounted
+      this.cachedLocomotionMoving = moving
+      this.cachedLocomotionFlightLean = flightLean
+      this.rig.animation?.setEquipmentState?.({ mounted, moving, flightLean })
+    }
     if (this.busy && this.action !== 'bowRelease' && this.action !== 'lanceThrust' && this.action !== 'mountedLance') return
     if (this.action === 'bowAim' || this.action === 'bowRelease') {
+      this.cachedLocomotionClip = null
       this.rig.animation?.setBowLocomotion?.(state === 'mounted' ? 'idle' : state, timeScale)
       return
     }
+    const clip = this.locomotionClip
+    if (this.visualSleep && this.cachedLocomotionClip === clip && Math.abs(this.cachedLocomotionTimeScale - timeScale) < 0.02) return
+    this.cachedLocomotionClip = clip
+    this.cachedLocomotionTimeScale = timeScale
     const fadeSeconds = options?.fadeSeconds ?? 0.14
-    this.rig.animation?.play(this.locomotionClip, { fadeSeconds, loop: true, timeScale })
+    this.rig.animation?.play(clip, { fadeSeconds, loop: true, timeScale })
   }
 
   sampleInitialPose(): void {

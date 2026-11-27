@@ -74,6 +74,8 @@ export class TownCavalryPatrolController {
   private siegeOwned = false
   private retirementMobilized = false
 
+  get isSiegeOwned(): boolean { return this.siegeOwned }
+
   /** Siege owns recall travel and casualties, even for actors currently fighting or refitting. */
   recallForSiege(): void {
     this.siegeOwned = true

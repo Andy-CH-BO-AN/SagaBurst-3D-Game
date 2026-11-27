@@ -44,12 +44,12 @@
       "allBufferViewsByteExact": true,
       "compressedBufferViews": 595,
       "inputSha256": "28d10714505b4b85df402d8f948172754d666c375e3c383f085bedc4d380a9f1",
-      "sha256": "8e6cd8b201eafca8935f960e935d2e5437b7b551005fceec9d755185fbeebbd7",
+      "sha256": "94865c7be9539741b7c50cec1d5b2f45c99a8c76b913f48c80cba3c2238c4a44",
       "bufferViewCount": 673,
       "originalViewsSha256": "f3afafe4545ecd6c2f210d232312ff48b5d96d14e2e82f402fef1df669d0e6e4",
       "npmDecodedViewsSha256": "f3afafe4545ecd6c2f210d232312ff48b5d96d14e2e82f402fef1df669d0e6e4",
       "threeDecodedViewsSha256": "f3afafe4545ecd6c2f210d232312ff48b5d96d14e2e82f402fef1df669d0e6e4",
-      "bytes": 1610880
+      "bytes": 1237728
     }
   ]
 }

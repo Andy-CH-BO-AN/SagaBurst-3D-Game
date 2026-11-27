@@ -105,6 +105,9 @@ export class MobileSiegeRampCarrier<Id extends MobileSiegeRampId = SiegeRampId, 
   private unsubscribe: () => void = () => {}
   private damageable!: DamageableObstacle
   private readonly scratch = new THREE.Vector3()
+  private readonly sweptBox = new THREE.Box3()
+  private readonly ownObstacles = new Set<ObstacleData>(this.obstacles)
+  private readonly bodyScratch: EntityCollisionBody = { position: new THREE.Vector3(), radius: 0.5, height: 2.3, bottomOffset: 0 }
   private readonly rootMatrix = new THREE.Matrix4()
   private readonly euler = new THREE.Euler()
   private readonly quaternion = new THREE.Quaternion()
@@ -298,21 +301,48 @@ export class MobileSiegeRampCarrier<Id extends MobileSiegeRampId = SiegeRampId, 
   /** Swept vehicle test against the part transforms published by the last `updateGeometry`. */
   canMove(dt: number, actors: readonly Actor[], blockers: readonly EntityCollisionBody[]): boolean {
     const maxTravel = SIEGE_RAMP.speed * Math.min(dt, .1)
+    const dirX = this.placement.dirX ?? 0
+    const dirZ = this.placement.dirZ
+    const stepX = maxTravel * dirX
+    const stepZ = maxTravel * dirZ
     // Swept vehicle envelope; actors/structures ahead stop this convoy rather than being traversed.
-    const swept = this.deck.obstacle.box.clone().union(this.run.obstacle.box)
+    const swept = this.sweptBox.copy(this.deck.obstacle.box).union(this.run.obstacle.box)
     swept.min.y = Math.min(swept.min.y, getTerrainHeight(this.position.x, this.position.z))
-    swept.expandByVector(this.scratch.set(.12 + maxTravel * Math.abs(this.placement.dirX ?? 0), 0, (this.placement.dirX === undefined ? 0 : .12) + maxTravel * Math.abs(this.placement.dirZ)))
-    const staticBlocked = this.shared.some(obstacle => !this.obstacles.includes(obstacle)
-      && !obstacle.walkSurface && obstacle.box.intersectsBox(swept))
-    const intersectsBody = (body: EntityCollisionBody): boolean => intersectsSiegeRampUnderfill(body, this.surface, maxTravel)
-      || this.parts.some(part =>
-      intersectsSweptPart(body, part.localBox, part.obstacle.projectileWorldToLocal!, maxTravel * this.placement.dirZ, maxTravel * (this.placement.dirX ?? 0)))
-      || this.wheels.some(wheel => intersectsSweptPart(body, wheel.box, wheel.worldToLocal,
-        maxTravel * this.placement.dirZ, maxTravel * (this.placement.dirX ?? 0)))
-    const actorBlocked = actors.some(npc => !npc.dead && !this.crew.has(npc.combatantId)
-      && intersectsBody({ position: npc.combatPosition, radius: npc.isMounted ? 1 : .5,
-        height: npc.isMounted ? 2.6 : 2.3, bottomOffset: 0 })) || blockers.some(intersectsBody)
-    return !staticBlocked && !actorBlocked
+    swept.expandByVector(this.scratch.set(.12 + maxTravel * Math.abs(dirX), 0, (this.placement.dirX === undefined ? 0 : .12) + maxTravel * Math.abs(dirZ)))
+    if (this.ownObstacles.size !== this.obstacles.length) {
+      for (let i = 0; i < this.obstacles.length; i++) this.ownObstacles.add(this.obstacles[i])
+    }
+    for (let i = 0; i < this.shared.length; i++) {
+      const obstacle = this.shared[i]
+      if (!this.ownObstacles.has(obstacle) && !obstacle.walkSurface && obstacle.box.intersectsBox(swept)) return false
+    }
+    const body = this.bodyScratch
+    for (let i = 0; i < actors.length; i++) {
+      const npc = actors[i]
+      if (npc.dead || this.crew.has(npc.combatantId)) continue
+      body.position = npc.combatPosition
+      body.radius = npc.isMounted ? 1 : .5
+      body.height = npc.isMounted ? 2.6 : 2.3
+      body.bottomOffset = 0
+      if (this.intersectsSweptEnvelope(body, maxTravel, stepX, stepZ)) return false
+    }
+    for (let i = 0; i < blockers.length; i++) {
+      if (this.intersectsSweptEnvelope(blockers[i], maxTravel, stepX, stepZ)) return false
+    }
+    return true
+  }
+
+  private intersectsSweptEnvelope(body: EntityCollisionBody, maxTravel: number, stepX: number, stepZ: number): boolean {
+    if (intersectsSiegeRampUnderfill(body, this.surface, maxTravel)) return true
+    for (let i = 0; i < this.parts.length; i++) {
+      const part = this.parts[i]
+      if (intersectsSweptPart(body, part.localBox, part.obstacle.projectileWorldToLocal!, stepZ, stepX)) return true
+    }
+    for (let i = 0; i < this.wheels.length; i++) {
+      const wheel = this.wheels[i]
+      if (intersectsSweptPart(body, wheel.box, wheel.worldToLocal, stepZ, stepX)) return true
+    }
+    return false
   }
 
   /** Lays out every part, derives collision from those transforms, then lets the render side mirror them. */

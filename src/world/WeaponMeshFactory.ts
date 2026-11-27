@@ -172,6 +172,39 @@ export interface NpcRangedMeshParts {
 // Shared immutable grip resources; cloned shield instances own only transforms.
 let paladinGripGeometry: THREE.CapsuleGeometry | undefined
 let paladinGripMountGeometry: THREE.BoxGeometry | undefined
+const lod2ProxyGeometryCache = new Map<string, THREE.BufferGeometry>()
+let highTierWoodMat: THREE.Material | undefined
+let highTierSteelMat: THREE.Material | undefined
+let highTierBronzeMat: THREE.Material | undefined
+let highTierBlueMat: THREE.Material | undefined
+
+function sharedHighTierProxyGeometry(key: string, build: () => THREE.BufferGeometry): THREE.BufferGeometry {
+  let geo = lod2ProxyGeometryCache.get(key)
+  if (!geo) {
+    geo = build()
+    geo.name = `lod2-proxy-${key}`
+    geo.computeBoundingBox()
+    geo.computeBoundingSphere()
+    lod2ProxyGeometryCache.set(key, geo)
+  }
+  return geo
+}
+
+function createSharedLod2ProxyMesh(key: string, build: () => THREE.BufferGeometry, material: THREE.Material): THREE.Mesh {
+  const mesh = new THREE.Mesh(sharedHighTierProxyGeometry(key, build), material)
+  mesh.name = `${key}-lod2-proxy`
+  mesh.receiveShadow = true
+  return equipmentLod2Proxy(equipmentShadowUntil(mesh, -1))
+}
+
+function highTierMaterials(): { wood: THREE.Material; steel: THREE.Material; bronze: THREE.Material; blue: THREE.Material } {
+  return {
+    wood: highTierWoodMat ??= proceduralMaterial({ kind: 'wood', color: 0x5c4033, roughness: 0.78 }),
+    steel: highTierSteelMat ??= proceduralMaterial({ kind: 'iron', color: 0xbec4c8, roughness: 0.34, metalness: 0.85 }),
+    bronze: highTierBronzeMat ??= proceduralMaterial({ kind: 'bronze', color: 0xa47b42, roughness: 0.42, metalness: 0.72 }),
+    blue: highTierBlueMat ??= proceduralMaterial({ kind: 'wood', color: 0x2b4d6d, roughness: 0.75 }),
+  }
+}
 
 const NON_PROCEDURAL_MELEE_IDS = new Set([
   'spear_t4',
@@ -280,7 +313,7 @@ function hangBannerByGravity(roll: THREE.Group, model: THREE.Object3D): void {
 /** Gameplay frames exist at once; the real model joins this holder when loaded, unless the pivot was rebuilt meanwhile.
  * A failure leaves the holder empty, never another model. Actors only reach this once the item is usable. */
 function attachByzantineEquipment(id: ByzantineEquipmentId, pivot: THREE.Group, onModel?: (holder: THREE.Group, model: THREE.Group) => void): void {
-  const holder = new THREE.Group()
+  const holder = equipmentDetail(new THREE.Group(), 1)
   holder.name = `${id}-holder`
   pivot.add(holder)
   const place = (model: THREE.Group) => { holder.add(model); onModel?.(holder, model) }
@@ -311,7 +344,15 @@ export class WeaponMeshFactory {
       pivot.userData.supportPointLocal = [0, .33, 0]
       pivot.userData.forwardAxisLocal = [0, 1, 0]
       pivot.userData.tipLocal = [0, 2.6, 0]
-      pivot.add(weaponId === 'spear_t5' ? createT5Melee(weaponId) : createT4Polearm())
+      pivot.add(equipmentDetail(weaponId === 'spear_t5' ? createT5Melee(weaponId) : createT4Polearm(), 1))
+      const mats = highTierMaterials()
+      pivot.add(createSharedLod2ProxyMesh('high-tier-spear', () => {
+        const shaft = new THREE.CylinderGeometry(LANCE_RADIUS, LANCE_RADIUS, 2.6, 5)
+        shaft.translate(0, 0.85, 0)
+        const head = new THREE.ConeGeometry(0.055, 0.45, 4)
+        head.translate(0, 2.35, 0)
+        return mergeGeometries([shaft, head], false)!
+      }, weaponId === 'spear_t5' ? mats.steel : mats.wood))
       return { tipLocal: new THREE.Vector3(0, 2.6, 0) }
     }
 
@@ -322,11 +363,25 @@ export class WeaponMeshFactory {
       pivot.userData.forwardAxisLocal = [0, 1, 0]
       pivot.userData.tipLocal = [0, 2.8, 0]
       attachByzantineEquipment(weaponId, pivot, hangBannerByGravity)
+      const mats = highTierMaterials()
+      pivot.add(createSharedLod2ProxyMesh('byzantine-lance', () => {
+        const shaft = new THREE.CylinderGeometry(LANCE_RADIUS, LANCE_RADIUS, 3.1, 5)
+        shaft.translate(0, 1.05, 0)
+        const head = new THREE.ConeGeometry(0.06, 0.5, 4)
+        head.translate(0, 2.55, 0)
+        return mergeGeometries([shaft, head], false)!
+      }, mats.steel))
       return { tipLocal: new THREE.Vector3(0, 2.8, 0) }
     }
 
     if (weaponId === 'sword_t5') {
-      pivot.add(createT5Melee(weaponId))
+      pivot.add(equipmentDetail(createT5Melee(weaponId), 1))
+      const mats = highTierMaterials()
+      pivot.add(createSharedLod2ProxyMesh('high-tier-sword', () => {
+        const g = new THREE.BoxGeometry(0.09, 1.25, 0.03)
+        g.translate(0, 0.65, 0)
+        return g
+      }, mats.steel))
       return { tipLocal: new THREE.Vector3(0, 1.3275, 0) }
     }
     if (weaponId === 'axe_t5' || weaponId === 'paladin_mace_t4') {
@@ -336,16 +391,30 @@ export class WeaponMeshFactory {
       visual.name = 'dane-axe-visual'
       visual.position.y = .15
       visual.rotation.x = .45
-      const model = weaponId === 'paladin_mace_t4' ? createPaladinEquipment(weaponId) : createT5Melee(weaponId)
+      const model = equipmentDetail(weaponId === 'paladin_mace_t4' ? createPaladinEquipment(weaponId) : createT5Melee(weaponId), 1)
       model.position.y = -.15
       visual.add(model)
+      const mats = highTierMaterials()
+      visual.add(createSharedLod2ProxyMesh(weaponId, () => {
+        const haft = new THREE.CylinderGeometry(0.025, 0.028, weaponId === 'paladin_mace_t4' ? 0.9 : 1.4, 5)
+        haft.translate(0, weaponId === 'paladin_mace_t4' ? 0.38 : 0.55, 0)
+        const head = new THREE.BoxGeometry(weaponId === 'paladin_mace_t4' ? 0.14 : 0.28, 0.24, 0.05)
+        head.translate(weaponId === 'paladin_mace_t4' ? 0 : 0.12, weaponId === 'paladin_mace_t4' ? 0.78 : 1.15, 0)
+        return mergeGeometries([haft, head], false)!
+      }, mats.steel))
       pivot.add(visual)
       // Preserve each weapon's existing gameplay reach marker independently of its new mesh.
       return { tipLocal: new THREE.Vector3(0, weaponId === 'paladin_mace_t4' ? .99375 : 1.51, 0) }
     }
 
     if (weaponId === 'paladin_sword_t4') {
-      pivot.add(createPaladinEquipment(weaponId))
+      pivot.add(equipmentDetail(createPaladinEquipment(weaponId), 1))
+      const mats = highTierMaterials()
+      pivot.add(createSharedLod2ProxyMesh('high-tier-sword', () => {
+        const g = new THREE.BoxGeometry(0.09, 1.25, 0.03)
+        g.translate(0, 0.65, 0)
+        return g
+      }, mats.steel))
       return { tipLocal: new THREE.Vector3(0, 1.3275, 0) }
     }
 
@@ -847,27 +916,28 @@ export class WeaponMeshFactory {
       // Viking Bow
       const bowMat = new THREE.MeshLambertMaterial({ color: 0x5c3a21, flatShading: true })
 
-      const upperCurve = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.025, 0.5, 6), bowMat), 1)
+      const upperCurve = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.025, 0.5, 6), bowMat), 1), 1)
       upperCurve.position.set(0, 0.25, 0)
       upperCurve.rotation.z = -0.1
       pivot.add(upperCurve)
 
-      const lowerCurve = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.015, 0.5, 6), bowMat), 1)
+      const lowerCurve = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.015, 0.5, 6), bowMat), 1), 1)
       lowerCurve.position.set(0, -0.25, 0)
       lowerCurve.rotation.z = 0.1
       pivot.add(lowerCurve)
+      pivot.add(createLod2MergedProxy([upperCurve, lowerCurve], bowMat, 'viking-bow-lod2-proxy'))
 
       const stringMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
-      const stringTop = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.5, 4), stringMat), -1)
-      const stringBottom = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.5, 4), stringMat), -1)
+      const stringTop = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.5, 4), stringMat), -1), 1)
+      const stringBottom = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.5, 4), stringMat), -1), 1)
       pivot.add(stringTop, stringBottom)
 
       const nockedArrow = new THREE.Group()
       equipmentShadowUntil(nockedArrow, -1)
-      const shaft = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.8, 6), bowMat), -1)
+      const shaft = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.8, 6), bowMat), -1), 1)
       shaft.rotation.x = Math.PI / 2
       nockedArrow.add(shaft)
-      const arrowHead = equipmentShadowUntil(new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.1, 6), new THREE.MeshLambertMaterial({ color: 0xaaaaaa })), -1)
+      const arrowHead = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.1, 6), new THREE.MeshLambertMaterial({ color: 0xaaaaaa })), -1), 1)
       arrowHead.rotation.x = -Math.PI / 2
       arrowHead.position.z = -0.45
       nockedArrow.add(arrowHead)
@@ -912,7 +982,24 @@ export class WeaponMeshFactory {
     if (shieldId === 'paladin_shield_t4' || shieldId === 'commander_shield_t5' || factionShield || eagleShield) {
       const commander = shieldId === 'commander_shield_t5'
       if (eagleShield) attachByzantineEquipment(shieldId, pivot)
-      else pivot.add(factionShield ? createFactionShield(shieldId) : commander ? createT5Shield() : createPaladinEquipment('paladin_shield_t4'))
+      else pivot.add(equipmentDetail(factionShield ? createFactionShield(shieldId) : commander ? createT5Shield() : createPaladinEquipment('paladin_shield_t4'), 1))
+      const mats = highTierMaterials()
+      const isRound = shieldId === 'viking_berserker_shield_t5' || shieldId === 'viking_dragonward_shield_t4' || shieldId === 'byzantine_eagle_shield_t5'
+      const proxy = createSharedLod2ProxyMesh(
+        isRound ? 'high-tier-round-shield' : 'high-tier-scutum-shield',
+        () => isRound
+          ? new THREE.CylinderGeometry(0.41, 0.41, 0.052, 8)
+          : bendShieldGeometry(new THREE.BoxGeometry(0.56, 0.94, 0.05, 2, 2, 1), 0.56, 0.11),
+        shieldId === 'commander_shield_t5' || shieldId === 'paladin_shield_t4' ? mats.steel
+          : shieldId === 'byzantine_eagle_shield_t5' || shieldId === 'viking_dragonward_shield_t4' ? mats.blue : mats.bronze,
+      )
+      if (isRound) {
+        proxy.rotation.x = Math.PI / 2
+        proxy.position.z = 0.16
+      } else {
+        proxy.position.z = 0.14
+      }
+      pivot.add(proxy)
       // Laurelguard's front is +Z, but its central rear is near Z=0 rather than
       // Paladin's +.13. Keep the original GLB axes and move only its rear grip.
       const gripZ = commander ? -.085 : .085
@@ -949,12 +1036,17 @@ export class WeaponMeshFactory {
       const width = 0.58, height = 0.98, depth = 0.055, curve = 0.13, boardZ = 0.02
       const frontZ = boardZ + depth / 2
       const boardMat = proceduralMaterial({ kind: tier === 1 ? 'wood' : 'leather', color: tier === 1 ? 0x75604a : tier === 3 ? 0x491b25 : 0x7f211d, roughness: tier === 1 ? 0.96 : 0.78, repeat: [4, 5] })
-      const board = equipmentShadowUntil(new THREE.Mesh(bendShieldGeometry(new THREE.BoxGeometry(width, height, depth, 12, 14, 1), width, curve), boardMat), 1)
+      const board = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(bendShieldGeometry(new THREE.BoxGeometry(width, height, depth, 12, 14, 1), width, curve), boardMat), 1), 1)
       board.position.z = boardZ
       board.name = 'curved-scutum-board'
       board.castShadow = true
       board.receiveShadow = true
       pivot.add(board)
+      const boardLod2 = equipmentLod2Proxy(equipmentShadowUntil(new THREE.Mesh(bendShieldGeometry(new THREE.BoxGeometry(width, height, depth, 2, 2, 1), width, curve), boardMat), -1))
+      boardLod2.position.z = boardZ
+      boardLod2.name = 'scutum-lod2-proxy'
+      boardLod2.receiveShadow = true
+      pivot.add(boardLod2)
       const rim = equipmentDetail(equipmentShadowUntil(curvedRectangleRim(width, height, curve, frontZ, tier === 3 ? 0.03 : 0.022, tier === 3 ? bronze : tier === 2 ? iron : leather), 0), 1)
       rim.name = 'scutum-rim'
       pivot.add(rim)
@@ -996,12 +1088,19 @@ export class WeaponMeshFactory {
     } else {
       const wood = proceduralMaterial({ kind: 'wood', color: 0x75604a, roughness: 0.96, repeat: [5, 3] })
       const paint = proceduralMaterial({ kind: 'wood', color: tier === 3 ? 0x294d64 : 0x435443, roughness: 0.82, repeat: [5, 3] })
-      const board = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.41, 0.052, 32), tier >= 2 ? paint : wood), 1)
+      const boardMat = tier >= 2 ? paint : wood
+      const board = equipmentDetail(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.41, 0.052, 32), boardMat), 1), 1)
       board.rotation.x = Math.PI / 2
       board.position.z = 0.15
       board.name = 'round-shield-board'
       board.castShadow = true
       pivot.add(board)
+      const boardLod2 = equipmentLod2Proxy(equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.41, 0.052, 8), boardMat), -1))
+      boardLod2.rotation.x = Math.PI / 2
+      boardLod2.position.z = 0.15
+      boardLod2.name = 'round-shield-lod2-proxy'
+      boardLod2.receiveShadow = true
+      pivot.add(boardLod2)
       const leatherDetails: THREE.Mesh[] = []
       for (let seam = -3; seam <= 3; seam++) {
         const line = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.72 - Math.abs(seam) * 0.055, 0.008), leather)

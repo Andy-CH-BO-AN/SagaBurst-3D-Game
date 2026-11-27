@@ -293,7 +293,7 @@
     },
     {
       "lod": "lod2",
-      "sha256": "4511bad81db5a69f1527b6ff00004f0edf73878c002c9a444cbb6dc9229a769a",
+      "sha256": "d290afbfd9125af2ceb667d4915c80c802c28cc18d67c5e0fa69ee815498abd3",
       "vertices": 11771,
       "fingerWeightedUniquePositions": 2260,
       "handSurfaceSha256": "b70862db507fd107a2e647b7c85292312eb52de4eda9574beca827ec8e999258",
