@@ -1,4 +1,6 @@
-import type { Object3D, LOD, Mesh } from 'three'
+import type { Camera, Object3D, LOD, Mesh, SkinnedMesh } from 'three'
+import { skipMatrixWorldWhenHidden } from './DeathFade'
+import { LOD2_BATCHED_SOURCE_LAYER } from './Lod2EquipmentBatcher'
 
 export type EquipmentVisualLOD = 0 | 1 | 2
 export type EquipmentKind = 'sword' | 'shield' | 'bow' | 'lance' | 'pilum'
@@ -34,28 +36,78 @@ export class EquipmentVisualLODController {
     root: Object3D
     details: Array<{ object: Object3D; lastLOD: number }>
     lod2Only: Object3D[]
+    batchedMeshes: Mesh[]
     shadows: Array<{ mesh: Mesh; lastShadowLOD: EquipmentShadowPolicy; originalCastShadow: boolean }>
   }>()
   // Re-registering an existing mesh at LOD2 must not capture our temporary false.
   private readonly originalShadows = new WeakMap<Mesh, boolean>()
+  private readonly batchedFlat: Mesh[] = []
+  private readonly batchEntriesFlat: Array<{ readonly root: Object3D; readonly batchedMeshes: readonly Mesh[] }> = []
+  private batchLayerEnabled = false
+  private initialLodSynced = false
+  private followedLod: LOD | null = null
   private level: EquipmentVisualLOD = 0
 
   get currentLevel(): EquipmentVisualLOD { return this.level }
+  get lod2BatchedMeshes(): readonly Mesh[] { return this.batchedFlat }
+  get lod2BatchEntries(): ReadonlyArray<{ readonly root: Object3D; readonly batchedMeshes: readonly Mesh[] }> {
+    return this.batchEntriesFlat
+  }
+
+  enableBatchLayer(): void {
+    if (this.batchLayerEnabled) return
+    this.batchLayerEnabled = true
+    for (let i = 0; i < this.batchedFlat.length; i++) {
+      this.batchedFlat[i].layers.set(LOD2_BATCHED_SOURCE_LAYER)
+    }
+  }
+
+  syncInitialCameraLOD(camera: Camera): void {
+    if (this.initialLodSynced) return
+    this.initialLodSynced = true
+    this.followedLod?.update(camera)
+  }
+
+  private rebuildBatchedFlat(): void {
+    this.batchedFlat.length = 0
+    this.batchEntriesFlat.length = 0
+    for (const { root, batchedMeshes } of this.entries.values()) {
+      if (batchedMeshes.length === 0) continue
+      this.batchEntriesFlat.push({ root, batchedMeshes })
+      for (let i = 0; i < batchedMeshes.length; i++) {
+        const mesh = batchedMeshes[i]
+        if (this.batchLayerEnabled) mesh.layers.set(LOD2_BATCHED_SOURCE_LAYER)
+        this.batchedFlat.push(mesh)
+      }
+    }
+  }
 
   /** Called at construction / equipment rebuild, never during steady-state updates. */
   register(kind: EquipmentKind, root: Object3D): void {
     const details: Array<{ object: Object3D; lastLOD: number }> = []
     const lod2Only: Object3D[] = []
+    const batchedMeshes: Mesh[] = []
     const shadows: Array<{ mesh: Mesh; lastShadowLOD: EquipmentShadowPolicy; originalCastShadow: boolean }> = []
     root.traverse(object => {
       if (object.userData.equipmentLod2Only === true) {
         lod2Only.push(object)
         object.visible = this.level === 2
+        if (typeof (object as { updateMatrixWorld?: unknown }).updateMatrixWorld === 'function') {
+          skipMatrixWorldWhenHidden(object)
+        }
+        const candidate = object as Mesh
+        if (candidate.isMesh && !(candidate as SkinnedMesh).isSkinnedMesh
+          && !Array.isArray(candidate.material) && candidate.children.length === 0) {
+          batchedMeshes.push(candidate)
+        }
       }
       const lastLOD = object.userData.equipmentLastVisibleLOD
       if (lastLOD === 0 || lastLOD === 1) {
         details.push({ object, lastLOD })
         object.visible = this.level <= lastLOD
+        if (typeof (object as { updateMatrixWorld?: unknown }).updateMatrixWorld === 'function') {
+          skipMatrixWorldWhenHidden(object)
+        }
       }
       const mesh = object as Mesh
       if (mesh.isMesh) {
@@ -78,7 +130,8 @@ export class EquipmentVisualLODController {
         mesh.castShadow = this.level !== 2 && this.level <= lastShadowLOD && originalCastShadow
       }
     })
-    this.entries.set(kind, { root, details, lod2Only, shadows })
+    this.entries.set(kind, { root, details, lod2Only, batchedMeshes, shadows })
+    this.rebuildBatchedFlat()
   }
 
   setLOD(level: EquipmentVisualLOD): void {
@@ -95,6 +148,7 @@ export class EquipmentVisualLODController {
 
   /** NPC instance only. Preserve Three's thresholds, zoom, and existing animation hook. */
   followHumanoid(lod: LOD): void {
+    this.followedLod = lod
     const update = lod.update.bind(lod)
     lod.update = camera => {
       update(camera)

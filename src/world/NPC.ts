@@ -18,7 +18,7 @@ import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
  */
 import * as THREE from 'three'
 import { ShieldState, ShieldCollider, WeaponSweep } from '../combat/ShieldBlocking'
-import { DeathFadeController, skipHiddenCorpseMatrices } from './DeathFade'
+import { DeathFadeController, skipHiddenCorpseMatrices, skipMatrixWorldWhenHidden } from './DeathFade'
 import { OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE } from './CharacterLODPolicy'
 import type { Player } from '../player/Player'
 import type { SpatialGrid } from './SpatialGrid'
@@ -1065,6 +1065,7 @@ export class NPC {
     this.rig.right.handSocket.add(this.swordPivot)
 
     this.bowPivot = new THREE.Group()
+    skipMatrixWorldWhenHidden(this.bowPivot)
     this.bowGripPivot = new THREE.Group()
     this.bowPivot.add(this.bowGripPivot)
     const rangedKind = this.rangedCombatKind
@@ -3022,11 +3023,15 @@ export class NPC {
 
 
   private setOffFrustumVisualSleep(sleep: boolean): void {
+    this.mount?.setRiderVisualAwake?.(!sleep)
     if (sleep === this.offFrustumVisualSleep) return
     this.offFrustumVisualSleep = sleep
     this.animator.setVisualSleep?.(sleep)
     if (this.characterVisualGroup) this.characterVisualGroup.visible = !sleep
   }
+
+  get suppressesMissionTargetAcquisition(): boolean { return this.missionCombatTarget === null }
+  get outerSiegeTierSafeFrames(): number { return this._outerSiegeTierSafeFrames }
 
   get canArmOuterSiegeTier(): boolean {
     if (this.dead
@@ -3043,7 +3048,10 @@ export class NPC {
         && this._distanceToObstacleXZ(this.assignedSiegeObstacle) > (this.hasActiveRangedWeapon ? this.maxRangedAttackDistance + 8 : 22)))
     const escortMarchEligible = (this.tacticalOrder === 'formation' || this.tacticalOrder === 'defend' && this.formationTarget?.arrivalOrder === 'defend')
       && Boolean(this.formationTarget && !this.formationTarget.reached)
-    return chaseEligible || escortMarchEligible
+    const stationaryDefendEligible = this.state === AIState.IDLE
+      && this.tacticalOrder === 'defend'
+      && (!this.formationTarget || this.formationTarget.reached)
+    return chaseEligible || escortMarchEligible || stationaryDefendEligible
   }
 
   armOuterSiegeTier(frames: number): void {
@@ -3105,7 +3113,7 @@ export class NPC {
       && this.state === AIState.IDLE
       && this.tacticalOrder === 'defend'
       && (!this.formationTarget || this.formationTarget.reached)
-      && this.missionCombatTarget === null
+      && !(this.missionCombatTarget && typeof this.missionCombatTarget === 'object')
       && this._lastControlledSpeed === 0
       && this.onGround
       && (!this.mount || (!this.mount.dead && this.mount.onGround && this.mount.movementSpeed === 0))
@@ -5207,10 +5215,18 @@ export class NPC {
     if (import.meta.env.DEV && collector) { collector.endPhase('mountRiderTransform', _tRiderTransform!) }
   }
 
+  /** Re-syncs rider position/orientation after mount collision separation. */
+  syncMountedPositionAfterCollision(): void {
+    if (!this.isMounted || !this.mount || this.dead || this.mount.dead || this.mount.isFlyingMount) return
+    this.mount.getRiderPelvisSeatWorld(this.group.position)
+    this.group.rotation.x = this.mount.ridePitch
+    this.group.rotation.y = this.mount.group.rotation.y
+  }
+
   /** Run after the mount animation, before render; keeps the contact on this frame's seat. */
   /** `publish = false` only when the renderer refreshes the scene immediately afterwards. */
   fitMountedSeat(publish = true): void {
-    if (this.offFrustumVisualSleep || !this.mount || this.dead) return
+    if (this.offFrustumVisualSleep || !this.mount || this.dead || this.mount.isVisualSleeping) return
     this.mount.corgiVisual?.fitRider(this.characterVisualGroup)
     this.mount.catVisual?.fitRider(this.characterVisualGroup, publish)
     this.mount.snowLeopardVisual?.fitRider(this.characterVisualGroup, publish)

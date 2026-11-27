@@ -11,6 +11,13 @@ const LOCAL_BONE = new THREE.Matrix4()
 const OFFSET_MATRIX = new THREE.Matrix4()
 const APPLY_BONE_INV = new THREE.Matrix4()
 
+function isAncestorVisible(object: THREE.Object3D): boolean {
+  for (let current: THREE.Object3D | null = object; current; current = current.parent) {
+    if (!current.visible) return false
+  }
+  return true
+}
+
 function sameMatrixElements(a: THREE.Matrix4, b: THREE.Matrix4, epsilon = 1e-4): boolean {
   const ae = a.elements
   const be = b.elements
@@ -113,8 +120,8 @@ export function installCachedSkeletonUpdate(root: THREE.Object3D): CachedSkeleto
       mesh.bindMatrixInverse.copy(mesh.bindMatrix).invert()
       const origApplyBoneTransform = mesh.applyBoneTransform.bind(mesh)
       mesh.applyBoneTransform = (index: number, target: THREE.Vector3) => {
+        mesh.updateWorldMatrix(true, false)
         if (!anyDirty && boneEntries.length > 0 && (!appliedWorldValid || !sameMatrixElements(mesh.matrixWorld, lastAppliedMeshWorld, 1e-6))) {
-          mesh.updateWorldMatrix(true, false)
           refreshStaleBoneOnlyRoots(true)
           lastAppliedMeshWorld.copy(mesh.matrixWorld)
           appliedWorldValid = true
@@ -141,16 +148,14 @@ export function installCachedSkeletonUpdate(root: THREE.Object3D): CachedSkeleto
         return
       }
       refreshStaleBoneOnlyRoots(false)
-      const refMesh = meshes.find(mesh => mesh.visible) ?? meshes[0]
+      const refMesh = meshes.find(isAncestorVisible) ?? meshes[0]
       if (!refMesh) {
         origUpdate()
         dirty = false
         anyDirty = skeletonStates.some(state => state.isDirty())
         return
       }
-      if (Math.abs(refMesh.matrixWorld.determinant()) < 1e-12) {
-        refMesh.updateWorldMatrix(true, false)
-      }
+      refMesh.updateWorldMatrix(true, false)
       if (Math.abs(refMesh.matrixWorld.determinant()) < 1e-12) {
         origUpdate()
         dirty = false

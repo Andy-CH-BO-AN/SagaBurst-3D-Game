@@ -32,7 +32,7 @@ import { FallingRider } from '../movement/FallingRider'
 import { EagleAttack } from '../combat/EagleAttack'
 import type { CombatContact, PhysicalCombatTarget } from '../combat/ShieldBlocking'
 import type { CombatDamageContext } from '../combat/CombatAttribution'
-import { skipHiddenCorpseMatrices } from './DeathFade'
+import { skipHiddenCorpseMatrices, skipMatrixWorldWhenHidden } from './DeathFade'
 import { OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE } from './CharacterLODPolicy'
 
 let mountAimGeometry: THREE.BoxGeometry | undefined
@@ -191,6 +191,7 @@ export class Mount {
   private inFrustum = true
   private visualHidden = false
   private offFrustumVisualSleep = false
+  private riderPreventsVisualSleep = false
   private readonly cachedSaddleLocal = new THREE.Vector3()
   private saddleLocalDirty = true
   private readonly _tmpInvMountWorld = new THREE.Matrix4()
@@ -400,17 +401,33 @@ export class Mount {
     return this.horseVisual?.root ?? this.catVisual?.root ?? this.snowLeopardVisual?.root ?? null
   }
 
+  get isVisualSleeping(): boolean {
+    return this.offFrustumVisualSleep
+  }
+
+  setRiderVisualAwake(awake: boolean): void {
+    if (awake === this.riderPreventsVisualSleep) return
+    this.riderPreventsVisualSleep = awake
+    this.syncGroundVisualSleep()
+  }
+
   private syncGroundVisualSleep(): void {
     const visualRoot = this.groundVisualRoot
     if (!visualRoot) return
     const sleep = !this.dead
       && (this.riderNpc !== null || this.state !== MountState.CONTROLLED)
+      && !this.riderPreventsVisualSleep
       && !this.inFrustum
       && this.cameraDistance > OFF_FRUSTUM_VISUAL_SLEEP_DISTANCE
     if (sleep === this.offFrustumVisualSleep) return
     this.offFrustumVisualSleep = sleep
+    skipMatrixWorldWhenHidden(visualRoot)
     visualRoot.visible = !this.visualHidden && !sleep
-    if (!sleep) this.saddleLocalDirty = true
+    if (!sleep) {
+      this.saddleLocalDirty = true
+      this.catVisual?.markSeatDirty()
+      this.snowLeopardVisual?.markSeatDirty()
+    }
   }
 
   setInFrustum(inFrustum: boolean): void {
@@ -568,7 +585,9 @@ export class Mount {
     this.riderNpc = null
     this.riderFaction = null
     this.riderPlayer = null
+    this.riderPreventsVisualSleep = false
     if (!this.dead) this.state = MountState.IDLE
+    this.syncGroundVisualSleep()
     this.eagleAttack?.cancel()
   }
 
@@ -576,6 +595,7 @@ export class Mount {
   restoreForTown(x: number, z: number, yaw: number, y?: number): void {
     this.riderNpc = null
     this.riderFaction = null
+    this.riderPreventsVisualSleep = false
     this.currentHp = this.maxHp
     this.armor.reset()
     this.state = MountState.IDLE

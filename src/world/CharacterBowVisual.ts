@@ -6,7 +6,7 @@ import { createMakiRangerBowInstance } from './MakiRangerEquipment'
 import { createT5Bow } from './HighTierEquipment'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { shareEquipmentGeometry } from './EquipmentGeometryRegistry'
-import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODController'
+import { equipmentDetail, equipmentLod2Proxy, equipmentShadowUntil } from './EquipmentVisualLODController'
 import { BOW_STRING_CONTACT, BOW_ARROW_REST } from './BowDrawHand'
 import {
   applyBowAttachment,
@@ -59,6 +59,34 @@ export const sampleBowBodyLocal = (
   const curve = limb === 0 || limb === 1 ? 0 : -Math.sin(limb * Math.PI) * 0.14
   target.set(0, tip.y * limb, tip.z * limb + curve)
   return target
+}
+
+const cachedBowAssetLod2Geometries = new Map<string, THREE.BufferGeometry>()
+let cachedBowAssetLod2Material: THREE.MeshLambertMaterial | undefined
+
+function getAssetBowLod2Proxy(topTip: THREE.Vector3, botTip: THREE.Vector3): THREE.Mesh {
+  const key = `${topTip.y.toFixed(3)}:${topTip.z.toFixed(3)}:${botTip.y.toFixed(3)}:${botTip.z.toFixed(3)}`
+  let geometry = cachedBowAssetLod2Geometries.get(key)
+  if (!geometry) {
+    const midY = (topTip.y + botTip.y) * 0.5
+    const curve = new THREE.CatmullRomCurve3([
+      botTip.clone(),
+      new THREE.Vector3(0, THREE.MathUtils.lerp(botTip.y, midY, 0.45), botTip.z * 0.55 - 0.12),
+      new THREE.Vector3(0, midY, 0),
+      new THREE.Vector3(0, THREE.MathUtils.lerp(topTip.y, midY, 0.45), topTip.z * 0.55 - 0.12),
+      topTip.clone(),
+    ])
+    geometry = new THREE.TubeGeometry(curve, 6, 0.016, 4, false)
+    geometry.name = 'bow-asset-lod2-proxy'
+    geometry.computeBoundingBox()
+    geometry.computeBoundingSphere()
+    cachedBowAssetLod2Geometries.set(key, geometry)
+  }
+  const material = cachedBowAssetLod2Material ??= new THREE.MeshLambertMaterial({ color: 0x5c3a21 })
+  const mesh = equipmentLod2Proxy(equipmentShadowUntil(new THREE.Mesh(geometry, material), -1))
+  mesh.name = 'bow-asset-lod2-proxy'
+  mesh.receiveShadow = true
+  return mesh
 }
 
 /** Shared bow mesh, socket alignment, string, and nocked-arrow presentation. */
@@ -115,7 +143,8 @@ export class CharacterBowVisual {
     this.profile = profile
     this.gripPivot.clear()
     // A 3 cm stave is narrower than one battle shadow texel (~8 cm) beyond LOD0.
-    this.gripPivot.add(equipmentShadowUntil(model, 0))
+    this.gripPivot.add(equipmentDetail(equipmentShadowUntil(model, 0), 1))
+    this.gripPivot.add(getAssetBowLod2Proxy(topTip, botTip))
     // Authored string halves keep the source PBR surface and triangle detail.
     // Their unit-height geometry uses the same endpoint transforms as cylinders.
     const top = model.getObjectByName('bow-string-top')

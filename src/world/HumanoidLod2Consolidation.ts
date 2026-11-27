@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { materialRenderContract, sameMaterialRenderContract } from './MaterialRenderContract'
-import { copyMergedSeatSupport } from './SkinnedSeatContact'
+import { materialRenderContract, sameMaterialRenderContract, type MaterialRenderContract } from './MaterialRenderContract'
+import { copyMergedSeatSupport, copyMultiMergedSeatSupport } from './SkinnedSeatContact'
 
 interface ConsolidationPair {
   first: string
@@ -274,4 +274,306 @@ export function consolidateVikingCaptainLod2(root: THREE.Object3D, template: Rom
       object.visible = false
     }
   })
+}
+
+/* ── Generic Runtime LOD2 Auto-Consolidation ───────────────────────────────── */
+
+export interface GenericLod2ConsolidationGroup {
+  readonly names: readonly string[]
+  readonly sourceGeometries: readonly THREE.BufferGeometry[]
+  readonly mergedGeometry: THREE.BufferGeometry
+}
+
+export interface GenericLod2ConsolidationTemplate {
+  readonly groups: readonly GenericLod2ConsolidationGroup[]
+  readonly culledDetailNames: readonly string[]
+}
+
+function matrixAlmostEqual(a: THREE.Matrix4, b: THREE.Matrix4, epsilon = 1e-4): boolean {
+  const ae = a.elements
+  const be = b.elements
+  for (let i = 0; i < 16; i++) {
+    if (Math.abs(ae[i] - be[i]) > epsilon) return false
+  }
+  return true
+}
+
+function skeletonsCompatibleForMerge(a: THREE.Skeleton, b: THREE.Skeleton): boolean {
+  if (a === b) return true
+  if (a.bones.length !== b.bones.length || a.boneInverses.length !== b.boneInverses.length) return false
+  for (let i = 0; i < a.bones.length; i++) {
+    if (a.bones[i]?.name !== b.bones[i]?.name) return false
+    if (!matrixAlmostEqual(a.boneInverses[i], b.boneInverses[i])) return false
+  }
+  return true
+}
+
+const SECONDARY_SKIN_ATTRIBUTES = new Set(['joints_1', 'weights_1'])
+
+function sameContractFieldValue(a: unknown, b: unknown): boolean {
+  if (typeof a === 'number' && typeof b === 'number') {
+    if (a === b) return true
+    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 1e-7
+  }
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return a === b
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length
+      && a.every((v, idx) => sameContractFieldValue(v, b[idx]))
+  }
+  const ra = a as Record<string, unknown>
+  const rb = b as Record<string, unknown>
+  const ka = Object.keys(ra).sort()
+  const kb = Object.keys(rb).sort()
+  return ka.length === kb.length && ka.every((k, idx) => k === kb[idx] && sameContractFieldValue(ra[k], rb[k]))
+}
+
+/**
+ * Checks if a small sub-pixel `Repair_*` atlas patch material shares the primary
+ * PBR material's render contract (`map`, `side`, transparency, alphaTest, color)
+ * and may safely merge into the primary LOD2 mesh at > 30m.
+ */
+export function canMergeRepairLod2Patch(a: THREE.Material, b: THREE.Material): boolean {
+  const cA: MaterialRenderContract = materialRenderContract(a)
+  const cB: MaterialRenderContract = materialRenderContract(b)
+  if (sameMaterialRenderContract(cA, cB)) return true
+  const aRepair = a.name.startsWith('Repair_')
+  const bRepair = b.name.startsWith('Repair_')
+  if (aRepair === bRepair) return false
+  if (cA.type !== cB.type) return false
+  if (!cA.textures.map || !cB.textures.map) return false
+  if (!sameContractFieldValue(cA.textures.map, cB.textures.map)) return false
+  return cA.flags.side === cB.flags.side
+    && cA.flags.transparent === cB.flags.transparent
+    && cA.flags.depthWrite === cB.flags.depthWrite
+    && cA.flags.depthTest === cB.flags.depthTest
+    && cA.flags.blending === cB.flags.blending
+    && sameContractFieldValue(cA.scalars.opacity, cB.scalars.opacity)
+    && sameContractFieldValue(cA.scalars.alphaTest, cB.scalars.alphaTest)
+    && sameContractFieldValue(cA.colors.color, cB.colors.color)
+}
+
+function attributeLayoutMatches(a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, b: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): boolean {
+  return a.itemSize === b.itemSize
+    && a.normalized === b.normalized
+    && a.array.constructor === b.array.constructor
+}
+
+function geometriesCompatibleForMerge(a: THREE.BufferGeometry, b: THREE.BufferGeometry): boolean {
+  if (Boolean(a.index) !== Boolean(b.index)) return false
+  if (Object.keys(a.morphAttributes).length > 0 || Object.keys(b.morphAttributes).length > 0) return false
+  const keysA = new Set(Object.keys(a.attributes))
+  const keysB = new Set(Object.keys(b.attributes))
+  const allKeys = new Set([...keysA, ...keysB])
+  for (const name of allKeys) {
+    const inA = keysA.has(name)
+    const inB = keysB.has(name)
+    if (inA && inB) {
+      if (!attributeLayoutMatches(a.getAttribute(name), b.getAttribute(name))) return false
+      continue
+    }
+    if (!SECONDARY_SKIN_ATTRIBUTES.has(name)) return false
+  }
+  return true
+}
+
+function alignSkinningGeometriesForMerge(geometries: readonly THREE.BufferGeometry[]): THREE.BufferGeometry[] | null {
+  const donorByAttr = new Map<string, THREE.BufferAttribute | THREE.InterleavedBufferAttribute>()
+  for (const geom of geometries) {
+    for (const name of SECONDARY_SKIN_ATTRIBUTES) {
+      const attr = geom.getAttribute(name)
+      if (!attr) continue
+      const existing = donorByAttr.get(name)
+      if (!existing) {
+        donorByAttr.set(name, attr)
+      } else if (!attributeLayoutMatches(existing, attr)) {
+        return null
+      }
+    }
+  }
+  if (donorByAttr.size === 0) return [...geometries]
+  const out: THREE.BufferGeometry[] = []
+  for (const geom of geometries) {
+    let needsClone = false
+    for (const name of donorByAttr.keys()) {
+      if (!geom.getAttribute(name)) {
+        needsClone = true
+        break
+      }
+    }
+    if (!needsClone) {
+      out.push(geom)
+      continue
+    }
+    const clone = geom.clone()
+    const posCount = clone.getAttribute('position')?.count ?? 0
+    for (const [name, donor] of donorByAttr) {
+      if (clone.getAttribute(name)) continue
+      const Ctor = donor.array.constructor as new (len: number) => THREE.TypedArray
+      clone.setAttribute(name, new THREE.BufferAttribute(new Ctor(posCount * donor.itemSize), donor.itemSize, donor.normalized))
+    }
+    out.push(clone)
+  }
+  return out
+}
+
+function canPairGenericLod2Meshes(a: THREE.SkinnedMesh, b: THREE.SkinnedMesh): boolean {
+  if (!a.parent || a.parent !== b.parent) return false
+  if (!a.skeleton || !b.skeleton) return false
+  if (a.bindMode !== b.bindMode || !matrixAlmostEqual(a.bindMatrix, b.bindMatrix)) return false
+  if (!skeletonsCompatibleForMerge(a.skeleton, b.skeleton)) return false
+  if (a.morphTargetInfluences?.length || b.morphTargetInfluences?.length) return false
+  if (!a.matrix.equals(b.matrix) || a.matrixAutoUpdate !== b.matrixAutoUpdate) return false
+  if (Array.isArray(a.material) || Array.isArray(b.material)) return false
+  if (!canMergeRepairLod2Patch(a.material, b.material)) return false
+  return geometriesCompatibleForMerge(a.geometry, b.geometry)
+}
+
+/**
+ * Inspects any LOD2 subtree (character or mount) once at template load and merges
+ * groups of 2+ SkinnedMeshes that share parent, compatible skeleton, transform,
+ * attribute layout, and equivalent material render state.
+ */
+export function tryCreateGenericLod2ConsolidationTemplate(
+  root: THREE.Object3D,
+  options: {
+    culledDetailNames?: readonly string[]
+    skipMesh?: (mesh: THREE.SkinnedMesh) => boolean
+  } = {},
+): GenericLod2ConsolidationTemplate | undefined {
+  const culledDetailNames = options.culledDetailNames ?? []
+  const culledSet = new Set(culledDetailNames)
+  const candidatesByParent = new Map<THREE.Object3D, THREE.SkinnedMesh[]>()
+  const nameCountsByParent = new Map<THREE.Object3D, Map<string, number>>()
+
+  root.traverse(object => {
+    if (!(object instanceof THREE.SkinnedMesh) || !object.parent) return
+    let counts = nameCountsByParent.get(object.parent)
+    if (!counts) {
+      counts = new Map()
+      nameCountsByParent.set(object.parent, counts)
+    }
+    counts.set(object.name, (counts.get(object.name) ?? 0) + 1)
+    if (!object.visible || !object.name || culledSet.has(object.name)) return
+    if (options.skipMesh?.(object)) return
+    if (Array.isArray(object.material) || !(object.material instanceof THREE.MeshStandardMaterial)) return
+    if (object.morphTargetInfluences?.length || Object.keys(object.geometry.morphAttributes).length > 0) return
+    let list = candidatesByParent.get(object.parent)
+    if (!list) {
+      list = []
+      candidatesByParent.set(object.parent, list)
+    }
+    list.push(object)
+  })
+
+  const groups: GenericLod2ConsolidationGroup[] = []
+  for (const [parent, list] of candidatesByParent) {
+    const counts = nameCountsByParent.get(parent)!
+    const unique = list.filter(mesh => counts.get(mesh.name) === 1)
+    const visited = new Set<THREE.SkinnedMesh>()
+    for (let i = 0; i < unique.length; i++) {
+      const seed = unique[i]
+      if (visited.has(seed)) continue
+      const group: THREE.SkinnedMesh[] = [seed]
+      visited.add(seed)
+      for (let j = i + 1; j < unique.length; j++) {
+        const candidate = unique[j]
+        if (visited.has(candidate)) continue
+        if (canPairGenericLod2Meshes(seed, candidate)) {
+          group.push(candidate)
+          visited.add(candidate)
+        }
+      }
+      if (group.length < 2) continue
+      // Place non-Repair_ primary mesh first so its full PBR material and vertex ids lead.
+      group.sort((a, b) => {
+        const aRepair = !Array.isArray(a.material) && a.material.name.startsWith('Repair_') ? 1 : 0
+        const bRepair = !Array.isArray(b.material) && b.material.name.startsWith('Repair_') ? 1 : 0
+        return aRepair - bRepair
+      })
+      const sourceGeometries = group.map(mesh => mesh.geometry)
+      const alignedGeometries = alignSkinningGeometriesForMerge(sourceGeometries)
+      if (!alignedGeometries) continue
+      const mergedGeometry = mergeGeometries(alignedGeometries, false)
+      if (!mergedGeometry) continue
+      mergedGeometry.computeBoundingBox()
+      mergedGeometry.computeBoundingSphere()
+      groups.push({
+        names: group.map(mesh => mesh.name),
+        sourceGeometries,
+        mergedGeometry,
+      })
+    }
+  }
+
+  if (groups.length === 0 && culledDetailNames.length === 0) return undefined
+  return { groups, culledDetailNames }
+}
+
+/**
+ * Applies a pre-validated generic LOD2 consolidation template to a cloned instance.
+ * Returns how many redundant draw-call meshes were consolidated away.
+ */
+export function consolidateGenericLod2(
+  root: THREE.Object3D,
+  template: GenericLod2ConsolidationTemplate,
+  prefix = 'generic',
+): number {
+  let removed = 0
+  if (template.groups.length > 0) {
+    const byName = new Map<string, THREE.SkinnedMesh | null>()
+    root.traverse(object => {
+      if (!(object instanceof THREE.SkinnedMesh) || !object.name) return
+      byName.set(object.name, byName.has(object.name) ? null : object)
+    })
+    for (const group of template.groups) {
+      const meshes: THREE.SkinnedMesh[] = []
+      let valid = true
+      for (let i = 0; i < group.names.length; i++) {
+        const mesh = byName.get(group.names[i])
+        if (!mesh || !mesh.parent || mesh.geometry !== group.sourceGeometries[i]) {
+          valid = false
+          break
+        }
+        meshes.push(mesh)
+      }
+      if (!valid || meshes.length < 2) continue
+      const first = meshes[0]
+      let compatible = !Array.isArray(first.material) && Boolean(first.skeleton)
+      for (let i = 1; i < meshes.length && compatible; i++) {
+        const other = meshes[i]
+        compatible = other.parent === first.parent
+          && !Array.isArray(other.material)
+          && Boolean(other.skeleton)
+          && skeletonsCompatibleForMerge(first.skeleton, other.skeleton)
+          && first.bindMode === other.bindMode
+          && matrixAlmostEqual(first.bindMatrix, other.bindMatrix)
+      }
+      if (!compatible) continue
+      const merged = new THREE.SkinnedMesh(group.mergedGeometry, first.material)
+      merged.bind(first.skeleton, first.bindMatrix)
+      if (first.boundingSphere) {
+        const sphere = first.boundingSphere.clone()
+        for (let i = 1; i < meshes.length; i++) {
+          if (meshes[i].boundingSphere) sphere.union(meshes[i].boundingSphere!)
+        }
+        merged.boundingSphere = sphere
+      }
+      copyRenderableState(first, merged, group.names, prefix)
+      copyMultiMergedSeatSupport(meshes, merged)
+      first.parent!.add(merged)
+      for (const mesh of meshes) {
+        mesh.parent!.remove(mesh)
+      }
+      removed += meshes.length - 1
+    }
+  }
+  if (template.culledDetailNames.length > 0) {
+    const culledSet = new Set(template.culledDetailNames)
+    root.traverse(object => {
+      if (object instanceof THREE.Mesh && culledSet.has(object.name)) {
+        object.visible = false
+      }
+    })
+  }
+  return removed
 }

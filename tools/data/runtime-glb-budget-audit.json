@@ -328,6 +328,12 @@
           "from": 9914,
           "to": 6000,
           "relativeError": 0.00324
+        },
+        {
+          "mesh": "Mesh_0",
+          "from": 6000,
+          "to": 2499,
+          "blenderDecimate": true
         }
       ],
       "textures": [
@@ -356,10 +362,10 @@
           "bytesAfter": 241971
         }
       ],
-      "afterSha256": "8b07501e85f9fc9f9d2565c0837a3b234678dd919f51dd98570c80491774bc0a",
-      "afterBytes": 2170976,
+      "afterSha256": "bc04a861daaf5ad2377c18a3b95cfa718ed914d6fc26f141b527721a3113e585",
+      "afterBytes": 1950864,
       "trianglesAfter": {
-        "Mesh_0": 6000
+        "Mesh_0": 2499
       },
       "textureMaxSize": 512
     },
@@ -920,7 +926,14 @@
       "trianglesBefore": {
         "output_unwrapped": 9375
       },
-      "lod": [],
+      "lod": [
+        {
+          "mesh": "output_unwrapped",
+          "from": 9375,
+          "to": 2499,
+          "blenderDecimate": true
+        }
+      ],
       "textures": [
         {
           "image": 0,
@@ -947,10 +960,10 @@
           "bytesAfter": 281574
         }
       ],
-      "afterSha256": "dedc6966f3bccd9e7a6a75e3e9f5c73aedc14509a3b5d42912c2f1b7af091b2b",
-      "afterBytes": 4343076,
+      "afterSha256": "c2ff2664dd0381aa8e6c43f120d31ce4a6a55626ea7b2f281778a3b7d3b4a930",
+      "afterBytes": 2822076,
       "trianglesAfter": {
-        "output_unwrapped": 9375
+        "output_unwrapped": 2499
       },
       "textureMaxSize": 512
     },
@@ -1033,6 +1046,12 @@
           "from": 10304,
           "to": 6000,
           "relativeError": 0.00395
+        },
+        {
+          "mesh": "char1.004",
+          "from": 6000,
+          "to": 2399,
+          "blenderDecimate": true
         }
       ],
       "textures": [
@@ -1053,10 +1072,10 @@
           "bytesAfter": 189083
         }
       ],
-      "afterSha256": "4511bad81db5a69f1527b6ff00004f0edf73878c002c9a444cbb6dc9229a769a",
-      "afterBytes": 1617256,
+      "afterSha256": "d290afbfd9125af2ceb667d4915c80c802c28cc18d67c5e0fa69ee815498abd3",
+      "afterBytes": 1444604,
       "trianglesAfter": {
-        "char1.004": 6000
+        "char1.004": 2399
       },
       "textureMaxSize": 512
     },
@@ -1139,6 +1158,12 @@
           "from": 9790,
           "to": 6000,
           "relativeError": 0.00218
+        },
+        {
+          "mesh": "char1.004",
+          "from": 6000,
+          "to": 2399,
+          "blenderDecimate": true
         }
       ],
       "textures": [
@@ -1159,10 +1184,10 @@
           "bytesAfter": 196936
         }
       ],
-      "afterSha256": "da2820107c4839062cdd6c681658868cad7bf574bee7b94ac33c3168dd6853d2",
-      "afterBytes": 1542468,
+      "afterSha256": "bfb8f4a9fab9c337838f33aa76b785486e7a36e709da9d7cb290c13da3311faf",
+      "afterBytes": 1451868,
       "trianglesAfter": {
-        "char1.004": 6000
+        "char1.004": 2399
       },
       "textureMaxSize": 512
     },
@@ -1501,7 +1526,14 @@
       "trianglesBefore": {
         "Mesh_0": 6000
       },
-      "lod": [],
+      "lod": [
+        {
+          "mesh": "Mesh_0",
+          "from": 6000,
+          "to": 2400,
+          "blenderDecimate": true
+        }
+      ],
       "textures": [
         {
           "image": 0,
@@ -1528,10 +1560,10 @@
           "bytesAfter": 202324
         }
       ],
-      "afterSha256": "009070324f94acdf555b682110a876b7e6e5a2bd785dbbeb80e1c5616781ffdd",
-      "afterBytes": 2166896,
+      "afterSha256": "819125f7b644be0ea1f437301473992448eb047f9476eea97c821427d5d4cf5a",
+      "afterBytes": 1808152,
       "trianglesAfter": {
-        "Mesh_0": 6000
+        "Mesh_0": 2400
       },
       "textureMaxSize": 512
     },
@@ -1608,7 +1640,14 @@
       "trianglesBefore": {
         "output_unwrapped": 6000
       },
-      "lod": [],
+      "lod": [
+        {
+          "mesh": "output_unwrapped",
+          "from": 6000,
+          "to": 2337,
+          "blenderDecimate": true
+        }
+      ],
       "textures": [
         {
           "image": 0,
@@ -1627,10 +1666,10 @@
           "bytesAfter": 235972
         }
       ],
-      "afterSha256": "966fafc69674078fdada0167f68366a6f48437e7aea243f866482a237219244f",
-      "afterBytes": 2319716,
+      "afterSha256": "96e21b80eba2d40698cdf643fcb2bfd2d358f2f0561c6717766aea8b288989b1",
+      "afterBytes": 1631176,
       "trianglesAfter": {
-        "output_unwrapped": 6000
+        "output_unwrapped": 2337
       },
       "textureMaxSize": 512
     },
@@ -1995,6 +2034,12 @@
           "from": 10882,
           "to": 8982,
           "relativeError": 0.00881
+        },
+        {
+          "mesh": "char1.004",
+          "from": 8982,
+          "to": 2500,
+          "blenderDecimate": true
         }
       ],
       "textures": [
@@ -2015,10 +2060,10 @@
           "bytesAfter": 161463
         }
       ],
-      "afterSha256": "8e6cd8b201eafca8935f960e935d2e5437b7b551005fceec9d755185fbeebbd7",
-      "afterBytes": 1610880,
+      "afterSha256": "94865c7be9539741b7c50cec1d5b2f45c99a8c76b913f48c80cba3c2238c4a44",
+      "afterBytes": 1237728,
       "trianglesAfter": {
-        "char1.004": 8982
+        "char1.004": 2500
       },
       "textureMaxSize": 512
     },
@@ -2101,6 +2146,12 @@
           "from": 8664,
           "to": 6428,
           "relativeError": 0.00931
+        },
+        {
+          "mesh": "char1.004",
+          "from": 6428,
+          "to": 2399,
+          "blenderDecimate": true
         }
       ],
       "textures": [
@@ -2121,10 +2172,10 @@
           "bytesAfter": 219113
         }
       ],
-      "afterSha256": "2a04f043ce7af02587b50dc4e75ac6ab64ba4ba94db7d191d4c661b01bdef3b3",
-      "afterBytes": 1459064,
+      "afterSha256": "6a8a8aa31b53d0c1956ca408f6f83ef41b6cfe20528c26277e439443b7fb0dcf",
+      "afterBytes": 1246268,
       "trianglesAfter": {
-        "char1.004": 6428
+        "char1.004": 2399
       },
       "textureMaxSize": 512
     },

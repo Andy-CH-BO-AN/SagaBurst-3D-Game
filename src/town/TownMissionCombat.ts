@@ -1271,11 +1271,18 @@ export class TownMissionCombat {
       if (isFourGateCombat && typeof actor.armOuterSiegeTier === 'function') {
         let safeFrames = 0
         if (((!inFrustum && distance > 42) || distance > 64)
-          && !actor.dead && !actor.isFalling && !actor.mount?.isFlyingMount) {
-          const checkRadius = Math.max(actor.alertRange + 4, actor.hasActiveRangedWeapon ? actor.maxRangedAttackDistance + 8 : 28)
-          const playerTooClose = playerAlive && actor.combatPosition.distanceToSquared(playerPos) <= checkRadius * checkRadius
-          if (!playerTooClose && hostileGrid.getNearbyInto(actor.combatPosition, checkRadius, this.neighbors).length === 0) {
-            safeFrames = 2
+          && !actor.dead && !actor.isFalling && !actor.mount?.isFlyingMount
+          && actor.canArmOuterSiegeTier) {
+          if (actor.suppressesMissionTargetAcquisition) {
+            safeFrames = 3
+          } else {
+            const checkRadius = actor.hasActiveRangedWeapon
+              ? Math.min(64, actor.maxRangedAttackDistance + 6)
+              : 26
+            const playerTooClose = playerAlive && actor.combatPosition.distanceToSquared(playerPos) <= checkRadius * checkRadius
+            if (!playerTooClose && hostileGrid.getNearbyInto(actor.combatPosition, checkRadius, this.neighbors).length === 0) {
+              safeFrames = actor.currentState === AIState.IDLE ? 3 : 2
+            }
           }
         }
         actor.armOuterSiegeTier(safeFrames)
@@ -1306,7 +1313,7 @@ export class TownMissionCombat {
     }
     const player = this.town.player(), mount = player.currentMount
     if (mount && mount === player.currentMount && !mount.dead) {
-      for (const target of this.grid.getNearby(mount.group.position, 2.5)) {
+      for (const target of this.grid.getNearbyInto(mount.group.position, 2.5, this.neighbors)) {
         if ((target.faction !== Faction.ENEMY && (!warfareActive || target.faction !== Faction.BANDIT))
           || target.dead || !checkMountImpact(mount, target.combatPosition, .5)) continue
         applyMountImpactDamage(mount, target, target.combatPosition, elapsed, damage => this.town.hitNpc(target, damage, 'mount-impact'))
@@ -1316,7 +1323,7 @@ export class TownMissionCombat {
     else for (const actor of actors) {
       const npcMount = actor.mount
       if (!npcMount || npcMount.dead || actor.dead) continue
-      for (const target of this.grid.getNearby(npcMount.group.position, 2.5)) {
+      for (const target of this.grid.getNearbyInto(npcMount.group.position, 2.5, this.neighbors)) {
         if (target.dead || !townWartimeHostile(actor, target) || !checkMountImpact(npcMount, target.combatPosition, .5)) continue
         applyMountImpactDamage(npcMount, target, target.combatPosition, elapsed, damage => this.town.hitNpc(target, damage, 'mount-impact', actor))
       }

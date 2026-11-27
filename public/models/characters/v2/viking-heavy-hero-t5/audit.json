@@ -99,8 +99,8 @@
       "level": 2,
       "triangles": 6000,
       "textureMax": 512,
-      "bytes": 2319716,
-      "sha256": "966fafc69674078fdada0167f68366a6f48437e7aea243f866482a237219244f",
+      "bytes": 1631176,
+      "sha256": "96e21b80eba2d40698cdf643fcb2bfd2d358f2f0561c6717766aea8b288989b1",
       "maxDroppedInfluenceWeight": 0.12127520193424002,
       "joints": 24,
       "animationNames": [
@@ -119,7 +119,7 @@
         "axeAttack2H"
       ],
       "runtimeBudget": {
-        "triangles": 6000,
+        "triangles": 2337,
         "textureMaxSize": 512,
         "textureEncoding": "KTX2 (KHR_texture_basisu)",
         "audit": "tools/data/runtime-glb-budget-audit.json"

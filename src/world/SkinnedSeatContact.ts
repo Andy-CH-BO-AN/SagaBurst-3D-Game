@@ -36,6 +36,23 @@ export function copyMergedSeatSupport(first: THREE.SkinnedMesh, second: THREE.Sk
   merged.userData[SUPPORT] = points.map(({ ids, weights }) => ({ ids: ids.map(id => id + offset), weights: [...weights] }))
 }
 
+/** Carries bearing points onto `mergeGeometries(meshes)`: each subsequent mesh's vertices
+ * shift by the cumulative vertex count of preceding meshes. First mesh with points wins. */
+export function copyMultiMergedSeatSupport(meshes: readonly THREE.SkinnedMesh[], merged: THREE.SkinnedMesh): void {
+  let offset = 0
+  for (let i = 0; i < meshes.length; i++) {
+    const mesh = meshes[i]
+    const points = mesh.userData[SUPPORT] as SupportPoint[] | undefined
+    if (points) {
+      merged.userData[SUPPORT] = offset === 0
+        ? points
+        : points.map(({ ids, weights }) => ({ ids: ids.map(id => id + offset), weights: [...weights] }))
+      return
+    }
+    offset += mesh.geometry.attributes.position.count
+  }
+}
+
 function readPoint(mesh: THREE.SkinnedMesh, point: SupportPoint, target: THREE.Vector3, vertex: THREE.Vector3, toWorld: THREE.Matrix4 = mesh.matrixWorld): THREE.Vector3 {
   target.set(0, 0, 0)
   for (let i = 0; i < 3; i++) target.addScaledVector(mesh.getVertexPosition(point.ids[i], vertex), point.weights[i])
@@ -134,7 +151,7 @@ export class SkinnedSeatContact {
       for (let node: THREE.Object3D | null = mesh; node && node !== this.rider; node = node.parent) if (!node.visible) return false
       return true
     })
-    if (!surface) return
+    if (!surface || !this.mount.visible) return
     let riderToWorld = surface.mesh.matrixWorld, saddleToWorld = this.saddle.matrixWorld
     if (surface.mesh.bindMode === THREE.AttachedBindMode && this.saddle.bindMode === THREE.AttachedBindMode) {
       // Attached skins: matrixWorld · bindMatrixInverse = I, so a sampled point is the
@@ -159,6 +176,8 @@ export class SkinnedSeatContact {
     } else {
       this.rider.updateWorldMatrix(true, false); this.rider.updateMatrixWorld(true)
       this.mount.updateWorldMatrix(true, false); this.mount.updateMatrixWorld(true)
+      surface.mesh.updateWorldMatrix(true, false)
+      this.saddle.updateWorldMatrix(true, false)
     }
     let correction = -Infinity
     for (let i = 0; i < this.seatPoints.length; i++) {
@@ -173,7 +192,7 @@ export class SkinnedSeatContact {
 
   /** Cheap far-distance path: reuse the last lift on the current mount/rider transforms. */
   reapply(): boolean {
-    if (this.correction === null || !this.rider.parent) return false
+    if (this.correction === null || !this.rider.parent || !this.mount.visible) return false
     this.mount.updateWorldMatrix(true, false)
     this.rider.parent.updateWorldMatrix(true, false)
     this.applyCorrection(this.correction)

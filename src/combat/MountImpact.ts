@@ -93,6 +93,8 @@ export interface MountImpactOptions {
   onPlayerMountHitReceiver?: (target: DamageReceiver, result: DamageResult) => void
   /** Optional spatial grid for bounding nearby candidate queries to avoid O(M x N) scans. */
   npcGrid?: SpatialGrid<NPC>
+  /** Optional faction-scoped hostile spatial grid to skip same-faction broadphase neighbors. */
+  selectHostileNpcGrid?: (riderFaction: Faction) => SpatialGrid<NPC> | null
   /** Reusable candidate array to prevent per-frame garbage collection. */
   candidateBuffer?: NPC[]
   /**
@@ -201,10 +203,15 @@ export function resolveMountImpacts(
 
     // 2. NPC Mount -> Hostile NPCs
     let candidates: NPC[]
-    if (options.npcGrid) {
-      const sweepDist = mount.group.position.distanceTo(mount.previousPosition)
-      const queryRadius = Math.max(6.0, sweepDist + 2.0)
-      candidates = options.npcGrid.getNearbyInto(mount.group.position, queryRadius, candidateBuffer)
+    if (options.selectHostileNpcGrid || options.npcGrid) {
+      const grid = options.selectHostileNpcGrid ? options.selectHostileNpcGrid(riderFaction) : options.npcGrid!
+      if (!grid) {
+        candidates = []
+      } else {
+        const sweepDist = mount.group.position.distanceTo(mount.previousPosition)
+        const queryRadius = Math.max(6.0, sweepDist + 2.0)
+        candidates = grid.getNearbyInto(mount.group.position, queryRadius, candidateBuffer)
+      }
     } else {
       candidates = npcs
     }

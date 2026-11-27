@@ -140,6 +140,7 @@ import { TrainingGroundUI } from './ui/TrainingGroundUI'
 import { WeaponWheelUI } from './ui/WeaponWheelUI'
 import { AIM_RAYCAST_LAYER, AimTargetRegistry } from './world/AimTargetRegistry'
 import { ArrowProjectile } from './world/ArrowProjectile'
+import { Lod2EquipmentBatcher } from './world/Lod2EquipmentBatcher'
 import { ProjectileInstanceBatch } from './world/ProjectileInstanceBatch'
 import { BlackCatVisual, FELINE_MOUNT_VARIANTS, type FelineMountVariant } from './world/BlackCatVisual'
 import { createCaltropBarrier } from './world/CaltropBarrier'
@@ -830,6 +831,7 @@ export class Game {
   private readonly _aimRaycaster = new THREE.Raycaster()
   private readonly _aimScreenCenter = new THREE.Vector2(0, 0)
   private readonly _aimTargetRegistry = new AimTargetRegistry()
+  private lod2EquipmentBatcher: Lod2EquipmentBatcher | null = null
 
   private readonly _tmpHitPos = new THREE.Vector3()
   private readonly _debugAimPoint = new THREE.Vector3()
@@ -1144,6 +1146,10 @@ export class Game {
     progress: (text: string) => void): Promise<void> {
     // ── Scene ──
     this.scene = new THREE.Scene()
+    this.lod2EquipmentBatcher = new Lod2EquipmentBatcher(this.scene)
+    this.scene.userData.syncLod2EquipmentBatcher = (camera: THREE.Camera) => {
+      this.lod2EquipmentBatcher?.syncActors(camera, this.npcs)
+    }
 
     // ── Camera ──
     this.camera = new THREE.PerspectiveCamera(
@@ -1994,10 +2000,18 @@ export class Game {
 
     if (this.renderer && this.scene && this.camera) {
       try {
-        this.renderer.render(this.scene, this.camera)
+        this._renderMainScene()
       } catch (error) {
         if (import.meta.env?.DEV) console.warn('Initial pre-render pass skipped:', error)
       }
+    }
+  }
+
+  private _renderMainScene(): void {
+    if (this.lod2EquipmentBatcher) {
+      this.lod2EquipmentBatcher.renderScene(this.renderer, this.camera, this.npcs)
+    } else {
+      this.renderer.render(this.scene, this.camera)
     }
   }
 
@@ -2145,6 +2159,8 @@ export class Game {
     for (const arrow of this.arrows) arrow.destroy()
     this.arrows.length = 0
     ProjectileInstanceBatch.dispose(this.scene)
+    this.lod2EquipmentBatcher?.dispose()
+    this.lod2EquipmentBatcher = null
     if (this.obstacles.length > 0) setObstaclePathQuerySource(this.obstacles, false)
     this._aimTargetRegistry.clear(); this.damageNumbers.clear(); this.weaponWheelUI.dispose()
     this.soundManager.updateHorseGallopLoops([])
@@ -2241,6 +2257,8 @@ export class Game {
     for (const arrow of this.arrows) arrow.destroy()
     this.arrows.length = 0
     ProjectileInstanceBatch.dispose(this.scene)
+    this.lod2EquipmentBatcher?.dispose()
+    this.lod2EquipmentBatcher = null
     this._aimTargetRegistry.clear()
     this.damageNumbers.clear()
     this.weaponWheelUI.dispose()
@@ -4155,7 +4173,11 @@ export class Game {
   private _disposeCareerOutpostBattleActors(): void {
     resetTerrainScenePolicy()
     if (this.obstacles?.length) setObstaclePathQuerySource(this.obstacles, false)
-    if (this.scene) ProjectileInstanceBatch.dispose(this.scene)
+    if (this.scene) {
+      ProjectileInstanceBatch.dispose(this.scene)
+      this.lod2EquipmentBatcher?.dispose()
+      this.lod2EquipmentBatcher = null
+    }
     this.compass?.dispose()
     this.compass = undefined
     this.commandSelectionMarker?.dispose()
@@ -5299,6 +5321,7 @@ export class Game {
         { walkSurfaces: body.walkSurfaces, mountedSurfaces: body.mountedSurfaces }
       )
       if (collision.recovered) body.mount?.applyObstacleRecovery(collision)
+      body.mount?.riderNpc?.syncMountedPositionAfterCollision()
     }
   }
 
@@ -5318,6 +5341,7 @@ export class Game {
           this.soundManager.playHorseImpact(this.player.currentMount?.currentLod ?? 0, true)
         },
         npcGrid: this.npcGrid,
+        selectHostileNpcGrid: (riderFaction) => selectHostileNpcGrid(riderFaction, this.playerHostileNpcGrid, this.npcFactionGrids),
         candidateBuffer: this._impactCandidates,
         onDamagePlayer: (damage, context) => damagePlayer(
           this.player,
@@ -5374,14 +5398,14 @@ export class Game {
       this._clearPickupFocus()
       this.player.clearTownAction()
       this.commandSelectionMarker?.hide()
-      this.renderer.render(this.scene, this.camera)
+      this._renderMainScene()
       return
     }
 
     if (import.meta.env.DEV && this._isSimulationFrozen) {
       this.soundManager.updateEagleWingbeats([])
       if (profile) t0 = performance.now()
-      this.renderer.render(this.scene, this.camera)
+      this._renderMainScene()
       const renderSubmitMs = profile ? performance.now() - t0 : 0
 
       if (profile) {
@@ -5682,7 +5706,7 @@ export class Game {
 
     // 7. Renderer Submit (measures synchronous CPU-side render submission, not GPU time)
     if (profile) t0 = performance.now()
-    this.renderer.render(this.scene, this.camera)
+    this._renderMainScene()
     const renderSubmitMs = profile ? performance.now() - t0 : 0
 
     if (profile) {

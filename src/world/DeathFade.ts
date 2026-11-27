@@ -18,6 +18,23 @@ export function skipHiddenCorpseMatrices(root: THREE.Object3D, asleep: () => boo
 }
 
 /**
+ * Skips world-matrix recursion into a hidden subtree while flagging
+ * `matrixWorldNeedsUpdate = true` so showing it again recomputes fresh matrices.
+ */
+export function skipMatrixWorldWhenHidden(object: THREE.Object3D): void {
+  if (object.userData._skipHiddenMatrixInstalled) return
+  object.userData._skipHiddenMatrixInstalled = true
+  const orig = object.updateMatrixWorld
+  object.updateMatrixWorld = function (this: THREE.Object3D, force?: boolean): void {
+    if (!this.visible) {
+      this.matrixWorldNeedsUpdate = true
+      return
+    }
+    orig.call(this, force)
+  }
+}
+
+/**
  * Keeps a dead actor visible for a fixed delay, then hides the whole actor root.
  *
  * There is intentionally no fade/material/shader work here. Weapons and shields

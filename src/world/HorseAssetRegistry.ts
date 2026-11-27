@@ -10,6 +10,12 @@ import { primeSkinnedTemplateBounds } from './SkinnedTemplateBounds'
 import { stopBoneEulerSync } from './BoneEulerSync'
 import { hideBoneOnlySubtrees } from './BoneRenderTraversal'
 import { installCachedSkeletonUpdate } from './CachedSkeletonUpdate'
+import { skipMatrixWorldWhenHidden } from './DeathFade'
+import {
+  consolidateGenericLod2,
+  tryCreateGenericLod2ConsolidationTemplate,
+  type GenericLod2ConsolidationTemplate,
+} from './HumanoidLod2Consolidation'
 
 export type HorseAnimationState =
   | 'idle'
@@ -85,6 +91,7 @@ export interface HorseTemplate {
   gltf: GLTF
   bodyMaterials: THREE.MeshStandardMaterial[]
   lodMaterials?: THREE.Material[]
+  genericLod2Consolidation?: GenericLod2ConsolidationTemplate
 }
 
 export interface HorseDebugState {
@@ -445,6 +452,7 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
   for (let index = 0; index < levels.length; index++) {
     lod.attach(levels[index])
     lod.addLevel(levels[index], LOD_DISTANCES[index], 0.1)
+    if (index > 0) skipMatrixWorldWhenHidden(levels[index])
   }
   root.add(lod)
   cullHorseLod2TinyDetails(levels[2])
@@ -465,6 +473,9 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
     bodyMeshes.forEach((mesh, i) => { mesh.material = template.lodMaterials?.[i] ?? template.bodyMaterials[variant] })
   }
   applyVariant(initialVariant)
+  if (template.genericLod2Consolidation) {
+    consolidateGenericLod2(levels[2], template.genericLod2Consolidation, 'horse')
+  }
   stopBoneEulerSync(root)
   hideBoneOnlySubtrees(root)
   const skeletonCache = installCachedSkeletonUpdate(root)
@@ -474,6 +485,7 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
     const nextLevel = lod.getCurrentLevel()
     if (nextLevel !== lastLodLevel) {
       lastLodLevel = nextLevel
+      if (nextLevel > 0) lod.levels[nextLevel]?.object.updateMatrixWorld(true)
       skeletonCache.markDirty()
     }
   }
@@ -682,7 +694,13 @@ export class HorseAssetRegistry {
       material.needsUpdate = true
       return material
     })
-    return { manifest, gltf, bodyMaterials }
+    const bodyMeshSet = new Set<string>(manifest.bodyMeshNames)
+    const lod2Node = requireObject(gltf.scene, manifest.lodNodes.lod2)
+    const genericLod2Consolidation = tryCreateGenericLod2ConsolidationTemplate(lod2Node, {
+      culledDetailNames: HORSE_LOD2_CULLED_TINY_DETAIL_NAMES,
+      skipMesh: mesh => bodyMeshSet.has(mesh.name),
+    })
+    return { manifest, gltf, bodyMaterials, genericLod2Consolidation }
   }
 
   private static async loadArmored(renderer: THREE.WebGLRenderer): Promise<HorseTemplate> {
@@ -715,8 +733,14 @@ export class HorseAssetRegistry {
     ])
     const material = requireMesh(gltf.scene, manifest.bodyMeshNames[0]).material
     if (!(material instanceof THREE.MeshStandardMaterial)) throw new Error('Armored horse material is unsupported')
+    const bodyMeshSet = new Set<string>(manifest.bodyMeshNames)
+    const lod2Node = requireObject(gltf.scene, manifest.lodNodes.lod2)
+    const genericLod2Consolidation = tryCreateGenericLod2ConsolidationTemplate(lod2Node, {
+      skipMesh: mesh => bodyMeshSet.has(mesh.name),
+    })
     return { manifest, gltf, bodyMaterials: [material, material, material],
-      lodMaterials: manifest.bodyMeshNames.map(name => requireMesh(gltf.scene, name).material as THREE.Material) }
+      lodMaterials: manifest.bodyMeshNames.map(name => requireMesh(gltf.scene, name).material as THREE.Material),
+      genericLod2Consolidation }
   }
 
   static resolveTemplate(config: { variant?: HorseAppearanceVariant; armored?: boolean } = {}): HorseTemplate {

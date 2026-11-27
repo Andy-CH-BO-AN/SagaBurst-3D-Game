@@ -130,6 +130,7 @@ import { personalUnitDisplayName } from '../ui/UnitDisplayName'
 import { WeaponWheelUI } from '../ui/WeaponWheelUI'
 import { registerTextureRenderer } from '../world/RuntimeGltfLoader'
 import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
+import { Lod2EquipmentBatcher } from '../world/Lod2EquipmentBatcher'
 import { ProjectileInstanceBatch } from '../world/ProjectileInstanceBatch'
 import { BlackCatVisual } from '../world/BlackCatVisual'
 import { CorgiVisual } from '../world/CorgiVisual'
@@ -260,6 +261,8 @@ export class TownScene {
   private coopHost?: CoopHostMission
   private coopGuest?: CoopGuestMission
   private readonly coopGuestNpcs: NPC[] = []
+  private readonly lod2EquipmentBatcher = new Lod2EquipmentBatcher(this.scene)
+  private readonly lod2BatchActors: NPC[] = []
   /** Co-op guest: the guest's own character profile (in memory); the host's profile still builds the Town. */
   private coopPlayerSource: CoopPlayerSource | null
   private get playerProfile(): CareerProfile { return this.coopPlayerSource?.read() ?? this.profile }
@@ -502,6 +505,22 @@ export class TownScene {
     this.coopPlayerSource = isCoopGuestLaunch() ? coopGuestPlayerSource(profile) : null
     this.inventory = new TownEquipment(() => this.playerProfile, p => this.commitPlayerProfile(p))
     this.skills.setSkillState(this.playerProfile.skills ?? {})
+    this.scene.userData.syncLod2EquipmentBatcher = (camera: THREE.Camera) => {
+      this.lod2EquipmentBatcher.syncActors(camera, this.collectLiveSceneNpcs())
+    }
+  }
+
+  private collectLiveSceneNpcs(): NPC[] {
+    const scene = this.scene
+    return NPC.live.collect(npc => {
+      if (!npc.group.visible || npc.group.parent === null) return false
+      const visual = (npc as unknown as { characterVisualGroup?: { visible: boolean } }).characterVisualGroup
+      if (visual && !visual.visible) return false
+      for (let node: THREE.Object3D | null = npc.group; node; node = node.parent) {
+        if (node === scene) return true
+      }
+      return false
+    }, this.lod2BatchActors)
   }
   private async initialize(progress: (text: string) => void): Promise<void> {
     const { profile, renderer } = this
@@ -4930,7 +4949,7 @@ export class TownScene {
       devProf.add('hudMs', performance.now() - tHud)
       devProf.endFrame(performance.now() - devFrameStart)
     }
-    this.renderer.render(this.scene, this.camera)
+    this.lod2EquipmentBatcher.renderScene(this.renderer, this.camera, this.collectLiveSceneNpcs())
     this.scheduleSiegeOpening()
     this.raf = requestAnimationFrame(t => this.frame(t))
   }
@@ -4980,7 +4999,7 @@ export class TownScene {
     const quiverHud = document.getElementById('quiver-hud')
     if (quiverHud) quiverHud.style.display = ''
     this.temporaryMounts.cleanup()
-    this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input?.dispose(); this.panel?.remove(); this.equipment?.close(); this.careerHud.dispose(); this.fourGateHud?.dispose(); this.fourGateHud = undefined; this.hint?.remove(); this.pointerPrompt?.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.duel?.dispose(); this.player?.dispose(); document.getElementById('mount-hud')?.classList.remove('visible'); document.getElementById('enemy-hud')?.classList.remove('visible'); this.ambientLabel?.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); ProjectileInstanceBatch.dispose(this.scene); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove()
+    this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input?.dispose(); this.panel?.remove(); this.equipment?.close(); this.careerHud.dispose(); this.fourGateHud?.dispose(); this.fourGateHud = undefined; this.hint?.remove(); this.pointerPrompt?.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.duel?.dispose(); this.player?.dispose(); document.getElementById('mount-hud')?.classList.remove('visible'); document.getElementById('enemy-hud')?.classList.remove('visible'); this.ambientLabel?.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); ProjectileInstanceBatch.dispose(this.scene); this.lod2EquipmentBatcher.dispose(); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove()
     if (!preservePointerLock) document.exitPointerLock?.()
   }
 

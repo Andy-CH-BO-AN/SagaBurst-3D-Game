@@ -21,10 +21,14 @@
     {
       "level": 2,
       "file": "lod2.glb",
-      "sha256": "4511bad81db5a69f1527b6ff00004f0edf73878c002c9a444cbb6dc9229a769a",
-      "bytes": 1617256,
+      "sha256": "d290afbfd9125af2ceb667d4915c80c802c28cc18d67c5e0fa69ee815498abd3",
+      "bytes": 1444604,
       "triangles": 6000,
-      "textureEncoding": "KTX2 (KHR_texture_basisu)"
+      "textureEncoding": "KTX2 (KHR_texture_basisu)",
+      "runtimeBudget": {
+        "triangles": 2399,
+        "audit": "tools/data/runtime-glb-budget-audit.json"
+      }
     }
   ]
 }
