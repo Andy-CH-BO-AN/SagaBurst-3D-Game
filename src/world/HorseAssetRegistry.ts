@@ -10,6 +10,7 @@ import { primeSkinnedTemplateBounds } from './SkinnedTemplateBounds'
 import { stopBoneEulerSync } from './BoneEulerSync'
 import { hideBoneOnlySubtrees } from './BoneRenderTraversal'
 import { installCachedSkeletonUpdate } from './CachedSkeletonUpdate'
+import { collapseEmptyShellLeaves } from './EmptyShellCollapse'
 import { skipMatrixWorldWhenHidden } from './DeathFade'
 import {
   consolidateGenericLod2,
@@ -637,6 +638,7 @@ export class HorseAssetRegistry {
     for (const socket of REQUIRED_SOCKETS) requireObject(gltf.scene, socket)
     for (const name of Object.values(manifest.lodNodes)) requireObject(gltf.scene, name)
     for (const name of manifest.bodyMeshNames) requireMesh(gltf.scene, name)
+    collapseEmptyShellLeaves(gltf.scene, gltf.animations)
 
     // Reuse external maps already loaded by GLTFLoader, including its sampler
     // settings. Source horses may use repeating UVs outside the unit square.
@@ -714,6 +716,7 @@ export class HorseAssetRegistry {
     firstSkinnedMesh(gltf.scene)
     normalizedClips(gltf)
     for (const name of [...REQUIRED_SOCKETS, ...Object.values(manifest.lodNodes)]) requireObject(gltf.scene, name)
+    collapseEmptyShellLeaves(gltf.scene, gltf.animations)
     const textures = new Map<string, Promise<THREE.Texture>>()
     for (const [index, texture] of (gltf.parser?.json?.textures ?? []).entries()) {
       const imageIndex = texture.extensions?.KHR_texture_basisu?.source ?? texture.source
