@@ -6,13 +6,18 @@ import * as THREE from 'three'
  * `updateMatrixWorld` visit for nodes that contribute nothing to any pose or draw call.
  *
  * Removed only when every condition holds: plain Object3D/Group leaf, no Bone ancestor
- * (sockets and bone attachments stay), not named `socket_*`, no `userData` beyond the loader's `name`, and not
- * the target of any animation track (matched by name or uuid). Template geometry,
+ * (sockets and bone attachments stay), not named `socket_*` or in `keep`, no `userData` beyond the loader's
+ * `name`, and not the target of any animation track (matched by name or uuid). Template geometry,
  * materials and textures are untouched. Returns the removed node names.
  */
-export function collapseEmptyShellLeaves(scene: THREE.Object3D, clips: readonly THREE.AnimationClip[]): string[] {
+export function collapseEmptyShellLeaves(
+  scene: THREE.Object3D,
+  clips: readonly THREE.AnimationClip[],
+  /** Names the caller looks up later (manifest LOD nodes, required nodes): never removed. */
+  keep: Iterable<string> = [],
+): string[] {
   if (import.meta.env.DEV && typeof location !== 'undefined' && new URLSearchParams(location.search).has('perfNoShellCollapse')) return []
-  const driven = new Set<string>()
+  const driven = new Set<string>(keep)
   for (const clip of clips) {
     for (const track of clip.tracks) {
       const { nodeName } = THREE.PropertyBinding.parseTrackName(track.name)
