@@ -186,11 +186,13 @@ export function fourGateFootLoadout(faction: CharacterFaction, role: CommanderFo
   return { presetId, loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[tier], mountId: null } }
 }
 
-/** Mission-only kit: ordinary civilians receive a lance and shield; the Merchant retains his personal weapons. */
+/** Mission-only kit: reserve riders (civilians and T3 recruits) share the T4 Spear and the faction's heavy-class
+ * (Centurion / Dragon Oathguard) T4 shield on a horse; the Merchant retains his personal weapons. */
 export function fourGateReserveTrooperLoadout(faction: CharacterFaction, role: 'civilian' | 'merchant' | 'recruit') {
   if (role === 'merchant') return townMerchantLoadout('horse')
-  const lancer = UNIT_PRESETS[`${faction}_lancer`].tierLoadouts[role === 'civilian' ? 2 : 3]
-  return role === 'civilian' ? { ...lancer, shieldId: faction === 'roman' ? 'scutum_t2' : 'round_shield_t2' } : { ...lancer }
+  const lancer = UNIT_PRESETS[`${faction}_lancer`].tierLoadouts[3]
+  return { ...lancer, meleeWeaponId: resolveT4UnitLoadout(`${faction}_lancer`).meleeWeaponId,
+    shieldId: resolveT4UnitLoadout(`${faction}_heavy_cavalry`).shieldId }
 }
 
 export function prepareFourGateGroundResident(spec: TownActorSpec, company: GroundCompany): TownActorSpec {
